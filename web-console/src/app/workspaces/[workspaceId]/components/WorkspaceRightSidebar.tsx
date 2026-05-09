@@ -6,7 +6,6 @@ import ResearchModePanel from '../../../../components/ResearchModePanel';
 import PublishingModePanel from '../../../../components/PublishingModePanel';
 import PlanningModePanel from '../../../../components/PlanningModePanel';
 import ConversationsList from './ConversationsList';
-import ExecutionChatPanel from '../../components/ExecutionChatPanel';
 import ExecutionModeSelector from '../../../../components/execution/ExecutionModeSelector';
 import ThinkingContext from '../../../../components/execution/ThinkingContext';
 import AITeamPanel from '../../../../components/execution/AITeamPanel';
@@ -29,9 +28,6 @@ interface WorkspaceRightSidebarProps {
         aiTeamMembers: any[];
         producedArtifacts: any[];
     };
-    focusExecutionId: string | null;
-    focusedExecution: any;
-    focusedPlaybookMetadata: any;
     selectedThreadId: string | null;
     rightSidebarTab: 'timeline' | 'workbench';
     workbenchRefreshTrigger: number;
@@ -49,9 +45,6 @@ export default function WorkspaceRightSidebar({
     workspaceId,
     apiUrl,
     executionState,
-    focusExecutionId,
-    focusedExecution,
-    focusedPlaybookMetadata,
     selectedThreadId,
     rightSidebarTab,
     workbenchRefreshTrigger,
@@ -70,41 +63,32 @@ export default function WorkspaceRightSidebar({
                         {t('mindscapeAIWorkbench' as any)}
                     </h3>
                     <div className="h-3 w-px bg-gray-300 dark:bg-gray-600 flex-shrink-0"></div>
-                    {focusExecutionId ? (
-                        <div className="flex items-center gap-1 flex-shrink-0">
-                            <h3 className="text-xs font-semibold text-primary dark:text-gray-100">
-                                {focusedPlaybookMetadata?.title || focusedExecution?.playbook_code || t('playbookConversation' as any)}
-                            </h3>
-                        </div>
-                    ) : (
-                        /* AI Team + Execution Mode integrated */
-                        workspace && (
-                            <ExecutionModeSelector
-                                key={`exec-mode-${workspace.id}-${workspace.execution_mode || 'hybrid'}-${workspace.execution_priority || 'medium'}`}
-                                mode={(workspace.execution_mode as 'qa' | 'execution' | 'hybrid' | 'meeting') || 'hybrid'}
-                                priority={(workspace.execution_priority as 'low' | 'medium' | 'high') || 'medium'}
-                                meetingEnabled={(workspace as any).meeting_enabled !== false}
-                                onChange={async (update) => {
-                                    try {
-                                        await contextData.updateWorkspace({
-                                            execution_mode: update.mode,
-                                            execution_priority: update.priority,
-                                        });
-                                    } catch (err) {
-                                        console.error('Failed to update execution mode:', err);
-                                    }
-                                }}
-                                onMeetingToggle={async (enabled) => {
-                                    try {
-                                        await contextData.updateWorkspace({
-                                            meeting_enabled: enabled,
-                                        });
-                                    } catch (err) {
-                                        console.error('Failed to toggle meeting:', err);
-                                    }
-                                }}
-                            />
-                        )
+                    {workspace && (
+                        <ExecutionModeSelector
+                            key={`exec-mode-${workspace.id}-${workspace.execution_mode || 'hybrid'}-${workspace.execution_priority || 'medium'}`}
+                            mode={(workspace.execution_mode as 'qa' | 'execution' | 'hybrid' | 'meeting') || 'hybrid'}
+                            priority={(workspace.execution_priority as 'low' | 'medium' | 'high') || 'medium'}
+                            meetingEnabled={(workspace as any).meeting_enabled !== false}
+                            onChange={async (update) => {
+                                try {
+                                    await contextData.updateWorkspace({
+                                        execution_mode: update.mode,
+                                        execution_priority: update.priority,
+                                    });
+                                } catch (err) {
+                                    console.error('Failed to update execution mode:', err);
+                                }
+                            }}
+                            onMeetingToggle={async (enabled) => {
+                                try {
+                                    await contextData.updateWorkspace({
+                                        meeting_enabled: enabled,
+                                    });
+                                } catch (err) {
+                                    console.error('Failed to toggle meeting:', err);
+                                }
+                            }}
+                        />
                     )}
                 </div>
             </div>
@@ -112,7 +96,7 @@ export default function WorkspaceRightSidebar({
             {/* Content Area */}
             <div className="flex-1 overflow-hidden flex flex-col">
                 <ResizablePanel
-                    defaultTopHeight={focusExecutionId ? 30 : 40}
+                    defaultTopHeight={40}
                     minTopHeight={20}
                     minBottomHeight={20}
                     top={
@@ -126,119 +110,104 @@ export default function WorkspaceRightSidebar({
                         </div>
                     }
                     bottom={
-                        focusExecutionId ? (
-                            // Mode B (Playbook Perspective): Show Execution Chat
-                            <div className="h-full overflow-hidden">
-                                <ExecutionChatPanel
-                                    key={focusExecutionId}
-                                    executionId={focusExecutionId}
-                                    workspaceId={workspaceId}
-                                    apiUrl={apiUrl}
-                                    playbookMetadata={focusedPlaybookMetadata}
-                                />
-                            </div>
-                        ) : (
-                            // Mode A (Workspace Perspective): Show Workspace Tools
-                            <div className="flex-1 flex flex-col overflow-hidden">
-                                <ResizablePanel
-                                    defaultTopHeight={50}
-                                    minTopHeight={20}
-                                    minBottomHeight={20}
-                                    top={
-                                        <section className="sidebar-section ai-team-section h-full overflow-hidden flex flex-col">
-                                            <div className="flex-1 overflow-y-auto min-h-0 bg-accent-10 dark:bg-blue-900/10">
-                                                <div className="p-3">
-                                                    {(workspace?.execution_mode === 'hybrid' || workspace?.execution_mode === 'execution' || workspace?.execution_mode === 'meeting') && (
-                                                        <>
-                                                            {executionState.isExecuting && (
-                                                                <ThinkingContext
-                                                                    summary={executionState.thinkingSummary}
-                                                                    pipelineStage={executionState.pipelineStage}
-                                                                    isLoading={executionState.isExecuting && !executionState.pipelineStage && !executionState.thinkingSummary}
-                                                                />
-                                                            )}
+                        <div className="flex-1 flex flex-col overflow-hidden">
+                            <ResizablePanel
+                                defaultTopHeight={50}
+                                minTopHeight={20}
+                                minBottomHeight={20}
+                                top={
+                                    <section className="sidebar-section ai-team-section h-full overflow-hidden flex flex-col">
+                                        <div className="flex-1 overflow-y-auto min-h-0 bg-accent-10 dark:bg-blue-900/10">
+                                            <div className="p-3">
+                                                {(workspace?.execution_mode === 'hybrid' || workspace?.execution_mode === 'execution' || workspace?.execution_mode === 'meeting') && (
+                                                    <>
+                                                        {executionState.isExecuting && (
+                                                            <ThinkingContext
+                                                                summary={executionState.thinkingSummary}
+                                                                pipelineStage={executionState.pipelineStage}
+                                                                isLoading={executionState.isExecuting && !executionState.pipelineStage && !executionState.thinkingSummary}
+                                                            />
+                                                        )}
 
-                                                            {(() => {
-                                                                const shouldShow = executionState.aiTeamMembers.length > 0;
-                                                                return shouldShow ? (
-                                                                    <div className="mt-3">
-                                                                        <AITeamPanel
-                                                                            members={executionState.aiTeamMembers}
-                                                                            isLoading={executionState.isExecuting}
-                                                                        />
-                                                                    </div>
-                                                                ) : null;
-                                                            })()}
-                                                        </>
-                                                    )}
+                                                        {(() => {
+                                                            const shouldShow = executionState.aiTeamMembers.length > 0;
+                                                            return shouldShow ? (
+                                                                <div className="mt-3">
+                                                                    <AITeamPanel
+                                                                        members={executionState.aiTeamMembers}
+                                                                        isLoading={executionState.isExecuting}
+                                                                    />
+                                                                </div>
+                                                            ) : null;
+                                                        })()}
+                                                    </>
+                                                )}
 
-                                                    <ArtifactsSummary
-                                                        count={executionState.producedArtifacts.length}
-                                                        onViewAll={() => {
-                                                            // Switch to left sidebar outcomes tab
-                                                            setLeftSidebarTab('outcomes');
-                                                        }}
-                                                    />
-                                                </div>
+                                                <ArtifactsSummary
+                                                    count={executionState.producedArtifacts.length}
+                                                    onViewAll={() => {
+                                                        setLeftSidebarTab('outcomes');
+                                                    }}
+                                                />
                                             </div>
-                                        </section>
-                                    }
-                                    bottom={
-                                        <ResizablePanel
-                                            defaultTopHeight={50}
-                                            minTopHeight={20}
-                                            minBottomHeight={20}
-                                            top={
-                                                <section className="sidebar-section decision-section h-full overflow-hidden flex flex-col">
-                                                    <div className="px-3 pt-3">
-                                                        <WorkflowEvidenceHealthSummary
-                                                            workspaceId={workspaceId}
-                                                            apiUrl={apiUrl}
-                                                            selectedThreadId={selectedThreadId}
-                                                        />
-                                                    </div>
-                                                    <DecisionPanel
+                                        </div>
+                                    </section>
+                                }
+                                bottom={
+                                    <ResizablePanel
+                                        defaultTopHeight={50}
+                                        minTopHeight={20}
+                                        minBottomHeight={20}
+                                        top={
+                                            <section className="sidebar-section decision-section h-full overflow-hidden flex flex-col">
+                                                <div className="px-3 pt-3">
+                                                    <WorkflowEvidenceHealthSummary
                                                         workspaceId={workspaceId}
                                                         apiUrl={apiUrl}
                                                         selectedThreadId={selectedThreadId}
-                                                        onViewArtifact={setSelectedArtifact}
-                                                        onSwitchToOutcomes={() => setLeftSidebarTab('outcomes')}
-                                                        workspace={workspace ? {
-                                                            playbook_auto_execution_config: (workspace as any)?.playbook_auto_execution_config,
-                                                            owner_user_id: (workspace as any)?.owner_user_id
-                                                        } : undefined}
                                                     />
-                                                </section>
-                                            }
-                                            bottom={
-                                                <div className="flex-1 overflow-y-auto min-h-0">
-                                                    <div className="p-4">
-                                                        {workspace && workspace.mode === 'research' && (
-                                                            <ResearchModePanel workspaceId={workspaceId} apiUrl={apiUrl} />
-                                                        )}
-                                                        {workspace && workspace.mode === 'publishing' && (
-                                                            <PublishingModePanel workspaceId={workspaceId} apiUrl={apiUrl} />
-                                                        )}
-                                                        {workspace && workspace.mode === 'planning' && (
-                                                            <PlanningModePanel workspaceId={workspaceId} apiUrl={apiUrl} />
-                                                        )}
-                                                        {workspace && (!workspace.mode || (workspace.mode !== 'research' && workspace.mode !== 'publishing' && workspace.mode !== 'planning')) && (
-                                                            <MindscapeAIWorkbench
-                                                                workspaceId={workspaceId}
-                                                                apiUrl={apiUrl}
-                                                                activeTab={rightSidebarTab}
-                                                                onTabChange={(tab) => setRightSidebarTab(tab as any)}
-                                                                refreshTrigger={workbenchRefreshTrigger}
-                                                            />
-                                                        )}
-                                                    </div>
                                                 </div>
-                                            }
-                                        />
-                                    }
-                                />
-                            </div>
-                        )
+                                                <DecisionPanel
+                                                    workspaceId={workspaceId}
+                                                    apiUrl={apiUrl}
+                                                    selectedThreadId={selectedThreadId}
+                                                    onViewArtifact={setSelectedArtifact}
+                                                    onSwitchToOutcomes={() => setLeftSidebarTab('outcomes')}
+                                                    workspace={workspace ? {
+                                                        playbook_auto_execution_config: (workspace as any)?.playbook_auto_execution_config,
+                                                        owner_user_id: (workspace as any)?.owner_user_id
+                                                    } : undefined}
+                                                />
+                                            </section>
+                                        }
+                                        bottom={
+                                            <div className="flex-1 overflow-y-auto min-h-0">
+                                                <div className="p-4">
+                                                    {workspace && workspace.mode === 'research' && (
+                                                        <ResearchModePanel workspaceId={workspaceId} apiUrl={apiUrl} />
+                                                    )}
+                                                    {workspace && workspace.mode === 'publishing' && (
+                                                        <PublishingModePanel workspaceId={workspaceId} apiUrl={apiUrl} />
+                                                    )}
+                                                    {workspace && workspace.mode === 'planning' && (
+                                                        <PlanningModePanel workspaceId={workspaceId} apiUrl={apiUrl} />
+                                                    )}
+                                                    {workspace && (!workspace.mode || (workspace.mode !== 'research' && workspace.mode !== 'publishing' && workspace.mode !== 'planning')) && (
+                                                        <MindscapeAIWorkbench
+                                                            workspaceId={workspaceId}
+                                                            apiUrl={apiUrl}
+                                                            activeTab={rightSidebarTab}
+                                                            onTabChange={(tab) => setRightSidebarTab(tab as any)}
+                                                            refreshTrigger={workbenchRefreshTrigger}
+                                                        />
+                                                    )}
+                                                </div>
+                                            </div>
+                                        }
+                                    />
+                                }
+                            />
+                        </div>
                     }
                 />
             </div>

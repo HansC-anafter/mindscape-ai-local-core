@@ -16,8 +16,8 @@ const PROXY_SLOW_LOG_THRESHOLD_MS = Number.parseInt(
 );
 const PREWARM_WORKSPACE_ID = process.env.FRONTEND_PREWARM_WORKSPACE_ID || '__prewarm__';
 const PREWARM_ENABLED = process.env.FRONTEND_PREWARM_ENABLED === '1';
-const PREWARM_DELAY_MS = Number.parseInt(process.env.FRONTEND_PREWARM_DELAY_MS || '15000', 10);
-const PREWARM_TIMEOUT_MS = Number.parseInt(process.env.FRONTEND_PREWARM_TIMEOUT_MS || '180000', 10);
+const PREWARM_DELAY_MS = Number.parseInt(process.env.FRONTEND_PREWARM_DELAY_MS || '8000', 10);
+const PREWARM_TIMEOUT_MS = Number.parseInt(process.env.FRONTEND_PREWARM_TIMEOUT_MS || '150000', 10);
 const NEXT_DEV_TURBO_ENABLED = process.env.NEXT_DEV_TURBO === '1';
 const DEFAULT_PREWARM_PATHS = [];
 const HOP_BY_HOP_HEADERS = new Set([
@@ -159,9 +159,9 @@ export function resolveNextDevArgs(
   turboEnabled = NEXT_DEV_TURBO_ENABLED,
 ) {
   return [
-    'run',
+    'exec',
+    'next',
     'dev',
-    '--',
     ...(turboEnabled ? ['--turbo'] : []),
     '-H',
     host,
@@ -173,6 +173,19 @@ export function resolveNextDevArgs(
 function prewarmNextDevPath(pathValue) {
   return new Promise((resolve) => {
     const startedAt = performance.now();
+    let settled = false;
+    const finish = (event, extra = {}) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      console.log(`[frontend-proxy] ${event} ${JSON.stringify({
+        path: pathValue,
+        duration_ms: roundedDurationMs(startedAt),
+        ...extra,
+      })}`);
+      resolve();
+    };
     const request = http.request(
       {
         hostname: NEXT_HOST,
@@ -185,22 +198,22 @@ function prewarmNextDevPath(pathValue) {
         },
       },
       (response) => {
-        response.resume();
-        response.on('end', () => {
-          console.log(`[frontend-proxy] prewarm ${JSON.stringify({
-            path: pathValue,
-            status: response.statusCode || null,
-            duration_ms: roundedDurationMs(startedAt),
-          })}`);
-          resolve();
+        finish('prewarm', {
+          status: response.statusCode || null,
         });
+        response.resume();
+        response.destroy();
       },
     );
 
     request.setTimeout(PREWARM_TIMEOUT_MS, () => {
-      request.destroy(new Error('prewarm_timeout'));
+      finish('prewarm_triggered', { reason: 'timeout' });
+      request.destroy(new Error('prewarm_trigger_timeout'));
     });
     request.on('error', (error) => {
+      if (settled) {
+        return;
+      }
       console.error(`[frontend-proxy] prewarm_failed ${JSON.stringify({
         path: pathValue,
         duration_ms: roundedDurationMs(startedAt),
@@ -213,9 +226,15 @@ function prewarmNextDevPath(pathValue) {
 }
 
 async function prewarmNextDevRoutes(paths = resolveFrontendPrewarmPaths()) {
+  if (!paths.length) {
+    console.log('[frontend-proxy] prewarm_skipped {"reason":"no_paths"}');
+    return;
+  }
+  console.log(`[frontend-proxy] prewarm_start ${JSON.stringify({ paths })}`);
   for (const pathValue of paths) {
     await prewarmNextDevPath(pathValue);
   }
+  console.log(`[frontend-proxy] prewarm_done ${JSON.stringify({ count: paths.length })}`);
 }
 
 export function shouldWriteProxyTimingLog(

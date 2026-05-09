@@ -91,9 +91,9 @@ describe('frontend dev proxy', () => {
 
   it('keeps Turbopack available as an explicit local Next dev opt-in', () => {
     expect(resolveNextDevArgs('127.0.0.1', 3010, true)).toEqual([
-      'run',
+      'exec',
+      'next',
       'dev',
-      '--',
       '--turbo',
       '-H',
       '127.0.0.1',
@@ -101,9 +101,9 @@ describe('frontend dev proxy', () => {
       '3010',
     ]);
     expect(resolveNextDevArgs('127.0.0.1', 3010, false)).toEqual([
-      'run',
+      'exec',
+      'next',
       'dev',
-      '--',
       '-H',
       '127.0.0.1',
       '-p',

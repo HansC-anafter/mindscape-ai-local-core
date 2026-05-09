@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { useWorkspaceData } from '@/contexts/WorkspaceDataContext';
 import { useExecutionState } from '@/hooks/useExecutionState';
@@ -17,7 +16,6 @@ import type { Workspace } from './workspace-page.types';
 
 const API_URL = getApiBaseUrl();
 const WorkspaceChat = dynamic(() => import('../../../components/WorkspaceChat'), { ssr: false });
-const ExecutionInspector = dynamic(() => import('../components/ExecutionInspector'), { ssr: false });
 const WorkspaceLeftSidebar = dynamic(() => import('./components/WorkspaceLeftSidebar'), { ssr: false });
 const WorkspaceRightSidebar = dynamic(() => import('./components/WorkspaceRightSidebar'), { ssr: false });
 const WorkspaceModals = dynamic(() => import('./components/WorkspaceModals'), { ssr: false });
@@ -25,7 +23,6 @@ const WorkspaceModals = dynamic(() => import('./components/WorkspaceModals'), { 
 // Internal component that uses Context data
 function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
   const contextData = useWorkspaceData();
-  const router = useRouter();
 
   // Use Context data instead of local state
   const workspace = contextData.workspace as Workspace | null;
@@ -48,26 +45,13 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
 
   // UI state - modals and dialogs
   const [selectedArtifact, setSelectedArtifact] = useState<Artifact | null>(null);
-  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
-  const [isDeleting, setIsDeleting] = useState(false);
   const [showSystemTools, setShowSystemTools] = useState(false);
   const [showRuntimeModal, setShowRuntimeModal] = useState(false);
   const [showDataSourcesModal, setShowDataSourcesModal] = useState(false);
-  const [showFullSettings, setShowFullSettings] = useState(false);
-  const [showSandboxModal, setShowSandboxModal] = useState(false);
-  const [sandboxId, setSandboxId] = useState<string | null>(null);
-  const [sandboxProjectId, setSandboxProjectId] = useState<string | null>(null);
 
   // UI state - workbench
   const [updatingMode, setUpdatingMode] = useState(false);
   const [workbenchRefreshTrigger, setWorkbenchRefreshTrigger] = useState(0);
-
-  // Execution pages now use dedicated routes: /workspaces/{workspaceId}/executions/{executionId}
-  // These states are kept for backward compatibility but should not be used
-  const [selectedExecutionId, setSelectedExecutionId] = useState<string | null>(null);
-  const [focusExecutionId, setFocusExecutionId] = useState<string | null>(null);
-  const [focusedExecution] = useState<any>(null);
-  const [focusedPlaybookMetadata] = useState<any>(null);
 
   // Thread state
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
@@ -162,35 +146,17 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
 
           {/* Main Area - Workspace Chat */}
           <div className="flex-1 flex flex-col" style={{ minWidth: 0, overflow: 'hidden' }}>
-            {selectedExecutionId ? (
-              <ExecutionInspector
-                executionId={selectedExecutionId}
-                workspaceId={workspaceId}
-                apiUrl={API_URL}
-                onClose={() => {
-                  setSelectedExecutionId(null);
-                  setFocusExecutionId(null); // Clear focus mode
-                  // Update URL to remove execution query parameter
-                  const newUrl = `/workspaces/${workspaceId}`;
-                  router.push(newUrl);
-                  // Dispatch event to ensure all components are notified
-                  window.dispatchEvent(new CustomEvent('clear-execution-focus'));
-                }}
-              />
-            ) : (
-              <WorkspaceChat
-                workspaceId={workspaceId}
-                apiUrl={API_URL}
-                projectId={projectState.currentProject?.id}
-                threadId={selectedThreadId}
-                onFileAnalyzed={() => {
-                  // Refresh workbench when file is analyzed
-                  setWorkbenchRefreshTrigger(prev => prev + 1);
-                }}
-                executionMode={workspace?.execution_mode || 'hybrid'}
-                expectedArtifacts={workspace?.expected_artifacts}
-              />
-            )}
+            <WorkspaceChat
+              workspaceId={workspaceId}
+              apiUrl={API_URL}
+              projectId={projectState.currentProject?.id}
+              threadId={selectedThreadId}
+              onFileAnalyzed={() => {
+                setWorkbenchRefreshTrigger(prev => prev + 1);
+              }}
+              executionMode={workspace?.execution_mode || 'hybrid'}
+              expectedArtifacts={workspace?.expected_artifacts}
+            />
           </div>
 
           {/* Right Sidebar - Execution Chat (when focused) or Workspace Tools (default) */}
@@ -199,9 +165,6 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
             workspaceId={workspaceId}
             apiUrl={API_URL}
             executionState={executionState}
-            focusExecutionId={focusExecutionId}
-            focusedExecution={focusedExecution}
-            focusedPlaybookMetadata={focusedPlaybookMetadata}
             selectedThreadId={selectedThreadId}
             rightSidebarTab={rightSidebarTab}
             workbenchRefreshTrigger={workbenchRefreshTrigger}
@@ -216,26 +179,10 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
 
       {/* Modals and Dialogs */}
       <WorkspaceModals
-        workspace={workspace}
         workspaceId={workspaceId}
         apiUrl={API_URL}
         selectedArtifact={selectedArtifact}
         setSelectedArtifact={setSelectedArtifact}
-        showDeleteDialog={showDeleteDialog}
-        setShowDeleteDialog={setShowDeleteDialog}
-        isDeleting={isDeleting}
-        setIsDeleting={setIsDeleting}
-        showSandboxModal={showSandboxModal}
-        setShowSandboxModal={setShowSandboxModal}
-        sandboxId={sandboxId}
-        sandboxProjectId={sandboxProjectId}
-        focusedExecution={focusedExecution}
-        selectedExecutionId={selectedExecutionId}
-        showFullSettings={showFullSettings}
-        setShowFullSettings={setShowFullSettings}
-        onSettingsUpdate={() => {
-          contextData.refreshWorkspace();
-        }}
         selectedThreadId={selectedThreadId}
         isBundleOpen={isBundleOpen}
         setIsBundleOpen={setIsBundleOpen}
