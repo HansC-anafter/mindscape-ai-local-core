@@ -1,8 +1,12 @@
-import { t } from '@/lib/i18n';
-import WorkspacePageClientLoader from './WorkspacePageClientLoader';
+'use client';
 
-export default function WorkspacePage({ params }: { params: { workspaceId?: string } }) {
-  const workspaceId = params?.workspaceId;
+import { useParams } from 'next/navigation';
+import { t } from '@/lib/i18n';
+import WorkspacePageClient from './WorkspacePageClient';
+
+export default function WorkspacePage() {
+  const params = useParams();
+  const workspaceId = params?.workspaceId as string | undefined;
   if (!workspaceId) {
     return (
       <div className="min-h-screen bg-surface dark:bg-gray-950">
@@ -13,5 +17,5 @@ export default function WorkspacePage({ params }: { params: { workspaceId?: stri
     );
   }
 
-  return <WorkspacePageClientLoader workspaceId={workspaceId} />;
+  return <WorkspacePageClient workspaceId={workspaceId} />;
 }
