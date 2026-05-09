@@ -17,7 +17,7 @@
 2. `/api/v1/workspaces/:workspaceId/tasks?limit=50` 在 `include_completed=false` 時先讀出所有 pending / running 再切片；目前 workspace pending 數量已達十幾萬，導致頁面入口直接卡住。
 3. request-time capability API activation 在 middleware 內同步 import/register router，第一個 IG API request 會阻塞整個 backend event loop，連 `/healthz` 都可能 30 秒無回應。
 
-本輪未宣稱完全解決 Next dev 冷編譯或 root client graph 重量。`/workspaces/:workspaceId` 最新 warm 驗證仍為 4.03s；frontend proxy log 顯示剩餘慢點主要在 `next_dev`，這是待修項，不是已完成項。
+本輪未宣稱完全解決 Next dev 冷編譯或 root client graph 重量。最新驗證顯示 `/workspaces/:workspaceId` hot path 已可回到約 1 秒，但 frontend 重啟後 cold compile 仍會落在 70 秒等級；這是剩餘待修項，不是已完成項。
 
 ## 證據
 
@@ -137,14 +137,133 @@
 
 ### E11. Source 邊界查驗
 
-> **Evidence**: `git diff -- 'web-console/src/app/workspaces/[workspaceId]/page.tsx'`
+> **Evidence**: `git status --short`
+> ```text
+> 只列出 mindscape-ai-local-core 內 web-console 與 .agent/reports 變更。
+> 未列出 mindscape-ai-cloud 檔案。
+> ```
+>
+> **Evidence**: `rg "mindscape-ai-cloud|playbook-implementation-guide" web-console/src web-console/dev-proxy.mjs`
 > ```text
 > <no output>
 > ```
->
+
+### E12. Root workspace 入口已恢復原 workspace chat，不再用 capability menu 覆蓋
+
 > **Evidence**: `web-console/src/app/workspaces/[workspaceId]/page.tsx`
 > ```text
-> return <WorkspacePageClient workspaceId={workspaceId} />;
+> return <WorkspacePageClientLoader workspaceId={workspaceId} />;
+> ```
+>
+> **Evidence**: `web-console/src/app/workspaces/[workspaceId]/WorkspaceRootClient.tsx`
+> ```text
+> <Header />
+> <UpdateBanner clientVersion="1.0.0" />
+> <WorkspaceRuntimeFrame workspaceId={workspaceId}>
+>   <WorkspacePageClient workspaceId={workspaceId} />
+> </WorkspaceRuntimeFrame>
+> ```
+>
+> **Evidence**: Safari hard reload 後視覺查驗
+> ```text
+> /workspaces/bac7ce63-e768-454d-96f3-3a00e8e1df69 顯示 Mindscape AI 工作站、專案列表、workspace chat textarea、New Conversation。
+> 未顯示「多平台內容一鍵生成」capability menu 作為 root page。
+> ```
+
+### E13. 最新 root path 量測：hot 已改善，cold 仍未達標
+
+> **Evidence**: `curl -sS -m 180 ... /workspaces/bac7ce63-e768-454d-96f3-3a00e8e1df69`
+> ```text
+> workspace_root_visible_gated_cold status=200 total=91.486833 size=8622
+> workspace_root_visible_gated_hot status=200 total=1.073608 size=8622
+> ```
+>
+> **Evidence**: `docker logs --tail 80 mindscape-ai-local-core-frontend`
+> ```text
+> ✓ Compiled /workspaces/[workspaceId] in 70.2s (1783 modules)
+> request {"path":"/workspaces/bac7ce63-e768-454d-96f3-3a00e8e1df69","upstream":"next_dev","duration_ms":91477.93}
+> ```
+
+### E14. 最新 runtime 負載仍會影響 cold compile，不可把 slow page 全部歸因於單一 UI route
+
+> **Evidence**: `docker stats --no-stream mindscape-ai-local-core-frontend ...`
+> ```text
+> mindscape-ai-local-core-frontend          169.31%   1.027GiB / 15.6GiB
+> mindscape-ai-local-core-runner-browser     32.54%   2.094GiB / 6GiB
+> mindscape-ai-local-core-runner-default    174.25%   2.714GiB / 6GiB
+> mindscape-ai-local-core-postgres           43.06%   328.3MiB / 15.6GiB
+> ```
+
+### E15. 前端仍觀測到可見 IG workbench / refs / execution polling 競爭 backend read path
+
+> **Evidence**: `docker logs --tail 80 mindscape-ai-local-core-frontend`
+> ```text
+> /api/v1/ig/workbench/sidebar-summary duration_ms=4465.6
+> /api/v1/ig/references/ duration_ms=5742.99
+> /api/v1/workspaces/bac7ce63-e768-454d-96f3-3a00e8e1df69/agents duration_ms=4159.74
+> /api/v1/workspaces/bac7ce63-e768-454d-96f3-3a00e8e1df69/health duration_ms=13762.8
+> /api/v1/workspaces/bac7ce63-e768-454d-96f3-3a00e8e1df69/executions/4f493881-5e9e-463c-848f-cb7c89881674/progress-snapshot duration_ms=4873.55
+> ```
+
+### E16. 背景頁籤 gating 與同 GET 合併插入點
+
+> **Evidence**: `web-console/src/lib/page-visibility.ts:1-18`
+> ```text
+> isDocumentHidden() 以 document.visibilityState 判定 hidden。
+> onDocumentVisible() 只在 visibilityState 變回 visible 時執行 callback。
+> ```
+>
+> **Evidence**: `web-console/src/components/workspace/WorkspaceChatRuntimeControls.tsx:66-101`
+> ```text
+> hidden 時不 fetch agents；visible resume 再 fetch；agents GET 使用 sharedGetFetch dedupKey workspace-agents。
+> ```
+>
+> **Evidence**: `web-console/src/app/capabilities/ig/components/workbench/hooks/useIGWorkbenchState.ts:234-330`
+> ```text
+> hidden 時不 fetch recent runs / targets total；visible IG workbench 原 refresh path 保留；sidebar-summary 與 targets-total 使用 sharedGetFetch。
+> ```
+>
+> **Evidence**: `web-console/src/app/capabilities/ig/components/modules/referencesPanel/useReferencesScrollSync.ts:87-191`
+> ```text
+> hidden 時不做 references background refresh / head sync；visible resume 會 reset 或 sync head。
+> ```
+
+### E17. ProjectCard 非展開/hidden 不再搶首屏 card detail read
+
+> **Evidence**: `web-console/src/app/workspaces/[workspaceId]/components/ProjectCard.tsx:203-264`
+> ```text
+> !isExpanded 或 document hidden 時不打 /projects/:id/card；
+> visible resume 透過 visibilityLoadTick 重新觸發；
+> card detail GET 使用 sharedGetFetch dedupKey workspace-project-card。
+> ```
+
+### E18. 最新自動化查驗
+
+> **Evidence**: `git diff --check`
+> ```text
+> <no output, exit 0>
+> ```
+>
+> **Evidence**: `./node_modules/.bin/vitest run dev-proxy.spec.mjs`
+> ```text
+> dev-proxy.spec.mjs (11 tests)
+> Test Files 1 passed
+> Tests 11 passed
+> ```
+>
+> **Evidence**: `./node_modules/.bin/vitest run src/components/workspace/WorkspaceChatRuntimeControls.spec.tsx src/lib/resilient-fetch.spec.ts`
+> ```text
+> WorkspaceChatRuntimeControls.spec.tsx (1 test)
+> resilient-fetch.spec.ts (4 tests)
+> Test Files 2 passed
+> Tests 5 passed
+> ```
+>
+> **Evidence**: `npm run type-check`
+> ```text
+> tsc --noEmit exited with code 2.
+> Errors were in existing unrelated capability/type debt including blender_bridge, character_training, multi_media_studio, video_chapter_studio, settings, pendingTasks, and meeting-workbench files.
+> No TypeScript error in the files changed by this visibility/read-path iteration was listed.
 > ```
 
 ## 修復內容與為何不是降級
@@ -221,12 +340,34 @@ Source: `backend/app/app_bootstrap/capability_activation_middleware.py:46-67`
 
 為何不是降級：沒有少載 capability、沒有跳過 router registration、沒有改 pack enablement、沒有改 scheduler 或 runner；只改 activation 執行位置，保留同一套能力與同一個 activation 成功/失敗紀錄。
 
+### 9. Workspace root 恢復原 chat entry，能力入口不再覆蓋 root
+
+Source: `web-console/src/app/workspaces/[workspaceId]/page.tsx`、`web-console/src/app/workspaces/[workspaceId]/WorkspaceRootClient.tsx`
+
+root page 只載入 workspace chat runtime frame，不再以 capability launcher menu 取代既有 workspace chat。capability 路由仍保留在 `/workspaces/:workspaceId/capabilities/...`。
+
+為何不是降級：沒有移除 capability、沒有移除 workbench；只是恢復原 URL 的既有 UX 邊界，capability 仍從 capability URL 進入。
+
+### 10. 背景頁籤/非展開 UI read gating
+
+Source: `web-console/src/lib/page-visibility.ts`、`web-console/src/components/workspace/WorkspaceChatRuntimeControls.tsx`、`web-console/src/app/capabilities/ig/components/workbench/hooks/useIGWorkbenchState.ts`、`web-console/src/app/capabilities/ig/components/modules/referencesPanel/useReferencesFetchLifecycle.ts`、`web-console/src/app/capabilities/ig/components/modules/referencesPanel/useReferencesScrollSync.ts`、`web-console/src/app/workspaces/[workspaceId]/components/ProjectCard.tsx`
+
+hidden document 不再主動發送 agents、IG sidebar-summary、references refresh/head sync、workspace auxiliary health/tasks/executions、project card detail 等 read request；頁籤變回 visible 時會 resume refresh。
+
+為何不是降級：visible 頁面和使用者操作的資料刷新能力保留；任務執行、scheduler、runner lane、IG pack 能力完全不變。這是把不可見 UI 的讀取競爭移出 critical path，不是減少系統能力。
+
+### 11. 相同 GET 的前端合併
+
+Source: `web-console/src/lib/resilient-fetch.ts` 既有 `sharedGetFetch()`、本輪接到 agents、executor route、workspace data、IG sidebar-summary、references、project card detail。
+
+為何不是降級：資料仍來自同一 API；只合併同一時間相同 GET 的 in-flight request，避免同頁多 component 重複打同一個 read endpoint。
+
 ## 已查驗但不納入本次修復的項目
 
 - root route loader/server page 邊界實驗：目前 `web-console/src/app/workspaces/[workspaceId]/page.tsx` 無 diff，沒有用新入口覆蓋原本 workspace chat。
 - Docker `.next` named volume：目前 diff 內沒有 named `.next` volume。
 - Turbopack：runtime `NEXT_DEV_TURBO=0`，沒有啟用為預設。早先測試出現 Next package resolution 500，因此不作為本次修復。
-- Next dev / root client graph：仍是未解問題。最新 warm root 為 4.03s；proxy log 顯示 `/workspaces/:workspaceId` upstream 是 `next_dev`，需要另開 import graph / dev server 編譯策略修復，不能宣稱已完成。
+- Next dev / root client graph：仍是未解問題。最新 hot root 為 1.07s，但 frontend restart 後 cold root 仍為 91.49s，proxy log 顯示 `/workspaces/:workspaceId` upstream 是 `next_dev` 且 cold compile 70.2s / 1783 modules。需要另開 import graph / dev server 編譯策略修復，不能宣稱已完成。
 
 ## 驗證結果
 

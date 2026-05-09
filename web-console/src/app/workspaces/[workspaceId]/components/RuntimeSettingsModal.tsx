@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import CapabilityExtensionSlot from './CapabilityExtensionSlot';
 import CliApiKeysSection from './CliApiKeysSection';
 
 interface RuntimeSettingsModalProps {
@@ -11,6 +10,10 @@ interface RuntimeSettingsModalProps {
 }
 
 type ModalTab = 'channel' | 'cli-keys';
+type CapabilityExtensionSlotComponent = React.ComponentType<{
+    section: string;
+    workspaceId: string;
+}>;
 
 export default function RuntimeSettingsModal({
     isOpen,
@@ -18,6 +21,22 @@ export default function RuntimeSettingsModal({
     workspaceId,
 }: RuntimeSettingsModalProps) {
     const [activeTab, setActiveTab] = useState<ModalTab>('channel');
+    const [CapabilityExtensionSlot, setCapabilityExtensionSlot] = useState<CapabilityExtensionSlotComponent | null>(null);
+
+    useEffect(() => {
+        if (!isOpen || activeTab !== 'channel' || CapabilityExtensionSlot) {
+            return;
+        }
+        let cancelled = false;
+        void import('./CapabilityExtensionSlot').then((module) => {
+            if (!cancelled) {
+                setCapabilityExtensionSlot(() => module.default);
+            }
+        });
+        return () => {
+            cancelled = true;
+        };
+    }, [CapabilityExtensionSlot, activeTab, isOpen]);
 
     // Escape key handler
     useEffect(() => {
@@ -106,10 +125,16 @@ export default function RuntimeSettingsModal({
                 {/* Content - Scrollable */}
                 <div className="flex-1 overflow-y-auto px-6 py-5">
                     {activeTab === 'channel' && (
-                        <CapabilityExtensionSlot
-                            section="runtime-environments"
-                            workspaceId={workspaceId}
-                        />
+                        CapabilityExtensionSlot ? (
+                            <CapabilityExtensionSlot
+                                section="runtime-environments"
+                                workspaceId={workspaceId}
+                            />
+                        ) : (
+                            <div className="p-3 text-sm text-secondary dark:text-gray-400">
+                                Loading extension settings...
+                            </div>
+                        )
                     )}
                     {activeTab === 'cli-keys' && (
                         <CliApiKeysSection workspaceId={workspaceId} />

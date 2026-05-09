@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useCallback, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import LeftSidebarTabs from './LeftSidebarTabs';
@@ -12,7 +12,11 @@ const IntegratedSystemStatusCard = dynamic(() => import('../../../../components/
 const StoragePathConfigModal = dynamic(() => import('@/components/StoragePathConfigModal'), { ssr: false });
 const TimelinePanel = dynamic(() => import('../../components/TimelinePanel'), { ssr: false });
 const PackPanel = dynamic(() => import('./PackPanel').then((module) => module.PackPanel), { ssr: false });
-const RuntimeSettingsModal = dynamic(() => import('./RuntimeSettingsModal'), { ssr: false });
+type RuntimeSettingsModalComponent = React.ComponentType<{
+    isOpen: boolean;
+    onClose: () => void;
+    workspaceId: string;
+}>;
 
 interface WorkspaceLeftSidebarProps {
     workspace: Workspace | null;
@@ -60,6 +64,18 @@ export default function WorkspaceLeftSidebar({
     onRefreshAll,
 }: WorkspaceLeftSidebarProps) {
     const router = useRouter();
+    const [RuntimeSettingsModal, setRuntimeSettingsModal] = useState<RuntimeSettingsModalComponent | null>(null);
+    const loadRuntimeSettingsModal = useCallback(() => {
+        if (!RuntimeSettingsModal) {
+            void import('./RuntimeSettingsModal').then((module) => {
+                setRuntimeSettingsModal(() => module.default);
+            });
+        }
+    }, [RuntimeSettingsModal]);
+    const openRuntimeSettingsModal = useCallback(() => {
+        loadRuntimeSettingsModal();
+        setShowRuntimeModal(true);
+    }, [loadRuntimeSettingsModal, setShowRuntimeModal]);
 
     return (
         <div className="w-80 border-r dark:border-gray-700 bg-surface-secondary dark:bg-gray-900 flex flex-col">
@@ -166,7 +182,7 @@ export default function WorkspaceLeftSidebar({
                                             Data Sources
                                         </button>
                                         <button
-                                            onClick={() => setShowRuntimeModal(true)}
+                                            onClick={openRuntimeSettingsModal}
                                             className="flex-1 px-3 py-2 text-xs font-medium text-secondary dark:text-gray-400 hover:text-primary dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors border-r dark:border-gray-700"
                                         >
                                             Runtime
@@ -215,7 +231,7 @@ export default function WorkspaceLeftSidebar({
                             }}
                         />
                     )}
-                    {showRuntimeModal && (
+                    {showRuntimeModal && RuntimeSettingsModal && (
                         <RuntimeSettingsModal
                             isOpen={showRuntimeModal}
                             onClose={() => setShowRuntimeModal(false)}

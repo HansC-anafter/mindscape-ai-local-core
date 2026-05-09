@@ -1,12 +1,15 @@
-import { describe, expect, it } from 'vitest';
+import http from 'node:http';
+import { afterEach, describe, expect, it } from 'vitest';
 
 import {
   classifyProxyUpstream,
+  clearDevApiReadCacheForTests,
   computeNextDevRestartDelayMs,
   createFrontendProxyServer,
   isDevApiProxyPath,
   isFrontendLivenessPath,
   normalizeProxyLogPath,
+  resolveDevApiReadCacheTtlMs,
   resolveNextDevArgs,
   resolveFrontendPrewarmPaths,
   resolveDevApiProxyTarget,
@@ -14,6 +17,10 @@ import {
 } from './dev-proxy.mjs';
 
 describe('frontend dev proxy', () => {
+  afterEach(() => {
+    clearDevApiReadCacheForTests();
+  });
+
   it('keeps liveness paths on the proxy fast path only', () => {
     expect(isFrontendLivenessPath('/healthz')).toBe(true);
     expect(isFrontendLivenessPath('/healthz?probe=docker')).toBe(true);
@@ -120,4 +127,77 @@ describe('frontend dev proxy', () => {
     expect(shouldWriteProxyTimingLog({ event: 'finish', status: 200, duration_ms: 20 }, 'all', 1000)).toBe(true);
     expect(shouldWriteProxyTimingLog({ event: 'upstream_error', duration_ms: 20 }, 'none', 1000)).toBe(false);
   });
+
+  it('only enables short read-through caching for known expensive GET endpoints', () => {
+    expect(resolveDevApiReadCacheTtlMs('/api/v1/ig/workbench/sidebar-summary', 'GET')).toBe(2000);
+    expect(resolveDevApiReadCacheTtlMs('/api/v1/ig/browser-profiles', 'GET')).toBe(5000);
+    expect(resolveDevApiReadCacheTtlMs('/api/v1/cloud-sync/status', 'GET')).toBe(2000);
+    expect(resolveDevApiReadCacheTtlMs('/api/v1/workspaces/ws-1/health', 'GET')).toBe(5000);
+    expect(resolveDevApiReadCacheTtlMs('/api/v1/workspaces/ws-1/executions/ex-1/progress-snapshot', 'GET')).toBe(1000);
+    expect(resolveDevApiReadCacheTtlMs('/api/v1/playbooks/execute/ex-1/status', 'GET')).toBe(1000);
+    expect(resolveDevApiReadCacheTtlMs('/api/v1/ig/workbench/sidebar-summary', 'POST')).toBe(0);
+    expect(resolveDevApiReadCacheTtlMs('/api/v1/ig/references/ref-1/pin', 'GET')).toBe(0);
+  });
+
+  it('coalesces concurrent expensive GETs at the proxy without touching writes', async () => {
+    const originalBackendUrl = process.env.WEB_CONSOLE_BACKEND_URL;
+    let requestCount = 0;
+    const backend = await new Promise((resolve) => {
+      const server = createBackendServer(() => {
+        requestCount += 1;
+        return new Promise((innerResolve) => {
+          setTimeout(() => {
+            innerResolve({
+              status: 200,
+              body: { ok: true, requestCount },
+            });
+          }, 30);
+        });
+      });
+      server.listen(0, '127.0.0.1', () => resolve(server));
+    });
+    const proxy = createFrontendProxyServer({ nextRunningRef: { current: true } });
+
+    await new Promise((resolve) => proxy.listen(0, '127.0.0.1', resolve));
+    const backendAddress = backend.address();
+    const proxyAddress = proxy.address();
+    const backendPort = typeof backendAddress === 'object' && backendAddress ? backendAddress.port : null;
+    const proxyPort = typeof proxyAddress === 'object' && proxyAddress ? proxyAddress.port : null;
+    process.env.WEB_CONSOLE_BACKEND_URL = `http://127.0.0.1:${backendPort}`;
+
+    try {
+      const [first, second] = await Promise.all([
+        fetch(`http://127.0.0.1:${proxyPort}/api/v1/ig/workbench/sidebar-summary`),
+        fetch(`http://127.0.0.1:${proxyPort}/api/v1/ig/workbench/sidebar-summary`),
+      ]);
+
+      await expect(first.json()).resolves.toEqual({ ok: true, requestCount: 1 });
+      await expect(second.json()).resolves.toEqual({ ok: true, requestCount: 1 });
+      expect(requestCount).toBe(1);
+    } finally {
+      if (originalBackendUrl === undefined) {
+        delete process.env.WEB_CONSOLE_BACKEND_URL;
+      } else {
+        process.env.WEB_CONSOLE_BACKEND_URL = originalBackendUrl;
+      }
+      await new Promise((resolve) => proxy.close(resolve));
+      await new Promise((resolve) => backend.close(resolve));
+    }
+  });
 });
+
+function createBackendServer(handler) {
+  return createTestServer(async (req, res) => {
+    const result = await handler(req);
+    const body = JSON.stringify(result.body);
+    res.writeHead(result.status, {
+      'content-type': 'application/json',
+      'content-length': Buffer.byteLength(body),
+    });
+    res.end(body);
+  });
+}
+
+function createTestServer(handler) {
+  return http.createServer(handler);
+}

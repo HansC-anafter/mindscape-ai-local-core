@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { useWorkspaceData } from '@/contexts/WorkspaceDataContext';
 import { useExecutionState } from '@/hooks/useExecutionState';
@@ -19,6 +19,41 @@ const WorkspaceChat = dynamic(() => import('../../../components/WorkspaceChat'),
 const WorkspaceLeftSidebar = dynamic(() => import('./components/WorkspaceLeftSidebar'), { ssr: false });
 const WorkspaceRightSidebar = dynamic(() => import('./components/WorkspaceRightSidebar'), { ssr: false });
 const WorkspaceModals = dynamic(() => import('./components/WorkspaceModals'), { ssr: false });
+
+class WorkspaceChunkBoundary extends React.Component<
+  { children: React.ReactNode; fallback: React.ReactNode },
+  { hasError: boolean }
+> {
+  constructor(props: { children: React.ReactNode; fallback: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error) {
+    console.error('[WorkspacePage] Failed to load workspace panel:', error);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return this.props.fallback;
+    }
+    return this.props.children;
+  }
+}
+
+function WorkspaceSidebarPlaceholder({ side }: { side: 'left' | 'right' }) {
+  const borderClass = side === 'left' ? 'border-r' : 'border-l';
+  return (
+    <div
+      aria-hidden="true"
+      className={`w-80 ${borderClass} dark:border-gray-700 bg-surface-secondary dark:bg-gray-900 flex-shrink-0`}
+    />
+  );
+}
 
 // Internal component that uses Context data
 function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
@@ -42,6 +77,8 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
   // UI state - sidebar tabs
   const [rightSidebarTab, setRightSidebarTab] = useState<'timeline' | 'workbench'>('timeline');
   const [leftSidebarTab, setLeftSidebarTab] = useState<'timeline' | 'outcomes' | 'pack'>('timeline');
+  const [leftPanelReady, setLeftPanelReady] = useState(false);
+  const [rightPanelReady, setRightPanelReady] = useState(false);
 
   // UI state - modals and dialogs
   const [selectedArtifact, setSelectedArtifact] = useState<Artifact | null>(null);
@@ -63,6 +100,19 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
 
   // Workspace loading is handled by WorkspaceDataContext
   const loadWorkspace = contextData.refreshWorkspace;
+
+  useEffect(() => {
+    const leftTimeoutId = window.setTimeout(() => {
+      setLeftPanelReady(true);
+    }, 1200);
+    const rightTimeoutId = window.setTimeout(() => {
+      setRightPanelReady(true);
+    }, 3500);
+    return () => {
+      window.clearTimeout(leftTimeoutId);
+      window.clearTimeout(rightTimeoutId);
+    };
+  }, []);
 
   if (loading) {
     return (
@@ -118,75 +168,99 @@ function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
 
         <div className="flex flex-1 overflow-hidden">
           {/* Left Sidebar - Tab Panel and Workspace Scope Panel */}
-          <WorkspaceLeftSidebar
-            workspace={workspace}
-            workspaceId={workspaceId}
-            apiUrl={API_URL}
-            systemStatus={systemStatus}
-            projects={projectState.projects}
-            currentProject={projectState.currentProject}
-            selectedProjectId={projectState.selectedProjectId}
-            selectedType={projectState.selectedType}
-            isLoadingProject={projectState.isLoadingProject}
-            leftSidebarTab={leftSidebarTab}
-            setLeftSidebarTab={setLeftSidebarTab}
-            setSelectedType={projectState.setSelectedType}
-            onProjectSelect={(project) => {
-              projectState.setSelectedProjectId(project.id);
-              projectState.setCurrentProject(project);
-            }}
-            showSystemTools={showSystemTools}
-            setShowSystemTools={setShowSystemTools}
-            showDataSourcesModal={showDataSourcesModal}
-            setShowDataSourcesModal={setShowDataSourcesModal}
-            showRuntimeModal={showRuntimeModal}
-            setShowRuntimeModal={setShowRuntimeModal}
-            onRefreshAll={() => contextData.refreshAll()}
-          />
+          {leftPanelReady ? (
+            <WorkspaceChunkBoundary fallback={<WorkspaceSidebarPlaceholder side="left" />}>
+              <WorkspaceLeftSidebar
+                workspace={workspace}
+                workspaceId={workspaceId}
+                apiUrl={API_URL}
+                systemStatus={systemStatus}
+                projects={projectState.projects}
+                currentProject={projectState.currentProject}
+                selectedProjectId={projectState.selectedProjectId}
+                selectedType={projectState.selectedType}
+                isLoadingProject={projectState.isLoadingProject}
+                leftSidebarTab={leftSidebarTab}
+                setLeftSidebarTab={setLeftSidebarTab}
+                setSelectedType={projectState.setSelectedType}
+                onProjectSelect={(project) => {
+                  projectState.setSelectedProjectId(project.id);
+                  projectState.setCurrentProject(project);
+                }}
+                showSystemTools={showSystemTools}
+                setShowSystemTools={setShowSystemTools}
+                showDataSourcesModal={showDataSourcesModal}
+                setShowDataSourcesModal={setShowDataSourcesModal}
+                showRuntimeModal={showRuntimeModal}
+                setShowRuntimeModal={setShowRuntimeModal}
+                onRefreshAll={() => contextData.refreshAll()}
+              />
+            </WorkspaceChunkBoundary>
+          ) : (
+            <WorkspaceSidebarPlaceholder side="left" />
+          )}
 
           {/* Main Area - Workspace Chat */}
           <div className="flex-1 flex flex-col" style={{ minWidth: 0, overflow: 'hidden' }}>
-            <WorkspaceChat
-              workspaceId={workspaceId}
-              apiUrl={API_URL}
-              projectId={projectState.currentProject?.id}
-              threadId={selectedThreadId}
-              onFileAnalyzed={() => {
-                setWorkbenchRefreshTrigger(prev => prev + 1);
-              }}
-              executionMode={workspace?.execution_mode || 'hybrid'}
-              expectedArtifacts={workspace?.expected_artifacts}
-            />
+            <WorkspaceChunkBoundary
+              fallback={
+                <div className="flex h-full items-center justify-center bg-surface dark:bg-gray-950 text-sm text-secondary dark:text-gray-400">
+                  Workspace chat failed to load.
+                </div>
+              }
+            >
+              <WorkspaceChat
+                workspaceId={workspaceId}
+                apiUrl={API_URL}
+                projectId={projectState.currentProject?.id}
+                threadId={selectedThreadId}
+                onFileAnalyzed={() => {
+                  setWorkbenchRefreshTrigger(prev => prev + 1);
+                }}
+                executionMode={workspace?.execution_mode || 'hybrid'}
+                expectedArtifacts={workspace?.expected_artifacts}
+              />
+            </WorkspaceChunkBoundary>
           </div>
 
           {/* Right Sidebar - Execution Chat (when focused) or Workspace Tools (default) */}
-          <WorkspaceRightSidebar
-            workspace={workspace}
-            workspaceId={workspaceId}
-            apiUrl={API_URL}
-            executionState={executionState}
-            selectedThreadId={selectedThreadId}
-            rightSidebarTab={rightSidebarTab}
-            workbenchRefreshTrigger={workbenchRefreshTrigger}
-            setRightSidebarTab={setRightSidebarTab}
-            setSelectedArtifact={setSelectedArtifact}
-            setLeftSidebarTab={setLeftSidebarTab}
-            setSelectedThreadId={setSelectedThreadId}
-            contextData={contextData}
-          />
+          {rightPanelReady ? (
+            <WorkspaceChunkBoundary fallback={<WorkspaceSidebarPlaceholder side="right" />}>
+              <WorkspaceRightSidebar
+                workspace={workspace}
+                workspaceId={workspaceId}
+                apiUrl={API_URL}
+                executionState={executionState}
+                selectedThreadId={selectedThreadId}
+                rightSidebarTab={rightSidebarTab}
+                workbenchRefreshTrigger={workbenchRefreshTrigger}
+                setRightSidebarTab={setRightSidebarTab}
+                setSelectedArtifact={setSelectedArtifact}
+                setLeftSidebarTab={setLeftSidebarTab}
+                setSelectedThreadId={setSelectedThreadId}
+                contextData={contextData}
+              />
+            </WorkspaceChunkBoundary>
+          ) : (
+            <WorkspaceSidebarPlaceholder side="right" />
+          )}
         </div>
       </div>
 
       {/* Modals and Dialogs */}
-      <WorkspaceModals
-        workspaceId={workspaceId}
-        apiUrl={API_URL}
-        selectedArtifact={selectedArtifact}
-        setSelectedArtifact={setSelectedArtifact}
-        selectedThreadId={selectedThreadId}
-        isBundleOpen={isBundleOpen}
-        setIsBundleOpen={setIsBundleOpen}
-      />
+      {rightPanelReady ? (
+        <WorkspaceChunkBoundary fallback={null}>
+          <WorkspaceModals
+            workspaceId={workspaceId}
+            apiUrl={API_URL}
+            selectedArtifact={selectedArtifact}
+            setSelectedArtifact={setSelectedArtifact}
+            selectedThreadId={selectedThreadId}
+            isBundleOpen={isBundleOpen}
+            setIsBundleOpen={setIsBundleOpen}
+          />
+        </WorkspaceChunkBoundary>
+      ) : null}
     </div>
   );
 }

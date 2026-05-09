@@ -1,12 +1,8 @@
-'use client';
-
-import { useParams } from 'next/navigation';
 import { t } from '@/lib/i18n';
-import WorkspacePageClient from './WorkspacePageClient';
+import WorkspacePageClientLoader from './WorkspacePageClientLoader';
 
-export default function WorkspacePage() {
-  const params = useParams();
-  const workspaceId = params?.workspaceId as string | undefined;
+export default function WorkspacePage({ params }: { params: { workspaceId?: string } }) {
+  const workspaceId = params?.workspaceId;
   if (!workspaceId) {
     return (
       <div className="min-h-screen bg-surface dark:bg-gray-950">
@@ -17,5 +13,5 @@ export default function WorkspacePage() {
     );
   }
 
-  return <WorkspacePageClient workspaceId={workspaceId} />;
+  return <WorkspacePageClientLoader workspaceId={workspaceId} />;
 }

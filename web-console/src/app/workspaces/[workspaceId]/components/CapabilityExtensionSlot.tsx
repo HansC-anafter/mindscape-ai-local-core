@@ -1,38 +1,8 @@
 'use client';
 
-import React, { useState, useEffect, Suspense, lazy, useMemo } from 'react';
-import { convertImportPathToContextKey, normalizeCapabilityContextKey } from '@/lib/capability-path';
+import React, { useState, useEffect, Suspense, useMemo } from 'react';
 import { getApiBaseUrl } from '@/lib/api-url';
-
-// Use require.context to load capability components (webpack feature)
-// @ts-ignore - require.context is a webpack feature
-let rawCapabilityComponentsContext: ReturnType<typeof require.context>;
-try {
-    // @ts-ignore - require.context is a webpack feature
-    rawCapabilityComponentsContext = require.context(
-        '../../../capabilities',
-        true,
-        /^(?!.*(?:\/__tests__\/|\.test\.tsx$|\.spec\.tsx$|\.stories\.tsx$|\/\._)).*\.tsx$/,
-        'sync'
-    );
-} catch {
-    rawCapabilityComponentsContext = Object.assign(
-        (() => ({})) as any,
-        { keys: () => [] as string[], resolve: (k: string) => k, id: '' }
-    );
-}
-const capabilityComponentKeys = new Set<string>(
-    typeof rawCapabilityComponentsContext.keys === 'function'
-        ? rawCapabilityComponentsContext.keys()
-        : []
-);
-const capabilityComponentsContext = ((key: string) => {
-    const normalizedKey = normalizeCapabilityContextKey(key);
-    const resolvedKey = normalizedKey && capabilityComponentKeys.has(normalizedKey)
-        ? normalizedKey
-        : key;
-    return rawCapabilityComponentsContext(resolvedKey);
-}) as typeof rawCapabilityComponentsContext;
+import { createLazySettingsExtensionComponent } from '@/lib/settings-extension-component-loader';
 
 interface SettingsExtensionPanel {
     capability_code: string;
@@ -56,6 +26,7 @@ interface CapabilityExtensionSlotProps {
 export default function CapabilityExtensionSlot({ section, workspaceId }: CapabilityExtensionSlotProps) {
     const [panels, setPanels] = useState<SettingsExtensionPanel[]>([]);
     const [loading, setLoading] = useState(true);
+    const apiBaseUrl = getApiBaseUrl();
 
     useEffect(() => {
         const loadPanels = async () => {
@@ -81,23 +52,7 @@ export default function CapabilityExtensionSlot({ section, workspaceId }: Capabi
 
     const lazyComponents = useMemo(() => {
         return panels.map((panel) => {
-            const rawContextKey = convertImportPathToContextKey(panel.import_path);
-            const contextKey = normalizeCapabilityContextKey(rawContextKey);
-
-            const LazyComponent = lazy(async () => {
-                if (!contextKey || !capabilityComponentKeys.has(contextKey)) {
-                    console.warn('[CapabilityExtensionSlot] Context key not found:', contextKey);
-                    return { default: () => null };
-                }
-                try {
-                    const moduleLoader = capabilityComponentsContext(contextKey);
-                    const loadedModule = typeof moduleLoader === 'function' ? await moduleLoader() : await moduleLoader;
-                    return { default: loadedModule[panel.export || 'default'] || loadedModule.default };
-                } catch (error) {
-                    console.error('[CapabilityExtensionSlot] Failed to load component:', panel.component_code, error);
-                    return { default: () => null };
-                }
-            });
+            const LazyComponent = createLazySettingsExtensionComponent(panel);
 
             return { panel, LazyComponent };
         });

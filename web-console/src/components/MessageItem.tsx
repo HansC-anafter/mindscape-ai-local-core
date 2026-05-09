@@ -1,8 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import React, { Suspense, useState, useEffect, useRef } from 'react';
 import { ChatMessage } from '@/hooks/useChatEvents';
 import { t } from '@/lib/i18n';
 import { parseServerTimestamp } from '@/lib/time';
@@ -13,38 +11,19 @@ interface MessageItemProps {
   onRetry?: (retryData: { message: string; agent_id?: string }) => void;
 }
 
-const markdownComponents = {
-  p: ({ children }: any) => <p className="mb-2 last:mb-0">{children}</p>,
-  ul: ({ children }: any) => <ul className="list-disc list-inside mb-2 space-y-1">{children}</ul>,
-  ol: ({ children }: any) => <ol className="list-decimal list-inside mb-2 space-y-1">{children}</ol>,
-  li: ({ children }: any) => <li className="ml-2">{children}</li>,
-  strong: ({ children }: any) => <strong className="font-semibold">{children}</strong>,
-  em: ({ children }: any) => <em className="italic">{children}</em>,
-  code: ({ children, className }: any) => {
-    const isInline = !className;
-    return isInline ? (
-      <code className="bg-gray-200 dark:bg-gray-700 px-1 py-0.5 rounded text-xs font-mono">{children}</code>
-    ) : (
-      <code className="block bg-gray-100 dark:bg-gray-800 p-2 rounded text-xs font-mono overflow-x-auto">{children}</code>
-    );
-  },
-  pre: ({ children }: any) => <pre className="bg-gray-100 dark:bg-gray-800 p-2 rounded text-xs font-mono overflow-x-auto mb-2">{children}</pre>,
-  h1: ({ children }: any) => <h1 className="text-base font-bold mb-2">{children}</h1>,
-  h2: ({ children }: any) => <h2 className="text-sm font-bold mb-2">{children}</h2>,
-  h3: ({ children }: any) => <h3 className="text-xs font-bold mb-1">{children}</h3>,
-  blockquote: ({ children }: any) => <blockquote className="border-l-4 border-gray-300 dark:border-gray-600 pl-2 italic mb-2">{children}</blockquote>,
-  a: ({ href, children }: any) => (
-    <a
-      href={href}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 underline break-all"
-      onClick={(e) => e.stopPropagation()}
-    >
-      {children}
-    </a>
-  ),
-};
+const MessageMarkdown = React.lazy(() => import('./MessageMarkdown'));
+
+function PlainTextFallback({ content }: { content: string }) {
+  return <div className="whitespace-pre-wrap">{content}</div>;
+}
+
+function renderMarkdownContent(content: string, linkClassName?: string) {
+  return (
+    <Suspense fallback={<PlainTextFallback content={content} />}>
+      <MessageMarkdown content={content} linkClassName={linkClassName} />
+    </Suspense>
+  );
+}
 
 function MessageItemComponent({ message, onCopy, onRetry }: MessageItemProps) {
   const [isVisible, setIsVisible] = useState(false);
@@ -150,12 +129,7 @@ function MessageItemComponent({ message, onCopy, onRetry }: MessageItemProps) {
                     <div className="text-xs font-semibold text-accent dark:text-blue-300 mb-2">
                       理解與回應
                     </div>
-                    <ReactMarkdown
-                      remarkPlugins={[remarkGfm]}
-                      components={markdownComponents}
-                    >
-                      {message.agentMode.part1}
-                    </ReactMarkdown>
+                    {renderMarkdownContent(message.agentMode.part1)}
                   </div>
 
                   {/* Part 2: Executable Next Steps */}
@@ -171,45 +145,22 @@ function MessageItemComponent({ message, onCopy, onRetry }: MessageItemProps) {
                           ))}
                         </ul>
                       ) : (
-                        <ReactMarkdown
-                          remarkPlugins={[remarkGfm]}
-                          components={markdownComponents}
-                        >
-                          {message.agentMode.part2}
-                        </ReactMarkdown>
+                        renderMarkdownContent(message.agentMode.part2)
                       )}
                     </div>
                   )}
                 </div>
               ) : (
-                // Normal message display
-                <ReactMarkdown
-                  remarkPlugins={[remarkGfm]}
-                  components={{
-                    ...markdownComponents,
-                    a: ({ href, children }: any) => (
-                      <a
-                        href={href}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className={
-                          message.event_type === 'error'
-                            ? 'text-red-700 hover:text-red-900 underline break-all font-medium'
-                            : message.role === 'user'
-                              ? 'text-white/80 hover:text-white underline break-all'
-                              : 'text-accent dark:text-blue-600 hover:text-accent/80 dark:hover:text-blue-800 underline break-all'
-                        }
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        {children}
-                      </a>
-                    ),
-                  }}
-                >
-                  {message.is_welcome && (message.content.startsWith('welcome.') || message.content.includes('.'))
+                renderMarkdownContent(
+                  message.is_welcome && (message.content.startsWith('welcome.') || message.content.includes('.'))
                     ? (t(message.content as any) || message.content)
-                    : message.content}
-                </ReactMarkdown>
+                    : message.content,
+                  message.event_type === 'error'
+                    ? 'text-red-700 hover:text-red-900 underline break-all font-medium'
+                    : message.role === 'user'
+                      ? 'text-white/80 hover:text-white underline break-all'
+                      : 'text-accent dark:text-blue-600 hover:text-accent/80 dark:hover:text-blue-800 underline break-all'
+                )
               )
             ) : (
               <div className="text-gray-400 dark:text-gray-300 text-xs">Loading...</div>

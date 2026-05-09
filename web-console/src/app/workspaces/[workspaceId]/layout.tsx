@@ -26,11 +26,12 @@ export default function WorkspaceLayout({
 }: WorkspaceLayoutProps) {
   const { workspaceId } = params;
   const pathname = usePathname();
+  const isWorkspaceRootPath = pathname === `/workspaces/${workspaceId}`;
   const isCapabilitySurfacePath = Boolean(
     pathname?.match(/^\/workspaces\/[^/]+\/(?:capabilities|capability-ui-hosts)\/[^/]+(?:\/.*)?$/)
   );
   const shouldBypassWorkspaceChrome =
-    isCapabilitySurfacePath;
+    isCapabilitySurfacePath || isWorkspaceRootPath;
   const [WorkspaceChrome, setWorkspaceChrome] = useState<WorkspaceChromeComponent | null>(null);
 
   useEffect(() => {
@@ -55,7 +56,11 @@ export default function WorkspaceLayout({
     };
   }, [shouldBypassWorkspaceChrome]);
 
-  if (shouldBypassWorkspaceChrome) {
+  if (isWorkspaceRootPath) {
+    return <>{children}</>;
+  }
+
+  if (isCapabilitySurfacePath) {
     return (
       <div className="flex h-screen flex-col">
         <div className="relative flex flex-1 overflow-hidden">

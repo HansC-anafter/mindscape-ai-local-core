@@ -4,6 +4,8 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { Project } from '@/types/project';
 import { parseServerTimestamp } from '@/lib/time';
+import { isDocumentHidden, onDocumentVisible } from '@/lib/page-visibility';
+import { sharedGetFetch } from '@/lib/resilient-fetch';
 import { subscribeEventStream, UnifiedEvent } from '@/components/workspace/eventProjector';
 import { WorkflowEvidenceSummary } from '@/components/workspace/meeting/WorkflowEvidenceSummary';
 
@@ -141,6 +143,7 @@ export default function ProjectCard({
   const [internalExpanded, setInternalExpanded] = useState(defaultExpanded);
   const [cardData, setCardData] = useState<ProjectCardData | null>(null);
   const [loading, setLoading] = useState(false);
+  const [visibilityLoadTick, setVisibilityLoadTick] = useState(0);
   const [meetingUpdating, setMeetingUpdating] = useState(false);
   const [isHighlighted, setIsHighlighted] = useState(false);
   const [workflowEvidenceProfile, setWorkflowEvidenceProfile] = useState<string | null>(null);
@@ -198,7 +201,7 @@ export default function ProjectCard({
   }, [project.id, isExpanded, handleToggleExpand]);
 
   useEffect(() => {
-    if (cardData || loadingRef.current || apiUrl == null || !effectiveWorkspaceId) {
+    if (!isExpanded || cardData || loadingRef.current || apiUrl == null || !effectiveWorkspaceId || isDocumentHidden()) {
       return;
     }
 
@@ -210,17 +213,17 @@ export default function ProjectCard({
     const controller = new AbortController();
     const timeoutId = setTimeout(() => {
       controller.abort();
-      console.error('[ProjectCard] Request timeout after 10 seconds');
-    }, 10000);
+      console.error('[ProjectCard] Request timeout after 30 seconds');
+    }, 30000);
 
-    fetch(url, {
+    sharedGetFetch(url, {
       method: 'GET',
       headers: {
         'Accept': 'application/json',
       },
       signal: controller.signal,
       credentials: 'include'
-    })
+    }, { dedupKey: `workspace-project-card:${effectiveWorkspaceId}:${project.id}` })
       .then(res => {
         clearTimeout(timeoutId);
         if (!res.ok) {
@@ -254,7 +257,11 @@ export default function ProjectCard({
       controller.abort();
       loadingRef.current = false;
     };
-  }, [cardData, apiUrl, project.id, effectiveWorkspaceId]);
+  }, [cardData, apiUrl, project.id, effectiveWorkspaceId, isExpanded, visibilityLoadTick]);
+
+  useEffect(() => onDocumentVisible(() => {
+    setVisibilityLoadTick((tick) => tick + 1);
+  }), []);
 
   useEffect(() => {
     const meetingOn = Boolean(

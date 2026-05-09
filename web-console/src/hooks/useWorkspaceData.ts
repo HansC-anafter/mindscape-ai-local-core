@@ -3,6 +3,8 @@
 import { useCallback, useEffect } from 'react';
 import { useWorkspaceMetadata } from '@/contexts/WorkspaceMetadataContext';
 import { useMessages } from '@/contexts/MessagesContext';
+import { isDocumentHidden, onDocumentVisible } from '@/lib/page-visibility';
+import { sharedGetFetch } from '@/lib/resilient-fetch';
 
 interface UseWorkspaceDataOptions {
   enabled?: boolean;
@@ -47,23 +49,26 @@ export function useWorkspaceData(
   } = options || {};
 
   const loadWorkspaceInfo = useCallback(async () => {
-    if (!enabled || !workspaceId || apiUrl == null) {
+    if (!enabled || !workspaceId || apiUrl == null || isDocumentHidden()) {
       return;
     }
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
 
     try {
       const [response, executorRouteResponse] = await Promise.all([
-        fetch(`${apiUrl}/api/v1/workspaces/${workspaceId}`, {
+        sharedGetFetch(`${apiUrl}/api/v1/workspaces/${workspaceId}`, {
+          method: 'GET',
           signal: controller.signal,
-        }),
-        fetch(
+        }, { dedupKey: `workspace-details:${workspaceId}` }),
+        sharedGetFetch(
           `${apiUrl}/api/v1/settings/model-route-registry/workspace-executor?workspace_id=${encodeURIComponent(workspaceId)}`,
           {
+            method: 'GET',
             signal: controller.signal,
-          }
+          },
+          { dedupKey: `workspace-executor-route:${workspaceId}` },
         ).catch(() => null),
       ]);
       clearTimeout(timeoutId);
@@ -88,7 +93,7 @@ export function useWorkspaceData(
   }, [workspaceId, apiUrl, enabled, setWorkspaceTitle, setExecutorRuntime, onWorkspaceLoaded]);
 
   const loadSystemHealth = useCallback(async () => {
-    if (!enabled || !workspaceId || apiUrl == null) {
+    if (!enabled || !workspaceId || apiUrl == null || isDocumentHidden()) {
       return;
     }
 
@@ -96,9 +101,11 @@ export function useWorkspaceData(
     const timeoutId = setTimeout(() => controller.abort(), 5000);
 
     try {
-      const response = await fetch(`${apiUrl}/api/v1/workspaces/${workspaceId}/health`, {
-        signal: controller.signal,
-      });
+      const response = await sharedGetFetch(
+        `${apiUrl}/api/v1/workspaces/${workspaceId}/health`,
+        { method: 'GET', signal: controller.signal },
+        { dedupKey: `workspace-health:${workspaceId}` },
+      );
       clearTimeout(timeoutId);
 
       if (response.ok) {
@@ -115,7 +122,7 @@ export function useWorkspaceData(
   }, [workspaceId, apiUrl, enabled, setSystemHealth, onSystemHealthLoaded]);
 
   const loadContextTokenCount = useCallback(async () => {
-    if (!enabled || !workspaceId || apiUrl == null) {
+    if (!enabled || !workspaceId || apiUrl == null || isDocumentHidden()) {
       return;
     }
 
@@ -123,11 +130,13 @@ export function useWorkspaceData(
     const timeoutId = setTimeout(() => controller.abort(), 3000);
 
     try {
-      const response = await fetch(
+      const response = await sharedGetFetch(
         `${apiUrl}/api/v1/workspaces/${workspaceId}/workbench/context-token-count`,
         {
+          method: 'GET',
           signal: controller.signal,
-        }
+        },
+        { dedupKey: `workspace-context-token-count:${workspaceId}` },
       );
       clearTimeout(timeoutId);
 
@@ -157,6 +166,26 @@ export function useWorkspaceData(
       }
     }
   }, [workspaceId, apiUrl, enabled, loadSystemHealthOnMount, loadWorkspaceInfo, loadSystemHealth]);
+
+  useEffect(() => onDocumentVisible(() => {
+    if (!enabled || !workspaceId || !apiUrl) return;
+    void loadWorkspaceInfo();
+    if (loadSystemHealthOnMount) {
+      void loadSystemHealth();
+    }
+    if (!messagesLoading) {
+      void loadContextTokenCount();
+    }
+  }), [
+    apiUrl,
+    enabled,
+    loadContextTokenCount,
+    loadSystemHealth,
+    loadSystemHealthOnMount,
+    loadWorkspaceInfo,
+    messagesLoading,
+    workspaceId,
+  ]);
 
   useEffect(() => {
     if (enabled && workspaceId && apiUrl && !messagesLoading) {

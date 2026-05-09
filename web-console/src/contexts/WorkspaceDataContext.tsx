@@ -13,6 +13,7 @@ import React, {
 // Get API URL - for 'use client' components, always use browser-accessible URL
 // In browser, NEXT_PUBLIC_API_URL points to host's localhost
 import { getApiBaseUrl } from '../lib/api-url';
+import { isDocumentHidden, onDocumentVisible } from '../lib/page-visibility';
 import { sharedGetFetch } from '../lib/resilient-fetch';
 
 // This is evaluated at runtime, not module load time
@@ -348,6 +349,7 @@ export function WorkspaceDataProvider({
   // Load tasks with timeout
   const loadTasks = useCallback(async () => {
     if (loadingTasksRef.current || !mountedRef.current) return;
+    if (isDocumentHidden()) return;
     if (!workspaceId || workspaceId === 'new') {
       return;
     }
@@ -395,6 +397,7 @@ export function WorkspaceDataProvider({
   // Load executions with steps (batch API) with timeout
   const loadExecutions = useCallback(async () => {
     if (loadingExecutionsRef.current || !mountedRef.current) return;
+    if (isDocumentHidden()) return;
 
     loadingExecutionsRef.current = true;
     setIsLoadingExecutions(true);
@@ -453,6 +456,7 @@ export function WorkspaceDataProvider({
   const loadSystemStatus = useCallback(async (options?: { force?: boolean }) => {
     if (!mountedRef.current) return;
     if (loadingSystemStatusRef.current) return;
+    if (isDocumentHidden()) return;
 
     const cached = systemStatusCacheRef.current;
     if (!options?.force && cached && Date.now() - cached.timestamp < SYSTEM_STATUS_CACHE_MS) {
@@ -687,10 +691,23 @@ export function WorkspaceDataProvider({
   useEffect(() => {
     if (!workspaceId || workspaceId === 'new') return;
     const interval = setInterval(() => {
-      if (mountedRef.current) loadSystemStatus();
+      if (mountedRef.current && !isDocumentHidden()) loadSystemStatus();
     }, 60_000);
     return () => clearInterval(interval);
   }, [workspaceId, loadSystemStatus]);
+
+  useEffect(() => {
+    if (!workspaceId || workspaceId === 'new') return;
+    return onDocumentVisible(() => {
+      if (!mountedRef.current) return;
+      void Promise.allSettled([
+        loadTasks(),
+        loadExecutions(),
+      ]).finally(() => {
+        if (mountedRef.current) void loadSystemStatus();
+      });
+    });
+  }, [workspaceId, loadTasks, loadExecutions, loadSystemStatus]);
 
   const isLoading = isLoadingWorkspace || isLoadingTasks || isLoadingExecutions;
 

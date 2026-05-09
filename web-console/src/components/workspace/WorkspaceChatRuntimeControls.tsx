@@ -4,9 +4,10 @@ import React, { useEffect, useMemo, useState } from 'react';
 
 import { t } from '@/lib/i18n';
 import { useWorkspaceMetadata } from '@/contexts/WorkspaceMetadataContext';
-import { useChatModel } from '@/hooks/useChatModel';
 import { useWorkspaceExecutorRoute } from '@/hooks/useWorkspaceExecutorRoute';
 import { useToast } from '@/components/Toast';
+import { isDocumentHidden, onDocumentVisible } from '@/lib/page-visibility';
+import { sharedGetFetch } from '@/lib/resilient-fetch';
 
 interface AgentInfo {
   id: string;
@@ -49,9 +50,9 @@ export function WorkspaceChatRuntimeControls({
     contextTokenCount,
     executorRuntime,
     setExecutorRuntime,
+    setCurrentChatModel,
   } = useWorkspaceMetadata();
   const { showToast, ToastComponent } = useToast();
-  const { selectModel } = useChatModel(resolvedApiUrl, { workspaceId });
   const { routeEntries, resolvedRuntime, setPrimaryRuntime, clearPrimaryRuntime } = useWorkspaceExecutorRoute(
     workspaceId,
     resolvedApiUrl,
@@ -63,8 +64,16 @@ export function WorkspaceChatRuntimeControls({
     let cancelled = false;
 
     const fetchAgents = async () => {
+      if (isDocumentHidden()) {
+        return;
+      }
+
       try {
-        const response = await fetch(`${resolvedApiUrl}/api/v1/workspaces/${workspaceId}/agents`);
+        const response = await sharedGetFetch(
+          `${resolvedApiUrl}/api/v1/workspaces/${workspaceId}/agents`,
+          { method: 'GET' },
+          { dedupKey: `workspace-agents:${workspaceId}` },
+        );
         if (!response.ok || cancelled) {
           return;
         }
@@ -81,10 +90,14 @@ export function WorkspaceChatRuntimeControls({
 
     void fetchAgents();
     const interval = window.setInterval(fetchAgents, 30_000);
+    const unsubscribeVisible = onDocumentVisible(() => {
+      void fetchAgents();
+    });
 
     return () => {
       cancelled = true;
       window.clearInterval(interval);
+      unsubscribeVisible();
     };
   }, [resolvedApiUrl, workspaceId]);
 
@@ -105,7 +118,7 @@ export function WorkspaceChatRuntimeControls({
         { method: 'PUT', headers: { 'Content-Type': 'application/json' } },
       );
       if (response.ok) {
-        selectModel(modelName);
+        setCurrentChatModel(modelName);
       }
     } catch (err) {
       console.error('[WorkspaceChatRuntimeControls] Failed to update chat model:', err);

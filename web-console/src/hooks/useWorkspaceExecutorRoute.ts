@@ -1,6 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { isDocumentHidden, onDocumentVisible } from '@/lib/page-visibility';
+import { sharedGetFetch } from '@/lib/resilient-fetch';
 
 export interface WorkspaceExecutorSurfaceState {
   surface: string;
@@ -63,10 +65,15 @@ export function useWorkspaceExecutorRoute(
 
   const refresh = useCallback(async () => {
     if (!workspaceId) return;
+    if (isDocumentHidden()) return;
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${baseUrl}?workspace_id=${encodeURIComponent(workspaceId)}`);
+      const res = await sharedGetFetch(
+        `${baseUrl}?workspace_id=${encodeURIComponent(workspaceId)}`,
+        { method: 'GET' },
+        { dedupKey: `workspace-executor-route:${workspaceId}` },
+      );
       if (!res.ok) throw new Error(`Failed to fetch workspace executor route: ${res.status}`);
       const data: WorkspaceExecutorRoutePayload = await res.json();
       setRouteEntries(deriveRouteEntries(data));
@@ -114,6 +121,9 @@ export function useWorkspaceExecutorRoute(
 
   useEffect(() => {
     if (workspaceId) void refresh();
+    return onDocumentVisible(() => {
+      if (workspaceId) void refresh();
+    });
   }, [workspaceId, refresh]);
 
   return {

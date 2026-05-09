@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation';
+import { buildStaticCapabilityHostPath } from '../../capability-ui-hosts/capability-ui-static-hosts';
 
 interface UIComponentInfo {
   code: string;
@@ -24,6 +25,7 @@ interface CapabilityPageProps {
     workspaceId: string;
     capabilityCode: string;
   };
+  searchParams?: Record<string, string | string[] | undefined>;
 }
 
 const DEFAULT_BACKEND_URL = 'http://backend:8200';
@@ -60,8 +62,14 @@ async function fetchBackendJson<T>(path: string): Promise<{ ok: boolean; status:
 
 export default async function CapabilityPage({
   params,
+  searchParams,
 }: CapabilityPageProps) {
   const { workspaceId, capabilityCode } = params;
+  const staticHostPath = buildStaticCapabilityHostPath(workspaceId, capabilityCode, searchParams);
+  if (staticHostPath) {
+    redirect(staticHostPath);
+  }
+
   const encodedCapabilityCode = encodeURIComponent(capabilityCode);
   const capabilityResponse = await fetchBackendJson<CapabilityInfo>(
     `/api/v1/capability-packs/installed-capabilities/${encodedCapabilityCode}`,

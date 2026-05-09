@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef, Suspense, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useConflictHandler } from '@/hooks/useConflictHandler';
 import ConflictDialog from '@/components/ConflictDialog';
 import { useToast } from '@/components/Toast';
@@ -31,6 +31,13 @@ interface OutcomesPanelProps {
   workspaceId: string;
   apiUrl: string;
   onArtifactClick?: (artifact: Artifact) => void;
+}
+
+interface MatchingCapabilityComponent {
+  key: string;
+  capabilityCode: string;
+  componentCode: string;
+  description?: string;
 }
 
 export type { Artifact };
@@ -99,6 +106,33 @@ const getArtifactIcon = (artifactType: string): string => {
   return iconMap[artifactType] || 'ITEM';
 };
 
+const artifactsMatchComponent = (artifacts: Artifact[], component: any): boolean => {
+  if (!artifacts || artifacts.length === 0) {
+    return false;
+  }
+
+  if (
+    typeof component?.code === 'string' &&
+    (component.code.endsWith('Page') || component.code.endsWith('StudioPage'))
+  ) {
+    return false;
+  }
+
+  if (Array.isArray(component.artifact_types) && component.artifact_types.length > 0) {
+    return artifacts.some((artifact) =>
+      component.artifact_types.includes(artifact.artifact_type)
+    );
+  }
+
+  if (Array.isArray(component.playbook_codes) && component.playbook_codes.length > 0) {
+    return artifacts.some((artifact) =>
+      component.playbook_codes.includes(artifact.playbook_code)
+    );
+  }
+
+  return false;
+};
+
 export default function OutcomesPanel({
   workspaceId,
   apiUrl,
@@ -118,9 +152,7 @@ export default function OutcomesPanel({
 
   // Dynamic capability UI components (boundary: no hardcoded external components)
   const [installedCapabilities, setInstalledCapabilities] = useState<any[]>([]);
-  const [capabilityUIComponents, setCapabilityUIComponents] = useState<Map<string, React.ComponentType<any>>>(new Map());
-  const [matchingComponentKeys, setMatchingComponentKeys] = useState<string[]>([]);
-  const [openModalKey, setOpenModalKey] = useState<string | null>(null);
+  const [matchingComponents, setMatchingComponents] = useState<MatchingCapabilityComponent[]>([]);
   const loadArtifactsInFlightRef = useRef<Promise<void> | null>(null);
 
   const loadArtifacts = useCallback(async () => {
@@ -207,77 +239,28 @@ export default function OutcomesPanel({
 
   // Load UI components when artifacts change and match component criteria (boundary: lazy loading)
   useEffect(() => {
-    let cancelled = false;
+    if (artifacts.length === 0 || installedCapabilities.length === 0) {
+      setMatchingComponents([]);
+      return;
+    }
 
-    const loadMatchingComponents = async () => {
-      if (artifacts.length === 0 || installedCapabilities.length === 0) {
-        setMatchingComponentKeys([]);
-        return;
-      }
-
-      const {
-        artifactsMatchComponent,
-        loadCapabilityUIComponent,
-      } = await import('@/lib/capability-ui-loader');
-      if (cancelled) {
-        return;
-      }
-
-      const nextMatchingKeys: string[] = [];
-
-      for (const capability of installedCapabilities) {
-        if (capability.ui_components && capability.ui_components.length > 0) {
-          for (const componentInfo of capability.ui_components) {
-            // Check if artifacts match this component's criteria (boundary: generic check)
-            if (artifactsMatchComponent(artifacts, componentInfo)) {
-              const key = `${capability.code}:${componentInfo.code}`;
-              nextMatchingKeys.push(key);
-
-              // Check if already loaded to avoid duplicate loading
-              setCapabilityUIComponents(prev => {
-                if (prev.has(key)) {
-                  return prev; // Already loaded, skip
-                }
-                return prev;
-              });
-
-              // Load component asynchronously (with caching in loader)
-              loadCapabilityUIComponent(
-                capability.code,
-                componentInfo.code,
-                apiUrl
-              ).then(Component => {
-                if (cancelled) {
-                  return;
-                }
-                if (Component) {
-                  setCapabilityUIComponents(prev => {
-                    // Double-check to avoid race conditions
-                    if (prev.has(key)) {
-                      return prev;
-                    }
-                    const newMap = new Map(prev);
-                    newMap.set(key, Component);
-                    return newMap;
-                  });
-                }
-              }).catch(err => {
-                console.warn(`Failed to load component ${key}:`, err);
-              });
-            }
+    const nextMatchingComponents: MatchingCapabilityComponent[] = [];
+    for (const capability of installedCapabilities) {
+      if (capability.ui_components && capability.ui_components.length > 0) {
+        for (const componentInfo of capability.ui_components) {
+          if (artifactsMatchComponent(artifacts, componentInfo)) {
+            nextMatchingComponents.push({
+              key: `${capability.code}:${componentInfo.code}`,
+              capabilityCode: capability.code,
+              componentCode: componentInfo.code,
+              description: componentInfo.description,
+            });
           }
         }
       }
-
-      setMatchingComponentKeys(nextMatchingKeys);
-    };
-
-    loadMatchingComponents();
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [artifacts.length, installedCapabilities.length, apiUrl]);
+    }
+    setMatchingComponents(nextMatchingComponents);
+  }, [artifacts, installedCapabilities]);
 
   useEffect(() => {
     // Load artifacts on mount
@@ -486,35 +469,15 @@ export default function OutcomesPanel({
         />
       )}
 
-      {/* Dynamic capability UI components (boundary: loaded via API, not hardcoded) */}
-      {matchingComponentKeys.map((key) => {
-        const [capabilityCode, componentCode] = key.split(':');
-        const Component = capabilityUIComponents.get(key);
-        const capability = installedCapabilities.find(c => c.code === capabilityCode);
-        const componentInfo = capability?.ui_components?.find((c: any) => c.code === componentCode);
-        const isOpen = openModalKey === key;
-
-        if (!Component || !componentInfo) {
-          return null;
-        }
-
+      {matchingComponents.map((component) => {
         return (
-          <div key={key} className="p-2 border-b border-gray-200 dark:border-gray-700">
-            <button
-              onClick={() => setOpenModalKey(key)}
+          <div key={component.key} className="p-2 border-b border-gray-200 dark:border-gray-700">
+            <a
+              href={`/workspaces/${workspaceId}/capabilities/${component.capabilityCode}/ui?component=${encodeURIComponent(component.componentCode)}`}
               className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors text-sm font-medium"
             >
-              <span>{componentInfo.description || `View ${componentInfo.code}`}</span>
-            </button>
-            {isOpen && (
-              <Suspense fallback={<div className="p-4 text-center">Loading...</div>}>
-                <Component
-                  isOpen={isOpen}
-                  onClose={() => setOpenModalKey(null)}
-                  workspaceId={workspaceId}
-                />
-              </Suspense>
-            )}
+              <span>{component.description || `View ${component.componentCode}`}</span>
+            </a>
           </div>
         );
       })}
