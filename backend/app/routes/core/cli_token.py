@@ -53,6 +53,10 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
+_HOST_SESSION_OWNER_CACHE: dict[str, tuple[float, Optional[str]]] = {}
+_HOST_SESSION_OWNER_CACHE_TTL_SECONDS = 300.0
+_HOST_SESSION_OWNER_FAILURE_CACHE_TTL_SECONDS = 5.0
+
 _HOST_SESSION_EXECUTION_ENV_KEYS = (
     "CODEX_HOME",
     "HOME",
@@ -276,17 +280,52 @@ def _can_shadow_host_session_candidate(
 
 
 def _load_workspace_owner_user_id(workspace_id: str) -> Optional[str]:
+    workspace_id = str(workspace_id or "").strip()
     if not workspace_id:
         return None
+    now = time.monotonic()
+    cached = _HOST_SESSION_OWNER_CACHE.get(workspace_id)
+    if cached and cached[0] > now:
+        return cached[1]
+
     try:
         from ...services.stores.postgres.workspaces_store import PostgresWorkspacesStore
 
         workspace = PostgresWorkspacesStore().get_workspace_sync(workspace_id)
-        return getattr(workspace, "owner_user_id", None) if workspace else None
-    except Exception:
-        logger.exception(
-            "Failed to resolve workspace owner for host-session runtime registration: %s",
+        owner_user_id = getattr(workspace, "owner_user_id", None) if workspace else None
+        _HOST_SESSION_OWNER_CACHE[workspace_id] = (
+            now + _HOST_SESSION_OWNER_CACHE_TTL_SECONDS,
+            owner_user_id,
+        )
+        return owner_user_id
+    except Exception as exc:
+        stale_owner_user_id = cached[1] if cached else None
+        if stale_owner_user_id:
+            _HOST_SESSION_OWNER_CACHE[workspace_id] = (
+                now + _HOST_SESSION_OWNER_FAILURE_CACHE_TTL_SECONDS,
+                stale_owner_user_id,
+            )
+            logger.warning(
+                (
+                    "Failed to resolve workspace owner for host-session runtime "
+                    "registration; using cached owner for workspace=%s: %s"
+                ),
+                workspace_id,
+                exc,
+            )
+            return stale_owner_user_id
+
+        _HOST_SESSION_OWNER_CACHE[workspace_id] = (
+            now + _HOST_SESSION_OWNER_FAILURE_CACHE_TTL_SECONDS,
+            None,
+        )
+        logger.warning(
+            (
+                "Failed to resolve workspace owner for host-session runtime "
+                "registration; suppressing repeated lookup briefly for workspace=%s: %s"
+            ),
             workspace_id,
+            exc,
         )
         return None
 
