@@ -9,6 +9,7 @@ import {
     Plus,
     RefreshCw,
     ShieldCheck,
+    Trash2,
     UserRound,
     XCircle,
 } from 'lucide-react';
@@ -41,8 +42,9 @@ type CodexTargetActionMessage = {
     text: string;
 };
 
-const CODEX_LOGIN_TIMEOUT_MS = 120_000;
+const CODEX_LOGIN_TIMEOUT_MS = 300_000;
 const CODEX_LOGOUT_TIMEOUT_MS = 45_000;
+const CODEX_PROBE_TIMEOUT_MS = 120_000;
 
 const fetchWithTimeout = async (
     input: RequestInfo | URL,
@@ -63,6 +65,8 @@ const fetchWithTimeout = async (
 
 const isAbortError = (value: unknown) => value instanceof Error && value.name === 'AbortError';
 
+const normalizedCode = (value: string | null | undefined) => (value || '').trim().toLowerCase();
+
 const errorMessageFromPayload = (
     payload: unknown,
     fallback: string
@@ -77,6 +81,24 @@ const errorMessageFromPayload = (
         if (typeof note === 'string' && note.trim()) return note;
     }
     return fallback;
+};
+
+const probeErrorCodeFromPayload = (payload: AgentAuthActionResponse) => {
+    const direct = normalizedCode(payload.error);
+    if (direct) return direct;
+    if (!payload.output) return '';
+    try {
+        const parsed = JSON.parse(payload.output) as Record<string, unknown>;
+        return normalizedCode(
+            typeof parsed.error_code === 'string'
+                ? parsed.error_code
+                : typeof parsed.error === 'string'
+                    ? parsed.error
+                    : ''
+        );
+    } catch {
+        return '';
+    }
 };
 
 const codexAccountHomesRoot = (targets: CodexAccountHomeTarget[]) => {
@@ -96,15 +118,6 @@ const newCodexAccountHomePath = (targets: CodexAccountHomeTarget[]) => {
     return `${codexAccountHomesRoot(targets)}/acct-${suffix}`;
 };
 
-const codexAccountHomeEnv = (codexHome: string) => ({
-    CODEX_HOME: codexHome,
-    HOME: codexHome,
-    XDG_CONFIG_HOME: `${codexHome}/.config`,
-    XDG_DATA_HOME: `${codexHome}/.local/share`,
-    XDG_STATE_HOME: `${codexHome}/.local/state`,
-    codex_seed_kind: 'account_home',
-});
-
 const shortRuntimeId = (value: string | null | undefined) => {
     const raw = value || '';
     return raw.replace(/^runtime-codex_cli-/, 'codex:');
@@ -115,18 +128,43 @@ const shortKey = (value: string | null | undefined) => {
     return raw.length > 14 ? `${raw.slice(0, 8)}...${raw.slice(-6)}` : raw;
 };
 
+const CODEX_AUTH_ERROR_CODES = new Set([
+    '401',
+    '403',
+    'auth_failure',
+    'deactivated_workspace',
+    'missing_refresh_token',
+    'stale_refresh_token',
+    'unauthorized',
+]);
+
+const CODEX_QUOTA_ERROR_CODES = new Set([
+    '429',
+    'quota',
+    'rate_limit',
+    'resource_exhausted',
+]);
+
+const CODEX_INCONCLUSIVE_ERROR_CODES = new Set([
+    'timeout',
+    'runtime_error',
+    'probe_transport_error',
+    'codex_cli_panic',
+    'token_refresh_persist_failed',
+]);
+
 const codexStatusMeta = (target: CodexAccountHomeTarget) => {
-    const errorCode = target.last_probe_error_code || target.last_error_code;
+    const errorCode = normalizedCode(target.last_probe_error_code || target.last_error_code);
     if (target.probe_state === 'available') {
         return {
             label: 'Available',
-            detail: 'External probe passed',
+            detail: 'Token refresh passed',
             icon: CheckCircle2,
             badge: 'border-green-200 bg-green-50 text-green-700 dark:border-green-800 dark:bg-green-900/20 dark:text-green-300',
             row: 'border-green-200 dark:border-green-800 bg-green-50/50 dark:bg-green-900/10',
         };
     }
-    if (target.probe_state === 'quota_limited' || errorCode === '429') {
+    if (target.probe_state === 'quota_limited' || CODEX_QUOTA_ERROR_CODES.has(errorCode)) {
         return {
             label: 'Quota limited',
             detail: errorCode || '429',
@@ -135,7 +173,16 @@ const codexStatusMeta = (target: CodexAccountHomeTarget) => {
             row: 'border-amber-200 dark:border-amber-800 bg-amber-50/40 dark:bg-amber-900/10',
         };
     }
-    if (target.probe_state === 'auth_failed' || errorCode) {
+    if (target.probe_state === 'probe_inconclusive' || CODEX_INCONCLUSIVE_ERROR_CODES.has(errorCode)) {
+        return {
+            label: 'Probe inconclusive',
+            detail: errorCode || 'runtime check interrupted',
+            icon: AlertTriangle,
+            badge: 'border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-700 dark:bg-slate-900/30 dark:text-slate-300',
+            row: 'border-slate-200 dark:border-slate-700 bg-slate-50/40 dark:bg-slate-900/10',
+        };
+    }
+    if (target.probe_state === 'auth_failed' || CODEX_AUTH_ERROR_CODES.has(errorCode)) {
         return {
             label: 'Auth failed',
             detail: errorCode || 'auth_failed',
@@ -144,9 +191,18 @@ const codexStatusMeta = (target: CodexAccountHomeTarget) => {
             row: 'border-red-200 dark:border-red-800 bg-red-50/40 dark:bg-red-900/10',
         };
     }
+    if (target.probe_state === 'runtime_failed' || errorCode) {
+        return {
+            label: 'Runtime failed',
+            detail: errorCode || 'runtime_error',
+            icon: AlertTriangle,
+            badge: 'border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-700 dark:bg-slate-900/30 dark:text-slate-300',
+            row: 'border-slate-200 dark:border-slate-700 bg-slate-50/40 dark:bg-slate-900/10',
+        };
+    }
     return {
         label: 'Unknown',
-        detail: 'Not probed',
+        detail: 'Probe required',
         icon: AlertTriangle,
         badge: 'border-gray-200 bg-gray-50 text-gray-600 dark:border-gray-700 dark:bg-gray-900/30 dark:text-gray-300',
         row: 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800',
@@ -441,14 +497,11 @@ export default function CliApiKeysSection({ workspaceId }: CliApiKeysSectionProp
         setError(null);
         try {
             const base = getApiBaseUrl();
-            const resp = await fetch(`${base}/api/v1/auth/cli-runtime/register-host-session`, {
+            const resp = await fetch(`${base}/api/v1/workspaces/${workspaceId}/agents/codex_cli/account-homes`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    workspace_id: workspaceId,
-                    surface: 'codex_cli',
-                    runtime_name: `Codex account home ${codexHome.split('/').filter(Boolean).slice(-1)[0] || ''}`.trim(),
-                    metadata: codexAccountHomeEnv(codexHome),
+                    codex_home: codexHome,
                 }),
             });
             const payload = await resp.json().catch(() => ({}));
@@ -459,7 +512,7 @@ export default function CliApiKeysSection({ workspaceId }: CliApiKeysSectionProp
             setShowCodexHomeCreator(false);
             setAddCodexHomeMessage({
                 kind: 'success',
-                text: 'Account home added. Use Login on the new row.',
+                text: 'Account home created. Use Login on the new row; email and scope will be filled from the completed OpenAI login.',
             });
             await loadCodexAccountHomes();
         } catch (e: unknown) {
@@ -698,6 +751,99 @@ export default function CliApiKeysSection({ workspaceId }: CliApiKeysSectionProp
         }
     }, [loadWorkspaceBinding, loadWorkspaceGcaStatus, workspaceId]);
 
+    const handleCodexProbe = useCallback(async (
+        agentId: Extract<AgentTab, 'codex'>,
+        target: CodexAccountHomeTarget,
+        options?: { afterLogin?: boolean }
+    ) => {
+        const agent = agentMap[agentId];
+        if (!workspaceId || !agent.runtimeAgentId) {
+            setError('Workspace runtime context is required for Codex token checks.');
+            return false;
+        }
+        if (!target || (!target.runtime_id && !target.account_key && !target.codex_home)) {
+            setError('Select a Codex account-home target before checking token usability.');
+            return false;
+        }
+        const targetKey = target.runtime_id || target.account_key || target.codex_home;
+        setCodexTargetActionLoading((prev) => ({ ...prev, [targetKey]: 'probe' }));
+        setCodexTargetActionMessages((prev) => ({
+            ...prev,
+            [targetKey]: {
+                kind: 'info',
+                text: options?.afterLogin
+                    ? 'Login command completed. Checking whether this token is usable now.'
+                    : 'Checking whether this account-home token is usable now.',
+            },
+        }));
+        setError(null);
+        try {
+            const base = getApiBaseUrl();
+            const resp = await fetchWithTimeout(
+                `${base}/api/v1/workspaces/${workspaceId}/agents/${agent.runtimeAgentId}/account-homes/probe`,
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        runtime_id: target.runtime_id,
+                        account_key: target.account_key,
+                        codex_home: target.codex_home,
+                    }),
+                },
+                CODEX_PROBE_TIMEOUT_MS
+            );
+            const payload = await resp.json().catch(() => ({
+                agent_id: agent.runtimeAgentId!,
+                workspace_id: workspaceId,
+                action: 'probe',
+                success: false,
+                output: '',
+                error: 'Token check failed',
+            }));
+            if (!resp.ok) {
+                throw new Error(errorMessageFromPayload(payload, 'Token check failed'));
+            }
+            const typedPayload = payload as AgentAuthActionResponse;
+            const probeErrorCode = probeErrorCodeFromPayload(typedPayload);
+            const probeWasInconclusive = CODEX_INCONCLUSIVE_ERROR_CODES.has(probeErrorCode);
+            const resultMessage = typedPayload.success
+                ? 'Token probe passed. This account-home is usable.'
+                : probeWasInconclusive
+                    ? `Token probe was inconclusive: ${errorMessageFromPayload(typedPayload, 'unknown_error')}. This was not marked as auth failure.`
+                    : `Token probe failed: ${errorMessageFromPayload(typedPayload, 'unknown_error')}`;
+            setCodexTargetActionMessages((prev) => ({
+                ...prev,
+                [targetKey]: {
+                    kind: typedPayload.success ? 'success' : probeWasInconclusive ? 'info' : 'error',
+                    text: resultMessage,
+                },
+            }));
+            if (!typedPayload.success && !probeWasInconclusive) {
+                setError(resultMessage);
+            }
+            await loadCodexAccountHomes();
+            return typedPayload.success;
+        } catch (e: unknown) {
+            const message = isAbortError(e)
+                ? 'Token probe timed out or was interrupted. The row was unlocked; refresh homes to re-check the account state.'
+                : e instanceof Error
+                    ? e.message
+                    : 'Token check failed';
+            setCodexTargetActionMessages((prev) => ({
+                ...prev,
+                [targetKey]: {
+                    kind: 'error',
+                    text: message,
+                },
+            }));
+            setError(message);
+            await loadCodexAccountHomes();
+            return false;
+        } finally {
+            setCodexTargetActionLoading((prev) => ({ ...prev, [targetKey]: null }));
+        }
+    }, [agentMap, loadCodexAccountHomes, workspaceId]);
+
     const handleAgentAuthAction = useCallback(async (
         agentId: Extract<AgentTab, 'codex'>,
         action: 'login' | 'logout',
@@ -759,11 +905,10 @@ export default function CliApiKeysSection({ workspaceId }: CliApiKeysSectionProp
                 [targetKey]: {
                     kind: 'success',
                     text: action === 'login'
-                        ? 'Login command completed. Refreshing this account-home status.'
+                        ? 'Login command completed. Checking whether this token is usable now.'
                         : 'Logout command completed. Refreshing this account-home status.',
                 },
             }));
-            setCodexTargetActionLoading((prev) => ({ ...prev, [targetKey]: null }));
             if (action === 'login') {
                 setCodexAccountHomes((prev) => prev.map((item) => {
                     const itemKey = item.runtime_id || item.account_key || item.codex_home;
@@ -775,9 +920,11 @@ export default function CliApiKeysSection({ workspaceId }: CliApiKeysSectionProp
                         last_error_code: null,
                     };
                 }));
+                await handleCodexProbe(agentId, target, { afterLogin: true });
+            } else {
+                await loadCodexAccountHomes();
             }
             await loadAgentAuthStatus(agentId);
-            await loadCodexAccountHomes();
         } catch (e: unknown) {
             const message = isAbortError(e)
                 ? `${action === 'login' ? 'Login' : 'Logout'} request timed out or was interrupted. The row was unlocked; refresh homes to re-check the account state.`
@@ -795,7 +942,62 @@ export default function CliApiKeysSection({ workspaceId }: CliApiKeysSectionProp
         } finally {
             setCodexTargetActionLoading((prev) => ({ ...prev, [targetKey]: null }));
         }
-    }, [agentMap, loadAgentAuthStatus, loadCodexAccountHomes, workspaceId]);
+    }, [agentMap, handleCodexProbe, loadAgentAuthStatus, loadCodexAccountHomes, workspaceId]);
+
+    const handleDeleteCodexHome = useCallback(async (target: CodexAccountHomeTarget) => {
+        if (!workspaceId) {
+            setError('Workspace runtime context is required to delete a Codex account home.');
+            return;
+        }
+        if (!target.runtime_id) {
+            setError('This Codex account-home row has no runtime ID.');
+            return;
+        }
+        const targetKey = target.runtime_id || target.account_key || target.codex_home;
+        const homeName = target.codex_home.split('/').filter(Boolean).slice(-1)[0] || target.codex_home;
+        const label = target.login_email || homeName;
+        if (!window.confirm(`Delete Codex account home ${label}? This removes the runtime row and its managed local account-home directory.`)) {
+            return;
+        }
+        setCodexTargetActionLoading((prev) => ({ ...prev, [targetKey]: 'delete' }));
+        setCodexTargetActionMessages((prev) => ({
+            ...prev,
+            [targetKey]: {
+                kind: 'info',
+                text: 'Deleting this account-home target.',
+            },
+        }));
+        setError(null);
+        try {
+            const base = getApiBaseUrl();
+            const resp = await fetch(
+                `${base}/api/v1/workspaces/${workspaceId}/agents/codex_cli/account-homes/${encodeURIComponent(target.runtime_id)}`,
+                { method: 'DELETE' }
+            );
+            const payload = await resp.json().catch(() => ({}));
+            if (!resp.ok) {
+                throw new Error(errorMessageFromPayload(payload, 'Failed to delete Codex account home'));
+            }
+            setAddCodexHomeMessage({
+                kind: 'success',
+                text: `Deleted account home ${homeName}.`,
+            });
+            await loadCodexAccountHomes();
+            await loadAgentAuthStatus('codex');
+        } catch (e: unknown) {
+            const message = e instanceof Error ? e.message : 'Failed to delete Codex account home';
+            setCodexTargetActionMessages((prev) => ({
+                ...prev,
+                [targetKey]: {
+                    kind: 'error',
+                    text: message,
+                },
+            }));
+            setError(message);
+        } finally {
+            setCodexTargetActionLoading((prev) => ({ ...prev, [targetKey]: null }));
+        }
+    }, [loadAgentAuthStatus, loadCodexAccountHomes, workspaceId]);
 
     const connectedCount = poolAccounts.filter((a) => a.auth_status === 'connected').length;
     const activeAgent = agentMap[activeTab];
@@ -1070,12 +1272,16 @@ export default function CliApiKeysSection({ workspaceId }: CliApiKeysSectionProp
                                     {showCodexHomeCreator && (
                                         <div className="rounded-md border border-blue-200 bg-blue-50/60 p-3 dark:border-blue-800 dark:bg-blue-900/10">
                                             <label className="block text-[11px] font-semibold text-blue-800 dark:text-blue-200">
-                                                New account-home path
+                                                New local CODEX_HOME path
                                             </label>
+                                            <p className="mt-1 text-[11px] text-blue-700 dark:text-blue-300">
+                                                This is a local account-home directory, not an email field. After Login completes, email, account key, and scope are read from the OpenAI token claims.
+                                            </p>
                                             <div className="mt-2 flex flex-col gap-2 lg:flex-row">
                                                 <input
                                                     type="text"
                                                     value={newCodexHome}
+                                                    placeholder="/Users/shock/.mindscape/runtime/codex-home-pool/accounts/acct-..."
                                                     onChange={(event) => setNewCodexHome(event.target.value)}
                                                     className="min-w-0 flex-1 rounded-md border border-blue-200 bg-white px-3 py-2 font-mono text-xs text-gray-900 outline-none focus:border-blue-500 dark:border-blue-800 dark:bg-gray-950 dark:text-gray-100"
                                                 />
@@ -1194,6 +1400,15 @@ export default function CliApiKeysSection({ workspaceId }: CliApiKeysSectionProp
                                                             <div className="flex items-center gap-1.5 lg:justify-end">
                                                                 <button
                                                                     type="button"
+                                                                    onClick={() => handleCodexProbe('codex', target)}
+                                                                    disabled={!!targetAction}
+                                                                    className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-md border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800"
+                                                                >
+                                                                    <RefreshCw className={`h-3.5 w-3.5 ${targetAction === 'probe' ? 'animate-spin' : ''}`} />
+                                                                    {targetAction === 'probe' ? 'Checking...' : 'Check'}
+                                                                </button>
+                                                                <button
+                                                                    type="button"
                                                                     onClick={() => handleAgentAuthAction('codex', 'login', target)}
                                                                     disabled={!!targetAction}
                                                                     className="px-3 py-1.5 text-xs font-medium rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
@@ -1207,6 +1422,16 @@ export default function CliApiKeysSection({ workspaceId }: CliApiKeysSectionProp
                                                                     className="px-3 py-1.5 text-xs font-medium rounded-md border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800"
                                                                 >
                                                                     {targetAction === 'logout' ? 'Logging out...' : 'Logout'}
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => handleDeleteCodexHome(target)}
+                                                                    disabled={!!targetAction || !target.runtime_id}
+                                                                    title="Delete account home"
+                                                                    aria-label={`Delete account home ${homeName}`}
+                                                                    className="inline-flex h-[30px] w-[30px] items-center justify-center rounded-md border border-red-200 bg-white text-red-600 hover:bg-red-50 disabled:opacity-50 dark:border-red-900/70 dark:bg-gray-900 dark:text-red-300 dark:hover:bg-red-950/30"
+                                                                >
+                                                                    <Trash2 className="h-3.5 w-3.5" />
                                                                 </button>
                                                             </div>
                                                         </div>
