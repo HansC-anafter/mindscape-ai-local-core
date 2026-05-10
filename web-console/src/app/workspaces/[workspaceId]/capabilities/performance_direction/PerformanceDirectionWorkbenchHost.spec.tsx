@@ -9,7 +9,7 @@ const mockPush = vi.fn();
 
 vi.mock('next/navigation', () => ({
   usePathname: () =>
-    '/workspaces/ws_test/capabilities/performance_direction/sessions/ds_ae738cc25079',
+    '/capability-ui-hosts/performance_direction/ws_test/sessions/ds_ae738cc25079',
   useRouter: () => ({
     push: mockPush,
   }),
@@ -177,7 +177,7 @@ describe('PerformanceDirectionWorkbenchHost AOL shell', () => {
           workspaceId="ws_test"
           routeMode="workbench"
           routeSessionId="ds_ae738cc25079"
-          sessionRouteBasePath="/workspaces/ws_test/capabilities/performance_direction/sessions"
+          sessionRouteBasePath="/capability-ui-hosts/performance_direction/ws_test/sessions"
         />
       </AOLRuntimeShellProvider>,
     );
@@ -212,7 +212,7 @@ describe('PerformanceDirectionWorkbenchHost AOL shell', () => {
           workspaceId="ws_test"
           routeMode="workbench"
           routeSessionId="ds_ae738cc25079"
-          sessionRouteBasePath="/workspaces/ws_test/capabilities/performance_direction/sessions"
+          sessionRouteBasePath="/capability-ui-hosts/performance_direction/ws_test/sessions"
         />
       </AOLRuntimeShellProvider>,
     );

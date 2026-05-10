@@ -1,5 +1,6 @@
-import PerformanceDirectionWorkbenchHost from '../../PerformanceDirectionWorkbenchHost';
-import { buildPerformanceDirectionSessionBasePath } from '../../routePaths';
+import { redirect } from 'next/navigation';
+
+import { buildPerformanceDirectionSessionPath } from '../../routePaths';
 
 type PerformanceDirectionSessionPageProps = {
   params: {
@@ -14,12 +15,5 @@ export default function PerformanceDirectionSessionPage({
   const workspaceId = String(params.workspaceId || '').trim();
   const sessionId = String(params.sessionId || '').trim();
 
-  return (
-    <PerformanceDirectionWorkbenchHost
-      workspaceId={workspaceId}
-      routeMode="workbench"
-      routeSessionId={sessionId}
-      sessionRouteBasePath={buildPerformanceDirectionSessionBasePath(workspaceId)}
-    />
-  );
+  redirect(buildPerformanceDirectionSessionPath(workspaceId, sessionId));
 }

@@ -8,7 +8,7 @@ import PerformanceDirectionLauncherHost from './PerformanceDirectionLauncherHost
 const mockPush = vi.fn();
 
 vi.mock('next/navigation', () => ({
-  usePathname: () => '/workspaces/ws_test/capabilities/performance_direction/start',
+  usePathname: () => '/capability-ui-hosts/performance_direction/ws_test/start',
   useRouter: () => ({
     push: mockPush,
   }),
@@ -52,7 +52,7 @@ describe('PerformanceDirectionLauncherHost', () => {
       <AOLRuntimeShellProvider workspaceId="ws_test">
         <PerformanceDirectionLauncherHost
           workspaceId="ws_test"
-          sessionRouteBasePath="/workspaces/ws_test/capabilities/performance_direction/sessions"
+          sessionRouteBasePath="/capability-ui-hosts/performance_direction/ws_test/sessions"
         />
       </AOLRuntimeShellProvider>,
     );
@@ -71,7 +71,7 @@ describe('PerformanceDirectionLauncherHost', () => {
       <AOLRuntimeShellProvider workspaceId="ws_test">
         <PerformanceDirectionLauncherHost
           workspaceId="ws_test"
-          sessionRouteBasePath="/workspaces/ws_test/capabilities/performance_direction/sessions"
+          sessionRouteBasePath="/capability-ui-hosts/performance_direction/ws_test/sessions"
         />
       </AOLRuntimeShellProvider>,
     );
@@ -82,7 +82,7 @@ describe('PerformanceDirectionLauncherHost', () => {
     fireEvent.click(screen.getByText('Load storyboard by session id'));
 
     expect(mockPush).toHaveBeenCalledWith(
-      '/workspaces/ws_test/capabilities/performance_direction/sessions/ds_test',
+      '/capability-ui-hosts/performance_direction/ws_test/sessions/ds_test',
     );
   });
 });

@@ -13,6 +13,7 @@ const staticHostCapabilityCodes = new Set([
   'multi_media_studio',
   'newsletter',
   'practice_companion',
+  'performance_direction',
   'public_persona_studio',
   'video_chapter_studio',
   'video_renderer',
@@ -23,6 +24,7 @@ const staticHostCapabilityCodes = new Set([
 
 const topLevelStaticHostCapabilityCodes = new Set([
   'ig',
+  'performance_direction',
 ]);
 
 function capabilityCodeVariants(capabilityCode: string): string[] {

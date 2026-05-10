@@ -8,7 +8,7 @@ describe('capability static host routing', () => {
   it('resolves known host codes and code variants', () => {
     expect(resolveStaticCapabilityHostCode('ig')).toBe('ig');
     expect(resolveStaticCapabilityHostCode('brand-identity')).toBe('brand_identity');
-    expect(resolveStaticCapabilityHostCode('performance-direction')).toBeNull();
+    expect(resolveStaticCapabilityHostCode('performance-direction')).toBe('performance_direction');
     expect(resolveStaticCapabilityHostCode('unknown_pack')).toBeNull();
   });
 
@@ -24,5 +24,10 @@ describe('capability static host routing', () => {
         component: 'IGWorkbench',
       }),
     ).toBe('/capability-ui-hosts/ig/ws%2Fone?component=IGWorkbench');
+    expect(
+      buildStaticCapabilityHostPath('ws/one', 'performance_direction', {
+        session_id: 'ds_1',
+      }),
+    ).toBe('/capability-ui-hosts/performance_direction/ws%2Fone?session_id=ds_1');
   });
 });

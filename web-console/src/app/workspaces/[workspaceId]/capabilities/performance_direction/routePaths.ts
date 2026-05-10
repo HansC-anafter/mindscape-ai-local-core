@@ -1,9 +1,9 @@
 export function buildPerformanceDirectionStartPath(workspaceId: string): string {
-  return `/workspaces/${encodeURIComponent(workspaceId)}/capabilities/performance_direction/start`;
+  return `/capability-ui-hosts/performance_direction/${encodeURIComponent(workspaceId)}/start`;
 }
 
 export function buildPerformanceDirectionSessionBasePath(workspaceId: string): string {
-  return `/workspaces/${encodeURIComponent(workspaceId)}/capabilities/performance_direction/sessions`;
+  return `/capability-ui-hosts/performance_direction/${encodeURIComponent(workspaceId)}/sessions`;
 }
 
 export function buildPerformanceDirectionSessionPath(
