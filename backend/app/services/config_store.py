@@ -25,6 +25,8 @@ logger = logging.getLogger(__name__)
 class ConfigStore(PostgresStoreBase):
     """PostgreSQL-based configuration store"""
 
+    _schema_ensured = False
+
     def __init__(self, db_path: str = None):
         super().__init__()
         if db_path is not None:
@@ -33,7 +35,8 @@ class ConfigStore(PostgresStoreBase):
             raise RuntimeError(
                 "SQLite is no longer supported for ConfigStore. Configure PostgreSQL."
             )
-        self._ensure_schema()
+        if not ConfigStore._schema_ensured:
+            self._ensure_schema()
 
     def _ensure_schema(self):
         """Ensure user_configs table exists (managed by Alembic)."""
@@ -49,6 +52,8 @@ class ConfigStore(PostgresStoreBase):
                     "Missing PostgreSQL table: user_configs. "
                     "Will be created by migration orchestrator in startup_event."
                 )
+                return
+            ConfigStore._schema_ensured = True
 
     def get_config(self, profile_id: str) -> Optional[UserConfig]:
         """Get user configuration"""
