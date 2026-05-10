@@ -19,7 +19,15 @@ const PREWARM_ENABLED = process.env.FRONTEND_PREWARM_ENABLED === '1';
 const PREWARM_DELAY_MS = Number.parseInt(process.env.FRONTEND_PREWARM_DELAY_MS || '8000', 10);
 const PREWARM_TIMEOUT_MS = Number.parseInt(process.env.FRONTEND_PREWARM_TIMEOUT_MS || '360000', 10);
 const NEXT_DEV_TURBO_ENABLED = process.env.NEXT_DEV_TURBO === '1';
-const DEFAULT_PREWARM_PATHS = [];
+const DEFAULT_PREWARM_PATHS = [
+  '/',
+  '/workspaces',
+  '/workspaces/{workspaceId}',
+  '/capability-ui-hosts/ig/{workspaceId}',
+  '/capability-ui-hosts/performance_direction/{workspaceId}',
+  '/workspaces/{workspaceId}/capabilities/performance_direction',
+  '/workspaces/{workspaceId}/capabilities/performance_direction/start',
+];
 const HOP_BY_HOP_HEADERS = new Set([
   'connection',
   'keep-alive',

@@ -89,7 +89,15 @@ describe('frontend dev proxy', () => {
   });
 
   it('resolves default and explicit frontend prewarm paths', () => {
-    expect(resolveFrontendPrewarmPaths('', 'ws/one')).toEqual([]);
+    expect(resolveFrontendPrewarmPaths('', 'ws/one')).toEqual([
+      '/',
+      '/workspaces',
+      '/workspaces/ws%2Fone',
+      '/capability-ui-hosts/ig/ws%2Fone',
+      '/capability-ui-hosts/performance_direction/ws%2Fone',
+      '/workspaces/ws%2Fone/capabilities/performance_direction',
+      '/workspaces/ws%2Fone/capabilities/performance_direction/start',
+    ]);
     expect(resolveFrontendPrewarmPaths('/a/{workspaceId}, /b', 'ws one')).toEqual([
       '/a/ws%20one',
       '/b',
