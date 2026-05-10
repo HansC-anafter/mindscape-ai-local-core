@@ -132,6 +132,7 @@ describe('frontend dev proxy', () => {
     expect(resolveDevApiReadCacheTtlMs('/api/v1/ig/workbench/sidebar-summary', 'GET')).toBe(2000);
     expect(resolveDevApiReadCacheTtlMs('/api/v1/ig/browser-profiles', 'GET')).toBe(5000);
     expect(resolveDevApiReadCacheTtlMs('/api/v1/cloud-sync/status', 'GET')).toBe(2000);
+    expect(resolveDevApiReadCacheTtlMs('/api/v1/workspaces/ws-1', 'GET')).toBe(0);
     expect(resolveDevApiReadCacheTtlMs('/api/v1/workspaces/ws-1/health', 'GET')).toBe(5000);
     expect(resolveDevApiReadCacheTtlMs('/api/v1/workspaces/ws-1/executions/ex-1/progress-snapshot', 'GET')).toBe(1000);
     expect(resolveDevApiReadCacheTtlMs('/api/v1/playbooks/execute/ex-1/status', 'GET')).toBe(1000);

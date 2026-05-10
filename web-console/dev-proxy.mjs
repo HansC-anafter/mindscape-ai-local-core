@@ -157,9 +157,6 @@ export function resolveDevApiReadCacheTtlMs(requestUrl = '/', method = 'GET') {
     if (/^\/api\/v1\/workspaces\/[^/]+\/summary$/.test(pathname)) {
       return 2_000;
     }
-    if (/^\/api\/v1\/workspaces\/[^/]+$/.test(pathname)) {
-      return 2_000;
-    }
     if (/^\/api\/v1\/workspaces\/[^/]+\/threads$/.test(pathname)) {
       return 2_000;
     }
