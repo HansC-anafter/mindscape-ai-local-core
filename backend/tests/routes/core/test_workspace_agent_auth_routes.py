@@ -5,11 +5,15 @@ from fastapi import HTTPException
 
 from backend.app.routes.core.workspace_agents import (
     CodexAccountHomeTarget,
+    CodexAccountHomeCreateRequest,
     WorkspaceAgentAuthActionRequest,
+    create_workspace_agent_account_home,
+    delete_workspace_agent_account_home,
     get_workspace_agent_auth_status,
     list_workspace_agent_account_homes,
     login_workspace_agent,
     logout_workspace_agent,
+    probe_workspace_agent_account_home,
 )
 
 
@@ -105,7 +109,7 @@ async def test_codex_login_route_rejects_no_target(monkeypatch):
 @pytest.mark.asyncio
 async def test_codex_login_and_logout_routes_delegate_to_control_action(monkeypatch, tmp_path):
     workspace = SimpleNamespace(id="ws-1")
-    account_home = tmp_path / "accounts" / "acct-a"
+    account_home = tmp_path / "codex-home-pool" / "accounts" / "acct-a"
     seen_actions = []
     seen_inputs = []
 
@@ -149,7 +153,7 @@ async def test_codex_login_and_logout_routes_delegate_to_control_action(monkeypa
 @pytest.mark.asyncio
 async def test_codex_login_route_forwards_account_home_target(monkeypatch, tmp_path):
     workspace = SimpleNamespace(id="ws-1")
-    account_home = tmp_path / "accounts" / "acct-a"
+    account_home = tmp_path / "codex-home-pool" / "accounts" / "acct-a"
     seen = {}
 
     async def _fake_resolve(workspace_id, agent_id):
@@ -185,7 +189,7 @@ async def test_codex_login_route_forwards_account_home_target(monkeypatch, tmp_p
 @pytest.mark.asyncio
 async def test_codex_login_route_rejects_post_login_identity_mismatch(monkeypatch, tmp_path):
     workspace = SimpleNamespace(id="ws-1")
-    account_home = tmp_path / "accounts" / "acct-a"
+    account_home = tmp_path / "codex-home-pool" / "accounts" / "acct-a"
 
     async def _fake_resolve_available(workspace_id, agent_id):
         return object(), {"available": True}
@@ -263,3 +267,194 @@ async def test_codex_account_home_route_lists_targets(monkeypatch):
     assert result.agent_id == "codex_cli"
     assert result.targets[0].runtime_id == "runtime-codex_cli-a"
     assert result.targets[0].last_probe_error_code == "stale_refresh_token"
+
+
+@pytest.mark.asyncio
+async def test_codex_account_home_create_makes_directory_and_registers_runtime(
+    monkeypatch,
+    tmp_path,
+):
+    workspace = SimpleNamespace(id="ws-1", owner_user_id="user-1")
+    account_home = tmp_path / "codex-home-pool" / "accounts" / "acct-new"
+    seen = {}
+
+    def _fake_upsert(owner_user_id, request):
+        seen["owner_user_id"] = owner_user_id
+        seen["request"] = request
+        return {"runtime_id": "runtime-codex_cli-new"}
+
+    monkeypatch.setattr(
+        "backend.app.routes.core.cli_token._upsert_host_session_runtime",
+        _fake_upsert,
+    )
+
+    result = await create_workspace_agent_account_home(
+        workspace_id="ws-1",
+        agent_id="codex_cli",
+        payload=CodexAccountHomeCreateRequest(codex_home=str(account_home)),
+        workspace=workspace,
+    )
+
+    assert result.success is True
+    assert account_home.is_dir()
+    assert (account_home / ".config").is_dir()
+    assert (account_home / ".local" / "share").is_dir()
+    assert (account_home / ".local" / "state").is_dir()
+    assert (account_home / ".mindscape-seed.json").is_file()
+    assert seen["owner_user_id"] == "user-1"
+    assert seen["request"].metadata["CODEX_HOME"] == str(account_home)
+    assert seen["request"].metadata["codex_seed_kind"] == "account_home"
+
+
+@pytest.mark.asyncio
+async def test_codex_account_home_delete_removes_runtime_and_managed_directory(
+    monkeypatch,
+    tmp_path,
+):
+    workspace = SimpleNamespace(id="ws-1", owner_user_id="user-1")
+    account_home = tmp_path / "codex-home-pool" / "accounts" / "acct-old"
+    account_home.mkdir(parents=True)
+    (account_home / "auth.json").write_text("{}", encoding="utf-8")
+    runtime = SimpleNamespace(
+        id="runtime-codex_cli-old",
+        pool_group="codex-cli-account-home",
+        user_id="user-1",
+        auth_type="host_session",
+        extra_metadata={
+            "CODEX_HOME": str(account_home),
+            "codex_seed_kind": "account_home",
+        },
+    )
+    deleted = {}
+
+    class Column:
+        def __eq__(self, _other):
+            return True
+
+    class RuntimeModel:
+        id = Column()
+        pool_group = Column()
+        user_id = Column()
+
+    class Query:
+        def filter(self, *_args):
+            return self
+
+        def first(self):
+            return runtime
+
+    class Db:
+        def query(self, _model):
+            return Query()
+
+        def delete(self, item):
+            deleted["runtime"] = item
+
+        def commit(self):
+            deleted["committed"] = True
+
+        def rollback(self):
+            deleted["rolled_back"] = True
+
+        def close(self):
+            deleted["closed"] = True
+
+    class Service:
+        def _get_db(self):
+            return Db()
+
+        def _get_model(self):
+            return RuntimeModel
+
+    monkeypatch.setattr(
+        "backend.app.services.codex_pool_service.CodexPoolService",
+        Service,
+    )
+
+    async def _fake_execute(workspace_obj, agent_id, control_action, inputs=None):
+        assert workspace_obj is workspace
+        assert agent_id == "codex_cli"
+        assert control_action == "codex_account_home_delete"
+        deleted["host_delete_inputs"] = inputs
+        return SimpleNamespace(success=True, output="{}")
+
+    monkeypatch.setattr(
+        "backend.app.routes.core.workspace_agents._execute_agent_control",
+        _fake_execute,
+    )
+
+    result = await delete_workspace_agent_account_home(
+        workspace_id="ws-1",
+        agent_id="codex_cli",
+        runtime_id="runtime-codex_cli-old",
+        workspace=workspace,
+    )
+
+    assert result.success is True
+    assert deleted["runtime"] is runtime
+    assert deleted["committed"] is True
+    assert deleted["host_delete_inputs"]["codex_home"] == str(account_home)
+    assert not account_home.exists()
+
+
+@pytest.mark.asyncio
+async def test_codex_account_home_probe_runs_target_probe(monkeypatch):
+    workspace = SimpleNamespace(id="ws-1")
+
+    async def _fake_resolve(workspace_id, agent_id):
+        assert workspace_id == "ws-1"
+        assert agent_id == "codex_cli"
+        return object(), {"available": True}
+
+    async def _fake_execute(workspace_obj, agent_id, control_action, inputs=None):
+        assert workspace_obj is workspace
+        assert agent_id == "codex_cli"
+        assert control_action == "codex_probe"
+        assert inputs["runtime_id"] == "runtime-codex_cli-a"
+        return SimpleNamespace(
+            success=True,
+            output='{"codex_account_home_probe": true}',
+            error=None,
+            exit_code=0,
+        )
+
+    monkeypatch.setattr(
+        "backend.app.routes.core.workspace_agents._resolve_codex_account_home_inputs",
+        lambda payload: {
+            "runtime_id": "runtime-codex_cli-a",
+            "codex_home": "/tmp/codex-home",
+            "env": {"CODEX_HOME": "/tmp/codex-home"},
+        },
+    )
+    monkeypatch.setattr(
+        "backend.app.routes.core.workspace_agents._resolve_agent_availability",
+        _fake_resolve,
+    )
+    monkeypatch.setattr(
+        "backend.app.routes.core.workspace_agents._execute_agent_control",
+        _fake_execute,
+    )
+    def _fake_persist(runtime_id, result):
+        assert runtime_id == "runtime-codex_cli-a"
+        assert result.success is True
+        return {
+            "success": True,
+            "fault_kind": None,
+            "error_code": None,
+        }
+
+    monkeypatch.setattr(
+        "backend.app.routes.core.workspace_agents._persist_codex_account_home_probe_result",
+        _fake_persist,
+    )
+
+    result = await probe_workspace_agent_account_home(
+        workspace_id="ws-1",
+        agent_id="codex_cli",
+        payload=WorkspaceAgentAuthActionRequest(runtime_id="runtime-codex_cli-a"),
+        workspace=workspace,
+    )
+
+    assert result.action == "probe"
+    assert result.success is True
+    assert "runtime-codex_cli-a" in result.output

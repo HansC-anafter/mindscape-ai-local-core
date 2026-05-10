@@ -746,6 +746,17 @@ def test_codex_failure_classifier_does_not_treat_trace_ids_as_429_quota():
     }
 
 
+def test_codex_failure_classifier_treats_token_refresh_401_as_auth_failure():
+    classification = classify_codex_cli_runtime_failure(
+        'runtime_error {"error": "token_refresh_http_401"}'
+    )
+
+    assert classification == {
+        "fault_kind": "auth",
+        "error_code": "stale_refresh_token",
+    }
+
+
 def test_codex_failure_classifier_marks_deactivated_workspace_separately():
     classification = classify_codex_cli_runtime_failure(
         'unexpected status 402 Payment Required: {"detail":{"code":"deactivated_workspace"}}'

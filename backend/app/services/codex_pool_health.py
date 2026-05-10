@@ -25,11 +25,21 @@ AUTH_FAILURE_CODES = frozenset(
         "403",
         "auth_failure",
         "deactivated_workspace",
+        "missing_refresh_token",
         "stale_refresh_token",
         "unauthorized",
     }
 )
 QUOTA_FAILURE_CODES = frozenset({"429", "quota", "rate_limit", "resource_exhausted"})
+INCONCLUSIVE_PROBE_FAILURE_CODES = frozenset(
+    {
+        "timeout",
+        "runtime_error",
+        "probe_transport_error",
+        "codex_cli_panic",
+        "token_refresh_persist_failed",
+    }
+)
 PROBE_METADATA_KEYS = (
     "probe_state",
     "last_probe_success_at",
@@ -469,6 +479,8 @@ def probe_state_for_error_code(error_code: Any) -> str:
         return "quota_limited"
     if normalized in AUTH_FAILURE_CODES:
         return "auth_failed"
+    if normalized in INCONCLUSIVE_PROBE_FAILURE_CODES:
+        return "probe_inconclusive"
     return "runtime_failed"
 
 
@@ -750,6 +762,7 @@ def stamp_runtime_failure(
         "403",
         "auth_failure",
         "deactivated_workspace",
+        "missing_refresh_token",
         "stale_refresh_token",
         "unauthorized",
     }:

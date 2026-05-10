@@ -66,6 +66,14 @@ def looks_like_codex_auth_failure(message: str) -> bool:
         'code":"deactivated_workspace"',
         "access token could not be refreshed",
         "refresh token was already used",
+        "refresh token was rejected",
+        "stale_refresh_token",
+        "invalid_grant",
+        "invalid grant",
+        "token_refresh_http_400",
+        "token_refresh_http_401",
+        "token_refresh_http_403",
+        "missing_refresh_token",
         "please log out and sign in again",
     )
     return any(marker in normalized for marker in markers) and not looks_like_codex_quota_exhaustion(
@@ -81,6 +89,16 @@ def classify_codex_cli_runtime_failure(message: str) -> dict[str, str]:
             return {"fault_kind": "auth", "error_code": "deactivated_workspace"}
         if "refresh token was already used" in lowered:
             return {"fault_kind": "auth", "error_code": "stale_refresh_token"}
+        if (
+            "stale_refresh_token" in lowered
+            or "invalid_grant" in lowered
+            or "token_refresh_http_400" in lowered
+            or "token_refresh_http_401" in lowered
+            or "token_refresh_http_403" in lowered
+        ):
+            return {"fault_kind": "auth", "error_code": "stale_refresh_token"}
+        if "missing_refresh_token" in lowered:
+            return {"fault_kind": "auth", "error_code": "missing_refresh_token"}
         return {"fault_kind": "auth", "error_code": "auth_failure"}
     if looks_like_codex_quota_exhaustion(normalized):
         return {"fault_kind": "quota", "error_code": "429"}
@@ -92,6 +110,12 @@ def classify_codex_cli_runtime_failure(message: str) -> dict[str, str]:
     lowered = normalized.lower()
     if "subprocess stalled after" in lowered:
         return {"fault_kind": "runtime", "error_code": "timeout"}
+    if "no activity for" in lowered:
+        return {"fault_kind": "runtime", "error_code": "timeout"}
+    if "probe_transport_error" in lowered:
+        return {"fault_kind": "runtime", "error_code": "probe_transport_error"}
+    if "attempted to create a null object" in lowered:
+        return {"fault_kind": "runtime", "error_code": "codex_cli_panic"}
     if "no such file or directory (os error 2)" in lowered:
         return {"fault_kind": "runtime", "error_code": "runtime_not_found"}
     return {"fault_kind": "runtime", "error_code": "runtime_error"}

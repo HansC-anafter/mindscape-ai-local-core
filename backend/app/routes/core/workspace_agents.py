@@ -7,7 +7,10 @@ belongs to a different workspace.
 """
 
 import logging
+import json
 import os
+import shutil
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -85,6 +88,10 @@ class WorkspaceAgentAuthActionRequest(BaseModel):
     codex_home: Optional[str] = None
 
 
+class CodexAccountHomeCreateRequest(BaseModel):
+    codex_home: Optional[str] = None
+
+
 class CodexAccountHomeTarget(BaseModel):
     runtime_id: str
     login_email: Optional[str] = None
@@ -126,6 +133,75 @@ def _account_home_env(codex_home: str) -> Dict[str, str]:
         "XDG_DATA_HOME": str(Path(home) / ".local" / "share"),
         "XDG_STATE_HOME": str(Path(home) / ".local" / "state"),
     }
+
+
+def _default_codex_account_home_root() -> Path:
+    configured = str(
+        os.environ.get("MINDSCAPE_CODEX_ACCOUNT_HOME_POOL_ROOT") or ""
+    ).strip()
+    if configured:
+        return Path(os.path.expanduser(configured))
+    return Path.home() / ".mindscape" / "runtime" / "codex-home-pool" / "accounts"
+
+
+def _new_codex_account_home_path() -> str:
+    return str(_default_codex_account_home_root() / f"acct-{uuid.uuid4().hex[:16]}")
+
+
+def _normalize_codex_home_path(codex_home: str) -> Path:
+    raw = str(codex_home or "").strip()
+    if not raw:
+        raise HTTPException(status_code=400, detail="codex_home is required.")
+    return Path(os.path.expanduser(raw)).resolve(strict=False)
+
+
+def _is_managed_codex_account_home(path: Path) -> bool:
+    parts = path.parts
+    if path.name.startswith("acct-") is False:
+        return False
+    if len(parts) < 3:
+        return False
+    return parts[-2] == "accounts" and parts[-3] == "codex-home-pool"
+
+
+def _ensure_codex_account_home_dirs(codex_home: str) -> Path:
+    home_path = _normalize_codex_home_path(codex_home)
+    if not _is_managed_codex_account_home(home_path):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Codex account-home paths must be managed pool paths ending in "
+                "codex-home-pool/accounts/acct-*."
+            ),
+        )
+    if home_path.exists() and home_path.is_symlink():
+        raise HTTPException(
+            status_code=409,
+            detail=f"Refusing to use symlinked Codex account home: {home_path}",
+        )
+    home_path.mkdir(parents=True, exist_ok=True)
+    for child in (
+        ".config",
+        ".local/share",
+        ".local/state",
+    ):
+        (home_path / child).mkdir(parents=True, exist_ok=True)
+    seed_path = home_path / ".mindscape-seed.json"
+    if not seed_path.exists():
+        seed_path.write_text(
+            json.dumps(
+                {
+                    "account_home": True,
+                    "created_by": "mindscape-local-core",
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+    return home_path
 
 
 def _has_codex_account_home_target(
@@ -369,6 +445,103 @@ def _codex_identity_from_result(result: Any) -> Dict[str, Any]:
     return {}
 
 
+def _persist_codex_account_home_probe_result(
+    runtime_id: str,
+    result: Any,
+) -> Dict[str, Any]:
+    selected_runtime_id = str(runtime_id or "").strip()
+    if not selected_runtime_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Codex account-home probe requires a runtime_id.",
+        )
+
+    from backend.app.services.codex_pool_health import (
+        stamp_runtime_failure,
+        stamp_runtime_probe_failure,
+    )
+    from backend.app.services.codex_pool_service import CODEX_POOL_GROUP, CodexPoolService
+    from backend.app.services.codex_runtime_failure_classifier import (
+        classify_codex_cli_runtime_failure,
+        extract_codex_quota_reset_at,
+    )
+
+    service = CodexPoolService()
+    if bool(getattr(result, "success", False)):
+        service.report_runtime_success(selected_runtime_id)
+        return {
+            "success": True,
+            "fault_kind": None,
+            "error_code": None,
+        }
+
+    error_part = str(getattr(result, "error", None) or "").strip()
+    output_part = str(getattr(result, "output", None) or "").strip()
+    message = f"{error_part} {output_part}".strip() or "codex_probe_failed"
+    classification = classify_codex_cli_runtime_failure(message)
+    fault_kind = str(classification.get("fault_kind") or "runtime").strip()
+    error_code = str(classification.get("error_code") or "runtime_error").strip()
+
+    if fault_kind == "quota":
+        service.report_quota_exhausted(
+            selected_runtime_id,
+            reset_at=extract_codex_quota_reset_at(message),
+        )
+    elif fault_kind == "auth":
+        service.report_auth_failure(
+            selected_runtime_id,
+            error_code=error_code,
+        )
+    else:
+        inconclusive_probe_errors = {
+            "timeout",
+            "runtime_error",
+            "probe_transport_error",
+            "codex_cli_panic",
+            "token_refresh_persist_failed",
+        }
+        db = service._get_db()
+        RuntimeEnvironment = service._get_model()
+        try:
+            runtime = (
+                db.query(RuntimeEnvironment)
+                .filter(
+                    RuntimeEnvironment.id == selected_runtime_id,
+                    RuntimeEnvironment.pool_group == CODEX_POOL_GROUP,
+                )
+                .first()
+            )
+            if runtime:
+                metadata = dict(getattr(runtime, "extra_metadata", None) or {})
+                if error_code not in inconclusive_probe_errors:
+                    runtime.last_error_code = error_code
+                    metadata = stamp_runtime_failure(
+                        metadata,
+                        error_code=error_code,
+                        auth_type=str(getattr(runtime, "auth_type", "") or ""),
+                        failure_scope_key=f"runtime:{selected_runtime_id}",
+                    )
+                runtime.extra_metadata = stamp_runtime_probe_failure(
+                    metadata,
+                    error_code=error_code,
+                    returncode=int(getattr(result, "exit_code", 1) or 1),
+                )
+                db.commit()
+            else:
+                db.rollback()
+        except Exception:
+            db.rollback()
+            logger.exception("Failed to persist Codex account-home probe failure")
+        finally:
+            db.close()
+
+    return {
+        "success": False,
+        "fault_kind": fault_kind,
+        "error_code": error_code,
+    }
+
+
 def _persist_codex_account_home_login_metadata(
     inputs: Dict[str, Any],
     observed_identity: Dict[str, Any],
@@ -581,7 +754,12 @@ async def _execute_agent_control(
         or getattr(workspace, "workspace_path", None)
         or "/tmp"
     )
-    max_duration_seconds = 300 if control_action == "codex_login" else 45
+    if control_action == "codex_login":
+        max_duration_seconds = 300
+    elif control_action == "codex_probe":
+        max_duration_seconds = 120
+    else:
+        max_duration_seconds = 45
     request = RuntimeExecRequest(
         task=f"__mindscape_cli_control__:{control_action}",
         sandbox_path=str(sandbox_path),
@@ -786,6 +964,248 @@ async def list_workspace_agent_account_homes(
     )
 
 
+@router.post("/{agent_id}/account-homes", response_model=WorkspaceAgentAuthActionResponse)
+async def create_workspace_agent_account_home(
+    workspace_id: str = PathParam(..., description="Workspace ID"),
+    agent_id: str = PathParam(..., description="Agent ID"),
+    payload: Optional[CodexAccountHomeCreateRequest] = None,
+    workspace: Workspace = Depends(get_workspace),
+):
+    if agent_id != "codex_cli":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Account-home creation is not implemented for {agent_id}",
+        )
+
+    codex_home = str(getattr(payload, "codex_home", None) or "").strip()
+    if not codex_home:
+        codex_home = _new_codex_account_home_path()
+    home_path = _ensure_codex_account_home_dirs(codex_home)
+
+    from backend.app.routes.core.cli_token import (
+        RegisterHostSessionRuntimeRequest,
+        _upsert_host_session_runtime,
+    )
+
+    owner_user_id = str(getattr(workspace, "owner_user_id", "") or "").strip()
+    if not owner_user_id:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Workspace owner unavailable: {workspace_id}",
+        )
+    metadata = _account_home_env(str(home_path))
+    metadata["codex_seed_kind"] = "account_home"
+    runtime = _upsert_host_session_runtime(
+        owner_user_id=owner_user_id,
+        request=RegisterHostSessionRuntimeRequest(
+            workspace_id=workspace_id,
+            surface="codex_cli",
+            runtime_name=f"Codex account home {home_path.name}",
+            metadata=metadata,
+            pool_enabled=True,
+        ),
+    )
+    runtime_id = str(runtime.get("runtime_id") or runtime.get("id") or "").strip()
+    return WorkspaceAgentAuthActionResponse(
+        agent_id=agent_id,
+        workspace_id=workspace_id,
+        action="create_account_home",
+        success=True,
+        output=json.dumps(
+            {
+                "runtime_id": runtime_id,
+                "codex_home": str(home_path),
+            },
+            ensure_ascii=False,
+        ),
+        note="Account home created. Login will fill email and scope from OpenAI token claims.",
+    )
+
+
+@router.delete(
+    "/{agent_id}/account-homes/{runtime_id}",
+    response_model=WorkspaceAgentAuthActionResponse,
+)
+async def delete_workspace_agent_account_home(
+    workspace_id: str = PathParam(..., description="Workspace ID"),
+    agent_id: str = PathParam(..., description="Agent ID"),
+    runtime_id: str = PathParam(..., description="Runtime ID"),
+    workspace: Workspace = Depends(get_workspace),
+):
+    if agent_id != "codex_cli":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Account-home deletion is not implemented for {agent_id}",
+        )
+
+    from backend.app.services.codex_pool_health import read_health_metadata
+    from backend.app.services.codex_pool_service import CODEX_POOL_GROUP, CodexPoolService
+
+    selected_runtime_id = str(runtime_id or "").strip()
+    if not selected_runtime_id:
+        raise HTTPException(status_code=400, detail="runtime_id is required.")
+
+    service = CodexPoolService()
+    db = service._get_db()
+    RuntimeEnvironment = service._get_model()
+    try:
+        runtime = (
+            db.query(RuntimeEnvironment)
+            .filter(
+                RuntimeEnvironment.id == selected_runtime_id,
+                RuntimeEnvironment.pool_group == CODEX_POOL_GROUP,
+                RuntimeEnvironment.user_id == workspace.owner_user_id,
+            )
+            .first()
+        )
+        if not runtime:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Codex account-home runtime not found: {selected_runtime_id}",
+            )
+        metadata = dict(getattr(runtime, "extra_metadata", None) or {})
+        health = read_health_metadata(
+            metadata,
+            auth_type=str(getattr(runtime, "auth_type", "") or ""),
+        )
+        if str(health.get("seed_kind") or "").strip().lower() != "account_home":
+            raise HTTPException(
+                status_code=409,
+                detail="Only managed Codex account-home runtimes can be deleted here.",
+            )
+        codex_home = str(
+            metadata.get("CODEX_HOME")
+            or metadata.get("codex_home")
+            or metadata.get("host_session_home")
+            or ""
+        ).strip()
+        home_path = _normalize_codex_home_path(codex_home)
+        if not _is_managed_codex_account_home(home_path):
+            raise HTTPException(
+                status_code=409,
+                detail=f"Refusing to delete unmanaged Codex account-home path: {home_path}",
+            )
+        host_delete_result = await _execute_agent_control(
+            workspace,
+            agent_id,
+            "codex_account_home_delete",
+            inputs={
+                "runtime_id": selected_runtime_id,
+                "codex_home": str(home_path),
+                "env": _account_home_env(str(home_path)),
+            },
+        )
+        if not bool(getattr(host_delete_result, "success", False)):
+            _raise_agent_control_failure(
+                "delete account home",
+                host_delete_result,
+            )
+        if home_path.exists():
+            if home_path.is_symlink() or not home_path.is_dir():
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Refusing to delete unsafe Codex account-home path: {home_path}",
+                )
+            shutil.rmtree(home_path)
+        db.delete(runtime)
+        db.commit()
+        return WorkspaceAgentAuthActionResponse(
+            agent_id=agent_id,
+            workspace_id=workspace_id,
+            action="delete_account_home",
+            success=True,
+            output=json.dumps(
+                {
+                    "runtime_id": selected_runtime_id,
+                    "codex_home": str(home_path),
+                    "home_removed": not home_path.exists(),
+                },
+                ensure_ascii=False,
+            ),
+            note="Account home runtime deleted.",
+        )
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        logger.exception("Failed to delete Codex account-home runtime")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to delete Codex account home: {exc}",
+        ) from exc
+    finally:
+        db.close()
+
+
+@router.post("/{agent_id}/account-homes/probe", response_model=WorkspaceAgentAuthActionResponse)
+async def probe_workspace_agent_account_home(
+    workspace_id: str = PathParam(..., description="Workspace ID"),
+    agent_id: str = PathParam(..., description="Agent ID"),
+    payload: Optional[WorkspaceAgentAuthActionRequest] = None,
+    workspace: Workspace = Depends(get_workspace),
+):
+    if agent_id != "codex_cli":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Account-home probe is not implemented for {agent_id}",
+        )
+    _, detail = await _resolve_agent_availability(workspace_id, agent_id)
+    if not detail.get("available"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"{agent_id} is not connected for workspace {workspace_id}",
+        )
+    if not _has_codex_account_home_target(payload):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Codex account-home probe requires runtime_id, account_key, "
+                "login_email, or codex_home."
+            ),
+        )
+
+    control_inputs = _resolve_codex_account_home_inputs(payload)
+    runtime_id = str(control_inputs.get("runtime_id") or "").strip()
+    result = await _execute_agent_control(
+        workspace,
+        agent_id,
+        "codex_probe",
+        inputs=control_inputs,
+    )
+    persisted = _persist_codex_account_home_probe_result(runtime_id, result)
+    success = bool(persisted.get("success"))
+    error_text = str(
+        persisted.get("error_code")
+        or getattr(result, "error", None)
+        or ""
+    ).strip() or None
+    output = json.dumps(
+        {
+            "runtime_id": runtime_id,
+            "status": "available" if success else "failed",
+            "fault_kind": persisted.get("fault_kind"),
+            "error_code": persisted.get("error_code"),
+            "output": getattr(result, "output", "") or "",
+            "error": getattr(result, "error", None),
+        },
+        ensure_ascii=False,
+    )
+    return WorkspaceAgentAuthActionResponse(
+        agent_id=agent_id,
+        workspace_id=workspace_id,
+        action="probe",
+        success=success,
+        output=output,
+        error=None if success else error_text,
+        note=(
+            "Target-specific Codex token usability probe passed."
+            if success
+            else "Target-specific Codex token usability probe failed."
+        ),
+    )
+
+
 @router.post("/{agent_id}/login", response_model=WorkspaceAgentAuthActionResponse)
 async def login_workspace_agent(
     workspace_id: str = PathParam(..., description="Workspace ID"),
@@ -816,6 +1236,9 @@ async def login_workspace_agent(
         )
 
     control_inputs = _resolve_codex_account_home_inputs(payload)
+    codex_home = str(control_inputs.get("codex_home") or "").strip()
+    if codex_home:
+        _ensure_codex_account_home_dirs(codex_home)
     result = await _execute_agent_control(
         workspace,
         agent_id,

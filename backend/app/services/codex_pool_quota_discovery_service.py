@@ -72,8 +72,13 @@ class CodexPoolQuotaDiscoveryService:
         limit: Optional[int] = None,
         timeout_seconds: float = 90.0,
         stall_timeout_seconds: float = 30.0,
+        runtime_ids: Optional[set[str]] = None,
+        ignore_cooldown: bool = False,
     ) -> CodexPoolQuotaDiscoverySummary:
-        runtimes = self._load_candidates()
+        runtimes = self._load_candidates(
+            runtime_ids=runtime_ids,
+            ignore_cooldown=ignore_cooldown,
+        )
         if limit is not None and limit >= 0:
             runtimes = runtimes[:limit]
 
@@ -185,7 +190,12 @@ class CodexPoolQuotaDiscoveryService:
             attempts=tuple(attempts),
         )
 
-    def _load_candidates(self) -> list[Any]:
+    def _load_candidates(
+        self,
+        *,
+        runtime_ids: Optional[set[str]] = None,
+        ignore_cooldown: bool = False,
+    ) -> list[Any]:
         runtimes = (
             list(self._runtime_loader())
             if self._runtime_loader is not None
@@ -193,14 +203,22 @@ class CodexPoolQuotaDiscoveryService:
         )
         now = datetime.now(timezone.utc)
         candidates: list[Any] = []
+        runtime_filter = {
+            str(runtime_id or "").strip()
+            for runtime_id in (runtime_ids or set())
+            if str(runtime_id or "").strip()
+        }
         for runtime in runtimes:
+            runtime_id = str(getattr(runtime, "id", "") or "").strip()
+            if runtime_filter and runtime_id not in runtime_filter:
+                continue
             auth_type = str(getattr(runtime, "auth_type", "") or "").strip().lower()
             metadata = dict(getattr(runtime, "extra_metadata", None) or {})
             health = read_health_metadata(metadata, auth_type=auth_type)
             cooldown_until = coerce_datetime(getattr(runtime, "cooldown_until", None))
             if auth_type not in _SUPPORTED_AUTH_TYPES:
                 continue
-            if cooldown_until and cooldown_until > now:
+            if not ignore_cooldown and cooldown_until and cooldown_until > now:
                 continue
             if str(health.get("seed_kind") or "").strip().lower() != "account_home":
                 continue
