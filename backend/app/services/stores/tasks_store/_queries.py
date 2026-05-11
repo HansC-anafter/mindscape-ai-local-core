@@ -16,6 +16,22 @@ from backend.app.services.runner_topology import (
 from backend.app.services.task_admission_service import ADMISSION_DEFERRED_REASON
 
 logger = logging.getLogger(__name__)
+_COLD_RELEASE_SCAN_MIN = 4096
+_COLD_RELEASE_SCAN_MULTIPLIER = 64
+_COLD_RELEASE_SCAN_MAX = 50000
+
+
+def _cold_release_scan_limit(limit: int) -> int:
+    try:
+        requested = int(limit)
+    except Exception:
+        requested = 0
+    if requested <= 0:
+        requested = 1
+    return min(
+        max(requested * _COLD_RELEASE_SCAN_MULTIPLIER, _COLD_RELEASE_SCAN_MIN),
+        _COLD_RELEASE_SCAN_MAX,
+    )
 
 _EXECUTION_LIST_SELECT = """
     SELECT
@@ -758,13 +774,10 @@ class TasksStoreQueryMixin:
     ) -> List[Task]:
         query_parts = [
             """
-            WITH ranked AS (
+            WITH sampled AS (
                 SELECT
                     id,
-                    ROW_NUMBER() OVER (
-                        PARTITION BY pack_id
-                        ORDER BY next_eligible_at ASC, created_at ASC, id ASC
-                    ) AS pack_rank,
+                    pack_id,
                     next_eligible_at,
                     created_at
                 FROM tasks
@@ -781,6 +794,7 @@ class TasksStoreQueryMixin:
             "frontier_state": "cold",
             "now": datetime.now(timezone.utc),
             "limit": limit,
+            "scan_limit": _cold_release_scan_limit(limit),
         }
 
         if blocked_reason:
@@ -797,6 +811,24 @@ class TasksStoreQueryMixin:
             )
             query_parts.append(f"AND {queue_clause}")
             params.update(queue_params)
+
+        query_parts.append(
+            """
+                ORDER BY next_eligible_at ASC, created_at ASC, id ASC
+                LIMIT :scan_limit
+            ),
+            ranked AS (
+                SELECT
+                    id,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY pack_id
+                        ORDER BY next_eligible_at ASC, created_at ASC, id ASC
+                    ) AS pack_rank,
+                    next_eligible_at,
+                    created_at
+                FROM sampled
+            """,
+        )
 
         query_parts.append(
             """

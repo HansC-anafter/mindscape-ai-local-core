@@ -45,6 +45,24 @@ def should_run_object_index_sync() -> bool:
     return disabled not in {"1", "true", "yes", "on"}
 
 
+def _core_database_accepts_work() -> tuple[bool, str | None]:
+    try:
+        from sqlalchemy import text
+        from backend.app.database.engine import engine_postgres_core
+
+        if engine_postgres_core is None:
+            return False, "core PostgreSQL engine is not initialized"
+        with engine_postgres_core.connect() as conn:
+            in_recovery = bool(
+                conn.execute(text("SELECT pg_is_in_recovery()")).scalar()
+            )
+        if in_recovery:
+            return False, "core PostgreSQL is in recovery"
+        return True, None
+    except Exception as exc:
+        return False, str(exc)
+
+
 async def _wait_for_post_ready_bind_grace(task_name: str) -> None:
     """Let uvicorn finish binding before post-ready work starts."""
     delay_seconds = _env_int(
@@ -348,6 +366,17 @@ async def _run_object_index_sync_loop(app: FastAPI) -> None:
     while True:
         reason = "post_ready_object_index_sync" if iteration == 0 else "scheduled_object_index_sync"
         try:
+            db_ready, db_error = _core_database_accepts_work()
+            if not db_ready:
+                app.state.object_index_sync_status = "deferred"
+                app.state.object_index_sync_error = db_error
+                logger.warning("AOL object index sync deferred: %s", db_error)
+                iteration += 1
+                if interval_seconds <= 0:
+                    break
+                await asyncio.sleep(interval_seconds)
+                continue
+
             app.state.object_index_sync_status = "running"
             app.state.object_index_sync_error = None
             summary = await service.sync_recent_workspaces(

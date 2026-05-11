@@ -6,6 +6,7 @@ FastAPI application for personal AI agent platform
 import os
 import signal
 import faulthandler
+import time
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
@@ -27,6 +28,32 @@ logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
+_HEALTH_READINESS_BACKOFF_SECONDS = 15
+_health_readiness_backoff_until = 0.0
+_health_readiness_backoff_error: str | None = None
+
+
+def _readiness_unavailable_response(error: str | None):
+    return {
+        "status": "degraded",
+        "service": "my-agent-mindscape-backend",
+        "version": "1.0.0",
+        "backend_role": get_backend_runtime_role(),
+        "uvicorn_reload_enabled": should_enable_uvicorn_reload(),
+        "components": {
+            "backend": "available",
+            "readiness": "unavailable",
+            "llm_configured": False,
+            "llm_available": False,
+            "vector_db_connected": False,
+            "ocr_service": "unknown",
+        },
+        "readiness": {
+            "status": "unavailable",
+            "error": error,
+        },
+    }
+
 
 def _enable_usr1_faulthandler():
     if not (os.getenv("PYTHONFAULTHANDLER") or os.getenv("ENABLE_FAULTHANDLER")):
@@ -139,30 +166,45 @@ async def health_check():
         run_readiness_coro_in_worker,
     )
 
-    health_checker = SystemHealthChecker()
+    global _health_readiness_backoff_until, _health_readiness_backoff_error
+    if time.monotonic() < _health_readiness_backoff_until:
+        return _readiness_unavailable_response(_health_readiness_backoff_error)
 
-    # Perform basic system checks (without workspace requirement)
-    issues = []
+    try:
+        health_checker = SystemHealthChecker()
 
-    # Check LLM configuration
-    llm_status = await run_readiness_coro_in_worker(
-        lambda: health_checker._check_llm_configuration("default-user", issues)
-    )
+        # Perform basic system checks (without workspace requirement)
+        issues = []
 
-    # Check Vector DB connection
-    vector_db_status = await run_readiness_coro_in_worker(
-        lambda: health_checker._check_vector_db(issues)
-    )
+        # Check LLM configuration
+        llm_status = await run_readiness_coro_in_worker(
+            lambda: health_checker._check_llm_configuration("default-user", issues)
+        )
 
-    # Check backend service
-    backend_status = await run_readiness_coro_in_worker(
-        lambda: health_checker._check_backend_service(issues)
-    )
+        # Check Vector DB connection
+        vector_db_status = await run_readiness_coro_in_worker(
+            lambda: health_checker._check_vector_db(issues)
+        )
 
-    # Check OCR service
-    ocr_status = await run_readiness_coro_in_worker(
-        lambda: health_checker._check_ocr_service(issues)
-    )
+        # Check backend service
+        backend_status = await run_readiness_coro_in_worker(
+            lambda: health_checker._check_backend_service(issues)
+        )
+
+        # Check OCR service
+        ocr_status = await run_readiness_coro_in_worker(
+            lambda: health_checker._check_ocr_service(issues)
+        )
+    except Exception as exc:
+        _health_readiness_backoff_error = str(exc)
+        _health_readiness_backoff_until = (
+            time.monotonic() + _HEALTH_READINESS_BACKOFF_SECONDS
+        )
+        logger.warning("Readiness health check unavailable: %s", exc)
+        return _readiness_unavailable_response(_health_readiness_backoff_error)
+
+    _health_readiness_backoff_until = 0.0
+    _health_readiness_backoff_error = None
 
     # Determine overall status
     overall_status = "healthy"
