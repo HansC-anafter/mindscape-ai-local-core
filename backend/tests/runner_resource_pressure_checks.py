@@ -169,8 +169,14 @@ class _FakeTasksStore:
     def __init__(self):
         self.task = SimpleNamespace(
             id="task-1",
+            execution_id="exec-1",
             status=TaskStatus.RUNNING,
             execution_context={"retry_count": 2},
+            params={},
+            profile_id="default-user",
+            project_id=None,
+            workspace_id="ws-1",
+            pack_id="ig_batch_pin_references",
             started_at=None,
         )
         self.update_kwargs = None
@@ -265,6 +271,39 @@ async def test_subprocess_sigkill_resource_wait_clears_runner_ownership():
     assert "heartbeat_at" not in updated_context
     assert queue.delayed == ("task-1", 300)
     assert queue.deadlettered is False
+
+
+@pytest.mark.asyncio
+async def test_missing_required_playbook_inputs_deadletters_without_retry():
+    store = _FakeTasksStore()
+    store.task.execution_context = {
+        "retry_count": 0,
+        "inputs": {"workspace_id": "ws-1"},
+    }
+    queue = _FakeRedisQueue()
+
+    await _mark_task_failed(
+        store,
+        "task-1",
+        "runner-browser",
+        "Missing required playbook inputs for ig_batch_pin_references: target_handle",
+        queue,
+    )
+
+    updated_context = store.update_kwargs["execution_context"]
+    assert store.update_kwargs["status"] == TaskStatus.FAILED
+    assert store.update_kwargs["frontier_state"] == "done"
+    assert store.update_kwargs["error"] == (
+        "Missing required playbook inputs for ig_batch_pin_references: target_handle"
+    )
+    assert updated_context["retry_count"] == 1
+    assert (
+        updated_context["non_retryable_failure"]
+        == "missing_required_playbook_inputs"
+    )
+    assert queue.deadlettered is True
+    assert queue.acked is True
+    assert queue.delayed is None
 
 
 @pytest.mark.asyncio

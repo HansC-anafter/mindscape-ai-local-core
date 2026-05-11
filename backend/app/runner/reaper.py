@@ -985,22 +985,25 @@ async def _release_dependency_hold_tasks(
         if getattr(task, "blocked_reason", None) != _DEPENDENCY_HOLD_REASON:
             continue
 
-        ctx = task.execution_context if isinstance(task.execution_context, dict) else {}
-        ctx2 = dict(ctx)
-        ctx2.pop("dependency_hold", None)
-        ctx2.pop("resume_after", None)
-
         try:
-            await asyncio.to_thread(
-                tasks_store.update_task,
-                task.id,
-                execution_context=ctx2,
+            raw_ctx = task.execution_context
+            update_kwargs = dict(
                 next_eligible_at=now,
                 blocked_reason=None,
                 blocked_payload=None,
                 queue_shard=getattr(task, "queue_shard", None) or redis_queue.pack_id,
                 frontier_state="ready",
                 frontier_enqueued_at=now,
+            )
+            if isinstance(raw_ctx, dict):
+                ctx2 = dict(raw_ctx)
+                ctx2.pop("dependency_hold", None)
+                ctx2.pop("resume_after", None)
+                update_kwargs["execution_context"] = ctx2
+            await asyncio.to_thread(
+                tasks_store.update_task,
+                task.id,
+                **update_kwargs,
             )
             released_task_ids.append(task.id)
         except Exception as exc:
@@ -1158,7 +1161,8 @@ async def _release_concurrency_locked_tasks(
         if getattr(task, "blocked_reason", None) != _CONCURRENCY_LOCKED_REASON:
             continue
 
-        ctx = task.execution_context if isinstance(task.execution_context, dict) else {}
+        raw_ctx = task.execution_context
+        ctx = raw_ctx if isinstance(raw_ctx, dict) else {}
         lock_keys = _resolve_lock_keys(
             ctx,
             str(getattr(task, "pack_id", "") or ""),
@@ -1167,23 +1171,26 @@ async def _release_concurrency_locked_tasks(
         if lock_keys and any(lock_key in released_lock_keys for lock_key in lock_keys):
             continue
 
-        ctx2 = dict(ctx)
-        ctx2.pop("runner_skip_reason", None)
-        ctx2.pop("runner_skip_lock_key", None)
-        ctx2.pop("runner_skip_conflict_lock_key", None)
-        ctx2.pop("resume_after", None)
-
         try:
-            await asyncio.to_thread(
-                tasks_store.update_task,
-                task.id,
-                execution_context=ctx2,
+            update_kwargs = dict(
                 next_eligible_at=now,
                 blocked_reason=None,
                 blocked_payload=None,
                 queue_shard=getattr(task, "queue_shard", None) or redis_queue.pack_id,
                 frontier_state="ready",
                 frontier_enqueued_at=now,
+            )
+            if isinstance(raw_ctx, dict):
+                ctx2 = dict(raw_ctx)
+                ctx2.pop("runner_skip_reason", None)
+                ctx2.pop("runner_skip_lock_key", None)
+                ctx2.pop("runner_skip_conflict_lock_key", None)
+                ctx2.pop("resume_after", None)
+                update_kwargs["execution_context"] = ctx2
+            await asyncio.to_thread(
+                tasks_store.update_task,
+                task.id,
+                **update_kwargs,
             )
             released_task_ids.append(task.id)
             released_lock_keys.update(lock_keys)

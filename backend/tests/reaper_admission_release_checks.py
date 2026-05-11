@@ -407,6 +407,28 @@ async def test_releases_due_concurrency_locked_task_to_ready_queue():
 
 
 @pytest.mark.asyncio
+async def test_releasing_concurrency_locked_candidate_without_loaded_context_preserves_db_context():
+    task = _build_concurrency_locked_task(
+        concurrency_key="concurrency:playbook_input:ig_batch_pin_references:profile-a"
+    )
+    task.execution_context = None
+    store = _FakeTasksStore([task])
+    queue = _FakeRedisQueue("browser_local")
+
+    released = await reaper._release_concurrency_locked_tasks(
+        store,
+        queue,
+        release_limit=1,
+    )
+
+    assert released == 1
+    update = store.updated[0][1]
+    assert update["blocked_reason"] is None
+    assert update["frontier_state"] == "ready"
+    assert "execution_context" not in update
+
+
+@pytest.mark.asyncio
 async def test_releases_one_due_concurrency_locked_task_per_lock_key():
     store = _FakeTasksStore(
         [
@@ -455,6 +477,26 @@ async def test_releases_due_dependency_hold_task_to_ready_queue():
     assert update["queue_shard"] == "vision_local"
     assert "dependency_hold" not in update["execution_context"]
     assert "resume_after" not in update["execution_context"]
+
+
+@pytest.mark.asyncio
+async def test_releasing_dependency_hold_candidate_without_loaded_context_preserves_db_context():
+    task = _build_dependency_hold_task()
+    task.execution_context = None
+    store = _FakeTasksStore([task])
+    queue = _FakeRedisQueue("vision_local")
+
+    released = await reaper._release_dependency_hold_tasks(
+        store,
+        queue,
+        release_limit=1,
+    )
+
+    assert released == 1
+    update = store.updated[0][1]
+    assert update["blocked_reason"] is None
+    assert update["frontier_state"] == "ready"
+    assert "execution_context" not in update
 
 
 @pytest.mark.asyncio

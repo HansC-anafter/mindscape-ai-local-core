@@ -53,6 +53,11 @@ _TERMINAL_SUCCESS_STALE_KEYS = (
 )
 
 
+def _is_non_retryable_task_error(message: str) -> bool:
+    normalized = str(message or "")
+    return "Missing required playbook inputs" in normalized
+
+
 def _resolve_execution_attempt_inputs(
     task: Task,
     task_ctx: Optional[Dict[str, Any]],
@@ -543,7 +548,12 @@ async def _mark_task_failed(
                 if isinstance(resource_snapshot, dict):
                     ctxf["resource_snapshot"] = resource_snapshot
 
-            is_deadletter = False if resource_wait else retry_count >= max_attempts
+            non_retryable = _is_non_retryable_task_error(msg)
+            is_deadletter = False if resource_wait else (
+                non_retryable or retry_count >= max_attempts
+            )
+            if non_retryable:
+                ctxf["non_retryable_failure"] = "missing_required_playbook_inputs"
 
             # For terminal deadletters, change status to FAILED.
             # Otherwise we keep it as PENDING but defer it to delayed queue.
