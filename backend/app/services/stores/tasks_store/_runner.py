@@ -36,10 +36,24 @@ _CLAIM_CONTEXT_STALE_KEYS = (
 def _build_claim_execution_context(
     existing_ctx: Dict[str, Any],
     *,
+    task_params: Optional[Dict[str, Any]] = None,
     runner_id: str,
     now: datetime,
 ) -> Dict[str, Any]:
     ctx = dict(existing_ctx) if isinstance(existing_ctx, dict) else {}
+    params_inputs: Dict[str, Any] = {}
+    if isinstance(task_params, dict):
+        nested_params_inputs = task_params.get("inputs")
+        if isinstance(nested_params_inputs, dict):
+            params_inputs.update(nested_params_inputs)
+        else:
+            params_inputs.update(task_params)
+    if params_inputs:
+        ctx_inputs = ctx.get("inputs")
+        merged_inputs = dict(params_inputs)
+        if isinstance(ctx_inputs, dict):
+            merged_inputs.update(ctx_inputs)
+        ctx["inputs"] = merged_inputs
     for key in _CLAIM_CONTEXT_STALE_KEYS:
         ctx.pop(key, None)
     ctx["runner_id"] = runner_id
@@ -122,7 +136,7 @@ class TasksStoreRunnerMixin:
             row = conn.execute(
                 text(
                     """
-                    SELECT status, execution_context, concurrency_key
+                    SELECT status, params, execution_context, concurrency_key
                     FROM tasks
                     WHERE id = :task_id
                 """
@@ -141,6 +155,11 @@ class TasksStoreRunnerMixin:
             if raw_ctx:
                 existing_ctx = self.deserialize_json(raw_ctx, {})
 
+            task_params: Dict[str, Any] = {}
+            raw_params = getattr(row, "params", None)
+            if raw_params:
+                task_params = self.deserialize_json(raw_params, {})
+
             keys = _normalize_concurrency_keys(concurrency_keys)
             persisted_key = getattr(row, "concurrency_key", None)
             if isinstance(persisted_key, str) and persisted_key.strip():
@@ -149,6 +168,7 @@ class TasksStoreRunnerMixin:
 
             ctx = _build_claim_execution_context(
                 existing_ctx,
+                task_params=task_params,
                 runner_id=runner_id,
                 now=now,
             )

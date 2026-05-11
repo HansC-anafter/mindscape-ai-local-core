@@ -27,6 +27,7 @@ class _SqliteClaimStore(TasksStoreRunnerMixin):
                     CREATE TABLE tasks (
                         id TEXT PRIMARY KEY,
                         status TEXT NOT NULL,
+                        params TEXT,
                         execution_context TEXT,
                         concurrency_key TEXT,
                         started_at TIMESTAMP,
@@ -63,6 +64,7 @@ class _SqliteClaimStore(TasksStoreRunnerMixin):
         *,
         status: str,
         concurrency_key: str | None,
+        params: dict | None = None,
         execution_context: dict | None = None,
     ) -> None:
         with self._engine.begin() as conn:
@@ -72,12 +74,14 @@ class _SqliteClaimStore(TasksStoreRunnerMixin):
                     INSERT INTO tasks (
                         id,
                         status,
+                        params,
                         execution_context,
                         concurrency_key,
                         frontier_state
                     ) VALUES (
                         :id,
                         :status,
+                        :params,
                         :execution_context,
                         :concurrency_key,
                         :frontier_state
@@ -87,6 +91,7 @@ class _SqliteClaimStore(TasksStoreRunnerMixin):
                 {
                     "id": task_id,
                     "status": status,
+                    "params": json.dumps(params or {}),
                     "execution_context": json.dumps(execution_context or {}),
                     "concurrency_key": concurrency_key,
                     "frontier_state": "ready",
@@ -99,6 +104,14 @@ class _SqliteClaimStore(TasksStoreRunnerMixin):
                 text("SELECT status FROM tasks WHERE id = :task_id"),
                 {"task_id": task_id},
             ).scalar_one()
+
+    def execution_context(self, task_id: str) -> dict:
+        with self._engine.begin() as conn:
+            raw = conn.execute(
+                text("SELECT execution_context FROM tasks WHERE id = :task_id"),
+                {"task_id": task_id},
+            ).scalar_one()
+        return json.loads(raw)
 
 
 def test_claim_context_clears_stale_deferred_metadata():
@@ -120,6 +133,7 @@ def test_claim_context_clears_stale_deferred_metadata():
             "error": "previous failure",
             "failed_at": "2026-05-08T03:00:01+00:00",
         },
+        task_params={"target_handle": "from-params"},
         runner_id="new-runner",
         now=now,
     )
@@ -191,3 +205,35 @@ def test_try_claim_task_allows_distinct_concurrency_key():
 
     assert claimed is True
     assert store.task_status("pending-task") == TaskStatus.RUNNING.value
+
+
+def test_try_claim_task_restores_missing_inputs_from_params():
+    store = _SqliteClaimStore()
+    store.insert_task(
+        "pending-task",
+        status=TaskStatus.PENDING.value,
+        concurrency_key="concurrency:playbook:ig_analyze_pinned_reference",
+        params={
+            "workspace_id": "ws-1",
+            "reference_id": "ref_1",
+            "analysis_profile": "visual_anatomy",
+        },
+        execution_context={
+            "runner_skip_reason": "concurrency_locked",
+            "resume_after": "2026-05-08T03:05:00+00:00",
+        },
+    )
+
+    claimed = store.try_claim_task(
+        "pending-task",
+        runner_id="runner-a",
+        concurrency_keys=["concurrency:playbook:ig_analyze_pinned_reference"],
+    )
+
+    assert claimed is True
+    ctx = store.execution_context("pending-task")
+    assert ctx["inputs"]["workspace_id"] == "ws-1"
+    assert ctx["inputs"]["reference_id"] == "ref_1"
+    assert ctx["inputs"]["analysis_profile"] == "visual_anatomy"
+    assert "runner_skip_reason" not in ctx
+    assert "resume_after" not in ctx
