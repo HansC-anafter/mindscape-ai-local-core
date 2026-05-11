@@ -1112,7 +1112,8 @@ class TaskResultLandingService:
                 message = _clean_string(payload.get("error")) or _clean_string(
                     payload.get("message")
                 )
-                return message or "workflow failed"
+                if message:
+                    return message
 
             for steps_key in ("steps", "step_outputs"):
                 steps = payload.get(steps_key)
@@ -1128,7 +1129,11 @@ class TaskResultLandingService:
 
             metadata = payload.get("metadata")
             if isinstance(metadata, dict):
-                return _from_payload(metadata)
+                metadata_failure = _from_payload(metadata)
+                if metadata_failure:
+                    return metadata_failure
+            if status in {"failed", "error"}:
+                return "workflow failed"
             return None
 
         failure = _from_payload(result_data)

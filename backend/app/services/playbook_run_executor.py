@@ -13,6 +13,7 @@ This class is only used internally by PlaybookService for backward compatibility
 
 import logging
 import os
+from copy import deepcopy
 from typing import Dict, Any, Optional
 
 from backend.app.models.playbook import (
@@ -57,6 +58,16 @@ def _workflow_outputs_has_errors(outputs: Any) -> bool:
 def _is_runner_process() -> bool:
     val = (os.getenv("LOCAL_CORE_RUNNER_PROCESS", "") or "").strip().lower()
     return val in {"1", "true", "yes"}
+
+
+def _is_missing_playbook_input(value: Any) -> bool:
+    return value is None or (isinstance(value, str) and not value.strip())
+
+
+def _definition_value(definition: Any, key: str, default: Any = None) -> Any:
+    if isinstance(definition, dict):
+        return definition.get(key, default)
+    return getattr(definition, key, default)
 
 
 def _workflow_result_has_errors(result: Dict[str, Any]) -> bool:
@@ -175,6 +186,37 @@ class PlaybookRunExecutor:
         # Try to load runtime providers from capability packs
         self._load_runtime_providers()
 
+    @staticmethod
+    def _apply_playbook_input_contract(
+        playbook_code: str,
+        playbook_run: PlaybookRun,
+        inputs: Optional[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        normalized_inputs = dict(inputs or {})
+        playbook_json = getattr(playbook_run, "playbook_json", None)
+        input_definitions = getattr(playbook_json, "inputs", None)
+        if not isinstance(input_definitions, dict):
+            return normalized_inputs
+
+        missing_required = []
+        for input_name, definition in input_definitions.items():
+            if not _is_missing_playbook_input(normalized_inputs.get(input_name)):
+                continue
+            default_value = _definition_value(definition, "default")
+            if default_value is not None:
+                normalized_inputs[input_name] = deepcopy(default_value)
+                continue
+            if bool(_definition_value(definition, "required", True)):
+                missing_required.append(input_name)
+
+        if missing_required:
+            missing = ", ".join(sorted(missing_required))
+            raise ValueError(
+                f"Missing required playbook inputs for {playbook_code}: {missing}"
+            )
+
+        return normalized_inputs
+
     async def execute_playbook_run(
         self,
         playbook_code: str,
@@ -244,6 +286,9 @@ class PlaybookRunExecutor:
             normalized_inputs["project_id"] = project_id
         if profile_id and "profile_id" not in normalized_inputs:
             normalized_inputs["profile_id"] = profile_id
+        normalized_inputs = self._apply_playbook_input_contract(
+            playbook_code, playbook_run, normalized_inputs
+        )
         logger.info(
             f"PlaybookRunExecutor: normalized_inputs keys={list(normalized_inputs.keys())}"
         )
