@@ -104,7 +104,26 @@ _ADMISSION_RELEASE_CANDIDATE_SELECT_FROM_ALIAS = """
         t.execution_context,
         t.created_at,
         t.next_eligible_at,
-        t.queue_shard
+        t.queue_shard,
+        t.concurrency_key
+    FROM chosen c
+    JOIN tasks t ON t.id = c.id
+"""
+
+_COLD_RELEASE_CANDIDATE_SELECT_FROM_ALIAS = """
+    SELECT
+        t.id,
+        t.workspace_id,
+        t.message_id,
+        t.execution_id,
+        t.pack_id,
+        t.task_type,
+        t.status,
+        NULL AS execution_context,
+        t.created_at,
+        t.next_eligible_at,
+        t.queue_shard,
+        t.concurrency_key
     FROM chosen c
     JOIN tasks t ON t.id = c.id
 """
@@ -192,6 +211,7 @@ class TasksStoreQueryMixin:
             next_eligible_at=next_eligible_at,
             blocked_reason=blocked_reason,
             queue_shard=getattr(row, "queue_shard", None) or "default",
+            concurrency_key=getattr(row, "concurrency_key", None),
             frontier_state="cold",
         )
 
@@ -841,7 +861,7 @@ class TasksStoreQueryMixin:
             )
             """
         )
-        query_parts.append(_ADMISSION_RELEASE_CANDIDATE_SELECT_FROM_ALIAS)
+        query_parts.append(_COLD_RELEASE_CANDIDATE_SELECT_FROM_ALIAS)
         query_parts.append(
             "ORDER BY c.pack_rank ASC, c.next_eligible_at ASC, c.created_at ASC, c.id ASC"
         )
@@ -900,7 +920,7 @@ class TasksStoreQueryMixin:
             )
             """
         )
-        query_parts.append(_ADMISSION_RELEASE_CANDIDATE_SELECT_FROM_ALIAS)
+        query_parts.append(_COLD_RELEASE_CANDIDATE_SELECT_FROM_ALIAS)
         query_parts.append("ORDER BY c.next_eligible_at ASC, c.created_at ASC, c.id ASC")
 
         with self.get_connection() as conn:
