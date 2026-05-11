@@ -27,6 +27,29 @@ Sources of truth include:
 
 Reading one file and extrapolating the rest is not evidence.
 
+## Modular Entry Rule
+
+**For inherited, large, or boundary-crossing changes, the implementation MUST begin by creating or selecting a modular entrypoint before changing behavior.**
+
+Default stance:
+
+- do not start by adding new logic directly into a god file
+- first open a seam such as a facade, adapter, shim, dispatcher, extractor module, service split, or thin compatibility wrapper
+- keep the legacy entrypoint as a thin caller when possible
+
+This rule is mandatory for:
+
+- inherited or AI-generated code
+- multi-responsibility files
+- cross-pack changes
+- API, job, migration, runtime registry, artifact, or persistence boundary changes
+- changes that touch more than one pack surface such as `api/`, `services/`, `tools/`, `schema/`, `ui/`, `jobs/`, or `workflows/`
+
+Narrow exception:
+
+- a leaf-only fix in a single low-risk file may skip a new seam
+- the plan must state why the change is leaf-only, why no new boundary is being introduced, and why the choice does not increase future refactor cost
+
 ## Required Output Shape
 
 Every implementation plan should contain these sections in this order:
@@ -57,6 +80,7 @@ For unfamiliar, AI-generated, outsourced, or inherited code, first build a revie
 
 - feature purpose and acceptance criteria
 - module boundaries and main dataflow
+- candidate modular entrypoints or seams for the first implementation cut
 - source of truth for important data
 - high-risk zones that need targeted line review
 - current test, deploy, logging, and rollback coverage
@@ -156,6 +180,8 @@ For each change block:
 - describe ordering constraints
 - describe how to verify the change
 
+For inherited, large, or boundary-crossing work, the first change block should open the modular entrypoint unless the plan explicitly documents and justifies the leaf-only exception.
+
 Good format:
 
 ```markdown
@@ -218,6 +244,17 @@ If the implementation or verification touches mutable user data, DB rows, genera
 
 Do not bury backup steps inside the testing section.
 
+## Internal Documentation Rule
+
+Internal planning, runtime evidence, operational notes, private paths, DB snapshots, logs, and `docs-internal/**` artifacts must remain local/private and must not be added to git for public repositories.
+
+When a plan is written under an ignored internal path such as `docs-internal/**`:
+
+- do not recommend `git add -f`
+- do not move the internal file into a tracked public docs path
+- do not include private runtime evidence, local absolute paths, logs, DB rows, queue snapshots, or capability-sensitive operational details in public repo commits
+- if a public project record is needed, create a separate sanitized summary that omits internal evidence and operational details
+
 ## Prohibited Patterns
 
 ### 1. Plan-First Investigation
@@ -250,6 +287,12 @@ Do not bury backup steps inside the testing section.
 
 **RIGHT**: Reproduce or re-check the original failing path.
 
+### 6. Direct Monolith Editing Without Opening a Seam
+
+**WRONG**: Start by adding new behavior directly into a multi-responsibility file because the insertion point is already known.
+
+**RIGHT**: First create or confirm a modular entrypoint, move the new behavior behind it, and keep the old path as a thin wrapper when feasible.
+
 ## Pre-Delivery Checklist
 
 - [ ] Every problem statement cites evidence
@@ -259,6 +302,7 @@ Do not bury backup steps inside the testing section.
 - [ ] Every runtime claim has runtime evidence
 - [ ] Every "not used / not called" claim uses full-project grep scope
 - [ ] Inherited or AI-generated code has a review map before targeted line review
+- [ ] Inherited, large, or boundary-crossing work opens with a modular entrypoint, or the leaf-only exception is explicitly justified
 - [ ] The plan maps each change to a specific problem ID
 - [ ] The verification SOP contains exact commands or UI actions
 - [ ] The automated test section names concrete scenarios and assertions

@@ -27,6 +27,7 @@ backend/app/models/*/
 
 # Internal documentation
 docs-internal/
+.agent/reports/
 
 # --- Whitelist (allowed exceptions) ---
 !backend/playbooks/pdf_ocr_processing.yaml
@@ -39,7 +40,3 @@ docs-internal/
 !backend/app/models/playbook_models/
 !backend/app/models/personal_governance/
 !backend/app/models/object_runtime/
-!docs-internal/implementation/2026-05-02/external-docs-aggressive-quarantine/
-!docs-internal/implementation/aol-runtime-workbench-2026-05-02/
-!docs-internal/implementation/runtime/ig-runtime-resource-settings-worktree-closure-todos-2026-05-05.md
-!docs-internal/implementation/runtime/ig-runtime-resource-settings-worktree-quality-report-2026-05-05.zh-TW.md

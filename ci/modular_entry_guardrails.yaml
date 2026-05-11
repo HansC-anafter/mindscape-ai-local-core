@@ -1,0 +1,71 @@
+large_file_line_threshold: 500
+large_file_changed_lines_threshold: 20
+
+high_risk_paths:
+  - backend/app/routes/core/**
+  - backend/app/services/**
+  - web-console/src/**
+  - scripts/ci/**
+  - ci/**
+  - .github/workflows/**
+  - .github/CODEOWNERS
+  - .github/pull_request_template.md
+
+multi_surface_groups:
+  - name: local-core-runtime
+    surfaces:
+      routes:
+        - backend/app/routes/core/**
+      services:
+        - backend/app/services/**
+      ui:
+        - web-console/src/**
+      scripts:
+        - scripts/ci/**
+
+protected_monoliths:
+  - path: backend/app/services/tool_registry.py
+    diff_budget: 15
+  - path: backend/app/routes/core/artifacts.py
+    diff_budget: 15
+  - path: backend/app/services/orchestration/meeting/engine.py
+    diff_budget: 20
+  - path: backend/app/services/external_agents/bridge/task_executor.py
+    diff_budget: 15
+
+accepted_seam_markers:
+  file_name_fragments:
+    - facade
+    - adapter
+    - shim
+    - dispatcher
+    - compat
+    - wrapper
+    - bridge
+    - extractor
+    - delegator
+  code_suffixes:
+    - .py
+    - .ts
+    - .tsx
+    - .js
+    - .jsx
+    - .mjs
+    - .cjs
+
+event_rules:
+  pull_request:
+    allow_leaf_only_exception: true
+    require_pr_body_for_exception: true
+  push:
+    allow_leaf_only_exception: false
+    require_pr_body_for_exception: false
+
+exception_markers:
+  claim_markers:
+    - Leaf-only exception claimed
+  required_fields:
+    - Changed files
+    - Why leaf-only
+    - Why no new boundary
+    - Why future refactor cost does not increase

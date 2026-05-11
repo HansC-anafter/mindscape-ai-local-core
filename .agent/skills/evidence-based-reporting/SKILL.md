@@ -25,6 +25,7 @@ Violation of this rule produces garbage reports that waste the user's time and d
 | Connection state (WS connected, API reachable) | `curl` / `ps aux` / backend log grep | UI screenshot alone (could be cached/stale) |
 | Network identity (IP belongs to X) | `host <IP>` or `nslookup` reverse DNS output | Guessing from IP range ownership |
 | Dataflow / source of truth (where data comes from, who writes it, who reads it) | Caller/route trace + writer code + reader code + runtime/API/DB evidence when relevant | Seeing a helper function and assuming it is used |
+| Refactor or implementation recommendation (where to open the change) | responsibility map + entrypoint/caller trace + boundary evidence | "Just edit the big file directly" without proving why no seam is needed |
 
 ---
 
@@ -169,6 +170,17 @@ FOR a task execution investigation:
 2. Verify the input and output cross the expected boundary
 3. Re-check the original user-facing path or API path
 
+### 15. Direct Monolith Rewrite Recommendation
+
+**WRONG**: "Fix this by editing `big_file.py` in place." (no responsibility map, no seam, no proof that the change is leaf-only)
+
+**RIGHT**: Before recommending the implementation path:
+
+1. map the current module responsibilities
+2. identify the real caller or boundary entrypoint
+3. state the preferred seam such as facade, adapter, shim, dispatcher, extractor module, or thin wrapper
+4. only recommend direct in-place editing when you can prove it is a leaf-only, low-risk change
+
 ---
 
 ## Mandatory Workflow
@@ -242,6 +254,7 @@ Before delivering any report or plan to the user, verify:
 - [ ] Runtime quantities (counts, sizes) have runtime evidence (command output), not code inference
 - [ ] DB field values have been traced to the code that writes them before being interpreted as evidence
 - [ ] "Feature X exists / is implemented" claims verify the real caller or user-facing path, not just an isolated helper
+- [ ] Any implementation recommendation for inherited, large, or boundary-crossing code states the modular entrypoint, or explicitly justifies the leaf-only exception
 
 ---
 

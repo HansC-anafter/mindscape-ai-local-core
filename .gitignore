@@ -133,6 +133,7 @@ test_*.yaml
 docs-internal/*
 docs-internal/implementation/*
 docs-internal/implementation/runtime/*
+.agent/reports/
 .agent/workflows/
 .agent/skills/**/*.md
 !.agent/skills/*/SKILL.md

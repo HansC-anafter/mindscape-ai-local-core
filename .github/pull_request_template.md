@@ -36,6 +36,22 @@ If this PR changes any of these paths, explain why the change belongs in Local C
 - [ ] Build or tooling
 - [ ] Boundary or guardrail change
 
+## Modular Entry Check
+
+- [ ] This change opens or confirms a modular entrypoint before behavior changes in inherited, large, or boundary-crossing code.
+- [ ] Legacy entrypoint is reduced to a thin wrapper where applicable.
+- [ ] Leaf-only exception claimed
+
+Exception justification:
+
+Changed files:
+
+Why leaf-only:
+
+Why no new boundary:
+
+Why future refactor cost does not increase:
+
 ## Validation
 
 List the commands, checks, or manual validation performed for this change.

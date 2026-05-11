@@ -1,5 +1,16 @@
 # CODEOWNERS - protect sensitive paths from Cloud component leakage.
 
+# Guardrail governance surfaces require owner review.
+/.github/workflows/architecture-guardrails.yml @team-leads
+/.github/pull_request_template.md @team-leads
+/.github/CODEOWNERS @team-leads
+/ci/modular_entry_guardrails.yaml @team-leads
+/scripts/ci/validate_modular_entrypoints.py @team-leads
+/backend/app/services/tool_registry.py @team-leads
+/backend/app/routes/core/artifacts.py @team-leads
+/backend/app/services/orchestration/meeting/engine.py @team-leads
+/backend/app/services/external_agents/bridge/task_executor.py @team-leads
+
 # These paths require owner review.
 /web-console/src/app/capabilities/ @team-leads
 /backend/app/capabilities/*/ui/ @team-leads
