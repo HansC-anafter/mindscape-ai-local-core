@@ -34,6 +34,8 @@ from .snapshots import (
     PROGRESS_SNAPSHOT_TTL_SECONDS,
     RedisTtlSnapshotStore,
     RUN_LOG_COUNT_SNAPSHOT_TTL_SECONDS,
+    build_progress_snapshot_key,
+    build_run_log_count_snapshot_key,
     get_ttl_snapshot,
     set_ttl_snapshot,
 )
@@ -56,6 +58,8 @@ __all__ = [
     "acquire_task_resource_admission",
     "build_resource_lease_key",
     "build_resource_wait_task_update",
+    "build_progress_snapshot_key",
+    "build_run_log_count_snapshot_key",
     "build_runner_resource_heartbeat",
     "get_ttl_snapshot",
     "list_active_runner_resource_heartbeats",

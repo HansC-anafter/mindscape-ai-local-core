@@ -6,6 +6,8 @@ from backend.app.services.runner_resources import (
     InMemoryTtlSnapshotStore,
     PROGRESS_SNAPSHOT_TTL_SECONDS,
     RUN_LOG_COUNT_SNAPSHOT_TTL_SECONDS,
+    build_progress_snapshot_key,
+    build_run_log_count_snapshot_key,
     build_runner_resource_heartbeat,
     get_ttl_snapshot,
     set_ttl_snapshot,
@@ -55,3 +57,16 @@ def test_runner_resource_heartbeat_captures_capacity_snapshot():
 def test_hot_snapshot_ttls_match_track01_gate():
     assert PROGRESS_SNAPSHOT_TTL_SECONDS == 5
     assert RUN_LOG_COUNT_SNAPSHOT_TTL_SECONDS == 5
+
+
+def test_hot_snapshot_keys_are_namespaced_and_stable():
+    progress_key = build_progress_snapshot_key("ws/1", "exec 1")
+    count_key = build_run_log_count_snapshot_key("ws/1", "exec 1")
+
+    assert progress_key == build_progress_snapshot_key("ws/1", "exec 1")
+    assert progress_key.startswith("mindscape:runner_resources:snapshot:v1:progress:")
+    assert count_key.startswith(
+        "mindscape:runner_resources:snapshot:v1:run_log_counts:"
+    )
+    assert "/" not in progress_key
+    assert " " not in progress_key

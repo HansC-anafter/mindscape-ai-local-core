@@ -8,6 +8,29 @@ from typing import Any, Optional
 
 PROGRESS_SNAPSHOT_TTL_SECONDS = 5
 RUN_LOG_COUNT_SNAPSHOT_TTL_SECONDS = 5
+SNAPSHOT_KEY_PREFIX = "mindscape:runner_resources:snapshot:v1"
+
+
+def _normalize_key_part(value: Any) -> str:
+    normalized = "".join(
+        char if char.isalnum() or char in {"-", "_", "."} else "_"
+        for char in str(value or "").strip()
+    ).strip("_")
+    return normalized[:96] or "default"
+
+
+def build_progress_snapshot_key(workspace_id: str, execution_id: str) -> str:
+    return (
+        f"{SNAPSHOT_KEY_PREFIX}:progress:"
+        f"{_normalize_key_part(workspace_id)}:{_normalize_key_part(execution_id)}"
+    )
+
+
+def build_run_log_count_snapshot_key(workspace_id: str, execution_id: str) -> str:
+    return (
+        f"{SNAPSHOT_KEY_PREFIX}:run_log_counts:"
+        f"{_normalize_key_part(workspace_id)}:{_normalize_key_part(execution_id)}"
+    )
 
 
 class RedisTtlSnapshotStore:
