@@ -1150,6 +1150,7 @@ async def _release_concurrency_locked_tasks(
 
     now = _utc_now()
     released_task_ids: list[str] = []
+    released_lock_keys: set[str] = set()
 
     for task in due_tasks:
         if len(released_task_ids) >= release_limit:
@@ -1158,6 +1159,14 @@ async def _release_concurrency_locked_tasks(
             continue
 
         ctx = task.execution_context if isinstance(task.execution_context, dict) else {}
+        lock_keys = _resolve_lock_keys(
+            ctx,
+            str(getattr(task, "pack_id", "") or ""),
+            persisted_concurrency_key=getattr(task, "concurrency_key", None),
+        )
+        if lock_keys and any(lock_key in released_lock_keys for lock_key in lock_keys):
+            continue
+
         ctx2 = dict(ctx)
         ctx2.pop("runner_skip_reason", None)
         ctx2.pop("runner_skip_lock_key", None)
@@ -1177,6 +1186,7 @@ async def _release_concurrency_locked_tasks(
                 frontier_enqueued_at=now,
             )
             released_task_ids.append(task.id)
+            released_lock_keys.update(lock_keys)
         except Exception as exc:
             logger.warning(
                 "[Bridge] Failed to release concurrency-locked task %s on shard %s: %s",

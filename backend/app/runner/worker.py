@@ -982,6 +982,30 @@ async def run_forever() -> None:
             lock_key = lock_keys[0] if lock_keys else None
             lock_owner_id = f"{runner_id}:{task_id}"
             if lock_keys:
+                db_conflict = await asyncio.to_thread(
+                    tasks_store.has_running_concurrency_conflict,
+                    t_data.id,
+                    lock_keys,
+                )
+                if db_conflict:
+                    parked_update = _build_parked_task_update(
+                        lock_ctx,
+                        reason="concurrency_locked",
+                        delay_seconds=30,
+                        now=_utc_now(),
+                        lock_key=lock_key,
+                        conflicting_lock_key=lock_key,
+                        current_queue_shard=getattr(t_data, "queue_shard", None),
+                    )
+                    await asyncio.to_thread(
+                        tasks_store.update_task,
+                        t_data.id,
+                        **parked_update,
+                    )
+                    await task_queue.ack_task(task_id)
+                    continue
+
+            if lock_keys:
                 acquired_keys: list[str] = []
                 conflicting_key: Optional[str] = None
                 for candidate_key in lock_keys:
@@ -1019,9 +1043,19 @@ async def run_forever() -> None:
             # ── 3. Atomic DB Claim ──
             # Only status PENDING -> RUNNING. If rows_updated=0, it's a stolen pop or duplicate claim.
             claimed = await asyncio.to_thread(
-                tasks_store.try_claim_task, t_data.id, runner_id=runner_id
+                tasks_store.try_claim_task,
+                t_data.id,
+                runner_id=runner_id,
+                concurrency_keys=lock_keys,
             )
             if not claimed:
+                db_conflict = False
+                if lock_keys:
+                    db_conflict = await asyncio.to_thread(
+                        tasks_store.has_running_concurrency_conflict,
+                        t_data.id,
+                        lock_keys,
+                    )
                 logger.warning(
                     f"[Worker] DB claim failed for Task {task_id}. Ghost pop or duplicated. Acking."
                 )
@@ -1030,6 +1064,21 @@ async def run_forever() -> None:
                         await redis_queue.release_lock(held_key, lock_owner_id)
                     except Exception:
                         pass
+                if db_conflict:
+                    parked_update = _build_parked_task_update(
+                        lock_ctx,
+                        reason="concurrency_locked",
+                        delay_seconds=30,
+                        now=_utc_now(),
+                        lock_key=lock_key,
+                        conflicting_lock_key=lock_key,
+                        current_queue_shard=getattr(t_data, "queue_shard", None),
+                    )
+                    await asyncio.to_thread(
+                        tasks_store.update_task,
+                        t_data.id,
+                        **parked_update,
+                    )
                 await task_queue.ack_task(task_id)
                 continue
 

@@ -136,17 +136,21 @@ def _build_deferred_task() -> Task:
     )
 
 
-def _build_concurrency_locked_task() -> Task:
+def _build_concurrency_locked_task(
+    task_id: str = "task-locked",
+    concurrency_key: str | None = None,
+) -> Task:
     now = _utc_now()
     return Task(
-        id="task-locked",
+        id=task_id,
         workspace_id="ws-1",
-        message_id="msg-locked",
-        execution_id="exec-locked",
+        message_id=f"msg-{task_id}",
+        execution_id=f"exec-{task_id}",
         pack_id="ig_batch_pin_references",
         task_type="playbook_execution",
         status=TaskStatus.PENDING,
         queue_shard="browser_local",
+        concurrency_key=concurrency_key,
         created_at=now - timedelta(minutes=5),
         next_eligible_at=now - timedelta(minutes=1),
         blocked_reason="concurrency_locked",
@@ -400,6 +404,33 @@ async def test_releases_due_concurrency_locked_task_to_ready_queue():
     assert "runner_skip_lock_key" not in update["execution_context"]
     assert "runner_skip_conflict_lock_key" not in update["execution_context"]
     assert "resume_after" not in update["execution_context"]
+
+
+@pytest.mark.asyncio
+async def test_releases_one_due_concurrency_locked_task_per_lock_key():
+    store = _FakeTasksStore(
+        [
+            _build_concurrency_locked_task(
+                "task-locked-a",
+                "concurrency:playbook:ig_analyze_pinned_reference",
+            ),
+            _build_concurrency_locked_task(
+                "task-locked-b",
+                "concurrency:playbook:ig_analyze_pinned_reference",
+            ),
+        ]
+    )
+    queue = _FakeRedisQueue("browser_local")
+
+    released = await reaper._release_concurrency_locked_tasks(
+        store,
+        queue,
+        release_limit=2,
+    )
+
+    assert released == 1
+    assert queue._client.enqueued == ["task-locked-a"]
+    assert [task_id for task_id, _update in store.updated] == ["task-locked-a"]
 
 
 @pytest.mark.asyncio

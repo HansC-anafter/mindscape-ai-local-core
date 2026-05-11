@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 
 from app.models.workspace import Task, TaskStatus
 
@@ -47,17 +48,81 @@ def _build_claim_execution_context(
     return ctx
 
 
+def _normalize_concurrency_keys(raw_keys: Optional[List[str]]) -> List[str]:
+    keys: List[str] = []
+    seen: set[str] = set()
+    for raw_key in raw_keys or []:
+        if not isinstance(raw_key, str):
+            continue
+        key = raw_key.strip()
+        if not key or key in seen:
+            continue
+        keys.append(key)
+        seen.add(key)
+    return keys
+
+
+def _running_concurrency_conflict_clause(
+    concurrency_keys: List[str],
+) -> tuple[str, Dict[str, str]]:
+    if not concurrency_keys:
+        return "", {}
+
+    params = {f"concurrency_key_{idx}": key for idx, key in enumerate(concurrency_keys)}
+    placeholders = ", ".join(f":concurrency_key_{idx}" for idx in range(len(params)))
+    return (
+        f"""
+        AND NOT EXISTS (
+            SELECT 1
+            FROM tasks running_task
+            WHERE running_task.id <> :task_id
+              AND running_task.status = :running_status
+              AND running_task.concurrency_key IN ({placeholders})
+            LIMIT 1
+        )
+        """,
+        params,
+    )
+
+
 class TasksStoreRunnerMixin:
     """Runner lifecycle operations for TasksStore."""
 
-    def try_claim_task(self, task_id: str, runner_id: str) -> bool:
+    def has_running_concurrency_conflict(
+        self,
+        task_id: str,
+        concurrency_keys: Optional[List[str]],
+    ) -> bool:
+        keys = _normalize_concurrency_keys(concurrency_keys)
+        if not keys:
+            return False
+
+        clause, key_params = _running_concurrency_conflict_clause(keys)
+        conflict_sql = clause.replace("AND NOT EXISTS", "SELECT EXISTS").strip()
+        with self.get_connection() as conn:
+            row = conn.execute(
+                text(conflict_sql),
+                {
+                    "task_id": task_id,
+                    "running_status": TaskStatus.RUNNING.value,
+                    **key_params,
+                },
+            ).fetchone()
+            return bool(row and row[0])
+
+    def try_claim_task(
+        self,
+        task_id: str,
+        runner_id: str,
+        concurrency_keys: Optional[List[str]] = None,
+    ) -> bool:
         now = _utc_now()
 
         with self.transaction() as conn:
             row = conn.execute(
                 text(
                     """
-                    SELECT status, execution_context
+                    SELECT status, execution_context, concurrency_key
                     FROM tasks
                     WHERE id = :task_id
                 """
@@ -76,15 +141,22 @@ class TasksStoreRunnerMixin:
             if raw_ctx:
                 existing_ctx = self.deserialize_json(raw_ctx, {})
 
+            keys = _normalize_concurrency_keys(concurrency_keys)
+            persisted_key = getattr(row, "concurrency_key", None)
+            if isinstance(persisted_key, str) and persisted_key.strip():
+                keys = _normalize_concurrency_keys([*keys, persisted_key])
+            conflict_clause, conflict_params = _running_concurrency_conflict_clause(keys)
+
             ctx = _build_claim_execution_context(
                 existing_ctx,
                 runner_id=runner_id,
                 now=now,
             )
 
-            result = conn.execute(
-                text(
-                    """
+            try:
+                result = conn.execute(
+                    text(
+                        f"""
                     UPDATE tasks
                     SET status = :running_status,
                         started_at = :started_at,
@@ -94,17 +166,21 @@ class TasksStoreRunnerMixin:
                         frontier_state = :frontier_state,
                         frontier_enqueued_at = NULL
                     WHERE id = :task_id AND status = :pending_status
+                    {conflict_clause}
                 """
-                ),
-                {
-                    "running_status": TaskStatus.RUNNING.value,
-                    "pending_status": TaskStatus.PENDING.value,
-                    "started_at": now,
-                    "execution_context": self.serialize_json(ctx),
-                    "frontier_state": "running",
-                    "task_id": task_id,
-                },
-            )
+                    ),
+                    {
+                        "running_status": TaskStatus.RUNNING.value,
+                        "pending_status": TaskStatus.PENDING.value,
+                        "started_at": now,
+                        "execution_context": self.serialize_json(ctx),
+                        "frontier_state": "running",
+                        "task_id": task_id,
+                        **conflict_params,
+                    },
+                )
+            except IntegrityError:
+                return False
             return result.rowcount == 1
 
     def update_task_heartbeat(

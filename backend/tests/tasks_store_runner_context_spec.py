@@ -1,8 +1,104 @@
+import json
+from contextlib import contextmanager
 from datetime import datetime, timezone
 
+from sqlalchemy import create_engine, text
+from sqlalchemy.pool import StaticPool
+
+from backend.app.models.workspace import TaskStatus
 from backend.app.services.stores.tasks_store._runner import (
     _build_claim_execution_context,
+    TasksStoreRunnerMixin,
 )
+
+
+class _SqliteClaimStore(TasksStoreRunnerMixin):
+    def __init__(self) -> None:
+        self._engine = create_engine(
+            "sqlite+pysqlite:///:memory:",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+            future=True,
+        )
+        with self._engine.begin() as conn:
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE tasks (
+                        id TEXT PRIMARY KEY,
+                        status TEXT NOT NULL,
+                        execution_context TEXT,
+                        concurrency_key TEXT,
+                        started_at TIMESTAMP,
+                        blocked_reason TEXT,
+                        blocked_payload TEXT,
+                        frontier_state TEXT,
+                        frontier_enqueued_at TIMESTAMP
+                    )
+                    """
+                )
+            )
+
+    @contextmanager
+    def transaction(self):
+        with self._engine.begin() as conn:
+            yield conn
+
+    @contextmanager
+    def get_connection(self):
+        with self._engine.begin() as conn:
+            yield conn
+
+    def serialize_json(self, value):
+        return json.dumps(value)
+
+    def deserialize_json(self, value, default):
+        if not value:
+            return default
+        return json.loads(value)
+
+    def insert_task(
+        self,
+        task_id: str,
+        *,
+        status: str,
+        concurrency_key: str | None,
+        execution_context: dict | None = None,
+    ) -> None:
+        with self._engine.begin() as conn:
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO tasks (
+                        id,
+                        status,
+                        execution_context,
+                        concurrency_key,
+                        frontier_state
+                    ) VALUES (
+                        :id,
+                        :status,
+                        :execution_context,
+                        :concurrency_key,
+                        :frontier_state
+                    )
+                    """
+                ),
+                {
+                    "id": task_id,
+                    "status": status,
+                    "execution_context": json.dumps(execution_context or {}),
+                    "concurrency_key": concurrency_key,
+                    "frontier_state": "ready",
+                },
+            )
+
+    def task_status(self, task_id: str) -> str:
+        with self._engine.begin() as conn:
+            return conn.execute(
+                text("SELECT status FROM tasks WHERE id = :task_id"),
+                {"task_id": task_id},
+            ).scalar_one()
 
 
 def test_claim_context_clears_stale_deferred_metadata():
@@ -46,3 +142,52 @@ def test_claim_context_clears_stale_deferred_metadata():
         "failed_at",
     ):
         assert stale_key not in ctx
+
+
+def test_try_claim_task_blocks_existing_running_concurrency_key():
+    store = _SqliteClaimStore()
+    lock_key = "concurrency:playbook:ig_analyze_pinned_reference"
+    store.insert_task(
+        "running-task",
+        status=TaskStatus.RUNNING.value,
+        concurrency_key=lock_key,
+    )
+    store.insert_task(
+        "pending-task",
+        status=TaskStatus.PENDING.value,
+        concurrency_key=lock_key,
+    )
+
+    assert store.has_running_concurrency_conflict("pending-task", [lock_key]) is True
+
+    claimed = store.try_claim_task(
+        "pending-task",
+        runner_id="runner-a",
+        concurrency_keys=[lock_key],
+    )
+
+    assert claimed is False
+    assert store.task_status("pending-task") == TaskStatus.PENDING.value
+
+
+def test_try_claim_task_allows_distinct_concurrency_key():
+    store = _SqliteClaimStore()
+    store.insert_task(
+        "running-task",
+        status=TaskStatus.RUNNING.value,
+        concurrency_key="concurrency:playbook:other",
+    )
+    store.insert_task(
+        "pending-task",
+        status=TaskStatus.PENDING.value,
+        concurrency_key="concurrency:playbook:ig_analyze_pinned_reference",
+    )
+
+    claimed = store.try_claim_task(
+        "pending-task",
+        runner_id="runner-a",
+        concurrency_keys=["concurrency:playbook:ig_analyze_pinned_reference"],
+    )
+
+    assert claimed is True
+    assert store.task_status("pending-task") == TaskStatus.RUNNING.value
