@@ -18,6 +18,7 @@ _EXECUTION_PROFILE_KEYS = (
     "runner_profile_hint",
     "runtime_affinity",
     "runner_timeout_seconds",
+    "resource_requirements",
     "trace_runner_heartbeat",
     "no_progress_watchdog",
     "runner_dependencies",

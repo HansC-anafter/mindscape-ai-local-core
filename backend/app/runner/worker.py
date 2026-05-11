@@ -32,6 +32,15 @@ from backend.app.services.runner_topology import (
     resolve_target_runner_profile,
     runner_profile_can_claim_task,
 )
+from backend.app.services.runner_resources import (
+    RedisResourceLeaseStore,
+    acquire_task_resource_admission,
+    build_resource_wait_task_update,
+    build_runner_resource_heartbeat,
+    publish_runner_resource_heartbeat,
+    release_acquired_resource_leases,
+    resolve_resource_requirements,
+)
 from backend.app.services.stores.tasks_store import TasksStore
 
 from backend.app.services.stores.redis.runner_queue_store import RedisRunnerQueueStore
@@ -464,6 +473,8 @@ def _build_parked_task_update(
     if previous_runner_id and not ctx2.get("last_runner_id"):
         ctx2["last_runner_id"] = previous_runner_id
     ctx2["resume_after"] = next_eligible_at.isoformat()
+    ctx2.pop("resource_admission", None)
+    ctx2.pop("runner_resource_leases", None)
 
     blocked_payload: dict = {}
 
@@ -790,6 +801,19 @@ async def run_forever() -> None:
             )
         except Exception:
             pass
+        try:
+            await publish_runner_resource_heartbeat(
+                redis_queue,
+                build_runner_resource_heartbeat(
+                    runner_id=runner_id,
+                    profile_code=runner_profile.profile_code,
+                    queue_shards=list(runner_profile.accepted_queue_partitions),
+                    capacity=capacity,
+                    resource_snapshot=resource_snapshot,
+                ),
+            )
+        except Exception:
+            pass
 
         # Restart sentinel: backend writes this when Device Node is unreachable.
         # Drain inflight tasks gracefully, then exit for Docker auto-restart.
@@ -910,6 +934,10 @@ async def run_forever() -> None:
         if not task_id or not task_queue:
             continue
 
+        lock_owner_id = f"{runner_id}:{task_id}"
+        resource_lease_store = None
+        resource_decision = None
+
         try:
             # Rehydrate task metadata from DB (as source of truth)
             # If the task doesn't exist or is deeply corrupt, deadletter it.
@@ -973,14 +1001,57 @@ async def run_forever() -> None:
                 await task_queue.ack_task(task_id)
                 continue
 
-            # ── 2. Lock BEFORE Claim ──
+            # ── 2. Resource admission BEFORE lock/claim ──
+            playbook_metadata = resolve_installed_playbook_runner_metadata(
+                playbook_code
+            )
+            resource_requirements = resolve_resource_requirements(
+                t_data,
+                execution_context=lock_ctx,
+                playbook_metadata=playbook_metadata,
+            )
+            resource_lease_store = RedisResourceLeaseStore(task_queue)
+            resource_decision = await acquire_task_resource_admission(
+                task=t_data,
+                requirements=resource_requirements,
+                runner_profile=runner_profile,
+                capacity=capacity,
+                lease_store=resource_lease_store,
+                owner_id=lock_owner_id,
+                ttl_seconds=lock_ttl_seconds,
+            )
+            if not resource_decision.allow:
+                resource_wait_update = build_resource_wait_task_update(
+                    lock_ctx,
+                    resource_decision,
+                    current_queue_shard=getattr(t_data, "queue_shard", None),
+                )
+                await asyncio.to_thread(
+                    tasks_store.update_task,
+                    t_data.id,
+                    **resource_wait_update,
+                )
+                await task_queue.ack_task(task_id)
+                continue
+
+            if resource_decision.execution_context_updates:
+                lock_ctx = {
+                    **lock_ctx,
+                    **resource_decision.execution_context_updates,
+                }
+                await asyncio.to_thread(
+                    tasks_store.update_task,
+                    t_data.id,
+                    execution_context=lock_ctx,
+                )
+
+            # ── 3. Lock BEFORE Claim ──
             lock_keys = _resolve_lock_keys(
                 lock_ctx,
                 t_data.pack_id,
                 persisted_concurrency_key=getattr(t_data, "concurrency_key", None),
             )
             lock_key = lock_keys[0] if lock_keys else None
-            lock_owner_id = f"{runner_id}:{task_id}"
             if lock_keys:
                 db_conflict = await asyncio.to_thread(
                     tasks_store.has_running_concurrency_conflict,
@@ -988,6 +1059,12 @@ async def run_forever() -> None:
                     lock_keys,
                 )
                 if db_conflict:
+                    if resource_lease_store and resource_decision:
+                        await release_acquired_resource_leases(
+                            resource_lease_store,
+                            resource_decision.acquired_leases,
+                            owner_id=lock_owner_id,
+                        )
                     parked_update = _build_parked_task_update(
                         lock_ctx,
                         reason="concurrency_locked",
@@ -1023,6 +1100,12 @@ async def run_forever() -> None:
                             await redis_queue.release_lock(acquired_key, lock_owner_id)
                         except Exception:
                             pass
+                    if resource_lease_store and resource_decision:
+                        await release_acquired_resource_leases(
+                            resource_lease_store,
+                            resource_decision.acquired_leases,
+                            owner_id=lock_owner_id,
+                        )
                     parked_update = _build_parked_task_update(
                         lock_ctx,
                         reason="concurrency_locked",
@@ -1064,6 +1147,12 @@ async def run_forever() -> None:
                         await redis_queue.release_lock(held_key, lock_owner_id)
                     except Exception:
                         pass
+                if resource_lease_store and resource_decision:
+                    await release_acquired_resource_leases(
+                        resource_lease_store,
+                        resource_decision.acquired_leases,
+                        owner_id=lock_owner_id,
+                    )
                 if db_conflict:
                     parked_update = _build_parked_task_update(
                         lock_ctx,
@@ -1098,6 +1187,15 @@ async def run_forever() -> None:
             logger.warning(
                 f"Runner task dispatch error for {task_id}: {e}", exc_info=True
             )
+            if resource_lease_store and resource_decision:
+                try:
+                    await release_acquired_resource_leases(
+                        resource_lease_store,
+                        resource_decision.acquired_leases,
+                        owner_id=lock_owner_id,
+                    )
+                except Exception:
+                    pass
             # Failsafe in case of dispatch crash
             await (task_queue or redis_queue).nack_task_to_delayed(task_id, delay_sec=15)
 

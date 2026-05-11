@@ -17,6 +17,10 @@ from backend.app.services.task_admission_service import (
     ADMISSION_DEFERRED_REASON,
     TASK_ADMISSION_SERVICE,
 )
+from backend.app.services.runner_resources import (
+    RESOURCE_WAIT_REASON,
+    resource_lease_keys_from_context,
+)
 
 from backend.app.runner.concurrency import _resolve_lock_keys
 from backend.app.runner.lifecycle_hooks import _invoke_on_fail_hook
@@ -26,6 +30,7 @@ logger = logging.getLogger(__name__)
 
 _CONCURRENCY_LOCKED_REASON = "concurrency_locked"
 _DEPENDENCY_HOLD_REASON = "dependency_hold"
+_RESOURCE_WAIT_REASON = RESOURCE_WAIT_REASON
 
 
 def _blocked_release_limit(ready_target: int, ready_depth: int) -> int:
@@ -35,6 +40,20 @@ def _blocked_release_limit(ready_target: int, ready_depth: int) -> int:
         _env_int("LOCAL_CORE_RUNNER_BLOCKED_RELEASE_MINIMUM", 4),
     )
     return max(capacity_limit, floor_limit)
+
+
+def _resource_wait_keys_from_context(ctx: dict[str, Any]) -> list[str]:
+    keys = resource_lease_keys_from_context(ctx)
+    admission = ctx.get("resource_admission")
+    if isinstance(admission, dict):
+        for field_name in ("resource_keys", "lease_keys"):
+            raw_keys = admission.get(field_name)
+            if isinstance(raw_keys, list):
+                keys.extend(str(key).strip() for key in raw_keys if str(key).strip())
+        raw_key = admission.get("resource_key")
+        if isinstance(raw_key, str) and raw_key.strip():
+            keys.append(raw_key.strip())
+    return list(dict.fromkeys(keys))
 
 
 def _is_stale_started_task(task: Task, threshold: datetime) -> bool:
@@ -773,6 +792,14 @@ async def _reap_redis_queues(
         )
         ready_depth += dependency_released_count
 
+        release_limit = _blocked_release_limit(ready_target, ready_depth)
+        resource_released_count = await _release_resource_wait_tasks(
+            tasks_store,
+            redis_queue,
+            release_limit=release_limit,
+        )
+        ready_depth += resource_released_count
+
         release_limit = max(0, ready_target - ready_depth)
         released_count = await _release_admission_deferred_tasks(
             tasks_store,
@@ -944,6 +971,108 @@ async def _release_admission_deferred_tasks(
             exc,
         )
 
+    return len(released_task_ids)
+
+
+async def _release_resource_wait_tasks(
+    tasks_store: TasksStore,
+    redis_queue: RedisRunnerQueueStore,
+    *,
+    release_limit: int,
+) -> int:
+    if release_limit <= 0:
+        return 0
+
+    list_due_resource_wait_tasks = getattr(
+        tasks_store,
+        "list_due_resource_wait_tasks",
+        None,
+    )
+    if not list_due_resource_wait_tasks:
+        return 0
+
+    due_tasks = await asyncio.to_thread(
+        list_due_resource_wait_tasks,
+        queue_shard=redis_queue.pack_id,
+        limit=max(release_limit * 4, release_limit),
+    )
+    if not due_tasks:
+        return 0
+
+    client = await redis_queue._get_client()
+    if not client:
+        return 0
+
+    now = _utc_now()
+    released_task_ids: list[str] = []
+    released_resource_keys: set[str] = set()
+
+    for task in due_tasks:
+        if len(released_task_ids) >= release_limit:
+            break
+        if getattr(task, "blocked_reason", None) != _RESOURCE_WAIT_REASON:
+            continue
+
+        raw_ctx = task.execution_context
+        ctx = raw_ctx if isinstance(raw_ctx, dict) else {}
+        resource_keys = _resource_wait_keys_from_context(ctx)
+        if resource_keys and any(
+            resource_key in released_resource_keys for resource_key in resource_keys
+        ):
+            continue
+
+        try:
+            update_kwargs = dict(
+                next_eligible_at=now,
+                blocked_reason=None,
+                blocked_payload=None,
+                queue_shard=getattr(task, "queue_shard", None) or redis_queue.pack_id,
+                frontier_state="ready",
+                frontier_enqueued_at=now,
+            )
+            if isinstance(raw_ctx, dict):
+                ctx2 = dict(raw_ctx)
+                ctx2.pop("resource_admission", None)
+                ctx2.pop("runner_resource_leases", None)
+                ctx2.pop("resume_after", None)
+                update_kwargs["execution_context"] = ctx2
+            await asyncio.to_thread(
+                tasks_store.update_task,
+                task.id,
+                **update_kwargs,
+            )
+            released_task_ids.append(task.id)
+            released_resource_keys.update(resource_keys)
+        except Exception as exc:
+            logger.warning(
+                "[Bridge] Failed to release resource-wait task %s on shard %s: %s",
+                getattr(task, "id", None),
+                redis_queue.pack_id,
+                exc,
+            )
+
+    if not released_task_ids:
+        return 0
+
+    try:
+        pipe = client.pipeline()
+        for task_id in released_task_ids:
+            pipe.rpush(redis_queue.q_pending, task_id)
+        await pipe.execute()
+    except Exception as exc:
+        logger.warning(
+            "[Bridge] Failed to enqueue %d resource-wait task(s) for shard %s: %s",
+            len(released_task_ids),
+            redis_queue.pack_id,
+            exc,
+        )
+        return 0
+
+    logger.warning(
+        "[Bridge] Released %d due resource-wait task(s) on shard %s.",
+        len(released_task_ids),
+        redis_queue.pack_id,
+    )
     return len(released_task_ids)
 
 

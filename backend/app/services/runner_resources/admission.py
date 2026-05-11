@@ -1,0 +1,210 @@
+"""Resource-aware task admission."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
+from typing import Any, Optional
+
+from .leases import (
+    LEASE_CONTEXT_KEY,
+    ResourceLease,
+    ResourceLeaseStore,
+    build_resource_lease_key,
+)
+from .requirements import ResourceRequirements
+
+RESOURCE_WAIT_REASON = "resource_wait"
+
+
+@dataclass(frozen=True)
+class ResourceAdmissionDecision:
+    allow: bool
+    requirements: ResourceRequirements
+    blocked_reason: Optional[str] = None
+    blocked_payload: Optional[dict[str, Any]] = None
+    next_eligible_at: Optional[datetime] = None
+    acquired_leases: list[ResourceLease] = field(default_factory=list)
+    execution_context_updates: dict[str, Any] = field(default_factory=dict)
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _profile_code(profile: Any) -> str:
+    return str(getattr(profile, "profile_code", "") or "runner").strip() or "runner"
+
+
+def _available_slots(capacity: Any) -> int:
+    return max(0, int(getattr(capacity, "available_slots", 0) or 0))
+
+
+def _task_id(task: Any) -> str:
+    if isinstance(task, dict):
+        return str(task.get("id") or "").strip()
+    return str(getattr(task, "id", "") or "").strip()
+
+
+def _resource_entries(requirements: ResourceRequirements) -> list[tuple[str, str]]:
+    entries: list[tuple[str, str]] = []
+    if requirements.ig_profile_lock:
+        entries.append(("ig_profile_lock", requirements.ig_profile_lock))
+    return entries
+
+
+async def acquire_task_resource_admission(
+    *,
+    task: Any,
+    requirements: ResourceRequirements,
+    runner_profile: Any,
+    capacity: Any,
+    lease_store: ResourceLeaseStore,
+    owner_id: str,
+    ttl_seconds: int,
+    delay_seconds: int = 30,
+    now: Optional[datetime] = None,
+) -> ResourceAdmissionDecision:
+    base_now = now or _utc_now()
+
+    if requirements.browser_contexts > _available_slots(capacity):
+        return _blocked_decision(
+            requirements=requirements,
+            reason="browser_contexts_unavailable",
+            delay_seconds=delay_seconds,
+            now=base_now,
+            task=task,
+            runner_profile=runner_profile,
+        )
+
+    acquired: list[ResourceLease] = []
+    for resource_type, resource_id in _resource_entries(requirements):
+        lease_key = build_resource_lease_key(resource_type, resource_id)
+        lease = ResourceLease(
+            lease_key=lease_key,
+            resource_type=resource_type,
+            resource_id=resource_id,
+        )
+        ok = await lease_store.acquire(lease_key, owner_id, ttl_seconds)
+        if not ok:
+            await release_acquired_resource_leases(
+                lease_store,
+                acquired,
+                owner_id=owner_id,
+            )
+            return _blocked_decision(
+                requirements=requirements,
+                reason=f"{resource_type}_leased",
+                delay_seconds=delay_seconds,
+                now=base_now,
+                task=task,
+                runner_profile=runner_profile,
+                resource_key=lease_key,
+            )
+        acquired.append(lease)
+
+    context_updates: dict[str, Any] = {}
+    if acquired:
+        context_updates[LEASE_CONTEXT_KEY] = [
+            lease.to_context() for lease in acquired
+        ]
+        context_updates["resource_admission"] = {
+            "state": "admitted",
+            "task_id": _task_id(task),
+            "runner_profile": _profile_code(runner_profile),
+            "requirements": requirements.to_dict(),
+            "lease_keys": [lease.lease_key for lease in acquired],
+            "admitted_at": base_now.isoformat(),
+        }
+
+    return ResourceAdmissionDecision(
+        allow=True,
+        requirements=requirements,
+        acquired_leases=acquired,
+        execution_context_updates=context_updates,
+    )
+
+
+async def release_acquired_resource_leases(
+    lease_store: ResourceLeaseStore,
+    leases: list[ResourceLease],
+    *,
+    owner_id: str,
+) -> None:
+    for lease in leases:
+        await lease_store.release(lease.lease_key, owner_id)
+
+
+def _blocked_decision(
+    *,
+    requirements: ResourceRequirements,
+    reason: str,
+    delay_seconds: int,
+    now: datetime,
+    task: Any,
+    runner_profile: Any,
+    resource_key: Optional[str] = None,
+) -> ResourceAdmissionDecision:
+    next_eligible_at = now + timedelta(seconds=max(1, int(delay_seconds or 1)))
+    payload = {
+        "policy": RESOURCE_WAIT_REASON,
+        "reason": reason,
+        "task_id": _task_id(task),
+        "runner_profile": _profile_code(runner_profile),
+        "requirements": requirements.to_dict(),
+        "defer_until": next_eligible_at.isoformat(),
+        "evaluated_at": now.isoformat(),
+    }
+    if resource_key:
+        payload["resource_key"] = resource_key
+        payload["resource_keys"] = [resource_key]
+    return ResourceAdmissionDecision(
+        allow=False,
+        requirements=requirements,
+        blocked_reason=RESOURCE_WAIT_REASON,
+        blocked_payload=payload,
+        next_eligible_at=next_eligible_at,
+    )
+
+
+def build_resource_wait_task_update(
+    task_ctx: Optional[dict[str, Any]],
+    decision: ResourceAdmissionDecision,
+    *,
+    current_queue_shard: Optional[str],
+) -> dict[str, Any]:
+    ctx2 = dict(task_ctx) if isinstance(task_ctx, dict) else {}
+    blocked_payload = decision.blocked_payload or {}
+    resource_keys = blocked_payload.get("resource_keys")
+    if not isinstance(resource_keys, list):
+        resource_keys = []
+    resource_key = blocked_payload.get("resource_key")
+    if isinstance(resource_key, str) and resource_key.strip():
+        resource_keys = [resource_key.strip(), *resource_keys]
+    resource_keys = list(
+        dict.fromkeys(str(key).strip() for key in resource_keys if str(key).strip())
+    )
+    previous_runner_id = ctx2.pop("runner_id", None)
+    ctx2.pop("heartbeat_at", None)
+    if previous_runner_id and not ctx2.get("last_runner_id"):
+        ctx2["last_runner_id"] = previous_runner_id
+    next_eligible_at = decision.next_eligible_at or (_utc_now() + timedelta(seconds=30))
+    ctx2["resume_after"] = next_eligible_at.isoformat()
+    ctx2["resource_admission"] = {
+        "state": "waiting",
+        "reason": blocked_payload.get("reason"),
+        "defer_until": next_eligible_at.isoformat(),
+        "requirements": decision.requirements.to_dict(),
+    }
+    if resource_keys:
+        ctx2["resource_admission"]["resource_keys"] = resource_keys
+    ctx2.pop(LEASE_CONTEXT_KEY, None)
+    return {
+        "execution_context": ctx2,
+        "next_eligible_at": next_eligible_at,
+        "blocked_reason": RESOURCE_WAIT_REASON,
+        "blocked_payload": decision.blocked_payload,
+        "frontier_state": "cold",
+        "frontier_enqueued_at": None,
+        "queue_shard": current_queue_shard,
+    }

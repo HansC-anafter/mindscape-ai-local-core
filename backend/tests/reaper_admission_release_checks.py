@@ -55,6 +55,7 @@ class _FakeTasksStore:
         self.release_candidate_calls = 0
         self.concurrency_locked_calls = 0
         self.dependency_hold_calls = 0
+        self.resource_wait_calls = 0
         self.unblocked_cold_calls = 0
 
     def list_running_playbook_execution_tasks(self, *, workspace_id=None, limit=200):
@@ -85,6 +86,10 @@ class _FakeTasksStore:
 
     def list_due_dependency_hold_tasks(self, *, queue_shard=None, limit=200):
         self.dependency_hold_calls += 1
+        return self._tasks[:limit]
+
+    def list_due_resource_wait_tasks(self, *, queue_shard=None, limit=200):
+        self.resource_wait_calls += 1
         return self._tasks[:limit]
 
     def list_due_unblocked_cold_tasks(self, *, queue_shard=None, limit=200):
@@ -188,6 +193,37 @@ def _build_dependency_hold_task() -> Task:
         execution_context={
             "playbook_code": "vision_reference_analyze",
             "dependency_hold": {"deps": ["mlx"], "checked_at": now.isoformat()},
+            "resume_after": now.isoformat(),
+        },
+    )
+
+
+def _build_resource_wait_task(
+    task_id: str = "task-resource",
+    resource_key: str = "mindscape:runner_resources:lease:v1:ig_profile_lock:profile:hash",
+) -> Task:
+    now = _utc_now()
+    return Task(
+        id=task_id,
+        workspace_id="ws-1",
+        message_id=f"msg-{task_id}",
+        execution_id=f"exec-{task_id}",
+        pack_id="ig_batch_pin_references",
+        task_type="playbook_execution",
+        status=TaskStatus.PENDING,
+        queue_shard="browser_local",
+        created_at=now - timedelta(minutes=5),
+        next_eligible_at=now - timedelta(minutes=1),
+        blocked_reason="resource_wait",
+        frontier_state="cold",
+        execution_context={
+            "playbook_code": "ig_batch_pin_references",
+            "resource_admission": {
+                "state": "waiting",
+                "reason": "ig_profile_lock_leased",
+                "resource_keys": [resource_key],
+            },
+            "runner_resource_leases": [{"lease_key": resource_key}],
             "resume_after": now.isoformat(),
         },
     )
@@ -497,6 +533,53 @@ async def test_releasing_dependency_hold_candidate_without_loaded_context_preser
     assert update["blocked_reason"] is None
     assert update["frontier_state"] == "ready"
     assert "execution_context" not in update
+
+
+@pytest.mark.asyncio
+async def test_releases_due_resource_wait_task_to_ready_queue():
+    store = _FakeTasksStore([_build_resource_wait_task()])
+    queue = _FakeRedisQueue("browser_local")
+
+    released = await reaper._release_resource_wait_tasks(
+        store,
+        queue,
+        release_limit=1,
+    )
+
+    assert released == 1
+    assert store.resource_wait_calls == 1
+    assert queue._client.enqueued == ["task-resource"]
+    assert queue._client.operations == [("rpush", "task-resource")]
+    update = store.updated[0][1]
+    assert update["blocked_reason"] is None
+    assert update["blocked_payload"] is None
+    assert update["frontier_state"] == "ready"
+    assert update["queue_shard"] == "browser_local"
+    assert "resource_admission" not in update["execution_context"]
+    assert "runner_resource_leases" not in update["execution_context"]
+    assert "resume_after" not in update["execution_context"]
+
+
+@pytest.mark.asyncio
+async def test_releases_one_due_resource_wait_task_per_resource_key():
+    resource_key = "mindscape:runner_resources:lease:v1:ig_profile_lock:profile:hash"
+    store = _FakeTasksStore(
+        [
+            _build_resource_wait_task("task-resource-a", resource_key),
+            _build_resource_wait_task("task-resource-b", resource_key),
+        ]
+    )
+    queue = _FakeRedisQueue("browser_local")
+
+    released = await reaper._release_resource_wait_tasks(
+        store,
+        queue,
+        release_limit=2,
+    )
+
+    assert released == 1
+    assert queue._client.enqueued == ["task-resource-a"]
+    assert [task_id for task_id, _update in store.updated] == ["task-resource-a"]
 
 
 @pytest.mark.asyncio

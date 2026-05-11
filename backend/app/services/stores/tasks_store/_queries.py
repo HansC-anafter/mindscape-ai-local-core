@@ -119,7 +119,7 @@ _COLD_RELEASE_CANDIDATE_SELECT_FROM_ALIAS = """
         t.pack_id,
         t.task_type,
         t.status,
-        NULL AS execution_context,
+        t.execution_context,
         t.created_at,
         t.next_eligible_at,
         t.queue_shard,
@@ -940,6 +940,18 @@ class TasksStoreQueryMixin:
     ) -> List[Task]:
         return self._list_ordered_cold_release_candidates(
             blocked_reason="dependency_hold",
+            queue_shard=queue_shard,
+            limit=limit,
+        )
+
+    def list_due_resource_wait_tasks(
+        self,
+        *,
+        queue_shard: Optional[str] = None,
+        limit: int = 200,
+    ) -> List[Task]:
+        return self._list_ranked_cold_release_candidates(
+            blocked_reason="resource_wait",
             queue_shard=queue_shard,
             limit=limit,
         )

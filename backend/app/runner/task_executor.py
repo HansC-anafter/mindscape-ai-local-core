@@ -23,6 +23,12 @@ from backend.app.services.runner_topology import (
     resolve_runner_profile_from_env,
     resolve_runtime_dispatch_target,
 )
+from backend.app.services.runner_resources import (
+    RedisResourceLeaseStore,
+    release_resource_lease_keys,
+    renew_resource_lease_keys,
+    resource_lease_keys_from_context,
+)
 from backend.app.services.stores.tasks_store import TasksStore
 from backend.app.services.stores.redis.runner_queue_store import RedisRunnerQueueStore
 
@@ -45,7 +51,9 @@ _TERMINAL_SUCCESS_STALE_KEYS = (
     "resource_pressure_source",
     "resource_retry_delay_sec",
     "resource_snapshot",
+    "resource_admission",
     "resume_after",
+    "runner_resource_leases",
     "runner_reaper",
     "runner_skip_conflict_lock_key",
     "runner_skip_lock_key",
@@ -321,6 +329,23 @@ async def _release_task_locks(
             pass
 
 
+async def _release_task_resource_leases(
+    redis_queue: Optional[RedisRunnerQueueStore],
+    resource_lease_keys: list[str],
+    lock_owner_id: str,
+) -> None:
+    if not redis_queue or not resource_lease_keys:
+        return
+    try:
+        await release_resource_lease_keys(
+            RedisResourceLeaseStore(redis_queue),
+            resource_lease_keys,
+            owner_id=lock_owner_id,
+        )
+    except Exception:
+        pass
+
+
 def _get_task_control_signal(task: Optional[Task]) -> Optional[Dict[str, str]]:
     """Return a runner control signal derived from task status/context."""
     if not task:
@@ -539,6 +564,8 @@ async def _mark_task_failed(
             else:
                 retry_count = int(ctxf.get("retry_count", 0) or 0) + 1
                 ctxf["retry_count"] = retry_count
+            ctxf.pop("resource_admission", None)
+            ctxf.pop("runner_resource_leases", None)
             ctxf["error"] = msg
             ctxf["failed_at"] = _utc_now().isoformat()
             if resource_pressure_source:
@@ -755,6 +782,10 @@ async def _run_single_task(
         task.pack_id,
         persisted_concurrency_key=getattr(task, "concurrency_key", None),
     )
+    resource_lease_keys = resource_lease_keys_from_context(ctx)
+    resource_lease_store = (
+        RedisResourceLeaseStore(redis_queue) if redis_queue and resource_lease_keys else None
+    )
     lock_owner_id = lock_owner_id or runner_id
     lock_ttl_seconds = _env_int("LOCAL_CORE_RUNNER_LOCK_TTL_SECONDS", 120)
     stop_event = threading.Event()
@@ -806,6 +837,11 @@ async def _run_single_task(
             )
         finally:
             await _release_task_locks(redis_queue, lock_keys, lock_owner_id)
+            await _release_task_resource_leases(
+                redis_queue,
+                resource_lease_keys,
+                lock_owner_id,
+            )
         return
 
     resolved_profile_id = (
@@ -937,7 +973,7 @@ async def _run_single_task(
     hb_thread = threading.Thread(target=_heartbeat_thread, daemon=True)
     hb_thread.start()
 
-    if redis_queue and lock_keys:
+    if redis_queue and (lock_keys or resource_lease_keys):
 
         def _renew_thread() -> None:
             interval_s = max(5.0, hb_interval_ms / 1000.0)
@@ -961,9 +997,20 @@ async def _run_single_task(
                                 held_key,
                                 lock_owner_id,
                             )
+                    if resource_lease_store and resource_lease_keys:
+                        fut = asyncio.run_coroutine_threadsafe(
+                            renew_resource_lease_keys(
+                                resource_lease_store,
+                                resource_lease_keys,
+                                owner_id=lock_owner_id,
+                                ttl_seconds=lock_ttl_seconds,
+                            ),
+                            main_loop,
+                        )
+                        fut.result(timeout=10)
                 except Exception as e:
                     logger.warning(
-                        "Runner concurrency lock renew failed task_id=%s playbook=%s owner_id=%s: %s",
+                        "Runner lease renew failed task_id=%s playbook=%s owner_id=%s: %s",
                         task.id,
                         task.pack_id,
                         lock_owner_id,
@@ -1353,3 +1400,8 @@ async def _run_single_task(
             persisted_concurrency_key=getattr(task, "concurrency_key", None),
         )
         await _release_task_locks(redis_queue, lock_keys, lock_owner_id)
+        await _release_task_resource_leases(
+            redis_queue,
+            resource_lease_keys,
+            lock_owner_id,
+        )
