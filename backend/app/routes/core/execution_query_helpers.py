@@ -7,8 +7,18 @@ from typing import Any, Dict, Optional
 
 from sqlalchemy import text
 
+from backend.app.services.runner_resources import (
+    STATUS_SNAPSHOT_TTL_SECONDS,
+    SyncRedisTtlSnapshotStore,
+    build_status_snapshot_key,
+    get_ttl_snapshot_sync,
+    set_ttl_snapshot_sync,
+)
+
 from .execution_ordering import build_execution_order_clause
 from .execution_status_utils import trim_execution_context_for_status
+
+_STATUS_SNAPSHOT_STORE = SyncRedisTtlSnapshotStore()
 
 
 def _get_row_value(row: Any, key: str) -> Any:
@@ -79,8 +89,38 @@ def attach_runner_resource_snapshot(
     return payload
 
 
+def _read_execution_status_hot_cache(execution_id: str) -> Optional[Dict[str, Any]]:
+    try:
+        return get_ttl_snapshot_sync(
+            _STATUS_SNAPSHOT_STORE,
+            build_status_snapshot_key(execution_id),
+        )
+    except Exception:
+        return None
+
+
+def _write_execution_status_hot_cache(
+    execution_id: str,
+    payload: Dict[str, Any],
+) -> Dict[str, Any]:
+    try:
+        set_ttl_snapshot_sync(
+            _STATUS_SNAPSHOT_STORE,
+            build_status_snapshot_key(execution_id),
+            payload,
+            ttl_seconds=STATUS_SNAPSHOT_TTL_SECONDS,
+        )
+    except Exception:
+        pass
+    return payload
+
+
 def load_execution_status_payload(tasks_store, execution_id: str):
     """Load a lightweight execution status payload from the tasks table."""
+    cached = _read_execution_status_hot_cache(execution_id)
+    if cached:
+        return cached
+
     with tasks_store.get_connection() as conn:
         row = conn.execute(
             text(
@@ -117,6 +157,7 @@ def load_execution_status_payload(tasks_store, execution_id: str):
         except Exception:
             heartbeats = []
         payload = attach_runner_resource_snapshot(payload, heartbeats)
+        payload = _write_execution_status_hot_cache(execution_id, payload)
     return payload
 
 

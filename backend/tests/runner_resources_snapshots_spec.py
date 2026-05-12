@@ -6,8 +6,11 @@ from backend.app.services.runner_resources import (
     InMemoryTtlSnapshotStore,
     PROGRESS_SNAPSHOT_TTL_SECONDS,
     RUN_LOG_COUNT_SNAPSHOT_TTL_SECONDS,
+    STATUS_SNAPSHOT_TTL_SECONDS,
+    SyncRedisTtlSnapshotStore,
     build_progress_snapshot_key,
     build_run_log_count_snapshot_key,
+    build_status_snapshot_key,
     build_runner_resource_heartbeat,
     get_ttl_snapshot,
     set_ttl_snapshot,
@@ -56,6 +59,7 @@ def test_runner_resource_heartbeat_captures_capacity_snapshot():
 
 def test_hot_snapshot_ttls_match_track01_gate():
     assert PROGRESS_SNAPSHOT_TTL_SECONDS == 5
+    assert STATUS_SNAPSHOT_TTL_SECONDS == 5
     assert RUN_LOG_COUNT_SNAPSHOT_TTL_SECONDS == 5
 
 
@@ -70,3 +74,33 @@ def test_hot_snapshot_keys_are_namespaced_and_stable():
     )
     assert "/" not in progress_key
     assert " " not in progress_key
+
+
+def test_status_snapshot_key_is_namespaced_and_stable():
+    status_key = build_status_snapshot_key("exec 1")
+
+    assert status_key == build_status_snapshot_key("exec 1")
+    assert status_key.startswith("mindscape:runner_resources:snapshot:v1:status:")
+    assert " " not in status_key
+
+
+def test_sync_redis_ttl_snapshot_store_uses_string_cache():
+    class _FakeCache:
+        def __init__(self):
+            self.values = {}
+            self.ttls = {}
+
+        def set(self, key, value, ttl):
+            self.values[key] = value
+            self.ttls[key] = ttl
+            return True
+
+        def get(self, key):
+            return self.values.get(key)
+
+    cache = _FakeCache()
+    store = SyncRedisTtlSnapshotStore(cache)
+
+    assert store.set("status:exec-1", {"task_status": "running"}, 5) is True
+    assert cache.ttls["status:exec-1"] == 5
+    assert store.get("status:exec-1") == {"task_status": "running"}

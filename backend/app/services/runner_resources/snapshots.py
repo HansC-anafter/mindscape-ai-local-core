@@ -7,6 +7,7 @@ import time
 from typing import Any, Optional
 
 PROGRESS_SNAPSHOT_TTL_SECONDS = 5
+STATUS_SNAPSHOT_TTL_SECONDS = 5
 RUN_LOG_COUNT_SNAPSHOT_TTL_SECONDS = 5
 SNAPSHOT_KEY_PREFIX = "mindscape:runner_resources:snapshot:v1"
 
@@ -24,6 +25,10 @@ def build_progress_snapshot_key(workspace_id: str, execution_id: str) -> str:
         f"{SNAPSHOT_KEY_PREFIX}:progress:"
         f"{_normalize_key_part(workspace_id)}:{_normalize_key_part(execution_id)}"
     )
+
+
+def build_status_snapshot_key(execution_id: str) -> str:
+    return f"{SNAPSHOT_KEY_PREFIX}:status:{_normalize_key_part(execution_id)}"
 
 
 def build_run_log_count_snapshot_key(workspace_id: str, execution_id: str) -> str:
@@ -52,6 +57,45 @@ class RedisTtlSnapshotStore:
         if not client:
             return None
         raw = await client.get(key)
+        if raw is None:
+            return None
+        if isinstance(raw, bytes):
+            raw = raw.decode("utf-8", errors="ignore")
+        try:
+            value = json.loads(str(raw))
+        except Exception:
+            return None
+        return value if isinstance(value, dict) else None
+
+
+class SyncRedisTtlSnapshotStore:
+    def __init__(self, cache_service: Any = None):
+        self._cache_service = cache_service
+
+    def _cache(self):
+        if self._cache_service is not None:
+            return self._cache_service
+        from backend.app.services.cache.redis_cache import get_cache_service
+
+        return get_cache_service()
+
+    def set(self, key: str, value: dict[str, Any], ttl_seconds: int) -> bool:
+        try:
+            payload = json.dumps(value, separators=(",", ":"), default=str)
+        except Exception:
+            return False
+        cache = self._cache()
+        set_value = getattr(cache, "set", None)
+        if not callable(set_value):
+            return False
+        return bool(set_value(key, payload, max(1, int(ttl_seconds or 1))))
+
+    def get(self, key: str) -> Optional[dict[str, Any]]:
+        cache = self._cache()
+        get_value = getattr(cache, "get", None)
+        if not callable(get_value):
+            return None
+        raw = get_value(key)
         if raw is None:
             return None
         if isinstance(raw, bytes):
@@ -101,6 +145,20 @@ async def set_ttl_snapshot(
 
 async def get_ttl_snapshot(store: Any, key: str) -> Optional[dict[str, Any]]:
     return await store.get(key)
+
+
+def set_ttl_snapshot_sync(
+    store: Any,
+    key: str,
+    value: dict[str, Any],
+    *,
+    ttl_seconds: int,
+) -> bool:
+    return bool(store.set(key, value, max(1, int(ttl_seconds or 1))))
+
+
+def get_ttl_snapshot_sync(store: Any, key: str) -> Optional[dict[str, Any]]:
+    return store.get(key)
 
 
 def now_epoch() -> float:
