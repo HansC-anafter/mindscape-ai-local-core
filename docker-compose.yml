@@ -434,14 +434,28 @@ services:
       backend:
         condition: service_healthy
 
-  # PostgreSQL with pgvector for vector storage (optional)
+  # PostgreSQL with pgvector, query statistics, and reclaim tooling.
   postgres:
-    image: pgvector/pgvector:pg16
+    image: ${LOCAL_CORE_POSTGRES_IMAGE:-mindscape-ai-local-core-postgres:pg16}
+    build:
+      context: .
+      dockerfile: docker/postgres/Dockerfile
+      args:
+        POSTGRES_BASE_IMAGE: ${LOCAL_CORE_POSTGRES_BASE_IMAGE:-pgvector/pgvector:pg16}
+        PG_MAJOR: ${LOCAL_CORE_POSTGRES_MAJOR:-16}
     container_name: mindscape-ai-local-core-postgres
     restart: unless-stopped
     logging: *default-logging
     command:
       - postgres
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+      - -c
+      - pg_stat_statements.track=all
+      - -c
+      - pg_stat_statements.max=10000
+      - -c
+      - pg_stat_statements.save=on
       - -c
       - shared_buffers=512MB
       - -c

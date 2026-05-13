@@ -84,8 +84,12 @@ Thumbs.db
 *.db
 *.sqlite
 data/
+backend/data/
+backend/downloads/
 uploads/
+backend/uploads/
 logs/
+backend/logs/
 *.log
 
 # ============================================
