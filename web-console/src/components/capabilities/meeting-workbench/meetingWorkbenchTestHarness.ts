@@ -151,7 +151,7 @@ export function installAOLMeetingBottomShellTestHarness() {
                   },
                 },
               ],
-              edge_types: [{ id: 'direction_flow', label: 'Direction Flow' }],
+              edge_types: [{ id: 'contract_edge', label: 'Contract Edge' }],
               compile: {
                 backend: 'capabilities.performance_direction.services.director_graph_compile:compile_composition_graph',
                 output_mode: 'meeting_command_envelope',

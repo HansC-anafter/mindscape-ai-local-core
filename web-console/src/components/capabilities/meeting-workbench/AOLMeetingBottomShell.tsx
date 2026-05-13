@@ -473,6 +473,8 @@ export function AOLMeetingBottomShell({
             commandImpact={selectedCommandImpact}
             command={command}
             selectedPackTool={selectedPackToolId === 'auto' ? null : selectedPackToolId}
+            mentionItems={mentionItems}
+            selectedObjectRef={effectiveSummary?.ref || null}
             onCommandEnvelope={handleCompiledGraphEnvelope}
             t={t}
             inspectorSlot={

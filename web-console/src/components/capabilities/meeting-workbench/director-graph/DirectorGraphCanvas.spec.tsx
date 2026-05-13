@@ -62,8 +62,28 @@ vi.mock('@xyflow/react', () => ({
 import { DirectorGraphCanvas } from './DirectorGraphCanvas';
 import { installAOLMeetingBottomShellTestHarness } from '../meetingWorkbenchTestHarness';
 import type { MessageKey } from '@/lib/i18n';
+import type { MeetingMentionItem } from '../meetingWorkbenchTypes';
 
 const t = (key: MessageKey) => key;
+const sceneMentionItems: MeetingMentionItem[] = [
+  {
+    id: 'scene-sc07',
+    kind: 'scene',
+    label: 'Scene 07',
+    token: '@scene:sc07',
+    description: 'Scene mention',
+    ref: {
+      id: 'sc07',
+      kind: 'scene',
+      token: '@scene:sc07',
+      label: 'Scene 07',
+      description: 'Scene mention',
+      uri: 'mindscape://performance_direction/storyboard_scene/sc07',
+      ownerPack: 'performance_direction',
+      objectKind: 'storyboard_scene',
+    },
+  },
+];
 
 describe('DirectorGraphCanvas', () => {
   installAOLMeetingBottomShellTestHarness();
@@ -84,8 +104,10 @@ describe('DirectorGraphCanvas', () => {
         workspaceId="ws-global"
         meetingId="mtg_global"
         threadId="mtg_global"
-        command="Compile graph"
+        command="Compile graph @scene:sc07"
         selectedPackTool={null}
+        mentionItems={sceneMentionItems}
+        selectedObjectRef={null}
         onCommandEnvelope={onCommandEnvelope}
         t={t}
       />,
@@ -99,18 +121,29 @@ describe('DirectorGraphCanvas', () => {
     expect(screen.getAllByText('Director Focus').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Decision Point').length).toBeGreaterThan(0);
 
+    fireEvent.click(screen.getByTestId('reactflow-connect-first'));
     fireEvent.click(screen.getByTestId('director-graph-save'));
     await waitFor(() => {
       expect(
         vi.mocked(global.fetch).mock.calls.some(([url, init]) =>
           String(url).includes('/composition-graph/drafts') &&
-          String(init?.body || '').includes('director_focus'),
+          String(init?.body || '').includes('director_focus') &&
+          String(init?.body || '').includes('contract_edge'),
         ),
       ).toBe(true);
     });
 
     fireEvent.click(screen.getByTestId('director-graph-compile'));
     await waitFor(() => expect(onCommandEnvelope).toHaveBeenCalledTimes(1));
+    await waitFor(() => {
+      expect(
+        vi.mocked(global.fetch).mock.calls.some(([url, init]) =>
+          String(url).includes('/composition-graph/compile') &&
+          String(init?.body || '').includes('@scene:sc07') &&
+          String(init?.body || '').includes('storyboard_scene'),
+        ),
+      ).toBe(true);
+    });
   });
 
   it('exports and imports portable graph JSON through the validation endpoint', async () => {

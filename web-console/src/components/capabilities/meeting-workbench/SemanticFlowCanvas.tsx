@@ -9,6 +9,7 @@ import {
   MIN_DISCRETE_WHEEL_ZOOM_DELTA,
 } from './meetingWorkbenchConstants';
 import type { CompositionGraphCommandEnvelopeDraft } from '@/lib/composition-graph';
+import type { AddressableObjectRef } from '@/lib/addressable-object-layer';
 import { DirectorGraphCanvas } from './director-graph/DirectorGraphCanvas';
 import { MeetingLaneBoard } from './MeetingLaneBoard';
 import { MeetingWorkSubgraphCanvas } from './MeetingWorkSubgraphCanvas';
@@ -16,6 +17,7 @@ import type {
   GraphViewMode,
   MeetingCommandImpact,
   MeetingGraphEdge,
+  MeetingMentionItem,
   MeetingInfoPanel,
   MeetingNode,
   MeetingTranslate,
@@ -247,6 +249,8 @@ export function MeetingTaskCanvas({
   graphViewMode,
   command,
   selectedPackTool,
+  mentionItems,
+  selectedObjectRef,
   onCommandEnvelope,
   t,
 }: {
@@ -266,6 +270,8 @@ export function MeetingTaskCanvas({
   graphViewMode: GraphViewMode;
   command: string;
   selectedPackTool: string | null;
+  mentionItems: MeetingMentionItem[];
+  selectedObjectRef: AddressableObjectRef | null;
   onCommandEnvelope: (envelope: CompositionGraphCommandEnvelopeDraft) => Promise<void>;
   t: MeetingTranslate;
 }) {
@@ -289,6 +295,8 @@ export function MeetingTaskCanvas({
         threadId={meetingId}
         command={command}
         selectedPackTool={selectedPackTool}
+        mentionItems={mentionItems}
+        selectedObjectRef={selectedObjectRef}
         onCommandEnvelope={onCommandEnvelope}
         t={t}
       />

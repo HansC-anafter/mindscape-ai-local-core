@@ -4,8 +4,8 @@ import type { CompositionGraphCommandEnvelopeDraft } from '@/lib/composition-gra
 import { MeetingTaskCanvas } from './SemanticFlowCanvas';
 import { CommandLedgerStrip } from './CommandLedgerStrip';
 import { ObjectOutlinerPanel } from './ObjectOutlinerPanel';
-import type { AddressableObjectSummary, ObjectMeetingAttachResponse } from '@/lib/addressable-object-layer';
-import type { GraphViewMode, MeetingCommandImpact, MeetingGraphEdge, MeetingNode, MeetingTranslate } from './meetingWorkbenchTypes';
+import type { AddressableObjectRef, AddressableObjectSummary, ObjectMeetingAttachResponse } from '@/lib/addressable-object-layer';
+import type { GraphViewMode, MeetingCommandImpact, MeetingGraphEdge, MeetingMentionItem, MeetingNode, MeetingTranslate } from './meetingWorkbenchTypes';
 import type { MeetingMissingContext } from './meetingWorkbenchStatus';
 
 export function MeetingWorkbenchStage({
@@ -29,6 +29,8 @@ export function MeetingWorkbenchStage({
   commandImpact,
   command,
   selectedPackTool,
+  mentionItems,
+  selectedObjectRef,
   onCommandEnvelope,
   inspectorSlot,
   t,
@@ -53,6 +55,8 @@ export function MeetingWorkbenchStage({
   commandImpact: MeetingCommandImpact | null;
   command: string;
   selectedPackTool: string | null;
+  mentionItems: MeetingMentionItem[];
+  selectedObjectRef: AddressableObjectRef | null;
   onCommandEnvelope: (envelope: CompositionGraphCommandEnvelopeDraft) => Promise<void>;
   inspectorSlot?: ReactNode;
   t: MeetingTranslate;
@@ -91,6 +95,8 @@ export function MeetingWorkbenchStage({
           graphViewMode={graphViewMode}
           command={command}
           selectedPackTool={selectedPackTool}
+          mentionItems={mentionItems}
+          selectedObjectRef={selectedObjectRef}
           onCommandEnvelope={onCommandEnvelope}
           t={t}
         />

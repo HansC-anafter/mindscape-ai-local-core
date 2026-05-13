@@ -28,7 +28,9 @@ import {
   type CompositionGraphNodeType,
   type CompositionGraphViewport,
 } from '@/lib/composition-graph';
-import type { MeetingTranslate } from '../meetingWorkbenchTypes';
+import type { AddressableObjectRef } from '@/lib/addressable-object-layer';
+import { buildObjectActionPlanEntries, extractMentionReferences } from '../meetingMentions';
+import type { MeetingMentionItem, MeetingTranslate } from '../meetingWorkbenchTypes';
 import { DirectorGraphCompileButton } from './DirectorGraphCompileButton';
 import {
   createDirectorGraphHistory,
@@ -244,6 +246,8 @@ export function DirectorGraphCanvas({
   threadId,
   command,
   selectedPackTool,
+  mentionItems = [],
+  selectedObjectRef = null,
   onCommandEnvelope,
   t,
 }: {
@@ -253,6 +257,8 @@ export function DirectorGraphCanvas({
   threadId: string | null;
   command: string;
   selectedPackTool: string | null;
+  mentionItems?: MeetingMentionItem[];
+  selectedObjectRef?: AddressableObjectRef | null;
   onCommandEnvelope: (envelope: CompositionGraphCommandEnvelopeDraft) => Promise<void>;
   t: MeetingTranslate;
 }) {
@@ -263,6 +269,11 @@ export function DirectorGraphCanvas({
     [availableNodeTypes],
   );
   const [selectedPrimaryPack, setSelectedPrimaryPack] = useState<string | null>(null);
+  const selectedContract = useMemo(
+    () => contracts.find((contract) => contract.capability_code === selectedPrimaryPack) || contracts[0] || null,
+    [contracts, selectedPrimaryPack],
+  );
+  const defaultEdgeType = selectedContract?.edge_types?.[0]?.id || 'default';
   const [nodes, setNodes] = useState<DirectorGraphFlowNode[]>([]);
   const [edges, setEdges] = useState<DirectorGraphFlowEdge[]>([]);
   const [history, setHistory] = useState<DirectorGraphHistoryState>(() => createDirectorGraphHistory());
@@ -349,7 +360,7 @@ export function DirectorGraphCanvas({
       target: connection.target,
       source_port: connection.sourceHandle,
       target_port: connection.targetHandle,
-      type: 'direction_flow',
+      type: defaultEdgeType,
       metadata: {},
     };
     applySnapshot({ nodes: graphNodes, edges: [...graphEdges, graphEdge] });
@@ -427,6 +438,8 @@ export function DirectorGraphCanvas({
     setCompileStatus('running');
     setCompileDiagnostics([]);
     try {
+      const meetingMentionRefs = extractMentionReferences(command, mentionItems);
+      const objectActionEntries = buildObjectActionPlanEntries(selectedObjectRef, meetingMentionRefs);
       const response = await compileCompositionGraph(apiUrl, workspaceId, {
         draft_id: draft?.id,
         graph_id: draft?.graph_id || 'composition_graph_inline',
@@ -437,9 +450,12 @@ export function DirectorGraphCanvas({
         nodes: toGraphNodes(nodes),
         edges: toGraphEdges(edges),
         viewport: INITIAL_VIEWPORT,
-        meeting_mentions: [],
+        meeting_mentions: meetingMentionRefs.map((ref) => ({ ...ref })),
         context_objects: [],
-        object_action_entries: [],
+        object_action_entries: objectActionEntries.map((entry) => ({
+          role: entry.role,
+          ref: { ...entry.ref },
+        })),
         selected_pack_tool: selectedPackTool,
         action_parameters: { source_surface: 'meeting_workbench_director_graph' },
       });
