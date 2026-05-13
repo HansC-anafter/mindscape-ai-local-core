@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import re
 import shutil
 import sys
 from datetime import datetime, timezone
@@ -30,6 +32,10 @@ SCRIPT_PATHS = {
     "legacy_compaction": "scripts/maintenance/compact_legacy_task_workflow_results.py",
     "retention_prune": "backend/scripts/prune_tasks_retention.py",
 }
+COMPOSE_ENV_DEFAULT_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*):-([^}]+)\}")
+DEFAULT_CONNECTION_RESERVE = 20
+DEFAULT_REPACK_FREE_SPACE_FACTOR = 1.2
+DEFAULT_REPACK_FREE_SPACE_RESERVE = 1024 * 1024 * 1024
 
 
 def _utc_now() -> str:
@@ -50,6 +56,13 @@ def _format_bytes(value: Any) -> str:
             return f"{size:.2f} {unit}"
         size /= 1024.0
     return f"{int(value or 0)} B"
+
+
+def _parse_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return default
 
 
 def _get_engine():
@@ -193,8 +206,41 @@ def _activity(conn) -> dict[str, Any]:
     return {
         "state_counts": state_counts,
         "idle_in_transaction": idle_in_transaction,
+        "total_connections": sum(state_counts.values()),
         "samples": samples,
     }
+
+
+def _runner_workload(conn) -> dict[str, Any]:
+    try:
+        return _mapping_one(
+            conn,
+            """
+            SELECT
+                COUNT(*) FILTER (WHERE status = 'running')::bigint AS running_tasks,
+                COUNT(*) FILTER (
+                    WHERE status = 'running'
+                      AND (
+                        runner_id IS NOT NULL
+                        OR execution_context->>'runner_id' IS NOT NULL
+                      )
+                )::bigint AS runner_owned_running_tasks,
+                COUNT(*) FILTER (
+                    WHERE status = 'pending'
+                      AND (next_eligible_at IS NULL OR next_eligible_at <= now())
+                )::bigint AS ready_pending_tasks,
+                COUNT(DISTINCT COALESCE(runner_id, execution_context->>'runner_id'))
+                    FILTER (
+                        WHERE status = 'running'
+                          AND COALESCE(runner_id, execution_context->>'runner_id')
+                              IS NOT NULL
+                    )::bigint AS active_runner_owners
+            FROM tasks
+            WHERE status IN ('running', 'pending')
+            """,
+        )
+    except Exception as exc:
+        return {"error": str(exc)}
 
 
 def _installed_extensions(conn) -> set[str]:
@@ -235,9 +281,288 @@ def _pg_stat_statements_top(conn, *, enabled: bool, limit: int) -> list[dict[str
         return [{"error": str(exc)}]
 
 
+def _resolve_compose_env_value(value: Any) -> str:
+    text = str(value or "")
+
+    def _replace(match: re.Match[str]) -> str:
+        env_value = os.getenv(match.group(1))
+        return env_value if env_value not in (None, "") else match.group(2)
+
+    return COMPOSE_ENV_DEFAULT_RE.sub(_replace, text)
+
+
+def _service_environment(service: Mapping[str, Any]) -> dict[str, str]:
+    raw = service.get("environment") or {}
+    if isinstance(raw, Mapping):
+        return {
+            str(key): _resolve_compose_env_value(value)
+            for key, value in raw.items()
+        }
+    if isinstance(raw, list):
+        env: dict[str, str] = {}
+        for item in raw:
+            key, separator, value = str(item).partition("=")
+            if separator:
+                env[key] = _resolve_compose_env_value(value)
+        return env
+    return {}
+
+
+def _postgres_role_count(env: Mapping[str, str]) -> int:
+    roles = 0
+    for role in ("CORE", "VECTOR"):
+        has_role = any(
+            key == f"DATABASE_URL_{role}" or key.startswith(f"POSTGRES_{role}_")
+            for key in env
+        )
+        if has_role:
+            roles += 1
+    return max(roles, 1)
+
+
+def _compose_file_candidates(path: Path | None) -> list[Path]:
+    candidates: list[Path] = []
+    if path is not None:
+        candidates.append(path)
+    project_root = os.getenv("LOCAL_CORE_PROJECT_ROOT")
+    if project_root:
+        candidates.append(Path(project_root) / "docker-compose.yml")
+    candidates.extend(
+        [
+            REPO_ROOT / "docker-compose.yml",
+            Path("/repo/docker-compose.yml"),
+            Path("/app/docker-compose.yml"),
+        ]
+    )
+    unique: list[Path] = []
+    for candidate in candidates:
+        expanded = candidate.expanduser()
+        if expanded not in unique:
+            unique.append(expanded)
+    return unique
+
+
+def _connection_budget(
+    *,
+    compose_file: Path | None,
+    max_connections: str,
+    activity: Mapping[str, Any],
+    connection_reserve: int,
+) -> dict[str, Any]:
+    selected_compose = next(
+        (
+            candidate
+            for candidate in _compose_file_candidates(compose_file)
+            if candidate.is_file()
+        ),
+        None,
+    )
+    max_connection_count = _parse_int(max_connections)
+    safe_limit = max(max_connection_count - connection_reserve, 0)
+    active_connections = _parse_int(activity.get("total_connections"))
+    budget = {
+        "source": str(selected_compose) if selected_compose else None,
+        "source_available": bool(selected_compose),
+        "max_connections": max_connection_count,
+        "connection_reserve": connection_reserve,
+        "safe_connection_limit": safe_limit,
+        "active_connections": active_connections,
+        "configured_connection_budget": 0,
+        "services": [],
+    }
+    if selected_compose is None:
+        return budget
+
+    try:
+        import yaml
+    except Exception as exc:
+        budget["error"] = f"pyyaml_unavailable: {exc}"
+        budget["source_available"] = False
+        return budget
+
+    try:
+        payload = yaml.safe_load(selected_compose.read_text(encoding="utf-8")) or {}
+    except Exception as exc:
+        budget["error"] = str(exc)
+        budget["source_available"] = False
+        return budget
+
+    services = payload.get("services") if isinstance(payload, Mapping) else {}
+    if not isinstance(services, Mapping):
+        return budget
+
+    service_budgets: list[dict[str, Any]] = []
+    for name, service in services.items():
+        if not isinstance(service, Mapping):
+            continue
+        env = _service_environment(service)
+        if "DB_POOL_SIZE" not in env and "DB_MAX_OVERFLOW" not in env:
+            continue
+        pool_size = _parse_int(env.get("DB_POOL_SIZE"))
+        max_overflow = _parse_int(env.get("DB_MAX_OVERFLOW"))
+        role_count = _postgres_role_count(env)
+        connection_count = (pool_size + max_overflow) * role_count
+        service_budgets.append(
+            {
+                "service": str(name),
+                "pool_size": pool_size,
+                "max_overflow": max_overflow,
+                "postgres_role_count": role_count,
+                "connection_budget": connection_count,
+            }
+        )
+
+    budget["services"] = service_budgets
+    budget["configured_connection_budget"] = sum(
+        item["connection_budget"] for item in service_budgets
+    )
+    return budget
+
+
+def _postgres_data_path_candidates(paths: Sequence[Path] | None) -> list[Path]:
+    candidates: list[Path] = []
+    candidates.extend(paths or [])
+    env_path = os.getenv("LOCAL_CORE_POSTGRES_HOST_DIR")
+    if env_path:
+        candidates.append(Path(env_path))
+    candidates.extend(
+        [
+            Path("/app/data/postgres"),
+            REPO_ROOT / "data/postgres",
+            Path("/var/lib/postgresql/data"),
+        ]
+    )
+    unique: list[Path] = []
+    for candidate in candidates:
+        expanded = candidate.expanduser()
+        if expanded not in unique:
+            unique.append(expanded)
+    return unique
+
+
+def _filesystem_capacity(
+    *,
+    postgres_data_paths: Sequence[Path] | None,
+    relations: Sequence[Mapping[str, Any]],
+    free_space_factor: float,
+    free_space_reserve: int,
+) -> dict[str, Any]:
+    selected_path = next(
+        (
+            candidate
+            for candidate in _postgres_data_path_candidates(postgres_data_paths)
+            if candidate.exists()
+        ),
+        None,
+    )
+    largest_relation = max(
+        relations,
+        key=lambda row: _parse_int(row.get("total_bytes")),
+        default={},
+    )
+    largest_relation_bytes = _parse_int(largest_relation.get("total_bytes"))
+    required_free_bytes = (
+        int(largest_relation_bytes * free_space_factor) + free_space_reserve
+    )
+    result: dict[str, Any] = {
+        "source": str(selected_path) if selected_path else None,
+        "source_available": bool(selected_path),
+        "largest_relation": largest_relation.get("relname"),
+        "largest_relation_bytes": largest_relation_bytes,
+        "largest_relation_bytes_pretty": _format_bytes(largest_relation_bytes),
+        "required_free_bytes": required_free_bytes,
+        "required_free_bytes_pretty": _format_bytes(required_free_bytes),
+        "free_space_factor": free_space_factor,
+        "free_space_reserve": free_space_reserve,
+    }
+    if selected_path is None:
+        return result
+
+    usage = shutil.disk_usage(selected_path)
+    result.update(
+        {
+            "total_bytes": usage.total,
+            "used_bytes": usage.used,
+            "free_bytes": usage.free,
+            "total_bytes_pretty": _format_bytes(usage.total),
+            "used_bytes_pretty": _format_bytes(usage.used),
+            "free_bytes_pretty": _format_bytes(usage.free),
+        }
+    )
+    return result
+
+
+def _script_path_status() -> dict[str, dict[str, Any]]:
+    return {
+        key: {
+            "path": value,
+            "exists": (REPO_ROOT / value).is_file(),
+        }
+        for key, value in SCRIPT_PATHS.items()
+    }
+
+
+def _unavailable_database_report(
+    args: argparse.Namespace,
+    exc: Exception,
+) -> dict[str, Any]:
+    activity = {"error": "database_unavailable", "total_connections": 0}
+    report = {
+        "schema_version": SCHEMA_VERSION,
+        "generated_at": _utc_now(),
+        "mode": "read_only",
+        "database": {
+            "connectable": False,
+            "connection_error": str(exc),
+            "pg_is_in_recovery": None,
+            "shared_preload_libraries": "",
+            "max_connections": "",
+        },
+        "extensions": {
+            "required": list(REQUIRED_EXTENSIONS),
+            "installed": [],
+        },
+        "tools": {
+            "pg_repack_binary": shutil.which("pg_repack"),
+        },
+        "script_paths": _script_path_status(),
+        "activity": activity,
+        "connection_budget": _connection_budget(
+            compose_file=args.compose_file,
+            max_connections="",
+            activity=activity,
+            connection_reserve=args.connection_reserve,
+        ),
+        "relations": [],
+        "filesystem": _filesystem_capacity(
+            postgres_data_paths=args.postgres_data_path,
+            relations=[],
+            free_space_factor=args.repack_free_space_factor,
+            free_space_reserve=args.repack_free_space_reserve,
+        ),
+        "runner_workload": {"error": "database_unavailable"},
+        "hot_row_budget": {
+            "recent_hours": args.recent_hours,
+            "limits": {
+                "execution_context": args.execution_context_budget,
+                "result": args.result_budget,
+                "params": args.params_budget,
+            },
+            "sample": {},
+        },
+        "pg_stat_statements_top": [],
+    }
+    return evaluate_report(report)
+
+
 def collect_report(args: argparse.Namespace) -> dict[str, Any]:
     engine = _get_engine()
-    with engine.connect() as conn:
+    try:
+        conn_ctx = engine.connect()
+    except Exception as exc:
+        return _unavailable_database_report(args, exc)
+
+    with conn_ctx as conn:
         pg_is_in_recovery = bool(
             _mapping_one(conn, "SELECT pg_is_in_recovery() AS value").get("value")
         )
@@ -246,11 +571,15 @@ def collect_report(args: argparse.Namespace) -> dict[str, Any]:
         installed_extensions = _installed_extensions(conn)
         pg_stat_statements_installed = "pg_stat_statements" in installed_extensions
 
+        activity = _activity(conn)
+        relations = _relation_sizes(conn, args.relation or DEFAULT_RELATIONS)
+
         report = {
             "schema_version": SCHEMA_VERSION,
             "generated_at": _utc_now(),
             "mode": "read_only",
             "database": {
+                "connectable": True,
                 "pg_is_in_recovery": pg_is_in_recovery,
                 "shared_preload_libraries": shared_preload_libraries,
                 "max_connections": max_connections,
@@ -262,15 +591,22 @@ def collect_report(args: argparse.Namespace) -> dict[str, Any]:
             "tools": {
                 "pg_repack_binary": shutil.which("pg_repack"),
             },
-            "script_paths": {
-                key: {
-                    "path": value,
-                    "exists": (REPO_ROOT / value).is_file(),
-                }
-                for key, value in SCRIPT_PATHS.items()
-            },
-            "activity": _activity(conn),
-            "relations": _relation_sizes(conn, args.relation or DEFAULT_RELATIONS),
+            "script_paths": _script_path_status(),
+            "activity": activity,
+            "connection_budget": _connection_budget(
+                compose_file=args.compose_file,
+                max_connections=max_connections,
+                activity=activity,
+                connection_reserve=args.connection_reserve,
+            ),
+            "relations": relations,
+            "filesystem": _filesystem_capacity(
+                postgres_data_paths=args.postgres_data_path,
+                relations=relations,
+                free_space_factor=args.repack_free_space_factor,
+                free_space_reserve=args.repack_free_space_reserve,
+            ),
+            "runner_workload": _runner_workload(conn),
             "hot_row_budget": {
                 "recent_hours": args.recent_hours,
                 "limits": {
@@ -307,7 +643,9 @@ def evaluate_report(report: dict[str, Any]) -> dict[str, Any]:
     warnings: list[str] = []
 
     database = report.get("database") if isinstance(report.get("database"), dict) else {}
-    if database.get("pg_is_in_recovery") is not False:
+    if database.get("connectable") is False:
+        blockers.append("database_unavailable")
+    elif database.get("pg_is_in_recovery") is not False:
         blockers.append("database_in_recovery")
 
     extensions = (
@@ -357,6 +695,53 @@ def evaluate_report(report: dict[str, Any]) -> dict[str, Any]:
     if any(count > 0 for count in over_budget.values()):
         blockers.append("recent_hot_rows_over_budget")
 
+    runner_workload = (
+        report.get("runner_workload")
+        if isinstance(report.get("runner_workload"), dict)
+        else {}
+    )
+    if runner_workload.get("error"):
+        blockers.append("runner_workload_unavailable")
+    else:
+        running_tasks = int(runner_workload.get("running_tasks") or 0)
+        runner_owned_running_tasks = int(
+            runner_workload.get("runner_owned_running_tasks") or 0
+        )
+        ready_pending_tasks = int(runner_workload.get("ready_pending_tasks") or 0)
+        if running_tasks > 0 or runner_owned_running_tasks > 0:
+            blockers.append("runner_workload_active")
+        if ready_pending_tasks > 0:
+            warnings.append("ready_pending_tasks_present")
+
+    connection_budget = (
+        report.get("connection_budget")
+        if isinstance(report.get("connection_budget"), dict)
+        else {}
+    )
+    safe_connection_limit = int(connection_budget.get("safe_connection_limit") or 0)
+    if not connection_budget.get("source_available"):
+        warnings.append("connection_budget_unavailable")
+    elif safe_connection_limit > 0:
+        configured_budget = int(
+            connection_budget.get("configured_connection_budget") or 0
+        )
+        active_connections = int(connection_budget.get("active_connections") or 0)
+        if configured_budget > safe_connection_limit:
+            blockers.append("configured_connection_budget_exceeds_safe_limit")
+        if active_connections > safe_connection_limit:
+            blockers.append("active_connections_exceed_safe_limit")
+
+    filesystem = (
+        report.get("filesystem") if isinstance(report.get("filesystem"), dict) else {}
+    )
+    if not filesystem.get("source_available"):
+        blockers.append("postgres_data_path_unavailable")
+    else:
+        free_bytes = int(filesystem.get("free_bytes") or 0)
+        required_free_bytes = int(filesystem.get("required_free_bytes") or 0)
+        if free_bytes < required_free_bytes:
+            blockers.append("insufficient_postgres_free_space")
+
     top_statements = report.get("pg_stat_statements_top")
     if not top_statements:
         warnings.append("pg_stat_statements_top_sql_unavailable")
@@ -391,6 +776,23 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--result-budget", type=int, default=256 * 1024)
     parser.add_argument("--params-budget", type=int, default=512 * 1024)
     parser.add_argument("--statement-limit", type=int, default=10)
+    parser.add_argument("--compose-file", type=Path)
+    parser.add_argument(
+        "--connection-reserve",
+        type=int,
+        default=DEFAULT_CONNECTION_RESERVE,
+    )
+    parser.add_argument("--postgres-data-path", type=Path, action="append", default=None)
+    parser.add_argument(
+        "--repack-free-space-factor",
+        type=float,
+        default=DEFAULT_REPACK_FREE_SPACE_FACTOR,
+    )
+    parser.add_argument(
+        "--repack-free-space-reserve",
+        type=int,
+        default=DEFAULT_REPACK_FREE_SPACE_RESERVE,
+    )
     parser.add_argument("--output-json", type=Path)
     parser.add_argument("--pretty", action="store_true")
     parser.add_argument(
