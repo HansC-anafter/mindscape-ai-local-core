@@ -15,6 +15,7 @@ interface CapabilityLoadedComponentsProps {
   capabilityInfo: CapabilityInfo | null;
   uiComponents: UIComponentInfo[];
   aolRoutePath?: string;
+  surfacePath?: readonly string[];
 }
 
 export default function CapabilityLoadedComponents({
@@ -23,6 +24,7 @@ export default function CapabilityLoadedComponents({
   capabilityInfo,
   uiComponents,
   aolRoutePath,
+  surfacePath = [],
 }: CapabilityLoadedComponentsProps) {
   const apiUrl = getApiBaseUrl();
   const [loadedComponents, setLoadedComponents] = useState<Map<string, React.ComponentType<any>>>(new Map());
@@ -88,6 +90,7 @@ export default function CapabilityLoadedComponents({
       loadedComponents={loadedComponents}
       loading={loading}
       aolRoutePath={aolRoutePath}
+      surfacePath={surfacePath}
     />
   );
 }

@@ -15,9 +15,9 @@ import { deriveAllSteps } from './utils/execution-inspector';
 import { getStepStatusColor, getEffectiveStepStatus } from './utils/execution-inspector';
 import { parseServerTimestamp } from '@/lib/time';
 import { GovernedMemoryPreview } from '@/components/workspace/governance/GovernedMemoryPreview';
-import { buildStaticCapabilityHostPath } from '@/lib/capability-static-hosts';
+import { buildCapabilityWorkbenchPath } from '@/lib/capability-static-hosts';
 
-function buildCapabilityWorkbenchHref({
+export function buildCapabilityWorkbenchHref({
   workspaceId,
   capabilityCode,
   artifactId,
@@ -45,12 +45,29 @@ function buildCapabilityWorkbenchHref({
   if (sceneId) {
     params.set('scene_id', sceneId);
   }
-  const query = params.toString();
-  return buildStaticCapabilityHostPath(
+  return buildCapabilityWorkbenchPath(
     normalizedWorkspaceId,
     normalizedCapabilityCode,
-    Object.fromEntries(params.entries()),
-  ) || `/workspaces/${encodeURIComponent(normalizedWorkspaceId)}/capabilities/${encodeURIComponent(normalizedCapabilityCode)}${query ? `?${query}` : ''}`;
+    { searchParams: Object.fromEntries(params.entries()) },
+  );
+}
+
+export function capabilitySupportsWorkbenchRoute(
+  installedCapabilities: any[],
+  capabilityCode?: string | null,
+): boolean {
+  const normalizedCapabilityCode = String(capabilityCode || '').trim();
+  if (!normalizedCapabilityCode) {
+    return false;
+  }
+  return installedCapabilities.some((capability) => {
+    const installedCode = String(capability?.code || capability?.id || '').trim();
+    return (
+      installedCode === normalizedCapabilityCode &&
+      Array.isArray(capability?.ui_components) &&
+      capability.ui_components.length > 0
+    );
+  });
 }
 
 export interface StepDetailPanelProps {
@@ -588,9 +605,13 @@ export default function StepDetailPanel({
                   </div>
                   <div className="flex flex-wrap gap-2">
                     {(() => {
+                      const capabilityCode = selectedReviewBundle.content?.owning_capability_code;
+                      if (!capabilitySupportsWorkbenchRoute(installedCapabilities, capabilityCode)) {
+                        return null;
+                      }
                       const href = buildCapabilityWorkbenchHref({
                         workspaceId,
-                        capabilityCode: selectedReviewBundle.content?.owning_capability_code,
+                        capabilityCode,
                         artifactId: selectedReviewBundle.id,
                         runId: selectedReviewBundle.content?.run_id,
                         sceneId: selectedReviewBundle.content?.scene_id,

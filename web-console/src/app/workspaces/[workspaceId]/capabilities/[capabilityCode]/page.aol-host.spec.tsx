@@ -2,9 +2,8 @@ import React from 'react';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 
-import { AOLRuntimeShellProvider } from '@/components/capabilities/aol-runtime-shell/AOLRuntimeShell';
+import CapabilityUiHostPage from '../../capability-ui-hosts/[capabilityCode]/[[...surfacePath]]/page';
 import CapabilityUiGatePage from './ui/page';
-import CapabilityUiGenericPage from './ui/generic/page';
 
 const mockBack = vi.fn();
 const mockReplace = vi.fn();
@@ -34,6 +33,19 @@ vi.mock('next/navigation', () => ({
 
 vi.mock('@/lib/api-url', () => ({
   getApiBaseUrl: () => 'http://api.test',
+}));
+
+vi.mock('@/contexts/WorkspaceDataContext', () => ({
+  WorkspaceDataProvider: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="workspace-data-provider">{children}</div>
+  ),
+  useWorkspaceDataOptional: () => ({ executions: [] }),
+}));
+
+vi.mock('@/contexts/ExecutionContextContext', () => ({
+  ExecutionContextProvider: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="execution-context-provider">{children}</div>
+  ),
 }));
 
 vi.mock('@/components/WorkspaceChat', () => ({
@@ -135,7 +147,21 @@ describe('CapabilityPage AOL host shell', () => {
         } as Response;
       }
 
+      if (url === 'http://api.test/api/v1/capability-packs/installed-capabilities/ig/workspace-tools') {
+        return {
+          ok: true,
+          json: async () => [],
+        } as Response;
+      }
+
       if (url === 'http://api.test/api/v1/capability-packs/installed-capabilities/empty_capability/ui-components') {
+        return {
+          ok: true,
+          json: async () => [],
+        } as Response;
+      }
+
+      if (url === 'http://api.test/api/v1/capability-packs/installed-capabilities/empty_capability/workspace-tools') {
         return {
           ok: true,
           json: async () => [],
@@ -184,7 +210,7 @@ describe('CapabilityPage AOL host shell', () => {
                   subtitle: '@demo_handle',
                   summary_text: 'A reference ready for contextual AOL actions.',
                   labels: ['reference', 'ig'],
-                  owner_surface_url: '/workspaces/ws-test/capabilities/ig?component=IGWorkbenchPage',
+                  owner_surface_url: '/workspaces/ws-test/capability-ui-hosts/ig?component=IGWorkbenchPage',
                 },
                 actions: [
                   {
@@ -261,18 +287,15 @@ describe('CapabilityPage AOL host shell', () => {
   });
 
   async function renderCapabilityLoadedPage() {
-    const page = await CapabilityUiGenericPage({
+    const page = await CapabilityUiHostPage({
       params: {
         workspaceId: 'ws-test',
         capabilityCode: mockCapabilityCode,
+        surfacePath: [],
       },
     });
 
-    render(
-      <AOLRuntimeShellProvider workspaceId="ws-test">
-        {page}
-      </AOLRuntimeShellProvider>,
-    );
+    render(page);
   }
 
   async function renderCapabilityGatePage() {
@@ -284,9 +307,7 @@ describe('CapabilityPage AOL host shell', () => {
     });
 
     render(
-      <AOLRuntimeShellProvider workspaceId="ws-test">
-        {page}
-      </AOLRuntimeShellProvider>,
+      page,
     );
   }
 
@@ -294,6 +315,8 @@ describe('CapabilityPage AOL host shell', () => {
     await renderCapabilityLoadedPage();
 
     expect(await screen.findByTestId('aol-global-anchor')).not.toBeNull();
+    expect(screen.getAllByTestId('aol-shell-rail')).toHaveLength(1);
+    expect(screen.getAllByTestId('aol-global-anchor')).toHaveLength(1);
 
     fireEvent.click(screen.getByTestId('aol-global-anchor'));
     expect(await screen.findByText('Select an object on this page')).not.toBeNull();

@@ -9,7 +9,7 @@ const mockPush = vi.fn();
 
 vi.mock('next/navigation', () => ({
   usePathname: () =>
-    '/capability-ui-hosts/performance_direction/ws_test/sessions/ds_ae738cc25079',
+    '/workspaces/ws_test/capability-ui-hosts/performance_direction/sessions/ds_ae738cc25079',
   useRouter: () => ({
     push: mockPush,
   }),
@@ -23,23 +23,32 @@ vi.mock('next/dynamic', async () => {
   const ReactModule = await import('react');
 
   return {
-    default: (loader: () => Promise<any>) => {
+    default: () => {
       return function MockDynamicComponent(props: Record<string, unknown>) {
-        const [Component, setComponent] = ReactModule.useState<any>(null);
-
-        ReactModule.useEffect(() => {
-          let mounted = true;
-          void loader().then((module) => {
-            if (mounted) {
-              setComponent(() => module.default || module);
-            }
-          });
-          return () => {
-            mounted = false;
-          };
-        }, []);
-
-        return Component ? <Component {...props} /> : <div>Loading PD workbench...</div>;
+        const aolHost = props.aolHost as {
+          onSelectObject: (selection: Record<string, unknown>) => void;
+        };
+        return ReactModule.createElement(
+          'button',
+          {
+            type: 'button',
+            'data-testid': 'pd-route-aol-trigger',
+            onClick: () =>
+              aolHost.onSelectObject({
+                ownerPack: 'performance_direction',
+                objectKind: 'storyboard_scene',
+                objectId: 'ds_ae738cc25079:da_15a00efc56f6:sc01',
+                label: 'sc01',
+                role: 'target',
+                selector: {
+                  session_id: 'ds_ae738cc25079',
+                  artifact_id: 'da_15a00efc56f6',
+                  scene_id: 'sc01',
+                },
+              }),
+          },
+          'Select scene',
+        );
       };
     },
   };
@@ -177,7 +186,7 @@ describe('PerformanceDirectionWorkbenchHost AOL shell', () => {
           workspaceId="ws_test"
           routeMode="workbench"
           routeSessionId="ds_ae738cc25079"
-          sessionRouteBasePath="/capability-ui-hosts/performance_direction/ws_test/sessions"
+          sessionRouteBasePath="/workspaces/ws_test/capability-ui-hosts/performance_direction/sessions"
         />
       </AOLRuntimeShellProvider>,
     );
@@ -212,7 +221,7 @@ describe('PerformanceDirectionWorkbenchHost AOL shell', () => {
           workspaceId="ws_test"
           routeMode="workbench"
           routeSessionId="ds_ae738cc25079"
-          sessionRouteBasePath="/capability-ui-hosts/performance_direction/ws_test/sessions"
+          sessionRouteBasePath="/workspaces/ws_test/capability-ui-hosts/performance_direction/sessions"
         />
       </AOLRuntimeShellProvider>,
     );

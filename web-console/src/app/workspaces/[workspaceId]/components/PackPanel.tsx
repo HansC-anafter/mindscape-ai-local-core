@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { ThinkingPanel } from '@/components/workspace/ThinkingPanel';
 import { useT } from '@/lib/i18n';
-import { buildStaticCapabilityHostPath } from '@/lib/capability-static-hosts';
+import { buildCapabilityWorkbenchPath } from '@/lib/capability-static-hosts';
 
 interface InstalledCapability {
   id?: string;
@@ -66,26 +66,20 @@ export function PackPanel({
   };
 
   const openCapabilityUI = (capabilityCode: string, componentCode?: string) => {
-    // Open capability UI page in new tab
     const params = new URLSearchParams();
     if (componentCode) {
       params.set('component', componentCode);
     }
-    const query = params.toString();
-    const legacyUrl = query
-      ? `/workspaces/${workspaceId}/capabilities/${capabilityCode}?${query}`
-      : `/workspaces/${workspaceId}/capabilities/${capabilityCode}`;
-    const url = buildStaticCapabilityHostPath(
+    const url = buildCapabilityWorkbenchPath(
       workspaceId,
       capabilityCode,
-      Object.fromEntries(params.entries()),
-    ) || legacyUrl;
+      { searchParams: Object.fromEntries(params.entries()) },
+    );
     window.open(url, '_blank');
   };
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      {/* Mini Tab Header */}
       <div className="flex-shrink-0 border-b dark:border-gray-700">
         <div className="flex items-center gap-1 px-2 pt-2 pb-1">
           <button
@@ -160,7 +154,6 @@ export function PackPanel({
         </div>
       </div>
 
-      {/* Tab Content */}
       <div className="flex-1 overflow-y-auto min-h-0">
         {activeSubTab === 'apps' && (
           <div className="p-3 space-y-3">
@@ -183,7 +176,6 @@ export function PackPanel({
                     {t('appsWithUI' as any) || 'Apps with UI'} ({appsWithUI.length})
                   </div>
                   {appsWithUI.map((cap, index) => {
-                    // Backend API matches by id; prefer id, fall back to code
                     const capabilityIdentifier = cap.id || cap.code;
                     const mainPageComponents = (cap.ui_components || []).filter(isMainPageComponent);
 

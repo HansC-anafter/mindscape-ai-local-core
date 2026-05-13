@@ -29,6 +29,19 @@ vi.mock('@/lib/api-url', () => ({
   getApiBaseUrl: () => 'http://api.test',
 }));
 
+vi.mock('@/contexts/WorkspaceDataContext', () => ({
+  WorkspaceDataProvider: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="workspace-data-provider">{children}</div>
+  ),
+  useWorkspaceDataOptional: () => ({ executions: [] }),
+}));
+
+vi.mock('@/contexts/ExecutionContextContext', () => ({
+  ExecutionContextProvider: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="execution-context-provider">{children}</div>
+  ),
+}));
+
 vi.mock('@/components/WorkspaceChat', () => ({
   default: function MockWorkspaceChat({
     threadId,
@@ -112,6 +125,13 @@ describe('CapabilityPage installed render-proof gate', () => {
               import_path: '/app/src/app/capabilities/demo_render_proof/components/DemoRenderProofPage.tsx',
             },
           ]),
+        } as Response;
+      }
+
+      if (url === 'http://api.test/api/v1/capability-packs/installed-capabilities/demo_render_proof/workspace-tools') {
+        return {
+          ok: true,
+          json: async () => [],
         } as Response;
       }
 
@@ -236,25 +256,22 @@ describe('CapabilityPage installed render-proof gate', () => {
 
   it('loads the installed capability page through the real loader and processes an AOL selection callback', async () => {
     vi.resetModules();
-    const { default: CapabilityPage } = await import('./ui/generic/page');
-    const { AOLRuntimeShellProvider } = await import(
-      '@/components/capabilities/aol-runtime-shell/AOLRuntimeShell'
+    const { default: CapabilityPage } = await import(
+      '../../capability-ui-hosts/[capabilityCode]/[[...surfacePath]]/page'
     );
-
     const page = await CapabilityPage({
       params: {
         workspaceId: 'ws-render-proof',
         capabilityCode: mockCapabilityCode,
+        surfacePath: [],
       },
     });
 
-    render(
-      <AOLRuntimeShellProvider workspaceId="ws-render-proof">
-        {page}
-      </AOLRuntimeShellProvider>,
-    );
+    render(page);
 
     expect(await screen.findByTestId('aol-global-anchor')).not.toBeNull();
+    expect(screen.getAllByTestId('aol-shell-rail')).toHaveLength(1);
+    expect(screen.getAllByTestId('aol-global-anchor')).toHaveLength(1);
 
     expect(await screen.findByTestId('render-proof-component')).not.toBeNull();
     expect(screen.queryByText(/No UI components available/)).toBeNull();

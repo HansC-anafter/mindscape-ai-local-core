@@ -27,6 +27,9 @@ describe('WorkspaceRuntimeFrame', () => {
     expect(screen.getByTestId('workspace-data-provider')).toBeInTheDocument();
     expect(screen.getByTestId('execution-context-provider')).toBeInTheDocument();
     expect(screen.getByRole('main')).not.toHaveClass('pr-10');
+    expect(screen.queryByTestId('workspace-surface-shell')).toBeNull();
+    expect(screen.queryByTestId('aol-shell-rail')).toBeNull();
+    expect(document.querySelector('[data-workspace-tool-rail="true"]')).toBeNull();
     expect(screen.getByTestId('workspace-page')).toBeInTheDocument();
   });
 });

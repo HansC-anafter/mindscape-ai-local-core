@@ -1,9 +1,15 @@
+import { buildCapabilityWorkbenchPath } from '@/lib/capability-static-hosts';
+
 export function buildPerformanceDirectionStartPath(workspaceId: string): string {
-  return `/capability-ui-hosts/performance_direction/${encodeURIComponent(workspaceId)}/start`;
+  return buildCapabilityWorkbenchPath(workspaceId, 'performance_direction', {
+    surfacePath: ['start'],
+  });
 }
 
 export function buildPerformanceDirectionSessionBasePath(workspaceId: string): string {
-  return `/capability-ui-hosts/performance_direction/${encodeURIComponent(workspaceId)}/sessions`;
+  return buildCapabilityWorkbenchPath(workspaceId, 'performance_direction', {
+    surfacePath: ['sessions'],
+  });
 }
 
 export function buildPerformanceDirectionSessionPath(

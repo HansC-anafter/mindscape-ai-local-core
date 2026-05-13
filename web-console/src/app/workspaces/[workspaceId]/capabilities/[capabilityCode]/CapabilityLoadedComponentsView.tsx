@@ -46,6 +46,7 @@ export interface UIComponentInfo {
   artifact_types: string[];
   playbook_codes: string[];
   import_path: string;
+  layout_hint?: 'default' | 'scrollable_full_bleed';
 }
 
 export interface CapabilityInfo {
@@ -65,6 +66,7 @@ interface CapabilityLoadedComponentsViewProps {
   loadedComponents: Map<string, React.ComponentType<any>>;
   loading: boolean;
   aolRoutePath?: string;
+  surfacePath?: readonly string[];
 }
 
 export function isMainPageComponent(component: UIComponentInfo): boolean {
@@ -75,16 +77,8 @@ export function buildComponentKey(capabilityId: string, componentCode: string): 
   return `${capabilityId}:${componentCode}`;
 }
 
-function shouldWrapScrollableMainPage(
-  capabilityCode: string,
-  componentCode: string | null | undefined,
-): boolean {
-  return (
-    capabilityCode === 'blender_bridge' ||
-    capabilityCode === 'performance_direction' ||
-    componentCode === 'BlenderBridgeWorkbenchPage' ||
-    componentCode === 'PerformanceDirectionStoryboardEditorPage'
-  );
+function shouldWrapScrollableMainPage(component: UIComponentInfo | null | undefined): boolean {
+  return component?.layout_hint === 'scrollable_full_bleed';
 }
 
 export default function CapabilityLoadedComponentsView({
@@ -95,6 +89,7 @@ export default function CapabilityLoadedComponentsView({
   loadedComponents,
   loading,
   aolRoutePath,
+  surfacePath = [],
 }: CapabilityLoadedComponentsViewProps) {
   const pathname = usePathname();
   const router = useRouter();
@@ -136,6 +131,7 @@ export default function CapabilityLoadedComponentsView({
           workspaceId={workspaceId}
           apiUrl={apiUrl}
           aolHost={aolHost}
+          surfacePath={surfacePath}
         />
       </Suspense>
     </ComponentErrorBoundary>
@@ -174,7 +170,7 @@ export default function CapabilityLoadedComponentsView({
   if (resolvedMainPageEntry && mainPageComponents.length <= 1) {
     const [key, Component] = resolvedMainPageEntry;
     const componentCode = mainPageComponents[0]?.code || key.split(':')[1] || key;
-    const shouldUseScrollableShell = shouldWrapScrollableMainPage(capabilityCode, componentCode);
+    const shouldUseScrollableShell = shouldWrapScrollableMainPage(resolvedMainPageComponentInfo);
 
     return (
       <AOLRuntimeShell

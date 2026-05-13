@@ -1,9 +1,7 @@
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
 
-import PerformanceDirectionHostStartPage from '@/app/capability-ui-hosts/performance_direction/[workspaceId]/start/page';
-import PerformanceDirectionHostSessionPage from '@/app/capability-ui-hosts/performance_direction/[workspaceId]/sessions/[sessionId]/page';
+import LegacyCapabilityUiHostRedirectPage from '@/app/capability-ui-hosts/[capabilityCode]/[workspaceId]/[[...surfacePath]]/page';
 import PerformanceDirectionEntryPage from './page';
 import PerformanceDirectionSessionPage from './sessions/[sessionId]/page';
 import PerformanceDirectionStartPage from './start/page';
@@ -13,11 +11,11 @@ const mockPush = vi.fn();
 
 vi.mock('next/navigation', () => ({
   redirect: (...args: any[]) => mockRedirect(...args),
-  usePathname: () => '/capability-ui-hosts/performance_direction/ws_demo/start',
+  usePathname: () => '/workspaces/ws_demo/capability-ui-hosts/performance_direction/start',
   useRouter: () => ({ push: mockPush }),
 }));
 
-describe('Performance Direction route split host shell', () => {
+describe('Performance Direction route split redirects', () => {
   beforeEach(() => {
     mockRedirect.mockReset();
     mockPush.mockReset();
@@ -30,7 +28,7 @@ describe('Performance Direction route split host shell', () => {
     });
 
     expect(mockRedirect).toHaveBeenCalledWith(
-      '/capability-ui-hosts/performance_direction/ws_demo/start',
+      '/workspaces/ws_demo/capability-ui-hosts/performance_direction/start',
     );
   });
 
@@ -41,46 +39,40 @@ describe('Performance Direction route split host shell', () => {
     });
 
     expect(mockRedirect).toHaveBeenCalledWith(
-      '/capability-ui-hosts/performance_direction/ws%20demo/sessions/ds%20session%20001',
+      '/workspaces/ws%20demo/capability-ui-hosts/performance_direction/sessions/ds%20session%20001',
     );
   });
 
-  it('redirects the legacy start route to the top-level host route', () => {
+  it('redirects the legacy start route to the canonical workbench route', () => {
     PerformanceDirectionStartPage({ params: { workspaceId: 'ws_demo' } });
 
     expect(mockRedirect).toHaveBeenCalledWith(
-      '/capability-ui-hosts/performance_direction/ws_demo/start',
+      '/workspaces/ws_demo/capability-ui-hosts/performance_direction/start',
     );
   });
 
-  it('redirects the legacy session route to the top-level host route', () => {
+  it('redirects the legacy session route to the canonical workbench route', () => {
     PerformanceDirectionSessionPage({
       params: { workspaceId: 'ws_demo', sessionId: 'ds_route_001' },
     });
 
     expect(mockRedirect).toHaveBeenCalledWith(
-      '/capability-ui-hosts/performance_direction/ws_demo/sessions/ds_route_001',
+      '/workspaces/ws_demo/capability-ui-hosts/performance_direction/sessions/ds_route_001',
     );
   });
 
-  it('renders the top-level launcher route in explicit launcher mode', () => {
-    render(<PerformanceDirectionHostStartPage params={{ workspaceId: 'ws_demo' }} />);
+  it('redirects the legacy top-level host shape to the canonical workbench route', () => {
+    LegacyCapabilityUiHostRedirectPage({
+      params: {
+        capabilityCode: 'performance_direction',
+        workspaceId: 'ws_demo',
+        surfacePath: ['sessions', 'ds_route_001'],
+      },
+      searchParams: { component: 'PerformanceDirectionStoryboardEditorPage' },
+    });
 
-    expect(screen.getByTestId('pd-launcher-scroll-shell')).not.toBeNull();
-    expect(screen.getByText('PD Start Surface')).not.toBeNull();
-  });
-
-  it('renders the top-level session route in explicit workbench mode', () => {
-    render(
-      <PerformanceDirectionHostSessionPage
-        params={{ workspaceId: 'ws_demo', sessionId: 'ds_route_001' }}
-      />,
+    expect(mockRedirect).toHaveBeenCalledWith(
+      '/workspaces/ws_demo/capability-ui-hosts/performance_direction/sessions/ds_route_001?component=PerformanceDirectionStoryboardEditorPage',
     );
-
-    expect(screen.getByTestId('capability-mainpage-scroll-shell')).not.toBeNull();
-    expect(
-      screen.getByTestId('aol-workspace-region').getAttribute('data-aol-active-surface'),
-    ).toContain('PerformanceDirectionStoryboardEditorPage');
-    expect(screen.getByText('Loading PD workbench...')).not.toBeNull();
   });
 });

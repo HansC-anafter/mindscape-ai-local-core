@@ -1,5 +1,6 @@
-import type { ComponentType } from 'react';
-import type { StaticCapabilityUiHostProps } from './CapabilityStaticLoadedComponents';
+import CapabilityLoadedComponents from '../capabilities/[capabilityCode]/CapabilityLoadedComponents';
+import { buildCapabilityWorkbenchPath } from '@/lib/capability-static-hosts';
+import WorkspaceSurfaceShell from './WorkspaceSurfaceShell';
 
 interface UIComponentInfo {
   code: string;
@@ -9,6 +10,7 @@ interface UIComponentInfo {
   artifact_types: string[];
   playbook_codes: string[];
   import_path: string;
+  layout_hint?: 'default' | 'scrollable_full_bleed';
 }
 
 interface CapabilityInfo {
@@ -23,7 +25,7 @@ interface CapabilityInfo {
 interface RenderCapabilityUiHostPageOptions {
   workspaceId: string;
   capabilityCode: string;
-  HostComponent: ComponentType<StaticCapabilityUiHostProps>;
+  surfacePath?: readonly string[];
 }
 
 const DEFAULT_BACKEND_URL = 'http://backend:8200';
@@ -61,7 +63,7 @@ async function fetchBackendJson<T>(path: string): Promise<{ ok: boolean; status:
 export async function renderCapabilityUiHostPage({
   workspaceId,
   capabilityCode,
-  HostComponent,
+  surfacePath = [],
 }: RenderCapabilityUiHostPageOptions) {
   const encodedCapabilityCode = encodeURIComponent(capabilityCode);
   const [capabilityResponse, componentsByCodeResponse] = await Promise.all([
@@ -124,12 +126,19 @@ export async function renderCapabilityUiHostPage({
   }
 
   return (
-    <HostComponent
+    <WorkspaceSurfaceShell
       workspaceId={workspaceId}
-      capabilityCode={capabilityCode}
-      capabilityInfo={capabilityInfo}
-      uiComponents={uiComponents}
-      aolRoutePath={`/workspaces/${workspaceId}/capability-ui-hosts/${capabilityCode}`}
-    />
+      activeCapabilityCode={capabilityCode}
+      surfacePath={surfacePath}
+    >
+      <CapabilityLoadedComponents
+        workspaceId={workspaceId}
+        capabilityCode={capabilityCode}
+        capabilityInfo={capabilityInfo}
+        uiComponents={uiComponents}
+        surfacePath={surfacePath}
+        aolRoutePath={buildCapabilityWorkbenchPath(workspaceId, capabilityCode, { surfacePath })}
+      />
+    </WorkspaceSurfaceShell>
   );
 }
