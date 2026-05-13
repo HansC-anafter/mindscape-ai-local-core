@@ -1,6 +1,10 @@
 'use client';
 
 import { useT } from '@/lib/i18n';
+import {
+  WorkspaceToolRail,
+  type WorkspaceToolRailGroup,
+} from '@/components/workspace/WorkspaceToolRail';
 import type { AOLRuntimeShellState } from './AOLRuntimeShellContext';
 import { RuntimeObjectSelectionAnchor } from './RuntimeObjectSelectionAnchor';
 import { RuntimeFlowAnchor } from './RuntimeFlowAnchor';
@@ -11,6 +15,11 @@ interface RuntimeShellToolRailProps {
   onRequestObjectTargeting: () => void;
   onCancelObjectTargeting: () => void;
   onOpenFlow: () => void;
+  extraGroups?: WorkspaceToolRailGroup[];
+}
+
+function resolveRuntimeShellToolRailTone(): 'light' | 'dark' {
+  return 'light';
 }
 
 export function RuntimeShellToolRail({
@@ -19,9 +28,10 @@ export function RuntimeShellToolRail({
   onRequestObjectTargeting,
   onCancelObjectTargeting,
   onOpenFlow,
+  extraGroups = [],
 }: RuntimeShellToolRailProps) {
   const t = useT();
-  const tone = state.activeSurface?.capabilityCode === 'performance_direction' ? 'dark' : 'light';
+  const tone = resolveRuntimeShellToolRailTone();
   const objectLabel = state.mode === 'selecting'
     ? t('aolRuntimeShellCancelObjectSelection')
     : t('aolRuntimeShellSelectObject');
@@ -35,63 +45,43 @@ export function RuntimeShellToolRail({
       : t('aolRuntimeShellFlowUnavailable');
 
   return (
-    <nav
-      className={
-        tone === 'dark'
-          ? 'pointer-events-auto flex h-full w-9 shrink-0 flex-col items-center border-l border-stone-800 bg-black/90 pb-3 pt-12 backdrop-blur'
-          : 'pointer-events-auto flex h-full w-10 shrink-0 flex-col items-center border-l border-gray-200 bg-white/90 pb-3 pt-12 shadow-[-6px_0_18px_rgba(15,23,42,0.08)] backdrop-blur dark:border-gray-700 dark:bg-gray-900/90'
-      }
-      data-testid="aol-shell-rail"
-      aria-label={t('aolRuntimeShellTools')}
-    >
-      <div
-        className={
-          tone === 'dark'
-            ? 'flex w-full flex-col items-center gap-1 border-b border-stone-800 px-1 pb-3'
-            : 'flex w-full flex-col items-center gap-1 border-b border-gray-200 px-1 pb-3 dark:border-gray-700'
-        }
-        data-testid="aol-object-tool-group"
-      >
-        <RuntimeObjectSelectionAnchor
-          state={state}
-          onRequestObjectTargeting={onRequestObjectTargeting}
-          onCancelObjectTargeting={onCancelObjectTargeting}
-          label={objectLabel}
-          helper={objectHelper}
-          tone={tone}
-        />
-        <div
-          className={
-            tone === 'dark'
-              ? 'text-center text-[6px] uppercase leading-none tracking-normal text-stone-500'
-              : 'text-center text-[6px] uppercase leading-none tracking-normal text-gray-400 dark:text-gray-500'
-          }
-        >
-          {t('aolRuntimeShellSelect')}
-        </div>
-      </div>
-      <div
-        className="flex w-full flex-col items-center gap-1 px-1 pt-3"
-        data-testid="aol-runtime-flow-tool-group"
-      >
-        <RuntimeFlowAnchor
-          state={state}
-          canOpenFlow={canOpenFlow}
-          label={flowLabel}
-          onOpenFlow={onOpenFlow}
-          tone={tone}
-        />
-        <div
-          className={
-            tone === 'dark'
-              ? 'text-center text-[6px] uppercase leading-none tracking-normal text-stone-500'
-              : 'text-center text-[6px] uppercase leading-none tracking-normal text-gray-400 dark:text-gray-500'
-          }
-        >
-          {t('aolRuntimeShellFlow')}
-        </div>
-      </div>
-    </nav>
+    <WorkspaceToolRail
+      ariaLabel={t('aolRuntimeShellTools')}
+      tone={tone}
+      testId="aol-shell-rail"
+      groups={[
+        {
+          id: 'object',
+          label: t('aolRuntimeShellSelect'),
+          testId: 'aol-object-tool-group',
+          children: (
+            <RuntimeObjectSelectionAnchor
+              state={state}
+              onRequestObjectTargeting={onRequestObjectTargeting}
+              onCancelObjectTargeting={onCancelObjectTargeting}
+              label={objectLabel}
+              helper={objectHelper}
+              tone={tone}
+            />
+          ),
+        },
+        {
+          id: 'flow',
+          label: t('aolRuntimeShellFlow'),
+          testId: 'aol-runtime-flow-tool-group',
+          children: (
+            <RuntimeFlowAnchor
+              state={state}
+              canOpenFlow={canOpenFlow}
+              label={flowLabel}
+              onOpenFlow={onOpenFlow}
+              tone={tone}
+            />
+          ),
+        },
+        ...extraGroups,
+      ]}
+    />
   );
 }
 

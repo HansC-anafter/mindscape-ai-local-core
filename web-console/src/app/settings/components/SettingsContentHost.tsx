@@ -64,6 +64,10 @@ const RuntimeEnvironmentsSettings = dynamic(
   () => import('./panels/RuntimeEnvironmentsSettings').then((mod) => mod.RuntimeEnvironmentsSettings),
   { ssr: false, loading: SettingsContentFallback }
 );
+const HostResourcesPanel = dynamic(
+  () => import('./panels/HostResourcesPanel').then((mod) => mod.HostResourcesPanel),
+  { ssr: false, loading: SettingsContentFallback }
+);
 
 export function SettingsContentHost({
   activeTab,
@@ -94,6 +98,9 @@ export function SettingsContentHost({
     case 'tools':
       return <ToolsPanel activeSection={activeSection} activeProvider={activeProvider} />;
     case 'runtime':
+      if (activeSection === 'host-resources') {
+        return <HostResourcesPanel />;
+      }
       return <RuntimeEnvironmentsSettings />;
     case 'localization':
       return <LocalizationPanel activeSection={activeSection} />;

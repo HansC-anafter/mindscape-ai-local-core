@@ -1,33 +1,47 @@
 import { describe, expect, it } from 'vitest';
-import {
-  buildStaticCapabilityHostPath,
-  resolveStaticCapabilityHostCode,
-} from './capability-static-hosts';
+import { buildCapabilityWorkbenchPath } from './capability-static-hosts';
 
-describe('capability static host routing', () => {
-  it('resolves known host codes and code variants', () => {
-    expect(resolveStaticCapabilityHostCode('ig')).toBe('ig');
-    expect(resolveStaticCapabilityHostCode('brand-identity')).toBe('brand_identity');
-    expect(resolveStaticCapabilityHostCode('performance-direction')).toBe('performance_direction');
-    expect(resolveStaticCapabilityHostCode('unknown_pack')).toBeNull();
+describe('capability workbench routing', () => {
+  it('builds canonical workspace-scoped host paths for every capability code', () => {
+    expect(
+      buildCapabilityWorkbenchPath('ws one', 'brand_identity', {
+        searchParams: {
+          component: 'StoryboardPage',
+          tag: ['a', 'b'],
+        },
+      }),
+    ).toBe('/workspaces/ws%20one/capability-ui-hosts/brand_identity?component=StoryboardPage&tag=a&tag=b');
+
+    expect(
+      buildCapabilityWorkbenchPath('ws one', 'ig', {
+        searchParams: { component: 'IGWorkbench' },
+      }),
+    ).toBe('/workspaces/ws%20one/capability-ui-hosts/ig?component=IGWorkbench');
+
+    expect(
+      buildCapabilityWorkbenchPath('ws one', 'performance_direction', {
+        searchParams: { session_id: 'ds_1' },
+      }),
+    ).toBe('/workspaces/ws%20one/capability-ui-hosts/performance_direction?session_id=ds_1');
   });
 
-  it('builds static host paths without dropping query parameters', () => {
+  it('preserves opaque surface path segments under the canonical host', () => {
     expect(
-      buildStaticCapabilityHostPath('ws/one', 'brand_identity', {
-        component: 'StoryboardPage',
-        tag: ['a', 'b'],
+      buildCapabilityWorkbenchPath('ws one', 'performance_direction', {
+        surfacePath: ['sessions', 'ds route 001'],
       }),
-    ).toBe('/workspaces/ws%2Fone/capability-ui-hosts/brand_identity?component=StoryboardPage&tag=a&tag=b');
-    expect(
-      buildStaticCapabilityHostPath('ws/one', 'ig', {
-        component: 'IGWorkbench',
+    ).toBe('/workspaces/ws%20one/capability-ui-hosts/performance_direction/sessions/ds%20route%20001');
+  });
+
+  it('rejects pre-joined or empty route segments', () => {
+    expect(() =>
+      buildCapabilityWorkbenchPath('ws_one', 'performance_direction', {
+        surfacePath: ['sessions/ds_1'],
       }),
-    ).toBe('/capability-ui-hosts/ig/ws%2Fone?component=IGWorkbench');
-    expect(
-      buildStaticCapabilityHostPath('ws/one', 'performance_direction', {
-        session_id: 'ds_1',
-      }),
-    ).toBe('/capability-ui-hosts/performance_direction/ws%2Fone?session_id=ds_1');
+    ).toThrow('surfacePath[0] must not contain "/"');
+    expect(() => buildCapabilityWorkbenchPath('ws/one', 'ig')).toThrow(
+      'workspaceId must not contain "/"',
+    );
+    expect(() => buildCapabilityWorkbenchPath('', 'ig')).toThrow('workspaceId must be a non-empty raw segment');
   });
 });

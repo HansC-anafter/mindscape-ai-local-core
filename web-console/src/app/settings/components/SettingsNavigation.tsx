@@ -186,6 +186,20 @@ const navigationItems: NavigationItem[] = [
     label: 'runtimeEnvironments',
     icon: PlayCircle,
     tab: 'runtime',
+    children: [
+      {
+        id: 'runtime-environments',
+        label: 'runtimeEnvironments',
+        tab: 'runtime',
+        section: 'runtime-environments',
+      },
+      {
+        id: 'host-resources',
+        label: 'hostResources',
+        tab: 'runtime',
+        section: 'host-resources',
+      },
+    ],
   },
   {
     id: 'tools',

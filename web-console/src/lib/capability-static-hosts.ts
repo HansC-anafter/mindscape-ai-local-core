@@ -1,56 +1,40 @@
-const staticHostCapabilityCodes = new Set([
-  'blender_bridge',
-  'brand_identity',
-  'character_training',
-  'chat_capture',
-  'comfyui_runtime',
-  'content_scheduler',
-  'demo_aol_pack',
-  'expert_network',
-  'ig',
-  'layer_asset_forge',
-  'mindscape_cloud_integration',
-  'multi_media_studio',
-  'newsletter',
-  'practice_companion',
-  'performance_direction',
-  'public_persona_studio',
-  'video_chapter_studio',
-  'video_renderer',
-  'web_generation',
-  'world_asset_forge',
-  'yogacoach',
-]);
+export type CapabilityWorkbenchSearchParams =
+  | URLSearchParams
+  | Record<string, string | string[] | undefined>;
 
-const topLevelStaticHostCapabilityCodes = new Set([
-  'ig',
-  'performance_direction',
-]);
-
-function capabilityCodeVariants(capabilityCode: string): string[] {
-  const variants = new Set<string>();
-  const trimmed = capabilityCode.trim();
-  if (trimmed) {
-    variants.add(trimmed);
-    variants.add(trimmed.replace(/-/g, '_'));
-    variants.add(trimmed.replace(/_/g, '-'));
-  }
-  return Array.from(variants);
+export interface CapabilityWorkbenchPathOptions {
+  surfacePath?: readonly string[];
+  searchParams?: CapabilityWorkbenchSearchParams;
 }
 
-function encodeSearchParams(searchParams?: Record<string, string | string[] | undefined>): string {
+function assertRawSegment(label: string, value: string): void {
+  if (!value.trim()) {
+    throw new Error(`${label} must be a non-empty raw segment`);
+  }
+  if (value.includes('/')) {
+    throw new Error(`${label} must not contain "/"`);
+  }
+}
+
+function encodeSearchParams(searchParams?: CapabilityWorkbenchSearchParams): string {
   if (!searchParams) {
     return '';
   }
 
   const params = new URLSearchParams();
-  for (const [key, value] of Object.entries(searchParams)) {
-    if (Array.isArray(value)) {
-      for (const item of value) {
-        params.append(key, item);
+  if (searchParams instanceof URLSearchParams) {
+    searchParams.forEach((value, key) => {
+      params.append(key, value);
+    });
+  } else {
+    for (const [key, value] of Object.entries(searchParams)) {
+      if (Array.isArray(value)) {
+        for (const item of value) {
+          params.append(key, item);
+        }
+      } else if (typeof value === 'string') {
+        params.set(key, value);
       }
-    } else if (typeof value === 'string') {
-      params.set(key, value);
     }
   }
 
@@ -58,26 +42,32 @@ function encodeSearchParams(searchParams?: Record<string, string | string[] | un
   return encoded ? `?${encoded}` : '';
 }
 
-export function resolveStaticCapabilityHostCode(capabilityCode: string): string | null {
-  for (const variant of capabilityCodeVariants(capabilityCode)) {
-    if (staticHostCapabilityCodes.has(variant)) {
-      return variant;
-    }
-  }
-  return null;
-}
-
-export function buildStaticCapabilityHostPath(
+export function buildCapabilityWorkbenchPath(
   workspaceId: string,
   capabilityCode: string,
-  searchParams?: Record<string, string | string[] | undefined>,
-): string | null {
-  const hostCode = resolveStaticCapabilityHostCode(capabilityCode);
-  if (!hostCode) {
-    return null;
+  options: CapabilityWorkbenchPathOptions = {},
+): string {
+  const normalizedWorkspaceId = String(workspaceId || '').trim();
+  const normalizedCapabilityCode = String(capabilityCode || '').trim();
+
+  assertRawSegment('workspaceId', normalizedWorkspaceId);
+  assertRawSegment('capabilityCode', normalizedCapabilityCode);
+
+  const surfaceSegments = options.surfacePath || [];
+  for (const [index, segment] of surfaceSegments.entries()) {
+    assertRawSegment(`surfacePath[${index}]`, String(segment || ''));
   }
-  if (topLevelStaticHostCapabilityCodes.has(hostCode)) {
-    return `/capability-ui-hosts/${hostCode}/${encodeURIComponent(workspaceId)}${encodeSearchParams(searchParams)}`;
-  }
-  return `/workspaces/${encodeURIComponent(workspaceId)}/capability-ui-hosts/${hostCode}${encodeSearchParams(searchParams)}`;
+
+  const encodedSurfacePath = surfaceSegments
+    .map((segment) => encodeURIComponent(segment))
+    .join('/');
+  const path = [
+    '/workspaces',
+    encodeURIComponent(normalizedWorkspaceId),
+    'capability-ui-hosts',
+    encodeURIComponent(normalizedCapabilityCode),
+    encodedSurfacePath,
+  ].filter(Boolean).join('/');
+
+  return `${path}${encodeSearchParams(options.searchParams)}`;
 }

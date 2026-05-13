@@ -702,6 +702,7 @@ export const settingsZhTW = {
 
   runtimeEnvironments: '執行環境',
   runtimeEnvironmentsDescription: '配置 Playbook 和任務的執行環境',
+  hostResources: '宿主資源',
   addRuntime: '新增執行環境',
   addRuntimeDescription: '新增自訂的執行環境',
   runtimeConfiguration: '執行環境配置',

@@ -129,7 +129,7 @@ export function isSameSurface(
     left &&
       left.surfaceId === right.surfaceId &&
       left.route === right.route &&
-      left.capabilityCode === right.capabilityCode,
+      Object.is(left.capabilityCode, right.capabilityCode),
   );
 }
 

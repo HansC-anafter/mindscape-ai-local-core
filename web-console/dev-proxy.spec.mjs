@@ -5,6 +5,7 @@ import {
   classifyProxyUpstream,
   clearDevApiReadCacheForTests,
   computeNextDevRestartDelayMs,
+  copyProxyResponseHeaders,
   createFrontendProxyServer,
   isDevApiProxyPath,
   isFrontendLivenessPath,
@@ -146,6 +147,19 @@ describe('frontend dev proxy', () => {
     expect(resolveDevApiReadCacheTtlMs('/api/v1/playbooks/execute/ex-1/status', 'GET')).toBe(1000);
     expect(resolveDevApiReadCacheTtlMs('/api/v1/ig/workbench/sidebar-summary', 'POST')).toBe(0);
     expect(resolveDevApiReadCacheTtlMs('/api/v1/ig/references/ref-1/pin', 'GET')).toBe(0);
+  });
+
+  it('does not preserve immutable cache headers for failed image responses', () => {
+    expect(
+      copyProxyResponseHeaders({}, '/api/v1/ig/references/ref-1/image?workspace_id=ws-1', 'GET', 500),
+    ).toMatchObject({
+      'cache-control': 'no-store',
+    });
+    expect(
+      copyProxyResponseHeaders({}, '/api/v1/ig/references/ref-1/image?workspace_id=ws-1', 'GET', 200),
+    ).toMatchObject({
+      'cache-control': 'public, max-age=86400, immutable',
+    });
   });
 
   it('coalesces concurrent expensive GETs at the proxy without touching writes', async () => {

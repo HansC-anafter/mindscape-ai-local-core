@@ -701,6 +701,7 @@ export const settingsEn = {
 
   runtimeEnvironments: 'Runtime Environments',
   runtimeEnvironmentsDescription: 'Configure runtime environments for Playbooks and tasks',
+  hostResources: 'Host Resources',
   addRuntime: 'Add Runtime',
   addRuntimeDescription: 'Add a custom runtime environment',
   runtimeConfiguration: 'Runtime Configuration',

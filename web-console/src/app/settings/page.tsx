@@ -150,6 +150,7 @@ export default function SettingsPage() {
             { id: 'localization' as SettingsTab, label: t('localization' as any) },
             { id: 'packs_status' as SettingsTab, label: t('capabilityPacks' as any) },
             { id: 'governance' as SettingsTab, label: t('governance' as any) },
+            { id: 'runtime' as SettingsTab, label: t('runtimeEnvironments' as any) },
             { id: 'service_status' as SettingsTab, label: t('serviceStatus' as any) },
           ].map((tab) => (
             <button

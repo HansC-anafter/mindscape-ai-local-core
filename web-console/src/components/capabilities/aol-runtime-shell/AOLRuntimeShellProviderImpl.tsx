@@ -35,9 +35,10 @@ const RuntimeShellPanelLazy = lazy(loadRuntimeShellPanelModule);
 
 function AOLRuntimeShellProviderInner({
   children,
+  toolGroups,
 }: AOLRuntimeShellProviderProps) {
   const [runtimeShellPanelLoadState, setRuntimeShellPanelLoadState] = useState(
-    runtimeShellPanelResolved ? 'loaded' : runtimeShellPanelPromise ? 'preloading' : 'idle',
+    runtimeShellPanelResolved ? 'loaded' : 'idle',
   );
   const {
     shellRootRef,
@@ -60,6 +61,11 @@ function AOLRuntimeShellProviderInner({
   const shouldRenderMeetingPane = panelState.mode === 'meeting_opened' && Boolean(panelState.activeSurface);
 
   useEffect(() => {
+    if (!shouldRenderMeetingPane) {
+      setRuntimeShellPanelLoadState(runtimeShellPanelResolved ? 'loaded' : 'idle');
+      return;
+    }
+
     let cancelled = false;
     setRuntimeShellPanelLoadState(runtimeShellPanelResolved ? 'loaded' : 'preloading');
 
@@ -78,7 +84,7 @@ function AOLRuntimeShellProviderInner({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [shouldRenderMeetingPane]);
 
   return (
     <AOLRuntimeShellContext.Provider value={controller}>
@@ -125,6 +131,7 @@ function AOLRuntimeShellProviderInner({
               onRequestObjectTargeting={requestObjectTargeting}
               onCancelObjectTargeting={cancelObjectTargeting}
               onOpenFlow={openRuntimeFlowFromRail}
+              extraGroups={toolGroups}
             />
           </div>
         </div>
@@ -158,9 +165,10 @@ function AOLRuntimeShellProviderInner({
 export function AOLRuntimeShellProviderImpl({
   workspaceId,
   children,
+  toolGroups,
 }: AOLRuntimeShellProviderProps) {
   return (
-    <AOLRuntimeShellProviderInner workspaceId={workspaceId}>
+    <AOLRuntimeShellProviderInner workspaceId={workspaceId} toolGroups={toolGroups}>
       {children}
     </AOLRuntimeShellProviderInner>
   );

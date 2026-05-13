@@ -282,6 +282,7 @@ export const settingsKeys = {
 
   runtimeEnvironments: true,
   runtimeEnvironmentsDescription: true,
+  hostResources: true,
   addRuntime: true,
   addRuntimeDescription: true,
   runtimeConfiguration: true,

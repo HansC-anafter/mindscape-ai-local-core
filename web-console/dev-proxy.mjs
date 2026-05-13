@@ -116,14 +116,15 @@ function shouldPreserveDevApiCacheControl(requestUrl = '/', method = 'GET') {
   }
 }
 
-function copyProxyResponseHeaders(headers, requestUrl = '/', method = 'GET') {
+export function copyProxyResponseHeaders(headers, requestUrl = '/', method = 'GET', statusCode = 200) {
   const nextHeaders = {};
   for (const [key, value] of Object.entries(headers || {})) {
     if (!HOP_BY_HOP_HEADERS.has(key.toLowerCase())) {
       nextHeaders[key] = value;
     }
   }
-  if (!shouldPreserveDevApiCacheControl(requestUrl, method)) {
+  const canCacheResponse = (statusCode >= 200 && statusCode < 300) || statusCode === 304;
+  if (!canCacheResponse || !shouldPreserveDevApiCacheControl(requestUrl, method)) {
     nextHeaders['cache-control'] = 'no-store';
   } else if (!nextHeaders['cache-control']) {
     nextHeaders['cache-control'] = 'public, max-age=86400, immutable';
@@ -208,7 +209,7 @@ function writeBufferedProxyResponse(record, req, res) {
     return;
   }
 
-  const headers = copyProxyResponseHeaders(record.headers, req.url, req.method);
+  const headers = copyProxyResponseHeaders(record.headers, req.url, req.method, record.statusCode || 502);
   headers['content-length'] = String(record.body.length);
   try {
     res.writeHead(record.statusCode || 502, headers);
@@ -634,7 +635,7 @@ function proxyHttpRequest(req, res) {
       upstreamHeaderMs = roundedDurationMs(startedAt);
       res.writeHead(
         upstreamRes.statusCode || 502,
-        copyProxyResponseHeaders(upstreamRes.headers, req.url, req.method),
+        copyProxyResponseHeaders(upstreamRes.headers, req.url, req.method, upstreamRes.statusCode || 502),
       );
       upstreamRes.on('error', (error) => {
         logCompletion('upstream_error', { error: error?.code || error?.message || 'upstream_response_error' });

@@ -34,6 +34,14 @@ describe('AOLRuntimeShellProvider', () => {
 
     expect(screen.getByTestId('aol-global-anchor')).not.toBeNull();
     expect(screen.getByTestId('aol-shell-rail')).not.toBeNull();
+    expect(screen.getByTestId('aol-shell-rail')).toHaveAttribute(
+      'data-workspace-tool-rail',
+      'true',
+    );
+    expect(screen.getByTestId('aol-workspace-region')).toHaveAttribute(
+      'data-aol-panel-loaded',
+      'idle',
+    );
     expect(screen.getByTestId('runtime-shell-child')).toHaveTextContent('idle');
     expect(buildCapabilitySurfaceId('ig', 'IGWorkbenchPage')).toBe(
       'capability_page:ig:IGWorkbenchPage',
