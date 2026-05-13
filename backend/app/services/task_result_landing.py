@@ -25,6 +25,7 @@ from app.models.workspace import (
 )
 from app.services.stores.tasks_store import TasksStore
 from app.services.stores.postgres.artifacts_store import PostgresArtifactsStore
+from backend.app.services.result_object_contract import build_result_object_descriptor
 
 logger = logging.getLogger(__name__)
 _DATA_SOURCE_SUMMARY_LIMIT = 500
@@ -1049,34 +1050,23 @@ class TaskResultLandingService:
         deliverable_identity: Dict[str, Any],
         acceptance_evidence: Dict[str, Any],
     ) -> Dict[str, Any]:
-        result_payload = dict(existing_result or {})
-        result_payload.update(
-            {
-                "summary": summary,
-                "storage_ref": storage_ref,
-                "execution_id": execution_id,
-                "artifact_id": artifact_id,
-            }
+        preserved_failure: Dict[str, Any] = {}
+        if isinstance(existing_result, dict):
+            for key in ("last_error", "failure_code", "failure_message"):
+                if existing_result.get(key) is not None:
+                    preserved_failure[key] = existing_result[key]
+
+        result_payload = build_result_object_descriptor(
+            payload=incoming_result,
+            summary=summary,
+            storage_ref=storage_ref,
+            execution_id=execution_id,
+            artifact_id=artifact_id,
+            landing_metadata=landing_metadata,
+            deliverable_identity=deliverable_identity,
+            acceptance_evidence=acceptance_evidence,
         )
-        execution_trace = incoming_result.get("execution_trace")
-        if isinstance(execution_trace, dict) and execution_trace:
-            result_payload["execution_trace"] = execution_trace
-        if landing_metadata:
-            result_payload["landing"] = landing_metadata
-        deliverable_name = _clean_string(deliverable_identity.get("deliverable_name"))
-        deliverable_path = _clean_string(deliverable_identity.get("deliverable_path"))
-        attachment_filenames = deliverable_identity.get("attachment_filenames")
-        deliverable_targets = deliverable_identity.get("deliverable_targets")
-        if deliverable_name is not None:
-            result_payload["deliverable_name"] = deliverable_name
-        if deliverable_path is not None:
-            result_payload["deliverable_path"] = deliverable_path
-        if isinstance(deliverable_targets, list) and deliverable_targets:
-            result_payload["deliverable_targets"] = list(deliverable_targets)
-        if isinstance(attachment_filenames, list) and attachment_filenames:
-            result_payload["attachment_filenames"] = list(attachment_filenames)
-        if acceptance_evidence:
-            result_payload["acceptance_evidence"] = dict(acceptance_evidence)
+        result_payload.update(preserved_failure)
         return result_payload
 
     @staticmethod

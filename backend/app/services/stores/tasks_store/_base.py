@@ -21,6 +21,7 @@ from backend.app.services.task_admission_service import (
     ADMISSION_DEFERRED_REASON,
     TASK_ADMISSION_SERVICE,
 )
+from backend.app.services.task_payload_budget import apply_task_payload_budget
 from backend.app.services.meeting_command_status_sync import (
     sync_meeting_command_from_task_safely,
 )
@@ -377,6 +378,17 @@ class TasksStoreCrudMixin:
                 except Exception:
                     pass  # ContextVar not available — safe to ignore
 
+            task_params = apply_task_payload_budget("params", task.params)
+            task_result = apply_task_payload_budget("result", task.result)
+            task_execution_context = apply_task_payload_budget(
+                "execution_context",
+                task.execution_context,
+            )
+            task_blocked_payload = apply_task_payload_budget(
+                "blocked_payload",
+                task.blocked_payload,
+            )
+
             params = {
                 "id": task.id,
                 "workspace_id": task.workspace_id,
@@ -387,11 +399,11 @@ class TasksStoreCrudMixin:
                 "pack_id": task.pack_id,
                 "task_type": task.task_type,
                 "status": task.status.value,
-                "params": self.serialize_json(task.params),
-                "result": self.serialize_json(task.result),
+                "params": self.serialize_json(task_params),
+                "result": self.serialize_json(task_result),
                 "execution_context": (
-                    self.serialize_json(task.execution_context)
-                    if task.execution_context
+                    self.serialize_json(task_execution_context)
+                    if task_execution_context
                     else None
                 ),
                 "meeting_session_id": task.meeting_session_id,
@@ -399,7 +411,7 @@ class TasksStoreCrudMixin:
                 "created_at": task.created_at,
                 "next_eligible_at": task.next_eligible_at,
                 "blocked_reason": task.blocked_reason,
-                "blocked_payload": self.serialize_json(task.blocked_payload),
+                "blocked_payload": self.serialize_json(task_blocked_payload),
                 "queue_shard": task.queue_shard,
                 "concurrency_key": task.concurrency_key,
                 "frontier_state": task.frontier_state,
@@ -529,7 +541,9 @@ class TasksStoreCrudMixin:
 
         if result is not None:
             updates.append("result = :result")
-            params["result"] = self.serialize_json(result)
+            params["result"] = self.serialize_json(
+                apply_task_payload_budget("result", result)
+            )
 
         if error is not None:
             updates.append("error = :error")
@@ -613,7 +627,9 @@ class TasksStoreCrudMixin:
 
         if execution_context is not None:
             updates.append("execution_context = :execution_context")
-            params["execution_context"] = self.serialize_json(execution_context)
+            params["execution_context"] = self.serialize_json(
+                apply_task_payload_budget("execution_context", execution_context)
+            )
             if project_id is None and execution_context.get("project_id"):
                 project_id = execution_context.get("project_id")
 
@@ -624,6 +640,8 @@ class TasksStoreCrudMixin:
         for key, value in kwargs.items():
             if key in ["params", "result", "storyline_tags", "blocked_payload"]:
                 updates.append(f"{key} = :{key}")
+                if key in ["params", "result", "blocked_payload"]:
+                    value = apply_task_payload_budget(key, value)
                 params[key] = self.serialize_json(value)
             elif key in ["status"]:
                 updates.append(f"{key} = :{key}")

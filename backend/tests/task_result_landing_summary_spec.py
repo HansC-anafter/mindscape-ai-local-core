@@ -4,6 +4,59 @@ from backend.app.services.stores.postgres.workspaces_store import (
 from backend.app.services.task_result_landing import TaskResultLandingService
 
 
+def _contains_key(value, target_key):
+    if isinstance(value, dict):
+        return target_key in value or any(
+            _contains_key(child, target_key) for child in value.values()
+        )
+    if isinstance(value, list):
+        return any(_contains_key(child, target_key) for child in value)
+    return False
+
+
+def test_build_task_result_payload_uses_landed_result_descriptor():
+    payload = TaskResultLandingService._build_task_result_payload(
+        existing_result={
+            "execution_trace": {"events": ["stale"]},
+            "last_error": "previous error",
+        },
+        incoming_result={
+            "output": "done",
+            "status": "completed",
+            "execution_trace": {"events": [{"message": "x" * 1000} for _ in range(50)]},
+        },
+        summary="done",
+        storage_ref="/workspace/artifacts/exec-1",
+        execution_id="exec-1",
+        artifact_id="artifact-1",
+        landing_metadata={
+            "result_json_path": "/workspace/artifacts/exec-1/result.json",
+            "summary_md_path": "/workspace/artifacts/exec-1/summary.md",
+        },
+        deliverable_identity={
+            "deliverable_name": "report",
+            "deliverable_path": "report.md",
+            "attachment_filenames": ["report.md"],
+        },
+        acceptance_evidence={"verified": True},
+    )
+
+    assert payload["summary"] == "done"
+    assert payload["storage_ref"] == "/workspace/artifacts/exec-1"
+    assert payload["execution_id"] == "exec-1"
+    assert payload["artifact_id"] == "artifact-1"
+    assert payload["result_object"]["bytes"] > 0
+    assert (
+        payload["result_object"]["result_json_path"]
+        == "/workspace/artifacts/exec-1/result.json"
+    )
+    assert payload["deliverable_name"] == "report"
+    assert payload["attachment_filenames"] == ["report.md"]
+    assert payload["acceptance_evidence"] == {"verified": True}
+    assert payload["last_error"] == "previous error"
+    assert not _contains_key(payload, "execution_trace")
+
+
 def test_extract_result_summary_compacts_nested_storyboard_payload():
     summary = TaskResultLandingService._extract_result_summary(
         {
