@@ -854,6 +854,10 @@ properties:
           type: string
         description:
           type: string
+        layout_hint:
+          type: string
+          enum: [default, scrollable_full_bleed]
+          description: "Workspace host layout hint for this component"
         type:
           type: string
           enum: [capability_page, full_page, settings_panel]
@@ -905,6 +909,38 @@ properties:
             props_schema:
               type: object
           additionalProperties: false
+      additionalProperties: false
+
+  workspace_tools:
+    type: array
+    description: "Workspace rail tools declared by this capability pack"
+    items:
+      type: object
+      required:
+        - id
+        - group
+        - label
+        - icon
+        - panel_component_code
+        - order
+      properties:
+        id:
+          type: string
+          pattern: "^[a-z0-9_]+$"
+        group:
+          type: string
+          enum: [capability]
+        label:
+          type: string
+          minLength: 1
+        icon:
+          type: string
+          minLength: 1
+        panel_component_code:
+          type: string
+          pattern: "^[A-Za-z_][A-Za-z0-9_]*$"
+        order:
+          type: integer
       additionalProperties: false
 
   # ============================================================================

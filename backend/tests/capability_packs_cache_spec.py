@@ -149,3 +149,239 @@ ui_components:
     assert response.body
     assert b'"id":"demo_pack"' in response.body
     assert b'"display_name":"Demo Pack"' in response.body
+
+
+def test_get_capability_ui_components_returns_layout_hint(monkeypatch):
+    monkeypatch.setattr(
+        capability_packs,
+        "_get_pack_meta_by_code",
+        lambda capability_code: {
+            "id": "demo_pack",
+            "code": "demo_pack",
+            "ui_components": [
+                {
+                    "code": "DemoFullBleedPage",
+                    "path": "ui/components/DemoFullBleedPage.tsx",
+                    "description": "Full bleed demo",
+                    "export": "default",
+                    "layout_hint": "scrollable_full_bleed",
+                },
+                {
+                    "code": "DemoDefaultPage",
+                    "path": "ui/components/DemoDefaultPage.tsx",
+                    "description": "Default demo",
+                    "export": "default",
+                },
+            ],
+        },
+    )
+    monkeypatch.setattr(
+        capability_packs, "_get_installed_pack_ids", lambda: {"demo_pack"}
+    )
+
+    components = capability_packs.get_capability_ui_components("demo_pack")
+
+    assert components[0]["layout_hint"] == "scrollable_full_bleed"
+    assert components[1]["layout_hint"] == "default"
+
+
+def test_get_capability_workspace_tools_joins_panel_component(monkeypatch):
+    monkeypatch.setattr(
+        capability_packs,
+        "_get_pack_meta_by_code",
+        lambda capability_code: {
+            "id": "demo_pack",
+            "code": "demo_pack",
+            "ui_components": [
+                {
+                    "code": "DemoToolPanel",
+                    "path": "ui/DemoToolPanel.tsx",
+                    "description": "Tool panel",
+                    "export": "default",
+                },
+            ],
+            "workspace_tools": [
+                {
+                    "id": "demo_tool",
+                    "group": "capability",
+                    "label": "Demo Tool",
+                    "icon": "PanelRight",
+                    "order": 5,
+                    "panel_component_code": "DemoToolPanel",
+                }
+            ],
+        },
+    )
+    monkeypatch.setattr(
+        capability_packs, "_get_installed_pack_ids", lambda: {"demo_pack"}
+    )
+
+    tools = capability_packs.get_capability_workspace_tools("demo_pack")
+
+    assert tools == [
+        {
+            "tool_key": "demo_pack:demo_tool",
+            "capability_code": "demo_pack",
+            "id": "demo_tool",
+            "group": "capability",
+            "label": "Demo Tool",
+            "icon": "PanelRight",
+            "order": 5,
+            "panel_component_code": "DemoToolPanel",
+            "panel_component": {
+                "code": "DemoToolPanel",
+                "path": "ui/DemoToolPanel.tsx",
+                "description": "Tool panel",
+                "export": "default",
+                "artifact_types": [],
+                "playbook_codes": [],
+                "import_path": "@/app/capabilities/demo_pack/components/DemoToolPanel",
+                "layout_hint": "default",
+            },
+        }
+    ]
+
+
+def test_get_capability_workspace_tools_rejects_invalid_panel_reference(monkeypatch):
+    monkeypatch.setattr(
+        capability_packs,
+        "_get_pack_meta_by_code",
+        lambda capability_code: {
+            "id": "demo_pack",
+            "code": "demo_pack",
+            "ui_components": [],
+            "workspace_tools": [
+                {
+                    "id": "demo_tool",
+                    "group": "capability",
+                    "label": "Demo Tool",
+                    "icon": "PanelRight",
+                    "order": 5,
+                    "panel_component_code": "MissingPanel",
+                }
+            ],
+        },
+    )
+    monkeypatch.setattr(
+        capability_packs, "_get_installed_pack_ids", lambda: {"demo_pack"}
+    )
+
+    try:
+        capability_packs.get_capability_workspace_tools("demo_pack")
+    except capability_packs.HTTPException as exc:
+        assert exc.status_code == 422
+        assert "panel_component_code" in exc.detail
+    else:
+        raise AssertionError("Expected invalid workspace tool panel reference to fail")
+
+
+def test_get_capability_workspace_tools_rejects_invalid_id_and_order(monkeypatch):
+    monkeypatch.setattr(
+        capability_packs,
+        "_get_pack_meta_by_code",
+        lambda capability_code: {
+            "id": "demo_pack",
+            "code": "demo_pack",
+            "ui_components": [
+                {
+                    "code": "DemoToolPanel",
+                    "path": "ui/DemoToolPanel.tsx",
+                },
+            ],
+            "workspace_tools": [
+                {
+                    "id": "Demo-Tool",
+                    "group": "capability",
+                    "label": "Demo Tool",
+                    "order": "5",
+                    "panel_component_code": "DemoToolPanel",
+                }
+            ],
+        },
+    )
+    monkeypatch.setattr(
+        capability_packs, "_get_installed_pack_ids", lambda: {"demo_pack"}
+    )
+
+    try:
+        capability_packs.get_capability_workspace_tools("demo_pack")
+    except capability_packs.HTTPException as exc:
+        assert exc.status_code == 422
+        assert "workspace_tools[0].id" in exc.detail
+    else:
+        raise AssertionError("Expected invalid workspace tool id to fail")
+
+
+def test_get_capability_workspace_tools_rejects_missing_icon(monkeypatch):
+    monkeypatch.setattr(
+        capability_packs,
+        "_get_pack_meta_by_code",
+        lambda capability_code: {
+            "id": "demo_pack",
+            "code": "demo_pack",
+            "ui_components": [
+                {
+                    "code": "DemoToolPanel",
+                    "path": "ui/DemoToolPanel.tsx",
+                },
+            ],
+            "workspace_tools": [
+                {
+                    "id": "demo_tool",
+                    "group": "capability",
+                    "label": "Demo Tool",
+                    "order": 5,
+                    "panel_component_code": "DemoToolPanel",
+                }
+            ],
+        },
+    )
+    monkeypatch.setattr(
+        capability_packs, "_get_installed_pack_ids", lambda: {"demo_pack"}
+    )
+
+    try:
+        capability_packs.get_capability_workspace_tools("demo_pack")
+    except capability_packs.HTTPException as exc:
+        assert exc.status_code == 422
+        assert "workspace_tools[0].icon" in exc.detail
+    else:
+        raise AssertionError("Expected missing workspace tool icon to fail")
+
+
+def test_get_capability_workspace_tools_rejects_bool_order(monkeypatch):
+    monkeypatch.setattr(
+        capability_packs,
+        "_get_pack_meta_by_code",
+        lambda capability_code: {
+            "id": "demo_pack",
+            "code": "demo_pack",
+            "ui_components": [
+                {
+                    "code": "DemoToolPanel",
+                    "path": "ui/DemoToolPanel.tsx",
+                },
+            ],
+            "workspace_tools": [
+                {
+                    "id": "demo_tool",
+                    "group": "capability",
+                    "label": "Demo Tool",
+                    "icon": "PanelRight",
+                    "order": True,
+                    "panel_component_code": "DemoToolPanel",
+                }
+            ],
+        },
+    )
+    monkeypatch.setattr(
+        capability_packs, "_get_installed_pack_ids", lambda: {"demo_pack"}
+    )
+
+    try:
+        capability_packs.get_capability_workspace_tools("demo_pack")
+    except capability_packs.HTTPException as exc:
+        assert exc.status_code == 422
+        assert "workspace_tools[0].order" in exc.detail
+    else:
+        raise AssertionError("Expected boolean workspace tool order to fail")

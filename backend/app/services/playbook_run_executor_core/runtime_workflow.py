@@ -34,6 +34,18 @@ def _extract_execution_backend_hint(
     return None
 
 
+def _merge_task_params(
+    existing_params: Any,
+    normalized_inputs: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    merged: Dict[str, Any] = {}
+    if isinstance(normalized_inputs, dict):
+        merged.update(normalized_inputs)
+    if isinstance(existing_params, dict):
+        merged.update(existing_params)
+    return merged
+
+
 def _build_runtime_task_context(
     *,
     playbook_code: str,
@@ -294,6 +306,10 @@ def persist_running_runtime_task(
             execution_backend_hint=execution_backend_hint,
         )
         if existing:
+            merged_params = _merge_task_params(
+                getattr(existing, "params", None),
+                normalized_inputs,
+            )
             merged_context = (
                 dict(existing.execution_context)
                 if isinstance(existing.execution_context, dict)
@@ -302,6 +318,7 @@ def persist_running_runtime_task(
             merged_context.update(context)
             tasks_store.update_task(
                 existing.id,
+                params=merged_params,
                 execution_context=merged_context,
                 status=TaskStatus.RUNNING,
                 started_at=existing.started_at or utc_now_fn(),
@@ -320,6 +337,7 @@ def persist_running_runtime_task(
                 pack_id=playbook_code,
                 task_type="playbook_execution",
                 status=TaskStatus.RUNNING,
+                params=dict(normalized_inputs),
                 execution_context=context,
                 created_at=utc_now_fn(),
                 started_at=utc_now_fn(),
@@ -469,6 +487,10 @@ def persist_runtime_result(
 
         existing_task = tasks_store.get_task_by_execution_id(execution_id)
         if existing_task:
+            update_kwargs["params"] = _merge_task_params(
+                getattr(existing_task, "params", None),
+                normalized_inputs,
+            )
             merged_context = (
                 dict(existing_task.execution_context)
                 if isinstance(existing_task.execution_context, dict)

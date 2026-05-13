@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 import logging
 import os
 import json
+import re
 import threading
 import time
 from datetime import datetime, timezone
@@ -66,6 +67,7 @@ _PACK_SOURCE_PRIORITY = {
     "capability_manifest": 2,
     "feature_manifest": 3,
 }
+_WORKSPACE_TOOL_ID_PATTERN = re.compile(r"^[a-z0-9_]+$")
 
 
 def _safe_pack_code_variants(capability_code: str) -> List[str]:
@@ -889,38 +891,10 @@ def get_capability_ui_components(capability_code: str):
         # Return UI components from manifest
         ui_components = pack_meta.get("ui_components", [])
 
-        # Format response with component metadata
-        formatted_components = []
-        for component in ui_components:
-            # Component path from manifest (e.g., "ui/pages/ChapterStudioPage.tsx" or "ui/components/WorkbenchLayout.tsx")
-            component_path = component.get("path", "")
-            component_filename = Path(component_path).name
-            component_name = component_filename.replace(".tsx", "").replace(".ts", "")
-
-            # Extract subdirectory from path (e.g., "pages" from "ui/pages/ChapterStudioPage.tsx")
-            # Path structure: ui/{subdirectory}/{filename}
-            path_parts = component_path.split("/")
-            subdirectory = "components"  # default
-            if len(path_parts) >= 3 and path_parts[0] == "ui":
-                # Extract subdirectory (e.g., "pages", "components")
-                subdirectory = path_parts[1]
-
-            # Build import path based on actual file structure
-            import_path = (
-                f"@/app/capabilities/{capability_code}/{subdirectory}/{component_name}"
-            )
-
-            formatted_components.append(
-                {
-                    "code": component.get("code"),
-                    "path": component_path,
-                    "description": component.get("description", ""),
-                    "export": component.get("export", "default"),
-                    "artifact_types": component.get("artifact_types", []),
-                    "playbook_codes": component.get("playbook_codes", []),
-                    "import_path": import_path,
-                }
-            )
+        formatted_components = [
+            _format_ui_component_for_response(capability_code, component)
+            for component in ui_components
+        ]
 
         return formatted_components
     except HTTPException:
@@ -932,4 +906,138 @@ def get_capability_ui_components(capability_code: str):
         )
         raise HTTPException(
             status_code=500, detail=f"Failed to get UI components: {str(e)}"
+        )
+
+
+def _format_ui_component_for_response(
+    capability_code: str,
+    component: Dict[str, Any],
+) -> Dict[str, Any]:
+    component_path = component.get("path", "")
+    component_filename = Path(component_path).name
+    component_name = component_filename.replace(".tsx", "").replace(".ts", "")
+    path_parts = component_path.split("/")
+    subdirectory = "components"
+    if len(path_parts) >= 3 and path_parts[0] == "ui":
+        subdirectory = path_parts[1]
+    import_path = f"@/app/capabilities/{capability_code}/{subdirectory}/{component_name}"
+    return {
+        "code": component.get("code"),
+        "path": component_path,
+        "description": component.get("description", ""),
+        "export": component.get("export", "default"),
+        "artifact_types": component.get("artifact_types", []),
+        "playbook_codes": component.get("playbook_codes", []),
+        "import_path": import_path,
+        "layout_hint": component.get("layout_hint", "default"),
+    }
+
+
+@router.get(
+    "/installed-capabilities/{capability_code}/workspace-tools",
+    response_model=List[Dict[str, Any]],
+)
+def get_capability_workspace_tools(capability_code: str):
+    try:
+        pack_meta = _get_pack_meta_by_code(capability_code)
+        if not pack_meta:
+            raise HTTPException(
+                status_code=404, detail=f"Capability '{capability_code}' not found"
+            )
+
+        installed_ids = _get_installed_pack_ids()
+        pack_id = pack_meta.get("id")
+        if pack_id not in installed_ids:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Capability '{capability_code}' (pack_id: {pack_id}) is not installed",
+            )
+
+        ui_components = pack_meta.get("ui_components", [])
+        components_by_code = {
+            component.get("code"): component
+            for component in ui_components
+            if isinstance(component, dict) and component.get("code")
+        }
+        formatted_tools = []
+        seen_ids = set()
+        for index, tool in enumerate(pack_meta.get("workspace_tools", []) or []):
+            if not isinstance(tool, dict):
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"workspace_tools[{index}] must be an object",
+                )
+            tool_id = str(tool.get("id") or "").strip()
+            group = str(tool.get("group") or "").strip()
+            label = tool.get("label")
+            icon = tool.get("icon")
+            panel_component_code = str(tool.get("panel_component_code") or "").strip()
+            order = tool.get("order")
+            if not _WORKSPACE_TOOL_ID_PATTERN.match(tool_id) or tool_id in seen_ids:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        f"workspace_tools[{index}].id must match ^[a-z0-9_]+$ "
+                        "and be unique"
+                    ),
+                )
+            if group != "capability":
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"workspace_tools[{index}].group must be capability",
+                )
+            if not isinstance(label, str) or not label.strip():
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"workspace_tools[{index}].label must be a non-empty string",
+                )
+            if not isinstance(icon, str) or not icon.strip():
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"workspace_tools[{index}].icon must be a non-empty string",
+                )
+            if type(order) is not int:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"workspace_tools[{index}].order must be an integer",
+                )
+            panel_component = components_by_code.get(panel_component_code)
+            if not panel_component:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        f"workspace_tools[{index}].panel_component_code "
+                        f"'{panel_component_code}' does not match ui_components[].code"
+                    ),
+                )
+            seen_ids.add(tool_id)
+            formatted_tools.append(
+                {
+                    "tool_key": f"{pack_meta.get('code') or capability_code}:{tool_id}",
+                    "capability_code": pack_meta.get("code") or capability_code,
+                    "id": tool_id,
+                    "group": group,
+                    "label": label.strip(),
+                    "icon": icon.strip(),
+                    "order": order,
+                    "panel_component_code": panel_component_code,
+                    "panel_component": _format_ui_component_for_response(
+                        capability_code,
+                        panel_component,
+                    ),
+                }
+            )
+
+        return sorted(formatted_tools, key=lambda item: (item["order"], item["tool_key"]))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            "Failed to get workspace tools for capability %s: %s",
+            capability_code,
+            e,
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get workspace tools: {str(e)}"
         )

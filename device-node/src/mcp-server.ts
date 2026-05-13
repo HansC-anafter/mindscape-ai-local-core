@@ -15,6 +15,7 @@ import { PermissionMap, TrustLevel } from "./governance/permission-map.js";
 import { LocalCoreBridge } from "./bridge/local-core-client.js";
 import { filesystemRead, filesystemWrite, filesystemList } from "./capabilities/filesystem.js";
 import { shellExecute } from "./capabilities/shell.js";
+import { hostResourceProbe } from "./capabilities/host-resource-probe.js";
 import * as http from "http";
 
 export interface MCPServerConfig {
@@ -127,6 +128,22 @@ export class MCPServer {
             },
             handler: shellExecute,
             trustLevel: TrustLevel.EXECUTE,
+        });
+
+        this.registerTool({
+            name: "host_resource_probe",
+            description: "Read host resource pressure and selected runtime processes",
+            inputSchema: {
+                type: "object",
+                properties: {
+                    timeout_ms: {
+                        type: "number",
+                        description: "Per-command timeout in milliseconds (optional, capped by device-node)",
+                    },
+                },
+            },
+            handler: hostResourceProbe,
+            trustLevel: TrustLevel.READ,
         });
     }
 

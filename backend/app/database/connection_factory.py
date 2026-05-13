@@ -2,9 +2,9 @@ import os
 import logging
 from typing import Any, Dict
 from sqlalchemy.engine import Engine
-from sqlalchemy import create_engine
 
 from app.database.config import get_postgres_url_core, get_postgres_url_vector
+from backend.app.database.recovery_backoff import DatabaseRecoveryBackoff
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +17,7 @@ class ConnectionFactory:
 
     _instance = None
     _postgres_engines: Dict[str, Engine] = {}
+    _recovery_backoffs: Dict[str, DatabaseRecoveryBackoff] = {}
 
     def __new__(cls):
         if cls._instance is None:
@@ -56,7 +57,22 @@ class ConnectionFactory:
 
         Returns a SQLAlchemy Connection object.
         """
-        return self._get_postgres_engine(role).connect()
+        backoff = self._recovery_backoffs.setdefault(
+            role,
+            DatabaseRecoveryBackoff(
+                delay_seconds=int(os.getenv("DB_RECOVERY_BACKOFF_SECONDS", "30"))
+            ),
+        )
+        backoff.wait_if_active(label=f"PostgreSQL {role} connection")
+        try:
+            return self._get_postgres_engine(role).connect()
+        except Exception as exc:
+            if backoff.note_failure(exc):
+                logger.warning(
+                    "PostgreSQL %s connection failed while database is recovering; next attempts will back off.",
+                    role,
+                )
+            raise
 
     def _get_postgres_engine(self, role: str) -> Engine:
         if role in self._postgres_engines:
@@ -82,6 +98,7 @@ class ConnectionFactory:
         """Reset singleton state (useful for testing)"""
         cls._instance = None
         cls._postgres_engines = {}
+        cls._recovery_backoffs = {}
 
 
 # Global accessor

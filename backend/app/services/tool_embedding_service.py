@@ -277,7 +277,9 @@ class ToolEmbeddingService:
             logger.error(f"Failed to index tool {tool_id}: {e}")
             return False
 
-    async def _collect_indexable_entries(self) -> List[IndexableEntry]:
+    async def _collect_indexable_entries(
+        self, *, include_playbooks: bool = True
+    ) -> List[IndexableEntry]:
         """Return the shared tool/playbook corpus used for embedding indexing."""
         entries: List[IndexableEntry] = []
 
@@ -303,6 +305,9 @@ class ToolEmbeddingService:
                     "affordance": None,
                 }
             )
+
+        if not include_playbooks:
+            return entries
 
         try:
             from backend.app.services.manifest_utils import resolve_playbook_affordance
@@ -335,12 +340,14 @@ class ToolEmbeddingService:
 
         return entries
 
-    async def index_all_tools(self) -> int:
+    async def index_all_tools(self, *, include_playbooks: bool = True) -> int:
         """Index all tools from ToolListService. Idempotent (upsert).
 
         Returns number of successfully indexed tools.
         """
-        entries = await self._collect_indexable_entries()
+        entries = await self._collect_indexable_entries(
+            include_playbooks=include_playbooks
+        )
         count = 0
         tool_entries = 0
         playbook_entries = 0
@@ -369,7 +376,7 @@ class ToolEmbeddingService:
         )
         return count
 
-    async def ensure_indexed(self) -> int:
+    async def ensure_indexed(self, *, include_playbooks: bool = True) -> int:
         """Startup hook: index all tools for every available embed model.
 
         On cold start this discovers all Ollama embed models, checks whether
@@ -388,7 +395,9 @@ class ToolEmbeddingService:
             ollama_models = [primary]
 
         # --- Get expected corpus size (tools + playbooks) ---
-        expected = len(await self._collect_indexable_entries())
+        expected = len(
+            await self._collect_indexable_entries(include_playbooks=include_playbooks)
+        )
 
         if expected == 0:
             logger.warning("ensure_indexed: no indexable entries found, skipping")
@@ -431,7 +440,9 @@ class ToolEmbeddingService:
         # --- Index only stale models ---
         total = 0
         for model in stale_models:
-            count = await self._index_all_tools_for_model(model)
+            count = await self._index_all_tools_for_model(
+                model, include_playbooks=include_playbooks
+            )
             logger.info(f"ensure_indexed: [{model}] indexed {count} tools")
             total += count
 
@@ -492,6 +503,25 @@ class ToolEmbeddingService:
                 f"Failed to remove embeddings for capability {capability_code}: {e}"
             )
             return 0
+
+    async def has_existing_index(self, *, min_rows: int = 1) -> bool:
+        """Return whether the embedding table already has a usable corpus."""
+        try:
+            conn = self._get_connection()
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT 1 FROM tool_embeddings LIMIT %s",
+                        (max(1, min_rows),),
+                    )
+                    rows = cur.fetchall()
+            finally:
+                conn.close()
+        except Exception as e:
+            logger.warning("Failed to read tool embedding row count: %s", e)
+            return False
+
+        return len(rows) >= min_rows
 
     async def get_capability_embedding_status(
         self, capability_code: str
@@ -830,7 +860,9 @@ class ToolEmbeddingService:
     #  Multi-model index path
     # ------------------------------------------------------------------ #
 
-    async def index_all_tools_multimodel(self) -> int:
+    async def index_all_tools_multimodel(
+        self, *, include_playbooks: bool = True
+    ) -> int:
         """Re-index all tools for every Ollama embed model currently available.
 
         Each (tool_id, model) pair is upserted independently (UNIQUE constraint).
@@ -841,7 +873,7 @@ class ToolEmbeddingService:
             logger.info(
                 "index_all_tools_multimodel: no Ollama embed models found, using single-model path"
             )
-            return await self.index_all_tools()
+            return await self.index_all_tools(include_playbooks=include_playbooks)
 
         logger.info(f"index_all_tools_multimodel: indexing for models {embed_models}")
 
@@ -849,15 +881,21 @@ class ToolEmbeddingService:
         for model in embed_models:
             # Temporarily override the effective model for this indexing run
             # by using a lightweight helper that forces the model in VectorSearchService
-            count = await self._index_all_tools_for_model(model)
+            count = await self._index_all_tools_for_model(
+                model, include_playbooks=include_playbooks
+            )
             logger.info(f"  [{model}] indexed {count} tools")
             total += count
 
         return total
 
-    async def _index_all_tools_for_model(self, model_name: str) -> int:
+    async def _index_all_tools_for_model(
+        self, model_name: str, *, include_playbooks: bool = True
+    ) -> int:
         """Index all tools and playbooks using a specific embedding model."""
-        entries = await self._collect_indexable_entries()
+        entries = await self._collect_indexable_entries(
+            include_playbooks=include_playbooks
+        )
         count = 0
         for entry in entries:
             embed_text = build_embed_text(entry["display_name"], entry["description"])

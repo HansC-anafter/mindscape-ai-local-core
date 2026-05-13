@@ -79,6 +79,10 @@ capabilities:
       - kill
       - killall
 
+  host_resource_probe:
+    trust_level: read
+    confirm_required: false
+
   # Admin-level operations for infrastructure management
   docker_admin:
     trust_level: admin

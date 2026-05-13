@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
@@ -46,6 +47,30 @@ def _task_id(task: Any) -> str:
     return str(getattr(task, "id", "") or "").strip()
 
 
+def _host_resource_admission_enabled() -> bool:
+    raw = os.getenv("LOCAL_CORE_HOST_RESOURCE_ADMISSION_ENABLED", "true")
+    return raw.strip().lower() not in {"0", "false", "no", "off"}
+
+
+def _requires_host_resource_gate(requirements: ResourceRequirements) -> bool:
+    return bool(
+        requirements.memory_mb > 0
+        or requirements.vision_lane
+        or requirements.llm_lane
+    )
+
+
+def _evaluate_host_resource_gate(requirements: ResourceRequirements) -> Optional[Any]:
+    if not _host_resource_admission_enabled() or not _requires_host_resource_gate(requirements):
+        return None
+    try:
+        from backend.app.services.host_resources import evaluate_runner_requirements
+
+        return evaluate_runner_requirements(requirements)
+    except Exception:
+        return None
+
+
 def _resource_entries(requirements: ResourceRequirements) -> list[tuple[str, str]]:
     entries: list[tuple[str, str]] = []
     if requirements.ig_profile_lock:
@@ -75,6 +100,26 @@ async def acquire_task_resource_admission(
             now=base_now,
             task=task,
             runner_profile=runner_profile,
+        )
+
+    host_advice = _evaluate_host_resource_gate(requirements)
+    if host_advice is not None and not bool(getattr(host_advice, "allow", False)):
+        host_payload = getattr(host_advice, "payload", {}) or {}
+        lane_id = host_payload.get("lane_id") if isinstance(host_payload, dict) else None
+        resource_key = f"host_resource:{lane_id or 'requirements'}"
+        return _blocked_decision(
+            requirements=requirements,
+            reason=str(getattr(host_advice, "reason", None) or getattr(host_advice, "decision", "host_resource_blocked")),
+            delay_seconds=delay_seconds,
+            now=base_now,
+            task=task,
+            runner_profile=runner_profile,
+            resource_key=resource_key,
+            extra_payload={
+                "blocked_resource": "host_resource",
+                "host_decision": getattr(host_advice, "decision", "defer"),
+                "host_advisor": host_payload,
+            },
         )
 
     acquired: list[ResourceLease] = []
@@ -144,6 +189,7 @@ def _blocked_decision(
     task: Any,
     runner_profile: Any,
     resource_key: Optional[str] = None,
+    extra_payload: Optional[dict[str, Any]] = None,
 ) -> ResourceAdmissionDecision:
     next_eligible_at = now + timedelta(seconds=max(1, int(delay_seconds or 1)))
     payload = {
@@ -155,6 +201,8 @@ def _blocked_decision(
         "defer_until": next_eligible_at.isoformat(),
         "evaluated_at": now.isoformat(),
     }
+    if extra_payload:
+        payload.update(extra_payload)
     if resource_key:
         payload["resource_key"] = resource_key
         payload["resource_keys"] = [resource_key]

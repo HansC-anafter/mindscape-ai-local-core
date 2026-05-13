@@ -23,6 +23,7 @@ from app.models.workspace import (
 from app.models.workspace_blueprint import WorkspaceBlueprint
 
 logger = logging.getLogger(__name__)
+_DATA_SOURCE_SUMMARY_LIMIT = 500
 
 
 class PostgresWorkspacesStore(PostgresStoreBase):
@@ -499,27 +500,6 @@ class PostgresWorkspacesStore(PostgresStoreBase):
                     f"Failed to validate workspace_blueprint for {row.id}: {e}"
                 )
 
-        # Cloud remote tools config - handle as standard attr of Workspace if it exists
-        # Model definition might not have it explicit in type hint but kwargs or meta?
-        # Workspace model has it? I checked file, didn't see explicit field `cloud_remote_tools_config` in `Workspace` class definition in what I read?
-        # Wait, lines 80-84 in update check `getattr(workspace, "cloud_remote_tools_config", None)`.
-        # So it's dynamic or I missed it. I'll treat it as such or add to object if needed.
-        # But `Workspace` init arguments must match.
-        # If I look at `Workspace` fields again... I don't see `cloud_remote_tools_config` in `Workspace` definition in Step 1010.
-        # But `WorkspacesStore` SQL includes it?
-        # Step 1011 line 29: `cloud_remote_tools_config` in INSERT.
-        # Step 1011 line 78 calls `getattr`.
-        # So it seems valid to support it?
-        # However, `Workspace(...)` constructor call in Step 1011 `_row_to_workspace` does NOT pass `cloud_remote_tools_config`.
-        # So I will NOT pass it to constructor either. I will just rely on `metadata` if it's there?
-        # No, the store writes it to a column. But if Model doesn't have it, where does it go?
-        # It gets lost on read?
-        # I'll check `_row_to_workspace` in Step 1011 again.
-        # It does NOT extract `cloud_remote_tools_config` from row.
-        # So it seems `cloud_remote_tools_config` column is write-only or I missed something?
-        # Or maybe it's new and not fully wired?
-        # I will match `_row_to_workspace` from Step 1011 which ignores it on read.
-
         return Workspace(
             id=row.id,
             owner_user_id=row.owner_user_id,
@@ -607,8 +587,14 @@ class PostgresWorkspacesStore(PostgresStoreBase):
             if not row:
                 return
 
-            current = self.deserialize_json(row.data_sources) or {}
+            raw_current = self.deserialize_json(row.data_sources) or {}
+            current = {
+                key: self._compact_data_source_entry(value)
+                for key, value in raw_current.items()
+                if isinstance(value, dict)
+            }
             existing = current.get(pack_id, {})
+            entry = self._compact_data_source_entry(entry)
 
             # Merge: increment total_runs, update last_run and last_result_summary
             existing["total_runs"] = existing.get("total_runs", 0) + 1
@@ -630,3 +616,17 @@ class PostgresWorkspacesStore(PostgresStoreBase):
                     "id": workspace_id,
                 },
             )
+
+    @staticmethod
+    def _compact_data_source_entry(entry: Dict[str, Any]) -> Dict[str, Any]:
+        compacted = dict(entry or {})
+        summary = compacted.get("last_result_summary")
+        if summary is None:
+            return compacted
+        summary_text = str(summary).strip()
+        if len(summary_text) > _DATA_SOURCE_SUMMARY_LIMIT:
+            summary_text = (
+                summary_text[: _DATA_SOURCE_SUMMARY_LIMIT - 3].rstrip() + "..."
+            )
+        compacted["last_result_summary"] = summary_text
+        return compacted

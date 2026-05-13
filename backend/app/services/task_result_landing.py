@@ -27,6 +27,7 @@ from app.services.stores.tasks_store import TasksStore
 from app.services.stores.postgres.artifacts_store import PostgresArtifactsStore
 
 logger = logging.getLogger(__name__)
+_DATA_SOURCE_SUMMARY_LIMIT = 500
 
 
 def _utc_now() -> datetime:
@@ -459,12 +460,77 @@ class TaskResultLandingService:
                         flat = outputs
                         break
                 if flat:
-                    parts = [f"{k}={v}" for k, v in flat.items() if v is not None]
+                    parts = []
+                    for k, v in flat.items():
+                        compact_value = (
+                            TaskResultLandingService._compact_summary_value(v)
+                        )
+                        if compact_value:
+                            parts.append(f"{k}={compact_value}")
                     if parts:
-                        return ", ".join(parts[:5])
+                        return TaskResultLandingService._limit_summary_text(
+                            ", ".join(parts[:5])
+                        )
         # Fallback: status
         status = result_data.get("status")
-        return str(status) if status else ""
+        if not status:
+            return ""
+        return TaskResultLandingService._limit_summary_text(str(status))
+
+    @staticmethod
+    def _compact_summary_value(value: Any) -> str:
+        if value is None:
+            return ""
+        if isinstance(value, (bool, int, float)):
+            return str(value)
+        if isinstance(value, str):
+            return TaskResultLandingService._limit_summary_text(value)
+        if isinstance(value, dict):
+            summary_parts = []
+            storyboard_id = value.get("storyboard_id")
+            scenes = value.get("scenes")
+            if storyboard_id is not None:
+                summary_parts.append(f"storyboard_id={storyboard_id}")
+            if isinstance(scenes, list):
+                summary_parts.append(f"scenes={len(scenes)}")
+            if summary_parts:
+                return TaskResultLandingService._limit_summary_text(
+                    ", ".join(summary_parts)
+                )
+
+            scalar_parts = []
+            for key, nested_value in value.items():
+                if nested_value is None:
+                    continue
+                if isinstance(nested_value, (bool, int, float, str)):
+                    nested_text = TaskResultLandingService._limit_summary_text(
+                        str(nested_value),
+                        limit=120,
+                    )
+                    scalar_parts.append(f"{key}={nested_text}")
+                if len(scalar_parts) >= 3:
+                    break
+            if scalar_parts:
+                return TaskResultLandingService._limit_summary_text(
+                    "{" + ", ".join(scalar_parts) + "}"
+                )
+
+            keys = ", ".join(str(key) for key in list(value.keys())[:5])
+            return f"object(keys={keys}, count={len(value)})"
+        if isinstance(value, (list, tuple, set)):
+            return f"list(count={len(value)})"
+        return TaskResultLandingService._limit_summary_text(str(value))
+
+    @staticmethod
+    def _limit_summary_text(
+        value: str,
+        *,
+        limit: int = _DATA_SOURCE_SUMMARY_LIMIT,
+    ) -> str:
+        text_value = str(value).strip()
+        if len(text_value) <= limit:
+            return text_value
+        return text_value[: limit - 3].rstrip() + "..."
 
     @staticmethod
     def _extract_attachment_filenames(attachments_input: List[Dict[str, Any]]) -> List[str]:

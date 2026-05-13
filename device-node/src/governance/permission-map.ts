@@ -99,6 +99,10 @@ export class PermissionMap {
                     allowed_commands: ["git", "npm", "node", "python", "python3", "pip", "pip3", "ls", "cat", "echo", "pwd", "mkdir", "touch", "cp", "mv", "osascript"],
                     denied_commands: ["rm -rf", "sudo", "chmod", "chown", "mkfs", "dd", "kill", "killall"],
                 },
+                host_resource_probe: {
+                    trust_level: "READ",
+                    confirm_required: false,
+                },
             },
         };
     }

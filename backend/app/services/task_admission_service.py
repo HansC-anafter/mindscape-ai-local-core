@@ -202,15 +202,24 @@ class TaskAdmissionService:
 
     def _extract_policy(self, task: Task, ctx: Dict[str, Any]) -> Dict[str, str]:
         raw = ctx.get("admission_policy") if isinstance(ctx.get("admission_policy"), dict) else {}
+        blocked_payload = (
+            task.blocked_payload if isinstance(task.blocked_payload, dict) else {}
+        )
         mode = str(raw.get("mode") or "").strip().lower()
+        if not mode:
+            mode = str(blocked_payload.get("mode") or "").strip().lower()
         if not mode:
             mode = "auto" if ctx.get("auto_triggered") else "manual"
 
         visibility = str(raw.get("visibility") or "").strip().lower()
         if not visibility:
+            visibility = str(blocked_payload.get("visibility") or "").strip().lower()
+        if not visibility:
             visibility = "background" if mode == "auto" else "manual"
 
         producer_kind = str(raw.get("producer_kind") or "").strip().lower()
+        if not producer_kind:
+            producer_kind = str(blocked_payload.get("producer_kind") or "").strip().lower()
         if not producer_kind:
             producer_kind = "auto" if mode == "auto" else "manual"
 

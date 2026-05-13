@@ -47,6 +47,8 @@ def test_post_ready_warmups_wait_for_server_bind_grace():
     assert source.index("_wait_for_post_ready_bind_grace(\"tool-rag-post-ready-warmup\")") < source.index(
         "refresh_tool_rag_corpus("
     )
+    assert "include_playbooks=False" in source
+    assert "skip_when_index_exists=True" in source
     assert source.index("_wait_for_post_ready_bind_grace(") < source.index(
         "\"playbook-registry-post-ready-warmup\""
     )

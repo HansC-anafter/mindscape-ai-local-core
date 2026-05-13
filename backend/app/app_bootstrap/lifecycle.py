@@ -40,6 +40,11 @@ def _env_int(name: str, default: int, *, minimum: int, maximum: int) -> int:
     return max(minimum, min(value, maximum))
 
 
+def _should_run_post_ready_playbook_registry_warmup() -> bool:
+    raw_value = os.getenv("MINDSCAPE_PLAYBOOK_REGISTRY_POST_READY_MODE", "lazy")
+    return raw_value.strip().lower() in {"eager", "true", "1", "yes"}
+
+
 def should_run_object_index_sync() -> bool:
     disabled = os.getenv("AOL_OBJECT_INDEX_SYNC_DISABLED", "").strip().lower()
     return disabled not in {"1", "true", "yes", "on"}
@@ -155,7 +160,9 @@ async def _run_post_ready_tool_rag_warmup(app: FastAPI) -> None:
         def _refresh_tool_rag_corpus_in_worker():
             return asyncio.run(
                 refresh_tool_rag_corpus(
-                    log_prefix="Tool RAG post-ready warm-up"
+                    log_prefix="Tool RAG post-ready warm-up",
+                    include_playbooks=False,
+                    skip_when_index_exists=True,
                 )
             )
 
@@ -190,6 +197,12 @@ async def _run_post_ready_tool_rag_warmup(app: FastAPI) -> None:
 async def _run_post_ready_playbook_registry_warmup(app: FastAPI) -> None:
     """Load local capability playbooks after readiness and reconcile activation state."""
     try:
+        if not _should_run_post_ready_playbook_registry_warmup():
+            app.state.playbook_registry_post_ready_completed = True
+            app.state.playbook_registry_post_ready_status = "lazy"
+            app.state.playbook_registry_post_ready_error = None
+            logger.info("Playbook registry post-ready warm-up uses lazy loading")
+            return
         await _wait_for_post_ready_bind_grace(
             "playbook-registry-post-ready-warmup"
         )
