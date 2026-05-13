@@ -19,12 +19,14 @@ STATE_TTL_SECONDS = int(os.getenv("LOCAL_CORE_HOST_RESOURCE_STATE_TTL_SECONDS", 
 PAUSED_LANES_KEY = "mindscape:host_resources:paused_lanes"
 ROUTE_RESERVATIONS_KEY = "mindscape:host_resources:route_reservations"
 NOTIFICATIONS_KEY = "mindscape:host_resources:notifications"
+RUNNER_CLAIM_GATE_KEY = "mindscape:host_resources:runner_claim_gate"
 
 _cached_snapshot: dict[str, Any] | None = None
 _cached_at: datetime | None = None
 _paused_lanes: set[str] = set()
 _route_reservations: dict[str, dict[str, Any]] = {}
 _notification_state: dict[str, dict[str, Any]] = {}
+_runner_claim_gate_state: dict[str, Any] | None = None
 
 
 def _utc_now() -> datetime:
@@ -65,6 +67,26 @@ def _write_json_list(key: str, value: list[str]) -> None:
         get_cache_service().set_json(key, value, ttl=STATE_TTL_SECONDS)
     except Exception:
         pass
+
+
+def _write_json_value(key: str, value: Any, *, ttl: int | None = None) -> bool:
+    try:
+        return bool(
+            get_cache_service().set_json(
+                key,
+                value,
+                ttl=ttl or STATE_TTL_SECONDS,
+            )
+        )
+    except Exception:
+        return False
+
+
+def _delete_json_value(key: str) -> bool:
+    try:
+        return bool(get_cache_service().delete(key))
+    except Exception:
+        return False
 
 
 def _current_paused_lanes() -> set[str]:
@@ -207,3 +229,76 @@ def update_notification(notification_id: str, state: str, *, snooze_seconds: int
     persisted[notification_id] = updated
     _write_json_map(NOTIFICATIONS_KEY, persisted)
     return updated
+
+
+def _normalize_runner_claim_gate(raw: Any, *, source: str) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        return {
+            "state": "open",
+            "reason": None,
+            "source": "default",
+            "persisted": False,
+        }
+    state = str(raw.get("state") or "open").strip().lower()
+    if state != "paused":
+        state = "open"
+    gate = dict(raw)
+    gate["state"] = state
+    gate["source"] = source
+    gate["persisted"] = source == "redis"
+    return gate
+
+
+def get_runner_claim_gate() -> dict[str, Any]:
+    global _runner_claim_gate_state
+    persisted = _read_json_map(RUNNER_CLAIM_GATE_KEY)
+    if persisted:
+        _runner_claim_gate_state = _normalize_runner_claim_gate(
+            persisted,
+            source="redis",
+        )
+        return dict(_runner_claim_gate_state)
+    _runner_claim_gate_state = None
+    return _normalize_runner_claim_gate(None, source="default")
+
+
+def pause_runner_claim_gate(payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    global _runner_claim_gate_state
+    payload = payload if isinstance(payload, dict) else {}
+    try:
+        ttl_seconds = int(payload.get("ttl_seconds") or STATE_TTL_SECONDS)
+    except Exception:
+        ttl_seconds = STATE_TTL_SECONDS
+    ttl_seconds = max(60, ttl_seconds)
+    gate = {
+        "state": "paused",
+        "reason": str(payload.get("reason") or "maintenance"),
+        "requested_by": str(payload.get("requested_by") or "local_runtime"),
+        "paused_at": _utc_now_iso(),
+        "ttl_seconds": ttl_seconds,
+    }
+    persisted = _write_json_value(
+        RUNNER_CLAIM_GATE_KEY,
+        gate,
+        ttl=ttl_seconds,
+    )
+    _runner_claim_gate_state = dict(gate)
+    result = _normalize_runner_claim_gate(
+        gate,
+        source="redis" if persisted else "memory",
+    )
+    result["persisted"] = persisted
+    return result
+
+
+def resume_runner_claim_gate() -> dict[str, Any]:
+    global _runner_claim_gate_state
+    _runner_claim_gate_state = {
+        "state": "open",
+        "reason": None,
+        "resumed_at": _utc_now_iso(),
+    }
+    persisted = _delete_json_value(RUNNER_CLAIM_GATE_KEY)
+    result = _normalize_runner_claim_gate(_runner_claim_gate_state, source="memory")
+    result["persisted"] = persisted
+    return result

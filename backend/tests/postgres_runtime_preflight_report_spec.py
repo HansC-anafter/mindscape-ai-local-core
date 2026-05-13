@@ -41,6 +41,11 @@ def _base_report():
             "runner_owned_running_tasks": 0,
             "ready_pending_tasks": 0,
         },
+        "runner_claim_gate": {
+            "state": "paused",
+            "persisted": True,
+            "source": "redis",
+        },
         "hot_row_budget": {
             "sample": {
                 "execution_context_over_budget": 0,
@@ -99,6 +104,34 @@ def test_preflight_report_blocks_active_runner_workload():
     assert report["readiness"]["ready_for_physical_reclaim"] is False
     assert "runner_workload_active" in report["readiness"]["blockers"]
     assert "ready_pending_tasks_present" in report["readiness"]["warnings"]
+
+
+def test_preflight_report_requires_runner_claim_gate_pause():
+    raw = _base_report()
+    raw["runner_claim_gate"] = {
+        "state": "open",
+        "persisted": False,
+        "source": "default",
+    }
+
+    report = evaluate_report(raw)
+
+    assert report["readiness"]["ready_for_physical_reclaim"] is False
+    assert "runner_claim_gate_not_paused" in report["readiness"]["blockers"]
+
+
+def test_preflight_report_blocks_memory_only_runner_claim_gate_pause():
+    raw = _base_report()
+    raw["runner_claim_gate"] = {
+        "state": "paused",
+        "persisted": False,
+        "source": "memory",
+    }
+
+    report = evaluate_report(raw)
+
+    assert report["readiness"]["ready_for_physical_reclaim"] is False
+    assert "runner_claim_gate_not_persisted" in report["readiness"]["blockers"]
 
 
 def test_preflight_report_blocks_unsafe_connection_and_disk_budget():

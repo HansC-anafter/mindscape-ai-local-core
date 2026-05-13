@@ -11,10 +11,13 @@ from backend.app.services.host_resources.manager import (
     cancel_route_reservation,
     create_route_reservation,
     get_host_resource_snapshot,
+    get_runner_claim_gate,
     list_host_resource_lanes,
     list_route_reservations,
     pause_lane,
+    pause_runner_claim_gate,
     resume_lane,
+    resume_runner_claim_gate,
     update_notification,
 )
 
@@ -72,6 +75,23 @@ async def post_route_reservation(
 @router.delete("/route-reservations/{reservation_id}")
 async def delete_route_reservation(reservation_id: str) -> dict[str, Any]:
     return cancel_route_reservation(reservation_id)
+
+
+@router.get("/runner-claim-gate")
+async def get_runner_claim_gate_state() -> dict[str, Any]:
+    return get_runner_claim_gate()
+
+
+@router.post("/runner-claim-gate/pause")
+async def pause_runner_claims(
+    payload: Optional[dict[str, Any]] = Body(default=None),
+) -> dict[str, Any]:
+    return pause_runner_claim_gate(payload or {})
+
+
+@router.post("/runner-claim-gate/resume")
+async def resume_runner_claims() -> dict[str, Any]:
+    return resume_runner_claim_gate()
 
 
 @router.post("/notifications/{notification_id}/ack")

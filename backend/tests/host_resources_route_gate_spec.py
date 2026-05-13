@@ -76,6 +76,26 @@ def test_route_gate_rejects_unmatched_candidate(monkeypatch):
     assert decision.reason == "no_matching_route_reservation"
 
 
+def test_worker_reads_runner_claim_gate(monkeypatch):
+    import backend.app.services.host_resources as host_resources
+
+    monkeypatch.setattr(
+        host_resources,
+        "get_runner_claim_gate",
+        lambda: {
+            "state": "paused",
+            "reason": "postgres_maintenance",
+            "source": "redis",
+            "persisted": True,
+        },
+    )
+
+    gate = worker._runner_claim_gate_status()
+
+    assert gate["state"] == "paused"
+    assert gate["reason"] == "postgres_maintenance"
+
+
 @pytest.mark.asyncio
 async def test_worker_route_candidate_scan_promotes_permitted_task(monkeypatch):
     class _Client:

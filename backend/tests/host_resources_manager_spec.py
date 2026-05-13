@@ -12,6 +12,10 @@ class _MemoryCache:
         self.values[key] = value
         return True
 
+    def delete(self, key):
+        self.values.pop(key, None)
+        return True
+
 
 def test_route_reservation_is_written_to_ttl_state(monkeypatch):
     cache = _MemoryCache()
@@ -43,3 +47,38 @@ def test_paused_lane_is_restored_from_ttl_state(monkeypatch):
     manager._paused_lanes.clear()
 
     assert manager.is_lane_paused("runner:vision_local") is True
+
+
+def test_runner_claim_gate_is_restored_from_ttl_state(monkeypatch):
+    cache = _MemoryCache()
+    monkeypatch.setattr(manager, "get_cache_service", lambda: cache)
+    manager._runner_claim_gate_state = None
+
+    gate = manager.pause_runner_claim_gate(
+        {
+            "reason": "postgres_maintenance",
+            "requested_by": "test",
+            "ttl_seconds": 120,
+        }
+    )
+    manager._runner_claim_gate_state = None
+    restored = manager.get_runner_claim_gate()
+
+    assert gate["state"] == "paused"
+    assert gate["persisted"] is True
+    assert restored["state"] == "paused"
+    assert restored["source"] == "redis"
+
+
+def test_runner_claim_gate_resume_clears_ttl_state(monkeypatch):
+    cache = _MemoryCache()
+    monkeypatch.setattr(manager, "get_cache_service", lambda: cache)
+    manager._runner_claim_gate_state = None
+
+    manager.pause_runner_claim_gate({"reason": "postgres_maintenance"})
+    resumed = manager.resume_runner_claim_gate()
+    manager._runner_claim_gate_state = None
+
+    assert resumed["state"] == "open"
+    assert manager.RUNNER_CLAIM_GATE_KEY not in cache.values
+    assert manager.get_runner_claim_gate()["state"] == "open"

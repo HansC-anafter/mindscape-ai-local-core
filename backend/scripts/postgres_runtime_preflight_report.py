@@ -502,6 +502,18 @@ def _script_path_status() -> dict[str, dict[str, Any]]:
     }
 
 
+def _runner_claim_gate() -> dict[str, Any]:
+    try:
+        from backend.app.services.host_resources import get_runner_claim_gate
+
+        gate = get_runner_claim_gate()
+        if isinstance(gate, dict):
+            return gate
+        return {"error": "invalid_runner_claim_gate"}
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
 def _unavailable_database_report(
     args: argparse.Namespace,
     exc: Exception,
@@ -540,6 +552,7 @@ def _unavailable_database_report(
             free_space_factor=args.repack_free_space_factor,
             free_space_reserve=args.repack_free_space_reserve,
         ),
+        "runner_claim_gate": _runner_claim_gate(),
         "runner_workload": {"error": "database_unavailable"},
         "hot_row_budget": {
             "recent_hours": args.recent_hours,
@@ -606,6 +619,7 @@ def collect_report(args: argparse.Namespace) -> dict[str, Any]:
                 free_space_factor=args.repack_free_space_factor,
                 free_space_reserve=args.repack_free_space_reserve,
             ),
+            "runner_claim_gate": _runner_claim_gate(),
             "runner_workload": _runner_workload(conn),
             "hot_row_budget": {
                 "recent_hours": args.recent_hours,
@@ -712,6 +726,18 @@ def evaluate_report(report: dict[str, Any]) -> dict[str, Any]:
             blockers.append("runner_workload_active")
         if ready_pending_tasks > 0:
             warnings.append("ready_pending_tasks_present")
+
+    runner_claim_gate = (
+        report.get("runner_claim_gate")
+        if isinstance(report.get("runner_claim_gate"), dict)
+        else {}
+    )
+    if runner_claim_gate.get("error"):
+        blockers.append("runner_claim_gate_unavailable")
+    elif runner_claim_gate.get("state") != "paused":
+        blockers.append("runner_claim_gate_not_paused")
+    elif not runner_claim_gate.get("persisted"):
+        blockers.append("runner_claim_gate_not_persisted")
 
     connection_budget = (
         report.get("connection_budget")

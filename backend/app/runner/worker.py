@@ -469,6 +469,15 @@ def _host_route_gate_enabled() -> bool:
     return raw.strip().lower() not in {"0", "false", "no", "off"}
 
 
+def _runner_claim_gate_status() -> dict:
+    try:
+        from backend.app.services.host_resources import get_runner_claim_gate
+
+        return get_runner_claim_gate()
+    except Exception:
+        return {"state": "open", "source": "unavailable", "persisted": False}
+
+
 async def _dequeue_preferred_route_candidate(
     queue_cycle: list[RedisRunnerQueueStore],
     *,
@@ -868,6 +877,7 @@ async def run_forever() -> None:
     dep_checker = DependencyChecker(cache_ttl=5.0)
     is_browser_runner = is_browser_resource_profile(runner_profile)
     next_resource_defer_log_at = 0.0
+    next_claim_gate_log_at = 0.0
     playbook_fair_scan_limit = _env_int(
         "LOCAL_CORE_RUNNER_PLAYBOOK_FAIR_SCAN_LIMIT",
         128,
@@ -1000,6 +1010,21 @@ async def run_forever() -> None:
                     5.0,
                 )
             )
+            continue
+
+        claim_gate = _runner_claim_gate_status()
+        if claim_gate.get("state") == "paused":
+            now_loop = asyncio.get_event_loop().time()
+            if now_loop >= next_claim_gate_log_at:
+                logger.warning(
+                    "Runner claim gate paused profile=%s reason=%s source=%s inflight=%s",
+                    runner_profile.profile_code,
+                    claim_gate.get("reason"),
+                    claim_gate.get("source"),
+                    len(inflight),
+                )
+                next_claim_gate_log_at = now_loop + 30.0
+            await asyncio.sleep(poll_interval_ms / 1000)
             continue
 
         capacity = resolve_runner_capacity_snapshot(
