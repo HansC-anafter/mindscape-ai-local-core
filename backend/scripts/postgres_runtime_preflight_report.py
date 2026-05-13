@@ -9,6 +9,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -343,6 +344,77 @@ def _compose_file_candidates(path: Path | None) -> list[Path]:
     return unique
 
 
+def _compose_command(compose_file: Path | None) -> list[str]:
+    selected_compose = next(
+        (
+            candidate
+            for candidate in _compose_file_candidates(compose_file)
+            if candidate.is_file()
+        ),
+        None,
+    )
+    command = ["docker", "compose"]
+    if selected_compose is not None:
+        command.extend(["-f", str(selected_compose)])
+    return command
+
+
+def _pg_repack_tool_status(compose_file: Path | None) -> dict[str, Any]:
+    local_binary = shutil.which("pg_repack")
+    if local_binary:
+        return {
+            "pg_repack_binary": local_binary,
+            "pg_repack_binary_source": "local_path",
+            "pg_repack_command": [local_binary],
+        }
+
+    if not shutil.which("docker"):
+        return {
+            "pg_repack_binary": None,
+            "pg_repack_binary_source": None,
+            "pg_repack_probe_error": "docker_cli_missing",
+        }
+
+    command = _compose_command(compose_file) + [
+        "exec",
+        "-T",
+        "postgres",
+        "sh",
+        "-lc",
+        "command -v pg_repack",
+    ]
+    try:
+        result = subprocess.run(
+            command,
+            cwd=REPO_ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=20,
+        )
+    except Exception as exc:
+        return {
+            "pg_repack_binary": None,
+            "pg_repack_binary_source": None,
+            "pg_repack_probe_error": str(exc),
+        }
+
+    binary = result.stdout.strip().splitlines()[0] if result.stdout.strip() else ""
+    if result.returncode == 0 and binary:
+        return {
+            "pg_repack_binary": binary,
+            "pg_repack_binary_source": "compose_postgres_service",
+            "pg_repack_command": _compose_command(compose_file)
+            + ["exec", "-T", "postgres", "pg_repack"],
+        }
+
+    return {
+        "pg_repack_binary": None,
+        "pg_repack_binary_source": None,
+        "pg_repack_probe_error": (result.stderr or result.stdout).strip(),
+    }
+
+
 def _connection_budget(
     *,
     compose_file: Path | None,
@@ -635,9 +707,7 @@ def _unavailable_database_report(
             "required": list(REQUIRED_EXTENSIONS),
             "installed": [],
         },
-        "tools": {
-            "pg_repack_binary": shutil.which("pg_repack"),
-        },
+        "tools": _pg_repack_tool_status(args.compose_file),
         "script_paths": _script_path_status(),
         "backup_verification": _backup_verification(args.verified_backup_dir),
         "activity": activity,
@@ -703,9 +773,7 @@ def collect_report(args: argparse.Namespace) -> dict[str, Any]:
                 "required": list(REQUIRED_EXTENSIONS),
                 "installed": sorted(installed_extensions),
             },
-            "tools": {
-                "pg_repack_binary": shutil.which("pg_repack"),
-            },
+            "tools": _pg_repack_tool_status(args.compose_file),
             "script_paths": _script_path_status(),
             "backup_verification": _backup_verification(args.verified_backup_dir),
             "activity": activity,
