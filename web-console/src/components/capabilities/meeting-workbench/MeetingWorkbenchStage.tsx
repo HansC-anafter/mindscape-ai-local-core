@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 
+import type { CompositionGraphCommandEnvelopeDraft } from '@/lib/composition-graph';
 import { MeetingTaskCanvas } from './SemanticFlowCanvas';
 import { CommandLedgerStrip } from './CommandLedgerStrip';
 import { ObjectOutlinerPanel } from './ObjectOutlinerPanel';
@@ -8,6 +9,9 @@ import type { GraphViewMode, MeetingCommandImpact, MeetingGraphEdge, MeetingNode
 import type { MeetingMissingContext } from './meetingWorkbenchStatus';
 
 export function MeetingWorkbenchStage({
+  apiUrl,
+  workspaceId,
+  meetingId,
   graphViewMode,
   nodes,
   edges,
@@ -23,9 +27,15 @@ export function MeetingWorkbenchStage({
   onResetView,
   onWheelZoom,
   commandImpact,
+  command,
+  selectedPackTool,
+  onCommandEnvelope,
   inspectorSlot,
   t,
 }: {
+  apiUrl: string;
+  workspaceId: string;
+  meetingId: string | null;
   graphViewMode: GraphViewMode;
   nodes: MeetingNode[];
   edges: MeetingGraphEdge[];
@@ -41,6 +51,9 @@ export function MeetingWorkbenchStage({
   onResetView: () => void;
   onWheelZoom: (deltaY: number) => void;
   commandImpact: MeetingCommandImpact | null;
+  command: string;
+  selectedPackTool: string | null;
+  onCommandEnvelope: (envelope: CompositionGraphCommandEnvelopeDraft) => Promise<void>;
   inspectorSlot?: ReactNode;
   t: MeetingTranslate;
 }) {
@@ -62,6 +75,9 @@ export function MeetingWorkbenchStage({
           t={t}
         />
         <MeetingTaskCanvas
+          apiUrl={apiUrl}
+          workspaceId={workspaceId}
+          meetingId={meetingId}
           nodes={nodes}
           edges={edges}
           selectedNodeId={selectedNodeId}
@@ -73,6 +89,9 @@ export function MeetingWorkbenchStage({
           onWheelZoom={onWheelZoom}
           commandImpact={commandImpact}
           graphViewMode={graphViewMode}
+          command={command}
+          selectedPackTool={selectedPackTool}
+          onCommandEnvelope={onCommandEnvelope}
           t={t}
         />
         {inspectorSlot}

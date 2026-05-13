@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 import AOLMeetingBottomShell from './AOLMeetingBottomShell';
@@ -27,5 +27,31 @@ describe('AOLMeetingBottomShell facade', () => {
     expect(screen.getByTestId('meeting-header-toolbar')).toBeInTheDocument();
     expect(screen.getByTestId('meeting-task-canvas')).toBeInTheDocument();
     expect(await screen.findByRole('option', { name: 'ig / Visual Audit' })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(
+        vi.mocked(global.fetch).mock.calls.some(([url]) =>
+          String(url).includes('/meeting-sessions?limit=20&metadata=summary'),
+        ),
+      ).toBe(true);
+    });
+  });
+
+  it('switches from Work mode into Director Graph mode', async () => {
+    render(
+      <AOLMeetingBottomShell
+        workspaceId="ws-global"
+        apiUrl="http://api.test"
+        meetingId="mtg_global"
+        summary={summary}
+        selection={null}
+        attachResponse={attachResponse}
+        surfaceRoute="/workspaces/ws-global/capabilities/ig"
+        onSwitchObject={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('meeting-graph-view-director'));
+    expect(await screen.findByTestId('director-graph-canvas')).toBeInTheDocument();
+    expect(screen.getByTestId('director-graph-palette')).toBeInTheDocument();
   });
 });

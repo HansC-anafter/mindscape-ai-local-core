@@ -11,8 +11,8 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "@mindscape-ai/core": "file:../packages/core",
     "@excalidraw/excalidraw": "^0.18.1",
+    "@mindscape-ai/core": "file:../packages/core",
     "@react-sigma/core": "^5.0.6",
     "@react-sigma/layout-forceatlas2": "^5.0.6",
     "@react-three/drei": "^9.92.0",
@@ -21,6 +21,7 @@
     "@types/react": "^18.2.45",
     "@types/react-dom": "^18.2.18",
     "@types/three": "^0.160.0",
+    "@xyflow/react": "^12.10.2",
     "autoprefixer": "^10.4.16",
     "axios": "^1.6.2",
     "dagre": "^0.8.5",
@@ -36,7 +37,6 @@
     "react-markdown": "^10.1.0",
     "react-player": "^2.13.0",
     "react-virtuoso": "^4.15.0",
-    "reactflow": "^11.10.1",
     "remark-gfm": "^4.0.1",
     "sigma": "^3.0.2",
     "swr": "^2.3.8",
@@ -45,16 +45,16 @@
     "tldraw": "^3.15.5"
   },
   "devDependencies": {
-    "@types/dagre": "^0.7.52",
-    "@types/luxon": "^3.4.0",
-    "eslint": "^8.55.0",
-    "eslint-config-next": "14.0.4",
-    "luxon": "^3.4.4",
-    "typescript": "^5.3.3",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
+    "@types/dagre": "^0.7.52",
+    "@types/luxon": "^3.4.0",
     "@vitejs/plugin-react": "^5.1.4",
+    "eslint": "^8.55.0",
+    "eslint-config-next": "14.0.4",
     "jsdom": "^28.1.0",
+    "luxon": "^3.4.4",
+    "typescript": "^5.3.3",
     "vitest": "^4.0.18"
   }
 }

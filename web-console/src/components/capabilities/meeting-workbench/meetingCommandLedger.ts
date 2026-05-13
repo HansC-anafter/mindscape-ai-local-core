@@ -18,6 +18,8 @@ interface SubmitMeetingCommandEnvelopeArgs {
   objectActionEntries: MeetingObjectActionEntry[];
   selectedPackTool: MeetingPackTool | null;
   actionParameters?: Record<string, unknown>;
+  requestedAction?: Record<string, unknown> | null;
+  metadata?: Record<string, unknown>;
 }
 
 export interface MeetingCommandLedgerAcceptance {
@@ -53,6 +55,8 @@ export async function submitMeetingCommandEnvelope({
   objectActionEntries,
   selectedPackTool,
   actionParameters = {},
+  requestedAction = null,
+  metadata = {},
 }: SubmitMeetingCommandEnvelopeArgs): Promise<MeetingCommandLedgerAcceptance> {
   const hasSelectedGuidance = Boolean(
     actionParameters.selected_guidance_id ||
@@ -60,7 +64,7 @@ export async function submitMeetingCommandEnvelope({
     actionParameters.selected_guidance_cards,
   );
   const dispatchMode =
-    objectActionEntries.length > 0 || mentionRefs.length > 0 || selectedPackTool !== null || hasSelectedGuidance
+    objectActionEntries.length > 0 || mentionRefs.length > 0 || selectedPackTool !== null || requestedAction !== null || hasSelectedGuidance
       ? 'route_meeting_orchestration'
       : 'route_chat';
   const payload = await postApiJson(
@@ -73,8 +77,10 @@ export async function submitMeetingCommandEnvelope({
       actor: 'user',
       intent_text: buildLedgerIntentText(command, objectActionEntries),
       context_objects: objectActionEntries,
-      requested_action: selectedPackTool
-        ? {
+      requested_action: requestedAction
+        ? requestedAction
+        : selectedPackTool
+          ? {
             verb: 'execute_playbook',
             pack_code: selectedPackTool.capabilityCode,
             playbook_code: selectedPackTool.id,
@@ -86,11 +92,12 @@ export async function submitMeetingCommandEnvelope({
               message: command,
             },
           }
-        : null,
+          : null,
       write_mode: 'recommendation_only',
       thread_id: threadId,
       meeting_mentions: mentionRefs,
       metadata: {
+        ...metadata,
         raw_intent_text: command,
         dispatch_mode: dispatchMode,
         selected_pack_tool_id: selectedPackTool?.id || null,

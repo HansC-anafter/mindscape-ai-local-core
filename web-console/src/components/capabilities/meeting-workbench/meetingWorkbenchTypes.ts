@@ -20,7 +20,7 @@ export type MeetingNodeKind =
   | 'next'
   | 'event';
 export type MeetingLane = 'context' | 'graph' | 'commands' | 'runs' | 'outputs' | 'artifacts' | 'next';
-export type GraphViewMode = 'work' | 'runs' | 'trace';
+export type GraphViewMode = 'work' | 'runs' | 'trace' | 'director';
 
 export interface MeetingNode {
   id: string;

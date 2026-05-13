@@ -3,11 +3,14 @@
 import React, { useEffect, useMemo, useState } from 'react';
 
 import type { AddressableObjectRole } from '@/lib/addressable-object-layer';
+import type { CompositionGraphCommandEnvelopeDraft } from '@/lib/composition-graph';
 import { useT } from '@/lib/i18n';
 import { CANVAS_ZOOM_STEP } from './meetingWorkbenchConstants';
 import { getMentionQuery } from './meetingMentions';
 import { buildCommandImpact, projectMeetingGraph } from './meetingGraphProjection';
-import { createMeetingCommandSubmitHandler } from './meetingCommandSubmit';
+import { createMeetingCommandSubmitHandler, submitCompiledCompositionGraphCommand } from './meetingCommandSubmit';
+import { dispatchMeetingCommandLedgerUpdated } from './meetingCommandEvents';
+import { dispatchMeetingSessionNotification } from './meetingSessionNotifications';
 import { applyGuidanceCommandDraft } from './meetingGuidanceCommand';
 import { clampCanvasZoom, MeetingHeaderToolbar } from './SemanticFlowCanvas';
 import { MeetingWorkbenchStage } from './MeetingWorkbenchStage';
@@ -289,6 +292,83 @@ export function AOLMeetingBottomShell({
     }
   }
 
+  async function handleCompiledGraphEnvelope(envelope: CompositionGraphCommandEnvelopeDraft) {
+    if (!activeMeetingId) {
+      return;
+    }
+    const nextNodeId = `task-${localTasks.length + 1}`;
+    setLocalTasks((current) => [
+      ...current,
+      {
+        id: nextNodeId,
+        eyebrow: 'Composition Graph',
+        title: envelope.intent_text,
+        detail: t('directorGraphDispatching'),
+        status: 'running',
+        kind: 'run',
+        lane: 'runs',
+      },
+    ]);
+    setSelectedNodeId(nextNodeId);
+    setDispatchError(null);
+    setIsConsoleOpen(true);
+    setIsDispatching(true);
+    try {
+      const commandLedger = await submitCompiledCompositionGraphCommand({
+        apiUrl,
+        workspaceId,
+        meetingId: activeMeetingId,
+        envelope,
+      });
+      dispatchMeetingCommandLedgerUpdated({
+        workspaceId,
+        meetingId: activeMeetingId,
+        commandId: commandLedger.commandId,
+        status: commandLedger.status,
+      });
+      dispatchMeetingSessionNotification({
+        workspaceId,
+        meetingId: activeMeetingId,
+        commandId: commandLedger.commandId,
+        tone: commandLedger.status === 'failed' ? 'error' : 'info',
+        title: commandLedger.status === 'failed'
+          ? t('meetingWorkbenchNotificationCommandFailed')
+          : t('meetingWorkbenchNotificationCommandAccepted'),
+        message: t('meetingWorkbenchNotificationAwaitingRuntime'),
+      });
+      setLocalTasks((current) =>
+        current.map((node) =>
+          node.id === nextNodeId
+            ? {
+                ...node,
+                detail: t('meetingWorkbenchNotificationCommandAccepted'),
+                status: commandLedger.status === 'failed' ? 'error' : 'ready',
+                output: commandLedger.commandId,
+              }
+            : node,
+        ),
+      );
+      setCommand('');
+    } catch (cause) {
+      const errorMessage = cause instanceof Error ? cause.message : 'Failed to dispatch compiled composition graph.';
+      setDispatchError(errorMessage);
+      setLocalTasks((current) =>
+        current.map((node) =>
+          node.id === nextNodeId
+            ? {
+                ...node,
+                detail: errorMessage,
+                status: 'error',
+                output: errorMessage,
+              }
+            : node,
+        ),
+      );
+    } finally {
+      setIsDispatching(false);
+    }
+  }
+
   const handleSubmitCommand = createMeetingCommandSubmitHandler({
     command,
     activeMeetingId,
@@ -370,6 +450,9 @@ export function AOLMeetingBottomShell({
             </div>
           ) : null}
           <MeetingWorkbenchStage
+            apiUrl={apiUrl}
+            workspaceId={workspaceId}
+            meetingId={activeMeetingId}
             graphViewMode={graphViewMode}
             nodes={nodes}
             edges={graphProjection.edges}
@@ -388,6 +471,9 @@ export function AOLMeetingBottomShell({
             }}
             onWheelZoom={handleCanvasWheelZoom}
             commandImpact={selectedCommandImpact}
+            command={command}
+            selectedPackTool={selectedPackToolId === 'auto' ? null : selectedPackToolId}
+            onCommandEnvelope={handleCompiledGraphEnvelope}
             t={t}
             inspectorSlot={
               <>

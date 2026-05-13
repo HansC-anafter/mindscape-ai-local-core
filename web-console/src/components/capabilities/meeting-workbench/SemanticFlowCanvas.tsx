@@ -8,6 +8,8 @@ import {
   MIN_CANVAS_ZOOM,
   MIN_DISCRETE_WHEEL_ZOOM_DELTA,
 } from './meetingWorkbenchConstants';
+import type { CompositionGraphCommandEnvelopeDraft } from '@/lib/composition-graph';
+import { DirectorGraphCanvas } from './director-graph/DirectorGraphCanvas';
 import { MeetingLaneBoard } from './MeetingLaneBoard';
 import { MeetingWorkSubgraphCanvas } from './MeetingWorkSubgraphCanvas';
 import type {
@@ -129,9 +131,13 @@ export function MeetingHeaderToolbar({
           data-testid="meeting-graph-view-mode"
           aria-label={t('meetingWorkbenchViewModeLabel')}
         >
-          {(['work', 'runs', 'trace'] as GraphViewMode[]).map((mode) => {
+          {(['work', 'director', 'runs', 'trace'] as GraphViewMode[]).map((mode) => {
             const isActive = graphViewMode === mode;
-            const label = mode === 'work' ? t('meetingWorkbenchWork') : mode;
+            const label = mode === 'work'
+              ? t('meetingWorkbenchWork')
+              : mode === 'director'
+                ? t('meetingWorkbenchDirectorGraph')
+                : mode;
             return (
               <button
                 key={mode}
@@ -202,6 +208,14 @@ export function MeetingHeaderToolbar({
               </button>
             ) : null}
           </>
+        ) : graphViewMode === 'director' ? (
+          <>
+            <span className="truncate rounded bg-slate-100 px-2 py-1 font-medium text-slate-600 dark:bg-slate-900 dark:text-slate-300">
+              {t('directorGraphContextBar')}
+            </span>
+            <span className="shrink-0 font-semibold uppercase tracking-[0.12em]">{t('meetingWorkbenchActive')}</span>
+            <span className="truncate font-mono text-slate-700 dark:text-slate-200">{shortId(activeMeetingId)}</span>
+          </>
         ) : (
           <>
             <span className="truncate rounded bg-slate-100 px-2 py-1 font-medium text-slate-600 dark:bg-slate-900 dark:text-slate-300">
@@ -217,6 +231,9 @@ export function MeetingHeaderToolbar({
 }
 
 export function MeetingTaskCanvas({
+  apiUrl,
+  workspaceId,
+  meetingId,
   nodes,
   edges,
   selectedNodeId,
@@ -228,8 +245,14 @@ export function MeetingTaskCanvas({
   onWheelZoom,
   commandImpact,
   graphViewMode,
+  command,
+  selectedPackTool,
+  onCommandEnvelope,
   t,
 }: {
+  apiUrl: string;
+  workspaceId: string;
+  meetingId: string | null;
   nodes: MeetingNode[];
   edges: MeetingGraphEdge[];
   selectedNodeId: string;
@@ -241,6 +264,9 @@ export function MeetingTaskCanvas({
   onWheelZoom: (deltaY: number) => void;
   commandImpact: MeetingCommandImpact | null;
   graphViewMode: GraphViewMode;
+  command: string;
+  selectedPackTool: string | null;
+  onCommandEnvelope: (envelope: CompositionGraphCommandEnvelopeDraft) => Promise<void>;
   t: MeetingTranslate;
 }) {
   const viewportRef = useRef<HTMLElement | null>(null);
@@ -253,6 +279,21 @@ export function MeetingTaskCanvas({
   } | null>(null);
   const [isDraggingCanvas, setIsDraggingCanvas] = useState(false);
   const [canvasPan, setCanvasPan] = useState({ x: 0, y: 0 });
+
+  if (graphViewMode === 'director') {
+    return (
+      <DirectorGraphCanvas
+        apiUrl={apiUrl}
+        workspaceId={workspaceId}
+        meetingId={meetingId}
+        threadId={meetingId}
+        command={command}
+        selectedPackTool={selectedPackTool}
+        onCommandEnvelope={onCommandEnvelope}
+        t={t}
+      />
+    );
+  }
 
   return (
     <section

@@ -5,6 +5,7 @@ from fastapi import APIRouter
 from ....models.workspace import Workspace
 from . import (
     activity_stream,
+    composition_graph,
     crud,
     launchpad,
     files,
@@ -40,6 +41,7 @@ router.include_router(health.router)
 router.include_router(meeting_commands.router)
 router.include_router(meeting_graph.router)
 router.include_router(object_runtime.router)
+router.include_router(composition_graph.router)
 router.include_router(profiles.router)
 router.include_router(runtime.router)
 router.include_router(pinned.router)

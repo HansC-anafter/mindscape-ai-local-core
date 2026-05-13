@@ -4,6 +4,7 @@ import type {
   AddressableObjectSummary,
   AddressableSelectionTarget,
 } from '@/lib/addressable-object-layer';
+import type { CompositionGraphCommandEnvelopeDraft } from '@/lib/composition-graph';
 import {
   buildObjectActionPlanEntries,
   extractMentionReferences,
@@ -19,7 +20,14 @@ import {
   getGuidanceRequiredRoles,
   getMissingCommandContextRoles,
 } from './meetingCommandValidation';
-import type { MeetingMentionItem, MeetingNode, MeetingPackTool, MeetingTranslate } from './meetingWorkbenchTypes';
+import type {
+  MeetingMentionItem,
+  MeetingMentionReference,
+  MeetingNode,
+  MeetingPackTool,
+  MeetingTranslate,
+} from './meetingWorkbenchTypes';
+import type { MeetingCommandLedgerAcceptance } from './meetingCommandLedger';
 import { isRecord, readString } from './meetingWorkbenchUtils';
 
 function buildSelectedGuidanceObjectRef(node: MeetingNode | null): Record<string, unknown> | null {
@@ -407,4 +415,59 @@ export function createMeetingCommandSubmitHandler({
       setIsDispatching(false);
     }
   };
+}
+
+function coerceCompiledMentionRefs(value: unknown): MeetingMentionReference[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter((item): item is NonNullable<MeetingMentionItem['ref']> => isRecord(item) && typeof item.id === 'string' && typeof item.kind === 'string' && typeof item.token === 'string');
+}
+
+function coerceCompiledObjectActionEntries(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter((item) => isRecord(item) && typeof item.role === 'string' && isRecord(item.ref)) as Parameters<
+    typeof submitMeetingCommandEnvelope
+  >[0]['objectActionEntries'];
+}
+
+export async function submitCompiledCompositionGraphCommand({
+  apiUrl,
+  workspaceId,
+  meetingId,
+  envelope,
+}: {
+  apiUrl: string;
+  workspaceId: string;
+  meetingId: string;
+  envelope: CompositionGraphCommandEnvelopeDraft;
+}): Promise<MeetingCommandLedgerAcceptance> {
+  const requestedAction = isRecord(envelope.requested_action) ? envelope.requested_action : null;
+  const actionParameters = isRecord(requestedAction?.parameters) ? requestedAction.parameters : {};
+  const compiledObjectEntries = [
+    ...coerceCompiledObjectActionEntries(envelope.context_objects),
+    ...coerceCompiledObjectActionEntries(actionParameters.object_action_entries),
+  ];
+  return submitMeetingCommandEnvelope({
+    apiUrl,
+    workspaceId,
+    meetingId,
+    command: envelope.intent_text,
+    originSurface: 'meeting_workbench_director_graph',
+    threadId: envelope.thread_id || meetingId,
+    mentionRefs: coerceCompiledMentionRefs(envelope.meeting_mentions),
+    objectActionEntries: compiledObjectEntries,
+    selectedPackTool: null,
+    requestedAction,
+    actionParameters,
+    metadata: {
+      source_surface: 'meeting_workbench_director_graph',
+      composition_graph_ref: isRecord(envelope.metadata?.composition_graph_ref)
+        ? envelope.metadata.composition_graph_ref
+        : null,
+      selected_primary_pack: readString(envelope.metadata?.selected_primary_pack) || null,
+    },
+  });
 }

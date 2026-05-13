@@ -89,6 +89,144 @@ export function installAOLMeetingBottomShellTestHarness() {
           headers: { 'Content-Type': 'application/json' },
         });
       }
+      if (url.includes('/api/v1/workspaces/ws-global/composition-graph/contracts')) {
+        return new Response(JSON.stringify({
+          workspace_id: 'ws-global',
+          contracts: [
+            {
+              capability_code: 'performance_direction',
+              label: 'Performance Direction',
+              enabled: true,
+              contract_version: 'composition_graph.v1',
+              accepted_object_roles: ['source', 'target'],
+              node_types: [
+                {
+                  id: 'director_focus',
+                  label: 'Director Focus',
+                  source: 'pack',
+                  capability_code: 'performance_direction',
+                  category: 'intent',
+                  input_ports: [
+                    { id: 'object', direction: 'input', data_type: 'object_ref', required: false },
+                  ],
+                  output_ports: [
+                    { id: 'focus', direction: 'output', data_type: 'director_focus' },
+                  ],
+                  payload_schema: {
+                    type: 'object',
+                    required: ['focus'],
+                    properties: { focus: { type: 'string' } },
+                  },
+                },
+                {
+                  id: 'decision_point',
+                  label: 'Decision Point',
+                  source: 'pack',
+                  capability_code: 'performance_direction',
+                  input_ports: [
+                    { id: 'focus', direction: 'input', data_type: 'director_focus', required: true },
+                  ],
+                  output_ports: [
+                    { id: 'decision', direction: 'output', data_type: 'director_decision' },
+                  ],
+                  payload_schema: {
+                    type: 'object',
+                    required: ['decision'],
+                    properties: { decision: { type: 'string' } },
+                  },
+                },
+                {
+                  id: 'acceptance_gate',
+                  label: 'Acceptance Gate',
+                  source: 'pack',
+                  capability_code: 'performance_direction',
+                  input_ports: [
+                    { id: 'decision', direction: 'input', data_type: 'director_decision', required: true },
+                  ],
+                  output_ports: [],
+                  payload_schema: {
+                    type: 'object',
+                    required: ['gate'],
+                    properties: { gate: { type: 'string' } },
+                  },
+                },
+              ],
+              edge_types: [{ id: 'direction_flow', label: 'Direction Flow' }],
+              compile: {
+                backend: 'capabilities.performance_direction.services.director_graph_compile:compile_composition_graph',
+                output_mode: 'meeting_command_envelope',
+              },
+            },
+          ],
+          diagnostics: [],
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (url.includes('/api/v1/workspaces/ws-global/composition-graph/drafts')) {
+        const requestBody = JSON.parse(String(init?.body || '{}'));
+        return new Response(JSON.stringify({
+          workspace_id: 'ws-global',
+          draft: {
+            id: 'cg_draft_frontend',
+            graph_id: 'cg_frontend',
+            workspace_id: 'ws-global',
+            title: requestBody.title || 'Composition Graph',
+            schema_version: 'composition_graph.v1',
+            meeting_id: requestBody.meeting_id || 'mtg_global',
+            thread_id: requestBody.thread_id || 'mtg_global',
+            selected_primary_pack: requestBody.selected_primary_pack,
+            nodes: requestBody.nodes || [],
+            edges: requestBody.edges || [],
+            viewport: requestBody.viewport || { x: 0, y: 0, zoom: 1 },
+            metadata: requestBody.metadata || {},
+          },
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (url.includes('/api/v1/workspaces/ws-global/composition-graph/import')) {
+        return new Response(JSON.stringify({
+          workspace_id: 'ws-global',
+          valid: true,
+          diagnostics: [],
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (url.includes('/api/v1/workspaces/ws-global/composition-graph/compile')) {
+        const requestBody = JSON.parse(String(init?.body || '{}'));
+        return new Response(JSON.stringify({
+          workspace_id: 'ws-global',
+          status: 'succeeded',
+          output_mode: 'meeting_command_envelope',
+          diagnostics: [],
+          command_envelope: {
+            meeting_id: requestBody.meeting_id || 'mtg_global',
+            thread_id: requestBody.thread_id || 'mtg_global',
+            intent_text: requestBody.command || 'Compile the composition graph.',
+            meeting_mentions: [],
+            context_objects: [],
+            requested_action: {
+              verb: 'compile_director_guidance',
+              pack_code: requestBody.selected_primary_pack || 'performance_direction',
+              parameters: {
+                source_composition_graph_ref: { graph_id: requestBody.graph_id || 'cg_frontend' },
+              },
+            },
+            metadata: {
+              selected_primary_pack: requestBody.selected_primary_pack || 'performance_direction',
+              composition_graph_ref: { graph_id: requestBody.graph_id || 'cg_frontend' },
+            },
+          },
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
       if (url.includes('/api/v1/workspaces/ws-global/meetings/mtg_global/commands')) {
         const requestBody = JSON.parse(String(init?.body || '{}'));
         const omitDispatchResult = requestBody?.intent_text === 'No dispatch result fixture';
@@ -214,7 +352,7 @@ export function installAOLMeetingBottomShellTestHarness() {
       if (url.includes('/api/v1/workspaces/ws-global/object-graph/project')) {
         return createObjectGraphProjectResponse(init);
       }
-      if (url.includes('/api/v1/workspaces/ws-global/meeting-sessions?limit=100')) {
+      if (url.includes('/api/v1/workspaces/ws-global/meeting-sessions?limit=')) {
         return new Response(JSON.stringify({
           sessions: [
             {

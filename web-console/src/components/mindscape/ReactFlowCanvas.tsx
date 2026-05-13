@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useEffect, useMemo, useCallback } from 'react';
-import ReactFlow, {
+import {
+    ReactFlow,
     Node,
     Edge,
     Controls,
@@ -13,8 +14,8 @@ import ReactFlow, {
     NodeMouseHandler,
     MarkerType,
     Position,
-} from 'reactflow';
-import 'reactflow/dist/style.css';
+} from '@xyflow/react';
+import '@xyflow/react/dist/style.css';
 
 import type { MindscapeNode, MindscapeEdge } from '@/lib/mindscape-graph-api';
 

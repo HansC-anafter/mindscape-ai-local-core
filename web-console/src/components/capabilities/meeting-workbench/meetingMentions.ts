@@ -21,7 +21,10 @@ export function createMentionReference(
 
 export function getMentionQuery(command: string): string | null {
   const match = command.match(/(^|\s)@([^\s@]*)$/);
-  return match ? match[2].toLowerCase() : null;
+  if (!match) {
+    return null;
+  }
+  return match[2].replace(/[.,;:)\]\}，。、；：）】}]+$/, '').toLowerCase();
 }
 
 export function applyMentionToken(command: string, token: string): string {

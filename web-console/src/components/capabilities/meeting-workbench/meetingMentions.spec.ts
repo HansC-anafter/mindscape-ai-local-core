@@ -26,6 +26,13 @@ describe('meetingMentions', () => {
     );
   });
 
+  it('normalizes trailing mention query punctuation without creating raw scene refs', () => {
+    expect(getMentionQuery('Compile @scene:sc07.')).toBe('scene:sc07');
+    expect(getMentionQuery('Compile @scene:sc07，')).toBe('scene:sc07');
+    expect(getMentionQuery('Compile @storyboard_scene:pkg:item:sc07.')).toBe('storyboard_scene:pkg:item:sc07');
+    expect(extractMentionReferences('Compile @scene:sc07.', [])).toEqual([]);
+  });
+
   it('extracts registry-backed refs and raw runtime refs without duplicating tokens', () => {
     const storyboardItem: MeetingMentionItem = {
       id: 'storyboard-pd-manual',
