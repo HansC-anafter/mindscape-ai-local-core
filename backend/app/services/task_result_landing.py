@@ -25,7 +25,10 @@ from app.models.workspace import (
 )
 from app.services.stores.tasks_store import TasksStore
 from app.services.stores.postgres.artifacts_store import PostgresArtifactsStore
-from backend.app.services.result_object_contract import build_result_object_descriptor
+from backend.app.services.result_object_contract import (
+    build_result_object_descriptor,
+    json_payload_size,
+)
 
 logger = logging.getLogger(__name__)
 _DATA_SOURCE_SUMMARY_LIMIT = 500
@@ -1049,12 +1052,43 @@ class TaskResultLandingService:
         landing_metadata: Dict[str, Any],
         deliverable_identity: Dict[str, Any],
         acceptance_evidence: Dict[str, Any],
+        pd_storyboard_evidence: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        preserved_failure: Dict[str, Any] = {}
+        preserved_existing: Dict[str, Any] = {}
         if isinstance(existing_result, dict):
-            for key in ("last_error", "failure_code", "failure_message"):
-                if existing_result.get(key) is not None:
-                    preserved_failure[key] = existing_result[key]
+            reserved_keys = {
+                "summary",
+                "storage_ref",
+                "execution_id",
+                "artifact_id",
+                "result_object",
+                "landing",
+                "deliverable_name",
+                "deliverable_path",
+                "deliverable_targets",
+                "attachment_filenames",
+                "acceptance_evidence",
+                "pd_storyboard_evidence",
+            }
+            heavy_keys = {
+                "execution_trace",
+                "browser_trace",
+                "attachments",
+                "files",
+                "files_created",
+                "files_modified",
+                "screenshots",
+                "logs",
+                "stdout",
+                "stderr",
+                "raw_output",
+                "raw_result",
+            }
+            for key, value in existing_result.items():
+                if key in reserved_keys or key in heavy_keys or value is None:
+                    continue
+                if json_payload_size(value) <= 8 * 1024:
+                    preserved_existing[key] = value
 
         result_payload = build_result_object_descriptor(
             payload=incoming_result,
@@ -1066,7 +1100,9 @@ class TaskResultLandingService:
             deliverable_identity=deliverable_identity,
             acceptance_evidence=acceptance_evidence,
         )
-        result_payload.update(preserved_failure)
+        if pd_storyboard_evidence:
+            result_payload["pd_storyboard_evidence"] = dict(pd_storyboard_evidence)
+        result_payload.update(preserved_existing)
         return result_payload
 
     @staticmethod
@@ -1101,6 +1137,55 @@ class TaskResultLandingService:
                 if TaskResultLandingService._has_material_value(value):
                     return value
         return None
+
+    @staticmethod
+    def _extract_storyboard_preview_evidence(
+        candidate: Dict[str, Any],
+        *,
+        task_pack_id: str,
+    ) -> Dict[str, Any]:
+        if not isinstance(candidate, dict):
+            return {}
+
+        storyboard = candidate.get("storyboard")
+        if not isinstance(storyboard, dict):
+            return {}
+
+        storyboard_id = _clean_string(storyboard.get("storyboard_id"))
+        session_id = _clean_string(candidate.get("session_id"))
+        if not storyboard_id and not session_id:
+            return {}
+
+        evidence: Dict[str, Any] = {"evidence_kind": "storyboard_preview"}
+        if task_pack_id:
+            evidence["playbook_code"] = task_pack_id
+        if session_id:
+            evidence["session_id"] = session_id
+
+        storyboard_evidence: Dict[str, Any] = {}
+        if storyboard_id:
+            storyboard_evidence["storyboard_id"] = storyboard_id
+            evidence["storyboard_id"] = storyboard_id
+        workspace_id = _clean_string(storyboard.get("workspace_id"))
+        if workspace_id:
+            storyboard_evidence["workspace_id"] = workspace_id
+        scenes = storyboard.get("scenes")
+        if isinstance(scenes, list):
+            storyboard_evidence["scene_count"] = len(scenes)
+        if storyboard_evidence:
+            evidence["storyboard"] = storyboard_evidence
+
+        for key in (
+            "source_type",
+            "run_id",
+            "status",
+            "timeline_items_synced",
+        ):
+            value = candidate.get(key)
+            if value is not None:
+                evidence[key] = value
+
+        return evidence
 
     @staticmethod
     def _extract_acceptance_evidence(
@@ -1147,6 +1232,22 @@ class TaskResultLandingService:
             ],
         )
         if not isinstance(evidence, dict) or not evidence:
+            for root in roots:
+                if not isinstance(root, dict):
+                    continue
+                outputs = root.get("outputs")
+                for candidate in (
+                    outputs if isinstance(outputs, dict) else {},
+                    root,
+                ):
+                    storyboard_evidence = (
+                        TaskResultLandingService._extract_storyboard_preview_evidence(
+                            candidate,
+                            task_pack_id=task_pack_id,
+                        )
+                    )
+                    if storyboard_evidence:
+                        return storyboard_evidence
             return {}
         evidence = dict(evidence)
         if task_pack_id and not evidence.get("playbook_code"):

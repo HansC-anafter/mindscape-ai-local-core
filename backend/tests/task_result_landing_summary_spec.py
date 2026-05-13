@@ -1,3 +1,6 @@
+import json
+from types import SimpleNamespace
+
 from backend.app.services.stores.postgres.workspaces_store import (
     PostgresWorkspacesStore,
 )
@@ -55,6 +58,77 @@ def test_build_task_result_payload_uses_landed_result_descriptor():
     assert payload["acceptance_evidence"] == {"verified": True}
     assert payload["last_error"] == "previous error"
     assert not _contains_key(payload, "execution_trace")
+
+
+def test_get_landed_result_hydrates_full_result_json_from_storage(tmp_path):
+    artifact_dir = tmp_path / "artifacts" / "exec_001"
+    artifact_dir.mkdir(parents=True)
+    full_result = {
+        "output": "done",
+        "execution_trace": {
+            "events": [{"message": "full trace retained in artifact storage"}],
+        },
+    }
+    (artifact_dir / "result.json").write_text(
+        json.dumps(full_result),
+        encoding="utf-8",
+    )
+
+    class _ArtifactsStore:
+        def get_by_execution_id(self, execution_id):
+            return SimpleNamespace(
+                id="artifact_001",
+                storage_ref=str(artifact_dir),
+                summary="done",
+                content={"output": "descriptor summary"},
+            )
+
+    service = object.__new__(TaskResultLandingService)
+    service._artifacts_store = _ArtifactsStore()
+    service._tasks_store = SimpleNamespace()
+
+    result = service.get_landed_result("exec_001")
+
+    assert result["artifact_id"] == "artifact_001"
+    assert result["result_json"] == full_result
+    assert result["result_json"]["execution_trace"]["events"][0]["message"] == (
+        "full trace retained in artifact storage"
+    )
+
+
+def test_extract_acceptance_evidence_derives_storyboard_preview_outputs():
+    evidence = TaskResultLandingService._extract_acceptance_evidence(
+        result_data={
+            "outputs": {
+                "session_id": "ds_001",
+                "storyboard": {
+                    "storyboard_id": "sb_001",
+                    "workspace_id": "ws_001",
+                    "scenes": [{"scene_id": "scene_01"}, {"scene_id": "scene_02"}],
+                },
+                "run_id": "run_001",
+                "status": "completed",
+                "timeline_items_synced": 2,
+            }
+        },
+        result_json={},
+        task=SimpleNamespace(pack_id="pd_execute_storyboard_preview", result={}),
+    )
+
+    assert evidence == {
+        "evidence_kind": "storyboard_preview",
+        "playbook_code": "pd_execute_storyboard_preview",
+        "session_id": "ds_001",
+        "storyboard": {
+            "storyboard_id": "sb_001",
+            "workspace_id": "ws_001",
+            "scene_count": 2,
+        },
+        "storyboard_id": "sb_001",
+        "run_id": "run_001",
+        "status": "completed",
+        "timeline_items_synced": 2,
+    }
 
 
 def test_extract_result_summary_compacts_nested_storyboard_payload():

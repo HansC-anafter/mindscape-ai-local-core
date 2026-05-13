@@ -1,10 +1,79 @@
+import json
+from contextlib import contextmanager
+
 import pytest
+from sqlalchemy import create_engine, text
+from sqlalchemy.pool import StaticPool
 
 from backend.app.services.result_object_contract import json_payload_size
+from backend.app.services.stores.tasks_store._base import TasksStoreCrudMixin
 from backend.app.services.task_payload_budget import (
     PayloadBudgetError,
     apply_task_payload_budget,
 )
+
+
+class _SqliteBudgetStore(TasksStoreCrudMixin):
+    def __init__(self) -> None:
+        self._engine = create_engine(
+            "sqlite+pysqlite:///:memory:",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+            future=True,
+        )
+        with self._engine.begin() as conn:
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE tasks (
+                        id TEXT PRIMARY KEY,
+                        params TEXT,
+                        result TEXT,
+                        execution_context TEXT,
+                        blocked_payload TEXT
+                    )
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO tasks (
+                        id,
+                        params,
+                        result,
+                        execution_context,
+                        blocked_payload
+                    ) VALUES (
+                        'task-1',
+                        '{}',
+                        '{}',
+                        '{}',
+                        NULL
+                    )
+                    """
+                )
+            )
+
+    @contextmanager
+    def transaction(self):
+        with self._engine.begin() as conn:
+            yield conn
+
+    def serialize_json(self, value):
+        return json.dumps(value, ensure_ascii=False, default=str)
+
+    def fetch_payloads(self):
+        with self._engine.begin() as conn:
+            return conn.execute(
+                text(
+                    """
+                    SELECT params, result, execution_context, blocked_payload
+                    FROM tasks
+                    WHERE id = 'task-1'
+                    """
+                )
+            ).mappings().one()
 
 
 def _contains_key(value, target_key):
@@ -88,3 +157,46 @@ def test_params_budget_rejects_oversized_inputs_without_truncation():
 
     with pytest.raises(PayloadBudgetError):
         apply_task_payload_budget("params", params, limit_bytes=1024)
+
+
+def test_tasks_store_update_task_applies_payload_budget_before_write():
+    store = _SqliteBudgetStore()
+    route_request = {
+        "target_lane": "comfyui_runtime:flux2_klein_true_v2_q6_local",
+        "resource_groups": ["apple_metal_heavy"],
+    }
+
+    store.update_task(
+        "task-1",
+        execution_context={
+            "route_request": route_request,
+            "execution_trace": {"events": [{"message": "x" * 1000} for _ in range(500)]},
+            "workflow_result": {
+                "status": "completed",
+                "steps": {
+                    f"step_{index}": {
+                        "status": "success",
+                        "outputs": {"items": ["x" * 1000 for _ in range(30)]},
+                    }
+                    for index in range(20)
+                },
+            },
+        },
+        result={
+            "summary": "done",
+            "status": "completed",
+            "execution_trace": {"events": [{"message": "x" * 1000} for _ in range(400)]},
+        },
+        return_updated=False,
+    )
+
+    row = store.fetch_payloads()
+    stored_context = json.loads(row["execution_context"])
+    stored_result = json.loads(row["result"])
+
+    assert stored_context["route_request"] == route_request
+    assert stored_context["execution_trace"]["_compacted"] is True
+    assert stored_context["workflow_result"]["_compacted"] is True
+    assert stored_result["summary"] == "done"
+    assert stored_result["result_object"]["payload_schema"] == "task_result"
+    assert not _contains_key(stored_result, "execution_trace")
