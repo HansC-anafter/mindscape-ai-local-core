@@ -32,6 +32,7 @@ class _FakeTasksStore:
         limit=None,
         exclude_cancelled=False,
         task_type=None,
+        compact=False,
     ):
         self.calls.append(
             {
@@ -40,6 +41,7 @@ class _FakeTasksStore:
                 "limit": limit,
                 "exclude_cancelled": exclude_cancelled,
                 "task_type": task_type,
+                "compact": compact,
             }
         )
         if status == TaskStatus.PENDING:
@@ -82,6 +84,7 @@ async def test_workspace_tasks_uses_limit_for_pending_reads():
             "limit": 5,
             "exclude_cancelled": False,
             "task_type": None,
+            "compact": True,
         }
     ]
 
@@ -111,6 +114,7 @@ async def test_workspace_tasks_reads_running_only_for_remaining_slots():
             "limit": 5,
             "exclude_cancelled": False,
             "task_type": None,
+            "compact": True,
         },
         {
             "workspace_id": "workspace-1",
@@ -118,5 +122,6 @@ async def test_workspace_tasks_reads_running_only_for_remaining_slots():
             "limit": 2,
             "exclude_cancelled": False,
             "task_type": None,
+            "compact": True,
         },
     ]

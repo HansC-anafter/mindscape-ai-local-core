@@ -76,6 +76,80 @@ _EXECUTION_LIST_SELECT = """
     FROM tasks
 """
 
+_TASK_SUMMARY_LIST_SELECT = """
+    SELECT
+        id,
+        workspace_id,
+        message_id,
+        execution_id,
+        parent_execution_id,
+        project_id,
+        pack_id,
+        task_type,
+        status,
+        params,
+        NULL AS result,
+        CASE
+            WHEN execution_context IS NULL THEN NULL
+            ELSE jsonb_strip_nulls(
+                jsonb_build_object(
+                    'playbook_code', execution_context->>'playbook_code',
+                    'playbook_name', execution_context->>'playbook_name',
+                    'project_id', COALESCE(execution_context->>'project_id', project_id),
+                    'project_name', execution_context->>'project_name',
+                    'status', execution_context->>'status',
+                    'execution_mode', execution_context->>'execution_mode',
+                    'run_mode', execution_context->>'run_mode',
+                    'trigger', execution_context->>'trigger',
+                    'runner_id', CASE
+                        WHEN status = 'running' THEN COALESCE(runner_id, execution_context->>'runner_id')
+                        ELSE runner_id
+                    END,
+                    'heartbeat_at', CASE
+                        WHEN status = 'running' THEN COALESCE(heartbeat_at::text, execution_context->>'heartbeat_at')
+                        ELSE heartbeat_at::text
+                    END,
+                    'target_username', COALESCE(
+                        execution_context->>'target_username',
+                        execution_context->'inputs'->>'target_username'
+                    ),
+                    'reference_id', COALESCE(
+                        execution_context->>'reference_id',
+                        execution_context->'inputs'->>'reference_id'
+                    ),
+                    'source_handle', COALESCE(
+                        execution_context->>'source_handle',
+                        execution_context->'inputs'->>'source_handle'
+                    ),
+                    'inputs', jsonb_strip_nulls(
+                        jsonb_build_object(
+                            'target_username', execution_context->'inputs'->>'target_username',
+                            'reference_id', execution_context->'inputs'->>'reference_id',
+                            'source_handle', execution_context->'inputs'->>'source_handle',
+                            'profile_id', execution_context->'inputs'->>'profile_id',
+                            'run_mode', execution_context->'inputs'->>'run_mode',
+                            'trigger', execution_context->'inputs'->>'trigger'
+                        )
+                    )
+                )
+            )
+        END AS execution_context,
+        meeting_session_id,
+        storyline_tags,
+        created_at,
+        next_eligible_at,
+        blocked_reason,
+        blocked_payload,
+        queue_shard,
+        concurrency_key,
+        frontier_state,
+        frontier_enqueued_at,
+        started_at,
+        completed_at,
+        error
+    FROM tasks
+"""
+
 _ADMISSION_RELEASE_CANDIDATE_SELECT = """
     SELECT
         id,
@@ -88,7 +162,8 @@ _ADMISSION_RELEASE_CANDIDATE_SELECT = """
         execution_context,
         created_at,
         next_eligible_at,
-        queue_shard
+        queue_shard,
+        concurrency_key
     FROM tasks
 """
 
@@ -110,6 +185,24 @@ _ADMISSION_RELEASE_CANDIDATE_SELECT_FROM_ALIAS = """
     JOIN tasks t ON t.id = c.id
 """
 
+_ADMISSION_DEFERRED_RELEASE_CANDIDATE_SELECT = """
+    SELECT
+        id,
+        workspace_id,
+        message_id,
+        execution_id,
+        pack_id,
+        task_type,
+        status,
+        NULL::jsonb AS execution_context,
+        created_at,
+        next_eligible_at,
+        blocked_payload,
+        queue_shard,
+        concurrency_key
+    FROM tasks
+"""
+
 _COLD_RELEASE_CANDIDATE_SELECT_FROM_ALIAS = """
     SELECT
         t.id,
@@ -120,6 +213,24 @@ _COLD_RELEASE_CANDIDATE_SELECT_FROM_ALIAS = """
         t.task_type,
         t.status,
         t.execution_context,
+        t.created_at,
+        t.next_eligible_at,
+        t.queue_shard,
+        t.concurrency_key
+    FROM chosen c
+    JOIN tasks t ON t.id = c.id
+"""
+
+_COLD_RELEASE_COMPACT_CANDIDATE_SELECT_FROM_ALIAS = """
+    SELECT
+        t.id,
+        t.workspace_id,
+        t.message_id,
+        t.execution_id,
+        t.pack_id,
+        t.task_type,
+        t.status,
+        NULL::jsonb AS execution_context,
         t.created_at,
         t.next_eligible_at,
         t.queue_shard,
@@ -210,9 +321,12 @@ class TasksStoreQueryMixin:
             created_at=created_at,
             next_eligible_at=next_eligible_at,
             blocked_reason=blocked_reason,
+            blocked_payload=getattr(row, "blocked_payload", None),
             queue_shard=getattr(row, "queue_shard", None) or "default",
             concurrency_key=getattr(row, "concurrency_key", None),
             frontier_state="cold",
+            runner_id=getattr(row, "runner_id", None),
+            heartbeat_at=self._coerce_datetime(getattr(row, "heartbeat_at", None)),
         )
 
     def _row_to_admission_release_candidate(self, row) -> Task:
@@ -227,6 +341,7 @@ class TasksStoreQueryMixin:
         limit: Optional[int] = None,
         exclude_cancelled: bool = False,
         task_type: Optional[str] = None,
+        compact: bool = False,
     ) -> List[Task]:
         """
         List tasks for a workspace
@@ -240,7 +355,8 @@ class TasksStoreQueryMixin:
         Returns:
             List of tasks
         """
-        query_parts = ["SELECT * FROM tasks WHERE 1=1"]
+        base_select = _TASK_SUMMARY_LIST_SELECT if compact else "SELECT * FROM tasks"
+        query_parts = [base_select, "WHERE 1=1"]
         params: Dict[str, Any] = {}
 
         if workspace_id:
@@ -604,9 +720,8 @@ class TasksStoreQueryMixin:
     ) -> List[Task]:
         scan_limit = min(max(limit * 64, 512), 4096)
         query_parts = [
+            _ADMISSION_RELEASE_CANDIDATE_SELECT,
             """
-            SELECT *
-            FROM tasks
             WHERE task_type IN (:task_type_pb, :task_type_tool)
             AND status = :status
             AND frontier_state = :frontier_state
@@ -644,7 +759,10 @@ class TasksStoreQueryMixin:
 
         with self.get_connection() as conn:
             rows = conn.execute(text(" ".join(query_parts)), params).fetchall()
-            candidates = [self._row_to_task(row) for row in rows]
+            candidates = [
+                self._row_to_blocked_release_candidate(row, blocked_reason="")
+                for row in rows
+            ]
 
         running_tasks = self.list_running_playbook_execution_tasks(
             workspace_id=None,
@@ -705,8 +823,7 @@ class TasksStoreQueryMixin:
             """
             ORDER BY
                 CASE
-                    WHEN COALESCE(execution_context->'admission_policy'->>'visibility', '') = 'visible' THEN 0
-                    WHEN COALESCE(execution_context->'admission'->>'visibility', '') = 'visible' THEN 0
+                    WHEN COALESCE(blocked_payload->>'visibility', '') = 'visible' THEN 0
                     ELSE 1
                 END ASC,
                 next_eligible_at ASC,
@@ -728,7 +845,7 @@ class TasksStoreQueryMixin:
     ) -> List[Task]:
         """List due admission-deferred tasks with only fields needed for release evaluation."""
         query_parts = [
-            _ADMISSION_RELEASE_CANDIDATE_SELECT,
+            _ADMISSION_DEFERRED_RELEASE_CANDIDATE_SELECT,
             """
             WHERE task_type IN (:task_type_pb, :task_type_tool)
               AND status = :status
@@ -758,8 +875,7 @@ class TasksStoreQueryMixin:
             """
             ORDER BY
                 CASE
-                    WHEN COALESCE(execution_context->'admission_policy'->>'visibility', '') = 'visible' THEN 0
-                    WHEN COALESCE(execution_context->'admission'->>'visibility', '') = 'visible' THEN 0
+                    WHEN COALESCE(blocked_payload->>'visibility', '') = 'visible' THEN 0
                     ELSE 1
                 END ASC,
                 next_eligible_at ASC,
@@ -783,6 +899,7 @@ class TasksStoreQueryMixin:
             blocked_reason="concurrency_locked",
             queue_shard=queue_shard,
             limit=limit,
+            include_execution_context=False,
         )
 
     def _list_ranked_cold_release_candidates(
@@ -791,6 +908,7 @@ class TasksStoreQueryMixin:
         blocked_reason: str,
         queue_shard: Optional[str],
         limit: int,
+        include_execution_context: bool = True,
     ) -> List[Task]:
         query_parts = [
             """
@@ -861,7 +979,11 @@ class TasksStoreQueryMixin:
             )
             """
         )
-        query_parts.append(_COLD_RELEASE_CANDIDATE_SELECT_FROM_ALIAS)
+        query_parts.append(
+            _COLD_RELEASE_CANDIDATE_SELECT_FROM_ALIAS
+            if include_execution_context
+            else _COLD_RELEASE_COMPACT_CANDIDATE_SELECT_FROM_ALIAS
+        )
         query_parts.append(
             "ORDER BY c.pack_rank ASC, c.next_eligible_at ASC, c.created_at ASC, c.id ASC"
         )
@@ -881,6 +1003,7 @@ class TasksStoreQueryMixin:
         blocked_reason: str,
         queue_shard: Optional[str],
         limit: int,
+        include_execution_context: bool = True,
     ) -> List[Task]:
         query_parts = [
             """
@@ -920,7 +1043,11 @@ class TasksStoreQueryMixin:
             )
             """
         )
-        query_parts.append(_COLD_RELEASE_CANDIDATE_SELECT_FROM_ALIAS)
+        query_parts.append(
+            _COLD_RELEASE_CANDIDATE_SELECT_FROM_ALIAS
+            if include_execution_context
+            else _COLD_RELEASE_COMPACT_CANDIDATE_SELECT_FROM_ALIAS
+        )
         query_parts.append("ORDER BY c.next_eligible_at ASC, c.created_at ASC, c.id ASC")
 
         with self.get_connection() as conn:
@@ -942,6 +1069,7 @@ class TasksStoreQueryMixin:
             blocked_reason="dependency_hold",
             queue_shard=queue_shard,
             limit=limit,
+            include_execution_context=False,
         )
 
     def list_due_resource_wait_tasks(
@@ -966,6 +1094,7 @@ class TasksStoreQueryMixin:
             blocked_reason="",
             queue_shard=queue_shard,
             limit=limit,
+            include_execution_context=False,
         )
 
     def _list_due_blocked_cold_tasks(

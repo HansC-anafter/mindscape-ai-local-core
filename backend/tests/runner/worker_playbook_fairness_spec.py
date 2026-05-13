@@ -6,6 +6,10 @@ from backend.app.runner.worker import (
     _build_parked_task_update,
     _dequeue_preferred_different_playbook,
 )
+from backend.app.runner.database_backoff import (
+    RunnerDatabaseRecoveryBackoff,
+    is_database_recovery_error,
+)
 from backend.app.services.runner_topology.profile_registry import RunnerProfile
 
 
@@ -43,6 +47,11 @@ class _FakeTaskStore:
 
     def get_task(self, task_id):
         return self.tasks.get(task_id)
+
+
+class _RecoveryTaskStore:
+    def get_task(self, task_id):
+        raise RuntimeError("FATAL: the database system is in recovery mode")
 
 
 def _pending_browser_task(task_id: str, pack_id: str) -> Task:
@@ -130,6 +139,37 @@ def test_dequeue_preferred_different_playbook_falls_back_when_only_same_lane():
     assert task_id is None
     assert queue_store is None
     assert queue.promoted == []
+
+
+def test_dequeue_preferred_different_playbook_stops_on_database_recovery():
+    queue = _FakeFairQueue(["task-following", "task-batch"])
+
+    task_id, queue_store = asyncio.run(
+        _dequeue_preferred_different_playbook(
+            [queue],
+            tasks_store=_RecoveryTaskStore(),
+            excluded_pack_ids={"ig_batch_pin_references"},
+            runner_profile=_browser_profile(),
+            visibility_timeout_sec=180,
+            scan_limit=10,
+        )
+    )
+
+    assert task_id is None
+    assert queue_store is None
+    assert queue.promoted == []
+
+
+def test_database_recovery_error_detection_and_backoff():
+    exc = RuntimeError(
+        'connection to server at "postgres" failed: FATAL:  the database system is not yet accepting connections'
+    )
+    backoff = RunnerDatabaseRecoveryBackoff(delay_seconds=5)
+
+    assert is_database_recovery_error(exc) is True
+    assert backoff.note_failure(exc) is True
+    assert backoff.is_active() is True
+    assert backoff.remaining_seconds() > 0
 
 
 def test_parked_pending_update_clears_live_runner_ownership():

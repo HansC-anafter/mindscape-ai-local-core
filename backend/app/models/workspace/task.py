@@ -86,6 +86,10 @@ class Task(BaseModel):
     frontier_enqueued_at: Optional[datetime] = Field(
         None, description="Timestamp when the task entered the ready frontier"
     )
+    runner_id: Optional[str] = Field(None, description="Runner currently owning the task")
+    heartbeat_at: Optional[datetime] = Field(
+        None, description="Last task heartbeat timestamp"
+    )
     started_at: Optional[datetime] = Field(None, description="Task start timestamp")
     completed_at: Optional[datetime] = Field(
         None, description="Task completion timestamp"

@@ -128,17 +128,23 @@ def load_execution_status_payload(tasks_store, execution_id: str):
                 SELECT
                     execution_id,
                     status,
-                    CASE
-                        WHEN execution_context IS NULL THEN NULL
-                        ELSE (
-                            execution_context::jsonb
-                            - 'result'
-                            - 'workflow_result'
-                            - 'step_outputs'
-                            - 'outputs'
-                            - 'conversation_state'
-                        )::json
-                    END AS execution_context
+                    jsonb_strip_nulls(
+                        COALESCE(
+                            (
+                                execution_context::jsonb
+                                - 'result'
+                                - 'workflow_result'
+                                - 'step_outputs'
+                                - 'outputs'
+                                - 'conversation_state'
+                            ),
+                            '{}'::jsonb
+                        )
+                        || jsonb_build_object(
+                            'runner_id', runner_id,
+                            'heartbeat_at', heartbeat_at
+                        )
+                    )::json AS execution_context
                 FROM tasks
                 WHERE execution_id = :execution_id OR id = :execution_id
                 ORDER BY CASE WHEN execution_id = :execution_id THEN 0 ELSE 1 END, created_at DESC

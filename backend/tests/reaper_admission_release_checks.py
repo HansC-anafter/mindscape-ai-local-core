@@ -1,4 +1,5 @@
 from datetime import timedelta
+from types import SimpleNamespace
 
 import pytest
 
@@ -201,6 +202,7 @@ def _build_dependency_hold_task() -> Task:
 def _build_resource_wait_task(
     task_id: str = "task-resource",
     resource_key: str = "mindscape:runner_resources:lease:v1:ig_profile_lock:profile:hash",
+    requirements: dict | None = None,
 ) -> Task:
     now = _utc_now()
     return Task(
@@ -222,6 +224,7 @@ def _build_resource_wait_task(
                 "state": "waiting",
                 "reason": "ig_profile_lock_leased",
                 "resource_keys": [resource_key],
+                "requirements": requirements or {},
             },
             "runner_resource_leases": [{"lease_key": resource_key}],
             "resume_after": now.isoformat(),
@@ -412,6 +415,7 @@ async def test_reextends_deferred_task_when_capacity_still_exceeded(monkeypatch)
     assert store.updated[0][1]["blocked_reason"] == ADMISSION_DEFERRED_REASON
     assert store.updated[0][1]["frontier_state"] == "cold"
     assert store.updated[0][1]["next_eligible_at"] == next_eligible_at
+    assert "execution_context" not in store.updated[0][1]
 
 
 @pytest.mark.asyncio
@@ -558,6 +562,42 @@ async def test_releases_due_resource_wait_task_to_ready_queue():
     assert "resource_admission" not in update["execution_context"]
     assert "runner_resource_leases" not in update["execution_context"]
     assert "resume_after" not in update["execution_context"]
+
+
+@pytest.mark.asyncio
+async def test_reextends_resource_wait_when_host_advisor_still_blocks(monkeypatch):
+    task = _build_resource_wait_task(
+        requirements={
+            "memory_mb": 12288,
+            "vision_lane": "comfyui_runtime:flux2_klein_true_v2_q6_local",
+            "cpu_weight": 4,
+        }
+    )
+    store = _FakeTasksStore([task])
+    queue = _FakeRedisQueue("browser_local")
+    monkeypatch.setattr(
+        reaper,
+        "_host_resource_wait_still_blocked",
+        lambda _ctx: SimpleNamespace(
+            decision="defer",
+            reason="insufficient_memory_headroom",
+            payload={"blocking_consumers": ["mlx:qwen9b_4bit_vision"]},
+        ),
+    )
+
+    released = await reaper._release_resource_wait_tasks(
+        store,
+        queue,
+        release_limit=1,
+    )
+
+    assert released == 0
+    assert queue._client.enqueued == []
+    update = store.updated[0][1]
+    assert update["blocked_reason"] == "resource_wait"
+    assert update["frontier_state"] == "cold"
+    assert update["blocked_payload"]["host_decision"] == "defer"
+    assert update["execution_context"]["resource_admission"]["state"] == "waiting"
 
 
 @pytest.mark.asyncio

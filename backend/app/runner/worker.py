@@ -75,6 +75,10 @@ from backend.app.runner.restart import (
     _RESTART_DRAIN_TIMEOUT_SECONDS,
 )
 from backend.app.runner.dependency_check import DependencyChecker
+from backend.app.runner.database_backoff import (
+    RunnerDatabaseRecoveryBackoff,
+    is_database_recovery_error,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -150,7 +154,7 @@ async def _reset_orphaned_running_tasks(
         reset_count = 0
         for t in running:
             ctx = t.execution_context if isinstance(t.execution_context, dict) else {}
-            old_runner = ctx.get("runner_id")
+            old_runner = getattr(t, "runner_id", None) or ctx.get("runner_id")
             if (
                 old_runner
                 and old_runner != current_runner_id
@@ -170,6 +174,8 @@ async def _reset_orphaned_running_tasks(
                     t.id,
                     execution_context=ctx2,
                     status=TaskStatus.PENDING,
+                    runner_id=None,
+                    heartbeat_at=None,
                 )
                 reset_task_ids.add(str(t.id))
                 reset_count += 1
@@ -422,6 +428,11 @@ async def _dequeue_preferred_different_playbook(
             try:
                 t_data = await asyncio.to_thread(tasks_store.get_task, task_id)
             except Exception as e:
+                if is_database_recovery_error(e):
+                    logger.warning(
+                        "[Worker] Database recovery detected while hydrating fairness candidate; deferring claim scan."
+                    )
+                    return None, None
                 logger.warning(
                     "[Worker] Failed to hydrate fairness candidate %s: %s",
                     task_id,
@@ -450,6 +461,101 @@ async def _dequeue_preferred_different_playbook(
                 )
                 return moved, queue_store
 
+    return None, None
+
+
+def _host_route_gate_enabled() -> bool:
+    raw = os.getenv("LOCAL_CORE_HOST_RESOURCE_ROUTE_GATE_ENABLED", "true")
+    return raw.strip().lower() not in {"0", "false", "no", "off"}
+
+
+async def _dequeue_preferred_route_candidate(
+    queue_cycle: list[RedisRunnerQueueStore],
+    *,
+    tasks_store: TasksStore,
+    runner_profile,
+    visibility_timeout_sec: int,
+    scan_limit: int,
+) -> tuple[Optional[str], Optional[RedisRunnerQueueStore]]:
+    if not queue_cycle or scan_limit <= 0 or not _host_route_gate_enabled():
+        return None, None
+
+    try:
+        from backend.app.services.host_resources import route_gate
+
+        active_reservations = route_gate.get_active_route_reservations()
+        if not route_gate.has_active_route_controls(active_reservations):
+            return None, None
+    except Exception:
+        return None, None
+
+    best: tuple[int, str, RedisRunnerQueueStore] | None = None
+    seen: set[str] = set()
+    for queue_store in queue_cycle:
+        client = await queue_store._get_client()
+        if not client:
+            continue
+        try:
+            candidate_ids = await client.lrange(
+                queue_store.q_pending,
+                0,
+                max(0, scan_limit - 1),
+            )
+        except Exception as e:
+            logger.warning(
+                "[Worker] Failed to scan ready queue %s for route gate: %s",
+                queue_store.pack_id,
+                e,
+            )
+            continue
+
+        for raw_task_id in candidate_ids:
+            task_id = _normalize_task_id(raw_task_id).strip()
+            if not task_id or task_id in seen:
+                continue
+            seen.add(task_id)
+            try:
+                t_data = await asyncio.to_thread(tasks_store.get_task, task_id)
+            except Exception as e:
+                if is_database_recovery_error(e):
+                    logger.warning(
+                        "[Worker] Database recovery detected while hydrating route candidate; deferring claim scan."
+                    )
+                    return None, None
+                logger.warning(
+                    "[Worker] Failed to hydrate route candidate %s: %s",
+                    task_id,
+                    e,
+                )
+                continue
+            if not t_data or t_data.status != TaskStatus.PENDING:
+                continue
+            if not runner_profile_can_claim_task(runner_profile, t_data):
+                continue
+            decision = route_gate.evaluate_route_candidate(
+                t_data,
+                active_reservations=active_reservations,
+            )
+            if not decision.permit:
+                continue
+            if best is None or decision.score > best[0]:
+                best = (decision.score, task_id, queue_store)
+
+    if best is None:
+        return None, None
+    score, task_id, queue_store = best
+    moved = await queue_store.promote_pending_task_by_id(
+        task_id,
+        visibility_timeout_sec=visibility_timeout_sec,
+    )
+    if moved:
+        logger.info(
+            "[Worker] Route gate selected task %s score=%s queue=%s",
+            task_id,
+            score,
+            queue_store.pack_id,
+        )
+        return moved, queue_store
     return None, None
 
 
@@ -630,9 +736,17 @@ async def _run_maintenance_cycle(
     queue_cycle: list[RedisRunnerQueueStore],
 ) -> None:
     """Keep the ready frontier warm even when the dequeue loop is idle."""
-    _reap_stale_running_tasks(tasks_store, runner_id=runner_id, redis_queue=redis_queue)
+    loop = asyncio.get_running_loop()
+    await asyncio.to_thread(
+        _reap_stale_running_tasks,
+        tasks_store,
+        runner_id=runner_id,
+        redis_queue=redis_queue,
+        event_loop=loop,
+    )
     await _cleanup_stale_locks(redis_queue, runner_id, tasks_store)
-    _request_watchdog_abort_for_no_progress_tasks(
+    await asyncio.to_thread(
+        _request_watchdog_abort_for_no_progress_tasks,
         tasks_store,
         watcher_id=f"runner_maintenance:{runner_id}",
     )
@@ -655,6 +769,9 @@ async def _maintenance_loop(
     queue_cycle: list[RedisRunnerQueueStore],
     reap_interval_seconds: int,
 ) -> None:
+    db_recovery_backoff = RunnerDatabaseRecoveryBackoff(
+        delay_seconds=_env_int("LOCAL_CORE_RUNNER_DB_RECOVERY_BACKOFF_SECONDS", 30)
+    )
     while True:
         try:
             await _run_maintenance_cycle(
@@ -666,6 +783,13 @@ async def _maintenance_loop(
                 queue_cycle=queue_cycle,
             )
         except Exception as e:
+            if db_recovery_backoff.note_failure(e):
+                if db_recovery_backoff.should_log():
+                    logger.warning(
+                        "Runner maintenance paused while PostgreSQL is recovering."
+                    )
+                await asyncio.sleep(db_recovery_backoff.remaining_seconds())
+                continue
             logger.warning(f"Failed to run runner maintenance cycle: {e}")
         await asyncio.sleep(reap_interval_seconds)
 
@@ -748,6 +872,9 @@ async def run_forever() -> None:
         "LOCAL_CORE_RUNNER_PLAYBOOK_FAIR_SCAN_LIMIT",
         128,
     )
+    db_recovery_backoff = RunnerDatabaseRecoveryBackoff(
+        delay_seconds=_env_int("LOCAL_CORE_RUNNER_DB_RECOVERY_BACKOFF_SECONDS", 30)
+    )
 
     # Kick the bridge once on startup without blocking the main heartbeat/dequeue
     # loop. The maintenance path can scan queues and DB state; if it stalls, the
@@ -799,8 +926,8 @@ async def run_forever() -> None:
                 inflight=len(inflight),
                 resource_snapshot=resource_snapshot,
             )
-        except Exception:
-            pass
+        except Exception as e:
+            db_recovery_backoff.note_failure(e)
         try:
             await publish_runner_resource_heartbeat(
                 redis_queue,
@@ -859,6 +986,22 @@ async def run_forever() -> None:
         except Exception:
             pass
 
+        if db_recovery_backoff.is_active():
+            if db_recovery_backoff.should_log():
+                logger.warning(
+                    "Runner claim loop paused while PostgreSQL is recovering; inflight=%s remaining_backoff=%.1fs",
+                    len(inflight),
+                    db_recovery_backoff.remaining_seconds(),
+                )
+            await asyncio.sleep(
+                min(
+                    max(poll_interval_ms / 1000, 0.25),
+                    db_recovery_backoff.remaining_seconds(),
+                    5.0,
+                )
+            )
+            continue
+
         capacity = resolve_runner_capacity_snapshot(
             runner_profile,
             inflight=len(inflight),
@@ -911,15 +1054,23 @@ async def run_forever() -> None:
 
         task_id = None
         task_queue = None
+        task_id, task_queue = await _dequeue_preferred_route_candidate(
+            queue_cycle,
+            tasks_store=tasks_store,
+            runner_profile=runner_profile,
+            visibility_timeout_sec=visibility_timeout_sec,
+            scan_limit=playbook_fair_scan_limit,
+        )
         if active_pack_ids and playbook_fair_scan_limit > 0:
-            task_id, task_queue = await _dequeue_preferred_different_playbook(
-                queue_cycle,
-                tasks_store=tasks_store,
-                excluded_pack_ids=active_pack_ids,
-                runner_profile=runner_profile,
-                visibility_timeout_sec=visibility_timeout_sec,
-                scan_limit=playbook_fair_scan_limit,
-            )
+            if not task_id or not task_queue:
+                task_id, task_queue = await _dequeue_preferred_different_playbook(
+                    queue_cycle,
+                    tasks_store=tasks_store,
+                    excluded_pack_ids=active_pack_ids,
+                    runner_profile=runner_profile,
+                    visibility_timeout_sec=visibility_timeout_sec,
+                    scan_limit=playbook_fair_scan_limit,
+                )
 
         # ── 1. Redis Queue Dequeue ──
         # Blocking Pop from pending to processing (ZSET). This wait completely replaces DB polling.
@@ -1184,9 +1335,16 @@ async def run_forever() -> None:
             inflight.add(dispatch_task)
 
         except Exception as e:
-            logger.warning(
-                f"Runner task dispatch error for {task_id}: {e}", exc_info=True
-            )
+            if db_recovery_backoff.note_failure(e):
+                logger.warning(
+                    "Runner task dispatch deferred while PostgreSQL is recovering task_id=%s delay=%ss",
+                    task_id,
+                    db_recovery_backoff.delay_seconds,
+                )
+            else:
+                logger.warning(
+                    f"Runner task dispatch error for {task_id}: {e}", exc_info=True
+                )
             if resource_lease_store and resource_decision:
                 try:
                     await release_acquired_resource_leases(
@@ -1197,7 +1355,14 @@ async def run_forever() -> None:
                 except Exception:
                     pass
             # Failsafe in case of dispatch crash
-            await (task_queue or redis_queue).nack_task_to_delayed(task_id, delay_sec=15)
+            await (task_queue or redis_queue).nack_task_to_delayed(
+                task_id,
+                delay_sec=(
+                    db_recovery_backoff.delay_seconds
+                    if db_recovery_backoff.is_active()
+                    else 15
+                ),
+            )
 
 
 def main() -> None:

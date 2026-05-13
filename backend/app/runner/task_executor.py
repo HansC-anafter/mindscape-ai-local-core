@@ -40,6 +40,7 @@ from backend.app.runner.resource_pressure import (
     resource_failure_retry_delay_seconds,
 )
 from backend.app.runner.utils import _env_int, _utc_now
+from backend.app.runner.database_backoff import is_database_recovery_error
 
 logger = logging.getLogger(__name__)
 
@@ -586,12 +587,9 @@ async def _mark_task_failed(
             # Otherwise we keep it as PENDING but defer it to delayed queue.
             new_status = TaskStatus.FAILED if is_deadletter else TaskStatus.PENDING
             ctxf["status"] = "failed" if is_deadletter else "queued"
-            if is_deadletter:
-                ctxf["runner_id"] = runner_id
-            else:
-                ctxf["last_runner_id"] = runner_id
-                ctxf.pop("runner_id", None)
-                ctxf.pop("heartbeat_at", None)
+            ctxf["last_runner_id"] = runner_id
+            ctxf.pop("runner_id", None)
+            ctxf.pop("heartbeat_at", None)
 
             # Invoke on_fail hook (best-effort, may create follow-up tasks).
             hook_invoked = False
@@ -630,6 +628,8 @@ async def _mark_task_failed(
                 frontier_enqueued_at=None,
                 completed_at=_utc_now() if is_deadletter else None,
                 error=msg if is_deadletter else None,
+                runner_id=None,
+                heartbeat_at=None,
             )
 
             if is_deadletter:
@@ -697,12 +697,16 @@ async def _mark_task_succeeded(
             for key in _TERMINAL_SUCCESS_STALE_KEYS:
                 ctxs.pop(key, None)
             ctxs["status"] = "succeeded"
-            ctxs["runner_id"] = runner_id
+            ctxs["last_runner_id"] = runner_id
+            ctxs.pop("runner_id", None)
+            ctxs.pop("heartbeat_at", None)
             ctxs["completed_at"] = _utc_now().isoformat()
             update_kwargs = dict(
                 execution_context=ctxs,
                 status=TaskStatus.SUCCEEDED,
                 completed_at=_utc_now(),
+                runner_id=None,
+                heartbeat_at=None,
             )
             if tool_result is not None:
                 update_kwargs["result"] = tool_result
@@ -891,6 +895,7 @@ async def _run_single_task(
     def _heartbeat_thread() -> None:
         interval_s = max(1.0, hb_interval_ms / 1000.0)
         beat_seq = 0
+        next_db_recovery_log_at = 0.0
         while not stop_event.is_set():
             beat_seq += 1
             # Check if subprocess is still running - stop heartbeat if subprocess died
@@ -959,15 +964,26 @@ async def _run_single_task(
                             touch_ok,
                         )
             except Exception as e:
-                logger.error(
-                    "Error updating heartbeat in heartbeat thread for task %s "
-                    "(playbook=%s beat_seq=%s): %s",
-                    task.id,
-                    task.pack_id,
-                    beat_seq,
-                    e,
-                    exc_info=True,
-                )
+                if is_database_recovery_error(e):
+                    now_monotonic = time.monotonic()
+                    if now_monotonic >= next_db_recovery_log_at:
+                        logger.warning(
+                            "Runner heartbeat deferred while PostgreSQL is recovering task_id=%s playbook=%s beat_seq=%s",
+                            task.id,
+                            task.pack_id,
+                            beat_seq,
+                        )
+                        next_db_recovery_log_at = now_monotonic + 30.0
+                else:
+                    logger.error(
+                        "Error updating heartbeat in heartbeat thread for task %s "
+                        "(playbook=%s beat_seq=%s): %s",
+                        task.id,
+                        task.pack_id,
+                        beat_seq,
+                        e,
+                        exc_info=True,
+                    )
             stop_event.wait(interval_s)
 
     hb_thread = threading.Thread(target=_heartbeat_thread, daemon=True)
@@ -1201,13 +1217,17 @@ async def _run_single_task(
                         ctxc = dict(ctxc)
                         ctxc["status"] = "cancelled"
                         ctxc["cancelled_at"] = _utc_now().isoformat()
-                        ctxc["runner_id"] = runner_id
+                        ctxc["last_runner_id"] = runner_id
+                        ctxc.pop("runner_id", None)
+                        ctxc.pop("heartbeat_at", None)
                         tasks_store.update_task(
                             latest.id,
                             execution_context=ctxc,
                             status=TaskStatus.CANCELLED_BY_USER,
                             completed_at=_utc_now(),
                             error=latest.error or "Cancelled by user",
+                            runner_id=None,
+                            heartbeat_at=None,
                         )
                 except Exception:
                     pass

@@ -49,6 +49,8 @@ def _normalize_frontier_updates_for_status(kwargs: Dict[str, Any]) -> Dict[str, 
     if status_raw in _TERMINAL_TASK_STATUSES:
         normalized["frontier_state"] = "done"
         normalized["frontier_enqueued_at"] = None
+        normalized["runner_id"] = None
+        normalized["heartbeat_at"] = None
     elif status_raw == TaskStatus.RUNNING.value:
         normalized["frontier_state"] = "running"
         normalized["frontier_enqueued_at"] = None
@@ -494,7 +496,7 @@ class TasksStoreCrudMixin:
             completed_at: Completion timestamp (optional)
 
         Returns:
-            Updated task
+            Updated task when requested
 
         Raises:
             StoreNotFoundError: If task not found
@@ -517,6 +519,8 @@ class TasksStoreCrudMixin:
                 [
                     "blocked_reason = NULL",
                     "blocked_payload = NULL",
+                    "runner_id = NULL",
+                    "heartbeat_at = NULL",
                     "frontier_state = :frontier_state",
                     "frontier_enqueued_at = NULL",
                 ]
@@ -584,8 +588,10 @@ class TasksStoreCrudMixin:
         task_id: str,
         execution_context: Optional[Dict[str, Any]] = None,
         project_id: Optional[str] = None,
+        *,
+        return_updated: bool = True,
         **kwargs,
-    ) -> Task:
+    ) -> Optional[Task]:
         """
         Update task fields
 
@@ -628,6 +634,7 @@ class TasksStoreCrudMixin:
                 "created_at",
                 "next_eligible_at",
                 "frontier_enqueued_at",
+                "heartbeat_at",
             ]:
                 updates.append(f"{key} = :{key}")
                 params[key] = value
@@ -671,9 +678,10 @@ class TasksStoreCrudMixin:
                 pass
 
             logger.debug("Updated task %s", task_id)
-            updated_task = self.get_task(task_id)
+            updated_task = self.get_task(task_id) if return_updated else None
 
-        sync_meeting_command_from_task_safely(updated_task)
+        if updated_task is not None:
+            sync_meeting_command_from_task_safely(updated_task)
         # Activity stream: push terminal status change
         status_val = kwargs.get("status")
         if status_val is not None:
@@ -750,6 +758,8 @@ class TasksStoreCrudMixin:
             frontier_enqueued_at=self._coerce_datetime(
                 getattr(row, "frontier_enqueued_at", None)
             ),
+            runner_id=getattr(row, "runner_id", None),
+            heartbeat_at=self._coerce_datetime(getattr(row, "heartbeat_at", None)),
             started_at=self._coerce_datetime(row.started_at),
             completed_at=self._coerce_datetime(row.completed_at),
             error=row.error,

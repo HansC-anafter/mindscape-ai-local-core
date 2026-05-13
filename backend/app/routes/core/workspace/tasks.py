@@ -52,8 +52,8 @@ from ..execution_dispatch import get_or_create_cloud_connector
 router = APIRouter()
 logger = logging.getLogger(__name__)
 store = MindscapeStore()
-_ARTIFACT_PROGRESS_CONTENT_MARKER = '%"progress"%'
 _WORKSPACE_TASKS_CACHE_TTL_SECONDS = 2.0
+_WORKSPACE_TASKS_INFLIGHT_TIMEOUT_SECONDS = 18.0
 _PROGRESS_SNAPSHOT_CACHE_TTL_SECONDS = float(PROGRESS_SNAPSHOT_TTL_SECONDS)
 _WORKSPACE_TASKS_CACHE: dict[tuple[Any, ...], tuple[float, Dict[str, Any]]] = {}
 _WORKSPACE_TASKS_INFLIGHT: dict[tuple[Any, ...], asyncio.Task[Dict[str, Any]]] = {}
@@ -165,13 +165,28 @@ def _build_admission_state(task_obj: Any, ctx: Dict[str, Any]) -> Optional[Dict[
         return None
 
     admission_ctx = ctx.get("admission") if isinstance(ctx.get("admission"), dict) else {}
+    blocked_payload = (
+        getattr(task_obj, "blocked_payload", None)
+        if isinstance(getattr(task_obj, "blocked_payload", None), dict)
+        else {}
+    )
     return {
         "state": "deferred",
-        "reason": admission_ctx.get("reason"),
-        "defer_until": admission_ctx.get("defer_until"),
-        "visibility": admission_ctx.get("visibility"),
-        "producer_kind": admission_ctx.get("producer_kind"),
-        "queue_shard": admission_ctx.get("queue_shard") or getattr(task_obj, "queue_shard", None),
+        "reason": admission_ctx.get("reason") or blocked_payload.get("reason"),
+        "defer_until": admission_ctx.get("defer_until")
+        or blocked_payload.get("defer_until")
+        or (
+            task_obj.next_eligible_at.isoformat()
+            if getattr(task_obj, "next_eligible_at", None)
+            else None
+        ),
+        "visibility": admission_ctx.get("visibility")
+        or blocked_payload.get("visibility"),
+        "producer_kind": admission_ctx.get("producer_kind")
+        or blocked_payload.get("producer_kind"),
+        "queue_shard": admission_ctx.get("queue_shard")
+        or blocked_payload.get("queue_shard")
+        or getattr(task_obj, "queue_shard", None),
     }
 
 
@@ -256,27 +271,28 @@ async def _execution_stream_poller(
                     from sqlalchemy import text as _text
 
                     with tasks_store.get_connection() as _conn:
-                        _row = _conn.execute(
+                        _rows = _conn.execute(
                             _text(
                                 "SELECT content "
                                 "FROM artifacts "
-                                "WHERE execution_id = :eid "
+                                "WHERE workspace_id = :workspace_id "
+                                "AND execution_id = :eid "
                                 "AND content IS NOT NULL "
-                                "AND content LIKE :progress_marker "
-                                "ORDER BY updated_at DESC LIMIT 1"
+                                "ORDER BY updated_at DESC LIMIT 5"
                             ),
                             {
+                                "workspace_id": workspace_id,
                                 "eid": execution_id,
-                                "progress_marker": _ARTIFACT_PROGRESS_CONTENT_MARKER,
                             },
-                        ).fetchone()
-                        if _row and _row[0]:
+                        ).fetchall()
+                        for _row in _rows:
                             progress, _content_metadata = _extract_artifact_progress_from_content(
                                 _row[0]
                             )
                             if isinstance(progress, dict):
                                 last_known_progress = progress
-                            loops_since_artifact_poll = 0
+                                loops_since_artifact_poll = 0
+                                break
                 except Exception:
                     pass
 
@@ -300,8 +316,17 @@ async def _execution_stream_poller(
                 ),
                 "admission_state": _build_admission_state(task, ctx),
                 "dependency_hold": ctx.get("dependency_hold"),
-                "heartbeat_at": ctx.get("heartbeat_at"),
-                "runner_id": ctx.get("runner_id"),
+                "heartbeat_at": (
+                    task.heartbeat_at.isoformat()
+                    if getattr(task, "heartbeat_at", None)
+                    else (
+                        ctx.get("heartbeat_at")
+                        if task.status == TaskStatus.RUNNING
+                        else None
+                    )
+                ),
+                "runner_id": getattr(task, "runner_id", None)
+                or (ctx.get("runner_id") if task.status == TaskStatus.RUNNING else None),
             }
             payload = json.dumps(payload_obj)
             signature = json.dumps(payload_obj, sort_keys=True, default=str)
@@ -426,6 +451,7 @@ async def _load_workspace_tasks_payload(
             None,
             False,
             task_type,
+            True,
         )
         remaining_limit = max(0, limit - len(running))
         rest = await run_ui_read(
@@ -435,6 +461,7 @@ async def _load_workspace_tasks_payload(
             remaining_limit,
             False,
             task_type,
+            True,
         )
         running_ids = {t.id for t in running}
         all_tasks = running + [t for t in rest if t.id not in running_ids]
@@ -446,6 +473,7 @@ async def _load_workspace_tasks_payload(
             limit,
             False,
             task_type,
+            True,
         )
         running = []
         remaining_limit = max(0, limit - len(pending))
@@ -457,6 +485,7 @@ async def _load_workspace_tasks_payload(
                 remaining_limit,
                 False,
                 task_type,
+                True,
             )
         all_tasks = pending + running
 
@@ -496,7 +525,20 @@ async def get_workspace_tasks(
                 )
                 _WORKSPACE_TASKS_INFLIGHT[cache_key] = task
 
-        payload = await task
+        try:
+            payload = await asyncio.wait_for(
+                task,
+                timeout=_WORKSPACE_TASKS_INFLIGHT_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            async with _WORKSPACE_TASKS_CACHE_LOCK:
+                if _WORKSPACE_TASKS_INFLIGHT.get(cache_key) is task:
+                    _WORKSPACE_TASKS_INFLIGHT.pop(cache_key, None)
+            task.cancel()
+            raise HTTPException(
+                status_code=504,
+                detail="Workspace tasks request timed out",
+            )
 
         async with _WORKSPACE_TASKS_CACHE_LOCK:
             if _WORKSPACE_TASKS_INFLIGHT.get(cache_key) is task:
@@ -504,6 +546,8 @@ async def get_workspace_tasks(
             _WORKSPACE_TASKS_CACHE[cache_key] = (time.monotonic(), payload)
 
         return payload
+    except HTTPException:
+        raise
     except Exception as e:
         async with _WORKSPACE_TASKS_CACHE_LOCK:
             _WORKSPACE_TASKS_INFLIGHT.pop(cache_key, None)
@@ -673,7 +717,7 @@ def _load_execution_progress_snapshot_payload(
 
     try:
         with tasks_store.get_connection() as conn:
-            row = conn.execute(
+            rows = conn.execute(
                 text(
                     """
                     SELECT
@@ -686,25 +730,28 @@ def _load_execution_progress_snapshot_payload(
                     WHERE workspace_id = :workspace_id
                       AND execution_id = :execution_id
                       AND content IS NOT NULL
-                      AND CAST(content AS TEXT) LIKE :progress_marker
                     ORDER BY updated_at DESC
-                    LIMIT 1
+                    LIMIT 5
                     """
                 ),
                 {
                     "workspace_id": workspace_id,
                     "execution_id": execution_id,
-                    "progress_marker": _ARTIFACT_PROGRESS_CONTENT_MARKER,
                 },
-            ).fetchone()
-        if row:
+            ).fetchall()
+        for row in rows:
+            row_progress, row_content_metadata = _extract_artifact_progress_from_content(
+                row.content
+            )
+            if not isinstance(row_progress, dict):
+                continue
             artifact_id = str(row.id)
             ts = row.updated_at or row.created_at
             artifact_updated_at = ts.isoformat() if ts else None
             artifact_metadata = json_value_without_nul(row.metadata, {}) or {}
-            progress, content_metadata = _extract_artifact_progress_from_content(
-                row.content
-            )
+            progress = row_progress
+            content_metadata = row_content_metadata
+            break
     except Exception:
         artifact = store.artifacts.get_by_execution_id(execution_id)
         if artifact and artifact.workspace_id == workspace_id:
@@ -741,8 +788,17 @@ def _load_execution_progress_snapshot_payload(
         "artifact_metadata": artifact_metadata,
         "content_metadata": content_metadata,
         "execution_context": {
-            "heartbeat_at": ctx.get("heartbeat_at"),
-            "runner_id": ctx.get("runner_id"),
+            "heartbeat_at": (
+                task.heartbeat_at.isoformat()
+                if getattr(task, "heartbeat_at", None)
+                else (
+                    ctx.get("heartbeat_at")
+                    if task.status == TaskStatus.RUNNING
+                    else None
+                )
+            ),
+            "runner_id": getattr(task, "runner_id", None)
+            or (ctx.get("runner_id") if task.status == TaskStatus.RUNNING else None),
             "execution_backend_hint": ctx.get("execution_backend_hint"),
             "inputs": ctx.get("inputs") if isinstance(ctx.get("inputs"), dict) else {},
             "dependency_hold": ctx.get("dependency_hold"),

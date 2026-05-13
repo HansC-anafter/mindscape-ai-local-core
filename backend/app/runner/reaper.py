@@ -19,10 +19,12 @@ from backend.app.services.task_admission_service import (
 )
 from backend.app.services.runner_resources import (
     RESOURCE_WAIT_REASON,
+    ResourceRequirements,
     resource_lease_keys_from_context,
 )
 
 from backend.app.runner.concurrency import _resolve_lock_keys
+from backend.app.runner.database_backoff import is_database_recovery_error
 from backend.app.runner.lifecycle_hooks import _invoke_on_fail_hook
 from backend.app.runner.utils import _env_int, _parse_utc_iso, _utc_now
 
@@ -31,6 +33,29 @@ logger = logging.getLogger(__name__)
 _CONCURRENCY_LOCKED_REASON = "concurrency_locked"
 _DEPENDENCY_HOLD_REASON = "dependency_hold"
 _RESOURCE_WAIT_REASON = RESOURCE_WAIT_REASON
+
+
+def _task_runner_id(task: Task, ctx: dict[str, Any]) -> Optional[str]:
+    runner_id = getattr(task, "runner_id", None)
+    if isinstance(runner_id, str) and runner_id.strip():
+        return runner_id.strip()
+    raw_runner_id = ctx.get("runner_id")
+    if isinstance(raw_runner_id, str) and raw_runner_id.strip():
+        return raw_runner_id.strip()
+    return None
+
+
+def _task_heartbeat_at(task: Task, ctx: dict[str, Any]) -> Optional[datetime]:
+    heartbeat_at = getattr(task, "heartbeat_at", None)
+    if isinstance(heartbeat_at, datetime):
+        return heartbeat_at
+    return _parse_utc_iso(ctx.get("heartbeat_at"))
+
+
+def _heartbeat_log_value(heartbeat_at: Optional[datetime], ctx: dict[str, Any]) -> Any:
+    if isinstance(heartbeat_at, datetime):
+        return heartbeat_at.isoformat()
+    return ctx.get("heartbeat_at")
 
 
 def _blocked_release_limit(ready_target: int, ready_depth: int) -> int:
@@ -54,6 +79,44 @@ def _resource_wait_keys_from_context(ctx: dict[str, Any]) -> list[str]:
         if isinstance(raw_key, str) and raw_key.strip():
             keys.append(raw_key.strip())
     return list(dict.fromkeys(keys))
+
+
+def _resource_wait_requirements_from_context(ctx: dict[str, Any]) -> Optional[ResourceRequirements]:
+    admission = ctx.get("resource_admission")
+    if not isinstance(admission, dict):
+        return None
+    raw_requirements = admission.get("requirements")
+    if not isinstance(raw_requirements, dict):
+        return None
+    try:
+        base = ResourceRequirements()
+        return ResourceRequirements(
+            browser_contexts=int(raw_requirements.get("browser_contexts") or base.browser_contexts),
+            ig_profile_lock=raw_requirements.get("ig_profile_lock") or base.ig_profile_lock,
+            cpu_weight=int(raw_requirements.get("cpu_weight") or base.cpu_weight),
+            memory_mb=int(raw_requirements.get("memory_mb") or base.memory_mb),
+            vision_lane=raw_requirements.get("vision_lane") or base.vision_lane,
+            llm_lane=raw_requirements.get("llm_lane") or base.llm_lane,
+            db_write_budget=raw_requirements.get("db_write_budget") or base.db_write_budget,
+            expected_duration_class=raw_requirements.get("expected_duration_class") or base.expected_duration_class,
+        )
+    except Exception:
+        return None
+
+
+def _host_resource_wait_still_blocked(ctx: dict[str, Any]) -> Optional[Any]:
+    requirements = _resource_wait_requirements_from_context(ctx)
+    if requirements is None:
+        return None
+    try:
+        from backend.app.services.host_resources import evaluate_runner_requirements
+
+        advice = evaluate_runner_requirements(requirements)
+        if advice is not None and not bool(getattr(advice, "allow", False)):
+            return advice
+    except Exception:
+        return None
+    return None
 
 
 def _is_stale_started_task(task: Task, threshold: datetime) -> bool:
@@ -291,7 +354,7 @@ def _request_watchdog_abort_for_no_progress_tasks(
             if isinstance(ctx.get("watchdog_abort"), dict) and ctx["watchdog_abort"].get("requested_at"):
                 continue
 
-            heartbeat_at = _parse_utc_iso(ctx.get("heartbeat_at"))
+            heartbeat_at = _task_heartbeat_at(task, ctx)
             if not heartbeat_at or heartbeat_at <= fresh_heartbeat_threshold:
                 continue
 
@@ -338,7 +401,7 @@ def _request_watchdog_abort_for_no_progress_tasks(
             reason = (
                 "Runner no-progress watchdog tripped after "
                 f"{watchdog_seconds}s (playbook={task.pack_id}, phase={phase or 'unknown'}, "
-                f"current_step_index={current_step_index}, heartbeat_at={ctx.get('heartbeat_at')}, "
+                f"current_step_index={current_step_index}, heartbeat_at={_heartbeat_log_value(heartbeat_at, ctx)}, "
                 f"execution_updated_at={progress_updated_at.isoformat()})"
             )
             now_iso = now.isoformat()
@@ -352,7 +415,7 @@ def _request_watchdog_abort_for_no_progress_tasks(
                 "threshold_seconds": watchdog_seconds,
                 "phase": phase,
                 "current_step_index": current_step_index,
-                "heartbeat_at": ctx.get("heartbeat_at"),
+                "heartbeat_at": _heartbeat_log_value(heartbeat_at, ctx),
                 "execution_updated_at": progress_updated_at.isoformat(),
             }
             tasks_store.update_task(task.id, execution_context=ctx2)
@@ -395,6 +458,7 @@ async def _mark_frontier_ready(
                 frontier_state="ready",
                 frontier_enqueued_at=enqueued_at,
                 next_eligible_at=enqueued_at,
+                return_updated=False,
             )
         except Exception as e:
             logger.warning(
@@ -407,6 +471,7 @@ def _force_release_lock(
     pack_id: str,
     redis_queue: Optional[RedisRunnerQueueStore],
     persisted_concurrency_key: Optional[str] = None,
+    event_loop: Optional[asyncio.AbstractEventLoop] = None,
 ) -> None:
     """Force-delete the concurrency lock for a reaped task.
 
@@ -424,9 +489,23 @@ def _force_release_lock(
     if not lock_keys:
         return
     try:
-        loop = asyncio.get_event_loop()
+        loop = event_loop
+        if loop is None:
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+        if loop is None or not loop.is_running():
+            logger.warning(
+                "[Reaper] No running event loop available to release lock(s) %s",
+                lock_keys,
+            )
+            return
         for lock_key in lock_keys:
-            loop.create_task(_async_force_release(redis_queue, lock_key))
+            asyncio.run_coroutine_threadsafe(
+                _async_force_release(redis_queue, lock_key),
+                loop,
+            )
     except Exception as e:
         logger.warning(f"[Reaper] Failed to schedule lock release for {lock_keys}: {e}")
 
@@ -455,6 +534,7 @@ def _requeue_stale_queued_task(
     reason: str,
     action: str,
     redis_queue: Optional[RedisRunnerQueueStore],
+    event_loop: Optional[asyncio.AbstractEventLoop] = None,
 ) -> None:
     requeue_count = 0
     if isinstance(ctx.get("runner_reaper"), dict):
@@ -481,6 +561,8 @@ def _requeue_stale_queued_task(
         next_eligible_at=now,
         blocked_reason=None,
         blocked_payload=None,
+        runner_id=None,
+        heartbeat_at=None,
         frontier_state="ready",
         frontier_enqueued_at=now,
         error=None,
@@ -490,6 +572,7 @@ def _requeue_stale_queued_task(
         task.pack_id,
         redis_queue,
         persisted_concurrency_key=getattr(task, "concurrency_key", None),
+        event_loop=event_loop,
     )
 
 
@@ -497,6 +580,7 @@ def _reap_stale_running_tasks(
     tasks_store: TasksStore,
     runner_id: str,
     redis_queue: Optional[RedisRunnerQueueStore] = None,
+    event_loop: Optional[asyncio.AbstractEventLoop] = None,
 ) -> None:
     stale_seconds = _env_int("LOCAL_CORE_RUNNER_STALE_TASK_SECONDS", 180)
     threshold = _utc_now() - timedelta(seconds=stale_seconds)
@@ -525,8 +609,8 @@ def _reap_stale_running_tasks(
         seen_task_ids.add(t.id)
         try:
             ctx = t.execution_context if isinstance(t.execution_context, dict) else {}
-            ctx_runner_id = ctx.get("runner_id")
-            heartbeat_at = _parse_utc_iso(ctx.get("heartbeat_at"))
+            ctx_runner_id = _task_runner_id(t, ctx)
+            heartbeat_at = _task_heartbeat_at(t, ctx)
 
             # Only reap tasks that were executed in runner mode (or clearly runner-owned).
             if ctx.get("execution_mode") not in (None, "runner"):
@@ -551,6 +635,7 @@ def _reap_stale_running_tasks(
                         reason=msg,
                         action="requeue_orphan_no_runner",
                         redis_queue=redis_queue,
+                        event_loop=event_loop,
                     )
                     logger.warning(
                         f"Re-queued stale runner task without owner task_id={t.id} ({msg})"
@@ -568,7 +653,8 @@ def _reap_stale_running_tasks(
                 if heartbeat_at > grace_threshold:
                     continue
 
-            msg = f"Runner heartbeat stale (previous_runner_id={ctx_runner_id}, heartbeat_at={ctx.get('heartbeat_at')})"
+            heartbeat_log = _heartbeat_log_value(heartbeat_at, ctx)
+            msg = f"Runner heartbeat stale (previous_runner_id={ctx_runner_id}, heartbeat_at={heartbeat_log})"
             ctx2 = dict(ctx)
             ctx2["runner_reaper"] = {
                 "runner_id": runner_id,
@@ -598,6 +684,8 @@ def _reap_stale_running_tasks(
                         status=TaskStatus.FAILED,
                         completed_at=_utc_now(),
                         error=ctx2["error"],
+                        runner_id=None,
+                        heartbeat_at=None,
                     )
                     _emit_run_state_changed_for_task(
                         t,
@@ -618,6 +706,7 @@ def _reap_stale_running_tasks(
                         reason=msg,
                         action="requeue",
                         redis_queue=redis_queue,
+                        event_loop=event_loop,
                     )
                     logger.warning(
                         f"Re-queued stale runner task task_id={t.id} (attempt {requeue_count + 1}/3) ({msg})"
@@ -657,6 +746,8 @@ def _reap_stale_running_tasks(
                         status=TaskStatus.FAILED,
                         completed_at=_utc_now(),
                         error=msg,
+                        runner_id=None,
+                        heartbeat_at=None,
                     )
                     _emit_run_state_changed_for_task(
                         t,
@@ -670,9 +761,10 @@ def _reap_stale_running_tasks(
                         t.pack_id,
                         redis_queue,
                         persisted_concurrency_key=getattr(t, "concurrency_key", None),
+                        event_loop=event_loop,
                     )
             logger.info(
-                f"Reaper checked task_id={t.id} - status={t.status} - heartbeat_at={ctx.get('heartbeat_at')} - Threshold={threshold.isoformat()}"
+                f"Reaper checked task_id={t.id} - status={t.status} - heartbeat_at={heartbeat_log} - Threshold={threshold.isoformat()}"
             )
         except Exception as e:
             logger.warning(f"Failed to reap stale task {getattr(t,'id',None)}: {e}")
@@ -740,7 +832,7 @@ async def _reap_redis_queues(
                     continue
                 
                 ctx = t_data.execution_context if isinstance(t_data.execution_context, dict) else {}
-                ctx_heartbeat = _parse_utc_iso(ctx.get('heartbeat_at'))
+                ctx_heartbeat = _task_heartbeat_at(t_data, ctx)
                 stale_limit = _utc_now() - timedelta(seconds=_env_int("LOCAL_CORE_RUNNER_STALE_TASK_SECONDS", 180))
                 
                 if ctx_heartbeat and ctx_heartbeat > stale_limit:
@@ -763,6 +855,8 @@ async def _reap_redis_queues(
                     next_eligible_at=_utc_now(),
                     blocked_reason=None,
                     blocked_payload=None,
+                    runner_id=None,
+                    heartbeat_at=None,
                     frontier_state="ready",
                     frontier_enqueued_at=_utc_now(),
                 )
@@ -879,6 +973,11 @@ async def _reap_redis_queues(
             logger.error(f"[Bridge] DB Bridge sync failed: {e}")
 
     except Exception as e:
+        if is_database_recovery_error(e):
+            logger.warning(
+                "Runner Redis bridge paused while PostgreSQL is recovering."
+            )
+            return
         logger.error(f"Failed to reap Redis queues: {e}", exc_info=True)
 
 
@@ -925,13 +1024,13 @@ async def _release_admission_deferred_tasks(
                 await asyncio.to_thread(
                     tasks_store.update_task,
                     task.id,
-                    execution_context=decision.execution_context,
                     next_eligible_at=now,
                     blocked_reason=None,
                     blocked_payload=None,
                     queue_shard=decision.queue_shard or redis_queue.pack_id,
                     frontier_state="ready",
                     frontier_enqueued_at=now,
+                    return_updated=False,
                 )
                 released_task_ids.append(task.id)
                 continue
@@ -939,13 +1038,13 @@ async def _release_admission_deferred_tasks(
             await asyncio.to_thread(
                 tasks_store.update_task,
                 task.id,
-                execution_context=decision.execution_context,
                 next_eligible_at=decision.next_eligible_at,
                 blocked_reason=ADMISSION_DEFERRED_REASON,
                 blocked_payload=decision.blocked_payload,
                 queue_shard=decision.queue_shard or redis_queue.pack_id,
                 frontier_state="cold",
                 frontier_enqueued_at=None,
+                return_updated=False,
             )
         except Exception as exc:
             logger.warning(
@@ -1020,6 +1119,46 @@ async def _release_resource_wait_tasks(
             resource_key in released_resource_keys for resource_key in resource_keys
         ):
             continue
+        still_blocked = _host_resource_wait_still_blocked(ctx)
+        if still_blocked is not None:
+            next_eligible_at = now + timedelta(
+                seconds=max(5, _env_int("LOCAL_CORE_HOST_RESOURCE_WAIT_BACKOFF_SECONDS", 30))
+            )
+            blocked_payload = {
+                "policy": _RESOURCE_WAIT_REASON,
+                "reason": getattr(still_blocked, "reason", None) or "host_resource_still_blocked",
+                "defer_until": next_eligible_at.isoformat(),
+                "evaluated_at": now.isoformat(),
+                "host_decision": getattr(still_blocked, "decision", "defer"),
+                "host_advisor": getattr(still_blocked, "payload", {}) or {},
+            }
+            ctx2 = dict(ctx)
+            admission = dict(ctx2.get("resource_admission") or {})
+            admission["state"] = "waiting"
+            admission["reason"] = blocked_payload["reason"]
+            admission["defer_until"] = next_eligible_at.isoformat()
+            ctx2["resource_admission"] = admission
+            ctx2["resume_after"] = next_eligible_at.isoformat()
+            try:
+                await asyncio.to_thread(
+                    tasks_store.update_task,
+                    task.id,
+                    execution_context=ctx2,
+                    next_eligible_at=next_eligible_at,
+                    blocked_reason=_RESOURCE_WAIT_REASON,
+                    blocked_payload=blocked_payload,
+                    frontier_state="cold",
+                    frontier_enqueued_at=None,
+                    return_updated=False,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "[Bridge] Failed to extend resource-wait task %s on shard %s: %s",
+                    getattr(task, "id", None),
+                    redis_queue.pack_id,
+                    exc,
+                )
+            continue
 
         try:
             update_kwargs = dict(
@@ -1039,6 +1178,7 @@ async def _release_resource_wait_tasks(
             await asyncio.to_thread(
                 tasks_store.update_task,
                 task.id,
+                return_updated=False,
                 **update_kwargs,
             )
             released_task_ids.append(task.id)
@@ -1216,6 +1356,7 @@ async def _release_unblocked_cold_tasks(
                 queue_shard=getattr(task, "queue_shard", None) or redis_queue.pack_id,
                 frontier_state="ready",
                 frontier_enqueued_at=now,
+                return_updated=False,
             )
             released_task_ids.append(task.id)
         except Exception as exc:
@@ -1319,6 +1460,7 @@ async def _release_concurrency_locked_tasks(
             await asyncio.to_thread(
                 tasks_store.update_task,
                 task.id,
+                return_updated=False,
                 **update_kwargs,
             )
             released_task_ids.append(task.id)

@@ -151,7 +151,19 @@ def get_next_version(
     artifact_type: str,
 ) -> int:
     """Return the next artifact version for the workspace/playbook/type tuple."""
-    artifacts = store.artifacts.list_artifacts_by_playbook(workspace_id, playbook_code)
+    if hasattr(store.artifacts, "get_next_artifact_version"):
+        return store.artifacts.get_next_artifact_version(
+            workspace_id, playbook_code, artifact_type
+        )
+
+    if hasattr(store.artifacts, "list_artifacts_by_playbook_type"):
+        artifacts = store.artifacts.list_artifacts_by_playbook_type(
+            workspace_id, playbook_code, artifact_type
+        )
+    else:
+        artifacts = store.artifacts.list_artifacts_by_playbook(
+            workspace_id, playbook_code
+        )
     same_type_artifacts = [
         artifact
         for artifact in artifacts

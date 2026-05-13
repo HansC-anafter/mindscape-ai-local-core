@@ -223,7 +223,18 @@ def update_artifact_latest_markers(
 ) -> None:
     """Flip older versions off and keep the newest artifact marked latest."""
     try:
-        artifacts = artifacts_store.list_artifacts_by_playbook(workspace_id, playbook_code)
+        if hasattr(artifacts_store, "list_latest_artifacts_by_playbook_type"):
+            artifacts = artifacts_store.list_latest_artifacts_by_playbook_type(
+                workspace_id, playbook_code, artifact_type
+            )
+        elif hasattr(artifacts_store, "list_artifacts_by_playbook_type"):
+            artifacts = artifacts_store.list_artifacts_by_playbook_type(
+                workspace_id, playbook_code, artifact_type
+            )
+        else:
+            artifacts = artifacts_store.list_artifacts_by_playbook(
+                workspace_id, playbook_code
+            )
         same_type_artifacts = [
             artifact
             for artifact in artifacts

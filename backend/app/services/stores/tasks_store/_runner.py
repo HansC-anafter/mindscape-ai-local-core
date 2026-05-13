@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 
 from sqlalchemy import text
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, ProgrammingError
 
 from app.models.workspace import Task, TaskStatus
 
@@ -136,7 +136,7 @@ class TasksStoreRunnerMixin:
             row = conn.execute(
                 text(
                     """
-                    SELECT status, params, execution_context, concurrency_key
+                    SELECT status, concurrency_key
                     FROM tasks
                     WHERE id = :task_id
                 """
@@ -150,28 +150,11 @@ class TasksStoreRunnerMixin:
             if current_status != TaskStatus.PENDING.value:
                 return False
 
-            existing_ctx: Dict[str, Any] = {}
-            raw_ctx = getattr(row, "execution_context", None)
-            if raw_ctx:
-                existing_ctx = self.deserialize_json(raw_ctx, {})
-
-            task_params: Dict[str, Any] = {}
-            raw_params = getattr(row, "params", None)
-            if raw_params:
-                task_params = self.deserialize_json(raw_params, {})
-
             keys = _normalize_concurrency_keys(concurrency_keys)
             persisted_key = getattr(row, "concurrency_key", None)
             if isinstance(persisted_key, str) and persisted_key.strip():
                 keys = _normalize_concurrency_keys([*keys, persisted_key])
             conflict_clause, conflict_params = _running_concurrency_conflict_clause(keys)
-
-            ctx = _build_claim_execution_context(
-                existing_ctx,
-                task_params=task_params,
-                runner_id=runner_id,
-                now=now,
-            )
 
             try:
                 result = conn.execute(
@@ -180,7 +163,8 @@ class TasksStoreRunnerMixin:
                     UPDATE tasks
                     SET status = :running_status,
                         started_at = :started_at,
-                        execution_context = :execution_context,
+                        runner_id = :runner_id,
+                        heartbeat_at = :heartbeat_at,
                         blocked_reason = NULL,
                         blocked_payload = NULL,
                         frontier_state = :frontier_state,
@@ -193,7 +177,8 @@ class TasksStoreRunnerMixin:
                         "running_status": TaskStatus.RUNNING.value,
                         "pending_status": TaskStatus.PENDING.value,
                         "started_at": now,
-                        "execution_context": self.serialize_json(ctx),
+                        "runner_id": runner_id,
+                        "heartbeat_at": now,
                         "frontier_state": "running",
                         "task_id": task_id,
                         **conflict_params,
@@ -213,67 +198,104 @@ class TasksStoreRunnerMixin:
             should stop (cancelled, expired, or externally failed).
         """
         now = _utc_now()
-        now_iso = now.isoformat()
-        task = self.get_task(task_id)
-        if not task:
-            return True  # task deleted — abort
+        restart_error = "Execution interrupted by server restart"
+        abort_statuses = {
+            TaskStatus.CANCELLED_BY_USER.value,
+            TaskStatus.EXPIRED.value,
+        }
 
-        ctx = task.execution_context if isinstance(task.execution_context, dict) else {}
-        ctx = dict(ctx)
-        ctx["heartbeat_at"] = now_iso
-        if runner_id:
-            ctx["runner_id"] = runner_id
+        with self.get_connection() as conn:
+            row = conn.execute(
+                text(
+                    """
+                    SELECT status, error
+                    FROM tasks
+                    WHERE id = :task_id
+                    """
+                ),
+                {"task_id": task_id},
+            ).fetchone()
+        if not row:
+            return True
 
-        try:
-            exec_mode = (ctx.get("execution_mode") or "").strip().lower()
-        except Exception:
-            exec_mode = ""
+        status_raw = getattr(row, "status", None)
+        error_raw = getattr(row, "error", None) or ""
+        if status_raw in abort_statuses:
+            logger.warning(
+                "Task %s status=%s — signalling abort to runner", task_id, status_raw
+            )
+            return True
+        if status_raw == TaskStatus.FAILED.value and error_raw != restart_error:
+            logger.warning(
+                "Task %s externally failed (%s) — signalling abort",
+                task_id,
+                error_raw,
+            )
+            return True
 
-        should_revive = False
-        if runner_id and exec_mode == "runner":
-            try:
-                if (
-                    task.status == TaskStatus.FAILED
-                    and (task.error or "") == "Execution interrupted by server restart"
-                ):
-                    hb = None
-                    ca = getattr(task, "completed_at", None)
-                    try:
-                        hb_raw = ctx.get("heartbeat_at")
-                        hb = (
-                            datetime.fromisoformat(hb_raw)
-                            if isinstance(hb_raw, str) and hb_raw.strip()
-                            else None
-                        )
-                    except Exception:
-                        hb = None
-                    try:
-                        ca_dt = ca if isinstance(ca, datetime) else None
-                    except Exception:
-                        ca_dt = None
-                    if hb and ca_dt and hb > ca_dt:
-                        should_revive = True
-                    elif hb and not ca_dt:
-                        should_revive = True
-            except Exception:
-                should_revive = False
+        should_revive = bool(runner_id and status_raw == TaskStatus.FAILED.value)
 
         if should_revive:
-            ctx["status"] = "running"
-            self.update_task(
-                task_id,
-                execution_context=ctx,
-                status=TaskStatus.RUNNING,
-                error=None,
+            query = text(
+                """
+                UPDATE tasks
+                SET status = :running_status,
+                    runner_id = :runner_id,
+                    heartbeat_at = :heartbeat_at,
+                    error = NULL
+                WHERE id = :task_id
+                  AND status NOT IN (:cancelled_status, :expired_status)
+                  AND NOT (
+                    status = :failed_status
+                    AND COALESCE(error, '') <> :restart_error
+                  )
+                """
             )
+            params = {
+                "task_id": task_id,
+                "running_status": TaskStatus.RUNNING.value,
+                "runner_id": runner_id,
+                "heartbeat_at": now,
+                "cancelled_status": TaskStatus.CANCELLED_BY_USER.value,
+                "expired_status": TaskStatus.EXPIRED.value,
+                "failed_status": TaskStatus.FAILED.value,
+                "restart_error": restart_error,
+            }
         else:
-            self.update_task(task_id, execution_context=ctx)
+            query = text(
+                """
+                UPDATE tasks
+                SET runner_id = COALESCE(:runner_id, runner_id),
+                    heartbeat_at = :heartbeat_at
+                WHERE id = :task_id
+                  AND status NOT IN (:cancelled_status, :expired_status)
+                  AND NOT (
+                    status = :failed_status
+                    AND COALESCE(error, '') <> :restart_error
+                  )
+                """
+            )
+            params = {
+                "task_id": task_id,
+                "runner_id": runner_id,
+                "heartbeat_at": now,
+                "cancelled_status": TaskStatus.CANCELLED_BY_USER.value,
+                "expired_status": TaskStatus.EXPIRED.value,
+                "failed_status": TaskStatus.FAILED.value,
+                "restart_error": restart_error,
+            }
+
+        with self.transaction() as conn:
+            try:
+                result = conn.execute(query, params)
+            except ProgrammingError:
+                logger.exception("Task runner state columns are unavailable")
+                raise
+            if result.rowcount == 0:
+                return True
         logger.debug("Updated heartbeat for task %s (runner=%s)", task_id, runner_id)
 
-        if should_revive:
-            return False  # just revived — keep running
-
-        return self.should_abort_task(task_id)
+        return False
 
     def should_abort_task(self, task_id: str) -> bool:
         """Return True when the runner should abort the task without mutating heartbeat."""
@@ -334,9 +356,9 @@ class TasksStoreRunnerMixin:
                 if isinstance(task.execution_context, dict)
                 else {}
             )
+            hb_dt = getattr(task, "heartbeat_at", None)
             hb_raw = ctx.get("heartbeat_at")
-            hb_dt = None
-            if hb_raw and isinstance(hb_raw, str):
+            if hb_dt is None and hb_raw and isinstance(hb_raw, str):
                 try:
                     hb_dt = datetime.fromisoformat(hb_raw)
                     if hb_dt.tzinfo is None:

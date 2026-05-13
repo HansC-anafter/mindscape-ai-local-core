@@ -6,6 +6,7 @@ All artifact writes go through the /chat flow, ensuring single source of truth.
 """
 
 import logging
+import json
 from datetime import datetime, timezone
 
 
@@ -157,7 +158,7 @@ class ArtifactsStore(StoreBase):
             return [self._row_to_artifact(row) for row in rows]
 
     def list_artifacts_by_playbook(
-        self, workspace_id: str, playbook_code: str
+        self, workspace_id: str, playbook_code: str, limit: Optional[int] = None
     ) -> List[Artifact]:
         """
         List artifacts for a specific playbook in a workspace
@@ -171,12 +172,127 @@ class ArtifactsStore(StoreBase):
         """
         with self.get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute(
-                "SELECT * FROM artifacts WHERE workspace_id = ? AND playbook_code = ? ORDER BY created_at DESC",
-                (workspace_id, playbook_code),
+            query = (
+                "SELECT * FROM artifacts WHERE workspace_id = ? AND playbook_code = ? "
+                "ORDER BY created_at DESC"
             )
+            params: tuple[Any, ...] = (workspace_id, playbook_code)
+            if limit:
+                query += " LIMIT ?"
+                params = (workspace_id, playbook_code, max(1, int(limit)))
+            cursor.execute(query, params)
             rows = cursor.fetchall()
             return [self._row_to_artifact(row) for row in rows]
+
+    def list_artifacts_by_playbook_type(
+        self,
+        workspace_id: str,
+        playbook_code: str,
+        artifact_type: str,
+        limit: Optional[int] = None,
+    ) -> List[Artifact]:
+        """
+        List artifacts for a playbook/type tuple in a workspace.
+
+        Args:
+            workspace_id: Workspace ID
+            playbook_code: Playbook code
+            artifact_type: Artifact type
+            limit: Maximum number of items to return (optional)
+
+        Returns:
+            List of artifacts for the playbook/type tuple
+        """
+        artifact_type_value = (
+            artifact_type.value if hasattr(artifact_type, "value") else artifact_type
+        )
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            query = (
+                "SELECT * FROM artifacts "
+                "WHERE workspace_id = ? AND playbook_code = ? AND artifact_type = ? "
+                "ORDER BY updated_at DESC"
+            )
+            params: tuple[Any, ...] = (workspace_id, playbook_code, artifact_type_value)
+            if limit:
+                query += " LIMIT ?"
+                params = (
+                    workspace_id,
+                    playbook_code,
+                    artifact_type_value,
+                    max(1, int(limit)),
+                )
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+            return [self._row_to_artifact(row) for row in rows]
+
+    def list_latest_artifacts_by_playbook_type(
+        self,
+        workspace_id: str,
+        playbook_code: str,
+        artifact_type: str,
+    ) -> List[Artifact]:
+        """
+        List artifacts marked latest for a playbook/type tuple in a workspace.
+
+        Args:
+            workspace_id: Workspace ID
+            playbook_code: Playbook code
+            artifact_type: Artifact type
+
+        Returns:
+            List of latest-marked artifacts for the playbook/type tuple
+        """
+        artifacts = self.list_artifacts_by_playbook_type(
+            workspace_id, playbook_code, artifact_type
+        )
+        return [
+            artifact
+            for artifact in artifacts
+            if (artifact.metadata or {}).get("is_latest", False)
+        ]
+
+    def get_next_artifact_version(
+        self, workspace_id: str, playbook_code: str, artifact_type: str
+    ) -> int:
+        """
+        Return the next artifact version for the workspace/playbook/type tuple.
+
+        Args:
+            workspace_id: Workspace ID
+            playbook_code: Playbook code
+            artifact_type: Artifact type
+
+        Returns:
+            Next version number
+        """
+        artifact_type_value = (
+            artifact_type.value if hasattr(artifact_type, "value") else artifact_type
+        )
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT metadata
+                FROM artifacts
+                WHERE workspace_id = ? AND playbook_code = ? AND artifact_type = ?
+                """,
+                (workspace_id, playbook_code, artifact_type_value),
+            )
+            max_version = 0
+            for row in cursor.fetchall():
+                metadata_value = row["metadata"]
+                version = 1
+                if metadata_value:
+                    try:
+                        metadata = json.loads(metadata_value)
+                    except (TypeError, ValueError):
+                        metadata = {}
+                    raw_version = metadata.get("version", 1)
+                    if isinstance(raw_version, int):
+                        version = raw_version
+                max_version = max(max_version, version)
+            return max_version + 1
 
     def update_artifact(self, artifact_id: str, **kwargs) -> bool:
         """

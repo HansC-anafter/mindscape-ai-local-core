@@ -251,18 +251,129 @@ class PostgresArtifactsStore(PostgresStoreBase):
             return [self._row_to_artifact(row) for row in rows]
 
     def list_artifacts_by_playbook(
-        self, workspace_id: str, playbook_code: str
+        self, workspace_id: str, playbook_code: str, limit: Optional[int] = None
     ) -> List[Artifact]:
         """List artifacts for a specific playbook."""
         with self.get_connection() as conn:
-            query = text(
-                "SELECT * FROM artifacts WHERE workspace_id = :workspace_id AND playbook_code = :playbook_code ORDER BY updated_at DESC"
+            query_str = (
+                "SELECT * FROM artifacts "
+                "WHERE workspace_id = :workspace_id AND playbook_code = :playbook_code "
+                "ORDER BY updated_at DESC"
             )
+            params = {"workspace_id": workspace_id, "playbook_code": playbook_code}
+            if limit:
+                query_str += " LIMIT :limit"
+                params["limit"] = max(1, int(limit))
+            query = text(query_str)
             result = conn.execute(
-                query, {"workspace_id": workspace_id, "playbook_code": playbook_code}
+                query,
+                params,
             )
             rows = result.fetchall()
             return [self._row_to_artifact(row) for row in rows]
+
+    def list_artifacts_by_playbook_type(
+        self,
+        workspace_id: str,
+        playbook_code: str,
+        artifact_type: str,
+        limit: Optional[int] = None,
+    ) -> List[Artifact]:
+        """List artifacts for a playbook/type tuple."""
+        artifact_type_value = (
+            artifact_type.value if hasattr(artifact_type, "value") else artifact_type
+        )
+        with self.get_connection() as conn:
+            query_str = (
+                "SELECT * FROM artifacts "
+                "WHERE workspace_id = :workspace_id "
+                "AND playbook_code = :playbook_code "
+                "AND artifact_type = :artifact_type "
+                "ORDER BY updated_at DESC"
+            )
+            params = {
+                "workspace_id": workspace_id,
+                "playbook_code": playbook_code,
+                "artifact_type": artifact_type_value,
+            }
+            if limit:
+                query_str += " LIMIT :limit"
+                params["limit"] = max(1, int(limit))
+            result = conn.execute(text(query_str), params)
+            rows = result.fetchall()
+            return [self._row_to_artifact(row) for row in rows]
+
+    def list_latest_artifacts_by_playbook_type(
+        self,
+        workspace_id: str,
+        playbook_code: str,
+        artifact_type: str,
+    ) -> List[Artifact]:
+        """List artifacts currently marked latest for a playbook/type tuple."""
+        artifact_type_value = (
+            artifact_type.value if hasattr(artifact_type, "value") else artifact_type
+        )
+        with self.get_connection() as conn:
+            query = text(
+                """
+                SELECT * FROM artifacts
+                WHERE workspace_id = :workspace_id
+                  AND playbook_code = :playbook_code
+                  AND artifact_type = :artifact_type
+                  AND metadata ~ '"is_latest"\\s*:\\s*true'
+                ORDER BY updated_at DESC
+                """
+            )
+            result = conn.execute(
+                query,
+                {
+                    "workspace_id": workspace_id,
+                    "playbook_code": playbook_code,
+                    "artifact_type": artifact_type_value,
+                },
+            )
+            rows = result.fetchall()
+            return [self._row_to_artifact(row) for row in rows]
+
+    def get_next_artifact_version(
+        self, workspace_id: str, playbook_code: str, artifact_type: str
+    ) -> int:
+        """Return the next artifact version for a playbook/type tuple."""
+        artifact_type_value = (
+            artifact_type.value if hasattr(artifact_type, "value") else artifact_type
+        )
+        with self.get_connection() as conn:
+            query = text(
+                """
+                SELECT COALESCE(
+                    MAX(
+                        COALESCE(
+                            NULLIF(
+                                substring(metadata FROM '"version"\\s*:\\s*([0-9]+)'),
+                                ''
+                            )::integer,
+                            1
+                        )
+                    ),
+                    0
+                ) AS max_version
+                FROM artifacts
+                WHERE workspace_id = :workspace_id
+                  AND playbook_code = :playbook_code
+                  AND artifact_type = :artifact_type
+                """
+            )
+            result = conn.execute(
+                query,
+                {
+                    "workspace_id": workspace_id,
+                    "playbook_code": playbook_code,
+                    "artifact_type": artifact_type_value,
+                },
+            )
+            row = result.fetchone()
+            max_version = int(row.max_version if row and row.max_version else 0)
+            return max_version + 1
 
     def update_artifact(self, artifact_id: str, **kwargs) -> bool:
         """Update artifact fields."""
