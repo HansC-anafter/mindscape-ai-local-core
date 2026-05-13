@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -502,6 +503,106 @@ def _script_path_status() -> dict[str, dict[str, Any]]:
     }
 
 
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _backup_verification(backup_dir: Path | None) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "source": str(backup_dir) if backup_dir else None,
+        "source_available": False,
+        "verified": False,
+        "verification_mode": "manifest_checksum",
+        "errors": [],
+    }
+    if backup_dir is None:
+        result["errors"].append("verified_backup_dir_required")
+        return result
+
+    backup_root = backup_dir.expanduser()
+    result["source"] = str(backup_root)
+    manifest_path = backup_root / "manifest.json"
+    result["manifest_path"] = str(manifest_path)
+    if not backup_root.is_dir():
+        result["errors"].append("backup_dir_not_found")
+        return result
+    if not manifest_path.is_file():
+        result["source_available"] = True
+        result["errors"].append("manifest_missing")
+        return result
+
+    result["source_available"] = True
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        result["errors"].append(f"manifest_invalid_json: {exc}")
+        return result
+
+    if not isinstance(manifest, dict):
+        result["errors"].append("manifest_not_object")
+        return result
+
+    artifacts = manifest.get("artifacts")
+    if not isinstance(artifacts, list) or not artifacts:
+        result["errors"].append("manifest_artifacts_empty")
+        artifacts = []
+
+    checked_artifacts: list[dict[str, Any]] = []
+    for artifact in artifacts:
+        if not isinstance(artifact, Mapping):
+            result["errors"].append("artifact_not_object")
+            continue
+        rel_path = str(artifact.get("path") or "").strip()
+        expected_sha = str(artifact.get("sha256") or "").strip()
+        expected_size = _parse_int(artifact.get("bytes"), -1)
+        if not rel_path:
+            result["errors"].append("artifact_path_missing")
+            continue
+        artifact_path = backup_root / rel_path
+        try:
+            artifact_path.resolve().relative_to(backup_root.resolve())
+        except Exception:
+            result["errors"].append(f"artifact_path_outside_backup:{rel_path}")
+            continue
+        if not artifact_path.is_file():
+            result["errors"].append(f"artifact_missing:{rel_path}")
+            continue
+        actual_size = artifact_path.stat().st_size
+        if actual_size <= 0:
+            result["errors"].append(f"artifact_empty:{rel_path}")
+        if expected_size != actual_size:
+            result["errors"].append(f"artifact_size_mismatch:{rel_path}")
+        actual_sha = _file_sha256(artifact_path)
+        if not expected_sha or expected_sha != actual_sha:
+            result["errors"].append(f"artifact_sha256_mismatch:{rel_path}")
+        checked_artifacts.append(
+            {
+                "path": rel_path,
+                "bytes": actual_size,
+                "sha256": actual_sha,
+            }
+        )
+
+    options = manifest.get("options") if isinstance(manifest.get("options"), dict) else {}
+    result.update(
+        {
+            "schema_version": manifest.get("schema_version"),
+            "backup_name": manifest.get("backup_name"),
+            "created_at": manifest.get("created_at"),
+            "git_commit": manifest.get("git_commit"),
+            "options": options,
+            "artifact_count": len(checked_artifacts),
+            "artifacts": checked_artifacts,
+        }
+    )
+    result["verified"] = not result["errors"]
+    return result
+
+
 def _runner_claim_gate() -> dict[str, Any]:
     try:
         from backend.app.services.host_resources import get_runner_claim_gate
@@ -538,6 +639,7 @@ def _unavailable_database_report(
             "pg_repack_binary": shutil.which("pg_repack"),
         },
         "script_paths": _script_path_status(),
+        "backup_verification": _backup_verification(args.verified_backup_dir),
         "activity": activity,
         "connection_budget": _connection_budget(
             compose_file=args.compose_file,
@@ -605,6 +707,7 @@ def collect_report(args: argparse.Namespace) -> dict[str, Any]:
                 "pg_repack_binary": shutil.which("pg_repack"),
             },
             "script_paths": _script_path_status(),
+            "backup_verification": _backup_verification(args.verified_backup_dir),
             "activity": activity,
             "connection_budget": _connection_budget(
                 compose_file=args.compose_file,
@@ -685,6 +788,26 @@ def evaluate_report(report: dict[str, Any]) -> dict[str, Any]:
     for key, payload in script_paths.items():
         if not isinstance(payload, dict) or not payload.get("exists"):
             blockers.append(f"{key}_script_missing")
+
+    backup_verification = (
+        report.get("backup_verification")
+        if isinstance(report.get("backup_verification"), dict)
+        else {}
+    )
+    if not backup_verification.get("source"):
+        blockers.append("verified_backup_missing")
+    elif backup_verification.get("errors") or not backup_verification.get("verified"):
+        blockers.append("verified_backup_invalid")
+    else:
+        backup_options = (
+            backup_verification.get("options")
+            if isinstance(backup_verification.get("options"), dict)
+            else {}
+        )
+        if backup_options.get("skip_db") is True:
+            blockers.append("verified_backup_skips_database")
+        if backup_options.get("skip_files") is True:
+            warnings.append("verified_backup_skips_files")
 
     activity = report.get("activity") if isinstance(report.get("activity"), dict) else {}
     idle_in_transaction = int(activity.get("idle_in_transaction") or 0)
@@ -803,6 +926,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--params-budget", type=int, default=512 * 1024)
     parser.add_argument("--statement-limit", type=int, default=10)
     parser.add_argument("--compose-file", type=Path)
+    parser.add_argument(
+        "--verified-backup-dir",
+        type=Path,
+        help="Completed backup directory with manifest.json for reclaim readiness.",
+    )
     parser.add_argument(
         "--connection-reserve",
         type=int,

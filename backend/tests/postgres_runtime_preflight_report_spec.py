@@ -1,4 +1,10 @@
-from backend.scripts.postgres_runtime_preflight_report import evaluate_report
+import hashlib
+import json
+
+from backend.scripts.postgres_runtime_preflight_report import (
+    _backup_verification,
+    evaluate_report,
+)
 
 
 def _base_report():
@@ -20,6 +26,17 @@ def _base_report():
             "backup_verify": {"exists": True},
             "legacy_compaction": {"exists": True},
             "retention_prune": {"exists": True},
+        },
+        "backup_verification": {
+            "source": "/tmp/backup",
+            "source_available": True,
+            "verified": True,
+            "options": {
+                "skip_db": False,
+                "skip_files": False,
+            },
+            "artifact_count": 2,
+            "errors": [],
         },
         "activity": {
             "idle_in_transaction": 0,
@@ -79,6 +96,77 @@ def test_preflight_report_blocks_missing_reclaim_and_observability_support():
     assert "pg_stat_statements_extension_missing" in report["readiness"]["blockers"]
     assert "pg_stat_statements_not_preloaded" in report["readiness"]["blockers"]
     assert "pg_stat_statements_top_sql_unavailable" in report["readiness"]["warnings"]
+
+
+def test_preflight_report_requires_verified_backup():
+    raw = _base_report()
+    raw["backup_verification"] = {
+        "source": None,
+        "source_available": False,
+        "verified": False,
+        "errors": ["verified_backup_dir_required"],
+    }
+
+    report = evaluate_report(raw)
+
+    assert report["readiness"]["ready_for_physical_reclaim"] is False
+    assert "verified_backup_missing" in report["readiness"]["blockers"]
+
+
+def test_preflight_report_blocks_invalid_backup_and_skip_db():
+    raw = _base_report()
+    raw["backup_verification"] = {
+        "source": "/tmp/backup",
+        "source_available": True,
+        "verified": False,
+        "errors": ["artifact_sha256_mismatch:postgres/core.dump"],
+    }
+
+    report = evaluate_report(raw)
+
+    assert report["readiness"]["ready_for_physical_reclaim"] is False
+    assert "verified_backup_invalid" in report["readiness"]["blockers"]
+
+    raw = _base_report()
+    raw["backup_verification"]["options"]["skip_db"] = True
+
+    report = evaluate_report(raw)
+
+    assert report["readiness"]["ready_for_physical_reclaim"] is False
+    assert "verified_backup_skips_database" in report["readiness"]["blockers"]
+
+
+def test_backup_verification_validates_manifest_artifacts(tmp_path):
+    artifact = tmp_path / "postgres" / "core.dump"
+    artifact.parent.mkdir(parents=True)
+    artifact.write_bytes(b"postgres dump")
+    digest = hashlib.sha256(artifact.read_bytes()).hexdigest()
+    manifest = {
+        "schema_version": "1.0",
+        "backup_name": "runtime-backup",
+        "created_at": "2026-05-14T00:00:00Z",
+        "options": {
+            "skip_db": False,
+            "skip_files": False,
+        },
+        "artifacts": [
+            {
+                "path": "postgres/core.dump",
+                "bytes": artifact.stat().st_size,
+                "sha256": digest,
+            }
+        ],
+    }
+    (tmp_path / "manifest.json").write_text(
+        json.dumps(manifest),
+        encoding="utf-8",
+    )
+
+    result = _backup_verification(tmp_path)
+
+    assert result["verified"] is True
+    assert result["artifact_count"] == 1
+    assert result["errors"] == []
 
 
 def test_preflight_report_blocks_hot_rows_and_open_transactions():
