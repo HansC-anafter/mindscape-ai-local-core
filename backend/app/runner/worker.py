@@ -478,6 +478,34 @@ def _runner_claim_gate_status() -> dict:
         return {"state": "open", "source": "unavailable", "persisted": False}
 
 
+def _runner_claim_gate_paused() -> tuple[bool, dict]:
+    gate = _runner_claim_gate_status()
+    return gate.get("state") == "paused", gate
+
+
+def _route_drain_after_current_status() -> dict:
+    if not _host_route_gate_enabled():
+        return {"active": False, "source": "disabled", "reservation_ids": []}
+    try:
+        from backend.app.services.host_resources import route_gate
+
+        active_reservations = route_gate.get_active_route_reservations()
+        drain_reservations = route_gate.drain_after_current_reservations(
+            active_reservations
+        )
+        return {
+            "active": bool(drain_reservations),
+            "source": "route_reservation",
+            "reservation_ids": [
+                str(reservation.get("reservation_id") or "")
+                for reservation in drain_reservations
+                if isinstance(reservation, dict)
+            ],
+        }
+    except Exception:
+        return {"active": False, "source": "unavailable", "reservation_ids": []}
+
+
 async def _dequeue_preferred_route_candidate(
     queue_cycle: list[RedisRunnerQueueStore],
     *,
@@ -745,6 +773,15 @@ async def _run_maintenance_cycle(
     queue_cycle: list[RedisRunnerQueueStore],
 ) -> None:
     """Keep the ready frontier warm even when the dequeue loop is idle."""
+    claim_gate_paused, claim_gate = _runner_claim_gate_paused()
+    if claim_gate_paused:
+        logger.warning(
+            "Runner maintenance skipped while claim gate is paused reason=%s source=%s",
+            claim_gate.get("reason"),
+            claim_gate.get("source"),
+        )
+        return
+
     loop = asyncio.get_running_loop()
     await asyncio.to_thread(
         _reap_stale_running_tasks,
@@ -859,18 +896,28 @@ async def run_forever() -> None:
     except Exception:
         pass
 
-    # ── Startup: reset running tasks from dead runners ──
-    reset_task_ids = await _reset_orphaned_running_tasks(
-        tasks_store, runner_id, runner_profile
-    )
-    if reset_task_ids:
-        await _purge_task_ids_from_transport(reset_task_ids, queue_cycle)
+    claim_gate_paused, startup_claim_gate = _runner_claim_gate_paused()
+    if claim_gate_paused:
+        logger.warning(
+            "Runner startup reconciliation skipped while claim gate is paused "
+            "profile=%s reason=%s source=%s",
+            runner_profile.profile_code,
+            startup_claim_gate.get("reason"),
+            startup_claim_gate.get("source"),
+        )
+    else:
+        # ── Startup: reset running tasks from dead runners ──
+        reset_task_ids = await _reset_orphaned_running_tasks(
+            tasks_store, runner_id, runner_profile
+        )
+        if reset_task_ids:
+            await _purge_task_ids_from_transport(reset_task_ids, queue_cycle)
 
-    # ── Startup backfill: recover pending tasks lost during restart ──
-    await _backfill_pending_to_redis(tasks_store, ready_queues)
+        # ── Startup backfill: recover pending tasks lost during restart ──
+        await _backfill_pending_to_redis(tasks_store, ready_queues)
 
-    # ── Startup lock cleanup: remove locks from dead runner instances ──
-    await _cleanup_stale_locks(redis_queue, runner_id, tasks_store)
+        # ── Startup lock cleanup: remove locks from dead runner instances ──
+        await _cleanup_stale_locks(redis_queue, runner_id, tasks_store)
 
     inflight: set[asyncio.Task] = set()
     reap_interval_seconds = _env_int("LOCAL_CORE_RUNNER_REAP_INTERVAL_SECONDS", 60)
@@ -878,6 +925,7 @@ async def run_forever() -> None:
     is_browser_runner = is_browser_resource_profile(runner_profile)
     next_resource_defer_log_at = 0.0
     next_claim_gate_log_at = 0.0
+    next_route_drain_gate_log_at = 0.0
     playbook_fair_scan_limit = _env_int(
         "LOCAL_CORE_RUNNER_PLAYBOOK_FAIR_SCAN_LIMIT",
         128,
@@ -1012,8 +1060,8 @@ async def run_forever() -> None:
             )
             continue
 
-        claim_gate = _runner_claim_gate_status()
-        if claim_gate.get("state") == "paused":
+        claim_gate_paused, claim_gate = _runner_claim_gate_paused()
+        if claim_gate_paused:
             now_loop = asyncio.get_event_loop().time()
             if now_loop >= next_claim_gate_log_at:
                 logger.warning(
@@ -1086,6 +1134,20 @@ async def run_forever() -> None:
             visibility_timeout_sec=visibility_timeout_sec,
             scan_limit=playbook_fair_scan_limit,
         )
+        if not task_id or not task_queue:
+            route_drain_gate = _route_drain_after_current_status()
+            if route_drain_gate.get("active"):
+                now_loop = asyncio.get_event_loop().time()
+                if now_loop >= next_route_drain_gate_log_at:
+                    logger.warning(
+                        "Runner route drain gate waiting profile=%s reservation_ids=%s inflight=%s",
+                        runner_profile.profile_code,
+                        ",".join(route_drain_gate.get("reservation_ids") or []),
+                        len(inflight),
+                    )
+                    next_route_drain_gate_log_at = now_loop + 30.0
+                await asyncio.sleep(poll_interval_ms / 1000)
+                continue
         if active_pack_ids and playbook_fair_scan_limit > 0:
             if not task_id or not task_queue:
                 task_id, task_queue = await _dequeue_preferred_different_playbook(

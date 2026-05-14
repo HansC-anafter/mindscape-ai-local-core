@@ -103,13 +103,16 @@ def _fetch_candidates(
     *,
     workspace_id: Optional[str],
     pack_ids: Iterable[str],
+    task_ids: Iterable[str],
     batch_size: int,
     cursor_created_at: Optional[Any],
     cursor_id: Optional[str],
 ):
+    task_id_values = tuple(str(task_id).strip() for task_id in task_ids if str(task_id).strip())
+    task_id_filter = "AND id IN :task_ids" if task_id_values else ""
     stmt = (
         text(
-            """
+            f"""
             SELECT
                 id,
                 workspace_id,
@@ -126,6 +129,7 @@ def _fetch_candidates(
               AND execution_context IS NOT NULL
               AND pack_id IN :pack_ids
               AND (:workspace_id IS NULL OR workspace_id = :workspace_id)
+              {task_id_filter}
               AND (
                     :cursor_created_at IS NULL
                     OR created_at > :cursor_created_at
@@ -137,12 +141,15 @@ def _fetch_candidates(
         )
         .bindparams(bindparam("pack_ids", expanding=True))
     )
+    if task_id_values:
+        stmt = stmt.bindparams(bindparam("task_ids", expanding=True))
     return list(
         conn.execute(
             stmt,
             {
                 "workspace_id": workspace_id,
                 "pack_ids": tuple(pack_ids),
+                "task_ids": task_id_values,
                 "batch_size": batch_size,
                 "cursor_created_at": cursor_created_at,
                 "cursor_id": cursor_id,
@@ -151,6 +158,30 @@ def _fetch_candidates(
         .mappings()
         .all()
     )
+
+
+def _append_backup_jsonl(
+    backup_path: Optional[str],
+    *,
+    row: Mapping[str, Any],
+    context: Dict[str, Any],
+) -> None:
+    if not backup_path:
+        return
+    path = pathlib.Path(backup_path).expanduser()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    record = {
+        "created_at": _utc_now_iso(),
+        "task_id": str(row.get("id") or ""),
+        "workspace_id": str(row.get("workspace_id") or ""),
+        "execution_id": str(row.get("execution_id") or ""),
+        "pack_id": str(row.get("pack_id") or ""),
+        "original_context_bytes": int(row.get("context_bytes") or _json_size(context)),
+        "execution_context": context,
+    }
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record, ensure_ascii=False, default=str))
+        handle.write("\n")
 
 
 def _write_landed_result(
@@ -256,6 +287,7 @@ def compact_batch(args: argparse.Namespace) -> int:
                 conn,
                 workspace_id=args.workspace_id,
                 pack_ids=args.pack_id,
+                task_ids=args.task_id,
                 batch_size=args.batch_size,
                 cursor_created_at=cursor_created_at,
                 cursor_id=cursor_id,
@@ -315,6 +347,11 @@ def compact_batch(args: argparse.Namespace) -> int:
                 processed += 1
                 continue
 
+            _append_backup_jsonl(
+                args.backup_jsonl,
+                row=row,
+                context=context,
+            )
             artifact_dir = _write_landed_result(
                 storage_base_path=storage["storage_base_path"],
                 artifacts_dir=storage["artifacts_dir"],
@@ -356,6 +393,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--workspace-id", default=None)
     parser.add_argument("--pack-id", action="append", default=list(DEFAULT_PACK_IDS))
+    parser.add_argument("--task-id", action="append", default=[])
+    parser.add_argument("--backup-jsonl", default=None)
     parser.add_argument("--batch-size", type=int, default=10)
     parser.add_argument("--limit", type=int, default=25)
     parser.add_argument("--min-bytes", type=int, default=256 * 1024)

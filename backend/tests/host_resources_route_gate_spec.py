@@ -76,6 +76,36 @@ def test_route_gate_rejects_unmatched_candidate(monkeypatch):
     assert decision.reason == "no_matching_route_reservation"
 
 
+def test_route_gate_detects_drain_after_current_controls():
+    active_reservations = [
+        {
+            "reservation_id": "res-1",
+            "state": "reserved_waiting",
+            "route_request": {
+                "target_lane": "comfyui_runtime:flux2_klein_true_v2_q6_local",
+                "resource_groups": ["apple_metal_heavy"],
+                "drain_policy": "drain_after_current",
+            },
+        },
+        {
+            "reservation_id": "res-2",
+            "state": "reserved_waiting",
+            "route_request": {
+                "target_lane": "runner:default_local",
+                "resource_groups": ["default_local"],
+                "drain_policy": "prefer_only",
+            },
+        },
+    ]
+
+    drain_reservations = route_gate.drain_after_current_reservations(
+        active_reservations
+    )
+
+    assert route_gate.has_drain_after_current_controls(active_reservations) is True
+    assert [reservation["reservation_id"] for reservation in drain_reservations] == ["res-1"]
+
+
 def test_worker_reads_runner_claim_gate(monkeypatch):
     import backend.app.services.host_resources as host_resources
 
@@ -94,6 +124,60 @@ def test_worker_reads_runner_claim_gate(monkeypatch):
 
     assert gate["state"] == "paused"
     assert gate["reason"] == "postgres_maintenance"
+
+
+@pytest.mark.asyncio
+async def test_worker_maintenance_cycle_skips_when_claim_gate_paused(monkeypatch):
+    monkeypatch.setattr(
+        worker,
+        "_runner_claim_gate_status",
+        lambda: {
+            "state": "paused",
+            "reason": "postgres_maintenance",
+            "source": "redis",
+            "persisted": True,
+        },
+    )
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("maintenance should not run while claim gate is paused")
+
+    monkeypatch.setattr(worker, "_reap_stale_running_tasks", fail_if_called)
+    monkeypatch.setattr(worker, "_request_watchdog_abort_for_no_progress_tasks", fail_if_called)
+    monkeypatch.setattr(worker, "_reap_redis_queues", fail_if_called)
+    monkeypatch.setattr(worker, "_cleanup_stale_locks", fail_if_called)
+
+    await worker._run_maintenance_cycle(
+        tasks_store=object(),
+        runner_id="runner-1",
+        redis_queue=object(),
+        ready_queues={"default_local": object()},
+        ready_targets={"default_local": 1},
+        queue_cycle=[],
+    )
+
+
+def test_worker_reads_route_drain_gate(monkeypatch):
+    monkeypatch.setattr(
+        route_gate,
+        "get_active_route_reservations",
+        lambda: [
+            {
+                "reservation_id": "res-drain",
+                "state": "reserved_waiting",
+                "route_request": {
+                    "target_lane": "comfyui_runtime:flux2_klein_true_v2_q6_local",
+                    "resource_groups": ["apple_metal_heavy"],
+                    "drain_policy": "drain_after_current",
+                },
+            }
+        ],
+    )
+
+    status = worker._route_drain_after_current_status()
+
+    assert status["active"] is True
+    assert status["reservation_ids"] == ["res-drain"]
 
 
 @pytest.mark.asyncio

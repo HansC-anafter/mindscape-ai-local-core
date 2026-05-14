@@ -28,6 +28,23 @@ def test_postgres_compose_uses_managed_runtime_image():
     assert "dockerfile: docker/postgres/Dockerfile" in compose
     assert "shared_preload_libraries=pg_stat_statements" in compose
     assert "pg_stat_statements.track=all" in compose
+    assert "archive_mode=on" in compose
+    assert "archive_command=test ! -f /var/lib/postgresql/wal_archive/%f" in compose
+
+
+def test_postgres_completion_runtime_defines_pooling_replica_and_redis_aof():
+    repo_root = _repo_root()
+    if repo_root is None:
+        pytest.skip("Repository root files are not mounted in this container")
+
+    compose = (repo_root / "docker-compose.yml").read_text(encoding="utf-8")
+
+    assert "pgbouncer:" in compose
+    assert "postgres-replica:" in compose
+    assert "LOCAL_CORE_DB_POOL_HOST:-pgbouncer" in compose
+    assert "--appendonly" in compose
+    assert '"yes"' in compose
+    assert "LOCAL_CORE_REDIS_HOST_DIR" in compose
 
 
 def test_runtime_images_include_reclaim_client_package():
@@ -42,6 +59,7 @@ def test_runtime_images_include_reclaim_client_package():
 
     assert "postgresql-${PG_MAJOR}-repack" in backend_dockerfile
     assert "postgresql-${PG_MAJOR}-repack" in postgres_dockerfile
+    assert "pgbouncer" in postgres_dockerfile
     assert "postgresql-client-${PG_MAJOR}" in backend_dockerfile
 
 

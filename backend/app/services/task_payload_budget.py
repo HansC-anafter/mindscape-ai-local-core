@@ -12,11 +12,14 @@ from backend.app.services.result_object_contract import (
 )
 
 
+HOT_TASK_JSON_LIMIT_BYTES = 16 * 1024
+HOT_TASK_JSON_WRITE_LIMIT_BYTES = 15 * 1024
+
 DEFAULT_TASK_PAYLOAD_LIMITS = {
-    "params": 512 * 1024,
-    "result": 256 * 1024,
-    "execution_context": 512 * 1024,
-    "blocked_payload": 128 * 1024,
+    "params": HOT_TASK_JSON_WRITE_LIMIT_BYTES,
+    "result": HOT_TASK_JSON_WRITE_LIMIT_BYTES,
+    "execution_context": HOT_TASK_JSON_WRITE_LIMIT_BYTES,
+    "blocked_payload": HOT_TASK_JSON_WRITE_LIMIT_BYTES,
 }
 
 _CONTEXT_PRESERVE_KEYS = {

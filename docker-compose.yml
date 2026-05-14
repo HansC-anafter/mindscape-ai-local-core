@@ -6,21 +6,21 @@ x-runner-environment: &runner-environment
   REDIS_PORT: ${REDIS_PORT:-6379}
   REDIS_DB: ${REDIS_DB:-0}
   REDIS_PASSWORD: ${REDIS_PASSWORD:-}
-  DATABASE_URL_CORE: postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@postgres:5432/${POSTGRES_CORE_DB:-mindscape_core}
-  DATABASE_URL_VECTOR: postgresql://${POSTGRES_VECTOR_USER:-mindscape}:${POSTGRES_VECTOR_PASSWORD:-mindscape_password}@postgres:5432/${POSTGRES_VECTOR_DB:-mindscape_vectors}
-  DATABASE_URL: postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@postgres:5432/${POSTGRES_CORE_DB:-mindscape_core}
-  POSTGRES_CORE_HOST: postgres
-  POSTGRES_CORE_PORT: 5432
+  DATABASE_URL_CORE: postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/${POSTGRES_CORE_DB:-mindscape_core}
+  DATABASE_URL_VECTOR: postgresql://${POSTGRES_VECTOR_USER:-mindscape}:${POSTGRES_VECTOR_PASSWORD:-mindscape_password}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/${POSTGRES_VECTOR_DB:-mindscape_vectors}
+  DATABASE_URL: postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/${POSTGRES_CORE_DB:-mindscape_core}
+  POSTGRES_CORE_HOST: ${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}
+  POSTGRES_CORE_PORT: ${LOCAL_CORE_DB_POOL_PORT:-6432}
   POSTGRES_CORE_DB: ${POSTGRES_CORE_DB:-mindscape_core}
   POSTGRES_CORE_USER: ${POSTGRES_CORE_USER:-mindscape}
   POSTGRES_CORE_PASSWORD: ${POSTGRES_CORE_PASSWORD:-mindscape_password}
-  POSTGRES_VECTOR_HOST: postgres
-  POSTGRES_VECTOR_PORT: 5432
+  POSTGRES_VECTOR_HOST: ${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}
+  POSTGRES_VECTOR_PORT: ${LOCAL_CORE_DB_POOL_PORT:-6432}
   POSTGRES_VECTOR_DB: ${POSTGRES_VECTOR_DB:-mindscape_vectors}
   POSTGRES_VECTOR_USER: ${POSTGRES_VECTOR_USER:-mindscape}
   POSTGRES_VECTOR_PASSWORD: ${POSTGRES_VECTOR_PASSWORD:-mindscape_password}
-  POSTGRES_HOST: ${POSTGRES_CORE_HOST:-postgres}
-  POSTGRES_PORT: ${POSTGRES_CORE_PORT:-5432}
+  POSTGRES_HOST: ${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}
+  POSTGRES_PORT: ${LOCAL_CORE_DB_POOL_PORT:-6432}
   POSTGRES_DB: ${POSTGRES_CORE_DB:-mindscape_core}
   POSTGRES_USER: ${POSTGRES_CORE_USER:-mindscape}
   POSTGRES_PASSWORD: ${POSTGRES_CORE_PASSWORD:-mindscape_password}
@@ -82,6 +82,8 @@ x-runner-common: &runner-common
   depends_on:
     backend:
       condition: service_healthy
+    pgbouncer:
+      condition: service_healthy
     redis:
       condition: service_healthy
   entrypoint: ["python", "-m", "backend.app.runner.worker"]
@@ -130,24 +132,24 @@ services:
       - REDIS_DB=${REDIS_DB:-0}
       - REDIS_PASSWORD=${REDIS_PASSWORD:-}
       # Database
-      - DATABASE_URL_CORE=postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@postgres:5432/${POSTGRES_CORE_DB:-mindscape_core}
-      - DATABASE_URL_VECTOR=postgresql://${POSTGRES_VECTOR_USER:-mindscape}:${POSTGRES_VECTOR_PASSWORD:-mindscape_password}@postgres:5432/${POSTGRES_VECTOR_DB:-mindscape_vectors}
-      - DATABASE_URL=postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@postgres:5432/${POSTGRES_CORE_DB:-mindscape_core}
+      - DATABASE_URL_CORE=postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/${POSTGRES_CORE_DB:-mindscape_core}
+      - DATABASE_URL_VECTOR=postgresql://${POSTGRES_VECTOR_USER:-mindscape}:${POSTGRES_VECTOR_PASSWORD:-mindscape_password}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/${POSTGRES_VECTOR_DB:-mindscape_vectors}
+      - DATABASE_URL=postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/${POSTGRES_CORE_DB:-mindscape_core}
       # PostgreSQL core database
-      - POSTGRES_CORE_HOST=postgres
-      - POSTGRES_CORE_PORT=5432
+      - POSTGRES_CORE_HOST=${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}
+      - POSTGRES_CORE_PORT=${LOCAL_CORE_DB_POOL_PORT:-6432}
       - POSTGRES_CORE_DB=${POSTGRES_CORE_DB:-mindscape_core}
       - POSTGRES_CORE_USER=${POSTGRES_CORE_USER:-mindscape}
       - POSTGRES_CORE_PASSWORD=${POSTGRES_CORE_PASSWORD:-mindscape_password}
       # PostgreSQL vector database
-      - POSTGRES_VECTOR_HOST=postgres
-      - POSTGRES_VECTOR_PORT=5432
+      - POSTGRES_VECTOR_HOST=${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}
+      - POSTGRES_VECTOR_PORT=${LOCAL_CORE_DB_POOL_PORT:-6432}
       - POSTGRES_VECTOR_DB=${POSTGRES_VECTOR_DB:-mindscape_vectors}
       - POSTGRES_VECTOR_USER=${POSTGRES_VECTOR_USER:-mindscape}
       - POSTGRES_VECTOR_PASSWORD=${POSTGRES_VECTOR_PASSWORD:-mindscape_password}
       # Legacy fallback (core)
-      - POSTGRES_HOST=${POSTGRES_CORE_HOST:-postgres}
-      - POSTGRES_PORT=${POSTGRES_CORE_PORT:-5432}
+      - POSTGRES_HOST=${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}
+      - POSTGRES_PORT=${LOCAL_CORE_DB_POOL_PORT:-6432}
       - POSTGRES_DB=${POSTGRES_CORE_DB:-mindscape_core}
       - POSTGRES_USER=${POSTGRES_CORE_USER:-mindscape}
       - POSTGRES_PASSWORD=${POSTGRES_CORE_PASSWORD:-mindscape_password}
@@ -214,6 +216,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      pgbouncer:
+        condition: service_healthy
       redis:
         condition: service_healthy
     healthcheck:
@@ -267,21 +271,21 @@ services:
       - REDIS_PORT=${REDIS_PORT:-6379}
       - REDIS_DB=${REDIS_DB:-0}
       - REDIS_PASSWORD=${REDIS_PASSWORD:-}
-      - DATABASE_URL_CORE=postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@postgres:5432/${POSTGRES_CORE_DB:-mindscape_core}
-      - DATABASE_URL_VECTOR=postgresql://${POSTGRES_VECTOR_USER:-mindscape}:${POSTGRES_VECTOR_PASSWORD:-mindscape_password}@postgres:5432/${POSTGRES_VECTOR_DB:-mindscape_vectors}
-      - DATABASE_URL=postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@postgres:5432/${POSTGRES_CORE_DB:-mindscape_core}
-      - POSTGRES_CORE_HOST=postgres
-      - POSTGRES_CORE_PORT=5432
+      - DATABASE_URL_CORE=postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/${POSTGRES_CORE_DB:-mindscape_core}
+      - DATABASE_URL_VECTOR=postgresql://${POSTGRES_VECTOR_USER:-mindscape}:${POSTGRES_VECTOR_PASSWORD:-mindscape_password}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/${POSTGRES_VECTOR_DB:-mindscape_vectors}
+      - DATABASE_URL=postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/${POSTGRES_CORE_DB:-mindscape_core}
+      - POSTGRES_CORE_HOST=${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}
+      - POSTGRES_CORE_PORT=${LOCAL_CORE_DB_POOL_PORT:-6432}
       - POSTGRES_CORE_DB=${POSTGRES_CORE_DB:-mindscape_core}
       - POSTGRES_CORE_USER=${POSTGRES_CORE_USER:-mindscape}
       - POSTGRES_CORE_PASSWORD=${POSTGRES_CORE_PASSWORD:-mindscape_password}
-      - POSTGRES_VECTOR_HOST=postgres
-      - POSTGRES_VECTOR_PORT=5432
+      - POSTGRES_VECTOR_HOST=${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}
+      - POSTGRES_VECTOR_PORT=${LOCAL_CORE_DB_POOL_PORT:-6432}
       - POSTGRES_VECTOR_DB=${POSTGRES_VECTOR_DB:-mindscape_vectors}
       - POSTGRES_VECTOR_USER=${POSTGRES_VECTOR_USER:-mindscape}
       - POSTGRES_VECTOR_PASSWORD=${POSTGRES_VECTOR_PASSWORD:-mindscape_password}
-      - POSTGRES_HOST=${POSTGRES_CORE_HOST:-postgres}
-      - POSTGRES_PORT=${POSTGRES_CORE_PORT:-5432}
+      - POSTGRES_HOST=${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}
+      - POSTGRES_PORT=${LOCAL_CORE_DB_POOL_PORT:-6432}
       - POSTGRES_DB=${POSTGRES_CORE_DB:-mindscape_core}
       - POSTGRES_USER=${POSTGRES_CORE_USER:-mindscape}
       - POSTGRES_PASSWORD=${POSTGRES_CORE_PASSWORD:-mindscape_password}
@@ -328,6 +332,8 @@ services:
       - 8.8.4.4
     depends_on:
       postgres:
+        condition: service_healthy
+      pgbouncer:
         condition: service_healthy
       redis:
         condition: service_healthy
@@ -473,6 +479,14 @@ services:
       - -c
       - wal_buffers=16MB
       - -c
+      - wal_level=replica
+      - -c
+      - archive_mode=on
+      - -c
+      - archive_command=test ! -f /var/lib/postgresql/wal_archive/%f && cp %p /var/lib/postgresql/wal_archive/%f
+      - -c
+      - archive_timeout=60s
+      - -c
       - track_io_timing=on
       - -c
       - log_checkpoints=on
@@ -502,9 +516,97 @@ services:
       - TZ=${TZ:-UTC}
     volumes:
       - "${LOCAL_CORE_POSTGRES_HOST_DIR:-./data/postgres}:/var/lib/postgresql/data"
+      - "${LOCAL_CORE_POSTGRES_WAL_ARCHIVE_HOST_DIR:-./data/postgres-wal-archive}:/var/lib/postgresql/wal_archive"
       - ./docker/postgres/init-dual-dbs.sh:/docker-entrypoint-initdb.d/00-init-dual-dbs.sh:ro
     networks:
       - mindscape-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_CORE_USER:-mindscape} -d ${POSTGRES_CORE_DB:-mindscape_core}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+
+  pgbouncer:
+    image: ${LOCAL_CORE_POSTGRES_IMAGE:-mindscape-ai-local-core-postgres:pg16}
+    build:
+      context: .
+      dockerfile: docker/postgres/Dockerfile
+      args:
+        POSTGRES_BASE_IMAGE: ${LOCAL_CORE_POSTGRES_BASE_IMAGE:-pgvector/pgvector:pg16}
+        PG_MAJOR: ${LOCAL_CORE_POSTGRES_MAJOR:-16}
+    container_name: mindscape-ai-local-core-pgbouncer
+    restart: unless-stopped
+    logging: *default-logging
+    user: postgres
+    command:
+      - sh
+      - -lc
+      - |
+        printf '"%s" "%s"\n' "$$POSTGRES_CORE_USER" "$$POSTGRES_CORE_PASSWORD" > /tmp/pgbouncer-userlist.txt
+        exec /usr/sbin/pgbouncer /etc/pgbouncer/pgbouncer.ini
+    ports:
+      - "${LOCAL_CORE_PGBOUNCER_HOST_PORT:-6432}:6432"
+    environment:
+      - POSTGRES_CORE_USER=${POSTGRES_CORE_USER:-mindscape}
+      - POSTGRES_CORE_PASSWORD=${POSTGRES_CORE_PASSWORD:-mindscape_password}
+      - POSTGRES_CORE_DB=${POSTGRES_CORE_DB:-mindscape_core}
+      - POSTGRES_VECTOR_DB=${POSTGRES_VECTOR_DB:-mindscape_vectors}
+      - TZ=${TZ:-UTC}
+    volumes:
+      - ./docker/pgbouncer/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
+    networks:
+      - mindscape-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h localhost -p 6432 -U ${POSTGRES_CORE_USER:-mindscape} -d ${POSTGRES_CORE_DB:-mindscape_core}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  postgres-replica:
+    image: ${LOCAL_CORE_POSTGRES_IMAGE:-mindscape-ai-local-core-postgres:pg16}
+    build:
+      context: .
+      dockerfile: docker/postgres/Dockerfile
+      args:
+        POSTGRES_BASE_IMAGE: ${LOCAL_CORE_POSTGRES_BASE_IMAGE:-pgvector/pgvector:pg16}
+        PG_MAJOR: ${LOCAL_CORE_POSTGRES_MAJOR:-16}
+    container_name: mindscape-ai-local-core-postgres-replica
+    profiles: ["ha"]
+    restart: unless-stopped
+    logging: *default-logging
+    user: postgres
+    command:
+      - sh
+      - -lc
+      - |
+        if [ ! -s "$$PGDATA/PG_VERSION" ]; then
+          rm -rf "$$PGDATA"/*
+          until pg_isready -h postgres -p 5432 -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"; do sleep 2; done
+          printf 'postgres:5432:*:%s:%s\n' "$$POSTGRES_USER" "$$POSTGRES_PASSWORD" > /tmp/pgpass
+          chmod 0600 /tmp/pgpass
+          PGPASSFILE=/tmp/pgpass pg_basebackup -h postgres -p 5432 -U "$$POSTGRES_USER" -D "$$PGDATA" -Fp -Xs -P -R
+        fi
+        exec postgres -c hot_standby=on -c shared_buffers=256MB -c max_wal_size=2GB
+    ports:
+      - "${LOCAL_CORE_POSTGRES_REPLICA_HOST_PORT:-5434}:5432"
+    environment:
+      - POSTGRES_DB=${POSTGRES_CORE_DB:-mindscape_core}
+      - POSTGRES_USER=${POSTGRES_CORE_USER:-mindscape}
+      - POSTGRES_PASSWORD=${POSTGRES_CORE_PASSWORD:-mindscape_password}
+      - PGDATA=/var/lib/postgresql/data/pgdata
+      - TZ=${TZ:-UTC}
+    volumes:
+      - "${LOCAL_CORE_POSTGRES_REPLICA_HOST_DIR:-./data/postgres-replica}:/var/lib/postgresql/data"
+    networks:
+      - mindscape-network
+    depends_on:
+      postgres:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_CORE_USER:-mindscape} -d ${POSTGRES_CORE_DB:-mindscape_core}"]
       interval: 10s
@@ -524,7 +626,11 @@ services:
       - --save
       - ""
       - --appendonly
-      - "no"
+      - "yes"
+      - --appendfsync
+      - everysec
+    volumes:
+      - "${LOCAL_CORE_REDIS_HOST_DIR:-./data/redis}:/data"
     networks:
       - mindscape-network
     healthcheck:

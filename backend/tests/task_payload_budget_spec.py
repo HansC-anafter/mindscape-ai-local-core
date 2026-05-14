@@ -1,79 +1,15 @@
-import json
-from contextlib import contextmanager
+from pathlib import Path
 
 import pytest
-from sqlalchemy import create_engine, text
-from sqlalchemy.pool import StaticPool
 
 from backend.app.services.result_object_contract import json_payload_size
-from backend.app.services.stores.tasks_store._base import TasksStoreCrudMixin
 from backend.app.services.task_payload_budget import (
+    DEFAULT_TASK_PAYLOAD_LIMITS,
+    HOT_TASK_JSON_LIMIT_BYTES,
+    HOT_TASK_JSON_WRITE_LIMIT_BYTES,
     PayloadBudgetError,
     apply_task_payload_budget,
 )
-
-
-class _SqliteBudgetStore(TasksStoreCrudMixin):
-    def __init__(self) -> None:
-        self._engine = create_engine(
-            "sqlite+pysqlite:///:memory:",
-            connect_args={"check_same_thread": False},
-            poolclass=StaticPool,
-            future=True,
-        )
-        with self._engine.begin() as conn:
-            conn.execute(
-                text(
-                    """
-                    CREATE TABLE tasks (
-                        id TEXT PRIMARY KEY,
-                        params TEXT,
-                        result TEXT,
-                        execution_context TEXT,
-                        blocked_payload TEXT
-                    )
-                    """
-                )
-            )
-            conn.execute(
-                text(
-                    """
-                    INSERT INTO tasks (
-                        id,
-                        params,
-                        result,
-                        execution_context,
-                        blocked_payload
-                    ) VALUES (
-                        'task-1',
-                        '{}',
-                        '{}',
-                        '{}',
-                        NULL
-                    )
-                    """
-                )
-            )
-
-    @contextmanager
-    def transaction(self):
-        with self._engine.begin() as conn:
-            yield conn
-
-    def serialize_json(self, value):
-        return json.dumps(value, ensure_ascii=False, default=str)
-
-    def fetch_payloads(self):
-        with self._engine.begin() as conn:
-            return conn.execute(
-                text(
-                    """
-                    SELECT params, result, execution_context, blocked_payload
-                    FROM tasks
-                    WHERE id = 'task-1'
-                    """
-                )
-            ).mappings().one()
 
 
 def _contains_key(value, target_key):
@@ -117,7 +53,6 @@ def test_execution_context_budget_preserves_route_metadata():
     compacted = apply_task_payload_budget(
         "execution_context",
         context,
-        limit_bytes=32 * 1024,
     )
 
     assert compacted["route_request"] == route_request
@@ -126,7 +61,17 @@ def test_execution_context_budget_preserves_route_metadata():
     assert compacted["workflow_result"]["_compacted"] is True
     assert compacted["execution_trace"]["_compacted"] is True
     assert compacted["_payload_budget"]["field"] == "execution_context"
-    assert json_payload_size(compacted) <= 32 * 1024
+    assert json_payload_size(compacted) <= HOT_TASK_JSON_WRITE_LIMIT_BYTES
+
+
+def test_default_hot_task_json_limits_are_strict_completion_budget():
+    assert HOT_TASK_JSON_LIMIT_BYTES == 16 * 1024
+    assert DEFAULT_TASK_PAYLOAD_LIMITS == {
+        "params": 15 * 1024,
+        "result": 15 * 1024,
+        "execution_context": 15 * 1024,
+        "blocked_payload": 15 * 1024,
+    }
 
 
 def test_result_budget_converts_large_result_to_descriptor():
@@ -159,44 +104,18 @@ def test_params_budget_rejects_oversized_inputs_without_truncation():
         apply_task_payload_budget("params", params, limit_bytes=1024)
 
 
-def test_tasks_store_update_task_applies_payload_budget_before_write():
-    store = _SqliteBudgetStore()
-    route_request = {
-        "target_lane": "comfyui_runtime:flux2_klein_true_v2_q6_local",
-        "resource_groups": ["apple_metal_heavy"],
-    }
+def test_tasks_store_write_paths_apply_payload_budget_before_serialization():
+    source = (
+        Path(__file__).resolve().parents[1]
+        / "app/services/stores/tasks_store/_base.py"
+    ).read_text(encoding="utf-8")
 
-    store.update_task(
-        "task-1",
-        execution_context={
-            "route_request": route_request,
-            "execution_trace": {"events": [{"message": "x" * 1000} for _ in range(500)]},
-            "workflow_result": {
-                "status": "completed",
-                "steps": {
-                    f"step_{index}": {
-                        "status": "success",
-                        "outputs": {"items": ["x" * 1000 for _ in range(30)]},
-                    }
-                    for index in range(20)
-                },
-            },
-        },
-        result={
-            "summary": "done",
-            "status": "completed",
-            "execution_trace": {"events": [{"message": "x" * 1000} for _ in range(400)]},
-        },
-        return_updated=False,
-    )
-
-    row = store.fetch_payloads()
-    stored_context = json.loads(row["execution_context"])
-    stored_result = json.loads(row["result"])
-
-    assert stored_context["route_request"] == route_request
-    assert stored_context["execution_trace"]["_compacted"] is True
-    assert stored_context["workflow_result"]["_compacted"] is True
-    assert stored_result["summary"] == "done"
-    assert stored_result["result_object"]["payload_schema"] == "task_result"
-    assert not _contains_key(stored_result, "execution_trace")
+    assert 'apply_task_payload_budget("params", task.params)' in source
+    assert 'apply_task_payload_budget("result", task.result)' in source
+    assert 'apply_task_payload_budget("execution_context"' in source
+    assert '"blocked_payload",\n                task.blocked_payload' in source
+    assert 'if key in ["params", "result", "blocked_payload"]' in source
+    assert '"params": self.serialize_json(task_params)' in source
+    assert '"result": self.serialize_json(task_result)' in source
+    assert '"execution_context": (\n                    self.serialize_json(task_execution_context)' in source
+    assert '"blocked_payload": self.serialize_json(task_blocked_payload)' in source

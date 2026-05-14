@@ -14,6 +14,9 @@ def _base_report():
             "pg_is_in_recovery": False,
             "shared_preload_libraries": "pg_stat_statements",
             "max_connections": "100",
+            "wal_level": "replica",
+            "archive_mode": "on",
+            "archive_command": "test ! -f /archive/%f && cp %p /archive/%f",
         },
         "extensions": {
             "installed": ["pg_repack", "pg_stat_statements"],
@@ -48,6 +51,16 @@ def _base_report():
             "safe_connection_limit": 80,
             "active_connections": 10,
         },
+        "runtime_readiness": {
+            "source_available": True,
+            "pgbouncer_service_defined": True,
+            "backend_uses_pgbouncer": True,
+            "runner_uses_pgbouncer": True,
+            "read_replica_service_defined": True,
+            "wal_archive_volume_configured": True,
+            "redis_aof_configured": True,
+            "redis_persistence_volume_configured": True,
+        },
         "filesystem": {
             "source_available": True,
             "free_bytes": 20_000_000_000,
@@ -68,6 +81,7 @@ def _base_report():
                 "execution_context_over_budget": 0,
                 "result_over_budget": 0,
                 "params_over_budget": 0,
+                "blocked_payload_over_budget": 0,
             }
         },
         "pg_stat_statements_top": [{"queryid": 1, "calls": 10}],
@@ -173,6 +187,7 @@ def test_preflight_report_blocks_hot_rows_and_open_transactions():
     raw = _base_report()
     raw["activity"]["idle_in_transaction"] = 1
     raw["hot_row_budget"]["sample"]["result_over_budget"] = 2
+    raw["hot_row_budget"]["sample"]["blocked_payload_over_budget"] = 1
 
     report = evaluate_report(raw)
 
@@ -220,6 +235,35 @@ def test_preflight_report_blocks_memory_only_runner_claim_gate_pause():
 
     assert report["readiness"]["ready_for_physical_reclaim"] is False
     assert "runner_claim_gate_not_persisted" in report["readiness"]["blockers"]
+
+
+def test_preflight_report_blocks_missing_ha_runtime_readiness():
+    raw = _base_report()
+    raw["database"]["archive_mode"] = "off"
+    raw["database"]["archive_command"] = ""
+    raw["runtime_readiness"] = {
+        "source_available": True,
+        "pgbouncer_service_defined": False,
+        "backend_uses_pgbouncer": False,
+        "runner_uses_pgbouncer": False,
+        "read_replica_service_defined": False,
+        "wal_archive_volume_configured": False,
+        "redis_aof_configured": False,
+        "redis_persistence_volume_configured": False,
+    }
+
+    report = evaluate_report(raw)
+
+    blockers = report["readiness"]["blockers"]
+    assert "postgres_archive_mode_off" in blockers
+    assert "postgres_archive_command_missing" in blockers
+    assert "pgbouncer_service_missing" in blockers
+    assert "backend_not_routed_through_pgbouncer" in blockers
+    assert "runner_not_routed_through_pgbouncer" in blockers
+    assert "read_replica_service_missing" in blockers
+    assert "wal_archive_volume_missing" in blockers
+    assert "redis_aof_disabled" in blockers
+    assert "redis_persistence_volume_missing" in blockers
 
 
 def test_preflight_report_blocks_unsafe_connection_and_disk_budget():

@@ -141,6 +141,7 @@ def _hot_row_budget(
     execution_context_budget: int,
     result_budget: int,
     params_budget: int,
+    blocked_payload_budget: int,
 ) -> dict[str, Any]:
     return _mapping_one(
         conn,
@@ -157,12 +158,18 @@ def _hot_row_budget(
             COUNT(*) FILTER (
                 WHERE octet_length(coalesce(params::text, '')) > :params_budget
             )::bigint AS params_over_budget,
+            COUNT(*) FILTER (
+                WHERE octet_length(coalesce(blocked_payload::text, ''))
+                      > :blocked_payload_budget
+            )::bigint AS blocked_payload_over_budget,
             COALESCE(MAX(octet_length(coalesce(execution_context::text, ''))), 0)::bigint
                 AS max_execution_context_bytes,
             COALESCE(MAX(octet_length(coalesce(result::text, ''))), 0)::bigint
                 AS max_result_bytes,
             COALESCE(MAX(octet_length(coalesce(params::text, ''))), 0)::bigint
-                AS max_params_bytes
+                AS max_params_bytes,
+            COALESCE(MAX(octet_length(coalesce(blocked_payload::text, ''))), 0)::bigint
+                AS max_blocked_payload_bytes
         FROM tasks
         WHERE created_at >= now() - (:recent_hours * interval '1 hour')
         """,
@@ -171,6 +178,7 @@ def _hot_row_budget(
             "execution_context_budget": execution_context_budget,
             "result_budget": result_budget,
             "params_budget": params_budget,
+            "blocked_payload_budget": blocked_payload_budget,
         },
     )
 
@@ -492,6 +500,95 @@ def _connection_budget(
     return budget
 
 
+def _compose_runtime_readiness(compose_file: Path | None) -> dict[str, Any]:
+    selected_compose = next(
+        (
+            candidate
+            for candidate in _compose_file_candidates(compose_file)
+            if candidate.is_file()
+        ),
+        None,
+    )
+    readiness: dict[str, Any] = {
+        "source": str(selected_compose) if selected_compose else None,
+        "source_available": bool(selected_compose),
+        "pgbouncer_service_defined": False,
+        "backend_uses_pgbouncer": False,
+        "runner_uses_pgbouncer": False,
+        "read_replica_service_defined": False,
+        "wal_archive_volume_configured": False,
+        "redis_aof_configured": False,
+        "redis_persistence_volume_configured": False,
+    }
+    if selected_compose is None:
+        return readiness
+
+    try:
+        import yaml
+    except Exception as exc:
+        readiness["error"] = f"pyyaml_unavailable: {exc}"
+        readiness["source_available"] = False
+        return readiness
+
+    try:
+        payload = yaml.safe_load(selected_compose.read_text(encoding="utf-8")) or {}
+    except Exception as exc:
+        readiness["error"] = str(exc)
+        readiness["source_available"] = False
+        return readiness
+
+    services = payload.get("services") if isinstance(payload, Mapping) else {}
+    if not isinstance(services, Mapping):
+        return readiness
+
+    pgbouncer_service = services.get("pgbouncer")
+    readiness["pgbouncer_service_defined"] = isinstance(pgbouncer_service, Mapping)
+    readiness["read_replica_service_defined"] = isinstance(
+        services.get("postgres-replica"),
+        Mapping,
+    )
+
+    postgres_service = services.get("postgres")
+    if isinstance(postgres_service, Mapping):
+        volumes = [str(item) for item in postgres_service.get("volumes") or []]
+        readiness["wal_archive_volume_configured"] = any(
+            "wal_archive" in item or "postgres-wal-archive" in item
+            for item in volumes
+        )
+
+    redis_service = services.get("redis")
+    if isinstance(redis_service, Mapping):
+        command = [str(item) for item in redis_service.get("command") or []]
+        volumes = [str(item) for item in redis_service.get("volumes") or []]
+        readiness["redis_aof_configured"] = (
+            "--appendonly" in command and "yes" in command
+        )
+        readiness["redis_persistence_volume_configured"] = any(
+            item.endswith(":/data") or ":/data:" in item for item in volumes
+        )
+
+    backend_service = services.get("backend")
+    if isinstance(backend_service, Mapping):
+        backend_env = _service_environment(backend_service)
+        readiness["backend_uses_pgbouncer"] = (
+            backend_env.get("POSTGRES_CORE_HOST") == "pgbouncer"
+            and backend_env.get("POSTGRES_CORE_PORT") == "6432"
+        )
+
+    runner_env = payload.get("x-runner-environment")
+    if isinstance(runner_env, Mapping):
+        resolved_runner_env = {
+            str(key): _resolve_compose_env_value(value)
+            for key, value in runner_env.items()
+        }
+        readiness["runner_uses_pgbouncer"] = (
+            resolved_runner_env.get("POSTGRES_CORE_HOST") == "pgbouncer"
+            and resolved_runner_env.get("POSTGRES_CORE_PORT") == "6432"
+        )
+
+    return readiness
+
+
 def _postgres_data_path_candidates(paths: Sequence[Path] | None) -> list[Path]:
     candidates: list[Path] = []
     candidates.extend(paths or [])
@@ -702,6 +799,9 @@ def _unavailable_database_report(
             "pg_is_in_recovery": None,
             "shared_preload_libraries": "",
             "max_connections": "",
+            "wal_level": "",
+            "archive_mode": "",
+            "archive_command": "",
         },
         "extensions": {
             "required": list(REQUIRED_EXTENSIONS),
@@ -717,6 +817,7 @@ def _unavailable_database_report(
             activity=activity,
             connection_reserve=args.connection_reserve,
         ),
+        "runtime_readiness": _compose_runtime_readiness(args.compose_file),
         "relations": [],
         "filesystem": _filesystem_capacity(
             postgres_data_paths=args.postgres_data_path,
@@ -732,6 +833,7 @@ def _unavailable_database_report(
                 "execution_context": args.execution_context_budget,
                 "result": args.result_budget,
                 "params": args.params_budget,
+                "blocked_payload": args.blocked_payload_budget,
             },
             "sample": {},
         },
@@ -753,6 +855,9 @@ def collect_report(args: argparse.Namespace) -> dict[str, Any]:
         )
         shared_preload_libraries = _show_setting(conn, "shared_preload_libraries")
         max_connections = _show_setting(conn, "max_connections")
+        wal_level = _show_setting(conn, "wal_level")
+        archive_mode = _show_setting(conn, "archive_mode")
+        archive_command = _show_setting(conn, "archive_command")
         installed_extensions = _installed_extensions(conn)
         pg_stat_statements_installed = "pg_stat_statements" in installed_extensions
 
@@ -768,6 +873,9 @@ def collect_report(args: argparse.Namespace) -> dict[str, Any]:
                 "pg_is_in_recovery": pg_is_in_recovery,
                 "shared_preload_libraries": shared_preload_libraries,
                 "max_connections": max_connections,
+                "wal_level": wal_level,
+                "archive_mode": archive_mode,
+                "archive_command": archive_command,
             },
             "extensions": {
                 "required": list(REQUIRED_EXTENSIONS),
@@ -783,6 +891,7 @@ def collect_report(args: argparse.Namespace) -> dict[str, Any]:
                 activity=activity,
                 connection_reserve=args.connection_reserve,
             ),
+            "runtime_readiness": _compose_runtime_readiness(args.compose_file),
             "relations": relations,
             "filesystem": _filesystem_capacity(
                 postgres_data_paths=args.postgres_data_path,
@@ -798,6 +907,7 @@ def collect_report(args: argparse.Namespace) -> dict[str, Any]:
                     "execution_context": args.execution_context_budget,
                     "result": args.result_budget,
                     "params": args.params_budget,
+                    "blocked_payload": args.blocked_payload_budget,
                 },
                 "sample": _hot_row_budget(
                     conn,
@@ -805,6 +915,7 @@ def collect_report(args: argparse.Namespace) -> dict[str, Any]:
                     execution_context_budget=args.execution_context_budget,
                     result_budget=args.result_budget,
                     params_budget=args.params_budget,
+                    blocked_payload_budget=args.blocked_payload_budget,
                 ),
             },
             "pg_stat_statements_top": _pg_stat_statements_top(
@@ -832,6 +943,12 @@ def evaluate_report(report: dict[str, Any]) -> dict[str, Any]:
         blockers.append("database_unavailable")
     elif database.get("pg_is_in_recovery") is not False:
         blockers.append("database_in_recovery")
+    if str(database.get("wal_level") or "").strip().lower() != "replica":
+        blockers.append("postgres_wal_level_not_replica")
+    if str(database.get("archive_mode") or "").strip().lower() != "on":
+        blockers.append("postgres_archive_mode_off")
+    if not str(database.get("archive_command") or "").strip():
+        blockers.append("postgres_archive_command_missing")
 
     extensions = (
         report.get("extensions") if isinstance(report.get("extensions"), dict) else {}
@@ -896,6 +1013,7 @@ def evaluate_report(report: dict[str, Any]) -> dict[str, Any]:
         "execution_context": int(sample.get("execution_context_over_budget") or 0),
         "result": int(sample.get("result_over_budget") or 0),
         "params": int(sample.get("params_over_budget") or 0),
+        "blocked_payload": int(sample.get("blocked_payload_over_budget") or 0),
     }
     if any(count > 0 for count in over_budget.values()):
         blockers.append("recent_hot_rows_over_budget")
@@ -948,6 +1066,27 @@ def evaluate_report(report: dict[str, Any]) -> dict[str, Any]:
         if active_connections > safe_connection_limit:
             blockers.append("active_connections_exceed_safe_limit")
 
+    runtime_readiness = (
+        report.get("runtime_readiness")
+        if isinstance(report.get("runtime_readiness"), dict)
+        else {}
+    )
+    if not runtime_readiness.get("source_available"):
+        warnings.append("runtime_compose_unavailable")
+    else:
+        required_runtime_flags = {
+            "pgbouncer_service_defined": "pgbouncer_service_missing",
+            "backend_uses_pgbouncer": "backend_not_routed_through_pgbouncer",
+            "runner_uses_pgbouncer": "runner_not_routed_through_pgbouncer",
+            "read_replica_service_defined": "read_replica_service_missing",
+            "wal_archive_volume_configured": "wal_archive_volume_missing",
+            "redis_aof_configured": "redis_aof_disabled",
+            "redis_persistence_volume_configured": "redis_persistence_volume_missing",
+        }
+        for flag, blocker in required_runtime_flags.items():
+            if not runtime_readiness.get(flag):
+                blockers.append(blocker)
+
     filesystem = (
         report.get("filesystem") if isinstance(report.get("filesystem"), dict) else {}
     )
@@ -989,9 +1128,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Relation name to include in size sampling. Repeatable.",
     )
     parser.add_argument("--recent-hours", type=int, default=24)
-    parser.add_argument("--execution-context-budget", type=int, default=512 * 1024)
-    parser.add_argument("--result-budget", type=int, default=256 * 1024)
-    parser.add_argument("--params-budget", type=int, default=512 * 1024)
+    parser.add_argument("--execution-context-budget", type=int, default=16 * 1024)
+    parser.add_argument("--result-budget", type=int, default=16 * 1024)
+    parser.add_argument("--params-budget", type=int, default=16 * 1024)
+    parser.add_argument("--blocked-payload-budget", type=int, default=16 * 1024)
     parser.add_argument("--statement-limit", type=int, default=10)
     parser.add_argument("--compose-file", type=Path)
     parser.add_argument(
