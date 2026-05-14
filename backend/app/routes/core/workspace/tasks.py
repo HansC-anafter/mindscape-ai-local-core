@@ -30,7 +30,6 @@ from ....services.stores.tasks_store import TasksStore
 from ....services.stores.postgres.task_projection_store import TasksProjectionStore
 from ....services.stores.task_feedback_store import TaskFeedbackStore
 from ....services.stores.redis.runner_queue_store import RedisRunnerQueueStore
-from ..execution_ordering import build_execution_order_clause
 from ....models.workspace import (
     TaskFeedback,
     TaskFeedbackAction,
@@ -65,21 +64,6 @@ _PROGRESS_SNAPSHOT_CACHE_LOCK = asyncio.Lock()
 _PROGRESS_SNAPSHOT_STORE = RedisTtlSnapshotStore(
     RedisRunnerQueueStore(pack_id="progress_snapshot")
 )
-
-
-def _build_workspace_execution_order_clause(order_by: str, order: str) -> str:
-    safe_order = "DESC" if order.lower() == "desc" else "ASC"
-    allowed_columns = {"created_at", "started_at", "completed_at", "status"}
-    safe_key = order_by if order_by in allowed_columns else "created_at"
-
-    # This generic route is primarily consumed as a recent-history feed.
-    # Status-first ordering makes the query catastrophically slow on large
-    # workspaces, so only opt into it when the caller explicitly asks for
-    # status ordering.
-    if safe_key == "status":
-        return build_execution_order_clause(safe_key, order)
-
-    return f"ORDER BY {safe_key} {safe_order}"
 
 
 @dataclass
@@ -525,8 +509,7 @@ async def get_workspace_executions(
     include_execution_context: bool = Query(
         False,
         description=(
-            "Include full execution_context payload. "
-            "Default false returns a trimmed context to avoid oversized list payloads."
+            "Legacy parameter. Execution lists always return compact projection context."
         ),
     ),
     group_by_parent: bool = Query(
@@ -535,86 +518,25 @@ async def get_workspace_executions(
 ):
     """List executions (tasks) for a workspace with optional playbook filters."""
     try:
-        from sqlalchemy import text
+        projection_store = TasksProjectionStore()
+        task_payloads = await run_ui_read(
+            projection_store.list_workspace_executions,
+            workspace_id,
+            limit,
+            playbook_code=playbook_code,
+            playbook_code_prefix=playbook_code_prefix,
+            parent_execution_id=parent_execution_id,
+            order_by=order_by,
+            order=order,
+        )
 
-        tasks_store = TasksStore()
-
-        query_parts = [
-            """
-            SELECT
-                id,
-                workspace_id,
-                message_id,
-                execution_id,
-                parent_execution_id,
-                project_id,
-                pack_id,
-                task_type,
-                status,
-                params,
-                result,
-                CASE
-                    WHEN :include_execution_context THEN execution_context
-                    WHEN execution_context IS NULL THEN NULL
-                    ELSE (
-                        execution_context::jsonb
-                        - 'result'
-                        - 'workflow_result'
-                        - 'step_outputs'
-                        - 'outputs'
-                    )::json
-                END AS execution_context,
-                storyline_tags,
-                created_at,
-                started_at,
-                completed_at,
-                error
-            FROM tasks
-            WHERE workspace_id = :workspace_id
-            """
-        ]
-        params: dict = {
-            "workspace_id": workspace_id,
-            "include_execution_context": include_execution_context,
-        }
-
-        if playbook_code:
-            query_parts.append("AND pack_id = :pack_id")
-            params["pack_id"] = playbook_code
-        elif playbook_code_prefix:
-            query_parts.append("AND pack_id LIKE :pack_prefix")
-            params["pack_prefix"] = f"{playbook_code_prefix}%"
-
-        if parent_execution_id:
-            query_parts.append("AND parent_execution_id = :parent_execution_id")
-            params["parent_execution_id"] = parent_execution_id
-
-        query_parts.append(_build_workspace_execution_order_clause(order_by, order))
-
-        query_parts.append("LIMIT :limit")
-        params["limit"] = limit
-
-        def _fetch_executions():
-            with tasks_store.get_connection() as conn:
-                rows = conn.execute(text(" ".join(query_parts)), params).fetchall()
-                return [tasks_store._row_to_task(row) for row in rows]
-
-        tasks = await asyncio.to_thread(_fetch_executions)
-
-        # Refresh queue cache for position data
-        _QUEUE_CACHE.refresh_if_stale(tasks_store)
-
-        # Enrich with fields the UI expects (RunLogCard reads playbook_code, not pack_id)
         executions = []
-        for task in tasks:
-            task_payload = task.model_dump()
+        for task_payload in task_payloads:
             executions.append(
                 project_execution_for_api(
                     task_payload,
-                    queue_position=_QUEUE_CACHE.get_position(tasks_store, task),
-                    queue_total=_QUEUE_CACHE.get_total(
-                        task_payload.get("queue_shard") or "default"
-                    ),
+                    queue_position=None,
+                    queue_total=None,
                 )
             )
 
@@ -627,14 +549,16 @@ async def get_workspace_executions(
                     groups.setdefault(pid, []).append(d)
                 else:
                     ungrouped.append(d)
-            
+
             group_summaries = []
             for pid, tasks_list in groups.items():
-                group_summaries.append({
-                    "parent_execution_id": pid,
-                    "tasks": tasks_list,
-                    "summary": build_execution_group_summary(tasks_list),
-                })
+                group_summaries.append(
+                    {
+                        "parent_execution_id": pid,
+                        "tasks": tasks_list,
+                        "summary": build_execution_group_summary(tasks_list),
+                    }
+                )
             return {"groups": group_summaries, "ungrouped": ungrouped}
 
         return {"executions": executions}

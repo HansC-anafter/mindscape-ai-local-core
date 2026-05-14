@@ -96,6 +96,69 @@ class TasksProjectionStore(PostgresStoreBase):
             rows = conn.execute(query, params).fetchall()
             return [self._row_to_task_payload(row) for row in rows]
 
+    def list_workspace_executions(
+        self,
+        workspace_id: str,
+        limit: int,
+        *,
+        playbook_code: Optional[str] = None,
+        playbook_code_prefix: Optional[str] = None,
+        parent_execution_id: Optional[str] = None,
+        order_by: str = "created_at",
+        order: str = "desc",
+    ) -> List[Dict[str, Any]]:
+        normalized_limit = max(1, min(200, int(limit or 50)))
+        clauses = ["workspace_id = :workspace_id", "execution_id IS NOT NULL"]
+        params: Dict[str, Any] = {
+            "workspace_id": workspace_id,
+            "limit": normalized_limit,
+        }
+
+        if playbook_code:
+            clauses.append("pack_id = :pack_id")
+            params["pack_id"] = playbook_code
+        elif playbook_code_prefix:
+            clauses.append("pack_id LIKE :pack_prefix")
+            params["pack_prefix"] = f"{playbook_code_prefix}%"
+
+        if parent_execution_id:
+            clauses.append("parent_execution_id = :parent_execution_id")
+            params["parent_execution_id"] = parent_execution_id
+
+        query = text(
+            f"""
+            SELECT
+                task_id,
+                workspace_id,
+                execution_id,
+                parent_execution_id,
+                project_id,
+                pack_id,
+                task_type,
+                status,
+                queue_shard,
+                dedupe_key,
+                summary,
+                error_summary,
+                created_at,
+                next_eligible_at,
+                blocked_reason,
+                frontier_state,
+                frontier_enqueued_at,
+                started_at,
+                completed_at,
+                updated_at,
+                last_event_at
+            FROM task_summary_projection
+            WHERE {" AND ".join(clauses)}
+            {self._execution_order_clause(order_by=order_by, order=order)}
+            LIMIT :limit
+            """
+        )
+        with self.get_connection() as conn:
+            rows = conn.execute(query, params).fetchall()
+            return [self._row_to_task_payload(row) for row in rows]
+
     def count_workspace_tasks(
         self,
         workspace_id: str,
@@ -141,6 +204,17 @@ class TasksProjectionStore(PostgresStoreBase):
             "ELSE 2 END, "
             "created_at DESC NULLS LAST, updated_at DESC, task_id DESC"
         )
+
+    def _execution_order_clause(self, *, order_by: str, order: str) -> str:
+        safe_order = "DESC" if str(order).lower() == "desc" else "ASC"
+        safe_key = str(order_by or "created_at").strip().lower()
+        if safe_key == "status":
+            return f"ORDER BY status {safe_order}, created_at DESC NULLS LAST, task_id DESC"
+        if safe_key == "started_at":
+            return f"ORDER BY started_at {safe_order} NULLS LAST, task_id DESC"
+        if safe_key == "completed_at":
+            return f"ORDER BY completed_at {safe_order} NULLS LAST, task_id DESC"
+        return f"ORDER BY created_at {safe_order} NULLS LAST, task_id DESC"
 
     def _row_to_task_payload(self, row) -> Dict[str, Any]:
         mapping = row._mapping if hasattr(row, "_mapping") else row

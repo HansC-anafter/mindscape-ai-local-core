@@ -21,6 +21,22 @@ def test_workspace_tasks_route_uses_projection_store_only():
     assert "list_tasks_by_workspace" not in loader_source
 
 
+def test_workspace_executions_route_uses_projection_store_only():
+    route_source = (
+        _backend_root() / "app/routes/core/workspace/tasks.py"
+    ).read_text(encoding="utf-8")
+    route_source = route_source.split(
+        "async def get_workspace_executions",
+        maxsplit=1,
+    )[1].split("def _load_execution_progress_snapshot_payload", maxsplit=1)[0]
+
+    assert "TasksProjectionStore()" in route_source
+    assert "list_workspace_executions" in route_source
+    assert "FROM tasks" not in route_source
+    assert "TasksStore()" not in route_source
+    assert "list_executions_by_workspace" not in route_source
+
+
 def test_projection_store_reads_projection_table_not_task_payload_columns():
     store_source = (
         _backend_root()
@@ -64,3 +80,16 @@ def test_projection_control_fields_are_schema_managed():
     assert "frontier_state" in migration_source
     assert "frontier_enqueued_at" in migration_source
     assert "blocked_payload" not in migration_source
+
+
+def test_projection_execution_route_indexes_are_nonblocking_and_reversible():
+    migration_source = (
+        _backend_root()
+        / "alembic_migrations/postgres/versions/"
+        "20260514120000_add_task_summary_projection_execution_route_indexes.py"
+    ).read_text(encoding="utf-8")
+
+    assert "CREATE INDEX CONCURRENTLY IF NOT EXISTS" in migration_source
+    assert "DROP INDEX CONCURRENTLY IF EXISTS" in migration_source
+    assert "idx_task_summary_projection_parent_created" in migration_source
+    assert "idx_task_summary_projection_pack_created" in migration_source
