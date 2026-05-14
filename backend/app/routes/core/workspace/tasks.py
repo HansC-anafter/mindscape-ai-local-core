@@ -27,6 +27,7 @@ from ....services.runner_resources import (
     set_ttl_snapshot,
 )
 from ....services.stores.tasks_store import TasksStore
+from ....services.stores.postgres.task_projection_store import TasksProjectionStore
 from ....services.stores.task_feedback_store import TaskFeedbackStore
 from ....services.stores.redis.runner_queue_store import RedisRunnerQueueStore
 from ..execution_ordering import build_execution_order_clause
@@ -431,65 +432,15 @@ async def _load_workspace_tasks_payload(
     include_completed: bool,
     task_type: Optional[str],
 ) -> Dict[str, Any]:
-    tasks_store = TasksStore()
-    normalized_task_type = (task_type or "").strip().lower()
-
-    if normalized_task_type == "execution":
-        execution_tasks = await run_ui_read(
-            tasks_store.list_executions_by_workspace,
-            workspace_id,
-            limit,
-            include_completed,
-        )
-        return {"tasks": [task.model_dump() for task in execution_tasks]}
-
-    if include_completed:
-        running = await run_ui_read(
-            tasks_store.list_tasks_by_workspace,
-            workspace_id,
-            TaskStatus.RUNNING,
-            None,
-            False,
-            task_type,
-            True,
-        )
-        remaining_limit = max(0, limit - len(running))
-        rest = await run_ui_read(
-            tasks_store.list_tasks_by_workspace,
-            workspace_id,
-            None,
-            remaining_limit,
-            False,
-            task_type,
-            True,
-        )
-        running_ids = {t.id for t in running}
-        all_tasks = running + [t for t in rest if t.id not in running_ids]
-    else:
-        pending = await run_ui_read(
-            tasks_store.list_tasks_by_workspace,
-            workspace_id,
-            TaskStatus.PENDING,
-            limit,
-            False,
-            task_type,
-            True,
-        )
-        running = []
-        remaining_limit = max(0, limit - len(pending))
-        if remaining_limit:
-            running = await run_ui_read(
-                tasks_store.list_tasks_by_workspace,
-                workspace_id,
-                TaskStatus.RUNNING,
-                remaining_limit,
-                False,
-                task_type,
-                True,
-            )
-        all_tasks = pending + running
-
-    return {"tasks": [task.model_dump() for task in all_tasks]}
+    projection_store = TasksProjectionStore()
+    tasks = await run_ui_read(
+        projection_store.list_workspace_tasks,
+        workspace_id,
+        limit,
+        include_completed,
+        task_type,
+    )
+    return {"tasks": tasks}
 
 
 @router.get("/{workspace_id}/tasks")
