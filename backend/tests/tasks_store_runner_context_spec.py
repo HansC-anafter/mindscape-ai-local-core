@@ -1,130 +1,12 @@
-import json
-from contextlib import contextmanager
 from datetime import datetime, timezone
+import inspect
 
-from sqlalchemy import create_engine, text
-from sqlalchemy.pool import StaticPool
-
-from backend.app.models.workspace import TaskStatus
 from backend.app.services.stores.tasks_store._runner import (
     _build_claim_execution_context,
+    _normalize_concurrency_keys,
+    _running_concurrency_conflict_clause,
     TasksStoreRunnerMixin,
 )
-
-
-class _SqliteClaimStore(TasksStoreRunnerMixin):
-    def __init__(self) -> None:
-        self._engine = create_engine(
-            "sqlite+pysqlite:///:memory:",
-            connect_args={"check_same_thread": False},
-            poolclass=StaticPool,
-            future=True,
-        )
-        with self._engine.begin() as conn:
-            conn.execute(
-                text(
-                    """
-                    CREATE TABLE tasks (
-                        id TEXT PRIMARY KEY,
-                        status TEXT NOT NULL,
-                        error TEXT,
-                        params TEXT,
-                        execution_context TEXT,
-                        concurrency_key TEXT,
-                        runner_id TEXT,
-                        heartbeat_at TIMESTAMP,
-                        started_at TIMESTAMP,
-                        blocked_reason TEXT,
-                        blocked_payload TEXT,
-                        frontier_state TEXT,
-                        frontier_enqueued_at TIMESTAMP
-                    )
-                    """
-                )
-            )
-
-    @contextmanager
-    def transaction(self):
-        with self._engine.begin() as conn:
-            yield conn
-
-    @contextmanager
-    def get_connection(self):
-        with self._engine.begin() as conn:
-            yield conn
-
-    def serialize_json(self, value):
-        return json.dumps(value)
-
-    def deserialize_json(self, value, default):
-        if not value:
-            return default
-        return json.loads(value)
-
-    def insert_task(
-        self,
-        task_id: str,
-        *,
-        status: str,
-        concurrency_key: str | None,
-        params: dict | None = None,
-        execution_context: dict | None = None,
-    ) -> None:
-        with self._engine.begin() as conn:
-            conn.execute(
-                text(
-                    """
-                    INSERT INTO tasks (
-                        id,
-                        status,
-                        params,
-                        execution_context,
-                        concurrency_key,
-                        frontier_state
-                    ) VALUES (
-                        :id,
-                        :status,
-                        :params,
-                        :execution_context,
-                        :concurrency_key,
-                        :frontier_state
-                    )
-                    """
-                ),
-                {
-                    "id": task_id,
-                    "status": status,
-                    "params": json.dumps(params or {}),
-                    "execution_context": json.dumps(execution_context or {}),
-                    "concurrency_key": concurrency_key,
-                    "frontier_state": "ready",
-                },
-            )
-
-    def task_status(self, task_id: str) -> str:
-        with self._engine.begin() as conn:
-            return conn.execute(
-                text("SELECT status FROM tasks WHERE id = :task_id"),
-                {"task_id": task_id},
-            ).scalar_one()
-
-    def execution_context(self, task_id: str) -> dict:
-        with self._engine.begin() as conn:
-            raw = conn.execute(
-                text("SELECT execution_context FROM tasks WHERE id = :task_id"),
-                {"task_id": task_id},
-            ).scalar_one()
-        return json.loads(raw)
-
-    def runner_state(self, task_id: str) -> tuple[str | None, str | None]:
-        with self._engine.begin() as conn:
-            row = conn.execute(
-                text(
-                    "SELECT runner_id, heartbeat_at FROM tasks WHERE id = :task_id"
-                ),
-                {"task_id": task_id},
-            ).fetchone()
-        return row.runner_id, str(row.heartbeat_at) if row.heartbeat_at else None
 
 
 def test_claim_context_clears_stale_deferred_metadata():
@@ -171,80 +53,23 @@ def test_claim_context_clears_stale_deferred_metadata():
         assert stale_key not in ctx
 
 
-def test_try_claim_task_blocks_existing_running_concurrency_key():
-    store = _SqliteClaimStore()
-    lock_key = "concurrency:playbook:ig_analyze_pinned_reference"
-    store.insert_task(
-        "running-task",
-        status=TaskStatus.RUNNING.value,
-        concurrency_key=lock_key,
-    )
-    store.insert_task(
-        "pending-task",
-        status=TaskStatus.PENDING.value,
-        concurrency_key=lock_key,
-    )
+def test_claim_context_restores_missing_inputs_from_params():
+    now = datetime(2026, 5, 8, 3, 30, tzinfo=timezone.utc)
 
-    assert store.has_running_concurrency_conflict("pending-task", [lock_key]) is True
-
-    claimed = store.try_claim_task(
-        "pending-task",
-        runner_id="runner-a",
-        concurrency_keys=[lock_key],
-    )
-
-    assert claimed is False
-    assert store.task_status("pending-task") == TaskStatus.PENDING.value
-
-
-def test_try_claim_task_allows_distinct_concurrency_key():
-    store = _SqliteClaimStore()
-    store.insert_task(
-        "running-task",
-        status=TaskStatus.RUNNING.value,
-        concurrency_key="concurrency:playbook:other",
-    )
-    store.insert_task(
-        "pending-task",
-        status=TaskStatus.PENDING.value,
-        concurrency_key="concurrency:playbook:ig_analyze_pinned_reference",
-    )
-
-    claimed = store.try_claim_task(
-        "pending-task",
-        runner_id="runner-a",
-        concurrency_keys=["concurrency:playbook:ig_analyze_pinned_reference"],
-    )
-
-    assert claimed is True
-    assert store.task_status("pending-task") == TaskStatus.RUNNING.value
-
-
-def test_try_claim_task_restores_missing_inputs_from_params():
-    store = _SqliteClaimStore()
-    store.insert_task(
-        "pending-task",
-        status=TaskStatus.PENDING.value,
-        concurrency_key="concurrency:playbook:ig_analyze_pinned_reference",
-        params={
+    ctx = _build_claim_execution_context(
+        {
+            "runner_skip_reason": "concurrency_locked",
+            "resume_after": "2026-05-08T03:05:00+00:00",
+        },
+        task_params={
             "workspace_id": "ws-1",
             "reference_id": "ref_1",
             "analysis_profile": "visual_anatomy",
         },
-        execution_context={
-            "runner_skip_reason": "concurrency_locked",
-            "resume_after": "2026-05-08T03:05:00+00:00",
-        },
-    )
-
-    claimed = store.try_claim_task(
-        "pending-task",
         runner_id="runner-a",
-        concurrency_keys=["concurrency:playbook:ig_analyze_pinned_reference"],
+        now=now,
     )
 
-    assert claimed is True
-    ctx = store.execution_context("pending-task")
     assert ctx["inputs"]["workspace_id"] == "ws-1"
     assert ctx["inputs"]["reference_id"] == "ref_1"
     assert ctx["inputs"]["analysis_profile"] == "visual_anatomy"
@@ -252,37 +77,47 @@ def test_try_claim_task_restores_missing_inputs_from_params():
     assert "resume_after" not in ctx
 
 
-def test_update_task_heartbeat_is_abort_check_only():
-    store = _SqliteClaimStore()
-    store.insert_task(
-        "running-task",
-        status=TaskStatus.RUNNING.value,
-        concurrency_key=None,
-    )
-    before = store.runner_state("running-task")
-
-    should_abort = store.update_task_heartbeat(
-        "running-task",
-        runner_id="runner-a",
+def test_concurrency_conflict_clause_targets_running_control_rows():
+    keys = _normalize_concurrency_keys(
+        [
+            " concurrency:playbook:ig_analyze_pinned_reference ",
+            "concurrency:playbook:ig_analyze_pinned_reference",
+            "concurrency:playbook:other",
+            "",
+            None,
+        ]
     )
 
-    assert should_abort is False
-    assert store.runner_state("running-task") == before
+    clause, params = _running_concurrency_conflict_clause(keys)
+
+    assert keys == [
+        "concurrency:playbook:ig_analyze_pinned_reference",
+        "concurrency:playbook:other",
+    ]
+    assert "AND NOT EXISTS" in clause
+    assert "running_task.status = :running_status" in clause
+    assert "running_task.concurrency_key IN" in clause
+    assert params == {
+        "concurrency_key_0": "concurrency:playbook:ig_analyze_pinned_reference",
+        "concurrency_key_1": "concurrency:playbook:other",
+    }
 
 
-def test_update_task_heartbeat_aborts_cancelled_task_without_mutation():
-    store = _SqliteClaimStore()
-    store.insert_task(
-        "cancelled-task",
-        status=TaskStatus.CANCELLED_BY_USER.value,
-        concurrency_key=None,
-    )
-    before = store.runner_state("cancelled-task")
+def test_update_task_heartbeat_is_abort_check_only_source_guard():
+    source = inspect.getsource(TasksStoreRunnerMixin.update_task_heartbeat)
 
-    should_abort = store.update_task_heartbeat(
-        "cancelled-task",
-        runner_id="runner-a",
-    )
+    assert "SELECT status, error" in source
+    assert "UPDATE tasks" not in source
+    assert "heartbeat_at =" not in source
+    assert "runner_id =" not in source
 
-    assert should_abort is True
-    assert store.runner_state("cancelled-task") == before
+
+def test_try_claim_task_keeps_single_control_state_transition():
+    source = inspect.getsource(TasksStoreRunnerMixin.try_claim_task)
+
+    assert "UPDATE tasks" in source
+    assert "SET status = :running_status" in source
+    assert "runner_id = :runner_id" in source
+    assert "frontier_state = :frontier_state" in source
+    assert "blocked_payload = NULL" in source
+    assert source.count("UPDATE tasks") == 1

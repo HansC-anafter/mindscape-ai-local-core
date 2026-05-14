@@ -57,6 +57,49 @@ def ensure_databases():
     core_db = os.getenv("POSTGRES_CORE_DB", "mindscape_core")
     vector_db = os.getenv("POSTGRES_VECTOR_DB", "mindscape_vectors")
 
+    if pg_host == "pgbouncer" or pg_port == 6432:
+        for db_name in [core_db, vector_db]:
+            try:
+                conn = psycopg2.connect(
+                    host=pg_host,
+                    port=pg_port,
+                    user=pg_user,
+                    password=pg_pass,
+                    dbname=db_name,
+                    connect_timeout=5,
+                )
+                cur = conn.cursor()
+                cur.execute("SELECT 1")
+                cur.close()
+                conn.close()
+                print(f"[preflight] Database '{db_name}' reachable via PgBouncer")
+            except Exception as exc:
+                print(
+                    f"[preflight] PgBouncer database check failed for {db_name}: {exc}"
+                )
+                return False
+
+        try:
+            vconn = psycopg2.connect(
+                host=pg_host,
+                port=pg_port,
+                user=pg_user,
+                password=pg_pass,
+                dbname=vector_db,
+                connect_timeout=5,
+            )
+            vconn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
+            vcur = vconn.cursor()
+            vcur.execute("CREATE EXTENSION IF NOT EXISTS vector")
+            vcur.close()
+            vconn.close()
+            print("[preflight] pgvector extension verified")
+        except Exception as ext_err:
+            print(f"[preflight] pgvector extension check failed: {ext_err}")
+
+        print("[preflight] Database preflight check passed")
+        return True
+
     max_retries = 15
     for attempt in range(1, max_retries + 1):
         try:

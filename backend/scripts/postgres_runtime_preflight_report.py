@@ -680,13 +680,18 @@ def _file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _backup_verification(backup_dir: Path | None) -> dict[str, Any]:
+def _backup_verification(
+    backup_dir: Path | None,
+    *,
+    verification_mode: str = "manifest_checksum",
+) -> dict[str, Any]:
     result: dict[str, Any] = {
         "source": str(backup_dir) if backup_dir else None,
         "source_available": False,
         "verified": False,
-        "verification_mode": "manifest_checksum",
+        "verification_mode": verification_mode,
         "errors": [],
+        "warnings": [],
     }
     if backup_dir is None:
         result["errors"].append("verified_backup_dir_required")
@@ -745,14 +750,26 @@ def _backup_verification(backup_dir: Path | None) -> dict[str, Any]:
             result["errors"].append(f"artifact_empty:{rel_path}")
         if expected_size != actual_size:
             result["errors"].append(f"artifact_size_mismatch:{rel_path}")
-        actual_sha = _file_sha256(artifact_path)
-        if not expected_sha or expected_sha != actual_sha:
-            result["errors"].append(f"artifact_sha256_mismatch:{rel_path}")
+        actual_sha = expected_sha
+        sha256_checked = False
+        if verification_mode == "manifest_checksum":
+            actual_sha = _file_sha256(artifact_path)
+            sha256_checked = True
+            if not expected_sha or expected_sha != actual_sha:
+                result["errors"].append(f"artifact_sha256_mismatch:{rel_path}")
+        elif verification_mode == "manifest_size":
+            if not expected_sha:
+                result["errors"].append(f"artifact_sha256_missing:{rel_path}")
+            result["warnings"].append(f"artifact_sha256_not_recomputed:{rel_path}")
+        else:
+            result["errors"].append(f"unsupported_verification_mode:{verification_mode}")
+            continue
         checked_artifacts.append(
             {
                 "path": rel_path,
                 "bytes": actual_size,
                 "sha256": actual_sha,
+                "sha256_checked": sha256_checked,
             }
         )
 
@@ -809,7 +826,10 @@ def _unavailable_database_report(
         },
         "tools": _pg_repack_tool_status(args.compose_file),
         "script_paths": _script_path_status(),
-        "backup_verification": _backup_verification(args.verified_backup_dir),
+        "backup_verification": _backup_verification(
+            args.verified_backup_dir,
+            verification_mode=args.backup_verification_mode,
+        ),
         "activity": activity,
         "connection_budget": _connection_budget(
             compose_file=args.compose_file,
@@ -864,66 +884,73 @@ def collect_report(args: argparse.Namespace) -> dict[str, Any]:
         activity = _activity(conn)
         relations = _relation_sizes(conn, args.relation or DEFAULT_RELATIONS)
 
-        report = {
-            "schema_version": SCHEMA_VERSION,
-            "generated_at": _utc_now(),
-            "mode": "read_only",
-            "database": {
-                "connectable": True,
-                "pg_is_in_recovery": pg_is_in_recovery,
-                "shared_preload_libraries": shared_preload_libraries,
-                "max_connections": max_connections,
-                "wal_level": wal_level,
-                "archive_mode": archive_mode,
-                "archive_command": archive_command,
+        runner_workload = _runner_workload(conn)
+        hot_row_budget_sample = _hot_row_budget(
+            conn,
+            recent_hours=args.recent_hours,
+            execution_context_budget=args.execution_context_budget,
+            result_budget=args.result_budget,
+            params_budget=args.params_budget,
+            blocked_payload_budget=args.blocked_payload_budget,
+        )
+        pg_stat_statements_top = _pg_stat_statements_top(
+            conn,
+            enabled=pg_stat_statements_installed,
+            limit=args.statement_limit,
+        )
+
+    report = {
+        "schema_version": SCHEMA_VERSION,
+        "generated_at": _utc_now(),
+        "mode": "read_only",
+        "database": {
+            "connectable": True,
+            "pg_is_in_recovery": pg_is_in_recovery,
+            "shared_preload_libraries": shared_preload_libraries,
+            "max_connections": max_connections,
+            "wal_level": wal_level,
+            "archive_mode": archive_mode,
+            "archive_command": archive_command,
+        },
+        "extensions": {
+            "required": list(REQUIRED_EXTENSIONS),
+            "installed": sorted(installed_extensions),
+        },
+        "tools": _pg_repack_tool_status(args.compose_file),
+        "script_paths": _script_path_status(),
+        "backup_verification": _backup_verification(
+            args.verified_backup_dir,
+            verification_mode=args.backup_verification_mode,
+        ),
+        "activity": activity,
+        "connection_budget": _connection_budget(
+            compose_file=args.compose_file,
+            max_connections=max_connections,
+            activity=activity,
+            connection_reserve=args.connection_reserve,
+        ),
+        "runtime_readiness": _compose_runtime_readiness(args.compose_file),
+        "relations": relations,
+        "filesystem": _filesystem_capacity(
+            postgres_data_paths=args.postgres_data_path,
+            relations=relations,
+            free_space_factor=args.repack_free_space_factor,
+            free_space_reserve=args.repack_free_space_reserve,
+        ),
+        "runner_claim_gate": _runner_claim_gate(),
+        "runner_workload": runner_workload,
+        "hot_row_budget": {
+            "recent_hours": args.recent_hours,
+            "limits": {
+                "execution_context": args.execution_context_budget,
+                "result": args.result_budget,
+                "params": args.params_budget,
+                "blocked_payload": args.blocked_payload_budget,
             },
-            "extensions": {
-                "required": list(REQUIRED_EXTENSIONS),
-                "installed": sorted(installed_extensions),
-            },
-            "tools": _pg_repack_tool_status(args.compose_file),
-            "script_paths": _script_path_status(),
-            "backup_verification": _backup_verification(args.verified_backup_dir),
-            "activity": activity,
-            "connection_budget": _connection_budget(
-                compose_file=args.compose_file,
-                max_connections=max_connections,
-                activity=activity,
-                connection_reserve=args.connection_reserve,
-            ),
-            "runtime_readiness": _compose_runtime_readiness(args.compose_file),
-            "relations": relations,
-            "filesystem": _filesystem_capacity(
-                postgres_data_paths=args.postgres_data_path,
-                relations=relations,
-                free_space_factor=args.repack_free_space_factor,
-                free_space_reserve=args.repack_free_space_reserve,
-            ),
-            "runner_claim_gate": _runner_claim_gate(),
-            "runner_workload": _runner_workload(conn),
-            "hot_row_budget": {
-                "recent_hours": args.recent_hours,
-                "limits": {
-                    "execution_context": args.execution_context_budget,
-                    "result": args.result_budget,
-                    "params": args.params_budget,
-                    "blocked_payload": args.blocked_payload_budget,
-                },
-                "sample": _hot_row_budget(
-                    conn,
-                    recent_hours=args.recent_hours,
-                    execution_context_budget=args.execution_context_budget,
-                    result_budget=args.result_budget,
-                    params_budget=args.params_budget,
-                    blocked_payload_budget=args.blocked_payload_budget,
-                ),
-            },
-            "pg_stat_statements_top": _pg_stat_statements_top(
-                conn,
-                enabled=pg_stat_statements_installed,
-                limit=args.statement_limit,
-            ),
-        }
+            "sample": hot_row_budget_sample,
+        },
+        "pg_stat_statements_top": pg_stat_statements_top,
+    }
 
     return evaluate_report(report)
 
@@ -984,6 +1011,8 @@ def evaluate_report(report: dict[str, Any]) -> dict[str, Any]:
     elif backup_verification.get("errors") or not backup_verification.get("verified"):
         blockers.append("verified_backup_invalid")
     else:
+        if backup_verification.get("verification_mode") != "manifest_checksum":
+            warnings.append("verified_backup_checksum_not_recomputed")
         backup_options = (
             backup_verification.get("options")
             if isinstance(backup_verification.get("options"), dict)
@@ -1138,6 +1167,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--verified-backup-dir",
         type=Path,
         help="Completed backup directory with manifest.json for reclaim readiness.",
+    )
+    parser.add_argument(
+        "--backup-verification-mode",
+        choices=("manifest_checksum", "manifest_size"),
+        default="manifest_checksum",
+        help=(
+            "Use manifest_checksum for full SHA256 verification, or manifest_size "
+            "when a previously verified large backup only needs a fast recheck."
+        ),
     )
     parser.add_argument(
         "--connection-reserve",

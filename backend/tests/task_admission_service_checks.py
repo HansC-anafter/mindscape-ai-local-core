@@ -1,10 +1,9 @@
 from contextlib import contextmanager
 from datetime import timedelta
-
-from sqlalchemy import create_engine, text
-from sqlalchemy.pool import StaticPool
+from types import SimpleNamespace
 
 from backend.app.models.workspace import Task, TaskStatus, _utc_now
+from backend.app.services.runner_topology import queue_partition_matches
 from backend.app.services.task_admission_service import (
     AdmissionPressure,
     TaskAdmissionService,
@@ -40,69 +39,79 @@ def _build_task(
     )
 
 
-class _SqliteTasksStore:
+class _MemoryTasksStore:
     def __init__(self) -> None:
-        self._engine = create_engine(
-            "sqlite+pysqlite:///:memory:",
-            connect_args={"check_same_thread": False},
-            poolclass=StaticPool,
-            future=True,
-        )
-        with self._engine.begin() as conn:
-            conn.execute(
-                text(
-                    """
-                    CREATE TABLE tasks (
-                        id TEXT PRIMARY KEY,
-                        task_type TEXT NOT NULL,
-                        status TEXT NOT NULL,
-                        blocked_reason TEXT,
-                        queue_shard TEXT,
-                        created_at TIMESTAMP NOT NULL,
-                        next_eligible_at TIMESTAMP,
-                        frontier_state TEXT,
-                        frontier_enqueued_at TIMESTAMP
-                    )
-                    """
-                )
-            )
+        self.rows: list[dict] = []
 
     @contextmanager
     def get_connection(self):
-        with self._engine.begin() as conn:
-            yield conn
+        yield _MemoryTaskPressureConnection(self.rows)
 
     def insert_rows(self, *rows: dict) -> None:
-        with self._engine.begin() as conn:
-            for row in rows:
-                conn.execute(
-                    text(
-                        """
-                        INSERT INTO tasks (
-                            id,
-                            task_type,
-                            status,
-                            blocked_reason,
-                            queue_shard,
-                            created_at,
-                            next_eligible_at,
-                            frontier_state,
-                            frontier_enqueued_at
-                        ) VALUES (
-                            :id,
-                            :task_type,
-                            :status,
-                            :blocked_reason,
-                            :queue_shard,
-                            :created_at,
-                            :next_eligible_at,
-                            :frontier_state,
-                            :frontier_enqueued_at
-                        )
-                        """
-                    ),
-                    row,
-                )
+        self.rows.extend(dict(row) for row in rows)
+
+
+class _MemoryTaskPressureResult:
+    def __init__(self, row: SimpleNamespace) -> None:
+        self._row = row
+
+    def fetchone(self):
+        return self._row
+
+
+class _MemoryTaskPressureConnection:
+    def __init__(self, rows: list[dict]) -> None:
+        self.rows = rows
+
+    def execute(self, query, params):
+        query_text = str(query)
+        if "pending_total" in query_text:
+            return _MemoryTaskPressureResult(self._pending_pressure(params))
+        if "running_total" in query_text:
+            return _MemoryTaskPressureResult(self._running_pressure(params))
+        raise AssertionError(f"Unexpected pressure query: {query_text}")
+
+    def _matches_queue(self, row: dict, params: dict) -> bool:
+        queue_shard = row.get("queue_shard")
+        expected = params.get("queue_partition_0")
+        return queue_partition_matches(queue_shard, expected)
+
+    def _pending_pressure(self, params: dict) -> SimpleNamespace:
+        now = params["now"]
+        pending_rows = [
+            row
+            for row in self.rows
+            if row.get("task_type")
+            in {params["task_type_pb"], params["task_type_tool"]}
+            and row.get("status") == params["pending_status"]
+            and (row.get("blocked_reason") in {None, params["unblocked_reason"]})
+            and row.get("next_eligible_at") <= now
+            and row.get("frontier_state") == params["ready_frontier_state"]
+            and self._matches_queue(row, params)
+        ]
+        oldest = None
+        if pending_rows:
+            oldest = min(
+                row.get("frontier_enqueued_at")
+                or row.get("next_eligible_at")
+                or row.get("created_at")
+                for row in pending_rows
+            )
+        return SimpleNamespace(
+            pending_total=len(pending_rows),
+            oldest_pending_at=oldest,
+        )
+
+    def _running_pressure(self, params: dict) -> SimpleNamespace:
+        running_rows = [
+            row
+            for row in self.rows
+            if row.get("task_type")
+            in {params["task_type_pb"], params["task_type_tool"]}
+            and row.get("status") == params["running_status"]
+            and self._matches_queue(row, params)
+        ]
+        return SimpleNamespace(running_total=len(running_rows))
 
 
 def _task_row(
@@ -208,7 +217,7 @@ def test_visible_auto_ranks_above_background_auto(monkeypatch):
 
 def test_load_queue_pressure_ignores_cold_parked_backlog():
     service = TaskAdmissionService()
-    store = _SqliteTasksStore()
+    store = _MemoryTasksStore()
     now = _utc_now()
     ready_frontier_at = now - timedelta(seconds=20)
 
@@ -255,7 +264,7 @@ def test_load_queue_pressure_ignores_cold_parked_backlog():
 
 def test_after_visit_visible_task_bypasses_cold_concurrency_locked_age_pressure(monkeypatch):
     service = TaskAdmissionService()
-    store = _SqliteTasksStore()
+    store = _MemoryTasksStore()
     now = _utc_now()
 
     store.insert_rows(
@@ -303,7 +312,7 @@ def test_after_visit_visible_task_bypasses_cold_concurrency_locked_age_pressure(
 
 def test_load_queue_pressure_accepts_legacy_alias_rows_under_canonical_partition():
     service = TaskAdmissionService()
-    store = _SqliteTasksStore()
+    store = _MemoryTasksStore()
     now = _utc_now()
 
     store.insert_rows(

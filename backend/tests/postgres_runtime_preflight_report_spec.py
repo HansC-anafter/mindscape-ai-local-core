@@ -1,8 +1,10 @@
 import hashlib
 import json
+from types import SimpleNamespace
 
 from backend.scripts.postgres_runtime_preflight_report import (
     _backup_verification,
+    collect_report,
     evaluate_report,
 )
 
@@ -181,6 +183,156 @@ def test_backup_verification_validates_manifest_artifacts(tmp_path):
     assert result["verified"] is True
     assert result["artifact_count"] == 1
     assert result["errors"] == []
+    assert result["artifacts"][0]["sha256_checked"] is True
+
+
+def test_backup_verification_manifest_size_mode_skips_checksum_recompute(tmp_path):
+    artifact = tmp_path / "archives" / "app-data.tar.gz"
+    artifact.parent.mkdir(parents=True)
+    artifact.write_bytes(b"large backup placeholder")
+    manifest = {
+        "schema_version": "1.0",
+        "backup_name": "runtime-backup",
+        "created_at": "2026-05-14T00:00:00Z",
+        "options": {
+            "skip_db": False,
+            "skip_files": False,
+        },
+        "artifacts": [
+            {
+                "path": "archives/app-data.tar.gz",
+                "bytes": artifact.stat().st_size,
+                "sha256": "preverified-digest",
+            }
+        ],
+    }
+    (tmp_path / "manifest.json").write_text(
+        json.dumps(manifest),
+        encoding="utf-8",
+    )
+
+    result = _backup_verification(
+        tmp_path,
+        verification_mode="manifest_size",
+    )
+    report = evaluate_report({**_base_report(), "backup_verification": result})
+
+    assert result["verified"] is True
+    assert result["artifacts"][0]["sha256_checked"] is False
+    assert "artifact_sha256_not_recomputed:archives/app-data.tar.gz" in result[
+        "warnings"
+    ]
+    assert "verified_backup_checksum_not_recomputed" in report["readiness"][
+        "warnings"
+    ]
+
+
+def test_collect_report_closes_database_connection_before_backup_verification(
+    monkeypatch,
+):
+    closed = {"value": False}
+
+    class _FakeConnectionContext:
+        def __enter__(self):
+            return object()
+
+        def __exit__(self, exc_type, exc, traceback):
+            closed["value"] = True
+
+    class _FakeEngine:
+        def connect(self):
+            return _FakeConnectionContext()
+
+    def _checked_backup_verification(_backup_dir, **kwargs):
+        assert closed["value"] is True
+        return _base_report()["backup_verification"]
+
+    monkeypatch.setattr(
+        "backend.scripts.postgres_runtime_preflight_report._get_engine",
+        lambda: _FakeEngine(),
+    )
+    monkeypatch.setattr(
+        "backend.scripts.postgres_runtime_preflight_report._mapping_one",
+        lambda conn, sql, params=None: {"value": False},
+    )
+    monkeypatch.setattr(
+        "backend.scripts.postgres_runtime_preflight_report._show_setting",
+        lambda conn, name: _base_report()["database"].get(name, ""),
+    )
+    monkeypatch.setattr(
+        "backend.scripts.postgres_runtime_preflight_report._installed_extensions",
+        lambda conn: {"pg_repack", "pg_stat_statements"},
+    )
+    monkeypatch.setattr(
+        "backend.scripts.postgres_runtime_preflight_report._activity",
+        lambda conn: _base_report()["activity"],
+    )
+    monkeypatch.setattr(
+        "backend.scripts.postgres_runtime_preflight_report._relation_sizes",
+        lambda conn, relations: [],
+    )
+    monkeypatch.setattr(
+        "backend.scripts.postgres_runtime_preflight_report._runner_workload",
+        lambda conn: _base_report()["runner_workload"],
+    )
+    monkeypatch.setattr(
+        "backend.scripts.postgres_runtime_preflight_report._hot_row_budget",
+        lambda conn, **kwargs: _base_report()["hot_row_budget"]["sample"],
+    )
+    monkeypatch.setattr(
+        "backend.scripts.postgres_runtime_preflight_report._pg_stat_statements_top",
+        lambda conn, **kwargs: _base_report()["pg_stat_statements_top"],
+    )
+    monkeypatch.setattr(
+        "backend.scripts.postgres_runtime_preflight_report._pg_repack_tool_status",
+        lambda compose_file: _base_report()["tools"],
+    )
+    monkeypatch.setattr(
+        "backend.scripts.postgres_runtime_preflight_report._script_path_status",
+        lambda: _base_report()["script_paths"],
+    )
+    monkeypatch.setattr(
+        "backend.scripts.postgres_runtime_preflight_report._backup_verification",
+        _checked_backup_verification,
+    )
+    monkeypatch.setattr(
+        "backend.scripts.postgres_runtime_preflight_report._connection_budget",
+        lambda **kwargs: _base_report()["connection_budget"],
+    )
+    monkeypatch.setattr(
+        "backend.scripts.postgres_runtime_preflight_report._compose_runtime_readiness",
+        lambda compose_file: _base_report()["runtime_readiness"],
+    )
+    monkeypatch.setattr(
+        "backend.scripts.postgres_runtime_preflight_report._filesystem_capacity",
+        lambda **kwargs: _base_report()["filesystem"],
+    )
+    monkeypatch.setattr(
+        "backend.scripts.postgres_runtime_preflight_report._runner_claim_gate",
+        lambda: _base_report()["runner_claim_gate"],
+    )
+
+    report = collect_report(
+        SimpleNamespace(
+            compose_file=None,
+            verified_backup_dir=None,
+            backup_verification_mode="manifest_checksum",
+            connection_reserve=20,
+            relation=None,
+            postgres_data_path=None,
+            repack_free_space_factor=1.2,
+            repack_free_space_reserve=1024,
+            recent_hours=24,
+            execution_context_budget=16384,
+            result_budget=16384,
+            params_budget=16384,
+            blocked_payload_budget=16384,
+            statement_limit=5,
+        )
+    )
+
+    assert closed["value"] is True
+    assert report["readiness"]["ready_for_physical_reclaim"] is True
 
 
 def test_preflight_report_blocks_hot_rows_and_open_transactions():
