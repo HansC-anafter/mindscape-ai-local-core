@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 
 from sqlalchemy import text
-from sqlalchemy.exc import IntegrityError, ProgrammingError
+from sqlalchemy.exc import IntegrityError
 
 from app.models.workspace import Task, TaskStatus
 
@@ -217,13 +217,12 @@ class TasksStoreRunnerMixin:
     def update_task_heartbeat(
         self, task_id: str, runner_id: Optional[str] = None
     ) -> bool:
-        """Update heartbeat and return True if the task should be aborted.
+        """Return True if the task should be aborted without mutating heartbeat.
 
         Returns:
             should_abort: True if the DB task status indicates the runner
             should stop (cancelled, expired, or externally failed).
         """
-        now = _utc_now()
         restart_error = "Execution interrupted by server restart"
         abort_statuses = {
             TaskStatus.CANCELLED_BY_USER.value,
@@ -259,68 +258,7 @@ class TasksStoreRunnerMixin:
             )
             return True
 
-        should_revive = bool(runner_id and status_raw == TaskStatus.FAILED.value)
-
-        if should_revive:
-            query = text(
-                """
-                UPDATE tasks
-                SET status = :running_status,
-                    runner_id = :runner_id,
-                    heartbeat_at = :heartbeat_at,
-                    error = NULL
-                WHERE id = :task_id
-                  AND status NOT IN (:cancelled_status, :expired_status)
-                  AND NOT (
-                    status = :failed_status
-                    AND COALESCE(error, '') <> :restart_error
-                  )
-                """
-            )
-            params = {
-                "task_id": task_id,
-                "running_status": TaskStatus.RUNNING.value,
-                "runner_id": runner_id,
-                "heartbeat_at": now,
-                "cancelled_status": TaskStatus.CANCELLED_BY_USER.value,
-                "expired_status": TaskStatus.EXPIRED.value,
-                "failed_status": TaskStatus.FAILED.value,
-                "restart_error": restart_error,
-            }
-        else:
-            query = text(
-                """
-                UPDATE tasks
-                SET runner_id = COALESCE(:runner_id, runner_id),
-                    heartbeat_at = :heartbeat_at
-                WHERE id = :task_id
-                  AND status NOT IN (:cancelled_status, :expired_status)
-                  AND NOT (
-                    status = :failed_status
-                    AND COALESCE(error, '') <> :restart_error
-                  )
-                """
-            )
-            params = {
-                "task_id": task_id,
-                "runner_id": runner_id,
-                "heartbeat_at": now,
-                "cancelled_status": TaskStatus.CANCELLED_BY_USER.value,
-                "expired_status": TaskStatus.EXPIRED.value,
-                "failed_status": TaskStatus.FAILED.value,
-                "restart_error": restart_error,
-            }
-
-        with self.transaction() as conn:
-            try:
-                result = conn.execute(query, params)
-            except ProgrammingError:
-                logger.exception("Task runner state columns are unavailable")
-                raise
-            if result.rowcount == 0:
-                return True
-        logger.debug("Updated heartbeat for task %s (runner=%s)", task_id, runner_id)
-
+        logger.debug("Checked abort state for task %s (runner=%s)", task_id, runner_id)
         return False
 
     def should_abort_task(self, task_id: str) -> bool:

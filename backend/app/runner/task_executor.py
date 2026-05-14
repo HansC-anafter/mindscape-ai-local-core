@@ -29,6 +29,7 @@ from backend.app.services.runner_resources import (
     renew_resource_lease_keys,
     resource_lease_keys_from_context,
 )
+from backend.app.services.runner_live_state import RunnerLiveStateStore
 from backend.app.services.stores.tasks_store import TasksStore
 from backend.app.services.stores.redis.runner_queue_store import RedisRunnerQueueStore
 
@@ -881,6 +882,8 @@ async def _run_single_task(
         )
 
     hb_interval_ms = _env_int("LOCAL_CORE_RUNNER_HEARTBEAT_INTERVAL_MS", 15000)
+    heartbeat_ttl_seconds = max(60, int((hb_interval_ms / 1000.0) * 4))
+    runner_live_state = RunnerLiveStateStore()
     # Heartbeat/lock renew must keep ticking even if the main async task blocks (e.g. Playwright hanging).
 
     # Capture the main event loop so daemon threads can schedule coroutines on it
@@ -917,21 +920,53 @@ async def _run_single_task(
                 hb_started = time.monotonic()
                 if trace_heartbeat and beat_seq <= 3:
                     logger.warning(
-                        "Runner heartbeat begin task_id=%s playbook=%s beat_seq=%s phase=db_update",
+                        "Runner heartbeat begin task_id=%s playbook=%s beat_seq=%s phase=abort_check",
                         task.id,
                         task.pack_id,
                         beat_seq,
                     )
-                tasks_store.update_task_heartbeat(task.id, runner_id=runner_id)
+                should_abort = tasks_store.update_task_heartbeat(
+                    task.id,
+                    runner_id=runner_id,
+                )
                 hb_db_elapsed_ms = int((time.monotonic() - hb_started) * 1000)
                 if (trace_heartbeat and beat_seq <= 3) or hb_db_elapsed_ms >= 2000:
                     log_fn = logger.warning if hb_db_elapsed_ms >= 2000 or trace_heartbeat else logger.info
                     log_fn(
-                        "Runner heartbeat db_update done task_id=%s playbook=%s beat_seq=%s elapsed_ms=%s",
+                        "Runner heartbeat abort_check done task_id=%s playbook=%s beat_seq=%s elapsed_ms=%s should_abort=%s",
                         task.id,
                         task.pack_id,
                         beat_seq,
                         hb_db_elapsed_ms,
+                        should_abort,
+                    )
+                if should_abort:
+                    stop_event.set()
+                    break
+                live_started = time.monotonic()
+                live_ok = runner_live_state.renew_task_heartbeat(
+                    task_id=task.id,
+                    runner_id=runner_id,
+                    workspace_id=task.workspace_id,
+                    execution_id=task.execution_id,
+                    playbook_code=task.pack_id,
+                    queue_shard=getattr(task, "queue_shard", None),
+                    ttl_seconds=heartbeat_ttl_seconds,
+                )
+                hb_live_elapsed_ms = int((time.monotonic() - live_started) * 1000)
+                if (trace_heartbeat and beat_seq <= 3) or hb_live_elapsed_ms >= 2000 or not live_ok:
+                    log_fn = (
+                        logger.warning
+                        if hb_live_elapsed_ms >= 2000 or not live_ok or trace_heartbeat
+                        else logger.info
+                    )
+                    log_fn(
+                        "Runner heartbeat live_state done task_id=%s playbook=%s beat_seq=%s elapsed_ms=%s ok=%s",
+                        task.id,
+                        task.pack_id,
+                        beat_seq,
+                        hb_live_elapsed_ms,
+                        live_ok,
                     )
                 # Touch Redis queue visibility timeout to prevent ghosting by Reaper
                 if redis_queue:
@@ -1407,6 +1442,13 @@ async def _run_single_task(
                 hb_thread.join(timeout=1.0)
             except Exception:
                 pass
+        try:
+            runner_live_state.clear_task_heartbeat(
+                task_id=task.id,
+                runner_id=runner_id,
+            )
+        except Exception:
+            pass
         if lock_renew_thread:
             try:
                 lock_renew_thread.join(timeout=1.0)

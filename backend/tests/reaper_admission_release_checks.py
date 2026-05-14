@@ -352,6 +352,14 @@ class _FakeArtifactsStore:
         return self.artifacts.get(execution_id)
 
 
+class _FakeLiveStateStore:
+    def __init__(self, heartbeats):
+        self.heartbeats = dict(heartbeats)
+
+    def get_task_heartbeat(self, task_id: str):
+        return self.heartbeats.get(task_id)
+
+
 @pytest.mark.asyncio
 async def test_releases_due_deferred_task_when_capacity_available(monkeypatch):
     store = _FakeTasksStore([_build_deferred_task()])
@@ -664,6 +672,30 @@ def test_requeues_stale_queued_running_task_without_runner_owner(monkeypatch):
     assert updated_ctx["runner_reaper"]["action"] == "requeue_orphan_no_runner"
     assert "runner_id" not in updated_ctx
     assert "heartbeat_at" not in updated_ctx
+
+
+def test_skips_reaping_running_task_with_fresh_live_state(monkeypatch):
+    task = _build_running_browser_task(heartbeat_age_seconds=3600)
+    store = _FakeTasksStore([task])
+    live_state = _FakeLiveStateStore(
+        {
+            task.id: {
+                "task_id": task.id,
+                "runner_id": "runner-1",
+                "heartbeat_at": _utc_now().isoformat(),
+            }
+        }
+    )
+    monkeypatch.setenv("LOCAL_CORE_RUNNER_STALE_TASK_SECONDS", "180")
+
+    reaper._reap_stale_running_tasks(
+        store,
+        "runner-new",
+        redis_queue=None,
+        live_state_store=live_state,
+    )
+
+    assert store.updated == []
 
 
 def test_requests_watchdog_abort_for_running_task_with_no_progress(monkeypatch):

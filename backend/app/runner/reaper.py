@@ -22,6 +22,7 @@ from backend.app.services.runner_resources import (
     ResourceRequirements,
     resource_lease_keys_from_context,
 )
+from backend.app.services.runner_live_state import RunnerLiveStateStore
 
 from backend.app.runner.concurrency import _resolve_lock_keys
 from backend.app.runner.database_backoff import is_database_recovery_error
@@ -50,6 +51,31 @@ def _task_heartbeat_at(task: Task, ctx: dict[str, Any]) -> Optional[datetime]:
     if isinstance(heartbeat_at, datetime):
         return heartbeat_at
     return _parse_utc_iso(ctx.get("heartbeat_at"))
+
+
+def _live_task_heartbeat_at(
+    task_id: str,
+    live_state_store: Optional[RunnerLiveStateStore] = None,
+) -> Optional[datetime]:
+    try:
+        live_state = live_state_store or RunnerLiveStateStore()
+        payload = live_state.get_task_heartbeat(task_id)
+    except Exception:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    return _parse_utc_iso(payload.get("heartbeat_at"))
+
+
+def _effective_task_heartbeat_at(
+    task: Task,
+    ctx: dict[str, Any],
+    live_state_store: Optional[RunnerLiveStateStore] = None,
+) -> Optional[datetime]:
+    live_heartbeat_at = _live_task_heartbeat_at(task.id, live_state_store)
+    if live_heartbeat_at is not None:
+        return live_heartbeat_at
+    return _task_heartbeat_at(task, ctx)
 
 
 def _heartbeat_log_value(heartbeat_at: Optional[datetime], ctx: dict[str, Any]) -> Any:
@@ -581,6 +607,7 @@ def _reap_stale_running_tasks(
     runner_id: str,
     redis_queue: Optional[RedisRunnerQueueStore] = None,
     event_loop: Optional[asyncio.AbstractEventLoop] = None,
+    live_state_store: Optional[RunnerLiveStateStore] = None,
 ) -> None:
     stale_seconds = _env_int("LOCAL_CORE_RUNNER_STALE_TASK_SECONDS", 180)
     threshold = _utc_now() - timedelta(seconds=stale_seconds)
@@ -610,7 +637,7 @@ def _reap_stale_running_tasks(
         try:
             ctx = t.execution_context if isinstance(t.execution_context, dict) else {}
             ctx_runner_id = _task_runner_id(t, ctx)
-            heartbeat_at = _task_heartbeat_at(t, ctx)
+            heartbeat_at = _effective_task_heartbeat_at(t, ctx, live_state_store)
 
             # Only reap tasks that were executed in runner mode (or clearly runner-owned).
             if ctx.get("execution_mode") not in (None, "runner"):
@@ -832,7 +859,7 @@ async def _reap_redis_queues(
                     continue
                 
                 ctx = t_data.execution_context if isinstance(t_data.execution_context, dict) else {}
-                ctx_heartbeat = _task_heartbeat_at(t_data, ctx)
+                ctx_heartbeat = _effective_task_heartbeat_at(t_data, ctx)
                 stale_limit = _utc_now() - timedelta(seconds=_env_int("LOCAL_CORE_RUNNER_STALE_TASK_SECONDS", 180))
                 
                 if ctx_heartbeat and ctx_heartbeat > stale_limit:

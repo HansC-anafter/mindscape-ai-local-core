@@ -27,6 +27,7 @@ class _SqliteClaimStore(TasksStoreRunnerMixin):
                     CREATE TABLE tasks (
                         id TEXT PRIMARY KEY,
                         status TEXT NOT NULL,
+                        error TEXT,
                         params TEXT,
                         execution_context TEXT,
                         concurrency_key TEXT,
@@ -114,6 +115,16 @@ class _SqliteClaimStore(TasksStoreRunnerMixin):
                 {"task_id": task_id},
             ).scalar_one()
         return json.loads(raw)
+
+    def runner_state(self, task_id: str) -> tuple[str | None, str | None]:
+        with self._engine.begin() as conn:
+            row = conn.execute(
+                text(
+                    "SELECT runner_id, heartbeat_at FROM tasks WHERE id = :task_id"
+                ),
+                {"task_id": task_id},
+            ).fetchone()
+        return row.runner_id, str(row.heartbeat_at) if row.heartbeat_at else None
 
 
 def test_claim_context_clears_stale_deferred_metadata():
@@ -239,3 +250,39 @@ def test_try_claim_task_restores_missing_inputs_from_params():
     assert ctx["inputs"]["analysis_profile"] == "visual_anatomy"
     assert "runner_skip_reason" not in ctx
     assert "resume_after" not in ctx
+
+
+def test_update_task_heartbeat_is_abort_check_only():
+    store = _SqliteClaimStore()
+    store.insert_task(
+        "running-task",
+        status=TaskStatus.RUNNING.value,
+        concurrency_key=None,
+    )
+    before = store.runner_state("running-task")
+
+    should_abort = store.update_task_heartbeat(
+        "running-task",
+        runner_id="runner-a",
+    )
+
+    assert should_abort is False
+    assert store.runner_state("running-task") == before
+
+
+def test_update_task_heartbeat_aborts_cancelled_task_without_mutation():
+    store = _SqliteClaimStore()
+    store.insert_task(
+        "cancelled-task",
+        status=TaskStatus.CANCELLED_BY_USER.value,
+        concurrency_key=None,
+    )
+    before = store.runner_state("cancelled-task")
+
+    should_abort = store.update_task_heartbeat(
+        "cancelled-task",
+        runner_id="runner-a",
+    )
+
+    assert should_abort is True
+    assert store.runner_state("cancelled-task") == before
