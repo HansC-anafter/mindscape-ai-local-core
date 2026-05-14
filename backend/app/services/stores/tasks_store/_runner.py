@@ -136,7 +136,7 @@ class TasksStoreRunnerMixin:
             row = conn.execute(
                 text(
                     """
-                    SELECT status, concurrency_key
+                    SELECT status, concurrency_key, params, execution_context
                     FROM tasks
                     WHERE id = :task_id
                 """
@@ -150,11 +150,25 @@ class TasksStoreRunnerMixin:
             if current_status != TaskStatus.PENDING.value:
                 return False
 
+            task_params = self.deserialize_json(getattr(row, "params", None), {})
+            existing_context = self.deserialize_json(
+                getattr(row, "execution_context", None),
+                {},
+            )
+            claim_execution_context = _build_claim_execution_context(
+                existing_context,
+                task_params=task_params,
+                runner_id=runner_id,
+                now=now,
+            )
+
             keys = _normalize_concurrency_keys(concurrency_keys)
             persisted_key = getattr(row, "concurrency_key", None)
             if isinstance(persisted_key, str) and persisted_key.strip():
                 keys = _normalize_concurrency_keys([*keys, persisted_key])
-            conflict_clause, conflict_params = _running_concurrency_conflict_clause(keys)
+            conflict_clause, conflict_params = _running_concurrency_conflict_clause(
+                keys
+            )
 
             try:
                 result = conn.execute(
@@ -165,6 +179,7 @@ class TasksStoreRunnerMixin:
                         started_at = :started_at,
                         runner_id = :runner_id,
                         heartbeat_at = :heartbeat_at,
+                        execution_context = :execution_context,
                         blocked_reason = NULL,
                         blocked_payload = NULL,
                         frontier_state = :frontier_state,
@@ -179,6 +194,9 @@ class TasksStoreRunnerMixin:
                         "started_at": now,
                         "runner_id": runner_id,
                         "heartbeat_at": now,
+                        "execution_context": self.serialize_json(
+                            claim_execution_context
+                        ),
                         "frontier_state": "running",
                         "task_id": task_id,
                         **conflict_params,
@@ -186,7 +204,15 @@ class TasksStoreRunnerMixin:
                 )
             except IntegrityError:
                 return False
-            return result.rowcount == 1
+            claimed = result.rowcount == 1
+            if claimed and hasattr(self, "_record_task_claim"):
+                self._record_task_claim(
+                    conn,
+                    task_id=task_id,
+                    runner_id=runner_id,
+                    started_at=now,
+                )
+            return claimed
 
     def update_task_heartbeat(
         self, task_id: str, runner_id: Optional[str] = None

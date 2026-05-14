@@ -30,6 +30,8 @@ class _SqliteClaimStore(TasksStoreRunnerMixin):
                         params TEXT,
                         execution_context TEXT,
                         concurrency_key TEXT,
+                        runner_id TEXT,
+                        heartbeat_at TIMESTAMP,
                         started_at TIMESTAMP,
                         blocked_reason TEXT,
                         blocked_payload TEXT,

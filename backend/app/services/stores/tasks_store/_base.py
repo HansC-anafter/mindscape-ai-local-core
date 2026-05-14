@@ -25,6 +25,9 @@ from backend.app.services.task_payload_budget import apply_task_payload_budget
 from backend.app.services.meeting_command_status_sync import (
     sync_meeting_command_from_task_safely,
 )
+from backend.app.services.run_attempts_store import RunAttemptsStore
+from backend.app.services.task_events_store import TaskEventsStore
+from backend.app.services.task_projection_builder import TaskProjectionBuilder
 
 logger = logging.getLogger(__name__)
 
@@ -310,6 +313,171 @@ class TasksStoreCrudMixin:
     def __init__(self, db_path: Optional[str] = None, db_role: str = "core"):
         super().__init__(db_role=db_role)
         self.db_path = db_path
+        self._run_attempts_store_instance: Optional[RunAttemptsStore] = None
+        self._task_events_store_instance: Optional[TaskEventsStore] = None
+        self._task_projection_builder_instance: Optional[TaskProjectionBuilder] = None
+
+    def _task_events_store(self) -> TaskEventsStore:
+        store = self._task_events_store_instance
+        if store is None:
+            store = TaskEventsStore(db_role=self.db_role)
+            self._task_events_store_instance = store
+        return store
+
+    def _run_attempts_store(self) -> RunAttemptsStore:
+        store = self._run_attempts_store_instance
+        if store is None:
+            store = RunAttemptsStore(db_role=self.db_role)
+            self._run_attempts_store_instance = store
+        return store
+
+    def _task_projection_builder(self) -> TaskProjectionBuilder:
+        builder = self._task_projection_builder_instance
+        if builder is None:
+            builder = TaskProjectionBuilder(db_role=self.db_role)
+            self._task_projection_builder_instance = builder
+        return builder
+
+    def _run_id_for_task(self, task_id: str, execution_id: Optional[str]) -> str:
+        return execution_id or task_id
+
+    def _record_run_control_from_task(
+        self,
+        conn,
+        task: Task,
+        *,
+        status: Optional[str] = None,
+    ) -> str:
+        run_id = self._run_id_for_task(task.id, task.execution_id)
+        self._run_attempts_store().upsert_run(
+            run_id=run_id,
+            execution_id=task.execution_id or task.id,
+            workspace_id=task.workspace_id,
+            task_id=task.id,
+            pack_id=task.pack_id,
+            status=status or _coerce_task_status(task.status),
+            started_at=task.started_at,
+            completed_at=task.completed_at,
+            conn=conn,
+        )
+        return run_id
+
+    def _record_task_control_event(
+        self,
+        conn,
+        *,
+        task_id: str,
+        workspace_id: str,
+        event_type: str,
+        from_status: Optional[str] = None,
+        to_status: Optional[str] = None,
+        run_id: Optional[str] = None,
+        attempt_id: Optional[str] = None,
+        summary: Optional[str] = None,
+        payload: Optional[Dict[str, Any]] = None,
+        idempotency_key: Optional[str] = None,
+        occurred_at: Optional[datetime] = None,
+    ) -> str:
+        return self._task_events_store().record_task_event(
+            task_id=task_id,
+            workspace_id=workspace_id,
+            event_type=event_type,
+            from_status=from_status,
+            to_status=to_status,
+            run_id=run_id,
+            attempt_id=attempt_id,
+            summary=summary,
+            payload=payload,
+            idempotency_key=idempotency_key,
+            occurred_at=occurred_at,
+            conn=conn,
+        )
+
+    def _refresh_task_projection(self, conn, task_id: str) -> None:
+        self._task_projection_builder().upsert_task_summary_from_task_id(
+            task_id,
+            conn=conn,
+        )
+
+    def _record_latest_attempt_completion(
+        self,
+        conn,
+        *,
+        task_id: str,
+        status: str,
+        completed_at: Optional[datetime] = None,
+        error_summary: Optional[str] = None,
+    ) -> Optional[str]:
+        return self._run_attempts_store().complete_latest_attempt_for_task(
+            task_id=task_id,
+            status=status,
+            completed_at=completed_at,
+            error_summary=error_summary,
+            conn=conn,
+        )
+
+    def _record_task_claim(
+        self,
+        conn,
+        *,
+        task_id: str,
+        runner_id: str,
+        started_at: datetime,
+    ) -> Optional[str]:
+        row = conn.execute(
+            text(
+                """
+                SELECT id, workspace_id, execution_id, pack_id, status
+                FROM tasks
+                WHERE id = :task_id
+                """
+            ),
+            {"task_id": task_id},
+        ).fetchone()
+        if not row:
+            return None
+        mapping = row._mapping if hasattr(row, "_mapping") else None
+        workspace_id = mapping["workspace_id"] if mapping is not None else row[1]
+        execution_id = mapping["execution_id"] if mapping is not None else row[2]
+        pack_id = mapping["pack_id"] if mapping is not None else row[3]
+        status = mapping["status"] if mapping is not None else row[4]
+        run_id = self._run_id_for_task(task_id, execution_id)
+        self._run_attempts_store().upsert_run(
+            run_id=run_id,
+            execution_id=execution_id or task_id,
+            workspace_id=workspace_id,
+            task_id=task_id,
+            pack_id=pack_id,
+            status=status,
+            started_at=started_at,
+            conn=conn,
+        )
+        attempt_id = self._run_attempts_store().create_attempt(
+            run_id=run_id,
+            task_id=task_id,
+            runner_id=runner_id,
+            status=status,
+            started_at=started_at,
+            idempotency_key=(
+                f"task:{task_id}:runner:{runner_id}:claim:{started_at.isoformat()}"
+            ),
+            conn=conn,
+        )
+        self._record_task_control_event(
+            conn,
+            task_id=task_id,
+            workspace_id=workspace_id,
+            event_type="task.claimed",
+            from_status=TaskStatus.PENDING.value,
+            to_status=status,
+            run_id=run_id,
+            attempt_id=attempt_id,
+            payload={"runner_id": runner_id},
+            idempotency_key=f"task:{task_id}:claimed:{attempt_id}",
+            occurred_at=started_at,
+        )
+        self._refresh_task_projection(conn, task_id)
+        return attempt_id
 
     def create_task(self, task: Task) -> Task:
         """
@@ -421,6 +589,24 @@ class TasksStoreCrudMixin:
                 "error": task.error,
             }
             conn.execute(query, params)
+            task.parent_execution_id = resolved_parent_id
+            run_id = self._record_run_control_from_task(conn, task)
+            self._record_task_control_event(
+                conn,
+                task_id=task.id,
+                workspace_id=task.workspace_id,
+                event_type="task.created",
+                to_status=task.status.value,
+                run_id=run_id,
+                payload={
+                    "pack_id": task.pack_id,
+                    "task_type": task.task_type,
+                    "queue_shard": task.queue_shard,
+                },
+                idempotency_key=f"task:{task.id}:created",
+                occurred_at=task.created_at,
+            )
+            self._refresh_task_projection(conn, task.id)
             logger.info(
                 "Created task: %s (workspace: %s, pack: %s)",
                 task.id,
@@ -558,6 +744,23 @@ class TasksStoreCrudMixin:
             params["completed_at"] = completed_at
 
         with self.transaction() as conn:
+            existing_row = conn.execute(
+                text(
+                    """
+                    SELECT status
+                    FROM tasks
+                    WHERE id = :task_id
+                    """
+                ),
+                {"task_id": task_id},
+            ).fetchone()
+            existing_status = None
+            if existing_row:
+                existing_status = (
+                    existing_row._mapping["status"]
+                    if hasattr(existing_row, "_mapping")
+                    else existing_row[0]
+                )
             query = text(f"UPDATE tasks SET {', '.join(updates)} WHERE id = :task_id")
             result_row = conn.execute(query, params)
             if result_row.rowcount == 0:
@@ -587,6 +790,75 @@ class TasksStoreCrudMixin:
                     )
             except Exception:
                 pass
+
+            control_row = conn.execute(
+                text(
+                    """
+                    SELECT workspace_id, execution_id, pack_id, started_at, completed_at
+                    FROM tasks
+                    WHERE id = :task_id
+                    """
+                ),
+                {"task_id": task_id},
+            ).fetchone()
+            if control_row:
+                mapping = (
+                    control_row._mapping
+                    if hasattr(control_row, "_mapping")
+                    else None
+                )
+                workspace_id = (
+                    mapping["workspace_id"] if mapping is not None else control_row[0]
+                )
+                execution_id = (
+                    mapping["execution_id"] if mapping is not None else control_row[1]
+                )
+                pack_id = mapping["pack_id"] if mapping is not None else control_row[2]
+                persisted_started_at = (
+                    mapping["started_at"] if mapping is not None else control_row[3]
+                )
+                persisted_completed_at = (
+                    mapping["completed_at"] if mapping is not None else control_row[4]
+                )
+                event_time = completed_at or started_at or _utc_now()
+                run_id = self._run_id_for_task(task_id, execution_id)
+                self._run_attempts_store().upsert_run(
+                    run_id=run_id,
+                    execution_id=execution_id or task_id,
+                    workspace_id=workspace_id,
+                    task_id=task_id,
+                    pack_id=pack_id,
+                    status=status.value,
+                    started_at=persisted_started_at,
+                    completed_at=persisted_completed_at,
+                    conn=conn,
+                )
+                attempt_id = None
+                if status.value in _TERMINAL_TASK_STATUSES:
+                    attempt_id = self._record_latest_attempt_completion(
+                        conn,
+                        task_id=task_id,
+                        status=status.value,
+                        completed_at=persisted_completed_at or completed_at,
+                        error_summary=error,
+                    )
+                self._record_task_control_event(
+                    conn,
+                    task_id=task_id,
+                    workspace_id=workspace_id,
+                    event_type="task.status_changed",
+                    from_status=existing_status,
+                    to_status=status.value,
+                    run_id=run_id,
+                    attempt_id=attempt_id,
+                    summary=error,
+                    payload={"has_result": result is not None},
+                    idempotency_key=(
+                        f"task:{task_id}:status:{status.value}:{event_time.isoformat()}"
+                    ),
+                    occurred_at=event_time,
+                )
+                self._refresh_task_projection(conn, task_id)
 
             logger.info("Updated task %s status to %s", task_id, status.value)
             updated_task = self.get_task(task_id)
@@ -664,6 +936,23 @@ class TasksStoreCrudMixin:
             return self.get_task(task_id)
 
         with self.transaction() as conn:
+            existing_row = conn.execute(
+                text(
+                    """
+                    SELECT status
+                    FROM tasks
+                    WHERE id = :task_id
+                    """
+                ),
+                {"task_id": task_id},
+            ).fetchone()
+            existing_status = None
+            if existing_row:
+                existing_status = (
+                    existing_row._mapping["status"]
+                    if hasattr(existing_row, "_mapping")
+                    else existing_row[0]
+                )
             query = text(f"UPDATE tasks SET {', '.join(updates)} WHERE id = :task_id")
             result_row = conn.execute(query, params)
             if result_row.rowcount == 0:
@@ -694,6 +983,106 @@ class TasksStoreCrudMixin:
                     )
             except Exception:
                 pass
+
+            status_val = kwargs.get("status")
+            projection_keys = {
+                "status",
+                "started_at",
+                "completed_at",
+                "error",
+                "pack_id",
+                "task_type",
+                "queue_shard",
+            }
+            should_refresh_projection = (
+                project_id is not None
+                or bool(projection_keys.intersection(kwargs.keys()))
+            )
+            if status_val is not None:
+                status_raw = (
+                    status_val.value if hasattr(status_val, "value") else str(status_val)
+                )
+                control_row = conn.execute(
+                    text(
+                        """
+                        SELECT workspace_id, execution_id, pack_id, started_at, completed_at, error
+                        FROM tasks
+                        WHERE id = :task_id
+                        """
+                    ),
+                    {"task_id": task_id},
+                ).fetchone()
+                if control_row:
+                    mapping = (
+                        control_row._mapping
+                        if hasattr(control_row, "_mapping")
+                        else None
+                    )
+                    workspace_id = (
+                        mapping["workspace_id"]
+                        if mapping is not None
+                        else control_row[0]
+                    )
+                    execution_id = (
+                        mapping["execution_id"]
+                        if mapping is not None
+                        else control_row[1]
+                    )
+                    pack_id = (
+                        mapping["pack_id"] if mapping is not None else control_row[2]
+                    )
+                    persisted_started_at = (
+                        mapping["started_at"] if mapping is not None else control_row[3]
+                    )
+                    persisted_completed_at = (
+                        mapping["completed_at"]
+                        if mapping is not None
+                        else control_row[4]
+                    )
+                    persisted_error = (
+                        mapping["error"] if mapping is not None else control_row[5]
+                    )
+                    event_time = persisted_completed_at or persisted_started_at or _utc_now()
+                    run_id = self._run_id_for_task(task_id, execution_id)
+                    self._run_attempts_store().upsert_run(
+                        run_id=run_id,
+                        execution_id=execution_id or task_id,
+                        workspace_id=workspace_id,
+                        task_id=task_id,
+                        pack_id=pack_id,
+                        status=status_raw,
+                        started_at=persisted_started_at,
+                        completed_at=persisted_completed_at,
+                        conn=conn,
+                    )
+                    attempt_id = None
+                    if status_raw in _TERMINAL_TASK_STATUSES:
+                        attempt_id = self._record_latest_attempt_completion(
+                            conn,
+                            task_id=task_id,
+                            status=status_raw,
+                            completed_at=persisted_completed_at,
+                            error_summary=persisted_error,
+                        )
+                    self._record_task_control_event(
+                        conn,
+                        task_id=task_id,
+                        workspace_id=workspace_id,
+                        event_type="task.status_changed",
+                        from_status=existing_status,
+                        to_status=status_raw,
+                        run_id=run_id,
+                        attempt_id=attempt_id,
+                        summary=persisted_error,
+                        payload={"source": "update_task"},
+                        idempotency_key=(
+                            f"task:{task_id}:update_status:{status_raw}:{event_time.isoformat()}"
+                        ),
+                        occurred_at=event_time,
+                    )
+                    should_refresh_projection = True
+            if should_refresh_projection:
+                self._refresh_task_projection(conn, task_id)
 
             logger.debug("Updated task %s", task_id)
             updated_task = self.get_task(task_id) if return_updated else None
