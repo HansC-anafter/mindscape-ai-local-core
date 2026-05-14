@@ -1,4 +1,5 @@
 from backend.app.services.result_object_contract import (
+    analysis_result_object_key,
     build_result_object_descriptor,
     json_payload_size,
 )
@@ -33,6 +34,7 @@ def test_result_object_descriptor_keeps_pointer_metadata_only():
         payload=payload,
         summary="render completed",
         storage_ref="/workspace/artifacts/exec-1",
+        object_key=analysis_result_object_key("exec-1"),
         execution_id="exec-1",
         artifact_id="artifact-1",
         landing_metadata={
@@ -52,6 +54,7 @@ def test_result_object_descriptor_keeps_pointer_metadata_only():
     assert descriptor["execution_id"] == "exec-1"
     assert descriptor["artifact_id"] == "artifact-1"
     assert descriptor["result_object"]["bytes"] == json_payload_size(payload)
+    assert descriptor["result_object"]["object_key"] == "analysis_result/exec-1.json"
     assert descriptor["result_object"]["checksum_sha256"]
     assert (
         descriptor["result_object"]["result_json_path"]

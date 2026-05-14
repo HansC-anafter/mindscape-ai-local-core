@@ -10,6 +10,18 @@ JSON_MIME_TYPE = "application/json"
 DEFAULT_SUMMARY_LIMIT = 500
 DEFAULT_METADATA_STRING_LIMIT = 500
 DEFAULT_METADATA_LIST_LIMIT = 50
+ANALYSIS_RESULT_OBJECT_PREFIX = "analysis_result"
+
+
+def _safe_object_key_part(value: str) -> str:
+    cleaned = str(value or "").strip().replace("\\", "/")
+    parts = [part for part in cleaned.split("/") if part and part not in {".", ".."}]
+    return "_".join(parts) or "unknown"
+
+
+def analysis_result_object_key(run_id: str) -> str:
+    """Return the canonical object key for a landed analysis result."""
+    return f"{ANALYSIS_RESULT_OBJECT_PREFIX}/{_safe_object_key_part(run_id)}.json"
 
 
 def _json_dumps(value: Any) -> str:
@@ -141,6 +153,7 @@ def build_result_object_descriptor(
     payload: Any,
     summary: Optional[str] = None,
     storage_ref: Optional[str] = None,
+    object_key: Optional[str] = None,
     execution_id: Optional[str] = None,
     artifact_id: Optional[str] = None,
     landing_metadata: Optional[Dict[str, Any]] = None,
@@ -157,7 +170,7 @@ def build_result_object_descriptor(
         if isinstance(landing, dict)
         else None
     )
-    object_key = _clean_string(storage_ref) or result_json_path
+    resolved_object_key = _clean_string(object_key) or _clean_string(storage_ref) or result_json_path
 
     descriptor: Dict[str, Any] = {
         "summary": _limit_text(payload_summary),
@@ -166,7 +179,7 @@ def build_result_object_descriptor(
         "artifact_id": _clean_string(artifact_id),
         "result_object": {
             "schema_version": RESULT_OBJECT_CONTRACT_SCHEMA_VERSION,
-            "object_key": object_key,
+            "object_key": resolved_object_key,
             "storage_ref": _clean_string(storage_ref),
             "checksum_sha256": json_payload_sha256(payload),
             "bytes": json_payload_size(payload),

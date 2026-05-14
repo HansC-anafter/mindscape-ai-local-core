@@ -24,8 +24,10 @@ from app.models.workspace import (
     TaskStatus,
 )
 from app.services.stores.tasks_store import TasksStore
+from app.services.stores.postgres.artifact_manifest_store import ArtifactManifestStore
 from app.services.stores.postgres.artifacts_store import PostgresArtifactsStore
 from backend.app.services.result_object_contract import (
+    analysis_result_object_key,
     build_result_object_descriptor,
     json_payload_size,
 )
@@ -74,6 +76,7 @@ class TaskResultLandingService:
         self._db_path = db_path
         self._tasks_store = TasksStore()
         self._artifacts_store = PostgresArtifactsStore()
+        self._artifact_manifest_store = ArtifactManifestStore()
 
     def land_result(
         self,
@@ -312,19 +315,36 @@ class TaskResultLandingService:
             attachment_filenames=attachment_filenames,
             landed_at=landed_at,
         )
+        result_object_key = analysis_result_object_key(execution_id)
         try:
             existing = self._artifacts_store.get_by_execution_id(execution_id)
+            artifact_id = existing.id if existing else str(uuid.uuid4())
+            artifact_descriptor = build_result_object_descriptor(
+                payload=result_data,
+                summary=summary[:500],
+                storage_ref=artifact_dir_str or None,
+                object_key=result_object_key,
+                execution_id=execution_id,
+                artifact_id=artifact_id,
+                landing_metadata=landing_metadata,
+                deliverable_identity=deliverable_identity,
+                acceptance_evidence=acceptance_evidence,
+            )
+            artifact_content = self._build_artifact_content_descriptor(
+                artifact_descriptor
+            )
             if existing:
                 updated_metadata = self._merge_artifact_metadata(
                     existing_metadata=getattr(existing, "metadata", None),
                     project_id=project_id,
                     has_attachments=len(written_attachments) > 0,
-                        landing_metadata=landing_metadata,
-                        deliverable_identity=deliverable_identity,
-                        acceptance_evidence=acceptance_evidence,
-                    )
+                    landing_metadata=landing_metadata,
+                    deliverable_identity=deliverable_identity,
+                    acceptance_evidence=acceptance_evidence,
+                )
                 update_kwargs = {
                     "summary": summary[:2000] if summary else existing.summary,
+                    "content": artifact_content,
                     "metadata": updated_metadata,
                 }
                 if self._should_override_artifact_title(existing.title):
@@ -332,10 +352,8 @@ class TaskResultLandingService:
                 if artifact_dir_str:
                     update_kwargs["storage_ref"] = artifact_dir_str
                 self._artifacts_store.update_artifact(existing.id, **update_kwargs)
-                artifact_id = existing.id
                 logger.info("Artifact already exists id=%s, updated", artifact_id)
             else:
-                artifact_id = str(uuid.uuid4())
                 artifact = Artifact(
                     id=artifact_id,
                     workspace_id=workspace_id,
@@ -346,7 +364,7 @@ class TaskResultLandingService:
                     artifact_type=ArtifactType.DATA,
                     title=preferred_artifact_title,
                     summary=summary[:2000] if summary else "(no summary)",
-                    content={"output": summary[:500]} if summary else {},
+                    content=artifact_content,
                     storage_ref=artifact_dir_str or None,
                     primary_action_type=PrimaryActionType.DOWNLOAD,
                     metadata=self._merge_artifact_metadata(
@@ -360,6 +378,16 @@ class TaskResultLandingService:
                 )
                 self._artifacts_store.create_artifact(artifact)
                 logger.info("Artifact created id=%s exec=%s", artifact_id, execution_id)
+            if result_json_path_str:
+                self._artifact_manifest_store.upsert_result_manifest(
+                    artifact_id=artifact_id,
+                    workspace_id=workspace_id,
+                    task_id=task_id,
+                    execution_id=execution_id,
+                    result_descriptor=artifact_descriptor,
+                    storage_ref=artifact_dir_str or None,
+                    summary=summary[:500] if summary else None,
+                )
         except Exception:
             logger.exception("Artifact DB write failed exec=%s", execution_id)
 
@@ -382,6 +410,7 @@ class TaskResultLandingService:
                         incoming_result=result_data,
                         summary=summary[:500],
                         storage_ref=artifact_dir_str or None,
+                        object_key=result_object_key,
                         execution_id=execution_id,
                         artifact_id=artifact_id,
                         landing_metadata=landing_metadata,
@@ -1041,6 +1070,18 @@ class TaskResultLandingService:
         return metadata
 
     @staticmethod
+    def _build_artifact_content_descriptor(
+        result_descriptor: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        return {
+            "summary": result_descriptor.get("summary"),
+            "storage_ref": result_descriptor.get("storage_ref"),
+            "execution_id": result_descriptor.get("execution_id"),
+            "artifact_id": result_descriptor.get("artifact_id"),
+            "result_object": dict(result_descriptor.get("result_object") or {}),
+        }
+
+    @staticmethod
     def _build_task_result_payload(
         *,
         existing_result: Dict[str, Any],
@@ -1053,6 +1094,7 @@ class TaskResultLandingService:
         deliverable_identity: Dict[str, Any],
         acceptance_evidence: Dict[str, Any],
         pd_storyboard_evidence: Optional[Dict[str, Any]] = None,
+        object_key: Optional[str] = None,
     ) -> Dict[str, Any]:
         preserved_existing: Dict[str, Any] = {}
         if isinstance(existing_result, dict):
@@ -1094,6 +1136,7 @@ class TaskResultLandingService:
             payload=incoming_result,
             summary=summary,
             storage_ref=storage_ref,
+            object_key=object_key,
             execution_id=execution_id,
             artifact_id=artifact_id,
             landing_metadata=landing_metadata,

@@ -18,6 +18,8 @@ from app.models.workspace import Artifact, ArtifactType, PrimaryActionType
 from ..artifacts_store import ArtifactsStore
 
 logger = logging.getLogger(__name__)
+MAX_ARTIFACT_CONTENT_BYTES = 16 * 1024
+MAX_ARTIFACT_METADATA_BYTES = 64 * 1024
 
 
 class PostgresArtifactsStore(PostgresStoreBase):
@@ -145,6 +147,10 @@ class PostgresArtifactsStore(PostgresStoreBase):
 
     def create_artifact(self, artifact: Artifact) -> Artifact:
         """Create a new artifact record."""
+        self._assert_artifact_payload_budget(
+            content=artifact.content,
+            metadata=artifact.metadata,
+        )
         with self.transaction() as conn:
             query = text(
                 """
@@ -401,9 +407,19 @@ class PostgresArtifactsStore(PostgresStoreBase):
 
                 # Handle JSON fields
                 if "content" in kwargs:
+                    self._assert_json_budget(
+                        field_name="content",
+                        value=kwargs["content"],
+                        max_bytes=MAX_ARTIFACT_CONTENT_BYTES,
+                    )
                     set_clauses.append("content = :content")
                     params["content"] = self.serialize_json(kwargs["content"])
                 if "metadata" in kwargs:
+                    self._assert_json_budget(
+                        field_name="metadata",
+                        value=kwargs["metadata"],
+                        max_bytes=MAX_ARTIFACT_METADATA_BYTES,
+                    )
                     set_clauses.append("metadata = :metadata")
                     params["metadata"] = self.serialize_json(kwargs["metadata"])
 
@@ -490,3 +506,35 @@ class PostgresArtifactsStore(PostgresStoreBase):
             created_at=row.created_at,
             updated_at=row.updated_at,
         )
+
+    def _assert_artifact_payload_budget(
+        self,
+        *,
+        content: Optional[Dict[str, Any]],
+        metadata: Optional[Dict[str, Any]],
+    ) -> None:
+        self._assert_json_budget(
+            field_name="content",
+            value=content or {},
+            max_bytes=MAX_ARTIFACT_CONTENT_BYTES,
+        )
+        self._assert_json_budget(
+            field_name="metadata",
+            value=metadata or {},
+            max_bytes=MAX_ARTIFACT_METADATA_BYTES,
+        )
+
+    def _assert_json_budget(
+        self,
+        *,
+        field_name: str,
+        value: Any,
+        max_bytes: int,
+    ) -> None:
+        serialized = self.serialize_json(value) or ""
+        byte_count = len(serialized.encode("utf-8"))
+        if byte_count > max_bytes:
+            raise ValueError(
+                f"artifact {field_name} exceeds {max_bytes} byte budget "
+                f"({byte_count} bytes)"
+            )
