@@ -55,3 +55,19 @@ def test_postgres_extension_migration_is_single_existing_db_enablement_path():
     assert 'op.execute("CREATE EXTENSION IF NOT EXISTS pg_stat_statements")' in migration
     assert 'op.execute("CREATE EXTENSION IF NOT EXISTS pg_repack")' in migration
     assert "DROP EXTENSION" not in migration
+
+
+def test_postgres_reclaim_preflight_wrapper_mounts_verified_backup_dir():
+    repo_root = _repo_root()
+    if repo_root is None:
+        pytest.skip("Repository root files are not mounted in this container")
+
+    script = (
+        repo_root / "scripts/maintenance/postgres_reclaim_preflight.sh"
+    ).read_text(encoding="utf-8")
+
+    assert "$REPO_ROOT:/repo:ro" in script
+    assert "$BACKUP_DIR:/verified-backup:ro" in script
+    assert "--verified-backup-dir /verified-backup" in script
+    assert "postgres_runtime_preflight_report.py" in script
+    assert "PYTHONPYCACHEPREFIX=/tmp/pycache" in script
