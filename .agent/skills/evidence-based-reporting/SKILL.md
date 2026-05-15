@@ -5,6 +5,20 @@ description: Enforce evidence-first discipline in all reports, plans, and diagno
 
 # Evidence-Based Reporting
 
+## Mindscape Entry Points
+
+When a report, audit, or diagnostic document is about Mindscape pack development, local-core runtime/data-plane work, PostgreSQL runtime DB, capability installation, or playbook plane boundaries, cite and apply the matching entry point before writing conclusions:
+
+| Report scope | Required entry point |
+|---|---|
+| Pack development, pack-owned data plane, local-core runtime/data-plane boundary, installed-copy conflict | `mindscape-ai-cloud/docs/internal/local-core/PACK_AND_DATA_PLANE_DEVELOPER_GUIDE_2026-05-15.zh-TW.md` |
+| PostgreSQL/runtime DB architecture, control-plane/data-plane split, row budgets, runner/queue DB guardrails | `mindscape-ai-cloud/docs/internal/runtime-database/README.md` |
+| Capability packaging/install evidence, `.mindpack`, install API, restart and post-install checks | `mindscape-ai-cloud/docs/internal/local-core/CAPABILITY_INSTALLATION_GUIDE.md` |
+| Playbook plane responsibility and execution/control/governance/integration boundaries | `mindscape-ai-cloud/docs/architecture/playbook-implementation-guide.md` |
+| General local-core boundaries, code style, documentation rules | `mindscape-ai-cloud/docs/internal/local-core/DEVELOPER_GUIDE_MINDSCAPE_AI.md` |
+
+Internal work records must be written under `mindscape-ai-cloud/docs/internal/local-core/` or the matching cloud internal docs directory. Do not create new reports under `mindscape-ai-local-core/docs-internal/`.
+
 ## Core Rule
 
 **Every factual claim in a report, plan, or diagnostic document MUST have a corresponding evidence source collected BEFORE the claim is written.**

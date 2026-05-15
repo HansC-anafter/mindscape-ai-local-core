@@ -15,6 +15,20 @@ This skill is stricter than normal planning:
 
 If the task also involves diagnosis, apply the rules from `evidence-based-reporting` first, then write the plan.
 
+## Mindscape Entry Points
+
+When creating a plan for Mindscape work, load and apply the matching entry point before defining problems or proposed changes:
+
+| Plan scope | Required entry point |
+|---|---|
+| Pack development, pack-owned data plane, local-core runtime/data-plane boundary, installed-copy conflict | `mindscape-ai-cloud/docs/internal/local-core/PACK_AND_DATA_PLANE_DEVELOPER_GUIDE_2026-05-15.zh-TW.md` |
+| PostgreSQL/runtime DB architecture, control-plane/data-plane split, row budgets, queue/runner DB guardrails | `mindscape-ai-cloud/docs/internal/runtime-database/README.md` |
+| Capability packaging/install, `.mindpack`, install API, restart and post-install verification | `mindscape-ai-cloud/docs/internal/local-core/CAPABILITY_INSTALLATION_GUIDE.md` |
+| Playbook plane responsibility and execution/control/governance/integration boundaries | `mindscape-ai-cloud/docs/architecture/playbook-implementation-guide.md` |
+| General local-core boundaries, code style, documentation rules | `mindscape-ai-cloud/docs/internal/local-core/DEVELOPER_GUIDE_MINDSCAPE_AI.md` |
+
+Internal implementation plans must be written under `mindscape-ai-cloud/docs/internal/local-core/` or the matching cloud internal docs directory. Do not create new plans under `mindscape-ai-local-core/docs-internal/`.
+
 ## Core Rule
 
 **Do not write an implementation plan until the current system has been observed from the real sources of truth.**
