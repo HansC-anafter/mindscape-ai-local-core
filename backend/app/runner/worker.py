@@ -1,14 +1,14 @@
-"""Runner worker — main loop coordinator.
+"""Runner worker main loop coordinator.
 
 This file was refactored from a 1150-line monolith into a slim coordinator
 that delegates to focused sub-modules:
 
-  utils.py          — _utc_now, _parse_utc_iso, _env_int
-  concurrency.py    — _runner_id, _resolve_lock_key, _build_inputs
-  lifecycle_hooks.py — _invoke_on_fail_hook
-  reaper.py         — _reap_stale_running_tasks, _reap_redis_queues
-  task_executor.py  — _child_execute_playbook, _run_single_task
-  restart.py        — _check_restart_sentinel
+  utils.py          - _utc_now, _parse_utc_iso, _env_int
+  concurrency.py    - _runner_id, _resolve_lock_key, _build_inputs
+  lifecycle_hooks.py - _invoke_on_fail_hook
+  reaper.py         - _reap_stale_running_tasks, _reap_redis_queues
+  task_executor.py  - _child_execute_playbook, _run_single_task
+  restart.py        - _check_restart_sentinel
 """
 
 import asyncio
@@ -37,6 +37,7 @@ from backend.app.services.runner_resources import (
     acquire_task_resource_admission,
     build_resource_wait_task_update,
     build_runner_resource_heartbeat,
+    list_active_runner_resource_heartbeats,
     publish_runner_resource_heartbeat,
     release_acquired_resource_leases,
     resolve_resource_requirements,
@@ -45,7 +46,7 @@ from backend.app.services.stores.tasks_store import TasksStore
 
 from backend.app.services.stores.redis.runner_queue_store import RedisRunnerQueueStore
 
-# ── Sub-module imports ──
+# Sub-module imports
 from backend.app.runner.utils import _utc_now, _parse_utc_iso, _env_int
 from backend.app.runner.concurrency import (
     _runner_id,
@@ -109,16 +110,61 @@ def _runner_lock_ttl_seconds() -> int:
     return _env_int("LOCAL_CORE_RUNNER_LOCK_TTL_SECONDS", 120)
 
 
+def _postgres_runner_heartbeat_enabled() -> bool:
+    return os.getenv(
+        "LOCAL_CORE_RUNNER_POSTGRES_HEARTBEAT_ENABLED",
+        "false",
+    ).lower() in {"1", "true", "yes", "on"}
+
+
+async def _load_active_runner_ids(
+    redis_queue: Optional[RedisRunnerQueueStore],
+    tasks_store: TasksStore,
+    *,
+    max_age_seconds: int,
+) -> set[str]:
+    active_runner_ids: set[str] = set()
+    if redis_queue is not None:
+        try:
+            heartbeats = await list_active_runner_resource_heartbeats(redis_queue)
+            active_runner_ids.update(
+                str(row.get("runner_id") or "").strip()
+                for row in heartbeats
+                if str(row.get("runner_id") or "").strip()
+            )
+        except Exception:
+            pass
+    if active_runner_ids:
+        return active_runner_ids
+
+    try:
+        heartbeats = await asyncio.to_thread(
+            tasks_store.list_runner_heartbeats,
+            max_age_seconds=max_age_seconds,
+            limit=500,
+        )
+        active_runner_ids.update(
+            str(row.get("runner_id") or "").strip()
+            for row in heartbeats
+            if str(row.get("runner_id") or "").strip()
+        )
+    except Exception:
+        pass
+    return active_runner_ids
+
+
 # ============================================================
-#  Startup backfill — Redis has no persistence, so after a
-#  reboot / container restart every pending task vanishes from
-#  the queue.  This one-shot function reads Postgres and re-
-#  enqueues anything that is still PENDING.
+#  Redis is not durable, so container restart can remove pending task
+#  entries from the transport queue. This one-shot backfill reads
+#  PostgreSQL and re-enqueues tasks that are still pending.
 # ============================================================
 
 
 async def _reset_orphaned_running_tasks(
-    tasks_store: TasksStore, current_runner_id: str, runner_profile
+    tasks_store: TasksStore,
+    current_runner_id: str,
+    runner_profile,
+    redis_queue: Optional[RedisRunnerQueueStore] = None,
 ) -> set[str]:
     """Reset running tasks from dead runners back to PENDING on startup.
 
@@ -129,23 +175,17 @@ async def _reset_orphaned_running_tasks(
     reset_task_ids: set[str] = set()
     try:
         active_runner_ids: set[str] = {current_runner_id}
-        try:
-            heartbeat_max_age = _env_int(
-                "LOCAL_CORE_RUNNER_ORPHAN_HEARTBEAT_MAX_AGE_SECONDS",
-                120,
-            )
-            heartbeats = await asyncio.to_thread(
-                tasks_store.list_runner_heartbeats,
+        heartbeat_max_age = _env_int(
+            "LOCAL_CORE_RUNNER_ORPHAN_HEARTBEAT_MAX_AGE_SECONDS",
+            120,
+        )
+        active_runner_ids.update(
+            await _load_active_runner_ids(
+                redis_queue,
+                tasks_store,
                 max_age_seconds=heartbeat_max_age,
-                limit=500,
             )
-            active_runner_ids.update(
-                str(row.get("runner_id") or "").strip()
-                for row in heartbeats
-                if str(row.get("runner_id") or "").strip()
-            )
-        except Exception:
-            pass
+        )
 
         running = await asyncio.to_thread(
             tasks_store.list_running_playbook_execution_tasks,
@@ -272,7 +312,7 @@ async def _backfill_pending_to_redis(
                 enqueued += 1
 
         if not enqueued and not scanned:
-            logger.info("[Backfill] No runnable pending tasks in DB — nothing to enqueue.")
+            logger.info("[Backfill] No runnable pending tasks in DB - nothing to enqueue.")
             return
 
         logger.info(
@@ -682,21 +722,14 @@ async def _cleanup_stale_locks(
             "LOCAL_CORE_RUNNER_ORPHAN_HEARTBEAT_MAX_AGE_SECONDS",
             120,
         )
-        try:
-            heartbeats = await asyncio.to_thread(
-                tasks_store.list_runner_heartbeats,
-                max_age_seconds=heartbeat_max_age,
-                limit=500,
-            )
-        except Exception as e:
-            logger.warning(f"[Startup] Failed to load runner heartbeats for lock cleanup: {e}")
-            return
 
         active_runner_ids: set[str] = {current_runner_id}
         active_runner_ids.update(
-            str(row.get("runner_id") or "").strip()
-            for row in heartbeats
-            if str(row.get("runner_id") or "").strip()
+            await _load_active_runner_ids(
+                redis_queue,
+                tasks_store,
+                max_age_seconds=heartbeat_max_age,
+            )
         )
 
         cleanup_patterns = [
@@ -890,11 +923,12 @@ async def run_forever() -> None:
         capacity.poll_batch_limit,
     )
 
-    # Ensure heartbeat table exists before entering the poll loop.
-    try:
-        tasks_store.ensure_runner_heartbeats_table()
-    except Exception:
-        pass
+    postgres_heartbeat_enabled = _postgres_runner_heartbeat_enabled()
+    if postgres_heartbeat_enabled:
+        try:
+            tasks_store.ensure_runner_heartbeats_table()
+        except Exception:
+            pass
 
     claim_gate_paused, startup_claim_gate = _runner_claim_gate_paused()
     if claim_gate_paused:
@@ -906,17 +940,17 @@ async def run_forever() -> None:
             startup_claim_gate.get("source"),
         )
     else:
-        # ── Startup: reset running tasks from dead runners ──
+        # Reset running tasks from dead runners.
         reset_task_ids = await _reset_orphaned_running_tasks(
-            tasks_store, runner_id, runner_profile
+            tasks_store, runner_id, runner_profile, redis_queue
         )
         if reset_task_ids:
             await _purge_task_ids_from_transport(reset_task_ids, queue_cycle)
 
-        # ── Startup backfill: recover pending tasks lost during restart ──
+        # Recover pending tasks lost during restart.
         await _backfill_pending_to_redis(tasks_store, ready_queues)
 
-        # ── Startup lock cleanup: remove locks from dead runner instances ──
+        # Remove locks from dead runner instances.
         await _cleanup_stale_locks(redis_queue, runner_id, tasks_store)
 
     inflight: set[asyncio.Task] = set()
@@ -975,17 +1009,17 @@ async def run_forever() -> None:
         except Exception:
             resource_snapshot = None
 
-        # Runner liveness heartbeat via shared PostgreSQL.
-        try:
-            tasks_store.upsert_runner_heartbeat(
-                runner_id,
-                profile_code=runner_profile.profile_code,
-                hostname=socket.gethostname(),
-                inflight=len(inflight),
-                resource_snapshot=resource_snapshot,
-            )
-        except Exception as e:
-            db_recovery_backoff.note_failure(e)
+        if postgres_heartbeat_enabled:
+            try:
+                tasks_store.upsert_runner_heartbeat(
+                    runner_id,
+                    profile_code=runner_profile.profile_code,
+                    hostname=socket.gethostname(),
+                    inflight=len(inflight),
+                    resource_snapshot=resource_snapshot,
+                )
+            except Exception as e:
+                db_recovery_backoff.note_failure(e)
         try:
             await publish_runner_resource_heartbeat(
                 redis_queue,
@@ -1159,8 +1193,7 @@ async def run_forever() -> None:
                     scan_limit=playbook_fair_scan_limit,
                 )
 
-        # ── 1. Redis Queue Dequeue ──
-        # Blocking Pop from pending to processing (ZSET). This wait completely replaces DB polling.
+        # Blocking pop from pending to processing replaces DB polling.
         if not task_id or not task_queue:
             task_id, task_queue, queue_cursor = await _dequeue_from_ready_queues(
                 queue_cycle,
@@ -1205,7 +1238,7 @@ async def run_forever() -> None:
                 await task_queue.nack_task_to_delayed(task_id, delay_sec=5)
                 continue
 
-            # ── Per-task dependency check ──
+            # Check per-task dependencies.
             lock_ctx = (
                 t_data.execution_context
                 if isinstance(t_data.execution_context, dict)
@@ -1239,7 +1272,7 @@ async def run_forever() -> None:
                 await task_queue.ack_task(task_id)
                 continue
 
-            # ── 2. Resource admission BEFORE lock/claim ──
+            # Run resource admission before lock and claim.
             playbook_metadata = resolve_installed_playbook_runner_metadata(
                 playbook_code
             )
@@ -1283,7 +1316,7 @@ async def run_forever() -> None:
                     execution_context=lock_ctx,
                 )
 
-            # ── 3. Lock BEFORE Claim ──
+            # Acquire concurrency locks before claim.
             lock_keys = _resolve_lock_keys(
                 lock_ctx,
                 t_data.pack_id,
@@ -1361,8 +1394,7 @@ async def run_forever() -> None:
                     await task_queue.ack_task(task_id)
                     continue
 
-            # ── 3. Atomic DB Claim ──
-            # Only status PENDING -> RUNNING. If rows_updated=0, it's a stolen pop or duplicate claim.
+            # Claim only pending rows.
             claimed = await asyncio.to_thread(
                 tasks_store.try_claim_task,
                 t_data.id,
@@ -1409,7 +1441,7 @@ async def run_forever() -> None:
                 await task_queue.ack_task(task_id)
                 continue
 
-            # ── 4. Dispatch Execution ──
+            # Dispatch execution.
             task_coro = _run_single_task(
                 tasks_store,
                 runner_id,

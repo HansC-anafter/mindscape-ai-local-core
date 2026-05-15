@@ -1,5 +1,5 @@
 """
-TasksStore runner lifecycle mixin — claim, heartbeat, zombie reaping, cancel.
+TasksStore runner lifecycle mixin for claim, heartbeat, zombie reaping, and cancel.
 """
 
 import json
@@ -247,12 +247,12 @@ class TasksStoreRunnerMixin:
         error_raw = getattr(row, "error", None) or ""
         if status_raw in abort_statuses:
             logger.warning(
-                "Task %s status=%s — signalling abort to runner", task_id, status_raw
+                "Task %s status=%s - signalling abort to runner", task_id, status_raw
             )
             return True
         if status_raw == TaskStatus.FAILED.value and error_raw != restart_error:
             logger.warning(
-                "Task %s externally failed (%s) — signalling abort",
+                "Task %s externally failed (%s) - signalling abort",
                 task_id,
                 error_raw,
             )
@@ -273,7 +273,7 @@ class TasksStoreRunnerMixin:
         }
         if task.status in abort_statuses:
             logger.warning(
-                "Task %s status=%s — signalling abort to runner", task_id, task.status
+                "Task %s status=%s - signalling abort to runner", task_id, task.status
             )
             return True
         if (
@@ -281,7 +281,7 @@ class TasksStoreRunnerMixin:
             and (task.error or "") != "Execution interrupted by server restart"
         ):
             logger.warning(
-                "Task %s externally failed (%s) — signalling abort",
+                "Task %s externally failed (%s) - signalling abort",
                 task_id,
                 task.error,
             )
@@ -342,7 +342,7 @@ class TasksStoreRunnerMixin:
                         f"(threshold {heartbeat_ttl_minutes}m)"
                     )
             else:
-                # No heartbeat — check how long the task has been running
+                # Use task age when no heartbeat exists.
                 started = task.started_at or task.created_at
                 if started:
                     if started.tzinfo is None:
@@ -555,26 +555,81 @@ class TasksStoreRunnerMixin:
 
     def has_active_runner(self, max_age_seconds: float = 120.0) -> bool:
         """Check if any runner has sent a heartbeat within max_age_seconds."""
+        return bool(
+            self.list_runner_heartbeats(
+                max_age_seconds=max_age_seconds,
+                limit=1,
+            )
+        )
+
+    def _list_runner_resource_heartbeats_from_redis(
+        self,
+        *,
+        max_age_seconds: Optional[float],
+        limit: int,
+    ) -> List[Dict[str, Any]]:
         try:
-            with self.get_connection() as conn:
-                row = conn.execute(
-                    text(
-                        """
-                        SELECT COUNT(*) AS cnt
-                        FROM runner_heartbeats
-                        WHERE heartbeat_at > NOW() - INTERVAL '1 second' * :max_age
-                        """
-                    ),
-                    {"max_age": max_age_seconds},
-                ).fetchone()
-                if row:
-                    cnt = (
-                        row[0] if not hasattr(row, "_mapping") else row._mapping["cnt"]
-                    )
-                    return int(cnt) > 0
+            from backend.app.services.cache.redis_cache import get_cache_service
+
+            cache = get_cache_service()
+            ensure_connected = getattr(cache, "_ensure_connected", None)
+            if callable(ensure_connected) and not ensure_connected():
+                return []
+            client = getattr(cache, "_client", None)
+            if client is None:
+                return []
+            now_epoch = datetime.now(timezone.utc).timestamp()
+            max_age = (
+                float(max_age_seconds)
+                if isinstance(max_age_seconds, (int, float)) and max_age_seconds > 0
+                else None
+            )
+            heartbeats: List[Dict[str, Any]] = []
+            for key in client.scan_iter(
+                match="mindscape:runner_resources:heartbeat:v1:*",
+                count=max(100, int(limit or 50)),
+            ):
+                raw = client.get(key)
+                if raw is None:
+                    continue
+                if isinstance(raw, bytes):
+                    raw = raw.decode("utf-8", errors="ignore")
+                try:
+                    payload = json.loads(str(raw))
+                except Exception:
+                    continue
+                if not isinstance(payload, dict):
+                    continue
+                captured_at = payload.get("captured_at_epoch")
+                if not isinstance(captured_at, (int, float)):
+                    continue
+                if max_age is not None and now_epoch - float(captured_at) > max_age:
+                    continue
+                capacity = (
+                    payload.get("capacity")
+                    if isinstance(payload.get("capacity"), dict)
+                    else {}
+                )
+                heartbeat_at = datetime.fromtimestamp(float(captured_at), timezone.utc)
+                heartbeats.append(
+                    {
+                        "runner_id": str(payload.get("runner_id") or ""),
+                        "profile_code": payload.get("profile_code"),
+                        "hostname": None,
+                        "inflight": int(capacity.get("inflight") or 0),
+                        "resource_snapshot": payload.get("resource_snapshot")
+                        if isinstance(payload.get("resource_snapshot"), dict)
+                        else {},
+                        "heartbeat_at": heartbeat_at.isoformat(),
+                    }
+                )
+            heartbeats.sort(
+                key=lambda row: str(row.get("heartbeat_at") or ""),
+                reverse=True,
+            )
+            return heartbeats[:limit]
         except Exception:
-            pass
-        return False
+            return []
 
     def list_runner_heartbeats(
         self,
@@ -584,6 +639,13 @@ class TasksStoreRunnerMixin:
     ) -> List[Dict[str, Any]]:
         """Return recent runner heartbeats with profile metadata when available."""
         limit = max(1, int(limit or 50))
+        redis_heartbeats = self._list_runner_resource_heartbeats_from_redis(
+            max_age_seconds=max_age_seconds,
+            limit=limit,
+        )
+        if redis_heartbeats:
+            return redis_heartbeats
+
         query_parts = [
             """
             SELECT runner_id, profile_code, hostname, inflight, resource_snapshot, heartbeat_at
