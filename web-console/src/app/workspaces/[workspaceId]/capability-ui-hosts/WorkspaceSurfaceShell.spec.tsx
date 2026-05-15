@@ -97,11 +97,13 @@ describe('WorkspaceSurfaceShell', () => {
     expect(screen.getByTestId('aol-shell-rail')).toBeInTheDocument();
     expect(screen.getByTestId('workspace-runs-tool')).toHaveTextContent('1');
     expect(document.querySelector('[data-workspace-tool-rail="true"]')).not.toBeNull();
+    expect(screen.getByTestId('workspace-settings-tool')).toBeInTheDocument();
     expect(screen.getByTestId('aol-workspace-region')).toHaveAttribute(
       'data-aol-panel-loaded',
       'idle',
     );
     expect(screen.queryByTestId('workspace-runs-panel')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('workspace-settings-aside')).not.toBeInTheDocument();
     await waitFor(() => {
       expect(fetchWorkspaceToolDefinitions).toHaveBeenCalledWith({
         apiUrl: 'http://api.test',
@@ -125,6 +127,7 @@ describe('WorkspaceSurfaceShell', () => {
 
     expect(screen.getByTestId('workspace-runs-panel')).toBeInTheDocument();
     expect(screen.getByTestId('workspace-runs-panel')).toHaveClass('w-80');
+    expect(screen.getByTestId('workspace-runs-panel').querySelector('.overflow-y-auto')).not.toBeNull();
     return waitFor(() => {
       expect(screen.getByText('ig_complete_workflow')).toBeInTheDocument();
       expect(screen.getByTestId('aol-workspace-region')).toHaveAttribute(
@@ -132,6 +135,39 @@ describe('WorkspaceSurfaceShell', () => {
         'idle',
       );
     });
+  });
+
+  it('opens the built-in settings panel at the contract width with a scrollable body', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({ status: 'ok' }),
+    } as Response);
+
+    render(
+      <WorkspaceSurfaceShell
+        workspaceId="ws_test"
+        activeCapabilityCode="performance_direction"
+        surfacePath={[]}
+      >
+        <div data-testid="surface-content">Capability surface</div>
+      </WorkspaceSurfaceShell>,
+    );
+
+    fireEvent.click(screen.getByTestId('workspace-settings-tool'));
+
+    expect(screen.getByTestId('workspace-settings-aside')).toHaveClass('w-80');
+    await waitFor(() => {
+      expect(screen.getByTestId('workspace-settings-panel')).toBeInTheDocument();
+    });
+    expect(screen.getByTestId('workspace-settings-panel-body')).toHaveClass('overflow-y-auto');
+    expect(screen.queryByTestId('workspace-settings-tool-engine-extensions')).not.toBeInTheDocument();
+    expect(fetchSpy).toHaveBeenCalledWith('http://api.test/api/v1/workspaces/ws_test/agents');
+    expect(fetchSpy).toHaveBeenCalledWith('http://api.test/api/v1/host/services/xtts/health');
+    expect(fetchSpy).toHaveBeenCalledWith('http://api.test/api/v1/host/services/mcp-gateway/health');
+    expect(screen.getByTestId('aol-workspace-region')).toHaveAttribute(
+      'data-aol-panel-loaded',
+      'idle',
+    );
   });
 
   it('keeps IG run APIs cold until the runs rail tool is opened', async () => {

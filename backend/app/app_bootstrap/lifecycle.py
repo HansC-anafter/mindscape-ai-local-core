@@ -25,6 +25,7 @@ _PACK_VALIDATION_RESUME_TASK_ATTR = "_pack_validation_resume_task"
 _RUNTIME_MIGRATIONS_POST_READY_TASK_ATTR = "_runtime_migrations_post_ready_task"
 _OBJECT_INDEX_SYNC_TASK_ATTR = "_object_index_sync_task"
 _CODEX_POOL_SWEEPER_SERVICE_ATTR = "_codex_pool_sweeper_service"
+_HOST_RESOURCE_REHYDRATE_TASK_ATTR = "_host_resource_rehydrate_task"
 _POST_READY_HEAVY_WORK_LOCK_ATTR = "_post_ready_heavy_work_lock"
 
 
@@ -475,6 +476,29 @@ async def _start_compile_job_startup_services() -> None:
             exc_info=True,
         )
 
+
+async def _rehydrate_host_resource_projection_post_ready() -> None:
+    """Rebuild Redis hot projection from durable ledger after readiness."""
+    try:
+        await asyncio.sleep(0)
+        from backend.app.services.host_resources.manager import (
+            rehydrate_route_reservation_projection,
+        )
+
+        reservations = await asyncio.to_thread(
+            rehydrate_route_reservation_projection
+        )
+        logger.info(
+            "Host resource reservation projection rehydrated: active=%d",
+            len(reservations),
+        )
+    except Exception as exc:
+        logger.warning(
+            "Host resource reservation projection rehydrate failed (non-blocking): %s",
+            exc,
+        )
+
+
 async def run_startup(app: FastAPI):
     """Initialize database tables and background tasks on startup"""
     logger.info("Application startup hook entered (pid=%s)", os.getpid())
@@ -833,6 +857,23 @@ async def run_startup(app: FastAPI):
         logger.warning(f"Failed to schedule pending pack validations resume task: {e}")
 
     try:
+        host_resource_rehydrate_task = asyncio.create_task(
+            _rehydrate_host_resource_projection_post_ready(),
+            name="host-resource-reservation-rehydrate",
+        )
+        setattr(
+            app.state,
+            _HOST_RESOURCE_REHYDRATE_TASK_ATTR,
+            host_resource_rehydrate_task,
+        )
+        logger.info("Host resource reservation projection rehydrate task scheduled")
+    except Exception as e:
+        logger.warning(
+            "Failed to schedule host resource reservation projection rehydrate: %s",
+            e,
+        )
+
+    try:
         from backend.app.services.codex_pool_sweeper_service import (
             get_codex_pool_sweeper_service,
         )
@@ -926,6 +967,26 @@ async def run_shutdown(app: FastAPI):
         except Exception as exc:
             logger.warning(
                 "AOL object index sync task shutdown wait failed: %s",
+                exc,
+            )
+
+    host_resource_rehydrate_task = getattr(
+        app.state,
+        _HOST_RESOURCE_REHYDRATE_TASK_ATTR,
+        None,
+    )
+    if (
+        host_resource_rehydrate_task is not None
+        and not host_resource_rehydrate_task.done()
+    ):
+        host_resource_rehydrate_task.cancel()
+        try:
+            await host_resource_rehydrate_task
+        except asyncio.CancelledError:
+            logger.info("Host resource rehydrate task cancelled during shutdown")
+        except Exception as exc:
+            logger.warning(
+                "Host resource rehydrate task shutdown wait failed: %s",
                 exc,
             )
 

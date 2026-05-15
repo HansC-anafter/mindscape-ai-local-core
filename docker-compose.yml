@@ -405,8 +405,8 @@ services:
       - NEXT_DEV_TURBO=${NEXT_DEV_TURBO:-0}
       - NEXT_PUBLIC_API_URL=http://localhost:8200
       - NEXT_PUBLIC_BACKEND_URL=http://localhost:8200
-      - WEB_CONSOLE_BACKEND_URL=http://backend:8200
-      - BACKEND_URL=http://backend:8200
+      - WEB_CONSOLE_BACKEND_URL=http://host.docker.internal:8200
+      - BACKEND_URL=http://host.docker.internal:8200
       - MEDIA_PROXY_URL=http://media-proxy:8000
       - FRONTEND_PREWARM_ENABLED=${FRONTEND_PREWARM_ENABLED:-1}
       - FRONTEND_PREWARM_DELAY_MS=${FRONTEND_PREWARM_DELAY_MS:-12000}

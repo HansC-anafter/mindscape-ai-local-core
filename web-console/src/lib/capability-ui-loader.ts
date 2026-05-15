@@ -172,7 +172,19 @@ export function primeCapabilityUIComponentMetadata(
   if (!capabilityCode || !Array.isArray(components)) {
     return;
   }
-  componentMetadataCache.set(capabilityCode, components);
+  const existing = componentMetadataCache.get(capabilityCode) || [];
+  const mergedByCode = new Map<string, UIComponentInfo>();
+  for (const component of existing) {
+    if (component?.code) {
+      mergedByCode.set(component.code, component);
+    }
+  }
+  for (const component of components) {
+    if (component?.code) {
+      mergedByCode.set(component.code, component);
+    }
+  }
+  componentMetadataCache.set(capabilityCode, Array.from(mergedByCode.values()));
 }
 
 const resolverCache = new Map<string, Promise<CapabilityComponentsResolver | null>>();

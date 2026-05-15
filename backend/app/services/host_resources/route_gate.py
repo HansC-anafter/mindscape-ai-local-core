@@ -92,6 +92,37 @@ def has_active_route_controls(
     return bool(reservations)
 
 
+def drain_after_current_reservations(
+    active_reservations: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    reservations = (
+        active_reservations
+        if active_reservations is not None
+        else get_active_route_reservations()
+    )
+    drain_reservations: list[dict[str, Any]] = []
+    for reservation in reservations:
+        if not isinstance(reservation, dict):
+            continue
+        route_request = reservation.get("route_request")
+        if not isinstance(route_request, dict):
+            route_request = {}
+        drain_policy = str(
+            route_request.get("drain_policy")
+            or reservation.get("drain_policy")
+            or ""
+        ).strip().lower()
+        if drain_policy == "drain_after_current":
+            drain_reservations.append(reservation)
+    return drain_reservations
+
+
+def has_drain_after_current_controls(
+    active_reservations: list[dict[str, Any]] | None = None,
+) -> bool:
+    return bool(drain_after_current_reservations(active_reservations))
+
+
 def evaluate_route_candidate(
     task: Any,
     *,

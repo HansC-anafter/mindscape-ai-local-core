@@ -10,7 +10,7 @@ Provides REST endpoints for managing meeting session lifecycle:
 
 import logging
 import uuid
-from typing import Optional, List
+from typing import Any, Dict, Optional, List
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -66,12 +66,132 @@ class SessionResponse(BaseModel):
     metadata: dict = {}
 
 
-def _session_to_response(session: MeetingSession) -> dict:
+def _copy_mapping_keys(value: Any, keys: set[str]) -> Dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    return {key: value[key] for key in keys if key in value}
+
+
+def _summarize_aol_ref(value: Any) -> Dict[str, Any]:
+    return _copy_mapping_keys(
+        value,
+        {
+            "uri",
+            "owner_pack",
+            "object_kind",
+            "object_id",
+            "workspace_id",
+            "version",
+            "selector",
+            "source_surface",
+        },
+    )
+
+
+def _summarize_aol_context_entry(value: Any) -> Dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    summarized = _copy_mapping_keys(value, {"role"})
+    ref = _summarize_aol_ref(value.get("ref"))
+    if ref:
+        summarized["ref"] = ref
+    return summarized
+
+
+def _summarize_aol_attachment(value: Any) -> Dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    summarized = _copy_mapping_keys(value, {"role", "verb", "owner_pack"})
+    object_ref = _summarize_aol_ref(value.get("object_ref"))
+    if object_ref:
+        summarized["object_ref"] = object_ref
+    object_summary = _copy_mapping_keys(
+        value.get("object_summary"),
+        {
+            "title",
+            "subtitle",
+            "summary_text",
+            "status",
+            "labels",
+            "owner_surface_url",
+        },
+    )
+    if object_summary:
+        summarized["object_summary"] = object_summary
+    return summarized
+
+
+def _summarize_session_metadata(metadata: Any) -> Dict[str, Any]:
+    if not isinstance(metadata, dict):
+        return {}
+
+    aol_metadata = metadata.get("addressable_object_layer")
+    if not isinstance(aol_metadata, dict):
+        return {}
+
+    summarized_aol = _copy_mapping_keys(
+        aol_metadata,
+        {
+            "status",
+            "intent_summary",
+            "write_mode",
+            "meeting_type",
+            "updated_at",
+        },
+    )
+    context_entries = [
+        entry
+        for entry in (
+            _summarize_aol_context_entry(item)
+            for item in aol_metadata.get("context_entries", []) or []
+        )
+        if entry
+    ]
+    context_attachments = [
+        attachment
+        for attachment in (
+            _summarize_aol_attachment(item)
+            for item in aol_metadata.get("context_attachments", []) or []
+        )
+        if attachment
+    ]
+    staged_refs = [
+        ref
+        for ref in (
+            _summarize_aol_ref(item)
+            for item in aol_metadata.get("staged_refs", []) or []
+        )
+        if ref
+    ]
+    review_routes = [
+        route
+        for route in aol_metadata.get("review_routes", []) or []
+        if isinstance(route, str)
+    ]
+    target_ref = _summarize_aol_ref(aol_metadata.get("target_ref"))
+
+    if context_entries:
+        summarized_aol["context_entries"] = context_entries
+    if context_attachments:
+        summarized_aol["context_attachments"] = context_attachments
+    if staged_refs:
+        summarized_aol["staged_refs"] = staged_refs
+    if review_routes:
+        summarized_aol["review_routes"] = review_routes
+    if target_ref:
+        summarized_aol["target_ref"] = target_ref
+
+    return {"addressable_object_layer": summarized_aol} if summarized_aol else {}
+
+
+def _session_to_response(session: MeetingSession, *, metadata_mode: str = "full") -> dict:
     d = session.to_dict()
     # Remove state snapshots from list responses for brevity
     d.pop("state_before", None)
     d.pop("state_after", None)
     d.pop("state_diff", None)
+    if metadata_mode == "summary":
+        d["metadata"] = _summarize_session_metadata(d.get("metadata"))
     return d
 
 
@@ -274,8 +394,14 @@ async def list_sessions(
     project_id: Optional[str] = Query(None),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
+    metadata_mode: str = Query("full", alias="metadata"),
 ):
     """List meeting sessions for a workspace (newest first)."""
+    if metadata_mode not in {"full", "summary"}:
+        raise HTTPException(
+            status_code=400,
+            detail="metadata must be one of: full, summary",
+        )
     store = MeetingSessionStore()
     sessions = store.list_by_workspace(
         workspace_id,
@@ -284,7 +410,10 @@ async def list_sessions(
         offset=offset,
     )
     return {
-        "sessions": [_session_to_response(s) for s in sessions],
+        "sessions": [
+            _session_to_response(s, metadata_mode=metadata_mode)
+            for s in sessions
+        ],
         "total": len(sessions),
         "limit": limit,
         "offset": offset,

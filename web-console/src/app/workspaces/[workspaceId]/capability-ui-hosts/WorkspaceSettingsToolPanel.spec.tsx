@@ -1,0 +1,249 @@
+import React from 'react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import WorkspaceSettingsToolPanel from './WorkspaceSettingsToolPanel';
+
+const routerMock = vi.hoisted(() => ({
+  push: vi.fn(),
+}));
+
+const workspaceDataMock = vi.hoisted(() => ({
+  workspace: {
+    id: 'ws_test',
+    title: 'Test Workspace',
+    execution_mode: 'hybrid' as const,
+    execution_priority: 'medium' as const,
+    expected_artifacts: ['md'],
+    metadata: {
+      sgr_enabled: true,
+      sgr_mode: 'inline',
+    },
+    playbook_auto_execution_config: {
+      intent_extraction: {
+        auto_execute: false,
+        confidence_threshold: 0.8,
+      },
+    },
+    storage_base_path: '/tmp/mindscape',
+    artifacts_dir: 'artifacts',
+  },
+  systemStatus: {
+    llm_configured: true,
+    llm_provider: 'Ollama',
+    vector_db_connected: true,
+    tools: {
+      gemini: { connected: true, status: 'connected' },
+    },
+    critical_issues_count: 0,
+    has_issues: false,
+  },
+  refreshAll: vi.fn(async () => undefined),
+  refreshWorkspaceDetails: vi.fn(async () => undefined),
+  updateWorkspace: vi.fn(async (updates: Record<string, unknown>) => ({
+    id: 'ws_test',
+    title: 'Test Workspace',
+    ...updates,
+  })),
+}));
+
+vi.mock('next/navigation', () => ({
+  useRouter: () => routerMock,
+}));
+
+vi.mock('@/contexts/WorkspaceDataContext', () => ({
+  useWorkspaceDataOptional: () => workspaceDataMock,
+}));
+
+vi.mock('@/lib/page-visibility', () => ({
+  isDocumentHidden: () => false,
+}));
+
+vi.mock('../components/CapabilityExtensionSlot', async () => {
+  const ReactModule = await import('react');
+  return {
+    default: function MockCapabilityExtensionSlot({
+      section,
+      workspaceId,
+    }: {
+      section: string;
+      workspaceId: string;
+    }) {
+      ReactModule.useEffect(() => {
+        void fetch(`/api/v1/settings/extensions?section=${encodeURIComponent(section)}&workspace_id=${workspaceId}`);
+      }, [section, workspaceId]);
+      return ReactModule.createElement(
+        'div',
+        { 'data-testid': 'mock-capability-extension-slot' },
+        section,
+      );
+    },
+  };
+});
+
+vi.mock('@/components/StoragePathConfigModal', () => ({
+  default: function MockStoragePathConfigModal({ isOpen }: { isOpen: boolean }) {
+    return isOpen ? <div data-testid="storage-path-config-modal" /> : null;
+  },
+}));
+
+function stubOkFetch() {
+  const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+    const url = String(input);
+    let body: Record<string, unknown> = { status: 'ok' };
+    if (url.includes('/agents')) {
+      body = {
+        agents: [
+          {
+            id: 'codex_cli',
+            name: 'Codex CLI',
+            status: 'available',
+            transport: 'ws',
+          },
+        ],
+      };
+    } else if (url.includes('/workspace-chat')) {
+      body = {
+        source: 'system_settings.chat_model',
+        chat_model: {
+          model_name: 'llama3',
+          provider: 'ollama',
+          metadata: { source: 'system_settings.chat_model' },
+        },
+        available_chat_models: [
+          { model_name: 'llama3', provider: 'ollama', description: 'Local LLM' },
+        ],
+      };
+    } else if (url.includes('/workspace-executor')) {
+      body = {
+        primary_executor_runtime: null,
+        resolved_executor_runtime: null,
+        route_authority: 'model-route-registry',
+      };
+    }
+    return {
+      ok: true,
+      status: 200,
+      json: async () => body,
+    } as Response;
+  });
+  vi.stubGlobal('fetch', fetchMock);
+  return fetchMock;
+}
+
+async function flushAsyncEffects() {
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+}
+
+describe('WorkspaceSettingsToolPanel', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    workspaceDataMock.updateWorkspace.mockImplementation(async (updates: Record<string, unknown>) => ({
+      id: 'ws_test',
+      title: 'Test Workspace',
+      ...updates,
+    }));
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('loads the status snapshot once without registering a polling interval', async () => {
+    const setIntervalSpy = vi.spyOn(globalThis, 'setInterval');
+    const fetchMock = stubOkFetch();
+
+    render(<WorkspaceSettingsToolPanel workspaceId="ws_test" apiUrl="http://api.test" />);
+
+    expect(screen.getByTestId('workspace-settings-section-stack')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Status/ })).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('button', { name: /Workspace/ })).toHaveAttribute('aria-expanded', 'false');
+    await flushAsyncEffects();
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(setIntervalSpy).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledWith('http://api.test/api/v1/workspaces/ws_test/agents');
+    expect(fetchMock).toHaveBeenCalledWith('http://api.test/api/v1/host/services/xtts/health');
+    expect(fetchMock).toHaveBeenCalledWith('http://api.test/api/v1/host/services/mcp-gateway/health');
+  });
+
+  it('keeps tool engine extension panels cold until the Tools section is expanded', async () => {
+    const fetchMock = stubOkFetch();
+
+    render(<WorkspaceSettingsToolPanel workspaceId="ws_test" apiUrl="http://api.test" />);
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+    });
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/api/v1/settings/extensions'))).toBe(false);
+
+    fireEvent.click(screen.getByRole('button', { name: /Tools/ }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('mock-capability-extension-slot')).toHaveTextContent('runtime-environments');
+    });
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/settings/extensions?section=runtime-environments&workspace_id=ws_test');
+  });
+
+  it('treats workspace execution as LLM model routing, not tool runtime extensions', async () => {
+    const fetchMock = stubOkFetch();
+
+    render(<WorkspaceSettingsToolPanel workspaceId="ws_test" apiUrl="http://api.test" />);
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Execution/ }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('workspace-settings-execution-section')).toBeInTheDocument();
+    });
+    expect(screen.getByText('Workspace Execution')).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith('http://api.test/api/v1/settings/model-route-registry/workspace-chat?workspace_id=ws_test&profile_id=default-user');
+    expect(fetchMock).toHaveBeenCalledWith('http://api.test/api/v1/settings/model-route-registry/workspace-executor?workspace_id=ws_test');
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/api/v1/settings/extensions'))).toBe(false);
+  });
+
+  it('mounts the data source modal only after explicit user activation', async () => {
+    stubOkFetch();
+
+    render(<WorkspaceSettingsToolPanel workspaceId="ws_test" apiUrl="http://api.test" />);
+
+    const dataSectionButton = screen.getByTestId('workspace-settings-section-data').querySelector('button') as HTMLButtonElement;
+    fireEvent.click(dataSectionButton);
+    expect(dataSectionButton).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.queryByTestId('storage-path-config-modal')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open Data Sources' }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('storage-path-config-modal')).toBeInTheDocument();
+    });
+  });
+
+  it('saves workspace settings without adding a writable meeting_enabled field', async () => {
+    const fetchMock = stubOkFetch();
+
+    render(<WorkspaceSettingsToolPanel workspaceId="ws_test" apiUrl="http://api.test" />);
+
+    fireEvent.click(screen.getByRole('button', { name: /Workspace/ }));
+    expect(screen.getByRole('button', { name: /Workspace/ })).toHaveAttribute('aria-expanded', 'true');
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => {
+      expect(workspaceDataMock.updateWorkspace).toHaveBeenCalled();
+    });
+    expect(workspaceDataMock.updateWorkspace.mock.calls[0][0]).not.toHaveProperty('meeting_enabled');
+
+    const patchCall = fetchMock.mock.calls.find(([url]) => (
+      String(url).includes('/api/v1/workspaces/ws_test/playbook-auto-exec-config')
+    ));
+    expect(patchCall).toBeTruthy();
+    const patchBody = JSON.parse(String((patchCall?.[1] as RequestInit | undefined)?.body || '{}'));
+    expect(patchBody).not.toHaveProperty('meeting_enabled');
+  });
+});

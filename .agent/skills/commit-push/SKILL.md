@@ -5,7 +5,7 @@ description: Batch-commit all outstanding changes by component, using Convention
 
 # Commit & Push (local-core)
 
-> **⚠️ Commit and Push are INDEPENDENT operations.**
+> **Important: Commit and Push are INDEPENDENT operations.**
 > - User says "提交" / "commit" → **Only commit** (Steps 0–2)
 > - User says "推送" / "push" → **Only push** (Step 3)
 > - User says "提交並推送" / "commit and push" → Both (Steps 0–3)
@@ -56,12 +56,13 @@ Classify each changed file into one of these **component groups** (in commit ord
 | 8 | Frontend | `web-console/` | `web-console` |
 | 9 | Packages | `packages/` | `packages` |
 | 10 | Scripts | `scripts/` | `scripts` |
-| 11 | Internal Docs | `docs-internal/` | `docs-internal` |
+| 11 | Internal Docs | Use `mindscape-ai-cloud/docs/internal/local-core/`; never local-core `docs-internal/` | n/a |
 | 12 | Public Docs | `docs/` | `docs` |
 | 13 | Config | root configs (`docker-compose*`, `*.yml`, `*.json`, `*.toml`) | `config` |
 
-**⚠️ Document language distinction** (嚴格區分):
-- `docs-internal/` → **繁體中文** (內部開發文件，scope: `docs-internal`)
+**Document language distinction** (嚴格區分):
+- local-core internal docs → write in `mindscape-ai-cloud/docs/internal/local-core/`, **繁體中文**
+- local-core `docs-internal/` → legacy read-only quarantine; never create, edit, or commit new internal docs there
 - `docs/` → **English** (公開開源文件，scope: `docs`)
 
 **Exclusions** (never commit these):
@@ -72,6 +73,7 @@ Classify each changed file into one of these **component groups** (in commit ord
 - `node_modules/` — dependencies
 - `.env` — secrets
 - `__pycache__/` — Python cache
+- `docs-internal/` — legacy read-only quarantine
 
 ---
 
@@ -80,17 +82,18 @@ Classify each changed file into one of these **component groups** (in commit ord
 Before committing, verify changed files comply with comment rules:
 
 **Language rules:**
-- ✅ Code comments & docstrings: **English** (i18n base)
-- ✅ Internal docs (`docs-internal/`): **繁體中文**
-- ✅ Public docs (`docs/`): **English** (open-source facing)
-- ❌ Never mix languages within the same comment block
-- ❌ Never use 簡體中文 (this is a 繁體中文 project)
+- Allowed: Code comments & docstrings: **English** (i18n base)
+- Allowed: Internal docs in cloud (`mindscape-ai-cloud/docs/internal/local-core/`): **繁體中文**
+- Forbidden: local-core `docs-internal/`: legacy read-only quarantine; no new writes or commits
+- Allowed: Public docs (`docs/`): **English** (open-source facing)
+- Forbidden: Never mix languages within the same comment block
+- Forbidden: Never use 簡體中文 (this is a 繁體中文 project)
 
 **Forbidden in code comments** (violating = 死罪):
 
-| ❌ Forbidden | ✅ Use instead |
+| Forbidden | Use instead |
 |-------------|---------------|
-| Emojis (`✅`, `🔴`, `🆕`) | Technical descriptions |
+| Emojis | Technical descriptions |
 | Timeline (`M4 Week 11`, `Day 1-3`, `Phase 2`) | Explain "why" not "when" |
 | Personal IDs (`工程師 B 實現`) | Technical decisions |
 | Doc versions (`參考: XXX_PLAN.md v3.5`) | Type annotations |
@@ -99,7 +102,7 @@ Before committing, verify changed files comply with comment rules:
 
 **Python docstring format** (from developer guide):
 ```python
-# ✅ Correct: English docstrings
+# Correct: English docstrings
 def create_mindscape(name: str, description: str) -> Mindscape:
     """
     Create a new Mindscape
@@ -129,14 +132,14 @@ git commit -m "<type>(<scope>): <subject>"
 - `feat(<scope>):` — new functionality
 - `fix(<scope>):` — bug fixes
 - `refactor(<scope>):` — restructuring without behavior change
-- `docs(<scope>):` — documentation only (use `docs-internal` scope for internal docs)
+- `docs(<scope>):` — documentation only; local-core internal docs must be committed from the cloud repo under `docs/internal/local-core/`
 - `chore(<scope>):` — configs, scripts, tooling
 - `style(<scope>):` — formatting only
 - `test(<scope>):` — test files
 
 **Batching**: if a single group has > 50 files, split into sub-batches of ≤ 50.
 
-> ⚠️ **NEVER** use `git add .` — always list files explicitly.
+> **NEVER** use `git add .` — always list files explicitly.
 
 **🛑 STOP HERE** unless the user explicitly requested push.
 
@@ -144,7 +147,7 @@ git commit -m "<type>(<scope>): <subject>"
 
 ## Step 3: Push (ONLY when user explicitly requests)
 
-> ⚠️ **This step is ONLY executed when the user explicitly says "push" or "推送".**
+> **This step is ONLY executed when the user explicitly says "push" or "推送".**
 > If the user only said "commit" or "提交", DO NOT execute this step.
 
 ```bash
@@ -191,5 +194,5 @@ git log --oneline origin/$(git branch --show-current)..HEAD 2>/dev/null | wc -l 
 - **ALWAYS** use Conventional Commits format
 - **ALWAYS** use English commit messages
 - **ALWAYS** use English for code comments and docstrings
-- **ALWAYS** use 繁體中文 for `docs-internal/`, English for `docs/`
+- **ALWAYS** use 繁體中文 for cloud internal docs, English for local-core `docs/`
 - **ALWAYS** verify code comments are free of emojis, timelines, and personal IDs before committing

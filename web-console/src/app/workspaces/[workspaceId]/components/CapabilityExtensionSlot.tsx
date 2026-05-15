@@ -52,11 +52,11 @@ export default function CapabilityExtensionSlot({ section, workspaceId }: Capabi
 
     const lazyComponents = useMemo(() => {
         return panels.map((panel) => {
-            const LazyComponent = createLazySettingsExtensionComponent(panel);
+            const LazyComponent = createLazySettingsExtensionComponent(panel, apiBaseUrl);
 
             return { panel, LazyComponent };
         });
-    }, [panels]);
+    }, [apiBaseUrl, panels]);
 
     if (loading) {
         return (
@@ -75,6 +75,7 @@ export default function CapabilityExtensionSlot({ section, workspaceId }: Capabi
                 if (panel.requires_workspace_id) {
                     props.workspaceId = workspaceId;
                 }
+                props.apiUrl = apiBaseUrl;
 
                 return (
                     <div key={`${panel.capability_code}:${panel.component_code}`} className="border-t dark:border-gray-700 p-3">

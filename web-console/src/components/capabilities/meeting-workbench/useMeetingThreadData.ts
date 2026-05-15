@@ -43,6 +43,7 @@ const MEETING_RUNTIME_REFRESH_EVENT_TYPES = [
   'meeting_stage',
   'stream_end',
 ];
+const MEETING_SESSION_LIST_LIMIT = 20;
 
 function eventTargetsMeeting(event: UnifiedEvent, activeMeetingId: string): boolean {
   const payload: Record<string, unknown> = isRecord(event.payload) ? event.payload : {};
@@ -117,7 +118,7 @@ export function useMeetingThreadData({
 
       try {
         const response = await fetch(
-          `${apiUrl}/api/v1/workspaces/${encodeURIComponent(workspaceId)}/meeting-sessions?limit=100`,
+          `${apiUrl}/api/v1/workspaces/${encodeURIComponent(workspaceId)}/meeting-sessions?limit=${MEETING_SESSION_LIST_LIMIT}&metadata=summary`,
         );
         if (!response.ok) {
           throw new Error(`Failed to fetch meeting sessions: ${response.status}`);

@@ -5,7 +5,10 @@ from __future__ import annotations
 import copy
 import json
 import os
+from pathlib import Path
 from typing import Any
+
+import yaml
 
 
 DEFAULT_LANES: dict[str, dict[str, Any]] = {
@@ -90,14 +93,38 @@ def _overlay_lanes(base: dict[str, dict[str, Any]], raw: Any) -> dict[str, dict[
     return lanes
 
 
+def _capabilities_dir() -> Path:
+    return Path(__file__).resolve().parents[2] / "capabilities"
+
+
+def _load_manifest_lane_overlays() -> dict[str, dict[str, Any]]:
+    lanes: dict[str, dict[str, Any]] = {}
+    capabilities_dir = _capabilities_dir()
+    if not capabilities_dir.exists():
+        return lanes
+    for manifest_path in sorted(capabilities_dir.glob("*/manifest.yaml")):
+        try:
+            manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8")) or {}
+        except Exception:
+            continue
+        raw_lanes = manifest.get("host_resource_lanes")
+        if not isinstance(raw_lanes, dict):
+            continue
+        for lane_id, lane in raw_lanes.items():
+            if isinstance(lane_id, str) and isinstance(lane, dict):
+                lanes[lane_id] = lane
+    return lanes
+
+
 def load_lane_registry() -> dict[str, dict[str, Any]]:
+    lanes = _overlay_lanes(DEFAULT_LANES, _load_manifest_lane_overlays())
     raw_json = os.getenv("LOCAL_CORE_HOST_RESOURCE_LANES_JSON")
     if not raw_json:
-        return copy.deepcopy(DEFAULT_LANES)
+        return copy.deepcopy(lanes)
     try:
-        return _overlay_lanes(DEFAULT_LANES, json.loads(raw_json))
+        return _overlay_lanes(lanes, json.loads(raw_json))
     except Exception:
-        return copy.deepcopy(DEFAULT_LANES)
+        return copy.deepcopy(lanes)
 
 
 def get_lane(lane_id: str | None) -> dict[str, Any] | None:

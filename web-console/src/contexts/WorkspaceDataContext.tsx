@@ -41,6 +41,7 @@ interface Workspace {
   artifacts_dir?: string;
   uploads_dir?: string;
   storage_config?: any;
+  metadata?: Record<string, any>;
   playbook_storage_config?: Record<string, any>;
   playbook_auto_execution_config?: Record<string, any>;
   workspace_blueprint?: {

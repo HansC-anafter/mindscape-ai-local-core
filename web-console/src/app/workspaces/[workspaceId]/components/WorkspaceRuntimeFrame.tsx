@@ -16,8 +16,8 @@ export default function WorkspaceRuntimeFrame({
   return (
     <WorkspaceDataProvider workspaceId={workspaceId}>
       <ExecutionContextProvider workspaceId={workspaceId}>
-        <div className="relative flex flex-1 overflow-hidden">
-          <main className="flex-1 overflow-hidden">
+        <div className="relative flex h-full min-h-0 flex-1 overflow-hidden">
+          <main className="flex h-full min-h-0 flex-1 overflow-hidden">
             {children}
           </main>
         </div>

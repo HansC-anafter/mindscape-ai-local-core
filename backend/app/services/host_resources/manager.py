@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 import os
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -14,6 +16,8 @@ from .lane_registry import load_lane_registry
 from .samplers import degraded_snapshot, snapshot_from_probe
 
 
+logger = logging.getLogger(__name__)
+
 SNAPSHOT_TTL_SECONDS = 5
 STATE_TTL_SECONDS = int(os.getenv("LOCAL_CORE_HOST_RESOURCE_STATE_TTL_SECONDS", "3600"))
 PAUSED_LANES_KEY = "mindscape:host_resources:paused_lanes"
@@ -23,6 +27,7 @@ RUNNER_CLAIM_GATE_KEY = "mindscape:host_resources:runner_claim_gate"
 
 _cached_snapshot: dict[str, Any] | None = None
 _cached_at: datetime | None = None
+_refresh_lock: asyncio.Lock | None = None
 _paused_lanes: set[str] = set()
 _route_reservations: dict[str, dict[str, Any]] = {}
 _notification_state: dict[str, dict[str, Any]] = {}
@@ -35,6 +40,39 @@ def _utc_now() -> datetime:
 
 def _utc_now_iso() -> str:
     return _utc_now().isoformat()
+
+
+def _parse_datetime(value: Any) -> datetime | None:
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _route_reservation_store_enabled() -> bool:
+    raw = os.getenv("LOCAL_CORE_HOST_RESOURCE_DB_LEDGER_ENABLED", "true")
+    return raw.strip().lower() not in {"0", "false", "no", "off"}
+
+
+def _get_route_reservation_store() -> Any | None:
+    if not _route_reservation_store_enabled():
+        return None
+    try:
+        from .reservation_store import HostResourceReservationStore
+
+        return HostResourceReservationStore()
+    except Exception as exc:
+        logger.debug("Host resource reservation store unavailable: %s", exc)
+        return None
 
 
 def _read_json_map(key: str) -> dict[str, Any]:
@@ -89,6 +127,121 @@ def _delete_json_value(key: str) -> bool:
         return False
 
 
+def _ttl_seconds_from_payload(payload: dict[str, Any]) -> int:
+    raw = payload.get("ttl_seconds") if isinstance(payload, dict) else None
+    try:
+        ttl_seconds = int(raw or STATE_TTL_SECONDS)
+    except Exception:
+        ttl_seconds = STATE_TTL_SECONDS
+    return max(60, ttl_seconds)
+
+
+def _route_projection_map() -> dict[str, dict[str, Any]]:
+    persisted = _read_json_map(ROUTE_RESERVATIONS_KEY)
+    for reservation_id, reservation in persisted.items():
+        if isinstance(reservation_id, str) and isinstance(reservation, dict):
+            _route_reservations[reservation_id] = reservation
+    return {
+        reservation_id: reservation
+        for reservation_id, reservation in _route_reservations.items()
+        if isinstance(reservation_id, str) and isinstance(reservation, dict)
+    }
+
+
+def _write_route_projection(reservation: dict[str, Any]) -> None:
+    reservation_id = str(reservation.get("reservation_id") or "")
+    if not reservation_id:
+        return
+    _route_reservations[reservation_id] = reservation
+    persisted = _read_json_map(ROUTE_RESERVATIONS_KEY)
+    persisted[reservation_id] = reservation
+    _write_json_map(ROUTE_RESERVATIONS_KEY, persisted)
+
+
+def _reservation_is_active(reservation: dict[str, Any], *, now: datetime | None = None) -> bool:
+    if reservation.get("state") not in {"reserved_waiting", "permitted"}:
+        return False
+    expires_at = _parse_datetime(reservation.get("expires_at"))
+    if expires_at and expires_at <= (now or _utc_now()):
+        return False
+    return True
+
+
+def _reservation_matches_state_filter(
+    reservation: dict[str, Any],
+    state_filter: str | None,
+) -> bool:
+    normalized = str(state_filter or "").strip().lower()
+    if not normalized or normalized in {"all", "any"}:
+        return True
+    if normalized == "active":
+        return _reservation_is_active(reservation)
+    if normalized in {"history", "inactive", "closed"}:
+        return not _reservation_is_active(reservation)
+    return str(reservation.get("state") or "").strip().lower() == normalized
+
+
+def _clamped_reservation_limit(limit: int | None, *, default: int = 100) -> int:
+    try:
+        parsed = int(limit or default)
+    except Exception:
+        parsed = default
+    return max(1, min(parsed, 200))
+
+
+def _reservation_sort_key(reservation: dict[str, Any]) -> datetime:
+    return _parse_datetime(reservation.get("created_at")) or datetime.min.replace(tzinfo=timezone.utc)
+
+
+def _list_projection_reservations() -> list[dict[str, Any]]:
+    return sorted(
+        _route_projection_map().values(),
+        key=_reservation_sort_key,
+        reverse=True,
+    )
+
+
+def _append_reservation_event(
+    event_type: str,
+    *,
+    reservation: dict[str, Any] | None = None,
+    reservation_id: str | None = None,
+    payload: dict[str, Any] | None = None,
+    source: str = "host_resource_manager",
+) -> bool:
+    store = _get_route_reservation_store()
+    if not store:
+        return False
+    route_request = reservation.get("route_request") if isinstance(reservation, dict) else {}
+    if not isinstance(route_request, dict):
+        route_request = {}
+    try:
+        store.append_event(
+            event_type,
+            reservation_id=reservation_id or str((reservation or {}).get("reservation_id") or ""),
+            payload=payload if isinstance(payload, dict) else (reservation or {}),
+            source=source,
+            actor=str(route_request.get("requested_by") or ""),
+            lane_id=str(route_request.get("target_lane") or ""),
+        )
+        return True
+    except Exception as exc:
+        logger.debug("Failed to append host resource event %s: %s", event_type, exc)
+        return False
+
+
+def _save_reservation_to_ledger(reservation: dict[str, Any]) -> bool:
+    store = _get_route_reservation_store()
+    if not store:
+        return False
+    try:
+        store.save_reservation(reservation)
+        return True
+    except Exception as exc:
+        logger.debug("Failed to save host resource reservation ledger row: %s", exc)
+        return False
+
+
 def _current_paused_lanes() -> set[str]:
     persisted = set(_read_json_list(PAUSED_LANES_KEY))
     if persisted:
@@ -102,6 +255,13 @@ def _snapshot_is_fresh() -> bool:
     return (_utc_now() - _cached_at) < timedelta(seconds=SNAPSHOT_TTL_SECONDS)
 
 
+def _get_refresh_lock() -> asyncio.Lock:
+    global _refresh_lock
+    if _refresh_lock is None:
+        _refresh_lock = asyncio.Lock()
+    return _refresh_lock
+
+
 def get_cached_snapshot_or_degraded() -> dict[str, Any]:
     if _cached_snapshot is not None:
         return _cached_snapshot
@@ -110,14 +270,17 @@ def get_cached_snapshot_or_degraded() -> dict[str, Any]:
 
 async def refresh_host_resource_snapshot() -> dict[str, Any]:
     global _cached_snapshot, _cached_at
-    try:
-        probe_payload = await call_host_resource_probe()
-        snapshot = snapshot_from_probe(probe_payload, paused_lanes=_current_paused_lanes())
-    except HostBridgeError as exc:
-        snapshot = degraded_snapshot(str(exc))
-    _cached_snapshot = snapshot
-    _cached_at = _utc_now()
-    return snapshot
+    async with _get_refresh_lock():
+        if _snapshot_is_fresh():
+            return _cached_snapshot or degraded_snapshot("host_resource_snapshot_unavailable")
+        try:
+            probe_payload = await call_host_resource_probe()
+            snapshot = snapshot_from_probe(probe_payload, paused_lanes=_current_paused_lanes())
+        except HostBridgeError as exc:
+            snapshot = degraded_snapshot(str(exc))
+        _cached_snapshot = snapshot
+        _cached_at = _utc_now()
+        return snapshot
 
 
 async def get_host_resource_snapshot(*, refresh: bool = False) -> dict[str, Any]:
@@ -167,16 +330,25 @@ def _normalized_route_request(payload: dict[str, Any]) -> dict[str, Any]:
 
 def create_route_reservation(payload: dict[str, Any]) -> dict[str, Any]:
     reservation_id = f"hostres_{uuid.uuid4().hex}"
+    ttl_seconds = _ttl_seconds_from_payload(payload)
+    created_at = _utc_now()
     reservation = {
         "reservation_id": reservation_id,
         "state": "reserved_waiting",
-        "created_at": _utc_now_iso(),
+        "created_at": created_at.isoformat(),
+        "updated_at": created_at.isoformat(),
+        "expires_at": (created_at + timedelta(seconds=ttl_seconds)).isoformat(),
+        "ttl_seconds": ttl_seconds,
         "route_request": _normalized_route_request(payload),
     }
-    _route_reservations[reservation_id] = reservation
-    persisted = _read_json_map(ROUTE_RESERVATIONS_KEY)
-    persisted[reservation_id] = reservation
-    _write_json_map(ROUTE_RESERVATIONS_KEY, persisted)
+    ledger_persisted = _save_reservation_to_ledger(reservation)
+    _append_reservation_event(
+        "reservation_created",
+        reservation=reservation,
+        payload={"reservation": reservation},
+    )
+    reservation["ledger_persisted"] = ledger_persisted
+    _write_route_projection(reservation)
     return reservation
 
 
@@ -188,31 +360,142 @@ def cancel_route_reservation(reservation_id: str) -> dict[str, Any]:
         if isinstance(raw_reservation, dict):
             reservation = raw_reservation
     if not reservation:
-        return {"reservation_id": reservation_id, "state": "not_found"}
+        store = _get_route_reservation_store()
+        if store:
+            try:
+                reservation = store.cancel_reservation(reservation_id)
+            except Exception as exc:
+                logger.debug("Failed to cancel durable host resource reservation: %s", exc)
+                reservation = None
+        if not reservation:
+            return {"reservation_id": reservation_id, "state": "not_found"}
     reservation = dict(reservation)
+    cancelled_at = _utc_now_iso()
     reservation["state"] = "cancelled"
-    reservation["cancelled_at"] = _utc_now_iso()
-    _route_reservations[reservation_id] = reservation
-    persisted = _read_json_map(ROUTE_RESERVATIONS_KEY)
-    persisted[reservation_id] = reservation
-    _write_json_map(ROUTE_RESERVATIONS_KEY, persisted)
+    reservation["cancelled_at"] = cancelled_at
+    reservation["updated_at"] = cancelled_at
+    ledger_persisted = False
+    store = _get_route_reservation_store()
+    if store:
+        try:
+            durable = store.cancel_reservation(reservation_id, cancelled_at=cancelled_at)
+            if isinstance(durable, dict):
+                reservation = {**reservation, **durable}
+            ledger_persisted = bool(durable)
+        except Exception as exc:
+            logger.debug("Failed to update durable host resource cancellation: %s", exc)
+    _append_reservation_event(
+        "reservation_cancelled",
+        reservation=reservation,
+        payload={"reservation_id": reservation_id},
+    )
+    reservation["ledger_persisted"] = ledger_persisted
+    _write_route_projection(reservation)
     return reservation
 
 
-def list_route_reservations() -> list[dict[str, Any]]:
+def rehydrate_route_reservation_projection() -> list[dict[str, Any]]:
+    store = _get_route_reservation_store()
+    if not store:
+        return []
+    try:
+        active_reservations = store.list_active_reservations(limit=100)
+    except Exception as exc:
+        logger.debug("Failed to rehydrate host resource reservation projection: %s", exc)
+        return []
+    if not active_reservations:
+        return []
     persisted = _read_json_map(ROUTE_RESERVATIONS_KEY)
-    for reservation_id, reservation in persisted.items():
-        if isinstance(reservation_id, str) and isinstance(reservation, dict):
-            _route_reservations[reservation_id] = reservation
-    return list(_route_reservations.values())
+    for reservation in active_reservations:
+        reservation_id = str(reservation.get("reservation_id") or "")
+        if not reservation_id:
+            continue
+        _route_reservations[reservation_id] = reservation
+        persisted[reservation_id] = reservation
+    _write_json_map(ROUTE_RESERVATIONS_KEY, persisted)
+    return active_reservations
+
+
+def list_route_reservation_events(
+    *,
+    reservation_id: str | None = None,
+    limit: int = 50,
+) -> list[dict[str, Any]]:
+    store = _get_route_reservation_store()
+    if not store:
+        return []
+    try:
+        return store.list_events(
+            reservation_id=reservation_id,
+            limit=max(1, min(int(limit or 50), 200)),
+        )
+    except Exception as exc:
+        logger.debug("Failed to list host resource reservation events: %s", exc)
+        return []
+
+
+def list_route_reservations(
+    *,
+    include_durable: bool = True,
+    state: str | None = None,
+    limit: int = 100,
+) -> list[dict[str, Any]]:
+    clamped_limit = _clamped_reservation_limit(limit)
+    reservations_by_id = {
+        str(reservation.get("reservation_id") or ""): dict(reservation)
+        for reservation in _list_projection_reservations()
+        if str(reservation.get("reservation_id") or "")
+    }
+    if include_durable:
+        store = _get_route_reservation_store()
+        if store:
+            try:
+                fetch_limit = max(100, clamped_limit)
+                expired = store.expire_stale_reservations(limit=fetch_limit)
+                for reservation in expired:
+                    _append_reservation_event(
+                        "reservation_expired",
+                        reservation=reservation,
+                        payload={"reservation_id": reservation.get("reservation_id")},
+                    )
+                durable_reservations = store.list_reservations(limit=fetch_limit)
+            except Exception as exc:
+                logger.debug("Failed to list durable host resource reservations: %s", exc)
+                durable_reservations = []
+            for reservation in durable_reservations:
+                reservation_id = str(reservation.get("reservation_id") or "")
+                if reservation_id:
+                    reservations_by_id[reservation_id] = reservation
+                    _route_reservations[reservation_id] = reservation
+            active_durable = [
+                reservation
+                for reservation in durable_reservations
+                if isinstance(reservation, dict) and _reservation_is_active(reservation)
+            ]
+            if active_durable:
+                persisted = _read_json_map(ROUTE_RESERVATIONS_KEY)
+                for reservation in active_durable:
+                    reservation_id = str(reservation.get("reservation_id") or "")
+                    if reservation_id:
+                        persisted[reservation_id] = reservation
+                _write_json_map(ROUTE_RESERVATIONS_KEY, persisted)
+    filtered = [
+        reservation
+        for reservation in reservations_by_id.values()
+        if _reservation_matches_state_filter(reservation, state)
+    ]
+    return sorted(
+        filtered,
+        key=_reservation_sort_key,
+        reverse=True,
+    )[:clamped_limit]
 
 
 def list_active_route_reservations() -> list[dict[str, Any]]:
     return [
         reservation
-        for reservation in list_route_reservations()
-        if isinstance(reservation, dict)
-        and reservation.get("state") in {"reserved_waiting", "permitted"}
+        for reservation in _list_projection_reservations()
+        if isinstance(reservation, dict) and _reservation_is_active(reservation)
     ]
 
 

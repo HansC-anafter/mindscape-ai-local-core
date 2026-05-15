@@ -732,6 +732,40 @@ properties:
           type: string
 
   # ============================================================================
+  # Host resource lane declarations
+  # ============================================================================
+
+  host_resource_lanes:
+    type: object
+    description: "Neutral host resource lane declarations exposed by this capability pack."
+    additionalProperties:
+      type: object
+      properties:
+        label:
+          type: string
+        kind:
+          type: string
+        requirements:
+          type: object
+          properties:
+            memory_mb:
+              type: integer
+              minimum: 0
+            memory_source:
+              type: string
+            cpu_weight:
+              type: integer
+              minimum: 0
+            exclusive_groups:
+              type: array
+              items:
+                type: string
+            confidence:
+              type: string
+            declaration_basis:
+              type: object
+
+  # ============================================================================
   # API definitions
   # ============================================================================
 

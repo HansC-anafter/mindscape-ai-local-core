@@ -246,14 +246,16 @@ Do not bury backup steps inside the testing section.
 
 ## Internal Documentation Rule
 
-Internal planning, runtime evidence, operational notes, private paths, DB snapshots, logs, and `docs-internal/**` artifacts must remain local/private and must not be added to git for public repositories.
+Persistent local-core internal planning, runtime evidence, operational notes, private paths, DB snapshots, and logs must be written under `mindscape-ai-cloud/docs/internal/local-core/`.
 
-When a plan is written under an ignored internal path such as `docs-internal/**`:
+`mindscape-ai-local-core/docs-internal/**` is a legacy read-only quarantine area:
 
+- do not create new internal documents there
+- do not edit existing documents there unless the user explicitly asks for legacy recovery
 - do not recommend `git add -f`
 - do not move the internal file into a tracked public docs path
-- do not include private runtime evidence, local absolute paths, logs, DB rows, queue snapshots, or capability-sensitive operational details in public repo commits
-- if a public project record is needed, create a separate sanitized summary that omits internal evidence and operational details
+- if a local-core internal plan/report is requested, write it to `mindscape-ai-cloud/docs/internal/local-core/`
+- if a public project record is needed, create a separate sanitized summary that omits internal evidence, local absolute paths, logs, DB rows, queue snapshots, and capability-sensitive operational details
 
 ## Prohibited Patterns
 

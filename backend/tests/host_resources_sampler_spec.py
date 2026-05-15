@@ -59,13 +59,48 @@ def test_degraded_snapshot_marks_lanes_degraded():
 
 
 @pytest.mark.asyncio
-async def test_admission_preview_does_not_allow_unknown_lane_requirements(monkeypatch):
+async def test_admission_preview_defers_declared_comfyui_lane_when_mlx_group_busy(monkeypatch):
     import backend.app.services.host_resources.advisor as advisor
 
     async def _snapshot(refresh=False):
         return snapshot_from_probe(_probe_payload())
 
     monkeypatch.setattr(advisor, "get_host_resource_snapshot", _snapshot)
+    monkeypatch.delenv("LOCAL_CORE_HOST_RESOURCE_LANES_JSON", raising=False)
+
+    preview = await build_admission_preview(
+        lane_id="comfyui_runtime:flux2_klein_true_v2_q6_local"
+    )
+
+    assert preview["allow"] is False
+    assert preview["decision"] == "defer"
+    assert preview["reason"] == "exclusive_group_busy"
+    assert preview["required"]["memory_mb"] == 18432
+
+
+@pytest.mark.asyncio
+async def test_admission_preview_does_not_allow_unknown_lane_requirements_from_override(monkeypatch):
+    import json
+
+    import backend.app.services.host_resources.advisor as advisor
+
+    async def _snapshot(refresh=False):
+        return snapshot_from_probe(_probe_payload())
+
+    monkeypatch.setattr(advisor, "get_host_resource_snapshot", _snapshot)
+    monkeypatch.setenv(
+        "LOCAL_CORE_HOST_RESOURCE_LANES_JSON",
+        json.dumps(
+            {
+                "comfyui_runtime:flux2_klein_true_v2_q6_local": {
+                    "requirements": {
+                        "memory_mb": None,
+                        "memory_source": "unknown",
+                    }
+                }
+            }
+        ),
+    )
 
     preview = await build_admission_preview(
         lane_id="comfyui_runtime:flux2_klein_true_v2_q6_local"

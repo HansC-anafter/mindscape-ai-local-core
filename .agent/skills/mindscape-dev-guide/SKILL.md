@@ -5,6 +5,8 @@ description: Enforce Mindscape AI local-core development rules - architecture bo
 
 # Mindscape AI Local-Core Developer Guide (Agent Skill)
 
+> Internal local-core work records source of truth: `mindscape-ai-cloud/docs/internal/local-core/`
+> local-core legacy quarantine area: `mindscape-ai-local-core/docs-internal/` (ignored/protected; read-only; never create, edit, or commit new internal docs there)
 > Code / comments / logger messages language: **English only**
 
 ---
@@ -74,6 +76,8 @@ Before committing changes to these files, verify no cross-repo reads:
 | Docstrings | English only |
 | Logger messages | English only, no emoji |
 | Variable / function names | English (snake_case Python, camelCase TS) |
+| Internal docs persisted in cloud (`mindscape-ai-cloud/docs/internal/local-core/`) | Traditional Chinese (zh-TW) |
+| local-core legacy quarantine docs (`mindscape-ai-local-core/docs-internal/`) | Read-only; do not create, edit, or commit new internal docs there |
 | Commit messages | English, Conventional Commits |
 
 ### 3.2 Forbidden in Code Comments
@@ -236,7 +240,7 @@ mindscape-ai-local-core/
 │       ├── components/             # React components
 │       └── lib/                    # Utilities
 ├── scripts/                        # Shell/Python utilities
-├── docs-internal/                  # Internal docs (zh-TW)
+├── docs-internal/                  # Legacy quarantine docs, ignored/protected, read-only
 ├── docker-compose.yml
 ├── env.example
 └── data/                           # Local data (gitignored)

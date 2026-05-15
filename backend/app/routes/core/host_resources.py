@@ -13,12 +13,16 @@ from backend.app.services.host_resources.manager import (
     get_host_resource_snapshot,
     get_runner_claim_gate,
     list_host_resource_lanes,
+    list_route_reservation_events,
     list_route_reservations,
     pause_lane,
     pause_runner_claim_gate,
     resume_lane,
     resume_runner_claim_gate,
     update_notification,
+)
+from backend.app.services.host_resources.queue_preview import (
+    build_route_reservation_candidate_previews,
 )
 
 
@@ -61,8 +65,46 @@ async def resume_host_lane(lane_id: str) -> dict[str, Any]:
 
 
 @router.get("/route-reservations")
-async def get_route_reservations() -> dict[str, Any]:
-    return {"reservations": list_route_reservations()}
+async def get_route_reservations(
+    include_candidates: bool = Query(False),
+    include_durable: bool = Query(True),
+    state: Optional[str] = Query(None),
+    scan_limit: int = Query(25, ge=1, le=200),
+    limit: int = Query(100, ge=1, le=200),
+) -> dict[str, Any]:
+    reservations = list_route_reservations(
+        include_durable=include_durable,
+        state=state,
+        limit=limit,
+    )
+    if not include_candidates:
+        return {"reservations": reservations}
+    previews = await build_route_reservation_candidate_previews(
+        reservations,
+        scan_limit=scan_limit,
+    )
+    return {
+        "reservations": [
+            {
+                **reservation,
+                "candidate_preview": previews.get(str(reservation.get("reservation_id") or "")),
+            }
+            for reservation in reservations
+        ]
+    }
+
+
+@router.get("/route-reservations/events")
+async def get_route_reservation_events(
+    reservation_id: Optional[str] = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+) -> dict[str, Any]:
+    return {
+        "events": list_route_reservation_events(
+            reservation_id=reservation_id,
+            limit=limit,
+        )
+    }
 
 
 @router.post("/route-reservations")

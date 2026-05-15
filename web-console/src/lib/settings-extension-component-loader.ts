@@ -1,47 +1,46 @@
 import { lazy, type ComponentType } from 'react';
 
+import {
+  loadCapabilityUIComponent,
+  primeCapabilityUIComponentMetadata,
+} from './capability-ui-loader';
+import { inferComponentPathFromImportPath } from './workspace-right-region/workspace-right-region-contract';
+
 export interface SettingsExtensionComponentDescriptor {
   capability_code: string;
   component_code: string;
+  description?: string;
   export?: string;
   import_path: string;
 }
-
-type SettingsExtensionModule = Record<string, any>;
-type SettingsExtensionLoader = () => Promise<SettingsExtensionModule>;
-
-const settingsExtensionLoaders: Record<string, SettingsExtensionLoader> = {
-  'comfyui_runtime:ComfyUIRuntimePanel': () => import('@/app/capabilities/comfyui_runtime/components/ComfyUIRuntimePanel'),
-  'comfyui_runtime:ComfyUIRuntimeSettingsPanel': () => import('@/app/capabilities/comfyui_runtime/components/ComfyUIRuntimeSettingsPanel'),
-  'mindscape_cloud_integration:MindscapeCloudChannelBindingPanel': () => import('@/app/capabilities/mindscape_cloud_integration/components/MindscapeCloudChannelBindingPanel'),
-  'web_generation:WordPressSitesPanel': () => import('@/app/capabilities/web_generation/components/WordPressSitesPanel'),
-};
 
 function EmptySettingsExtension() {
   return null;
 }
 
-function loaderKey(panel: SettingsExtensionComponentDescriptor): string {
-  return `${panel.capability_code}:${panel.component_code}`;
-}
-
 export function createLazySettingsExtensionComponent(
-  panel: SettingsExtensionComponentDescriptor
+  panel: SettingsExtensionComponentDescriptor,
+  apiUrl: string,
 ): ComponentType<any> {
   return lazy(async () => {
     try {
-      const loader = settingsExtensionLoaders[loaderKey(panel)];
-      if (!loader) {
-        console.warn('[settings-extension-loader] Settings extension component not registered:', {
-          capability_code: panel.capability_code,
-          component_code: panel.component_code,
+      primeCapabilityUIComponentMetadata(panel.capability_code, [
+        {
+          code: panel.component_code,
+          path: inferComponentPathFromImportPath(panel),
+          description: panel.description || '',
+          export: panel.export || 'default',
+          artifact_types: [],
+          playbook_codes: [],
           import_path: panel.import_path,
-        });
-        return { default: EmptySettingsExtension };
-      }
+        },
+      ]);
 
-      const module = await loader();
-      const Component = module[panel.export || 'default'] || module.default;
+      const Component = await loadCapabilityUIComponent(
+        panel.capability_code,
+        panel.component_code,
+        apiUrl,
+      );
       return { default: Component || EmptySettingsExtension };
     } catch (error) {
       console.error('[settings-extension-loader] Failed to load settings extension component:', {

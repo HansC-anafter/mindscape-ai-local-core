@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { Activity, PanelRight, X } from 'lucide-react';
+import { Activity, PanelRight, Settings as SettingsIcon, X } from 'lucide-react';
 
 import { AOLRuntimeShellProvider } from '@/components/capabilities/aol-runtime-shell/AOLRuntimeShell';
 import {
@@ -9,10 +9,20 @@ import {
   type WorkspaceToolRailGroup,
 } from '@/components/workspace/WorkspaceToolRail';
 import { useWorkspaceDataOptional } from '@/contexts/WorkspaceDataContext';
+import { getApiBaseUrl } from '@/lib/api-url';
+import {
+  WORKSPACE_RIGHT_REGION_PANEL_BODY_CLASS,
+  WORKSPACE_RIGHT_REGION_PANEL_WIDTH_CLASS,
+  createCoreRightRailContribution,
+  isPackWorkspaceRailToolVisible,
+  normalizeWorkspaceToolContributions,
+} from '@/lib/workspace-right-region/workspace-right-region-contract';
 import type { WorkspaceToolDefinition } from '@/lib/workspace-tools/workspace-tool-registry';
 import WorkspaceRuntimeFrame from '../components/WorkspaceRuntimeFrame';
 import WorkspaceRunsPanel from './WorkspaceRunsPanel';
 import WorkspaceToolExtensionSlot from './WorkspaceToolExtensionSlot';
+
+const WorkspaceSettingsToolPanel = React.lazy(() => import('./WorkspaceSettingsToolPanel'));
 
 interface WorkspaceSurfaceShellProps {
   workspaceId: string;
@@ -20,8 +30,6 @@ interface WorkspaceSurfaceShellProps {
   surfacePath?: readonly string[];
   children: React.ReactNode;
 }
-
-const RESERVED_BUILT_IN_WORKSPACE_TOOL_IDS = new Set(['runs_panel']);
 
 export default function WorkspaceSurfaceShell({
   workspaceId,
@@ -50,16 +58,38 @@ function WorkspaceSurfaceShellContent({
 }: WorkspaceSurfaceShellProps) {
   const [activePanel, setActivePanel] = React.useState<string | null>(null);
   const [extensionTools, setExtensionTools] = React.useState<WorkspaceToolDefinition[]>([]);
+  const apiUrl = getApiBaseUrl();
   const workspaceData = useWorkspaceDataOptional();
   const activeExecutionCount = (workspaceData?.executions || []).filter((execution) => {
     const status = String(execution.status || '').toLowerCase();
     return status === 'running' || status === 'queued' || status === 'pending' || status === 'paused';
   }).length;
   const handleExtensionToolsChange = React.useCallback((tools: WorkspaceToolDefinition[]) => {
-    setExtensionTools(
-      tools.filter((tool) => !RESERVED_BUILT_IN_WORKSPACE_TOOL_IDS.has(tool.id)),
-    );
+    setExtensionTools(tools.filter(isPackWorkspaceRailToolVisible));
   }, []);
+  const runsContribution = React.useMemo(() => createCoreRightRailContribution({
+    id: 'runs_panel',
+    key: 'core:runs_panel',
+    label: 'Runs',
+    icon: 'Activity',
+    order: 10,
+    group: 'execution',
+    badgeSource: 'active_execution_count',
+    testId: 'workspace-runs-tool',
+  }), []);
+  const settingsContribution = React.useMemo(() => createCoreRightRailContribution({
+    id: 'settings',
+    key: 'core:settings',
+    label: 'Settings',
+    icon: 'Settings',
+    order: 20,
+    group: 'workspace',
+    testId: 'workspace-settings-tool',
+  }), []);
+  const extensionContributions = React.useMemo(
+    () => normalizeWorkspaceToolContributions(extensionTools),
+    [extensionTools],
+  );
   const toolGroups = React.useMemo<WorkspaceToolRailGroup[]>(() => {
     const groups: WorkspaceToolRailGroup[] = [{
       id: 'runs',
@@ -67,30 +97,43 @@ function WorkspaceSurfaceShellContent({
       testId: 'workspace-runs-tool-group',
       children: (
         <WorkspaceToolRailButton
-          label="Runs"
+          label={runsContribution.label}
           icon={<Activity aria-hidden="true" className="h-4 w-4" />}
-          active={activePanel === 'runs'}
+          active={activePanel === runsContribution.key}
           badge={activeExecutionCount || null}
-          testId="workspace-runs-tool"
-          onClick={() => setActivePanel((current) => (current === 'runs' ? null : 'runs'))}
+          testId={runsContribution.accessibility.test_id}
+          onClick={() => setActivePanel((current) => (current === runsContribution.key ? null : runsContribution.key))}
+        />
+      ),
+    }, {
+      id: 'settings',
+      label: 'Settings',
+      testId: 'workspace-settings-tool-group',
+      children: (
+        <WorkspaceToolRailButton
+          label={settingsContribution.label}
+          icon={<SettingsIcon aria-hidden="true" className="h-4 w-4" />}
+          active={activePanel === settingsContribution.key}
+          testId={settingsContribution.accessibility.test_id}
+          onClick={() => setActivePanel((current) => (current === settingsContribution.key ? null : settingsContribution.key))}
         />
       ),
     }];
-    if (extensionTools.length > 0) {
+    if (extensionContributions.length > 0) {
       groups.push({
         id: 'capability-tools',
         label: 'Tools',
         testId: 'workspace-capability-tools-group',
         children: (
           <>
-            {extensionTools.map((tool) => (
+            {extensionContributions.map((tool) => (
               <WorkspaceToolRailButton
-                key={tool.tool_key}
+                key={tool.key}
                 label={tool.label}
                 icon={<PanelRight aria-hidden="true" className="h-4 w-4" />}
-                active={activePanel === tool.tool_key}
-                testId={`workspace-tool-${tool.tool_key}`}
-                onClick={() => setActivePanel((current) => (current === tool.tool_key ? null : tool.tool_key))}
+                active={activePanel === tool.key}
+                testId={tool.accessibility.test_id}
+                onClick={() => setActivePanel((current) => (current === tool.key ? null : tool.key))}
               />
             ))}
           </>
@@ -98,8 +141,11 @@ function WorkspaceSurfaceShellContent({
       });
     }
     return groups;
-  }, [activeExecutionCount, activePanel, extensionTools]);
-  const activeExtensionTool = activePanel && activePanel !== 'runs' ? activePanel : null;
+  }, [activeExecutionCount, activePanel, extensionContributions, runsContribution, settingsContribution]);
+  const activeExtensionTool = activePanel && activePanel !== runsContribution.key && activePanel !== settingsContribution.key
+    ? activePanel
+    : null;
+  const activeExtensionContribution = extensionContributions.find((tool) => tool.key === activeExtensionTool) || null;
 
   return (
     <AOLRuntimeShellProvider workspaceId={workspaceId} toolGroups={toolGroups}>
@@ -113,9 +159,9 @@ function WorkspaceSurfaceShellContent({
           <div className="min-w-0 flex-1 overflow-hidden">
             {children}
           </div>
-          {activePanel === 'runs' ? (
+          {activePanel === runsContribution.key ? (
             <aside
-              className="flex h-full w-80 shrink-0 flex-col border-l border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-950"
+              className={`flex h-full ${WORKSPACE_RIGHT_REGION_PANEL_WIDTH_CLASS} shrink-0 flex-col border-l border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-950`}
               data-testid="workspace-runs-panel"
             >
               <div className="flex h-10 shrink-0 items-center justify-between border-b border-gray-200 px-3 dark:border-gray-800">
@@ -129,7 +175,7 @@ function WorkspaceSurfaceShellContent({
                   <X aria-hidden="true" className="h-4 w-4" />
                 </button>
               </div>
-              <div className="min-h-0 flex-1 overflow-hidden">
+              <div className={WORKSPACE_RIGHT_REGION_PANEL_BODY_CLASS}>
                 <WorkspaceRunsPanel
                   workspaceId={workspaceId}
                   activeCapabilityCode={activeCapabilityCode}
@@ -137,14 +183,37 @@ function WorkspaceSurfaceShellContent({
               </div>
             </aside>
           ) : null}
+          {activePanel === settingsContribution.key ? (
+            <aside
+              className={`flex h-full ${WORKSPACE_RIGHT_REGION_PANEL_WIDTH_CLASS} shrink-0 flex-col border-l border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-950`}
+              data-testid="workspace-settings-aside"
+            >
+              <div className="flex h-10 shrink-0 items-center justify-between border-b border-gray-200 px-3 dark:border-gray-800">
+                <div className="text-xs font-semibold text-gray-700 dark:text-gray-200">Settings</div>
+                <button
+                  type="button"
+                  aria-label="Close Settings"
+                  className="inline-flex h-7 w-7 items-center justify-center rounded text-gray-500 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-900 dark:hover:text-gray-100"
+                  onClick={() => setActivePanel(null)}
+                >
+                  <X aria-hidden="true" className="h-4 w-4" />
+                </button>
+              </div>
+              <div className={WORKSPACE_RIGHT_REGION_PANEL_BODY_CLASS}>
+                <React.Suspense fallback={<div className="p-3 text-xs text-gray-500 dark:text-gray-400">Loading Settings...</div>}>
+                  <WorkspaceSettingsToolPanel workspaceId={workspaceId} apiUrl={apiUrl} />
+                </React.Suspense>
+              </div>
+            </aside>
+          ) : null}
           {activeExtensionTool ? (
             <aside
-              className="flex h-full w-[360px] shrink-0 flex-col border-l border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-950"
+              className={`flex h-full ${WORKSPACE_RIGHT_REGION_PANEL_WIDTH_CLASS} shrink-0 flex-col border-l border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-950`}
               data-testid="workspace-tool-extension-aside"
             >
               <div className="flex h-10 shrink-0 items-center justify-between border-b border-gray-200 px-3 dark:border-gray-800">
                 <div className="text-xs font-semibold text-gray-700 dark:text-gray-200">
-                  {extensionTools.find((tool) => tool.tool_key === activeExtensionTool)?.label || 'Tool'}
+                  {activeExtensionContribution?.label || 'Tool'}
                 </div>
                 <button
                   type="button"
@@ -155,7 +224,7 @@ function WorkspaceSurfaceShellContent({
                   <X aria-hidden="true" className="h-4 w-4" />
                 </button>
               </div>
-              <div className="min-h-0 flex-1 overflow-hidden">
+              <div className={WORKSPACE_RIGHT_REGION_PANEL_BODY_CLASS}>
                 <WorkspaceToolExtensionSlot
                   workspaceId={workspaceId}
                   capabilityCode={activeCapabilityCode}
