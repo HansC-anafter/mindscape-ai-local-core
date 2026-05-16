@@ -10,8 +10,8 @@ Create a verified local-runtime backup for Docker Local-Core.
 By default this creates:
   - PostgreSQL custom dumps for mindscape_core and mindscape_vectors
   - PostgreSQL globals dump
-  - A compressed archive of /app/data, excluding postgres, existing backups,
-    e2e traces, and IG thumbnail cache
+  - A compressed archive of /app/data streamed from the host data mount,
+    excluding postgres, existing backups, e2e traces, and IG thumbnail cache
   - Runtime metadata, profile-state validation report, manifest, and sha256s
 
 Options:
@@ -121,6 +121,8 @@ esac
 require_cmd docker
 require_cmd python3
 require_cmd tar
+require_cmd mktemp
+require_cmd ln
 
 cd "$REPO_ROOT"
 
@@ -228,6 +230,7 @@ write_metadata() {
   cat >"$STAGE_DIR/metadata/backup-options.env" <<EOF
 BACKUP_NAME=$BACKUP_NAME
 DATA_HOST_DIR=$data_host_dir
+APP_DATA_ARCHIVE_SOURCE=host_mount
 INCLUDE_THUMBNAILS=$INCLUDE_THUMBNAILS
 INCLUDE_E2E_TRACES=$INCLUDE_E2E_TRACES
 INCLUDE_LOGS=$INCLUDE_LOGS
@@ -320,9 +323,21 @@ archive_app_data() {
     excludes+=("--exclude=app/data/e2e-traces")
   fi
 
-  log "archiving /app/data"
-  "${COMPOSE[@]}" exec -T backend tar -C / "${excludes[@]}" -czf - app/data \
-    >"${archive}.tmp"
+  [[ -d "$data_host_dir" ]] || fail "Resolved /app/data host path is not a directory: $data_host_dir"
+
+  local archive_root
+  archive_root="$(mktemp -d "${TMPDIR:-/tmp}/mindscape-app-data-archive.XXXXXX")"
+  mkdir -p "$archive_root/app"
+  ln -s "$data_host_dir" "$archive_root/app/data"
+
+  log "archiving /app/data from host mount: $data_host_dir"
+  if tar -C "$archive_root" -h "${excludes[@]}" -czf "${archive}.tmp" app/data; then
+    rm -rf "$archive_root"
+  else
+    local tar_status=$?
+    rm -rf "$archive_root"
+    return "$tar_status"
+  fi
   assert_nonempty_file "${archive}.tmp"
 
   tar -tzf "${archive}.tmp" >"${archive}.list.tmp"
