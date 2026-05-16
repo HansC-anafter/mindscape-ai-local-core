@@ -100,7 +100,7 @@ function classificationLabel(
   if (classification === 'empty') {
     return t('empty' as any);
   }
-  return classification.replace(/_/g, ' ');
+  return String(classification).replace(/_/g, ' ');
 }
 
 function classificationBadgeClass(

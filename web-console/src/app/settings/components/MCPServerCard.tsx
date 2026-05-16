@@ -99,7 +99,6 @@ export function MCPServerCard({ server, onRefresh, onEdit, onDelete }: MCPServer
           <StatusPill
             status={status.status}
             label={status.label}
-            icon={status.icon}
           />
           <div className="flex space-x-2">
             {onEdit && (

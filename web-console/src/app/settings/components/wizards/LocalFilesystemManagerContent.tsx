@@ -75,38 +75,6 @@ export function LocalFilesystemManagerContent({
     workspaceMode,
   });
 
-  useEffect(() => {
-    if (workspaceMode) {
-      if (initialStorageBasePath) {
-        setDirectories([{ path: initialStorageBasePath, allowWrite: false }]);
-        setSavedStorageBasePath(initialStorageBasePath);
-      } else {
-        setDirectories([]);
-      }
-      if (initialArtifactsDir) {
-        setArtifactsDir(initialArtifactsDir);
-      }
-      if (initialPlaybookStorageConfig) {
-        setPlaybookStorageConfig(initialPlaybookStorageConfig);
-      }
-      setLoading(false);
-      if (workspaceId && apiUrl) {
-        loadUsedPlaybooks();
-      }
-    } else {
-      loadConfiguredDirectories();
-    }
-  }, [
-    apiUrl,
-    initialArtifactsDir,
-    initialPlaybookStorageConfig,
-    initialStorageBasePath,
-    loadConfiguredDirectories,
-    loadUsedPlaybooks,
-    workspaceId,
-    workspaceMode,
-  ]);
-
   const loadUsedPlaybooks = useCallback(async () => {
     if (!workspaceId || apiUrl == null) return;
 
@@ -165,6 +133,38 @@ export function LocalFilesystemManagerContent({
       setLoading(false);
     }
   }, []);
+
+  useEffect(() => {
+    if (workspaceMode) {
+      if (initialStorageBasePath) {
+        setDirectories([{ path: initialStorageBasePath, allowWrite: false }]);
+        setSavedStorageBasePath(initialStorageBasePath);
+      } else {
+        setDirectories([]);
+      }
+      if (initialArtifactsDir) {
+        setArtifactsDir(initialArtifactsDir);
+      }
+      if (initialPlaybookStorageConfig) {
+        setPlaybookStorageConfig(initialPlaybookStorageConfig);
+      }
+      setLoading(false);
+      if (workspaceId && apiUrl) {
+        loadUsedPlaybooks();
+      }
+    } else {
+      loadConfiguredDirectories();
+    }
+  }, [
+    apiUrl,
+    initialArtifactsDir,
+    initialPlaybookStorageConfig,
+    initialStorageBasePath,
+    loadConfiguredDirectories,
+    loadUsedPlaybooks,
+    workspaceId,
+    workspaceMode,
+  ]);
 
   const handleAddDirectory = () => {
     const trimmed = newDirectory.trim();

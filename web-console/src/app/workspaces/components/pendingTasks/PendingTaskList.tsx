@@ -70,7 +70,7 @@ function PendingTaskCard({
   const isSucceeded = task.status?.toUpperCase() === 'SUCCEEDED';
   const confidence = task.result?.llm_analysis?.confidence;
   const autoExecutionConfig =
-    task.pack_id && workspace?.playbook_auto_execution_config?.[task.pack_id];
+    task.pack_id ? workspace?.playbook_auto_execution_config?.[task.pack_id] : undefined;
 
   return (
     <div

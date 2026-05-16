@@ -103,11 +103,11 @@ export function getTaskDisplayTitle(task: PendingTask): string {
 
   const playbookCode = task.pack_id || task.playbook_id;
   if (playbookCode) {
-    return (
+    const localizedName =
       getPlaybookMetadata(playbookCode, 'name', 'en') ||
       getPlaybookMetadata(playbookCode, 'name', 'zh-TW') ||
-      playbookCode
-    );
+      playbookCode;
+    return Array.isArray(localizedName) ? localizedName[0] || playbookCode : localizedName;
   }
 
   return task.task_type || 'Task';

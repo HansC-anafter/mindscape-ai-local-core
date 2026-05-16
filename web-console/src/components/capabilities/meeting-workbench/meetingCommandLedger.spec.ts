@@ -67,7 +67,8 @@ describe('meetingCommandLedger', () => {
       status: 'completed',
       task_ir_id: 'task_meeting',
     });
-    const requestBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body || '{}'));
+    const firstRequestInit = (fetchMock.mock.calls[0] as unknown as [string, RequestInit] | undefined)?.[1];
+    const requestBody = JSON.parse(String(firstRequestInit?.body || '{}'));
     expect(requestBody.metadata.dispatch_mode).toBe('route_meeting_orchestration');
   });
 
@@ -112,7 +113,8 @@ describe('meetingCommandLedger', () => {
       },
     });
 
-    const requestBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body || '{}'));
+    const firstRequestInit = (fetchMock.mock.calls[0] as unknown as [string, RequestInit] | undefined)?.[1];
+    const requestBody = JSON.parse(String(firstRequestInit?.body || '{}'));
     expect(requestBody.metadata.dispatch_mode).toBe('route_meeting_orchestration');
     expect(requestBody.metadata.selected_guidance_id).toBe('guidance_1');
     expect(requestBody.metadata.selected_guidance_metadata).toEqual({

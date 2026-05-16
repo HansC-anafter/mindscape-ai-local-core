@@ -51,12 +51,12 @@ export default function PendingTasksPanel({
     if (!allTasks || allTasks.length === 0) {
       return [];
     }
-    return splitPendingTaskCollections(allTasks).displayTasks;
+    return splitPendingTaskCollections(allTasks as PendingTask[]).displayTasks;
   }, [allTasks]);
 
   const pendingBackgroundTasks = useMemo(() => {
     if (contextData) {
-      return splitPendingTaskCollections(allTasks).backgroundTasks.filter(isPendingTask);
+      return splitPendingTaskCollections(allTasks as PendingTask[]).backgroundTasks.filter(isPendingTask);
     }
     return backgroundTasks;
   }, [allTasks, backgroundTasks, contextData]);
