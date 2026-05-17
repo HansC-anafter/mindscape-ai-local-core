@@ -19,6 +19,10 @@ import {
 
 import { useWorkspaceDataOptional } from '@/contexts/WorkspaceDataContext';
 import { isDocumentHidden } from '@/lib/page-visibility';
+import {
+  HostResourceStatusSummaryCard,
+  type HostResourceSummary,
+} from './HostResourceStatusSummaryCard';
 
 const CapabilityExtensionSlot = React.lazy(() => import('../components/CapabilityExtensionSlot'));
 const StoragePathConfigModal = React.lazy(() => import('@/components/StoragePathConfigModal'));
@@ -69,6 +73,14 @@ interface WorkspaceExecutorRoutePayload {
   resolved_executor_runtime?: string | null;
   route_authority?: string;
   dispatch_chain?: string[];
+}
+
+interface StatusSnapshot {
+  agents: Record<string, any> | null;
+  xtts: Record<string, any> | null;
+  mcpGateway: Record<string, any> | null;
+  hostResources: HostResourceSummary | null;
+  updatedAt: string;
 }
 
 function formatList(values: unknown): string {
@@ -182,10 +194,11 @@ function StatusSection({
   apiUrl: string;
   workspaceId: string;
 }) {
+  const router = useRouter();
   const workspaceData = useWorkspaceDataOptional();
   const [loading, setLoading] = useState(false);
   const [statusError, setStatusError] = useState<string | null>(null);
-  const [snapshot, setSnapshot] = useState<Record<string, any> | null>(null);
+  const [snapshot, setSnapshot] = useState<StatusSnapshot | null>(null);
   const refreshAllWorkspace = workspaceData?.refreshAll;
 
   const loadSnapshot = React.useCallback(async (shouldRefreshAll: boolean) => {
@@ -195,10 +208,11 @@ function StatusSection({
     setLoading(true);
     setStatusError(null);
     try {
-      const [agents, xtts, mcpGateway] = await Promise.allSettled([
+      const [agents, xtts, mcpGateway, hostResources] = await Promise.allSettled([
         fetch(`${apiUrl}/api/v1/workspaces/${workspaceId}/agents`),
         fetch(`${apiUrl}/api/v1/host/services/xtts/health`),
         fetch(`${apiUrl}/api/v1/host/services/mcp-gateway/health`),
+        fetch(`${apiUrl}/api/v1/host-resources/summary${shouldRefreshAll ? '?refresh=true' : ''}`),
       ]);
       if (shouldRefreshAll && refreshAllWorkspace) {
         await refreshAllWorkspace();
@@ -207,6 +221,9 @@ function StatusSection({
         agents: agents.status === 'fulfilled' && agents.value.ok ? await agents.value.json().catch(() => null) : null,
         xtts: xtts.status === 'fulfilled' && xtts.value.ok ? await xtts.value.json().catch(() => null) : null,
         mcpGateway: mcpGateway.status === 'fulfilled' && mcpGateway.value.ok ? await mcpGateway.value.json().catch(() => null) : null,
+        hostResources: hostResources.status === 'fulfilled' && hostResources.value.ok
+          ? await hostResources.value.json().catch(() => null)
+          : null,
         updatedAt: new Date().toLocaleTimeString(),
       });
     } catch (error) {
@@ -257,6 +274,11 @@ function StatusSection({
           <span className="truncate font-medium">{snapshot?.mcpGateway?.status || snapshot?.mcpGateway?.state || 'Unchecked'}</span>
         </div>
       </div>
+      <HostResourceStatusSummaryCard
+        summary={snapshot?.hostResources || null}
+        loading={loading}
+        onOpenDashboard={() => router.push('/settings?tab=runtime&section=host-resources')}
+      />
       {statusError ? (
         <div className="rounded border border-red-200 bg-red-50 p-2 text-xs text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">
           {statusError}

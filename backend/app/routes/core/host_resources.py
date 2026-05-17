@@ -13,6 +13,7 @@ from backend.app.services.host_resources.manager import (
     get_host_resource_snapshot,
     get_runner_claim_gate,
     list_host_resource_lanes,
+    list_active_route_reservations,
     list_route_reservation_events,
     list_route_reservations,
     pause_lane,
@@ -24,6 +25,10 @@ from backend.app.services.host_resources.manager import (
 from backend.app.services.host_resources.queue_preview import (
     build_route_reservation_candidate_previews,
 )
+from backend.app.services.host_resources.schema_readiness import (
+    check_host_resource_schema_readiness,
+)
+from backend.app.services.host_resources.summary import build_host_resource_summary
 
 
 router = APIRouter(prefix="/api/v1/host-resources", tags=["host-resources"])
@@ -32,6 +37,20 @@ router = APIRouter(prefix="/api/v1/host-resources", tags=["host-resources"])
 @router.get("/snapshot")
 async def get_snapshot(refresh: bool = Query(False)) -> dict[str, Any]:
     return await get_host_resource_snapshot(refresh=refresh)
+
+
+@router.get("/summary")
+async def get_summary(refresh: bool = Query(False)) -> dict[str, Any]:
+    snapshot = await get_host_resource_snapshot(refresh=refresh)
+    return build_host_resource_summary(
+        snapshot,
+        active_reservations=list_active_route_reservations(),
+    )
+
+
+@router.get("/schema-readiness")
+async def get_schema_readiness() -> dict[str, Any]:
+    return check_host_resource_schema_readiness()
 
 
 @router.get("/lanes")

@@ -102,6 +102,56 @@ function stubOkFetch() {
           },
         ],
       };
+    } else if (url.includes('/api/v1/host-resources/summary')) {
+      body = {
+        captured_at: '2026-05-16T00:00:00Z',
+        degraded: false,
+        pressure_state: 'ok',
+        free_percent: 42,
+        headroom_mb: 10240,
+        reserved_mb: 7168,
+        lanes: {
+          busy: 1,
+          blocked: 2,
+          total: 5,
+        },
+        heavy_consumers: [
+          {
+            consumer_id: 'mlx:qwen',
+            label: 'MLX Qwen',
+            memory_mb: 7168,
+            memory_source: 'declared',
+          },
+        ],
+        primary_blockers: [
+          {
+            lane_id: 'lane:paused',
+            label: 'Paused Lane',
+            state: 'paused',
+            reason: null,
+          },
+        ],
+        route_controls: {
+          active: 2,
+          draining: 1,
+          targets: ['comfyui_runtime:flux2', 'mlx:qwen9b'],
+        },
+        alerts: [
+          {
+            alert_id: 'host_resource_lanes_blocked',
+            severity: 'warning',
+            message: '2 host resource lane(s) blocked',
+            action_href: '/settings?tab=runtime&section=host-resources',
+          },
+          {
+            alert_id: 'route_drain_active',
+            severity: 'info',
+            message: '1 route reservation(s) draining',
+            action_href: '/settings?tab=runtime&section=host-resources',
+          },
+        ],
+        dashboard_href: '/settings?tab=runtime&section=host-resources',
+      };
     } else if (url.includes('/workspace-chat')) {
       body = {
         source: 'system_settings.chat_model',
@@ -163,11 +213,48 @@ describe('WorkspaceSettingsToolPanel', () => {
     expect(screen.getByRole('button', { name: /Status/ })).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByRole('button', { name: /Workspace/ })).toHaveAttribute('aria-expanded', 'false');
     await flushAsyncEffects();
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
     expect(setIntervalSpy).not.toHaveBeenCalled();
     expect(fetchMock).toHaveBeenCalledWith('http://api.test/api/v1/workspaces/ws_test/agents');
     expect(fetchMock).toHaveBeenCalledWith('http://api.test/api/v1/host/services/xtts/health');
     expect(fetchMock).toHaveBeenCalledWith('http://api.test/api/v1/host/services/mcp-gateway/health');
+    expect(fetchMock).toHaveBeenCalledWith('http://api.test/api/v1/host-resources/summary');
+  });
+
+  it('renders host resources summary in the Status section and opens the full dashboard', async () => {
+    stubOkFetch();
+
+    render(<WorkspaceSettingsToolPanel workspaceId="ws_test" apiUrl="http://api.test" />);
+
+    await waitFor(() => {
+      expect(screen.getByText('1 busy / 2 blocked / 5 total lanes')).toBeInTheDocument();
+    });
+    expect(screen.getByText('Host Resources')).toBeInTheDocument();
+    expect(screen.getByTestId('host-resource-status-summary')).toHaveTextContent('ok');
+    expect(screen.getByText('Top: MLX Qwen 7,168 MB')).toBeInTheDocument();
+    expect(screen.getByText('Reservations: 2 active / 1 drain')).toBeInTheDocument();
+    expect(screen.getByText('2 host resource lane(s) blocked')).toBeInTheDocument();
+    expect(screen.getByText('1 route reservation(s) draining')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /Open dashboard/ }));
+
+    expect(routerMock.push).toHaveBeenCalledWith('/settings?tab=runtime&section=host-resources');
+  });
+
+  it('uses refresh=true for host resources only when the Status refresh button is clicked', async () => {
+    const fetchMock = stubOkFetch();
+
+    render(<WorkspaceSettingsToolPanel workspaceId="ws_test" apiUrl="http://api.test" />);
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith('http://api.test/api/v1/host-resources/summary');
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh status' }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith('http://api.test/api/v1/host-resources/summary?refresh=true');
+    });
   });
 
   it('keeps tool engine extension panels cold until the Tools section is expanded', async () => {
@@ -176,7 +263,7 @@ describe('WorkspaceSettingsToolPanel', () => {
     render(<WorkspaceSettingsToolPanel workspaceId="ws_test" apiUrl="http://api.test" />);
 
     await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledTimes(3);
+      expect(fetchMock).toHaveBeenCalledTimes(4);
     });
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/api/v1/settings/extensions'))).toBe(false);
 
@@ -194,7 +281,7 @@ describe('WorkspaceSettingsToolPanel', () => {
     render(<WorkspaceSettingsToolPanel workspaceId="ws_test" apiUrl="http://api.test" />);
 
     await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledTimes(3);
+      expect(fetchMock).toHaveBeenCalledTimes(4);
     });
 
     fireEvent.click(screen.getByRole('button', { name: /Execution/ }));
