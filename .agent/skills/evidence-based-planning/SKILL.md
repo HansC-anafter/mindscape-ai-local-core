@@ -256,6 +256,16 @@ For high-risk changes, include the relevant test layer explicitly: unit for core
 
 If the implementation or verification touches mutable user data, DB rows, generated artifacts, or installed pack state that could be overwritten, put backup instructions at the start of the plan, before any mutation step.
 
+Backup instructions are a backup decision gate, not permission to create a new full backup every time.
+
+Required order:
+
+1. Identify the exact mutation surface: DB rows, installed pack files/state, generated artifacts, app data, logs, or mixed.
+2. First look for an existing backup that covers that surface and verify it with the matching verification script.
+3. If an existing verified backup covers the risk, reuse it. Do not create another backup.
+4. If a new backup is actually required, scope it to the mutation surface. For `scripts/backup_local_runtime.sh`, the default includes DB dumps and a full `/app/data` archive; it is not incremental. Use scoped flags such as `--skip-files` for DB-only protection or `--skip-db` for file-only protection when appropriate.
+5. Only run a default/full runtime backup after explicitly stating the expected size/risk and receiving user approval.
+
 Do not bury backup steps inside the testing section.
 
 ## Internal Documentation Rule

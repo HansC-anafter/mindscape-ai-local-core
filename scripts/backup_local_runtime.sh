@@ -7,6 +7,10 @@ Usage: scripts/backup_local_runtime.sh [options]
 
 Create a verified local-runtime backup for Docker Local-Core.
 
+This script is not incremental. The default mode writes fresh PostgreSQL dumps
+and a fresh compressed archive of /app/data. Do not use the default mode as a
+routine preflight gate when an existing verified backup already covers the risk.
+
 By default this creates:
   - PostgreSQL custom dumps for mindscape_core and mindscape_vectors
   - PostgreSQL globals dump
