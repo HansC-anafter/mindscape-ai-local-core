@@ -304,6 +304,20 @@ class RuntimeAssetsInstaller:
             target_api_dir = self.capabilities_dir / capability_code / "api"
             target_api_dir.mkdir(parents=True, exist_ok=True)
 
+            for item in api_dir.iterdir():
+                if not item.is_dir() or item.name == "__pycache__":
+                    continue
+                target_subdir = target_api_dir / item.name
+                if target_subdir.exists():
+                    shutil.rmtree(target_subdir)
+                shutil.copytree(
+                    item,
+                    target_subdir,
+                    ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+                )
+                result.add_installed("api_dirs", item.name)
+                logger.debug(f"Installed API package directory: {item.name}")
+
             for api_file in api_dir.glob("*.py"):
                 target_api = target_api_dir / api_file.name
                 shutil.copy2(api_file, target_api)
@@ -319,6 +333,20 @@ class RuntimeAssetsInstaller:
         if routes_dir.exists():
             target_routes_dir = self.capabilities_dir / capability_code / "routes"
             target_routes_dir.mkdir(parents=True, exist_ok=True)
+
+            for item in routes_dir.iterdir():
+                if not item.is_dir() or item.name == "__pycache__":
+                    continue
+                target_subdir = target_routes_dir / item.name
+                if target_subdir.exists():
+                    shutil.rmtree(target_subdir)
+                shutil.copytree(
+                    item,
+                    target_subdir,
+                    ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+                )
+                result.add_installed("api_dirs", item.name)
+                logger.debug(f"Installed route package directory: {item.name}")
 
             for route_file in routes_dir.glob("*.py"):
                 target_route = target_routes_dir / route_file.name
