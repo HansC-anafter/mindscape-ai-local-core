@@ -113,6 +113,40 @@ MIME_TYPE_PATTERN = re.compile(
 MEETING_ARTIFACT_BACKEND_PATTERN = re.compile(
     r"^capabilities\.[a-z0-9_]+\.[A-Za-z0-9_\.]+:[A-Za-z_][A-Za-z0-9_]*$"
 )
+RUNTIME_LOCK_TOKEN_PATTERN = re.compile(r"{([^{}]+)}")
+RUNTIME_READ_PATH_ENDPOINT_CLASSES = {
+    "ui_list",
+    "summary",
+    "facet",
+    "sidebar",
+    "status",
+}
+RUNTIME_READ_PATH_DB_MODELS = {
+    "projection",
+    "summary_table",
+    "indexed_compact_query",
+    "external_search_index",
+}
+RUNTIME_READ_PATH_REQUIRED_FIELDS = (
+    "id",
+    "endpoint_class",
+    "method",
+    "path",
+    "request_query",
+    "purpose",
+    "max_ttfb_ms",
+    "max_total_ms",
+    "max_response_bytes",
+    "db_read_model",
+    "forbidden_sources",
+    "expected_status",
+)
+RUNTIME_READ_PATH_DENY_LIST_REQUIRED_CLASSES = {
+    "ui_list",
+    "summary",
+    "facet",
+    "sidebar",
+}
 
 
 def _aol_error(
@@ -349,6 +383,501 @@ def _manifest_warning(
         message=message,
         severity="warning",
     )
+
+
+def _validate_pack_backend(
+    *,
+    capability_code: str,
+    field: str,
+    backend: object,
+    errors: List[ValidationError],
+    warnings: List[ValidationError],
+) -> None:
+    if not isinstance(backend, str) or not AOL_BACKEND_PATTERN.match(backend):
+        errors.append(
+            _manifest_error(
+                capability_code,
+                field,
+                "backend must be a pack-owned backend import path",
+            )
+        )
+        return
+    module_path, _symbol = backend.split(":", 1)
+    if capability_code and not (
+        module_path.startswith(f"capabilities.{capability_code}.")
+        or module_path.startswith(f"app.capabilities.{capability_code}.")
+    ):
+        warnings.append(
+            _manifest_warning(
+                capability_code,
+                field,
+                f"backend does not appear to be owned by pack '{capability_code}'",
+            )
+        )
+
+
+def _validate_composition_graph_nodes(
+    manifest: Dict[str, Any],
+    capability_code: str,
+    errors: List[ValidationError],
+    warnings: List[ValidationError],
+) -> None:
+    contract = manifest.get("composition_graph_nodes")
+    if contract is None:
+        return
+    if not isinstance(contract, dict):
+        errors.append(
+            _manifest_error(
+                capability_code,
+                "composition_graph_nodes",
+                "composition_graph_nodes must be an object",
+            )
+        )
+        return
+    if contract.get("enabled") is not True:
+        return
+    nodes = contract.get("nodes")
+    if not isinstance(nodes, list):
+        errors.append(
+            _manifest_error(
+                capability_code,
+                "composition_graph_nodes.nodes",
+                "composition_graph_nodes.nodes must be a list",
+            )
+        )
+        return
+    for index, node in enumerate(nodes):
+        field_prefix = f"composition_graph_nodes.nodes[{index}]"
+        if not isinstance(node, dict):
+            errors.append(
+                _manifest_error(
+                    capability_code,
+                    field_prefix,
+                    "node must be an object",
+                )
+            )
+            continue
+        if node.get("id") == "object_reference":
+            errors.append(
+                _manifest_error(
+                    capability_code,
+                    f"{field_prefix}.id",
+                    "pack node id cannot be object_reference",
+                )
+            )
+        _validate_composition_graph_node_ports(
+            capability_code,
+            field_prefix,
+            node.get("input_ports"),
+            "input",
+            errors,
+        )
+        _validate_composition_graph_node_ports(
+            capability_code,
+            field_prefix,
+            node.get("output_ports"),
+            "output",
+            errors,
+        )
+        payload_schema = node.get("payload_schema", {})
+        if payload_schema is not None and not isinstance(payload_schema, dict):
+            errors.append(
+                _manifest_error(
+                    capability_code,
+                    f"{field_prefix}.payload_schema",
+                    "payload_schema must be an object",
+                )
+            )
+        executor = node.get("executor")
+        if not isinstance(executor, dict):
+            errors.append(
+                _manifest_error(
+                    capability_code,
+                    f"{field_prefix}.executor",
+                    "executor must be an object",
+                )
+            )
+        else:
+            _validate_pack_backend(
+                capability_code=capability_code,
+                field=f"{field_prefix}.executor.backend",
+                backend=executor.get("backend"),
+                errors=errors,
+                warnings=warnings,
+            )
+        option_sources = node.get("option_sources", {})
+        if option_sources is not None:
+            if not isinstance(option_sources, dict):
+                errors.append(
+                    _manifest_error(
+                        capability_code,
+                        f"{field_prefix}.option_sources",
+                        "option_sources must be an object",
+                    )
+                )
+            else:
+                for option_field, option_source in option_sources.items():
+                    option_prefix = f"{field_prefix}.option_sources.{option_field}"
+                    if not isinstance(option_source, dict):
+                        errors.append(
+                            _manifest_error(
+                                capability_code,
+                                option_prefix,
+                                "option source must be an object",
+                            )
+                        )
+                        continue
+                    _validate_pack_backend(
+                        capability_code=capability_code,
+                        field=f"{option_prefix}.backend",
+                        backend=option_source.get("backend"),
+                        errors=errors,
+                        warnings=warnings,
+                    )
+        runtime_lock = node.get("runtime_lock")
+        if runtime_lock is not None:
+            if not isinstance(runtime_lock, dict):
+                errors.append(
+                    _manifest_error(
+                        capability_code,
+                        f"{field_prefix}.runtime_lock",
+                        "runtime_lock must be an object",
+                    )
+                )
+            else:
+                if runtime_lock.get("max_parallel") != 1:
+                    errors.append(
+                        _manifest_error(
+                            capability_code,
+                            f"{field_prefix}.runtime_lock.max_parallel",
+                            "runtime_lock.max_parallel must be 1",
+                        )
+                    )
+                key_template = runtime_lock.get("key_template")
+                if not isinstance(key_template, str) or not key_template.strip():
+                    errors.append(
+                        _manifest_error(
+                            capability_code,
+                            f"{field_prefix}.runtime_lock.key_template",
+                            "runtime_lock.key_template must be a non-empty string",
+                        )
+                    )
+                else:
+                    _validate_runtime_lock_template(
+                        capability_code,
+                        f"{field_prefix}.runtime_lock.key_template",
+                        key_template,
+                        errors,
+                    )
+
+
+def _validate_composition_graph_node_ports(
+    capability_code: str,
+    field_prefix: str,
+    ports: object,
+    direction: str,
+    errors: List[ValidationError],
+) -> None:
+    if not isinstance(ports, list):
+        errors.append(
+            _manifest_error(
+                capability_code,
+                f"{field_prefix}.{direction}_ports",
+                f"{direction}_ports must be a list",
+            )
+        )
+        return
+    for port_index, port in enumerate(ports):
+        port_prefix = f"{field_prefix}.{direction}_ports[{port_index}]"
+        if not isinstance(port, dict):
+            errors.append(
+                _manifest_error(
+                    capability_code,
+                    port_prefix,
+                    "port must be an object",
+                )
+            )
+            continue
+        if port.get("direction") != direction:
+            errors.append(
+                _manifest_error(
+                    capability_code,
+                    f"{port_prefix}.direction",
+                    f"port direction must be {direction}",
+                )
+            )
+
+
+def _validate_runtime_lock_template(
+    capability_code: str,
+    field: str,
+    key_template: str,
+    errors: List[ValidationError],
+) -> None:
+    for match in RUNTIME_LOCK_TOKEN_PATTERN.finditer(key_template):
+        token = match.group(1)
+        if token == "workspace_id":
+            continue
+        if token.startswith("payload.") and token.removeprefix("payload."):
+            continue
+        errors.append(
+            _manifest_error(
+                capability_code,
+                field,
+                "runtime_lock.key_template only supports {workspace_id} and {payload.<field>} tokens",
+            )
+        )
+
+
+def _declared_api_prefixes(manifest: Dict[str, Any]) -> List[str]:
+    prefixes = []
+    api_defs = manifest.get("apis") or manifest.get("capabilities") or []
+    if not isinstance(api_defs, list):
+        return prefixes
+    for api_def in api_defs:
+        if not isinstance(api_def, dict):
+            continue
+        prefix = api_def.get("prefix")
+        if isinstance(prefix, str) and prefix.startswith("/"):
+            prefixes.append(prefix.rstrip("/") or "/")
+    return prefixes
+
+
+def _path_under_api_prefix(path: str, prefixes: List[str]) -> bool:
+    normalized_path = path.rstrip("/") or "/"
+    for prefix in prefixes:
+        normalized_prefix = prefix.rstrip("/") or "/"
+        if normalized_path == normalized_prefix:
+            return True
+        if normalized_path.startswith(f"{normalized_prefix}/"):
+            return True
+    return False
+
+
+def _validate_runtime_read_path_budgets(
+    manifest: Dict[str, Any],
+    capability_code: str,
+    errors: List[ValidationError],
+) -> None:
+    budgets = manifest.get("runtime_read_path_budgets")
+    if budgets is None:
+        return
+    if not isinstance(budgets, list):
+        errors.append(
+            _manifest_error(
+                capability_code,
+                "runtime_read_path_budgets",
+                "runtime_read_path_budgets must be a list",
+            )
+        )
+        return
+    if not budgets:
+        errors.append(
+            _manifest_error(
+                capability_code,
+                "runtime_read_path_budgets",
+                "runtime_read_path_budgets must declare at least one budget",
+            )
+        )
+        return
+
+    api_prefixes = _declared_api_prefixes(manifest)
+    seen_ids = set()
+    for index, budget in enumerate(budgets):
+        field_prefix = f"runtime_read_path_budgets[{index}]"
+        if not isinstance(budget, dict):
+            errors.append(
+                _manifest_error(
+                    capability_code,
+                    field_prefix,
+                    "budget item must be an object",
+                )
+            )
+            continue
+
+        for required_field in RUNTIME_READ_PATH_REQUIRED_FIELDS:
+            if required_field not in budget:
+                errors.append(
+                    _manifest_error(
+                        capability_code,
+                        f"{field_prefix}.{required_field}",
+                        f"Missing required budget field: {required_field}",
+                    )
+                )
+
+        budget_id = budget.get("id")
+        if not isinstance(budget_id, str) or not CONTRACT_ID_PATTERN.match(budget_id):
+            errors.append(
+                _manifest_error(
+                    capability_code,
+                    f"{field_prefix}.id",
+                    "id must match ^[a-z0-9_]+$",
+                )
+            )
+        elif budget_id in seen_ids:
+            errors.append(
+                _manifest_error(
+                    capability_code,
+                    f"{field_prefix}.id",
+                    "id must be unique",
+                )
+            )
+        else:
+            seen_ids.add(budget_id)
+
+        endpoint_class = budget.get("endpoint_class")
+        if endpoint_class not in RUNTIME_READ_PATH_ENDPOINT_CLASSES:
+            errors.append(
+                _manifest_error(
+                    capability_code,
+                    f"{field_prefix}.endpoint_class",
+                    (
+                        "endpoint_class must be one of: "
+                        f"{', '.join(sorted(RUNTIME_READ_PATH_ENDPOINT_CLASSES))}"
+                    ),
+                )
+            )
+
+        method = budget.get("method")
+        if method != "GET":
+            errors.append(
+                _manifest_error(
+                    capability_code,
+                    f"{field_prefix}.method",
+                    "method must be GET",
+                )
+            )
+
+        path = budget.get("path")
+        if not isinstance(path, str) or not path.startswith("/"):
+            errors.append(
+                _manifest_error(
+                    capability_code,
+                    f"{field_prefix}.path",
+                    "path must be a fully mounted absolute path",
+                )
+            )
+        elif not api_prefixes:
+            errors.append(
+                _manifest_error(
+                    capability_code,
+                    f"{field_prefix}.path",
+                    "path cannot be checked because manifest has no API prefixes",
+                )
+            )
+        elif not _path_under_api_prefix(path, api_prefixes):
+            errors.append(
+                _manifest_error(
+                    capability_code,
+                    f"{field_prefix}.path",
+                    "path must be under a declared API prefix",
+                )
+            )
+
+        request_query = budget.get("request_query")
+        if not isinstance(request_query, dict) or not request_query:
+            errors.append(
+                _manifest_error(
+                    capability_code,
+                    f"{field_prefix}.request_query",
+                    "request_query must be a non-empty object",
+                )
+            )
+        else:
+            for query_key, query_value in request_query.items():
+                if not isinstance(query_key, str) or not query_key.strip():
+                    errors.append(
+                        _manifest_error(
+                            capability_code,
+                            f"{field_prefix}.request_query",
+                            "request_query keys must be non-empty strings",
+                        )
+                    )
+                    continue
+                if query_value is None or isinstance(query_value, (list, dict)):
+                    errors.append(
+                        _manifest_error(
+                            capability_code,
+                            f"{field_prefix}.request_query.{query_key}",
+                            "request_query values must be scalar",
+                        )
+                    )
+            if endpoint_class != "status" and "workspace_id" not in request_query:
+                errors.append(
+                    _manifest_error(
+                        capability_code,
+                        f"{field_prefix}.request_query",
+                        "request_query must include workspace_id for governed read endpoints",
+                    )
+                )
+
+        purpose = budget.get("purpose")
+        if not isinstance(purpose, str) or not purpose.strip():
+            errors.append(
+                _manifest_error(
+                    capability_code,
+                    f"{field_prefix}.purpose",
+                    "purpose must be a non-empty string",
+                )
+            )
+
+        for budget_field in ("max_ttfb_ms", "max_total_ms", "max_response_bytes"):
+            value = budget.get(budget_field)
+            if type(value) is not int or value <= 0:
+                errors.append(
+                    _manifest_error(
+                        capability_code,
+                        f"{field_prefix}.{budget_field}",
+                        f"{budget_field} must be a positive integer",
+                    )
+                )
+
+        db_read_model = budget.get("db_read_model")
+        if db_read_model not in RUNTIME_READ_PATH_DB_MODELS:
+            errors.append(
+                _manifest_error(
+                    capability_code,
+                    f"{field_prefix}.db_read_model",
+                    (
+                        "db_read_model must be one of: "
+                        f"{', '.join(sorted(RUNTIME_READ_PATH_DB_MODELS))}"
+                    ),
+                )
+            )
+
+        forbidden_sources = budget.get("forbidden_sources")
+        if not isinstance(forbidden_sources, list) or any(
+            not isinstance(source, str) or not source.strip()
+            for source in forbidden_sources or []
+        ):
+            errors.append(
+                _manifest_error(
+                    capability_code,
+                    f"{field_prefix}.forbidden_sources",
+                    "forbidden_sources must be a list of non-empty strings",
+                )
+            )
+        elif (
+            endpoint_class in RUNTIME_READ_PATH_DENY_LIST_REQUIRED_CLASSES
+            and not forbidden_sources
+        ):
+            errors.append(
+                _manifest_error(
+                    capability_code,
+                    f"{field_prefix}.forbidden_sources",
+                    "forbidden_sources must declare at least one denied source",
+                )
+            )
+
+        expected_status = budget.get("expected_status")
+        if type(expected_status) is not int or not 100 <= expected_status <= 599:
+            errors.append(
+                _manifest_error(
+                    capability_code,
+                    f"{field_prefix}.expected_status",
+                    "expected_status must be an HTTP status integer",
+                )
+            )
 
 
 def _validate_contract_fields(
@@ -868,6 +1397,8 @@ def validate_manifest(manifest_path: Path) -> ValidationResult:
 
     _validate_aol_contracts(manifest, capability_code, errors, warnings)
     _validate_contract_fields(manifest, capability_code, errors, warnings)
+    _validate_composition_graph_nodes(manifest, capability_code, errors, warnings)
+    _validate_runtime_read_path_budgets(manifest, capability_code, errors)
     _validate_meeting_artifact_producers(manifest, capability_code, errors)
 
     # ========================================================================
