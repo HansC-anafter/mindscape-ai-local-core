@@ -360,6 +360,12 @@ def validate_manifest_read_models(manifest: dict[str, Any]) -> list[str]:
         _validate_cursor(read_model, prefix, errors)
         _validate_indexes(read_model, prefix, field_ids, sort_ids, errors)
 
+    count_models = manifest.get("count_models", []) or []
+    count_models_by_id = {
+        count_model.get("id"): count_model
+        for count_model in count_models
+        if isinstance(count_model, dict) and isinstance(count_model.get("id"), str)
+    }
     count_model_ids = _validate_count_models(manifest, read_model_ids, errors)
     budgets = manifest.get("runtime_read_path_budgets") or []
     if isinstance(budgets, list):
@@ -378,6 +384,12 @@ def validate_manifest_read_models(manifest: dict[str, Any]) -> list[str]:
                             errors,
                             f"{prefix}.count_model_id",
                             "must reference count_models[].id",
+                        )
+                    elif count_models_by_id[count_model_id].get("read_model_id") != read_model_id:
+                        _append(
+                            errors,
+                            f"{prefix}.count_model_id",
+                            "must reference a count model for the same read_model_id",
                         )
                 forbidden_sources = budget.get("forbidden_sources")
                 if not isinstance(forbidden_sources, list) or not forbidden_sources:

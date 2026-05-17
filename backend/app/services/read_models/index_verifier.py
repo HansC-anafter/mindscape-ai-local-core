@@ -7,6 +7,13 @@ from typing import Any
 from sqlalchemy import text
 
 
+def _split_relation(relation: str) -> tuple[str, str]:
+    if "." in relation:
+        schema_name, table_name = relation.split(".", 1)
+        return schema_name, table_name
+    return "public", relation
+
+
 def relation_exists(conn: Any, relation: str) -> bool:
     row = conn.execute(
         text("SELECT to_regclass(:relation) AS relation_name"),
@@ -16,24 +23,9 @@ def relation_exists(conn: Any, relation: str) -> bool:
 
 
 def relation_columns(conn: Any, relation: str) -> set[str]:
-    row = conn.execute(
-        text(
-            """
-            SELECT table_schema, table_name
-            FROM information_schema.tables
-            WHERE table_schema = COALESCE(NULLIF(split_part(:relation, '.', 1), ''), 'public')
-              AND table_name = CASE
-                    WHEN position('.' in :relation) > 0 THEN split_part(:relation, '.', 2)
-                    ELSE :relation
-                  END
-            LIMIT 1
-            """
-        ),
-        {"relation": relation},
-    ).fetchone()
-    if not row:
+    schema_name, table_name = _split_relation(relation)
+    if not relation_exists(conn, relation):
         return set()
-    schema_name, table_name = row
     rows = conn.execute(
         text(
             """
