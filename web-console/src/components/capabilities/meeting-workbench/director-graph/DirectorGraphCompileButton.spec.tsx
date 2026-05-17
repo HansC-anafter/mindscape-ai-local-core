@@ -8,16 +8,16 @@ import { DirectorGraphCompileButton } from './DirectorGraphCompileButton';
 const t = (key: MessageKey) => key;
 
 describe('DirectorGraphCompileButton', () => {
-  it('calls compile when enabled and locks while running', () => {
+  it('calls run when enabled and locks while running', () => {
     const onCompile = vi.fn();
     const { rerender } = render(
       <DirectorGraphCompileButton disabled={false} status="idle" onCompile={onCompile} t={t} />,
     );
 
-    fireEvent.click(screen.getByTestId('director-graph-compile'));
+    fireEvent.click(screen.getByTestId('director-graph-run'));
     expect(onCompile).toHaveBeenCalledTimes(1);
 
     rerender(<DirectorGraphCompileButton disabled={false} status="running" onCompile={onCompile} t={t} />);
-    expect(screen.getByTestId('director-graph-compile')).toBeDisabled();
+    expect(screen.getByTestId('director-graph-run')).toBeDisabled();
   });
 });

@@ -3,6 +3,8 @@ import { buildApiUrls, fetchApiJson, postApiJson } from '@/components/capabiliti
 export type CompositionGraphPortDirection = 'input' | 'output';
 export type CompositionGraphDiagnosticSeverity = 'error' | 'warning' | 'info';
 export type CompositionGraphCompileStatus = 'succeeded' | 'failed';
+export type CompositionGraphRunStatus = 'pending' | 'running' | 'waiting' | 'succeeded' | 'failed' | 'canceled';
+export type CompositionGraphRunNodeStatus = 'pending' | 'running' | 'waiting' | 'succeeded' | 'failed' | 'skipped';
 
 export interface CompositionGraphViewport {
   x: number;
@@ -54,7 +56,7 @@ export interface CompositionGraphContract {
   accepted_object_roles?: string[];
   node_types: CompositionGraphNodeType[];
   edge_types: CompositionGraphEdgeType[];
-  compile: CompositionGraphCompileTarget;
+  compile?: CompositionGraphCompileTarget | null;
   metadata?: Record<string, unknown>;
 }
 
@@ -136,6 +138,61 @@ export interface CompositionGraphCompileResponse {
   metadata?: Record<string, unknown>;
 }
 
+export interface CompositionGraphRunNodeState {
+  node_id: string;
+  node_type: string;
+  status: CompositionGraphRunNodeStatus;
+  started_at?: string | null;
+  completed_at?: string | null;
+  input_values?: Record<string, unknown>;
+  outputs?: Record<string, unknown>;
+  diagnostics?: CompositionGraphDiagnostic[];
+  metadata?: Record<string, unknown>;
+}
+
+export interface CompositionGraphRun {
+  id: string;
+  graph_id: string;
+  workspace_id: string;
+  status: CompositionGraphRunStatus;
+  schema_version: string;
+  draft_id?: string | null;
+  meeting_id?: string | null;
+  thread_id?: string | null;
+  command?: string;
+  nodes: CompositionGraphNode[];
+  edges: CompositionGraphEdge[];
+  node_states: Record<string, CompositionGraphRunNodeState>;
+  diagnostics: CompositionGraphDiagnostic[];
+  outputs?: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+  started_at?: string | null;
+  completed_at?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface CompositionGraphRunResponse {
+  workspace_id: string;
+  run: CompositionGraphRun;
+}
+
+export interface CompositionGraphNodeOption {
+  value: string;
+  label: string;
+  disabled?: boolean;
+  metadata?: Record<string, unknown>;
+}
+
+export interface CompositionGraphNodeOptionsResponse {
+  workspace_id: string;
+  node_type: string;
+  field: string;
+  options: CompositionGraphNodeOption[];
+  diagnostics: CompositionGraphDiagnostic[];
+  metadata?: Record<string, unknown>;
+}
+
 export interface CompositionGraphContractsResponse {
   workspace_id: string;
   contracts: CompositionGraphContract[];
@@ -180,6 +237,18 @@ export interface CompositionGraphCompileRequest {
   object_action_entries?: unknown[];
   selected_pack_tool?: string | null;
   action_parameters?: Record<string, unknown>;
+}
+
+export interface CompositionGraphRunRequest {
+  graph_id?: string;
+  draft_id?: string;
+  meeting_id?: string | null;
+  thread_id?: string | null;
+  command?: string;
+  nodes?: CompositionGraphNode[];
+  edges?: CompositionGraphEdge[];
+  viewport?: CompositionGraphViewport;
+  metadata?: Record<string, unknown>;
 }
 
 export async function fetchCompositionGraphContracts(
@@ -265,4 +334,56 @@ export async function compileCompositionGraph(
     request,
   );
   return payload as CompositionGraphCompileResponse;
+}
+
+export async function runCompositionGraph(
+  apiUrl: string,
+  workspaceId: string,
+  request: CompositionGraphRunRequest,
+): Promise<CompositionGraphRunResponse> {
+  const payload = await postApiJson(
+    apiUrl,
+    `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/composition-graph/run`,
+    request,
+  );
+  return payload as CompositionGraphRunResponse;
+}
+
+export async function fetchCompositionGraphRun(
+  apiUrl: string,
+  workspaceId: string,
+  graphRunId: string,
+): Promise<CompositionGraphRunResponse> {
+  const payload = await fetchApiJson(
+    apiUrl,
+    `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/composition-graph/runs/${encodeURIComponent(graphRunId)}`,
+  );
+  return payload as CompositionGraphRunResponse;
+}
+
+export async function resumeCompositionGraphRun(
+  apiUrl: string,
+  workspaceId: string,
+  graphRunId: string,
+  request: { command?: string; metadata?: Record<string, unknown> } = {},
+): Promise<CompositionGraphRunResponse> {
+  const payload = await postApiJson(
+    apiUrl,
+    `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/composition-graph/runs/${encodeURIComponent(graphRunId)}/resume`,
+    request,
+  );
+  return payload as CompositionGraphRunResponse;
+}
+
+export async function fetchCompositionGraphNodeOptions(
+  apiUrl: string,
+  workspaceId: string,
+  nodeType: string,
+  field: string,
+): Promise<CompositionGraphNodeOptionsResponse> {
+  const payload = await fetchApiJson(
+    apiUrl,
+    `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/composition-graph/node-options?node_type=${encodeURIComponent(nodeType)}&field=${encodeURIComponent(field)}`,
+  );
+  return payload as CompositionGraphNodeOptionsResponse;
 }

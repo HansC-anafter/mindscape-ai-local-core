@@ -1,23 +1,31 @@
-import type { CompositionGraphNode, CompositionGraphNodeType } from '@/lib/composition-graph';
+import type { CompositionGraphNode, CompositionGraphNodeOption, CompositionGraphNodeType } from '@/lib/composition-graph';
 import type { MeetingTranslate } from '../meetingWorkbenchTypes';
+
+const IG_TARGET_COUNTS = [100, 300, 500] as const;
 
 export function DirectorGraphInspector({
   node,
   nodeType,
   payloadText,
   error,
+  comfyLaneOptions,
   onPayloadTextChange,
   onApplyPayload,
+  onPatchPayload,
   t,
 }: {
   node: CompositionGraphNode | null;
   nodeType: CompositionGraphNodeType | null;
   payloadText: string;
   error: string | null;
+  comfyLaneOptions: CompositionGraphNodeOption[];
   onPayloadTextChange: (value: string) => void;
   onApplyPayload: () => void;
+  onPatchPayload: (patch: Record<string, unknown>) => void;
   t: MeetingTranslate;
 }) {
+  const targetCount = Number(node?.payload.target_count || 100);
+  const workflowRef = typeof node?.payload.workflow_ref === 'string' ? node.payload.workflow_ref : '';
   return (
     <aside
       className="flex w-72 shrink-0 flex-col border-l border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950"
@@ -36,6 +44,46 @@ export function DirectorGraphInspector({
       </div>
       {node ? (
         <div className="min-h-0 flex-1 overflow-y-auto p-3">
+          {nodeType?.id === 'ig_batch_pin_reference_set' ? (
+            <div className="mb-3">
+              <div className="text-xs font-semibold text-slate-600 dark:text-slate-300">{t('directorGraphBatchPinCount')}</div>
+              <div className="mt-2 grid grid-cols-3 gap-1 rounded-md bg-slate-100 p-1 dark:bg-slate-900">
+                {IG_TARGET_COUNTS.map((count) => (
+                  <button
+                    key={count}
+                    type="button"
+                    onClick={() => onPatchPayload({ target_count: count, source_mode: 'browser' })}
+                    className={`h-8 rounded-sm text-xs font-semibold ${
+                      targetCount === count
+                        ? 'bg-white text-blue-700 shadow-sm dark:bg-slate-800 dark:text-blue-300'
+                        : 'text-slate-600 hover:bg-white/70 dark:text-slate-300 dark:hover:bg-slate-800'
+                    }`}
+                    data-testid={`director-graph-target-count-${count}`}
+                  >
+                    {count}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+          {nodeType?.id === 'comfyui_lane_adapter' ? (
+            <label className="mb-3 block text-xs font-semibold text-slate-600 dark:text-slate-300">
+              {t('directorGraphComfyLane')}
+              <select
+                value={workflowRef}
+                onChange={(event) => onPatchPayload({ workflow_ref: event.target.value })}
+                className="mt-2 h-9 w-full rounded border border-slate-200 bg-white px-2 text-xs font-normal text-slate-700 outline-none focus:border-blue-300 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:focus:border-blue-700"
+                data-testid="director-graph-comfy-lane-select"
+              >
+                <option value="">{t('directorGraphNoReadyComfyLane')}</option>
+                {comfyLaneOptions.map((option) => (
+                  <option key={option.value} value={option.value} disabled={option.disabled}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
           <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">
             {t('directorGraphPayload')}
             <textarea

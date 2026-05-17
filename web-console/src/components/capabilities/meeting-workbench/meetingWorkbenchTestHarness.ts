@@ -197,6 +197,59 @@ export function installAOLMeetingBottomShellTestHarness() {
           headers: { 'Content-Type': 'application/json' },
         });
       }
+      if (url.includes('/api/v1/workspaces/ws-global/composition-graph/node-options')) {
+        return new Response(JSON.stringify({
+          workspace_id: 'ws-global',
+          node_type: 'comfyui_lane_adapter',
+          field: 'workflow_ref',
+          options: [],
+          diagnostics: [],
+          metadata: {},
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (url.includes('/api/v1/workspaces/ws-global/composition-graph/run')) {
+        const requestBody = JSON.parse(String(init?.body || '{}'));
+        return new Response(JSON.stringify({
+          workspace_id: 'ws-global',
+          run: {
+            id: 'cg_run_frontend',
+            graph_id: requestBody.graph_id || 'cg_frontend',
+            workspace_id: 'ws-global',
+            status: 'succeeded',
+            schema_version: 'composition_graph_run.v1',
+            draft_id: requestBody.draft_id || null,
+            meeting_id: requestBody.meeting_id || 'mtg_global',
+            thread_id: requestBody.thread_id || 'mtg_global',
+            command: requestBody.command || 'Run graph.',
+            nodes: requestBody.nodes || [],
+            edges: requestBody.edges || [],
+            node_states: Object.fromEntries((requestBody.nodes || []).map((node: { id: string; type: string }) => [
+              node.id,
+              {
+                node_id: node.id,
+                node_type: node.type,
+                status: 'succeeded',
+                outputs: {},
+                diagnostics: [],
+                metadata: {},
+              },
+            ])),
+            diagnostics: [],
+            outputs: {},
+            created_at: '2026-05-16T00:00:00Z',
+            updated_at: '2026-05-16T00:00:00Z',
+            started_at: '2026-05-16T00:00:00Z',
+            completed_at: '2026-05-16T00:00:01Z',
+            metadata: {},
+          },
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
       if (url.includes('/api/v1/workspaces/ws-global/composition-graph/compile')) {
         const requestBody = JSON.parse(String(init?.body || '{}'));
         return new Response(JSON.stringify({

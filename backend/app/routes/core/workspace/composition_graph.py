@@ -18,6 +18,10 @@ from backend.app.models.object_runtime import (
     CompositionGraphImportExportPayload,
     CompositionGraphImportRequest,
     CompositionGraphImportResponse,
+    CompositionGraphNodeOptionsResponse,
+    CompositionGraphRunRequest,
+    CompositionGraphRunResponse,
+    CompositionGraphRunResumeRequest,
 )
 from backend.app.models.workspace import Workspace
 from backend.app.routes.workspace_dependencies import get_store, get_workspace
@@ -147,3 +151,65 @@ async def compile_composition_graph(
 ) -> CompositionGraphCompileResponse:
     del workspace
     return await _build_service(store).compile_graph(workspace_id, request)
+
+
+@router.post(
+    "/{workspace_id}/composition-graph/run",
+    response_model=CompositionGraphRunResponse,
+)
+async def run_composition_graph(
+    request: CompositionGraphRunRequest,
+    workspace_id: str = PathParam(..., description="Workspace ID"),
+    workspace: Workspace = Depends(get_workspace),
+    store: MindscapeStore = Depends(get_store),
+) -> CompositionGraphRunResponse:
+    del workspace
+    return await _build_service(store).start_run(workspace_id, request)
+
+
+@router.get(
+    "/{workspace_id}/composition-graph/runs/{graph_run_id}",
+    response_model=CompositionGraphRunResponse,
+)
+async def get_composition_graph_run(
+    workspace_id: str = PathParam(..., description="Workspace ID"),
+    graph_run_id: str = PathParam(..., description="Composition graph run ID"),
+    workspace: Workspace = Depends(get_workspace),
+    store: MindscapeStore = Depends(get_store),
+) -> CompositionGraphRunResponse:
+    del workspace
+    return _build_service(store).get_run(workspace_id, graph_run_id)
+
+
+@router.post(
+    "/{workspace_id}/composition-graph/runs/{graph_run_id}/resume",
+    response_model=CompositionGraphRunResponse,
+)
+async def resume_composition_graph_run(
+    request: CompositionGraphRunResumeRequest,
+    workspace_id: str = PathParam(..., description="Workspace ID"),
+    graph_run_id: str = PathParam(..., description="Composition graph run ID"),
+    workspace: Workspace = Depends(get_workspace),
+    store: MindscapeStore = Depends(get_store),
+) -> CompositionGraphRunResponse:
+    del workspace
+    return await _build_service(store).resume_run(workspace_id, graph_run_id, request)
+
+
+@router.get(
+    "/{workspace_id}/composition-graph/node-options",
+    response_model=CompositionGraphNodeOptionsResponse,
+)
+async def get_composition_graph_node_options(
+    workspace_id: str = PathParam(..., description="Workspace ID"),
+    node_type: str = Query(..., min_length=1),
+    field: str = Query(..., min_length=1),
+    workspace: Workspace = Depends(get_workspace),
+    store: MindscapeStore = Depends(get_store),
+) -> CompositionGraphNodeOptionsResponse:
+    del workspace
+    return await _build_service(store).resolve_node_options(
+        workspace_id,
+        node_type=node_type,
+        field=field,
+    )

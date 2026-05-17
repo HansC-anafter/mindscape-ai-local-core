@@ -96,7 +96,7 @@ describe('DirectorGraphCanvas', () => {
     vi.clearAllMocks();
   });
 
-  it('renders contract node types, saves draft payloads, and compiles a command envelope', async () => {
+  it('renders contract node types, saves draft payloads, and runs the graph', async () => {
     const onCommandEnvelope = vi.fn().mockResolvedValue(undefined);
     render(
       <DirectorGraphCanvas
@@ -133,14 +133,14 @@ describe('DirectorGraphCanvas', () => {
       ).toBe(true);
     });
 
-    fireEvent.click(screen.getByTestId('director-graph-compile'));
-    await waitFor(() => expect(onCommandEnvelope).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByTestId('director-graph-run'));
+    await waitFor(() => expect(onCommandEnvelope).not.toHaveBeenCalled());
     await waitFor(() => {
       expect(
         vi.mocked(global.fetch).mock.calls.some(([url, init]) =>
-          String(url).includes('/composition-graph/compile') &&
+          String(url).includes('/composition-graph/run') &&
           String(init?.body || '').includes('@scene:sc07') &&
-          String(init?.body || '').includes('storyboard_scene'),
+          String(init?.body || '').includes('director_focus'),
         ),
       ).toBe(true);
     });

@@ -17,19 +17,23 @@ import '@xyflow/react/dist/style.css';
 import { Copy, Maximize2, Redo2, Save, Trash2, Undo2 } from 'lucide-react';
 
 import {
-  compileCompositionGraph,
+  fetchCompositionGraphNodeOptions,
+  fetchCompositionGraphRun,
   importCompositionGraph,
+  runCompositionGraph,
   type CompositionGraphCommandEnvelopeDraft,
-  type CompositionGraphCompileStatus,
   type CompositionGraphDiagnostic,
   type CompositionGraphEdge,
   type CompositionGraphImportExportPayload,
   type CompositionGraphNode,
+  type CompositionGraphNodeOption,
+  type CompositionGraphRun,
+  type CompositionGraphRunNodeStatus,
+  type CompositionGraphRunStatus,
   type CompositionGraphNodeType,
   type CompositionGraphViewport,
 } from '@/lib/composition-graph';
 import type { AddressableObjectRef } from '@/lib/addressable-object-layer';
-import { buildObjectActionPlanEntries, extractMentionReferences } from '../meetingMentions';
 import type { MeetingMentionItem, MeetingTranslate } from '../meetingWorkbenchTypes';
 import { DirectorGraphCompileButton } from './DirectorGraphCompileButton';
 import {
@@ -50,6 +54,7 @@ import { useCompositionGraphDraft } from './useCompositionGraphDraft';
 type DirectorGraphNodeData = {
   graphNode: CompositionGraphNode;
   nodeType: CompositionGraphNodeType;
+  runStatus?: CompositionGraphRunNodeStatus;
 };
 type DirectorGraphFlowNode = Node<DirectorGraphNodeData>;
 type DirectorGraphFlowEdge = Edge<{ graphEdge: CompositionGraphEdge }>;
@@ -143,7 +148,14 @@ function DirectorGraphNodeView({ data, selected }: NodeProps<DirectorGraphFlowNo
         {data.nodeType.capability_code || data.nodeType.source}
       </div>
       <div className="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-100">{data.nodeType.label}</div>
-      <div className="mt-1 truncate font-mono text-[11px] text-slate-500 dark:text-slate-400">{data.graphNode.id}</div>
+      <div className="mt-1 flex items-center justify-between gap-2">
+        <div className="truncate font-mono text-[11px] text-slate-500 dark:text-slate-400">{data.graphNode.id}</div>
+        {data.runStatus ? (
+          <span className="shrink-0 rounded-sm bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600 dark:bg-slate-900 dark:text-slate-300">
+            {data.runStatus}
+          </span>
+        ) : null}
+      </div>
       {outputPorts.map((port, index) => (
         <Handle
           key={port.id}
@@ -162,14 +174,16 @@ const nodeTypes = { compositionGraphNode: DirectorGraphNodeView };
 function toFlowNodes(
   graphNodes: CompositionGraphNode[],
   nodeTypeById: Map<string, CompositionGraphNodeType>,
+  run?: CompositionGraphRun | null,
 ): DirectorGraphFlowNode[] {
   return graphNodes.map((graphNode) => {
     const nodeType = nodeTypeById.get(graphNode.type) || getUnknownNodeType(graphNode.type);
+    const runStatus = run?.node_states?.[graphNode.id]?.status;
     return {
       id: graphNode.id,
       type: 'compositionGraphNode',
       position: graphNode.position,
-      data: { graphNode, nodeType },
+      data: { graphNode, nodeType, runStatus },
     };
   });
 }
@@ -262,6 +276,9 @@ export function DirectorGraphCanvas({
   onCommandEnvelope: (envelope: CompositionGraphCommandEnvelopeDraft) => Promise<void>;
   t: MeetingTranslate;
 }) {
+  void selectedPackTool;
+  void mentionItems;
+  void onCommandEnvelope;
   const { contracts, diagnostics, error: contractsError, loading: contractsLoading, nodeTypes: availableNodeTypes } =
     useCompositionGraphContracts({ apiUrl, workspaceId });
   const nodeTypeById = useMemo(
@@ -284,8 +301,11 @@ export function DirectorGraphCanvas({
   const [operationError, setOperationError] = useState<string | null>(null);
   const [payloadText, setPayloadText] = useState('{}');
   const [payloadError, setPayloadError] = useState<string | null>(null);
-  const [compileStatus, setCompileStatus] = useState<CompositionGraphCompileStatus | 'idle' | 'running'>('idle');
-  const [compileDiagnostics, setCompileDiagnostics] = useState<CompositionGraphDiagnostic[]>([]);
+  const [runStatus, setRunStatus] = useState<CompositionGraphRunStatus | 'idle'>('idle');
+  const [activeRun, setActiveRun] = useState<CompositionGraphRun | null>(null);
+  const [runDiagnostics, setRunDiagnostics] = useState<CompositionGraphDiagnostic[]>([]);
+  const [comfyLaneOptions, setComfyLaneOptions] = useState<CompositionGraphNodeOption[]>([]);
+  const [comfyLaneDiagnostics, setComfyLaneDiagnostics] = useState<CompositionGraphDiagnostic[]>([]);
   const { draft, saveDraft, saveError, saving } = useCompositionGraphDraft({ apiUrl, workspaceId });
 
   const selectedNode = useMemo(
@@ -307,8 +327,76 @@ export function DirectorGraphCanvas({
     }
   }, [selectedNode]);
 
+  React.useEffect(() => {
+    if (!nodeTypeById.has('comfyui_lane_adapter')) {
+      return;
+    }
+    let cancelled = false;
+    fetchCompositionGraphNodeOptions(apiUrl, workspaceId, 'comfyui_lane_adapter', 'workflow_ref')
+      .then((response) => {
+        if (cancelled) {
+          return;
+        }
+        setComfyLaneOptions(response.options || []);
+        setComfyLaneDiagnostics(response.diagnostics || []);
+      })
+      .catch((cause) => {
+        if (cancelled) {
+          return;
+        }
+        setComfyLaneOptions([]);
+        setComfyLaneDiagnostics([
+          {
+            code: 'comfyui_ready_lane_not_found',
+            message: cause instanceof Error ? cause.message : 'No ready ComfyUI workflow lane is available.',
+            severity: 'error',
+          },
+        ]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [apiUrl, workspaceId, nodeTypeById]);
+
+  React.useEffect(() => {
+    setNodes((current) => toFlowNodes(toGraphNodes(current), nodeTypeById, activeRun));
+  }, [activeRun, nodeTypeById]);
+
+  React.useEffect(() => {
+    if (
+      !selectedObjectRef ||
+      selectedObjectRef.owner_pack !== 'ig' ||
+      selectedObjectRef.object_kind !== 'discovery_target'
+    ) {
+      return;
+    }
+    const graphNodes = toGraphNodes(nodes);
+    if (graphNodes.some((node) => node.type === 'object_reference' && (node.payload.ref as AddressableObjectRef | undefined)?.uri === selectedObjectRef.uri)) {
+      return;
+    }
+    const nodeType = nodeTypeById.get('object_reference');
+    if (!nodeType) {
+      return;
+    }
+    const nextNode: CompositionGraphNode = {
+      id: `object_reference_${Date.now().toString(36)}_${graphNodes.length + 1}`,
+      type: 'object_reference',
+      position: { x: 80, y: 120 + graphNodes.length * 28 },
+      payload: {
+        ref: {
+          ...selectedObjectRef,
+          workspace_id: selectedObjectRef.workspace_id || workspaceId,
+        },
+      },
+      capability_code: null,
+      metadata: { pasted_from: 'discovery_targets' },
+    };
+    applySnapshot({ nodes: [nextNode, ...graphNodes], edges: toGraphEdges(edges) });
+    setSelectedNodeId(nextNode.id);
+  }, [selectedObjectRef?.uri, selectedObjectRef, workspaceId, nodeTypeById, nodes, edges]);
+
   function applySnapshot(snapshot: { nodes: CompositionGraphNode[]; edges: CompositionGraphEdge[] }, pushHistory = true) {
-    const nextNodes = toFlowNodes(snapshot.nodes, nodeTypeById);
+    const nextNodes = toFlowNodes(snapshot.nodes, nodeTypeById, activeRun);
     const nextEdges = toFlowEdges(snapshot.edges);
     setNodes(nextNodes);
     setEdges(nextEdges);
@@ -431,45 +519,45 @@ export function DirectorGraphCanvas({
     });
   }
 
-  async function handleCompile() {
+  async function handleRun() {
     if (!meetingId) {
       return;
     }
-    setCompileStatus('running');
-    setCompileDiagnostics([]);
+    setRunStatus('running');
+    setRunDiagnostics([]);
     try {
-      const meetingMentionRefs = extractMentionReferences(command, mentionItems);
-      const objectActionEntries = buildObjectActionPlanEntries(selectedObjectRef, meetingMentionRefs);
-      const response = await compileCompositionGraph(apiUrl, workspaceId, {
+      const response = await runCompositionGraph(apiUrl, workspaceId, {
         draft_id: draft?.id,
         graph_id: draft?.graph_id || 'composition_graph_inline',
         meeting_id: meetingId,
         thread_id: threadId || meetingId,
         command: command.trim() || t('directorGraphDefaultCommand'),
-        selected_primary_pack: selectedPrimaryPack,
         nodes: toGraphNodes(nodes),
         edges: toGraphEdges(edges),
         viewport: INITIAL_VIEWPORT,
-        meeting_mentions: meetingMentionRefs.map((ref) => ({ ...ref })),
-        context_objects: [],
-        object_action_entries: objectActionEntries.map((entry) => ({
-          role: entry.role,
-          ref: { ...entry.ref },
-        })),
-        selected_pack_tool: selectedPackTool,
-        action_parameters: { source_surface: 'meeting_workbench_director_graph' },
+        metadata: { source_surface: 'meeting_workbench_director_graph' },
       });
-      setCompileStatus(response.status);
-      setCompileDiagnostics(response.diagnostics || []);
-      if (response.status === 'succeeded' && response.command_envelope) {
-        await onCommandEnvelope(response.command_envelope);
+      setActiveRun(response.run);
+      setRunStatus(response.run.status);
+      setRunDiagnostics(response.run.diagnostics || []);
+      let currentRun = response.run;
+      while (currentRun.status === 'pending' || currentRun.status === 'running') {
+        await new Promise((resolve) => window.setTimeout(resolve, 2000));
+        const polled = await fetchCompositionGraphRun(apiUrl, workspaceId, currentRun.id);
+        currentRun = polled.run;
+        setActiveRun(currentRun);
+        setRunStatus(currentRun.status);
+        setRunDiagnostics([
+          ...(currentRun.diagnostics || []),
+          ...Object.values(currentRun.node_states || {}).flatMap((state) => state.diagnostics || []),
+        ]);
       }
     } catch (cause) {
-      setCompileStatus('failed');
-      setCompileDiagnostics([
+      setRunStatus('failed');
+      setRunDiagnostics([
         {
-          code: 'compile_request_failed',
-          message: cause instanceof Error ? cause.message : 'Failed to compile composition graph.',
+          code: 'graph_run_request_failed',
+          message: cause instanceof Error ? cause.message : 'Failed to run composition graph.',
           severity: 'error',
         },
       ]);
@@ -524,6 +612,27 @@ export function DirectorGraphCanvas({
       setPayloadError(cause instanceof Error ? cause.message : 'Invalid JSON payload.');
     }
   }
+
+  const hasComfyLaneNode = nodes.some((node) => node.data.graphNode.type === 'comfyui_lane_adapter');
+  const missingComfyWorkflow = nodes.some((node) => {
+    if (node.data.graphNode.type !== 'comfyui_lane_adapter') {
+      return false;
+    }
+    const workflowRef = node.data.graphNode.payload.workflow_ref;
+    return typeof workflowRef !== 'string' || workflowRef.trim().length === 0;
+  });
+  const runBlockedDiagnostics =
+    hasComfyLaneNode && comfyLaneOptions.length === 0
+      ? comfyLaneDiagnostics
+      : missingComfyWorkflow
+        ? [
+            {
+              code: 'comfyui_ready_lane_not_found',
+              message: t('directorGraphNoReadyComfyLane'),
+              severity: 'error' as const,
+            },
+          ]
+        : [];
 
   const toolbarButtonClass =
     'inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-900 dark:disabled:text-slate-700';
@@ -591,9 +700,9 @@ export function DirectorGraphCanvas({
               <span>{saving ? t('directorGraphSaving') : t('directorGraphSave')}</span>
             </button>
             <DirectorGraphCompileButton
-              disabled={!meetingId || !selectedPrimaryPack}
-              status={compileStatus}
-              onCompile={handleCompile}
+              disabled={!meetingId || runBlockedDiagnostics.length > 0}
+              status={runStatus}
+              onCompile={handleRun}
               t={t}
             />
           </div>
@@ -653,9 +762,9 @@ export function DirectorGraphCanvas({
           onInvalidImport={setImportError}
           t={t}
         />
-        {operationError || saveError || compileDiagnostics.length > 0 ? (
+        {operationError || saveError || runBlockedDiagnostics.length > 0 || runDiagnostics.length > 0 ? (
           <div className="border-t border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-200" data-testid="director-graph-diagnostics">
-            {operationError || saveError || diagnosticText(compileDiagnostics)}
+            {operationError || saveError || diagnosticText(runBlockedDiagnostics) || diagnosticText(runDiagnostics)}
           </div>
         ) : null}
       </div>
@@ -664,8 +773,18 @@ export function DirectorGraphCanvas({
         nodeType={selectedNodeType}
         payloadText={payloadText}
         error={payloadError}
+        comfyLaneOptions={comfyLaneOptions}
         onPayloadTextChange={setPayloadText}
         onApplyPayload={handleApplyPayload}
+        onPatchPayload={(patch) => {
+          if (!selectedNodeId) {
+            return;
+          }
+          const graphNodes = toGraphNodes(nodes).map((node) =>
+            node.id === selectedNodeId ? { ...node, payload: { ...node.payload, ...patch } } : node,
+          );
+          applySnapshot({ nodes: graphNodes, edges: toGraphEdges(edges) });
+        }}
         t={t}
       />
     </section>

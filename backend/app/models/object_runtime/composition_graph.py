@@ -11,6 +11,22 @@ from backend.app.models.object_runtime.meeting import ObjectRoleEntry
 CompositionGraphPortDirection = Literal["input", "output"]
 CompositionGraphDiagnosticSeverity = Literal["error", "warning", "info"]
 CompositionGraphCompileStatus = Literal["succeeded", "failed"]
+CompositionGraphRunStatus = Literal[
+    "pending",
+    "running",
+    "waiting",
+    "succeeded",
+    "failed",
+    "canceled",
+]
+CompositionGraphRunNodeStatus = Literal[
+    "pending",
+    "running",
+    "waiting",
+    "succeeded",
+    "failed",
+    "skipped",
+]
 
 
 class CompositionGraphViewport(BaseModel):
@@ -85,6 +101,78 @@ class CompositionGraphCompileTarget(BaseModel):
     output_mode: Literal["meeting_command_envelope"] = "meeting_command_envelope"
 
 
+class CompositionGraphNodeExecutorTarget(BaseModel):
+    """Pack-owned callable used for executable composition graph nodes."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    backend: str = Field(min_length=1)
+
+
+class CompositionGraphNodeOptionSource(BaseModel):
+    """Pack-owned callable used for server-side node option resolution."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    backend: str = Field(min_length=1)
+
+
+class CompositionGraphNodeRuntimeLock(BaseModel):
+    """In-process concurrency lock declared by a pack node provider."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    key_template: str = Field(min_length=1)
+    max_parallel: Literal[1] = 1
+
+
+class CompositionGraphNodeProviderNode(CompositionGraphNodeType):
+    """Executable pack node type exposed through composition_graph_nodes."""
+
+    executor: CompositionGraphNodeExecutorTarget
+    option_sources: Dict[str, CompositionGraphNodeOptionSource] = Field(
+        default_factory=dict
+    )
+    runtime_lock: Optional[CompositionGraphNodeRuntimeLock] = None
+
+
+class CompositionGraphNodeProviderContract(BaseModel):
+    """Installed pack executable node provider contract."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    capability_code: str = Field(min_length=1)
+    label: str = Field(min_length=1)
+    enabled: bool = True
+    contract_version: str = Field(min_length=1)
+    nodes: List[CompositionGraphNodeProviderNode] = Field(default_factory=list)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class CompositionGraphNodeOption(BaseModel):
+    """Single server-resolved option for a graph node payload field."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    value: str = Field(min_length=1)
+    label: str = Field(min_length=1)
+    disabled: bool = False
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class CompositionGraphNodeOptionsResponse(BaseModel):
+    """Server-side node option resolution response."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    workspace_id: str
+    node_type: str = Field(min_length=1)
+    field: str = Field(min_length=1)
+    options: List[CompositionGraphNodeOption] = Field(default_factory=list)
+    diagnostics: List["CompositionGraphDiagnostic"] = Field(default_factory=list)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
 class CompositionGraphContract(BaseModel):
     """Installed pack graph contract normalized for the workbench UI."""
 
@@ -97,7 +185,7 @@ class CompositionGraphContract(BaseModel):
     accepted_object_roles: List[str] = Field(default_factory=list)
     node_types: List[CompositionGraphNodeType] = Field(default_factory=list)
     edge_types: List[CompositionGraphEdgeType] = Field(default_factory=list)
-    compile: CompositionGraphCompileTarget
+    compile: Optional[CompositionGraphCompileTarget] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="after")
@@ -305,6 +393,92 @@ class CompositionGraphCompileResponse(BaseModel):
     output_mode: Literal["meeting_command_envelope"] = "meeting_command_envelope"
     diagnostics: List[CompositionGraphDiagnostic] = Field(default_factory=list)
     command_envelope: Optional[CompositionGraphCommandEnvelopeDraft] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class CompositionGraphRunContext(BaseModel):
+    """Context attached to an executable composition graph run."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    meeting_id: Optional[str] = None
+    thread_id: Optional[str] = None
+    command: str = ""
+
+
+class CompositionGraphRunNodeState(BaseModel):
+    """Persisted execution state for one graph node inside a run."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    node_id: str = Field(min_length=1)
+    node_type: str = Field(min_length=1)
+    status: CompositionGraphRunNodeStatus = "pending"
+    started_at: Optional[str] = None
+    completed_at: Optional[str] = None
+    input_values: Dict[str, Any] = Field(default_factory=dict)
+    outputs: Dict[str, Any] = Field(default_factory=dict)
+    diagnostics: List[CompositionGraphDiagnostic] = Field(default_factory=list)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class CompositionGraphRun(BaseModel):
+    """Artifact-backed executable composition graph run."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(min_length=1)
+    graph_id: str = Field(min_length=1)
+    workspace_id: str = Field(min_length=1)
+    status: CompositionGraphRunStatus = "pending"
+    schema_version: str = "composition_graph_run.v1"
+    draft_id: Optional[str] = None
+    meeting_id: Optional[str] = None
+    thread_id: Optional[str] = None
+    command: str = ""
+    nodes: List[CompositionGraphNode] = Field(default_factory=list)
+    edges: List[CompositionGraphEdge] = Field(default_factory=list)
+    node_states: Dict[str, CompositionGraphRunNodeState] = Field(default_factory=dict)
+    diagnostics: List[CompositionGraphDiagnostic] = Field(default_factory=list)
+    outputs: Dict[str, Any] = Field(default_factory=dict)
+    created_at: str = Field(min_length=1)
+    updated_at: str = Field(min_length=1)
+    started_at: Optional[str] = None
+    completed_at: Optional[str] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class CompositionGraphRunRequest(BaseModel):
+    """Start request for an executable composition graph run."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    graph_id: Optional[str] = None
+    draft_id: Optional[str] = None
+    meeting_id: Optional[str] = None
+    thread_id: Optional[str] = None
+    command: str = ""
+    nodes: Optional[List[CompositionGraphNode]] = None
+    edges: Optional[List[CompositionGraphEdge]] = None
+    viewport: Optional[CompositionGraphViewport] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class CompositionGraphRunResponse(BaseModel):
+    """Single graph run response."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    workspace_id: str
+    run: CompositionGraphRun
+
+
+class CompositionGraphRunResumeRequest(BaseModel):
+    """Resume request for a waiting graph run."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    command: Optional[str] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
 

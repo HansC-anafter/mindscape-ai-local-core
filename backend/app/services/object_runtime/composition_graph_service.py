@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import hashlib
+import asyncio
 import json
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence
 
-import yaml
 from fastapi import HTTPException
 from fastapi.encoders import jsonable_encoder
 
@@ -30,8 +30,15 @@ from backend.app.models.object_runtime import (
     CompositionGraphImportRequest,
     CompositionGraphImportResponse,
     CompositionGraphNode,
+    CompositionGraphNodeOption,
+    CompositionGraphNodeOptionsResponse,
     CompositionGraphNodeType,
     CompositionGraphPort,
+    CompositionGraphRun,
+    CompositionGraphRunNodeState,
+    CompositionGraphRunRequest,
+    CompositionGraphRunResponse,
+    CompositionGraphRunResumeRequest,
     CompositionGraphViewport,
 )
 from backend.app.models.object_runtime.refs import ObjectRef
@@ -42,6 +49,25 @@ from backend.app.services.object_runtime.composition_graph_io import (
 )
 from backend.app.services.object_runtime.composition_graph_migrations import (
     upgrade_composition_graph_content,
+)
+from backend.app.services.object_runtime.composition_graph_node_registry import (
+    build_provider_node_map,
+    iter_installed_capability_manifests,
+    load_installed_composition_graph_node_providers,
+)
+from backend.app.services.object_runtime.composition_graph_run_reconciler import (
+    reconcile_interrupted_graph_run,
+)
+from backend.app.services.object_runtime.composition_graph_run_store import (
+    CompositionGraphRunStore,
+    utc_iso,
+)
+from backend.app.services.object_runtime.composition_graph_runner import (
+    CompositionGraphRunner,
+)
+from backend.app.services.object_runtime.composition_graph_task_registry import (
+    discard_graph_run_task,
+    register_graph_run_task,
 )
 
 COMPOSITION_GRAPH_SCHEMA_VERSION = "composition_graph.v1"
@@ -131,36 +157,24 @@ def load_installed_composition_graph_contracts(
 ) -> tuple[List[CompositionGraphContract], List[CompositionGraphDiagnostic]]:
     """Load composition graph contracts from installed capability manifests."""
 
-    root = capabilities_dir or _resolve_capabilities_dir(local_core_root)
-    installed = set(installed_pack_ids) if installed_pack_ids is not None else None
     contracts: List[CompositionGraphContract] = []
     diagnostics: List[CompositionGraphDiagnostic] = []
-    if not root.is_dir():
+    try:
+        records = iter_installed_capability_manifests(
+            local_core_root=local_core_root,
+            installed_pack_ids=installed_pack_ids,
+            capabilities_dir=capabilities_dir,
+        )
+    except Exception as exc:
+        diagnostics.append(
+            _diagnostic(
+                "manifest_read_failed",
+                f"Failed to read composition graph manifest: {exc}",
+            )
+        )
         return contracts, diagnostics
 
-    for cap_dir in sorted(root.iterdir(), key=lambda path: path.name):
-        if not cap_dir.is_dir() or cap_dir.name.startswith((".", "_")):
-            continue
-        manifest_path = cap_dir / "manifest.yaml"
-        if not manifest_path.exists():
-            continue
-        try:
-            with manifest_path.open("r", encoding="utf-8") as handle:
-                manifest = yaml.safe_load(handle) or {}
-        except Exception as exc:
-            diagnostics.append(
-                _diagnostic(
-                    "manifest_read_failed",
-                    f"Failed to read composition graph manifest: {exc}",
-                    metadata={"manifest_path": str(manifest_path)},
-                )
-            )
-            continue
-
-        capability_code = str(manifest.get("code") or cap_dir.name).strip()
-        pack_id = str(manifest.get("id") or capability_code).strip()
-        if installed is not None and capability_code not in installed and pack_id not in installed:
-            continue
+    for capability_code, _pack_id, manifest_path, manifest in records:
 
         raw_contract = manifest.get("composition_graph")
         if not isinstance(raw_contract, dict) or raw_contract.get("enabled") is not True:
@@ -231,6 +245,46 @@ class CompositionGraphService:
             installed_pack_ids=self.installed_pack_ids,
             capabilities_dir=self.capabilities_dir,
         )
+        providers, provider_diagnostics = load_installed_composition_graph_node_providers(
+            local_core_root=self.local_core_root,
+            installed_pack_ids=self.installed_pack_ids,
+            capabilities_dir=self.capabilities_dir,
+        )
+        diagnostics.extend(provider_diagnostics)
+        contract_by_code = {contract.capability_code: contract for contract in contracts}
+        for provider in providers:
+            existing = contract_by_code.get(provider.capability_code)
+            provider_node_types = [
+                CompositionGraphNodeType.model_validate(
+                    node.model_dump(
+                        mode="json",
+                        exclude={"executor", "option_sources", "runtime_lock"},
+                    )
+                )
+                for node in provider.nodes
+            ]
+            if existing is not None:
+                existing.node_types.extend(provider_node_types)
+                existing.metadata = {
+                    **existing.metadata,
+                    "composition_graph_nodes_contract_version": provider.contract_version,
+                }
+                continue
+            provider_contract = CompositionGraphContract(
+                capability_code=provider.capability_code,
+                label=provider.label,
+                enabled=True,
+                contract_version=provider.contract_version,
+                node_types=provider_node_types,
+                edge_types=[],
+                compile=None,
+                metadata={
+                    **provider.metadata,
+                    "contract_kind": "composition_graph_nodes",
+                },
+            )
+            contracts.append(provider_contract)
+            contract_by_code[provider.capability_code] = provider_contract
         return CompositionGraphContractsResponse(
             workspace_id=workspace_id,
             contracts=contracts,
@@ -384,7 +438,7 @@ class CompositionGraphService:
         )
         contract_by_code = {contract.capability_code: contract for contract in contracts}
         primary_contract = contract_by_code.get(selected_primary_pack or "")
-        if primary_contract is None:
+        if primary_contract is None or primary_contract.compile is None:
             return CompositionGraphCompileResponse(
                 workspace_id=workspace_id,
                 status="failed",
@@ -443,6 +497,162 @@ class CompositionGraphService:
             result=invocation_result,
         )
 
+    async def start_run(
+        self,
+        workspace_id: str,
+        request: CompositionGraphRunRequest,
+    ) -> CompositionGraphRunResponse:
+        graph_nodes, graph_edges, graph_ref = self._run_graph_payload(workspace_id, request)
+        diagnostics = self.validate_graph(
+            nodes=graph_nodes,
+            edges=graph_edges,
+            selected_primary_pack=None,
+            require_primary=False,
+        )
+        run = self._build_initial_run(
+            workspace_id=workspace_id,
+            request=request,
+            graph_ref=graph_ref,
+            graph_nodes=graph_nodes,
+            graph_edges=graph_edges,
+            diagnostics=diagnostics,
+        )
+        run_store = CompositionGraphRunStore(self.artifacts_store)
+        run_store.create_run(run)
+        if diagnostics:
+            failed_run = run_store.update_run(
+                run.model_copy(
+                    update={
+                        "status": "failed",
+                        "completed_at": utc_iso(),
+                    }
+                )
+            )
+            return CompositionGraphRunResponse(workspace_id=workspace_id, run=failed_run)
+
+        running = run_store.update_run(
+            run.model_copy(
+                update={
+                    "status": "running",
+                    "started_at": utc_iso(),
+                }
+            )
+        )
+        task = asyncio.create_task(self._execute_graph_run(running))
+        register_graph_run_task(running.id, task)
+        task.add_done_callback(lambda _task: discard_graph_run_task(running.id))
+        return CompositionGraphRunResponse(workspace_id=workspace_id, run=running)
+
+    def get_run(
+        self,
+        workspace_id: str,
+        graph_run_id: str,
+    ) -> CompositionGraphRunResponse:
+        run_store = CompositionGraphRunStore(self.artifacts_store)
+        run = run_store.get_run(workspace_id, graph_run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="Composition graph run not found")
+        run = reconcile_interrupted_graph_run(run_store=run_store, run=run)
+        return CompositionGraphRunResponse(workspace_id=workspace_id, run=run)
+
+    async def resume_run(
+        self,
+        workspace_id: str,
+        graph_run_id: str,
+        request: CompositionGraphRunResumeRequest,
+    ) -> CompositionGraphRunResponse:
+        run_store = CompositionGraphRunStore(self.artifacts_store)
+        run = run_store.get_run(workspace_id, graph_run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="Composition graph run not found")
+        if run.status != "waiting":
+            raise HTTPException(
+                status_code=409,
+                detail="Only waiting composition graph runs can be resumed",
+            )
+        next_run = run.model_copy(
+            update={
+                "status": "running",
+                "command": request.command if request.command is not None else run.command,
+                "metadata": {**run.metadata, **request.metadata},
+                "completed_at": None,
+            }
+        )
+        next_run = run_store.update_run(next_run)
+        task = asyncio.create_task(self._execute_graph_run(next_run))
+        register_graph_run_task(next_run.id, task)
+        task.add_done_callback(lambda _task: discard_graph_run_task(next_run.id))
+        return CompositionGraphRunResponse(workspace_id=workspace_id, run=next_run)
+
+    async def resolve_node_options(
+        self,
+        workspace_id: str,
+        *,
+        node_type: str,
+        field: str,
+    ) -> CompositionGraphNodeOptionsResponse:
+        providers, diagnostics = load_installed_composition_graph_node_providers(
+            local_core_root=self.local_core_root,
+            installed_pack_ids=self.installed_pack_ids,
+            capabilities_dir=self.capabilities_dir,
+        )
+        provider_node = build_provider_node_map(providers).get(node_type)
+        if provider_node is None:
+            return CompositionGraphNodeOptionsResponse(
+                workspace_id=workspace_id,
+                node_type=node_type,
+                field=field,
+                diagnostics=diagnostics
+                + [
+                    _diagnostic(
+                        "node_option_source_not_found",
+                        "Node type does not declare a server-side option source.",
+                        metadata={"node_type": node_type, "field": field},
+                    )
+                ],
+            )
+        option_source = provider_node.option_sources.get(field)
+        if option_source is None:
+            return CompositionGraphNodeOptionsResponse(
+                workspace_id=workspace_id,
+                node_type=node_type,
+                field=field,
+                diagnostics=diagnostics
+                + [
+                    _diagnostic(
+                        "node_option_source_not_found",
+                        "Node field does not declare a server-side option source.",
+                        metadata={"node_type": node_type, "field": field},
+                    )
+                ],
+            )
+        try:
+            result = await _invoke_backend_callable(
+                option_source.backend,
+                workspace_id=workspace_id,
+                node_type=node_type,
+                field=field,
+            )
+        except Exception as exc:
+            return CompositionGraphNodeOptionsResponse(
+                workspace_id=workspace_id,
+                node_type=node_type,
+                field=field,
+                diagnostics=[
+                    _diagnostic(
+                        "node_option_source_failed",
+                        f"Node option source failed: {exc}",
+                        metadata={"node_type": node_type, "field": field},
+                    )
+                ],
+            )
+        return self._normalize_node_options_response(
+            workspace_id=workspace_id,
+            node_type=node_type,
+            field=field,
+            result=result,
+        )
+
     def validate_graph(
         self,
         *,
@@ -463,7 +673,16 @@ class CompositionGraphService:
                     "Compile requires selected_primary_pack.",
                 )
             )
-        elif selected_primary_pack and selected_primary_pack not in contract_by_code:
+        elif (
+            selected_primary_pack
+            and (
+                selected_primary_pack not in contract_by_code
+                or (
+                    require_primary
+                    and contract_by_code[selected_primary_pack].compile is None
+                )
+            )
+        ):
             diagnostics.append(
                 _diagnostic(
                     "missing_primary_pack",
@@ -674,6 +893,146 @@ class CompositionGraphService:
             list(request.edges or []),
             request.selected_primary_pack,
             {"graph_id": graph_id, "schema_version": COMPOSITION_GRAPH_SCHEMA_VERSION},
+        )
+
+    def _run_graph_payload(
+        self,
+        workspace_id: str,
+        request: CompositionGraphRunRequest,
+    ) -> tuple[List[CompositionGraphNode], List[CompositionGraphEdge], Dict[str, Any]]:
+        if request.draft_id:
+            draft = self.get_draft(workspace_id, request.draft_id).draft
+            nodes = request.nodes if request.nodes is not None else draft.nodes
+            edges = request.edges if request.edges is not None else draft.edges
+            return (
+                list(nodes),
+                list(edges),
+                {
+                    "draft_id": draft.id,
+                    "graph_id": draft.graph_id,
+                    "schema_version": draft.schema_version,
+                },
+            )
+        graph_id = request.graph_id or f"cg_{uuid.uuid4().hex}"
+        return (
+            list(request.nodes or []),
+            list(request.edges or []),
+            {"graph_id": graph_id, "schema_version": COMPOSITION_GRAPH_SCHEMA_VERSION},
+        )
+
+    def _build_initial_run(
+        self,
+        *,
+        workspace_id: str,
+        request: CompositionGraphRunRequest,
+        graph_ref: Dict[str, Any],
+        graph_nodes: Sequence[CompositionGraphNode],
+        graph_edges: Sequence[CompositionGraphEdge],
+        diagnostics: Sequence[CompositionGraphDiagnostic],
+    ) -> CompositionGraphRun:
+        graph_run_id = f"cg_run_{uuid.uuid4().hex}"
+        now = utc_iso()
+        return CompositionGraphRun(
+            id=graph_run_id,
+            graph_id=str(graph_ref["graph_id"]),
+            draft_id=graph_ref.get("draft_id") or request.draft_id,
+            workspace_id=workspace_id,
+            status="pending",
+            meeting_id=request.meeting_id,
+            thread_id=request.thread_id,
+            command=request.command,
+            nodes=list(graph_nodes),
+            edges=list(graph_edges),
+            node_states={
+                node.id: CompositionGraphRunNodeState(
+                    node_id=node.id,
+                    node_type=node.type,
+                )
+                for node in graph_nodes
+            },
+            diagnostics=list(diagnostics),
+            created_at=now,
+            updated_at=now,
+            metadata={
+                **request.metadata,
+                "composition_graph_ref": graph_ref,
+            },
+        )
+
+    async def _execute_graph_run(self, run: CompositionGraphRun) -> None:
+        providers, diagnostics = load_installed_composition_graph_node_providers(
+            local_core_root=self.local_core_root,
+            installed_pack_ids=self.installed_pack_ids,
+            capabilities_dir=self.capabilities_dir,
+        )
+        run_store = CompositionGraphRunStore(self.artifacts_store)
+        if diagnostics:
+            failed = run.model_copy(
+                update={
+                    "status": "failed",
+                    "completed_at": utc_iso(),
+                    "diagnostics": [*run.diagnostics, *diagnostics],
+                }
+            )
+            run_store.update_run(failed)
+            return
+        runner = CompositionGraphRunner(
+            run_store=run_store,
+            provider_nodes=build_provider_node_map(providers),
+        )
+        await runner.run(run)
+
+    def _normalize_node_options_response(
+        self,
+        *,
+        workspace_id: str,
+        node_type: str,
+        field: str,
+        result: Any,
+    ) -> CompositionGraphNodeOptionsResponse:
+        if isinstance(result, CompositionGraphNodeOptionsResponse):
+            return result
+        if isinstance(result, list):
+            raw_options = result
+            raw_diagnostics: List[Any] = []
+            metadata: Dict[str, Any] = {}
+        elif isinstance(result, dict):
+            raw_options = list(result.get("options") or [])
+            raw_diagnostics = list(result.get("diagnostics") or [])
+            metadata = dict(result.get("metadata") or {})
+        else:
+            return CompositionGraphNodeOptionsResponse(
+                workspace_id=workspace_id,
+                node_type=node_type,
+                field=field,
+                diagnostics=[
+                    _diagnostic(
+                        "invalid_node_option_source_result",
+                        "Node option source must return an object or list.",
+                    )
+                ],
+            )
+        options = [
+            item
+            if isinstance(item, CompositionGraphNodeOption)
+            else CompositionGraphNodeOption.model_validate(item)
+            for item in raw_options
+            if isinstance(item, (dict, CompositionGraphNodeOption))
+        ]
+        diagnostics = [
+            item
+            if isinstance(item, CompositionGraphDiagnostic)
+            else CompositionGraphDiagnostic.model_validate(item)
+            for item in raw_diagnostics
+            if isinstance(item, (dict, CompositionGraphDiagnostic))
+        ]
+        return CompositionGraphNodeOptionsResponse(
+            workspace_id=workspace_id,
+            node_type=node_type,
+            field=field,
+            options=options,
+            diagnostics=diagnostics,
+            metadata=metadata,
         )
 
     def _normalize_compile_result(
