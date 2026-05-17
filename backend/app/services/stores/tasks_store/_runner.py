@@ -11,6 +11,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
 from app.models.workspace import Task, TaskStatus
+from backend.app.services.runner_live_state import RunnerLiveStateStore
 
 from ._base import _utc_now
 
@@ -31,6 +32,45 @@ _CLAIM_CONTEXT_STALE_KEYS = (
     "runner_skip_lock_key",
     "runner_skip_reason",
 )
+
+
+def _parse_heartbeat_datetime(raw_value: Any) -> Optional[datetime]:
+    if isinstance(raw_value, datetime):
+        heartbeat_at = raw_value
+    elif isinstance(raw_value, str) and raw_value:
+        try:
+            heartbeat_at = datetime.fromisoformat(raw_value)
+        except Exception:
+            return None
+    else:
+        return None
+
+    if heartbeat_at.tzinfo is None:
+        heartbeat_at = heartbeat_at.replace(tzinfo=timezone.utc)
+    return heartbeat_at
+
+
+def _effective_runner_heartbeat_at(
+    task: Task,
+    ctx: Dict[str, Any],
+    live_state_store: Optional[RunnerLiveStateStore],
+) -> Optional[datetime]:
+    if live_state_store is not None:
+        try:
+            live_payload = live_state_store.get_task_heartbeat(task.id)
+        except Exception:
+            live_payload = None
+        if isinstance(live_payload, dict):
+            live_heartbeat_at = _parse_heartbeat_datetime(
+                live_payload.get("heartbeat_at")
+            )
+            if live_heartbeat_at is not None:
+                return live_heartbeat_at
+
+    heartbeat_at = _parse_heartbeat_datetime(getattr(task, "heartbeat_at", None))
+    if heartbeat_at is not None:
+        return heartbeat_at
+    return _parse_heartbeat_datetime(ctx.get("heartbeat_at"))
 
 
 def _build_claim_execution_context(
@@ -312,6 +352,10 @@ class TasksStoreRunnerMixin:
         tasks = self.list_tasks_by_workspace(
             workspace_id=None, status=TaskStatus.RUNNING
         )
+        try:
+            live_state_store = RunnerLiveStateStore()
+        except Exception:
+            live_state_store = None
 
         reaped_ids: List[str] = []
         for task in tasks:
@@ -320,15 +364,7 @@ class TasksStoreRunnerMixin:
                 if isinstance(task.execution_context, dict)
                 else {}
             )
-            hb_dt = getattr(task, "heartbeat_at", None)
-            hb_raw = ctx.get("heartbeat_at")
-            if hb_dt is None and hb_raw and isinstance(hb_raw, str):
-                try:
-                    hb_dt = datetime.fromisoformat(hb_raw)
-                    if hb_dt.tzinfo is None:
-                        hb_dt = hb_dt.replace(tzinfo=timezone.utc)
-                except Exception:
-                    hb_dt = None
+            hb_dt = _effective_runner_heartbeat_at(task, ctx, live_state_store)
 
             is_zombie = False
             reason = ""
