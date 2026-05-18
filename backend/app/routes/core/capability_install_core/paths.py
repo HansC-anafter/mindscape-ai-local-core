@@ -10,6 +10,7 @@ from backend.app.core.backend_runtime_mode import (
     is_execution_plane,
     should_allow_implicit_pack_reload,
 )
+from app.services.restart_safety import inspect_restart_blockers
 
 logger = logging.getLogger(__name__)
 OVERWRITE_CONFIRMATION_PHRASE = "OVERWRITE"
