@@ -86,6 +86,21 @@ ui_components:
     assert pack_meta["ui_components"][0]["name"] == "DemoPage"
 
 
+def test_pack_meta_merge_deduplicates_structured_routes():
+    merged = capability_packs._merge_unique_items(
+        [{"module": "demo.routes", "router": "router"}],
+        [
+            {"module": "demo.routes", "router": "router"},
+            {"module": "other.routes", "router": "router"},
+        ],
+    )
+
+    assert merged == [
+        {"module": "demo.routes", "router": "router"},
+        {"module": "other.routes", "router": "router"},
+    ]
+
+
 def test_get_installed_capability_rejects_uninstalled_pack(monkeypatch, tmp_path):
     _reset_pack_yaml_cache()
     manifest_dir = tmp_path / "app" / "capabilities" / "demo_pack"
