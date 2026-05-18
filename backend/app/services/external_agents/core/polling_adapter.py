@@ -17,14 +17,10 @@ class PollingRuntimeAdapter(
     BaseRuntimeAdapter,
 ):
     """
-    Base class for runtimes dispatched via REST Polling + DB persistence.
+    Base class for runtimes dispatched through the polling runtime store.
 
-    Subclasses only need to set RUNTIME_NAME (and optionally override timeouts).
-    All dispatch lifecycle logic is handled here:
-      1. Persist task to DB (source of truth)
-      2. Enqueue for runner pickup
-      3. Wait for result via asyncio.Future (instant event notification)
-      4. On timeout, check DB for results landed after restart
+    Subclasses provide runtime identity and optional timeout overrides while the
+    mixins provide availability, execution, and response recovery behavior.
 
     Usage:
         class CodexCLIAdapter(PollingRuntimeAdapter):

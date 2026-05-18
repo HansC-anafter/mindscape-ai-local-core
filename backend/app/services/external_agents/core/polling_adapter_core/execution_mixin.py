@@ -44,16 +44,7 @@ class PollingExecutionMixin:
         request: RuntimeExecRequest,
         execution_id: str,
     ) -> RuntimeExecResponse:
-        """
-        Queue task for REST Polling pickup by runner, then wait for result.
-
-        Flow:
-          1. Build dispatch payload
-          2. Persist task to DB (source of truth)
-          3. Register in-memory inflight (Future for notification)
-          4. Enqueue for runner pickup
-          5. Wait for submit_result to resolve Future (or timeout → check DB)
-        """
+        """Queue task for REST polling pickup and wait for the persisted result."""
         from backend.app.routes.agent_websocket import (
             get_agent_dispatch_manager,
             PendingTask,
