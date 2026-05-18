@@ -10,37 +10,8 @@ import { AddRuntimeModal } from './AddRuntimeModal';
 import { showNotification } from '../../hooks/useSettingsNotification';
 import { BaseModal } from '../../../../components/BaseModal';
 import { convertImportPathToContextKey, normalizeCapabilityContextKey } from '../../../../lib/capability-path';
+import { loadRegisteredCapabilityComponentsContext } from '../../../../lib/capability-ui-context-registry';
 import { getApiBaseUrl } from '../../../../lib/api-url';
-// Use require.context to load capability components (webpack feature)
-// Wrapped in try-catch: directory may be empty on fresh installs
-let rawCapabilityComponentsContext: any;
-try {
-  // @ts-ignore - require.context is a webpack feature, not standard TypeScript
-  rawCapabilityComponentsContext = require.context(
-    '../../../capabilities',
-    true,
-    /^(?!.*(?:\/__tests__\/|\.test\.tsx$|\.spec\.tsx$|\.stories\.tsx$|\/\._)).*\.tsx$/,
-    'sync'
-  );
-} catch {
-  // Capabilities directory empty or missing; provide no-op fallback
-  rawCapabilityComponentsContext = Object.assign(
-    (() => ({})) as any,
-    { keys: () => [] as string[], resolve: (k: string) => k, id: '' }
-  );
-}
-const capabilityComponentKeys = new Set<string>(
-  typeof rawCapabilityComponentsContext.keys === 'function'
-    ? rawCapabilityComponentsContext.keys()
-    : []
-);
-const capabilityComponentsContext = ((key: string) => {
-  const normalizedKey = normalizeCapabilityContextKey(key);
-  const resolvedKey = normalizedKey && capabilityComponentKeys.has(normalizedKey)
-    ? normalizedKey
-    : key;
-  return rawCapabilityComponentsContext(resolvedKey);
-}) as typeof rawCapabilityComponentsContext;
 
 interface RuntimeEnvironment {
   id: string;
@@ -79,6 +50,79 @@ type RuntimeSettingsExtensionProps = Record<string, any> & {
   runtimeId?: string;
   runtime?: RuntimeEnvironment;
 };
+
+function EmptyRuntimeSettingsExtension() {
+  return null;
+}
+
+function findRuntimeSettingsContextKey(
+  contextKey: string | null,
+  capabilityCode: string,
+  contextKeys: Set<string>,
+): string | null {
+  const normalizedKey = normalizeCapabilityContextKey(contextKey);
+  if (normalizedKey && contextKeys.has(normalizedKey)) {
+    return normalizedKey;
+  }
+
+  const variants = new Set([
+    capabilityCode,
+    capabilityCode.replace(/-/g, '_'),
+    capabilityCode.replace(/_/g, '-'),
+  ]);
+  for (const variant of variants) {
+    if (!normalizedKey) {
+      continue;
+    }
+    const strippedKey = normalizeCapabilityContextKey(
+      normalizedKey.replace(new RegExp(`^\\./${variant.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/`), './')
+    );
+    if (strippedKey && contextKeys.has(strippedKey)) {
+      return strippedKey;
+    }
+  }
+
+  return null;
+}
+
+export function createRuntimeSettingsExtensionComponent(
+  panel: SettingsPanel
+): React.LazyExoticComponent<React.ComponentType<RuntimeSettingsExtensionProps>> {
+  const rawContextKey = convertImportPathToContextKey(panel.importPath);
+  const contextKey = normalizeCapabilityContextKey(rawContextKey);
+
+  return lazy(async () => {
+    const loaded = await loadRegisteredCapabilityComponentsContext(panel.capabilityCode);
+    if (!loaded) {
+      return { default: EmptyRuntimeSettingsExtension };
+    }
+
+    const contextKeys = new Set(
+      typeof loaded.context.keys === 'function'
+        ? loaded.context.keys()
+        : []
+    );
+    const resolvedKey = findRuntimeSettingsContextKey(
+      contextKey,
+      loaded.capabilityCode,
+      contextKeys,
+    );
+    if (!resolvedKey) {
+      return { default: EmptyRuntimeSettingsExtension };
+    }
+
+    try {
+      const moduleLoader = loaded.context(resolvedKey);
+      const loadedModule = typeof moduleLoader === 'function' ? await moduleLoader() : await moduleLoader;
+      return {
+        default: (loadedModule[panel.export || 'default'] || loadedModule.default || EmptyRuntimeSettingsExtension) as React.ComponentType<RuntimeSettingsExtensionProps>,
+      };
+    } catch (error) {
+      console.error('Failed to load runtime settings component:', panel.componentCode, 'from', resolvedKey, error);
+      return { default: EmptyRuntimeSettingsExtension };
+    }
+  });
+}
 
 const slugifyRuntimeCode = (value: string | null | undefined): string | null => {
   const text = String(value || '').trim().toLowerCase();
@@ -218,29 +262,7 @@ export function RuntimeEnvironmentsSettings() {
     }
   };
 
-  const loadExtensionComponent = (
-    panel: SettingsPanel
-  ): React.LazyExoticComponent<React.ComponentType<RuntimeSettingsExtensionProps>> => {
-    const rawContextKey = convertImportPathToContextKey(panel.importPath);
-    const contextKey = normalizeCapabilityContextKey(rawContextKey);
-
-    return lazy(async () => {
-      if (!contextKey || !capabilityComponentKeys.has(contextKey)) {
-        return { default: (() => null) as React.ComponentType<RuntimeSettingsExtensionProps> };
-      }
-
-      try {
-        const moduleLoader = capabilityComponentsContext(contextKey);
-        const loadedModule = typeof moduleLoader === 'function' ? await moduleLoader() : await moduleLoader;
-        return {
-          default: (loadedModule[panel.export || 'default'] || loadedModule.default) as React.ComponentType<RuntimeSettingsExtensionProps>,
-        };
-      } catch (error) {
-        console.error('Failed to load runtime settings component:', panel.componentCode, 'from', contextKey, error);
-        return { default: (() => null) as React.ComponentType<RuntimeSettingsExtensionProps> };
-      }
-    });
-  };
+  const loadExtensionComponent = createRuntimeSettingsExtensionComponent;
 
   const getRuntimeCodes = () => {
     return runtimes.map(r => r.id);
