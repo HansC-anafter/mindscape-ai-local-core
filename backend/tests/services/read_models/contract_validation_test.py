@@ -17,7 +17,7 @@ def _read_model():
         ],
         "sorts": [
             {
-                "id": "followers_desc",
+                "id": "score_desc",
                 "fields": [
                     {"field": "follower_count", "direction": "desc", "nulls": "last"},
                     {"field": "handle", "direction": "asc"},
@@ -31,7 +31,7 @@ def _read_model():
             {
                 "id": "demo_targets_followers_idx",
                 "columns": ["workspace_id", "follower_count", "handle"],
-                "covers_sort": ["followers_desc"],
+                "covers_sort": ["score_desc"],
             },
         ],
     }
@@ -96,7 +96,7 @@ def test_validate_manifest_read_models_rejects_sort_without_stable_key_tiebreake
     read_model = _read_model()
     read_model["sorts"] = [
         {
-            "id": "followers_desc",
+            "id": "score_desc",
             "fields": [
                 {"field": "follower_count", "direction": "desc", "nulls": "last"},
             ],
