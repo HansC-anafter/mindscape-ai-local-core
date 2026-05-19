@@ -222,6 +222,29 @@ async def test_startup_lock_cleanup_deletes_stale_runner_lock():
 
 
 @pytest.mark.asyncio
+async def test_startup_lock_cleanup_deletes_stale_profile_alias_lock():
+    store = _FakeTasksStore([], [{"runner_id": "browser-runner"}])
+    client = _FakeRedisClient(
+        {
+            "ig_profile:/app/data/ig-browser-profiles/anafter.300_": (
+                "stale-browser-runner:following-task"
+            ),
+        }
+    )
+
+    await _cleanup_stale_locks(
+        _FakeRedisQueueWithClient(client),
+        "browser-runner",
+        store,
+    )
+
+    assert client.deleted == [
+        "ig_profile:/app/data/ig-browser-profiles/anafter.300_"
+    ]
+    assert client.locks == {}
+
+
+@pytest.mark.asyncio
 async def test_single_task_releases_lock_with_task_scoped_owner(monkeypatch):
     task = _task(
         "pin-task",

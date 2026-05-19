@@ -736,7 +736,7 @@ async def _cleanup_stale_locks(
             item.strip()
             for item in os.getenv(
                 "LOCAL_CORE_RUNNER_LOCK_CLEANUP_PATTERNS",
-                "concurrency:*",
+                "concurrency:*,ig_profile:*",
             ).split(",")
             if item.strip()
         ]
