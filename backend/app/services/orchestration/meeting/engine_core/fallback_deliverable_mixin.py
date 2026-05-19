@@ -42,11 +42,15 @@ class MeetingEngineFallbackDeliverableMixin:
             preserved_atomic_items = [
                 item
                 for item in action_items
-                if item.get("landing_status") != "policy_blocked"
-                and bool(item.get("preserve_atomic_playbook"))
+                if self._should_preserve_during_request_contract_fallback(item)
             ]
+            storyboard_deliverable_ids = set(
+                self._collect_storyboard_deliverable_ids(contract)
+            )
             covered_deliverables = set()
             for item in preserved_atomic_items:
+                if self._is_storyboard_action_item(item):
+                    covered_deliverables.update(storyboard_deliverable_ids)
                 handled_ids = item.get("handled_deliverable_ids")
                 if isinstance(handled_ids, list):
                     for raw_deliverable_id in handled_ids:
@@ -259,6 +263,31 @@ class MeetingEngineFallbackDeliverableMixin:
             if any(token in name for token in storyboard_tokens):
                 return True
             return False
+
+        @staticmethod
+        def _should_preserve_during_request_contract_fallback(
+            item: Dict[str, Any],
+        ) -> bool:
+            if item.get("landing_status") == "policy_blocked":
+                return False
+            if bool(item.get("preserve_atomic_playbook")):
+                return True
+            playbook_code = str(item.get("playbook_code") or "").strip()
+            if not playbook_code:
+                return False
+            engine = str(item.get("engine") or "").strip()
+            return not engine or engine == f"playbook:{playbook_code}"
+
+        @staticmethod
+        def _is_storyboard_action_item(item: Dict[str, Any]) -> bool:
+            text = " ".join(
+                str(item.get(field_name) or "")
+                for field_name in ("playbook_code", "engine", "title", "description")
+            ).lower()
+            return any(
+                token in text
+                for token in ("storyboard", "pd_intake", "mms_execute")
+            )
 
         def _collect_storyboard_deliverable_ids(
             self,
