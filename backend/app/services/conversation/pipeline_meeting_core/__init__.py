@@ -1,4 +1,4 @@
-"""Pipeline meeting facade."""
+"""Core helpers for meeting pipeline runtime."""
 
 from backend.app.services.conversation.pipeline_meeting_core.adapters import (
     build_execution_launcher,
@@ -6,11 +6,9 @@ from backend.app.services.conversation.pipeline_meeting_core.adapters import (
     persist_meeting_task_ir,
 )
 from backend.app.services.conversation.pipeline_meeting_core.agenda import (
-    AGENDA_ITEM_MAX_LEN as _AGENDA_ITEM_MAX_LEN,
-    AGENDA_MAX_ITEMS as _AGENDA_MAX_ITEMS,
-    append_agenda_if_needed as _append_agenda_if_needed,
-    decompose_agenda as _decompose_agenda,
-    sanitize_agenda_item as _sanitize_agenda_item,
+    append_agenda_if_needed,
+    decompose_agenda,
+    sanitize_agenda_item,
 )
 from backend.app.services.conversation.pipeline_meeting_core.finalization import (
     finalize_meeting_session,
@@ -23,15 +21,13 @@ from backend.app.services.conversation.pipeline_meeting_core.session_lifecycle i
 )
 
 __all__ = [
-    "_AGENDA_ITEM_MAX_LEN",
-    "_AGENDA_MAX_ITEMS",
-    "_append_agenda_if_needed",
-    "_decompose_agenda",
-    "_sanitize_agenda_item",
+    "append_agenda_if_needed",
     "build_execution_launcher",
+    "decompose_agenda",
     "ensure_meeting_session",
     "extract_handoff_in",
     "finalize_meeting_session",
     "is_project_meeting_enabled",
     "persist_meeting_task_ir",
+    "sanitize_agenda_item",
 ]
