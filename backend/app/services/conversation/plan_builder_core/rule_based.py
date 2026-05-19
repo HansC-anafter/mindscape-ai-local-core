@@ -16,12 +16,18 @@ PLANNING_KEYWORDS = [
     "todo",
     "planning",
     "schedule",
-    "待辦",
-    "任務",
-    "計劃",
+    "\u5f85\u8fa6",
+    "\u4efb\u52d9",
+    "\u8a08\u5283",
 ]
-SUMMARY_KEYWORDS = ["summary", "summarize", "summary of", "摘要", "總結"]
-DRAFT_KEYWORDS = ["draft", "草稿", "寫", "generate", "create"]
+SUMMARY_KEYWORDS = [
+    "summary",
+    "summarize",
+    "summary of",
+    "\u6458\u8981",
+    "\u7e3d\u7d50",
+]
+DRAFT_KEYWORDS = ["draft", "\u8349\u7a3f", "\u5beb", "generate", "create"]
 
 
 def resolve_available_packs(is_pack_available_func) -> List[str]:
