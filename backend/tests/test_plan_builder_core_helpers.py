@@ -158,3 +158,72 @@ def test_plan_builder_facade_delegates_to_extracted_helpers(monkeypatch):
     assert builder.is_pack_available("artifact_pack") is True
     assert builder._get_pack_id_from_playbook_code("article_draft") == "resolved:article_draft"
     assert builder._select_model_for_plan("write", "user-1") == "write:user-1"
+
+
+@pytest.mark.asyncio
+async def test_plan_builder_facade_delegates_llm_plan_generation(monkeypatch):
+    builder = object.__new__(plan_builder_module.PlanBuilder)
+    called = {}
+
+    async def fake_generate_llm_plan(_builder, **kwargs):
+        called["builder"] = _builder
+        called["kwargs"] = kwargs
+        return ["plan"]
+
+    monkeypatch.setattr(
+        plan_builder_module,
+        "generate_llm_plan_helper",
+        fake_generate_llm_plan,
+    )
+
+    result = await builder._generate_llm_plan(
+        message="hello",
+        files=[],
+        workspace_id="workspace",
+        profile_id="profile",
+        available_packs=["content_drafting"],
+        project_id="project",
+        project_assignment_decision={"relation": "same_project"},
+        thread_id="thread",
+    )
+
+    assert result == ["plan"]
+    assert called["builder"] is builder
+    assert called["kwargs"]["available_packs"] == ["content_drafting"]
+    assert called["kwargs"]["thread_id"] == "thread"
+
+
+@pytest.mark.asyncio
+async def test_plan_builder_facade_delegates_execution_plan_generation(monkeypatch):
+    builder = object.__new__(plan_builder_module.PlanBuilder)
+    called = {}
+
+    async def fake_generate_execution_plan(_builder, **kwargs):
+        called["builder"] = _builder
+        called["kwargs"] = kwargs
+        return SimpleNamespace(message_id=kwargs["message_id"])
+
+    monkeypatch.setattr(
+        plan_builder_module,
+        "generate_execution_plan_helper",
+        fake_generate_execution_plan,
+    )
+
+    result = await builder.generate_execution_plan(
+        message="hello",
+        files=["file"],
+        workspace_id="workspace",
+        profile_id="profile",
+        message_id="message",
+        use_llm=False,
+        project_id="project",
+        project_assignment_decision={"relation": "same_project"},
+        effective_playbooks=[{"playbook_code": "content_drafting"}],
+        routing_decision=object(),
+        thread_id="thread",
+    )
+
+    assert result.message_id == "message"
+    assert called["builder"] is builder
+    assert called["kwargs"]["use_llm"] is False
+    assert called["kwargs"]["thread_id"] == "thread"
