@@ -1,7 +1,10 @@
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+import pytest
+
 from backend.app.models.mindscape import IntentStatus, PriorityLevel
+from backend.app.services.conversation import suggestion_action_handler as handler_module
 from backend.app.services.conversation.suggestion_action_handler_core.mindscape_actions import (
     build_empty_action_response,
     create_user_event,
@@ -103,3 +106,56 @@ def test_handle_error_creates_system_event():
     event = store.create_event.call_args.args[0]
     assert event.profile_id == "user_123"
     assert response["workspace_id"] == "ws_123"
+
+
+@pytest.mark.asyncio
+async def test_suggestion_action_handler_facade_delegates_handle_action(monkeypatch):
+    handler = object.__new__(handler_module.SuggestionActionHandler)
+    called = {}
+
+    async def fake_handle_action(_handler, **kwargs):
+        called["handler"] = _handler
+        called["kwargs"] = kwargs
+        return {"workspace_id": kwargs["workspace_id"]}
+
+    monkeypatch.setattr(handler_module, "handle_action_helper", fake_handle_action)
+
+    response = await handler.handle_action(
+        workspace_id="ws_123",
+        profile_id="user_123",
+        action="start_chat",
+        action_params={"suggestion_id": "suggestion_123"},
+    )
+
+    assert response["workspace_id"] == "ws_123"
+    assert called["handler"] is handler
+    assert called["kwargs"]["action"] == "start_chat"
+
+
+@pytest.mark.asyncio
+async def test_suggestion_action_handler_facade_delegates_execute_pack(monkeypatch):
+    handler = object.__new__(handler_module.SuggestionActionHandler)
+    called = {}
+
+    async def fake_execute_pack(_handler, **kwargs):
+        called["handler"] = _handler
+        called["kwargs"] = kwargs
+        return {"workspace_id": kwargs["ctx"].workspace_id}
+
+    monkeypatch.setattr(
+        handler_module,
+        "handle_execute_pack_helper",
+        fake_execute_pack,
+    )
+
+    ctx = SimpleNamespace(workspace_id="ws_123", actor_id="user_123")
+    response = await handler._handle_execute_pack(
+        ctx=ctx,
+        action_params={"pack_id": "daily_planning"},
+        project_id="project_123",
+        message_id="message_123",
+    )
+
+    assert response["workspace_id"] == "ws_123"
+    assert called["handler"] is handler
+    assert called["kwargs"]["project_id"] == "project_123"
