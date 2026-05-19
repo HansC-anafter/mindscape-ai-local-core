@@ -1,46 +1,52 @@
 """
-Workflow Tracker - Lightweight tracking helper for Playbook execution
-
-Based on the "leverage strengths" design:
-- ExecutionSession: Task view model (no separate table)
-- ExecutionStep: MindEvent(PLAYBOOK_STEP) view model (no separate table)
-- ToolCall: Independent table (for efficient querying)
-- StageResult: Independent table (for efficient querying)
-- Agent Collaboration: MindEvent(AGENT_EXECUTION) view model (no separate table)
+Workflow Tracker - Lightweight tracking helper for Playbook execution.
 
 This tracker provides helper methods to create and manage tracking records
-without duplicating the view model logic (which is in workspace.py).
+without duplicating the view model logic.
 """
 
 import logging
-import uuid
-from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
 
-
-def _utc_now():
-    """Return timezone-aware UTC now."""
-    return datetime.now(timezone.utc)
-from typing import Dict, Any, Optional, List
+from backend.app.models.mindscape import EventActor, EventType, MindEvent
+from backend.app.services.conversation.workflow_tracker_core.agent_collaboration import (
+    create_agent_collaboration_event,
+    update_agent_collaboration_event,
+)
+from backend.app.services.conversation.workflow_tracker_core.clock import (
+    utc_now as _utc_now,
+)
+from backend.app.services.conversation.workflow_tracker_core.playbook_steps import (
+    create_playbook_step_event,
+    update_playbook_step_event,
+)
+from backend.app.services.conversation.workflow_tracker_core.stage_results import (
+    create_stage_result,
+)
+from backend.app.services.conversation.workflow_tracker_core.tool_calls import (
+    record_tool_call_complete,
+    record_tool_call_fail,
+    record_tool_call_start,
+)
 from backend.app.services.mindscape_store import MindscapeStore
-from backend.app.models.mindscape import MindEvent, EventType, EventActor
-from backend.app.services.stores.tool_calls_store import ToolCallsStore, ToolCall
-from backend.app.services.stores.stage_results_store import StageResultsStore, StageResult
+from backend.app.services.stores.stage_results_store import (
+    StageResult,
+    StageResultsStore,
+)
+from backend.app.services.stores.tool_calls_store import ToolCall, ToolCallsStore
 
 logger = logging.getLogger(__name__)
 
 
 class WorkflowTracker:
     """
-    WorkflowTracker - Lightweight tracking helper for Playbook execution
+    WorkflowTracker - Lightweight tracking helper for Playbook execution.
 
     Provides helper methods to:
     - Create MindEvent(PLAYBOOK_STEP) records
     - Record ToolCall events
     - Record StageResult events
     - Track Agent Collaborations via MindEvent(AGENT_EXECUTION)
-
-    Note: ExecutionSession and ExecutionStep are view models,
-    built from Task and MindEvent respectively.
     """
 
     def __init__(self, store: MindscapeStore):
@@ -65,81 +71,28 @@ class WorkflowTracker:
         confirmation_prompt: Optional[str] = None,
         workspace_id: Optional[str] = None,
         profile_id: Optional[str] = None,
-        playbook_code: Optional[str] = None
+        playbook_code: Optional[str] = None,
     ) -> MindEvent:
-        """
-        Create a PLAYBOOK_STEP MindEvent
-
-        This event represents a single step in Playbook execution.
-        It will be used to build ExecutionStep view model later.
-
-        Args:
-            execution_id: Execution ID (same as Task.id)
-            step_index: Step index (0-based)
-            step_name: Step name/description
-            status: Step status: pending/running/completed/failed/waiting_confirmation
-            step_type: Step type: agent_action/tool_call/agent_collaboration/user_confirmation
-            agent_type: Agent type (e.g., 'researcher', 'editor')
-            used_tools: List of tools used in this step
-            description: Step description
-            log_summary: Human-readable log summary
-            assigned_agent: Assigned agent name
-            collaborating_agents: List of collaborating agent names
-            requires_confirmation: Whether this step requires user confirmation
-            confirmation_prompt: Confirmation prompt text
-            workspace_id: Workspace ID
-            profile_id: Profile ID
-            playbook_code: Playbook code
-
-        Returns:
-            Created MindEvent
-        """
-        step_event_id = str(uuid.uuid4())
-        now = _utc_now()
-
-        payload = {
-            "execution_id": execution_id,
-            "step_index": step_index,
-            "step_name": step_name,
-            "status": status,
-            "step_type": step_type,
-            "agent_type": agent_type,
-            "used_tools": used_tools or [],
-            "description": description,
-            "log_summary": log_summary,
-            "assigned_agent": assigned_agent,
-            "collaborating_agents": collaborating_agents or [],
-            "requires_confirmation": requires_confirmation,
-            "confirmation_prompt": confirmation_prompt,
-            "confirmation_status": "pending" if requires_confirmation else None,
-            "started_at": now.isoformat() if status in ["running", "completed"] else None,
-            "completed_at": now.isoformat() if status == "completed" else None,
-            "playbook_code": playbook_code
-        }
-
-        event = MindEvent(
-            id=step_event_id,
-            timestamp=now,
-            actor=EventActor.SYSTEM,
-            channel="workspace",
+        """Create a PLAYBOOK_STEP MindEvent."""
+        return create_playbook_step_event(
+            tracker=self,
+            execution_id=execution_id,
+            step_index=step_index,
+            step_name=step_name,
+            status=status,
+            step_type=step_type,
+            agent_type=agent_type,
+            used_tools=used_tools,
+            description=description,
+            log_summary=log_summary,
+            assigned_agent=assigned_agent,
+            collaborating_agents=collaborating_agents,
+            requires_confirmation=requires_confirmation,
+            confirmation_prompt=confirmation_prompt,
             workspace_id=workspace_id,
             profile_id=profile_id,
-            event_type=EventType.PLAYBOOK_STEP,
-            payload=payload,
-            entity_ids=[execution_id] if execution_id else [],
-            metadata={
-                "is_playbook_step": True,
-                "playbook_code": playbook_code
-            }
+            playbook_code=playbook_code,
         )
-
-        try:
-            self.store.create_event(event)
-            logger.debug(f"Created PLAYBOOK_STEP event: {step_event_id} for execution {execution_id}, step {step_index}")
-        except Exception as e:
-            logger.warning(f"Failed to create PLAYBOOK_STEP event: {e}")
-
-        return event
 
     def update_playbook_step_event(
         self,
@@ -147,45 +100,17 @@ class WorkflowTracker:
         status: Optional[str] = None,
         log_summary: Optional[str] = None,
         completed: bool = False,
-        error: Optional[str] = None
+        error: Optional[str] = None,
     ) -> bool:
-        """
-        Update an existing PLAYBOOK_STEP MindEvent
-
-        Args:
-            step_event_id: MindEvent.id (PLAYBOOK_STEP event)
-            status: New status (if provided)
-            log_summary: Updated log summary (if provided)
-            completed: Whether to mark as completed
-            error: Error message if failed
-
-        Returns:
-            True if updated successfully
-        """
-        try:
-            event = self.store.get_event(step_event_id)
-            if not event or event.event_type != EventType.PLAYBOOK_STEP:
-                logger.warning(f"Event {step_event_id} not found or not a PLAYBOOK_STEP event")
-                return False
-
-            payload = event.payload or {}
-            if status:
-                payload["status"] = status
-            if log_summary:
-                payload["log_summary"] = log_summary
-            if error:
-                payload["error"] = error
-                payload["status"] = "failed"
-            if completed:
-                payload["status"] = "completed"
-                payload["completed_at"] = _utc_now().isoformat()
-
-            event.payload = payload
-            self.store.update_event(event)
-            return True
-        except Exception as e:
-            logger.warning(f"Failed to update PLAYBOOK_STEP event: {e}")
-            return False
+        """Update an existing PLAYBOOK_STEP MindEvent."""
+        return update_playbook_step_event(
+            tracker=self,
+            step_event_id=step_event_id,
+            status=status,
+            log_summary=log_summary,
+            completed=completed,
+            error=error,
+        )
 
     def record_tool_call_start(
         self,
@@ -193,158 +118,45 @@ class WorkflowTracker:
         step_id: str,
         tool_name: str,
         parameters: Dict[str, Any],
-        factory_cluster: Optional[str] = None
+        factory_cluster: Optional[str] = None,
     ) -> ToolCall:
-        """
-        Record a tool call start
-
-        Args:
-            execution_id: Execution ID
-            step_id: Step ID (MindEvent.id)
-            tool_name: Tool name (e.g., 'canva.create_design')
-            parameters: Tool call parameters
-            factory_cluster: Factory cluster name (e.g., 'local_mcp', or custom cluster identifier)
-
-        Returns:
-            Created ToolCall record
-        """
-        tool_call_id = str(uuid.uuid4())
-        now = _utc_now()
-
-        # Determine factory_cluster if not provided
-        if not factory_cluster:
-            # Try to get default_cluster from task execution_context
-            default_cluster = None
-            try:
-                from backend.app.services.stores.tasks_store import TasksStore
-                tasks_store = TasksStore()
-                task = tasks_store.get_task_by_execution_id(execution_id)
-                if task and task.execution_context:
-                    default_cluster = task.execution_context.get("default_cluster")
-            except Exception as e:
-                logger.debug(f"Failed to get default_cluster from task: {e}")
-
-            if default_cluster:
-                factory_cluster = default_cluster
-            else:
-                # Try to extract connection_id from tool_name (format: {connection_id}.{tool_type}.{tool_name})
-                # and get cluster from tool connection
-                connection_id = None
-                if "." in tool_name:
-                    parts = tool_name.split(".", 1)
-                    if len(parts) >= 1:
-                        potential_connection_id = parts[0]
-                        # Check if this looks like a connection_id (not a capability package name)
-                        if potential_connection_id and not potential_connection_id.startswith(("filesystem_", "sandbox.", "capability.")):
-                            connection_id = potential_connection_id
-
-                if connection_id:
-                    try:
-                        from backend.app.services.tool_registry import ToolRegistryService
-                        registry = ToolRegistryService(db_path=self.store.db_path)
-                        connection = registry.get_connection(connection_id)
-                        if connection and connection.remote_cluster_url:
-                            # Extract cluster name from URL or use a generic identifier
-                            factory_cluster = connection.connection_type or "remote"
-                        elif connection:
-                            # Local connection, use local_mcp
-                            factory_cluster = "local_mcp"
-                        else:
-                            # Fallback: use default from workspace or local_mcp
-                            factory_cluster = default_cluster or "local_mcp"
-                    except Exception as e:
-                        logger.debug(f"Failed to get cluster from connection {connection_id}: {e}")
-                        factory_cluster = default_cluster or "local_mcp"
-                else:
-                    # For built-in tools (filesystem, sandbox, etc.), use local_mcp
-                    if tool_name.startswith(("filesystem_", "sandbox.", "local_")) or "mcp" in tool_name.lower():
-                        factory_cluster = "local_mcp"
-                    else:
-                        # Default fallback
-                        factory_cluster = default_cluster or "local_mcp"
-
-        tool_call = ToolCall(
-            id=tool_call_id,
+        """Record a tool call start."""
+        return record_tool_call_start(
+            tracker=self,
             execution_id=execution_id,
             step_id=step_id,
             tool_name=tool_name,
-            tool_id=None,
             parameters=parameters,
-            response=None,
-            status="pending",
-            error=None,
-            duration_ms=None,
             factory_cluster=factory_cluster,
-            started_at=now,
-            completed_at=None,
-            created_at=now
         )
-
-        try:
-            self.tool_calls_store.create_tool_call(tool_call)
-            logger.debug(f"Created ToolCall record: {tool_call_id} for tool {tool_name}")
-        except Exception as e:
-            logger.warning(f"Failed to create ToolCall record: {e}")
-
-        return tool_call
 
     def record_tool_call_complete(
         self,
         tool_call_id: str,
         response: Dict[str, Any],
-        duration_ms: Optional[int] = None
+        duration_ms: Optional[int] = None,
     ) -> bool:
-        """
-        Mark a tool call as completed
-
-        Args:
-            tool_call_id: ToolCall.id
-            response: Tool response
-            duration_ms: Call duration in milliseconds (optional, will be auto-calculated if not provided)
-
-        Returns:
-            True if updated successfully
-        """
-        try:
-            # duration_ms is auto-calculated by update_tool_call_status based on started_at and completed_at
-            return self.tool_calls_store.update_tool_call_status(
-                tool_call_id=tool_call_id,
-                status="completed",
-                response=response,
-                completed_at=_utc_now()
-            )
-        except Exception as e:
-            logger.warning(f"Failed to update ToolCall: {e}")
-            return False
+        """Mark a tool call as completed."""
+        return record_tool_call_complete(
+            tracker=self,
+            tool_call_id=tool_call_id,
+            response=response,
+            duration_ms=duration_ms,
+        )
 
     def record_tool_call_fail(
         self,
         tool_call_id: str,
         error: str,
-        duration_ms: Optional[int] = None
+        duration_ms: Optional[int] = None,
     ) -> bool:
-        """
-        Mark a tool call as failed
-
-        Args:
-            tool_call_id: ToolCall.id
-            error: Error message
-            duration_ms: Call duration in milliseconds (optional, will be auto-calculated if not provided)
-
-        Returns:
-            True if updated successfully
-        """
-        try:
-            # duration_ms is auto-calculated by update_tool_call_status based on started_at and completed_at
-            return self.tool_calls_store.update_tool_call_status(
-                tool_call_id=tool_call_id,
-                status="failed",
-                error=error,
-                completed_at=_utc_now()
-            )
-        except Exception as e:
-            logger.warning(f"Failed to update ToolCall: {e}")
-            return False
+        """Mark a tool call as failed."""
+        return record_tool_call_fail(
+            tracker=self,
+            tool_call_id=tool_call_id,
+            error=error,
+            duration_ms=duration_ms,
+        )
 
     def create_stage_result(
         self,
@@ -355,28 +167,11 @@ class WorkflowTracker:
         content: Dict[str, Any],
         preview: Optional[str] = None,
         requires_review: bool = False,
-        artifact_id: Optional[str] = None
+        artifact_id: Optional[str] = None,
     ) -> StageResult:
-        """
-        Create a StageResult record for intermediate results
-
-        Args:
-            execution_id: Execution ID
-            step_id: Step ID (MindEvent.id)
-            stage_name: Stage name
-            result_type: Result type: draft/analysis/design/data
-            content: Result content (structured)
-            preview: Human-readable preview text
-            requires_review: Whether this result requires user review
-            artifact_id: Associated artifact ID (if any)
-
-        Returns:
-            Created StageResult record
-        """
-        stage_result_id = str(uuid.uuid4())
-
-        stage_result = StageResult(
-            id=stage_result_id,
+        """Create a StageResult record for intermediate results."""
+        return create_stage_result(
+            tracker=self,
             execution_id=execution_id,
             step_id=step_id,
             stage_name=stage_name,
@@ -384,18 +179,8 @@ class WorkflowTracker:
             content=content,
             preview=preview,
             requires_review=requires_review,
-            review_status="pending" if requires_review else None,
             artifact_id=artifact_id,
-            created_at=_utc_now()
         )
-
-        try:
-            self.stage_results_store.create_stage_result(stage_result)
-            logger.debug(f"Created StageResult: {stage_result_id} for stage {stage_name}")
-        except Exception as e:
-            logger.warning(f"Failed to create StageResult: {e}")
-
-        return stage_result
 
     def create_agent_collaboration_event(
         self,
@@ -406,101 +191,33 @@ class WorkflowTracker:
         collaboration_type: str = "discussion",
         discussion: Optional[List[Dict[str, str]]] = None,
         workspace_id: Optional[str] = None,
-        profile_id: Optional[str] = None
+        profile_id: Optional[str] = None,
     ) -> MindEvent:
-        """
-        Create an AGENT_EXECUTION MindEvent for agent collaboration
-
-        Args:
-            execution_id: Execution ID
-            step_id: Step ID (MindEvent.id)
-            participants: List of participant agent names
-            topic: Collaboration topic
-            collaboration_type: Collaboration type: discussion/review/planning
-            discussion: Discussion messages (optional)
-            workspace_id: Workspace ID
-            profile_id: Profile ID
-
-        Returns:
-            Created MindEvent
-        """
-        collaboration_event_id = str(uuid.uuid4())
-        now = _utc_now()
-
-        payload = {
-            "execution_id": execution_id,
-            "step_id": step_id,
-            "collaboration_type": collaboration_type,
-            "participants": participants,
-            "topic": topic,
-            "discussion": discussion or [],
-            "status": "active",
-            "started_at": now.isoformat()
-        }
-
-        event = MindEvent(
-            id=collaboration_event_id,
-            timestamp=now,
-            actor=EventActor.SYSTEM,
-            channel="workspace",
+        """Create an AGENT_EXECUTION MindEvent for agent collaboration."""
+        return create_agent_collaboration_event(
+            tracker=self,
+            execution_id=execution_id,
+            step_id=step_id,
+            participants=participants,
+            topic=topic,
+            collaboration_type=collaboration_type,
+            discussion=discussion,
             workspace_id=workspace_id,
             profile_id=profile_id,
-            event_type=EventType.AGENT_EXECUTION,
-            payload=payload,
-            entity_ids=[execution_id] if execution_id else [],
-            metadata={
-                "is_agent_collaboration": True,
-                "collaboration_type": collaboration_type
-            }
         )
-
-        try:
-            self.store.create_event(event)
-            logger.debug(f"Created AGENT_EXECUTION event: {collaboration_event_id} for collaboration: {topic}")
-        except Exception as e:
-            logger.warning(f"Failed to create AGENT_EXECUTION event: {e}")
-
-        return event
 
     def update_agent_collaboration_event(
         self,
         collaboration_event_id: str,
         status: str = "completed",
         discussion: Optional[List[Dict[str, str]]] = None,
-        result: Optional[Dict[str, Any]] = None
+        result: Optional[Dict[str, Any]] = None,
     ) -> bool:
-        """
-        Update an AGENT_EXECUTION event (mark as completed, add discussion, etc.)
-
-        Args:
-            collaboration_event_id: MindEvent.id (AGENT_EXECUTION event)
-            status: New status: active/completed/failed
-            discussion: Additional discussion messages
-            result: Collaboration result
-
-        Returns:
-            True if updated successfully
-        """
-        try:
-            event = self.store.get_event(collaboration_event_id)
-            if not event or event.event_type != EventType.AGENT_EXECUTION:
-                logger.warning(f"Event {collaboration_event_id} not found or not an AGENT_EXECUTION event")
-                return False
-
-            payload = event.payload or {}
-            payload["status"] = status
-            if discussion:
-                existing_discussion = payload.get("discussion", [])
-                payload["discussion"] = existing_discussion + discussion
-            if result:
-                payload["result"] = result
-            if status == "completed":
-                payload["completed_at"] = _utc_now().isoformat()
-
-            event.payload = payload
-            self.store.update_event(event)
-            return True
-        except Exception as e:
-            logger.warning(f"Failed to update AGENT_EXECUTION event: {e}")
-            return False
-
+        """Update an AGENT_EXECUTION event."""
+        return update_agent_collaboration_event(
+            tracker=self,
+            collaboration_event_id=collaboration_event_id,
+            status=status,
+            discussion=discussion,
+            result=result,
+        )
