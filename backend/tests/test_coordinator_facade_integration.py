@@ -10,7 +10,7 @@ from datetime import datetime
 
 from backend.app.services.conversation.coordinator_facade import CoordinatorFacade
 from backend.app.models.workspace import ExecutionPlan, TaskPlan, SideEffectLevel
-from backend.app.mindscape.shims.execution_context import ExecutionContext
+from backend.app.core.domain_context import LocalDomainContext
 
 
 @pytest.fixture
@@ -22,7 +22,8 @@ def mock_store(tmp_path):
     workspace.playbook_auto_execution_config = {}
     workspace.execution_mode = "qa"
     workspace.execution_priority = "medium"
-    store.workspaces.get_workspace = Mock(return_value=workspace)
+    workspace.metadata = {}
+    store.workspaces.get_workspace = AsyncMock(return_value=workspace)
     store.create_event = Mock()
     return store
 
@@ -99,17 +100,19 @@ def coordinator_facade(
     mock_playbook_service,
 ):
     """Create CoordinatorFacade instance"""
-    return CoordinatorFacade(
-        store=mock_store,
-        tasks_store=mock_tasks_store,
-        timeline_items_store=mock_timeline_items_store,
-        task_manager=mock_task_manager,
-        plan_builder=mock_plan_builder,
-        playbook_runner=mock_playbook_runner,
-        message_generator=mock_message_generator,
-        default_locale="en",
-        playbook_service=mock_playbook_service,
-    )
+    with patch("backend.app.services.config_store.ConfigStore"):
+        with patch("backend.app.services.playbook_run_executor.PlaybookRunExecutor"):
+            return CoordinatorFacade(
+                store=mock_store,
+                tasks_store=mock_tasks_store,
+                timeline_items_store=mock_timeline_items_store,
+                task_manager=mock_task_manager,
+                plan_builder=mock_plan_builder,
+                playbook_runner=mock_playbook_runner,
+                message_generator=mock_message_generator,
+                default_locale="en",
+                playbook_service=mock_playbook_service,
+            )
 
 
 @pytest.fixture
@@ -131,9 +134,10 @@ def execution_plan():
 @pytest.fixture
 def execution_context():
     """Create sample ExecutionContext"""
-    return ExecutionContext(
+    return LocalDomainContext(
         actor_id="user-123",
-        metadata={"workspace_id": "workspace-123", "tags": {"mode": "local"}},
+        workspace_id="workspace-123",
+        tags={"mode": "local"},
     )
 
 
