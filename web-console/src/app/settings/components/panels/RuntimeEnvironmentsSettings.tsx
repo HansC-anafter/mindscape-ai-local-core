@@ -91,7 +91,7 @@ export function createRuntimeSettingsExtensionComponent(
   const rawContextKey = convertImportPathToContextKey(panel.importPath);
   const contextKey = normalizeCapabilityContextKey(rawContextKey);
 
-  return lazy(async () => {
+  return lazy(async (): Promise<{ default: React.ComponentType<RuntimeSettingsExtensionProps> }> => {
     const loaded = await loadRegisteredCapabilityComponentsContext(panel.capabilityCode);
     if (!loaded) {
       return { default: EmptyRuntimeSettingsExtension };

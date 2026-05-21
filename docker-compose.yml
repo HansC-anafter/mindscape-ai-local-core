@@ -34,6 +34,12 @@ x-runner-environment: &runner-environment
   MINDSCAPE_MODELS_HOST_DIR: ${MINDSCAPE_MODELS_HOST_DIR:-${HOME}/.mindscape/models}
   LAF_HOST_RUNTIME_ROOT: ${LAF_HOST_RUNTIME_ROOT:-~/.mindscape/runtimes/layer_asset_forge}
   LOCAL_CORE_PROJECT_ROOT: ${LOCAL_CORE_PROJECT_ROOT:-${PWD}}
+  LOCAL_CORE_BACKUP_ROOT: ${LOCAL_CORE_BACKUP_ROOT:-}
+  LOCAL_CORE_BACKUP_MIRROR_ROOT: ${LOCAL_CORE_BACKUP_MIRROR_ROOT:-}
+  LOCAL_CORE_BACKUP_RETENTION_LOCAL_COUNT: ${LOCAL_CORE_BACKUP_RETENTION_LOCAL_COUNT:-7}
+  LOCAL_CORE_BACKUP_RETENTION_MIRROR_COUNT: ${LOCAL_CORE_BACKUP_RETENTION_MIRROR_COUNT:-3}
+  LOCAL_CORE_BACKUP_MIN_FREE_GB: ${LOCAL_CORE_BACKUP_MIN_FREE_GB:-20}
+  LOCAL_CORE_BACKUP_REQUIRE_MIRROR: ${LOCAL_CORE_BACKUP_REQUIRE_MIRROR:-false}
   LOCAL_STORAGE_PATH: /root/.mindscape/storage/layer_asset_forge
   TZ: ${TZ:-UTC}
   DB_POOL_SIZE: ${LOCAL_CORE_RUNNER_DB_POOL_SIZE:-4}
@@ -168,6 +174,12 @@ services:
       - MINDSCAPE_MODELS_HOST_DIR=${MINDSCAPE_MODELS_HOST_DIR:-${HOME}/.mindscape/models}
       - LAF_HOST_RUNTIME_ROOT=${LAF_HOST_RUNTIME_ROOT:-~/.mindscape/runtimes/layer_asset_forge}
       - LOCAL_CORE_PROJECT_ROOT=${LOCAL_CORE_PROJECT_ROOT:-${PWD}}
+      - LOCAL_CORE_BACKUP_ROOT=${LOCAL_CORE_BACKUP_ROOT:-}
+      - LOCAL_CORE_BACKUP_MIRROR_ROOT=${LOCAL_CORE_BACKUP_MIRROR_ROOT:-}
+      - LOCAL_CORE_BACKUP_RETENTION_LOCAL_COUNT=${LOCAL_CORE_BACKUP_RETENTION_LOCAL_COUNT:-7}
+      - LOCAL_CORE_BACKUP_RETENTION_MIRROR_COUNT=${LOCAL_CORE_BACKUP_RETENTION_MIRROR_COUNT:-3}
+      - LOCAL_CORE_BACKUP_MIN_FREE_GB=${LOCAL_CORE_BACKUP_MIN_FREE_GB:-20}
+      - LOCAL_CORE_BACKUP_REQUIRE_MIRROR=${LOCAL_CORE_BACKUP_REQUIRE_MIRROR:-false}
       # LLM Intent Extractor
       - ENABLE_LLM_INTENT_EXTRACTOR=${ENABLE_LLM_INTENT_EXTRACTOR:-true}
       # D2: Legacy Cleanup - Disable legacy fallback
@@ -257,6 +269,7 @@ services:
       - MINDSCAPE_BACKEND_ROLE=control
       - MINDSCAPE_BACKEND_RELOAD=true
       - MINDSCAPE_ALLOW_IMPLICIT_PACK_RELOAD=true
+      - MINDSCAPE_RUNTIME_TMPDIR=/app/.tmp
       - MINDSCAPE_CONTROL_PLANE_SKIP_MIGRATIONS=1
       - MINDSCAPE_POST_READY_TOOL_RAG_WARMUP=0
       - MINDSCAPE_POST_READY_RUNTIME_MIGRATIONS=0
@@ -301,6 +314,12 @@ services:
       - MINDSCAPE_MODELS_HOST_DIR=${MINDSCAPE_MODELS_HOST_DIR:-${HOME}/.mindscape/models}
       - LAF_HOST_RUNTIME_ROOT=${LAF_HOST_RUNTIME_ROOT:-~/.mindscape/runtimes/layer_asset_forge}
       - LOCAL_CORE_PROJECT_ROOT=${LOCAL_CORE_PROJECT_ROOT:-${PWD}}
+      - LOCAL_CORE_BACKUP_ROOT=${LOCAL_CORE_BACKUP_ROOT:-}
+      - LOCAL_CORE_BACKUP_MIRROR_ROOT=${LOCAL_CORE_BACKUP_MIRROR_ROOT:-}
+      - LOCAL_CORE_BACKUP_RETENTION_LOCAL_COUNT=${LOCAL_CORE_BACKUP_RETENTION_LOCAL_COUNT:-7}
+      - LOCAL_CORE_BACKUP_RETENTION_MIRROR_COUNT=${LOCAL_CORE_BACKUP_RETENTION_MIRROR_COUNT:-3}
+      - LOCAL_CORE_BACKUP_MIN_FREE_GB=${LOCAL_CORE_BACKUP_MIN_FREE_GB:-20}
+      - LOCAL_CORE_BACKUP_REQUIRE_MIRROR=${LOCAL_CORE_BACKUP_REQUIRE_MIRROR:-false}
       - ENABLE_LLM_INTENT_EXTRACTOR=${ENABLE_LLM_INTENT_EXTRACTOR:-true}
       - PLAYBOOK_DISABLE_LEGACY=${PLAYBOOK_DISABLE_LEGACY:-1}
       - MEETING_DYNAMIC_ROUTING_ENABLED=${MEETING_DYNAMIC_ROUTING_ENABLED:-false}
@@ -375,6 +394,7 @@ services:
       # Total browser-runner task cap. Keep this below the observed OOM threshold;
       # lock-specific concurrency still applies inside this ceiling.
       LOCAL_CORE_RUNNER_MAX_INFLIGHT: ${LOCAL_CORE_RUNNER_BROWSER_MAX_INFLIGHT:-2}
+      LOCAL_CORE_RUNNER_RESERVED_PACK_SLOTS: ${LOCAL_CORE_RUNNER_BROWSER_RESERVED_PACK_SLOTS:-ig_analyze_following=1}
       # Cap concurrent thumbnail browser fallbacks without changing task semantics.
       IG_THUMBNAIL_BROWSER_FALLBACK_MAX_INFLIGHT: ${IG_THUMBNAIL_BROWSER_FALLBACK_MAX_INFLIGHT:-1}
 
@@ -481,7 +501,7 @@ services:
       - -c
       - wal_level=replica
       - -c
-      - archive_mode=on
+      - archive_mode=${LOCAL_CORE_POSTGRES_ARCHIVE_MODE:-off}
       - -c
       - archive_command=test ! -f /var/lib/postgresql/wal_archive/%f && cp %p /var/lib/postgresql/wal_archive/%f
       - -c
@@ -516,7 +536,7 @@ services:
       - TZ=${TZ:-UTC}
     volumes:
       - "${LOCAL_CORE_POSTGRES_HOST_DIR:-./data/postgres}:/var/lib/postgresql/data"
-      - "${LOCAL_CORE_POSTGRES_WAL_ARCHIVE_HOST_DIR:-./data/postgres-wal-archive}:/var/lib/postgresql/wal_archive"
+      - "${LOCAL_CORE_POSTGRES_WAL_ARCHIVE_HOST_DIR:-./data/backups/local-runtime/postgres-wal-archive}:/var/lib/postgresql/wal_archive"
       - ./docker/postgres/init-dual-dbs.sh:/docker-entrypoint-initdb.d/00-init-dual-dbs.sh:ro
     networks:
       - mindscape-network

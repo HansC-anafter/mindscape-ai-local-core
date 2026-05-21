@@ -12,6 +12,7 @@ that delegates to focused sub-modules:
 """
 
 import asyncio
+from collections import Counter
 import logging
 import os
 import socket
@@ -504,6 +505,125 @@ async def _dequeue_preferred_different_playbook(
     return None, None
 
 
+def _parse_reserved_pack_slots(raw_value: Optional[str]) -> dict[str, int]:
+    slots: dict[str, int] = {}
+    for entry in str(raw_value or "").split(","):
+        item = entry.strip()
+        if not item:
+            continue
+        if "=" not in item:
+            logger.warning(
+                "Ignoring invalid LOCAL_CORE_RUNNER_RESERVED_PACK_SLOTS entry=%s",
+                item,
+            )
+            continue
+        pack_id, raw_count = item.split("=", 1)
+        pack_id = pack_id.strip()
+        if not pack_id:
+            continue
+        try:
+            count = int(raw_count.strip())
+        except ValueError:
+            logger.warning(
+                "Ignoring invalid LOCAL_CORE_RUNNER_RESERVED_PACK_SLOTS count entry=%s",
+                item,
+            )
+            continue
+        if count <= 0:
+            continue
+        slots[pack_id] = count
+    return slots
+
+
+def _reserved_pack_deficits(
+    reserved_slots: dict[str, int],
+    active_pack_counts: Counter[str],
+) -> list[str]:
+    return [
+        pack_id
+        for pack_id, reserved_count in reserved_slots.items()
+        if active_pack_counts.get(pack_id, 0) < reserved_count
+    ]
+
+
+async def _dequeue_preferred_pack_candidate(
+    queue_cycle: list[RedisRunnerQueueStore],
+    *,
+    tasks_store: TasksStore,
+    preferred_pack_ids: list[str],
+    runner_profile,
+    visibility_timeout_sec: int,
+    scan_limit: int,
+) -> tuple[Optional[str], Optional[RedisRunnerQueueStore]]:
+    if not queue_cycle or not preferred_pack_ids or scan_limit <= 0:
+        return None, None
+
+    preferred = set(preferred_pack_ids)
+    for queue_store in queue_cycle:
+        client = await queue_store._get_client()
+        if not client:
+            continue
+
+        try:
+            candidate_ids = await client.lrange(
+                queue_store.q_pending,
+                0,
+                max(0, scan_limit - 1),
+            )
+        except Exception as e:
+            logger.warning(
+                "[Worker] Failed to scan ready queue %s for reserved pack slots: %s",
+                queue_store.pack_id,
+                e,
+            )
+            continue
+
+        seen: set[str] = set()
+        for raw_task_id in candidate_ids:
+            task_id = _normalize_task_id(raw_task_id).strip()
+            if not task_id or task_id in seen:
+                continue
+            seen.add(task_id)
+
+            try:
+                t_data = await asyncio.to_thread(tasks_store.get_task, task_id)
+            except Exception as e:
+                if is_database_recovery_error(e):
+                    logger.warning(
+                        "[Worker] Database recovery detected while hydrating reserved pack candidate; deferring claim scan."
+                    )
+                    return None, None
+                logger.warning(
+                    "[Worker] Failed to hydrate reserved pack candidate %s: %s",
+                    task_id,
+                    e,
+                )
+                continue
+
+            if not t_data or t_data.status != TaskStatus.PENDING:
+                continue
+            pack_id = str(t_data.pack_id or "")
+            if pack_id not in preferred:
+                continue
+            if not runner_profile_can_claim_task(runner_profile, t_data):
+                continue
+
+            moved = await queue_store.promote_pending_task_by_id(
+                task_id,
+                visibility_timeout_sec=visibility_timeout_sec,
+            )
+            if moved:
+                logger.info(
+                    "[Worker] Reserved pack slot selected task %s playbook=%s preferred=%s",
+                    task_id,
+                    pack_id,
+                    ",".join(preferred_pack_ids),
+                )
+                return moved, queue_store
+
+    return None, None
+
+
 def _host_route_gate_enabled() -> bool:
     raw = os.getenv("LOCAL_CORE_HOST_RESOURCE_ROUTE_GATE_ENABLED", "true")
     return raw.strip().lower() not in {"0", "false", "no", "off"}
@@ -913,7 +1033,8 @@ async def run_forever() -> None:
 
     logger.info(
         "Local-Core runner started runner_id=%s profile=%s partitions=%s "
-        "resource_classes=%s poll_interval_ms=%s max_inflight=%s poll_batch_limit=%s",
+        "resource_classes=%s poll_interval_ms=%s max_inflight=%s poll_batch_limit=%s "
+        "reserved_pack_slots=%s",
         runner_id,
         runner_profile.profile_code,
         ",".join(runner_profile.accepted_queue_partitions),
@@ -921,6 +1042,7 @@ async def run_forever() -> None:
         poll_interval_ms,
         max_inflight,
         capacity.poll_batch_limit,
+        os.getenv("LOCAL_CORE_RUNNER_RESERVED_PACK_SLOTS", ""),
     )
 
     postgres_heartbeat_enabled = _postgres_runner_heartbeat_enabled()
@@ -963,6 +1085,9 @@ async def run_forever() -> None:
     playbook_fair_scan_limit = _env_int(
         "LOCAL_CORE_RUNNER_PLAYBOOK_FAIR_SCAN_LIMIT",
         128,
+    )
+    reserved_pack_slots = _parse_reserved_pack_slots(
+        os.getenv("LOCAL_CORE_RUNNER_RESERVED_PACK_SLOTS")
     )
     db_recovery_backoff = RunnerDatabaseRecoveryBackoff(
         delay_seconds=_env_int("LOCAL_CORE_RUNNER_DB_RECOVERY_BACKOFF_SECONDS", 30)
@@ -1158,6 +1283,11 @@ async def run_forever() -> None:
             for task in inflight
             if str(getattr(task, "_mindscape_pack_id", "") or "").strip()
         }
+        active_pack_counts = Counter(
+            str(getattr(task, "_mindscape_pack_id", "") or "")
+            for task in inflight
+            if str(getattr(task, "_mindscape_pack_id", "") or "").strip()
+        )
 
         task_id = None
         task_queue = None
@@ -1182,6 +1312,20 @@ async def run_forever() -> None:
                     next_route_drain_gate_log_at = now_loop + 30.0
                 await asyncio.sleep(poll_interval_ms / 1000)
                 continue
+        reserved_pack_ids = _reserved_pack_deficits(
+            reserved_pack_slots,
+            active_pack_counts,
+        )
+        if reserved_pack_ids and playbook_fair_scan_limit > 0:
+            if not task_id or not task_queue:
+                task_id, task_queue = await _dequeue_preferred_pack_candidate(
+                    queue_cycle,
+                    tasks_store=tasks_store,
+                    preferred_pack_ids=reserved_pack_ids,
+                    runner_profile=runner_profile,
+                    visibility_timeout_sec=visibility_timeout_sec,
+                    scan_limit=playbook_fair_scan_limit,
+                )
         if active_pack_ids and playbook_fair_scan_limit > 0:
             if not task_id or not task_queue:
                 task_id, task_queue = await _dequeue_preferred_different_playbook(

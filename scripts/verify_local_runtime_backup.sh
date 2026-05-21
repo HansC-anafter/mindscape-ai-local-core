@@ -5,7 +5,9 @@ usage() {
   cat <<'EOF'
 Usage: scripts/verify_local_runtime_backup.sh <backup-dir>
 
-Verify a backup created by scripts/backup_local_runtime.sh:
+Verify a local runtime backup:
+  - incremental manifests are delegated to verify_local_runtime_incremental_backup.py
+  - legacy manifests created by scripts/backup_local_runtime.sh are checked here
   - manifest is valid JSON
   - every manifest artifact exists, is non-empty, and matches sha256
   - PostgreSQL custom dumps can be listed with pg_restore
@@ -39,6 +41,21 @@ BACKUP_DIR="$1"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 COMPOSE=(docker compose)
 cd "$REPO_ROOT"
+
+MANIFEST_MODE="$(python3 - "$BACKUP_DIR" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+manifest = json.loads((Path(sys.argv[1]) / "manifest.json").read_text(encoding="utf-8"))
+print(manifest.get("mode") or "")
+PY
+)"
+
+if [[ "$MANIFEST_MODE" == "incremental_runtime_backup" ]]; then
+  python3 "$REPO_ROOT/scripts/verify_local_runtime_incremental_backup.py" "$BACKUP_DIR"
+  exit 0
+fi
 
 log "checking manifest artifacts and checksums"
 python3 - "$BACKUP_DIR" <<'PY'

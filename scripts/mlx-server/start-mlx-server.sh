@@ -50,16 +50,16 @@ fi
 # -- Watchdog config --
 # Health check interval in seconds
 WATCHDOG_INTERVAL="${MLX_WATCHDOG_INTERVAL:-60}"
-# Consecutive failures before kill (60s x 10 = 10 min threshold)
-# Inflight state gates long Qwen3.5 12288-token generations; timeout must stay
-# above the backend VLM read timeout so a normal long inference is not killed.
+# Consecutive failures before kill (60s x 10 = 10 min threshold).
+# The hard timeout is the last-resort ceiling for a heartbeating local VLM
+# request; it must allow occasional long analyses to exceed 2400s.
 WATCHDOG_MAX_FAILURES="${MLX_WATCHDOG_MAX_FAILURES:-10}"
 # Health check curl timeout (must be < WATCHDOG_INTERVAL)
 WATCHDOG_CURL_TIMEOUT=5
 # The backend/runner writes this through the Docker bind mount at
 # /app/data/runtime/mlx-watchdog/inflight_request.json.
 WATCHDOG_STATE_FILE="${MLX_WATCHDOG_STATE_FILE:-/Volumes/OWC Ultra 4T/mindscape-ai-local-core-runtime/data/runtime/mlx-watchdog/inflight_request.json}"
-WATCHDOG_INFLIGHT_HARD_TIMEOUT="${MLX_WATCHDOG_INFLIGHT_HARD_TIMEOUT:-2700}"
+WATCHDOG_INFLIGHT_HARD_TIMEOUT="${MLX_WATCHDOG_INFLIGHT_HARD_TIMEOUT:-7200}"
 WATCHDOG_INFLIGHT_HEARTBEAT_TIMEOUT="${MLX_WATCHDOG_INFLIGHT_HEARTBEAT_TIMEOUT:-120}"
 WATCHDOG_STATE_HELPER="$(dirname "$0")/watchdog_state.py"
 mkdir -p "$(dirname "$WATCHDOG_STATE_FILE")" 2>/dev/null || true

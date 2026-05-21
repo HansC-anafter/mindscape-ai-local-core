@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Host-side job wrapper for local runtime backup scripts.
 
-This wrapper is intentionally small: the backup implementation remains in
-backup_local_runtime.sh and verify_local_runtime_backup.sh. The wrapper only
-starts long-running backups in the background and records job state for the UI.
+This wrapper is intentionally small: the backup implementation remains in the
+policy and verification scripts. The wrapper starts long-running backups in the
+background and records job state for the UI.
 """
 
 from __future__ import annotations
@@ -19,12 +19,32 @@ from typing import Any
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-BACKUP_SCRIPT = REPO_ROOT / "scripts" / "backup_local_runtime.sh"
 VERIFY_SCRIPT = REPO_ROOT / "scripts" / "verify_local_runtime_backup.sh"
+POLICY_SCRIPT = REPO_ROOT / "scripts" / "local_runtime_backup_policy.py"
+INCREMENTAL_SCRIPT = REPO_ROOT / "scripts" / "local_runtime_incremental_backup.py"
 os.environ["PATH"] = (
     "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin:"
     + os.environ.get("PATH", "")
 )
+
+
+def load_repo_env() -> None:
+    env_path = REPO_ROOT / ".env"
+    if not env_path.is_file():
+        return
+    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        if not key:
+            continue
+        value = value.strip().strip('"').strip("'")
+        os.environ.setdefault(key, value)
+
+
+load_repo_env()
 
 
 def utc_now() -> str:
@@ -157,20 +177,41 @@ def tail_log(path: str | None, lines: int) -> list[str]:
     return content[-lines:]
 
 
-def build_backup_command(args: argparse.Namespace, backup_root: Path, backup_name: str) -> list[str]:
-    cmd = ["bash", str(BACKUP_SCRIPT), "--output-dir", str(backup_root), "--name", backup_name]
-    if args.include_logs:
-        cmd.append("--include-logs")
-    if args.include_thumbnails:
-        cmd.append("--include-thumbnails")
-    if args.include_e2e_traces:
-        cmd.append("--include-e2e-traces")
+def add_policy_flags(cmd: list[str], args: argparse.Namespace) -> list[str]:
+    if getattr(args, "output_dir", None) and "--output-dir" not in cmd:
+        cmd.extend(["--output-dir", str(args.output_dir)])
+    if getattr(args, "mirror_root", None):
+        cmd.extend(["--mirror-root", str(args.mirror_root)])
+    if getattr(args, "retention_local_count", None) is not None:
+        cmd.extend(["--retention-local-count", str(args.retention_local_count)])
+    if getattr(args, "retention_mirror_count", None) is not None:
+        cmd.extend(["--retention-mirror-count", str(args.retention_mirror_count)])
+    if getattr(args, "min_free_gb", None) is not None:
+        cmd.extend(["--min-free-gb", str(args.min_free_gb)])
+    if getattr(args, "require_mirror", None) is not None:
+        cmd.extend(["--require-mirror", str(args.require_mirror).lower()])
+    if getattr(args, "base_interval_hours", None) is not None:
+        cmd.extend(["--base-interval-hours", str(args.base_interval_hours)])
+    if getattr(args, "mirror_scopes", None):
+        cmd.extend(["--mirror-scopes", str(args.mirror_scopes)])
     return cmd
 
 
+def build_backup_command(args: argparse.Namespace, backup_root: Path, backup_name: str) -> list[str]:
+    return add_policy_flags([
+        "python3",
+        str(POLICY_SCRIPT),
+        "run",
+        "--name",
+        backup_name,
+    ], args)
+
+
 def command_start(args: argparse.Namespace) -> dict[str, Any]:
-    if not BACKUP_SCRIPT.is_file():
-        raise SystemExit(f"Backup script not found: {BACKUP_SCRIPT}")
+    if not POLICY_SCRIPT.is_file():
+        raise SystemExit(f"Backup policy script not found: {POLICY_SCRIPT}")
+    if not INCREMENTAL_SCRIPT.is_file():
+        raise SystemExit(f"Incremental backup script not found: {INCREMENTAL_SCRIPT}")
 
     backup_root = resolve_backup_root(args.output_dir)
     existing = latest_job(backup_root)
@@ -205,13 +246,103 @@ def command_start(args: argparse.Namespace) -> dict[str, Any]:
         "log_path": str(log_path),
         "command": cmd,
         "options": {
-            "include_logs": bool(args.include_logs),
-            "include_thumbnails": bool(args.include_thumbnails),
-            "include_e2e_traces": bool(args.include_e2e_traces),
+            "mode": "incremental_runtime_backup",
+            "mirror_root": str(args.mirror_root or ""),
+            "retention_local_count": args.retention_local_count,
+            "retention_mirror_count": args.retention_mirror_count,
+            "min_free_gb": args.min_free_gb,
+            "require_mirror": args.require_mirror,
+            "base_interval_hours": args.base_interval_hours,
+            "mirror_scopes": args.mirror_scopes,
         },
     }
     write_json(job_path(backup_root, job_id), job)
     return {**job, "log_tail": []}
+
+
+def profile_state_summary(backup_dir: Path) -> dict[str, Any] | None:
+    report_path = backup_dir / "metadata" / "profile-state-report.json"
+    if not report_path.is_file():
+        return None
+    try:
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        return {"valid": False, "error": f"{type(exc).__name__}: {exc}"}
+
+    profiles = report.get("profiles") or []
+    invalid = [item for item in profiles if item and not item.get("valid")]
+    return {
+        "valid": not invalid,
+        "profiles": len(profiles),
+        "invalid_profiles": len(invalid),
+        "invalid": invalid,
+    }
+
+
+def parse_backup_manifest(manifest_path: Path) -> dict[str, Any] | None:
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+    backup_dir = manifest_path.parent
+    artifacts = manifest.get("artifacts") or []
+    components = manifest.get("components") or {}
+    total_bytes = (
+        sum(int(item.get("bytes") or 0) for item in artifacts if isinstance(item, dict))
+        if artifacts
+        else int(manifest.get("total_bytes") or 0)
+    )
+    backup_name = str(manifest.get("backup_name") or backup_dir.name)
+    return {
+        "backup_name": backup_name,
+        "created_at": manifest.get("created_at"),
+        "path": str(backup_dir),
+        "host_backup_dir": str(backup_dir),
+        "schema_version": manifest.get("schema_version"),
+        "mode": manifest.get("mode") or "db_dump_only",
+        "git_commit": manifest.get("git_commit"),
+        "options": manifest.get("options") or {},
+        "artifact_count": len(artifacts) if artifacts else len(components),
+        "total_bytes": total_bytes,
+        "base_backup_id": (components.get("postgres") or {}).get("base_backup_id"),
+        "file_snapshot_id": backup_name if components.get("files") else "",
+        "profile_state": profile_state_summary(backup_dir),
+        "manifest_mtime": manifest_path.stat().st_mtime,
+    }
+
+
+def latest_backup(backup_root: Path) -> dict[str, Any] | None:
+    if not backup_root.is_dir():
+        return None
+    backups: list[dict[str, Any]] = []
+    for manifest_path in backup_root.glob("*/manifest.json"):
+        parsed = parse_backup_manifest(manifest_path)
+        if parsed:
+            backups.append(parsed)
+    if not backups:
+        return None
+
+    def sort_key(item: dict[str, Any]) -> Any:
+        created_at = item.get("created_at")
+        if isinstance(created_at, str):
+            try:
+                return datetime.fromisoformat(created_at.replace("Z", "+00:00")).timestamp()
+            except ValueError:
+                pass
+        return item.get("manifest_mtime") or 0
+
+    latest = max(backups, key=sort_key)
+    latest.pop("manifest_mtime", None)
+    return latest
+
+
+def command_latest_backup(args: argparse.Namespace) -> dict[str, Any]:
+    backup_root = resolve_backup_root(args.output_dir)
+    return {
+        "backup_root": str(backup_root),
+        "latest_backup": latest_backup(backup_root),
+    }
 
 
 def command_status(args: argparse.Namespace) -> dict[str, Any]:
@@ -236,13 +367,10 @@ def command_status(args: argparse.Namespace) -> dict[str, Any]:
 
 def command_dry_run(args: argparse.Namespace) -> dict[str, Any]:
     backup_root = resolve_backup_root(args.output_dir)
-    cmd = ["bash", str(BACKUP_SCRIPT), "--output-dir", str(backup_root), "--dry-run"]
-    if args.include_logs:
-        cmd.append("--include-logs")
-    if args.include_thumbnails:
-        cmd.append("--include-thumbnails")
-    if args.include_e2e_traces:
-        cmd.append("--include-e2e-traces")
+    cmd = add_policy_flags(
+        ["python3", str(POLICY_SCRIPT), "plan", "--output-dir", str(backup_root), "--json"],
+        args,
+    )
 
     result = subprocess.run(
         cmd,
@@ -259,6 +387,82 @@ def command_dry_run(args: argparse.Namespace) -> dict[str, Any]:
         "stdout": result.stdout,
         "stderr": result.stderr,
         "command": cmd,
+    }
+
+
+def command_plan(args: argparse.Namespace) -> dict[str, Any]:
+    backup_root = resolve_backup_root(args.output_dir)
+    cmd = add_policy_flags(
+        ["python3", str(POLICY_SCRIPT), "plan", "--output-dir", str(backup_root), "--json"],
+        args,
+    )
+    result = subprocess.run(
+        cmd,
+        cwd=REPO_ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=120,
+    )
+    payload: dict[str, Any]
+    try:
+        payload = json.loads(result.stdout or "{}")
+    except Exception:
+        payload = {}
+    payload.update(
+        {
+            "success": result.returncode == 0,
+            "returncode": result.returncode,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+            "command": cmd,
+        }
+    )
+    return payload
+
+
+def command_postgres_status(_args: argparse.Namespace) -> dict[str, Any]:
+    archive_mode = run_text(
+        [
+            "docker",
+            "exec",
+            "mindscape-ai-local-core-postgres",
+            "psql",
+            "-U",
+            "mindscape",
+            "-d",
+            "mindscape_core",
+            "-Atc",
+            "show archive_mode",
+        ],
+        timeout=20,
+    ).strip()
+    ready_count = run_text(
+        [
+            "docker",
+            "exec",
+            "mindscape-ai-local-core-postgres",
+            "sh",
+            "-c",
+            "find /var/lib/postgresql/data/pgdata/pg_wal/archive_status -maxdepth 1 -name '*.ready' -type f | wc -l",
+        ],
+        timeout=60,
+    ).strip()
+    wal_kib = run_text(
+        [
+            "docker",
+            "exec",
+            "mindscape-ai-local-core-postgres",
+            "sh",
+            "-c",
+            "du -sk /var/lib/postgresql/data/pgdata/pg_wal | awk '{print $1}'",
+        ],
+        timeout=120,
+    ).strip()
+    return {
+        "archive_mode": archive_mode,
+        "wal_ready_count": int(ready_count or "0"),
+        "wal_bytes": int(wal_kib or "0") * 1024,
     }
 
 
@@ -298,6 +502,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     def add_common(subparser: argparse.ArgumentParser) -> None:
         subparser.add_argument("--output-dir")
+        subparser.add_argument("--mirror-root")
+        subparser.add_argument("--retention-local-count", type=int)
+        subparser.add_argument("--retention-mirror-count", type=int)
+        subparser.add_argument("--min-free-gb", type=float)
+        subparser.add_argument("--require-mirror")
+        subparser.add_argument("--base-interval-hours", type=int)
+        subparser.add_argument("--mirror-scopes")
 
     def add_options(subparser: argparse.ArgumentParser) -> None:
         subparser.add_argument("--include-logs", action="store_true")
@@ -314,9 +525,18 @@ def build_parser() -> argparse.ArgumentParser:
     status.add_argument("--job-id")
     status.add_argument("--log-lines", type=int, default=80)
 
+    latest = subparsers.add_parser("latest-backup")
+    add_common(latest)
+
     dry_run = subparsers.add_parser("dry-run")
     add_common(dry_run)
     add_options(dry_run)
+
+    plan = subparsers.add_parser("plan")
+    add_common(plan)
+
+    postgres_status = subparsers.add_parser("postgres-status")
+    add_common(postgres_status)
 
     verify = subparsers.add_parser("verify")
     add_common(verify)
@@ -335,8 +555,14 @@ def main() -> int:
             payload = command_start(args)
         elif args.command == "status":
             payload = command_status(args)
+        elif args.command == "latest-backup":
+            payload = command_latest_backup(args)
         elif args.command == "dry-run":
             payload = command_dry_run(args)
+        elif args.command == "plan":
+            payload = command_plan(args)
+        elif args.command == "postgres-status":
+            payload = command_postgres_status(args)
         elif args.command == "verify":
             payload = command_verify(args)
         else:

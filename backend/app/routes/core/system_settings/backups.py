@@ -1,9 +1,9 @@
 """
 Local runtime backup settings and controls.
 
-The actual backup logic lives in scripts/backup_local_runtime.sh. These routes
-surface status/configuration to the settings UI and delegate long-running host
-execution to Device Node.
+The actual backup logic lives in host-side policy scripts. These routes surface
+status/configuration to the settings UI and delegate long-running host execution
+to Device Node.
 """
 
 from __future__ import annotations
@@ -26,21 +26,59 @@ from .shared import settings_store
 router = APIRouter()
 
 BACKUP_CATEGORY = "backup"
-KEY_INCLUDE_LOGS = "local_runtime_backup.include_logs"
-KEY_INCLUDE_E2E_TRACES = "local_runtime_backup.include_e2e_traces"
+KEY_BACKUP_ROOT = "local_runtime_backup.backup_root"
+KEY_MIRROR_ROOT = "local_runtime_backup.mirror_root"
+KEY_RETENTION_LOCAL_COUNT = "local_runtime_backup.retention_local_count"
+KEY_RETENTION_MIRROR_COUNT = "local_runtime_backup.retention_mirror_count"
+KEY_MIN_FREE_GB = "local_runtime_backup.min_free_gb"
+KEY_REQUIRE_MIRROR = "local_runtime_backup.require_mirror"
+KEY_BASE_INTERVAL_HOURS = "local_runtime_backup.base_interval_hours"
+KEY_MIRROR_SCOPES = "local_runtime_backup.mirror_scopes"
+
+DEFAULT_MIRROR_SCOPES = ["postgres_chain", "runtime_metadata", "auth_state"]
+AVAILABLE_MIRROR_SCOPES = {
+    "postgres_chain",
+    "runtime_metadata",
+    "auth_state",
+    "blob_storage",
+    "model_cache",
+    "workspace_artifacts",
+}
 
 LOCALHOST_ADDRS = {"127.0.0.1", "localhost", "::1", "unknown", "testclient"}
 DOCKER_LOCAL_PREFIXES = ("172.", "192.168.65.")
 
 
 class LocalRuntimeBackupConfig(BaseModel):
-    include_logs: bool = False
-    include_e2e_traces: bool = False
+    backup_root: str = ""
+    mirror_root: str = ""
+    retention_local_count: int = 7
+    retention_mirror_count: int = 3
+    min_free_gb: float = 20.0
+    require_mirror: bool = False
+    base_interval_hours: int = 168
+    mirror_scopes: List[str] = Field(default_factory=lambda: list(DEFAULT_MIRROR_SCOPES))
 
 
 class LocalRuntimeBackupStatus(BaseModel):
     config: LocalRuntimeBackupConfig
     backup_root: str
+    policy: Dict[str, Any] = Field(default_factory=dict)
+    primary_free_bytes: Optional[int] = None
+    mirror_free_bytes: Optional[int] = None
+    postgres_archive_mode: Optional[str] = None
+    postgres_wal_ready_count: Optional[int] = None
+    postgres_wal_bytes: Optional[int] = None
+    wal_archive_dir: Optional[str] = None
+    wal_segment_count: Optional[int] = None
+    wal_archive_bytes: Optional[int] = None
+    base_backup_id: Optional[str] = None
+    base_backup_created_at: Optional[str] = None
+    base_backup_age_hours: Optional[float] = None
+    base_backup_required: Optional[bool] = None
+    latest_file_snapshot_id: Optional[str] = None
+    can_run: bool = False
+    blocking_reasons: List[str] = Field(default_factory=list)
     script_available: bool
     verify_script_available: bool
     host_project_root: str
@@ -52,8 +90,14 @@ class LocalRuntimeBackupStatus(BaseModel):
 
 
 class BackupJobRequest(BaseModel):
-    include_logs: Optional[bool] = None
-    include_e2e_traces: Optional[bool] = None
+    backup_root: Optional[str] = None
+    mirror_root: Optional[str] = None
+    retention_local_count: Optional[int] = None
+    retention_mirror_count: Optional[int] = None
+    min_free_gb: Optional[float] = None
+    require_mirror: Optional[bool] = None
+    base_interval_hours: Optional[int] = None
+    mirror_scopes: Optional[List[str]] = None
 
 
 class VerifyBackupRequest(BaseModel):
@@ -108,10 +152,96 @@ def _get_bool(key: str, default: bool = False) -> bool:
     return bool(value)
 
 
+def _get_str(key: str, default: str = "") -> str:
+    value = settings_store.get(key, default)
+    if value is None:
+        return default
+    return str(value)
+
+
+def _get_int(key: str, default: int, minimum: int = 1) -> int:
+    value = settings_store.get(key, default)
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = default
+    return max(minimum, parsed)
+
+
+def _get_float(key: str, default: float, minimum: float = 0.0) -> float:
+    value = settings_store.get(key, default)
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        parsed = default
+    return max(minimum, parsed)
+
+
+def _normalize_mirror_scopes(value: Any) -> List[str]:
+    if value is None or value == "":
+        raw_items = DEFAULT_MIRROR_SCOPES
+    elif isinstance(value, list):
+        raw_items = [str(item) for item in value]
+    else:
+        raw_items = [item.strip() for item in str(value).split(",")]
+
+    scopes: List[str] = []
+    for item in raw_items:
+        if item in AVAILABLE_MIRROR_SCOPES and item not in scopes:
+            scopes.append(item)
+    if "postgres_chain" not in scopes:
+        scopes.insert(0, "postgres_chain")
+    return scopes
+
+
+def _get_mirror_scopes() -> List[str]:
+    value = settings_store.get(
+        KEY_MIRROR_SCOPES,
+        os.getenv("LOCAL_CORE_BACKUP_MIRROR_SCOPES", ",".join(DEFAULT_MIRROR_SCOPES)),
+    )
+    return _normalize_mirror_scopes(value)
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.getenv(name, ""))
+    except (TypeError, ValueError):
+        return default
+
+
+def _env_float(name: str, default: float) -> float:
+    try:
+        return float(os.getenv(name, ""))
+    except (TypeError, ValueError):
+        return default
+
+
 def _load_config() -> LocalRuntimeBackupConfig:
     return LocalRuntimeBackupConfig(
-        include_logs=_get_bool(KEY_INCLUDE_LOGS),
-        include_e2e_traces=_get_bool(KEY_INCLUDE_E2E_TRACES),
+        backup_root=_get_str(KEY_BACKUP_ROOT, os.getenv("LOCAL_CORE_BACKUP_ROOT", "")),
+        mirror_root=_get_str(KEY_MIRROR_ROOT, os.getenv("LOCAL_CORE_BACKUP_MIRROR_ROOT", "")),
+        retention_local_count=_get_int(
+            KEY_RETENTION_LOCAL_COUNT,
+            _env_int("LOCAL_CORE_BACKUP_RETENTION_LOCAL_COUNT", 7),
+        ),
+        retention_mirror_count=_get_int(
+            KEY_RETENTION_MIRROR_COUNT,
+            _env_int("LOCAL_CORE_BACKUP_RETENTION_MIRROR_COUNT", 3),
+        ),
+        min_free_gb=_get_float(
+            KEY_MIN_FREE_GB,
+            _env_float("LOCAL_CORE_BACKUP_MIN_FREE_GB", 20.0),
+        ),
+        require_mirror=_get_bool(
+            KEY_REQUIRE_MIRROR,
+            os.getenv("LOCAL_CORE_BACKUP_REQUIRE_MIRROR", "").strip().lower()
+            in {"1", "true", "yes", "on"},
+        ),
+        base_interval_hours=_get_int(
+            KEY_BASE_INTERVAL_HOURS,
+            _env_int("LOCAL_CORE_BACKUP_BASE_INTERVAL_HOURS", 168),
+        ),
+        mirror_scopes=_get_mirror_scopes(),
     )
 
 
@@ -127,12 +257,61 @@ def _save_bool_setting(key: str, value: bool, description: str) -> None:
     )
 
 
+def _save_string_setting(key: str, value: str, description: str) -> None:
+    settings_store.save_setting(
+        SystemSetting(
+            key=key,
+            value=value,
+            value_type=SettingType.STRING,
+            category=BACKUP_CATEGORY,
+            description=description,
+        )
+    )
+
+
+def _save_int_setting(key: str, value: int, description: str) -> None:
+    settings_store.save_setting(
+        SystemSetting(
+            key=key,
+            value=value,
+            value_type=SettingType.INTEGER,
+            category=BACKUP_CATEGORY,
+            description=description,
+        )
+    )
+
+
+def _save_float_setting(key: str, value: float, description: str) -> None:
+    settings_store.save_setting(
+        SystemSetting(
+            key=key,
+            value=value,
+            value_type=SettingType.FLOAT,
+            category=BACKUP_CATEGORY,
+            description=description,
+        )
+    )
+
+
 def _option_flags(config: LocalRuntimeBackupConfig) -> List[str]:
-    flags: List[str] = []
-    if config.include_logs:
-        flags.append("--include-logs")
-    if config.include_e2e_traces:
-        flags.append("--include-e2e-traces")
+    flags: List[str] = [
+        "--retention-local-count",
+        str(config.retention_local_count),
+        "--retention-mirror-count",
+        str(config.retention_mirror_count),
+        "--min-free-gb",
+        str(config.min_free_gb),
+        "--require-mirror",
+        str(config.require_mirror).lower(),
+        "--base-interval-hours",
+        str(config.base_interval_hours),
+        "--mirror-scopes",
+        ",".join(_normalize_mirror_scopes(config.mirror_scopes)),
+    ]
+    if config.backup_root:
+        flags.extend(["--output-dir", config.backup_root])
+    if config.mirror_root:
+        flags.extend(["--mirror-root", config.mirror_root])
     return flags
 
 
@@ -151,8 +330,8 @@ def _build_commands(config: LocalRuntimeBackupConfig, latest_backup: Optional[Di
         }
     flags = _option_flags(config)
     base = f"cd {_command([root])}"
-    create = f"{base} && {_command(['scripts/backup_local_runtime.sh', *flags])}"
-    dry_run = f"{base} && {_command(['scripts/backup_local_runtime.sh', *flags, '--dry-run'])}"
+    create = f"{base} && {_command(['python3', 'scripts/local_runtime_backup_job.py', 'start', *flags])}"
+    dry_run = f"{base} && {_command(['python3', 'scripts/local_runtime_backup_job.py', 'plan', *flags])}"
     verify_target = latest_backup.get("host_backup_dir") if latest_backup else "<backup-dir>"
     verify = f"{base} && {_command(['scripts/verify_local_runtime_backup.sh', str(verify_target)])}"
     return {
@@ -189,7 +368,12 @@ def _parse_backup_manifest(manifest_path: Path) -> Optional[Dict[str, Any]]:
 
     backup_dir = manifest_path.parent
     artifacts = manifest.get("artifacts") or []
-    total_bytes = sum(int(item.get("bytes") or 0) for item in artifacts if isinstance(item, dict))
+    components = manifest.get("components") or {}
+    total_bytes = (
+        sum(int(item.get("bytes") or 0) for item in artifacts if isinstance(item, dict))
+        if artifacts
+        else int(manifest.get("total_bytes") or 0)
+    )
     backup_name = str(manifest.get("backup_name") or backup_dir.name)
     data_host_dir = manifest.get("data_host_dir")
     host_backup_dir = (
@@ -205,10 +389,13 @@ def _parse_backup_manifest(manifest_path: Path) -> Optional[Dict[str, Any]]:
         "path": str(backup_dir),
         "host_backup_dir": host_backup_dir,
         "schema_version": manifest.get("schema_version"),
+        "mode": manifest.get("mode") or "db_dump_only",
         "git_commit": manifest.get("git_commit"),
         "options": manifest.get("options") or {},
-        "artifact_count": len(artifacts),
+        "artifact_count": len(artifacts) if artifacts else len(components),
         "total_bytes": total_bytes,
+        "base_backup_id": (components.get("postgres") or {}).get("base_backup_id"),
+        "file_snapshot_id": backup_name if components.get("files") else "",
         "profile_state": _profile_state_summary(backup_dir),
         "manifest_mtime": manifest_path.stat().st_mtime,
     }
@@ -321,11 +508,27 @@ async def _call_backup_job(args: List[str], timeout_seconds: float = 30.0) -> Di
 def _merge_request_config(request: BackupJobRequest) -> LocalRuntimeBackupConfig:
     config = _load_config()
     return LocalRuntimeBackupConfig(
-        include_logs=config.include_logs if request.include_logs is None else request.include_logs,
-        include_e2e_traces=(
-            config.include_e2e_traces
-            if request.include_e2e_traces is None
-            else request.include_e2e_traces
+        backup_root=config.backup_root if request.backup_root is None else request.backup_root,
+        mirror_root=config.mirror_root if request.mirror_root is None else request.mirror_root,
+        retention_local_count=(
+            config.retention_local_count
+            if request.retention_local_count is None
+            else request.retention_local_count
+        ),
+        retention_mirror_count=(
+            config.retention_mirror_count
+            if request.retention_mirror_count is None
+            else request.retention_mirror_count
+        ),
+        min_free_gb=config.min_free_gb if request.min_free_gb is None else request.min_free_gb,
+        require_mirror=config.require_mirror if request.require_mirror is None else request.require_mirror,
+        base_interval_hours=(
+            config.base_interval_hours
+            if request.base_interval_hours is None
+            else request.base_interval_hours
+        ),
+        mirror_scopes=_normalize_mirror_scopes(
+            config.mirror_scopes if request.mirror_scopes is None else request.mirror_scopes
         ),
     )
 
@@ -342,26 +545,119 @@ async def get_local_runtime_backup_status():
     latest = _latest_backup()
     warnings: List[str] = []
     backup_root = _container_backup_root()
+    backup_root_label = str(Path(config.backup_root).expanduser()) if config.backup_root else str(backup_root)
+    policy: Dict[str, Any] = {
+        "mode": "incremental_runtime_backup",
+        "primary_root": backup_root_label,
+        "mirror_root": config.mirror_root,
+        "retention_local_count": config.retention_local_count,
+        "retention_mirror_count": config.retention_mirror_count,
+        "min_free_gb": config.min_free_gb,
+        "require_mirror": config.require_mirror,
+        "base_interval_hours": config.base_interval_hours,
+        "mirror_scopes": _normalize_mirror_scopes(config.mirror_scopes),
+    }
+    primary_free_bytes: Optional[int] = None
+    mirror_free_bytes: Optional[int] = None
+    postgres_archive_mode: Optional[str] = None
+    postgres_wal_ready_count: Optional[int] = None
+    postgres_wal_bytes: Optional[int] = None
+    wal_archive_dir: Optional[str] = None
+    wal_segment_count: Optional[int] = None
+    wal_archive_bytes: Optional[int] = None
+    base_backup_id: Optional[str] = None
+    base_backup_created_at: Optional[str] = None
+    base_backup_age_hours: Optional[float] = None
+    base_backup_required: Optional[bool] = None
+    latest_file_snapshot_id: Optional[str] = None
+    can_run = False
+    blocking_reasons: List[str] = []
 
-    if not backup_root.exists():
+    if not config.backup_root and not backup_root.exists():
         warnings.append(f"Backup root does not exist yet: {backup_root}")
 
     device_available = await _device_node_available()
     latest_job: Optional[Dict[str, Any]] = None
     if device_available:
         try:
-            job_response = await _call_backup_job(["status"], timeout_seconds=10)
+            plan_response = await _call_backup_job(_job_args("plan", config), timeout_seconds=45)
+            if isinstance(plan_response.get("policy"), dict):
+                policy = plan_response["policy"]
+                backup_root_label = str(policy.get("primary_root") or backup_root_label)
+            primary_free_bytes = plan_response.get("primary_free_bytes")
+            mirror_free_bytes = plan_response.get("mirror_free_bytes")
+            postgres_archive_mode = plan_response.get("postgres_archive_mode")
+            postgres_wal_ready_count = plan_response.get("postgres_wal_ready_count")
+            postgres_wal_bytes = plan_response.get("postgres_wal_bytes")
+            wal_archive_dir = plan_response.get("wal_archive_dir")
+            wal_segment_count = plan_response.get("wal_segment_count")
+            wal_archive_bytes = plan_response.get("wal_archive_bytes")
+            base_backup_id = plan_response.get("base_backup_id")
+            base_backup_created_at = plan_response.get("base_backup_created_at")
+            base_backup_age_hours = plan_response.get("base_backup_age_hours")
+            base_backup_required = plan_response.get("base_backup_required")
+            latest_file_snapshot_id = plan_response.get("latest_file_snapshot_id")
+            can_run = bool(plan_response.get("can_run"))
+            blocking_reasons = [str(item) for item in plan_response.get("blocking_reasons") or []]
+            warnings.extend(str(item) for item in plan_response.get("warnings") or [])
+        except HTTPException as exc:
+            warnings.append(str(exc.detail))
+        try:
+            latest_response = await _call_backup_job(_job_args("latest-backup", config), timeout_seconds=15)
+            latest = latest_response.get("latest_backup") or latest
+        except HTTPException as exc:
+            warnings.append(str(exc.detail))
+        try:
+            job_response = await _call_backup_job(_job_args("status", config), timeout_seconds=15)
             latest_job = job_response.get("job")
             if latest_job:
                 latest_job["log_tail"] = job_response.get("log_tail") or []
         except HTTPException as exc:
             warnings.append(str(exc.detail))
+    else:
+        blocking_reasons.append("device_node_required")
+
+    script_available = all(
+        _script_path(name).is_file()
+        for name in [
+            "local_runtime_backup_job.py",
+            "local_runtime_backup_policy.py",
+            "local_runtime_incremental_backup.py",
+        ]
+    )
+    verify_script_available = all(
+        _script_path(name).is_file()
+        for name in [
+            "verify_local_runtime_backup.sh",
+            "verify_local_runtime_incremental_backup.py",
+        ]
+    )
+    if not script_available:
+        blocking_reasons.append("backup_scripts_unavailable")
+    if not verify_script_available:
+        blocking_reasons.append("backup_verify_scripts_unavailable")
 
     return LocalRuntimeBackupStatus(
         config=config,
-        backup_root=str(backup_root),
-        script_available=_script_path("backup_local_runtime.sh").is_file(),
-        verify_script_available=_script_path("verify_local_runtime_backup.sh").is_file(),
+        backup_root=backup_root_label,
+        policy=policy,
+        primary_free_bytes=primary_free_bytes,
+        mirror_free_bytes=mirror_free_bytes,
+        postgres_archive_mode=postgres_archive_mode,
+        postgres_wal_ready_count=postgres_wal_ready_count,
+        postgres_wal_bytes=postgres_wal_bytes,
+        wal_archive_dir=wal_archive_dir,
+        wal_segment_count=wal_segment_count,
+        wal_archive_bytes=wal_archive_bytes,
+        base_backup_id=base_backup_id,
+        base_backup_created_at=base_backup_created_at,
+        base_backup_age_hours=base_backup_age_hours,
+        base_backup_required=base_backup_required,
+        latest_file_snapshot_id=latest_file_snapshot_id,
+        can_run=can_run and script_available and verify_script_available,
+        blocking_reasons=blocking_reasons,
+        script_available=script_available,
+        verify_script_available=verify_script_available,
         host_project_root=_host_project_root(),
         device_node_available=device_available,
         latest_backup=latest,
@@ -373,11 +669,45 @@ async def get_local_runtime_backup_status():
 
 @router.put("/backups/local-runtime/config", response_model=LocalRuntimeBackupStatus)
 async def update_local_runtime_backup_config(config: LocalRuntimeBackupConfig):
-    _save_bool_setting(KEY_INCLUDE_LOGS, config.include_logs, "Include /app/logs in local runtime backups")
+    _save_string_setting(
+        KEY_BACKUP_ROOT,
+        config.backup_root.strip(),
+        "Host primary root for verified local runtime backups",
+    )
+    _save_string_setting(
+        KEY_MIRROR_ROOT,
+        config.mirror_root.strip(),
+        "Host mirror root for verified local runtime backups",
+    )
+    _save_int_setting(
+        KEY_RETENTION_LOCAL_COUNT,
+        config.retention_local_count,
+        "Number of local runtime backups to retain",
+    )
+    _save_int_setting(
+        KEY_RETENTION_MIRROR_COUNT,
+        config.retention_mirror_count,
+        "Number of mirrored local runtime backups to retain",
+    )
+    _save_float_setting(
+        KEY_MIN_FREE_GB,
+        config.min_free_gb,
+        "Minimum free disk space in GB required before starting a backup",
+    )
     _save_bool_setting(
-        KEY_INCLUDE_E2E_TRACES,
-        config.include_e2e_traces,
-        "Include e2e trace artifacts in local runtime backups",
+        KEY_REQUIRE_MIRROR,
+        config.require_mirror,
+        "Require a writable mirror root before starting a local runtime backup",
+    )
+    _save_int_setting(
+        KEY_BASE_INTERVAL_HOURS,
+        config.base_interval_hours,
+        "Maximum age in hours before creating a new physical base backup",
+    )
+    _save_string_setting(
+        KEY_MIRROR_SCOPES,
+        ",".join(_normalize_mirror_scopes(config.mirror_scopes)),
+        "Comma-separated mirror data scopes for local runtime backup",
     )
     return await get_local_runtime_backup_status()
 
@@ -414,6 +744,7 @@ async def verify_local_runtime_backup(request: Request, body: VerifyBackupReques
         raise HTTPException(status_code=403, detail="Backup controls are restricted to localhost")
 
     args = ["verify"]
+    args.extend(_option_flags(_load_config()))
     if body.backup_dir:
         args.extend(["--backup-dir", body.backup_dir])
     return await _call_backup_job(args, timeout_seconds=1205)

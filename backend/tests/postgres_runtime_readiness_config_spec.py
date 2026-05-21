@@ -28,7 +28,7 @@ def test_postgres_compose_uses_managed_runtime_image():
     assert "dockerfile: docker/postgres/Dockerfile" in compose
     assert "shared_preload_libraries=pg_stat_statements" in compose
     assert "pg_stat_statements.track=all" in compose
-    assert "archive_mode=on" in compose
+    assert "archive_mode=${LOCAL_CORE_POSTGRES_ARCHIVE_MODE:-off}" in compose
     assert "archive_command=test ! -f /var/lib/postgresql/wal_archive/%f" in compose
 
 

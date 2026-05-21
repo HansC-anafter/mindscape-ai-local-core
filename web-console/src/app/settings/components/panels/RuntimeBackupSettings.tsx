@@ -17,8 +17,14 @@ import { settingsApi } from '../../utils/settingsApi';
 import { showNotification } from '../../hooks/useSettingsNotification';
 
 interface BackupConfig {
-  include_logs: boolean;
-  include_e2e_traces: boolean;
+  backup_root: string;
+  mirror_root: string;
+  retention_local_count: number;
+  retention_mirror_count: number;
+  min_free_gb: number;
+  require_mirror: boolean;
+  base_interval_hours: number;
+  mirror_scopes: string[];
 }
 
 interface BackupSummary {
@@ -29,6 +35,9 @@ interface BackupSummary {
   git_commit?: string | null;
   artifact_count: number;
   total_bytes: number;
+  mode?: string;
+  base_backup_id?: string | null;
+  file_snapshot_id?: string | null;
   options?: Record<string, boolean>;
   profile_state?: {
     valid: boolean;
@@ -54,6 +63,33 @@ interface BackupJob {
 interface BackupStatus {
   config: BackupConfig;
   backup_root: string;
+  policy?: {
+    mode?: string;
+    primary_root?: string;
+    mirror_root?: string;
+    retention_local_count?: number;
+    retention_mirror_count?: number;
+    min_free_gb?: number;
+    require_mirror?: boolean;
+    base_interval_hours?: number;
+    mirror_scopes?: string[];
+    wal_archive_root?: string;
+  };
+  primary_free_bytes?: number | null;
+  mirror_free_bytes?: number | null;
+  postgres_archive_mode?: string | null;
+  postgres_wal_ready_count?: number | null;
+  postgres_wal_bytes?: number | null;
+  wal_archive_dir?: string | null;
+  wal_segment_count?: number | null;
+  wal_archive_bytes?: number | null;
+  base_backup_id?: string | null;
+  base_backup_created_at?: string | null;
+  base_backup_age_hours?: number | null;
+  base_backup_required?: boolean | null;
+  latest_file_snapshot_id?: string | null;
+  can_run: boolean;
+  blocking_reasons: string[];
   script_available: boolean;
   verify_script_available: boolean;
   host_project_root: string;
@@ -63,6 +99,15 @@ interface BackupStatus {
   commands: Record<'create' | 'dry_run' | 'verify_latest', string>;
   warnings: string[];
 }
+
+const mirrorScopeOptions = [
+  'postgres_chain',
+  'runtime_metadata',
+  'auth_state',
+  'blob_storage',
+  'model_cache',
+  'workspace_artifacts',
+] as const;
 
 function formatBytes(bytes?: number): string {
   if (!bytes || bytes <= 0) return '0 B';
@@ -98,8 +143,14 @@ function commandOutput(payload: any): string {
 export function RuntimeBackupSettings() {
   const [status, setStatus] = useState<BackupStatus | null>(null);
   const [config, setConfig] = useState<BackupConfig>({
-    include_logs: false,
-    include_e2e_traces: false,
+    backup_root: '',
+    mirror_root: '',
+    retention_local_count: 7,
+    retention_mirror_count: 3,
+    min_free_gb: 20,
+    require_mirror: false,
+    base_interval_hours: 168,
+    mirror_scopes: ['postgres_chain', 'runtime_metadata', 'auth_state'],
   });
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -108,7 +159,12 @@ export function RuntimeBackupSettings() {
 
   const latestJob = status?.latest_job || null;
   const jobRunning = latestJob?.state === 'running';
-  const canRun = Boolean(status?.device_node_available && status?.script_available);
+  const controlsAvailable = Boolean(
+    status?.device_node_available &&
+    status?.script_available &&
+    status?.verify_script_available
+  );
+  const canStart = Boolean(controlsAvailable && status?.can_run);
 
   const loadStatus = async () => {
     try {
@@ -142,8 +198,22 @@ export function RuntimeBackupSettings() {
     return JSON.stringify(status.config) !== JSON.stringify(config);
   }, [status, config]);
 
-  const updateConfig = (key: keyof BackupConfig, value: boolean) => {
+  const updateConfig = (key: keyof BackupConfig, value: BackupConfig[keyof BackupConfig]) => {
     setConfig((current) => ({ ...current, [key]: value }));
+  };
+
+  const toggleMirrorScope = (scope: string, enabled: boolean) => {
+    if (scope === 'postgres_chain') return;
+    setConfig((current) => {
+      const base = new Set(current.mirror_scopes || []);
+      base.add('postgres_chain');
+      if (enabled) {
+        base.add(scope);
+      } else {
+        base.delete(scope);
+      }
+      return { ...current, mirror_scopes: mirrorScopeOptions.filter((item) => base.has(item)) };
+    });
   };
 
   const saveConfig = async () => {
@@ -202,6 +272,15 @@ export function RuntimeBackupSettings() {
 
   const latest = status?.latest_backup || null;
   const profileState = latest?.profile_state;
+  const policy = status?.policy || {};
+  const archiveMode = status?.postgres_archive_mode || '-';
+  const walReadyCount = status?.postgres_wal_ready_count ?? 0;
+  const walBytes = status?.postgres_wal_bytes ?? 0;
+  const blockingReasons = status?.blocking_reasons || [];
+  const displayMode =
+    policy.mode === 'incremental_runtime_backup'
+      ? t('localRuntimeBackupIncrementalMode' as any)
+      : policy.mode || '-';
 
   return (
     <Card className="space-y-6">
@@ -243,16 +322,34 @@ export function RuntimeBackupSettings() {
         <div className="rounded-md border border-default p-3 dark:border-gray-700">
           <div className="flex items-center gap-2 text-sm font-medium text-secondary dark:text-gray-400">
             <HardDrive className="h-4 w-4" />
-            {t('backupRoot' as any)}
+            {t('localRuntimeBackupPrimaryRoot' as any)}
           </div>
           <div className="mt-2 break-all font-mono text-sm text-primary dark:text-gray-100">
-            {status?.backup_root || '-'}
+            {policy.primary_root || config.backup_root || status?.backup_root || '-'}
+          </div>
+          <div className="mt-2 text-xs text-secondary dark:text-gray-400">
+            {t('localRuntimeBackupFree' as any)}: {formatBytes(status?.primary_free_bytes || 0)}
+          </div>
+        </div>
+        <div className="rounded-md border border-default p-3 dark:border-gray-700">
+          <div className="flex items-center gap-2 text-sm font-medium text-secondary dark:text-gray-400">
+            <Database className="h-4 w-4" />
+            {t('localRuntimeBackupIncrementalCard' as any)}
+          </div>
+          <div className="mt-2 text-sm text-primary dark:text-gray-100">
+            {t('localRuntimeBackupMode' as any)}: {displayMode}
+          </div>
+          <div className="mt-2 text-xs text-secondary dark:text-gray-400">
+            {t('localRuntimeBackupWalArchive' as any)}: {archiveMode}; {t('localRuntimeBackupWalReady' as any)}: {walReadyCount}; pg_wal: {formatBytes(walBytes)}
+          </div>
+          <div className="mt-1 text-xs text-secondary dark:text-gray-400">
+            {t('localRuntimeBackupBaseBackup' as any)}: {status?.base_backup_id || '-'}
           </div>
         </div>
         <div className="rounded-md border border-default p-3 dark:border-gray-700">
           <div className="flex items-center gap-2 text-sm font-medium text-secondary dark:text-gray-400">
             <ShieldCheck className="h-4 w-4" />
-            Device Node
+            {t('localRuntimeBackupDeviceNode' as any)}
           </div>
           <div className="mt-2 flex items-center gap-2 text-sm">
             {loadError ? (
@@ -272,47 +369,143 @@ export function RuntimeBackupSettings() {
               </>
             )}
           </div>
-        </div>
-        <div className="rounded-md border border-default p-3 dark:border-gray-700">
-          <div className="flex items-center gap-2 text-sm font-medium text-secondary dark:text-gray-400">
-            <Database className="h-4 w-4" />
-            {t('latestBackup' as any)}
-          </div>
-          <div className="mt-2 text-sm text-primary dark:text-gray-100">
-            {latest ? `${formatBytes(latest.total_bytes)} - ${latest.artifact_count} artifacts` : t('none' as any)}
+          <div className="mt-2 text-xs text-secondary dark:text-gray-400">
+            {t('latestBackup' as any)}: {latest ? `${formatBytes(latest.total_bytes)} - ${latest.artifact_count} ${t('artifacts' as any)}` : t('none' as any)}
           </div>
         </div>
       </div>
 
+      {blockingReasons.length ? (
+        <div className="rounded-md border border-yellow-300 bg-yellow-50 p-3 text-sm text-yellow-900 dark:border-yellow-700 dark:bg-yellow-900/20 dark:text-yellow-200">
+          <div className="flex items-center gap-2 font-medium">
+            <AlertTriangle className="h-4 w-4" />
+            {t('localRuntimeBackupBlockingReasons' as any)}
+          </div>
+          <ul className="mt-2 list-disc pl-5">
+            {blockingReasons.map((reason) => (
+              <li key={reason}>{reason}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
       <section className="space-y-3">
         <h3 className="text-base font-semibold text-primary dark:text-gray-100">
-          {t('backupOptions' as any)}
+          {t('localRuntimeBackupPolicy' as any)}
         </h3>
-        <div className="space-y-3">
-          <label className="flex items-start gap-3 text-sm">
+        <div className="grid gap-3 md:grid-cols-2">
+          <label className="text-sm">
+            <span className="font-medium text-primary dark:text-gray-100">{t('localRuntimeBackupPrimaryRoot' as any)}</span>
+            <span className="block text-secondary dark:text-gray-400">{t('localRuntimeBackupPrimaryRootHelp' as any)}</span>
+            <input
+              type="text"
+              value={config.backup_root}
+              onChange={(event) => updateConfig('backup_root', event.target.value)}
+              className="mt-1 w-full rounded-md border border-default bg-surface-primary px-3 py-2 text-sm text-primary dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+            />
+          </label>
+          <label className="text-sm">
+            <span className="font-medium text-primary dark:text-gray-100">{t('localRuntimeBackupMirrorRoot' as any)}</span>
+            <span className="block text-secondary dark:text-gray-400">{t('localRuntimeBackupMirrorRootHelp' as any)}</span>
+            <input
+              type="text"
+              value={config.mirror_root}
+              onChange={(event) => updateConfig('mirror_root', event.target.value)}
+              className="mt-1 w-full rounded-md border border-default bg-surface-primary px-3 py-2 text-sm text-primary dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+            />
+          </label>
+          <label className="flex items-center gap-3 text-sm">
             <input
               type="checkbox"
-              checked={config.include_logs}
-              onChange={(event) => updateConfig('include_logs', event.target.checked)}
-              className="mt-1"
+              checked={config.require_mirror}
+              onChange={(event) => updateConfig('require_mirror', event.target.checked)}
             />
             <span>
-              <span className="font-medium text-primary dark:text-gray-100">{t('includeLogs' as any)}</span>
-              <span className="block text-secondary dark:text-gray-400">/app/logs</span>
+              <span className="font-medium text-primary dark:text-gray-100">{t('localRuntimeBackupRequireMirror' as any)}</span>
+              <span className="block text-secondary dark:text-gray-400">{t('localRuntimeBackupRequireMirrorHelp' as any)}</span>
             </span>
           </label>
-          <label className="flex items-start gap-3 text-sm">
+          <label className="text-sm">
+            <span className="font-medium text-primary dark:text-gray-100">{t('localRuntimeBackupLocalRetention' as any)}</span>
             <input
-              type="checkbox"
-              checked={config.include_e2e_traces}
-              onChange={(event) => updateConfig('include_e2e_traces', event.target.checked)}
-              className="mt-1"
+              type="number"
+              min={1}
+              value={config.retention_local_count}
+              onChange={(event) => updateConfig('retention_local_count', Number(event.target.value))}
+              className="mt-1 w-full rounded-md border border-default bg-surface-primary px-3 py-2 text-sm text-primary dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
             />
-            <span>
-              <span className="font-medium text-primary dark:text-gray-100">{t('includeE2ETraces' as any)}</span>
-              <span className="block text-secondary dark:text-gray-400">/app/data/e2e-traces</span>
-            </span>
           </label>
+          <label className="text-sm">
+            <span className="font-medium text-primary dark:text-gray-100">{t('localRuntimeBackupMirrorRetention' as any)}</span>
+            <input
+              type="number"
+              min={1}
+              value={config.retention_mirror_count}
+              onChange={(event) => updateConfig('retention_mirror_count', Number(event.target.value))}
+              className="mt-1 w-full rounded-md border border-default bg-surface-primary px-3 py-2 text-sm text-primary dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+            />
+          </label>
+          <label className="text-sm">
+            <span className="font-medium text-primary dark:text-gray-100">{t('localRuntimeBackupMinimumFreeSpace' as any)}</span>
+            <input
+              type="number"
+              min={1}
+              value={config.min_free_gb}
+              onChange={(event) => updateConfig('min_free_gb', Number(event.target.value))}
+              className="mt-1 w-full rounded-md border border-default bg-surface-primary px-3 py-2 text-sm text-primary dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+            />
+          </label>
+          <label className="text-sm">
+            <span className="font-medium text-primary dark:text-gray-100">{t('localRuntimeBackupBaseIntervalHours' as any)}</span>
+            <input
+              type="number"
+              min={1}
+              value={config.base_interval_hours}
+              onChange={(event) => updateConfig('base_interval_hours', Number(event.target.value))}
+              className="mt-1 w-full rounded-md border border-default bg-surface-primary px-3 py-2 text-sm text-primary dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+            />
+          </label>
+          <div className="rounded-md border border-default p-3 text-sm dark:border-gray-700">
+            <div className="font-medium text-primary dark:text-gray-100">{t('localRuntimeBackupMirrorStatus' as any)}</div>
+            <div className="mt-1 break-all text-secondary dark:text-gray-400">
+              {policy.mirror_root || config.mirror_root || '-'}
+            </div>
+            <div className="mt-1 text-secondary dark:text-gray-400">
+              {t('localRuntimeBackupFree' as any)}: {formatBytes(status?.mirror_free_bytes || 0)}
+            </div>
+            <div className="mt-1 text-secondary dark:text-gray-400">
+              {t('localRuntimeBackupMirrorScopes' as any)}: {(config.mirror_scopes || []).join(', ')}
+            </div>
+          </div>
+        </div>
+        <div className="space-y-2 rounded-md border border-default p-3 dark:border-gray-700">
+          <div className="text-sm font-medium text-primary dark:text-gray-100">
+            {t('localRuntimeBackupMirrorScopes' as any)}
+          </div>
+          <div className="text-xs text-secondary dark:text-gray-400">
+            {t('localRuntimeBackupMirrorScopesHelp' as any)}
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {mirrorScopeOptions.map((scope) => (
+              <label key={scope} className="flex items-start gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={(config.mirror_scopes || []).includes(scope) || scope === 'postgres_chain'}
+                  disabled={scope === 'postgres_chain'}
+                  onChange={(event) => toggleMirrorScope(scope, event.target.checked)}
+                  className="mt-1"
+                />
+                <span>
+                  <span className="font-medium text-primary dark:text-gray-100">
+                    {t(`localRuntimeBackupMirrorScope${scope.replace(/(^|_)([a-z])/g, (_match, _sep, char) => char.toUpperCase())}` as any)}
+                  </span>
+                  <span className="block text-secondary dark:text-gray-400">
+                    {t(`localRuntimeBackupMirrorScope${scope.replace(/(^|_)([a-z])/g, (_match, _sep, char) => char.toUpperCase())}Help` as any)}
+                  </span>
+                </span>
+              </label>
+            ))}
+          </div>
         </div>
         <div className="flex flex-wrap gap-2">
           <button
@@ -334,7 +527,7 @@ export function RuntimeBackupSettings() {
           <button
             type="button"
             onClick={() => runAction('dry-run')}
-            disabled={!canRun || busyAction !== null}
+            disabled={!controlsAvailable || busyAction !== null}
             className="inline-flex items-center gap-2 rounded-md border border-default px-4 py-2 text-sm font-medium text-primary hover:bg-surface-accent disabled:opacity-50 dark:border-gray-600 dark:text-gray-100 dark:hover:bg-gray-700"
           >
             <RefreshCw className="h-4 w-4" />
@@ -343,7 +536,7 @@ export function RuntimeBackupSettings() {
           <button
             type="button"
             onClick={() => runAction('start')}
-            disabled={!canRun || busyAction !== null || jobRunning}
+            disabled={!canStart || busyAction !== null || jobRunning}
             className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
           >
             <Play className="h-4 w-4" />
@@ -352,14 +545,14 @@ export function RuntimeBackupSettings() {
           <button
             type="button"
             onClick={() => runAction('verify')}
-            disabled={!canRun || busyAction !== null || !latest}
+            disabled={!controlsAvailable || busyAction !== null || !latest}
             className="inline-flex items-center gap-2 rounded-md border border-default px-4 py-2 text-sm font-medium text-primary hover:bg-surface-accent disabled:opacity-50 dark:border-gray-600 dark:text-gray-100 dark:hover:bg-gray-700"
           >
             <ShieldCheck className="h-4 w-4" />
             {busyAction === 'verify' ? t('verifying' as any) || 'Verifying...' : t('verifyLatestBackup' as any)}
           </button>
         </div>
-        {!canRun ? (
+        {!controlsAvailable ? (
           <p className="text-sm text-yellow-700 dark:text-yellow-300">
             {loadError
               ? t('localRuntimeBackupApiUnavailable' as any)
@@ -377,6 +570,7 @@ export function RuntimeBackupSettings() {
             <div className="space-y-2 text-sm">
               <div><span className="text-secondary dark:text-gray-400">{t('name' as any)}: </span>{latest.backup_name}</div>
               <div><span className="text-secondary dark:text-gray-400">{t('createdAt' as any)}: </span>{formatDate(latest.created_at)}</div>
+              <div><span className="text-secondary dark:text-gray-400">{t('localRuntimeBackupMode' as any)}: </span>{latest.mode || '-'}</div>
               <div><span className="text-secondary dark:text-gray-400">Git: </span>{latest.git_commit || '-'}</div>
               <div className="break-all"><span className="text-secondary dark:text-gray-400">{t('path' as any)}: </span>{latest.path}</div>
             </div>
@@ -395,6 +589,8 @@ export function RuntimeBackupSettings() {
               </div>
               <div><span className="text-secondary dark:text-gray-400">{t('artifacts' as any)}: </span>{latest.artifact_count}</div>
               <div><span className="text-secondary dark:text-gray-400">{t('size' as any)}: </span>{formatBytes(latest.total_bytes)}</div>
+              <div><span className="text-secondary dark:text-gray-400">{t('localRuntimeBackupBaseBackup' as any)}: </span>{latest.base_backup_id || '-'}</div>
+              <div><span className="text-secondary dark:text-gray-400">{t('localRuntimeBackupFileSnapshot' as any)}: </span>{latest.file_snapshot_id || '-'}</div>
             </div>
           </div>
         </section>

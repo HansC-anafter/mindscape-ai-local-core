@@ -1,10 +1,14 @@
 import asyncio
+from collections import Counter
 
 from backend.app.models.workspace import Task, TaskStatus, _utc_now
 from backend.app.runner import worker
 from backend.app.runner.worker import (
     _build_parked_task_update,
     _dequeue_preferred_different_playbook,
+    _dequeue_preferred_pack_candidate,
+    _parse_reserved_pack_slots,
+    _reserved_pack_deficits,
 )
 from backend.app.runner.database_backoff import (
     RunnerDatabaseRecoveryBackoff,
@@ -149,6 +153,80 @@ def test_dequeue_preferred_different_playbook_stops_on_database_recovery():
             [queue],
             tasks_store=_RecoveryTaskStore(),
             excluded_pack_ids={"ig_batch_pin_references"},
+            runner_profile=_browser_profile(),
+            visibility_timeout_sec=180,
+            scan_limit=10,
+        )
+    )
+
+    assert task_id is None
+    assert queue_store is None
+    assert queue.promoted == []
+
+
+def test_reserved_pack_slot_parser_ignores_invalid_entries():
+    assert _parse_reserved_pack_slots(
+        "ig_analyze_following=1, bad-entry, ig_batch_pin_references=0, other=2"
+    ) == {
+        "ig_analyze_following": 1,
+        "other": 2,
+    }
+
+
+def test_reserved_pack_deficits_returns_only_underfilled_packs():
+    deficits = _reserved_pack_deficits(
+        {"ig_analyze_following": 2, "ig_batch_pin_references": 1},
+        Counter({"ig_analyze_following": 1, "ig_batch_pin_references": 1}),
+    )
+
+    assert deficits == ["ig_analyze_following"]
+
+
+def test_dequeue_preferred_pack_candidate_uses_reserved_lane_before_fifo():
+    queue = _FakeFairQueue(["task-batch", "task-following"])
+
+    task_id, queue_store = asyncio.run(
+        _dequeue_preferred_pack_candidate(
+            [queue],
+            tasks_store=_FakeTaskStore(
+                {
+                    "task-batch": _pending_browser_task(
+                        "task-batch",
+                        "ig_batch_pin_references",
+                    ),
+                    "task-following": _pending_browser_task(
+                        "task-following",
+                        "ig_analyze_following",
+                    ),
+                }
+            ),
+            preferred_pack_ids=["ig_analyze_following"],
+            runner_profile=_browser_profile(),
+            visibility_timeout_sec=180,
+            scan_limit=10,
+        )
+    )
+
+    assert task_id == "task-following"
+    assert queue_store is queue
+    assert queue.promoted == ["task-following"]
+
+
+def test_dequeue_preferred_pack_candidate_skips_when_no_reserved_pack_ready():
+    queue = _FakeFairQueue(["task-batch"])
+
+    task_id, queue_store = asyncio.run(
+        _dequeue_preferred_pack_candidate(
+            [queue],
+            tasks_store=_FakeTaskStore(
+                {
+                    "task-batch": _pending_browser_task(
+                        "task-batch",
+                        "ig_batch_pin_references",
+                    ),
+                }
+            ),
+            preferred_pack_ids=["ig_analyze_following"],
             runner_profile=_browser_profile(),
             visibility_timeout_sec=180,
             scan_limit=10,
