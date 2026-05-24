@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation';
 import { buildCapabilityWorkbenchPath } from '@/lib/capability-static-hosts';
+import { getServiceEndpointUrl } from '../../../../../../../packages/core/src/api';
 
 interface UIComponentInfo {
   code: string;
@@ -23,10 +24,8 @@ interface RedirectOptions {
   searchParams?: Record<string, string | string[] | undefined>;
 }
 
-const DEFAULT_BACKEND_URL = 'http://backend:8200';
-
-function normalizeBaseUrl(value: string | undefined, fallback: string): string {
-  const resolved = value?.trim() || fallback;
+function normalizeBaseUrl(value: string | undefined): string {
+  const resolved = value?.trim() || '';
   return resolved.replace(/\/+$/, '');
 }
 
@@ -34,8 +33,9 @@ function getServerBackendBaseUrl(): string {
   return normalizeBaseUrl(
     process.env.WEB_CONSOLE_BACKEND_URL ||
       process.env.BACKEND_URL ||
-      process.env.NEXT_PUBLIC_BACKEND_URL,
-    DEFAULT_BACKEND_URL,
+      process.env.NEXT_PUBLIC_BACKEND_URL ||
+      getServiceEndpointUrl('local_core.control_api', 'server_internal') ||
+      getServiceEndpointUrl('local_core.control_api', 'container_internal'),
   );
 }
 

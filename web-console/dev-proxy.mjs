@@ -1,33 +1,28 @@
 import http from 'node:http';
 import net from 'node:net';
+import fs from 'node:fs';
+import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { performance } from 'node:perf_hooks';
+import { fileURLToPath } from 'node:url';
+import {
+  prewarmNextDevRoutes,
+} from './dev-proxy/prewarm.mjs';
+
+export { resolveFrontendPrewarmPaths } from './dev-proxy/prewarm.mjs';
 
 const PUBLIC_HOST = process.env.FRONTEND_PROXY_HOST || '0.0.0.0';
 const PUBLIC_PORT = Number.parseInt(process.env.PORT || '3000', 10);
 const NEXT_HOST = process.env.NEXT_DEV_HOST || '127.0.0.1';
 const NEXT_PORT = Number.parseInt(process.env.NEXT_DEV_PORT || '3001', 10);
-const DEFAULT_BACKEND_URL = 'http://backend:8200';
-const DEFAULT_MEDIA_PROXY_URL = 'http://media-proxy:8000';
 const PROXY_LOG_MODE = process.env.FRONTEND_PROXY_LOG_MODE || 'slow';
 const PROXY_SLOW_LOG_THRESHOLD_MS = Number.parseInt(
   process.env.FRONTEND_PROXY_SLOW_LOG_THRESHOLD_MS || '1000',
   10,
 );
-const PREWARM_WORKSPACE_ID = process.env.FRONTEND_PREWARM_WORKSPACE_ID || '__prewarm__';
 const PREWARM_ENABLED = process.env.FRONTEND_PREWARM_ENABLED === '1';
 const PREWARM_DELAY_MS = Number.parseInt(process.env.FRONTEND_PREWARM_DELAY_MS || '8000', 10);
-const PREWARM_TIMEOUT_MS = Number.parseInt(process.env.FRONTEND_PREWARM_TIMEOUT_MS || '360000', 10);
 const NEXT_DEV_TURBO_ENABLED = process.env.NEXT_DEV_TURBO === '1';
-const DEFAULT_PREWARM_PATHS = [
-  '/',
-  '/workspaces',
-  '/workspaces/{workspaceId}',
-  '/capability-ui-hosts/ig/{workspaceId}',
-  '/capability-ui-hosts/performance_direction/{workspaceId}',
-  '/workspaces/{workspaceId}/capabilities/performance_direction',
-  '/workspaces/{workspaceId}/capabilities/performance_direction/start',
-];
 const HOP_BY_HOP_HEADERS = new Set([
   'connection',
   'keep-alive',
@@ -44,7 +39,38 @@ const DEV_API_READ_CACHE_MAX_BODY_BYTES = Number.parseInt(
 );
 const devApiReadCache = new Map();
 const devApiReadInflight = new Map();
+const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
+const SERVICE_ENDPOINT_SEED_PATHS = [
+  process.env.MINDSCAPE_SERVICE_ENDPOINT_SEED,
+  '/app/config/service-endpoints.seed.json',
+  path.resolve(MODULE_DIR, '../config/service-endpoints.seed.json'),
+].filter(Boolean);
 let requestSequence = 0;
+let serviceEndpointSeedCache = null;
+
+function loadServiceEndpointSeed() {
+  if (serviceEndpointSeedCache) {
+    return serviceEndpointSeedCache;
+  }
+  for (const candidate of SERVICE_ENDPOINT_SEED_PATHS) {
+    try {
+      serviceEndpointSeedCache = JSON.parse(fs.readFileSync(candidate, 'utf8'));
+      return serviceEndpointSeedCache;
+    } catch {
+      // Try the next candidate.
+    }
+  }
+  serviceEndpointSeedCache = { endpoints: [] };
+  return serviceEndpointSeedCache;
+}
+
+function resolveSeedEndpointUrl(serviceId, audience) {
+  const seed = loadServiceEndpointSeed();
+  const endpoint = Array.isArray(seed.endpoints)
+    ? seed.endpoints.find((item) => item?.service_id === serviceId && item?.audience === audience)
+    : null;
+  return String(endpoint?.url || '').trim();
+}
 
 export function isFrontendLivenessPath(requestUrl = '/') {
   try {
@@ -71,13 +97,17 @@ export function isDevApiProxyPath(requestUrl = '/') {
 
 export function resolveDevApiProxyTarget(requestUrl = '/') {
   const parsed = new URL(requestUrl, 'http://localhost');
+  const registryMediaProxyUrl = resolveSeedEndpointUrl('local_core.media_proxy', 'container_internal');
+  const registryBackendUrl =
+    resolveSeedEndpointUrl('local_core.control_api', 'server_internal') ||
+    resolveSeedEndpointUrl('local_core.control_api', 'container_internal');
   const baseUrl = parsed.pathname.startsWith('/api/v1/media/')
-    ? normalizeBaseUrl(process.env.MEDIA_PROXY_URL, DEFAULT_MEDIA_PROXY_URL)
+    ? normalizeBaseUrl(process.env.MEDIA_PROXY_URL, registryMediaProxyUrl)
     : normalizeBaseUrl(
         process.env.WEB_CONSOLE_BACKEND_URL ||
           process.env.BACKEND_URL ||
           process.env.NEXT_PUBLIC_BACKEND_URL,
-        DEFAULT_BACKEND_URL,
+        registryBackendUrl,
       );
   const upstream = new URL(baseUrl);
   return {
@@ -356,19 +386,6 @@ function roundedDurationMs(startedAt) {
   return Math.round((performance.now() - startedAt) * 100) / 100;
 }
 
-export function resolveFrontendPrewarmPaths(
-  rawPaths = process.env.FRONTEND_PREWARM_PATHS,
-  workspaceId = PREWARM_WORKSPACE_ID,
-) {
-  const sourcePaths = String(rawPaths || '').trim()
-    ? String(rawPaths).split(/[\n,]/)
-    : DEFAULT_PREWARM_PATHS;
-  return sourcePaths
-    .map((pathValue) => String(pathValue || '').trim())
-    .filter(Boolean)
-    .map((pathValue) => pathValue.replaceAll('{workspaceId}', encodeURIComponent(workspaceId)));
-}
-
 export function resolveNextDevArgs(
   host = NEXT_HOST,
   port = NEXT_PORT,
@@ -384,131 +401,6 @@ export function resolveNextDevArgs(
     '-p',
     String(port),
   ];
-}
-
-function prewarmNextDevPath(pathValue) {
-  return new Promise((resolve) => {
-    const startedAt = performance.now();
-    let settled = false;
-    const finish = (event, extra = {}) => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      console.log(`[frontend-proxy] ${event} ${JSON.stringify({
-        path: pathValue,
-        duration_ms: roundedDurationMs(startedAt),
-        ...extra,
-      })}`);
-      resolve();
-    };
-    const request = http.request(
-      {
-        hostname: NEXT_HOST,
-        port: NEXT_PORT,
-        method: 'GET',
-        path: pathValue,
-        headers: {
-          host: `${NEXT_HOST}:${NEXT_PORT}`,
-          'x-mindscape-frontend-prewarm': '1',
-        },
-      },
-      (response) => {
-        finish('prewarm', {
-          status: response.statusCode || null,
-        });
-        response.resume();
-        response.destroy();
-      },
-    );
-
-    request.setTimeout(PREWARM_TIMEOUT_MS, () => {
-      finish('prewarm_triggered', { reason: 'timeout' });
-      request.destroy(new Error('prewarm_trigger_timeout'));
-    });
-    request.on('error', (error) => {
-      if (settled) {
-        return;
-      }
-      console.error(`[frontend-proxy] prewarm_failed ${JSON.stringify({
-        path: pathValue,
-        duration_ms: roundedDurationMs(startedAt),
-        error: error?.code || error?.message || 'unknown',
-      })}`);
-      resolve();
-    });
-    request.end();
-  });
-}
-
-function waitForNextDevReady(timeoutMs = PREWARM_TIMEOUT_MS) {
-  return new Promise((resolve) => {
-    const startedAt = performance.now();
-    let settled = false;
-
-    const finish = (ready) => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      resolve(ready);
-    };
-
-    const probe = () => {
-      if (performance.now() - startedAt >= timeoutMs) {
-        console.error(`[frontend-proxy] prewarm_wait_failed ${JSON.stringify({
-          duration_ms: roundedDurationMs(startedAt),
-          reason: 'timeout',
-        })}`);
-        finish(false);
-        return;
-      }
-
-      const request = http.request(
-        {
-          hostname: NEXT_HOST,
-          port: NEXT_PORT,
-          method: 'GET',
-          path: '/healthz',
-          headers: {
-            host: `${NEXT_HOST}:${NEXT_PORT}`,
-            'x-mindscape-frontend-prewarm-probe': '1',
-          },
-        },
-        (response) => {
-          response.resume();
-          finish(true);
-        },
-      );
-
-      request.setTimeout(1000, () => {
-        request.destroy(new Error('prewarm_probe_timeout'));
-      });
-      request.on('error', () => {
-        setTimeout(probe, 500);
-      });
-      request.end();
-    };
-
-    probe();
-  });
-}
-
-async function prewarmNextDevRoutes(paths = resolveFrontendPrewarmPaths()) {
-  if (!paths.length) {
-    console.log('[frontend-proxy] prewarm_skipped {"reason":"no_paths"}');
-    return;
-  }
-  console.log(`[frontend-proxy] prewarm_start ${JSON.stringify({ paths })}`);
-  const ready = await waitForNextDevReady();
-  if (!ready) {
-    console.log('[frontend-proxy] prewarm_skipped {"reason":"next_dev_unavailable"}');
-    return;
-  }
-  for (const pathValue of paths) {
-    await prewarmNextDevPath(pathValue);
-  }
-  console.log(`[frontend-proxy] prewarm_done ${JSON.stringify({ count: paths.length })}`);
 }
 
 export function shouldWriteProxyTimingLog(

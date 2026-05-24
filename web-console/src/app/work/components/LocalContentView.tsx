@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { getApiBaseUrl } from '@/lib/api-url';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -133,9 +134,7 @@ const FILE_CATEGORIES: FileCategory[] = [
 // API helpers
 // ---------------------------------------------------------------------------
 
-const API_BASE = typeof window === 'undefined'
-    ? process.env.BACKEND_URL || 'http://backend:8200'
-    : process.env.NEXT_PUBLIC_API_URL || '';
+const API_BASE = getApiBaseUrl();
 
 async function fetchDeviceNodeStatus(): Promise<DeviceNodeStatus> {
     try {

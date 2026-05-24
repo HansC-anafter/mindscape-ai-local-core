@@ -171,6 +171,10 @@ def _format_installed_capability(pack_meta: Dict[str, Any]) -> Dict[str, Any]:
         "description": pack_meta.get("description", ""),
         "scope": pack_meta.get("scope", "global"),
         "ui_components": pack_meta.get("ui_components", []),
+        "ui_prewarm": pack_meta.get(
+            "ui_prewarm",
+            {"enabled": False, "surfaces": []},
+        ),
     }
 
 

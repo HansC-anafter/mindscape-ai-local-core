@@ -37,8 +37,8 @@ describe('frontend dev proxy', () => {
 
     const target = resolveDevApiProxyTarget('/api/v1/cloud-sync/status?fresh=1');
     expect(target).toMatchObject({
-      hostname: 'backend',
-      port: 8200,
+      hostname: 'backend-control',
+      port: 8210,
       path: '/api/v1/cloud-sync/status?fresh=1',
     });
   });
@@ -89,17 +89,47 @@ describe('frontend dev proxy', () => {
     expect(computeNextDevRestartDelayMs(99)).toBe(30000);
   });
 
-  it('resolves default and explicit frontend prewarm paths', () => {
-    expect(resolveFrontendPrewarmPaths('', 'ws/one')).toEqual([
-      '/',
-      '/workspaces',
-      '/workspaces/ws%2Fone',
-      '/capability-ui-hosts/ig/ws%2Fone',
-      '/capability-ui-hosts/performance_direction/ws%2Fone',
-      '/workspaces/ws%2Fone/capabilities/performance_direction',
-      '/workspaces/ws%2Fone/capabilities/performance_direction/start',
+  it('keeps manifest-driven frontend capability prewarm opt-in', async () => {
+    await expect(resolveFrontendPrewarmPaths('', 'ws/one', {
+      installedCapabilities: [{
+        code: 'ig',
+        ui_prewarm: {
+          enabled: true,
+          surfaces: [{ path: '' }],
+        },
+      }, {
+        code: 'performance_direction',
+        ui_prewarm: {
+          enabled: false,
+          surfaces: [{ path: '' }],
+        },
+      }],
+    })).resolves.toEqual([]);
+
+    await expect(resolveFrontendPrewarmPaths('', 'ws/one', {
+      capabilityPrewarmEnabled: true,
+      installedCapabilities: [{
+        code: 'ig',
+        ui_prewarm: {
+          enabled: true,
+          surfaces: [{ path: '' }],
+        },
+      }, {
+        code: 'performance_direction',
+        ui_prewarm: {
+          enabled: false,
+          surfaces: [{ path: '' }],
+        },
+      }],
+    })).resolves.toEqual([
+      '/workspaces/ws%2Fone/capability-ui-hosts/ig',
     ]);
-    expect(resolveFrontendPrewarmPaths('/a/{workspaceId}, /b', 'ws one')).toEqual([
+
+    await expect(resolveFrontendPrewarmPaths(
+      '/a/{workspaceId}, /b, /capability-ui-hosts/ig/{workspaceId}, /workspaces/{workspaceId}/capabilities/performance_direction',
+      'ws one',
+      { installedCapabilities: [] },
+    )).resolves.toEqual([
       '/a/ws%20one',
       '/b',
     ]);

@@ -12,7 +12,8 @@ interface PortConfig {
   ocr_service: number;
   postgres: number;
   cloud_api?: number;
-  site_hub_api?: number;
+  cloud_provider_api?: number;
+  media_proxy: number;
   cluster?: string;
   environment?: string;
   site?: string;
@@ -25,9 +26,10 @@ export function PortConfigurationSettings() {
     backend_api: 8200,
     frontend: 8300,
     ocr_service: 8400,
-    postgres: 5440,
+    postgres: 6432,
     cloud_api: 8500,
-    site_hub_api: 8102,
+    cloud_provider_api: 8102,
+    media_proxy: 8202,
   });
   const [originalConfig, setOriginalConfig] = useState<PortConfig | null>(null);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
@@ -157,7 +159,7 @@ export function PortConfigurationSettings() {
 
   const handleChange = (key: keyof PortConfig, value: string) => {
     // Validate numeric range for port fields
-    if (['backend_api', 'frontend', 'ocr_service', 'postgres', 'cloud_api', 'site_hub_api'].includes(key)) {
+    if (['backend_api', 'frontend', 'ocr_service', 'postgres', 'cloud_api', 'cloud_provider_api', 'media_proxy'].includes(key)) {
       const numValue = parseInt(value, 10);
       if (isNaN(numValue) || numValue < 1024 || numValue > 65535) {
         return;
@@ -368,7 +370,7 @@ export function PortConfigurationSettings() {
             value={config.postgres}
             onChange={(e) => handleChange('postgres', e.target.value)}
             className="w-full px-3 py-2 border rounded-md border-yellow-300 dark:bg-gray-700 dark:border-gray-600"
-            placeholder="5440"
+            placeholder="6432"
           />
           <p className="text-xs text-yellow-600 dark:text-yellow-400 mt-1">
             {t('postgresPortChangeConfirm' as any)}
@@ -392,16 +394,31 @@ export function PortConfigurationSettings() {
 
         <div>
           <label className="block text-sm font-medium mb-2">
-            {t('siteHubApiPort' as any)}
+            {t('cloudProviderApiPort' as any)}
           </label>
           <input
             type="number"
             min="1024"
             max="65535"
-            value={config.site_hub_api || ''}
-            onChange={(e) => handleChange('site_hub_api', e.target.value)}
+            value={config.cloud_provider_api || ''}
+            onChange={(e) => handleChange('cloud_provider_api', e.target.value)}
             className="w-full px-3 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600"
             placeholder="8102"
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium mb-2">
+            {t('mediaProxyPort' as any)}
+          </label>
+          <input
+            type="number"
+            min="1024"
+            max="65535"
+            value={config.media_proxy}
+            onChange={(e) => handleChange('media_proxy', e.target.value)}
+            className="w-full px-3 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600"
+            placeholder="8202"
           />
         </div>
       </div>

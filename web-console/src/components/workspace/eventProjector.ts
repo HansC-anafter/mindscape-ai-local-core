@@ -685,7 +685,7 @@ function resolveEventStreamBaseUrl(apiUrl: string): string {
     return stripTrailingSlash(window.location.origin);
   }
 
-  return 'http://localhost:8220';
+  return '';
 }
 
 function getOrCreateStream(workspaceId: string, apiUrl: string): SharedStream {

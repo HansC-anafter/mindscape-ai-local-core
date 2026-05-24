@@ -5,7 +5,7 @@ import { useDeviceStatus, type DeviceInfo } from '@/hooks/useDeviceStatus';
 import styles from './DeviceStatusIndicator.module.css';
 
 interface DeviceStatusIndicatorProps {
-    /** Backend API URL (e.g. http://localhost:8000) */
+    /** Backend API URL supplied by the endpoint resolver */
     apiUrl: string;
     /** Show detailed metrics (default: false) */
     showDetails?: boolean;

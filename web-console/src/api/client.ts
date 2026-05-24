@@ -12,6 +12,8 @@
 
 import { ExecutionContext } from '@/types/execution-context';
 import { fetchWithIdempotentRetry, sharedGetFetch } from '@/lib/resilient-fetch';
+import { getApiBaseUrl } from '@/lib/api-url';
+import { getServiceEndpointUrl } from '../../../packages/core/src/api';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -36,11 +38,10 @@ export class MindscapeAPIClient {
       this.baseUrl =
         process.env.NEXT_PUBLIC_CLOUD_API_URL ||
         process.env.NEXT_PUBLIC_API_URL ||
-        'http://localhost:8500';
+        getServiceEndpointUrl('cloud.api', 'host_public') ||
+        '';
     } else {
-      this.baseUrl =
-        process.env.NEXT_PUBLIC_API_URL ||
-        'http://localhost:8220';
+      this.baseUrl = getApiBaseUrl();
     }
   }
 

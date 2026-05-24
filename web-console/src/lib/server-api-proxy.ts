@@ -1,3 +1,5 @@
+import { getServiceEndpointUrl } from '../../../packages/core/src/api';
+
 const HOP_BY_HOP_HEADERS = [
   'connection',
   'keep-alive',
@@ -18,8 +20,6 @@ const RETRYABLE_ERROR_CODES = new Set([
   'ETIMEDOUT',
 ]);
 
-const DEFAULT_BACKEND_URL = 'http://backend:8200';
-const DEFAULT_MEDIA_PROXY_URL = 'http://media-proxy:8000';
 const MAX_IDEMPOTENT_ATTEMPTS = 3;
 const RETRY_BASE_DELAY_MS = 150;
 const RETRY_CAP_DELAY_MS = 1_000;
@@ -44,12 +44,17 @@ export function resolveApiProxyUpstream(requestUrl: string): ProxyUpstreamResolu
   const url = new URL(requestUrl);
   const isMediaProxyPath = url.pathname.startsWith('/api/v1/media/');
   const baseUrl = isMediaProxyPath
-    ? normalizeBaseUrl(process.env.MEDIA_PROXY_URL, DEFAULT_MEDIA_PROXY_URL)
+    ? normalizeBaseUrl(
+        process.env.MEDIA_PROXY_URL ||
+          getServiceEndpointUrl('local_core.media_proxy', 'container_internal'),
+        ''
+      )
     : normalizeBaseUrl(
         process.env.WEB_CONSOLE_BACKEND_URL ||
           process.env.BACKEND_URL ||
-          process.env.NEXT_PUBLIC_BACKEND_URL,
-        DEFAULT_BACKEND_URL
+          process.env.NEXT_PUBLIC_BACKEND_URL ||
+          getServiceEndpointUrl('local_core.control_api', 'server_internal'),
+        ''
       );
 
   return {
@@ -68,8 +73,9 @@ export function resolveBackendPathProxyUpstream(
     baseUrl: normalizeBaseUrl(
       process.env.WEB_CONSOLE_BACKEND_URL ||
         process.env.BACKEND_URL ||
-        process.env.NEXT_PUBLIC_BACKEND_URL,
-      DEFAULT_BACKEND_URL
+        process.env.NEXT_PUBLIC_BACKEND_URL ||
+        getServiceEndpointUrl('local_core.control_api', 'server_internal'),
+      ''
     ),
     pathname: upstreamPathname,
     search: url.search,

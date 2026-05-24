@@ -1,4 +1,5 @@
 import { normalizeBrowserReachableUrl, shouldUseSameOriginProxyForBrowser } from '../../../lib/api-origin';
+import { getServiceEndpointUrl } from '../../../../../packages/core/src/api';
 
 // Get initial API URL (avoids circular dependency)
 const getInitialApiUrl = (): string => {
@@ -15,8 +16,7 @@ const getInitialApiUrl = (): string => {
     return configuredUrl;
   }
 
-  // SSR fallback (port config system default)
-  return 'http://localhost:8220';
+  return getServiceEndpointUrl('local_core.control_api', 'server_internal') || '';
 };
 
 // Dynamically resolve API URL from port config service (scope-aware)

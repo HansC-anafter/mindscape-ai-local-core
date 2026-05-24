@@ -1,4 +1,5 @@
 import { shouldUseSameOriginProxyForBrowser } from './api-origin';
+import { getServiceEndpointUrl } from '../../../packages/core/src/api';
 
 export function getApiBaseUrl(): string {
   const configuredUrl = process.env.NEXT_PUBLIC_API_URL;
@@ -14,7 +15,12 @@ export function getApiBaseUrl(): string {
     return configuredUrl;
   }
 
-  return 'http://localhost:8220';
+  return (
+    getServiceEndpointUrl('local_core.control_api', 'server_internal') ||
+    process.env.WEB_CONSOLE_BACKEND_URL ||
+    process.env.BACKEND_URL ||
+    ''
+  );
 }
 
 export async function getApiUrl(): Promise<string> {

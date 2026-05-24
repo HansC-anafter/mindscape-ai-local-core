@@ -7,6 +7,7 @@ import { useUIState } from '@/contexts/UIStateContext';
 import { useWorkspaceRefs } from '@/contexts/WorkspaceRefsContext';
 import { useMessages } from '@/contexts/MessagesContext';
 import { WorkspaceChatRuntimeControls } from './WorkspaceChatRuntimeControls';
+import { getApiBaseUrl } from '@/lib/api-url';
 
 interface WorkspaceChatMeetingSidebarProps {
   workspaceId: string;
@@ -20,8 +21,7 @@ export default function WorkspaceChatMeetingSidebar({
   const { quickStartSuggestions } = useMessages();
   const { setInput } = useUIState();
   const { textareaRef } = useWorkspaceRefs();
-  const resolvedApiUrl =
-    apiUrl || (typeof window !== 'undefined' ? window.location.origin.replace(':3000', ':8220') : '');
+  const resolvedApiUrl = apiUrl || getApiBaseUrl();
 
   const queueSuggestion = useCallback((suggestion: string) => {
     setInput(suggestion);
@@ -74,7 +74,7 @@ export default function WorkspaceChatMeetingSidebar({
         <section className="mt-3 rounded-[18px] border border-[#d9c39c] bg-white/75 p-3 shadow-[0_10px_24px_rgba(166,139,94,0.08)] dark:border-slate-800 dark:bg-slate-900/80">
           <IntentChips
             workspaceId={workspaceId}
-            apiUrl={resolvedApiUrl || 'http://localhost:8220'}
+            apiUrl={resolvedApiUrl}
             compact
           />
         </section>

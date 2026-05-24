@@ -4,6 +4,7 @@ import React from 'react';
 import dynamic from 'next/dynamic';
 import { FloatingPanel } from './FloatingPanel';
 import type { MindscapeNode } from '@/lib/mindscape-graph-api';
+import { getApiBaseUrl } from '@/lib/api-url';
 
 const WorkspaceChat = dynamic(
     () => import('@/components/WorkspaceChat').then(mod => mod.default),
@@ -54,7 +55,7 @@ export default function EmbeddedChat({
                 <WorkspaceChat
                     workspaceId={workspaceId}
                     threadId={threadId}
-                    apiUrl={process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8300'}
+                    apiUrl={process.env.NEXT_PUBLIC_API_BASE_URL || getApiBaseUrl()}
                 />
             </div>
         </FloatingPanel>

@@ -71,7 +71,7 @@ const nextConfig = {
   // Some FastAPI endpoints are slash-sensitive and must not be normalized by Next.
   skipTrailingSlashRedirect: true,
   env: {
-    NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000',
+    NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || '',
   },
   async redirects() {
     return [

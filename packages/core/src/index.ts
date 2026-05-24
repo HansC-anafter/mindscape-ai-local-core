@@ -10,7 +10,18 @@
  */
 
 // API utilities
-export { getApiBaseUrl, getApiUrl } from './api';
+export {
+  clearServiceEndpointSnapshotCache,
+  getApiBaseUrl,
+  getApiUrl,
+  getServiceEndpointSnapshot,
+  getServiceEndpointUrl,
+} from './api';
+export type {
+  EndpointAudience,
+  ServiceEndpoint,
+  ServiceEndpointSnapshot,
+} from './api';
 
 // Context hooks
 export {

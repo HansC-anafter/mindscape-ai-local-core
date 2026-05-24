@@ -10,6 +10,7 @@ import { InputBottomBar } from './InputBottomBar';
 import { useMessages } from '@/contexts/MessagesContext';
 import IntentChips from '../../app/workspaces/components/IntentChips';
 import { WorkspaceChatRuntimeControls } from './WorkspaceChatRuntimeControls';
+import { getApiBaseUrl } from '@/lib/api-url';
 
 interface InputAreaProps {
   workspaceId: string;
@@ -66,8 +67,7 @@ export function InputArea({
     }
   };
   const isMeetingPaneLayout = layoutVariant === 'meeting_pane';
-  const resolvedApiUrl =
-    apiUrl || (typeof window !== 'undefined' ? window.location.origin.replace(':3000', ':8220') : '');
+  const resolvedApiUrl = apiUrl || getApiBaseUrl();
 
   return (
     <form
@@ -151,7 +151,7 @@ export function InputArea({
         {!isMeetingPaneLayout ? (
           <IntentChips
             workspaceId={workspaceId}
-            apiUrl={resolvedApiUrl || 'http://localhost:8220'}
+            apiUrl={resolvedApiUrl}
           />
         ) : null}
 

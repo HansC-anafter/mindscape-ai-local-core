@@ -47,6 +47,24 @@ describe('server API proxy', () => {
     });
   });
 
+  it('uses the shared service endpoint seed when env overrides are absent', () => {
+    delete process.env.WEB_CONSOLE_BACKEND_URL;
+    delete process.env.BACKEND_URL;
+    delete process.env.NEXT_PUBLIC_BACKEND_URL;
+    delete process.env.MEDIA_PROXY_URL;
+
+    expect(resolveApiProxyUpstream('http://localhost:8300/api/v1/skills/')).toEqual({
+      baseUrl: 'http://backend-control:8210',
+      pathname: '/api/v1/skills/',
+      search: '',
+    });
+    expect(resolveApiProxyUpstream('http://localhost:8300/api/v1/media/files/a.png')).toEqual({
+      baseUrl: 'http://media-proxy:8000',
+      pathname: '/api/v1/media/files/a.png',
+      search: '',
+    });
+  });
+
   it('routes /health to backend readiness without using next rewrites', () => {
     process.env.BACKEND_URL = 'http://backend:8200/';
 
