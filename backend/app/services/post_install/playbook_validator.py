@@ -40,6 +40,19 @@ class PlaybookValidator:
         self.capabilities_dir = capabilities_dir
         self._validate_tools_direct_call = validate_tools_direct_call_func
 
+    def _default_base_url(self) -> str:
+        try:
+            from backend.app.services.service_endpoint_registry import service_endpoint_registry
+
+            return (
+                service_endpoint_registry.get_endpoint_url(
+                    "local_core.execution_api", "host_public"
+                )
+                or ""
+            )
+        except Exception:
+            return ""
+
     def validate_installed_playbooks(
         self,
         capability_code: str,
@@ -132,7 +145,7 @@ class PlaybookValidator:
                 env={
                     **dict(os.environ),
                     "LLM_MOCK": "false",  # Skip execution test, no mock needed
-                    "BASE_URL": "http://localhost:8200",
+                    "BASE_URL": self._default_base_url(),
                     "PYTHONPATH": build_validation_pythonpath(
                         self.local_core_root,
                         self.capabilities_dir,

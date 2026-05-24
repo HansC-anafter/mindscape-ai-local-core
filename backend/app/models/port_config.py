@@ -21,13 +21,16 @@ class PortConfig(BaseModel):
         default=8400, ge=1024, le=65535, description="OCR service port"
     )
     postgres: int = Field(
-        default=5440, ge=1024, le=65535, description="PostgreSQL port"
+        default=6432, ge=1024, le=65535, description="PostgreSQL pool port"
     )
     cloud_api: Optional[int] = Field(
         default=None, ge=1024, le=65535, description="Cloud API port (optional)"
     )
     cloud_provider_api: Optional[int] = Field(
         default=8102, ge=1024, le=65535, description="Cloud provider API port"
+    )
+    media_proxy: int = Field(
+        default=8202, ge=1024, le=65535, description="Media proxy port"
     )
 
     # Cluster and environment scoping
@@ -49,6 +52,7 @@ class PortConfig(BaseModel):
         "postgres",
         "cloud_api",
         "cloud_provider_api",
+        "media_proxy",
         mode="before",
     )
     @classmethod
@@ -70,9 +74,10 @@ class PortConfig(BaseModel):
                 "backend_api": 8200,
                 "frontend": 8300,
                 "ocr_service": 8400,
-                "postgres": 5440,
+                "postgres": 6432,
                 "cloud_api": 8500,
                 "cloud_provider_api": 8102,
+                "media_proxy": 8202,
                 "cluster": "prod-cluster-1",
                 "environment": "production",
                 "site": "site-1",
@@ -97,6 +102,9 @@ class HostConfig(BaseModel):
     cloud_provider_api_host: Optional[str] = Field(
         default="localhost", description="Cloud provider API hostname"
     )
+    media_proxy_host: str = Field(
+        default="localhost", description="Media proxy hostname"
+    )
 
     # Allowed CORS origins
     cors_origins: List[str] = Field(
@@ -111,7 +119,8 @@ class HostConfig(BaseModel):
                 "ocr_service_host": "localhost",
                 "cloud_api_host": "api.example.com",
                 "cloud_provider_api_host": "localhost",
-                "cors_origins": ["http://localhost:8300", "https://app.example.com"],
+                "media_proxy_host": "localhost",
+                "cors_origins": ["https://console.example.com"],
             }
         }
     )
@@ -125,15 +134,17 @@ class ServiceURLConfig(BaseModel):
     ocr_service_url: str
     cloud_api_url: Optional[str] = None
     cloud_provider_api_url: Optional[str] = None
+    media_proxy_url: Optional[str] = None
 
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
-                "backend_api_url": "http://localhost:8200",
-                "frontend_url": "http://localhost:8300",
-                "ocr_service_url": "http://localhost:8400",
+                "backend_api_url": "https://local-core.example.com",
+                "frontend_url": "https://console.example.com",
+                "ocr_service_url": "https://ocr.example.com",
                 "cloud_api_url": "https://api.example.com:8500",
-                "cloud_provider_api_url": "http://localhost:8102",
+                "cloud_provider_api_url": "https://provider.example.com",
+                "media_proxy_url": "https://media.example.com",
             }
         }
     )

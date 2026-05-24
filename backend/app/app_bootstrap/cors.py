@@ -4,15 +4,29 @@ import re
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_CORS_ORIGINS = [
-    "http://localhost:8300",
-    "http://127.0.0.1:8300",
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    "http://localhost:3001",
-    "http://127.0.0.1:3001",
-]
+_DEFAULT_CORS_ORIGINS = []
 _CACHED_CORS_ORIGINS = list(_DEFAULT_CORS_ORIGINS)
+
+
+def _default_cors_origins():
+    """Build fallback CORS origins from the endpoint registry."""
+    origins = []
+    try:
+        from backend.app.services.service_endpoint_registry import service_endpoint_registry
+
+        frontend_url = (
+            service_endpoint_registry.get_endpoint_url(
+                "local_core.web_console", "browser_public"
+            )
+            or ""
+        )
+        if frontend_url:
+            origins.append(frontend_url)
+            if "localhost" in frontend_url:
+                origins.append(frontend_url.replace("localhost", "127.0.0.1"))
+    except Exception:
+        pass
+    return origins
 
 
 def get_cors_origins():
@@ -68,7 +82,7 @@ def get_cors_origins():
             f"Failed to get CORS origins from port config service, using defaults: {e}"
         )
         # Fallback to default values (backward compatibility)
-        return list(_CACHED_CORS_ORIGINS or _DEFAULT_CORS_ORIGINS)
+        return list(_CACHED_CORS_ORIGINS or _default_cors_origins())
 
 def get_cors_origin_regex() -> str:
     """Return strict regex for chrome extensions"""
@@ -76,7 +90,7 @@ def get_cors_origin_regex() -> str:
 
 def resolve_error_cors_origin(request_origin: str) -> str:
     """Unifies checking logic for exception handlers"""
-    allowed_origins = list(_CACHED_CORS_ORIGINS or _DEFAULT_CORS_ORIGINS)
+    allowed_origins = list(_CACHED_CORS_ORIGINS or _default_cors_origins())
     
     # Fast path exact origin match
     if request_origin in allowed_origins:

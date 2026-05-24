@@ -17,6 +17,7 @@ from . import (
     backups,
     governance,
     ports,
+    service_endpoints,
     files,
     assistant,
     local_content,
@@ -36,6 +37,7 @@ router.include_router(embedding_migrations.router)
 router.include_router(env_vars.router)
 router.include_router(system_control.router)
 router.include_router(backups.router)
+router.include_router(service_endpoints.router)
 router.include_router(ports.router)  # Port configuration routes
 router.include_router(files.router)  # File system utility routes
 router.include_router(

@@ -23,6 +23,33 @@ from .capability_registry import get_registry
 logger = logging.getLogger(__name__)
 
 
+def _build_capability_runtime_context() -> Dict[str, Any]:
+    try:
+        from backend.app.services.service_endpoint_registry import (
+            build_runtime_service_endpoint_context,
+        )
+
+        return build_runtime_service_endpoint_context()
+    except Exception:
+        logger.debug("Capability runtime context unavailable", exc_info=True)
+        return {"service_endpoints": {"version": 1, "endpoints": []}}
+
+
+def _inject_runtime_context(
+    tool_kwargs: Dict[str, Any],
+    signature: inspect.Signature,
+) -> Dict[str, Any]:
+    injected = dict(tool_kwargs)
+    runtime_context = None
+    if "runtime_context" in signature.parameters:
+        runtime_context = _build_capability_runtime_context()
+        injected.setdefault("runtime_context", runtime_context)
+    if "execution_context" in signature.parameters:
+        runtime_context = runtime_context or _build_capability_runtime_context()
+        injected.setdefault("execution_context", {"runtime_context": runtime_context})
+    return injected
+
+
 class CapabilityToolWrapper(MindscapeTool):
     """
     Wrapper for capability pack tools to make them compatible with MindscapeTool interface
@@ -50,7 +77,12 @@ class CapabilityToolWrapper(MindscapeTool):
         required = []
 
         for param_name, param in sig.parameters.items():
-            if param_name in ["execution_context", "local_core_api_base", "kwargs"]:
+            if param_name in [
+                "execution_context",
+                "runtime_context",
+                "local_core_api_base",
+                "kwargs",
+            ]:
                 continue  # Skip internal parameters
 
             param_type = "string"
@@ -89,6 +121,7 @@ class CapabilityToolWrapper(MindscapeTool):
         super().__init__(metadata)
 
         self.tool_func = tool_func
+        self.tool_signature = sig
         self.tool_info = tool_info
         self.capability_code = capability_code
 
@@ -102,12 +135,13 @@ class CapabilityToolWrapper(MindscapeTool):
         Returns:
             Tool execution result
         """
-        # Remove internal parameters that shouldn't be passed to tool
+        # Remove internal parameters that shouldn't be passed directly by callers.
         tool_kwargs = {
             k: v
             for k, v in kwargs.items()
-            if k not in ["execution_context", "local_core_api_base"]
+            if k not in ["execution_context", "runtime_context", "local_core_api_base"]
         }
+        tool_kwargs = _inject_runtime_context(tool_kwargs, self.tool_signature)
 
         # Call the tool function
         if inspect.iscoroutinefunction(self.tool_func):

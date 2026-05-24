@@ -167,8 +167,15 @@ async def oauth_callback(
                 site=current_site
             )
         except Exception:
-            # Fall back to the environment variable or local default.
-            frontend_url = os.getenv("FRONTEND_URL", "http://localhost:8300")
+            from backend.app.services.service_endpoint_registry import service_endpoint_registry
+
+            frontend_url = (
+                os.getenv("FRONTEND_URL")
+                or service_endpoint_registry.get_endpoint_url(
+                    "local_core.web_console", "browser_public"
+                )
+                or ""
+            )
         error_params = urlencode({
             "error": error,
             "error_description": error_description or "",
@@ -236,8 +243,15 @@ async def oauth_callback(
                 site=current_site
             )
         except Exception:
-            # Fall back to the environment variable or local default.
-            frontend_url = os.getenv("FRONTEND_URL", "http://localhost:8300")
+            from backend.app.services.service_endpoint_registry import service_endpoint_registry
+
+            frontend_url = (
+                os.getenv("FRONTEND_URL")
+                or service_endpoint_registry.get_endpoint_url(
+                    "local_core.web_console", "browser_public"
+                )
+                or ""
+            )
         error_params = urlencode({
             "error": "token_exchange_failed",
             "error_description": str(e),

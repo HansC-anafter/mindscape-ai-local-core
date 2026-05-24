@@ -55,6 +55,7 @@ x-runner-environment: &runner-environment
 x-runner-volumes: &runner-volumes
   - ./backend:/app/backend:rw
   - ./scripts:/app/scripts:rw
+  - ./config:/app/config:ro
   - "${LOCAL_CORE_DATA_HOST_DIR:-./data}:/app/data:rw"
   - "${LOCAL_CORE_SECRETS_HOST_DIR:-./data/secrets}:/root/.mindscape:rw"
   - ${MINDSCAPE_MODELS_HOST_DIR:-${HOME}/.mindscape/models}:/root/.mindscape/models:rw
@@ -201,6 +202,7 @@ services:
     volumes:
       - ./backend:/app/backend:rw
       - ./scripts:/app/scripts:rw
+      - ./config:/app/config:ro
       - "${LOCAL_CORE_DATA_HOST_DIR:-./data}:/app/data:rw"
       - "${LOCAL_CORE_SECRETS_HOST_DIR:-./data/secrets}:/root/.mindscape:rw"
       - ${MINDSCAPE_MODELS_HOST_DIR:-${HOME}/.mindscape/models}:/root/.mindscape/models:rw
@@ -333,6 +335,7 @@ services:
     volumes:
       - ./backend:/app/backend:rw
       - ./scripts:/app/scripts:rw
+      - ./config:/app/config:ro
       - "${LOCAL_CORE_DATA_HOST_DIR:-./data}:/app/data:rw"
       - "${LOCAL_CORE_SECRETS_HOST_DIR:-./data/secrets}:/root/.mindscape:rw"
       - ${MINDSCAPE_MODELS_HOST_DIR:-${HOME}/.mindscape/models}:/root/.mindscape/models:rw
@@ -423,19 +426,17 @@ services:
       - NODE_ENV=development
       - NEXT_TELEMETRY_DISABLED=1
       - NEXT_DEV_TURBO=${NEXT_DEV_TURBO:-0}
-      - NEXT_PUBLIC_API_URL=http://localhost:8200
-      - NEXT_PUBLIC_BACKEND_URL=http://localhost:8200
-      - WEB_CONSOLE_BACKEND_URL=http://host.docker.internal:8200
-      - BACKEND_URL=http://host.docker.internal:8200
-      - MEDIA_PROXY_URL=http://media-proxy:8000
       - FRONTEND_PREWARM_ENABLED=${FRONTEND_PREWARM_ENABLED:-1}
       - FRONTEND_PREWARM_DELAY_MS=${FRONTEND_PREWARM_DELAY_MS:-12000}
-      - FRONTEND_PREWARM_TIMEOUT_MS=${FRONTEND_PREWARM_TIMEOUT_MS:-360000}
+      - FRONTEND_PREWARM_TIMEOUT_MS=${FRONTEND_PREWARM_TIMEOUT_MS:-30000}
       - FRONTEND_PREWARM_WORKSPACE_ID=${FRONTEND_PREWARM_WORKSPACE_ID:-__prewarm__}
+      - FRONTEND_CAPABILITY_PREWARM_ENABLED=${FRONTEND_CAPABILITY_PREWARM_ENABLED:-0}
       - TZ=${TZ:-UTC}
     volumes:
+      - ./config:/app/config:ro
       - ./web-console/src:/app/web-console/src:ro
       - ./web-console/dev-proxy.mjs:/app/web-console/dev-proxy.mjs:ro
+      - ./web-console/dev-proxy:/app/web-console/dev-proxy:ro
       - ./web-console/tsconfig.json:/app/web-console/tsconfig.json:ro
       - ./web-console/next.config.js:/app/web-console/next.config.js:ro
       - ./web-console/tailwind.config.js:/app/web-console/tailwind.config.js:ro
@@ -457,7 +458,7 @@ services:
       retries: 3
       start_period: 60s
     depends_on:
-      backend:
+      backend-control:
         condition: service_healthy
 
   # PostgreSQL with pgvector, query statistics, and reclaim tooling.

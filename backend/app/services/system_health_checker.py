@@ -638,7 +638,17 @@ class SystemHealthChecker:
                 site=current_site
             )
         except Exception:
-            url = "http://localhost:8200"
+            try:
+                from .service_endpoint_registry import service_endpoint_registry
+
+                url = (
+                    service_endpoint_registry.get_endpoint_url(
+                        "local_core.execution_api", "host_public"
+                    )
+                    or ""
+                )
+            except Exception:
+                url = ""
 
         return {
             "status": "healthy",

@@ -203,9 +203,17 @@ class CloudProviderRuntimeInitStrategy(BootstrapStrategy):
 
             async def check_runtime():
                 try:
-                    local_core_api = os.getenv(
-                        "LOCAL_CORE_API_BASE", "http://localhost:8200"
-                    )
+                    local_core_api = os.getenv("LOCAL_CORE_API_BASE")
+                    if not local_core_api:
+                        from backend.app.services.service_endpoint_registry import (
+                            service_endpoint_registry,
+                        )
+
+                        local_core_api = service_endpoint_registry.get_endpoint_url(
+                            "local_core.execution_api", "container_internal"
+                        )
+                    if not local_core_api:
+                        return False
                     async with httpx.AsyncClient(timeout=5.0) as client:
                         response = await client.get(
                             f"{local_core_api}/api/v1/runtime-environments"

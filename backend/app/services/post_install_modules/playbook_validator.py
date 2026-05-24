@@ -44,13 +44,26 @@ class PlaybookValidator:
         return {
             **dict(os.environ),
             "LLM_MOCK": "false",
-            "BASE_URL": "http://localhost:8200",
+            "BASE_URL": self._default_base_url(),
             "PYTHONPATH": build_validation_pythonpath(
                 self.local_core_root,
                 self.capabilities_dir,
             ),
             "CAPABILITIES_PATH": str(self.capabilities_dir),
         }
+
+    def _default_base_url(self) -> str:
+        try:
+            from backend.app.services.service_endpoint_registry import service_endpoint_registry
+
+            return (
+                service_endpoint_registry.get_endpoint_url(
+                    "local_core.execution_api", "host_public"
+                )
+                or ""
+            )
+        except Exception:
+            return ""
 
     def validate_installed_playbooks(
         self,

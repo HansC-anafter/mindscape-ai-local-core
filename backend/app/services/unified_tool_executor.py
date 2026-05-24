@@ -44,6 +44,33 @@ from backend.app.services.playbook_tool_resolver import ToolDependencyResolver
 
 logger = logging.getLogger(__name__)
 
+
+def _build_capability_runtime_context() -> Dict[str, Any]:
+    try:
+        from backend.app.services.service_endpoint_registry import (
+            build_runtime_service_endpoint_context,
+        )
+
+        return build_runtime_service_endpoint_context()
+    except Exception:
+        logger.debug("Capability runtime context unavailable", exc_info=True)
+        return {"service_endpoints": {"version": 1, "endpoints": []}}
+
+
+def _inject_runtime_context(
+    tool_kwargs: Dict[str, Any],
+    signature: inspect.Signature,
+) -> Dict[str, Any]:
+    injected = dict(tool_kwargs)
+    runtime_context = None
+    if "runtime_context" in signature.parameters:
+        runtime_context = _build_capability_runtime_context()
+        injected.setdefault("runtime_context", runtime_context)
+    if "execution_context" in signature.parameters:
+        runtime_context = runtime_context or _build_capability_runtime_context()
+        injected.setdefault("execution_context", {"runtime_context": runtime_context})
+    return injected
+
 try:
     import yaml  # type: ignore
 except Exception:  # pragma: no cover
@@ -372,13 +399,14 @@ class UnifiedToolExecutor:
                     )
                     super().__init__(metadata)
                     self._fn = _fn
+                    self._signature = inspect.signature(_fn)
 
                 # Capability tools often accept flexible kwargs; do not drop unknown args.
                 def validate_input(self, **kwargs) -> Dict[str, Any]:  # type: ignore[override]
                     return kwargs
 
                 async def execute(self, **kwargs) -> Any:  # type: ignore[override]
-                    result = self._fn(**kwargs)
+                    result = self._fn(**_inject_runtime_context(kwargs, self._signature))
                     if inspect.isawaitable(result):
                         return await result
                     return result

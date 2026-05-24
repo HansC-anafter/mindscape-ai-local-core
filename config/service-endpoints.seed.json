@@ -1,0 +1,212 @@
+{
+  "version": 1,
+  "endpoints": [
+    {
+      "service_id": "local_core.execution_api",
+      "audience": "container_internal",
+      "url": "http://backend:8200",
+      "source": "seed",
+      "label": "Execution API",
+      "description": "Local-core execution-plane API inside the Docker network",
+      "is_user_editable": false
+    },
+    {
+      "service_id": "local_core.execution_api",
+      "audience": "host_public",
+      "url": "http://localhost:8200",
+      "source": "seed",
+      "label": "Execution API",
+      "description": "Local-core execution-plane API published on the host",
+      "is_user_editable": true
+    },
+    {
+      "service_id": "local_core.control_api",
+      "audience": "browser_public",
+      "url": "",
+      "source": "seed",
+      "label": "Control API",
+      "description": "Browser-facing same-origin proxy base for the control plane",
+      "is_user_editable": false
+    },
+    {
+      "service_id": "local_core.control_api",
+      "audience": "container_internal",
+      "url": "http://backend-control:8210",
+      "source": "seed",
+      "label": "Control API",
+      "description": "Control-plane API inside the Docker network",
+      "is_user_editable": false
+    },
+    {
+      "service_id": "local_core.control_api",
+      "audience": "host_public",
+      "url": "http://localhost:8220",
+      "source": "seed",
+      "label": "Control API",
+      "description": "Control-plane API published on the host",
+      "is_user_editable": true
+    },
+    {
+      "service_id": "local_core.control_api",
+      "audience": "server_internal",
+      "url": "http://backend-control:8210",
+      "source": "seed",
+      "label": "Control API",
+      "description": "Control-plane API for server-side web-console calls",
+      "is_user_editable": false
+    },
+    {
+      "service_id": "local_core.web_console",
+      "audience": "browser_public",
+      "url": "http://localhost:8300",
+      "source": "seed",
+      "label": "Web Console",
+      "description": "Browser-facing web-console URL",
+      "is_user_editable": true
+    },
+    {
+      "service_id": "local_core.web_console",
+      "audience": "container_internal",
+      "url": "http://frontend:3000",
+      "source": "seed",
+      "label": "Web Console",
+      "description": "Web-console service inside the Docker network",
+      "is_user_editable": false
+    },
+    {
+      "service_id": "local_core.media_proxy",
+      "audience": "browser_public",
+      "url": "",
+      "source": "seed",
+      "label": "Media Proxy",
+      "description": "Browser-facing same-origin media proxy base",
+      "is_user_editable": false
+    },
+    {
+      "service_id": "local_core.media_proxy",
+      "audience": "container_internal",
+      "url": "http://media-proxy:8000",
+      "source": "seed",
+      "label": "Media Proxy",
+      "description": "Media proxy inside the Docker network",
+      "is_user_editable": false
+    },
+    {
+      "service_id": "local_core.media_proxy",
+      "audience": "host_public",
+      "url": "http://localhost:8202",
+      "source": "seed",
+      "label": "Media Proxy",
+      "description": "Media proxy published on the host",
+      "is_user_editable": true
+    },
+    {
+      "service_id": "local_core.postgres_pool",
+      "audience": "container_internal",
+      "url": "postgresql://pgbouncer:6432",
+      "source": "seed",
+      "label": "Postgres Pool",
+      "description": "PgBouncer endpoint inside the Docker network",
+      "is_user_editable": false
+    },
+    {
+      "service_id": "local_core.postgres_pool",
+      "audience": "host_public",
+      "url": "postgresql://localhost:6432",
+      "source": "seed",
+      "label": "Postgres Pool",
+      "description": "PgBouncer endpoint published on the host",
+      "is_user_editable": true
+    },
+    {
+      "service_id": "local_core.postgres_direct",
+      "audience": "container_internal",
+      "url": "postgresql://postgres:5432",
+      "source": "seed",
+      "label": "Postgres Direct",
+      "description": "Direct PostgreSQL endpoint inside the Docker network",
+      "is_user_editable": false
+    },
+    {
+      "service_id": "local_core.postgres_direct",
+      "audience": "host_public",
+      "url": "postgresql://localhost:5433",
+      "source": "seed",
+      "label": "Postgres Direct",
+      "description": "Direct PostgreSQL endpoint published on the host",
+      "is_user_editable": true
+    },
+    {
+      "service_id": "cloud.api",
+      "audience": "host_public",
+      "url": "http://localhost:8500",
+      "source": "seed",
+      "label": "Cloud API",
+      "description": "Optional cloud API published on the host",
+      "is_user_editable": true
+    },
+    {
+      "service_id": "cloud.api",
+      "audience": "server_internal",
+      "url": "http://host.docker.internal:8500",
+      "source": "seed",
+      "label": "Cloud API",
+      "description": "Optional cloud API from local-core containers",
+      "is_user_editable": true
+    },
+    {
+      "service_id": "cloud.provider_api",
+      "audience": "host_public",
+      "url": "http://localhost:8102",
+      "source": "seed",
+      "label": "Cloud Provider API",
+      "description": "Cloud provider bridge published on the host",
+      "is_user_editable": true
+    },
+    {
+      "service_id": "cloud.provider_api",
+      "audience": "server_internal",
+      "url": "http://host.docker.internal:8102",
+      "source": "seed",
+      "label": "Cloud Provider API",
+      "description": "Cloud provider bridge from local-core containers",
+      "is_user_editable": true
+    },
+    {
+      "service_id": "ocr.service",
+      "audience": "container_internal",
+      "url": "http://ocr-service:8000",
+      "source": "seed",
+      "label": "OCR Service",
+      "description": "OCR service inside the Docker network",
+      "is_user_editable": false
+    },
+    {
+      "service_id": "ocr.service",
+      "audience": "host_public",
+      "url": "http://localhost:8400",
+      "source": "seed",
+      "label": "OCR Service",
+      "description": "OCR service published on the host",
+      "is_user_editable": true
+    },
+    {
+      "service_id": "device_node.api",
+      "audience": "server_internal",
+      "url": "http://host.docker.internal:3100",
+      "source": "seed",
+      "label": "Device Node API",
+      "description": "Optional host bridge service for device-node integrations",
+      "is_user_editable": true
+    },
+    {
+      "service_id": "ollama.api",
+      "audience": "server_internal",
+      "url": "http://host.docker.internal:11434",
+      "source": "seed",
+      "label": "Ollama API",
+      "description": "Optional host bridge service for Ollama",
+      "is_user_editable": true
+    }
+  ]
+}

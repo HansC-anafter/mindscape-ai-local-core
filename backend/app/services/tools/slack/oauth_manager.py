@@ -51,8 +51,22 @@ class SlackOAuthManager:
             )
             default_redirect_uri = f"{backend_url}/api/v1/tools/slack/oauth/callback"
         except Exception:
-            # Fall back to the local default.
-            default_redirect_uri = "http://localhost:8200/api/v1/tools/slack/oauth/callback"
+            try:
+                from ....services.service_endpoint_registry import service_endpoint_registry
+
+                backend_url = (
+                    service_endpoint_registry.get_endpoint_url(
+                        "local_core.execution_api", "host_public"
+                    )
+                    or ""
+                )
+                default_redirect_uri = (
+                    f"{backend_url}/api/v1/tools/slack/oauth/callback"
+                    if backend_url
+                    else ""
+                )
+            except Exception:
+                default_redirect_uri = ""
         self.redirect_uri = os.getenv(
             "SLACK_REDIRECT_URI",
             default_redirect_uri

@@ -275,7 +275,6 @@ async def google_sheets_oauth_callback(
 
         # Redirect to frontend with success
         from fastapi.responses import RedirectResponse
-        # 从端口配置服务获取前端 URL
         try:
             from ....services.port_config_service import port_config_service
             import os
@@ -289,8 +288,15 @@ async def google_sheets_oauth_callback(
                 site=current_site
             )
         except Exception:
-            # 回退到环境变量或默认值
-            frontend_url = os.getenv("FRONTEND_URL", "http://localhost:8300")
+            from backend.app.services.service_endpoint_registry import service_endpoint_registry
+
+            frontend_url = (
+                os.getenv("FRONTEND_URL")
+                or service_endpoint_registry.get_endpoint_url(
+                    "local_core.web_console", "browser_public"
+                )
+                or ""
+            )
         redirect_url = f"{frontend_url}/settings?tool=google_sheets&connected=true"
         return RedirectResponse(url=redirect_url)
     except Exception as e:
@@ -356,4 +362,3 @@ async def validate_google_sheets_connection(
     except Exception as e:
         logger.error(f"Failed to validate Google Sheets connection: {e}", exc_info=True)
         raise_api_error(500, f"Failed to validate connection: {str(e)}")
-

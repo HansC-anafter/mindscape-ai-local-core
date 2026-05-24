@@ -107,7 +107,6 @@ async def create_canva_connection(
             raise_api_error(400, "redirect_uri is required when using client_id and client_secret")
 
         from backend.app.services.tools.base import ToolConnection
-        # ✅ Updated: Import from capability pack instead of local-core
         try:
             from capabilities.canva.services.tool_registration import register_canva_tools
         except ImportError:
@@ -154,7 +153,6 @@ async def create_canva_connection(
         if request.client_id and request.client_secret and not request.oauth_token:
             logger.info(f"Canva connection created with OAuth credentials. OAuth flow needs to be completed.")
 
-        # ✅ Updated: Call register_canva_tools from capability pack
         tools = register_canva_tools(tool_connection)
         logger.info(f"Registered {len(tools)} Canva tools for connection: {request.connection_id}")
 
@@ -181,7 +179,6 @@ async def canva_oauth_authorize(
     Redirects user to Canva authorization page.
     """
     try:
-        # ✅ Updated: Import from capability pack
         try:
             from capabilities.canva.services.oauth_manager import get_canva_oauth_manager
         except ImportError:
@@ -206,7 +203,6 @@ async def canva_oauth_authorize(
             raise_api_error(400, "client_id is required. Provide via query parameter or ensure connection has stored credentials.")
 
         if not final_redirect_uri:
-            # 从端口配置服务获取后端 URL
             try:
                 from ....services.port_config_service import port_config_service
                 import os
@@ -221,8 +217,24 @@ async def canva_oauth_authorize(
                 )
                 final_redirect_uri = f"{backend_url}/api/tools/canva/oauth/callback"
             except Exception:
-                # 回退到默认值
-                final_redirect_uri = f"http://localhost:8200/api/tools/canva/oauth/callback"
+                try:
+                    from backend.app.services.service_endpoint_registry import (
+                        service_endpoint_registry,
+                    )
+
+                    backend_url = (
+                        service_endpoint_registry.get_endpoint_url(
+                            "local_core.execution_api", "host_public"
+                        )
+                        or ""
+                    )
+                    final_redirect_uri = (
+                        f"{backend_url}/api/tools/canva/oauth/callback"
+                        if backend_url
+                        else ""
+                    )
+                except Exception:
+                    final_redirect_uri = ""
 
         oauth_manager = get_canva_oauth_manager()
         auth_url, code_verifier = oauth_manager.build_authorization_url(
@@ -253,7 +265,6 @@ async def canva_oauth_callback(
     Exchanges authorization code for access token and updates connection.
     """
     try:
-        # ✅ Updated: Import from capability pack
         try:
             from capabilities.canva.services.oauth_manager import get_canva_oauth_manager
         except ImportError:
@@ -313,7 +324,6 @@ async def canva_oauth_callback(
         # Register tools after OAuth completion
         try:
             from backend.app.services.tools.base import ToolConnection
-            # ✅ Updated: Import from capability pack instead of local-core
             try:
                 from capabilities.canva.services.tool_registration import register_canva_tools
             except ImportError:
@@ -329,7 +339,6 @@ async def canva_oauth_callback(
                 base_url=connection_model.base_url,
                 name=connection_model.name
             )
-            # ✅ Updated: Call register_canva_tools from capability pack
             tools = register_canva_tools(tool_connection)
             logger.info(f"Registered {len(tools)} Canva tools after OAuth completion")
         except Exception as e:
@@ -411,4 +420,3 @@ async def validate_canva_connection(
             "message": f"Validation error: {str(e)}",
             "connection_id": connection_id
         }
-

@@ -724,6 +724,16 @@ async def execute_runtime_workflow(
     )
 
     execution_id = _resolve_execution_id(normalized_inputs)
+    try:
+        from backend.app.services.service_endpoint_registry import (
+            build_runtime_service_endpoint_context,
+        )
+
+        runtime_context = build_runtime_service_endpoint_context()
+    except Exception:
+        logger.debug("PlaybookRunExecutor: Service endpoint context unavailable", exc_info=True)
+        runtime_context = {"service_endpoints": {"version": 1, "endpoints": []}}
+
     logger.info(
         "PlaybookRunExecutor: Creating LocalDomainContext with project_id=%s",
         project_id,
@@ -735,6 +745,7 @@ async def execute_runtime_workflow(
             "execution_id": execution_id,
             "playbook_code": playbook_code,
             "project_id": project_id or "",
+            "runtime_context": runtime_context,
         },
     )
     logger.info(

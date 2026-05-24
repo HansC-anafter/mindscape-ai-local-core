@@ -43,9 +43,9 @@ class ServiceOrchestrationService:
                 "backend": (
                     "backend_api",
                     8200,
-                    8000,
+                    8200,
                     "PORT",
-                ),  # container listens on 8000
+                ),  # container listens on 8200
                 "frontend": (
                     "frontend",
                     8300,
@@ -58,14 +58,15 @@ class ServiceOrchestrationService:
                     8000,
                     "PORT",
                 ),  # container listens on 8000
-                "postgres": (
+                "pgbouncer": (
                     "postgres",
-                    5440,
-                    5432,
+                    6432,
+                    6432,
                     "POSTGRES_PORT",
-                ),  # container listens on 5432
+                ),  # legacy postgres port points to the pool
                 "cloud-api": ("cloud_api", 8500, 8000, "PORT"),
                 "cloud-provider-api": ("cloud_provider_api", 8102, 8000, "PORT"),
+                "media-proxy": ("media_proxy", 8202, 8000, "PORT"),
             }
 
             updated = False

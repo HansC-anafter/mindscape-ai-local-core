@@ -33,8 +33,16 @@ def _get_cloud_api_base_url() -> str:
                 )
     except Exception:
         pass
-    # 回退到环境变量或默认值
-    return os.getenv("CLOUD_API_URL", "http://localhost:8500")
+    try:
+        from ...service_endpoint_registry import service_endpoint_registry
+
+        return (
+            os.getenv("CLOUD_API_URL")
+            or service_endpoint_registry.get_endpoint_url("cloud.api", "host_public")
+            or ""
+        )
+    except Exception:
+        return os.getenv("CLOUD_API_URL", "")
 
 
 async def download_image_to_temp(image_url: str) -> str:
@@ -174,7 +182,6 @@ def _generate_ig_recommendations(features: Dict[str, Any]) -> Dict[str, Any]:
         recommendations["hashtag_suggestions"] = [f"#{kw.replace(' ', '')}" for kw in emotion_keywords[:5]]
 
     return recommendations
-
 
 
 

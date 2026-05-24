@@ -105,8 +105,20 @@ class GoogleDriveOAuthManager:
                 self.backend_url = backend_url
                 self.redirect_uri = f"{backend_url}/api/tools/google-drive/oauth/callback"
             except Exception:
-                # Fall back to the environment variable or local default.
-                self.backend_url = os.getenv("BACKEND_URL", "http://localhost:8200")
+                try:
+                    from ....services.service_endpoint_registry import (
+                        service_endpoint_registry,
+                    )
+
+                    self.backend_url = (
+                        os.getenv("BACKEND_URL")
+                        or service_endpoint_registry.get_endpoint_url(
+                            "local_core.execution_api", "host_public"
+                        )
+                        or ""
+                    )
+                except Exception:
+                    self.backend_url = os.getenv("BACKEND_URL", "")
             self.redirect_uri = os.getenv(
                 "GOOGLE_REDIRECT_URI",
                     f"{self.backend_url}/api/tools/google-drive/oauth/callback"
@@ -130,8 +142,20 @@ class GoogleDriveOAuthManager:
                 site=current_site
             )
         except Exception:
-            # Fall back to the environment variable or local default.
-            return os.getenv("BACKEND_URL", "http://localhost:8200")
+            try:
+                from ....services.service_endpoint_registry import (
+                    service_endpoint_registry,
+                )
+
+                return (
+                    os.getenv("BACKEND_URL")
+                    or service_endpoint_registry.get_endpoint_url(
+                        "local_core.execution_api", "host_public"
+                    )
+                    or ""
+                )
+            except Exception:
+                return os.getenv("BACKEND_URL", "")
 
     def reload_configuration(self):
         """Reload configuration from system settings (useful after settings update)"""

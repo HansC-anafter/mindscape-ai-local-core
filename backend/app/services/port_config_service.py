@@ -25,7 +25,7 @@ class PortConfigService:
         "backend_api": 8200,
         "frontend": 8300,
         "ocr_service": 8400,
-        "postgres": 5440,
+        "postgres": 6432,
         "cloud_api": 8500,
         "cloud_provider_api": 8102,
         "media_proxy": 8202,
@@ -81,7 +81,18 @@ class PortConfigService:
         if self._config_cache and not force_reload and cache_key == self._cache_key:
             return self._config_cache
 
+        registry_defaults: Dict[str, int] = {}
+        try:
+            from backend.app.services.service_endpoint_registry import (
+                service_endpoint_registry,
+            )
+
+            registry_defaults = service_endpoint_registry.get_port_projection()
+        except Exception:
+            logger.debug("Service endpoint registry projection unavailable", exc_info=True)
+
         for key, default_port in self.DEFAULT_PORTS.items():
+            default_port = registry_defaults.get(key, default_port)
             port_value = None
 
             # 1. Try scoped system settings (most specific to most general)
@@ -121,7 +132,15 @@ class PortConfigService:
             setting_keys.append(f"system.ports.{key}")
 
             for setting_key in setting_keys:
-                setting = settings_store.get_setting(setting_key)
+                try:
+                    setting = settings_store.get_setting(setting_key)
+                except Exception:
+                    logger.debug(
+                        "Port setting lookup failed, falling back: %s",
+                        setting_key,
+                        exc_info=True,
+                    )
+                    setting = None
                 if setting and setting.value is not None:
                     try:
                         port_value = int(setting.value)
@@ -274,6 +293,8 @@ class PortConfigService:
                 restart_services.append(
                     "PostgreSQL (connection string update required)"
                 )
+            if getattr(config, "media_proxy", None):
+                restart_services.append("Media Proxy")
 
             restart_message = f"Port config saved. Services requiring restart: {', '.join(restart_services)}"
             return True, restart_message
@@ -299,6 +320,7 @@ class PortConfigService:
             "ocr_service_host": "ocr_service",
             "cloud_api_host": "cloud_api",
             "cloud_provider_api_host": "cloud_provider_api",
+            "media_proxy_host": "media_proxy",
         }
 
         for host_key, service_key in host_keys.items():
@@ -374,6 +396,21 @@ class PortConfigService:
             site: Site identifier
             protocol: Protocol (default: http)
         """
+        try:
+            from backend.app.services.service_endpoint_registry import (
+                service_endpoint_registry,
+            )
+
+            projection = service_endpoint_registry.get_legacy_service_url_projection()
+            if (
+                projection.get("backend_api_url")
+                and projection.get("frontend_url")
+                and projection.get("ocr_service_url")
+            ):
+                return ServiceURLConfig(**projection)
+        except Exception:
+            logger.debug("Service endpoint URL projection unavailable", exc_info=True)
+
         config = self.get_port_config(
             cluster=cluster, environment=environment, site=site
         )
@@ -391,6 +428,11 @@ class PortConfigService:
             cloud_provider_api_url=(
                 f"{protocol}://{host_config.cloud_provider_api_host}:{config.cloud_provider_api}"
                 if config.cloud_provider_api and host_config.cloud_provider_api_host
+                else None
+            ),
+            media_proxy_url=(
+                f"{protocol}://{host_config.media_proxy_host}:{config.media_proxy}"
+                if getattr(config, "media_proxy", None)
                 else None
             ),
         )

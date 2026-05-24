@@ -33,11 +33,19 @@ class CloudConnector:
     """
 
     def __init__(self):
-        self.cloud_api_url = os.getenv("CLOUD_API_URL", "http://localhost:8000")
+        self.cloud_api_url = os.getenv("CLOUD_API_URL") or self._default_cloud_api_url()
         self.device_id = os.getenv("DEVICE_ID", "")
         self.api_key = os.getenv("CLOUD_API_KEY", "")
         self._connected = False
         self._http_client: Optional[httpx.AsyncClient] = None
+
+    def _default_cloud_api_url(self) -> str:
+        try:
+            from backend.app.services.service_endpoint_registry import service_endpoint_registry
+
+            return service_endpoint_registry.get_endpoint_url("cloud.api", "server_internal") or ""
+        except Exception:
+            return ""
 
     async def connect(self) -> None:
         """Initialize connection to cloud control plane."""
