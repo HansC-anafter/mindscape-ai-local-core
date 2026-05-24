@@ -200,6 +200,7 @@ function StatusSection({
   const [statusError, setStatusError] = useState<string | null>(null);
   const [snapshot, setSnapshot] = useState<StatusSnapshot | null>(null);
   const refreshAllWorkspace = workspaceData?.refreshAll;
+  const refreshSystemStatus = workspaceData?.refreshSystemStatus;
 
   const loadSnapshot = React.useCallback(async (shouldRefreshAll: boolean) => {
     if (isDocumentHidden()) {
@@ -208,11 +209,15 @@ function StatusSection({
     setLoading(true);
     setStatusError(null);
     try {
+      const workspaceStatusRefresh = shouldRefreshAll && refreshAllWorkspace
+        ? Promise.resolve()
+        : (refreshSystemStatus ? refreshSystemStatus({ force: true }) : Promise.resolve());
       const [agents, xtts, mcpGateway, hostResources] = await Promise.allSettled([
         fetch(`${apiUrl}/api/v1/workspaces/${workspaceId}/agents`),
         fetch(`${apiUrl}/api/v1/host/services/xtts/health`),
         fetch(`${apiUrl}/api/v1/host/services/mcp-gateway/health`),
         fetch(`${apiUrl}/api/v1/host-resources/summary${shouldRefreshAll ? '?refresh=true' : ''}`),
+        workspaceStatusRefresh,
       ]);
       if (shouldRefreshAll && refreshAllWorkspace) {
         await refreshAllWorkspace();
@@ -231,7 +236,7 @@ function StatusSection({
     } finally {
       setLoading(false);
     }
-  }, [apiUrl, refreshAllWorkspace, workspaceId]);
+  }, [apiUrl, refreshAllWorkspace, refreshSystemStatus, workspaceId]);
 
   useEffect(() => {
     void loadSnapshot(false);

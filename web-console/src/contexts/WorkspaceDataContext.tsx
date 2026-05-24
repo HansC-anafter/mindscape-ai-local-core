@@ -125,6 +125,7 @@ interface WorkspaceDataContextType {
   refreshWorkspaceDetails: () => Promise<void>;
   refreshTasks: () => Promise<void>;
   refreshExecutions: () => Promise<void>;
+  refreshSystemStatus: (options?: { force?: boolean }) => Promise<void>;
   refreshAll: () => Promise<void>;
   updateWorkspace: (updates: Partial<Workspace>) => Promise<Workspace | null>;
 }
@@ -154,13 +155,17 @@ function useDebounce<T extends (...args: any[]) => any>(
   return debounced as T;
 }
 
+export type WorkspaceDataInitialLoadProfile = 'full' | 'capability-host';
+
 interface WorkspaceDataProviderProps {
   workspaceId: string;
+  initialLoadProfile?: WorkspaceDataInitialLoadProfile;
   children: ReactNode;
 }
 
 export function WorkspaceDataProvider({
   workspaceId,
+  initialLoadProfile = 'full',
   children
 }: WorkspaceDataProviderProps) {
   // Data states
@@ -187,6 +192,7 @@ export function WorkspaceDataProvider({
   const systemStatusCacheRef = useRef<{ data: SystemStatus; timestamp: number } | null>(null);
   const mountedRef = useRef(true);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const isCapabilityHostProfile = initialLoadProfile === 'capability-host';
 
   // Load workspace data with timeout
   const loadWorkspace = useCallback(async () => {
@@ -436,7 +442,7 @@ export function WorkspaceDataProvider({
           current_step_index: 0,
           total_steps: 0,
           task: t,
-          steps: [] // Steps are lazy loaded via SSE or detail view
+          steps: []
         }));
         setExecutions(mappedExecutions);
       }
@@ -621,7 +627,7 @@ export function WorkspaceDataProvider({
       // compete with route-critical PD/capability API calls.
       let auxiliaryLoadTimeoutId: ReturnType<typeof setTimeout> | null = null;
       let healthLoadTimeoutId: ReturnType<typeof setTimeout> | null = null;
-      if (mountedRef.current && workspaceId && workspaceId !== 'new') {
+      if (!isCapabilityHostProfile && mountedRef.current && workspaceId && workspaceId !== 'new') {
         auxiliaryLoadTimeoutId = setTimeout(() => {
           if (!mountedRef.current || isCancelled) return;
           void Promise.allSettled([
@@ -670,10 +676,11 @@ export function WorkspaceDataProvider({
       setIsLoadingExecutions(false);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workspaceId]);
+  }, [workspaceId, isCapabilityHostProfile]);
 
   // Listen for workspace events (unified event handling)
   useEffect(() => {
+    if (isCapabilityHostProfile) return;
     const handleWorkspaceUpdate = (event?: Event) => {
       debouncedRefresh();
     };
@@ -686,18 +693,20 @@ export function WorkspaceDataProvider({
       window.removeEventListener('workspace-chat-updated', handleWorkspaceUpdate);
       window.removeEventListener('workspace-task-updated', handleWorkspaceUpdate);
     };
-  }, [debouncedRefresh]);
+  }, [debouncedRefresh, isCapabilityHostProfile]);
 
   // Poll system status every 60s for live monitoring
   useEffect(() => {
+    if (isCapabilityHostProfile) return;
     if (!workspaceId || workspaceId === 'new') return;
     const interval = setInterval(() => {
       if (mountedRef.current && !isDocumentHidden()) loadSystemStatus();
     }, 60_000);
     return () => clearInterval(interval);
-  }, [workspaceId, loadSystemStatus]);
+  }, [workspaceId, loadSystemStatus, isCapabilityHostProfile]);
 
   useEffect(() => {
+    if (isCapabilityHostProfile) return;
     if (!workspaceId || workspaceId === 'new') return;
     return onDocumentVisible(() => {
       if (!mountedRef.current) return;
@@ -708,7 +717,7 @@ export function WorkspaceDataProvider({
         if (mountedRef.current) void loadSystemStatus();
       });
     });
-  }, [workspaceId, loadTasks, loadExecutions, loadSystemStatus]);
+  }, [workspaceId, loadTasks, loadExecutions, loadSystemStatus, isCapabilityHostProfile]);
 
   const isLoading = isLoadingWorkspace || isLoadingTasks || isLoadingExecutions;
 
@@ -727,6 +736,7 @@ export function WorkspaceDataProvider({
     refreshWorkspaceDetails: loadWorkspaceDetails,
     refreshTasks: loadTasks,
     refreshExecutions: loadExecutions,
+    refreshSystemStatus: loadSystemStatus,
     refreshAll,
     updateWorkspace
   };

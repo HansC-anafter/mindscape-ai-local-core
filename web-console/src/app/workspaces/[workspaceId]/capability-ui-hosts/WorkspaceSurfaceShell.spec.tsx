@@ -4,10 +4,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { loadCapabilityUIComponent } from '@/lib/capability-ui-loader';
 import { fetchWorkspaceToolDefinitions } from '@/lib/workspace-tools/workspace-tool-registry';
+import { useRunObservationsSummary } from '@/lib/workspace-runs/useRunObservationsSummary';
 import WorkspaceSurfaceShell from './WorkspaceSurfaceShell';
 
 vi.mock('@/lib/api-url', () => ({
   getApiBaseUrl: () => 'http://api.test',
+}));
+
+vi.mock('next/navigation', () => ({
+  usePathname: () => '/workspaces/ws_test/capability-ui-hosts/performance_direction',
+  useRouter: () => ({
+    push: vi.fn(),
+    replace: vi.fn(),
+    refresh: vi.fn(),
+  }),
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 vi.mock('@/lib/workspace-tools/workspace-tool-registry', async (importOriginal) => {
@@ -36,9 +47,26 @@ vi.mock('@/lib/capability-ui-loader', async (importOriginal) => {
   };
 });
 
+vi.mock('@/lib/workspace-runs/useRunObservationsSummary', () => ({
+  useRunObservationsSummary: vi.fn(() => ({
+    summary: null,
+    isLoading: false,
+    error: null,
+    externalActiveCount: 0,
+  })),
+}));
+
 vi.mock('@/contexts/WorkspaceDataContext', () => ({
-  WorkspaceDataProvider: ({ children }: { children: React.ReactNode }) => (
-    <div data-testid="workspace-data-provider">{children}</div>
+  WorkspaceDataProvider: ({
+    children,
+    initialLoadProfile,
+  }: {
+    children: React.ReactNode;
+    initialLoadProfile?: string;
+  }) => (
+    <div data-testid="workspace-data-provider" data-initial-load-profile={initialLoadProfile || 'full'}>
+      {children}
+    </div>
   ),
   useWorkspaceDataOptional: () => ({
     executions: [
@@ -64,8 +92,15 @@ vi.mock('@/contexts/ExecutionContextContext', () => ({
 
 describe('WorkspaceSurfaceShell', () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     vi.mocked(fetchWorkspaceToolDefinitions).mockResolvedValue([]);
     vi.mocked(loadCapabilityUIComponent).mockResolvedValue(null);
+    vi.mocked(useRunObservationsSummary).mockReturnValue({
+      summary: null,
+      isLoading: false,
+      error: null,
+      externalActiveCount: 0,
+    });
   });
 
   afterEach(() => {
@@ -84,6 +119,10 @@ describe('WorkspaceSurfaceShell', () => {
     );
 
     expect(screen.getByTestId('workspace-data-provider')).toBeInTheDocument();
+    expect(screen.getByTestId('workspace-data-provider')).toHaveAttribute(
+      'data-initial-load-profile',
+      'capability-host',
+    );
     expect(screen.getByTestId('execution-context-provider')).toBeInTheDocument();
     expect(screen.getByTestId('workspace-surface-shell')).toHaveAttribute(
       'data-active-capability-code',
@@ -104,12 +143,7 @@ describe('WorkspaceSurfaceShell', () => {
     );
     expect(screen.queryByTestId('workspace-runs-panel')).not.toBeInTheDocument();
     expect(screen.queryByTestId('workspace-settings-aside')).not.toBeInTheDocument();
-    await waitFor(() => {
-      expect(fetchWorkspaceToolDefinitions).toHaveBeenCalledWith({
-        apiUrl: 'http://api.test',
-        capabilityCode: 'performance_direction',
-      });
-    });
+    expect(fetchWorkspaceToolDefinitions).not.toHaveBeenCalled();
   });
 
   it('opens the built-in runs panel without loading AOL shell panels', () => {
@@ -135,6 +169,34 @@ describe('WorkspaceSurfaceShell', () => {
         'idle',
       );
     });
+  });
+
+  it('keeps external runner summary cold while the runs panel is closed', () => {
+    vi.mocked(useRunObservationsSummary).mockReturnValue({
+      summary: {
+        workspace_id: 'ws_test',
+        source_kind: 'external_runner',
+        external_active_count: 2,
+        counts: { running: 2 },
+        cards: [],
+      },
+      isLoading: false,
+      error: null,
+      externalActiveCount: 2,
+    });
+
+    render(
+      <WorkspaceSurfaceShell
+        workspaceId="ws_test"
+        activeCapabilityCode="performance_direction"
+        surfacePath={[]}
+      >
+        <div data-testid="surface-content">Capability surface</div>
+      </WorkspaceSurfaceShell>,
+    );
+
+    expect(screen.getByTestId('workspace-runs-tool')).toHaveTextContent('1');
+    expect(useRunObservationsSummary).not.toHaveBeenCalled();
   });
 
   it('opens the built-in settings panel at the contract width with a scrollable body', async () => {

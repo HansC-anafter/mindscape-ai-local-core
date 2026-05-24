@@ -5,8 +5,16 @@ import { describe, expect, it, vi } from 'vitest';
 import WorkspaceRuntimeFrame from './WorkspaceRuntimeFrame';
 
 vi.mock('@/contexts/WorkspaceDataContext', () => ({
-  WorkspaceDataProvider: ({ children }: { children: React.ReactNode }) => (
-    <div data-testid="workspace-data-provider">{children}</div>
+  WorkspaceDataProvider: ({
+    children,
+    initialLoadProfile,
+  }: {
+    children: React.ReactNode;
+    initialLoadProfile?: string;
+  }) => (
+    <div data-testid="workspace-data-provider" data-initial-load-profile={initialLoadProfile || 'full'}>
+      {children}
+    </div>
   ),
 }));
 
@@ -25,6 +33,10 @@ describe('WorkspaceRuntimeFrame', () => {
     );
 
     expect(screen.getByTestId('workspace-data-provider')).toBeInTheDocument();
+    expect(screen.getByTestId('workspace-data-provider')).toHaveAttribute(
+      'data-initial-load-profile',
+      'full',
+    );
     expect(screen.getByTestId('execution-context-provider')).toBeInTheDocument();
     expect(screen.getByRole('main')).not.toHaveClass('pr-10');
     expect(screen.queryByTestId('workspace-surface-shell')).toBeNull();

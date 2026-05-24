@@ -35,54 +35,43 @@ describe('WorkspaceToolExtensionSlot', () => {
     vi.restoreAllMocks();
   });
 
-  it('fetches declared pack tools and loads only the active panel component', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      json: async () => [
-        {
-          id: 'runs_panel',
-          group: 'capability',
-          label: 'Runs',
-          icon: 'Activity',
-          order: 10,
-          panel_component_code: 'IGRunsWorkspaceToolPanel',
-          panel_component: {
-            code: 'IGRunsWorkspaceToolPanel',
-            path: 'ui/IGRunsWorkspaceToolPanel.tsx',
-          },
-        },
-      ],
-    } as Response);
-    const handleActiveToolChange = vi.fn();
-    const handleToolsChange = vi.fn();
+  it('loads only the active panel component from provided pack tools', async () => {
+    const tools = [{
+      tool_key: 'ig:runs_panel',
+      capability_code: 'ig',
+      id: 'runs_panel',
+      group: 'capability' as const,
+      label: 'Runs',
+      icon: 'Activity',
+      order: 10,
+      panel_component_code: 'IGRunsWorkspaceToolPanel',
+      panel_component: {
+        code: 'IGRunsWorkspaceToolPanel',
+        path: 'ui/IGRunsWorkspaceToolPanel.tsx',
+        description: 'Runs panel',
+        export: 'default',
+        artifact_types: [],
+        playbook_codes: [],
+        import_path: '@/app/capabilities/ig/components/IGRunsWorkspaceToolPanel',
+        layout_hint: 'default' as const,
+      },
+    }];
 
     const { rerender } = render(
       <WorkspaceToolExtensionSlot
         workspaceId="ws_test"
-        capabilityCode="ig"
         activeToolKey={null}
-        onActiveToolChange={handleActiveToolChange}
-        onToolsChange={handleToolsChange}
+        tools={tools}
       />,
     );
 
-    await waitFor(() => {
-      expect(handleToolsChange).toHaveBeenCalledWith([
-        expect.objectContaining({
-          tool_key: 'ig:runs_panel',
-          panel_component_code: 'IGRunsWorkspaceToolPanel',
-        }),
-      ]);
-    });
     expect(loadCapabilityUIComponent).not.toHaveBeenCalled();
 
     rerender(
       <WorkspaceToolExtensionSlot
         workspaceId="ws_test"
-        capabilityCode="ig"
         activeToolKey="ig:runs_panel"
-        onActiveToolChange={handleActiveToolChange}
-        onToolsChange={handleToolsChange}
+        tools={tools}
       />,
     );
 

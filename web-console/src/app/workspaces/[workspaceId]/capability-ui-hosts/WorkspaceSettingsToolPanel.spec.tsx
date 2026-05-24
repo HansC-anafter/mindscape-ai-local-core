@@ -39,6 +39,7 @@ const workspaceDataMock = vi.hoisted(() => ({
     has_issues: false,
   },
   refreshAll: vi.fn(async () => undefined),
+  refreshSystemStatus: vi.fn(async () => undefined),
   refreshWorkspaceDetails: vi.fn(async () => undefined),
   updateWorkspace: vi.fn(async (updates: Record<string, unknown>) => ({
     id: 'ws_test',
@@ -219,6 +220,7 @@ describe('WorkspaceSettingsToolPanel', () => {
     expect(fetchMock).toHaveBeenCalledWith('http://api.test/api/v1/host/services/xtts/health');
     expect(fetchMock).toHaveBeenCalledWith('http://api.test/api/v1/host/services/mcp-gateway/health');
     expect(fetchMock).toHaveBeenCalledWith('http://api.test/api/v1/host-resources/summary');
+    expect(workspaceDataMock.refreshSystemStatus).toHaveBeenCalledWith({ force: true });
   });
 
   it('renders host resources summary in the Status section and opens the full dashboard', async () => {

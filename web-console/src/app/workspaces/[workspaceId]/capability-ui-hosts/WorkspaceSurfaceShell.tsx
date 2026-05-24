@@ -19,10 +19,19 @@ import {
 } from '@/lib/workspace-right-region/workspace-right-region-contract';
 import type { WorkspaceToolDefinition } from '@/lib/workspace-tools/workspace-tool-registry';
 import WorkspaceRuntimeFrame from '../components/WorkspaceRuntimeFrame';
-import WorkspaceRunsPanel from './WorkspaceRunsPanel';
-import WorkspaceToolExtensionSlot from './WorkspaceToolExtensionSlot';
+import { useWorkspaceToolDefinitions } from './useWorkspaceToolDefinitions';
 
 const WorkspaceSettingsToolPanel = React.lazy(() => import('./WorkspaceSettingsToolPanel'));
+const WorkspaceRunsPanel = React.lazy(() => import('./WorkspaceRunsPanel'));
+const WorkspaceToolExtensionSlot = React.lazy(() => import('./WorkspaceToolExtensionSlot'));
+
+function WorkspaceToolPanelLoadingState({ label }: { label: string }) {
+  return (
+    <div className="flex h-full items-center justify-center p-3 text-xs text-gray-500 dark:text-gray-400">
+      Loading {label}...
+    </div>
+  );
+}
 
 interface WorkspaceSurfaceShellProps {
   workspaceId: string;
@@ -38,7 +47,7 @@ export default function WorkspaceSurfaceShell({
   children,
 }: WorkspaceSurfaceShellProps) {
   return (
-    <WorkspaceRuntimeFrame workspaceId={workspaceId}>
+    <WorkspaceRuntimeFrame workspaceId={workspaceId} initialLoadProfile="capability-host">
       <WorkspaceSurfaceShellContent
         workspaceId={workspaceId}
         activeCapabilityCode={activeCapabilityCode}
@@ -57,16 +66,17 @@ function WorkspaceSurfaceShellContent({
   children,
 }: WorkspaceSurfaceShellProps) {
   const [activePanel, setActivePanel] = React.useState<string | null>(null);
-  const [extensionTools, setExtensionTools] = React.useState<WorkspaceToolDefinition[]>([]);
   const apiUrl = getApiBaseUrl();
   const workspaceData = useWorkspaceDataOptional();
+  const workspaceToolDefinitions = useWorkspaceToolDefinitions({
+    apiUrl,
+    capabilityCode: activeCapabilityCode,
+  });
   const activeExecutionCount = (workspaceData?.executions || []).filter((execution) => {
     const status = String(execution.status || '').toLowerCase();
     return status === 'running' || status === 'queued' || status === 'pending' || status === 'paused';
   }).length;
-  const handleExtensionToolsChange = React.useCallback((tools: WorkspaceToolDefinition[]) => {
-    setExtensionTools(tools.filter(isPackWorkspaceRailToolVisible));
-  }, []);
+  const runsBadgeCount = activeExecutionCount;
   const runsContribution = React.useMemo(() => createCoreRightRailContribution({
     id: 'runs_panel',
     key: 'core:runs_panel',
@@ -77,6 +87,10 @@ function WorkspaceSurfaceShellContent({
     badgeSource: 'active_execution_count',
     testId: 'workspace-runs-tool',
   }), []);
+  const extensionTools = React.useMemo<WorkspaceToolDefinition[]>(
+    () => workspaceToolDefinitions.tools.filter(isPackWorkspaceRailToolVisible),
+    [workspaceToolDefinitions.tools],
+  );
   const settingsContribution = React.useMemo(() => createCoreRightRailContribution({
     id: 'settings',
     key: 'core:settings',
@@ -100,7 +114,7 @@ function WorkspaceSurfaceShellContent({
           label={runsContribution.label}
           icon={<Activity aria-hidden="true" className="h-4 w-4" />}
           active={activePanel === runsContribution.key}
-          badge={activeExecutionCount || null}
+          badge={runsBadgeCount || null}
           testId={runsContribution.accessibility.test_id}
           onClick={() => setActivePanel((current) => (current === runsContribution.key ? null : runsContribution.key))}
         />
@@ -141,7 +155,7 @@ function WorkspaceSurfaceShellContent({
       });
     }
     return groups;
-  }, [activeExecutionCount, activePanel, extensionContributions, runsContribution, settingsContribution]);
+  }, [activePanel, extensionContributions, runsBadgeCount, runsContribution, settingsContribution]);
   const activeExtensionTool = activePanel && activePanel !== runsContribution.key && activePanel !== settingsContribution.key
     ? activePanel
     : null;
@@ -176,10 +190,12 @@ function WorkspaceSurfaceShellContent({
                 </button>
               </div>
               <div className={WORKSPACE_RIGHT_REGION_PANEL_BODY_CLASS}>
-                <WorkspaceRunsPanel
-                  workspaceId={workspaceId}
-                  activeCapabilityCode={activeCapabilityCode}
-                />
+                <React.Suspense fallback={<WorkspaceToolPanelLoadingState label="Runs" />}>
+                  <WorkspaceRunsPanel
+                    workspaceId={workspaceId}
+                    activeCapabilityCode={activeCapabilityCode}
+                  />
+                </React.Suspense>
               </div>
             </aside>
           ) : null}
@@ -225,24 +241,17 @@ function WorkspaceSurfaceShellContent({
                 </button>
               </div>
               <div className={WORKSPACE_RIGHT_REGION_PANEL_BODY_CLASS}>
-                <WorkspaceToolExtensionSlot
-                  workspaceId={workspaceId}
-                  capabilityCode={activeCapabilityCode}
-                  activeToolKey={activeExtensionTool}
-                  onActiveToolChange={setActivePanel}
-                  onToolsChange={handleExtensionToolsChange}
-                />
+                <React.Suspense fallback={<WorkspaceToolPanelLoadingState label="Tool" />}>
+                  <WorkspaceToolExtensionSlot
+                    workspaceId={workspaceId}
+                    activeToolKey={activeExtensionTool}
+                    tools={extensionTools}
+                  />
+                </React.Suspense>
               </div>
             </aside>
           ) : null}
         </div>
-        <WorkspaceToolExtensionSlot
-          workspaceId={workspaceId}
-          capabilityCode={activeCapabilityCode}
-          activeToolKey={null}
-          onActiveToolChange={setActivePanel}
-          onToolsChange={handleExtensionToolsChange}
-        />
       </section>
     </AOLRuntimeShellProvider>
   );
