@@ -256,6 +256,9 @@ class TasksStoreCrudMixin:
             from backend.app.services.stores.redis.runner_queue_store import (
                 RedisRunnerQueueStore,
             )
+            from backend.app.services.host_resources.route_identity_projection import (
+                build_route_identity_projection,
+            )
 
             q_store = RedisRunnerQueueStore(
                 pack_id=normalize_queue_partition(
@@ -263,7 +266,10 @@ class TasksStoreCrudMixin:
                     fallback=DEFAULT_LOCAL_QUEUE_PARTITION,
                 )
             )
-            success = q_store.enqueue_task_sync(task.id)
+            success = q_store.enqueue_task_sync(
+                task.id,
+                route_identity=build_route_identity_projection(task),
+            )
             if not success:
                 logger.warning(
                     f"[DB Bridge] Failed post-commit enqueue for task {task.id}. "

@@ -12,7 +12,6 @@ that delegates to focused sub-modules:
 """
 
 import asyncio
-from collections import Counter
 import logging
 import os
 import socket
@@ -46,6 +45,10 @@ from backend.app.services.runner_resources import (
 from backend.app.services.stores.tasks_store import TasksStore
 
 from backend.app.services.stores.redis.runner_queue_store import RedisRunnerQueueStore
+from backend.app.services.host_resources.route_identity_projection import (
+    build_route_identity_projection,
+    read_route_identity_projections,
+)
 
 # Sub-module imports
 from backend.app.runner.utils import _utc_now, _parse_utc_iso, _env_int
@@ -308,7 +311,10 @@ async def _backfill_pending_to_redis(
                 tid = str(t.id)
                 if tid in queued:
                     continue
-                await client.lpush(redis_queue.q_pending, tid)
+                await redis_queue.enqueue_task(
+                    tid,
+                    route_identity=build_route_identity_projection(t),
+                )
                 queued.add(tid)
                 enqueued += 1
 
@@ -428,202 +434,6 @@ async def _dequeue_from_ready_queues(
     return task_id, queue_store if task_id else None, next_cursor
 
 
-async def _dequeue_preferred_different_playbook(
-    queue_cycle: list[RedisRunnerQueueStore],
-    *,
-    tasks_store: TasksStore,
-    excluded_pack_ids: set[str],
-    runner_profile,
-    visibility_timeout_sec: int,
-    scan_limit: int,
-) -> tuple[Optional[str], Optional[RedisRunnerQueueStore]]:
-    if not queue_cycle or not excluded_pack_ids or scan_limit <= 0:
-        return None, None
-
-    for queue_store in queue_cycle:
-        client = await queue_store._get_client()
-        if not client:
-            continue
-
-        try:
-            candidate_ids = await client.lrange(
-                queue_store.q_pending,
-                0,
-                max(0, scan_limit - 1),
-            )
-        except Exception as e:
-            logger.warning(
-                "[Worker] Failed to scan ready queue %s for playbook fairness: %s",
-                queue_store.pack_id,
-                e,
-            )
-            continue
-
-        seen: set[str] = set()
-        for raw_task_id in candidate_ids:
-            task_id = _normalize_task_id(raw_task_id).strip()
-            if not task_id or task_id in seen:
-                continue
-            seen.add(task_id)
-
-            try:
-                t_data = await asyncio.to_thread(tasks_store.get_task, task_id)
-            except Exception as e:
-                if is_database_recovery_error(e):
-                    logger.warning(
-                        "[Worker] Database recovery detected while hydrating fairness candidate; deferring claim scan."
-                    )
-                    return None, None
-                logger.warning(
-                    "[Worker] Failed to hydrate fairness candidate %s: %s",
-                    task_id,
-                    e,
-                )
-                continue
-
-            if not t_data or t_data.status != TaskStatus.PENDING:
-                continue
-            pack_id = str(t_data.pack_id or "")
-            if pack_id in excluded_pack_ids:
-                continue
-            if not runner_profile_can_claim_task(runner_profile, t_data):
-                continue
-
-            moved = await queue_store.promote_pending_task_by_id(
-                task_id,
-                visibility_timeout_sec=visibility_timeout_sec,
-            )
-            if moved:
-                logger.info(
-                    "[Worker] Fairness selected task %s playbook=%s while inflight=%s",
-                    task_id,
-                    pack_id,
-                    ",".join(sorted(excluded_pack_ids)),
-                )
-                return moved, queue_store
-
-    return None, None
-
-
-def _parse_reserved_pack_slots(raw_value: Optional[str]) -> dict[str, int]:
-    slots: dict[str, int] = {}
-    for entry in str(raw_value or "").split(","):
-        item = entry.strip()
-        if not item:
-            continue
-        if "=" not in item:
-            logger.warning(
-                "Ignoring invalid LOCAL_CORE_RUNNER_RESERVED_PACK_SLOTS entry=%s",
-                item,
-            )
-            continue
-        pack_id, raw_count = item.split("=", 1)
-        pack_id = pack_id.strip()
-        if not pack_id:
-            continue
-        try:
-            count = int(raw_count.strip())
-        except ValueError:
-            logger.warning(
-                "Ignoring invalid LOCAL_CORE_RUNNER_RESERVED_PACK_SLOTS count entry=%s",
-                item,
-            )
-            continue
-        if count <= 0:
-            continue
-        slots[pack_id] = count
-    return slots
-
-
-def _reserved_pack_deficits(
-    reserved_slots: dict[str, int],
-    active_pack_counts: Counter[str],
-) -> list[str]:
-    return [
-        pack_id
-        for pack_id, reserved_count in reserved_slots.items()
-        if active_pack_counts.get(pack_id, 0) < reserved_count
-    ]
-
-
-async def _dequeue_preferred_pack_candidate(
-    queue_cycle: list[RedisRunnerQueueStore],
-    *,
-    tasks_store: TasksStore,
-    preferred_pack_ids: list[str],
-    runner_profile,
-    visibility_timeout_sec: int,
-    scan_limit: int,
-) -> tuple[Optional[str], Optional[RedisRunnerQueueStore]]:
-    if not queue_cycle or not preferred_pack_ids or scan_limit <= 0:
-        return None, None
-
-    preferred = set(preferred_pack_ids)
-    for queue_store in queue_cycle:
-        client = await queue_store._get_client()
-        if not client:
-            continue
-
-        try:
-            candidate_ids = await client.lrange(
-                queue_store.q_pending,
-                0,
-                max(0, scan_limit - 1),
-            )
-        except Exception as e:
-            logger.warning(
-                "[Worker] Failed to scan ready queue %s for reserved pack slots: %s",
-                queue_store.pack_id,
-                e,
-            )
-            continue
-
-        seen: set[str] = set()
-        for raw_task_id in candidate_ids:
-            task_id = _normalize_task_id(raw_task_id).strip()
-            if not task_id or task_id in seen:
-                continue
-            seen.add(task_id)
-
-            try:
-                t_data = await asyncio.to_thread(tasks_store.get_task, task_id)
-            except Exception as e:
-                if is_database_recovery_error(e):
-                    logger.warning(
-                        "[Worker] Database recovery detected while hydrating reserved pack candidate; deferring claim scan."
-                    )
-                    return None, None
-                logger.warning(
-                    "[Worker] Failed to hydrate reserved pack candidate %s: %s",
-                    task_id,
-                    e,
-                )
-                continue
-
-            if not t_data or t_data.status != TaskStatus.PENDING:
-                continue
-            pack_id = str(t_data.pack_id or "")
-            if pack_id not in preferred:
-                continue
-            if not runner_profile_can_claim_task(runner_profile, t_data):
-                continue
-
-            moved = await queue_store.promote_pending_task_by_id(
-                task_id,
-                visibility_timeout_sec=visibility_timeout_sec,
-            )
-            if moved:
-                logger.info(
-                    "[Worker] Reserved pack slot selected task %s playbook=%s preferred=%s",
-                    task_id,
-                    pack_id,
-                    ",".join(preferred_pack_ids),
-                )
-                return moved, queue_store
-
-    return None, None
-
-
 def _host_route_gate_enabled() -> bool:
     raw = os.getenv("LOCAL_CORE_HOST_RESOURCE_ROUTE_GATE_ENABLED", "true")
     return raw.strip().lower() not in {"0", "false", "no", "off"}
@@ -666,27 +476,27 @@ def _route_drain_after_current_status() -> dict:
         return {"active": False, "source": "unavailable", "reservation_ids": []}
 
 
-async def _dequeue_preferred_route_candidate(
+async def _dequeue_by_route_gate_policy(
     queue_cycle: list[RedisRunnerQueueStore],
     *,
-    tasks_store: TasksStore,
     runner_profile,
     visibility_timeout_sec: int,
     scan_limit: int,
-) -> tuple[Optional[str], Optional[RedisRunnerQueueStore]]:
-    if not queue_cycle or scan_limit <= 0 or not _host_route_gate_enabled():
-        return None, None
+    active_pack_ids: set[str] | None = None,
+) -> tuple[Optional[str], Optional[RedisRunnerQueueStore], bool]:
+    if not queue_cycle or scan_limit <= 0:
+        return None, None, False
+    if not _host_route_gate_enabled():
+        return None, None, False
 
     try:
         from backend.app.services.host_resources import route_gate
 
         active_reservations = route_gate.get_active_route_reservations()
-        if not route_gate.has_active_route_controls(active_reservations):
-            return None, None
     except Exception:
-        return None, None
+        return None, None, False
 
-    best: tuple[int, str, RedisRunnerQueueStore] | None = None
+    candidates: list[dict] = []
     seen: set[str] = set()
     for queue_store in queue_cycle:
         client = await queue_store._get_client()
@@ -705,55 +515,67 @@ async def _dequeue_preferred_route_candidate(
                 e,
             )
             continue
-
-        for raw_task_id in candidate_ids:
+        task_ids: list[str] = []
+        positions: dict[str, int] = {}
+        for position, raw_task_id in enumerate(candidate_ids):
             task_id = _normalize_task_id(raw_task_id).strip()
             if not task_id or task_id in seen:
                 continue
             seen.add(task_id)
-            try:
-                t_data = await asyncio.to_thread(tasks_store.get_task, task_id)
-            except Exception as e:
-                if is_database_recovery_error(e):
-                    logger.warning(
-                        "[Worker] Database recovery detected while hydrating route candidate; deferring claim scan."
-                    )
-                    return None, None
-                logger.warning(
-                    "[Worker] Failed to hydrate route candidate %s: %s",
+            task_ids.append(task_id)
+            positions[task_id] = position
+
+        projections = await read_route_identity_projections(client, task_ids)
+        for task_id in task_ids:
+            projection = projections.get(task_id)
+            if not projection:
+                logger.debug(
+                    "[Worker] Route identity projection missing task=%s queue=%s",
                     task_id,
-                    e,
+                    queue_store.pack_id,
                 )
                 continue
-            if not t_data or t_data.status != TaskStatus.PENDING:
+            if not runner_profile_can_claim_task(runner_profile, projection):
                 continue
-            if not runner_profile_can_claim_task(runner_profile, t_data):
-                continue
-            decision = route_gate.evaluate_route_candidate(
-                t_data,
-                active_reservations=active_reservations,
+            candidates.append(
+                {
+                    **projection,
+                    "queue": queue_store.pack_id,
+                    "queue_position": positions.get(task_id, 0),
+                    "queue_store": queue_store,
+                    "pack_id": projection.get("pack_id"),
+                    "route_identity": projection.get("route_identity") or {},
+                }
             )
-            if not decision.permit:
-                continue
-            if best is None or decision.score > best[0]:
-                best = (decision.score, task_id, queue_store)
 
-    if best is None:
-        return None, None
-    score, task_id, queue_store = best
+    selection = route_gate.select_candidate_policy(
+        candidates,
+        active_reservations=active_reservations,
+        reserved_share_pack_ids=[],
+        active_pack_ids=active_pack_ids or set(),
+    )
+    if selection.get("drain_wait"):
+        return None, None, True
+    selected = selection.get("selected")
+    if not isinstance(selected, dict):
+        return None, None, False
+    task_id = str(selected.get("task_id") or "").strip()
+    queue_store = selected.get("queue_store")
+    if not task_id or not hasattr(queue_store, "promote_pending_task_by_id"):
+        return None, None, False
     moved = await queue_store.promote_pending_task_by_id(
         task_id,
         visibility_timeout_sec=visibility_timeout_sec,
     )
     if moved:
         logger.info(
-            "[Worker] Route gate selected task %s score=%s queue=%s",
+            "[Worker] Route gate policy selected task %s reason=%s queue=%s",
             task_id,
-            score,
+            selection.get("reason"),
             queue_store.pack_id,
         )
-        return moved, queue_store
-    return None, None
+        return moved, queue_store, False
+    return None, None, False
 
 
 def _build_parked_task_update(
@@ -1033,8 +855,7 @@ async def run_forever() -> None:
 
     logger.info(
         "Local-Core runner started runner_id=%s profile=%s partitions=%s "
-        "resource_classes=%s poll_interval_ms=%s max_inflight=%s poll_batch_limit=%s "
-        "reserved_pack_slots=%s",
+        "resource_classes=%s poll_interval_ms=%s max_inflight=%s poll_batch_limit=%s",
         runner_id,
         runner_profile.profile_code,
         ",".join(runner_profile.accepted_queue_partitions),
@@ -1042,7 +863,6 @@ async def run_forever() -> None:
         poll_interval_ms,
         max_inflight,
         capacity.poll_batch_limit,
-        os.getenv("LOCAL_CORE_RUNNER_RESERVED_PACK_SLOTS", ""),
     )
 
     postgres_heartbeat_enabled = _postgres_runner_heartbeat_enabled()
@@ -1085,9 +905,6 @@ async def run_forever() -> None:
     playbook_fair_scan_limit = _env_int(
         "LOCAL_CORE_RUNNER_PLAYBOOK_FAIR_SCAN_LIMIT",
         128,
-    )
-    reserved_pack_slots = _parse_reserved_pack_slots(
-        os.getenv("LOCAL_CORE_RUNNER_RESERVED_PACK_SLOTS")
     )
     db_recovery_backoff = RunnerDatabaseRecoveryBackoff(
         delay_seconds=_env_int("LOCAL_CORE_RUNNER_DB_RECOVERY_BACKOFF_SECONDS", 30)
@@ -1283,59 +1100,30 @@ async def run_forever() -> None:
             for task in inflight
             if str(getattr(task, "_mindscape_pack_id", "") or "").strip()
         }
-        active_pack_counts = Counter(
-            str(getattr(task, "_mindscape_pack_id", "") or "")
-            for task in inflight
-            if str(getattr(task, "_mindscape_pack_id", "") or "").strip()
-        )
 
         task_id = None
         task_queue = None
-        task_id, task_queue = await _dequeue_preferred_route_candidate(
+        route_drain_wait = False
+        task_id, task_queue, route_drain_wait = await _dequeue_by_route_gate_policy(
             queue_cycle,
-            tasks_store=tasks_store,
             runner_profile=runner_profile,
             visibility_timeout_sec=visibility_timeout_sec,
             scan_limit=playbook_fair_scan_limit,
+            active_pack_ids=active_pack_ids,
         )
-        if not task_id or not task_queue:
+        if route_drain_wait:
             route_drain_gate = _route_drain_after_current_status()
-            if route_drain_gate.get("active"):
-                now_loop = asyncio.get_event_loop().time()
-                if now_loop >= next_route_drain_gate_log_at:
-                    logger.warning(
-                        "Runner route drain gate waiting profile=%s reservation_ids=%s inflight=%s",
-                        runner_profile.profile_code,
-                        ",".join(route_drain_gate.get("reservation_ids") or []),
-                        len(inflight),
-                    )
-                    next_route_drain_gate_log_at = now_loop + 30.0
-                await asyncio.sleep(poll_interval_ms / 1000)
-                continue
-        reserved_pack_ids = _reserved_pack_deficits(
-            reserved_pack_slots,
-            active_pack_counts,
-        )
-        if reserved_pack_ids and playbook_fair_scan_limit > 0:
-            if not task_id or not task_queue:
-                task_id, task_queue = await _dequeue_preferred_pack_candidate(
-                    queue_cycle,
-                    tasks_store=tasks_store,
-                    preferred_pack_ids=reserved_pack_ids,
-                    runner_profile=runner_profile,
-                    visibility_timeout_sec=visibility_timeout_sec,
-                    scan_limit=playbook_fair_scan_limit,
+            now_loop = asyncio.get_event_loop().time()
+            if now_loop >= next_route_drain_gate_log_at:
+                logger.warning(
+                    "Runner route drain gate waiting profile=%s reservation_ids=%s inflight=%s",
+                    runner_profile.profile_code,
+                    ",".join(route_drain_gate.get("reservation_ids") or []),
+                    len(inflight),
                 )
-        if active_pack_ids and playbook_fair_scan_limit > 0:
-            if not task_id or not task_queue:
-                task_id, task_queue = await _dequeue_preferred_different_playbook(
-                    queue_cycle,
-                    tasks_store=tasks_store,
-                    excluded_pack_ids=active_pack_ids,
-                    runner_profile=runner_profile,
-                    visibility_timeout_sec=visibility_timeout_sec,
-                    scan_limit=playbook_fair_scan_limit,
-                )
+                next_route_drain_gate_log_at = now_loop + 30.0
+            await asyncio.sleep(poll_interval_ms / 1000)
+            continue
 
         # Blocking pop from pending to processing replaces DB polling.
         if not task_id or not task_queue:

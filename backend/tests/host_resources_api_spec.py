@@ -130,6 +130,13 @@ def test_summary_endpoint_returns_compact_contract(monkeypatch):
             "draining": 1,
             "targets": ["comfyui_runtime:flux2"],
         },
+        "control_plane_pressure": {
+            "state": "ok",
+            "memory_mb": 0,
+            "process_count": 0,
+            "primary_blockers": [],
+            "recommended_actions": [],
+        },
         "alerts": [
             {
                 "alert_id": "memory_pressure_watch",
@@ -153,6 +160,52 @@ def test_summary_endpoint_returns_compact_contract(monkeypatch):
         "dashboard_href": "/settings?tab=runtime&section=host-resources",
     }
     assert received == {"refresh": True}
+
+
+def test_admission_preview_endpoint_returns_gone_with_route_intent_replacement():
+    app = FastAPI()
+    app.include_router(host_resources.router)
+
+    response = TestClient(app).get("/api/v1/host-resources/admission-preview?lane_id=lane:a")
+
+    assert response.status_code == 410
+    assert response.json()["detail"] == {
+        "replacement": "/api/v1/host-resources/route-intents/preview",
+        "reason": "admission_preview_replaced_by_route_intent_preview",
+    }
+
+
+def test_route_intent_preview_endpoint_forwards_payload(monkeypatch):
+    received = {}
+
+    async def _build_route_intent_preview(payload):
+        received.update(payload)
+        return {
+            "route_intent": payload,
+            "route_intent_preview": {
+                "decision": "preview_ready",
+                "reservation_payload": {
+                    "route_request": payload,
+                },
+            },
+        }
+
+    monkeypatch.setattr(
+        host_resources,
+        "build_route_intent_preview",
+        _build_route_intent_preview,
+    )
+    app = FastAPI()
+    app.include_router(host_resources.router)
+
+    response = TestClient(app).post(
+        "/api/v1/host-resources/route-intents/preview",
+        json={"target_lane": "comfyui_runtime:flux2"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["route_intent"] == {"target_lane": "comfyui_runtime:flux2"}
+    assert received == {"target_lane": "comfyui_runtime:flux2"}
 
 
 def test_route_reservation_events_endpoint_returns_events(monkeypatch):

@@ -23,6 +23,9 @@ from backend.app.services.runner_resources import (
     resource_lease_keys_from_context,
 )
 from backend.app.services.runner_live_state import RunnerLiveStateStore
+from backend.app.services.host_resources.route_identity_projection import (
+    build_route_identity_projection,
+)
 
 from backend.app.runner.concurrency import _resolve_lock_keys
 from backend.app.runner.database_backoff import is_database_recovery_error
@@ -826,11 +829,18 @@ async def _reap_redis_queues(
                 moved = 0
                 for i in range(0, len(delayed_items), _PIPELINE_BATCH):
                     batch = delayed_items[i:i + _PIPELINE_BATCH]
-                    pipe = client.pipeline()
                     for task_id in batch:
-                        pipe.lpush(redis_queue.q_pending, task_id)
-                        pipe.zrem(redis_queue.q_delayed, task_id)
-                    await pipe.execute()
+                        normalized_task_id = _normalize_task_id(task_id)
+                        task = await asyncio.to_thread(tasks_store.get_task, normalized_task_id)
+                        await redis_queue.enqueue_task(
+                            normalized_task_id,
+                            route_identity=(
+                                build_route_identity_projection(task)
+                                if task
+                                else {"task_id": normalized_task_id}
+                            ),
+                        )
+                        await client.zrem(redis_queue.q_delayed, task_id)
                     moved += len(batch)
                     # Yield so Redis can serve other clients between batches
                     if i + _PIPELINE_BATCH < len(delayed_items):
@@ -888,10 +898,11 @@ async def _reap_redis_queues(
                     frontier_enqueued_at=_utc_now(),
                 )
                 
-                pipe = client.pipeline()
-                pipe.lpush(redis_queue.q_pending, task_id)
-                pipe.zrem(redis_queue.q_processing, task_id)
-                await pipe.execute()
+                await redis_queue.enqueue_task(
+                    _normalize_task_id(task_id),
+                    route_identity=build_route_identity_projection(t_data),
+                )
+                await client.zrem(redis_queue.q_processing, task_id)
                 
             except Exception as e:
                 logger.error(f"Failed to recycle visibility task {task_id}: {e}")
@@ -974,22 +985,23 @@ async def _reap_redis_queues(
             missing_tasks = []
             for t in pending_tasks:
                 if t.id not in all_queued:
-                    missing_tasks.append(t.id)
+                    missing_tasks.append(t)
                 if len(missing_tasks) >= refill_limit:
                     break
 
             if missing_tasks:
                 for i in range(0, len(missing_tasks), _PIPELINE_BATCH):
                     batch = missing_tasks[i:i + _PIPELINE_BATCH]
-                    pipe = client.pipeline()
-                    for task_id in batch:
-                        pipe.lpush(redis_queue.q_pending, task_id)
-                    await pipe.execute()
+                    for task in batch:
+                        await redis_queue.enqueue_task(
+                            str(task.id),
+                            route_identity=build_route_identity_projection(task),
+                        )
                     if i + _PIPELINE_BATCH < len(missing_tasks):
                         await asyncio.sleep(0)
                 await _mark_frontier_ready(
                     tasks_store,
-                    [str(task_id) for task_id in missing_tasks],
+                    [str(task.id) for task in missing_tasks],
                     queue_shard=redis_queue.pack_id,
                 )
                 logger.warning(

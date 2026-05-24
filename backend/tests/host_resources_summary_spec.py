@@ -103,6 +103,13 @@ def test_summary_contract_uses_stable_compact_fields():
             "draining": 0,
             "targets": [],
         },
+        "control_plane_pressure": {
+            "state": "ok",
+            "memory_mb": 0,
+            "process_count": 0,
+            "primary_blockers": [],
+            "recommended_actions": [],
+        },
         "alerts": [
             {
                 "alert_id": "host_resource_lanes_blocked",
@@ -123,6 +130,13 @@ def test_summary_handles_missing_memory_pressure_without_500():
     assert summary["headroom_mb"] == 0
     assert summary["lanes"] == {"busy": 0, "blocked": 0, "total": 0}
     assert summary["route_controls"] == {"active": 0, "draining": 0, "targets": []}
+    assert summary["control_plane_pressure"] == {
+        "state": "ok",
+        "memory_mb": 0,
+        "process_count": 0,
+        "primary_blockers": [],
+        "recommended_actions": [],
+    }
     assert summary["alerts"] == []
 
 

@@ -109,6 +109,71 @@ def _consumer_from_process(process: dict[str, Any]) -> dict[str, Any] | None:
             "confidence": "observed",
             "exclusive_groups": ["comfyui_generation"],
         }
+    if "postgres" in combined:
+        return {
+            "consumer_id": f"postgresql:process:{pid}",
+            "label": "PostgreSQL",
+            "kind": "postgresql",
+            "pid": pid,
+            "command": args or command,
+            "memory_mb": rss_mb,
+            "memory_source": "rss",
+            "rss_mb": rss_mb,
+            "confidence": "observed",
+            "exclusive_groups": ["control_plane_db"],
+        }
+    if "pgbouncer" in combined:
+        return {
+            "consumer_id": f"pgbouncer:process:{pid}",
+            "label": "PgBouncer",
+            "kind": "pgbouncer",
+            "pid": pid,
+            "command": args or command,
+            "memory_mb": rss_mb,
+            "memory_source": "rss",
+            "rss_mb": rss_mb,
+            "confidence": "observed",
+            "exclusive_groups": ["control_plane_db"],
+        }
+    if "uvicorn" in combined or "backend.app" in combined:
+        return {
+            "consumer_id": f"local_core_backend:process:{pid}",
+            "label": "Local-Core Backend",
+            "kind": "local_core_backend",
+            "pid": pid,
+            "command": args or command,
+            "memory_mb": rss_mb,
+            "memory_source": "rss",
+            "rss_mb": rss_mb,
+            "confidence": "observed",
+            "exclusive_groups": ["control_plane_api"],
+        }
+    if "next" in combined or "node" in combined and "web-console" in combined:
+        return {
+            "consumer_id": f"web_console_frontend:process:{pid}",
+            "label": "Web Console Frontend",
+            "kind": "web_console_frontend",
+            "pid": pid,
+            "command": args or command,
+            "memory_mb": rss_mb,
+            "memory_source": "rss",
+            "rss_mb": rss_mb,
+            "confidence": "observed",
+            "exclusive_groups": ["control_plane_frontend"],
+        }
+    if "playwright" in combined or "chromium" in combined:
+        return {
+            "consumer_id": f"browser_or_playwright:process:{pid}",
+            "label": "Browser / Playwright",
+            "kind": "browser_or_playwright",
+            "pid": pid,
+            "command": args or command,
+            "memory_mb": rss_mb,
+            "memory_source": "rss",
+            "rss_mb": rss_mb,
+            "confidence": "observed",
+            "exclusive_groups": ["browser_local"],
+        }
     return None
 
 

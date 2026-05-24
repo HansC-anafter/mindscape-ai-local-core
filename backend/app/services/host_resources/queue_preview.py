@@ -2,15 +2,13 @@
 
 from __future__ import annotations
 
-import asyncio
 from typing import Any
 
-from backend.app.models.workspace import TaskStatus
 from backend.app.services.runner_topology import RUNNER_READY_QUEUE_ORDER
 from backend.app.services.stores.redis.runner_queue_store import RedisRunnerQueueStore
-from backend.app.services.stores.tasks_store import TasksStore
 
 from . import route_gate
+from .route_identity_projection import read_route_identity_projections
 
 
 def _normalize_task_id(raw_value: object) -> str:
@@ -19,30 +17,25 @@ def _normalize_task_id(raw_value: object) -> str:
     return str(raw_value)
 
 
-def _task_status_value(task: Any) -> str:
-    status = getattr(task, "status", "")
-    return str(getattr(status, "value", status))
-
-
-def _task_summary(
-    task: Any,
+def _projection_summary(
+    projection: dict[str, Any],
     *,
     queue_name: str,
     queue_position: int,
     score: int,
     reservation_id: str,
 ) -> dict[str, Any]:
-    identity = route_gate.task_route_identity(task)
+    identity = projection.get("route_identity") if isinstance(projection.get("route_identity"), dict) else {}
     return {
-        "task_id": str(getattr(task, "id", "")),
+        "task_id": str(projection.get("task_id") or ""),
         "queue": queue_name,
         "queue_position": queue_position,
         "score": score,
         "reservation_id": reservation_id,
-        "pack_id": getattr(task, "pack_id", None),
-        "task_type": getattr(task, "task_type", None),
-        "workspace_id": getattr(task, "workspace_id", None),
-        "blocked_reason": getattr(task, "blocked_reason", None),
+        "pack_id": projection.get("pack_id"),
+        "task_type": projection.get("task_type"),
+        "workspace_id": projection.get("workspace_id"),
+        "blocked_reason": projection.get("blocked_reason"),
         "route_identity": identity,
     }
 
@@ -74,7 +67,6 @@ async def build_route_reservation_candidate_previews(
     This is intentionally read-only. The worker still owns actual promotion.
     """
 
-    tasks_store = tasks_store or TasksStore()
     queue_stores = queue_stores if queue_stores is not None else _default_queue_stores()
     scan_limit = max(1, min(int(scan_limit or 25), 200))
     previews: dict[str, dict[str, Any]] = {}
@@ -107,6 +99,8 @@ async def build_route_reservation_candidate_previews(
         queue_name = str(getattr(queue_store, "pack_id", "") or getattr(queue_store, "q_pending", ""))
         try:
             task_ids = await _pending_task_ids(queue_store, scan_limit=scan_limit)
+            client = await queue_store._get_client()
+            projections = await read_route_identity_projections(client, task_ids)
         except Exception as exc:
             for reservation in active_reservations:
                 reservation_id = str(reservation.get("reservation_id") or "")
@@ -130,26 +124,23 @@ async def build_route_reservation_candidate_previews(
             if task_id in seen:
                 continue
             seen.add(task_id)
-            try:
-                task = await asyncio.to_thread(tasks_store.get_task, task_id)
-            except Exception:
-                continue
-            if not task or _task_status_value(task) != TaskStatus.PENDING.value:
+            projection = projections.get(task_id)
+            if not projection:
                 continue
 
             for reservation in active_reservations:
                 reservation_id = str(reservation.get("reservation_id") or "")
                 if not reservation_id or reservation_id not in previews:
                     continue
-                decision = route_gate.evaluate_route_candidate(
-                    task,
+                decision = route_gate.evaluate_route_identity_candidate(
+                    projection.get("route_identity") or {},
                     active_reservations=[reservation],
                 )
                 if not decision.permit:
                     continue
                 preview = previews[reservation_id]
-                summary = _task_summary(
-                    task,
+                summary = _projection_summary(
+                    projection,
                     queue_name=queue_name,
                     queue_position=position,
                     score=decision.score,

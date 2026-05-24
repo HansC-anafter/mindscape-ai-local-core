@@ -1,6 +1,6 @@
 import pytest
 
-from backend.app.services.host_resources.advisor import build_admission_preview
+from backend.app.services.host_resources.route_intents import build_route_intent_preview
 from backend.app.services.host_resources.samplers import degraded_snapshot, snapshot_from_probe
 
 
@@ -59,56 +59,129 @@ def test_degraded_snapshot_marks_lanes_degraded():
 
 
 @pytest.mark.asyncio
-async def test_admission_preview_defers_declared_comfyui_lane_when_mlx_group_busy(monkeypatch):
-    import backend.app.services.host_resources.advisor as advisor
+async def test_route_intent_preview_uses_manifest_declared_comfyui_lane(monkeypatch, tmp_path):
+    import backend.app.services.host_resources.lane_registry as lane_registry
+    import backend.app.services.host_resources.route_intents as route_intents
 
     async def _snapshot(refresh=False):
         return snapshot_from_probe(_probe_payload())
 
-    monkeypatch.setattr(advisor, "get_host_resource_snapshot", _snapshot)
-    monkeypatch.delenv("LOCAL_CORE_HOST_RESOURCE_LANES_JSON", raising=False)
+    async def _candidate_previews(reservations, scan_limit=25):
+        return {
+            "preview": {
+                "matching_candidates": [
+                    {
+                        "task_id": "render-1",
+                        "score": 100,
+                    }
+                ]
+            }
+        }
 
-    preview = await build_admission_preview(
-        lane_id="comfyui_runtime:flux2_klein_true_v2_q6_local"
+    capability_dir = tmp_path / "capabilities" / "comfyui_runtime"
+    capability_dir.mkdir(parents=True)
+    (capability_dir / "manifest.yaml").write_text(
+        """
+host_resource_lanes:
+  comfyui_runtime:flux2_klein_true_v2_q6_local:
+    label: Flux.2 Klein True V2 Q6 Local
+    kind: generation_lane
+    resource_flavor: local.mps.comfyui
+    profile_id: vr_flux2_klein_true_v2_q6_local
+    requirements:
+      memory_mb: 18432
+      memory_source: declared_manifest_model_footprint
+      exclusive_groups:
+        - apple_metal_heavy
+        - comfyui_generation
+""",
+        encoding="utf-8",
     )
+    monkeypatch.setattr(route_intents, "get_host_resource_snapshot", _snapshot)
+    monkeypatch.setattr(route_intents, "build_route_reservation_candidate_previews", _candidate_previews)
+    monkeypatch.setattr(lane_registry, "_capabilities_dir", lambda: tmp_path / "capabilities")
 
-    assert preview["allow"] is False
-    assert preview["decision"] == "defer"
-    assert preview["reason"] == "exclusive_group_busy"
-    assert preview["required"]["memory_mb"] == 18432
+    preview = await build_route_intent_preview(
+        {
+            "target_lane": "comfyui_runtime:flux2_klein_true_v2_q6_local",
+            "include_candidates": True,
+            "refresh": True,
+        }
+    )
+    intent = preview["route_intent"]
+    route_preview = preview["route_intent_preview"]
+
+    assert intent["resource_flavor"] == "local.mps.comfyui"
+    assert intent["resource_groups"] == ["apple_metal_heavy", "comfyui_generation"]
+    assert route_preview["decision"] == "preview_ready"
+    assert route_preview["estimated_memory_mb"] == 18432
+    assert route_preview["pressure_delta"]["headroom_after_mb"] == 3072
+    assert route_preview["matching_candidates"][0]["task_id"] == "render-1"
+    assert route_preview["reservation_payload"]["route_request"]["drain_policy"] == "drain_after_current"
 
 
 @pytest.mark.asyncio
-async def test_admission_preview_does_not_allow_unknown_lane_requirements_from_override(monkeypatch):
-    import json
+async def test_route_intent_preview_rejects_unknown_lane_without_reservation_payload():
+    preview = await build_route_intent_preview({"target_lane": "unknown:lane"})
 
-    import backend.app.services.host_resources.advisor as advisor
+    route_preview = preview["route_intent_preview"]
+    assert route_preview["decision"] == "unknown_lane"
+    assert route_preview["reason"] == "target_lane_not_declared"
+    assert route_preview["reservation_payload"] is None
+
+
+@pytest.mark.asyncio
+async def test_route_intent_preview_keeps_reservation_payload_when_candidate_scan_times_out(monkeypatch, tmp_path):
+    import asyncio
+
+    import backend.app.services.host_resources.lane_registry as lane_registry
+    import backend.app.services.host_resources.route_intents as route_intents
 
     async def _snapshot(refresh=False):
         return snapshot_from_probe(_probe_payload())
 
-    monkeypatch.setattr(advisor, "get_host_resource_snapshot", _snapshot)
-    monkeypatch.setenv(
-        "LOCAL_CORE_HOST_RESOURCE_LANES_JSON",
-        json.dumps(
-            {
-                "comfyui_runtime:flux2_klein_true_v2_q6_local": {
-                    "requirements": {
-                        "memory_mb": None,
-                        "memory_source": "unknown",
-                    }
-                }
-            }
-        ),
+    async def _slow_candidate_previews(reservations, scan_limit=25):
+        await asyncio.sleep(0.3)
+        return {}
+
+    capability_dir = tmp_path / "capabilities" / "comfyui_runtime"
+    capability_dir.mkdir(parents=True)
+    (capability_dir / "manifest.yaml").write_text(
+        """
+host_resource_lanes:
+  comfyui_runtime:flux2_klein_true_v2_q6_local:
+    label: Flux.2 Klein True V2 Q6 Local
+    kind: generation_lane
+    resource_flavor: local.mps.comfyui
+    profile_id: vr_flux2_klein_true_v2_q6_local
+    requirements:
+      memory_mb: 18432
+      memory_source: declared_manifest_model_footprint
+      exclusive_groups:
+        - apple_metal_heavy
+        - comfyui_generation
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(route_intents, "get_host_resource_snapshot", _snapshot)
+    monkeypatch.setattr(route_intents, "build_route_reservation_candidate_previews", _slow_candidate_previews)
+    monkeypatch.setattr(lane_registry, "_capabilities_dir", lambda: tmp_path / "capabilities")
+
+    preview = await build_route_intent_preview(
+        {
+            "target_lane": "comfyui_runtime:flux2_klein_true_v2_q6_local",
+            "include_candidates": True,
+            "refresh": True,
+            "candidate_preview_timeout_seconds": 0.01,
+        }
     )
 
-    preview = await build_admission_preview(
-        lane_id="comfyui_runtime:flux2_klein_true_v2_q6_local"
-    )
-
-    assert preview["allow"] is False
-    assert preview["decision"] == "unknown_requirements"
-    assert preview["reason"] == "memory_requirement_unknown"
+    route_preview = preview["route_intent_preview"]
+    assert route_preview["decision"] == "preview_ready"
+    assert route_preview["reservation_payload"]["route_request"]["target_lane"] == "comfyui_runtime:flux2_klein_true_v2_q6_local"
+    assert route_preview["matching_candidates"] == []
+    assert route_preview["preview_errors"][0]["source"] == "candidate_preview"
+    assert route_preview["preview_errors"][0]["error"] == "TimeoutError"
 
 
 def test_route_reservation_normalizes_flat_payload_and_cancels_persisted(monkeypatch):

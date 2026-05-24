@@ -9,6 +9,11 @@ import logging
 from typing import Optional, List, Tuple
 from datetime import datetime, timezone
 
+from backend.app.services.host_resources.route_identity_projection import (
+    ROUTE_IDENTITY_TTL_SECONDS,
+    route_identity_key,
+    serialize_route_identity_projection,
+)
 from backend.app.services.cache.async_redis import get_async_redis_client
 from backend.app.services.cache.redis_cache import get_cache_service
 
@@ -59,14 +64,26 @@ class RedisRunnerQueueStore:
 
     # --- Queue Methods ---
 
-    async def enqueue_task(self, task_id: str) -> bool:
+    async def enqueue_task(
+        self,
+        task_id: str,
+        *,
+        route_identity: dict | None = None,
+    ) -> bool:
         """Push a task to the pending queue."""
         client = await self._get_client()
         if not client:
             return False
         
         try:
-            await client.lpush(self.q_pending, task_id)
+            pipe = client.pipeline()
+            pipe.setex(
+                route_identity_key(task_id),
+                ROUTE_IDENTITY_TTL_SECONDS,
+                serialize_route_identity_projection(task_id, route_identity),
+            )
+            pipe.lpush(self.q_pending, task_id)
+            await pipe.execute()
             return True
         except Exception as e:
             logger.error(f"[Redis Queue] Failed to enqueue {task_id}: {e}")
@@ -91,14 +108,26 @@ class RedisRunnerQueueStore:
             logger.error(f"[Redis Queue] Failed to promote {task_id} into processing: {e}")
             return None
 
-    def enqueue_task_sync(self, task_id: str) -> bool:
+    def enqueue_task_sync(
+        self,
+        task_id: str,
+        *,
+        route_identity: dict | None = None,
+    ) -> bool:
         """Synchronous enqueue for use inside SQLAlchemy commits."""
         cache = get_cache_service()
         if not cache._ensure_connected() or not cache._client:
             return False
         
         try:
-            cache._client.lpush(self.q_pending, task_id)
+            pipe = cache._client.pipeline()
+            pipe.setex(
+                route_identity_key(task_id),
+                ROUTE_IDENTITY_TTL_SECONDS,
+                serialize_route_identity_projection(task_id, route_identity),
+            )
+            pipe.lpush(self.q_pending, task_id)
+            pipe.execute()
             return True
         except Exception as e:
             logger.error(f"[Redis Queue] Failed sync enqueue {task_id}: {e}")
@@ -113,7 +142,6 @@ class RedisRunnerQueueStore:
 
         temp_list = f"mindscape:queue:temp:{self.pack_id}"
         try:
-            # Step 1: BLMOVE from pending to a temp list atomically.
             # Using BLMOVE (Redis 6+) if available, else fallback down.
             item = await client.blmove(
                 self.q_pending,

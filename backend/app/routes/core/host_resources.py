@@ -4,9 +4,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from fastapi import APIRouter, Body, Query
+from fastapi import APIRouter, Body, HTTPException, Query
 
-from backend.app.services.host_resources.advisor import build_admission_preview
 from backend.app.services.host_resources.manager import (
     cancel_route_reservation,
     create_route_reservation,
@@ -22,9 +21,7 @@ from backend.app.services.host_resources.manager import (
     resume_runner_claim_gate,
     update_notification,
 )
-from backend.app.services.host_resources.queue_preview import (
-    build_route_reservation_candidate_previews,
-)
+from backend.app.services.host_resources.route_intents import build_route_intent_preview
 from backend.app.services.host_resources.schema_readiness import (
     check_host_resource_schema_readiness,
 )
@@ -65,11 +62,12 @@ async def get_admission_preview(
     cpu_weight: Optional[int] = Query(None),
     refresh: bool = Query(False),
 ) -> dict[str, Any]:
-    return await build_admission_preview(
-        lane_id=lane_id,
-        memory_mb=memory_mb,
-        cpu_weight=cpu_weight,
-        refresh=refresh,
+    raise HTTPException(
+        status_code=410,
+        detail={
+            "replacement": "/api/v1/host-resources/route-intents/preview",
+            "reason": "admission_preview_replaced_by_route_intent_preview",
+        },
     )
 
 
@@ -85,10 +83,8 @@ async def resume_host_lane(lane_id: str) -> dict[str, Any]:
 
 @router.get("/route-reservations")
 async def get_route_reservations(
-    include_candidates: bool = Query(False),
     include_durable: bool = Query(True),
     state: Optional[str] = Query(None),
-    scan_limit: int = Query(25, ge=1, le=200),
     limit: int = Query(100, ge=1, le=200),
 ) -> dict[str, Any]:
     reservations = list_route_reservations(
@@ -96,21 +92,14 @@ async def get_route_reservations(
         state=state,
         limit=limit,
     )
-    if not include_candidates:
-        return {"reservations": reservations}
-    previews = await build_route_reservation_candidate_previews(
-        reservations,
-        scan_limit=scan_limit,
-    )
-    return {
-        "reservations": [
-            {
-                **reservation,
-                "candidate_preview": previews.get(str(reservation.get("reservation_id") or "")),
-            }
-            for reservation in reservations
-        ]
-    }
+    return {"reservations": reservations}
+
+
+@router.post("/route-intents/preview")
+async def post_route_intent_preview(
+    payload: Optional[dict[str, Any]] = Body(default=None),
+) -> dict[str, Any]:
+    return await build_route_intent_preview(payload or {})
 
 
 @router.get("/route-reservations/events")

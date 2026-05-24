@@ -1,18 +1,18 @@
 import asyncio
-from collections import Counter
 
 from backend.app.models.workspace import Task, TaskStatus, _utc_now
 from backend.app.runner import worker
 from backend.app.runner.worker import (
     _build_parked_task_update,
-    _dequeue_preferred_different_playbook,
-    _dequeue_preferred_pack_candidate,
-    _parse_reserved_pack_slots,
-    _reserved_pack_deficits,
+    _dequeue_by_route_gate_policy,
 )
 from backend.app.runner.database_backoff import (
     RunnerDatabaseRecoveryBackoff,
     is_database_recovery_error,
+)
+from backend.app.services.host_resources import route_gate
+from backend.app.services.host_resources.route_identity_projection import (
+    serialize_route_identity_projection,
 )
 from backend.app.services.runner_topology.profile_registry import RunnerProfile
 
@@ -20,9 +20,13 @@ from backend.app.services.runner_topology.profile_registry import RunnerProfile
 class _FakeFairClient:
     def __init__(self, ids):
         self.ids = ids
+        self.projections = {}
 
     async def lrange(self, queue_name, start, end):
         return self.ids[start : end + 1]
+
+    async def mget(self, keys):
+        return [self.projections.get(key) for key in keys]
 
 
 class _FakeFairQueue:
@@ -45,19 +49,6 @@ class _FakeFairQueue:
         return task_id
 
 
-class _FakeTaskStore:
-    def __init__(self, tasks):
-        self.tasks = tasks
-
-    def get_task(self, task_id):
-        return self.tasks.get(task_id)
-
-
-class _RecoveryTaskStore:
-    def get_task(self, task_id):
-        raise RuntimeError("FATAL: the database system is in recovery mode")
-
-
 def _pending_browser_task(task_id: str, pack_id: str) -> Task:
     now = _utc_now()
     return Task(
@@ -74,6 +65,24 @@ def _pending_browser_task(task_id: str, pack_id: str) -> Task:
     )
 
 
+def _projection(task_id: str, pack_id: str, *, lane_id: str = "runner:default_local"):
+    return {
+        "task_id": task_id,
+        "pack_id": pack_id,
+        "playbook_code": pack_id,
+        "task_type": "playbook_execution",
+        "workspace_id": "ws-1",
+        "queue_shard": "browser_local",
+        "route_identity": {
+            "lane_id": lane_id,
+            "resource_groups": [lane_id],
+            "priority_class": "default",
+            "pack_id": pack_id,
+            "playbook_code": pack_id,
+        },
+    }
+
+
 def _browser_profile() -> RunnerProfile:
     return RunnerProfile(
         profile_code="browser_local",
@@ -85,156 +94,95 @@ def _browser_profile() -> RunnerProfile:
     )
 
 
-def test_dequeue_preferred_different_playbook_selects_lane_diversity():
+def test_route_gate_policy_selects_playbook_diversity():
     queue = _FakeFairQueue(["task-following", "task-batch"])
+    for task_id, pack_id in {
+        "task-following": "ig_analyze_following",
+        "task-batch": "ig_batch_pin_references",
+    }.items():
+        queue.client.projections[
+            f"mindscape:host_resources:route_identity:{task_id}"
+        ] = serialize_route_identity_projection(task_id, _projection(task_id, pack_id))
 
-    task_id, queue_store = asyncio.run(
-        _dequeue_preferred_different_playbook(
+    task_id, queue_store, drain_wait = asyncio.run(
+        _dequeue_by_route_gate_policy(
             [queue],
-            tasks_store=_FakeTaskStore(
-                {
-                    "task-following": _pending_browser_task(
-                        "task-following",
-                        "ig_analyze_following",
-                    ),
-                    "task-batch": _pending_browser_task(
-                        "task-batch",
-                        "ig_batch_pin_references",
-                    ),
-                }
-            ),
-            excluded_pack_ids={"ig_batch_pin_references"},
             runner_profile=_browser_profile(),
             visibility_timeout_sec=180,
             scan_limit=10,
+            active_pack_ids={"ig_batch_pin_references"},
         )
     )
 
     assert task_id == "task-following"
     assert queue_store is queue
+    assert drain_wait is False
     assert queue.promoted == ["task-following"]
 
 
-def test_dequeue_preferred_different_playbook_falls_back_when_only_same_lane():
+def test_route_gate_policy_falls_back_when_only_same_playbook():
     queue = _FakeFairQueue(["task-batch-a", "task-batch-b"])
+    for task_id in ["task-batch-a", "task-batch-b"]:
+        queue.client.projections[
+            f"mindscape:host_resources:route_identity:{task_id}"
+        ] = serialize_route_identity_projection(
+            task_id,
+            _projection(task_id, "ig_batch_pin_references"),
+        )
 
-    task_id, queue_store = asyncio.run(
-        _dequeue_preferred_different_playbook(
+    task_id, queue_store, drain_wait = asyncio.run(
+        _dequeue_by_route_gate_policy(
             [queue],
-            tasks_store=_FakeTaskStore(
-                {
-                    "task-batch-a": _pending_browser_task(
-                        "task-batch-a",
-                        "ig_batch_pin_references",
-                    ),
-                    "task-batch-b": _pending_browser_task(
-                        "task-batch-b",
-                        "ig_batch_pin_references",
-                    ),
-                }
-            ),
-            excluded_pack_ids={"ig_batch_pin_references"},
             runner_profile=_browser_profile(),
             visibility_timeout_sec=180,
             scan_limit=10,
+            active_pack_ids={"ig_batch_pin_references"},
         )
     )
 
     assert task_id is None
     assert queue_store is None
+    assert drain_wait is False
     assert queue.promoted == []
 
 
-def test_dequeue_preferred_different_playbook_stops_on_database_recovery():
-    queue = _FakeFairQueue(["task-following", "task-batch"])
+def test_route_gate_policy_waits_for_drain_after_current(monkeypatch):
+    queue = _FakeFairQueue(["task-default"])
+    queue.client.projections[
+        "mindscape:host_resources:route_identity:task-default"
+    ] = serialize_route_identity_projection(
+        "task-default",
+        _projection("task-default", "ig_batch_pin_references"),
+    )
+    monkeypatch.setattr(
+        route_gate,
+        "list_active_route_reservations",
+        lambda: [
+            {
+                "reservation_id": "res-1",
+                "state": "reserved_waiting",
+                "route_request": {
+                    "target_lane": "comfyui_runtime:flux2_klein_true_v2_q6_local",
+                    "resource_groups": ["mps_generation"],
+                    "drain_policy": "drain_after_current",
+                },
+            }
+        ],
+    )
 
-    task_id, queue_store = asyncio.run(
-        _dequeue_preferred_different_playbook(
+    task_id, queue_store, drain_wait = asyncio.run(
+        _dequeue_by_route_gate_policy(
             [queue],
-            tasks_store=_RecoveryTaskStore(),
-            excluded_pack_ids={"ig_batch_pin_references"},
             runner_profile=_browser_profile(),
             visibility_timeout_sec=180,
             scan_limit=10,
+            active_pack_ids=set(),
         )
     )
 
     assert task_id is None
     assert queue_store is None
-    assert queue.promoted == []
-
-
-def test_reserved_pack_slot_parser_ignores_invalid_entries():
-    assert _parse_reserved_pack_slots(
-        "ig_analyze_following=1, bad-entry, ig_batch_pin_references=0, other=2"
-    ) == {
-        "ig_analyze_following": 1,
-        "other": 2,
-    }
-
-
-def test_reserved_pack_deficits_returns_only_underfilled_packs():
-    deficits = _reserved_pack_deficits(
-        {"ig_analyze_following": 2, "ig_batch_pin_references": 1},
-        Counter({"ig_analyze_following": 1, "ig_batch_pin_references": 1}),
-    )
-
-    assert deficits == ["ig_analyze_following"]
-
-
-def test_dequeue_preferred_pack_candidate_uses_reserved_lane_before_fifo():
-    queue = _FakeFairQueue(["task-batch", "task-following"])
-
-    task_id, queue_store = asyncio.run(
-        _dequeue_preferred_pack_candidate(
-            [queue],
-            tasks_store=_FakeTaskStore(
-                {
-                    "task-batch": _pending_browser_task(
-                        "task-batch",
-                        "ig_batch_pin_references",
-                    ),
-                    "task-following": _pending_browser_task(
-                        "task-following",
-                        "ig_analyze_following",
-                    ),
-                }
-            ),
-            preferred_pack_ids=["ig_analyze_following"],
-            runner_profile=_browser_profile(),
-            visibility_timeout_sec=180,
-            scan_limit=10,
-        )
-    )
-
-    assert task_id == "task-following"
-    assert queue_store is queue
-    assert queue.promoted == ["task-following"]
-
-
-def test_dequeue_preferred_pack_candidate_skips_when_no_reserved_pack_ready():
-    queue = _FakeFairQueue(["task-batch"])
-
-    task_id, queue_store = asyncio.run(
-        _dequeue_preferred_pack_candidate(
-            [queue],
-            tasks_store=_FakeTaskStore(
-                {
-                    "task-batch": _pending_browser_task(
-                        "task-batch",
-                        "ig_batch_pin_references",
-                    ),
-                }
-            ),
-            preferred_pack_ids=["ig_analyze_following"],
-            runner_profile=_browser_profile(),
-            visibility_timeout_sec=180,
-            scan_limit=10,
-        )
-    )
-
-    assert task_id is None
-    assert queue_store is None
+    assert drain_wait is True
     assert queue.promoted == []
 
 

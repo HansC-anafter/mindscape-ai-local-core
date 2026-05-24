@@ -99,6 +99,23 @@ interface HostResourceReservationEvent {
   task_id?: string;
 }
 
+interface HostResourceRouteIntentPreview {
+  route_intent_preview?: {
+    target_lane?: string;
+    resource_flavor?: string;
+    resource_groups?: string[];
+    estimated_memory_mb?: number;
+    pressure_delta?: {
+      headroom_before_mb?: number;
+      headroom_after_mb?: number;
+    };
+    matching_candidates?: Array<{ task_id?: string; pack_id?: string; queue?: string }>;
+    preview_errors?: Array<{ source?: string; error?: string }>;
+    non_destructive_action_plan?: Array<{ action?: string; target?: string }>;
+    reservation_payload?: Record<string, unknown>;
+  };
+}
+
 const formatMemory = (memoryMb?: number | null): string => {
   if (memoryMb == null) return 'Unknown';
   if (memoryMb >= 1024) return `${(memoryMb / 1024).toFixed(1)} GiB`;
@@ -126,6 +143,7 @@ export function HostResourcesPanel() {
   const [reservationHistory, setReservationHistory] = useState<HostResourceReservation[]>([]);
   const [reservationEvents, setReservationEvents] = useState<HostResourceReservationEvent[]>([]);
   const [selectedReservationId, setSelectedReservationId] = useState<string | null>(null);
+  const [routePreview, setRoutePreview] = useState<HostResourceRouteIntentPreview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionBusy, setActionBusy] = useState<string | null>(null);
@@ -137,7 +155,7 @@ export function HostResourcesPanel() {
       const suffix = refresh ? '?refresh=true' : '';
       const [data, reservationData] = await Promise.all([
         settingsApi.get<HostResourceSnapshot>(`/api/v1/host-resources/snapshot${suffix}`),
-        settingsApi.get<{ reservations?: HostResourceReservation[] }>('/api/v1/host-resources/route-reservations?include_candidates=true&include_durable=false&scan_limit=25&state=active&limit=5'),
+        settingsApi.get<{ reservations?: HostResourceReservation[] }>('/api/v1/host-resources/route-reservations?include_durable=false&state=active&limit=5'),
       ]);
       setSnapshot(data);
       setActiveReservations(Array.isArray(reservationData.reservations) ? reservationData.reservations : []);
@@ -220,17 +238,28 @@ export function HostResourcesPanel() {
   const reserveNextSlot = async (lane: HostResourceLane) => {
     setActionBusy(`reserve:${lane.lane_id}`);
     try {
-      await settingsApi.post('/api/v1/host-resources/route-reservations', {
-        route_request: {
-          target_lane: lane.lane_id,
-          resource_groups: lane.requirements?.exclusive_groups || [],
-          priority_class: 'interactive_high',
-          preemption_policy: 'never',
-          drain_policy: 'drain_after_current',
-          resume_policy: 'auto_restore_previous',
-          requested_by: 'settings_host_resources',
-        },
+      const preview = await settingsApi.post<HostResourceRouteIntentPreview>('/api/v1/host-resources/route-intents/preview', {
+        target_lane: lane.lane_id,
+        resource_groups: lane.requirements?.exclusive_groups || [],
+        priority_class: 'interactive_high',
+        preemption_policy: 'never',
+        drain_policy: 'drain_after_current',
+        resume_policy: 'auto_restore_previous',
+        requested_by: 'settings_host_resources',
       });
+      setRoutePreview(preview);
+    } finally {
+      setActionBusy(null);
+    }
+  };
+
+  const confirmRoutePreview = async () => {
+    const payload = routePreview?.route_intent_preview?.reservation_payload;
+    if (!payload) return;
+    setActionBusy('confirm-route-preview');
+    try {
+      await settingsApi.post('/api/v1/host-resources/route-reservations', payload);
+      setRoutePreview(null);
       await refreshAll(true);
     } finally {
       setActionBusy(null);
@@ -287,6 +316,49 @@ export function HostResourcesPanel() {
           <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
             {snapshot.degraded_reason || 'Host resource probe degraded'}
           </div>
+        ) : null}
+
+        {routePreview?.route_intent_preview ? (
+          <Card className="p-4">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Route className="h-4 w-4 text-secondary dark:text-gray-400" aria-hidden="true" />
+                  <span className="font-medium text-primary dark:text-gray-100">
+                    {routePreview.route_intent_preview.target_lane || 'Route preview'}
+                  </span>
+                  <StatePill state="preview" />
+                </div>
+                <div className="mt-1 text-xs text-secondary dark:text-gray-400">
+                  {formatMemory(routePreview.route_intent_preview.estimated_memory_mb)} | after {formatMemory(routePreview.route_intent_preview.pressure_delta?.headroom_after_mb)} | {(routePreview.route_intent_preview.resource_groups || []).join(', ') || 'unscoped'}
+                </div>
+                {(routePreview.route_intent_preview.preview_errors || []).length > 0 ? (
+                  <div className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+                    Candidate scan unavailable
+                  </div>
+                ) : null}
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setRoutePreview(null)}
+                  className="inline-flex h-8 items-center gap-1 rounded-md border border-default px-2 text-xs font-medium text-primary hover:bg-surface dark:border-gray-700 dark:text-gray-100 dark:hover:bg-gray-900"
+                >
+                  <XCircle className="h-3.5 w-3.5" aria-hidden="true" />
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmRoutePreview}
+                  disabled={actionBusy === 'confirm-route-preview' || !routePreview.route_intent_preview.reservation_payload}
+                  className="inline-flex h-8 items-center gap-1 rounded-md border border-default px-2 text-xs font-medium text-primary hover:bg-surface dark:border-gray-700 dark:text-gray-100 dark:hover:bg-gray-900 disabled:opacity-50"
+                >
+                  <Route className="h-3.5 w-3.5" aria-hidden="true" />
+                  Reserve
+                </button>
+              </div>
+            </div>
+          </Card>
         ) : null}
 
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">

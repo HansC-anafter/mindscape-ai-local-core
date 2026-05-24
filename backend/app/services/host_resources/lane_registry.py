@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import copy
-import json
-import os
 from pathlib import Path
 from typing import Any
 
@@ -12,28 +10,6 @@ import yaml
 
 
 DEFAULT_LANES: dict[str, dict[str, Any]] = {
-    "mlx:qwen9b_4bit_vision": {
-        "lane_id": "mlx:qwen9b_4bit_vision",
-        "label": "MLX Qwen9B 4bit Vision",
-        "kind": "mlx",
-        "requirements": {
-            "memory_mb": 7168,
-            "memory_source": "declared",
-            "cpu_weight": 2,
-            "exclusive_groups": ["apple_metal_heavy", "mlx_vision_llm"],
-        },
-    },
-    "comfyui_runtime:flux2_klein_true_v2_q6_local": {
-        "lane_id": "comfyui_runtime:flux2_klein_true_v2_q6_local",
-        "label": "FLUX2 Klein True V2 Q6 Local Lane",
-        "kind": "comfyui",
-        "requirements": {
-            "memory_mb": None,
-            "memory_source": "unknown",
-            "cpu_weight": 4,
-            "exclusive_groups": ["apple_metal_heavy", "comfyui_generation"],
-        },
-    },
     "runner:browser_local": {
         "lane_id": "runner:browser_local",
         "label": "Browser Runner",
@@ -118,13 +94,7 @@ def _load_manifest_lane_overlays() -> dict[str, dict[str, Any]]:
 
 def load_lane_registry() -> dict[str, dict[str, Any]]:
     lanes = _overlay_lanes(DEFAULT_LANES, _load_manifest_lane_overlays())
-    raw_json = os.getenv("LOCAL_CORE_HOST_RESOURCE_LANES_JSON")
-    if not raw_json:
-        return copy.deepcopy(lanes)
-    try:
-        return _overlay_lanes(lanes, json.loads(raw_json))
-    except Exception:
-        return copy.deepcopy(lanes)
+    return copy.deepcopy(lanes)
 
 
 def get_lane(lane_id: str | None) -> dict[str, Any] | None:

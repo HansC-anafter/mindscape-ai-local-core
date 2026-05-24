@@ -1,4 +1,4 @@
-"""Host resource advisor for preview and runner admission."""
+"""Host resource advisor for runner admission."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from typing import Any
 from backend.app.services.runner_resources.requirements import ResourceRequirements
 
 from .lane_registry import get_lane
-from .manager import get_cached_snapshot_or_degraded, get_host_resource_snapshot, is_lane_paused
+from .manager import get_cached_snapshot_or_degraded, is_lane_paused
 
 
 @dataclass(frozen=True)
@@ -104,34 +104,6 @@ def _preview_from_snapshot(
     if required_memory > available_memory:
         return HostResourceAdvice(False, "defer", "insufficient_memory_headroom", base_payload)
     return HostResourceAdvice(True, "allow", None, base_payload)
-
-
-async def build_admission_preview(
-    *,
-    lane_id: str | None = None,
-    memory_mb: int | None = None,
-    cpu_weight: int | None = None,
-    refresh: bool = False,
-) -> dict[str, Any]:
-    snapshot = await get_host_resource_snapshot(refresh=refresh)
-    requirements = _lane_requirements(lane_id)
-    if memory_mb is not None:
-        requirements["memory_mb"] = memory_mb
-        requirements["memory_source"] = "request"
-    if cpu_weight is not None:
-        requirements["cpu_weight"] = cpu_weight
-    advice = _preview_from_snapshot(
-        snapshot=snapshot,
-        lane_id=lane_id,
-        requirements=requirements,
-    )
-    return {
-        "lane_id": lane_id,
-        "decision": advice.decision,
-        "allow": advice.allow,
-        "reason": advice.reason,
-        **advice.payload,
-    }
 
 
 def evaluate_runner_requirements(requirements: ResourceRequirements) -> HostResourceAdvice:

@@ -38,6 +38,15 @@ def _route_request_from_context(ctx: dict[str, Any]) -> dict[str, Any]:
     return {}
 
 
+def _runtime_affinity_from_context(ctx: dict[str, Any]) -> dict[str, Any]:
+    raw = ctx.get("runtime_affinity")
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str) and raw.strip():
+        return {"runtime_id": raw.strip()}
+    return {}
+
+
 def _resource_requirements_from_context(ctx: dict[str, Any]) -> dict[str, Any]:
     raw = ctx.get("runner_resource_requirements")
     if isinstance(raw, dict):
@@ -55,6 +64,7 @@ def task_route_identity(task: Any) -> dict[str, Any]:
     ctx = _task_context(task)
     route_request = _route_request_from_context(ctx)
     requirements = _resource_requirements_from_context(ctx)
+    runtime_affinity = _runtime_affinity_from_context(ctx)
     lane_id = (
         route_request.get("target_lane")
         or ctx.get("host_resource_lane_id")
@@ -70,11 +80,35 @@ def task_route_identity(task: Any) -> dict[str, Any]:
     if requirements.get("llm_lane"):
         resource_groups.add(str(requirements["llm_lane"]))
     priority_class = str(route_request.get("priority_class") or ctx.get("priority_class") or "default")
+    resource_flavor = (
+        route_request.get("resource_flavor")
+        or ctx.get("resource_flavor")
+        or runtime_affinity.get("resource_flavor")
+        or _resource_flavor_from_runtime_affinity(runtime_affinity)
+    )
     return {
         "lane_id": str(lane_id).strip() if lane_id else None,
         "resource_groups": sorted(resource_groups),
         "priority_class": priority_class,
+        "resource_flavor": str(resource_flavor).strip() if resource_flavor else None,
+        "pack_id": str(getattr(task, "pack_id", None) or ctx.get("pack_id") or ctx.get("playbook_code") or "").strip() or None,
+        "playbook_code": str(ctx.get("playbook_code") or getattr(task, "pack_id", None) or "").strip() or None,
     }
+
+
+def _resource_flavor_from_runtime_affinity(runtime_affinity: dict[str, Any]) -> str | None:
+    runtime_id = str(runtime_affinity.get("runtime_id") or "").strip()
+    transport = str(runtime_affinity.get("transport") or "").strip()
+    site_key = str(runtime_affinity.get("site_key") or "").strip()
+    if not runtime_id:
+        return None
+    if runtime_id.lower() in {"local", "docker_local", "host"}:
+        return "local.host"
+    if transport and transport not in {"local", "docker_local"}:
+        return f"external.{transport}.{runtime_id}"
+    if site_key:
+        return f"vm.{site_key}.{runtime_id}"
+    return f"local.{runtime_id}"
 
 
 def get_active_route_reservations() -> list[dict[str, Any]]:
@@ -129,9 +163,21 @@ def evaluate_route_candidate(
     active_reservations: list[dict[str, Any]] | None = None,
 ) -> RouteGateDecision:
     identity = task_route_identity(task)
+    return evaluate_route_identity_candidate(
+        identity,
+        active_reservations=active_reservations,
+    )
+
+
+def evaluate_route_identity_candidate(
+    identity: dict[str, Any],
+    *,
+    active_reservations: list[dict[str, Any]] | None = None,
+) -> RouteGateDecision:
     lane_id = identity.get("lane_id")
     groups = set(identity.get("resource_groups") or [])
     priority_class = str(identity.get("priority_class") or "default")
+    resource_flavor = str(identity.get("resource_flavor") or "").strip()
     base_score = PRIORITY_SCORES.get(priority_class, PRIORITY_SCORES["default"])
     reservations = (
         active_reservations
@@ -152,11 +198,15 @@ def evaluate_route_candidate(
             continue
         target_lane = str(route_request.get("target_lane") or "").strip()
         reservation_groups = set(_string_list(route_request.get("resource_groups")))
+        reservation_flavor = str(route_request.get("resource_flavor") or "").strip()
         lane_matches = bool(target_lane and lane_id == target_lane)
         group_matches = bool(groups and reservation_groups and groups.intersection(reservation_groups))
-        if not lane_matches and not group_matches:
+        flavor_matches = bool(resource_flavor and reservation_flavor and resource_flavor == reservation_flavor)
+        if reservation_flavor and resource_flavor and not flavor_matches:
             continue
-        score = base_score + (1000 if lane_matches else 500)
+        if not lane_matches and not group_matches and not flavor_matches:
+            continue
+        score = base_score + (1000 if lane_matches else 500) + (250 if flavor_matches else 0)
         if score <= best.score and best.permit:
             continue
         best = RouteGateDecision(
@@ -169,6 +219,82 @@ def evaluate_route_candidate(
                 "reservation": reservation,
                 "lane_matches": lane_matches,
                 "group_matches": group_matches,
+                "flavor_matches": flavor_matches,
             },
         )
     return best
+
+
+def select_candidate_policy(
+    candidates: list[dict[str, Any]],
+    *,
+    active_reservations: list[dict[str, Any]] | None = None,
+    reserved_share_pack_ids: list[str] | None = None,
+    active_pack_ids: set[str] | None = None,
+) -> dict[str, Any]:
+    """Select one candidate through the single route-gate policy entrypoint."""
+
+    reservations = (
+        active_reservations
+        if active_reservations is not None
+        else get_active_route_reservations()
+    )
+    best_route: tuple[int, dict[str, Any], RouteGateDecision] | None = None
+    for candidate in candidates:
+        identity = candidate.get("route_identity")
+        if not isinstance(identity, dict):
+            continue
+        decision = evaluate_route_identity_candidate(
+            identity,
+            active_reservations=reservations,
+        )
+        if not decision.permit:
+            continue
+        if best_route is None or decision.score > best_route[0]:
+            best_route = (decision.score, candidate, decision)
+    if best_route is not None:
+        _, candidate, decision = best_route
+        return {
+            "selected": candidate,
+            "reason": "route_reservation",
+            "decision": decision,
+            "drain_wait": False,
+        }
+
+    if has_drain_after_current_controls(reservations):
+        return {
+            "selected": None,
+            "reason": "drain_after_current_wait",
+            "decision": None,
+            "drain_wait": True,
+        }
+
+    preferred = {str(pack_id) for pack_id in (reserved_share_pack_ids or []) if str(pack_id).strip()}
+    if preferred:
+        for candidate in candidates:
+            if str(candidate.get("pack_id") or "") in preferred:
+                return {
+                    "selected": candidate,
+                    "reason": "reserved_share",
+                    "decision": None,
+                    "drain_wait": False,
+                }
+
+    active = {str(pack_id) for pack_id in (active_pack_ids or set()) if str(pack_id).strip()}
+    if active:
+        for candidate in candidates:
+            pack_id = str(candidate.get("pack_id") or "")
+            if pack_id and pack_id not in active:
+                return {
+                    "selected": candidate,
+                    "reason": "playbook_diversity",
+                    "decision": None,
+                    "drain_wait": False,
+                }
+
+    return {
+        "selected": None,
+        "reason": "fifo_fallback",
+        "decision": None,
+        "drain_wait": False,
+    }

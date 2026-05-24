@@ -2,9 +2,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from backend.app.models.workspace import TaskStatus
 from backend.app.runner import worker
 from backend.app.services.host_resources import route_gate
+from backend.app.services.host_resources.route_identity_projection import (
+    serialize_route_identity_projection,
+)
 
 
 def _task(task_id: str, route_request: dict):
@@ -183,37 +185,28 @@ def test_worker_reads_route_drain_gate(monkeypatch):
 @pytest.mark.asyncio
 async def test_worker_route_candidate_scan_promotes_permitted_task(monkeypatch):
     class _Client:
+        def __init__(self):
+            self.projections = {}
+
         async def lrange(self, key, start, end):
             return ["low-task", "high-task"]
+
+        async def mget(self, keys):
+            return [self.projections.get(key) for key in keys]
 
     class _Queue:
         pack_id = "ig"
         q_pending = "pending"
 
+        def __init__(self):
+            self.client = _Client()
+
         async def _get_client(self):
-            return _Client()
+            return self.client
 
         async def promote_pending_task_by_id(self, task_id, visibility_timeout_sec):
             self.promoted = task_id
             return task_id
-
-    class _Store:
-        def get_task(self, task_id):
-            route_request = {
-                "target_lane": "runner:default_local",
-                "resource_groups": ["default_local"],
-            }
-            if task_id == "high-task":
-                route_request = {
-                    "target_lane": "comfyui_runtime:flux2_klein_true_v2_q6_local",
-                    "resource_groups": ["apple_metal_heavy"],
-                    "priority_class": "interactive_high",
-                }
-            return SimpleNamespace(
-                id=task_id,
-                status=TaskStatus.PENDING,
-                execution_context={"route_request": route_request},
-            )
 
     monkeypatch.setattr(worker, "runner_profile_can_claim_task", lambda profile, task: True)
     monkeypatch.setattr(
@@ -232,9 +225,32 @@ async def test_worker_route_candidate_scan_promotes_permitted_task(monkeypatch):
     )
 
     queue = _Queue()
-    task_id, task_queue = await worker._dequeue_preferred_route_candidate(
+    for task_id, route_request in {
+        "low-task": {
+            "target_lane": "runner:default_local",
+            "resource_groups": ["default_local"],
+        },
+        "high-task": {
+            "target_lane": "comfyui_runtime:flux2_klein_true_v2_q6_local",
+            "resource_groups": ["apple_metal_heavy"],
+            "priority_class": "interactive_high",
+        },
+    }.items():
+        queue.client.projections[
+            f"mindscape:host_resources:route_identity:{task_id}"
+        ] = serialize_route_identity_projection(
+            task_id,
+            {
+                "task_id": task_id,
+                "pack_id": "comfyui_runtime",
+                "route_identity": {
+                    **route_request,
+                    "lane_id": route_request.get("target_lane"),
+                },
+            },
+        )
+    task_id, task_queue, drain_wait = await worker._dequeue_by_route_gate_policy(
         [queue],
-        tasks_store=_Store(),
         runner_profile=SimpleNamespace(profile_code="default"),
         visibility_timeout_sec=180,
         scan_limit=10,
@@ -242,4 +258,5 @@ async def test_worker_route_candidate_scan_promotes_permitted_task(monkeypatch):
 
     assert task_id == "high-task"
     assert task_queue is queue
+    assert drain_wait is False
     assert queue.promoted == "high-task"

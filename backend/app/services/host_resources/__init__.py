@@ -2,7 +2,6 @@
 
 from .advisor import (
     HostResourceAdvice,
-    build_admission_preview,
     evaluate_runner_requirements,
 )
 from .manager import (
@@ -20,7 +19,6 @@ from .manager import (
 
 __all__ = [
     "HostResourceAdvice",
-    "build_admission_preview",
     "cancel_route_reservation",
     "create_route_reservation",
     "evaluate_runner_requirements",

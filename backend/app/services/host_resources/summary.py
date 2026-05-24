@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
+from .control_plane_pressure import build_control_plane_pressure
+
 
 DASHBOARD_HREF = "/settings?tab=runtime&section=host-resources"
 BUSY_LANE_STATES = {"busy", "running"}
@@ -128,6 +130,7 @@ def _build_alerts(
     pressure_state: str,
     blocked_lanes: int,
     route_controls: Mapping[str, Any],
+    control_plane_pressure: Mapping[str, Any],
 ) -> list[dict[str, Any]]:
     alerts: list[dict[str, Any]] = []
     if pressure_state == "critical":
@@ -167,6 +170,15 @@ def _build_alerts(
                 "action_href": DASHBOARD_HREF,
             }
         )
+    if control_plane_pressure.get("state") in {"watch", "critical"}:
+        alerts.append(
+            {
+                "alert_id": "control_plane_pressure",
+                "severity": "critical" if control_plane_pressure.get("state") == "critical" else "warning",
+                "message": "Control plane resource pressure is elevated",
+                "action_href": DASHBOARD_HREF,
+            }
+        )
     return alerts[:3]
 
 
@@ -192,6 +204,7 @@ def build_host_resource_summary(
     pressure_state = _pressure_state(degraded=degraded, free_percent=free_percent)
     blocked_lanes = sum(1 for state in lane_states if state in BLOCKED_LANE_STATES)
     route_controls = _build_route_controls(active_reservations or [])
+    control_plane_pressure = build_control_plane_pressure(consumers)
 
     return {
         "captured_at": _string_or_none(safe_snapshot.get("captured_at")),
@@ -208,10 +221,12 @@ def build_host_resource_summary(
         "heavy_consumers": _build_heavy_consumers(consumers),
         "primary_blockers": _build_primary_blockers(lanes),
         "route_controls": route_controls,
+        "control_plane_pressure": control_plane_pressure,
         "alerts": _build_alerts(
             pressure_state=pressure_state,
             blocked_lanes=blocked_lanes,
             route_controls=route_controls,
+            control_plane_pressure=control_plane_pressure,
         ),
         "dashboard_href": DASHBOARD_HREF,
     }

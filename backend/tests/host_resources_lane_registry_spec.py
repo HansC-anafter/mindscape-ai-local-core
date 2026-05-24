@@ -15,10 +15,10 @@ host_resource_lanes:
       memory_source: declared_manifest_model_footprint
       exclusive_groups:
         - apple_metal_heavy
+    resource_flavor: local.mps.comfyui
 """,
         encoding="utf-8",
     )
-    monkeypatch.delenv("LOCAL_CORE_HOST_RESOURCE_LANES_JSON", raising=False)
     monkeypatch.setattr(
         lane_registry,
         "_capabilities_dir",
@@ -31,3 +31,18 @@ host_resource_lanes:
     assert lane["requirements"]["memory_mb"] == 18432
     assert lane["requirements"]["memory_source"] == "declared_manifest_model_footprint"
     assert "apple_metal_heavy" in lane["requirements"]["exclusive_groups"]
+    assert lane["resource_flavor"] == "local.mps.comfyui"
+
+
+def test_default_registry_keeps_pack_specific_lanes_out_of_core(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        lane_registry,
+        "_capabilities_dir",
+        lambda: tmp_path / "capabilities",
+    )
+
+    lanes = lane_registry.load_lane_registry()
+
+    assert "runner:default_local" in lanes
+    assert "comfyui_runtime:flux2_klein_true_v2_q6_local" not in lanes
+    assert "mlx:qwen9b_4bit_vision" not in lanes
