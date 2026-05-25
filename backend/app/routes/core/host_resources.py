@@ -9,6 +9,7 @@ from fastapi import APIRouter, Body, HTTPException, Query
 from backend.app.services.host_resources.manager import (
     cancel_route_reservation,
     create_route_reservation,
+    get_cached_snapshot_or_degraded,
     get_host_resource_snapshot,
     get_runner_claim_gate,
     list_host_resource_lanes,
@@ -37,8 +38,15 @@ async def get_snapshot(refresh: bool = Query(False)) -> dict[str, Any]:
 
 
 @router.get("/summary")
-async def get_summary(refresh: bool = Query(False)) -> dict[str, Any]:
-    snapshot = await get_host_resource_snapshot(refresh=refresh)
+async def get_summary(
+    refresh: bool = Query(False),
+    allow_stale: bool = Query(False),
+) -> dict[str, Any]:
+    snapshot = (
+        await get_host_resource_snapshot(refresh=refresh)
+        if refresh or not allow_stale
+        else get_cached_snapshot_or_degraded()
+    )
     return build_host_resource_summary(
         snapshot,
         active_reservations=list_active_route_reservations(),

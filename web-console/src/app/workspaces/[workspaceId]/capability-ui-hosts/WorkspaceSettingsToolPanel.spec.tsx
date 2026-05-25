@@ -219,8 +219,8 @@ describe('WorkspaceSettingsToolPanel', () => {
     expect(fetchMock).toHaveBeenCalledWith('http://api.test/api/v1/workspaces/ws_test/agents');
     expect(fetchMock).toHaveBeenCalledWith('http://api.test/api/v1/host/services/xtts/health');
     expect(fetchMock).toHaveBeenCalledWith('http://api.test/api/v1/host/services/mcp-gateway/health');
-    expect(fetchMock).toHaveBeenCalledWith('http://api.test/api/v1/host-resources/summary');
-    expect(workspaceDataMock.refreshSystemStatus).toHaveBeenCalledWith({ force: true });
+    expect(fetchMock).toHaveBeenCalledWith('http://api.test/api/v1/host-resources/summary?allow_stale=true');
+    expect(workspaceDataMock.refreshSystemStatus).not.toHaveBeenCalled();
   });
 
   it('renders host resources summary in the Status section and opens the full dashboard', async () => {
@@ -249,7 +249,7 @@ describe('WorkspaceSettingsToolPanel', () => {
     render(<WorkspaceSettingsToolPanel workspaceId="ws_test" apiUrl="http://api.test" />);
 
     await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith('http://api.test/api/v1/host-resources/summary');
+      expect(fetchMock).toHaveBeenCalledWith('http://api.test/api/v1/host-resources/summary?allow_stale=true');
     });
 
     fireEvent.click(screen.getByRole('button', { name: 'Refresh status' }));
@@ -257,6 +257,7 @@ describe('WorkspaceSettingsToolPanel', () => {
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith('http://api.test/api/v1/host-resources/summary?refresh=true');
     });
+    expect(workspaceDataMock.refreshAll).toHaveBeenCalled();
   });
 
   it('keeps tool engine extension panels cold until the Tools section is expanded', async () => {

@@ -162,6 +162,37 @@ def test_summary_endpoint_returns_compact_contract(monkeypatch):
     assert received == {"refresh": True}
 
 
+def test_summary_endpoint_can_use_cached_snapshot_without_refresh(monkeypatch):
+    called = {"snapshot": False}
+
+    async def _get_host_resource_snapshot(**kwargs):
+        called["snapshot"] = True
+        return {}
+
+    monkeypatch.setattr(host_resources, "get_host_resource_snapshot", _get_host_resource_snapshot)
+    monkeypatch.setattr(
+        host_resources,
+        "get_cached_snapshot_or_degraded",
+        lambda: {
+            "captured_at": "2026-05-16T00:00:00Z",
+            "degraded": False,
+            "host": {"memory_pressure": {"free_percent": 40}},
+            "capacity": {"memory_mb": 8192, "reserved_memory_mb": 0},
+            "consumers": [],
+            "lanes": [],
+        },
+    )
+    monkeypatch.setattr(host_resources, "list_active_route_reservations", lambda: [])
+    app = FastAPI()
+    app.include_router(host_resources.router)
+
+    response = TestClient(app).get("/api/v1/host-resources/summary?allow_stale=true")
+
+    assert response.status_code == 200
+    assert response.json()["pressure_state"] == "ok"
+    assert called["snapshot"] is False
+
+
 def test_admission_preview_endpoint_returns_gone_with_route_intent_replacement():
     app = FastAPI()
     app.include_router(host_resources.router)

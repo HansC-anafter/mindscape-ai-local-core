@@ -15,11 +15,11 @@ interface WorkspaceToolDefinitionsCacheEntry {
 const WORKSPACE_TOOL_DEFINITIONS_TTL_MS = 10 * 60 * 1000;
 const workspaceToolDefinitionsCache = new Map<string, WorkspaceToolDefinitionsCacheEntry>();
 
-function getWorkspaceToolDefinitions(
+export function getWorkspaceToolDefinitions(
   apiUrl: string,
   capabilityCode: string,
 ): Promise<WorkspaceToolDefinition[]> {
-  const key = `workspace-tools:${capabilityCode}`;
+  const key = `workspace-tools:${apiUrl}:${capabilityCode}`;
   const now = Date.now();
   const cached = workspaceToolDefinitionsCache.get(key);
   if (cached && cached.expiresAt > now) {

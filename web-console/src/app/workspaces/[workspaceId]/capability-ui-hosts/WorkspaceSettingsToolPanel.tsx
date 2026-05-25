@@ -209,19 +209,19 @@ function StatusSection({
     setLoading(true);
     setStatusError(null);
     try {
-      const workspaceStatusRefresh = shouldRefreshAll && refreshAllWorkspace
-        ? Promise.resolve()
-        : (refreshSystemStatus ? refreshSystemStatus({ force: true }) : Promise.resolve());
+      let workspaceStatusRefresh = Promise.resolve();
+      if (shouldRefreshAll) {
+        workspaceStatusRefresh = refreshAllWorkspace
+          ? refreshAllWorkspace()
+          : (refreshSystemStatus ? refreshSystemStatus({ force: true }) : Promise.resolve());
+      }
       const [agents, xtts, mcpGateway, hostResources] = await Promise.allSettled([
         fetch(`${apiUrl}/api/v1/workspaces/${workspaceId}/agents`),
         fetch(`${apiUrl}/api/v1/host/services/xtts/health`),
         fetch(`${apiUrl}/api/v1/host/services/mcp-gateway/health`),
-        fetch(`${apiUrl}/api/v1/host-resources/summary${shouldRefreshAll ? '?refresh=true' : ''}`),
+        fetch(`${apiUrl}/api/v1/host-resources/summary${shouldRefreshAll ? '?refresh=true' : '?allow_stale=true'}`),
         workspaceStatusRefresh,
       ]);
-      if (shouldRefreshAll && refreshAllWorkspace) {
-        await refreshAllWorkspace();
-      }
       setSnapshot({
         agents: agents.status === 'fulfilled' && agents.value.ok ? await agents.value.json().catch(() => null) : null,
         xtts: xtts.status === 'fulfilled' && xtts.value.ok ? await xtts.value.json().catch(() => null) : null,

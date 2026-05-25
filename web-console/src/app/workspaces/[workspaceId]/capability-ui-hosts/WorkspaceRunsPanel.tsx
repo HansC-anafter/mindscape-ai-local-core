@@ -9,10 +9,10 @@ import WorkspaceRunObservationsPanel from '@/components/workspace/WorkspaceRunOb
 import { useWorkspaceDataOptional } from '@/contexts/WorkspaceDataContext';
 import { getApiBaseUrl } from '@/lib/api-url';
 import {
-  fetchWorkspaceToolDefinitions,
   type WorkspaceToolDefinition,
 } from '@/lib/workspace-tools/workspace-tool-registry';
 import type { UseRunObservationsSummaryResult } from '@/lib/workspace-runs/useRunObservationsSummary';
+import { getWorkspaceToolDefinitions } from './useWorkspaceToolDefinitions';
 
 interface WorkspaceRunsPanelProps {
   workspaceId: string;
@@ -124,7 +124,7 @@ export default function WorkspaceRunsPanel({
     let cancelled = false;
     setLoading(true);
     setComponent(null);
-    void fetchWorkspaceToolDefinitions({ apiUrl, capabilityCode: activeCapabilityCode })
+    void getWorkspaceToolDefinitions(apiUrl, activeCapabilityCode)
       .then(async (tools) => {
         const runsPanelTool = tools.find(isRunsPanelTool);
         if (!runsPanelTool) {
