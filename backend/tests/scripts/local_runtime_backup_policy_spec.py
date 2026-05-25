@@ -35,6 +35,22 @@ def _args(**overrides):
     return Namespace(**values)
 
 
+def _postgres_ok():
+    return {
+        "archive_mode": "on",
+        "archive_command": "/usr/local/bin/mindscape-archive-wal %p %f /archive",
+        "wal_ready_count": 0,
+        "wal_bytes": 1024,
+        "archiver_archived_count": 1,
+        "archiver_last_archived_wal": "000000010000000000000001",
+        "archiver_last_archived_time": "2026-05-25T00:00:00+00:00",
+        "archiver_failed_count": 0,
+        "archiver_last_failed_wal": "",
+        "archiver_last_failed_time": "",
+        "archiver_stats_reset": "2026-05-25T00:00:00+00:00",
+    }
+
+
 def test_policy_plan_is_fixed_to_incremental_runtime_backup(monkeypatch, tmp_path):
     primary = tmp_path / "primary"
     mirror = tmp_path / "mirror"
@@ -50,7 +66,7 @@ def test_policy_plan_is_fixed_to_incremental_runtime_backup(monkeypatch, tmp_pat
     monkeypatch.setattr(
         incremental,
         "postgres_status",
-        lambda: {"archive_mode": "on", "wal_ready_count": 0, "wal_bytes": 1024},
+        _postgres_ok,
     )
 
     plan = incremental.build_plan(_args(require_mirror=True))
@@ -77,13 +93,89 @@ def test_policy_blocks_when_required_mirror_is_missing(monkeypatch, tmp_path):
     monkeypatch.setattr(
         incremental,
         "postgres_status",
-        lambda: {"archive_mode": "on", "wal_ready_count": 0, "wal_bytes": 1024},
+        _postgres_ok,
     )
 
     plan = incremental.build_plan(_args(require_mirror="true"))
 
     assert plan["can_run"] is False
     assert "mirror_required_but_not_configured" in plan["blocking_reasons"]
+
+
+def test_policy_blocks_current_archiver_failure(monkeypatch, tmp_path):
+    primary = tmp_path / "primary"
+    wal_root = primary / "postgres-wal-archive"
+    monkeypatch.setenv("LOCAL_CORE_BACKUP_ROOT", str(primary))
+    monkeypatch.setenv("LOCAL_CORE_POSTGRES_WAL_ARCHIVE_HOST_DIR", str(wal_root))
+    monkeypatch.setenv("LOCAL_CORE_BACKUP_REQUIRE_MIRROR", "false")
+    monkeypatch.delenv("LOCAL_CORE_BACKUP_MIRROR_ROOT", raising=False)
+    monkeypatch.setattr(incremental, "disk_free_bytes", lambda _path: 80 * incremental.BYTES_PER_GB)
+    monkeypatch.setattr(incremental, "command_exists", lambda _name: True)
+
+    def _postgres_failing():
+        state = _postgres_ok()
+        state.update(
+            {
+                "archiver_failed_count": 1,
+                "archiver_last_failed_wal": "000000010000000000000002",
+                "archiver_last_failed_time": "2026-05-25T00:05:00+00:00",
+            }
+        )
+        return state
+
+    monkeypatch.setattr(incremental, "postgres_status", _postgres_failing)
+
+    plan = incremental.build_plan(_args())
+
+    assert plan["can_run"] is False
+    assert "postgres_archiver_currently_failing" in plan["blocking_reasons"]
+
+
+def test_policy_blocks_wal_archive_segment_size_mismatch(monkeypatch, tmp_path):
+    primary = tmp_path / "primary"
+    wal_root = primary / "postgres-wal-archive"
+    wal_root.mkdir(parents=True)
+    (wal_root / "000000010000000000000001").write_bytes(b"partial wal")
+    monkeypatch.setenv("LOCAL_CORE_BACKUP_ROOT", str(primary))
+    monkeypatch.setenv("LOCAL_CORE_POSTGRES_WAL_ARCHIVE_HOST_DIR", str(wal_root))
+    monkeypatch.setenv("LOCAL_CORE_BACKUP_REQUIRE_MIRROR", "false")
+    monkeypatch.delenv("LOCAL_CORE_BACKUP_MIRROR_ROOT", raising=False)
+    monkeypatch.setattr(incremental, "disk_free_bytes", lambda _path: 80 * incremental.BYTES_PER_GB)
+    monkeypatch.setattr(incremental, "command_exists", lambda _name: True)
+    monkeypatch.setattr(incremental, "postgres_status", _postgres_ok)
+
+    plan = incremental.build_plan(_args())
+
+    assert plan["can_run"] is False
+    assert "wal_archive_segment_size_mismatch" in plan["blocking_reasons"]
+    assert plan["wal_segment_size_mismatches"] == [
+        {
+            "name": "000000010000000000000001",
+            "bytes": len(b"partial wal"),
+            "expected_bytes": incremental.WAL_SEGMENT_BYTES,
+        }
+    ]
+
+
+def test_policy_accepts_valid_wal_archive_segment(monkeypatch, tmp_path):
+    primary = tmp_path / "primary"
+    wal_root = primary / "postgres-wal-archive"
+    wal_root.mkdir(parents=True)
+    (wal_root / "000000010000000000000001").write_bytes(
+        b"\0" * incremental.WAL_SEGMENT_BYTES
+    )
+    monkeypatch.setenv("LOCAL_CORE_BACKUP_ROOT", str(primary))
+    monkeypatch.setenv("LOCAL_CORE_POSTGRES_WAL_ARCHIVE_HOST_DIR", str(wal_root))
+    monkeypatch.setenv("LOCAL_CORE_BACKUP_REQUIRE_MIRROR", "false")
+    monkeypatch.delenv("LOCAL_CORE_BACKUP_MIRROR_ROOT", raising=False)
+    monkeypatch.setattr(incremental, "disk_free_bytes", lambda _path: 80 * incremental.BYTES_PER_GB)
+    monkeypatch.setattr(incremental, "command_exists", lambda _name: True)
+    monkeypatch.setattr(incremental, "postgres_status", _postgres_ok)
+
+    plan = incremental.build_plan(_args())
+
+    assert plan["can_run"] is True
+    assert plan["wal_segment_size_mismatches"] == []
 
 
 def test_prune_incremental_removes_oldest_snapshot_and_unprotected_base(monkeypatch, tmp_path):

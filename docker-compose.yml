@@ -418,6 +418,7 @@ services:
       context: .
       dockerfile: Dockerfile.frontend
     container_name: mindscape-ai-local-core-frontend
+    profiles: ["control-plane"]
     restart: unless-stopped
     logging: *default-logging
     ports:
@@ -504,7 +505,7 @@ services:
       - -c
       - archive_mode=${LOCAL_CORE_POSTGRES_ARCHIVE_MODE:-off}
       - -c
-      - archive_command=test ! -f /var/lib/postgresql/wal_archive/%f && cp %p /var/lib/postgresql/wal_archive/%f
+      - archive_command=/usr/local/bin/mindscape-archive-wal %p %f /var/lib/postgresql/wal_archive
       - -c
       - archive_timeout=60s
       - -c

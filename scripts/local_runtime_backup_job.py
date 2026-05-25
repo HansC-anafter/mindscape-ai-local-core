@@ -437,6 +437,61 @@ def command_postgres_status(_args: argparse.Namespace) -> dict[str, Any]:
         ],
         timeout=20,
     ).strip()
+    archive_command = run_text(
+        [
+            "docker",
+            "exec",
+            "mindscape-ai-local-core-postgres",
+            "psql",
+            "-U",
+            "mindscape",
+            "-d",
+            "mindscape_core",
+            "-Atc",
+            "show archive_command",
+        ],
+        timeout=20,
+    ).strip()
+    raw_archiver = run_text(
+        [
+            "docker",
+            "exec",
+            "mindscape-ai-local-core-postgres",
+            "psql",
+            "-U",
+            "mindscape",
+            "-d",
+            "mindscape_core",
+            "-Atc",
+            (
+                "SELECT archived_count::bigint, COALESCE(last_archived_wal, ''), "
+                "COALESCE(last_archived_time::text, ''), failed_count::bigint, "
+                "COALESCE(last_failed_wal, ''), COALESCE(last_failed_time::text, ''), "
+                "COALESCE(stats_reset::text, '') FROM pg_stat_archiver"
+            ),
+        ],
+        timeout=20,
+    ).strip()
+    archiver = {
+        "archived_count": 0,
+        "last_archived_wal": "",
+        "last_archived_time": "",
+        "failed_count": 0,
+        "last_failed_wal": "",
+        "last_failed_time": "",
+        "stats_reset": "",
+    }
+    parts = raw_archiver.split("|")
+    if len(parts) >= 7:
+        archiver = {
+            "archived_count": int(parts[0] or "0"),
+            "last_archived_wal": parts[1],
+            "last_archived_time": parts[2],
+            "failed_count": int(parts[3] or "0"),
+            "last_failed_wal": parts[4],
+            "last_failed_time": parts[5],
+            "stats_reset": parts[6],
+        }
     ready_count = run_text(
         [
             "docker",
@@ -455,14 +510,22 @@ def command_postgres_status(_args: argparse.Namespace) -> dict[str, Any]:
             "mindscape-ai-local-core-postgres",
             "sh",
             "-c",
-            "du -sk /var/lib/postgresql/data/pgdata/pg_wal | awk '{print $1}'",
+            "du -sk /var/lib/postgresql/data/pgdata/pg_wal 2>/dev/null | awk '{print $1}'",
         ],
         timeout=120,
     ).strip()
     return {
         "archive_mode": archive_mode,
+        "archive_command": archive_command,
         "wal_ready_count": int(ready_count or "0"),
         "wal_bytes": int(wal_kib or "0") * 1024,
+        "archiver_archived_count": archiver["archived_count"],
+        "archiver_last_archived_wal": archiver["last_archived_wal"],
+        "archiver_last_archived_time": archiver["last_archived_time"],
+        "archiver_failed_count": archiver["failed_count"],
+        "archiver_last_failed_wal": archiver["last_failed_wal"],
+        "archiver_last_failed_time": archiver["last_failed_time"],
+        "archiver_stats_reset": archiver["stats_reset"],
     }
 
 

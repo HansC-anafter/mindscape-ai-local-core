@@ -38,6 +38,7 @@ COMPOSE_ENV_DEFAULT_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*):-([^}]+)\}")
 DEFAULT_CONNECTION_RESERVE = 20
 DEFAULT_REPACK_FREE_SPACE_FACTOR = 1.2
 DEFAULT_REPACK_FREE_SPACE_RESERVE = 1024 * 1024 * 1024
+MANAGED_ARCHIVE_COMMAND = "/usr/local/bin/mindscape-archive-wal"
 
 
 def _utc_now() -> str:
@@ -65,6 +66,28 @@ def _parse_int(value: Any, default: int = 0) -> int:
         return int(str(value).strip())
     except (TypeError, ValueError):
         return default
+
+
+def _parse_datetime(value: Any) -> datetime | None:
+    if isinstance(value, datetime):
+        return value
+    if value is None:
+        return None
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _archiver_currently_failing(archiver: Mapping[str, Any]) -> bool:
+    failed_count = _parse_int(archiver.get("failed_count"), 0)
+    if failed_count <= 0:
+        return False
+    last_failed = _parse_datetime(archiver.get("last_failed_time"))
+    if last_failed is None:
+        return True
+    last_archived = _parse_datetime(archiver.get("last_archived_time"))
+    return last_archived is None or last_archived < last_failed
 
 
 def _get_engine():
@@ -819,6 +842,15 @@ def _unavailable_database_report(
             "wal_level": "",
             "archive_mode": "",
             "archive_command": "",
+            "archiver": {
+                "archived_count": 0,
+                "last_archived_wal": "",
+                "last_archived_time": None,
+                "failed_count": 0,
+                "last_failed_wal": "",
+                "last_failed_time": None,
+                "stats_reset": None,
+            },
         },
         "extensions": {
             "required": list(REQUIRED_EXTENSIONS),
@@ -878,6 +910,20 @@ def collect_report(args: argparse.Namespace) -> dict[str, Any]:
         wal_level = _show_setting(conn, "wal_level")
         archive_mode = _show_setting(conn, "archive_mode")
         archive_command = _show_setting(conn, "archive_command")
+        archiver = _mapping_one(
+            conn,
+            """
+            SELECT
+                archived_count::bigint AS archived_count,
+                COALESCE(last_archived_wal, '') AS last_archived_wal,
+                last_archived_time,
+                failed_count::bigint AS failed_count,
+                COALESCE(last_failed_wal, '') AS last_failed_wal,
+                last_failed_time,
+                stats_reset
+            FROM pg_stat_archiver
+            """,
+        )
         installed_extensions = _installed_extensions(conn)
         pg_stat_statements_installed = "pg_stat_statements" in installed_extensions
 
@@ -911,6 +957,7 @@ def collect_report(args: argparse.Namespace) -> dict[str, Any]:
             "wal_level": wal_level,
             "archive_mode": archive_mode,
             "archive_command": archive_command,
+            "archiver": archiver,
         },
         "extensions": {
             "required": list(REQUIRED_EXTENSIONS),
@@ -974,8 +1021,18 @@ def evaluate_report(report: dict[str, Any]) -> dict[str, Any]:
         blockers.append("postgres_wal_level_not_replica")
     if str(database.get("archive_mode") or "").strip().lower() != "on":
         blockers.append("postgres_archive_mode_off")
-    if not str(database.get("archive_command") or "").strip():
+    archive_command = str(database.get("archive_command") or "").strip()
+    if not archive_command:
         blockers.append("postgres_archive_command_missing")
+    elif MANAGED_ARCHIVE_COMMAND not in archive_command:
+        blockers.append("postgres_archive_command_not_managed")
+    archiver = (
+        database.get("archiver") if isinstance(database.get("archiver"), dict) else {}
+    )
+    if _archiver_currently_failing(archiver):
+        blockers.append("postgres_archiver_currently_failing")
+    elif _parse_int(archiver.get("failed_count"), 0) > 0:
+        warnings.append("postgres_archiver_historical_failures_present")
 
     extensions = (
         report.get("extensions") if isinstance(report.get("extensions"), dict) else {}

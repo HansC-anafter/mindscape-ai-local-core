@@ -3,7 +3,10 @@ FROM ${POSTGRES_BASE_IMAGE}
 
 ARG PG_MAJOR=16
 
+COPY docker/postgres/archive-wal.sh /usr/local/bin/mindscape-archive-wal
+
 RUN set -eux; \
+    chmod 0755 /usr/local/bin/mindscape-archive-wal; \
     apt-get update; \
     apt-get install -y --no-install-recommends ca-certificates curl; \
     install -d /usr/share/postgresql-common/pgdg; \

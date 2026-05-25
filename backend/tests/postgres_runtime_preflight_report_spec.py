@@ -18,7 +18,16 @@ def _base_report():
             "max_connections": "100",
             "wal_level": "replica",
             "archive_mode": "on",
-            "archive_command": "test ! -f /archive/%f && cp %p /archive/%f",
+            "archive_command": "/usr/local/bin/mindscape-archive-wal %p %f /archive",
+            "archiver": {
+                "archived_count": 1,
+                "last_archived_wal": "000000010000000000000001",
+                "last_archived_time": "2026-05-25T00:00:00+00:00",
+                "failed_count": 0,
+                "last_failed_wal": "",
+                "last_failed_time": None,
+                "stats_reset": "2026-05-25T00:00:00+00:00",
+            },
         },
         "extensions": {
             "installed": ["pg_repack", "pg_stat_statements"],
@@ -95,6 +104,54 @@ def test_preflight_report_is_ready_when_all_gates_pass():
 
     assert report["readiness"]["ready_for_physical_reclaim"] is True
     assert report["readiness"]["blockers"] == []
+
+
+def test_preflight_report_blocks_unmanaged_archive_command():
+    raw = _base_report()
+    raw["database"]["archive_command"] = "test ! -f /archive/%f && cp %p /archive/%f"
+
+    report = evaluate_report(raw)
+
+    assert report["readiness"]["ready_for_physical_reclaim"] is False
+    assert "postgres_archive_command_not_managed" in report["readiness"]["blockers"]
+
+
+def test_preflight_report_blocks_current_archiver_failure():
+    raw = _base_report()
+    raw["database"]["archiver"] = {
+        "archived_count": 10,
+        "last_archived_wal": "000000010000000000000010",
+        "last_archived_time": "2026-05-25T00:00:00+00:00",
+        "failed_count": 1,
+        "last_failed_wal": "000000010000000000000011",
+        "last_failed_time": "2026-05-25T00:05:00+00:00",
+        "stats_reset": "2026-05-25T00:00:00+00:00",
+    }
+
+    report = evaluate_report(raw)
+
+    assert report["readiness"]["ready_for_physical_reclaim"] is False
+    assert "postgres_archiver_currently_failing" in report["readiness"]["blockers"]
+
+
+def test_preflight_report_warns_on_historical_archiver_failure():
+    raw = _base_report()
+    raw["database"]["archiver"] = {
+        "archived_count": 11,
+        "last_archived_wal": "000000010000000000000011",
+        "last_archived_time": "2026-05-25T00:06:00+00:00",
+        "failed_count": 1,
+        "last_failed_wal": "000000010000000000000010",
+        "last_failed_time": "2026-05-25T00:05:00+00:00",
+        "stats_reset": "2026-05-25T00:00:00+00:00",
+    }
+
+    report = evaluate_report(raw)
+
+    assert report["readiness"]["ready_for_physical_reclaim"] is True
+    assert "postgres_archiver_historical_failures_present" in report["readiness"][
+        "warnings"
+    ]
 
 
 def test_preflight_report_blocks_missing_reclaim_and_observability_support():

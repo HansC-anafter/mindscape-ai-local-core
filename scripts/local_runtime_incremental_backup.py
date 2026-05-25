@@ -21,6 +21,9 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 VERIFY_SCRIPT = REPO_ROOT / "scripts" / "verify_local_runtime_backup.sh"
 BYTES_PER_GB = 1024**3
 WAL_ARCHIVE_CONTAINER_DIR = "/var/lib/postgresql/wal_archive"
+WAL_SEGMENT_BYTES = 16 * 1024 * 1024
+WAL_SEGMENT_RE = re.compile(r"^[0-9A-F]{24}$")
+MANAGED_ARCHIVE_COMMAND = "/usr/local/bin/mindscape-archive-wal"
 TRANSIENT_RSYNC_CODES = {23, 24}
 RSYNC_SNAPSHOT_EXCLUDES = ["postgres", "backups", "e2e-traces", "ig_thumbnails"]
 MIRROR_SCOPE_POSTGRES = "postgres_chain"
@@ -83,6 +86,10 @@ MIRROR_SCOPE_DEFINITIONS = {
         "required": False,
     },
 }
+os.environ["PATH"] = (
+    "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin:"
+    + os.environ.get("PATH", "")
+)
 
 
 def load_repo_env() -> None:
@@ -137,6 +144,28 @@ def parse_float(value: Any, default: float, minimum: float = 0.0) -> float:
     except (TypeError, ValueError):
         return default
     return max(minimum, parsed)
+
+
+def parse_datetime(value: Any) -> datetime | None:
+    if isinstance(value, datetime):
+        return value
+    if value is None:
+        return None
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def archiver_currently_failing(postgres: dict[str, Any]) -> bool:
+    failed_count = parse_int(postgres.get("archiver_failed_count"), 0)
+    if failed_count <= 0:
+        return False
+    last_failed = parse_datetime(postgres.get("archiver_last_failed_time"))
+    if last_failed is None:
+        return True
+    last_archived = parse_datetime(postgres.get("archiver_last_archived_time"))
+    return last_archived is None or last_archived < last_failed
 
 
 def parse_scopes(value: Any) -> list[str]:
@@ -288,6 +317,28 @@ def list_wal_segments(wal_root: Path) -> list[str]:
         if path.is_file() and len(name) >= 24 and all(ch in "0123456789ABCDEF" for ch in name[:24]):
             segments.append(name)
     return sorted(segments)
+
+
+def wal_archive_segment_size_mismatches(wal_root: Path) -> list[dict[str, Any]]:
+    if not wal_root.is_dir():
+        return []
+    mismatches: list[dict[str, Any]] = []
+    for path in wal_root.iterdir():
+        if not path.is_file() or not WAL_SEGMENT_RE.fullmatch(path.name):
+            continue
+        try:
+            size = path.stat().st_size
+        except OSError:
+            size = -1
+        if size != WAL_SEGMENT_BYTES:
+            mismatches.append(
+                {
+                    "name": path.name,
+                    "bytes": size,
+                    "expected_bytes": WAL_SEGMENT_BYTES,
+                }
+            )
+    return sorted(mismatches, key=lambda item: str(item["name"]))
 
 
 def dir_size_bytes(path: Path) -> int:
@@ -447,8 +498,18 @@ def command_exists(name: str) -> bool:
 
 def postgres_status() -> dict[str, Any]:
     archive_mode = "unknown"
+    archive_command = ""
     ready_count = 0
     wal_bytes = 0
+    archiver = {
+        "archived_count": 0,
+        "last_archived_wal": "",
+        "last_archived_time": "",
+        "failed_count": 0,
+        "last_failed_wal": "",
+        "last_failed_time": "",
+        "stats_reset": "",
+    }
     try:
         archive_mode = run_text(
             [
@@ -465,6 +526,52 @@ def postgres_status() -> dict[str, Any]:
             ],
             timeout=20,
         ).strip()
+        archive_command = run_text(
+            [
+                "docker",
+                "exec",
+                "mindscape-ai-local-core-postgres",
+                "psql",
+                "-U",
+                "mindscape",
+                "-d",
+                "mindscape_core",
+                "-Atc",
+                "show archive_command",
+            ],
+            timeout=20,
+        ).strip()
+        raw_archiver = run_text(
+            [
+                "docker",
+                "exec",
+                "mindscape-ai-local-core-postgres",
+                "psql",
+                "-U",
+                "mindscape",
+                "-d",
+                "mindscape_core",
+                "-Atc",
+                (
+                    "SELECT archived_count::bigint, COALESCE(last_archived_wal, ''), "
+                    "COALESCE(last_archived_time::text, ''), failed_count::bigint, "
+                    "COALESCE(last_failed_wal, ''), COALESCE(last_failed_time::text, ''), "
+                    "COALESCE(stats_reset::text, '') FROM pg_stat_archiver"
+                ),
+            ],
+            timeout=20,
+        ).strip()
+        parts = raw_archiver.split("|")
+        if len(parts) >= 7:
+            archiver = {
+                "archived_count": parse_int(parts[0], 0),
+                "last_archived_wal": parts[1],
+                "last_archived_time": parts[2],
+                "failed_count": parse_int(parts[3], 0),
+                "last_failed_wal": parts[4],
+                "last_failed_time": parts[5],
+                "stats_reset": parts[6],
+            }
         ready_count = int(
             run_text(
                 [
@@ -487,7 +594,7 @@ def postgres_status() -> dict[str, Any]:
                     "mindscape-ai-local-core-postgres",
                     "sh",
                     "-c",
-                    "du -sk /var/lib/postgresql/data/pgdata/pg_wal | awk '{print $1}'",
+                    "du -sk /var/lib/postgresql/data/pgdata/pg_wal 2>/dev/null | awk '{print $1}'",
                 ],
                 timeout=120,
             ).strip()
@@ -497,14 +604,30 @@ def postgres_status() -> dict[str, Any]:
     except Exception as exc:
         return {
             "archive_mode": archive_mode,
+            "archive_command": archive_command,
             "wal_ready_count": ready_count,
             "wal_bytes": wal_bytes,
+            "archiver_archived_count": archiver["archived_count"],
+            "archiver_last_archived_wal": archiver["last_archived_wal"],
+            "archiver_last_archived_time": archiver["last_archived_time"],
+            "archiver_failed_count": archiver["failed_count"],
+            "archiver_last_failed_wal": archiver["last_failed_wal"],
+            "archiver_last_failed_time": archiver["last_failed_time"],
+            "archiver_stats_reset": archiver["stats_reset"],
             "error": f"{type(exc).__name__}: {exc}",
         }
     return {
         "archive_mode": archive_mode,
+        "archive_command": archive_command,
         "wal_ready_count": ready_count,
         "wal_bytes": wal_bytes,
+        "archiver_archived_count": archiver["archived_count"],
+        "archiver_last_archived_wal": archiver["last_archived_wal"],
+        "archiver_last_archived_time": archiver["last_archived_time"],
+        "archiver_failed_count": archiver["failed_count"],
+        "archiver_last_failed_wal": archiver["last_failed_wal"],
+        "archiver_last_failed_time": archiver["last_failed_time"],
+        "archiver_stats_reset": archiver["stats_reset"],
     }
 
 
@@ -580,8 +703,15 @@ def build_plan(args: argparse.Namespace) -> dict[str, Any]:
 
     pg = postgres_status()
     archive_mode = str(pg.get("archive_mode") or "unknown")
+    archive_command = str(pg.get("archive_command") or "")
     if archive_mode != "on":
         blocking_reasons.append("postgres_archive_required")
+    if MANAGED_ARCHIVE_COMMAND not in archive_command:
+        blocking_reasons.append("postgres_archive_command_not_managed")
+    if archiver_currently_failing(pg):
+        blocking_reasons.append("postgres_archiver_currently_failing")
+    elif parse_int(pg.get("archiver_failed_count"), 0) > 0:
+        warnings.append("postgres_archiver_historical_failures_present")
     if pg.get("error"):
         warnings.append(str(pg["error"]))
 
@@ -592,6 +722,11 @@ def build_plan(args: argparse.Namespace) -> dict[str, Any]:
         base_age is not None and base_age >= config["base_interval_hours"]
     )
     wal_segments = list_wal_segments(wal_root)
+    wal_size_mismatches = wal_archive_segment_size_mismatches(wal_root)
+    if wal_size_mismatches:
+        blocking_reasons.append("wal_archive_segment_size_mismatch")
+        sample = ",".join(str(item["name"]) for item in wal_size_mismatches[:10])
+        warnings.append(f"wal_archive_segment_size_mismatch:{sample}")
 
     policy = {
         "mode": MODE,
@@ -613,10 +748,19 @@ def build_plan(args: argparse.Namespace) -> dict[str, Any]:
         "mirror_free_bytes": mirror_free,
         "min_free_bytes": min_free_bytes,
         "postgres_archive_mode": archive_mode,
+        "postgres_archive_command": archive_command,
         "postgres_wal_ready_count": pg.get("wal_ready_count", 0),
         "postgres_wal_bytes": pg.get("wal_bytes", 0),
+        "postgres_archiver_archived_count": pg.get("archiver_archived_count", 0),
+        "postgres_archiver_last_archived_wal": pg.get("archiver_last_archived_wal", ""),
+        "postgres_archiver_last_archived_time": pg.get("archiver_last_archived_time", ""),
+        "postgres_archiver_failed_count": pg.get("archiver_failed_count", 0),
+        "postgres_archiver_last_failed_wal": pg.get("archiver_last_failed_wal", ""),
+        "postgres_archiver_last_failed_time": pg.get("archiver_last_failed_time", ""),
+        "postgres_archiver_stats_reset": pg.get("archiver_stats_reset", ""),
         "wal_archive_dir": str(wal_root),
         "wal_segment_count": len(wal_segments),
+        "wal_segment_size_mismatches": wal_size_mismatches,
         "wal_archive_bytes": dir_size_bytes(wal_root),
         "base_backup_id": latest_base_manifest.get("base_backup_id") if latest_base_manifest else "",
         "base_backup_created_at": latest_base_manifest.get("created_at") if latest_base_manifest else "",

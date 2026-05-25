@@ -29,7 +29,16 @@ def test_postgres_compose_uses_managed_runtime_image():
     assert "shared_preload_libraries=pg_stat_statements" in compose
     assert "pg_stat_statements.track=all" in compose
     assert "archive_mode=${LOCAL_CORE_POSTGRES_ARCHIVE_MODE:-off}" in compose
-    assert "archive_command=test ! -f /var/lib/postgresql/wal_archive/%f" in compose
+    assert (
+        "archive_command=/usr/local/bin/mindscape-archive-wal %p %f "
+        "/var/lib/postgresql/wal_archive"
+    ) in compose
+    assert "archive_command=test ! -f" not in compose
+    postgres_dockerfile = (repo_root / "docker/postgres/Dockerfile").read_text(
+        encoding="utf-8"
+    )
+    assert "COPY docker/postgres/archive-wal.sh /usr/local/bin/mindscape-archive-wal" in postgres_dockerfile
+    assert "chmod 0755 /usr/local/bin/mindscape-archive-wal" in postgres_dockerfile
 
 
 def test_postgres_completion_runtime_defines_pooling_replica_and_redis_aof():
