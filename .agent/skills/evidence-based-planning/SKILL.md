@@ -5,6 +5,9 @@ description: Create implementation plans only after collecting evidence from cod
 
 # Evidence-Based Planning
 
+> Canonical copy: `mindscape-ai-cloud/.agent/skills/evidence-based-planning/SKILL.md`
+> This local-core copy is kept as a runtime/UI mirror because local-core scans its own `.agent/skills/` directory.
+
 Use this skill when the output is a plan, not code, and the plan must be defensible against the actual repo and runtime state.
 
 This skill is stricter than normal planning:

@@ -5,6 +5,9 @@ description: Enforce evidence-first discipline in all reports, plans, and diagno
 
 # Evidence-Based Reporting
 
+> Canonical copy: `mindscape-ai-cloud/.agent/skills/evidence-based-reporting/SKILL.md`
+> This local-core copy is kept as a runtime/UI mirror because local-core scans its own `.agent/skills/` directory.
+
 ## Mindscape Entry Points
 
 When a report, audit, or diagnostic document is about Mindscape pack development, local-core runtime/data-plane work, PostgreSQL runtime DB, capability installation, or playbook plane boundaries, cite and apply the matching entry point before writing conclusions:

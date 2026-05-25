@@ -1,7 +1,15 @@
 ---
-name: evidence-based-reporting
-description: Enforce evidence-first discipline in all reports, plans, and diagnostic documents. No unverified claims.
+name: evi-report
+description: Legacy alias for evidence-based-reporting. Use the canonical evidence-based-reporting skill instead.
 ---
+
+# Legacy Alias: evi-report
+
+> Canonical copy: `mindscape-ai-cloud/.agent/skills/evidence-based-reporting/SKILL.md`
+> Runtime mirror: `mindscape-ai-local-core/.agent/skills/evidence-based-reporting/SKILL.md`
+
+This legacy alias is kept only to avoid breaking references to the old `evi-report`
+folder. Do not use it as the source of truth for reporting rules.
 
 # Evidence-Based Reporting
 
