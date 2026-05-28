@@ -8,12 +8,11 @@ import { GovernedMemoryPreview } from '../../../../components/workspace/governan
 import { MemoryImpactGraphPanel } from '../../../../components/workspace/governance/MemoryImpactGraphPanel';
 import { WorkflowEvidenceSummary } from '../../../../components/workspace/meeting/WorkflowEvidenceSummary';
 import {
-    buildPdScenePatchSuccessText,
     buildScenePatchFailureText,
     ScenePatchConsole,
     buildScenePatchSummary,
     parseScenePatchJson,
-    scenePatchResultMessage,
+    type ScenePatchStatusMessage,
 } from '../../../../components/workspace/ScenePatchConsole';
 import { MEETING_RECORDS_API_URL } from './meetingRecordsApi';
 import type {
@@ -25,6 +24,10 @@ import {
     formatWorkflowEvidenceLabel,
     getMeetingRecordStatusStyle,
 } from './meetingRecordsUtils';
+import {
+    applyMeetingScenePatchObjectAction,
+    getMeetingScenePatchObjectActionDisabledReason,
+} from './meetingScenePatchObjectAction';
 
 interface MeetingSessionDetailPanelProps {
     session: MeetingSession;
@@ -46,7 +49,7 @@ export function MeetingSessionDetailPanel({
     const [patchSceneId, setPatchSceneId] = useState('');
     const [artifactId, setArtifactId] = useState('');
     const [applyingScenePatch, setApplyingScenePatch] = useState(false);
-    const [scenePatchResult, setScenePatchResult] = useState<string | null>(null);
+    const [scenePatchResult, setScenePatchResult] = useState<ScenePatchStatusMessage | null>(null);
     const actionItems = session.action_items || [];
     const decisions = session.decisions || [];
     const agenda = session.agenda || [];
@@ -77,10 +80,17 @@ export function MeetingSessionDetailPanel({
         () => buildScenePatchSummary(parsedScenePatch.patch, patchSceneId),
         [parsedScenePatch.patch, patchSceneId],
     );
-    const scenePatchResultView = useMemo(
-        () => scenePatchResultMessage(scenePatchResult),
-        [scenePatchResult],
-    );
+    const scenePatchDisabledReason = useMemo(() => {
+        if (!parsedScenePatch.patch) {
+            return parsedScenePatch.error
+                ? t('meetingsScenePatchParseFailed', { error: parsedScenePatch.error })
+                : t('meetingsScenePatchJsonRequired');
+        }
+        if (!patchSceneId.trim()) {
+            return t('meetingsScenePatchSceneIdRequired');
+        }
+        return getMeetingScenePatchObjectActionDisabledReason(session, workspaceId, patchSceneId);
+    }, [parsedScenePatch.error, parsedScenePatch.patch, patchSceneId, session, t, workspaceId]);
 
     useEffect(() => {
         const sourceSceneId = parsedScenePatch.patch?.source_scene_id;
@@ -97,49 +107,42 @@ export function MeetingSessionDetailPanel({
 
     const applyScenePatch = useCallback(async () => {
         if (!parsedScenePatch.patch) {
-            setScenePatchResult(
-                parsedScenePatch.error
+            setScenePatchResult({
+                tone: 'error',
+                message: parsedScenePatch.error
                     ? t('meetingsScenePatchParseFailed', { error: parsedScenePatch.error })
                     : t('meetingsScenePatchJsonRequired'),
-            );
+            });
             return;
         }
         if (!patchSceneId.trim()) {
-            setScenePatchResult(t('meetingsScenePatchSceneIdRequired'));
+            setScenePatchResult({
+                tone: 'error',
+                message: t('meetingsScenePatchSceneIdRequired'),
+            });
             return;
         }
         try {
             setApplyingScenePatch(true);
             setScenePatchResult(null);
-            const response = await fetch(
-                `${MEETING_RECORDS_API_URL}/api/v1/capabilities/performance_direction/sessions/${encodeURIComponent(session.id)}/storyboard/scene-patch`,
-                {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        scene_id: patchSceneId.trim(),
-                        artifact_id: artifactId.trim() || undefined,
-                        storyboard_scene_patch: parsedScenePatch.patch,
-                    }),
-                },
-            );
-            if (!response.ok) {
-                const detail = await response.text();
-                throw new Error(detail || `HTTP ${response.status}`);
-            }
-            const payload = await response.json();
-            setScenePatchResult(
-                buildPdScenePatchSuccessText({
-                    sceneId: payload.patched_scene_id || patchSceneId.trim(),
-                    artifactId: payload.artifact?.artifact_id || null,
-                }),
-            );
+            const result = await applyMeetingScenePatchObjectAction({
+                apiUrl: MEETING_RECORDS_API_URL,
+                workspaceId,
+                session,
+                sceneId: patchSceneId.trim(),
+                artifactId,
+                storyboardScenePatch: parsedScenePatch.patch,
+            });
+            setScenePatchResult(result);
         } catch (error) {
-            setScenePatchResult(buildScenePatchFailureText('PD', error));
+            setScenePatchResult({
+                tone: 'error',
+                message: buildScenePatchFailureText(error),
+            });
         } finally {
             setApplyingScenePatch(false);
         }
-    }, [artifactId, parsedScenePatch.error, parsedScenePatch.patch, patchSceneId, session.id, t]);
+    }, [artifactId, parsedScenePatch.error, parsedScenePatch.patch, patchSceneId, session, t, workspaceId]);
 
     return (
         <div className="p-5 space-y-5">
@@ -391,17 +394,33 @@ export function MeetingSessionDetailPanel({
                                 setArtifactId('');
                                 setScenePatchResult(null);
                             }}
-                            pdAction={{
-                                sessionId: session.id,
-                                onSessionIdChange: () => undefined,
-                                sessionIdReadOnly: true,
-                                artifactId,
-                                onArtifactIdChange: setArtifactId,
+                            objectAction={{
+                                id: 'meeting-scene-patch-object-action',
+                                title: t('meetingsScenePatchApplyButton'),
                                 applying: applyingScenePatch,
-                                result: scenePatchResultView,
+                                result: scenePatchResult,
                                 onApply: applyScenePatch,
                                 buttonLabel: t('meetingsScenePatchApplyButton'),
                                 description: t('meetingsScenePatchApplyDescription'),
+                                disabled: Boolean(scenePatchDisabledReason),
+                                disabledReason: scenePatchDisabledReason,
+                                fields: [
+                                    {
+                                        kind: 'text',
+                                        id: 'meeting-session-id',
+                                        label: 'meeting_id',
+                                        value: session.id,
+                                        readOnly: true,
+                                    },
+                                    {
+                                        kind: 'text',
+                                        id: 'artifact-id',
+                                        label: 'artifact_id（可留空）',
+                                        value: artifactId,
+                                        onChange: setArtifactId,
+                                        placeholder: '留空時由 owner pack 選擇 storyboard artifact',
+                                    },
+                                ],
                             }}
                         />
                     </div>

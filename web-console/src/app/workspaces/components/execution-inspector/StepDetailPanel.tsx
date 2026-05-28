@@ -16,6 +16,7 @@ import { getStepStatusColor, getEffectiveStepStatus } from './utils/execution-in
 import { parseServerTimestamp } from '@/lib/time';
 import { GovernedMemoryPreview } from '@/components/workspace/governance/GovernedMemoryPreview';
 import { buildCapabilityWorkbenchPath } from '@/lib/capability-static-hosts';
+import { getInstalledCapabilities } from '@/lib/capability-packs/installed-capabilities-cache';
 
 export function buildCapabilityWorkbenchHref({
   workspaceId,
@@ -119,19 +120,13 @@ export default function StepDetailPanel({
   useEffect(() => {
     if (apiUrl == null) return;
 
-    const loadCapabilities = async () => {
-      try {
-        const response = await fetch(`${apiUrl}/api/v1/capability-packs/installed-capabilities`);
-        if (response.ok) {
-          const capabilities = await response.json();
-          setInstalledCapabilities(capabilities);
-        }
-      } catch (err) {
+    void getInstalledCapabilities(apiUrl)
+      .then((capabilities) => {
+        setInstalledCapabilities(capabilities);
+      })
+      .catch((err) => {
         console.warn('Failed to load installed capabilities:', err);
-      }
-    };
-
-    loadCapabilities();
+      });
   }, [apiUrl]);
 
   // Load UI components when artifacts match (boundary: lazy loading)

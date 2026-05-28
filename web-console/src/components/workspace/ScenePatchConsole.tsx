@@ -29,56 +29,53 @@ export interface ScenePatchStatusMessage {
   message: string;
 }
 
-export function buildPdScenePatchSuccessText(params: {
-  sceneId?: string | null;
-  artifactId?: string | null;
-}) {
-  return [
-    'PD Storyboard 已回寫',
-    `目標場景：${params.sceneId || '-'}`,
-    `artifact：${params.artifactId || '-'}`,
-  ].join('\n');
-}
-
-export function buildMmsScenePatchSuccessText(params: {
-  sceneId?: string | null;
-}) {
-  return [
-    'MMS Storyboard 已更新',
-    `目標場景：${params.sceneId || '-'}`,
-  ].join('\n');
-}
-
-export function buildScenePatchFailureText(scope: 'PD' | 'MMS', error: unknown) {
+export function buildScenePatchFailureText(error: unknown) {
   const detail = error instanceof Error ? error.message : String(error);
-  return `${scope} storyboard 套用失敗：${detail}`;
+  return `Scene patch 套用失敗：${detail}`;
 }
 
-interface PdActionConfig {
-  sessionId: string;
-  onSessionIdChange: (value: string) => void;
-  sessionIdReadOnly?: boolean;
-  sessionIdPlaceholder?: string;
-  artifactId?: string;
-  onArtifactIdChange?: (value: string) => void;
-  artifactPlaceholder?: string;
-  hideArtifactId?: boolean;
+export type ScenePatchActionField =
+  | {
+    kind: 'text';
+    id: string;
+    label: string;
+    value: string;
+    onChange?: (value: string) => void;
+    placeholder?: string;
+    readOnly?: boolean;
+    hidden?: boolean;
+  }
+  | {
+    kind: 'textarea';
+    id: string;
+    label: string;
+    value: string;
+    onChange?: (value: string) => void;
+    placeholder?: string;
+    readOnly?: boolean;
+    rows?: number;
+    hidden?: boolean;
+  }
+  | {
+    kind: 'button';
+    id: string;
+    label: string;
+    onClick: () => void;
+    hidden?: boolean;
+  };
+
+export interface ScenePatchActionConfig {
+  id: string;
+  title: string;
+  description?: string;
   applying: boolean;
   result?: ScenePatchStatusMessage | null;
   onApply: () => void | Promise<void>;
   buttonLabel?: string;
-  description?: string;
-}
-
-interface MmsActionConfig {
-  storyboardJson: string;
-  onStoryboardJsonChange: (value: string) => void;
-  onResetStoryboard?: () => void;
-  applying: boolean;
-  result?: ScenePatchStatusMessage | null;
-  onApply: () => void | Promise<void>;
-  buttonLabel?: string;
-  description?: string;
+  disabled?: boolean;
+  disabledReason?: string | null;
+  variant?: 'primary' | 'secondary';
+  fields?: ScenePatchActionField[];
 }
 
 interface ScenePatchConsoleProps {
@@ -95,8 +92,8 @@ interface ScenePatchConsoleProps {
   onSceneIdChange: (value: string) => void;
   sceneIdPlaceholder?: string;
   onClearPatch?: () => void;
-  pdAction?: PdActionConfig;
-  mmsAction?: MmsActionConfig;
+  objectAction?: ScenePatchActionConfig | null;
+  objectActions?: ScenePatchActionConfig[];
 }
 
 function cx(...parts: Array<string | false | null | undefined>) {
@@ -230,8 +227,8 @@ export function ScenePatchConsole({
   onSceneIdChange,
   sceneIdPlaceholder = '例如：SC_PATCH_01',
   onClearPatch,
-  pdAction,
-  mmsAction,
+  objectAction,
+  objectActions = [],
 }: ScenePatchConsoleProps) {
   const styles = panelClasses(theme);
   const patchJsonPreview = useMemo(() => {
@@ -239,6 +236,13 @@ export function ScenePatchConsole({
     if (!patch) return '';
     return JSON.stringify(patch, null, 2);
   }, [patch, patchJson, patchMode]);
+  const actionItems = useMemo(
+    () => [
+      ...(objectAction ? [objectAction] : []),
+      ...objectActions,
+    ],
+    [objectAction, objectActions],
+  );
 
   return (
     <div className={styles.shell}>
@@ -274,7 +278,7 @@ export function ScenePatchConsole({
         </div>
       </div>
 
-      <div className={cx('grid gap-4', pdAction && mmsAction ? 'xl:grid-cols-[1.15fr,0.85fr]' : 'xl:grid-cols-[1fr,0.85fr]')}>
+      <div className={cx('grid gap-4', actionItems.length > 1 ? 'xl:grid-cols-[1.15fr,0.85fr]' : 'xl:grid-cols-[1fr,0.85fr]')}>
         <div className={styles.surface}>
           <div className="mb-3 flex items-center justify-between gap-3">
             <div>
@@ -323,96 +327,82 @@ export function ScenePatchConsole({
         </div>
 
         <div className="space-y-4">
-          {pdAction ? (
-            <div className={styles.surface}>
+          {actionItems.map((action) => (
+            <div key={action.id} className={styles.surface}>
               <div className="mb-3">
-                <div className={cx('text-sm font-medium', styles.text)}>套用到 PD Storyboard</div>
-                <div className={cx('mt-1', styles.muted)}>
-                  {pdAction.description || '將 scene patch 回寫到指定 PD session 的 storyboard artifact。'}
-                </div>
+                <div className={cx('text-sm font-medium', styles.text)}>{action.title}</div>
+                {action.description ? (
+                  <div className={cx('mt-1', styles.muted)}>{action.description}</div>
+                ) : null}
               </div>
               <div className="space-y-3">
-                <div>
-                  <label className={styles.label}>PD session_id</label>
-                  <input
-                    value={pdAction.sessionId}
-                    onChange={(event) => pdAction.onSessionIdChange(event.target.value)}
-                    placeholder={pdAction.sessionIdPlaceholder || '例如：ds_xxx'}
-                    className={styles.input}
-                    readOnly={pdAction.sessionIdReadOnly}
-                  />
-                </div>
-                {pdAction.hideArtifactId ? null : (
-                  <div>
-                    <label className={styles.label}>artifact_id（可留空）</label>
-                    <input
-                      value={pdAction.artifactId || ''}
-                      onChange={(event) => pdAction.onArtifactIdChange?.(event.target.value)}
-                      placeholder={pdAction.artifactPlaceholder || '留空時會使用最新 storyboard artifact'}
-                      className={styles.input}
-                    />
+                {(action.fields || []).map((field) => {
+                  if (field.hidden) return null;
+                  if (field.kind === 'button') {
+                    return (
+                      <button
+                        key={field.id}
+                        type="button"
+                        onClick={field.onClick}
+                        className={styles.subtleButton}
+                      >
+                        {field.label}
+                      </button>
+                    );
+                  }
+                  if (field.kind === 'textarea') {
+                    return (
+                      <div key={field.id}>
+                        <label className={styles.label}>{field.label}</label>
+                        <textarea
+                          value={field.value}
+                          onChange={(event) => field.onChange?.(event.target.value)}
+                          className={cx(styles.textarea, 'min-h-[180px]')}
+                          placeholder={field.placeholder}
+                          readOnly={field.readOnly}
+                          rows={field.rows}
+                        />
+                      </div>
+                    );
+                  }
+                  return (
+                    <div key={field.id}>
+                      <label className={styles.label}>{field.label}</label>
+                      <input
+                        value={field.value}
+                        onChange={(event) => field.onChange?.(event.target.value)}
+                        placeholder={field.placeholder}
+                        className={styles.input}
+                        readOnly={field.readOnly}
+                      />
+                    </div>
+                  );
+                })}
+                {action.disabled && action.disabledReason ? (
+                  <div className={resultBoxClasses(theme, 'info')}>
+                    {action.disabledReason}
                   </div>
-                )}
+                ) : null}
                 <button
                   type="button"
-                  onClick={() => void pdAction.onApply()}
-                  disabled={pdAction.applying}
-                  className={styles.primaryButton}
+                  onClick={() => void action.onApply()}
+                  disabled={action.applying || action.disabled}
+                  className={action.variant === 'secondary' ? styles.secondaryButton : styles.primaryButton}
                 >
-                  {pdAction.applying ? '套用中…' : (pdAction.buttonLabel || '套用到 PD Storyboard')}
+                  {action.applying ? '套用中…' : (action.buttonLabel || action.title)}
                 </button>
-                {pdAction.result ? (
-                  <div className={cx(resultBoxClasses(theme, pdAction.result.tone), 'whitespace-pre-wrap leading-5')}>
-                    {pdAction.result.message}
+                {action.result ? (
+                  <div className={cx(resultBoxClasses(theme, action.result.tone), 'whitespace-pre-wrap leading-5')}>
+                    {action.result.message}
                   </div>
                 ) : null}
               </div>
             </div>
-          ) : null}
+          ))}
 
-          {mmsAction ? (
-            <div className={styles.surface}>
-              <div className="mb-3">
-                <div className={cx('text-sm font-medium', styles.text)}>套用到 MMS Storyboard</div>
-                <div className={cx('mt-1', styles.muted)}>
-                  {mmsAction.description || '將 scene patch 套到 inline storyboard，更新後 JSON 直接回填。'}
-                </div>
-              </div>
-              <div className="space-y-3">
-                <div className="flex items-center justify-between gap-2">
-                  <label className={styles.label}>Storyboard JSON</label>
-                  {mmsAction.onResetStoryboard ? (
-                    <button type="button" onClick={mmsAction.onResetStoryboard} className={styles.subtleButton}>
-                      重設範本
-                    </button>
-                  ) : null}
-                </div>
-                <textarea
-                  value={mmsAction.storyboardJson}
-                  onChange={(event) => mmsAction.onStoryboardJsonChange(event.target.value)}
-                  className={cx(styles.textarea, 'min-h-[180px]')}
-                  placeholder='{"workspace_id":"ws_demo","scenes":[{"scene_id":"sc01"}]}'
-                />
-                <button
-                  type="button"
-                  onClick={() => void mmsAction.onApply()}
-                  disabled={mmsAction.applying}
-                  className={styles.secondaryButton}
-                >
-                  {mmsAction.applying ? '套用中…' : (mmsAction.buttonLabel || '套用到 MMS Storyboard')}
-                </button>
-                {mmsAction.result ? (
-                  <div className={cx(resultBoxClasses(theme, mmsAction.result.tone), 'whitespace-pre-wrap leading-5')}>
-                    {mmsAction.result.message}
-                  </div>
-                ) : null}
-              </div>
-            </div>
-          ) : null}
-
-          {!pdAction && !mmsAction ? (
+          {actionItems.length === 0 ? (
             <div className={styles.infoBox}>
-              目前這個入口只提供 patch 觀測，尚未掛入可套用目標。
+              No scene patch action is available for this context.
             </div>
           ) : null}
         </div>

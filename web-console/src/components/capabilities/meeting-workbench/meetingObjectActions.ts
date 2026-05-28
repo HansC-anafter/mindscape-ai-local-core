@@ -11,11 +11,22 @@ interface ObjectActionContext {
   selectedObjectUri: string | null | undefined;
 }
 
-function buildObjectActionRequestContext(context: ObjectActionContext) {
+interface ObjectActionRequestOptions {
+  affordanceVerb?: string | null;
+  requestContext?: Record<string, unknown> | null;
+  writeMode?: string | null;
+  minEntries?: number;
+}
+
+function buildObjectActionRequestContext(
+  context: ObjectActionContext,
+  extraContext?: Record<string, unknown> | null,
+) {
   return {
     source_surface: context.sourceSurface || 'meeting_graph',
     selected_object_uri: context.selectedObjectUri || null,
     command_id: context.commandId || null,
+    ...(extraContext || {}),
   };
 }
 
@@ -23,12 +34,27 @@ export async function requestObjectActionPlan(
   context: ObjectActionContext,
   trimmedCommand: string,
   entries: MeetingObjectActionEntry[],
+  options: ObjectActionRequestOptions = {},
 ): Promise<Record<string, unknown> | null> {
-  if (entries.length < 2) {
+  const minEntries = options.minEntries ?? 2;
+  if (entries.length < minEntries) {
     return null;
   }
 
   try {
+    const body: Record<string, unknown> = {
+      instruction: trimmedCommand,
+      meeting_id: context.meetingId,
+      entries,
+      request_context: buildObjectActionRequestContext(context, options.requestContext),
+    };
+    if (options.affordanceVerb) {
+      body.affordance_verb = options.affordanceVerb;
+    }
+    if (options.writeMode) {
+      body.write_mode = options.writeMode;
+    }
+
     const response = await fetch(
       `${context.apiUrl.replace(/\/$/, '')}/api/v1/workspaces/${encodeURIComponent(
         context.workspaceId,
@@ -37,12 +63,7 @@ export async function requestObjectActionPlan(
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
-        body: JSON.stringify({
-          instruction: trimmedCommand,
-          meeting_id: context.meetingId,
-          entries,
-          request_context: buildObjectActionRequestContext(context),
-        }),
+        body: JSON.stringify(body),
       },
     );
     const payload = await response.json().catch(() => ({}));
@@ -82,6 +103,7 @@ export async function invokeObjectAction(
   trimmedCommand: string,
   objectActionPlan: Record<string, unknown>,
   entries: MeetingObjectActionEntry[],
+  options: ObjectActionRequestOptions = {},
 ): Promise<Record<string, unknown>> {
   const payload = await postApiJson(
     context.apiUrl,
@@ -92,7 +114,7 @@ export async function invokeObjectAction(
       thread_id: context.meetingId,
       object_action_plan: objectActionPlan,
       entries,
-      request_context: buildObjectActionRequestContext(context),
+      request_context: buildObjectActionRequestContext(context, options.requestContext),
     },
   );
   if (!isRecord(payload)) {

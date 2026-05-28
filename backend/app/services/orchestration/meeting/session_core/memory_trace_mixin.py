@@ -8,6 +8,7 @@ logger = logging.getLogger(__name__)
 
 
 class MeetingSessionMemoryTraceMixin:
+    @staticmethod
     def _packet_has_core_layer(core: Optional[Dict[str, Any]]) -> bool:
         if not core:
             return False

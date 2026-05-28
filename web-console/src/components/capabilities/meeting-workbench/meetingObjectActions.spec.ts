@@ -81,6 +81,40 @@ describe('meetingObjectActions', () => {
     });
   });
 
+  it('allows one-entry affordance planning when explicitly requested', async () => {
+    const result = await requestObjectActionPlan(
+      context,
+      'Apply scene patch',
+      entries.slice(0, 1),
+      {
+        affordanceVerb: 'apply_storyboard_scene_patch',
+        minEntries: 1,
+        writeMode: 'staged',
+        requestContext: {
+          scene_id: 'sc01',
+          storyboard_scene_patch: { scene_id: 'sc01' },
+        },
+      },
+    );
+
+    expect(result).toEqual({ status: 'planned', request_plan: { action: 'attach' } });
+    const [, init] = vi.mocked(global.fetch).mock.calls[0];
+    expect(JSON.parse(String(init?.body))).toEqual({
+      instruction: 'Apply scene patch',
+      meeting_id: 'mtg_global',
+      entries: entries.slice(0, 1),
+      affordance_verb: 'apply_storyboard_scene_patch',
+      write_mode: 'staged',
+      request_context: {
+        source_surface: 'ig.references_grid',
+        selected_object_uri: 'mindscape://ig/reference/ref_global',
+        command_id: 'cmd_global',
+        scene_id: 'sc01',
+        storyboard_scene_patch: { scene_id: 'sc01' },
+      },
+    });
+  });
+
   it('returns a rejected plan payload when planning fails', async () => {
     global.fetch = vi.fn(async () => {
       return new Response(JSON.stringify({ detail: { message: 'No compatible object action' } }), {
@@ -117,7 +151,11 @@ describe('meetingObjectActions', () => {
     }) as typeof fetch;
 
     const objectActionPlan = { status: 'planned', request_plan: { action: 'attach' } };
-    const result = await invokeObjectAction(context, 'Attach this reference', objectActionPlan, entries);
+    const result = await invokeObjectAction(context, 'Attach this reference', objectActionPlan, entries, {
+      requestContext: {
+        scene_id: 'sc01',
+      },
+    });
 
     expect(result).toEqual({ status: 'succeeded', execution_id: 'exec_123' });
     expect(global.fetch).toHaveBeenCalledTimes(1);
@@ -135,6 +173,7 @@ describe('meetingObjectActions', () => {
         source_surface: 'ig.references_grid',
         selected_object_uri: 'mindscape://ig/reference/ref_global',
         command_id: 'cmd_global',
+        scene_id: 'sc01',
       },
     });
   });

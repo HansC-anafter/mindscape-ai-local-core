@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 class MeetingSessionLifecycleMixin:
+    @staticmethod
     def _resolve_locale(workspace) -> str:
         """Resolve locale from workspace, settings, or default fallback."""
         ws_locale = getattr(workspace, "default_locale", None)
