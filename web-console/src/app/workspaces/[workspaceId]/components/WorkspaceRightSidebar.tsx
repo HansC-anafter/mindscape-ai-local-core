@@ -44,7 +44,7 @@ interface WorkspaceRightSidebarProps {
     workbenchRefreshTrigger: number;
     setRightSidebarTab: (tab: 'timeline' | 'workbench') => void;
     setSelectedArtifact: (artifact: Artifact | null) => void;
-    setLeftSidebarTab: (tab: 'timeline' | 'outcomes' | 'pack') => void;
+    setLeftSidebarTab: (tab: 'timeline' | 'outcomes') => void;
     setSelectedThreadId: (id: string | null) => void;
     contextData: {
         updateWorkspace: (data: any) => Promise<any>;

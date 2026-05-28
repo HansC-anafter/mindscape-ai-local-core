@@ -1,6 +1,8 @@
 'use client';
 
 import { useState, useCallback } from 'react';
+import { getApiBaseUrl } from '@/lib/api-url';
+import { invalidateInstalledCapabilities } from '@/lib/capability-packs/installed-capabilities-cache';
 import { settingsApi } from '../utils/settingsApi';
 import type { CapabilityPack } from '../types';
 
@@ -43,11 +45,6 @@ export function usePacks(): UsePacksReturn {
         activation: pack.activation || undefined,
         validation: pack.validation || undefined,
       }));
-      // Debug log for the three specific packs
-      const targetPacks = mappedPacks.filter(p => ['agent', 'review', 'workflow_templates'].includes(p.id));
-      if (targetPacks.length > 0) {
-        console.debug('Target packs installed status:', targetPacks.map(p => ({ id: p.id, installed: p.installed })));
-      }
       setPacks(mappedPacks);
     } catch (err) {
       console.error('Failed to load packs:', err);
@@ -61,6 +58,7 @@ export function usePacks(): UsePacksReturn {
     setInstallingPack(packId);
     try {
       await settingsApi.post(`/api/v1/capability-packs/${packId}/install`);
+      invalidateInstalledCapabilities(getApiBaseUrl());
       await loadPacks();
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to install pack';

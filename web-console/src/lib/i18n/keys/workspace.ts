@@ -5,6 +5,7 @@ export const workspaceKeys = {
   workspaceFocus: true,
   workspaceCurrentlyDoing: true,
   workspaceSettingsStatus: true,
+  workspacePackTool: true,
   workspaceMissingSettings: true,
   workspaceNotFound: true,
   workspaceNotSelected: true,

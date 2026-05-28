@@ -6,18 +6,12 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-import dynamic from 'next/dynamic';
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { t, useLocale, type Locale } from '../lib/i18n';
 import { useTheme } from 'next-themes';
-import { LayoutGrid, ChevronLeft } from 'lucide-react';
+import { ChevronLeft } from 'lucide-react';
 import OfflineIndicator from './sync/OfflineIndicator';
-
-const PackListSidebar = dynamic(
-  () => import('./workspace/PackListSidebar').then((module) => module.PackListSidebar),
-  { ssr: false, loading: () => null }
-);
 
 export default function Header() {
   const [settingsMenuOpen, setSettingsMenuOpen] = useState(false);
@@ -28,8 +22,6 @@ export default function Header() {
   const pathname = usePathname();
   const [locale, setLocale] = useLocale();
   const { theme, setTheme } = useTheme();
-  const [isPackListOpen, setIsPackListOpen] = useState(false);
-  const [shouldLoadPackList, setShouldLoadPackList] = useState(false);
 
   useEffect(() => {
     setMounted(true);
@@ -90,21 +82,6 @@ export default function Header() {
                     )
                   )}
 
-                  {/* Pack List Trigger */}
-                  <div className="flex items-center">
-                    <div className="h-4 w-px bg-gray-300 dark:bg-gray-700 mx-2"></div>
-                    <button
-                      onClick={() => {
-                        setShouldLoadPackList(true);
-                        setIsPackListOpen(true);
-                      }}
-                      className="flex items-center gap-1.5 px-2 py-1 rounded-md text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-all font-medium"
-                      title="Open Pack List"
-                    >
-                      <LayoutGrid className="w-4 h-4 text-blue-500" />
-                      <span className="hidden sm:inline">Pack List</span>
-                    </button>
-                  </div>
                   <div className="h-4 w-px bg-gray-300 dark:bg-gray-700 ml-1 mr-2"></div>
                 </>
               )}
@@ -301,15 +278,6 @@ export default function Header() {
           </div>
         </div>
       </header>
-      {
-        workspaceId && shouldLoadPackList && (
-          <PackListSidebar
-            workspaceId={workspaceId}
-            isOpen={isPackListOpen}
-            onClose={() => setIsPackListOpen(false)}
-          />
-        )
-      }
     </>
   );
 }

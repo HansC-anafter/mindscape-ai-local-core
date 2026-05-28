@@ -231,6 +231,7 @@ export const workspaceJa = {
   triggeredNodes: 'トリガーノード',
   taskId: 'タスク ID',
   pack: 'Pack',
+  workspacePackTool: 'Pack',
   taskType: 'タスク種別',
   traceId: 'Trace ID',
   agent: 'Agent',

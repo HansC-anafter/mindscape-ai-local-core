@@ -5,14 +5,26 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadCapabilityUIComponent } from '@/lib/capability-ui-loader';
 import { fetchWorkspaceToolDefinitions } from '@/lib/workspace-tools/workspace-tool-registry';
 import { useRunObservationsSummary } from '@/lib/workspace-runs/useRunObservationsSummary';
+import {
+  useCapabilityWorkbenchInfoMetadataRegistration,
+} from '@/components/capabilities/workbench/CapabilityWorkbenchInfoProvider';
+import type { CapabilityWorkbenchInfoMetadata } from '@/types/capability-workbench';
 import WorkspaceSurfaceShell from './WorkspaceSurfaceShell';
 
 vi.mock('@/lib/api-url', () => ({
   getApiBaseUrl: () => 'http://api.test',
 }));
 
+vi.mock('@/lib/i18n', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/i18n')>();
+  return {
+    ...actual,
+    useT: () => ((key: string) => (key === 'workspacePackTool' ? 'Pack' : null)),
+  };
+});
+
 vi.mock('next/navigation', () => ({
-  usePathname: () => '/workspaces/ws_test/capability-ui-hosts/performance_direction',
+  usePathname: () => '/workspaces/ws_test/capability-ui-hosts/demo_capability',
   useRouter: () => ({
     push: vi.fn(),
     replace: vi.fn(),
@@ -44,6 +56,17 @@ vi.mock('@/lib/capability-ui-loader', async (importOriginal) => {
       }, [workspaceId]);
       return ReactModule.createElement('div', { 'data-testid': 'ig-runs-adapter' }, 'IG runs');
     }),
+  };
+});
+
+vi.mock('./WorkspacePackToolPanel', async () => {
+  const ReactModule = await import('react');
+  return {
+    default: ({ workspaceId }: { workspaceId: string }) => ReactModule.createElement(
+      'div',
+      { 'data-testid': 'workspace-pack-tool-panel' },
+      `Pack panel ${workspaceId}`,
+    ),
   };
 });
 
@@ -90,6 +113,57 @@ vi.mock('@/contexts/ExecutionContextContext', () => ({
   ),
 }));
 
+const WORKBENCH_METADATA: CapabilityWorkbenchInfoMetadata = {
+  schemaVersion: 'capability_workbench_info_metadata.v1',
+  capability: {
+    code: 'demo_capability',
+    label: 'Demo Capability',
+  },
+  workspace: {
+    id: 'ws_test',
+  },
+  primaryObject: {
+    kind: 'artifact',
+    id: 'asset_test',
+    label: 'Asset test',
+  },
+  session: {
+    id: 'session_route_001',
+    kind: 'demo_session',
+    status: 'active',
+  },
+  artifact: {
+    id: 'artifact_test',
+    kind: 'demo_artifact',
+  },
+  selection: {
+    sceneId: 'item01',
+    mode: 'inspect',
+    department: 'review',
+  },
+  references: [
+    {
+      key: 'asset',
+      label: 'Asset',
+      value: 'asset_test',
+      copyValue: 'asset_test',
+    },
+  ],
+  status: [
+    {
+      key: 'preview_state',
+      label: 'Preview state',
+      value: 'idle',
+      tone: 'neutral',
+    },
+  ],
+};
+
+function WorkbenchMetadataRegistration() {
+  useCapabilityWorkbenchInfoMetadataRegistration(WORKBENCH_METADATA);
+  return <div data-testid="surface-content">Capability surface</div>;
+}
+
 describe('WorkspaceSurfaceShell', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -111,8 +185,8 @@ describe('WorkspaceSurfaceShell', () => {
     render(
       <WorkspaceSurfaceShell
         workspaceId="ws_test"
-        activeCapabilityCode="performance_direction"
-        surfacePath={['sessions', 'ds_route_001']}
+        activeCapabilityCode="demo_capability"
+        surfacePath={['sessions', 'session_route_001']}
       >
         <div data-testid="surface-content">Capability surface</div>
       </WorkspaceSurfaceShell>,
@@ -126,31 +200,61 @@ describe('WorkspaceSurfaceShell', () => {
     expect(screen.getByTestId('execution-context-provider')).toBeInTheDocument();
     expect(screen.getByTestId('workspace-surface-shell')).toHaveAttribute(
       'data-active-capability-code',
-      'performance_direction',
+      'demo_capability',
     );
     expect(screen.getByTestId('workspace-surface-shell')).toHaveAttribute(
       'data-surface-path',
-      'sessions/ds_route_001',
+      'sessions/session_route_001',
     );
     expect(screen.getByTestId('surface-content')).toBeInTheDocument();
-    expect(screen.getByTestId('aol-shell-rail')).toBeInTheDocument();
+    expect(screen.getByTestId('workspace-global-tool-rail')).toBeInTheDocument();
     expect(screen.getByTestId('workspace-runs-tool')).toHaveTextContent('1');
     expect(document.querySelector('[data-workspace-tool-rail="true"]')).not.toBeNull();
+    await waitFor(() => {
+      expect(screen.getByTestId('workspace-info-tool')).toBeDisabled();
+    });
     expect(screen.getByTestId('workspace-settings-tool')).toBeInTheDocument();
+    expect(screen.getByTestId('workspace-pack-tool')).toBeInTheDocument();
+    expect(screen.getByTestId('aol-global-anchor')).toBeInTheDocument();
+    expect(screen.getByTestId('aol-runtime-flow-anchor')).toBeInTheDocument();
     expect(screen.getByTestId('aol-workspace-region')).toHaveAttribute(
       'data-aol-panel-loaded',
       'idle',
     );
-    expect(screen.queryByTestId('workspace-runs-panel')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('workspace-settings-aside')).not.toBeInTheDocument();
-    expect(fetchWorkspaceToolDefinitions).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('workspace-global-tool-panel')).not.toBeInTheDocument();
+  });
+
+  it('opens the shared workbench info panel when the capability registers metadata', async () => {
+    render(
+      <WorkspaceSurfaceShell
+        workspaceId="ws_test"
+        activeCapabilityCode="demo_capability"
+        surfacePath={['sessions', 'session_route_001']}
+      >
+        <WorkbenchMetadataRegistration />
+      </WorkspaceSurfaceShell>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('workspace-info-tool')).not.toBeDisabled();
+    });
+
+    fireEvent.click(screen.getByTestId('workspace-info-tool'));
+
+    expect(screen.getByTestId('workspace-global-tool-panel')).toHaveAttribute(
+      'data-active-tool-key',
+      'workspace-surface:demo_capability:workbench-info',
+    );
+    expect(screen.getByTestId('capability-workbench-info-panel')).toHaveTextContent('Demo Capability');
+    expect(screen.getByText('artifact:asset_test')).toBeInTheDocument();
+    expect(screen.getByText('inspect / review / item01')).toBeInTheDocument();
   });
 
   it('opens the built-in runs panel without loading AOL shell panels', () => {
     render(
       <WorkspaceSurfaceShell
         workspaceId="ws_test"
-        activeCapabilityCode="performance_direction"
+        activeCapabilityCode="demo_capability"
         surfacePath={[]}
       >
         <div data-testid="surface-content">Capability surface</div>
@@ -159,9 +263,10 @@ describe('WorkspaceSurfaceShell', () => {
 
     fireEvent.click(screen.getByTestId('workspace-runs-tool'));
 
-    expect(screen.getByTestId('workspace-runs-panel')).toBeInTheDocument();
-    expect(screen.getByTestId('workspace-runs-panel')).toHaveClass('w-80');
-    expect(screen.getByTestId('workspace-runs-panel').querySelector('.overflow-y-auto')).not.toBeNull();
+    expect(screen.getByTestId('workspace-global-tool-panel')).toBeInTheDocument();
+    expect(screen.getByTestId('workspace-global-tool-panel')).toHaveAttribute('data-active-tool-key', 'core:runs_panel');
+    expect(screen.getByTestId('workspace-global-tool-panel')).toHaveClass('w-80');
+    expect(screen.getByTestId('workspace-global-tool-panel').querySelector('.overflow-y-auto')).not.toBeNull();
     return waitFor(() => {
       expect(screen.getByText('ig_complete_workflow')).toBeInTheDocument();
       expect(screen.getByTestId('aol-workspace-region')).toHaveAttribute(
@@ -188,7 +293,7 @@ describe('WorkspaceSurfaceShell', () => {
     render(
       <WorkspaceSurfaceShell
         workspaceId="ws_test"
-        activeCapabilityCode="performance_direction"
+        activeCapabilityCode="demo_capability"
         surfacePath={[]}
       >
         <div data-testid="surface-content">Capability surface</div>
@@ -208,7 +313,7 @@ describe('WorkspaceSurfaceShell', () => {
     render(
       <WorkspaceSurfaceShell
         workspaceId="ws_test"
-        activeCapabilityCode="performance_direction"
+        activeCapabilityCode="demo_capability"
         surfacePath={[]}
       >
         <div data-testid="surface-content">Capability surface</div>
@@ -217,7 +322,8 @@ describe('WorkspaceSurfaceShell', () => {
 
     fireEvent.click(screen.getByTestId('workspace-settings-tool'));
 
-    expect(screen.getByTestId('workspace-settings-aside')).toHaveClass('w-80');
+    expect(screen.getByTestId('workspace-global-tool-panel')).toHaveAttribute('data-active-tool-key', 'core:settings');
+    expect(screen.getByTestId('workspace-global-tool-panel')).toHaveClass('w-80');
     await waitFor(() => {
       expect(screen.getByTestId('workspace-settings-panel')).toBeInTheDocument();
     });
@@ -230,6 +336,31 @@ describe('WorkspaceSurfaceShell', () => {
       'data-aol-panel-loaded',
       'idle',
     );
+  });
+
+  it('opens and closes the built-in pack panel on the right rail', async () => {
+    render(
+      <WorkspaceSurfaceShell
+        workspaceId="ws_test"
+        activeCapabilityCode="demo_capability"
+        surfacePath={[]}
+      >
+        <div data-testid="surface-content">Capability surface</div>
+      </WorkspaceSurfaceShell>,
+    );
+
+    expect(screen.queryByTestId('workspace-global-tool-panel')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('workspace-pack-tool'));
+
+    expect(screen.getByTestId('workspace-global-tool-panel')).toHaveAttribute('data-active-tool-key', 'core:pack');
+    expect(screen.getByTestId('workspace-global-tool-panel')).toHaveClass('w-80');
+    expect(screen.getByTestId('workspace-global-tool-panel').querySelector('.overflow-y-auto')).not.toBeNull();
+    await waitFor(() => {
+      expect(screen.getByTestId('workspace-pack-tool-panel')).toHaveTextContent('Pack panel ws_test');
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close Pack' }));
+    expect(screen.queryByTestId('workspace-global-tool-panel')).not.toBeInTheDocument();
   });
 
   it('keeps IG run APIs cold until the runs rail tool is opened', async () => {

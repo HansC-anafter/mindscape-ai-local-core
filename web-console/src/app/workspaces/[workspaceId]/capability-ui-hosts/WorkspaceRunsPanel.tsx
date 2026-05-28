@@ -16,7 +16,7 @@ import { getWorkspaceToolDefinitions } from './useWorkspaceToolDefinitions';
 
 interface WorkspaceRunsPanelProps {
   workspaceId: string;
-  activeCapabilityCode: string;
+  activeCapabilityCode: string | null;
   runObservationsSummary?: UseRunObservationsSummaryResult;
 }
 
@@ -124,6 +124,12 @@ export default function WorkspaceRunsPanel({
     let cancelled = false;
     setLoading(true);
     setComponent(null);
+    if (!activeCapabilityCode) {
+      setLoading(false);
+      return () => {
+        cancelled = true;
+      };
+    }
     void getWorkspaceToolDefinitions(apiUrl, activeCapabilityCode)
       .then(async (tools) => {
         const runsPanelTool = tools.find(isRunsPanelTool);

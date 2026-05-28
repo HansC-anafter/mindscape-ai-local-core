@@ -2,6 +2,7 @@ import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 
+import { getInstalledCapabilities } from '@/lib/capability-packs/installed-capabilities-cache';
 import { PackPanel } from './PackPanel';
 
 const mockWindowOpen = vi.fn();
@@ -14,9 +15,11 @@ vi.mock('@/components/workspace/ThinkingPanel', () => ({
   ThinkingPanel: () => <div>thinking-panel</div>,
 }));
 
-describe('PackPanel capability workbench routing', () => {
-  const originalFetch = global.fetch;
+vi.mock('@/lib/capability-packs/installed-capabilities-cache', () => ({
+  getInstalledCapabilities: vi.fn(),
+}));
 
+describe('PackPanel capability workbench routing', () => {
   beforeEach(() => {
     mockWindowOpen.mockReset();
     Object.defineProperty(window, 'open', {
@@ -25,9 +28,7 @@ describe('PackPanel capability workbench routing', () => {
       value: mockWindowOpen,
     });
 
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ([
+    vi.mocked(getInstalledCapabilities).mockResolvedValue([
         {
           id: 'ig',
           code: 'ig',
@@ -46,16 +47,14 @@ describe('PackPanel capability workbench routing', () => {
             },
           ],
         },
-      ]),
-    } as Response);
+      ]);
   });
 
   afterEach(() => {
-    global.fetch = originalFetch;
     vi.clearAllMocks();
   });
 
-  it('opens capability apps through the canonical workspace-scoped host route', async () => {
+  it('loads capabilities through the shared cache and opens the canonical workspace-scoped host route', async () => {
     render(
       <PackPanel
         workspaceId="ws-test"
@@ -64,6 +63,8 @@ describe('PackPanel capability workbench routing', () => {
     );
 
     await screen.findByText('Instagram Workbench');
+    expect(getInstalledCapabilities).toHaveBeenCalledTimes(1);
+    expect(getInstalledCapabilities).toHaveBeenCalledWith('http://api.test');
     fireEvent.click(screen.getByRole('button', { name: 'Open UI' }));
 
     await waitFor(() => {

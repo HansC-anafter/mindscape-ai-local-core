@@ -1,27 +1,18 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { ThinkingPanel } from '@/components/workspace/ThinkingPanel';
+import dynamic from 'next/dynamic';
 import { useT } from '@/lib/i18n';
 import { buildCapabilityWorkbenchPath } from '@/lib/capability-static-hosts';
+import {
+  getInstalledCapabilities,
+  type InstalledCapability,
+} from '@/lib/capability-packs/installed-capabilities-cache';
 
-interface InstalledCapability {
-  id?: string;
-  code?: string;
-  display_name?: string;
-  version?: string;
-  description?: string;
-  scope?: string;
-  ui_components?: Array<{
-    code: string;
-    path: string;
-    description: string;
-    export: string;
-    artifact_types: string[];
-    playbook_codes: string[];
-    import_path: string;
-  }>;
-}
+const ThinkingPanel = dynamic(
+  () => import('@/components/workspace/ThinkingPanel').then((module) => module.ThinkingPanel),
+  { ssr: false, loading: () => null },
+);
 
 interface PackPanelProps {
   workspaceId: string;
@@ -46,24 +37,28 @@ export function PackPanel({
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    loadInstalledCapabilities();
-  }, []);
-
-  const loadInstalledCapabilities = async () => {
-    try {
-      const response = await fetch(`${apiUrl}/api/v1/capability-packs/installed-capabilities`);
-      if (response.ok) {
-        const data = await response.json();
-        setInstalledCapabilities(data || []);
-      } else {
-        setInstalledCapabilities([]);
-      }
-    } catch (err) {
-      setInstalledCapabilities([]);
-    } finally {
-      setLoading(false);
-    }
-  };
+    let cancelled = false;
+    setLoading(true);
+    void getInstalledCapabilities(apiUrl)
+      .then((capabilities) => {
+        if (!cancelled) {
+          setInstalledCapabilities(capabilities);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setInstalledCapabilities([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [apiUrl]);
 
   const openCapabilityUI = (capabilityCode: string, componentCode?: string) => {
     const params = new URLSearchParams();

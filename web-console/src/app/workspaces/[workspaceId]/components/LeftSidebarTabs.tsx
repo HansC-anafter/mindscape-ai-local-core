@@ -4,17 +4,16 @@ import React from 'react';
 import { useT } from '@/lib/i18n';
 
 interface TabConfig {
-  key: 'timeline' | 'outcomes' | 'pack';
+  key: 'timeline' | 'outcomes';
   label: string;
   subtitle: string;
 }
 
 interface LeftSidebarTabsProps {
-  activeTab: 'timeline' | 'outcomes' | 'pack';
-  onTabChange: (tab: 'timeline' | 'outcomes' | 'pack') => void;
+  activeTab: 'timeline' | 'outcomes';
+  onTabChange: (tab: 'timeline' | 'outcomes') => void;
   timelineContent: React.ReactNode;
   outcomesContent: React.ReactNode;
-  packContent?: React.ReactNode;
 }
 
 export default function LeftSidebarTabs({
@@ -22,19 +21,16 @@ export default function LeftSidebarTabs({
   onTabChange,
   timelineContent,
   outcomesContent,
-  packContent
 }: LeftSidebarTabsProps) {
   const t = useT();
 
   const tabs: TabConfig[] = [
     { key: 'timeline', label: t('tabScheduling' as any) || 'Scheduling', subtitle: t('tabSchedulingSubtitle' as any) || 'Tasks & Execution' },
     { key: 'outcomes', label: t('tabOutcomes' as any) || 'Outcomes', subtitle: t('tabOutcomesSubtitle' as any) || 'Output Overview' },
-    { key: 'pack', label: t('tabPack' as any) || 'Pack', subtitle: t('tabPackSubtitle' as any) || 'Capabilities & Thinking' },
   ];
 
   return (
     <div className="flex flex-col h-full min-h-0">
-      {/* Tab Header */}
       <div className="flex border-b dark:border-gray-700 bg-surface-secondary dark:bg-gray-800 shrink-0">
         {tabs.map((tab) => (
           <button
@@ -58,7 +54,6 @@ export default function LeftSidebarTabs({
         ))}
       </div>
 
-      {/* Tab Content - Scrollable */}
       <div className="flex-1 overflow-hidden min-h-0">
         <div
           className={`h-full ${activeTab === 'timeline' ? 'block' : 'hidden'}`}
@@ -73,17 +68,6 @@ export default function LeftSidebarTabs({
           role="tabpanel"
         >
           {outcomesContent}
-        </div>
-        <div
-          className={`h-full ${activeTab === 'pack' ? 'block' : 'hidden'}`}
-          aria-hidden={activeTab !== 'pack'}
-          role="tabpanel"
-        >
-          {packContent || (
-            <div className="p-4 text-sm text-gray-500 dark:text-gray-400">
-              {t('packPanel' as any) || 'Pack Panel'}
-            </div>
-          )}
         </div>
       </div>
     </div>

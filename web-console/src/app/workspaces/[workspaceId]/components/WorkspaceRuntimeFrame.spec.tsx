@@ -16,12 +16,21 @@ vi.mock('@/contexts/WorkspaceDataContext', () => ({
       {children}
     </div>
   ),
+  useWorkspaceDataOptional: () => ({
+    executions: [],
+  }),
 }));
 
 vi.mock('@/contexts/ExecutionContextContext', () => ({
   ExecutionContextProvider: ({ children }: { children: React.ReactNode }) => (
     <div data-testid="execution-context-provider">{children}</div>
   ),
+}));
+
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({
+    push: vi.fn(),
+  }),
 }));
 
 describe('WorkspaceRuntimeFrame', () => {
@@ -41,7 +50,9 @@ describe('WorkspaceRuntimeFrame', () => {
     expect(screen.getByRole('main')).not.toHaveClass('pr-10');
     expect(screen.queryByTestId('workspace-surface-shell')).toBeNull();
     expect(screen.queryByTestId('aol-shell-rail')).toBeNull();
-    expect(document.querySelector('[data-workspace-tool-rail="true"]')).toBeNull();
+    expect(screen.getByTestId('workspace-global-tool-rail')).toBeInTheDocument();
+    expect(document.querySelector('[data-workspace-tool-rail="true"]')).not.toBeNull();
+    expect(screen.queryByTestId('workspace-global-tool-panel')).toBeNull();
     expect(screen.getByTestId('workspace-page')).toBeInTheDocument();
   });
 });

@@ -1,53 +1,31 @@
 'use client';
 
-import React, { useCallback, useState } from 'react';
+import React from 'react';
 import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import LeftSidebarTabs from './LeftSidebarTabs';
 import ProjectSubTabs from './ProjectSubTabs';
 import type { Project } from '@/types/project';
-import type { Workspace } from '../workspace-page.types';
 
-const IntegratedSystemStatusCard = dynamic(() => import('../../../../components/IntegratedSystemStatusCard'), { ssr: false });
-const StoragePathConfigModal = dynamic(() => import('@/components/StoragePathConfigModal'), { ssr: false });
 const TimelinePanel = dynamic(() => import('../../components/TimelinePanel'), { ssr: false });
-const PackPanel = dynamic(() => import('./PackPanel').then((module) => module.PackPanel), { ssr: false });
-type RuntimeSettingsModalComponent = React.ComponentType<{
-    isOpen: boolean;
-    onClose: () => void;
-    workspaceId: string;
-}>;
 
 interface WorkspaceLeftSidebarProps {
-    workspace: Workspace | null;
     workspaceId: string;
     apiUrl: string;
-    systemStatus: any;
     projects: Project[];
-    currentProject: Project | null;
     selectedProjectId: string | null;
     selectedType: string | null;
     isLoadingProject: boolean;
-    leftSidebarTab: 'timeline' | 'outcomes' | 'pack';
-    setLeftSidebarTab: (tab: 'timeline' | 'outcomes' | 'pack') => void;
+    leftSidebarTab: 'timeline' | 'outcomes';
+    setLeftSidebarTab: (tab: 'timeline' | 'outcomes') => void;
     setSelectedType: (type: string | null) => void;
     onProjectSelect: (project: Project) => void;
-    showSystemTools: boolean;
-    setShowSystemTools: (show: boolean) => void;
-    showDataSourcesModal: boolean;
-    setShowDataSourcesModal: (show: boolean) => void;
-    showRuntimeModal: boolean;
-    setShowRuntimeModal: (show: boolean) => void;
-    onRefreshAll: () => void;
 }
 
 export default function WorkspaceLeftSidebar({
-    workspace,
     workspaceId,
     apiUrl,
-    systemStatus,
     projects,
-    currentProject,
     selectedProjectId,
     selectedType,
     isLoadingProject,
@@ -55,27 +33,8 @@ export default function WorkspaceLeftSidebar({
     setLeftSidebarTab,
     setSelectedType,
     onProjectSelect,
-    showSystemTools,
-    setShowSystemTools,
-    showDataSourcesModal,
-    setShowDataSourcesModal,
-    showRuntimeModal,
-    setShowRuntimeModal,
-    onRefreshAll,
 }: WorkspaceLeftSidebarProps) {
     const router = useRouter();
-    const [RuntimeSettingsModal, setRuntimeSettingsModal] = useState<RuntimeSettingsModalComponent | null>(null);
-    const loadRuntimeSettingsModal = useCallback(() => {
-        if (!RuntimeSettingsModal) {
-            void import('./RuntimeSettingsModal').then((module) => {
-                setRuntimeSettingsModal(() => module.default);
-            });
-        }
-    }, [RuntimeSettingsModal]);
-    const openRuntimeSettingsModal = useCallback(() => {
-        loadRuntimeSettingsModal();
-        setShowRuntimeModal(true);
-    }, [loadRuntimeSettingsModal, setShowRuntimeModal]);
 
     return (
         <div className="w-80 border-r dark:border-gray-700 bg-surface-secondary dark:bg-gray-900 flex flex-col">
@@ -132,114 +91,8 @@ export default function WorkspaceLeftSidebar({
                             />
                         ) : null
                     }
-                    packContent={
-                        leftSidebarTab === 'pack' ? (
-                            <PackPanel
-                                workspaceId={workspaceId}
-                                apiUrl={apiUrl}
-                                storyThreadId={workspace?.primary_project_id ? undefined : undefined}
-                            />
-                        ) : null
-                    }
                 />
             </div>
-
-            {/* Workspace Settings - Collapsible at bottom */}
-            {workspace && (
-                <div className="border-t dark:border-gray-700 bg-surface-secondary dark:bg-orange-900/10 mt-auto">
-                    {/* Settings Entry - Collapsible in left sidebar */}
-                    <div className="border-t dark:border-gray-700">
-                        <div
-                            className="px-3 py-2 flex items-center justify-between cursor-pointer hover:bg-surface-secondary dark:hover:bg-gray-800 transition-colors"
-                            onClick={() => setShowSystemTools(!showSystemTools)}
-                        >
-                            <div className="flex items-center gap-2">
-                                <svg className="w-4 h-4 text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                </svg>
-                                <div>
-                                    <div className="text-xs font-medium text-primary dark:text-gray-300">Workspace Settings</div>
-                                    <div className="text-[10px] text-tertiary">Mode - Artifacts - Preferences - Data Sources</div>
-                                </div>
-                            </div>
-                            <span className="text-tertiary text-xs">{showSystemTools ? '-' : '+'}</span>
-                        </div>
-
-                        {/* Collapsible Settings Panel */}
-                        <div
-                            className={`border-t dark:border-gray-700 bg-surface-secondary dark:bg-gray-900 overflow-hidden transition-all duration-300 ease-in-out ${showSystemTools ? 'max-h-[400px] opacity-100' : 'max-h-0 opacity-0'
-                                }`}
-                        >
-                            {showSystemTools && (
-                                <div className="overflow-y-auto max-h-[400px]">
-                                    {/* Settings Tab Buttons */}
-                                    <div className="flex border-b dark:border-gray-700">
-                                        <button
-                                            onClick={() => setShowDataSourcesModal(true)}
-                                            className="flex-1 px-3 py-2 text-xs font-medium text-secondary dark:text-gray-400 hover:text-primary dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors border-r dark:border-gray-700"
-                                        >
-                                            Data Sources
-                                        </button>
-                                        <button
-                                            onClick={openRuntimeSettingsModal}
-                                            className="flex-1 px-3 py-2 text-xs font-medium text-secondary dark:text-gray-400 hover:text-primary dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors border-r dark:border-gray-700"
-                                        >
-                                            Runtime
-                                        </button>
-                                        <button
-                                            onClick={() => router.push(`/workspaces/${workspaceId}/instruction`)}
-                                            className="flex-1 px-3 py-2 text-xs font-medium text-secondary dark:text-gray-400 hover:text-primary dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors"
-                                        >
-                                            Instructions
-                                        </button>
-                                    </div>
-
-                                    {/* System Status Section */}
-                                    <div className="p-3">
-                                        {systemStatus ? (
-                                            <IntegratedSystemStatusCard
-                                                systemStatus={systemStatus}
-                                                workspace={workspace || {}}
-                                                workspaceId={workspaceId}
-                                                onRefresh={onRefreshAll}
-                                            />
-                                        ) : (
-                                            <div className="text-sm text-secondary dark:text-gray-400">Loading system status...</div>
-                                        )}
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* Settings Modals */}
-            {workspace && (
-                <>
-                    {showDataSourcesModal && (
-                        <StoragePathConfigModal
-                            isOpen={showDataSourcesModal}
-                            onClose={() => setShowDataSourcesModal(false)}
-                            workspace={workspace as any}
-                            workspaceId={workspaceId}
-                            apiUrl={apiUrl}
-                            toolConnections={systemStatus?.tools}
-                            onSuccess={() => {
-                                window.dispatchEvent(new CustomEvent('workspace-chat-updated'));
-                            }}
-                        />
-                    )}
-                    {showRuntimeModal && RuntimeSettingsModal && (
-                        <RuntimeSettingsModal
-                            isOpen={showRuntimeModal}
-                            onClose={() => setShowRuntimeModal(false)}
-                            workspaceId={workspaceId}
-                        />
-                    )}
-                </>
-            )}
         </div>
     );
 }

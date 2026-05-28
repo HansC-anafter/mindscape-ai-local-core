@@ -6,6 +6,7 @@ import ConflictDialog from '@/components/ConflictDialog';
 import { useToast } from '@/components/Toast';
 import { t } from '@/lib/i18n';
 import { parseServerTimestamp } from '@/lib/time';
+import { getInstalledCapabilities } from '@/lib/capability-packs/installed-capabilities-cache';
 import SandboxModalWrapper from '../../components/execution-inspector/SandboxModalWrapper';
 
 interface Artifact {
@@ -43,7 +44,6 @@ interface MatchingCapabilityComponent {
 export type { Artifact };
 
 const artifactListRequests = new Map<string, Promise<Artifact[]>>();
-const installedCapabilityRequests = new Map<string, Promise<any[]>>();
 
 const fetchWorkspaceArtifacts = (apiUrl: string, workspaceId: string): Promise<Artifact[]> => {
   const requestKey = `${apiUrl}|${workspaceId}`;
@@ -70,27 +70,6 @@ const fetchWorkspaceArtifacts = (apiUrl: string, workspaceId: string): Promise<A
     });
 
   artifactListRequests.set(requestKey, request);
-  return request;
-};
-
-const fetchInstalledCapabilities = (apiUrl: string): Promise<any[]> => {
-  const existingRequest = installedCapabilityRequests.get(apiUrl);
-  if (existingRequest) {
-    return existingRequest;
-  }
-
-  const request = fetch(`${apiUrl}/api/v1/capability-packs/installed-capabilities`)
-    .then(async (response) => {
-      if (!response.ok) {
-        return [];
-      }
-      return response.json();
-    })
-    .finally(() => {
-      installedCapabilityRequests.delete(apiUrl);
-    });
-
-  installedCapabilityRequests.set(apiUrl, request);
   return request;
 };
 
@@ -227,7 +206,7 @@ export default function OutcomesPanel({
   useEffect(() => {
     const loadCapabilities = async () => {
       try {
-        const capabilities = await fetchInstalledCapabilities(apiUrl);
+        const capabilities = await getInstalledCapabilities(apiUrl);
         setInstalledCapabilities(capabilities);
       } catch (err) {
         // Silently fail - capabilities are optional

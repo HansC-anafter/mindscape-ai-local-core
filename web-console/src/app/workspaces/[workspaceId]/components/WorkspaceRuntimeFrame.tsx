@@ -4,6 +4,7 @@ import React from 'react';
 import { WorkspaceDataProvider } from '@/contexts/WorkspaceDataContext';
 import { ExecutionContextProvider } from '@/contexts/ExecutionContextContext';
 import type { WorkspaceDataInitialLoadProfile } from '@/contexts/WorkspaceDataContext';
+import WorkspaceGlobalToolRailProvider from './WorkspaceGlobalToolRailProvider';
 
 interface WorkspaceRuntimeFrameProps {
   workspaceId: string;
@@ -19,11 +20,9 @@ export default function WorkspaceRuntimeFrame({
   return (
     <WorkspaceDataProvider workspaceId={workspaceId} initialLoadProfile={initialLoadProfile}>
       <ExecutionContextProvider workspaceId={workspaceId}>
-        <div className="relative flex h-full min-h-0 flex-1 overflow-hidden">
-          <main className="flex h-full min-h-0 flex-1 overflow-hidden">
-            {children}
-          </main>
-        </div>
+        <WorkspaceGlobalToolRailProvider workspaceId={workspaceId}>
+          {children}
+        </WorkspaceGlobalToolRailProvider>
       </ExecutionContextProvider>
     </WorkspaceDataProvider>
   );

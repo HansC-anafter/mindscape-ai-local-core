@@ -229,6 +229,7 @@ export const workspaceZhTW = {
   triggeredNodes: '觸發節點',
   taskId: '任務 ID',
   pack: 'Pack',
+  workspacePackTool: 'Pack',
   taskType: '任務類型',
   traceId: 'Trace ID',
   agent: 'Agent',

@@ -230,6 +230,7 @@ export const workspaceEn = {
   triggeredNodes: 'Triggered Nodes',
   taskId: 'Task ID',
   pack: 'Pack',
+  workspacePackTool: 'Pack',
   taskType: 'Task Type',
   traceId: 'Trace ID',
   agent: 'Agent',
