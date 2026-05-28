@@ -40,6 +40,14 @@ export default defineConfig({
         replacement: path.resolve(__dirname, './src/test/mocks/styleMock.ts'),
       },
       {
+        find: 'reactflow/dist/style.css',
+        replacement: path.resolve(__dirname, './src/test/mocks/styleMock.ts'),
+      },
+      {
+        find: 'reactflow',
+        replacement: path.resolve(__dirname, './src/test/mocks/reactflow.tsx'),
+      },
+      {
         find: /DepartmentWorkspaceExcalidrawClient$/,
         replacement: path.resolve(__dirname, './src/test/mocks/departmentWorkspaceExcalidrawClient.tsx'),
       },

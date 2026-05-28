@@ -32,12 +32,8 @@ describe('AOLRuntimeShellProvider', () => {
       </AOLRuntimeShellProvider>,
     );
 
-    expect(screen.getByTestId('aol-global-anchor')).not.toBeNull();
-    expect(screen.getByTestId('aol-shell-rail')).not.toBeNull();
-    expect(screen.getByTestId('aol-shell-rail')).toHaveAttribute(
-      'data-workspace-tool-rail',
-      'true',
-    );
+    expect(screen.queryByTestId('aol-global-anchor')).toBeNull();
+    expect(screen.queryByTestId('aol-shell-rail')).toBeNull();
     expect(screen.getByTestId('aol-workspace-region')).toHaveAttribute(
       'data-aol-panel-loaded',
       'idle',

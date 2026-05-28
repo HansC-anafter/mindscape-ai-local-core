@@ -315,7 +315,7 @@ describe('CapabilityPage AOL host shell', () => {
     await renderCapabilityLoadedPage();
 
     expect(await screen.findByTestId('aol-global-anchor')).not.toBeNull();
-    expect(screen.getAllByTestId('aol-shell-rail')).toHaveLength(1);
+    expect(screen.getAllByTestId('workspace-global-tool-rail')).toHaveLength(1);
     expect(screen.getAllByTestId('aol-global-anchor')).toHaveLength(1);
 
     fireEvent.click(screen.getByTestId('aol-global-anchor'));

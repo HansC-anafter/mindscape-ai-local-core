@@ -8,7 +8,6 @@ export {
 export { AOLRuntimeShellBridge } from './AOLRuntimeShellBridge';
 export { RuntimeShellPanel } from './RuntimeShellPanel';
 export type { MeetingPaneSizePreset } from './RuntimeShellPanel';
-export { RuntimeShellToolRail } from './RuntimeShellToolRail';
 export { RuntimeFlowAnchor } from './RuntimeFlowAnchor';
 export { RuntimeWorkbenchAnchor } from './RuntimeWorkbenchAnchor';
 export { AddressableObjectPanel, RuntimeObjectPanel } from './RuntimeObjectPanel';

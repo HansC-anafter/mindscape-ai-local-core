@@ -1,7 +1,6 @@
 'use client';
 
 import { createContext, type ReactNode } from 'react';
-import type { WorkspaceToolRailGroup } from '@/components/workspace/WorkspaceToolRail';
 
 import type {
   AddressableObjectHostBridge,
@@ -46,7 +45,6 @@ export interface AOLRuntimeShellProps extends AOLRuntimeSurfaceContext {
 export interface AOLRuntimeShellProviderProps {
   workspaceId: string;
   children: ReactNode;
-  toolGroups?: WorkspaceToolRailGroup[];
 }
 
 export interface AOLRuntimeShellController {

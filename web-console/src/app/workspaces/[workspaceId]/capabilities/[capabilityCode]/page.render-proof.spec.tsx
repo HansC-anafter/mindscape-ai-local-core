@@ -270,7 +270,7 @@ describe('CapabilityPage installed render-proof gate', () => {
     render(page);
 
     expect(await screen.findByTestId('aol-global-anchor')).not.toBeNull();
-    expect(screen.getAllByTestId('aol-shell-rail')).toHaveLength(1);
+    expect(screen.getAllByTestId('workspace-global-tool-rail')).toHaveLength(1);
     expect(screen.getAllByTestId('aol-global-anchor')).toHaveLength(1);
 
     expect(await screen.findByTestId('render-proof-component')).not.toBeNull();

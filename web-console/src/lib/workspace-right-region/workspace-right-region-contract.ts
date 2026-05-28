@@ -18,6 +18,15 @@ export type WorkspaceRightRegionGroup =
   | 'tool_runtime'
   | 'data';
 
+export type WorkspaceRightRegionCoreContributionId =
+  | 'runs_panel'
+  | 'settings'
+  | 'pack'
+  | 'graph'
+  | 'bundle'
+  | 'object'
+  | 'flow';
+
 export interface WorkspaceRightRegionContributionV1 {
   contract_version: 'workspace-right-region/v1';
   key: string;
@@ -96,7 +105,7 @@ export interface SettingsPanelDefinition {
 }
 
 interface CoreContributionInput {
-  id: 'runs_panel' | 'settings' | 'object' | 'flow';
+  id: WorkspaceRightRegionCoreContributionId;
   key?: string;
   label: string;
   description?: string;
@@ -117,6 +126,9 @@ export const WORKSPACE_RIGHT_REGION_PANEL_BODY_CLASS = 'min-h-0 flex-1 overflow-
 export const RESERVED_WORKSPACE_RIGHT_REGION_IDS = new Set([
   'runs_panel',
   'settings',
+  'pack',
+  'graph',
+  'bundle',
   'object',
   'flow',
 ]);

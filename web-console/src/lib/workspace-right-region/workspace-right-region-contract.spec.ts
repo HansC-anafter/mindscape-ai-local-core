@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   WORKSPACE_RIGHT_REGION_PANEL_WIDTH_PX,
   createCoreRightRailContribution,
+  isReservedWorkspaceRightRegionId,
   normalizeSettingsPanelContribution,
   normalizeWorkspaceToolContributions,
 } from './workspace-right-region-contract';
@@ -61,8 +62,61 @@ describe('workspace right-region contract', () => {
     expect(contribution.placement.scroll_policy).toBe('panel_body_y_auto');
   });
 
-  it('filters reserved pack ids from rail tools while preserving the core Runs exception path', () => {
+  it('reserves the Local-Core Pack tool id for the built-in right rail panel', () => {
+    const contribution = createCoreRightRailContribution({
+      id: 'pack',
+      label: 'Pack',
+      icon: 'Package',
+      order: 30,
+      group: 'capability',
+      testId: 'workspace-pack-tool',
+    });
+
+    expect(isReservedWorkspaceRightRegionId('pack')).toBe(true);
+    expect(contribution).toMatchObject({
+      key: 'core:pack',
+      id: 'pack',
+      owner_kind: 'core',
+      owner_code: 'local-core',
+      group: 'capability',
+      activation: {
+        preload: false,
+        mount_policy: 'mount_only_while_active',
+      },
+      lifecycle: {
+        hidden_frontend_polling: 'forbidden',
+      },
+    });
+  });
+
+  it('reserves all workspace-global owner ids against capability overrides', () => {
+    expect(isReservedWorkspaceRightRegionId('runs_panel')).toBe(true);
+    expect(isReservedWorkspaceRightRegionId('settings')).toBe(true);
+    expect(isReservedWorkspaceRightRegionId('pack')).toBe(true);
+    expect(isReservedWorkspaceRightRegionId('graph')).toBe(true);
+    expect(isReservedWorkspaceRightRegionId('bundle')).toBe(true);
+    expect(isReservedWorkspaceRightRegionId('object')).toBe(true);
+    expect(isReservedWorkspaceRightRegionId('flow')).toBe(true);
+  });
+
+  it('filters reserved core ids from capability rail tools', () => {
     expect(normalizeWorkspaceToolContributions([igRunsTool])).toEqual([]);
+    expect(normalizeWorkspaceToolContributions([
+      {
+        ...igRunsTool,
+        tool_key: 'ig:pack',
+        id: 'pack',
+        label: 'Pack',
+        order: 30,
+      },
+      {
+        ...igRunsTool,
+        tool_key: 'ig:bundle',
+        id: 'bundle',
+        label: 'Bundle',
+        order: 40,
+      },
+    ])).toEqual([]);
   });
 
   it('normalizes pack rail tools without allowing layout or activation overrides', () => {

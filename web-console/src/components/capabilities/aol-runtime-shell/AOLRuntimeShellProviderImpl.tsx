@@ -1,12 +1,18 @@
 'use client';
 
-import { Suspense, lazy, useEffect, useState, type ComponentType, type Ref } from 'react';
+import { Suspense, lazy, useEffect, useMemo, useState, type ComponentType, type Ref } from 'react';
 
+import { useT } from '@/lib/i18n';
+import {
+  useWorkspaceGlobalToolContributions,
+  type WorkspaceGlobalToolContribution,
+} from '@/app/workspaces/[workspaceId]/components/useWorkspaceGlobalToolRail';
 import { AOLRuntimeShellContext, type AOLRuntimeShellProviderProps } from './AOLRuntimeShellContext';
 import { RuntimeShellPanelFallback } from './RuntimeShellPanelFallback';
 import type { RuntimeShellPanelProps } from './RuntimeShellPanel';
 import { RuntimeObjectPanel } from './RuntimeObjectPanel';
-import { RuntimeShellToolRail } from './RuntimeShellToolRail';
+import { RuntimeObjectSelectionAnchor } from './RuntimeObjectSelectionAnchor';
+import { RuntimeFlowAnchor } from './RuntimeFlowAnchor';
 import { useAOLRuntimeShellHostController } from './useAOLRuntimeShellHostController';
 
 type RuntimeShellPanelModule = { default: ComponentType<RuntimeShellPanelProps> };
@@ -35,8 +41,8 @@ const RuntimeShellPanelLazy = lazy(loadRuntimeShellPanelModule);
 
 function AOLRuntimeShellProviderInner({
   children,
-  toolGroups,
 }: AOLRuntimeShellProviderProps) {
+  const t = useT();
   const [runtimeShellPanelLoadState, setRuntimeShellPanelLoadState] = useState(
     runtimeShellPanelResolved ? 'loaded' : 'idle',
   );
@@ -59,6 +65,62 @@ function AOLRuntimeShellProviderInner({
     openRuntimeFlowFromRail,
   } = useAOLRuntimeShellHostController();
   const shouldRenderMeetingPane = panelState.mode === 'meeting_opened' && Boolean(panelState.activeSurface);
+  const objectLabel = panelState.mode === 'selecting'
+    ? t('aolRuntimeShellCancelObjectSelection')
+    : t('aolRuntimeShellSelectObject');
+  const objectHelper = panelState.mode === 'meeting_opened'
+    ? t('aolRuntimeShellSelectAnotherObject')
+    : objectLabel;
+  const flowLabel = panelState.mode === 'meeting_opened'
+    ? t('aolRuntimeShellFlowOpen')
+    : canOpenFlow
+      ? t('aolRuntimeShellOpenFlow')
+      : t('aolRuntimeShellFlowUnavailable');
+  const aolToolContributions = useMemo<WorkspaceGlobalToolContribution[]>(() => [{
+    key: 'aol:object',
+    id: 'object',
+    label: objectLabel,
+    group: 'runtime',
+    order: 10,
+    testId: 'aol-object-tool',
+    renderRailButton: () => (
+      <RuntimeObjectSelectionAnchor
+        state={panelState}
+        onRequestObjectTargeting={requestObjectTargeting}
+        onCancelObjectTargeting={cancelObjectTargeting}
+        label={objectLabel}
+        helper={objectHelper}
+        tone="light"
+      />
+    ),
+  }, {
+    key: 'aol:flow',
+    id: 'flow',
+    label: flowLabel,
+    group: 'runtime',
+    order: 20,
+    testId: 'aol-runtime-flow-tool',
+    renderRailButton: () => (
+      <RuntimeFlowAnchor
+        state={panelState}
+        canOpenFlow={canOpenFlow}
+        label={flowLabel}
+        onOpenFlow={openRuntimeFlowFromRail}
+        tone="light"
+      />
+    ),
+  }], [
+    canOpenFlow,
+    cancelObjectTargeting,
+    flowLabel,
+    objectHelper,
+    objectLabel,
+    openRuntimeFlowFromRail,
+    panelState,
+    requestObjectTargeting,
+  ]);
+
+  useWorkspaceGlobalToolContributions('aol-runtime-shell', aolToolContributions);
 
   useEffect(() => {
     if (!shouldRenderMeetingPane) {
@@ -121,19 +183,6 @@ function AOLRuntimeShellProviderInner({
               </div>
             )}
           </div>
-          <div
-            className="relative z-40 flex h-full shrink-0 items-stretch"
-            data-testid="aol-shell-region"
-          >
-            <RuntimeShellToolRail
-              state={panelState}
-              canOpenFlow={canOpenFlow}
-              onRequestObjectTargeting={requestObjectTargeting}
-              onCancelObjectTargeting={cancelObjectTargeting}
-              onOpenFlow={openRuntimeFlowFromRail}
-              extraGroups={toolGroups}
-            />
-          </div>
         </div>
         {shouldRenderMeetingPane ? (
           <Suspense
@@ -165,10 +214,9 @@ function AOLRuntimeShellProviderInner({
 export function AOLRuntimeShellProviderImpl({
   workspaceId,
   children,
-  toolGroups,
 }: AOLRuntimeShellProviderProps) {
   return (
-    <AOLRuntimeShellProviderInner workspaceId={workspaceId} toolGroups={toolGroups}>
+    <AOLRuntimeShellProviderInner workspaceId={workspaceId}>
       {children}
     </AOLRuntimeShellProviderInner>
   );

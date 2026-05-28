@@ -28,8 +28,8 @@ describe('AddressableObjectHostShell compatibility facade', () => {
       </AddressableObjectHostProvider>,
     );
 
-    expect(screen.getByTestId('aol-global-anchor')).not.toBeNull();
-    expect(screen.getByTestId('aol-shell-rail')).not.toBeNull();
+    expect(screen.queryByTestId('aol-global-anchor')).toBeNull();
+    expect(screen.queryByTestId('aol-shell-rail')).toBeNull();
     expect(screen.getByTestId('legacy-shell-child')).toHaveTextContent('idle');
     expect(buildCapabilitySurfaceId('ig', 'IGWorkbenchPage')).toBe(
       'capability_page:ig:IGWorkbenchPage',
