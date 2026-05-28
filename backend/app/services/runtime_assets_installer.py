@@ -5,6 +5,10 @@ Install runtime assets and execute capability-specific migrations.
 """
 
 import logging
+import base64
+import hashlib
+import json
+import os
 import shutil
 import subprocess
 import sys
@@ -44,6 +48,17 @@ def _clear_directory_contents(target_dir: Path) -> None:
             child.unlink()
         else:
             shutil.rmtree(child)
+
+
+def _safe_asset_segment(value: object, fallback: str) -> str:
+    raw = str(value or fallback).strip() or fallback
+    safe = "".join(ch if ch.isalnum() or ch in {"-", "_", "."} else "-" for ch in raw)
+    return safe.strip(".-") or fallback
+
+
+def _sha256_integrity(file_path: Path) -> str:
+    digest = hashlib.sha256(file_path.read_bytes()).digest()
+    return "sha256-" + base64.b64encode(digest).decode("ascii")
 
 
 class RuntimeAssetsInstaller:
@@ -551,8 +566,7 @@ class RuntimeAssetsInstaller:
         self, cap_dir: Path, capability_code: str, manifest: Dict, result: InstallResult
     ):
         """
-        Install UI components from capability pack to the Local-Core frontend.
-        Unified path: app/capabilities/{capability_code}/components/
+        Install compiled UI assets without mutating the frontend source tree.
 
         Args:
             cap_dir: Extracted capability directory (from .mindpack)
@@ -560,126 +574,102 @@ class RuntimeAssetsInstaller:
             manifest: Parsed manifest dict
             result: InstallResult to update
         """
-        frontend_dir = (
-            self.local_core_root / "web-console" / "src" / "app" / "capabilities"
-        )
-
-        # Unified target directory: app/capabilities/{capability_code}/components/
-        target_cap_dir = frontend_dir / capability_code / "components"
-        target_cap_dir.mkdir(parents=True, exist_ok=True)
-
-        installed_components = []
-
-        # Install entire ui/ directory if it exists (to include all dependencies)
-        # This should run even if manifest doesn't define ui_components
-        source_ui_dir = cap_dir / "ui"
-        if source_ui_dir.exists() and source_ui_dir.is_dir():
-            # Copy all files from ui/ directory, preserving subdirectory structure
-            for file_path in source_ui_dir.rglob("*"):
-                if file_path.is_file():
-                    relative_path = file_path.relative_to(source_ui_dir)
-                    relative_path_str = str(relative_path)
-
-                    # Handle different ui/ subdirectories:
-                    # - ui/components/X -> components/X
-                    # - ui/lib/X -> lib/X (not components/lib/X)
-                    # - ui/contexts/X -> contexts/X (not components/contexts/X)
-                    # - ui/hooks/X -> hooks/X (not components/hooks/X)
-                    if relative_path_str.startswith("components/"):
-                        # Remove components/ prefix to avoid duplication
-                        relative_path = Path(relative_path_str[len("components/") :])
-                        target_path = (
-                            frontend_dir
-                            / capability_code
-                            / "components"
-                            / relative_path
-                        )
-                    elif relative_path_str.startswith(
-                        ("lib/", "contexts/", "hooks/", "utils/", "types/")
-                    ):
-                        # Keep these directories at capability root level
-                        target_path = frontend_dir / capability_code / relative_path
-                    else:
-                        # Default: put in components/ directory
-                        target_path = (
-                            frontend_dir
-                            / capability_code
-                            / "components"
-                            / relative_path
-                        )
-                    # Create subdirectories if needed
-                    try:
-                        target_path.parent.mkdir(parents=True, exist_ok=True)
-                        shutil.copy2(file_path, target_path)
-                        logger.info(
-                            f"Installed UI file: {relative_path} -> {target_path}"
-                        )
-                        result.add_installed("ui_components", str(relative_path))
-                    except (PermissionError, OSError) as e:
-                        logger.error(
-                            f"Failed to install UI file {relative_path}: {e}"
-                        )
-                        result.add_warning(
-                            f"Failed to install UI file {relative_path}: {e}"
-                        )
-                        raise
-
-        # Also install individual components specified in manifest
         ui_components = manifest.get("ui_components", [])
-        for component_def in ui_components:
-            component_code = component_def.get("code")
-            component_path = component_def.get("path")
+        if not ui_components:
+            return
 
-            if not component_path:
-                result.add_warning(f"Component {component_code} missing path")
+        source_ui_dist_dir = cap_dir / "ui_dist"
+        if not source_ui_dist_dir.exists():
+            if (cap_dir / "ui").exists():
+                result.add_warning(
+                    f"UI source for {capability_code} was not installed; pack must include compiled ui_dist assets."
+                )
+            return
+
+        dist_manifest_path = source_ui_dist_dir / "ui_dist_manifest.json"
+        if not dist_manifest_path.exists():
+            result.add_warning(
+                f"Compiled UI assets for {capability_code} missing ui_dist_manifest.json"
+            )
+            return
+
+        try:
+            dist_manifest = json.loads(dist_manifest_path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            result.add_warning(f"Failed to parse ui_dist_manifest.json: {exc}")
+            return
+
+        version_segment = _safe_asset_segment(manifest.get("version"), "unversioned")
+        assets_root = Path(
+            os.getenv(
+                "MINDSCAPE_CAPABILITY_UI_ASSETS_DIR",
+                str(self.local_core_root / "data" / "capability-ui"),
+            )
+        )
+        target_assets_dir = assets_root / capability_code / version_segment
+        if target_assets_dir.exists():
+            shutil.rmtree(target_assets_dir)
+        target_assets_dir.mkdir(parents=True, exist_ok=True)
+
+        runtime_components = []
+        for component in dist_manifest.get("components", []):
+            component_code = component.get("code")
+            asset_path = str(component.get("asset_path") or "").strip()
+            if not component_code or not asset_path:
                 continue
-
-            # Source: extracted capability pack directory
-            source_path = cap_dir / component_path
-            if not source_path.exists():
-                result.add_warning(f"Component file not found: {component_path}")
-                continue
-
-            # Target: Unified path app/capabilities/{code}/components/
-            target_path = target_cap_dir / source_path.name
-
-            # Copy component file (always overwrite to ensure latest version)
+            source_asset = (source_ui_dist_dir / asset_path).resolve()
             try:
-                shutil.copy2(source_path, target_path)
-            except (PermissionError, OSError) as e:
-                # If Cloud path fails, fallback to Local-Core path
-                if is_cloud:
-                    logger.warning(
-                        f"Failed to write to Cloud path {target_path}: {e}. "
-                        f"Falling back to Local-Core path."
-                    )
-                    frontend_dir = (
-                        self.local_core_root
-                        / "web-console"
-                        / "src"
-                        / "app"
-                        / "capabilities"
-                    )
-                    target_cap_dir = frontend_dir / capability_code / "components"
-                    target_path = target_cap_dir / source_path.name
-                    target_cap_dir.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(source_path, target_path)
-                    logger.debug(f"Installed UI component (fallback): {component_code}")
-                else:
-                    # Re-raise if we're already in Local-Core
-                    logger.error(
-                        f"Failed to install UI component {component_code}: {e}"
-                    )
-                    result.add_warning(
-                        f"Failed to install UI component {component_code}: {e}"
-                    )
-                    continue
+                source_asset.relative_to(source_ui_dist_dir.resolve())
+            except ValueError:
+                result.add_warning(f"Skipping unsafe UI asset path: {asset_path}")
+                continue
+            if not source_asset.exists() or not source_asset.is_file():
+                result.add_warning(f"Compiled UI asset not found: {asset_path}")
+                continue
 
-            installed_components.append(component_code)
-            logger.debug(f"Installed UI component: {component_code}")
+            target_asset = target_assets_dir / asset_path
+            target_asset.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source_asset, target_asset)
+            integrity = component.get("integrity") or _sha256_integrity(target_asset)
+            runtime_components.append(
+                {
+                    "code": component_code,
+                    "asset_path": f"{version_segment}/{asset_path}",
+                    "asset_url": (
+                        f"/api/v1/capability-packs/installed-capabilities/"
+                        f"{capability_code}/ui-assets/{version_segment}/{asset_path}"
+                    ),
+                    "integrity": integrity,
+                    "bytes": target_asset.stat().st_size,
+                    "export": component.get("export", "default"),
+                    "runtime": component.get("runtime", "mindscape-react-bridge-v1"),
+                }
+            )
+            result.add_installed("ui_components", str(component_code))
 
-        if installed_components:
-            result.extend_installed("ui_components", installed_components)
+        if not runtime_components:
+            return
+
+        target_cap_dir = self.capabilities_dir / capability_code
+        target_cap_dir.mkdir(parents=True, exist_ok=True)
+        sidecar_path = target_cap_dir / "ui_runtime_assets.json"
+        sidecar_path.write_text(
+            json.dumps(
+                {
+                    "capability_code": capability_code,
+                    "version": version_segment,
+                    "components": runtime_components,
+                },
+                indent=2,
+                sort_keys=True,
+            ),
+            encoding="utf-8",
+        )
+        logger.info(
+            "Installed compiled UI runtime assets for %s: %s components",
+            capability_code,
+            len(runtime_components),
+        )
 
     def install_manifest(
         self,

@@ -8,6 +8,10 @@ from typing import Optional
 
 import yaml
 
+from backend.app.database.write_readiness import (
+    DatabaseWriteNotReadyError,
+    check_core_write_readiness,
+)
 from ..install_result import InstallResult
 
 logger = logging.getLogger(__name__)
@@ -451,6 +455,15 @@ def execute_migrations(
         from sqlalchemy import create_engine, inspect, text
         from app.database.config import get_postgres_url_core
 
+        readiness = check_core_write_readiness(
+            operation=f"capability_migration:{capability_code}"
+        )
+        if not readiness.ready:
+            if result.migration_status is None:
+                result.migration_status = {}
+            result.migration_status[capability_code] = "waiting_db"
+            raise DatabaseWriteNotReadyError(readiness)
+
         capabilities_root = local_core_root / "backend" / "app" / "capabilities"
         alembic_configs = {"postgres": alembic_config}
         orchestrator = MigrationOrchestrator(capabilities_root, alembic_configs)
@@ -624,6 +637,8 @@ def execute_migrations(
         if result.migration_status is None:
             result.migration_status = {}
         result.migration_status[capability_code] = "applied"
+    except DatabaseWriteNotReadyError:
+        raise
     except Exception as exc:
         error_message = f"Migration execution error: {exc}"
         logger.error(error_message, exc_info=True)

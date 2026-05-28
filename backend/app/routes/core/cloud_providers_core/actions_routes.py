@@ -78,6 +78,12 @@ async def install_default_packs(
     local-core core does NOT install protocol.
     """
     try:
+        from backend.app.routes.core.capability_install_core.paths import (
+            _require_control_plane_install,
+        )
+
+        _require_control_plane_install("cloud-provider-install-default")
+
         provider = cloud_manager.get_provider(provider_id)
         if not provider:
             raise HTTPException(status_code=404, detail=f"Provider '{provider_id}' not found")
@@ -105,27 +111,17 @@ async def install_default_packs(
         if not packs_catalog or not isinstance(packs_catalog, dict):
             raise HTTPException(status_code=404, detail=f"No packs found for bundle '{bundle}'")
 
-        # Use new modular installers
-        from pathlib import Path
-        import tempfile
-        import httpx
-        import os
-        import yaml
+        from backend.app.database.write_readiness import DatabaseWriteNotReadyError
+        from backend.app.routes.core.capability_install_core.routes import (
+            _raise_db_not_ready,
+        )
+        from backend.app.services.capability_install_jobs import (
+            CapabilityInstallJobService,
+        )
 
-        from app.services.mindpack_extractor import MindpackExtractor
-        from app.services.manifest_validator import ManifestValidator
-        from app.services.playbook_installer import PlaybookInstaller
-        from app.services.runtime_assets_installer import RuntimeAssetsInstaller
-        from app.services.post_install import PostInstallHandler
-        from app.services.install_result import InstallResult
-
-        local_core_root = Path(__file__).parent.parent.parent.parent.parent.parent
-        capabilities_dir = local_core_root / "backend" / "app" / "capabilities"
-        specs_dir = local_core_root / "backend" / "playbooks" / "specs"
-        i18n_base_dir = local_core_root / "backend" / "i18n" / "playbooks"
-
-        installed_packs = []
-        errors = []
+        install_job_service = CapabilityInstallJobService()
+        jobs = []
+        skipped = []
 
         for pack_info in packs_catalog.get("packs", []):
             try:
@@ -134,159 +130,54 @@ async def install_default_packs(
                 download_url = pack_info.get("download_url")
 
                 if not pack_code:
+                    skipped.append({"reason": "missing_pack_code", "pack": pack_info})
                     continue
 
-                # If download_url is not provided, get it from download_link API
-                if not download_url and pack_ref:
-                    try:
-                        download_info = await provider.get_download_link(pack_ref)
-                        download_url = download_info.get("download_url")
-                        if not download_url:
-                            logger.warning(f"No download_url for pack {pack_ref}, skipping")
-                            continue
-                    except Exception as e:
-                        logger.error(f"Failed to get download link for pack {pack_ref}: {e}", exc_info=True)
-                        errors.append({
+                if not pack_ref and not download_url:
+                    skipped.append(
+                        {
                             "pack_code": pack_code,
-                            "error": f"Failed to get download link: {str(e)}"
-                        })
-                        continue
-
-                if not download_url:
-                    logger.warning(f"No download_url for pack {pack_code}, skipping")
+                            "reason": "missing_pack_ref_or_download_url",
+                        }
+                    )
                     continue
 
-                # Download pack zip/mindpack file
-                headers = {}
-                api_key = provider.get_api_key() if hasattr(provider, 'get_api_key') else None
-                if api_key:
-                    headers["X-API-Key"] = api_key
-
-                async with httpx.AsyncClient(timeout=60.0) as client:
-                    response = await client.get(download_url, headers=headers)
-                    response.raise_for_status()
-
-                    # Save to temp file
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=".mindpack") as tmp_file:
-                        tmp_file.write(response.content)
-                        tmp_path = Path(tmp_file.name)
-
-                    try:
-                        # Install using new modular installers
-                        # 1. Extract mindpack
-                        extractor = MindpackExtractor(local_core_root)
-                        extract_success, temp_dir, capability_code, cap_dir = extractor.extract(tmp_path)
-
-                        if not extract_success or not capability_code or not cap_dir:
-                            errors.append({
-                                "pack_code": pack_code,
-                                "error": "Failed to extract mindpack file or capability code not found"
-                            })
-                            continue
-
-                        # 2. Load and validate manifest
-                        manifest_path = cap_dir / "manifest.yaml"
-                        if not manifest_path.exists():
-                            errors.append({
-                                "pack_code": pack_code,
-                                "error": "manifest.yaml not found in mindpack"
-                            })
-                            continue
-
-                        try:
-                            with open(manifest_path, 'r', encoding='utf-8') as f:
-                                manifest = yaml.safe_load(f)
-                        except Exception as e:
-                            errors.append({
-                                "pack_code": pack_code,
-                                "error": f"Failed to parse manifest: {e}"
-                            })
-                            continue
-
-                        # Validate manifest
-                        validator = ManifestValidator(local_core_root)
-                        skip_validation = os.getenv("MINDSCAPE_SKIP_VALIDATION", "0") == "1"
-                        is_valid, validation_errors, validation_warnings = validator.validate(
-                            manifest_path, cap_dir, skip_validation=skip_validation
-                        )
-
-                        if not is_valid and not skip_validation:
-                            errors.append({
-                                "pack_code": pack_code,
-                                "error": f"Manifest validation failed: {validation_errors}"
-                            })
-                            continue
-
-                        # 3. Initialize install result
-                        result = InstallResult(capability_code=capability_code)
-                        result.warnings.extend(validation_warnings)
-
-                        # 4. Install playbooks
-                        playbook_installer = PlaybookInstaller()
-                        playbook_installer.capabilities_dir = capabilities_dir
-                        playbook_installer.specs_dir = specs_dir
-                        playbook_installer.i18n_base_dir = i18n_base_dir
-                        playbook_installer.local_core_root = local_core_root
-                        playbook_installer._install_playbooks(cap_dir, capability_code, manifest, result)
-
-                        # 5. Install runtime assets
-                        runtime_installer = RuntimeAssetsInstaller(
-                            local_core_root=local_core_root,
-                            capabilities_dir=capabilities_dir
-                        )
-                        runtime_installer.install_all(cap_dir, capability_code, manifest, result, temp_dir)
-
-                        # 6. Run post-install hooks
-                        post_install_handler = PostInstallHandler(
-                            local_core_root=local_core_root,
-                            capabilities_dir=capabilities_dir,
-                            specs_dir=specs_dir,
-                            validate_tools_direct_call_func=playbook_installer._validate_tools_direct_call
-                        )
-                        post_install_handler.run_all(cap_dir, capability_code, manifest, result)
-
-                        # 7. Reload capability registry
-                        try:
-                            from app.services.capability_registry import get_registry
-                            registry = get_registry()
-                            if hasattr(registry, '_capabilities_cache'):
-                                registry._capabilities_cache.clear()
-                            if hasattr(registry, '_tools_cache'):
-                                registry._tools_cache.clear()
-                            logger.info(f"Reloaded capability registry for {capability_code}")
-                        except Exception as e:
-                            logger.warning(f"Failed to reload capability registry: {e}")
-
-                        # Check installation result
-                        if result.has_errors():
-                            errors.append({
-                                "pack_code": pack_code,
-                                "error": result.errors[0] if result.errors else "Installation failed"
-                            })
-                        else:
-                            installed_packs.append({
-                                "pack_code": pack_code,
-                                "version": manifest.get("version", "unknown"),
-                                "status": "installed"
-                            })
-                    finally:
-                        # Clean up temp file and directory
-                        if tmp_path.exists():
-                            tmp_path.unlink()
-                        if temp_dir and Path(temp_dir).exists():
-                            import shutil
-                            shutil.rmtree(temp_dir, ignore_errors=True)
+                job = install_job_service.create_cloud_pack_job(
+                    provider_id=provider_id,
+                    pack_ref=pack_ref or pack_code,
+                    verify_checksum=True,
+                    allow_overwrite=False,
+                    overwrite_review_confirmation="",
+                    profile_id="default-user",
+                    bundle=bundle,
+                    pack_code=pack_code,
+                    download_url=download_url,
+                )
+                jobs.append(
+                    {
+                        "pack_code": pack_code,
+                        "pack_ref": pack_ref,
+                        "install_id": job["install_id"],
+                        "state": job["state"],
+                        "status_url": job["status_url"],
+                    }
+                )
+            except DatabaseWriteNotReadyError as exc:
+                _raise_db_not_ready(exc)
             except Exception as e:
-                logger.error(f"Failed to install pack {pack_info.get('code')}: {e}", exc_info=True)
-                errors.append({
+                logger.error(f"Failed to enqueue pack {pack_info.get('code')}: {e}", exc_info=True)
+                skipped.append({
                     "pack_code": pack_info.get("code"),
                     "error": str(e)
                 })
 
         return {
-            "success": len(installed_packs) > 0,
-            "installed": installed_packs,
-            "errors": errors
+            "success": len(jobs) > 0,
+            "accepted": True,
+            "bundle": bundle,
+            "provider_id": provider_id,
+            "jobs": jobs,
+            "skipped": skipped,
         }
     except HTTPException:
         raise

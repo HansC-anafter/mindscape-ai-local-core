@@ -14,6 +14,7 @@ import {
   resolveNextDevArgs,
   resolveFrontendPrewarmPaths,
   resolveDevApiProxyTarget,
+  resolveApiRoutePlane,
   shouldWriteProxyTimingLog,
 } from './dev-proxy.mjs';
 
@@ -30,16 +31,30 @@ describe('frontend dev proxy', () => {
     expect(isFrontendLivenessPath('/workspaces/ws-1/capabilities/ai_roles')).toBe(false);
   });
 
-  it('sends same-origin API traffic to backend without involving Next dev', () => {
+  it('sends default same-origin API traffic to execution without involving Next dev', () => {
     expect(isDevApiProxyPath('/api/v1/cloud-sync/status')).toBe(true);
     expect(isDevApiProxyPath('/api/healthz')).toBe(false);
     expect(isDevApiProxyPath('/workspaces/ws-1/capabilities/ai_roles')).toBe(false);
 
-    const target = resolveDevApiProxyTarget('/api/v1/cloud-sync/status?fresh=1');
+    const target = resolveDevApiProxyTarget('/api/v1/workspaces/ws-1/summary?fresh=1');
+    expect(target).toMatchObject({
+      hostname: 'backend',
+      port: 8200,
+      path: '/api/v1/workspaces/ws-1/summary?fresh=1',
+      plane: 'execution',
+    });
+  });
+
+  it('keeps control-only API operations on backend-control', () => {
+    const target = resolveDevApiProxyTarget('/api/v1/capability-packs/install-from-file');
     expect(target).toMatchObject({
       hostname: 'backend-control',
       port: 8210,
-      path: '/api/v1/cloud-sync/status?fresh=1',
+      path: '/api/v1/capability-packs/install-from-file',
+      plane: 'control',
+    });
+    expect(resolveApiRoutePlane('/api/v1/admin/capability-runtime/activate')).toMatchObject({
+      plane: 'control',
     });
   });
 
@@ -53,7 +68,8 @@ describe('frontend dev proxy', () => {
   });
 
   it('classifies upstreams and strips query strings from timing log paths', () => {
-    expect(classifyProxyUpstream('/api/v1/cloud-sync/status?fresh=1')).toBe('backend_api');
+    expect(classifyProxyUpstream('/api/v1/workspaces/ws-1/summary?fresh=1')).toBe('backend_execution_api');
+    expect(classifyProxyUpstream('/api/v1/capability-packs/install-from-file')).toBe('backend_control_api');
     expect(classifyProxyUpstream('/api/v1/media/assets/demo.png?token=secret')).toBe('media_proxy');
     expect(classifyProxyUpstream('/workspaces/ws-1?tab=home')).toBe('next_dev');
     expect(normalizeProxyLogPath('/workspaces/ws-1?tab=home')).toBe('/workspaces/ws-1');
@@ -193,7 +209,7 @@ describe('frontend dev proxy', () => {
   });
 
   it('coalesces concurrent expensive GETs at the proxy without touching writes', async () => {
-    const originalBackendUrl = process.env.WEB_CONSOLE_BACKEND_URL;
+    const originalBackendUrl = process.env.WEB_CONSOLE_EXECUTION_BACKEND_URL;
     let requestCount = 0;
     const backend = await new Promise((resolve) => {
       const server = createBackendServer(() => {
@@ -216,7 +232,7 @@ describe('frontend dev proxy', () => {
     const proxyAddress = proxy.address();
     const backendPort = typeof backendAddress === 'object' && backendAddress ? backendAddress.port : null;
     const proxyPort = typeof proxyAddress === 'object' && proxyAddress ? proxyAddress.port : null;
-    process.env.WEB_CONSOLE_BACKEND_URL = `http://127.0.0.1:${backendPort}`;
+    process.env.WEB_CONSOLE_EXECUTION_BACKEND_URL = `http://127.0.0.1:${backendPort}`;
 
     try {
       const [first, second] = await Promise.all([
@@ -229,9 +245,9 @@ describe('frontend dev proxy', () => {
       expect(requestCount).toBe(1);
     } finally {
       if (originalBackendUrl === undefined) {
-        delete process.env.WEB_CONSOLE_BACKEND_URL;
+        delete process.env.WEB_CONSOLE_EXECUTION_BACKEND_URL;
       } else {
-        process.env.WEB_CONSOLE_BACKEND_URL = originalBackendUrl;
+        process.env.WEB_CONSOLE_EXECUTION_BACKEND_URL = originalBackendUrl;
       }
       await new Promise((resolve) => proxy.close(resolve));
       await new Promise((resolve) => backend.close(resolve));

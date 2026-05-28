@@ -175,6 +175,16 @@ def register_core_routes(app: FastAPI) -> None:
     except Exception as e:
         logger.warning(f"Failed to register admin reload routes: {e}")
 
+    try:
+        from backend.app.routes.core.admin_pack_activation import (
+            router as admin_pack_activation_router,
+        )
+
+        app.include_router(admin_pack_activation_router, tags=["admin"])
+        logger.info("Admin capability runtime activation routes registered")
+    except Exception as e:
+        logger.warning(f"Failed to register admin capability runtime activation routes: {e}")
+
     if not _capability_hot_reload_enabled():
         try:
             from backend.app.services.capability_api_loader import (

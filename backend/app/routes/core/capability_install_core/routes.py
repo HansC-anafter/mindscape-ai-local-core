@@ -1,6 +1,4 @@
 import logging
-import tempfile
-from pathlib import Path
 from typing import Any, Dict
 
 from fastapi import (
@@ -13,19 +11,32 @@ from fastapi import (
     UploadFile,
 )
 
+from backend.app.database.write_readiness import DatabaseWriteNotReadyError
+from backend.app.services.capability_install_jobs import CapabilityInstallJobService
+
 from .paths import (
     OVERWRITE_CONFIRMATION_PHRASE,
     _parse_bool_flag,
     _require_control_plane_install,
     _require_explicit_overwrite_confirmation,
-    _resolve_runtime_temp_dir,
     _ensure_sys_path,
 )
-from .pipeline import run_install_pipeline
 from .schemas import InstallFromCloudRequest
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/capability-packs", tags=["Capability Packs"])
+
+
+def _raise_db_not_ready(exc: DatabaseWriteNotReadyError) -> None:
+    raise HTTPException(
+        status_code=503,
+        detail={
+            "error": "postgres_write_not_ready",
+            "reason": exc.readiness.reason,
+            "retry_after_seconds": exc.readiness.retry_after_seconds,
+        },
+        headers={"Retry-After": str(exc.readiness.retry_after_seconds)},
+    )
 
 
 @router.post("/install-from-file", response_model=Dict[str, Any])
@@ -56,37 +67,25 @@ async def install_from_file(
         overwrite_confirmation=overwrite_confirmation,
     )
 
-    temp_dir = _resolve_runtime_temp_dir()
-    with tempfile.NamedTemporaryFile(
-        delete=False, suffix=".mindpack", dir=temp_dir
-    ) as tmp:
-        content = await file.read()
-        tmp.write(content)
-        tmp_path = Path(tmp.name)
-
     try:
-        result = await run_install_pipeline(
-            fastapi_app=fastapi_request.app,
-            mindpack_path=tmp_path,
+        content = await file.read()
+        job = CapabilityInstallJobService().create_file_upload_job(
+            filename=file.filename,
+            content=content,
             allow_overwrite=overwrite,
             overwrite_review_confirmation=overwrite_review_confirmation,
-            source_label="install-from-file",
-            extra_metadata={"installed_from_file": True},
+            profile_id=profile_id,
         )
-
         return {
             "success": True,
-            "capability_id": result.capability_code,
-            "version": result.version,
-            "message": f"Successfully installed {result.capability_code} v{result.version}",
-            "warnings": result.warnings,
-            "activation": result.activation,
-            "validation": result.validation,
-            "restart_required": result.restart_required,
-            "restart_triggered": result.restart_triggered,
-            "hot_reload": result.hot_reload_result,
-            "webhook": result.webhook_result,
+            "accepted": True,
+            "install_id": job["install_id"],
+            "state": job["state"],
+            "status_url": job["status_url"],
+            "message": "Capability install job accepted",
         }
+    except DatabaseWriteNotReadyError as exc:
+        _raise_db_not_ready(exc)
     except HTTPException:
         raise
     except ImportError as exc:
@@ -97,9 +96,6 @@ async def install_from_file(
     except Exception as exc:
         logger.error(f"Installation failed: {exc}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Installation failed: {exc}")
-    finally:
-        if tmp_path.exists():
-            tmp_path.unlink()
 
 
 # ------------------------------------------------------------------
@@ -143,8 +139,6 @@ async def install_from_cloud(
         )
 
         _ensure_sys_path()
-        from app.services.cloud_extension_manager import CloudExtensionManager
-        from app.services.pack_download_service import get_pack_download_service
         from app.routes.core.cloud_providers import get_cloud_manager
 
         cloud_manager = get_cloud_manager()
@@ -168,58 +162,27 @@ async def install_from_cloud(
                 detail=f"Provider '{request.provider_id}' does not support pack downloads",
             )
 
-        download_service = get_pack_download_service()
-        success, pack_file, error_msg = await download_service.download_pack(
-            provider=provider,
+        job = CapabilityInstallJobService().create_cloud_pack_job(
+            provider_id=request.provider_id,
             pack_ref=request.pack_ref,
             verify_checksum=request.verify_checksum,
+            allow_overwrite=overwrite,
+            overwrite_review_confirmation=overwrite_review_confirmation,
+            profile_id=profile_id,
         )
+        return {
+            "success": True,
+            "accepted": True,
+            "install_id": job["install_id"],
+            "state": job["state"],
+            "status_url": job["status_url"],
+            "provider_id": request.provider_id,
+            "pack_ref": request.pack_ref,
+            "message": "Cloud capability install job accepted",
+        }
 
-        if not success:
-            raise HTTPException(
-                status_code=400, detail=f"Failed to download pack: {error_msg}"
-            )
-        if not pack_file:
-            raise HTTPException(
-                status_code=500, detail="Download succeeded but pack file not returned"
-            )
-
-        try:
-            result = await run_install_pipeline(
-                fastapi_app=fastapi_request.app,
-                mindpack_path=pack_file,
-                allow_overwrite=overwrite,
-                overwrite_review_confirmation=overwrite_review_confirmation,
-                source_label="install-from-cloud",
-                extra_metadata={
-                    "installed_from_cloud": True,
-                    "provider_id": request.provider_id,
-                    "pack_ref": request.pack_ref,
-                },
-            )
-
-            return {
-                "success": True,
-                "capability_id": result.capability_code,
-                "version": result.pack_metadata.get("version", "1.0.0"),
-                "message": f"Successfully installed {result.capability_code} from {request.provider_id}",
-                "warnings": result.warnings,
-                "activation": result.activation,
-                "validation": result.validation,
-                "provider_id": request.provider_id,
-                "pack_ref": request.pack_ref,
-                "restart_required": result.restart_required,
-                "restart_triggered": result.restart_triggered,
-                "hot_reload": result.hot_reload_result,
-                "webhook": result.webhook_result,
-            }
-        finally:
-            if pack_file and pack_file.exists():
-                try:
-                    pack_file.unlink()
-                except Exception as exc:
-                    logger.warning(f"Failed to clean up temporary pack file: {exc}")
-
+    except DatabaseWriteNotReadyError as exc:
+        _raise_db_not_ready(exc)
     except HTTPException:
         raise
     except ImportError as exc:
@@ -230,3 +193,20 @@ async def install_from_cloud(
     except Exception as exc:
         logger.error(f"Cloud installation failed: {exc}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Cloud installation failed: {exc}")
+
+
+@router.get("/install-jobs/{install_id}", response_model=Dict[str, Any])
+async def get_install_job_status(install_id: str):
+    try:
+        job = CapabilityInstallJobService().get_job(install_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail="Install job not found")
+        return job
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Failed to load install job %s: %s", install_id, exc, exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to load install job: {exc}",
+        )

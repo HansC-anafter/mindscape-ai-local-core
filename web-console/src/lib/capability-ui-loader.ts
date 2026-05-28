@@ -9,6 +9,7 @@
  */
 
 import { lazy, ComponentType } from 'react';
+import * as ReactRuntime from 'react';
 import { convertImportPathToContextKey, normalizeCapabilityContextKey } from './capability-path';
 import { loadRegisteredCapabilityComponentsContext } from './capability-ui-context-registry';
 import type {
@@ -24,12 +25,20 @@ interface UIComponentInfo {
   artifact_types: string[];
   playbook_codes: string[];
   import_path: string;
+  asset_url?: string;
+  integrity?: string;
+  runtime?: string;
+  bytes?: number;
+  asset_path?: string;
 }
 
 declare global {
   // Test-only override so Vitest can short-circuit the webpack-only require.context branch.
   // eslint-disable-next-line no-var
   var __MINDSCAPE_CAPABILITY_UI_TEST_CONTEXT__: CapabilityComponentsContext | undefined;
+  // Runtime ESM packs receive React from the host bundle through this bridge.
+  // eslint-disable-next-line no-var
+  var MindscapeRuntimeReact: { React: typeof ReactRuntime } | undefined;
 }
 
 function normalizeCapabilityComponentKeys(
@@ -321,6 +330,66 @@ const componentMetadataCache = new Map<string, UIComponentInfo[]>();
  */
 const loadedComponentsCache = new Map<string, ComponentType<any>>();
 
+function ensureRuntimeReactBridge(): void {
+  globalThis.MindscapeRuntimeReact = {
+    React: ReactRuntime,
+  };
+}
+
+function resolveRuntimeAssetUrl(assetUrl: string, apiUrl: string): string {
+  if (/^https?:\/\//.test(assetUrl)) {
+    return assetUrl;
+  }
+  const baseUrl = apiUrl.replace(/\/+$/, '');
+  const path = assetUrl.startsWith('/') ? assetUrl : `/${assetUrl}`;
+  return `${baseUrl}${path}`;
+}
+
+async function sha256Integrity(source: string): Promise<string> {
+  if (!globalThis.crypto?.subtle) {
+    throw new Error('WebCrypto subtle digest is unavailable');
+  }
+  const digest = await globalThis.crypto.subtle.digest(
+    'SHA-256',
+    new TextEncoder().encode(source),
+  );
+  const bytes = Array.from(new Uint8Array(digest));
+  const binary = bytes.map((byte) => String.fromCharCode(byte)).join('');
+  return `sha256-${btoa(binary)}`;
+}
+
+async function loadRuntimeESMComponent(
+  component: UIComponentInfo,
+  apiUrl: string,
+): Promise<ComponentType<any> | null> {
+  if (!component.asset_url) {
+    return null;
+  }
+  if (!component.integrity) {
+    console.warn(`[loadCapabilityUIComponent] Runtime asset for ${component.code} missing integrity`);
+    return null;
+  }
+  ensureRuntimeReactBridge();
+  const assetUrl = resolveRuntimeAssetUrl(component.asset_url, apiUrl);
+  const response = await fetch(assetUrl, { cache: 'force-cache' });
+  if (!response.ok) {
+    throw new Error(`Runtime asset fetch failed: ${response.status}`);
+  }
+  const source = await response.text();
+  const actualIntegrity = await sha256Integrity(source);
+  if (actualIntegrity !== component.integrity) {
+    throw new Error(`Runtime asset integrity mismatch for ${component.code}`);
+  }
+  const blob = new Blob([source], { type: 'text/javascript' });
+  const objectUrl = URL.createObjectURL(blob);
+  try {
+    const module = await import(/* webpackIgnore: true */ objectUrl);
+    return module[component.export] || module.default || null;
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
 /**
  * Load UI component for a capability
  *
@@ -392,6 +461,22 @@ export async function loadCapabilityUIComponent(
     if (!component) {
       console.warn(`UI component ${componentCode} not found for capability ${capabilityCode}`);
       return null;
+    }
+
+    if (component.asset_url) {
+      try {
+        const RuntimeComponent = await loadRuntimeESMComponent(component, apiUrl);
+        if (RuntimeComponent) {
+          loadedComponentsCache.set(cacheKey, RuntimeComponent);
+          return RuntimeComponent;
+        }
+      } catch (runtimeImportError) {
+        console.error(
+          `[loadCapabilityUIComponent] Failed to import runtime UI asset ${component.asset_url}:`,
+          runtimeImportError,
+        );
+        return null;
+      }
     }
 
     const importPath = component.import_path;

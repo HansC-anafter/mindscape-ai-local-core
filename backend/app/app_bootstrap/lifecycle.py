@@ -5,6 +5,7 @@ import time
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from backend.app.core.backend_runtime_mode import (
+    is_execution_plane,
     should_run_post_ready_runtime_migrations,
     should_run_post_ready_tool_rag_warmup,
 )
@@ -24,6 +25,7 @@ _TOOL_RAG_POST_READY_TASK_ATTR = "_tool_rag_post_ready_task"
 _PACK_VALIDATION_RESUME_TASK_ATTR = "_pack_validation_resume_task"
 _RUNTIME_MIGRATIONS_POST_READY_TASK_ATTR = "_runtime_migrations_post_ready_task"
 _OBJECT_INDEX_SYNC_TASK_ATTR = "_object_index_sync_task"
+_CAPABILITY_INSTALL_JOB_WORKER_TASK_ATTR = "_capability_install_job_worker_task"
 _CODEX_POOL_SWEEPER_SERVICE_ATTR = "_codex_pool_sweeper_service"
 _HOST_RESOURCE_REHYDRATE_TASK_ATTR = "_host_resource_rehydrate_task"
 _POST_READY_HEAVY_WORK_LOCK_ATTR = "_post_ready_heavy_work_lock"
@@ -970,6 +972,43 @@ async def run_shutdown(app: FastAPI):
                 exc,
             )
 
+    capability_install_job_worker_task = getattr(
+        app.state,
+        _CAPABILITY_INSTALL_JOB_WORKER_TASK_ATTR,
+        None,
+    )
+    if (
+        capability_install_job_worker_task is not None
+        and not capability_install_job_worker_task.done()
+    ):
+        capability_install_job_worker_task.cancel()
+        try:
+            await capability_install_job_worker_task
+        except asyncio.CancelledError:
+            logger.info("Capability install job worker task cancelled during shutdown")
+        except Exception as exc:
+            logger.warning(
+                "Capability install job worker shutdown wait failed: %s",
+                exc,
+            )
+    try:
+        from backend.app.services.stores.capability_install_job_store import (
+            CapabilityInstallJobStore,
+        )
+
+        requeued = CapabilityInstallJobStore().requeue_running_jobs_for_shutdown()
+        if requeued:
+            logger.info(
+                "Capability install graceful-shutdown requeued %d running job(s)",
+                requeued,
+            )
+    except Exception as exc:
+        logger.warning(
+            "Capability install graceful-shutdown requeue failed: %s",
+            exc,
+            exc_info=True,
+        )
+
     host_resource_rehydrate_task = getattr(
         app.state,
         _HOST_RESOURCE_REHYDRATE_TASK_ATTR,
@@ -1141,6 +1180,32 @@ async def lifespan(app: FastAPI):
         except Exception:
             logger.debug("Failed to mark AOL object index sync disabled", exc_info=True)
         logger.info("AOL object index sync disabled by runtime policy")
+    try:
+        from backend.app.services.capability_install_jobs import (
+            run_capability_install_job_worker_loop,
+        )
+
+        if is_execution_plane():
+            setattr(app.state, _CAPABILITY_INSTALL_JOB_WORKER_TASK_ATTR, None)
+            logger.info("Capability install job worker disabled on execution plane")
+        else:
+            capability_install_job_worker_task = asyncio.create_task(
+                run_capability_install_job_worker_loop(app),
+                name="capability-install-job-worker",
+            )
+            setattr(
+                app.state,
+                _CAPABILITY_INSTALL_JOB_WORKER_TASK_ATTR,
+                capability_install_job_worker_task,
+            )
+            logger.info("Capability install job worker task scheduled")
+    except Exception as exc:
+        setattr(app.state, _CAPABILITY_INSTALL_JOB_WORKER_TASK_ATTR, None)
+        logger.warning(
+            "Failed to schedule capability install job worker: %s",
+            exc,
+            exc_info=True,
+        )
     try:
         yield
     finally:

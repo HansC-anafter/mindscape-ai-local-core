@@ -7,6 +7,11 @@ import yaml
 from fastapi import HTTPException
 from starlette.concurrency import run_in_threadpool
 
+from backend.app.database.write_readiness import (
+    DatabaseWriteNotReadyError,
+    check_core_write_readiness,
+    ensure_core_write_ready,
+)
 from app.services.pack_activation_service import PackActivationService
 from app.services.stores.installed_packs_store import InstalledPacksStore
 from .paths import (
@@ -40,6 +45,7 @@ async def run_install_pipeline(
     extra_metadata: Optional[Dict[str, Any]] = None,
 ) -> InstallPipelineResult:
     _ensure_sys_path()
+    ensure_core_write_ready(operation=f"capability_pack_install:{source_label}")
 
     from app.services.mindpack_extractor import MindpackExtractor
     from app.services.manifest_validator import ManifestValidator
@@ -237,6 +243,12 @@ async def run_install_pipeline(
         )
         if hasattr(result, "migration_status") and result.migration_status:
             mig = result.migration_status.get(capability_code)
+            if mig == "waiting_db":
+                raise DatabaseWriteNotReadyError(
+                    check_core_write_readiness(
+                        operation=f"capability_pack_migration:{capability_code}"
+                    )
+                )
             if mig in ("failed", "error"):
                 result.add_error(
                     f"Migration execution failed for {capability_code}: {mig}"

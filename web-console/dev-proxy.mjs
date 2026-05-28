@@ -8,8 +8,10 @@ import { fileURLToPath } from 'node:url';
 import {
   prewarmNextDevRoutes,
 } from './dev-proxy/prewarm.mjs';
+import { resolveApiRoutePlane } from './dev-proxy/api-route-plane.mjs';
 
 export { resolveFrontendPrewarmPaths } from './dev-proxy/prewarm.mjs';
+export { resolveApiRoutePlane } from './dev-proxy/api-route-plane.mjs';
 
 const PUBLIC_HOST = process.env.FRONTEND_PROXY_HOST || '0.0.0.0';
 const PUBLIC_PORT = Number.parseInt(process.env.PORT || '3000', 10);
@@ -97,17 +99,25 @@ export function isDevApiProxyPath(requestUrl = '/') {
 
 export function resolveDevApiProxyTarget(requestUrl = '/') {
   const parsed = new URL(requestUrl, 'http://localhost');
+  const routePlane = resolveApiRoutePlane(requestUrl);
   const registryMediaProxyUrl = resolveSeedEndpointUrl('local_core.media_proxy', 'container_internal');
-  const registryBackendUrl =
+  const registryControlBackendUrl =
     resolveSeedEndpointUrl('local_core.control_api', 'server_internal') ||
     resolveSeedEndpointUrl('local_core.control_api', 'container_internal');
-  const baseUrl = parsed.pathname.startsWith('/api/v1/media/')
+  const registryExecutionBackendUrl =
+    resolveSeedEndpointUrl('local_core.execution_api', 'server_internal') ||
+    resolveSeedEndpointUrl('local_core.execution_api', 'container_internal');
+  const baseUrl = routePlane.plane === 'media'
     ? normalizeBaseUrl(process.env.MEDIA_PROXY_URL, registryMediaProxyUrl)
     : normalizeBaseUrl(
-        process.env.WEB_CONSOLE_BACKEND_URL ||
-          process.env.BACKEND_URL ||
-          process.env.NEXT_PUBLIC_BACKEND_URL,
-        registryBackendUrl,
+        routePlane.plane === 'control'
+          ? process.env.WEB_CONSOLE_CONTROL_BACKEND_URL ||
+              process.env.WEB_CONSOLE_BACKEND_URL ||
+              process.env.BACKEND_URL ||
+              process.env.NEXT_PUBLIC_BACKEND_URL
+          : process.env.WEB_CONSOLE_EXECUTION_BACKEND_URL ||
+              process.env.WEB_CONSOLE_BACKEND_EXECUTION_URL,
+        routePlane.plane === 'control' ? registryControlBackendUrl : registryExecutionBackendUrl,
       );
   const upstream = new URL(baseUrl);
   return {
@@ -115,6 +125,8 @@ export function resolveDevApiProxyTarget(requestUrl = '/') {
     port: Number.parseInt(upstream.port || (upstream.protocol === 'https:' ? '443' : '80'), 10),
     protocol: upstream.protocol,
     path: `${parsed.pathname}${parsed.search}`,
+    plane: routePlane.plane,
+    plane_reason: routePlane.reason,
   };
 }
 
@@ -375,9 +387,13 @@ export function normalizeProxyLogPath(requestUrl = '/') {
 
 export function classifyProxyUpstream(requestUrl = '/') {
   if (isDevApiProxyPath(requestUrl)) {
-    return new URL(requestUrl, 'http://localhost').pathname.startsWith('/api/v1/media/')
-      ? 'media_proxy'
-      : 'backend_api';
+    const routePlane = resolveApiRoutePlane(requestUrl);
+    if (routePlane.plane === 'media') {
+      return 'media_proxy';
+    }
+    return routePlane.plane === 'control'
+      ? 'backend_control_api'
+      : 'backend_execution_api';
   }
   return 'next_dev';
 }
@@ -459,7 +475,7 @@ function proxyHttpRequest(req, res) {
   let upstreamStatus = null;
   let upstreamHeaderMs = null;
   let completionLogged = false;
-  const target = upstreamKind === 'backend_api' || upstreamKind === 'media_proxy'
+  const target = upstreamKind.startsWith('backend_') || upstreamKind === 'media_proxy'
     ? resolveDevApiProxyTarget(req.url)
     : resolveNextProxyTarget(req.url);
 
@@ -510,7 +526,7 @@ function proxyHttpRequest(req, res) {
     }
   });
 
-  if (upstreamKind === 'backend_api' && tryProxyCachedDevApiRead(req, res, target, logCompletion)) {
+  if (upstreamKind === 'backend_execution_api' && tryProxyCachedDevApiRead(req, res, target, logCompletion)) {
     return;
   }
 

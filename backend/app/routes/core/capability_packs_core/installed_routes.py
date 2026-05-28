@@ -1,10 +1,13 @@
 import logging
+import json
+import mimetypes
+import os
 import time
 from pathlib import Path
 from typing import Any, Dict, List
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 from .manifest_scan import (
     _WORKSPACE_TOOL_ID_PATTERN,
@@ -147,7 +150,7 @@ def _format_ui_component_for_response(
     if len(path_parts) >= 3 and path_parts[0] == "ui":
         subdirectory = path_parts[1]
     import_path = f"@/app/capabilities/{capability_code}/{subdirectory}/{component_name}"
-    return {
+    payload = {
         "code": component.get("code"),
         "path": component_path,
         "description": component.get("description", ""),
@@ -157,6 +160,86 @@ def _format_ui_component_for_response(
         "import_path": import_path,
         "layout_hint": component.get("layout_hint", "default"),
     }
+    runtime_component = _get_runtime_ui_component(capability_code, component.get("code"))
+    if runtime_component:
+        payload.update(
+            {
+                "asset_url": runtime_component.get("asset_url"),
+                "integrity": runtime_component.get("integrity"),
+                "bytes": runtime_component.get("bytes"),
+                "runtime": runtime_component.get("runtime"),
+                "asset_path": runtime_component.get("asset_path"),
+            }
+        )
+        if runtime_component.get("export"):
+            payload["export"] = runtime_component["export"]
+    return payload
+
+
+def _runtime_ui_assets_root() -> Path:
+    configured = os.getenv("MINDSCAPE_CAPABILITY_UI_ASSETS_DIR")
+    if configured:
+        return Path(configured)
+    return Path(__file__).resolve().parents[5] / "data" / "capability-ui"
+
+
+def _load_runtime_ui_index(capability_code: str) -> Dict[str, Any]:
+    try:
+        pack_meta = _get_pack_meta_by_code(capability_code)
+        manifest_file = pack_meta.get("_file_path") if pack_meta else None
+        if not manifest_file:
+            return {}
+        sidecar_path = Path(manifest_file).parent / "ui_runtime_assets.json"
+        if not sidecar_path.exists():
+            return {}
+        return json.loads(sidecar_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        logger.warning(
+            "Failed to load runtime UI index for %s: %s",
+            capability_code,
+            exc,
+        )
+        return {}
+
+
+def _get_runtime_ui_component(
+    capability_code: str,
+    component_code: Any,
+) -> Dict[str, Any]:
+    if not component_code:
+        return {}
+    runtime_index = _load_runtime_ui_index(capability_code)
+    for component in runtime_index.get("components", []) or []:
+        if component.get("code") == component_code:
+            return component
+    return {}
+
+
+@router.get("/installed-capabilities/{capability_code}/ui-assets/{asset_path:path}")
+def get_capability_ui_asset(capability_code: str, asset_path: str):
+    installed_ids = _get_installed_pack_ids()
+    pack_meta = _get_pack_meta_by_code(capability_code)
+    if not pack_meta or pack_meta.get("id") not in installed_ids:
+        raise HTTPException(status_code=404, detail="Capability is not installed")
+
+    safe_parts = [part for part in asset_path.split("/") if part not in {"", ".", ".."}]
+    if "/".join(safe_parts) != asset_path:
+        raise HTTPException(status_code=400, detail="Invalid UI asset path")
+
+    asset_file = (_runtime_ui_assets_root() / capability_code / asset_path).resolve()
+    try:
+        asset_file.relative_to((_runtime_ui_assets_root() / capability_code).resolve())
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid UI asset path")
+    if not asset_file.exists() or not asset_file.is_file():
+        raise HTTPException(status_code=404, detail="UI asset not found")
+
+    media_type = mimetypes.guess_type(str(asset_file))[0] or "application/javascript"
+    headers = {
+        "Cache-Control": "public, max-age=31536000, immutable",
+        "X-Content-Type-Options": "nosniff",
+    }
+    return FileResponse(path=asset_file, media_type=media_type, headers=headers)
 
 
 @router.get(
