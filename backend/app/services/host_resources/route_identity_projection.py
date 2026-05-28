@@ -36,6 +36,8 @@ def build_route_identity_projection(task: Any) -> dict[str, Any]:
         "task_type": str(getattr(task, "task_type", None) or ctx.get("task_type") or "").strip() or None,
         "workspace_id": str(getattr(task, "workspace_id", None) or ctx.get("workspace_id") or "").strip() or None,
         "queue_shard": str(getattr(task, "queue_shard", None) or ctx.get("queue_shard") or "").strip() or None,
+        "concurrency_key": str(getattr(task, "concurrency_key", None) or ctx.get("concurrency_key") or "").strip() or None,
+        "blocked_reason": str(getattr(task, "blocked_reason", None) or ctx.get("blocked_reason") or "").strip() or None,
         "status": str(getattr(status, "value", status) or "").strip() or None,
         "route_identity": route_gate.task_route_identity(task),
     }

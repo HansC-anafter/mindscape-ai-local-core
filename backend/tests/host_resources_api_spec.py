@@ -206,6 +206,64 @@ def test_admission_preview_endpoint_returns_gone_with_route_intent_replacement()
     }
 
 
+def test_queue_utilization_endpoint_returns_latest_snapshot(monkeypatch):
+    monkeypatch.setattr(
+        host_resources,
+        "get_latest_queue_utilization_snapshot",
+        lambda: {
+            "source": "postgres_snapshot",
+            "queue_depths": {"browser_local": {"pending": 5}},
+            "capacity_by_queue_shard": {
+                "browser_local": {"max_inflight_total": 3}
+            },
+            "visible_lanes": {"browser_local": []},
+            "visible_lane_count": {"browser_local": 0},
+            "utilization_ratio_by_queue_shard": {"browser_local": 0},
+            "degraded": False,
+            "errors": [],
+        },
+    )
+    app = FastAPI()
+    app.include_router(host_resources.router)
+
+    response = TestClient(app).get("/api/v1/host-resources/queue-utilization")
+
+    assert response.status_code == 200
+    assert response.json()["source"] == "postgres_snapshot"
+    assert response.json()["queue_depths"]["browser_local"]["pending"] == 5
+
+
+def test_queue_utilization_endpoint_live_uses_bounded_reader(monkeypatch):
+    async def _build_live_queue_utilization():
+        return {
+            "source": "live_redis_bounded",
+            "queue_depths": {"browser_local": {"pending": 5}},
+            "capacity_by_queue_shard": {
+                "browser_local": {"max_inflight_total": 3}
+            },
+            "visible_lanes": {"browser_local": []},
+            "visible_lane_count": {"browser_local": 0},
+            "utilization_ratio_by_queue_shard": {"browser_local": 0},
+            "degraded": False,
+            "errors": [],
+        }
+
+    monkeypatch.setattr(
+        host_resources,
+        "build_live_queue_utilization",
+        _build_live_queue_utilization,
+    )
+    app = FastAPI()
+    app.include_router(host_resources.router)
+
+    response = TestClient(app).get(
+        "/api/v1/host-resources/queue-utilization?live=true"
+    )
+
+    assert response.status_code == 200
+    assert response.json()["source"] == "live_redis_bounded"
+
+
 def test_route_intent_preview_endpoint_forwards_payload(monkeypatch):
     received = {}
 

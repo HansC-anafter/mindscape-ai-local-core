@@ -22,6 +22,10 @@ from backend.app.services.host_resources.manager import (
     resume_runner_claim_gate,
     update_notification,
 )
+from backend.app.services.host_resources.queue_utilization import (
+    build_live_queue_utilization,
+    get_latest_queue_utilization_snapshot,
+)
 from backend.app.services.host_resources.route_intents import build_route_intent_preview
 from backend.app.services.host_resources.schema_readiness import (
     check_host_resource_schema_readiness,
@@ -56,6 +60,13 @@ async def get_summary(
 @router.get("/schema-readiness")
 async def get_schema_readiness() -> dict[str, Any]:
     return check_host_resource_schema_readiness()
+
+
+@router.get("/queue-utilization")
+async def get_queue_utilization(live: bool = Query(False)) -> dict[str, Any]:
+    if live:
+        return await build_live_queue_utilization()
+    return get_latest_queue_utilization_snapshot()
 
 
 @router.get("/lanes")

@@ -51,3 +51,16 @@ def test_frontend_control_plane_dependency_matches_seed_contract():
 
     assert frontend_dependencies["backend-control"]["condition"] == "service_healthy"
     assert control_api_internal_urls == {"http://backend-control:8210"}
+
+
+def test_browser_runner_default_capacity_is_generic_three_slots():
+    compose = _load_compose()
+    services = compose["services"]
+    browser_runner = services["runner-browser"]
+
+    assert (
+        browser_runner["environment"]["LOCAL_CORE_RUNNER_MAX_INFLIGHT"]
+        == "${LOCAL_CORE_RUNNER_BROWSER_MAX_INFLIGHT:-3}"
+    )
+    assert "ig_post_detail_browser" not in services
+    assert all("ig_post_detail_browser" not in name for name in services)

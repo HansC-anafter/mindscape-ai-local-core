@@ -49,6 +49,9 @@ from backend.app.services.host_resources.route_identity_projection import (
     build_route_identity_projection,
     read_route_identity_projections,
 )
+from backend.app.services.host_resources.queue_utilization import (
+    write_queue_utilization_snapshot_if_leader,
+)
 
 # Sub-module imports
 from backend.app.runner.utils import _utc_now, _parse_utc_iso, _env_int
@@ -803,6 +806,24 @@ async def _maintenance_loop(
                 ready_targets=ready_targets,
                 queue_cycle=queue_cycle,
             )
+            try:
+                snapshot_result = await write_queue_utilization_snapshot_if_leader(
+                    queue_stores=list(ready_queues.values()),
+                    scan_limit=_env_int(
+                        "LOCAL_CORE_RUNNER_QUEUE_UTILIZATION_SCAN_LIMIT",
+                        _env_int("LOCAL_CORE_RUNNER_PLAYBOOK_FAIR_SCAN_LIMIT", 128),
+                    ),
+                )
+                if snapshot_result.get("written"):
+                    logger.debug(
+                        "Runner queue utilization snapshot written rows=%s",
+                        snapshot_result.get("inserted"),
+                    )
+            except Exception as snapshot_exc:
+                logger.debug(
+                    "Runner queue utilization snapshot skipped: %s",
+                    snapshot_exc,
+                )
         except Exception as e:
             if db_recovery_backoff.note_failure(e):
                 if db_recovery_backoff.should_log():
