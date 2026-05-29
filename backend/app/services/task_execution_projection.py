@@ -7,6 +7,7 @@ from typing import Any, Dict, Iterable, Optional
 LEGACY_REMOTE_DISPATCH_STATE_KEY = "\u0063loud_dispatch_state"
 LEGACY_REMOTE_EXECUTION_ID_KEY = "\u0063loud_execution_id"
 LEGACY_REMOTE_STATE_KEY = "\u0063loud_state"
+USER_PAUSE_RESERVED_BLOCKED_REASON = "user_pause_reserved"
 
 
 def _as_dict(value: Any) -> Dict[str, Any]:
@@ -81,10 +82,18 @@ def project_execution_for_api(
 ) -> Dict[str, Any]:
     projected = dict(task_payload)
     execution_context = _as_dict(projected.get("execution_context"))
+    task_status = _normalize_status(projected.get("status"))
     projected["playbook_code"] = projected.get("pack_id") or execution_context.get(
         "playbook_code"
     )
     projected["execution_id"] = projected.get("execution_id") or projected.get("id")
+    projected["task_status"] = task_status
+    if (
+        str(projected.get("blocked_reason") or "").strip().lower()
+        == USER_PAUSE_RESERVED_BLOCKED_REASON
+        and task_status in {"pending", "paused"}
+    ):
+        projected["status"] = "paused"
     projected["queue_position"] = queue_position
     projected["queue_total"] = queue_total
     projected["parent_execution_id"] = projected.get("parent_execution_id")

@@ -7,7 +7,7 @@ Handles Playbook Runtime execution management, SSE streaming, and control APIs.
 import logging
 import json
 import asyncio
-from typing import Dict, Any, Optional, AsyncGenerator
+from typing import Dict, Any, Optional, AsyncGenerator, List
 from datetime import datetime
 from fastapi import APIRouter, HTTPException, Path, Depends, Query, Body
 from fastapi.responses import StreamingResponse
@@ -24,6 +24,8 @@ from backend.app.services.mindscape_store import MindscapeStore
 from backend.app.services.stores.tasks_store import TasksStore
 from backend.app.services.stores.tool_calls_store import ToolCallsStore
 from backend.app.services.stores.stage_results_store import StageResultsStore
+from backend.app.services.task_execution_projection import project_execution_for_api
+from backend.app.services.workspace_execution_activity import WorkspaceExecutionActivityStore
 from backend.app.core.ports.identity_port import IdentityPort
 from backend.app.routes.workspace_dependencies import get_identity_port_or_default
 from backend.app.services.conversation.execution_chat_agent_service import (
@@ -638,7 +640,37 @@ async def list_execution_stage_results(
 @router.get("/{workspace_id}/executions")
 async def list_executions(
     workspace_id: str = Path(..., description="Workspace ID"),
-    limit: int = Query(50, description="Maximum number of executions to return"),
+    limit: int = Query(30, ge=1, le=200, description="Maximum number of executions"),
+    offset: int = Query(0, ge=0, description="Execution list offset"),
+    status: Optional[List[str]] = Query(
+        None,
+        description="Execution statuses to include",
+    ),
+    playbook_code_prefix: Optional[str] = Query(
+        None, description="Filter by playbook code prefix (e.g., 'ig_')"
+    ),
+    playbook_code: Optional[List[str]] = Query(
+        None, description="Filter by exact playbook code"
+    ),
+    exclude_playbook_code: Optional[List[str]] = Query(
+        None, description="Exact playbook codes to exclude"
+    ),
+    parent_execution_id: Optional[str] = Query(
+        None,
+        description="Filter child executions by exact parent execution ID",
+    ),
+    active_only: bool = Query(
+        False,
+        description="Use active execution defaults and hide admission-deferred rows",
+    ),
+    order_by: str = Query("created_at", description="Field to order by"),
+    order: str = Query("desc", description="Sort order: asc or desc"),
+    include_execution_context: bool = Query(
+        False,
+        description=(
+            "Legacy parameter. Execution lists always return compact projection context."
+        ),
+    ),
 ):
     """
     List all Playbook executions for a workspace
@@ -649,14 +681,33 @@ async def list_executions(
     - archived: status IN ("succeeded", "failed") AND created_at < 1 hour ago
     """
     try:
-        store = MindscapeStore()
-        tasks_store = TasksStore(db_path=store.db_path)
-        return list_executions_payload(
-            tasks_store=tasks_store,
+        activity_store = WorkspaceExecutionActivityStore()
+        payload = await asyncio.to_thread(
+            activity_store.list_executions,
             workspace_id=workspace_id,
             limit=limit,
-            logger=logger,
+            offset=offset,
+            statuses=status,
+            playbook_code=playbook_code,
+            playbook_code_prefix=playbook_code_prefix,
+            parent_execution_id=parent_execution_id,
+            exclude_playbook_code=exclude_playbook_code,
+            active_only=active_only,
+            order_by=order_by,
+            order=order,
         )
+        executions = [
+            project_execution_for_api(item, queue_position=None, queue_total=None)
+            for item in payload["executions"]
+        ]
+        return {
+            "executions": executions,
+            "limit": payload["limit"],
+            "offset": payload["offset"],
+            "returned": payload["returned"],
+            "has_more": payload["has_more"],
+            "next_offset": payload["next_offset"],
+        }
 
     except Exception as e:
         logger.error(f"Failed to list executions: {e}", exc_info=True)

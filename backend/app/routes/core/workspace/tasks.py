@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi import Path as PathParam
@@ -21,6 +21,7 @@ from ....services.task_execution_projection import (
     build_execution_group_summary,
     project_execution_for_api,
 )
+from ....services.workspace_execution_activity import WorkspaceExecutionActivityStore
 from ..read_executor import run_ui_read
 from .tasks_core.control_routes import router as control_router
 from .tasks_core.progress_snapshot import (
@@ -142,15 +143,27 @@ async def get_workspace_tasks(
 async def get_workspace_executions(
     workspace_id: str = PathParam(..., description="Workspace ID"),
     limit: int = Query(30, ge=1, le=200, description="Maximum number of executions"),
+    offset: int = Query(0, ge=0, description="Execution list offset"),
+    status: Optional[List[str]] = Query(
+        None,
+        description="Execution statuses to include",
+    ),
     playbook_code_prefix: Optional[str] = Query(
         None, description="Filter by playbook code prefix (e.g., 'ig_')"
     ),
-    playbook_code: Optional[str] = Query(
+    playbook_code: Optional[List[str]] = Query(
         None, description="Filter by exact playbook code"
+    ),
+    exclude_playbook_code: Optional[List[str]] = Query(
+        None, description="Exact playbook codes to exclude"
     ),
     parent_execution_id: Optional[str] = Query(
         None,
         description="Filter child executions by exact parent execution ID",
+    ),
+    active_only: bool = Query(
+        False,
+        description="Use active execution defaults and hide admission-deferred rows",
     ),
     order_by: str = Query("created_at", description="Field to order by"),
     order: str = Query("desc", description="Sort order: asc or desc"),
@@ -166,20 +179,24 @@ async def get_workspace_executions(
 ):
     """List executions (tasks) for a workspace with optional playbook filters."""
     try:
-        projection_store = TasksProjectionStore()
-        task_payloads = await run_ui_read(
-            projection_store.list_workspace_executions,
+        activity_store = WorkspaceExecutionActivityStore()
+        payload = await run_ui_read(
+            activity_store.list_executions,
             workspace_id,
-            limit,
+            limit=limit,
+            offset=offset,
+            statuses=status,
             playbook_code=playbook_code,
             playbook_code_prefix=playbook_code_prefix,
             parent_execution_id=parent_execution_id,
+            exclude_playbook_code=exclude_playbook_code,
+            active_only=active_only,
             order_by=order_by,
             order=order,
         )
 
         executions = []
-        for task_payload in task_payloads:
+        for task_payload in payload["executions"]:
             executions.append(
                 project_execution_for_api(
                     task_payload,
@@ -207,11 +224,133 @@ async def get_workspace_executions(
                         "summary": build_execution_group_summary(tasks_list),
                     }
                 )
-            return {"groups": group_summaries, "ungrouped": ungrouped}
+            return {
+                "groups": group_summaries,
+                "ungrouped": ungrouped,
+                "limit": payload["limit"],
+                "offset": payload["offset"],
+                "returned": payload["returned"],
+                "has_more": payload["has_more"],
+                "next_offset": payload["next_offset"],
+            }
 
-        return {"executions": executions}
+        return {
+            **payload,
+            "executions": executions,
+        }
     except Exception as e:
         logger.error(f"Failed to get workspace executions: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{workspace_id}/execution-groups")
+async def get_workspace_execution_groups(
+    workspace_id: str = PathParam(..., description="Workspace ID"),
+    limit: int = Query(20, ge=1, le=100, description="Maximum number of groups"),
+    offset: int = Query(0, ge=0, description="Execution group offset"),
+    status: Optional[List[str]] = Query(
+        None,
+        description="Execution statuses to include",
+    ),
+    playbook_code_prefix: Optional[str] = Query(
+        None, description="Filter by playbook code prefix (e.g., 'ig_')"
+    ),
+    playbook_code: Optional[List[str]] = Query(
+        None, description="Filter by exact playbook code"
+    ),
+    exclude_playbook_code: Optional[List[str]] = Query(
+        None, description="Exact playbook codes to exclude"
+    ),
+):
+    """List grouped workspace executions from the core projection."""
+    try:
+        activity_store = WorkspaceExecutionActivityStore()
+        payload = await run_ui_read(
+            activity_store.list_execution_groups,
+            workspace_id,
+            limit=limit,
+            offset=offset,
+            statuses=status,
+            playbook_code=playbook_code,
+            playbook_code_prefix=playbook_code_prefix,
+            exclude_playbook_code=exclude_playbook_code,
+        )
+        groups = []
+        for group in payload["groups"]:
+            representative = project_execution_for_api(
+                group["representative"],
+                queue_position=None,
+                queue_total=None,
+            )
+            groups.append(
+                {
+                    "parent_execution_id": group["parent_execution_id"],
+                    "summary": group["summary"],
+                    "latest_at": group["latest_at"],
+                    "representative_run": representative,
+                }
+            )
+        ungrouped = [
+            project_execution_for_api(item, queue_position=None, queue_total=None)
+            for item in payload["ungrouped"]
+        ]
+        return {
+            **payload,
+            "groups": groups,
+            "ungrouped": ungrouped,
+        }
+    except Exception as e:
+        logger.error(f"Failed to get workspace execution groups: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{workspace_id}/execution-groups/{parent_execution_id}/children")
+async def get_workspace_execution_group_children(
+    workspace_id: str = PathParam(..., description="Workspace ID"),
+    parent_execution_id: str = PathParam(..., description="Parent execution ID"),
+    limit: int = Query(20, ge=1, le=100, description="Maximum number of children"),
+    offset: int = Query(0, ge=0, description="Execution child offset"),
+    status: Optional[List[str]] = Query(
+        None,
+        description="Execution statuses to include",
+    ),
+    playbook_code_prefix: Optional[str] = Query(
+        None, description="Filter by playbook code prefix (e.g., 'ig_')"
+    ),
+    playbook_code: Optional[List[str]] = Query(
+        None, description="Filter by exact playbook code"
+    ),
+    exclude_playbook_code: Optional[List[str]] = Query(
+        None, description="Exact playbook codes to exclude"
+    ),
+):
+    """List child executions for one parent execution from the core projection."""
+    try:
+        activity_store = WorkspaceExecutionActivityStore()
+        payload = await run_ui_read(
+            activity_store.list_execution_group_children,
+            workspace_id,
+            parent_execution_id=parent_execution_id,
+            limit=limit,
+            offset=offset,
+            statuses=status,
+            playbook_code=playbook_code,
+            playbook_code_prefix=playbook_code_prefix,
+            exclude_playbook_code=exclude_playbook_code,
+        )
+        executions = [
+            project_execution_for_api(item, queue_position=None, queue_total=None)
+            for item in payload["executions"]
+        ]
+        return {
+            **payload,
+            "executions": executions,
+        }
+    except Exception as e:
+        logger.error(
+            f"Failed to get workspace execution group children for {parent_execution_id}: {e}",
+            exc_info=True,
+        )
         raise HTTPException(status_code=500, detail=str(e))
 
 

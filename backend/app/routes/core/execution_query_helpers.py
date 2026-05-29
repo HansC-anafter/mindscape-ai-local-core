@@ -7,6 +7,7 @@ from typing import Any, Dict, Optional
 
 from sqlalchemy import text
 
+from backend.app.services.runner_live_state import RunnerLiveStateStore
 from backend.app.services.runner_resources import (
     STATUS_SNAPSHOT_TTL_SECONDS,
     SyncRedisTtlSnapshotStore,
@@ -19,6 +20,7 @@ from .execution_ordering import build_execution_order_clause
 from .execution_status_utils import trim_execution_context_for_status
 
 _STATUS_SNAPSHOT_STORE = SyncRedisTtlSnapshotStore()
+_RUNNING_STATUS = "running"
 
 
 def _get_row_value(row: Any, key: str) -> Any:
@@ -89,6 +91,38 @@ def attach_runner_resource_snapshot(
     return payload
 
 
+def _apply_live_task_heartbeat(
+    payload: Optional[Dict[str, Any]],
+    *,
+    task_id: Any,
+) -> Optional[Dict[str, Any]]:
+    """Overlay Redis live heartbeat onto running execution status payloads."""
+    if not payload:
+        return payload
+    if str(payload.get("task_status") or "").strip().lower() != _RUNNING_STATUS:
+        return payload
+    ctx = payload.get("execution_context")
+    if not isinstance(ctx, dict):
+        return payload
+    task_id_text = str(task_id or "").strip()
+    if not task_id_text:
+        return payload
+    try:
+        live_payload = RunnerLiveStateStore().get_task_heartbeat(task_id_text)
+    except Exception:
+        live_payload = None
+    if not isinstance(live_payload, dict):
+        return payload
+    heartbeat_at = live_payload.get("heartbeat_at")
+    if heartbeat_at:
+        ctx["heartbeat_at"] = heartbeat_at
+        ctx.setdefault("runner_heartbeat_at", heartbeat_at)
+    runner_id = live_payload.get("runner_id")
+    if runner_id:
+        ctx["runner_id"] = runner_id
+    return payload
+
+
 def _read_execution_status_hot_cache(execution_id: str) -> Optional[Dict[str, Any]]:
     try:
         return get_ttl_snapshot_sync(
@@ -126,6 +160,7 @@ def load_execution_status_payload(tasks_store, execution_id: str):
             text(
                 """
                 SELECT
+                    id,
                     execution_id,
                     status,
                     jsonb_strip_nulls(
@@ -155,6 +190,10 @@ def load_execution_status_payload(tasks_store, execution_id: str):
         ).fetchone()
     payload = build_status_payload_from_row(row, execution_id=execution_id)
     if payload:
+        payload = _apply_live_task_heartbeat(
+            payload,
+            task_id=_get_row_value(row, "id"),
+        )
         try:
             heartbeats = tasks_store.list_runner_heartbeats(
                 max_age_seconds=300,
@@ -189,6 +228,7 @@ def load_global_execution_rows(
             t.workspace_id,
             t.message_id,
             t.execution_id,
+            t.parent_execution_id,
             t.project_id,
             t.pack_id,
             t.task_type,
@@ -204,6 +244,13 @@ def load_global_execution_rows(
             )::json AS execution_context,
             t.storyline_tags,
             t.created_at,
+            t.next_eligible_at,
+            t.blocked_reason,
+            t.blocked_payload,
+            t.queue_shard,
+            t.concurrency_key,
+            t.frontier_state,
+            t.frontier_enqueued_at,
             t.started_at,
             t.completed_at,
             t.error,
@@ -241,11 +288,12 @@ def load_global_execution_rows(
 
 def serialize_global_execution(tasks_store, task, row: Any, queue_cache) -> Dict[str, Any]:
     """Convert a task row into the public global-execution payload."""
-    payload = task.model_dump()
-    execution_context = payload.get("execution_context") or {}
-    payload["playbook_code"] = payload.get("pack_id") or execution_context.get("playbook_code")
-    payload["execution_id"] = payload.get("execution_id") or payload.get("id")
+    from backend.app.services.task_execution_projection import project_execution_for_api
+
+    payload = project_execution_for_api(
+        task.model_dump(),
+        queue_position=queue_cache.get_position(tasks_store, task),
+        queue_total=queue_cache.get_total(task.queue_shard or "default"),
+    )
     payload["workspace_name"] = _get_row_value(row, "workspace_name")
-    payload["queue_position"] = queue_cache.get_position(tasks_store, task)
-    payload["queue_total"] = queue_cache.get_total(payload.get("queue_shard") or "default")
     return payload

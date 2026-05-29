@@ -14,6 +14,66 @@ def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+COMPACT_INPUTS_SQL = """
+jsonb_strip_nulls(
+    jsonb_build_object(
+        'post_path', COALESCE(
+            tasks.execution_context::jsonb->'inputs'->>'post_path',
+            tasks.params::jsonb->>'post_path'
+        ),
+        'profile_name', COALESCE(
+            tasks.execution_context::jsonb->'inputs'->>'profile_name',
+            tasks.params::jsonb->>'profile_name'
+        ),
+        'reference_id', COALESCE(
+            tasks.execution_context::jsonb->'inputs'->>'reference_id',
+            tasks.execution_context::jsonb->>'reference_id',
+            tasks.params::jsonb->>'reference_id'
+        ),
+        'run_mode', COALESCE(
+            tasks.execution_context::jsonb->'inputs'->>'run_mode',
+            tasks.execution_context::jsonb->>'run_mode',
+            tasks.params::jsonb->>'run_mode'
+        ),
+        'seed', COALESCE(
+            tasks.execution_context::jsonb->'inputs'->>'seed',
+            tasks.params::jsonb->>'seed'
+        ),
+        'source_handle', COALESCE(
+            tasks.execution_context::jsonb->'inputs'->>'source_handle',
+            tasks.execution_context::jsonb->>'source_handle',
+            tasks.params::jsonb->>'source_handle'
+        ),
+        'target_handle', COALESCE(
+            tasks.execution_context::jsonb->'inputs'->>'target_handle',
+            tasks.execution_context::jsonb->>'target_handle',
+            tasks.params::jsonb->>'target_handle'
+        ),
+        'target_username', COALESCE(
+            tasks.execution_context::jsonb->'inputs'->>'target_username',
+            tasks.execution_context::jsonb->>'target_username',
+            tasks.params::jsonb->>'target_username'
+        ),
+        'trigger', COALESCE(
+            tasks.execution_context::jsonb->'inputs'->>'trigger',
+            tasks.execution_context::jsonb->>'trigger',
+            tasks.params::jsonb->>'trigger'
+        ),
+        'user_data_dir', COALESCE(
+            tasks.execution_context::jsonb->'inputs'->>'user_data_dir',
+            tasks.execution_context::jsonb->>'user_data_dir',
+            tasks.params::jsonb->>'user_data_dir'
+        ),
+        'visit_account_pages', COALESCE(
+            tasks.execution_context::jsonb->'inputs'->'visit_account_pages',
+            tasks.execution_context::jsonb->'visit_account_pages',
+            tasks.params::jsonb->'visit_account_pages'
+        )
+    )
+)
+"""
+
+
 class TaskProjectionBuilder(PostgresStoreBase):
     """Build compact read models from task control fields and events."""
 
@@ -25,7 +85,7 @@ class TaskProjectionBuilder(PostgresStoreBase):
     ) -> bool:
         params = {"task_id": task_id, "updated_at": _utc_now()}
         query = text(
-            """
+            f"""
             INSERT INTO task_summary_projection (
                 task_id,
                 workspace_id,
@@ -40,6 +100,7 @@ class TaskProjectionBuilder(PostgresStoreBase):
                 dedupe_key,
                 summary,
                 error_summary,
+                compact_inputs,
                 created_at,
                 next_eligible_at,
                 blocked_reason,
@@ -65,6 +126,7 @@ class TaskProjectionBuilder(PostgresStoreBase):
                 tasks.concurrency_key,
                 NULL,
                 tasks.error,
+                {COMPACT_INPUTS_SQL},
                 tasks.created_at,
                 tasks.next_eligible_at,
                 tasks.blocked_reason,
@@ -98,6 +160,7 @@ class TaskProjectionBuilder(PostgresStoreBase):
                 dedupe_key = EXCLUDED.dedupe_key,
                 summary = EXCLUDED.summary,
                 error_summary = EXCLUDED.error_summary,
+                compact_inputs = EXCLUDED.compact_inputs,
                 created_at = EXCLUDED.created_at,
                 next_eligible_at = EXCLUDED.next_eligible_at,
                 blocked_reason = EXCLUDED.blocked_reason,
@@ -211,6 +274,7 @@ class TaskProjectionBuilder(PostgresStoreBase):
                 dedupe_key,
                 summary,
                 error_summary,
+                compact_inputs,
                 created_at,
                 next_eligible_at,
                 blocked_reason,
@@ -236,6 +300,7 @@ class TaskProjectionBuilder(PostgresStoreBase):
                 tasks.concurrency_key,
                 NULL,
                 tasks.error,
+                {COMPACT_INPUTS_SQL},
                 tasks.created_at,
                 tasks.next_eligible_at,
                 tasks.blocked_reason,
@@ -269,6 +334,7 @@ class TaskProjectionBuilder(PostgresStoreBase):
                 dedupe_key = EXCLUDED.dedupe_key,
                 summary = EXCLUDED.summary,
                 error_summary = EXCLUDED.error_summary,
+                compact_inputs = EXCLUDED.compact_inputs,
                 created_at = EXCLUDED.created_at,
                 next_eligible_at = EXCLUDED.next_eligible_at,
                 blocked_reason = EXCLUDED.blocked_reason,

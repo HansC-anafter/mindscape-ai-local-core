@@ -87,6 +87,9 @@ from backend.app.runner.database_backoff import (
     RunnerDatabaseRecoveryBackoff,
     is_database_recovery_error,
 )
+from backend.app.runner.browser_fair_candidate_scheduler import (
+    select_browser_fair_candidate,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -108,6 +111,8 @@ __all__ = [
     "_check_restart_sentinel",
     "_RESTART_SENTINEL_PATH",
     "_RESTART_DRAIN_TIMEOUT_SECONDS",
+    "_repair_misqueued_task_if_needed",
+    "_dequeue_by_browser_fair_candidate_policy",
     "run_forever",
     "main",
 ]
@@ -437,6 +442,49 @@ async def _dequeue_from_ready_queues(
     return task_id, queue_store if task_id else None, next_cursor
 
 
+async def _repair_misqueued_task_if_needed(
+    task_id: str,
+    task_data,
+    task_queue: RedisRunnerQueueStore,
+) -> bool:
+    expected_shard = normalize_queue_partition(
+        getattr(task_data, "queue_shard", None),
+        fallback=DEFAULT_LOCAL_QUEUE_PARTITION,
+    )
+    current_shard = normalize_queue_partition(
+        getattr(task_queue, "pack_id", None),
+        fallback=DEFAULT_LOCAL_QUEUE_PARTITION,
+    )
+    if expected_shard == current_shard:
+        return False
+
+    target_queue = RedisRunnerQueueStore(pack_id=expected_shard)
+    try:
+        enqueued = await target_queue.enqueue_task(
+            task_id,
+            route_identity=build_route_identity_projection(task_data),
+        )
+    except TypeError:
+        enqueued = await target_queue.enqueue_task(task_id)
+    if not enqueued:
+        logger.warning(
+            "[Worker] Failed to repair misqueued task %s from %s to %s",
+            task_id,
+            current_shard,
+            expected_shard,
+        )
+        return False
+
+    await task_queue.ack_task(task_id)
+    logger.warning(
+        "[Worker] Repaired misqueued task %s from %s to %s",
+        task_id,
+        current_shard,
+        expected_shard,
+    )
+    return True
+
+
 def _host_route_gate_enabled() -> bool:
     raw = os.getenv("LOCAL_CORE_HOST_RESOURCE_ROUTE_GATE_ENABLED", "true")
     return raw.strip().lower() not in {"0", "false", "no", "off"}
@@ -575,6 +623,167 @@ async def _dequeue_by_route_gate_policy(
             "[Worker] Route gate policy selected task %s reason=%s queue=%s",
             task_id,
             selection.get("reason"),
+            queue_store.pack_id,
+        )
+        return moved, queue_store, False
+    return None, None, False
+
+
+async def _dequeue_by_browser_fair_candidate_policy(
+    queue_cycle: list[RedisRunnerQueueStore],
+    *,
+    tasks_store: TasksStore,
+    runner_profile,
+    visibility_timeout_sec: int,
+    scan_limit: int,
+) -> tuple[Optional[str], Optional[RedisRunnerQueueStore], bool]:
+    if (
+        not queue_cycle
+        or scan_limit <= 0
+        or not is_browser_resource_profile(runner_profile)
+    ):
+        return None, None, False
+
+    try:
+        from backend.app.services.host_resources import route_gate
+
+        active_reservations = route_gate.get_active_route_reservations()
+    except Exception:
+        active_reservations = []
+
+    candidates: list[dict] = []
+    seen: set[str] = set()
+    for queue_store in queue_cycle:
+        client = await queue_store._get_client()
+        if not client:
+            continue
+        try:
+            candidate_ids = await client.lrange(
+                queue_store.q_pending,
+                0,
+                max(0, scan_limit - 1),
+            )
+        except Exception as e:
+            logger.warning(
+                "[Worker] Failed to scan ready queue %s for browser fairness: %s",
+                queue_store.pack_id,
+                e,
+            )
+            continue
+
+        task_ids: list[str] = []
+        positions: dict[str, int] = {}
+        for position, raw_task_id in enumerate(candidate_ids):
+            task_id = _normalize_task_id(raw_task_id).strip()
+            if not task_id or task_id in seen:
+                continue
+            seen.add(task_id)
+            task_ids.append(task_id)
+            positions[task_id] = position
+        if not task_ids:
+            continue
+
+        route_projections = await read_route_identity_projections(client, task_ids)
+        db_projections = await asyncio.to_thread(
+            tasks_store.list_runner_candidate_projections_by_ids,
+            task_ids,
+            queue_store.pack_id,
+        )
+        projections_by_id = {
+            str(
+                projection.get("task_id") or projection.get("id") or ""
+            ).strip(): projection
+            for projection in db_projections
+            if str(projection.get("task_id") or projection.get("id") or "").strip()
+        }
+        for task_id in task_ids:
+            projection = projections_by_id.get(task_id)
+            if not projection:
+                continue
+            route_projection = route_projections.get(task_id) or {}
+            route_identity = (
+                route_projection.get("route_identity")
+                if isinstance(route_projection, dict)
+                else None
+            )
+            candidate = {
+                **projection,
+                "queue": queue_store.pack_id,
+                "queue_position": positions.get(task_id, 0),
+                "queue_store": queue_store,
+                "route_identity": (
+                    route_identity if isinstance(route_identity, dict) else {}
+                ),
+            }
+            if not runner_profile_can_claim_task(runner_profile, candidate):
+                continue
+            candidates.append(candidate)
+
+    if not candidates:
+        return None, None, False
+
+    route_selection = route_gate.select_candidate_policy(
+        candidates,
+        active_reservations=active_reservations,
+        reserved_share_pack_ids=[],
+        active_pack_ids=set(),
+    )
+    if route_selection.get("drain_wait"):
+        return None, None, True
+
+    selected = route_selection.get("selected")
+    reason = str(route_selection.get("reason") or "")
+    if reason == "route_reservation" and isinstance(selected, dict):
+        task_id = str(selected.get("task_id") or selected.get("id") or "").strip()
+        queue_store = selected.get("queue_store")
+        if task_id and hasattr(queue_store, "promote_pending_task_by_id"):
+            moved = await queue_store.promote_pending_task_by_id(
+                task_id,
+                visibility_timeout_sec=visibility_timeout_sec,
+            )
+            if moved:
+                logger.info(
+                    "[Worker] Browser route policy selected task %s queue=%s",
+                    task_id,
+                    queue_store.pack_id,
+                )
+                return moved, queue_store, False
+        return None, None, False
+
+    queue_shard = queue_cycle[0].pack_id
+    running_counts = await asyncio.to_thread(
+        tasks_store.count_running_browser_lanes,
+        queue_shard,
+    )
+    fair_decision = select_browser_fair_candidate(candidates, running_counts)
+    if not fair_decision.selected_task_id:
+        return None, None, False
+
+    selected_candidate = next(
+        (
+            candidate
+            for candidate in candidates
+            if str(candidate.get("task_id") or candidate.get("id") or "").strip()
+            == fair_decision.selected_task_id
+        ),
+        None,
+    )
+    if not selected_candidate:
+        return None, None, False
+    queue_store = selected_candidate.get("queue_store")
+    if not hasattr(queue_store, "promote_pending_task_by_id"):
+        return None, None, False
+
+    moved = await queue_store.promote_pending_task_by_id(
+        fair_decision.selected_task_id,
+        visibility_timeout_sec=visibility_timeout_sec,
+    )
+    if moved:
+        logger.info(
+            "[Worker] Browser fair policy selected task %s lane=%s running_count=%s queue=%s",
+            fair_decision.selected_task_id,
+            fair_decision.selected_lane,
+            fair_decision.running_count,
             queue_store.pack_id,
         )
         return moved, queue_store, False
@@ -1116,22 +1325,32 @@ async def run_forever() -> None:
                 await asyncio.sleep(poll_interval_ms / 1000)
                 continue
 
-        active_pack_ids = {
-            str(getattr(task, "_mindscape_pack_id", "") or "")
-            for task in inflight
-            if str(getattr(task, "_mindscape_pack_id", "") or "").strip()
-        }
-
         task_id = None
         task_queue = None
         route_drain_wait = False
-        task_id, task_queue, route_drain_wait = await _dequeue_by_route_gate_policy(
-            queue_cycle,
-            runner_profile=runner_profile,
-            visibility_timeout_sec=visibility_timeout_sec,
-            scan_limit=playbook_fair_scan_limit,
-            active_pack_ids=active_pack_ids,
-        )
+        if is_browser_runner:
+            task_id, task_queue, route_drain_wait = (
+                await _dequeue_by_browser_fair_candidate_policy(
+                    queue_cycle,
+                    tasks_store=tasks_store,
+                    runner_profile=runner_profile,
+                    visibility_timeout_sec=visibility_timeout_sec,
+                    scan_limit=playbook_fair_scan_limit,
+                )
+            )
+        else:
+            active_pack_ids = {
+                str(getattr(task, "_mindscape_pack_id", "") or "")
+                for task in inflight
+                if str(getattr(task, "_mindscape_pack_id", "") or "").strip()
+            }
+            task_id, task_queue, route_drain_wait = await _dequeue_by_route_gate_policy(
+                queue_cycle,
+                runner_profile=runner_profile,
+                visibility_timeout_sec=visibility_timeout_sec,
+                scan_limit=playbook_fair_scan_limit,
+                active_pack_ids=active_pack_ids,
+            )
         if route_drain_wait:
             route_drain_gate = _route_drain_after_current_status()
             now_loop = asyncio.get_event_loop().time()
@@ -1178,6 +1397,9 @@ async def run_forever() -> None:
                     f"[Worker] Task {task_id} popped but no longer PENDING (status: {t_data.status.value}). Dropping duplicate queue item."
                 )
                 await task_queue.ack_task(task_id)
+                continue
+
+            if await _repair_misqueued_task_if_needed(task_id, t_data, task_queue):
                 continue
 
             if not runner_profile_can_claim_task(runner_profile, t_data):

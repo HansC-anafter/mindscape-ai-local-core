@@ -1,4 +1,5 @@
 import pytest
+from types import SimpleNamespace
 
 from backend.app.services import mindscape_store
 from backend.app.services.runner_resources import InMemoryTtlSnapshotStore
@@ -11,6 +12,9 @@ class _FakeMindscapeStoreForImport:
 mindscape_store.MindscapeStore = _FakeMindscapeStoreForImport
 
 from backend.app.routes.core.workspace import tasks as tasks_route
+from backend.app.routes.core.workspace.tasks_core import (
+    progress_snapshot as progress_snapshot_core,
+)
 
 
 async def _inline_ui_read(func, *args, **kwargs):
@@ -78,3 +82,86 @@ async def test_progress_snapshot_hot_cache_expires(monkeypatch):
     assert first["progress"] == {"step": 1}
     assert second["progress"] == {"step": 2}
     assert calls["count"] == 2
+
+
+def test_progress_snapshot_payload_overlays_live_task_heartbeat(monkeypatch):
+    class _FakeResult:
+        def fetchall(self):
+            return []
+
+    class _FakeConnection:
+        def execute(self, query, params):
+            return _FakeResult()
+
+    class _FakeConnectionContext:
+        def __enter__(self):
+            return _FakeConnection()
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    task = SimpleNamespace(
+        id="task-1",
+        workspace_id="ws-1",
+        execution_id="exec-1",
+        status="running",
+        execution_context={
+            "heartbeat_at": "2026-05-29T09:09:56.822251+00:00",
+            "runner_id": "runner-db",
+            "inputs": {},
+        },
+        heartbeat_at="2026-05-29T09:09:56.822251+00:00",
+        runner_id="runner-db",
+        queue_shard="browser_local",
+        blocked_reason=None,
+        blocked_payload=None,
+        frontier_state=None,
+        next_eligible_at=None,
+    )
+
+    class _FakeTasksStore:
+        def get_task_by_execution_id(self, execution_id):
+            assert execution_id == "exec-1"
+            return task
+
+        def get_task(self, task_id):
+            return None
+
+        def get_connection(self):
+            return _FakeConnectionContext()
+
+    class _FakeQueueCache:
+        def refresh_if_stale(self, tasks_store):
+            return None
+
+        def get_position(self, tasks_store, task_obj):
+            return None
+
+        def get_total(self, queue_shard):
+            return 1
+
+    class _FakeRunnerLiveStateStore:
+        def get_task_heartbeat(self, task_id):
+            assert task_id == "task-1"
+            return {
+                "heartbeat_at": "2026-05-29T10:18:41.490662+00:00",
+                "runner_id": "runner-live",
+            }
+
+    monkeypatch.setattr(progress_snapshot_core, "TasksStore", _FakeTasksStore)
+    monkeypatch.setattr(
+        progress_snapshot_core,
+        "RunnerLiveStateStore",
+        _FakeRunnerLiveStateStore,
+    )
+    monkeypatch.setattr(progress_snapshot_core, "_QUEUE_CACHE", _FakeQueueCache())
+
+    payload = progress_snapshot_core.load_execution_progress_snapshot_payload(
+        "ws-1",
+        "exec-1",
+    )
+
+    assert payload["execution_context"]["heartbeat_at"] == (
+        "2026-05-29T10:18:41.490662+00:00"
+    )
+    assert payload["execution_context"]["runner_id"] == "runner-live"

@@ -6,10 +6,68 @@ from backend.app.models.workspace import TaskStatus
 from backend.app.services.json_safety import json_value_without_nul
 from backend.app.services.mindscape_store import MindscapeStore
 from backend.app.services.queue_position_cache import QUEUE_CACHE as _QUEUE_CACHE
+from backend.app.services.runner_live_state import RunnerLiveStateStore
 from backend.app.services.stores.tasks_store import TasksStore
 from .streaming import _build_admission_state, _extract_artifact_progress_from_content
 
 store = MindscapeStore()
+
+
+def _is_running_status(status: Any) -> bool:
+    value = getattr(status, "value", status)
+    return str(value or "").strip().lower() == TaskStatus.RUNNING.value
+
+
+def _isoformat_or_none(value: Any) -> str | None:
+    if not value:
+        return None
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    text = str(value).strip()
+    return text or None
+
+
+def _resolve_runner_live_context(task: Any, ctx: Dict[str, Any]) -> Dict[str, Any]:
+    live_payload = None
+    if _is_running_status(getattr(task, "status", None)):
+        try:
+            live_payload = RunnerLiveStateStore().get_task_heartbeat(str(task.id))
+        except Exception:
+            live_payload = None
+
+    live_heartbeat_at = (
+        live_payload.get("heartbeat_at")
+        if isinstance(live_payload, dict)
+        else None
+    )
+    live_runner_id = (
+        live_payload.get("runner_id")
+        if isinstance(live_payload, dict)
+        else None
+    )
+
+    heartbeat_at = (
+        _isoformat_or_none(live_heartbeat_at)
+        or _isoformat_or_none(getattr(task, "heartbeat_at", None))
+        or (
+            _isoformat_or_none(ctx.get("heartbeat_at"))
+            if _is_running_status(getattr(task, "status", None))
+            else None
+        )
+    )
+    runner_id = (
+        live_runner_id
+        or getattr(task, "runner_id", None)
+        or (
+            ctx.get("runner_id")
+            if _is_running_status(getattr(task, "status", None))
+            else None
+        )
+    )
+    return {
+        "heartbeat_at": heartbeat_at,
+        "runner_id": runner_id,
+    }
 
 
 def load_execution_progress_snapshot_payload(
@@ -88,6 +146,7 @@ def load_execution_progress_snapshot_payload(
 
     ctx = task.execution_context if isinstance(task.execution_context, dict) else {}
     _QUEUE_CACHE.refresh_if_stale(tasks_store)
+    runner_live_context = _resolve_runner_live_context(task, ctx)
 
     return {
         "workspace_id": workspace_id,
@@ -108,17 +167,8 @@ def load_execution_progress_snapshot_payload(
         "artifact_metadata": artifact_metadata,
         "content_metadata": content_metadata,
         "execution_context": {
-            "heartbeat_at": (
-                task.heartbeat_at.isoformat()
-                if getattr(task, "heartbeat_at", None)
-                else (
-                    ctx.get("heartbeat_at")
-                    if task.status == TaskStatus.RUNNING
-                    else None
-                )
-            ),
-            "runner_id": getattr(task, "runner_id", None)
-            or (ctx.get("runner_id") if task.status == TaskStatus.RUNNING else None),
+            "heartbeat_at": runner_live_context["heartbeat_at"],
+            "runner_id": runner_live_context["runner_id"],
             "execution_backend_hint": ctx.get("execution_backend_hint"),
             "inputs": ctx.get("inputs") if isinstance(ctx.get("inputs"), dict) else {},
             "dependency_hold": ctx.get("dependency_hold"),

@@ -1,9 +1,11 @@
 import asyncio
+from pathlib import Path
 
 from backend.app.models.workspace import Task, TaskStatus, _utc_now
 from backend.app.runner import worker
 from backend.app.runner.worker import (
     _build_parked_task_update,
+    _dequeue_by_browser_fair_candidate_policy,
     _dequeue_by_route_gate_policy,
 )
 from backend.app.runner.database_backoff import (
@@ -49,6 +51,27 @@ class _FakeFairQueue:
         return task_id
 
 
+class _FakeCandidateTasksStore:
+    def __init__(self, projections, running_counts):
+        self.projections = projections
+        self.running_counts = running_counts
+        self.requested_ids: list[str] = []
+        self.requested_queue_shard = None
+
+    def list_runner_candidate_projections_by_ids(self, task_ids, queue_shard):
+        self.requested_ids = list(task_ids)
+        self.requested_queue_shard = queue_shard
+        return [
+            self.projections[task_id]
+            for task_id in task_ids
+            if task_id in self.projections
+        ]
+
+    def count_running_browser_lanes(self, queue_shard):
+        self.requested_queue_shard = queue_shard
+        return dict(self.running_counts)
+
+
 def _pending_browser_task(task_id: str, pack_id: str) -> Task:
     now = _utc_now()
     return Task(
@@ -83,6 +106,23 @@ def _projection(task_id: str, pack_id: str, *, lane_id: str = "runner:default_lo
     }
 
 
+def _candidate_projection(task_id: str, pack_id: str):
+    return {
+        "task_id": task_id,
+        "id": task_id,
+        "pack_id": pack_id,
+        "playbook_code": pack_id,
+        "task_type": "playbook_execution",
+        "status": "pending",
+        "frontier_state": "ready",
+        "queue_shard": "browser_local",
+        "execution_context": {
+            "playbook_code": pack_id,
+            "queue_shard": "browser_local",
+        },
+    }
+
+
 def _browser_profile() -> RunnerProfile:
     return RunnerProfile(
         profile_code="browser_local",
@@ -90,6 +130,17 @@ def _browser_profile() -> RunnerProfile:
         dispatch_mode="docker_local",
         accepted_resource_classes=("browser",),
         accepted_queue_partitions=("browser_local",),
+        max_inflight=2,
+    )
+
+
+def _default_profile() -> RunnerProfile:
+    return RunnerProfile(
+        profile_code="default_local",
+        display_name="Default",
+        dispatch_mode="docker_local",
+        accepted_resource_classes=("compute",),
+        accepted_queue_partitions=("default_local",),
         max_inflight=2,
     )
 
@@ -184,6 +235,118 @@ def test_route_gate_policy_waits_for_drain_after_current(monkeypatch):
     assert queue_store is None
     assert drain_wait is True
     assert queue.promoted == []
+
+
+def test_worker_browser_fairness_uses_db_running_counts_before_fifo(monkeypatch):
+    monkeypatch.setattr(route_gate, "get_active_route_reservations", lambda: [])
+    queue = _FakeFairQueue(["task-following", "task-batch", "task-pin"])
+    tasks_store = _FakeCandidateTasksStore(
+        {
+            "task-following": _candidate_projection(
+                "task-following",
+                "ig_analyze_following",
+            ),
+            "task-batch": _candidate_projection(
+                "task-batch",
+                "ig_batch_pin_references",
+            ),
+            "task-pin": _candidate_projection(
+                "task-pin",
+                "ig_pin_post_detail",
+            ),
+        },
+        {
+            "ig_analyze_following": 3,
+            "ig_batch_pin_references": 0,
+            "ig_pin_post_detail": 0,
+        },
+    )
+
+    task_id, queue_store, drain_wait = asyncio.run(
+        _dequeue_by_browser_fair_candidate_policy(
+            [queue],
+            tasks_store=tasks_store,
+            runner_profile=_browser_profile(),
+            visibility_timeout_sec=180,
+            scan_limit=10,
+        )
+    )
+
+    assert task_id == "task-batch"
+    assert queue_store is queue
+    assert drain_wait is False
+    assert queue.promoted == ["task-batch"]
+    assert tasks_store.requested_ids == ["task-following", "task-batch", "task-pin"]
+
+
+def test_worker_browser_fairness_uses_db_projection_when_route_projection_missing(
+    monkeypatch,
+):
+    monkeypatch.setattr(route_gate, "get_active_route_reservations", lambda: [])
+    queue = _FakeFairQueue(["task-following", "task-batch"])
+    tasks_store = _FakeCandidateTasksStore(
+        {
+            "task-following": _candidate_projection(
+                "task-following",
+                "ig_analyze_following",
+            ),
+            "task-batch": _candidate_projection(
+                "task-batch",
+                "ig_batch_pin_references",
+            ),
+        },
+        {
+            "ig_analyze_following": 1,
+            "ig_batch_pin_references": 0,
+        },
+    )
+
+    task_id, queue_store, drain_wait = asyncio.run(
+        _dequeue_by_browser_fair_candidate_policy(
+            [queue],
+            tasks_store=tasks_store,
+            runner_profile=_browser_profile(),
+            visibility_timeout_sec=180,
+            scan_limit=10,
+        )
+    )
+
+    assert task_id == "task-batch"
+    assert queue_store is queue
+    assert drain_wait is False
+    assert queue.promoted == ["task-batch"]
+
+
+def test_worker_non_browser_keeps_existing_fifo_path(monkeypatch):
+    monkeypatch.setattr(route_gate, "get_active_route_reservations", lambda: [])
+    queue = _FakeFairQueue(["task-default"])
+    tasks_store = _FakeCandidateTasksStore(
+        {"task-default": _candidate_projection("task-default", "ig_batch_pin_references")},
+        {"ig_batch_pin_references": 0},
+    )
+
+    task_id, queue_store, drain_wait = asyncio.run(
+        _dequeue_by_browser_fair_candidate_policy(
+            [queue],
+            tasks_store=tasks_store,
+            runner_profile=_default_profile(),
+            visibility_timeout_sec=180,
+            scan_limit=10,
+        )
+    )
+
+    assert task_id is None
+    assert queue_store is None
+    assert drain_wait is False
+    assert queue.promoted == []
+
+
+def test_runner_browser_compose_has_no_reserved_analyze_following_slot():
+    compose_path = Path(__file__).resolve().parents[3] / "docker-compose.yml"
+    compose_text = compose_path.read_text(encoding="utf-8")
+
+    assert "LOCAL_CORE_RUNNER_RESERVED_PACK_SLOTS" not in compose_text
+    assert "ig_analyze_following=1" not in compose_text
 
 
 def test_database_recovery_error_detection_and_backoff():

@@ -44,6 +44,18 @@ def _ensure_sys_path():
         sys.path.insert(0, backend_dir)
 
 
+def _process_uses_uvicorn_reload() -> bool:
+    """Return true when the current server process is running with uvicorn reload."""
+    for proc_cmdline in ("/proc/1/cmdline", "/proc/self/cmdline"):
+        try:
+            raw = Path(proc_cmdline).read_bytes()
+            if b"--reload" in raw:
+                return True
+        except Exception:
+            continue
+    return False
+
+
 def _resolve_runtime_temp_dir() -> Path:
     """Pick a writable temp dir even when system temp paths are unavailable."""
     global _configured_temp_dir
@@ -51,10 +63,12 @@ def _resolve_runtime_temp_dir() -> Path:
         return _configured_temp_dir
 
     local_core_root = _resolve_local_core_root()
+    configured_install_tmp = os.getenv("MINDSCAPE_CAPABILITY_INSTALL_TMPDIR")
+    configured_runtime_tmp = os.getenv("MINDSCAPE_RUNTIME_TMPDIR")
     candidates = [
-        Path(os.getenv("MINDSCAPE_RUNTIME_TMPDIR", "")).expanduser()
-        if os.getenv("MINDSCAPE_RUNTIME_TMPDIR")
-        else None,
+        Path(configured_install_tmp).expanduser() if configured_install_tmp else None,
+        Path(tempfile.gettempdir()) / "mindscape-capability-install",
+        Path(configured_runtime_tmp).expanduser() if configured_runtime_tmp else None,
         local_core_root / "backend" / ".tmp",
         Path("/app/backend/.tmp"),
         Path("/app/.tmp"),
@@ -65,10 +79,21 @@ def _resolve_runtime_temp_dir() -> Path:
             continue
         try:
             candidate.mkdir(parents=True, exist_ok=True)
+            resolved = candidate.resolve()
+            if _process_uses_uvicorn_reload() and (
+                resolved == local_core_root
+                or resolved.is_relative_to(local_core_root)
+                or resolved == Path("/app")
+                or resolved.is_relative_to(Path("/app"))
+            ):
+                logger.warning(
+                    "Skipping capability install temp dir inside reload-watched tree: %s",
+                    resolved,
+                )
+                continue
             probe_path = candidate / ".tmp_write_probe"
             probe_path.write_text("ok", encoding="utf-8")
             probe_path.unlink()
-            resolved = candidate.resolve()
             tempfile.tempdir = str(resolved)
             os.environ["TMPDIR"] = str(resolved)
             os.environ["TEMP"] = str(resolved)
@@ -98,14 +123,7 @@ def _supports_file_touch_reload() -> bool:
 
     We only auto-report restart_triggered=true when uvicorn is running with --reload.
     """
-    for proc_cmdline in ("/proc/1/cmdline", "/proc/self/cmdline"):
-        try:
-            raw = Path(proc_cmdline).read_bytes()
-            if b"--reload" in raw:
-                return True
-        except Exception:
-            continue
-    return False
+    return _process_uses_uvicorn_reload()
 
 
 def _inspect_auto_reload_blockers() -> Dict[str, Any]:

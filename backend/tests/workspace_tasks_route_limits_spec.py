@@ -32,14 +32,22 @@ class _FakeTasksProjectionStore:
         )
         return [{"id": f"projected-{index}"} for index in range(limit)]
 
-    def list_workspace_executions(
+
+class _FakeWorkspaceExecutionActivityStore:
+    calls = []
+
+    def list_executions(
         self,
         workspace_id,
-        limit,
         *,
+        limit=30,
+        offset=0,
+        statuses=None,
         playbook_code=None,
         playbook_code_prefix=None,
         parent_execution_id=None,
+        exclude_playbook_code=None,
+        active_only=False,
         order_by="created_at",
         order="desc",
     ):
@@ -47,14 +55,18 @@ class _FakeTasksProjectionStore:
             {
                 "workspace_id": workspace_id,
                 "limit": limit,
+                "offset": offset,
+                "statuses": statuses,
                 "playbook_code": playbook_code,
                 "playbook_code_prefix": playbook_code_prefix,
                 "parent_execution_id": parent_execution_id,
+                "exclude_playbook_code": exclude_playbook_code,
+                "active_only": active_only,
                 "order_by": order_by,
                 "order": order,
             }
         )
-        return [
+        executions = [
             {
                 "id": f"execution-{index}",
                 "execution_id": f"execution-{index}",
@@ -63,6 +75,14 @@ class _FakeTasksProjectionStore:
             }
             for index in range(limit)
         ]
+        return {
+            "executions": executions,
+            "limit": limit,
+            "offset": offset,
+            "returned": len(executions),
+            "has_more": False,
+            "next_offset": None,
+        }
 
 
 async def _inline_ui_read(func, *args, **kwargs):
@@ -72,7 +92,13 @@ async def _inline_ui_read(func, *args, **kwargs):
 @pytest.fixture(autouse=True)
 def _patch_tasks_store(monkeypatch):
     _FakeTasksProjectionStore.calls = []
+    _FakeWorkspaceExecutionActivityStore.calls = []
     monkeypatch.setattr(tasks_route, "TasksProjectionStore", _FakeTasksProjectionStore)
+    monkeypatch.setattr(
+        tasks_route,
+        "WorkspaceExecutionActivityStore",
+        _FakeWorkspaceExecutionActivityStore,
+    )
     monkeypatch.setattr(tasks_route, "run_ui_read", _inline_ui_read)
 
 
@@ -121,9 +147,13 @@ async def test_workspace_executions_uses_projection_store_with_filters():
     payload = await tasks_route.get_workspace_executions(
         "workspace-1",
         limit=3,
+        offset=0,
+        status=None,
         playbook_code=None,
         playbook_code_prefix="pack",
         parent_execution_id="parent-1",
+        exclude_playbook_code=None,
+        active_only=False,
         order_by="created_at",
         order="desc",
         include_execution_context=True,
@@ -131,13 +161,17 @@ async def test_workspace_executions_uses_projection_store_with_filters():
     )
 
     assert len(payload["executions"]) == 3
-    assert _FakeTasksProjectionStore.calls == [
+    assert _FakeWorkspaceExecutionActivityStore.calls == [
         {
             "workspace_id": "workspace-1",
             "limit": 3,
+            "offset": 0,
+            "statuses": None,
             "playbook_code": None,
             "playbook_code_prefix": "pack",
             "parent_execution_id": "parent-1",
+            "exclude_playbook_code": None,
+            "active_only": False,
             "order_by": "created_at",
             "order": "desc",
         }

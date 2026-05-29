@@ -30,11 +30,22 @@ def test_workspace_executions_route_uses_projection_store_only():
         maxsplit=1,
     )[1].split("def _load_execution_progress_snapshot_payload", maxsplit=1)[0]
 
-    assert "TasksProjectionStore()" in route_source
-    assert "list_workspace_executions" in route_source
+    assert "WorkspaceExecutionActivityStore()" in route_source
+    assert "list_executions" in route_source
     assert "FROM tasks" not in route_source
     assert "TasksStore()" not in route_source
     assert "list_executions_by_workspace" not in route_source
+
+    feature_route_source = (
+        _backend_root() / "features/workspace/executions.py"
+    ).read_text(encoding="utf-8")
+    feature_list_source = feature_route_source.split(
+        "async def list_executions",
+        maxsplit=1,
+    )[1].split("@router.get", maxsplit=1)[0]
+    assert "WorkspaceExecutionActivityStore()" in feature_list_source
+    assert "list_executions_payload(" not in feature_list_source
+    assert "TasksStore(" not in feature_list_source
 
 
 def test_projection_store_reads_projection_table_not_task_payload_columns():
@@ -52,6 +63,19 @@ def test_projection_store_reads_projection_table_not_task_payload_columns():
     assert "next_eligible_at" in store_source
     assert "blocked_reason" in store_source
     assert "frontier_state" in store_source
+
+
+def test_workspace_execution_activity_service_uses_projection_only():
+    service_source = (
+        _backend_root()
+        / "app/services/workspace_execution_activity.py"
+    ).read_text(encoding="utf-8")
+
+    assert "FROM task_summary_projection" in service_source
+    assert "FROM tasks" not in service_source
+    assert "status IN :statuses" in service_source
+    assert "parent_execution_id = :parent_execution_id" in service_source
+    assert "CASE LOWER(status)" in service_source
 
 
 def test_projection_read_indexes_are_nonblocking_and_reversible():
@@ -93,3 +117,37 @@ def test_projection_execution_route_indexes_are_nonblocking_and_reversible():
     assert "DROP INDEX CONCURRENTLY IF EXISTS" in migration_source
     assert "idx_task_summary_projection_parent_created" in migration_source
     assert "idx_task_summary_projection_pack_created" in migration_source
+
+
+def test_active_execution_projection_index_is_nonblocking_and_ready_scoped():
+    migration_source = (
+        _backend_root()
+        / "alembic_migrations/postgres/versions/"
+        "20260529124000_add_task_summary_projection_active_execution_index.py"
+    ).read_text(encoding="utf-8")
+    service_source = (
+        _backend_root() / "app/services/workspace_execution_activity.py"
+    ).read_text(encoding="utf-8")
+
+    assert "CREATE INDEX CONCURRENTLY IF NOT EXISTS" in migration_source
+    assert "DROP INDEX CONCURRENTLY IF EXISTS" in migration_source
+    assert "idx_task_summary_projection_active_status_pack_updated" in migration_source
+    assert "frontier_state IN ('ready', 'running')" in migration_source
+    assert "frontier_state IN ('ready', 'running')" in service_source
+
+
+def test_projection_compact_inputs_are_schema_managed():
+    migration_source = (
+        _backend_root()
+        / "alembic_migrations/postgres/versions/"
+        "20260529123000_add_task_summary_projection_compact_inputs.py"
+    ).read_text(encoding="utf-8")
+    projection_builder_source = (
+        _backend_root()
+        / "app/services/task_projection_builder.py"
+    ).read_text(encoding="utf-8")
+
+    assert "compact_inputs" in migration_source
+    assert "task_summary_projection" in migration_source
+    assert "compact_inputs" in projection_builder_source
+    assert "tasks.params::jsonb" in projection_builder_source

@@ -294,6 +294,150 @@ class TasksStoreQueryMixin:
 
         return selected
 
+    def list_runner_candidate_projections_by_ids(
+        self,
+        task_ids: list[str],
+        queue_shard: str,
+    ) -> list[dict[str, Any]]:
+        ordered_ids: list[str] = []
+        seen: set[str] = set()
+        for raw_task_id in task_ids:
+            task_id = str(raw_task_id or "").strip()
+            if not task_id or task_id in seen:
+                continue
+            seen.add(task_id)
+            ordered_ids.append(task_id)
+        if not ordered_ids:
+            return []
+
+        queue_clause, queue_params = build_queue_partition_filter_clause(
+            "queue_shard",
+            queue_shard,
+            param_prefix="candidate_queue",
+        )
+        if not queue_clause:
+            return []
+
+        id_params = {
+            f"candidate_task_id_{index}": task_id
+            for index, task_id in enumerate(ordered_ids)
+        }
+        id_placeholders = ", ".join(f":{key}" for key in id_params)
+        query = text(
+            f"""
+            SELECT
+                id::text AS id,
+                pack_id,
+                task_type,
+                status,
+                frontier_state,
+                queue_shard,
+                execution_context,
+                created_at,
+                frontier_enqueued_at
+            FROM tasks
+            WHERE id::text IN ({id_placeholders})
+              AND {queue_clause}
+              AND status = :pending_status
+              AND frontier_state = :ready_frontier_state
+            """
+        )
+        params: dict[str, Any] = {
+            **id_params,
+            **queue_params,
+            "pending_status": TaskStatus.PENDING.value,
+            "ready_frontier_state": "ready",
+        }
+
+        with self.get_connection() as conn:
+            rows = conn.execute(query, params).fetchall()
+
+        projections_by_id: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            execution_context = self.deserialize_json(
+                getattr(row, "execution_context", None),
+                {},
+            )
+            if not isinstance(execution_context, dict):
+                execution_context = {}
+            task_id = str(getattr(row, "id", "") or "").strip()
+            playbook_code = (
+                str(
+                    execution_context.get("playbook_code")
+                    or getattr(row, "pack_id", "")
+                    or ""
+                )
+                .strip()
+                or None
+            )
+            projections_by_id[task_id] = {
+                "task_id": task_id,
+                "id": task_id,
+                "pack_id": getattr(row, "pack_id", None),
+                "playbook_code": playbook_code,
+                "task_type": getattr(row, "task_type", None),
+                "status": getattr(row, "status", None),
+                "frontier_state": getattr(row, "frontier_state", None),
+                "queue_shard": getattr(row, "queue_shard", None),
+                "execution_context": execution_context,
+                "created_at": getattr(row, "created_at", None),
+                "frontier_enqueued_at": getattr(row, "frontier_enqueued_at", None),
+            }
+
+        return [
+            projections_by_id[task_id]
+            for task_id in ordered_ids
+            if task_id in projections_by_id
+        ]
+
+    def count_running_browser_lanes(self, queue_shard: str) -> dict[str, int]:
+        from backend.app.runner.browser_fair_candidate_scheduler import (
+            normalize_browser_lane_key,
+        )
+
+        queue_clause, queue_params = build_queue_partition_filter_clause(
+            "queue_shard",
+            queue_shard,
+            param_prefix="running_queue",
+        )
+        if not queue_clause:
+            return {}
+
+        query = text(
+            f"""
+            SELECT
+                pack_id,
+                execution_context->>'playbook_code' AS playbook_code,
+                COUNT(*) AS running_count
+            FROM tasks
+            WHERE task_type IN (:task_type_pb, :task_type_tool)
+              AND status = :running_status
+              AND {queue_clause}
+            GROUP BY pack_id, execution_context->>'playbook_code'
+            """
+        )
+        params: dict[str, Any] = {
+            **queue_params,
+            "task_type_pb": "playbook_execution",
+            "task_type_tool": "tool_execution",
+            "running_status": TaskStatus.RUNNING.value,
+        }
+
+        counts: dict[str, int] = {}
+        with self.get_connection() as conn:
+            rows = conn.execute(query, params).fetchall()
+        for row in rows:
+            lane_key = normalize_browser_lane_key(
+                getattr(row, "pack_id", None),
+                getattr(row, "playbook_code", None),
+            )
+            if not lane_key:
+                continue
+            counts[lane_key] = counts.get(lane_key, 0) + int(
+                getattr(row, "running_count", 0) or 0
+            )
+        return counts
+
     def _row_to_blocked_release_candidate(self, row, *, blocked_reason: str) -> Task:
         execution_context = None
         try:

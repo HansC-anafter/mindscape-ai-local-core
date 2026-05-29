@@ -146,3 +146,55 @@ def test_execution_status_payload_falls_back_when_hot_cache_errors(monkeypatch):
     assert payload["task_status"] == "succeeded"
     assert payload["execution_context"] == {"status": "succeeded"}
     assert store.execute_count == 1
+
+
+def test_execution_status_payload_overlays_live_task_heartbeat_before_cache(monkeypatch):
+    cache = _FakeCache()
+    monkeypatch.setattr(
+        execution_query_helpers,
+        "_STATUS_SNAPSHOT_STORE",
+        SyncRedisTtlSnapshotStore(cache),
+    )
+
+    live_calls = {"count": 0}
+
+    class _FakeRunnerLiveStateStore:
+        def get_task_heartbeat(self, task_id):
+            live_calls["count"] += 1
+            assert task_id == "task-1"
+            return {
+                "heartbeat_at": "2026-05-29T10:18:56.981294+00:00",
+                "runner_id": "runner-live",
+            }
+
+    monkeypatch.setattr(
+        execution_query_helpers,
+        "RunnerLiveStateStore",
+        _FakeRunnerLiveStateStore,
+    )
+
+    row = SimpleNamespace(
+        id="task-1",
+        execution_id="exec-1",
+        status="running",
+        execution_context={
+            "status": "running",
+            "runner_id": "runner-db",
+            "heartbeat_at": "2026-05-29T09:09:56.822251+00:00",
+        },
+    )
+    store = _FakeTasksStore(row)
+
+    first = execution_query_helpers.load_execution_status_payload(store, "exec-1")
+    second = execution_query_helpers.load_execution_status_payload(store, "exec-1")
+
+    assert first == second
+    assert store.execute_count == 1
+    assert live_calls["count"] == 1
+    assert first["execution_context"]["heartbeat_at"] == (
+        "2026-05-29T10:18:56.981294+00:00"
+    )
+    assert first["execution_context"]["runner_heartbeat_at"] == (
+        "2026-05-29T10:18:56.981294+00:00"
+    )
+    assert first["execution_context"]["runner_id"] == "runner-live"
