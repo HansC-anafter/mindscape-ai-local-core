@@ -28,11 +28,12 @@ async def run_post_install_followups(
     capability_code: str,
     manifest: Dict[str, Any],
     installed_manifest_path: Path,
+    installed_cap_dir: Path,
     pack_metadata: Dict[str, Any],
     validation_state: Optional[Dict[str, Any]],
     extra_metadata: Optional[Dict[str, Any]],
 ) -> None:
-    # Step 6.5 - re-index tool embeddings in background (non-fatal, non-blocking)
+    # Refresh tool embeddings in the background after the install copy is published.
     import asyncio as _asyncio
 
     try:
@@ -201,7 +202,6 @@ async def run_post_install_followups(
             save_install_manifest,
         )
 
-        installed_cap_dir = capabilities_dir / capability_code
         if installed_cap_dir.exists():
             hashes = await run_in_threadpool(
                 compute_dir_hashes,
@@ -215,4 +215,3 @@ async def run_post_install_followups(
             )
     except Exception as exc:
         logger.warning(f"Failed to record install hashes: {exc}")
-

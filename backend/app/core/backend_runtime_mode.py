@@ -41,6 +41,10 @@ def is_execution_plane() -> bool:
     return get_backend_runtime_role() in {"execution", "stable"}
 
 
+def is_control_plane() -> bool:
+    return get_backend_runtime_role() in {"control", "backend-control", "control-plane"}
+
+
 def should_enable_uvicorn_reload(
     *,
     environment: str | None = None,
@@ -55,6 +59,27 @@ def should_enable_uvicorn_reload(
     if env not in {"development", "dev"}:
         return False
     if is_execution_plane():
+        return False
+    return True
+
+
+def should_enable_capability_reload_watch(
+    *,
+    environment: str | None = None,
+) -> bool:
+    """Return whether uvicorn reload should watch installed capability files."""
+
+    explicit = _parse_bool(os.getenv("MINDSCAPE_CAPABILITY_RELOAD_WATCH"))
+    if explicit is not None:
+        return explicit
+
+    disable = _parse_bool(os.getenv("LOCAL_CORE_DISABLE_CAPABILITY_RELOAD_WATCH"))
+    if disable is True:
+        return False
+
+    if not should_enable_uvicorn_reload(environment=environment):
+        return False
+    if is_control_plane():
         return False
     return True
 

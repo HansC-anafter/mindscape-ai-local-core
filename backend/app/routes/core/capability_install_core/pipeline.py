@@ -215,26 +215,6 @@ async def run_install_pipeline(
             temp_dir,
         )
 
-        try:
-            from app.services.install_integrity import prune_stale_installed_files
-
-            pruned_files = await run_in_threadpool(
-                prune_stale_installed_files,
-                capabilities_dir / capability_code,
-                cap_dir,
-            )
-            if pruned_files:
-                result.add_warning(
-                    f"Pruned {len(pruned_files)} stale managed file(s) from {capability_code}."
-                )
-        except Exception as exc:
-            logger.warning(
-                "Failed to prune stale installed files for %s: %s",
-                capability_code,
-                exc,
-            )
-            result.add_warning(f"Failed to prune stale installed files: {exc}")
-
         # Migrations
         await run_in_threadpool(
             runtime_installer.execute_migrations,
@@ -460,6 +440,7 @@ async def run_install_pipeline(
             capability_code=capability_code,
             manifest=manifest,
             installed_manifest_path=installed_manifest_path,
+            installed_cap_dir=target_dir,
             pack_metadata=pack_metadata,
             validation_state=validation_state,
             extra_metadata=extra_metadata,
