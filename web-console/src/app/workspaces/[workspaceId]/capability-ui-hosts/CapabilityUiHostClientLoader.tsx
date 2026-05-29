@@ -21,11 +21,9 @@ interface CapabilityUiMetadata {
 }
 
 type CapabilityUiMetadataCacheEntry = {
-  expiresAt: number;
   promise: Promise<CapabilityUiMetadata>;
 };
 
-const CAPABILITY_UI_METADATA_TTL_MS = 10 * 60 * 1000;
 const CAPABILITY_UI_METADATA_TIMEOUT_MS = 5000;
 const metadataCache = new Map<string, CapabilityUiMetadataCacheEntry>();
 const CapabilityLoadedComponents = React.lazy(
@@ -91,19 +89,16 @@ function getCapabilityUiMetadata(
   apiUrl: string,
   capabilityCode: string,
 ): Promise<CapabilityUiMetadata> {
-  const key = `capability-ui-metadata:${capabilityCode}`;
-  const now = Date.now();
+  const key = `capability-ui-metadata:${apiUrl}:${capabilityCode}`;
   const cached = metadataCache.get(key);
-  if (cached && cached.expiresAt > now) {
+  if (cached) {
     return cached.promise;
   }
   const promise = loadCapabilityUiMetadata(apiUrl, capabilityCode)
-    .catch((error) => {
+    .finally(() => {
       metadataCache.delete(key);
-      throw error;
     });
   metadataCache.set(key, {
-    expiresAt: now + CAPABILITY_UI_METADATA_TTL_MS,
     promise,
   });
   return promise;

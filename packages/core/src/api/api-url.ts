@@ -1,5 +1,12 @@
 import { getServiceEndpointUrl } from './service-endpoints';
 
+function getRuntimeEnv(name: string): string | undefined {
+  const runtimeGlobal = globalThis as typeof globalThis & {
+    process?: { env?: Record<string, string | undefined> };
+  };
+  return runtimeGlobal.process?.env?.[name];
+}
+
 /**
  * Get initial API URL (synchronous version, for initialization)
  */
@@ -10,9 +17,9 @@ export function getApiBaseUrl(): string {
 
   return (
     getServiceEndpointUrl('local_core.control_api', 'server_internal') ||
-    process.env.WEB_CONSOLE_BACKEND_URL ||
-    process.env.BACKEND_URL ||
-    process.env.NEXT_PUBLIC_BACKEND_URL ||
+    getRuntimeEnv('WEB_CONSOLE_BACKEND_URL') ||
+    getRuntimeEnv('BACKEND_URL') ||
+    getRuntimeEnv('NEXT_PUBLIC_BACKEND_URL') ||
     ''
   );
 }

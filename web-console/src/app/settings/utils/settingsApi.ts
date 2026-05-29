@@ -1,9 +1,16 @@
 import { normalizeBrowserReachableUrl, shouldUseSameOriginProxyForBrowser } from '../../../lib/api-origin';
 import { getServiceEndpointUrl } from '../../../../../packages/core/src/api';
 
+function getRuntimeEnv(name: string): string | undefined {
+  const runtimeGlobal = globalThis as typeof globalThis & {
+    process?: { env?: Record<string, string | undefined> };
+  };
+  return runtimeGlobal.process?.env?.[name];
+}
+
 // Get initial API URL (avoids circular dependency)
 const getInitialApiUrl = (): string => {
-  const configuredUrl = process.env.NEXT_PUBLIC_API_URL;
+  const configuredUrl = getRuntimeEnv('NEXT_PUBLIC_API_URL');
 
   if (typeof window !== 'undefined') {
     if (shouldUseSameOriginProxyForBrowser(configuredUrl)) {
@@ -125,9 +132,9 @@ const getApiUrl = async (forceRefresh: boolean = false): Promise<string> => {
 
       // Method 3: Fall back to env vars
       if (!cluster && !environment && !site) {
-        cluster = process.env.NEXT_PUBLIC_CLUSTER;
-        environment = process.env.NEXT_PUBLIC_ENVIRONMENT;
-        site = process.env.NEXT_PUBLIC_SITE;
+        cluster = getRuntimeEnv('NEXT_PUBLIC_CLUSTER');
+        environment = getRuntimeEnv('NEXT_PUBLIC_ENVIRONMENT');
+        site = getRuntimeEnv('NEXT_PUBLIC_SITE');
       }
 
       // Normalize: treat "default" as unset (use global config)

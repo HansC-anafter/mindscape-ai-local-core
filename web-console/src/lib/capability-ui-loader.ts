@@ -10,6 +10,7 @@
 
 import { lazy, ComponentType } from 'react';
 import * as ReactRuntime from 'react';
+import * as ReactDOMRuntime from 'react-dom';
 import { convertImportPathToContextKey, normalizeCapabilityContextKey } from './capability-path';
 import { loadRegisteredCapabilityComponentsContext } from './capability-ui-context-registry';
 import type {
@@ -38,7 +39,10 @@ declare global {
   var __MINDSCAPE_CAPABILITY_UI_TEST_CONTEXT__: CapabilityComponentsContext | undefined;
   // Runtime ESM packs receive React from the host bundle through this bridge.
   // eslint-disable-next-line no-var
-  var MindscapeRuntimeReact: { React: typeof ReactRuntime } | undefined;
+  var MindscapeRuntimeReact: {
+    React: typeof ReactRuntime;
+    ReactDOM: Pick<typeof ReactDOMRuntime, 'flushSync' | 'createPortal'>;
+  } | undefined;
 }
 
 function normalizeCapabilityComponentKeys(
@@ -183,13 +187,23 @@ export function primeCapabilityUIComponentMetadata(
   }
   const existing = componentMetadataCache.get(capabilityCode) || [];
   const mergedByCode = new Map<string, UIComponentInfo>();
+  const previousByCode = new Map<string, UIComponentInfo>();
   for (const component of existing) {
     if (component?.code) {
       mergedByCode.set(component.code, component);
+      previousByCode.set(component.code, component);
     }
   }
   for (const component of components) {
     if (component?.code) {
+      const previous = previousByCode.get(component.code);
+      if (
+        previous
+        && buildLoadedComponentCacheKey(capabilityCode, component.code, previous)
+          !== buildLoadedComponentCacheKey(capabilityCode, component.code, component)
+      ) {
+        clearLoadedComponentCacheFor(capabilityCode, component.code);
+      }
       mergedByCode.set(component.code, component);
     }
   }
@@ -326,13 +340,63 @@ function findExistingContextKey(
 const componentMetadataCache = new Map<string, UIComponentInfo[]>();
 
 /**
- * Cache for loaded components to avoid repeated loading
+ * Cache for loaded components to avoid repeated loading.
+ *
+ * Runtime assets must be keyed by immutable asset identity. A cache keyed only by
+ * capability/component keeps serving the old React component after a pack update
+ * in an already-open workspace page.
  */
 const loadedComponentsCache = new Map<string, ComponentType<any>>();
+
+function buildLoadedComponentCacheKey(
+  capabilityCode: string,
+  componentCode: string,
+  component: UIComponentInfo,
+): string {
+  const code = capabilityCode.trim();
+  const componentId = componentCode.trim();
+
+  if (component.asset_url) {
+    return [
+      code,
+      componentId,
+      'runtime',
+      component.runtime || '',
+      component.asset_url,
+      component.integrity || '',
+      component.bytes || '',
+      component.export || '',
+    ].join(':');
+  }
+
+  return [
+    code,
+    componentId,
+    'context',
+    component.import_path || '',
+    component.path || '',
+    component.export || '',
+  ].join(':');
+}
+
+function clearLoadedComponentCacheFor(capabilityCode: string, componentCode: string): void {
+  const prefix = `${capabilityCode.trim()}:${componentCode.trim()}:`;
+  const legacyKey = `${capabilityCode.trim()}:${componentCode.trim()}`;
+
+  for (const key of Array.from(loadedComponentsCache.keys())) {
+    if (key === legacyKey || key.startsWith(prefix)) {
+      loadedComponentsCache.delete(key);
+    }
+  }
+}
 
 function ensureRuntimeReactBridge(): void {
   globalThis.MindscapeRuntimeReact = {
     React: ReactRuntime,
+    ReactDOM: {
+      flushSync: ReactDOMRuntime.flushSync,
+      createPortal: ReactDOMRuntime.createPortal,
+    },
   };
 }
 
@@ -401,12 +465,6 @@ export async function loadCapabilityUIComponent(
   componentCode: string,
   apiUrl: string
 ): Promise<ComponentType<any> | null> {
-  // Check cache first
-  const cacheKey = `${capabilityCode}:${componentCode}`;
-  if (loadedComponentsCache.has(cacheKey)) {
-    return loadedComponentsCache.get(cacheKey) || null;
-  }
-
   try {
     // Check metadata cache first to avoid repeated API calls
     let components: UIComponentInfo[];
@@ -461,6 +519,11 @@ export async function loadCapabilityUIComponent(
     if (!component) {
       console.warn(`UI component ${componentCode} not found for capability ${capabilityCode}`);
       return null;
+    }
+
+    const cacheKey = buildLoadedComponentCacheKey(capabilityCode, componentCode, component);
+    if (loadedComponentsCache.has(cacheKey)) {
+      return loadedComponentsCache.get(cacheKey) || null;
     }
 
     if (component.asset_url) {

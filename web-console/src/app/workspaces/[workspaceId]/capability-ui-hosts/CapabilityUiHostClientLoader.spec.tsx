@@ -122,6 +122,48 @@ describe('CapabilityUiHostClientLoader', () => {
     );
   });
 
+  it('reloads metadata after remount instead of serving stale pack asset metadata', async () => {
+    let components = [{ code: 'IGWorkbenchPage' }];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/api/v1/capability-packs/installed-capabilities/ig_loader_refresh')) {
+        return jsonResponse({ id: 'ig_loader_refresh', code: 'ig_loader_refresh' });
+      }
+      if (url.endsWith('/api/v1/capability-packs/installed-capabilities/ig_loader_refresh/ui-components')) {
+        return jsonResponse(components);
+      }
+      return jsonResponse({ detail: 'not found' }, 404);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const firstRender = render(
+      <CapabilityUiHostClientLoader
+        workspaceId="ws_test"
+        capabilityCode="ig_loader_refresh"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('loaded-capability-components')).toHaveAttribute('data-ui-components', '1');
+    });
+    firstRender.unmount();
+
+    components = [{ code: 'IGWorkbenchPage' }, { code: 'IGRunsWorkspaceToolPanel' }];
+    render(
+      <CapabilityUiHostClientLoader
+        workspaceId="ws_test"
+        capabilityCode="ig_loader_refresh"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('loaded-capability-components')).toHaveAttribute('data-ui-components', '2');
+    });
+    expect(fetchMock.mock.calls.filter(([input]) => (
+      String(input).endsWith('/api/v1/capability-packs/installed-capabilities/ig_loader_refresh/ui-components')
+    ))).toHaveLength(2);
+  });
+
   it('renders a recoverable error inside the shell when metadata loading fails', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ detail: 'unavailable' }, 503)));
 

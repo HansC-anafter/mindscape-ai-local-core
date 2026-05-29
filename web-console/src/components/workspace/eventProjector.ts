@@ -661,6 +661,13 @@ function stripTrailingSlash(value: string): string {
   return value.replace(/\/+$/, '');
 }
 
+function getRuntimeEnv(name: string): string | undefined {
+  const runtimeGlobal = globalThis as typeof globalThis & {
+    process?: { env?: Record<string, string | undefined> };
+  };
+  return runtimeGlobal.process?.env?.[name];
+}
+
 function resolveEventStreamBaseUrl(apiUrl: string): string {
   const explicit = apiUrl.trim();
   if (explicit) {
@@ -668,8 +675,8 @@ function resolveEventStreamBaseUrl(apiUrl: string): string {
   }
 
   const configuredDirectUrl = (
-    process.env.NEXT_PUBLIC_LOCAL_CORE_API_URL ||
-    process.env.NEXT_PUBLIC_API_URL ||
+    getRuntimeEnv('NEXT_PUBLIC_LOCAL_CORE_API_URL') ||
+    getRuntimeEnv('NEXT_PUBLIC_API_URL') ||
     ''
   ).trim();
   if (configuredDirectUrl.startsWith('http')) {

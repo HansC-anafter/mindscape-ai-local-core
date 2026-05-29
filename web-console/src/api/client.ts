@@ -23,6 +23,13 @@ const MAX_RETRIES = 3;
 const BACKOFF_BASE_MS = 1_000;
 const BACKOFF_CAP_MS = 30_000;
 
+function getRuntimeEnv(name: string): string | undefined {
+  const runtimeGlobal = globalThis as typeof globalThis & {
+    process?: { env?: Record<string, string | undefined> };
+  };
+  return runtimeGlobal.process?.env?.[name];
+}
+
 // ---------------------------------------------------------------------------
 // MindscapeAPIClient
 // ---------------------------------------------------------------------------
@@ -36,8 +43,8 @@ export class MindscapeAPIClient {
 
     if (context.tags?.mode === 'cloud') {
       this.baseUrl =
-        process.env.NEXT_PUBLIC_CLOUD_API_URL ||
-        process.env.NEXT_PUBLIC_API_URL ||
+        getRuntimeEnv('NEXT_PUBLIC_CLOUD_API_URL') ||
+        getRuntimeEnv('NEXT_PUBLIC_API_URL') ||
         getServiceEndpointUrl('cloud.api', 'host_public') ||
         '';
     } else {

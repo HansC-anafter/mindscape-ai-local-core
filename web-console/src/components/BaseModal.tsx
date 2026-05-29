@@ -18,27 +18,25 @@ export function BaseModal({
   children,
   maxWidth = 'max-w-4xl'
 }: BaseModalProps) {
-  // ESC键关闭弹窗
   useEffect(() => {
+    if (!isOpen) return;
+
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         onClose();
       }
     };
 
-    if (isOpen) {
-      document.addEventListener('keydown', handleKeyDown);
-      // 防止背景滚动
-      document.body.style.overflow = 'hidden';
-    }
+    document.addEventListener('keydown', handleKeyDown);
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
 
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
-      document.body.style.overflow = 'unset';
+      document.body.style.overflow = previousOverflow;
     };
   }, [isOpen, onClose]);
 
-  // 点击背景关闭弹窗
   const handleBackdropClick = (event: React.MouseEvent) => {
     if (event.target === event.currentTarget) {
       onClose();
@@ -51,8 +49,13 @@ export function BaseModal({
     <div
       className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
       onClick={handleBackdropClick}
+      role="dialog"
+      aria-modal="true"
     >
-      <div className={`bg-surface-accent dark:bg-gray-800 rounded-lg shadow-xl ${maxWidth} w-full mx-4 max-h-[90vh] overflow-hidden flex flex-col`}>
+      <div
+        className={`bg-surface-accent dark:bg-gray-800 rounded-lg shadow-xl ${maxWidth} w-full mx-4 max-h-[90vh] overflow-hidden flex flex-col`}
+        style={{ maxHeight: '90vh' }}
+      >
         {/* Modal Header */}
         <div className="flex items-center justify-between p-6 border-b border-default dark:border-gray-700 flex-shrink-0">
           <h2 className="text-lg font-semibold text-primary dark:text-gray-100">

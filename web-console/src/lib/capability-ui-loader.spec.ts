@@ -8,6 +8,10 @@ function DemoLazyComponent() {
   return null;
 }
 
+function DemoLazyComponentV2() {
+  return null;
+}
+
 function createLazyTestContext(
   modules: Record<string, CapabilityComponentModule>,
 ): {
@@ -93,5 +97,64 @@ describe('capability-ui-loader', () => {
     expect(CachedComponent).toBe(DemoLazyComponent);
     expect(loadModule).toHaveBeenCalledTimes(1);
     expect(loadModule).toHaveBeenCalledWith('./demo_lazy/components/DemoLazyComponent.tsx');
+  });
+
+  it('invalidates loaded component cache when component metadata identity changes', async () => {
+    const { context, loadModule } = createLazyTestContext({
+      './demo_lazy/components/DemoLazyComponent.tsx': {
+        DemoLazyComponent,
+      },
+      './demo_lazy/components/DemoLazyComponentV2.tsx': {
+        DemoLazyComponentV2,
+      },
+    });
+    globalThis.__MINDSCAPE_CAPABILITY_UI_TEST_CONTEXT__ = context;
+
+    const {
+      loadCapabilityUIComponent,
+      primeCapabilityUIComponentMetadata,
+    } = await import('./capability-ui-loader');
+
+    primeCapabilityUIComponentMetadata('demo_lazy', [
+      {
+        code: 'DemoLazyComponent',
+        path: 'ui/components/DemoLazyComponent.tsx',
+        description: 'Lazy demo component',
+        export: 'DemoLazyComponent',
+        artifact_types: [],
+        playbook_codes: [],
+        import_path: '/app/src/app/capabilities/demo_lazy/components/DemoLazyComponent.tsx',
+      },
+    ]);
+
+    const FirstComponent = await loadCapabilityUIComponent(
+      'demo_lazy',
+      'DemoLazyComponent',
+      'http://api.test',
+    );
+
+    primeCapabilityUIComponentMetadata('demo_lazy', [
+      {
+        code: 'DemoLazyComponent',
+        path: 'ui/components/DemoLazyComponentV2.tsx',
+        description: 'Lazy demo component v2',
+        export: 'DemoLazyComponentV2',
+        artifact_types: [],
+        playbook_codes: [],
+        import_path: '/app/src/app/capabilities/demo_lazy/components/DemoLazyComponentV2.tsx',
+      },
+    ]);
+
+    const SecondComponent = await loadCapabilityUIComponent(
+      'demo_lazy',
+      'DemoLazyComponent',
+      'http://api.test',
+    );
+
+    expect(FirstComponent).toBe(DemoLazyComponent);
+    expect(SecondComponent).toBe(DemoLazyComponentV2);
+    expect(loadModule).toHaveBeenCalledTimes(2);
+    expect(loadModule).toHaveBeenNthCalledWith(1, './demo_lazy/components/DemoLazyComponent.tsx');
+    expect(loadModule).toHaveBeenNthCalledWith(2, './demo_lazy/components/DemoLazyComponentV2.tsx');
   });
 });

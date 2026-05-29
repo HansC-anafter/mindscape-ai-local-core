@@ -1,8 +1,15 @@
 import { shouldUseSameOriginProxyForBrowser } from './api-origin';
 import { getServiceEndpointUrl } from '../../../packages/core/src/api';
 
+function getRuntimeEnv(name: string): string | undefined {
+  const runtimeGlobal = globalThis as typeof globalThis & {
+    process?: { env?: Record<string, string | undefined> };
+  };
+  return runtimeGlobal.process?.env?.[name];
+}
+
 export function getApiBaseUrl(): string {
-  const configuredUrl = process.env.NEXT_PUBLIC_API_URL;
+  const configuredUrl = getRuntimeEnv('NEXT_PUBLIC_API_URL');
 
   if (typeof window !== 'undefined') {
     if (shouldUseSameOriginProxyForBrowser(configuredUrl)) {
@@ -17,8 +24,8 @@ export function getApiBaseUrl(): string {
 
   return (
     getServiceEndpointUrl('local_core.control_api', 'server_internal') ||
-    process.env.WEB_CONSOLE_BACKEND_URL ||
-    process.env.BACKEND_URL ||
+    getRuntimeEnv('WEB_CONSOLE_BACKEND_URL') ||
+    getRuntimeEnv('BACKEND_URL') ||
     ''
   );
 }
