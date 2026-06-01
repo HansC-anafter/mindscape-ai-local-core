@@ -68,6 +68,41 @@ def explicit_direct_override(canonical: MeetingCommandEnvelope) -> bool:
     return canonical.metadata.get("explicit_override") is True
 
 
+def _truthy_flag(value: Any) -> bool:
+    if value is True:
+        return True
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return False
+
+
+def _metadata_action_value(canonical: MeetingCommandEnvelope, key: str) -> Any:
+    metadata = canonical.metadata or {}
+    action_parameters = metadata.get("action_parameters")
+    if not isinstance(action_parameters, dict):
+        action_parameters = {}
+    if key in metadata:
+        return metadata.get(key)
+    return action_parameters.get(key)
+
+
+def _command_active_capability_code(canonical: MeetingCommandEnvelope) -> str | None:
+    metadata = canonical.metadata or {}
+    action_parameters = metadata.get("action_parameters")
+    if not isinstance(action_parameters, dict):
+        action_parameters = {}
+    for value in (
+        metadata.get("active_capability_code"),
+        metadata.get("active_pack_code"),
+        action_parameters.get("active_capability_code"),
+        action_parameters.get("active_pack_code"),
+    ):
+        normalized = str(value or "").strip()
+        if normalized:
+            return normalized
+    return None
+
+
 def _has_selected_guidance(canonical: MeetingCommandEnvelope) -> bool:
     metadata = canonical.metadata or {}
     action_parameters = metadata.get("action_parameters")
@@ -96,6 +131,10 @@ def _has_action_entries(canonical: MeetingCommandEnvelope) -> bool:
 
 def should_route_meeting_orchestration(canonical: MeetingCommandEnvelope) -> bool:
     dispatch_mode = canonical.metadata.get("dispatch_mode")
+    if _truthy_flag(_metadata_action_value(canonical, "force_meeting_orchestration")):
+        return True
+    if _truthy_flag(_metadata_action_value(canonical, "forceMeetingOrchestration")):
+        return True
     if dispatch_mode == "route_meeting_orchestration":
         return True
     if dispatch_mode in {"route_object_action", "route_playbook"} and explicit_direct_override(canonical):
@@ -205,6 +244,13 @@ async def dispatch_meeting_orchestration_for_command(
         "dispatch_status": "running",
         "dispatch_mode": "route_meeting_orchestration",
     }
+    active_capability_code = _command_active_capability_code(canonical)
+    if active_capability_code:
+        session.metadata = {
+            **(getattr(session, "metadata", None) or {}),
+            "active_capability_code": active_capability_code,
+            "active_pack_code": active_capability_code,
+        }
     bridge = AOLMeetingOrchestrationBridge()
     handoff_in = await bridge.build_handoff_in(
         command=command,

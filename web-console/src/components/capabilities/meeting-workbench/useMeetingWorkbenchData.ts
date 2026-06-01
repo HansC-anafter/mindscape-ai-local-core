@@ -26,6 +26,9 @@ import { useRuntimeInspectorSnapshot } from './useRuntimeInspectorSnapshot';
 export interface MeetingWorkbenchDataState {
   activeMeetingId: string;
   setActiveMeetingId: Dispatch<SetStateAction<string>>;
+  startBlankMeetingSession: (metadata?: Record<string, unknown>) => Promise<MeetingSessionSummary>;
+  startingBlankMeetingSession: boolean;
+  startBlankMeetingSessionError: string | null;
   meetingSessions: MeetingSessionSummary[];
   meetingSessionsLoading: boolean;
   meetingSessionsError: string | null;
@@ -80,6 +83,9 @@ export function useMeetingWorkbenchData({
   const {
     activeMeetingId,
     setActiveMeetingId,
+    startBlankMeetingSession,
+    startingBlankMeetingSession,
+    startBlankMeetingSessionError,
     activeSession,
     meetingSessions,
     meetingSessionsLoading,
@@ -146,6 +152,9 @@ export function useMeetingWorkbenchData({
   return {
     activeMeetingId,
     setActiveMeetingId,
+    startBlankMeetingSession,
+    startingBlankMeetingSession,
+    startBlankMeetingSessionError,
     meetingSessions,
     meetingSessionsLoading,
     meetingSessionsError,

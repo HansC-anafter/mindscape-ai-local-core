@@ -114,6 +114,7 @@ export function RuntimeShellPanel({
           <AOLMeetingBottomShellLazy
             workspaceId={state.activeSurface.workspaceId}
             apiUrl={state.activeSurface.apiUrl}
+            capabilityCode={state.activeSurface.capabilityCode}
             meetingId={state.currentMeetingId}
             summary={summary}
             selection={state.selection}

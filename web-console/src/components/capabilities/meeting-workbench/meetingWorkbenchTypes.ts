@@ -200,6 +200,7 @@ export interface MeetingGraphLaneConfig {
 export interface AOLMeetingBottomShellProps {
   workspaceId: string;
   apiUrl: string;
+  capabilityCode?: string;
   meetingId: string | null;
   summary: AddressableObjectSummary | null;
   selection: AddressableSelectionTarget | null;

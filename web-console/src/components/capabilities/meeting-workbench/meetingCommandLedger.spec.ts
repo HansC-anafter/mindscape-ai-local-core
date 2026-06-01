@@ -123,4 +123,43 @@ describe('meetingCommandLedger', () => {
     });
     expect(requestBody.requested_action.playbook_code).toBe('visual_audit');
   });
+
+  it('routes blank-session instructions through MeetingEngine when forced', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      command_id: 'cmd_blank',
+      status: 'accepted',
+      dispatch_result: {
+        meeting_orchestration: {
+          status: 'completed',
+          task_ir_id: 'task_blank',
+        },
+      },
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await submitMeetingCommandEnvelope({
+      apiUrl: 'http://api.test',
+      workspaceId: 'ws_demo',
+      meetingId: 'mtg_blank',
+      command: 'Group current yoga references into creative spaces',
+      originSurface: 'meeting_workbench',
+      threadId: 'mtg_blank',
+      mentionRefs: [],
+      objectActionEntries: [],
+      selectedPackTool: null,
+      actionParameters: {
+        active_capability_code: 'ig',
+        force_meeting_orchestration: true,
+      },
+    });
+
+    const firstRequestInit = (fetchMock.mock.calls[0] as unknown as [string, RequestInit] | undefined)?.[1];
+    const requestBody = JSON.parse(String(firstRequestInit?.body || '{}'));
+    expect(requestBody.metadata.dispatch_mode).toBe('route_meeting_orchestration');
+    expect(requestBody.metadata.force_meeting_orchestration).toBe(true);
+    expect(requestBody.metadata.action_parameters.active_capability_code).toBe('ig');
+  });
 });

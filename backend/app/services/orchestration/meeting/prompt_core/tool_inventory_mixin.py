@@ -1,12 +1,190 @@
 """Tool inventory and query helpers for MeetingPromptsMixin."""
 
 import logging
-from typing import List
+from pathlib import Path
+from typing import Any, ClassVar, List
 
 logger = logging.getLogger(__name__)
 
 
 class MeetingPromptToolInventoryMixin:
+    _PLANNER_MANIFEST_CACHE: ClassVar[dict[str, tuple[int, list[str], bool]]] = {}
+
+    def _active_pack_code_for_tool_inventory(self) -> str | None:
+        metadata = getattr(getattr(self, "session", None), "metadata", None)
+        if not isinstance(metadata, dict):
+            return None
+        candidates = [
+            metadata.get("active_capability_code"),
+            metadata.get("active_pack_code"),
+            metadata.get("capability_code"),
+        ]
+        request_contract = metadata.get("request_contract")
+        if isinstance(request_contract, dict):
+            aol = request_contract.get("addressable_object_layer")
+            if isinstance(aol, dict):
+                candidates.extend(
+                    [
+                        aol.get("active_capability_code"),
+                        aol.get("active_pack_code"),
+                        aol.get("owner_pack"),
+                    ]
+                )
+        for candidate in candidates:
+            value = str(candidate or "").strip()
+            if value:
+                return value
+        return None
+
+    def _capability_manifest_paths(self, pack_id: str) -> list[Path]:
+        import os
+
+        app_dir = os.getenv("APP_DIR", "/app")
+        return [
+            Path(app_dir) / "backend" / "app" / "capabilities" / pack_id / "manifest.yaml",
+            Path("backend/app/capabilities") / pack_id / "manifest.yaml",
+            Path(os.getenv("DATA_DIR", "data")) / "capabilities" / pack_id / "manifest.yaml",
+        ]
+
+    def _format_manifest_tool_line(
+        self,
+        *,
+        pack_id: str,
+        tool: dict[str, Any],
+        planner_only: bool,
+    ) -> str | None:
+        code = tool.get("code", tool.get("name", pack_id))
+        if not code:
+            return None
+        code_str = str(code).strip()
+        if not code_str:
+            return None
+        planner_contract = tool.get("planner_contract")
+        has_planner_contract = isinstance(planner_contract, dict) and (
+            planner_contract.get("exposed") is True
+        )
+        if planner_only and not has_planner_contract:
+            return None
+        tool_id = code_str if "." in code_str else f"{pack_id}.{code_str}"
+        display = (
+            tool.get("display_name")
+            or tool.get("description")
+            or tool.get("name")
+            or code_str
+        )
+        line = f"- {tool_id}: {display}"
+        if has_planner_contract:
+            effect = planner_contract.get("effect", "unknown")
+            resource = planner_contract.get("resource_kind", "unknown")
+            input_schema = planner_contract.get("input_schema", "")
+            pagination = planner_contract.get("pagination")
+            pagination_note = ""
+            if isinstance(pagination, dict):
+                pagination_note = (
+                    f" pagination={pagination.get('cursor_field', 'cursor')}"
+                    f"->{pagination.get('next_cursor_field', 'next_cursor')}"
+                    f" max_limit={pagination.get('max_limit', '?')}"
+                )
+            line += (
+                f" [planner_contract effect={effect} resource={resource}"
+                f" input_schema={input_schema}{pagination_note}]"
+            )
+        elif not planner_only:
+            line += " [legacy_tool]"
+        return line
+
+    def _read_manifest_tool_lines(
+        self,
+        *,
+        pack_id: str,
+        manifest_path: Path,
+        yaml_module: Any,
+        planner_only: bool,
+    ) -> tuple[list[str], bool]:
+        try:
+            stat = manifest_path.stat()
+        except OSError:
+            return [], False
+        cache_key = f"{manifest_path}:{planner_only}"
+        cached = self._PLANNER_MANIFEST_CACHE.get(cache_key)
+        if cached and cached[0] == stat.st_mtime_ns:
+            return list(cached[1]), cached[2]
+
+        with manifest_path.open("r", encoding="utf-8") as mf:
+            manifest = yaml_module.safe_load(mf) or {}
+        lines: list[str] = []
+        has_planner_contract = False
+        for tool in manifest.get("tools", []) or []:
+            if not isinstance(tool, dict):
+                continue
+            planner_contract = tool.get("planner_contract")
+            has_planner_contract = has_planner_contract or (
+                isinstance(planner_contract, dict)
+                and planner_contract.get("exposed") is True
+            )
+            line = self._format_manifest_tool_line(
+                pack_id=pack_id,
+                tool=tool,
+                planner_only=planner_only,
+            )
+            if line:
+                lines.append(line)
+        self._PLANNER_MANIFEST_CACHE[cache_key] = (
+            stat.st_mtime_ns,
+            list(lines),
+            has_planner_contract,
+        )
+        return lines, has_planner_contract
+
+    def _build_active_pack_tool_inventory_block(self, pack_id: str, yaml_module: Any) -> str:
+        for manifest_path in self._capability_manifest_paths(pack_id):
+            if not manifest_path.exists():
+                continue
+            try:
+                planner_lines, has_planner_contract = self._read_manifest_tool_lines(
+                    pack_id=pack_id,
+                    manifest_path=manifest_path,
+                    yaml_module=yaml_module,
+                    planner_only=True,
+                )
+                if planner_lines:
+                    lines = [
+                        f"# Active pack planner tools: {pack_id}",
+                        *planner_lines,
+                        "",
+                        "Use planner_contract tools for data reads/writes. "
+                        "Do not invent tools that are not listed here.",
+                    ]
+                    logger.debug(
+                        "meeting_tool_inventory source=active_pack_planner pack=%s tool_lines=%d",
+                        pack_id,
+                        len(planner_lines),
+                    )
+                    return "\n".join(lines)
+                if not has_planner_contract:
+                    legacy_lines, _ = self._read_manifest_tool_lines(
+                        pack_id=pack_id,
+                        manifest_path=manifest_path,
+                        yaml_module=yaml_module,
+                        planner_only=False,
+                    )
+                    if legacy_lines:
+                        logger.debug(
+                            "meeting_tool_inventory source=active_pack_legacy pack=%s tool_lines=%d",
+                            pack_id,
+                            len(legacy_lines),
+                        )
+                        return "\n".join(legacy_lines)
+            except Exception as exc:
+                logger.debug(
+                    "Failed to read active pack manifest for %s at %s: %s",
+                    pack_id,
+                    manifest_path,
+                    exc,
+                )
+            break
+        return ""
+
     def _build_tool_inventory_block(self) -> str:
         """Build tool inventory for prompt injection."""
         workspace = getattr(self, "workspace", None)
@@ -77,39 +255,30 @@ class MeetingPromptToolInventoryMixin:
             if _yaml is None:
                 return ""
 
+            active_pack_code = self._active_pack_code_for_tool_inventory()
+            if active_pack_code:
+                active_pack_block = self._build_active_pack_tool_inventory_block(
+                    active_pack_code,
+                    _yaml,
+                )
+                if active_pack_block:
+                    return active_pack_block
+
             packs_store = InstalledPacksStore()
             pack_ids = packs_store.list_enabled_pack_ids()
-            import os
-
-            app_dir = os.getenv("APP_DIR", "/app")
-            cap_dirs = [
-                Path(app_dir) / "backend" / "app" / "capabilities",
-                Path("backend/app/capabilities"),
-                Path(os.getenv("DATA_DIR", "data")) / "capabilities",
-            ]
             lines = []
             for pack_id in pack_ids:
-                for cap_base in cap_dirs:
-                    manifest_path = cap_base / pack_id / "manifest.yaml"
+                for manifest_path in self._capability_manifest_paths(pack_id):
                     if not manifest_path.exists():
                         continue
                     try:
-                        with manifest_path.open("r", encoding="utf-8") as mf:
-                            manifest = _yaml.safe_load(mf) or {}
-                        tools = manifest.get("tools", [])
-                        for tool in tools:
-                            if isinstance(tool, dict):
-                                code = tool.get("code", tool.get("name", pack_id))
-                                if not code:
-                                    continue
-                                display = tool.get("display_name", code)
-                                code_str = str(code).strip()
-                                tool_id = (
-                                    code_str
-                                    if "." in code_str
-                                    else f"{pack_id}.{code_str}"
-                                )
-                                lines.append(f"- {tool_id}: {display}")
+                        manifest_lines, _ = self._read_manifest_tool_lines(
+                            pack_id=pack_id,
+                            manifest_path=manifest_path,
+                            yaml_module=_yaml,
+                            planner_only=False,
+                        )
+                        lines.extend(manifest_lines)
                     except Exception:
                         pass
                     break
@@ -155,6 +324,17 @@ class MeetingPromptToolInventoryMixin:
                 logger.debug("_has_workspace_tool_bindings check failed: %s", exc)
 
         has_rag_tools = bool(getattr(self, "_rag_tool_cache", []))
+        try:
+            import yaml as _yaml
+
+            active_pack_code = self._active_pack_code_for_tool_inventory()
+            if active_pack_code and self._build_active_pack_tool_inventory_block(
+                active_pack_code,
+                _yaml,
+            ):
+                return True
+        except Exception:
+            pass
         playbooks_cache = getattr(self, "_available_playbooks_cache", "")
         has_playbooks = bool(
             playbooks_cache

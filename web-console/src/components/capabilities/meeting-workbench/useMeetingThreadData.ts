@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
 
 import { subscribeEventStream, type UnifiedEvent } from '@/components/workspace/eventProjector';
+import { postApiJson } from './meetingApi';
 import {
   isMeetingCommandLedgerUpdatedFor,
   MEETING_COMMAND_LEDGER_UPDATED_EVENT,
@@ -68,6 +69,9 @@ function eventTargetsMeeting(event: UnifiedEvent, activeMeetingId: string): bool
 export interface MeetingThreadDataState {
   activeMeetingId: string;
   setActiveMeetingId: Dispatch<SetStateAction<string>>;
+  startBlankMeetingSession: (metadata?: Record<string, unknown>) => Promise<MeetingSessionSummary>;
+  startingBlankMeetingSession: boolean;
+  startBlankMeetingSessionError: string | null;
   activeSession: MeetingSessionSummary | null;
   meetingSessions: MeetingSessionSummary[];
   meetingSessionsLoading: boolean;
@@ -104,6 +108,8 @@ export function useMeetingThreadData({
   const [meetingArtifactsLoading, setMeetingArtifactsLoading] = useState(false);
   const [meetingArtifactsError, setMeetingArtifactsError] = useState<string | null>(null);
   const [runtimeRefreshVersion, setRuntimeRefreshVersion] = useState(0);
+  const [startingBlankMeetingSession, setStartingBlankMeetingSession] = useState(false);
+  const [startBlankMeetingSessionError, setStartBlankMeetingSessionError] = useState<string | null>(null);
 
   useEffect(() => {
     setActiveMeetingId(meetingId ?? '');
@@ -151,6 +157,44 @@ export function useMeetingThreadData({
       cancelled = true;
     };
   }, [apiUrl, meetingId, workspaceId]);
+
+  async function startBlankMeetingSession(metadata: Record<string, unknown> = {}): Promise<MeetingSessionSummary> {
+    setStartingBlankMeetingSession(true);
+    setStartBlankMeetingSessionError(null);
+    try {
+      const payload = await postApiJson(
+        apiUrl,
+        `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/meeting-sessions/start`,
+        {
+          meeting_type: 'meeting_workbench',
+          agenda: [],
+          success_criteria: [],
+          max_rounds: 5,
+          metadata: {
+            source_surface: 'meeting_workbench',
+            blank_session: true,
+            ...metadata,
+          },
+        },
+      );
+      if (!isRecord(payload) || typeof payload.id !== 'string') {
+        throw new Error('Meeting session start returned an invalid response.');
+      }
+      const session = payload as unknown as MeetingSessionSummary;
+      setMeetingSessions((current) => [
+        session,
+        ...current.filter((candidate) => candidate.id !== session.id),
+      ].slice(0, MEETING_SESSION_LIST_LIMIT));
+      setActiveMeetingId(session.id);
+      return session;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to start meeting session.';
+      setStartBlankMeetingSessionError(message);
+      throw error;
+    } finally {
+      setStartingBlankMeetingSession(false);
+    }
+  }
 
   useEffect(() => {
     setMeetingEvents([]);
@@ -413,6 +457,9 @@ export function useMeetingThreadData({
   return {
     activeMeetingId,
     setActiveMeetingId,
+    startBlankMeetingSession,
+    startingBlankMeetingSession,
+    startBlankMeetingSessionError,
     activeSession,
     meetingSessions,
     meetingSessionsLoading,

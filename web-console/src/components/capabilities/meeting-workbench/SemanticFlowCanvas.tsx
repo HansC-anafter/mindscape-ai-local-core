@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { Box, FileText, MousePointer2, RotateCcw, ZoomIn, ZoomOut } from 'lucide-react';
+import { Box, FileText, MousePointer2, PlusCircle, RotateCcw, ZoomIn, ZoomOut } from 'lucide-react';
 
 import {
   CANVAS_ZOOM_STEP,
@@ -60,6 +60,8 @@ export function MeetingHeaderToolbar({
   runtimeLabel,
   focusRoleLabel,
   missingContextLabel,
+  startingBlankMeetingSession,
+  onStartBlankMeetingSession,
   onSelectNextStep,
   onSelectMissingContext,
   onTogglePanel,
@@ -80,6 +82,8 @@ export function MeetingHeaderToolbar({
   runtimeLabel: string;
   focusRoleLabel: string | null;
   missingContextLabel: string | null;
+  startingBlankMeetingSession: boolean;
+  onStartBlankMeetingSession: () => void;
   onSelectNextStep: (() => void) | null;
   onSelectMissingContext: (() => void) | null;
   onTogglePanel: (panel: MeetingInfoPanel) => void;
@@ -127,6 +131,17 @@ export function MeetingHeaderToolbar({
           <span className="rounded bg-white px-1.5 py-0.5 text-[10px] tabular-nums text-slate-500 dark:bg-slate-950 dark:text-slate-400">
             {sessionsLoading ? '...' : sessionsCount}
           </span>
+        </button>
+        <button
+          type="button"
+          onClick={onStartBlankMeetingSession}
+          disabled={startingBlankMeetingSession}
+          className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-slate-50 text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900 disabled:cursor-wait disabled:opacity-60 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+          data-testid="meeting-new-session-button"
+          aria-label="New blank meeting session"
+          title="New blank meeting session"
+        >
+          <PlusCircle className="h-4 w-4" aria-hidden="true" />
         </button>
         <div
           className="hidden items-center overflow-hidden rounded-md border border-slate-200 bg-slate-50 p-0.5 dark:border-slate-800 dark:bg-slate-900 md:flex"

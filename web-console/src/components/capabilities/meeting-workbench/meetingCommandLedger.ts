@@ -63,8 +63,14 @@ export async function submitMeetingCommandEnvelope({
     actionParameters.selected_guidance_metadata ||
     actionParameters.selected_guidance_cards,
   );
+  const forceMeetingOrchestration = Boolean(
+    actionParameters.force_meeting_orchestration ||
+    actionParameters.forceMeetingOrchestration ||
+    metadata.force_meeting_orchestration ||
+    metadata.forceMeetingOrchestration,
+  );
   const dispatchMode =
-    objectActionEntries.length > 0 || mentionRefs.length > 0 || selectedPackTool !== null || requestedAction !== null || hasSelectedGuidance
+    forceMeetingOrchestration || objectActionEntries.length > 0 || mentionRefs.length > 0 || selectedPackTool !== null || requestedAction !== null || hasSelectedGuidance
       ? 'route_meeting_orchestration'
       : 'route_chat';
   const payload = await postApiJson(
@@ -100,6 +106,7 @@ export async function submitMeetingCommandEnvelope({
         ...metadata,
         raw_intent_text: command,
         dispatch_mode: dispatchMode,
+        force_meeting_orchestration: forceMeetingOrchestration,
         selected_pack_tool_id: selectedPackTool?.id || null,
         selected_guidance_id: actionParameters.selected_guidance_id || null,
         selected_guidance_ids: actionParameters.selected_guidance_ids || null,

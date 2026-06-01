@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { FileText, X } from "lucide-react";
+import { FileText, PlusCircle, X } from "lucide-react";
 
 import { formatKind } from "./meetingGraphProjection";
 import { getSessionDisplayTitle, getSessionSearchCorpus } from "./meetingSessionContext";
@@ -241,6 +241,9 @@ export function MeetingSessionsPopover({
   activeMeetingId,
   loading,
   error,
+  creating,
+  createError,
+  onCreateSession,
   onSelectSession,
   onClose,
 }: {
@@ -248,6 +251,9 @@ export function MeetingSessionsPopover({
   activeMeetingId: string;
   loading: boolean;
   error: string | null;
+  creating: boolean;
+  createError: string | null;
+  onCreateSession: () => void;
   onSelectSession: (session: MeetingSessionSummary) => void;
   onClose: () => void;
 }) {
@@ -279,16 +285,33 @@ export function MeetingSessionsPopover({
             {sessions.length}
           </span>
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:text-slate-100"
-          aria-label="Close meeting sessions"
-        >
-          <X className="h-4 w-4" aria-hidden="true" />
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={onCreateSession}
+            disabled={creating}
+            className="inline-flex h-7 items-center gap-1 rounded-md border border-slate-200 px-2 text-[11px] font-semibold text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900 disabled:cursor-wait disabled:opacity-60 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-900 dark:hover:text-slate-100"
+            data-testid="meeting-session-create"
+          >
+            <PlusCircle className="h-3.5 w-3.5" aria-hidden="true" />
+            {creating ? 'Creating' : 'New'}
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:text-slate-100"
+            aria-label="Close meeting sessions"
+          >
+            <X className="h-4 w-4" aria-hidden="true" />
+          </button>
+        </div>
       </div>
       <div className="p-2">
+        {createError ? (
+          <div className="mb-2 rounded-md border border-rose-200 bg-rose-50 px-2 py-1.5 text-xs text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-300">
+            {createError}
+          </div>
+        ) : null}
         <div className="mb-2 flex items-center gap-2">
           <input
             type="search"

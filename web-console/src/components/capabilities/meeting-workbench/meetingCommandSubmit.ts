@@ -61,6 +61,7 @@ interface CreateMeetingCommandSubmitHandlerArgs {
   effectiveSelection: AddressableSelectionTarget | null;
   selectedNode: MeetingNode | null;
   objectTitle: string;
+  activeCapabilityCode: string;
   localTaskCount: number;
   apiUrl: string;
   workspaceId: string;
@@ -83,6 +84,7 @@ export function createMeetingCommandSubmitHandler({
   effectiveSelection,
   selectedNode,
   objectTitle,
+  activeCapabilityCode,
   localTaskCount,
   apiUrl,
   workspaceId,
@@ -173,6 +175,9 @@ export function createMeetingCommandSubmitHandler({
       selected_guidance_metadata: selectedGuidanceMetadata,
       selected_guidance_cards: selectedGuidanceCard ? [selectedGuidanceCard] : [],
       selected_guidance_object_ref: selectedGuidanceObjectRef,
+      active_capability_code: activeCapabilityCode,
+      active_pack_code: activeCapabilityCode,
+      force_meeting_orchestration: true,
     };
 
     setLocalTasks((current) => [...current, nextNode]);
@@ -195,6 +200,11 @@ export function createMeetingCommandSubmitHandler({
         objectActionEntries,
         selectedPackTool,
         actionParameters: meetingActionParamsBase,
+        metadata: {
+          active_capability_code: activeCapabilityCode,
+          active_pack_code: activeCapabilityCode,
+          force_meeting_orchestration: true,
+        },
       });
       dispatchMeetingCommandLedgerUpdated({
         workspaceId,

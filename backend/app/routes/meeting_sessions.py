@@ -36,6 +36,7 @@ class StartSessionRequest(BaseModel):
     success_criteria: List[str] = Field(default_factory=list)
     max_rounds: Optional[int] = None
     lens_id: Optional[str] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
 class EndSessionRequest(BaseModel):
@@ -261,6 +262,8 @@ async def start_session(
         success_criteria=body.success_criteria,
         max_rounds=body.max_rounds or 5,
     )
+    if body.metadata:
+        new_session.metadata.update(body.metadata)
     new_session.start()
     store.create(new_session)
     logger.info(f"[MeetingSession] Started session {new_session.id}")

@@ -69,6 +69,7 @@ function getMissingContextLabel(context: MeetingMissingContext | null, t: Meetin
 export function AOLMeetingBottomShell({
   workspaceId,
   apiUrl,
+  capabilityCode = 'ig',
   meetingId,
   summary,
   selection,
@@ -95,6 +96,9 @@ export function AOLMeetingBottomShell({
   const {
     activeMeetingId,
     setActiveMeetingId,
+    startBlankMeetingSession,
+    startingBlankMeetingSession,
+    startBlankMeetingSessionError,
     meetingSessions,
     meetingSessionsLoading,
     meetingSessionsError,
@@ -220,6 +224,28 @@ export function AOLMeetingBottomShell({
 
   function handleToggleInfoPanel(panel: MeetingInfoPanel) {
     setActiveInfoPanel((current) => (current === panel ? null : panel));
+  }
+
+  async function handleStartBlankMeetingSession() {
+    try {
+      const session = await startBlankMeetingSession({
+        active_capability_code: capabilityCode,
+        active_pack_code: capabilityCode,
+        source_surface: surfaceRoute || 'meeting_workbench',
+      });
+      setSelectedNodeId('ready');
+      setIsConsoleOpen(false);
+      setActiveInfoPanel(null);
+      dispatchMeetingSessionNotification({
+        workspaceId,
+        meetingId: session.id,
+        tone: 'info',
+        title: t('meetingWorkbenchNotificationCommandAccepted'),
+        message: 'Blank meeting session is ready.',
+      });
+    } catch (error) {
+      setDispatchError(error instanceof Error ? error.message : 'Failed to start meeting session.');
+    }
   }
 
   function handleCanvasZoom(delta: number) {
@@ -379,6 +405,7 @@ export function AOLMeetingBottomShell({
     effectiveSelection,
     selectedNode,
     objectTitle,
+    activeCapabilityCode: capabilityCode,
     localTaskCount: localTasks.length,
     apiUrl,
     workspaceId,
@@ -412,6 +439,8 @@ export function AOLMeetingBottomShell({
           runtimeLabel={runtimeLabel}
           focusRoleLabel={focusRoleLabel}
           missingContextLabel={missingContextLabel}
+          startingBlankMeetingSession={startingBlankMeetingSession}
+          onStartBlankMeetingSession={handleStartBlankMeetingSession}
           onSelectNextStep={nextStepNodeId ? handleSelectNextStep : null}
           onSelectMissingContext={missingContext ? () => handleSelectMissingContext(missingContext) : null}
           onTogglePanel={handleToggleInfoPanel}
@@ -439,6 +468,9 @@ export function AOLMeetingBottomShell({
                 activeMeetingId={activeMeetingId}
                 loading={meetingSessionsLoading}
                 error={meetingSessionsError}
+                creating={startingBlankMeetingSession}
+                createError={startBlankMeetingSessionError}
+                onCreateSession={handleStartBlankMeetingSession}
                 onSelectSession={(session) => {
                   setActiveMeetingId(session.id);
                   setSelectedNodeId('ready');
