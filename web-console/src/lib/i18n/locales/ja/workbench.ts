@@ -166,6 +166,7 @@ export const workbenchJa = {
   meetingWorkbenchObject: 'オブジェクト',
   meetingWorkbenchBrowser: 'ブラウザー',
   meetingWorkbenchSessions: 'セッション',
+  meetingWorkbenchNewSession: '新規セッション',
   meetingWorkbenchViewModeLabel: 'Meeting graph 表示モード',
   meetingWorkbenchWork: '作業',
   meetingWorkbenchDirectorGraph: 'Director',

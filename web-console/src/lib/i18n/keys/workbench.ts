@@ -77,6 +77,7 @@ export const workbenchKeys = {
   meetingWorkbenchObject: true,
   meetingWorkbenchBrowser: true,
   meetingWorkbenchSessions: true,
+  meetingWorkbenchNewSession: true,
   meetingWorkbenchViewModeLabel: true,
   meetingWorkbenchWork: true,
   meetingWorkbenchDirectorGraph: true,

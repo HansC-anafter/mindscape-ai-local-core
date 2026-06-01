@@ -535,6 +535,24 @@ def register_mindscape_graph_tools() -> List[MindscapeTool]:
     return tools
 
 
+def register_meeting_planner_tools() -> List[MindscapeTool]:
+    """
+    Register MeetingEngine planner tools (builtin, no connection required).
+
+    Returns:
+        List of registered tools
+    """
+    from backend.app.services.tools.meeting_planner import create_meeting_planner_tools
+
+    tools = create_meeting_planner_tools()
+
+    for tool in tools:
+        tool_id = tool.metadata.name
+        register_mindscape_tool(tool_id, tool)
+
+    return tools
+
+
 def register_external_agent_tools() -> List[MindscapeTool]:
     """
     Register all external agent tools (builtin)

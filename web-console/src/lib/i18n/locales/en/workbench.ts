@@ -197,6 +197,7 @@ export const workbenchEn = {
   meetingWorkbenchObject: 'Object',
   meetingWorkbenchBrowser: 'Browser',
   meetingWorkbenchSessions: 'Sessions',
+  meetingWorkbenchNewSession: 'New session',
   meetingWorkbenchViewModeLabel: 'Meeting graph view mode',
   meetingWorkbenchWork: 'Work',
   meetingWorkbenchDirectorGraph: 'Director',

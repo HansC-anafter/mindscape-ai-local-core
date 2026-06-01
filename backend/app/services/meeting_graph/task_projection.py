@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Iterable, List
+from typing import Any, Dict, Iterable, List, Optional
 
 from backend.app.models.meeting_graph import (
     MeetingExecutionGraphEdge,
@@ -80,6 +80,370 @@ def _task_closure(task: Task) -> Dict[str, Any]:
     return _as_dict(_as_dict(task.execution_context).get("object_action_closure"))
 
 
+def _planner_binding_from_task(task: Task) -> Dict[str, Any]:
+    ctx = _as_dict(task.execution_context)
+    binding = _as_dict(ctx.get("planner_contract_binding"))
+    if binding:
+        return binding
+    return _as_dict(_as_dict(task.params).get("planner_contract_binding"))
+
+
+def _planner_tool_plan_from_task(task: Task) -> Dict[str, Any]:
+    inputs = _task_inputs(task)
+    plan = _as_dict(inputs.get("planner_tool_plan"))
+    if plan:
+        return plan
+    params = _as_dict(task.params)
+    input_params = _as_dict(params.get("input_params"))
+    return _as_dict(input_params.get("planner_tool_plan"))
+
+
+def _task_result(task: Task) -> Dict[str, Any]:
+    return _as_dict(task.result)
+
+
+def _planner_result_status(task: Task) -> str:
+    if task.status in {TaskStatus.PENDING, TaskStatus.RUNNING}:
+        return "pending"
+    if task.status == TaskStatus.FAILED:
+        return "error"
+    return "ready"
+
+
+def _planner_resource_kind(binding: Dict[str, Any]) -> str:
+    return _read_string(binding.get("resource_kind"), "resource")
+
+
+def _planner_effect(binding: Dict[str, Any]) -> str:
+    return _read_string(binding.get("effect"), "action").lower()
+
+
+def _planner_tool_name(task: Task, binding: Dict[str, Any]) -> str:
+    return _read_string(
+        binding.get("tool_name")
+        or _as_dict(task.execution_context).get("tool_name")
+        or _as_dict(task.params).get("tool_name"),
+        "planner tool",
+    )
+
+
+def _build_planner_contract_tool_nodes(
+    task: Task,
+    binding: Dict[str, Any],
+) -> tuple[List[MeetingExecutionGraphNode], List[MeetingExecutionGraphEdge]]:
+    effect = _planner_effect(binding)
+    resource_kind = _planner_resource_kind(binding)
+    tool_name = _planner_tool_name(task, binding)
+    result = _task_result(task)
+    task_status = _status_for_task(task)
+    result_status = _planner_result_status(task)
+    binding_id = _read_string(binding.get("binding_id"), task.id)
+    run_node_id = f"runner-task-{_safe_id(task.id)}"
+    binding_node_id = f"planner-binding-{_safe_id(binding_id)}"
+    tool_node_id = f"tool-call-{_safe_id(task.id)}"
+    result_node_id = f"tool-result-{_safe_id(task.id)}"
+    object_node_id = f"planner-object-{_safe_id(task.id)}"
+    approval_required = bool(binding.get("approval_required"))
+    approval_node_id: Optional[str] = (
+        f"approval-{_safe_id(task.id)}" if approval_required else None
+    )
+
+    nodes: List[MeetingExecutionGraphNode] = [
+        MeetingExecutionGraphNode(
+            id=binding_node_id,
+            eyebrow="Planner contract",
+            title=tool_name,
+            detail=f"{effect} · {resource_kind}",
+            status="ready",
+            kind="planner_contract_binding",
+            lane="commands",
+            output=_json_output(binding),
+            defaultInspector="graph",
+            metadata={
+                "task_id": task.id,
+                "binding": binding,
+            },
+        ),
+        MeetingExecutionGraphNode(
+            id=tool_node_id,
+            eyebrow="Tool call",
+            title=tool_name,
+            detail=_read_string(
+                _as_dict(task.params).get("description")
+                or _as_dict(task.params).get("title"),
+                f"task {_short_id(task.id)}",
+            ),
+            status=task_status,
+            kind="tool_call",
+            lane="commands",
+            output=_json_output(_as_dict(task.params)),
+            defaultInspector="runtime",
+            metadata={
+                "task_id": task.id,
+                "tool_name": tool_name,
+                "input_params": _as_dict(_as_dict(task.params).get("input_params")),
+                "planner_contract_binding": binding,
+            },
+        ),
+        MeetingExecutionGraphNode(
+            id=run_node_id,
+            eyebrow="Runner task",
+            title=_read_string(task.pack_id, tool_name),
+            detail=f"{task.status.value if hasattr(task.status, 'value') else task.status} · task {_short_id(task.id)}",
+            status=task_status,
+            kind="runner_task",
+            lane="runs",
+            output=f"Execution ID: {task.execution_id or task.id}",
+            defaultInspector="runtime",
+            metadata={
+                "task_id": task.id,
+                "execution_id": task.execution_id,
+                "phase_id": _as_dict(task.execution_context).get("phase_id"),
+                "completed_at": _task_time(task),
+                "planner_contract_binding": binding,
+            },
+        ),
+        MeetingExecutionGraphNode(
+            id=result_node_id,
+            eyebrow="Tool result",
+            title=(
+                f"{resource_kind} result"
+                if result
+                else "Tool result pending"
+            ),
+            detail=(
+                f"{len(result)} result fields"
+                if result
+                else "Waiting for Task.result from the existing runner path."
+            ),
+            status=result_status,
+            kind="tool_result",
+            lane="outputs",
+            output=_json_output(result or {"status": result_status}),
+            childCount=len(result) if result else None,
+            defaultInspector="trace",
+            degraded=task.status == TaskStatus.FAILED,
+            metadata={
+                "task_id": task.id,
+                "result": result,
+                "planner_contract_binding": binding,
+            },
+        ),
+        MeetingExecutionGraphNode(
+            id=object_node_id,
+            eyebrow="Object read" if effect == "read" else "Object write",
+            title=resource_kind,
+            detail=f"{effect} via {tool_name}",
+            status=result_status,
+            kind="object_read" if effect == "read" else "object_write",
+            lane="outputs" if effect != "read" else "context",
+            output=_json_output(result or binding),
+            defaultInspector="object",
+            metadata={
+                "task_id": task.id,
+                "resource_kind": resource_kind,
+                "effect": effect,
+                "planner_contract_binding": binding,
+                "result": result,
+            },
+        ),
+    ]
+
+    edges: List[MeetingExecutionGraphEdge] = [
+        _edge(binding_node_id, tool_node_id, "binds"),
+        _edge(tool_node_id, run_node_id, "dispatches"),
+        _edge(run_node_id, result_node_id, "produces"),
+        _edge(result_node_id, object_node_id, "materializes"),
+    ]
+    if approval_node_id:
+        nodes.insert(
+            2,
+            MeetingExecutionGraphNode(
+                id=approval_node_id,
+                eyebrow="Approval gate",
+                title="Write contract approval",
+                detail=f"{effect} · idempotency={_read_string(binding.get('idempotency'), 'none')}",
+                status="pending" if task.status == TaskStatus.PENDING else "ready",
+                kind="approval_gate",
+                lane="commands",
+                output=_json_output(binding),
+                defaultInspector="graph",
+                metadata={
+                    "task_id": task.id,
+                    "planner_contract_binding": binding,
+                },
+            ),
+        )
+        edges = [
+            _edge(binding_node_id, tool_node_id, "binds"),
+            _edge(tool_node_id, approval_node_id, "requires_approval"),
+            _edge(approval_node_id, run_node_id, "releases"),
+            _edge(run_node_id, result_node_id, "produces"),
+            _edge(result_node_id, object_node_id, "materializes"),
+        ]
+    return nodes, edges
+
+
+def _build_planner_tool_plan_nodes(
+    task: Task,
+    plan: Dict[str, Any],
+) -> tuple[List[MeetingExecutionGraphNode], List[MeetingExecutionGraphEdge]]:
+    task_result = _task_result(task)
+    tool_result = _as_dict(task_result.get("result"))
+    plan_steps_result = [
+        item for item in _as_list(tool_result.get("plan_steps")) if isinstance(item, dict)
+    ]
+    result_by_step_id = {
+        _read_string(item.get("step_id")): item
+        for item in plan_steps_result
+        if _read_string(item.get("step_id"))
+    }
+    plan_id = _read_string(plan.get("plan_id"), task.id)
+    run_node_id = f"runner-task-{_safe_id(task.id)}"
+    plan_node_id = f"planner-tool-plan-{_safe_id(plan_id)}"
+    result_node_id = f"planner-tool-plan-result-{_safe_id(task.id)}"
+    task_status = _status_for_task(task)
+    result_status = _planner_result_status(task)
+    categories = [item for item in _as_list(plan.get("categories")) if isinstance(item, dict)]
+    steps = [item for item in _as_list(plan.get("steps")) if isinstance(item, dict)]
+
+    nodes: List[MeetingExecutionGraphNode] = [
+        MeetingExecutionGraphNode(
+            id=plan_node_id,
+            eyebrow="Planner tool plan",
+            title=_read_string(plan.get("pack_id"), "meeting planner"),
+            detail=f"{len(categories)} categories · {len(steps)} tool steps",
+            status="ready",
+            kind="planner_tool_plan",
+            lane="commands",
+            output=_json_output(plan),
+            defaultInspector="graph",
+            metadata={
+                "task_id": task.id,
+                "plan": plan,
+            },
+        ),
+        MeetingExecutionGraphNode(
+            id=run_node_id,
+            eyebrow="Runner task",
+            title=_read_string(task.pack_id, "meeting.execute_planner_tool_plan"),
+            detail=f"{task.status.value if hasattr(task.status, 'value') else task.status} · task {_short_id(task.id)}",
+            status=task_status,
+            kind="runner_task",
+            lane="runs",
+            output=f"Execution ID: {task.execution_id or task.id}",
+            defaultInspector="runtime",
+            metadata={
+                "task_id": task.id,
+                "execution_id": task.execution_id,
+                "phase_id": _as_dict(task.execution_context).get("phase_id"),
+                "completed_at": _task_time(task),
+                "plan_id": plan_id,
+            },
+        ),
+        MeetingExecutionGraphNode(
+            id=result_node_id,
+            eyebrow="Planner result",
+            title=_read_string(tool_result.get("status"), "Tool plan pending"),
+            detail=(
+                f"{len(plan_steps_result)} executed steps"
+                if plan_steps_result
+                else "Waiting for Task.result from the existing runner path."
+            ),
+            status=result_status,
+            kind="tool_result",
+            lane="outputs",
+            output=_json_output(tool_result or {"status": result_status}),
+            childCount=len(plan_steps_result) if plan_steps_result else None,
+            defaultInspector="trace",
+            degraded=task.status == TaskStatus.FAILED,
+            metadata={
+                "task_id": task.id,
+                "plan_id": plan_id,
+                "result": tool_result,
+            },
+        ),
+    ]
+    edges: List[MeetingExecutionGraphEdge] = [
+        _edge(plan_node_id, run_node_id, "dispatches"),
+        _edge(run_node_id, result_node_id, "produces"),
+    ]
+
+    for category in categories:
+        category_id = _read_string(category.get("category_id"))
+        if not category_id:
+            continue
+        category_node_id = f"planner-category-{_safe_id(category_id)}"
+        nodes.append(
+            MeetingExecutionGraphNode(
+                id=category_node_id,
+                eyebrow="Category",
+                title=_read_string(category.get("label"), category_id),
+                detail=_read_string(category.get("description")),
+                status="ready",
+                kind="planner_category",
+                lane="context",
+                output=_json_output(category),
+                defaultInspector="object",
+                metadata={
+                    "task_id": task.id,
+                    "plan_id": plan_id,
+                    "category": category,
+                },
+            )
+        )
+        edges.append(_edge(plan_node_id, category_node_id, "groups"))
+
+    for step in steps:
+        step_id = _read_string(step.get("step_id"))
+        if not step_id:
+            continue
+        step_result = _as_dict(result_by_step_id.get(step_id))
+        step_status = _read_string(step_result.get("status"))
+        category_id = _read_string(step.get("category_id"))
+        category_node_id = f"planner-category-{_safe_id(category_id)}"
+        step_node_id = f"planner-tool-step-{_safe_id(step_id)}"
+        output_payload = step_result or {
+            "tool_name": step.get("tool_name"),
+            "arguments": step.get("arguments"),
+            "input_bindings": step.get("input_bindings"),
+        }
+        nodes.append(
+            MeetingExecutionGraphNode(
+                id=step_node_id,
+                eyebrow=_read_string(step.get("role"), "Tool step"),
+                title=_read_string(step.get("tool_name"), "planner tool"),
+                detail=f"{_read_string(step.get('effect'), 'action')} · {_read_string(step.get('resource_kind'), 'resource')}",
+                status=(
+                    "error"
+                    if step_status == "failed"
+                    else "ready"
+                    if step_status == "success"
+                    else task_status
+                ),
+                kind="tool_call",
+                lane="commands",
+                output=_json_output(output_payload),
+                defaultInspector="runtime",
+                degraded=step_status == "failed",
+                metadata={
+                    "task_id": task.id,
+                    "plan_id": plan_id,
+                    "step": step,
+                    "step_result": step_result,
+                },
+            )
+        )
+        if category_id:
+            edges.append(_edge(category_node_id, step_node_id, "uses"))
+        else:
+            edges.append(_edge(plan_node_id, step_node_id, "uses"))
+        edges.append(_edge(step_node_id, run_node_id, "executes"))
+        edges.append(_edge(step_node_id, result_node_id, "contributes"))
+
+    return nodes, edges
+
+
 def _build_role_nodes(
     *,
     task: Task,
@@ -122,6 +486,13 @@ def _build_role_nodes(
 def build_task_graph_nodes(
     task: Task,
 ) -> tuple[List[MeetingExecutionGraphNode], List[MeetingExecutionGraphEdge]]:
+    planner_binding = _planner_binding_from_task(task)
+    if task.task_type == "tool_execution" and planner_binding:
+        return _build_planner_contract_tool_nodes(task, planner_binding)
+    planner_tool_plan = _planner_tool_plan_from_task(task)
+    if task.task_type == "tool_execution" and planner_tool_plan:
+        return _build_planner_tool_plan_nodes(task, planner_tool_plan)
+
     inputs = _task_inputs(task)
     plan_payload = _plan_payload_from_inputs(inputs)
     action_plan_id = _read_string(

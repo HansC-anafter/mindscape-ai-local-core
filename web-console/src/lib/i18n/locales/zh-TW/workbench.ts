@@ -197,6 +197,7 @@ export const workbenchZhTW = {
   meetingWorkbenchObject: '物件',
   meetingWorkbenchBrowser: '瀏覽器',
   meetingWorkbenchSessions: '會話',
+  meetingWorkbenchNewSession: '新會話',
   meetingWorkbenchViewModeLabel: 'Meeting graph 檢視模式',
   meetingWorkbenchWork: '工作',
   meetingWorkbenchDirectorGraph: '導演',

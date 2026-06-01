@@ -11,7 +11,7 @@ import {
 } from './meetingGraphObjectProjection';
 import { addressableRefKey, formatKind, graphRefLabel } from './meetingGraphProjection';
 import type { InspectorTab, MeetingCommandImpact, MeetingNode, MeetingTranslate, RuntimeInspectorSnapshot } from './meetingWorkbenchTypes';
-import { readString } from './meetingWorkbenchUtils';
+import { isRecord, readString } from './meetingWorkbenchUtils';
 
 function StatTile({ label, value }: { label: string; value: string | number }) {
   return (
@@ -36,6 +36,50 @@ function getSelectedGuidanceCard(
     const sameObject = !objectUri || card.projection.ref.uri === objectUri;
     return sameGuidance && sameObject;
   }) ?? null;
+}
+
+function isPlannerContractNode(selectedNode: MeetingNode | null): boolean {
+  return [
+    'planner_contract_binding',
+    'tool_call',
+    'approval_gate',
+    'runner_task',
+    'tool_result',
+    'object_read',
+    'object_write',
+  ].includes(selectedNode?.kind || '');
+}
+
+function plannerBindingFromNode(selectedNode: MeetingNode | null): Record<string, unknown> {
+  const metadata = isRecord(selectedNode?.metadata) ? selectedNode.metadata : {};
+  const binding = metadata.planner_contract_binding || metadata.binding;
+  return isRecord(binding) ? binding : {};
+}
+
+function PlannerContractNodeBlock({ selectedNode }: { selectedNode: MeetingNode | null }) {
+  if (!isPlannerContractNode(selectedNode)) {
+    return null;
+  }
+  const binding = plannerBindingFromNode(selectedNode);
+  const toolName = readString(binding.tool_name) || readString(selectedNode?.metadata?.tool_name) || selectedNode?.title || 'planner tool';
+  const resourceKind = readString(binding.resource_kind) || readString(selectedNode?.metadata?.resource_kind) || 'resource';
+  const effect = readString(binding.effect) || readString(selectedNode?.metadata?.effect) || 'action';
+  const idempotency = readString(binding.idempotency) || 'none';
+  const bindingId = readString(binding.binding_id);
+
+  return (
+    <div className="rounded-md border border-blue-200 bg-blue-50/60 p-2 text-xs dark:border-blue-900/50 dark:bg-blue-950/20" data-testid="meeting-work-planner-contract-node">
+      <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-blue-700 dark:text-blue-300">Planner contract</div>
+      <div className="mt-1 font-semibold text-slate-950 dark:text-slate-100">{toolName}</div>
+      <div className="mt-2 grid grid-cols-2 gap-2">
+        <StatTile label="Effect" value={effect} />
+        <StatTile label="Resource" value={resourceKind} />
+        <StatTile label="Idempotency" value={idempotency} />
+        <StatTile label="Approval" value={binding.approval_required === true ? 'required' : 'not required'} />
+      </div>
+      {bindingId ? <div className="mt-2 truncate font-mono text-[11px] text-slate-500 dark:text-slate-400">{bindingId}</div> : null}
+    </div>
+  );
 }
 
 function GuidanceCommandBlock({
@@ -115,6 +159,7 @@ export function MeetingWorkInspectorContent({
           <StatTile label={t('meetingWorkbenchStatus')} value={selectedNode?.status || 'none'} />
           <StatTile label={t('meetingWorkbenchKind')} value={selectedNode ? formatKind(selectedNode.kind) : 'none'} />
         </div>
+        <PlannerContractNodeBlock selectedNode={selectedNode} />
         <div className="rounded-md border border-slate-200 p-2 text-xs dark:border-slate-800">
           <div className="font-semibold text-slate-900 dark:text-slate-100">{summary?.title || t('meetingWorkbenchFocusObject')}</div>
           <div className="mt-1 truncate font-mono text-[11px] text-slate-500 dark:text-slate-400">

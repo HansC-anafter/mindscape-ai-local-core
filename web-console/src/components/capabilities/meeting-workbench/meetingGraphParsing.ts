@@ -34,7 +34,24 @@ function normalizeMeetingNodeStatus(value: string): MeetingNodeStatus | null {
 }
 
 function isMeetingNodeKind(value: string): value is MeetingNodeKind {
-  return ['meeting', 'object', 'command', 'run', 'result', 'artifact', 'group', 'next', 'event'].includes(value);
+  return [
+    'meeting',
+    'object',
+    'command',
+    'run',
+    'runner_task',
+    'planner_contract_binding',
+    'tool_call',
+    'approval_gate',
+    'tool_result',
+    'object_read',
+    'object_write',
+    'result',
+    'artifact',
+    'group',
+    'next',
+    'event',
+  ].includes(value);
 }
 
 function isMeetingLane(value: string): value is MeetingLane {

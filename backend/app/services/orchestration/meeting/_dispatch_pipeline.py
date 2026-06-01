@@ -218,6 +218,88 @@ async def stage_decompose_and_dispatch(
     except Exception as exc:
         logger.warning("Failed to compile TaskIR from meeting: %s", exc)
 
+    if compiled_ir is not None:
+        try:
+            from backend.app.models.task_ir import PhaseIR
+            from backend.app.services.orchestration.meeting.planner_contract_execution.tool_plan_compiler import (
+                PlannerToolPlanCompiler,
+            )
+
+            planner_tool_plan = PlannerToolPlanCompiler().compile(
+                request_contract=getattr(meeting, "_request_contract", None),
+                session_metadata=dict(getattr(meeting.session, "metadata", {}) or {}),
+                workspace_id=str(getattr(compiled_ir, "workspace_id", "") or ""),
+                meeting_id=str(getattr(meeting.session, "id", "") or ""),
+            )
+            if planner_tool_plan:
+                phase_id = "planner_tool_plan_execute"
+                phase_name = "Execute meeting planner tool plan"
+                compiled_ir.phases = [
+                    PhaseIR(
+                        id=phase_id,
+                        name=phase_name,
+                        description=(
+                            "Execute the meeting-level planner tool plan through "
+                            "installed capability planner_contract tools."
+                        ),
+                        preferred_engine="tool:meeting.execute_planner_tool_plan",
+                        tool_name="meeting.execute_planner_tool_plan",
+                        input_params={
+                            "planner_tool_plan": planner_tool_plan.as_execution_payload()
+                        },
+                    )
+                ]
+                action_items[:] = [
+                    {
+                        "title": phase_name,
+                        "description": (
+                            "Execute the meeting-level planner tool plan through "
+                            "installed capability planner_contract tools."
+                        ),
+                        "engine": "tool:meeting.execute_planner_tool_plan",
+                        "tool_name": "meeting.execute_planner_tool_plan",
+                        "input_params": {
+                            "planner_tool_plan": planner_tool_plan.as_execution_payload()
+                        },
+                    }
+                ]
+                if getattr(meeting.session, "metadata", None) is not None:
+                    meeting.session.metadata["planner_tool_plan"] = {
+                        "plan_id": planner_tool_plan.plan_id,
+                        "pack_id": planner_tool_plan.pack_id,
+                        "category_count": len(planner_tool_plan.categories),
+                        "step_count": len(planner_tool_plan.steps),
+                    }
+                logger.info(
+                    "Planner tool plan compiled for session %s with %d categories and %d steps",
+                    getattr(meeting.session, "id", "?"),
+                    len(planner_tool_plan.categories),
+                    len(planner_tool_plan.steps),
+                )
+        except Exception as exc:
+            logger.warning("Planner tool plan compile failed (non-fatal): %s", exc)
+
+    if compiled_ir is not None:
+        try:
+            from backend.app.services.orchestration.meeting.planner_contract_execution.binding_service import (
+                PlannerContractBindingService,
+            )
+
+            binding_report = PlannerContractBindingService().bind_task_ir(
+                task_ir=compiled_ir,
+                request_contract=getattr(meeting, "_request_contract", None),
+                session_metadata=dict(getattr(meeting.session, "metadata", {}) or {}),
+            )
+            if getattr(meeting.session, "metadata", None) is not None:
+                meeting.session.metadata["planner_contract_binding"] = binding_report
+            if binding_report.get("bound_count", 0):
+                logger.info(
+                    "Planner contract binding attached %d phases",
+                    binding_report.get("bound_count", 0),
+                )
+        except Exception as exc:
+            logger.warning("Planner contract binding failed (non-fatal): %s", exc)
+
     if plan_only_no_actuator:
         for item in action_items:
             item["landing_status"] = "planned"

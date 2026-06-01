@@ -99,6 +99,16 @@ def register_core_routes(app: FastAPI) -> None:
         workspace_runtime_config_router, tags=["workspace-runtime-config"]
     )
 
+    try:
+        from backend.app.routes.core.runtime_source_identity import (
+            router as runtime_source_identity_router,
+        )
+
+        app.include_router(runtime_source_identity_router, tags=["runtime"])
+        logger.info("Runtime source identity routes registered")
+    except Exception as e:
+        logger.warning(f"Failed to register runtime source identity routes: {e}")
+
     # Runtime proxy routes (proxied external runtime settings)
     try:
         from backend.app.routes.core.runtime_proxy import router as runtime_proxy_router

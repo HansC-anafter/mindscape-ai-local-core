@@ -136,12 +136,13 @@ export function MeetingHeaderToolbar({
           type="button"
           onClick={onStartBlankMeetingSession}
           disabled={startingBlankMeetingSession}
-          className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-slate-50 text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900 disabled:cursor-wait disabled:opacity-60 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+          className="inline-flex h-8 shrink-0 items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-2.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900 disabled:cursor-wait disabled:opacity-60 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100"
           data-testid="meeting-new-session-button"
-          aria-label="New blank meeting session"
-          title="New blank meeting session"
+          aria-label={t('meetingWorkbenchNewSession')}
+          title={t('meetingWorkbenchNewSession')}
         >
           <PlusCircle className="h-4 w-4" aria-hidden="true" />
+          <span>{t('meetingWorkbenchNewSession')}</span>
         </button>
         <div
           className="hidden items-center overflow-hidden rounded-md border border-slate-200 bg-slate-50 p-0.5 dark:border-slate-800 dark:bg-slate-900 md:flex"
