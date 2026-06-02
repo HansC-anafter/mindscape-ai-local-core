@@ -284,7 +284,7 @@ services:
       - PYTHONPATH=/app:/app/backend:/app/backend/app
       - ENVIRONMENT=development
       - MINDSCAPE_BACKEND_ROLE=control
-      - MINDSCAPE_BACKEND_RELOAD=true
+      - MINDSCAPE_BACKEND_RELOAD=false
       - MINDSCAPE_ALLOW_IMPLICIT_PACK_RELOAD=true
       - MINDSCAPE_RUNTIME_TMPDIR=/app/.tmp
       - MINDSCAPE_CONTROL_PLANE_SKIP_MIGRATIONS=1

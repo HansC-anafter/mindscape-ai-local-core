@@ -6,12 +6,14 @@ Install runtime assets and execute capability-specific migrations.
 
 import logging
 import base64
+import errno
 import hashlib
 import json
 import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import uuid
 from pathlib import Path
 from typing import Dict, Optional
@@ -94,6 +96,17 @@ def _iter_runtime_mirror_files(root: Path):
         yield relative_path, file_path
 
 
+def _build_staging_root(capability_code: str) -> Path:
+    """Build a staging path outside watched application source trees."""
+    configured_root = os.environ.get("MINDSCAPE_CAPABILITY_INSTALL_STAGING_ROOT")
+    base_dir = (
+        Path(configured_root)
+        if configured_root
+        else Path(tempfile.gettempdir()) / "mindscape-capability-install-staging"
+    )
+    return base_dir / f"{capability_code}-{uuid.uuid4().hex}"
+
+
 class RuntimeAssetsInstaller:
     """Install runtime assets (tools, services, API, schema, models, migrations, UI, manifest, root files, bundles)"""
 
@@ -127,11 +140,7 @@ class RuntimeAssetsInstaller:
             temp_dir: Temporary extraction directory (for ZIP format manifest location)
         """
         target_cap_dir = self.capabilities_dir / capability_code
-        staging_root = (
-            self.capabilities_dir.parent
-            / ".capability-install-staging"
-            / f"{capability_code}-{uuid.uuid4().hex}"
-        )
+        staging_root = _build_staging_root(capability_code)
         staging_capabilities_dir = staging_root / "capabilities"
         staging_cap_dir = staging_capabilities_dir / capability_code
 
@@ -330,7 +339,13 @@ class RuntimeAssetsInstaller:
             if target_cap_dir.exists():
                 target_cap_dir.rename(backup_dir)
                 moved_existing = True
-            staging_cap_dir.rename(target_cap_dir)
+            try:
+                staging_cap_dir.rename(target_cap_dir)
+            except OSError as exc:
+                if exc.errno != errno.EXDEV:
+                    raise
+                shutil.copytree(staging_cap_dir, target_cap_dir, symlinks=True)
+                shutil.rmtree(staging_cap_dir, ignore_errors=True)
             if backup_dir.exists():
                 shutil.rmtree(backup_dir)
         except Exception:

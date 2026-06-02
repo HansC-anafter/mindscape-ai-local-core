@@ -7,6 +7,7 @@ import os
 import signal
 import faulthandler
 import time
+from pathlib import Path
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
@@ -14,7 +15,9 @@ import logging
 import uvicorn
 
 from backend.app.core.backend_runtime_mode import (
+    get_uvicorn_reload_excludes,
     get_backend_runtime_role,
+    should_enable_capability_reload_watch,
     should_enable_uvicorn_reload,
 )
 from backend.app.core.security import security_monitor
@@ -369,12 +372,16 @@ def main():
     port = int(os.getenv("PORT", "8000"))
     workers = int(os.getenv("WORKERS", "1"))
     reload_enabled = should_enable_uvicorn_reload()
+    app_root = Path(__file__).resolve().parent
+    reload_excludes = get_uvicorn_reload_excludes(app_root=app_root)
+    capability_reload_watch = should_enable_capability_reload_watch()
 
     logger.info(
-        "Starting My Agent Console API on %s:%s (reload=%s)",
+        "Starting My Agent Console API on %s:%s (reload=%s capability_reload_watch=%s)",
         host,
         port,
         reload_enabled,
+        capability_reload_watch,
     )
 
     uvicorn.run(
@@ -383,6 +390,7 @@ def main():
         port=port,
         workers=workers,
         reload=reload_enabled,
+        reload_excludes=reload_excludes,
         log_level="info",
     )
 

@@ -19,6 +19,10 @@ from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
+GENERATED_RUNTIME_ASSET_SIDECARS = {
+    "ui_runtime_assets.json",
+}
+
 MANIFEST_FILENAME = ".install_manifest.json"
 
 # Directories/files to skip when hashing
@@ -245,6 +249,8 @@ def prune_stale_installed_files(
 
     for rel_path in sorted(installed_files):
         if rel_path in incoming_files:
+            continue
+        if rel_path in GENERATED_RUNTIME_ASSET_SIDECARS:
             continue
 
         target = installed_cap_dir / rel_path

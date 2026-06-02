@@ -17,6 +17,24 @@ if [ "${reload_enabled}" = "1" ]; then
   if [ "${capability_reload_watch_enabled}" = "1" ] && [ -d /app/backend/app/capabilities ]; then
     set -- "$@" --reload-dir /app/backend/app/capabilities
   fi
+  if [ "${capability_reload_watch_enabled}" != "1" ]; then
+    set -- "$@" --reload-exclude backend/app/capabilities
+    set -- "$@" --reload-exclude 'backend/app/capabilities/*'
+    set -- "$@" --reload-exclude 'backend/app/capabilities/**'
+    set -- "$@" --reload-exclude 'backend/app/capabilities/**/*'
+    set -- "$@" --reload-exclude /app/backend/app/capabilities
+    set -- "$@" --reload-exclude '/app/backend/app/capabilities/*'
+    set -- "$@" --reload-exclude '/app/backend/app/capabilities/**'
+    set -- "$@" --reload-exclude '/app/backend/app/capabilities/**/*'
+    set -- "$@" --reload-exclude backend/app/.capability-install-staging
+    set -- "$@" --reload-exclude 'backend/app/.capability-install-staging/*'
+    set -- "$@" --reload-exclude 'backend/app/.capability-install-staging/**'
+    set -- "$@" --reload-exclude 'backend/app/.capability-install-staging/**/*'
+    set -- "$@" --reload-exclude /app/backend/app/.capability-install-staging
+    set -- "$@" --reload-exclude '/app/backend/app/.capability-install-staging/*'
+    set -- "$@" --reload-exclude '/app/backend/app/.capability-install-staging/**'
+    set -- "$@" --reload-exclude '/app/backend/app/.capability-install-staging/**/*'
+  fi
 fi
 
 exec "$@"

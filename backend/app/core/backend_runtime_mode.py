@@ -8,6 +8,7 @@ that is currently running long-lived execution workloads.
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 
 def _parse_bool(value: str | None) -> bool | None:
@@ -82,6 +83,44 @@ def should_enable_capability_reload_watch(
     if is_control_plane():
         return False
     return True
+
+
+def get_uvicorn_reload_excludes(
+    *,
+    app_root: str | os.PathLike[str] | None = None,
+    environment: str | None = None,
+) -> list[str]:
+    """Return filesystem paths that uvicorn reload must ignore.
+
+    The control plane installs capability packs by replacing files under the
+    installed capability tree. Watching that tree makes the installer requeue
+    itself before it can commit a terminal job state.
+    """
+
+    if should_enable_capability_reload_watch(environment=environment):
+        return []
+
+    root = Path(app_root) if app_root is not None else Path(__file__).resolve().parents[1]
+
+    def _relative_reload_pattern(path: Path) -> str:
+        try:
+            return str(path.resolve().relative_to(Path.cwd().resolve()))
+        except ValueError:
+            return str(path)
+
+    def _reload_patterns(path: Path) -> list[str]:
+        relative = _relative_reload_pattern(path)
+        absolute = str(path.resolve())
+        patterns: list[str] = []
+        for base in (relative, absolute):
+            patterns.extend([base, f"{base}/*", f"{base}/**", f"{base}/**/*"])
+        return list(dict.fromkeys(patterns))
+
+    return [
+        pattern
+        for path in (root / "capabilities", root / ".capability-install-staging")
+        for pattern in _reload_patterns(path)
+    ]
 
 
 def should_allow_implicit_pack_reload(
