@@ -33,6 +33,35 @@ class _FakeStore:
         return self.waiting
 
 
+class _PendingActivationStore:
+    def __init__(self, result_payload):
+        self.result_payload = result_payload
+        self.succeeded_payload = None
+
+    def get_job(self, install_id):
+        return {
+            "install_id": install_id,
+            "state": "pending_execution_activation",
+            "result_payload": self.result_payload,
+        }
+
+    def mark_succeeded(self, install_id, *, result_payload):
+        self.succeeded_payload = result_payload
+        return {
+            "install_id": install_id,
+            "state": "succeeded",
+            "result_payload": result_payload,
+        }
+
+
+class _ActivationService:
+    def __init__(self, state):
+        self.state = state
+
+    def get_state(self, pack_id):
+        return self.state if self.state.get("pack_id") == pack_id else None
+
+
 @pytest.mark.asyncio
 async def test_install_job_enters_waiting_db_before_filesystem_promotion(monkeypatch):
     readiness = DatabaseWriteReadiness(
@@ -61,3 +90,63 @@ async def test_install_job_enters_waiting_db_before_filesystem_promotion(monkeyp
         "retry_after_seconds": 17,
     }
     assert store.waiting == result
+
+
+def test_get_job_reconciles_pending_activation_when_runtime_pack_is_active():
+    result_payload = {
+        "capability_code": "ig",
+        "activation": {"manifest_hash": "hash-1"},
+        "execution_activation": {"state": "pending_execution_activation"},
+    }
+    activation_state = {
+        "pack_id": "ig",
+        "install_state": "installed",
+        "activation_state": "active",
+        "activation_mode": "capability_registry_load",
+        "manifest_hash": "hash-1",
+        "updated_at": "2026-06-02T02:17:33Z",
+    }
+    store = _PendingActivationStore(result_payload)
+    service = CapabilityInstallJobService(
+        store=store,
+        activation_service=_ActivationService(activation_state),
+    )
+
+    result = service.get_job("job-1")
+
+    assert result["state"] == "succeeded"
+    assert result["status_url"] == "/api/v1/capability-packs/install-jobs/job-1"
+    assert store.succeeded_payload["activation"] == activation_state
+    assert store.succeeded_payload["execution_activation"] == {
+        "state": "activated",
+        "source": "activation_state_reconcile",
+        "activation_state": "active",
+        "activation_mode": "capability_registry_load",
+        "updated_at": "2026-06-02T02:17:33Z",
+    }
+
+
+def test_get_job_keeps_pending_activation_when_manifest_hash_differs():
+    result_payload = {
+        "capability_code": "ig",
+        "activation": {"manifest_hash": "hash-1"},
+        "execution_activation": {"state": "pending_execution_activation"},
+    }
+    activation_state = {
+        "pack_id": "ig",
+        "install_state": "installed",
+        "activation_state": "active",
+        "activation_mode": "capability_registry_load",
+        "manifest_hash": "hash-2",
+    }
+    store = _PendingActivationStore(result_payload)
+    service = CapabilityInstallJobService(
+        store=store,
+        activation_service=_ActivationService(activation_state),
+    )
+
+    result = service.get_job("job-1")
+
+    assert result["state"] == "pending_execution_activation"
+    assert result["status_url"] == "/api/v1/capability-packs/install-jobs/job-1"
+    assert store.succeeded_payload is None

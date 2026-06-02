@@ -20,6 +20,7 @@ from backend.app.routes.core.capability_install_core.paths import (
     _resolve_local_core_root,
 )
 from backend.app.routes.core.capability_install_core.pipeline import run_install_pipeline
+from backend.app.services.pack_activation_service import PackActivationService
 from backend.app.services.stores.capability_install_job_store import (
     CapabilityInstallJobStore,
 )
@@ -57,8 +58,13 @@ def _pipeline_result_to_payload(result: Any) -> Dict[str, Any]:
 class CapabilityInstallJobService:
     """Create and execute capability install jobs."""
 
-    def __init__(self, store: Optional[CapabilityInstallJobStore] = None):
+    def __init__(
+        self,
+        store: Optional[CapabilityInstallJobStore] = None,
+        activation_service: Optional[PackActivationService] = None,
+    ):
         self.store = store or CapabilityInstallJobStore()
+        self._activation_service = activation_service
 
     def create_file_upload_job(
         self,
@@ -126,8 +132,74 @@ class CapabilityInstallJobService:
     def get_job(self, install_id: str) -> Optional[Dict[str, Any]]:
         job = self.store.get_job(install_id)
         if job is not None:
+            job = self._reconcile_pending_execution_activation(job)
             job["status_url"] = _status_url(install_id)
         return job
+
+    def _get_activation_service(self) -> PackActivationService:
+        if self._activation_service is None:
+            self._activation_service = PackActivationService()
+        return self._activation_service
+
+    def _reconcile_pending_execution_activation(
+        self,
+        job: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        if job.get("state") != "pending_execution_activation":
+            return job
+        result_payload = job.get("result_payload") or {}
+        capability_code = result_payload.get("capability_code")
+        if not capability_code:
+            return job
+        try:
+            activation = self._get_activation_service().get_state(capability_code)
+        except Exception as exc:
+            logger.warning(
+                "Failed to reconcile capability install activation for %s: %s",
+                capability_code,
+                exc,
+                exc_info=True,
+            )
+            return job
+        if not self._activation_matches_pending_job(
+            capability_code=capability_code,
+            result_payload=result_payload,
+            activation=activation,
+        ):
+            return job
+        next_payload = dict(result_payload)
+        next_payload["activation"] = activation
+        next_payload["execution_activation"] = {
+            "state": "activated",
+            "source": "activation_state_reconcile",
+            "activation_state": activation.get("activation_state"),
+            "activation_mode": activation.get("activation_mode"),
+            "updated_at": activation.get("updated_at"),
+        }
+        reconciled = self.store.mark_succeeded(
+            job["install_id"],
+            result_payload=next_payload,
+        )
+        return reconciled or job
+
+    @staticmethod
+    def _activation_matches_pending_job(
+        *,
+        capability_code: str,
+        result_payload: Dict[str, Any],
+        activation: Optional[Dict[str, Any]],
+    ) -> bool:
+        if not activation:
+            return False
+        if activation.get("pack_id") != capability_code:
+            return False
+        if activation.get("install_state") != "installed":
+            return False
+        if activation.get("activation_state") != "active":
+            return False
+        pending_hash = (result_payload.get("activation") or {}).get("manifest_hash")
+        current_hash = activation.get("manifest_hash")
+        return bool(pending_hash and current_hash and pending_hash == current_hash)
 
     async def run_next_job(self, *, fastapi_app: Any) -> Optional[Dict[str, Any]]:
         job = self.store.claim_next_job()
