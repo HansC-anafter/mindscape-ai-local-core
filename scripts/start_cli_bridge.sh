@@ -22,6 +22,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 CLIENT_SCRIPT="$PROJECT_DIR/backend/app/services/external_agents/bridge/host_ws_client.py"
+CLIENT_MODULE="backend.app.services.external_agents.bridge.host_ws_client"
 LOG_DIR="$PROJECT_DIR/logs"
 
 # Default config
@@ -220,7 +221,7 @@ release_surface_lock() {
 find_existing_bridge_pid() {
     local ws_id="$1"
     ps -Ao pid=,command= | while read -r pid cmd; do
-        [[ "$cmd" != *"$CLIENT_SCRIPT"* ]] && continue
+        [[ "$cmd" != *"$CLIENT_SCRIPT"* && "$cmd" != *"$CLIENT_MODULE"* ]] && continue
         [[ "$cmd" != *"--workspace-id $ws_id"* ]] && continue
         [[ "$cmd" != *"--surface $SURFACE"* ]] && continue
         if [[ "$pid" != "$$" ]]; then
@@ -279,29 +280,23 @@ if ! surface_runtime_available; then
     exit 0
 fi
 
-# --- Pre-flight checks ---
-
-# 1. Check Python
 PYTHON_BIN="${MINDSCAPE_PYTHON_BIN:-$(command -v python3 || true)}"
 if [[ -z "$PYTHON_BIN" || ! -x "$PYTHON_BIN" ]]; then
     log_error "python3 not found. Please install Python 3.8+"
     exit 1
 fi
 
-# 2. Check websockets package
 if ! "$PYTHON_BIN" -c "import websockets" 2>/dev/null; then
     log_warn "'websockets' package not found. Installing..."
     "$PYTHON_BIN" -m pip install websockets --quiet
     log_info "websockets installed"
 fi
 
-# 3. Check client script exists
 if [[ ! -f "$CLIENT_SCRIPT" ]]; then
     log_error "Client script not found: $CLIENT_SCRIPT"
     exit 1
 fi
 
-# 4. Check backend/control plane is reachable
 BACKEND_HTTP="http://$BACKEND_HOST"
 CONTROL_HTTP="$(resolve_bridge_api_url)"
 if [[ -z "${MINDSCAPE_BACKEND_API_URL:-}" ]]; then
@@ -369,7 +364,6 @@ except:
 " 2>/dev/null
 }
 
-# 5. Resolve workspace(s)
 if [[ "$ALL_MODE" == "true" ]]; then
     log_info "Fetching all workspaces..."
     ALL_WS_IDS=$(fetch_active_workspace_ids)
@@ -552,7 +546,7 @@ if [[ "$ALL_MODE" == "true" ]]; then
             return 0
         fi
         log_info "  Spawning bridge for workspace: $ws_id"
-        "$PYTHON_BIN" "$CLIENT_SCRIPT" \
+        "$PYTHON_BIN" -m "$CLIENT_MODULE" \
             --workspace-id "$ws_id" \
             --host "$BACKEND_HOST" \
             --surface "$SURFACE" \
@@ -592,8 +586,6 @@ if [[ "$ALL_MODE" == "true" ]]; then
     while true; do
         sleep 15
 
-        # 1. Detect dead child processes - collect indices first to avoid
-        #    mutating arrays during iteration (bash mutation-during-iteration bug)
         DEAD_INDICES=()
         for i in "${!RUNNING_PIDS[@]}"; do
             if ! kill -0 "${RUNNING_PIDS[$i]}" 2>/dev/null; then
@@ -619,11 +611,9 @@ if [[ "$ALL_MODE" == "true" ]]; then
             done
         fi
 
-        # 2. Fetch current workspaces
         CURRENT_WS_IDS=$(fetch_active_workspace_ids 2>/dev/null || true)
         [[ -z "$CURRENT_WS_IDS" ]] && continue
 
-        # 3. Spawn bridges for NEW workspaces
         while IFS= read -r ws_id; do
             [[ -z "$ws_id" ]] && continue
             clear_missing_count "$ws_id"
@@ -634,7 +624,6 @@ if [[ "$ALL_MODE" == "true" ]]; then
             fi
         done <<< "$CURRENT_WS_IDS"
 
-        # 4. Kill bridges for REMOVED workspaces - collect first, then remove
         REMOVE_INDICES=()
         for i in "${!RUNNING_WS_IDS[@]}"; do
             local_ws="${RUNNING_WS_IDS[$i]}"
@@ -673,7 +662,7 @@ else
     log_info "Press Ctrl+C to stop"
     echo ""
 
-    exec "$PYTHON_BIN" "$CLIENT_SCRIPT" \
+    exec "$PYTHON_BIN" -m "$CLIENT_MODULE" \
         --workspace-id "$WORKSPACE_ID" \
         --host "$BACKEND_HOST" \
         --surface "$SURFACE" \
