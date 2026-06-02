@@ -143,6 +143,65 @@ def test_install_services_replaces_existing_runtime_tree(tmp_path):
     assert not (target_services_dir / "variant_projection_service.py").exists()
 
 
+def test_install_all_copies_runtime_namespace_dirs(tmp_path):
+    local_core_root = tmp_path / "local-core"
+    capabilities_dir = local_core_root / "backend" / "app" / "capabilities"
+    capabilities_dir.mkdir(parents=True)
+
+    cap_dir = tmp_path / "extracted" / "motion_runtime"
+    cap_dir.mkdir(parents=True)
+    (cap_dir / "manifest.yaml").write_text(
+        "code: motion_runtime\nversion: 0.1.0\n",
+        encoding="utf-8",
+    )
+    for dirname in ("core", "analysis", "generation"):
+        namespace_dir = cap_dir / dirname
+        nested_dir = namespace_dir / "schema"
+        cache_dir = namespace_dir / "__pycache__"
+        nested_dir.mkdir(parents=True)
+        cache_dir.mkdir(parents=True)
+        (namespace_dir / "__init__.py").write_text("# package\n", encoding="utf-8")
+        (nested_dir / "__init__.py").write_text("# schema\n", encoding="utf-8")
+        (nested_dir / f"{dirname}_contract.py").write_text(
+            f"NAMESPACE = '{dirname}'\n",
+            encoding="utf-8",
+        )
+        (cache_dir / f"{dirname}.cpython-311.pyc").write_bytes(b"compiled")
+
+    stale_dir = capabilities_dir / "motion_runtime" / "analysis"
+    stale_dir.mkdir(parents=True)
+    (stale_dir / "obsolete.py").write_text("OBSOLETE = True\n", encoding="utf-8")
+
+    installer = RuntimeAssetsInstaller(
+        local_core_root=local_core_root,
+        capabilities_dir=capabilities_dir,
+    )
+    result = InstallResult(capability_code="motion_runtime")
+
+    installer.install_all(
+        cap_dir,
+        "motion_runtime",
+        {"code": "motion_runtime", "version": "0.1.0"},
+        result,
+    )
+
+    target_dir = capabilities_dir / "motion_runtime"
+    for dirname in ("core", "analysis", "generation"):
+        assert (target_dir / dirname / "__init__.py").exists()
+        assert (
+            target_dir / dirname / "schema" / f"{dirname}_contract.py"
+        ).read_text(encoding="utf-8") == f"NAMESPACE = '{dirname}'\n"
+        assert not (
+            target_dir / dirname / "__pycache__" / f"{dirname}.cpython-311.pyc"
+        ).exists()
+    assert not (target_dir / "analysis" / "obsolete.py").exists()
+    assert set(result.installed.get("runtime_namespace_dirs", [])) == {
+        "analysis",
+        "core",
+        "generation",
+    }
+
+
 def test_install_capability_models_copies_runtime_assets(tmp_path):
     local_core_root = tmp_path / "local-core"
     capabilities_dir = local_core_root / "backend" / "app" / "capabilities"

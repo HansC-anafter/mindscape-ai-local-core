@@ -39,7 +39,13 @@ SCRIPT_DIR_EXCLUDES = {
 }
 SCRIPT_FILE_EXCLUDES = {".DS_Store"}
 SCRIPT_SUFFIX_EXCLUDES = {".pyc", ".pyo"}
+RUNTIME_NAMESPACE_DIRS = {
+    "analysis",
+    "core",
+    "generation",
+}
 RUNTIME_MIRROR_DIRS = {
+    *RUNTIME_NAMESPACE_DIRS,
     "api",
     "docs",
     "evals",
@@ -203,52 +209,39 @@ class RuntimeAssetsInstaller:
         temp_dir: Optional[Path] = None,
     ):
         """Install runtime assets into ``self.capabilities_dir``."""
-        # 1. Install scripts
         self.install_scripts(cap_dir, capability_code, result)
 
-        # 2. Install tools
         self.install_tools(cap_dir, capability_code, result)
 
-        # 3. Install services
         self.install_services(cap_dir, capability_code, result)
 
-        # 3b. Install jobs directory
+        self.install_runtime_namespace_dirs(cap_dir, capability_code, result)
+
         self.install_jobs(cap_dir, capability_code, result)
 
-        # 4. Install API endpoints
         self.install_api_endpoints(cap_dir, capability_code, result)
 
-        # 5. Install schema modules
         self.install_schema_modules(cap_dir, capability_code, result)
 
-        # 6. Install database models
         self.install_database_models(cap_dir, capability_code, result)
 
-        # 6b. Install capability models (models/ directory)
         self.install_capability_models(cap_dir, capability_code, result)
 
-        # 7. Install migrations directory (copy migrations/ to capability directory)
         self.install_migrations_directory(cap_dir, capability_code, result)
 
-        # 8. Install migrations (copy migration files to alembic/versions/)
         self.install_migrations(cap_dir, capability_code, result)
 
         # Note: Migration execution is deferred to capability_packs.py install_from_file
         # to ensure migrations run even if playbook validation fails
 
-        # 9. Install UI components
         self.install_ui_components(cap_dir, capability_code, manifest, result)
 
-        # 10. Install manifest
         self.install_manifest(cap_dir, capability_code, manifest, temp_dir)
 
-        # 11. Install root-level Python files and YAML files
         self.install_root_files(cap_dir, capability_code, result)
 
-        # 12. Install pack-local bundles (e.g. local_bundle model assets)
         self.install_bundles(cap_dir, capability_code, result)
 
-        # 13. Install docs directory (agent_guide, etc.)
         self.install_docs(cap_dir, capability_code, result)
 
         self.install_evals(cap_dir, capability_code, result)
@@ -489,6 +482,39 @@ class RuntimeAssetsInstaller:
             shutil.copytree(item, target_subdir)
             logger.debug(f"Installed services subdirectory: {item.name}")
             result.add_installed("service_dirs", item.name)
+
+    def install_runtime_namespace_dirs(
+        self,
+        cap_dir: Path,
+        capability_code: str,
+        result: InstallResult,
+    ):
+        """Install pack-local runtime namespace packages."""
+        for dirname in sorted(RUNTIME_NAMESPACE_DIRS):
+            source_dir = cap_dir / dirname
+            if not source_dir.exists():
+                continue
+            if not source_dir.is_dir():
+                result.add_warning(
+                    f"Skipping non-directory runtime namespace asset: {dirname}"
+                )
+                continue
+
+            target_dir = self.capabilities_dir / capability_code / dirname
+            if target_dir.exists():
+                shutil.rmtree(target_dir)
+            shutil.copytree(
+                source_dir,
+                target_dir,
+                ignore=shutil.ignore_patterns(
+                    "__pycache__",
+                    "*.pyc",
+                    "*.pyo",
+                    ".DS_Store",
+                ),
+            )
+            result.add_installed("runtime_namespace_dirs", dirname)
+            logger.debug("Installed runtime namespace directory: %s", dirname)
 
     def install_jobs(self, cap_dir: Path, capability_code: str, result: InstallResult):
         """Install capability jobs directory"""
