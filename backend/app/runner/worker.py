@@ -92,6 +92,10 @@ from backend.app.runner.db_pool_pressure import (
     check_db_pool_pressure,
     should_write_postgres_heartbeat,
 )
+from backend.app.runner.worker_db_budget import (
+    WorkerDbBudgetDecision,
+    decide_worker_db_budget,
+)
 from backend.app.runner.browser_fair_candidate_scheduler import (
     select_browser_fair_candidate,
 )
@@ -117,6 +121,7 @@ __all__ = [
     "_RESTART_SENTINEL_PATH",
     "_RESTART_DRAIN_TIMEOUT_SECONDS",
     "_repair_misqueued_task_if_needed",
+    "_pending_task_runnable_from_queue",
     "_dequeue_by_browser_fair_candidate_policy",
     "run_forever",
     "main",
@@ -528,6 +533,14 @@ async def _repair_misqueued_task_if_needed(
         expected_shard,
     )
     return True
+
+
+def _pending_task_runnable_from_queue(task_data) -> bool:
+    if getattr(task_data, "status", None) != TaskStatus.PENDING:
+        return False
+    if getattr(task_data, "blocked_reason", None):
+        return False
+    return getattr(task_data, "frontier_state", "ready") == "ready"
 
 
 def _host_route_gate_enabled() -> bool:
@@ -1018,12 +1031,18 @@ async def _run_maintenance_cycle(
         redis_queue,
         owner_id=f"{runner_id}:maintenance",
     )
-    if db_pressure.paused:
+    db_budget = decide_worker_db_budget(
+        db_pressure,
+        profile_code="maintenance",
+        inflight=0,
+        max_inflight=1,
+    )
+    if not db_budget.allow_release_maintenance:
         logger.warning(
-            "Runner maintenance skipped while PgBouncer pressure is active "
+            "Runner maintenance skipped by DB budget "
             "reason=%s wait_seconds=%s",
-            db_pressure.reason,
-            db_pressure.wait_seconds,
+            db_budget.reason,
+            db_budget.wait_seconds,
         )
         return False
 
@@ -1252,6 +1271,14 @@ async def run_forever() -> None:
     while True:
         resource_snapshot = None
         db_pressure = DbPoolPressureDecision.open(reason="pgbouncer_pressure_not_checked")
+        db_budget = WorkerDbBudgetDecision(
+            allow_claim_scan=True,
+            claim_scan_limit_multiplier=1.0,
+            allow_release_maintenance=True,
+            allow_postgres_heartbeat=True,
+            wait_seconds=0,
+            reason="pgbouncer_pressure_not_checked",
+        )
         try:
             resource_snapshot = build_runner_resource_snapshot(
                 profile_code=runner_profile.profile_code,
@@ -1271,10 +1298,16 @@ async def run_forever() -> None:
             db_pressure = DbPoolPressureDecision.paused_for(
                 "pgbouncer_pressure_probe_failed"
             )
+        db_budget = decide_worker_db_budget(
+            db_pressure,
+            profile_code=runner_profile.profile_code,
+            inflight=len(inflight),
+            max_inflight=max_inflight,
+        )
 
         if postgres_heartbeat_enabled:
             now_epoch = datetime.now(timezone.utc).timestamp()
-            if should_write_postgres_heartbeat(
+            if db_budget.allow_postgres_heartbeat and should_write_postgres_heartbeat(
                 db_pressure,
                 now_epoch=now_epoch,
                 last_write_epoch=last_postgres_heartbeat_epoch,
@@ -1390,20 +1423,20 @@ async def run_forever() -> None:
             await asyncio.sleep(poll_interval_ms / 1000)
             continue
 
-        if db_pressure.paused:
+        if not db_budget.allow_claim_scan:
             now_loop = asyncio.get_event_loop().time()
             if now_loop >= next_db_pressure_log_at:
                 logger.warning(
-                    "Runner claim loop paused by PgBouncer pressure "
+                    "Runner claim loop paused by DB budget "
                     "profile=%s reason=%s wait_seconds=%s inflight=%s",
                     runner_profile.profile_code,
-                    db_pressure.reason,
-                    db_pressure.wait_seconds,
+                    db_budget.reason,
+                    db_budget.wait_seconds,
                     len(inflight),
                 )
                 next_db_pressure_log_at = now_loop + 30.0
             await asyncio.sleep(
-                max(poll_interval_ms / 1000, min(db_pressure.wait_seconds, 5))
+                max(poll_interval_ms / 1000, min(db_budget.wait_seconds, 5))
             )
             continue
 
@@ -1461,7 +1494,7 @@ async def run_forever() -> None:
                     tasks_store=tasks_store,
                     runner_profile=runner_profile,
                     visibility_timeout_sec=visibility_timeout_sec,
-                    scan_limit=playbook_fair_scan_limit,
+                    scan_limit=db_budget.apply_claim_scan_limit(playbook_fair_scan_limit),
                 )
             )
         else:
@@ -1474,7 +1507,7 @@ async def run_forever() -> None:
                 queue_cycle,
                 runner_profile=runner_profile,
                 visibility_timeout_sec=visibility_timeout_sec,
-                scan_limit=playbook_fair_scan_limit,
+                scan_limit=db_budget.apply_claim_scan_limit(playbook_fair_scan_limit),
                 active_pack_ids=active_pack_ids,
             )
         if route_drain_wait:
@@ -1521,6 +1554,17 @@ async def run_forever() -> None:
             if t_data.status != TaskStatus.PENDING:
                 logger.info(
                     f"[Worker] Task {task_id} popped but no longer PENDING (status: {t_data.status.value}). Dropping duplicate queue item."
+                )
+                await task_queue.ack_task(task_id)
+                continue
+
+            if not _pending_task_runnable_from_queue(t_data):
+                logger.info(
+                    "[Worker] Task %s popped but not runnable "
+                    "(frontier_state=%s blocked_reason=%s). Dropping stale queue item.",
+                    task_id,
+                    getattr(t_data, "frontier_state", None),
+                    getattr(t_data, "blocked_reason", None),
                 )
                 await task_queue.ack_task(task_id)
                 continue

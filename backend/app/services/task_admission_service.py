@@ -15,6 +15,9 @@ from backend.app.services.runner_topology import (
     normalize_queue_partition,
     queue_partition_env_suffixes,
 )
+from backend.app.services.task_admission_single_flight import (
+    evaluate_single_flight_admission,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -144,6 +147,27 @@ class TaskAdmissionService:
                 allow=True,
                 queue_shard=queue_shard,
                 execution_context=self._clear_admission_context(ctx),
+            )
+
+        single_flight = evaluate_single_flight_admission(
+            tasks_store,
+            task,
+            queue_shard=queue_shard,
+            policy=policy,
+            phase=phase,
+        )
+        if not single_flight.allow:
+            execution_context = self._build_deferred_context(
+                ctx,
+                single_flight.blocked_payload or {},
+                single_flight.next_eligible_at or (_utc_now() + timedelta(seconds=1)),
+            )
+            return AdmissionDecision(
+                allow=False,
+                queue_shard=queue_shard,
+                execution_context=execution_context,
+                blocked_payload=single_flight.blocked_payload,
+                next_eligible_at=single_flight.next_eligible_at,
             )
 
         pressure = self._load_queue_pressure(tasks_store, queue_shard)

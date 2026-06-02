@@ -17,9 +17,11 @@ def _build_task(
     pack_id: str = "ig_analyze_pinned_reference",
     queue_shard: str = "vision_local",
     producer_kind: str = "pin_reference",
+    task_id: str | None = None,
+    concurrency_key: str | None = None,
 ) -> Task:
     return Task(
-        id=f"task-{visibility}",
+        id=task_id or f"task-{visibility}",
         workspace_id="ws-1",
         message_id="msg-1",
         execution_id=f"exec-{visibility}",
@@ -27,9 +29,15 @@ def _build_task(
         task_type="playbook_execution",
         status=TaskStatus.PENDING,
         queue_shard=queue_shard,
+        concurrency_key=concurrency_key,
         created_at=_utc_now(),
         execution_context={
             "auto_triggered": auto_triggered,
+            "playbook_code": pack_id,
+            "concurrency": {
+                "lock_scope": "playbook",
+                "max_parallel": 1,
+            },
             "admission_policy": {
                 "mode": "auto" if auto_triggered else "manual",
                 "visibility": visibility,
@@ -65,6 +73,8 @@ class _MemoryTaskPressureConnection:
 
     def execute(self, query, params):
         query_text = str(query)
+        if "concurrency_key = :concurrency_key" in query_text:
+            return _MemoryTaskPressureResult(self._single_flight_conflict(params))
         if "pending_total" in query_text:
             return _MemoryTaskPressureResult(self._pending_pressure(params))
         if "running_total" in query_text:
@@ -113,6 +123,39 @@ class _MemoryTaskPressureConnection:
         ]
         return SimpleNamespace(running_total=len(running_rows))
 
+    def _single_flight_conflict(self, params: dict):
+        for row in self.rows:
+            if row.get("id") == params["task_id"]:
+                continue
+            if row.get("concurrency_key") != params["concurrency_key"]:
+                continue
+            if row.get("task_type") not in {
+                params["task_type_pb"],
+                params["task_type_tool"],
+            }:
+                continue
+            if row.get("status") == params["running_status"] and (
+                row.get("frontier_state") in {None, params["running_frontier_state"]}
+            ):
+                return SimpleNamespace(
+                    id=row.get("id"),
+                    status=row.get("status"),
+                    frontier_state=row.get("frontier_state"),
+                )
+            if (
+                row.get("status") == params["pending_status"]
+                and row.get("frontier_state")
+                in {params["ready_frontier_state"], params["running_frontier_state"]}
+                and row.get("blocked_reason") in {None, params["unblocked_reason"]}
+                and row.get("next_eligible_at") <= params["now"]
+            ):
+                return SimpleNamespace(
+                    id=row.get("id"),
+                    status=row.get("status"),
+                    frontier_state=row.get("frontier_state"),
+                )
+        return None
+
 
 def _task_row(
     *,
@@ -120,6 +163,7 @@ def _task_row(
     status: str,
     created_at,
     queue_shard: str = "browser_local",
+    concurrency_key: str | None = None,
     blocked_reason: str | None = None,
     next_eligible_at=None,
     frontier_state: str | None = None,
@@ -131,6 +175,7 @@ def _task_row(
         "status": status,
         "blocked_reason": blocked_reason,
         "queue_shard": queue_shard,
+        "concurrency_key": concurrency_key,
         "created_at": created_at,
         "next_eligible_at": next_eligible_at or created_at,
         "frontier_state": frontier_state,
@@ -345,3 +390,89 @@ def test_resolve_limits_accepts_legacy_alias_env_names(monkeypatch):
     limits = service._resolve_limits("browser_local", "background")
 
     assert limits.pending_limit == 17
+
+
+def test_single_flight_defers_same_playbook_key_when_ready_task_exists(monkeypatch):
+    service = TaskAdmissionService()
+    store = _MemoryTasksStore()
+    now = _utc_now()
+    key = "concurrency:playbook:ig_analyze_pinned_reference"
+    store.insert_rows(
+        _task_row(
+            task_id="ready-existing",
+            status="pending",
+            created_at=now,
+            queue_shard="vision_local",
+            concurrency_key=key,
+            frontier_state="ready",
+        )
+    )
+    task = _build_task(
+        task_id="new-task",
+        queue_shard="vision_local",
+        concurrency_key=key,
+    )
+
+    monkeypatch.setenv("LOCAL_CORE_TASK_ADMISSION_ENABLED", "1")
+    decision = service.evaluate_on_create(store, task)
+
+    assert decision.allow is False
+    assert decision.blocked_payload["policy"] == "single_flight_admission"
+    assert decision.blocked_payload["reason"] == "active_window"
+    assert decision.blocked_payload["conflict_task_id"] == "ready-existing"
+    assert decision.execution_context["admission"]["state"] == "deferred"
+
+
+def test_single_flight_allows_different_playbook_key(monkeypatch):
+    service = TaskAdmissionService()
+    store = _MemoryTasksStore()
+    now = _utc_now()
+    store.insert_rows(
+        _task_row(
+            task_id="ready-existing",
+            status="pending",
+            created_at=now,
+            queue_shard="vision_local",
+            concurrency_key="concurrency:playbook:other",
+            frontier_state="ready",
+        )
+    )
+    task = _build_task(
+        task_id="new-task",
+        queue_shard="vision_local",
+        concurrency_key="concurrency:playbook:ig_analyze_pinned_reference",
+    )
+
+    monkeypatch.setenv("LOCAL_CORE_TASK_ADMISSION_ENABLED", "1")
+    decision = service.evaluate_on_create(store, task)
+
+    assert decision.allow is True
+
+
+def test_single_flight_release_keeps_task_cold_when_same_key_running(monkeypatch):
+    service = TaskAdmissionService()
+    store = _MemoryTasksStore()
+    now = _utc_now()
+    key = "concurrency:playbook:ig_analyze_pinned_reference"
+    store.insert_rows(
+        _task_row(
+            task_id="running-existing",
+            status="running",
+            created_at=now,
+            queue_shard="vision_local",
+            concurrency_key=key,
+            frontier_state="running",
+        )
+    )
+    task = _build_task(
+        task_id="deferred-task",
+        queue_shard="vision_local",
+        concurrency_key=key,
+    )
+
+    monkeypatch.setenv("LOCAL_CORE_TASK_ADMISSION_ENABLED", "1")
+    decision = service.evaluate_on_release(store, task)
+
+    assert decision.allow is False
+    assert decision.blocked_payload["policy"] == "single_flight_admission"
+    assert decision.blocked_payload["conflict_task_id"] == "running-existing"
