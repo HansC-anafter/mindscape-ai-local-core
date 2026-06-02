@@ -452,8 +452,9 @@ def execute_migrations(
             return
 
         from app.services.migrations.orchestrator import MigrationOrchestrator
-        from sqlalchemy import create_engine, inspect, text
-        from app.database.config import get_postgres_url_core
+        from sqlalchemy import inspect, text
+        from app.database.config import get_postgres_url_core_session
+        from app.database.engine_factory import create_session_semantics_engine
 
         readiness = check_core_write_readiness(
             operation=f"capability_migration:{capability_code}"
@@ -468,7 +469,10 @@ def execute_migrations(
         alembic_configs = {"postgres": alembic_config}
         orchestrator = MigrationOrchestrator(capabilities_root, alembic_configs)
 
-        engine = create_engine(get_postgres_url_core())
+        engine = create_session_semantics_engine(
+            get_postgres_url_core_session(),
+            "local-core-runtime-assets-migration-check",
+        )
         revision_expected_tables = {}
         inspector = inspect(engine)
         existing_tables = set(inspector.get_table_names())

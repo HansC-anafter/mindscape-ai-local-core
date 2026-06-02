@@ -783,13 +783,16 @@ async def run_startup(app: FastAPI):
         )
     else:
         try:
-            from sqlalchemy import text, create_engine
+            from sqlalchemy import text
+            from app.database.config import get_postgres_url_core
+            from app.database.engine_factory import create_transient_transaction_engine
 
-            _verify_db_url = os.environ.get("DATABASE_URL_CORE") or os.environ.get(
-                "DATABASE_URL"
-            )
+            _verify_db_url = get_postgres_url_core(required=False)
             if _verify_db_url:
-                _verify_engine = create_engine(_verify_db_url)
+                _verify_engine = create_transient_transaction_engine(
+                    _verify_db_url,
+                    "local-core-startup-critical-table-check",
+                )
                 _critical_tables = [
                     "profiles",
                     "workspaces",

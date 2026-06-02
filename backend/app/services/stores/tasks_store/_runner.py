@@ -447,30 +447,40 @@ class TasksStoreRunnerMixin:
 
     def ensure_runner_heartbeats_table(self) -> None:
         """Create runner_heartbeats table if it does not exist."""
-        with self.transaction() as conn:
-            conn.execute(
-                text(
-                    """
-                    CREATE TABLE IF NOT EXISTS runner_heartbeats (
-                        runner_id TEXT PRIMARY KEY,
-                        profile_code TEXT,
-                        hostname TEXT,
-                        inflight INTEGER NOT NULL DEFAULT 0,
-                        heartbeat_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        from app.database.config import get_postgres_url_core_session
+        from app.database.engine_factory import create_session_semantics_engine
+
+        engine = create_session_semantics_engine(
+            get_postgres_url_core_session(),
+            "local-core-runner-heartbeat-schema",
+        )
+        try:
+            with engine.begin() as conn:
+                conn.execute(
+                    text(
+                        """
+                        CREATE TABLE IF NOT EXISTS runner_heartbeats (
+                            runner_id TEXT PRIMARY KEY,
+                            profile_code TEXT,
+                            hostname TEXT,
+                            inflight INTEGER NOT NULL DEFAULT 0,
+                            heartbeat_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                        )
+                        """
                     )
-                    """
                 )
-            )
-            for statement in (
-                "ALTER TABLE runner_heartbeats ADD COLUMN IF NOT EXISTS profile_code TEXT",
-                "ALTER TABLE runner_heartbeats ADD COLUMN IF NOT EXISTS hostname TEXT",
-                "ALTER TABLE runner_heartbeats ADD COLUMN IF NOT EXISTS inflight INTEGER NOT NULL DEFAULT 0",
-                "ALTER TABLE runner_heartbeats ADD COLUMN IF NOT EXISTS resource_snapshot JSONB",
-            ):
-                try:
-                    conn.execute(text(statement))
-                except Exception:
-                    pass
+                for statement in (
+                    "ALTER TABLE runner_heartbeats ADD COLUMN IF NOT EXISTS profile_code TEXT",
+                    "ALTER TABLE runner_heartbeats ADD COLUMN IF NOT EXISTS hostname TEXT",
+                    "ALTER TABLE runner_heartbeats ADD COLUMN IF NOT EXISTS inflight INTEGER NOT NULL DEFAULT 0",
+                    "ALTER TABLE runner_heartbeats ADD COLUMN IF NOT EXISTS resource_snapshot JSONB",
+                ):
+                    try:
+                        conn.execute(text(statement))
+                    except Exception:
+                        pass
+        finally:
+            engine.dispose()
 
     def _upsert_runner_heartbeat_legacy(self, runner_id: str) -> None:
         with self.transaction() as conn:

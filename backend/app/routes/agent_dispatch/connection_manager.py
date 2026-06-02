@@ -105,6 +105,31 @@ def _get_core_db_connection(ensure_schema: bool = True):
     """
     global _tables_ensured
 
+    if ensure_schema and not _tables_ensured:
+        schema_conn = None
+        try:
+            from app.database.config import get_postgres_url_core_session
+            from app.database.engine_factory import create_session_semantics_engine
+
+            schema_engine = create_session_semantics_engine(
+                get_postgres_url_core_session(),
+                "local-core-agent-dispatch-schema",
+            )
+            schema_conn = schema_engine.raw_connection()
+            _ensure_cross_worker_tables(schema_conn)
+            schema_conn.commit()
+            _tables_ensured = True
+            logger.info("[AgentWS] Cross-worker tables ensured (on-demand)")
+        except Exception:
+            if schema_conn is not None:
+                schema_conn.rollback()
+            logger.exception("[AgentWS] Failed to create cross-worker tables")
+        finally:
+            if schema_conn is not None:
+                schema_conn.close()
+            if "schema_engine" in locals():
+                schema_engine.dispose()
+
     try:
         from app.database.engine import engine_postgres_core
 
@@ -114,16 +139,6 @@ def _get_core_db_connection(ensure_schema: bool = True):
     except Exception:
         logger.warning("[AgentWS] Failed to get pooled DB connection")
         return None
-
-    if ensure_schema and not _tables_ensured:
-        try:
-            _ensure_cross_worker_tables(conn)
-            conn.commit()
-            _tables_ensured = True
-            logger.info("[AgentWS] Cross-worker tables ensured (on-demand)")
-        except Exception:
-            conn.rollback()
-            logger.exception("[AgentWS] Failed to create cross-worker tables")
 
     return conn
 

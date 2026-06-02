@@ -1,14 +1,13 @@
 """PostgreSQL SQLAlchemy engines and session factories for core and vector roles."""
 
 import logging
-from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from .config import (
     get_postgres_url_core,
     get_postgres_url_vector,
-    get_engine_kwargs,
 )
+from .engine_factory import create_transaction_engine
 
 logger = logging.getLogger(__name__)
 
@@ -21,8 +20,7 @@ def _init_engine(role: str, url_provider):
                 f"PostgreSQL {role} engine not initialized (missing configuration)"
             )
             return None
-        engine_kwargs = get_engine_kwargs()
-        engine = create_engine(postgres_url, **engine_kwargs)
+        engine = create_transaction_engine(postgres_url, f"local-core-{role}")
         logger.info(f"PostgreSQL {role} engine initialized successfully")
         return engine
     except Exception as e:

@@ -2,7 +2,8 @@
 
 import logging
 from typing import Dict, List, Optional
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
+from app.database.engine_factory import create_session_semantics_engine
 
 logger = logging.getLogger(__name__)
 
@@ -15,7 +16,10 @@ class MigrationValidator:
 
     def validate_postgres_connection(self, postgres_url: str) -> bool:
         """Validate PostgreSQL connection."""
-        engine = create_engine(postgres_url)
+        engine = create_session_semantics_engine(
+            postgres_url,
+            "local-core-migration-validator",
+        )
         try:
             with engine.connect() as conn:
                 conn.execute(text("SELECT 1"))
@@ -31,7 +35,10 @@ class MigrationValidator:
     ) -> Dict[str, bool]:
         """Check if required PostgreSQL extensions are installed."""
         results = {}
-        engine = create_engine(postgres_url)
+        engine = create_session_semantics_engine(
+            postgres_url,
+            "local-core-migration-extension-validator",
+        )
         try:
             with engine.connect() as conn:
                 for ext in required_extensions:

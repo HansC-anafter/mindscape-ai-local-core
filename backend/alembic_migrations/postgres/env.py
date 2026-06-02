@@ -78,10 +78,10 @@ _discover_and_import_capability_models()
 
 target_metadata = Base.metadata
 
-# ===== Use PostgreSQL URL =====
-from app.database.config import get_postgres_url
+# ===== Use direct PostgreSQL URL for session/DDL migration semantics =====
+from app.database.config import get_postgres_url_core_session
 try:
-    postgres_url = get_postgres_url()
+    postgres_url = get_postgres_url_core_session()
     config.set_main_option("sqlalchemy.url", postgres_url)
 except Exception as e:
     raise RuntimeError(f"Failed to get PostgreSQL URL: {e}. PostgreSQL is required for vector storage and Sonic Space.")
@@ -137,4 +137,3 @@ if context.is_offline_mode():
     run_migrations_offline()
 else:
     run_migrations_online()
-

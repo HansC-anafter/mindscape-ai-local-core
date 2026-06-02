@@ -1,7 +1,7 @@
 """PostgreSQL database configuration for core and vector roles."""
 
-import os
 import logging
+import os
 from typing import Optional, Dict
 from urllib.parse import urlparse, unquote
 
@@ -48,6 +48,7 @@ def _build_role_url(role: str) -> Optional[str]:
 
 
 _resolved_url_cache: dict[str, str | None] = {}
+_resolved_session_url_cache: dict[str, str | None] = {}
 
 
 def _resolve_postgres_url(role: str) -> str | None:
@@ -107,6 +108,69 @@ def get_postgres_url(required: bool = True) -> str:
     return get_postgres_url_core(required=required)
 
 
+def _get_role_session_url(role: str) -> Optional[str]:
+    role_key = role.upper()
+    url = os.getenv(f"DATABASE_URL_{role_key}_SESSION") or os.getenv(
+        f"POSTGRES_{role_key}_SESSION_URL"
+    )
+    if url and (url.startswith("postgresql://") or url.startswith("postgres://")):
+        return url
+    return None
+
+
+def _resolve_postgres_session_url(role: str) -> str | None:
+    if role in _resolved_session_url_cache:
+        return _resolved_session_url_cache[role]
+
+    url = _get_role_session_url(role)
+    if url:
+        logger.info(f"Using PostgreSQL {role} session URL from env")
+        _resolved_session_url_cache[role] = url
+        return url
+
+    _resolved_session_url_cache[role] = None
+    return None
+
+
+def get_postgres_url_core_session(required: bool = True) -> str:
+    """Get direct/session-semantics PostgreSQL URL for core database."""
+    url = _resolve_postgres_session_url(ROLE_CORE)
+    if url:
+        return url
+    if required:
+        raise ValueError(
+            "PostgreSQL core session configuration missing. "
+            "Set DATABASE_URL_CORE_SESSION to a direct postgres:5432 URL."
+        )
+    return ""
+
+
+def get_postgres_url_vector_session(required: bool = True) -> str:
+    """Get direct/session-semantics PostgreSQL URL for vector database."""
+    url = _resolve_postgres_session_url(ROLE_VECTOR)
+    if url:
+        return url
+    if required:
+        raise ValueError(
+            "PostgreSQL vector session configuration missing. "
+            "Set DATABASE_URL_VECTOR_SESSION to a direct postgres:5432 URL."
+        )
+    return ""
+
+
+def get_pgbouncer_admin_url(required: bool = True) -> str:
+    """Get PgBouncer admin console URL."""
+    url = os.getenv("PGBOUNCER_ADMIN_URL", "")
+    if url.startswith("postgresql://") or url.startswith("postgres://"):
+        return url
+    if required:
+        raise ValueError(
+            "PgBouncer admin configuration missing. "
+            "Set PGBOUNCER_ADMIN_URL to the pgbouncer admin database URL."
+        )
+    return ""
+
+
 def _parse_postgres_url(url: str) -> Dict[str, Optional[str]]:
     parsed = urlparse(url)
     return {
@@ -159,6 +223,9 @@ def get_engine_kwargs() -> dict:
         "pool_size": int(os.getenv("DB_POOL_SIZE", "20")),
         "max_overflow": int(os.getenv("DB_MAX_OVERFLOW", "20")),
         "pool_recycle": int(os.getenv("DB_POOL_RECYCLE", "1800")),
+        "pool_timeout": int(os.getenv("DB_POOL_TIMEOUT", "5")),
+        "pool_use_lifo": os.getenv("DB_POOL_USE_LIFO", "true").lower()
+        in {"1", "true", "yes", "on"},
     }
     application_name = os.getenv("DB_APPLICATION_NAME", "").strip()
     if application_name:

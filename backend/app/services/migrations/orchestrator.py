@@ -172,24 +172,32 @@ class MigrationOrchestrator:
         """Get live Alembic revisions from the target database."""
         try:
             from sqlalchemy import create_engine, text
+            from app.database.engine_factory import create_session_semantics_engine
 
             if db_type == "postgres":
-                from app.database.config import get_postgres_url_core
+                from app.database.config import get_postgres_url_core_session
 
-                db_url = get_postgres_url_core()
+                db_url = get_postgres_url_core_session()
+                engine = create_session_semantics_engine(
+                    db_url,
+                    "local-core-migration-revision-lookup",
+                )
             elif db_type == "sqlite":
                 backend_dir = Path(__file__).parent.parent.parent.parent
                 db_url = f"sqlite:///{(backend_dir.parent / 'data' / 'mindscape.db').absolute()}"
+                engine = create_engine(db_url)
             else:
                 logger.warning(f"Unsupported db_type for revision lookup: {db_type}")
                 return []
 
-            engine = create_engine(db_url)
-            with engine.connect() as conn:
-                rows = conn.execute(
-                    text("SELECT version_num FROM alembic_version ORDER BY version_num")
-                ).fetchall()
-            return [str(row[0]) for row in rows]
+            try:
+                with engine.connect() as conn:
+                    rows = conn.execute(
+                        text("SELECT version_num FROM alembic_version ORDER BY version_num")
+                    ).fetchall()
+                return [str(row[0]) for row in rows]
+            finally:
+                engine.dispose()
         except Exception as e:
             logger.warning(f"Could not get current revisions for {db_type}: {e}")
             return []
@@ -370,9 +378,9 @@ command.upgrade(config, '{revision}')
     def _get_env_requirements(self, db_type: str) -> Dict:
         """Get environment requirements for validation."""
         if db_type == "postgres":
-            from app.database.config import get_postgres_url_core
+            from app.database.config import get_postgres_url_core_session
             return {
-                "postgres_url": get_postgres_url_core(),
+                "postgres_url": get_postgres_url_core_session(),
                 "environment_requirements": {
                     "postgres": {
                         "extensions": ["vector"],

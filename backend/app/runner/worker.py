@@ -87,6 +87,11 @@ from backend.app.runner.database_backoff import (
     RunnerDatabaseRecoveryBackoff,
     is_database_recovery_error,
 )
+from backend.app.runner.db_pool_pressure import (
+    DbPoolPressureDecision,
+    check_db_pool_pressure,
+    should_write_postgres_heartbeat,
+)
 from backend.app.runner.browser_fair_candidate_scheduler import (
     select_browser_fair_candidate,
 )
@@ -175,7 +180,7 @@ async def _load_active_runner_ids(
 async def _reset_orphaned_running_tasks(
     tasks_store: TasksStore,
     current_runner_id: str,
-    runner_profile,
+    runner_profile=None,
     redis_queue: Optional[RedisRunnerQueueStore] = None,
 ) -> set[str]:
     """Reset running tasks from dead runners back to PENDING on startup.
@@ -186,6 +191,10 @@ async def _reset_orphaned_running_tasks(
     """
     reset_task_ids: set[str] = set()
     try:
+        if runner_profile is None:
+            runner_profile = resolve_runner_profile_from_env(
+                default_max_inflight=_env_int("LOCAL_CORE_RUNNER_MAX_INFLIGHT", 1)
+            )
         active_runner_ids: set[str] = {current_runner_id}
         heartbeat_max_age = _env_int(
             "LOCAL_CORE_RUNNER_ORPHAN_HEARTBEAT_MAX_AGE_SECONDS",
@@ -226,6 +235,10 @@ async def _reset_orphaned_running_tasks(
                     t.id,
                     execution_context=ctx2,
                     status=TaskStatus.PENDING,
+                    frontier_state="ready",
+                    started_at=None,
+                    blocked_reason=None,
+                    queue_shard=getattr(t, "queue_shard", None),
                     runner_id=None,
                     heartbeat_at=None,
                 )
@@ -237,6 +250,55 @@ async def _reset_orphaned_running_tasks(
                 )
         if reset_count:
             logger.info(f"[Startup] Reset {reset_count} orphaned running task(s)")
+
+        pending = await asyncio.to_thread(
+            tasks_store.list_tasks_by_workspace,
+            None,
+            status=TaskStatus.PENDING,
+            limit=500,
+            exclude_cancelled=True,
+        )
+        for t in pending:
+            ctx = t.execution_context if isinstance(t.execution_context, dict) else {}
+            ctx2 = dict(ctx)
+            update_kwargs = {}
+            frontier_state = str(getattr(t, "frontier_state", "") or "").strip()
+            if frontier_state in {"running", "cold"}:
+                ctx2["status"] = "queued"
+                ctx2["runner_reaper"] = {
+                    "action": "startup_reset",
+                    "new_runner_id": current_runner_id,
+                }
+                update_kwargs.update(
+                    {
+                        "status": TaskStatus.PENDING,
+                        "frontier_state": "ready",
+                        "blocked_reason": None,
+                        "queue_shard": getattr(t, "queue_shard", None),
+                    }
+                )
+
+            concurrency = ctx2.get("concurrency")
+            inputs = ctx2.get("inputs") if isinstance(ctx2.get("inputs"), dict) else {}
+            reference_id = str(inputs.get("reference_id") or "").strip()
+            if (
+                isinstance(concurrency, dict)
+                and concurrency.get("lock_scope") == "playbook"
+                and reference_id
+            ):
+                ctx2["concurrency"] = {
+                    "lock_scope": "playbook_input",
+                    "lock_key_input": "reference_id",
+                    "max_parallel": 1,
+                }
+                update_kwargs["concurrency_key"] = (
+                    f"concurrency:playbook_input:{t.pack_id}:{reference_id}"
+                )
+
+            if update_kwargs:
+                update_kwargs["execution_context"] = ctx2
+                tasks_store.update_task(t.id, **update_kwargs)
+                reset_task_ids.add(str(t.id))
     except Exception as e:
         logger.warning(f"[Startup] Failed to reset orphaned tasks: {e}", exc_info=True)
     return reset_task_ids
@@ -958,7 +1020,7 @@ async def _run_maintenance_cycle(
     ready_queues: dict[str, RedisRunnerQueueStore],
     ready_targets: dict[str, int],
     queue_cycle: list[RedisRunnerQueueStore],
-) -> None:
+) -> bool:
     """Keep the ready frontier warm even when the dequeue loop is idle."""
     claim_gate_paused, claim_gate = _runner_claim_gate_paused()
     if claim_gate_paused:
@@ -967,7 +1029,20 @@ async def _run_maintenance_cycle(
             claim_gate.get("reason"),
             claim_gate.get("source"),
         )
-        return
+        return False
+
+    db_pressure = await check_db_pool_pressure(
+        redis_queue,
+        owner_id=f"{runner_id}:maintenance",
+    )
+    if db_pressure.paused:
+        logger.warning(
+            "Runner maintenance skipped while PgBouncer pressure is active "
+            "reason=%s wait_seconds=%s",
+            db_pressure.reason,
+            db_pressure.wait_seconds,
+        )
+        return False
 
     loop = asyncio.get_running_loop()
     await asyncio.to_thread(
@@ -990,6 +1065,7 @@ async def _run_maintenance_cycle(
             ready_target_override=ready_targets.get(shard_name, 0),
             all_queues=queue_cycle,
         )
+    return True
 
 
 async def _maintenance_loop(
@@ -1007,7 +1083,7 @@ async def _maintenance_loop(
     )
     while True:
         try:
-            await _run_maintenance_cycle(
+            maintenance_ran = await _run_maintenance_cycle(
                 tasks_store,
                 runner_id=runner_id,
                 redis_queue=redis_queue,
@@ -1015,6 +1091,9 @@ async def _maintenance_loop(
                 ready_targets=ready_targets,
                 queue_cycle=queue_cycle,
             )
+            if not maintenance_ran:
+                await asyncio.sleep(reap_interval_seconds)
+                continue
             try:
                 snapshot_result = await write_queue_utilization_snapshot_if_leader(
                     queue_stores=list(ready_queues.values()),
@@ -1103,6 +1182,12 @@ async def run_forever() -> None:
             pass
 
     claim_gate_paused, startup_claim_gate = _runner_claim_gate_paused()
+    startup_db_pressure = DbPoolPressureDecision.open(reason="startup_not_checked")
+    if not claim_gate_paused:
+        startup_db_pressure = await check_db_pool_pressure(
+            redis_queue,
+            owner_id=f"{runner_id}:startup",
+        )
     if claim_gate_paused:
         logger.warning(
             "Runner startup reconciliation skipped while claim gate is paused "
@@ -1110,6 +1195,14 @@ async def run_forever() -> None:
             runner_profile.profile_code,
             startup_claim_gate.get("reason"),
             startup_claim_gate.get("source"),
+        )
+    elif startup_db_pressure.paused:
+        logger.warning(
+            "Runner startup reconciliation skipped while PgBouncer pressure is active "
+            "profile=%s reason=%s wait_seconds=%s",
+            runner_profile.profile_code,
+            startup_db_pressure.reason,
+            startup_db_pressure.wait_seconds,
         )
     else:
         # Reset running tasks from dead runners.
@@ -1132,6 +1225,9 @@ async def run_forever() -> None:
     next_resource_defer_log_at = 0.0
     next_claim_gate_log_at = 0.0
     next_route_drain_gate_log_at = 0.0
+    next_db_pressure_log_at = 0.0
+    next_postgres_heartbeat_pressure_log_at = 0.0
+    last_postgres_heartbeat_epoch = 0.0
     playbook_fair_scan_limit = _env_int(
         "LOCAL_CORE_RUNNER_PLAYBOOK_FAIR_SCAN_LIMIT",
         128,
@@ -1172,6 +1268,7 @@ async def run_forever() -> None:
 
     while True:
         resource_snapshot = None
+        db_pressure = DbPoolPressureDecision.open(reason="pgbouncer_pressure_not_checked")
         try:
             resource_snapshot = build_runner_resource_snapshot(
                 profile_code=runner_profile.profile_code,
@@ -1181,17 +1278,46 @@ async def run_forever() -> None:
         except Exception:
             resource_snapshot = None
 
+        try:
+            db_pressure = await check_db_pool_pressure(
+                redis_queue,
+                owner_id=f"{runner_id}:claim",
+            )
+        except Exception as e:
+            logger.warning("PgBouncer pressure check failed in runner loop: %s", e)
+            db_pressure = DbPoolPressureDecision.paused_for(
+                "pgbouncer_pressure_probe_failed"
+            )
+
         if postgres_heartbeat_enabled:
-            try:
-                tasks_store.upsert_runner_heartbeat(
-                    runner_id,
-                    profile_code=runner_profile.profile_code,
-                    hostname=socket.gethostname(),
-                    inflight=len(inflight),
-                    resource_snapshot=resource_snapshot,
-                )
-            except Exception as e:
-                db_recovery_backoff.note_failure(e)
+            now_epoch = datetime.now(timezone.utc).timestamp()
+            if should_write_postgres_heartbeat(
+                db_pressure,
+                now_epoch=now_epoch,
+                last_write_epoch=last_postgres_heartbeat_epoch,
+            ):
+                try:
+                    tasks_store.upsert_runner_heartbeat(
+                        runner_id,
+                        profile_code=runner_profile.profile_code,
+                        hostname=socket.gethostname(),
+                        inflight=len(inflight),
+                        resource_snapshot=resource_snapshot,
+                    )
+                    last_postgres_heartbeat_epoch = now_epoch
+                except Exception as e:
+                    db_recovery_backoff.note_failure(e)
+            else:
+                now_loop = asyncio.get_event_loop().time()
+                if now_loop >= next_postgres_heartbeat_pressure_log_at:
+                    logger.warning(
+                        "Postgres runner heartbeat skipped while PgBouncer pressure "
+                        "is active profile=%s reason=%s inflight=%s",
+                        runner_profile.profile_code,
+                        db_pressure.reason,
+                        len(inflight),
+                    )
+                    next_postgres_heartbeat_pressure_log_at = now_loop + 30.0
         try:
             await publish_runner_resource_heartbeat(
                 redis_queue,
@@ -1279,6 +1405,23 @@ async def run_forever() -> None:
                 )
                 next_claim_gate_log_at = now_loop + 30.0
             await asyncio.sleep(poll_interval_ms / 1000)
+            continue
+
+        if db_pressure.paused:
+            now_loop = asyncio.get_event_loop().time()
+            if now_loop >= next_db_pressure_log_at:
+                logger.warning(
+                    "Runner claim loop paused by PgBouncer pressure "
+                    "profile=%s reason=%s wait_seconds=%s inflight=%s",
+                    runner_profile.profile_code,
+                    db_pressure.reason,
+                    db_pressure.wait_seconds,
+                    len(inflight),
+                )
+                next_db_pressure_log_at = now_loop + 30.0
+            await asyncio.sleep(
+                max(poll_interval_ms / 1000, min(db_pressure.wait_seconds, 5))
+            )
             continue
 
         capacity = resolve_runner_capacity_snapshot(

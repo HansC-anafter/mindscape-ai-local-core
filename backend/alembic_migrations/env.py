@@ -102,11 +102,11 @@ if _top_level_models_dir.exists():
 
 target_metadata = Base.metadata
 
-# ===== Use PostgreSQL URL =====
-from app.database.config import get_postgres_url
+# ===== Use direct PostgreSQL URL for session/DDL migration semantics =====
+from app.database.config import get_postgres_url_core_session
 
 try:
-    postgres_url = get_postgres_url()
+    postgres_url = get_postgres_url_core_session()
     config.set_main_option("sqlalchemy.url", postgres_url)
     print(
         f"Alembic using PostgreSQL: {postgres_url.split('@')[-1] if '@' in postgres_url else postgres_url}"

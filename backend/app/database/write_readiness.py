@@ -7,10 +7,11 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Optional
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
 from app.database.config import get_postgres_url_core
+from app.database.engine_factory import create_transient_transaction_engine
 from backend.app.database.recovery_backoff import is_database_recovery_error
 
 
@@ -55,7 +56,12 @@ def check_core_write_readiness(
     engine: Optional[Engine] = None
     try:
         url = get_postgres_url_core()
-        factory = engine_factory or create_engine
+        factory = engine_factory or (
+            lambda probe_url: create_transient_transaction_engine(
+                probe_url,
+                f"local-core-write-readiness:{operation}",
+            )
+        )
         engine = factory(url)
         with engine.connect() as conn:
             in_recovery = _coerce_bool(
