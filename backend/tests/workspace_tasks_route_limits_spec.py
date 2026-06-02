@@ -178,3 +178,36 @@ async def test_workspace_executions_uses_projection_store_with_filters():
     ]
     assert payload["executions"][0]["queue_position"] is None
     assert payload["executions"][0]["queue_total"] is None
+
+
+def test_workspace_execution_live_runner_state_overlay_updates_running_rows():
+    execution = {
+        "id": "task-1",
+        "task_id": "task-1",
+        "execution_id": "task-1",
+        "status": "running",
+        "runner_id": None,
+        "heartbeat_at": None,
+        "execution_context": {"inputs": {"reference_id": "ref-1"}},
+    }
+
+    class _FakeLiveStateStore:
+        def get_task_heartbeat(self, task_id):
+            assert task_id == "task-1"
+            return {
+                "runner_id": "runner-vision-1",
+                "heartbeat_at": "2026-05-29T21:28:45.733596+00:00",
+            }
+
+    payload = tasks_route._attach_live_runner_state_to_execution(
+        execution,
+        live_state_store=_FakeLiveStateStore(),
+    )
+
+    assert payload["runner_id"] == "runner-vision-1"
+    assert payload["heartbeat_at"] == "2026-05-29T21:28:45.733596+00:00"
+    assert payload["execution_context"]["runner_id"] == "runner-vision-1"
+    assert (
+        payload["execution_context"]["heartbeat_at"]
+        == "2026-05-29T21:28:45.733596+00:00"
+    )

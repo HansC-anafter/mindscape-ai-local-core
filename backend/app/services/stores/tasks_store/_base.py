@@ -289,26 +289,89 @@ class TasksStoreCrudMixin:
     ) -> None:
         if not execution_id:
             return
-        # Skip sync for auto-resume placeholder failures to avoid clobbering running retries.
-        if execution_context and execution_context.get("auto_resumed"):
-            return
+        is_auto_resumed = bool(
+            execution_context and execution_context.get("auto_resumed")
+        )
         if status in (
             TaskStatus.FAILED,
             TaskStatus.CANCELLED_BY_USER,
             TaskStatus.EXPIRED,
         ):
+            # Skip auto-resume placeholder failures to avoid clobbering retries
+            # that were already queued by the lifecycle hook.
+            if is_auto_resumed:
+                return
             target_status = "failed"
         elif status == TaskStatus.SUCCEEDED:
             target_status = "done"
+        elif status == TaskStatus.PENDING:
+            target_status = "queued"
+        elif status == TaskStatus.RUNNING:
+            target_status = "running"
         else:
             return
         try:
-            conn.execute(
-                text(
-                    "UPDATE playbook_executions SET status = :status, updated_at = :updated_at WHERE id = :id"
-                ),
-                {"status": target_status, "updated_at": _utc_now(), "id": execution_id},
-            )
+            params = {
+                "status": target_status,
+                "updated_at": _utc_now(),
+                "id": execution_id,
+            }
+            if target_status == "failed":
+                conn.execute(
+                    text(
+                        """
+                        UPDATE playbook_executions
+                        SET status = :status, updated_at = :updated_at
+                        WHERE id = :id
+                          AND NOT EXISTS (
+                            SELECT 1 FROM tasks
+                            WHERE execution_id = :id
+                              AND status IN ('pending', 'running')
+                          )
+                        """
+                    ),
+                    params,
+                )
+            elif target_status == "queued":
+                conn.execute(
+                    text(
+                        """
+                        UPDATE playbook_executions
+                        SET status = :status, updated_at = :updated_at
+                        WHERE id = :id
+                          AND status NOT IN ('done', 'failed')
+                          AND NOT EXISTS (
+                            SELECT 1 FROM tasks
+                            WHERE execution_id = :id
+                              AND status = 'running'
+                          )
+                        """
+                    ),
+                    params,
+                )
+            elif target_status == "running":
+                conn.execute(
+                    text(
+                        """
+                        UPDATE playbook_executions
+                        SET status = :status, updated_at = :updated_at
+                        WHERE id = :id
+                          AND status NOT IN ('done', 'failed')
+                        """
+                    ),
+                    params,
+                )
+            else:
+                conn.execute(
+                    text(
+                        """
+                        UPDATE playbook_executions
+                        SET status = :status, updated_at = :updated_at
+                        WHERE id = :id
+                        """
+                    ),
+                    params,
+                )
         except Exception as e:
             logger.warning(
                 "Failed to sync playbook_executions status for %s: %s",

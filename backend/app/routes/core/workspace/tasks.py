@@ -15,6 +15,7 @@ from ....services.runner_resources import (
     get_ttl_snapshot,
     set_ttl_snapshot,
 )
+from ....services.runner_live_state import RunnerLiveStateStore
 from ....services.stores.postgres.task_projection_store import TasksProjectionStore
 from ....services.stores.redis.runner_queue_store import RedisRunnerQueueStore
 from ....services.task_execution_projection import (
@@ -43,6 +44,46 @@ _PROGRESS_SNAPSHOT_CACHE_LOCK = asyncio.Lock()
 _PROGRESS_SNAPSHOT_STORE = RedisTtlSnapshotStore(
     RedisRunnerQueueStore(pack_id="progress_snapshot")
 )
+
+
+def _attach_live_runner_state_to_execution(
+    execution: Dict[str, Any],
+    *,
+    live_state_store: Optional[RunnerLiveStateStore] = None,
+) -> Dict[str, Any]:
+    """Overlay Redis live runner heartbeat onto active execution list rows."""
+    if str(execution.get("status") or "").strip().lower() != "running":
+        return execution
+
+    task_id = str(
+        execution.get("task_id") or execution.get("id") or execution.get("execution_id") or ""
+    ).strip()
+    if not task_id:
+        return execution
+
+    try:
+        live_payload = (live_state_store or RunnerLiveStateStore()).get_task_heartbeat(task_id)
+    except Exception:
+        live_payload = None
+    if not isinstance(live_payload, dict):
+        return execution
+
+    heartbeat_at = live_payload.get("heartbeat_at")
+    runner_id = live_payload.get("runner_id")
+    if heartbeat_at:
+        execution["heartbeat_at"] = heartbeat_at
+    if runner_id:
+        execution["runner_id"] = runner_id
+
+    context = execution.get("execution_context")
+    if isinstance(context, dict):
+        if heartbeat_at:
+            context["heartbeat_at"] = heartbeat_at
+            context.setdefault("runner_heartbeat_at", heartbeat_at)
+        if runner_id:
+            context["runner_id"] = runner_id
+
+    return execution
 
 
 def _workspace_tasks_cache_key(
@@ -196,12 +237,17 @@ async def get_workspace_executions(
         )
 
         executions = []
+        live_state_store = RunnerLiveStateStore()
         for task_payload in payload["executions"]:
+            execution = project_execution_for_api(
+                task_payload,
+                queue_position=None,
+                queue_total=None,
+            )
             executions.append(
-                project_execution_for_api(
-                    task_payload,
-                    queue_position=None,
-                    queue_total=None,
+                _attach_live_runner_state_to_execution(
+                    execution,
+                    live_state_store=live_state_store,
                 )
             )
 
