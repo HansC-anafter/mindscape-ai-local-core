@@ -13,6 +13,7 @@ from backend.app.services.object_meeting_attachment_service import (
     ObjectMeetingAttachmentService,
     ObjectMeetingContextRecord,
 )
+from backend.app.services.object_runtime.resource_routing import build_resource_lane_request
 from backend.app.services.object_runtime.route_services import project_object_graph
 
 
@@ -591,6 +592,13 @@ class AOLMeetingOrchestrationBridge:
             refs=refs,
         )
         aol_metadata["quality_requirements"] = quality_requirements
+        resource_lane_request = build_resource_lane_request(
+            workspace_id=workspace_id,
+            aol_metadata=aol_metadata,
+            action_parameters=action_parameters,
+        )
+        if resource_lane_request:
+            aol_metadata["resource_lane_request"] = resource_lane_request
         playbook_requests = _collect_explicit_playbook_requests(
             metadata=metadata,
             action_parameters=action_parameters,
@@ -611,6 +619,8 @@ class AOLMeetingOrchestrationBridge:
             "addressable_object_layer": aol_metadata,
             "quality_requirements": quality_requirements,
         }
+        if resource_lane_request:
+            governance_constraints["resource_lane_request"] = resource_lane_request
 
         return HandoffIn(
             handoff_id=f"aol_cmd_{command.command_id}_{uuid.uuid4().hex[:8]}",
@@ -627,5 +637,6 @@ class AOLMeetingOrchestrationBridge:
             metadata={
                 "addressable_object_layer": aol_metadata,
                 "quality_requirements": quality_requirements,
+                **({"resource_lane_request": resource_lane_request} if resource_lane_request else {}),
             },
         )

@@ -349,3 +349,68 @@ async def test_bridge_keeps_explicit_playbook_request_arrays_hard_without_force(
         handoff.playbook_requests[0]["request_contract_source"]
         == "explicit_playbook_request"
     )
+
+
+@pytest.mark.asyncio
+async def test_bridge_adds_resource_lane_request_overlay(monkeypatch):
+    def _fake_get_lane(lane_id):
+        assert lane_id == "runner:vision_mlx_high"
+        return {
+            "lane_id": lane_id,
+            "queue_shard": "vision_mlx_high",
+            "runner_profile": "vision_mlx_high",
+            "priority_class": "interactive_high",
+            "resource_flavor": "local.mlx.vision",
+            "requirements": {"exclusive_groups": ["vision_mlx_high"]},
+        }
+
+    monkeypatch.setattr(
+        "backend.app.services.object_runtime.resource_routing.get_lane",
+        _fake_get_lane,
+    )
+
+    canonical = MeetingCommandEnvelope(
+        workspace_id="ws_demo",
+        meeting_id="mtg_demo",
+        origin_surface="meeting_workbench",
+        actor="user",
+        intent_text="Run routed visual analysis",
+        requested_action=MeetingRequestedAction(
+            verb="execute_playbook",
+            pack_code="ig",
+            playbook_code="visual_audit",
+        ),
+        metadata={
+            "action_parameters": {
+                "resource_lane_request": {
+                    "lane_id": "runner:vision_mlx_high",
+                }
+            },
+        },
+    )
+
+    handoff = await AOLMeetingOrchestrationBridge().build_handoff_in(
+        command=_command(),
+        canonical=canonical,
+        session=SimpleNamespace(id="mtg_demo", meeting_type="meeting_workbench", metadata={}),
+        workspace_id="ws_demo",
+    )
+
+    request = handoff.metadata["resource_lane_request"]
+    assert request["lane_id"] == "runner:vision_mlx_high"
+    assert request["queue_shard"] == "vision_mlx_high"
+    assert request["runner_profile_hint"] == "vision_mlx_high"
+    assert request["resource_flavor"] == "local.mlx.vision"
+    assert (
+        handoff.governance_constraints["resource_lane_request"]
+        == request
+    )
+    assert (
+        handoff.metadata["addressable_object_layer"]["resource_lane_request"]
+        == request
+    )
+    assert handoff.playbook_input_defaults
+    assert (
+        handoff.playbook_input_defaults[0]["input_params"]["addressable_object_layer"]["resource_lane_request"]
+        == request
+    )

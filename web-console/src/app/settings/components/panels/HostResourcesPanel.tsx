@@ -5,12 +5,25 @@ import { Activity, Bell, History, Pause, Play, RefreshCw, Route, XCircle } from 
 import { settingsApi } from '../../utils/settingsApi';
 import { Card } from '../Card';
 import { Section } from '../Section';
+import {
+  HostResourceLaneManagerPanel,
+  type HostResourceLaneManagerLane,
+} from './host-resources/HostResourceLaneManagerPanel';
 
-interface HostResourceLane {
+interface HostResourceLane extends HostResourceLaneManagerLane {
   lane_id: string;
-  label?: string;
-  kind?: string;
-  state?: string;
+  workspace_id?: string | null;
+  capability_scope?: string | null;
+  label?: string | null;
+  kind?: string | null;
+  state?: string | null;
+  queue_shard?: string | null;
+  runner_profile?: string | null;
+  resource_class?: string | null;
+  priority_class?: string | null;
+  resource_flavor?: string | null;
+  max_concurrency?: number | null;
+  desired_worker_count?: number | null;
   requirements?: {
     memory_mb?: number | null;
     memory_source?: string;
@@ -122,14 +135,14 @@ const formatMemory = (memoryMb?: number | null): string => {
   return `${memoryMb} MB`;
 };
 
-const stateClass = (state?: string): string => {
+const stateClass = (state?: string | null): string => {
   if (state === 'available' || state === 'nominal') return 'text-emerald-700 bg-emerald-50 border-emerald-200 dark:text-emerald-300 dark:bg-emerald-950/40 dark:border-emerald-800';
   if (state === 'busy' || state === 'paused') return 'text-amber-700 bg-amber-50 border-amber-200 dark:text-amber-300 dark:bg-amber-950/40 dark:border-amber-800';
   if (state === 'degraded' || state === 'pressure' || state === 'critical') return 'text-red-700 bg-red-50 border-red-200 dark:text-red-300 dark:bg-red-950/40 dark:border-red-800';
   return 'text-gray-700 bg-gray-50 border-gray-200 dark:text-gray-300 dark:bg-gray-900 dark:border-gray-700';
 };
 
-function StatePill({ state }: { state?: string }) {
+function StatePill({ state }: { state?: string | null }) {
   return (
     <span className={`inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium ${stateClass(state)}`}>
       {state || 'unknown'}
@@ -360,6 +373,11 @@ export function HostResourcesPanel() {
             </div>
           </Card>
         ) : null}
+
+        <HostResourceLaneManagerPanel
+          lanes={lanes}
+          onRefresh={() => refreshAll(true)}
+        />
 
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
           <Card className="p-0 xl:col-span-2">
