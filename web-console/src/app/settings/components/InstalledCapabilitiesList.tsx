@@ -51,6 +51,22 @@ function formatTimestamp(value?: string | null): string | null {
   return parsed.toLocaleString('zh-TW');
 }
 
+export function hasBackendProcessRestartRequired(pack: CapabilityPack): boolean {
+  const metadata = pack.metadata;
+  const metadataRestartDecision =
+    metadata &&
+    typeof metadata['restart_decision'] === 'object' &&
+    metadata['restart_decision'] !== null
+      ? (metadata['restart_decision'] as { backend_process_restart_required?: unknown })
+      : null;
+  return Boolean(
+    pack.backend_process_restart_required ||
+    pack.activation?.backend_process_restart_required ||
+    pack.restart_decision?.backend_process_restart_required ||
+    metadataRestartDecision?.backend_process_restart_required,
+  );
+}
+
 export function InstalledCapabilitiesList({ packs = [], loading = false }: InstalledCapabilitiesListProps = {}) {
   const installed = packs.filter((pack) => pack.installed);
 
@@ -88,7 +104,7 @@ export function InstalledCapabilitiesList({ packs = [], loading = false }: Insta
                     {pack.id} v{pack.version}
                   </p>
                 </div>
-                {pack.activation?.activation_state === 'pending_restart' && (
+                {hasBackendProcessRestartRequired(pack) && (
                   <span className="px-2 py-1 text-xs bg-amber-100 text-amber-800 rounded whitespace-nowrap">
                     pending restart
                   </span>

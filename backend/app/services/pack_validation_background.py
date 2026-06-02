@@ -266,12 +266,14 @@ async def resume_pending_pack_validations() -> None:
             )
             continue
 
-        activation = _pack_activation_service.get_state(pack_id) or {}
+        restart_decision = metadata.get("restart_decision") or {}
         schedule_pack_validation(
             pack_id=pack_id,
             manifest=manifest,
             manifest_path=manifest_path,
-            restart_required=activation.get("activation_state") == "pending_restart",
+            restart_required=bool(
+                restart_decision.get("restart_webhook_required", False)
+            ),
             version=(metadata.get("version") or manifest.get("version") or "1.0.0"),
             extra_metadata=None,
         )

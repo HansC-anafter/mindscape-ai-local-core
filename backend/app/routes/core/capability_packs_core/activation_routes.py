@@ -22,6 +22,29 @@ installed_packs_store = InstalledPacksStore()
 pack_activation_service = PackActivationService()
 
 
+def _extract_restart_decision(metadata: Dict[str, Any]) -> Dict[str, Any]:
+    restart_decision = metadata.get("restart_decision")
+    return restart_decision if isinstance(restart_decision, dict) else {}
+
+
+def _enrich_activation_restart_state(
+    activation_state: Dict[str, Any],
+    metadata: Dict[str, Any],
+) -> Dict[str, Any]:
+    restart_decision = _extract_restart_decision(metadata)
+    if not restart_decision:
+        return activation_state
+    enriched = dict(activation_state)
+    enriched["restart_decision"] = restart_decision
+    enriched["backend_process_restart_required"] = bool(
+        restart_decision.get("backend_process_restart_required", False)
+    )
+    enriched["runner_restart_required"] = bool(
+        restart_decision.get("runner_restart_required", False)
+    )
+    return enriched
+
+
 @router.get("/", response_model=List[PackResponse])
 def list_packs():
     """
@@ -61,8 +84,17 @@ def list_packs():
 
             installed_info = installed_metadata.get(pack_id, {})
             installed_metadata_payload = installed_info.get("metadata") or {}
+            restart_decision = _extract_restart_decision(installed_metadata_payload)
             validation_state = installed_metadata_payload.get("validation")
             activation_state = activation_states_by_pack_id.get(pack_id)
+            activation_payload = (
+                _enrich_activation_restart_state(
+                    activation_state,
+                    installed_metadata_payload,
+                )
+                if activation_state
+                else None
+            )
 
             # Handle tools field: if it's a list of dicts, extract tool names
             tools_raw = pack_meta.get("tools", [])
@@ -106,9 +138,26 @@ def list_packs():
                     version=installed_info.get("version")
                     or pack_meta.get("version", "1.0.0"),
                     installed_at=installed_info.get("installed_at"),
+                    metadata=installed_metadata_payload,
+                    restart_decision=restart_decision or None,
+                    backend_process_restart_required=(
+                        bool(
+                            restart_decision.get(
+                                "backend_process_restart_required",
+                                False,
+                            )
+                        )
+                        if restart_decision
+                        else None
+                    ),
+                    runner_restart_required=(
+                        bool(restart_decision.get("runner_restart_required", False))
+                        if restart_decision
+                        else None
+                    ),
                     activation=(
-                        PackActivationStateResponse(**activation_state)
-                        if activation_state
+                        PackActivationStateResponse(**activation_payload)
+                        if activation_payload
                         else None
                     ),
                     validation=validation_state if isinstance(validation_state, dict) else None,
@@ -320,7 +369,11 @@ def get_pack_activation_state(pack_id: str):
             status_code=404,
             detail=f"Activation state for pack '{pack_id}' not found",
         )
-    return PackActivationStateResponse(**state)
+    installed = installed_packs_store.get_pack(pack_id) or {}
+    metadata = installed.get("metadata") or {}
+    return PackActivationStateResponse(
+        **_enrich_activation_restart_state(state, metadata)
+    )
 
 
 @router.get("/enabled", response_model=List[str])

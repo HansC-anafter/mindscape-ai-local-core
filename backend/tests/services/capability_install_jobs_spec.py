@@ -124,6 +124,13 @@ def test_get_job_reconciles_pending_activation_when_runtime_pack_is_active():
         "activation_mode": "capability_registry_load",
         "updated_at": "2026-06-02T02:17:33Z",
     }
+    assert store.succeeded_payload["restart_required"] is False
+    assert store.succeeded_payload["backend_process_restart_required"] is False
+    assert store.succeeded_payload["runner_restart_required"] is False
+    assert (
+        store.succeeded_payload["restart_semantics_version"]
+        == "install_restart_decision_v2"
+    )
 
 
 def test_get_job_keeps_pending_activation_when_manifest_hash_differs():
@@ -150,3 +157,62 @@ def test_get_job_keeps_pending_activation_when_manifest_hash_differs():
     assert result["state"] == "pending_execution_activation"
     assert result["status_url"] == "/api/v1/capability-packs/install-jobs/job-1"
     assert store.succeeded_payload is None
+
+
+def test_get_job_normalizes_legacy_succeeded_payload_when_activation_is_active():
+    result_payload = {
+        "capability_code": "ig",
+        "restart_required": True,
+        "activation": {"manifest_hash": "hash-1"},
+        "execution_activation": {"state": "activated"},
+    }
+    activation_state = {
+        "pack_id": "ig",
+        "install_state": "installed",
+        "activation_state": "active",
+        "activation_mode": "capability_registry_load",
+        "manifest_hash": "hash-1",
+    }
+    store = _PendingActivationStore(result_payload)
+    store.get_job = lambda _install_id: {
+        "install_id": "job-1",
+        "state": "succeeded",
+        "result_payload": result_payload,
+    }
+    service = CapabilityInstallJobService(
+        store=store,
+        activation_service=_ActivationService(activation_state),
+    )
+
+    result = service.get_job("job-1")
+
+    payload = result["result_payload"]
+    assert payload["restart_required"] is False
+    assert payload["backend_process_restart_required"] is False
+    assert payload["runner_restart_required"] is False
+    assert payload["execution_activation_state"] == "activated"
+
+
+def test_get_job_keeps_legacy_restart_flag_when_activation_is_unavailable():
+    result_payload = {
+        "capability_code": "ig",
+        "restart_required": True,
+        "activation": {"manifest_hash": "hash-1"},
+        "execution_activation": {"state": "activated"},
+    }
+    store = _PendingActivationStore(result_payload)
+    store.get_job = lambda _install_id: {
+        "install_id": "job-1",
+        "state": "succeeded",
+        "result_payload": result_payload,
+    }
+    service = CapabilityInstallJobService(
+        store=store,
+        activation_service=_ActivationService({"pack_id": "other"}),
+    )
+
+    result = service.get_job("job-1")
+
+    payload = result["result_payload"]
+    assert payload["restart_required"] is True
+    assert "restart_decision" not in payload

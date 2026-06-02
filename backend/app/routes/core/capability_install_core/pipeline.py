@@ -28,6 +28,10 @@ from .registry_sync import (
     _defer_restart_webhook_if_blocked,
     _sync_install_time_registries,
 )
+from .restart_policy import (
+    apply_restart_decision_to_payload,
+    build_install_restart_decision,
+)
 from .schemas import InstallPipelineResult
 
 logger = logging.getLogger(__name__)
@@ -311,19 +315,29 @@ async def run_install_pipeline(
             except Exception:
                 pass
 
-        # 5. Dev-mode reload trigger
-        pipeline.restart_required = True
+        # 5. Restart decision
+        restart_decision = build_install_restart_decision(
+            contract_lane_changed=contract_lane_changed,
+            hot_reload_performed=hot_reload_performed,
+        )
+        pipeline.restart_decision = restart_decision.to_payload()
+        pipeline.restart_required = restart_decision.legacy_restart_required
         env = os.getenv("ENVIRONMENT", "development")
 
-        if hot_reload_performed:
-            pipeline.restart_required = False
-        elif env in ("development", "dev"):
+        if pipeline.restart_required and env in ("development", "dev"):
             _handle_dev_mode_reload_trigger(
                 pipeline=pipeline,
                 result=result,
                 capability_code=capability_code,
                 env=env,
             )
+            restart_decision = build_install_restart_decision(
+                contract_lane_changed=contract_lane_changed,
+                backend_restart_triggered=pipeline.restart_triggered,
+                hot_reload_performed=hot_reload_performed,
+            )
+            pipeline.restart_decision = restart_decision.to_payload()
+            pipeline.restart_required = restart_decision.legacy_restart_required
         _defer_restart_webhook_if_blocked(
             pipeline=pipeline,
             result=result,
@@ -344,6 +358,10 @@ async def run_install_pipeline(
         pack_metadata = {"version": pipeline.version}
         if extra_metadata:
             pack_metadata.update(extra_metadata)
+        pack_metadata = apply_restart_decision_to_payload(
+            pack_metadata,
+            pipeline.restart_decision,
+        )
 
         installed_manifest_path = target_dir / "manifest.yaml"
         if installed_manifest_path.exists():
@@ -414,6 +432,7 @@ async def run_install_pipeline(
                 enabled=True,
                 hot_reload_performed=hot_reload_performed,
                 restart_required=pipeline.restart_required,
+                restart_decision=pipeline.restart_decision,
                 manifest_path=installed_manifest_path
                 if installed_manifest_path.exists()
                 else None,

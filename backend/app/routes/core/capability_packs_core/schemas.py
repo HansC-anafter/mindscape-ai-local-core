@@ -17,6 +17,10 @@ class PackResponse(BaseModel):
     tools: List[str] = []
     version: Optional[str] = None
     installed_at: Optional[str] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    restart_decision: Optional[Dict[str, Any]] = None
+    backend_process_restart_required: Optional[bool] = None
+    runner_restart_required: Optional[bool] = None
     activation: Optional["PackActivationStateResponse"] = None
     validation: Optional[Dict[str, Any]] = None
 
@@ -37,6 +41,9 @@ class PackActivationStateResponse(BaseModel):
     last_error: Optional[str] = None
     activated_at: Optional[str] = None
     updated_at: Optional[str] = None
+    restart_decision: Optional[Dict[str, Any]] = None
+    backend_process_restart_required: Optional[bool] = None
+    runner_restart_required: Optional[bool] = None
 
 
 try:

@@ -63,10 +63,25 @@ export interface CapabilityPack {
   enabled_by_default?: boolean;
   version?: string;
   installed_at?: string;
+  metadata?: Record<string, unknown>;
+  restart_decision?: InstallRestartDecision;
+  backend_process_restart_required?: boolean | null;
+  runner_restart_required?: boolean | null;
   routes?: string[];
   tools?: string[];
   activation?: PackActivationState;
   validation?: PackValidationState;
+}
+
+export interface InstallRestartDecision {
+  execution_activation_required?: boolean;
+  execution_activation_state?: string;
+  backend_process_restart_required?: boolean;
+  runner_restart_required?: boolean;
+  restart_webhook_required?: boolean;
+  legacy_restart_required?: boolean;
+  reasons?: string[];
+  semantic_version?: string;
 }
 
 export interface PackActivationState {
@@ -85,6 +100,9 @@ export interface PackActivationState {
   last_error?: string | null;
   activated_at?: string | null;
   updated_at?: string | null;
+  restart_decision?: InstallRestartDecision | null;
+  backend_process_restart_required?: boolean | null;
+  runner_restart_required?: boolean | null;
 }
 
 export interface PackValidationSummary {

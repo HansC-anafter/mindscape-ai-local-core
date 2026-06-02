@@ -75,6 +75,7 @@ class PackActivationService:
         enabled: bool,
         hot_reload_performed: bool,
         restart_required: bool,
+        restart_decision: Optional[Dict[str, Any]] = None,
         manifest_path: Optional[Path] = None,
         activation_error: Optional[str] = None,
     ) -> Dict[str, Any]:
@@ -85,6 +86,7 @@ class PackActivationService:
             enabled=enabled,
             hot_reload_performed=hot_reload_performed,
             restart_required=restart_required,
+            restart_decision=restart_decision,
             manifest_path=manifest_path,
             activation_error=activation_error,
         )
@@ -403,9 +405,16 @@ class PackActivationService:
         enabled: bool,
         hot_reload_performed: bool,
         restart_required: bool,
+        restart_decision: Optional[Dict[str, Any]] = None,
         manifest_path: Optional[Path] = None,
         activation_error: Optional[str] = None,
     ) -> PackActivationRecord:
+        backend_process_restart_required = bool(
+            (restart_decision or {}).get(
+                "backend_process_restart_required",
+                restart_required,
+            )
+        )
         migration_state = self._derive_migration_state(pack_id, install_result)
         if not enabled:
             activation_state = "disabled"
@@ -415,7 +424,7 @@ class PackActivationService:
             activation_state = "active"
             activation_mode = "install_hot_reload"
             activated_at = _utc_now()
-        elif restart_required:
+        elif backend_process_restart_required:
             activation_state = "pending_restart"
             activation_mode = "pending_restart"
             activated_at = None

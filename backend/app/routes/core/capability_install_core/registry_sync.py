@@ -17,12 +17,16 @@ def _set_validation_followup_result(
     *,
     reason: str,
 ) -> None:
-    if pipeline.restart_required and pipeline.webhook_result is None:
+    if _should_run_restart_webhook(pipeline):
         pipeline.webhook_result = {"sent": False, "reason": reason}
 
 
 def _should_run_restart_webhook(pipeline: InstallPipelineResult) -> bool:
-    return bool(pipeline.restart_required and pipeline.webhook_result is None)
+    restart_decision = pipeline.restart_decision or {}
+    restart_webhook_required = bool(
+        restart_decision.get("restart_webhook_required", pipeline.restart_required)
+    )
+    return bool(restart_webhook_required and pipeline.webhook_result is None)
 
 
 def _defer_restart_webhook_if_blocked(
@@ -32,7 +36,7 @@ def _defer_restart_webhook_if_blocked(
     capability_code: str,
 ) -> bool:
     """Prevent restart webhooks from killing active meeting/runtime work."""
-    if not pipeline.restart_required or pipeline.webhook_result is not None:
+    if not _should_run_restart_webhook(pipeline):
         return False
 
     blockers = inspect_restart_blockers()

@@ -20,6 +20,10 @@ from backend.app.routes.core.capability_install_core.paths import (
     _resolve_local_core_root,
 )
 from backend.app.routes.core.capability_install_core.pipeline import run_install_pipeline
+from backend.app.routes.core.capability_install_core.restart_policy import (
+    apply_restart_decision_to_payload,
+    refresh_restart_decision_after_execution,
+)
 from backend.app.services.pack_activation_service import PackActivationService
 from backend.app.services.stores.capability_install_job_store import (
     CapabilityInstallJobStore,
@@ -40,7 +44,7 @@ def _status_url(install_id: str) -> str:
 
 
 def _pipeline_result_to_payload(result: Any) -> Dict[str, Any]:
-    return {
+    payload = {
         "success": bool(getattr(result, "success", False)),
         "capability_code": getattr(result, "capability_code", None),
         "version": getattr(result, "version", None),
@@ -53,6 +57,10 @@ def _pipeline_result_to_payload(result: Any) -> Dict[str, Any]:
         "validation": getattr(result, "validation", None),
         "pack_metadata": getattr(result, "pack_metadata", {}) or {},
     }
+    return apply_restart_decision_to_payload(
+        payload,
+        getattr(result, "restart_decision", {}) or {},
+    )
 
 
 class CapabilityInstallJobService:
@@ -133,6 +141,7 @@ class CapabilityInstallJobService:
         job = self.store.get_job(install_id)
         if job is not None:
             job = self._reconcile_pending_execution_activation(job)
+            job = self._normalize_job_restart_semantics(job)
             job["status_url"] = _status_url(install_id)
         return job
 
@@ -176,6 +185,11 @@ class CapabilityInstallJobService:
             "activation_mode": activation.get("activation_mode"),
             "updated_at": activation.get("updated_at"),
         }
+        next_payload = self._refresh_restart_payload(
+            next_payload,
+            execution_activation=next_payload["execution_activation"],
+            activation=activation,
+        )
         reconciled = self.store.mark_succeeded(
             job["install_id"],
             result_payload=next_payload,
@@ -214,6 +228,16 @@ class CapabilityInstallJobService:
                 pipeline_payload=payload,
             )
             payload["execution_activation"] = activation
+            runtime_activation = self._safe_get_activation_state(
+                payload.get("capability_code")
+            )
+            if runtime_activation:
+                payload["activation"] = runtime_activation
+            payload = self._refresh_restart_payload(
+                payload,
+                execution_activation=activation,
+                activation=runtime_activation,
+            )
             if activation.get("state") == "pending_execution_activation":
                 return self.store.mark_pending_execution_activation(
                     install_id,
@@ -362,6 +386,11 @@ class CapabilityInstallJobService:
                     json={
                         "capability_code": capability_code,
                         "install_id": install_id,
+                        "manifest_hash": (
+                            (pipeline_payload.get("activation") or {}).get(
+                                "manifest_hash"
+                            )
+                        ),
                         "reason": "install_job_completed",
                     },
                 )
@@ -379,6 +408,70 @@ class CapabilityInstallJobService:
                 "state": "pending_execution_activation",
                 "error": str(exc),
             }
+
+    def _normalize_job_restart_semantics(self, job: Dict[str, Any]) -> Dict[str, Any]:
+        result_payload = job.get("result_payload") or {}
+        if not result_payload:
+            return job
+        capability_code = result_payload.get("capability_code")
+        activation = self._safe_get_activation_state(capability_code)
+        result_payload = self._with_legacy_contract_reason(result_payload)
+        if activation is None and not result_payload.get("restart_decision"):
+            return job
+        if activation:
+            result_payload = dict(result_payload)
+            result_payload["activation"] = activation
+        result_payload = self._refresh_restart_payload(
+            result_payload,
+            execution_activation=result_payload.get("execution_activation"),
+            activation=activation,
+        )
+        next_job = dict(job)
+        next_job["result_payload"] = result_payload
+        return next_job
+
+    def _refresh_restart_payload(
+        self,
+        payload: Dict[str, Any],
+        *,
+        execution_activation: Optional[Dict[str, Any]],
+        activation: Optional[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        return refresh_restart_decision_after_execution(
+            payload=payload,
+            execution_activation=execution_activation,
+            activation=activation,
+        )
+
+    def _safe_get_activation_state(
+        self,
+        capability_code: Optional[str],
+    ) -> Optional[Dict[str, Any]]:
+        if not capability_code:
+            return None
+        try:
+            return self._get_activation_service().get_state(capability_code)
+        except Exception as exc:
+            logger.warning(
+                "Failed to read activation state for %s: %s",
+                capability_code,
+                exc,
+                exc_info=True,
+            )
+            return None
+
+    @staticmethod
+    def _with_legacy_contract_reason(payload: Dict[str, Any]) -> Dict[str, Any]:
+        decision = dict(payload.get("restart_decision") or {})
+        if decision:
+            return payload
+        warnings = payload.get("warnings") or []
+        if not any("Contract import paths changed" in str(item) for item in warnings):
+            return payload
+        decision["reasons"] = ["contract_lane_changed"]
+        next_payload = dict(payload)
+        next_payload["restart_decision"] = decision
+        return next_payload
 
 
 async def run_capability_install_job_worker_loop(

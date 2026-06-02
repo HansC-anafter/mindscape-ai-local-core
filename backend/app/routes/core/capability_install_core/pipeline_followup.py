@@ -94,6 +94,12 @@ async def run_post_install_followups(
 
     pipeline.pack_metadata = pack_metadata
     pipeline.validation = validation_state
+    restart_webhook_required = bool(
+        (pipeline.restart_decision or {}).get(
+            "restart_webhook_required",
+            pipeline.restart_required,
+        )
+    )
 
     # 7. Validation / webhook background follow-up
     if validation_state is not None:
@@ -105,8 +111,7 @@ async def run_post_install_followups(
                 if installed_manifest_path.exists()
                 else None,
                 restart_required=bool(
-                    pipeline.restart_required
-                    and pipeline.webhook_result is None
+                    restart_webhook_required and pipeline.webhook_result is None
                 ),
                 version=pack_metadata.get("version", "1.0.0"),
                 extra_metadata=extra_metadata,

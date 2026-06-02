@@ -13,8 +13,9 @@ class InstallPipelineResult:
     version: Optional[str] = None
     warnings: List[str] = field(default_factory=list)
     errors: List[str] = field(default_factory=list)
-    restart_required: bool = True
+    restart_required: bool = False
     restart_triggered: bool = False
+    restart_decision: Dict[str, Any] = field(default_factory=dict)
     hot_reload_result: Any = None
     webhook_result: Any = None
     pack_metadata: Dict[str, Any] = field(default_factory=dict)
@@ -36,5 +37,4 @@ class InstallFromCloudRequest(BaseModel):
     )
     provider_id: str = Field(..., description="Provider ID to download from")
     verify_checksum: bool = Field(True, description="Whether to verify SHA256 checksum")
-
 
