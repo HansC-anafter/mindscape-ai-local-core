@@ -103,6 +103,10 @@ export class PermissionMap {
                     trust_level: "READ",
                     confirm_required: false,
                 },
+                host_resource_lane_workers_set: {
+                    trust_level: "READ",
+                    confirm_required: false,
+                },
             },
         };
     }

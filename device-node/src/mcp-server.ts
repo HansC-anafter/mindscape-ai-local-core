@@ -16,6 +16,7 @@ import { LocalCoreBridge } from "./bridge/local-core-client.js";
 import { filesystemRead, filesystemWrite, filesystemList } from "./capabilities/filesystem.js";
 import { shellExecute } from "./capabilities/shell.js";
 import { hostResourceProbe } from "./capabilities/host-resource-probe.js";
+import { hostResourceLaneWorkersSet } from "./capabilities/host-resource-lane-workers.js";
 import * as http from "http";
 
 export interface MCPServerConfig {
@@ -143,6 +144,28 @@ export class MCPServer {
                 },
             },
             handler: hostResourceProbe,
+            trustLevel: TrustLevel.READ,
+        });
+
+        this.registerTool({
+            name: "host_resource_lane_workers_set",
+            description: "Set dynamic host resource lane worker target",
+            inputSchema: {
+                type: "object",
+                properties: {
+                    lane_id: { type: "string", description: "Host resource lane id" },
+                    desired_worker_count: { type: "number", description: "Desired worker count" },
+                    queue_shard: { type: "string", description: "Target runner queue shard" },
+                    runner_profile: { type: "string", description: "Runner profile hint" },
+                    resource_class: { type: "string", description: "Resource class" },
+                    worker_env: {
+                        type: "object",
+                        description: "Environment values for a managed worker",
+                    },
+                },
+                required: ["lane_id", "desired_worker_count"],
+            },
+            handler: hostResourceLaneWorkersSet,
             trustLevel: TrustLevel.READ,
         });
     }
