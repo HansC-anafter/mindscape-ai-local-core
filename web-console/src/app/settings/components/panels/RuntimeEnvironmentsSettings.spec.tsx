@@ -1,8 +1,13 @@
+import '@testing-library/jest-dom/vitest';
 import React, { Suspense } from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { createRuntimeSettingsExtensionComponent } from './RuntimeEnvironmentsSettings';
+import {
+  createRuntimeSettingsExtensionComponent,
+  resolveRuntimeModalPanels,
+  shouldRenderSettingsPanelInline,
+} from './RuntimeEnvironmentsSettings';
 
 const registryMock = vi.hoisted(() => ({
   loadRegisteredCapabilityComponentsContext: vi.fn(),
@@ -61,5 +66,86 @@ describe('RuntimeEnvironmentsSettings extension loader', () => {
     expect(registryMock.loadRegisteredCapabilityComponentsContext).toHaveBeenCalledWith('ig');
     expect(context).toHaveBeenCalledWith('./components/RuntimePanel.tsx');
     expect(context).not.toHaveBeenCalledWith('./components/SourcesTab.collections.cases.tsx');
+  });
+});
+
+describe('RuntimeEnvironmentsSettings panel placement', () => {
+  it('places runtime-scoped settings and matching workflow panels in the runtime card modal', () => {
+    const panels = [
+      {
+        capabilityCode: 'comfyui_runtime',
+        componentCode: 'ComfyUIRuntimeSettingsPanel',
+        section: 'runtime-environments' as const,
+        title: 'ComfyUI Local Runtime',
+        displayMode: 'runtime_modal',
+        showWhen: {
+          runtimeCodes: ['comfyui', 'comfyui_local', 'comfyui_runtime'],
+        },
+        importPath: '@/app/capabilities/comfyui_runtime/components/ComfyUIRuntimeSettingsPanel.tsx',
+        export: 'default',
+      },
+      {
+        capabilityCode: 'comfyui_runtime',
+        componentCode: 'ComfyUIRuntimePanel',
+        section: 'workflow-engines' as const,
+        title: 'ComfyUI Runtime',
+        importPath: '@/app/capabilities/comfyui_runtime/components/ComfyUIRuntimePanel.tsx',
+        export: 'default',
+      },
+      {
+        capabilityCode: 'unrelated_runtime',
+        componentCode: 'OtherRuntimePanel',
+        section: 'workflow-engines' as const,
+        title: 'Other Runtime',
+        importPath: '@/app/capabilities/other/components/OtherRuntimePanel.tsx',
+        export: 'default',
+      },
+    ];
+
+    const resolved = resolveRuntimeModalPanels(
+      {
+        id: 'comfyui-local',
+        name: 'ComfyUI Local',
+        description: 'Local ComfyUI runtime',
+        icon: 'image',
+        status: 'active',
+      },
+      panels,
+    );
+
+    expect(resolved.map((panel) => panel.componentCode)).toEqual([
+      'ComfyUIRuntimeSettingsPanel',
+      'ComfyUIRuntimePanel',
+    ]);
+  });
+
+  it('keeps runtime-scoped panels out of the whole-page extension slot', () => {
+    expect(shouldRenderSettingsPanelInline({
+      capabilityCode: 'comfyui_runtime',
+      componentCode: 'ComfyUIRuntimeSettingsPanel',
+      title: 'ComfyUI Local Runtime',
+      displayMode: 'runtime_modal',
+      importPath: '@/app/capabilities/comfyui_runtime/components/ComfyUIRuntimeSettingsPanel.tsx',
+      export: 'default',
+    })).toBe(false);
+
+    expect(shouldRenderSettingsPanelInline({
+      capabilityCode: 'comfyui_runtime',
+      componentCode: 'ComfyUIRuntimeSettingsPanel',
+      title: 'ComfyUI Local Runtime',
+      showWhen: {
+        runtimeCodes: ['comfyui_runtime'],
+      },
+      importPath: '@/app/capabilities/comfyui_runtime/components/ComfyUIRuntimeSettingsPanel.tsx',
+      export: 'default',
+    })).toBe(false);
+
+    expect(shouldRenderSettingsPanelInline({
+      capabilityCode: 'global_capability',
+      componentCode: 'GlobalSettingsPanel',
+      title: 'Global Settings',
+      importPath: '@/app/capabilities/global/components/GlobalSettingsPanel.tsx',
+      export: 'default',
+    })).toBe(true);
   });
 });

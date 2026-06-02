@@ -1,17 +1,11 @@
 import React from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import WorkspaceGlobalToolRailProvider from './WorkspaceGlobalToolRailProvider';
 import WorkspaceThreadBundleToolRegistration from './WorkspaceThreadBundleToolRegistration';
 
-const routerPush = vi.fn();
-
-vi.mock('next/navigation', () => ({
-  useRouter: () => ({
-    push: routerPush,
-  }),
-}));
+const windowOpenMock = vi.hoisted(() => vi.fn(() => ({ opener: null })));
 
 vi.mock('@/contexts/WorkspaceDataContext', () => ({
   useWorkspaceDataOptional: () => ({
@@ -59,8 +53,13 @@ vi.mock('@/components/workspace/ThreadBundlePanel', async () => {
 });
 
 describe('WorkspaceGlobalToolRailProvider', () => {
+  beforeEach(() => {
+    vi.stubGlobal('open', windowOpenMock);
+  });
+
   afterEach(() => {
     vi.clearAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it('owns the workspace rail and mounts one active panel at a time', async () => {
@@ -101,7 +100,11 @@ describe('WorkspaceGlobalToolRailProvider', () => {
 
     fireEvent.click(screen.getByTestId('workspace-graph-tool'));
 
-    expect(routerPush).toHaveBeenCalledWith('/mindscape/canvas?workspaceId=ws_graph');
+    expect(windowOpenMock).toHaveBeenCalledWith(
+      '/mindscape/canvas?workspaceId=ws_graph',
+      '_blank',
+      'noopener,noreferrer',
+    );
     expect(screen.queryByTestId('workspace-global-tool-panel')).toBeNull();
   });
 

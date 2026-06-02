@@ -26,7 +26,20 @@ import { ModelsAndQuotaCatalogView } from './modelsAndQuota/ModelsAndQuotaCatalo
 import { ModelsAndQuotaDynamicAllocation } from './modelsAndQuota/ModelsAndQuotaDynamicAllocation';
 import { ModelsAndQuotaToolbar } from './modelsAndQuota/ModelsAndQuotaToolbar';
 
-export function ModelsAndQuotaPanel() {
+interface ModelsAndQuotaPanelProps {
+  workspaceId?: string;
+  initialCatalogCategory?: string;
+}
+
+function normalizeInitialCatalogCategory(category?: string): CatalogCategory {
+  return category === 'runtime-cli' ? 'runtime-cli' : 'local-deployed';
+}
+
+export function ModelsAndQuotaPanel({
+  workspaceId,
+  initialCatalogCategory,
+}: ModelsAndQuotaPanelProps = {}) {
+  const initialCatalog = normalizeInitialCatalogCategory(initialCatalogCategory);
   const [loading, setLoading] = useState(true);
   const [models, setModels] = useState<ModelItem[]>([]);
   const [selectedModel, setSelectedModel] = useState<ModelItem | null>(null);
@@ -37,7 +50,7 @@ export function ModelsAndQuotaPanel() {
   const [togglingModels, setTogglingModels] = useState<Set<string>>(new Set());
   const [hoveredModelId, setHoveredModelId] = useState<string | number | null>(null);
   const [subTab, setSubTab] = useState<SubTab>('models');
-  const [catalogCategory, setCatalogCategory] = useState<CatalogCategory>('local-deployed');
+  const [catalogCategory, setCatalogCategory] = useState<CatalogCategory>(initialCatalog);
   const [deploymentScope, setDeploymentScope] = useState<DeploymentScope>('local');
   const [profileBindings, setProfileBindings] = useState<Record<DeploymentScope, Record<string, string>>>({
     local: {},
@@ -57,6 +70,17 @@ export function ModelsAndQuotaPanel() {
   useEffect(() => {
     setEmbeddingTestResult(null);
   }, [selectedModel, modelTypeFilter]);
+
+  useEffect(() => {
+    if (initialCatalogCategory !== 'runtime-cli') {
+      return;
+    }
+    setModelTypeFilter('chat');
+    setSubTab('models');
+    setCatalogCategory('runtime-cli');
+    setSelectedProvider(null);
+    setSelectedModel(null);
+  }, [initialCatalogCategory]);
 
   const handleRemoveModel = useCallback(async (modelId: string | number) => {
     try {
@@ -401,7 +425,7 @@ export function ModelsAndQuotaPanel() {
 
       {modelTypeFilter === 'chat' && subTab === 'models' && catalogCategory === 'runtime-cli' && (
         <div className="flex-1">
-          <CliApiKeysSection />
+          <CliApiKeysSection workspaceId={workspaceId} />
         </div>
       )}
 

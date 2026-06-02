@@ -7,6 +7,7 @@ import WorkspaceSettingsToolPanel from './WorkspaceSettingsToolPanel';
 const routerMock = vi.hoisted(() => ({
   push: vi.fn(),
 }));
+const windowOpenMock = vi.hoisted(() => vi.fn(() => ({ opener: null })));
 
 const workspaceDataMock = vi.hoisted(() => ({
   workspace: {
@@ -58,6 +59,7 @@ vi.mock('@/contexts/WorkspaceDataContext', () => ({
 
 vi.mock('@/lib/page-visibility', () => ({
   isDocumentHidden: () => false,
+  onDocumentVisible: () => vi.fn(),
 }));
 
 vi.mock('../components/CapabilityExtensionSlot', async () => {
@@ -88,12 +90,28 @@ vi.mock('@/components/StoragePathConfigModal', () => ({
   },
 }));
 
-function stubOkFetch() {
+vi.mock('@/components/workspace/WorkspaceToolOverlayFloatingPanel', () => ({
+  WorkspaceToolOverlayFloatingPanel: ({
+    open,
+    workspaceId,
+  }: {
+    open: boolean;
+    workspaceId: string;
+    onClose: () => void;
+  }) => open ? (
+    <div data-testid="mock-workspace-tool-overlay-floating-panel" data-workspace-id={workspaceId} />
+  ) : null,
+}));
+
+function stubOkFetch(overrides?: {
+  agentsBody?: Record<string, unknown>;
+}) {
   const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
     const url = String(input);
     let body: Record<string, unknown> = { status: 'ok' };
     if (url.includes('/agents')) {
-      body = {
+      body = overrides?.agentsBody || {
+        bridge_script_path: '/project/scripts/start_cli_bridge.sh',
         agents: [
           {
             id: 'codex_cli',
@@ -192,6 +210,7 @@ async function flushAsyncEffects() {
 describe('WorkspaceSettingsToolPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.stubGlobal('open', windowOpenMock);
     workspaceDataMock.updateWorkspace.mockImplementation(async (updates: Record<string, unknown>) => ({
       id: 'ws_test',
       title: 'Test Workspace',
@@ -223,6 +242,40 @@ describe('WorkspaceSettingsToolPanel', () => {
     expect(workspaceDataMock.refreshSystemStatus).not.toHaveBeenCalled();
   });
 
+  it('renders CLI bridge guidance from the workspace agents snapshot without polling', async () => {
+    const setIntervalSpy = vi.spyOn(globalThis, 'setInterval');
+    stubOkFetch({
+      agentsBody: {
+        bridge_script_path: '/project/scripts/start_cli_bridge.sh',
+        agents: [
+          {
+            id: 'codex_cli',
+            name: 'Codex CLI',
+            status: 'unavailable',
+            reason: 'no_ws_client',
+          },
+        ],
+      },
+    });
+
+    render(<WorkspaceSettingsToolPanel workspaceId="ws_test" apiUrl="http://api.test" />);
+
+    await flushAsyncEffects();
+    expect(screen.getByText('0/1 connected')).toBeInTheDocument();
+    expect(screen.getByText('Codex CLI')).toBeInTheDocument();
+    expect(screen.getByText('Start Bridge')).toBeInTheDocument();
+    expect(setIntervalSpy).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'How to connect CLI bridge' }));
+
+    expect(screen.getByRole('dialog', { name: 'Workspace CLI Bridge' })).toBeInTheDocument();
+    expect(screen.getByText('/project/scripts/start_cli_bridge.sh --all')).toBeInTheDocument();
+    expect(screen.getByText('/project/scripts/start_cli_bridge.sh --workspace-id ws_test')).toBeInTheDocument();
+    expect(screen.getByText((text) => text.includes('start_cli_bridge.ps1 -All'))).toBeInTheDocument();
+    expect(screen.getByText((text) => text.includes('start_cli_bridge.ps1 -WorkspaceId ws_test'))).toBeInTheDocument();
+    expect(setIntervalSpy).not.toHaveBeenCalled();
+  });
+
   it('renders host resources summary in the Status section and opens the full dashboard', async () => {
     stubOkFetch();
 
@@ -240,7 +293,12 @@ describe('WorkspaceSettingsToolPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /Open dashboard/ }));
 
-    expect(routerMock.push).toHaveBeenCalledWith('/settings?tab=runtime&section=host-resources');
+    expect(windowOpenMock).toHaveBeenCalledWith(
+      '/settings?tab=runtime&section=host-resources&workspace_id=ws_test',
+      '_blank',
+      'noopener,noreferrer',
+    );
+    expect(routerMock.push).not.toHaveBeenCalled();
   });
 
   it('uses refresh=true for host resources only when the Status refresh button is clicked', async () => {
@@ -276,6 +334,11 @@ describe('WorkspaceSettingsToolPanel', () => {
       expect(screen.getByTestId('mock-capability-extension-slot')).toHaveTextContent('runtime-environments');
     });
     expect(fetchMock).toHaveBeenCalledWith('/api/v1/settings/extensions?section=runtime-environments&workspace_id=ws_test');
+    expect(screen.queryByTestId('mock-workspace-tool-overlay-floating-panel')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open Tool Overlay' }));
+
+    expect(screen.getByTestId('mock-workspace-tool-overlay-floating-panel')).toHaveAttribute('data-workspace-id', 'ws_test');
   });
 
   it('treats workspace execution as LLM model routing, not tool runtime extensions', async () => {
@@ -293,8 +356,12 @@ describe('WorkspaceSettingsToolPanel', () => {
       expect(screen.getByTestId('workspace-settings-execution-section')).toBeInTheDocument();
     });
     expect(screen.getByText('Workspace Execution')).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledWith('http://api.test/api/v1/settings/model-route-registry/workspace-chat?workspace_id=ws_test&profile_id=default-user');
-    expect(fetchMock).toHaveBeenCalledWith('http://api.test/api/v1/settings/model-route-registry/workspace-executor?workspace_id=ws_test');
+    expect(fetchMock.mock.calls.some(([url]) => (
+      String(url) === 'http://api.test/api/v1/settings/model-route-registry/workspace-chat?workspace_id=ws_test&profile_id=default-user'
+    ))).toBe(true);
+    expect(fetchMock.mock.calls.some(([url]) => (
+      String(url) === 'http://api.test/api/v1/settings/model-route-registry/workspace-executor?workspace_id=ws_test'
+    ))).toBe(true);
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/api/v1/settings/extensions'))).toBe(false);
   });
 

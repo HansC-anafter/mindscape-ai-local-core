@@ -5,20 +5,9 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { t } from '@/lib/i18n';
 import { useWorkspaceMetadata } from '@/contexts/WorkspaceMetadataContext';
 import { useWorkspaceExecutorRoute } from '@/hooks/useWorkspaceExecutorRoute';
+import { useWorkspaceAgentsSnapshot } from '@/hooks/useWorkspaceAgentsSnapshot';
 import { useToast } from '@/components/Toast';
-import { isDocumentHidden, onDocumentVisible } from '@/lib/page-visibility';
-import { sharedGetFetch } from '@/lib/resilient-fetch';
-
-interface AgentInfo {
-  id: string;
-  name: string;
-  description: string;
-  status: string;
-  version: string;
-  risk_level: string;
-  transport?: string | null;
-  reason?: string | null;
-}
+import { WorkspaceExecutorRuntimeSelector } from './WorkspaceExecutorRuntimeSelector';
 
 interface WorkspaceChatRuntimeControlsProps {
   workspaceId: string;
@@ -57,52 +46,11 @@ export function WorkspaceChatRuntimeControls({
     workspaceId,
     resolvedApiUrl,
   );
-  const [availableAgents, setAvailableAgents] = useState<AgentInfo[]>([]);
-  const [pendingRuntimeSelection, setPendingRuntimeSelection] = useState<string | null>(null);
+  const agentsSnapshot = useWorkspaceAgentsSnapshot(workspaceId, resolvedApiUrl);
+  const [pendingRuntimeSelection, setPendingRuntimeSelection] = useState<string | null | undefined>(undefined);
 
   useEffect(() => {
-    let cancelled = false;
-
-    const fetchAgents = async () => {
-      if (isDocumentHidden()) {
-        return;
-      }
-
-      try {
-        const response = await sharedGetFetch(
-          `${resolvedApiUrl}/api/v1/workspaces/${workspaceId}/agents`,
-          { method: 'GET' },
-          { dedupKey: `workspace-agents:${workspaceId}` },
-        );
-        if (!response.ok || cancelled) {
-          return;
-        }
-        const data = await response.json();
-        if (!cancelled) {
-          setAvailableAgents(data.agents || []);
-        }
-      } catch (err) {
-        if (!cancelled) {
-          console.error('[WorkspaceChatRuntimeControls] Failed to fetch agents:', err);
-        }
-      }
-    };
-
-    void fetchAgents();
-    const interval = window.setInterval(fetchAgents, 30_000);
-    const unsubscribeVisible = onDocumentVisible(() => {
-      void fetchAgents();
-    });
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-      unsubscribeVisible();
-    };
-  }, [resolvedApiUrl, workspaceId]);
-
-  useEffect(() => {
-    if (pendingRuntimeSelection !== null) {
+    if (pendingRuntimeSelection !== undefined) {
       return;
     }
 
@@ -131,7 +79,7 @@ export function WorkspaceChatRuntimeControls({
     setExecutorRuntime(agentId);
 
     const agentDisplayName = agentId
-      ? availableAgents.find((agent) => agent.id === agentId)?.name || agentId
+      ? agentsSnapshot.agents.find((agent) => agent.id === agentId)?.name || agentId
       : 'Mindscape LLM';
 
     try {
@@ -143,7 +91,7 @@ export function WorkspaceChatRuntimeControls({
 
       if (!success) {
         setExecutorRuntime(previousAgent);
-        setPendingRuntimeSelection(null);
+        setPendingRuntimeSelection(undefined);
         showToast({
           type: 'error',
           message: `Failed to switch executor to ${agentDisplayName}`,
@@ -159,11 +107,12 @@ export function WorkspaceChatRuntimeControls({
           : 'Switched back to Mindscape LLM',
         duration: 3000,
       });
-      setPendingRuntimeSelection(null);
+      await agentsSnapshot.refresh();
+      setPendingRuntimeSelection(undefined);
     } catch (err) {
       console.error('[WorkspaceChatRuntimeControls] Error setting executor:', err);
       setExecutorRuntime(previousAgent);
-      setPendingRuntimeSelection(null);
+      setPendingRuntimeSelection(undefined);
       showToast({
         type: 'error',
         message: 'Failed to switch executor: network error',
@@ -181,39 +130,9 @@ export function WorkspaceChatRuntimeControls({
   const statusClassName = layout === 'panel'
     ? 'rounded-[18px] border border-slate-200 bg-slate-50/90 px-3 py-3 text-xs text-slate-600 dark:border-slate-800 dark:bg-slate-900/70 dark:text-slate-300'
     : 'flex items-center gap-2 text-xs text-gray-500 dark:text-gray-300';
-  const boundRuntimeIds = new Set(routeEntries);
-  const selectedRuntimeId = executorRuntime ?? resolvedRuntime ?? null;
-  const selectedAgent =
-    availableAgents.find((agent) => agent.id === selectedRuntimeId) || null;
-  const selectedRuntimeIsBound = Boolean(
-    selectedRuntimeId && (boundRuntimeIds.has(selectedRuntimeId) || resolvedRuntime === selectedRuntimeId),
-  );
-  const selectedRuntimeStatusLabel = selectedAgent
-    ? selectedAgent.status === 'available'
-      ? selectedAgent.transport
-        ? `${selectedAgent.transport} connected`
-        : 'available'
-      : selectedRuntimeIsBound
-        ? 'workspace-bound, bridge offline'
-        : 'unavailable'
-    : selectedRuntimeIsBound
-      ? 'workspace-bound'
-      : 'Mindscape default';
-
-  const getOptionSuffix = (agent: AgentInfo): string => {
-    const isBound = boundRuntimeIds.has(agent.id) || resolvedRuntime === agent.id;
-    if (agent.status === 'available') {
-      return '';
-    }
-    if (isBound) {
-      return ' (bound)';
-    }
-    return ' (unavailable)';
-  };
-
-  const isAgentSelectable = (agent: AgentInfo): boolean => {
-    return agent.status === 'available' || boundRuntimeIds.has(agent.id) || resolvedRuntime === agent.id;
-  };
+  const selectedRuntimeId = pendingRuntimeSelection !== undefined
+    ? pendingRuntimeSelection
+    : executorRuntime ?? resolvedRuntime ?? null;
 
   return (
     <>
@@ -229,53 +148,6 @@ export function WorkspaceChatRuntimeControls({
             : 'workspace-chat-runtime-controls-inline'
         }
       >
-        {layout === 'panel' ? (
-          <div className={statusClassName}>
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
-                  Active Runtime
-                </div>
-                <div className="mt-1 text-sm font-semibold leading-5 text-slate-900 dark:text-slate-100">
-                  {selectedAgent?.name || (selectedRuntimeId ? selectedRuntimeId : 'Mindscape LLM')}
-                </div>
-              </div>
-              <span
-                className={`mt-0.5 inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] ${
-                  selectedAgent?.status === 'available'
-                    ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300'
-                    : selectedRuntimeIsBound
-                      ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300'
-                      : 'bg-slate-200 text-slate-600 dark:bg-slate-800 dark:text-slate-300'
-                }`}
-              >
-                {selectedAgent?.status === 'available'
-                  ? 'available'
-                  : selectedRuntimeIsBound
-                    ? 'bound'
-                    : 'offline'}
-              </span>
-            </div>
-            <div className="mt-2 text-[11px] leading-5 text-slate-500 dark:text-slate-400">
-              {selectedRuntimeStatusLabel}
-              {selectedAgent?.reason ? ` - ${selectedAgent.reason}` : ''}
-            </div>
-            {currentChatModel ? (
-              <div className="mt-2 text-[11px] leading-5 text-slate-600 dark:text-slate-300">
-                Model: <span className="font-semibold text-slate-900 dark:text-slate-100">{currentChatModel}</span>
-              </div>
-            ) : null}
-            {contextTokenCount !== null ? (
-              <div className="mt-1 text-[11px] leading-5 text-slate-500 dark:text-slate-400">
-                {contextTokenCount >= 1000
-                  ? `${(contextTokenCount / 1000).toFixed(1)}k`
-                  : contextTokenCount.toLocaleString()}{' '}
-                tokens
-              </div>
-            ) : null}
-          </div>
-        ) : null}
-
         {layout !== 'panel' ? (
           <select
             value={currentChatModel || ''}
@@ -301,61 +173,35 @@ export function WorkspaceChatRuntimeControls({
           </select>
         ) : null}
 
-        {availableAgents.length > 0 ? (
-          layout === 'panel' ? (
-            <div>
-              <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
-                Runtime
-              </div>
-              <div className="mt-1.5">
-                <select
-                  value={selectedRuntimeId || ''}
-                  onChange={(event) => {
-                    const selectedAgent = event.target.value || null;
-                    void handleAgentChange(selectedAgent);
-                  }}
-                  className={selectClassName}
-                  title={t('workspaceSelectAgent') || 'Select Agent'}
-                >
-                  <option value="">Mindscape LLM</option>
-                  {availableAgents.map((agent) => (
-                    <option
-                      key={agent.id}
-                      value={agent.id}
-                      disabled={!isAgentSelectable(agent)}
-                    >
-                      {agent.name}{getOptionSuffix(agent)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-          ) : (
-            <select
-              value={selectedRuntimeId || ''}
-              onChange={(event) => {
-                const selectedAgent = event.target.value || null;
-                void handleAgentChange(selectedAgent);
-              }}
-              className={selectClassName}
-              title={t('workspaceSelectAgent') || 'Select Agent'}
-            >
-              <option value="">Mindscape LLM</option>
-              {availableAgents.map((agent) => (
-                <option
-                  key={agent.id}
-                  value={agent.id}
-                  disabled={!isAgentSelectable(agent)}
-                >
-                  {agent.name}{getOptionSuffix(agent)}
-                </option>
-              ))}
-            </select>
-          )
-        ) : null}
+        <WorkspaceExecutorRuntimeSelector
+          agents={agentsSnapshot.agents}
+          routeEntries={routeEntries}
+          resolvedRuntime={resolvedRuntime}
+          selectedRuntimeId={selectedRuntimeId}
+          disabled={pendingRuntimeSelection !== undefined}
+          onSelect={(runtimeId) => void handleAgentChange(runtimeId)}
+          layout={layout}
+        />
 
         {layout === 'panel' ? (
-          <div>
+          <>
+            {currentChatModel || contextTokenCount !== null ? (
+              <div className={statusClassName}>
+                {currentChatModel ? (
+                  <div className="text-[11px] leading-5 text-slate-600 dark:text-slate-300">
+                    Model: <span className="font-semibold text-slate-900 dark:text-slate-100">{currentChatModel}</span>
+                  </div>
+                ) : null}
+                {contextTokenCount !== null ? (
+                  <div className="mt-1 text-[11px] leading-5 text-slate-500 dark:text-slate-400">
+                    {contextTokenCount >= 1000
+                      ? `${(contextTokenCount / 1000).toFixed(1)}k`
+                      : contextTokenCount.toLocaleString()}{' '}
+                    tokens
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
             <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
               Model
             </div>
@@ -385,7 +231,7 @@ export function WorkspaceChatRuntimeControls({
                 )}
               </select>
             </div>
-          </div>
+          </>
         ) : (
           <div className={statusClassName}>
             <>

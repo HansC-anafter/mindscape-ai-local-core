@@ -35,6 +35,7 @@ import {
 
 interface CliApiKeysSectionProps {
     workspaceId?: string;
+    initialAgentTab?: AgentTab;
 }
 
 type CodexTargetActionMessage = {
@@ -235,8 +236,8 @@ const codexScopeMeta = (target: CodexAccountHomeTarget) => {
     };
 };
 
-export default function CliApiKeysSection({ workspaceId }: CliApiKeysSectionProps) {
-    const [activeTab, setActiveTab] = useState<AgentTab>('gemini');
+export default function CliApiKeysSection({ workspaceId, initialAgentTab = 'gemini' }: CliApiKeysSectionProps) {
+    const [activeTab, setActiveTab] = useState<AgentTab>(initialAgentTab);
     const [agentModes, setAgentModes] = useState<Record<AgentTab, AgentMode>>(DEFAULT_AGENT_MODES);
     const [values, setValues] = useState<Record<string, string>>({});
     const [configuredKeys, setConfiguredKeys] = useState<Record<string, boolean>>({});

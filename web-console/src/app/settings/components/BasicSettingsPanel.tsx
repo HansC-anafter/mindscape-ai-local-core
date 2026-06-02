@@ -10,6 +10,8 @@ import { BackendModeSettings } from './panels/BackendModeSettings';
 
 interface BasicSettingsPanelProps {
   activeSection?: string;
+  workspaceId?: string;
+  initialCatalogCategory?: string;
 }
 
 function BasicPanelFallback() {
@@ -25,7 +27,11 @@ const BasicSettingsSectionHost = dynamic(
   { ssr: false, loading: BasicPanelFallback }
 );
 
-export function BasicSettingsPanel({ activeSection }: BasicSettingsPanelProps = {}) {
+export function BasicSettingsPanel({
+  activeSection,
+  workspaceId,
+  initialCatalogCategory,
+}: BasicSettingsPanelProps = {}) {
   const {
     loading,
     saving,
@@ -127,21 +133,45 @@ export function BasicSettingsPanel({ activeSection }: BasicSettingsPanelProps = 
             </div>
           );
         }
-        return <BasicSettingsSectionHost activeSection={section} />;
+        return (
+          <BasicSettingsSectionHost
+            activeSection={section}
+            workspaceId={workspaceId}
+            initialCatalogCategory={initialCatalogCategory}
+          />
+        );
 
       default:
-        return <BasicSettingsSectionHost activeSection={section} />;
+        return (
+          <BasicSettingsSectionHost
+            activeSection={section}
+            workspaceId={workspaceId}
+            initialCatalogCategory={initialCatalogCategory}
+          />
+        );
     }
   };
 
   if (activeSection === 'runtime-backup') {
-    return <BasicSettingsSectionHost activeSection={activeSection} />;
+    return (
+      <BasicSettingsSectionHost
+        activeSection={activeSection}
+        workspaceId={workspaceId}
+        initialCatalogCategory={initialCatalogCategory}
+      />
+    );
   }
 
   const isStandalone = activeSection && ['models-and-quota', 'api-quota', 'embedding', 'llm-chat', 'model-routing-registry'].includes(activeSection);
 
   if (isStandalone) {
-    return <BasicSettingsSectionHost activeSection={activeSection} />;
+    return (
+      <BasicSettingsSectionHost
+        activeSection={activeSection}
+        workspaceId={workspaceId}
+        initialCatalogCategory={initialCatalogCategory}
+      />
+    );
   }
 
   const sectionContent = renderSection();

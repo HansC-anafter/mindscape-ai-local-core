@@ -1,7 +1,6 @@
 'use client';
 
 import React from 'react';
-import { useRouter } from 'next/navigation';
 import { Activity, GitGraph, Package, Settings as SettingsIcon, X } from 'lucide-react';
 
 import {
@@ -11,6 +10,7 @@ import {
 } from '@/components/workspace/WorkspaceToolRail';
 import { useWorkspaceDataOptional } from '@/contexts/WorkspaceDataContext';
 import { getApiBaseUrl } from '@/lib/api-url';
+import { openAppRouteInNewWindow } from '@/lib/navigation/openAppRouteInNewWindow';
 import {
   WORKSPACE_RIGHT_REGION_PANEL_BODY_CLASS,
   WORKSPACE_RIGHT_REGION_PANEL_WIDTH_CLASS,
@@ -92,7 +92,6 @@ export default function WorkspaceGlobalToolRailProvider({
   workspaceId,
   children,
 }: WorkspaceGlobalToolRailProviderProps) {
-  const router = useRouter();
   const apiUrl = getApiBaseUrl();
   const workspaceData = useWorkspaceDataOptional();
   const [activeToolKey, setActiveToolKey] = React.useState<string | null>(null);
@@ -172,10 +171,10 @@ export default function WorkspaceGlobalToolRailProvider({
       order: 40,
       testId: 'workspace-graph-tool',
       onSelect: () => {
-        router.push(`/mindscape/canvas?workspaceId=${encodeURIComponent(workspaceId)}`);
+        openAppRouteInNewWindow(`/mindscape/canvas?workspaceId=${encodeURIComponent(workspaceId)}`);
       },
     },
-  ], [activeCapabilityCode, activeExecutionCount, apiUrl, router, workspaceId]);
+  ], [activeCapabilityCode, activeExecutionCount, apiUrl, workspaceId]);
 
   const visibleContributions = React.useMemo(
     () => resolveVisibleContributions(coreContributions, registeredScopeContributions),

@@ -7,6 +7,7 @@ import { ToolGrid } from '../ToolGrid';
 import { Section } from '../Section';
 import { ExternalSettingsEmbed } from './ExternalSettingsEmbed';
 import { AddRuntimeModal } from './AddRuntimeModal';
+import { HostResourcesPanel } from './HostResourcesPanel';
 import { showNotification } from '../../hooks/useSettingsNotification';
 import { BaseModal } from '../../../../components/BaseModal';
 import { convertImportPathToContextKey, normalizeCapabilityContextKey } from '../../../../lib/capability-path';
@@ -34,6 +35,7 @@ interface RuntimeEnvironment {
 interface SettingsPanel {
   capabilityCode: string;
   componentCode: string;
+  section?: 'runtime-environments' | 'workflow-engines';
   title: string;
   description?: string;
   displayMode?: string;
@@ -157,27 +159,113 @@ const getRuntimeMatchCodes = (runtime: RuntimeEnvironment | undefined): string[]
   );
 };
 
-const resolveRuntimeModalPanel = (
-  runtime: RuntimeEnvironment | undefined,
-  panels: SettingsPanel[],
-): SettingsPanel | null => {
-  if (!runtime) {
+const normalizeMatchCode = (value: string | null | undefined): string | null => {
+  const text = String(value || '').trim();
+  if (!text) {
     return null;
   }
-  const runtimeCodes = new Set(getRuntimeMatchCodes(runtime));
-  for (const panel of panels) {
-    if (panel.displayMode !== 'runtime_modal') {
-      continue;
-    }
-    const requiredCodes = panel.showWhen?.runtimeCodes || [];
-    if (!requiredCodes.length) {
-      return panel;
-    }
-    if (requiredCodes.some((code) => runtimeCodes.has(String(code || '').trim()))) {
-      return panel;
-    }
+  return slugifyRuntimeCode(text) || text.toLowerCase();
+};
+
+const getPanelMatchCodes = (panel: SettingsPanel): string[] => {
+  const candidates = [
+    panel.capabilityCode,
+    panel.componentCode,
+    panel.title,
+    panel.displayMode,
+  ];
+  return Array.from(
+    new Set(
+      candidates
+        .map((value) => normalizeMatchCode(value))
+        .filter(Boolean) as string[]
+    )
+  );
+};
+
+const getSignificantMatchTokens = (value: string): string[] => {
+  const ignored = new Set(['core', 'local', 'modal', 'panel', 'runtime', 'settings']);
+  return value
+    .split('_')
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 4 && !ignored.has(token));
+};
+
+export const isRuntimeScopedSettingsPanel = (panel: SettingsPanel): boolean => {
+  return panel.displayMode === 'runtime_modal' || Boolean(panel.showWhen?.runtimeCodes?.length);
+};
+
+const panelMatchesRuntime = (
+  panel: SettingsPanel,
+  runtime: RuntimeEnvironment | undefined,
+): boolean => {
+  if (!runtime) {
+    return false;
   }
-  return null;
+  const runtimeCodes = new Set(
+    getRuntimeMatchCodes(runtime)
+      .map((value) => normalizeMatchCode(value))
+      .filter(Boolean) as string[]
+  );
+  const requiredCodes = (panel.showWhen?.runtimeCodes || [])
+    .map((value) => normalizeMatchCode(value))
+    .filter(Boolean) as string[];
+
+  if (requiredCodes.length) {
+    return requiredCodes.some((code) => runtimeCodes.has(code));
+  }
+
+  if (panel.displayMode === 'runtime_modal') {
+    return true;
+  }
+
+  const panelCodes = getPanelMatchCodes(panel);
+  return panelCodes.some((panelCode) =>
+    Array.from(runtimeCodes).some((runtimeCode) =>
+      panelCode === runtimeCode
+      || panelCode.startsWith(`${runtimeCode}_`)
+      || panelCode.endsWith(`_${runtimeCode}`)
+      || getSignificantMatchTokens(panelCode).some((token) =>
+        getSignificantMatchTokens(runtimeCode).includes(token)
+      )
+    )
+  );
+};
+
+export const resolveRuntimeModalPanels = (
+  runtime: RuntimeEnvironment | undefined,
+  panels: SettingsPanel[],
+): SettingsPanel[] => {
+  if (!runtime) {
+    return [];
+  }
+
+  const seen = new Set<string>();
+  return panels.filter((panel) => {
+    if (!isRuntimeScopedSettingsPanel(panel) && panel.section !== 'workflow-engines') {
+      return false;
+    }
+    if (!panelMatchesRuntime(panel, runtime)) {
+      return false;
+    }
+    const key = `${panel.capabilityCode}:${panel.componentCode}:${panel.section || ''}`;
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+};
+
+export const shouldRenderSettingsPanelInline = (panel: SettingsPanel): boolean => {
+  return !isRuntimeScopedSettingsPanel(panel);
+};
+
+const shouldRenderWorkflowPanelInline = (
+  panel: SettingsPanel,
+  runtimes: RuntimeEnvironment[],
+): boolean => {
+  return !runtimes.some((runtime) => panelMatchesRuntime(panel, runtime));
 };
 
 export function RuntimeEnvironmentsSettings() {
@@ -214,6 +302,7 @@ export function RuntimeEnvironmentsSettings() {
         const panels: SettingsPanel[] = data.map((ext: any) => ({
           capabilityCode: ext.capability_code,
           componentCode: ext.component_code,
+          section: 'runtime-environments',
           title: ext.title,
           description: ext.description,
           displayMode: ext.display_mode,
@@ -245,8 +334,10 @@ export function RuntimeEnvironmentsSettings() {
         const panels: SettingsPanel[] = data.map((ext: any) => ({
           capabilityCode: ext.capability_code,
           componentCode: ext.component_code,
+          section: 'workflow-engines',
           title: ext.title,
           description: ext.description,
+          displayMode: ext.display_mode,
           requiresWorkspaceId: ext.requires_workspace_id,
           showWhen: ext.show_when ? {
             runtimeCodes: ext.show_when.runtime_codes,
@@ -430,7 +521,8 @@ export function RuntimeEnvironmentsSettings() {
       {/* Runtime Configuration Modal */}
       {selectedRuntime && (() => {
         const runtime = runtimes.find(r => r.id === selectedRuntime);
-        const runtimeModalPanel = resolveRuntimeModalPanel(runtime, settingsPanels);
+        const runtimeModalPanels = resolveRuntimeModalPanels(runtime, [...settingsPanels, ...workflowPanels]);
+        const primaryRuntimeModalPanel = runtimeModalPanels[0] || null;
         const isSiteHub = selectedRuntime === 'site-hub' || runtime?.config_url?.includes('anafter.co');
         const isGcaLocal = selectedRuntime === 'gca-local';
         return (
@@ -440,11 +532,9 @@ export function RuntimeEnvironmentsSettings() {
             title={
               isGcaLocal
                 ? 'GCA Auth - OAuth Credentials'
-                : runtimeModalPanel
-                  ? runtimeModalPanel.title
-                  : (runtime?.name || t('runtimeConfiguration' as any) || 'Runtime Configuration')
+                : (runtime?.name || primaryRuntimeModalPanel?.title || t('runtimeConfiguration' as any) || 'Runtime Configuration')
             }
-            maxWidth={isGcaLocal ? 'max-w-lg' : 'max-w-2xl'}
+            maxWidth={isGcaLocal ? 'max-w-lg' : 'max-w-[92vw]'}
           >
             {isGcaLocal ? (
               <GeminiCliSettingsForm
@@ -455,19 +545,27 @@ export function RuntimeEnvironmentsSettings() {
                 }}
                 onCancel={() => setSelectedRuntime(null)}
               />
-            ) : runtimeModalPanel ? (
-              (() => {
-                const RuntimePanelComponent = loadExtensionComponent(runtimeModalPanel);
-                return (
-                  <Suspense fallback={
-                    <div className="text-sm text-gray-500 dark:text-gray-400 py-4">
-                      {t('loading' as any) || 'Loading'} {runtimeModalPanel.title}...
-                    </div>
-                  }>
-                    <RuntimePanelComponent runtimeId={selectedRuntime} runtime={runtime} />
-                  </Suspense>
-                );
-              })()
+            ) : runtimeModalPanels.length ? (
+              <div className="space-y-6">
+                {runtimeModalPanels.map((runtimeModalPanel) => {
+                  const RuntimePanelComponent = loadExtensionComponent(runtimeModalPanel);
+                  return (
+                    <Section
+                      key={`${runtimeModalPanel.capabilityCode}:${runtimeModalPanel.componentCode}:${runtimeModalPanel.section || 'runtime'}`}
+                      title={runtimeModalPanel.title}
+                      description={runtimeModalPanel.description}
+                    >
+                      <Suspense fallback={
+                        <div className="text-sm text-gray-500 dark:text-gray-400 py-4">
+                          {t('loading' as any) || 'Loading'} {runtimeModalPanel.title}...
+                        </div>
+                      }>
+                        <RuntimePanelComponent runtimeId={selectedRuntime} runtime={runtime} />
+                      </Suspense>
+                    </Section>
+                  );
+                })}
+              </div>
             ) : isSiteHub ? (
               <SiteHubSettingsForm
                 runtime={runtime!}
@@ -511,9 +609,11 @@ export function RuntimeEnvironmentsSettings() {
         />
       )}
 
+      <HostResourcesPanel />
+
       {/* Dynamic Settings Panels (Capability Slot) */}
       {settingsPanels.map((panel) => {
-        if (panel.displayMode === 'runtime_modal') {
+        if (!shouldRenderSettingsPanelInline(panel)) {
           return null;
         }
         // Check showWhen conditions
@@ -563,6 +663,9 @@ export function RuntimeEnvironmentsSettings() {
       {workflowPanels.length > 0 && (
         <>
           {workflowPanels.map((panel) => {
+            if (!shouldRenderWorkflowPanelInline(panel, runtimes)) {
+              return null;
+            }
             const ExtensionComponent = loadExtensionComponent(panel);
             const props = { ...panel.propsSchema };
 

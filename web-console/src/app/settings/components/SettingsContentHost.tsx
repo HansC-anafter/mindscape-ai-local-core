@@ -8,6 +8,8 @@ interface SettingsContentHostProps {
   activeTab: SettingsTab;
   activeSection?: string;
   activeProvider?: string;
+  workspaceId?: string;
+  initialCatalogCategory?: string;
   onCredentialsNavigate: (section?: string, provider?: string) => void;
   onSendToAssistant: (message: string) => void;
 }
@@ -73,6 +75,8 @@ export function SettingsContentHost({
   activeTab,
   activeSection,
   activeProvider,
+  workspaceId,
+  initialCatalogCategory,
   onCredentialsNavigate,
   onSendToAssistant,
 }: SettingsContentHostProps) {
@@ -80,7 +84,13 @@ export function SettingsContentHost({
 
   switch (activeTab) {
     case 'basic':
-      return <BasicSettingsPanel activeSection={activeSection} />;
+      return (
+        <BasicSettingsPanel
+          activeSection={activeSection}
+          workspaceId={workspaceId}
+          initialCatalogCategory={initialCatalogCategory}
+        />
+      );
     case 'credentials':
       return (
         <CredentialsAndOAuthPanel
@@ -111,6 +121,12 @@ export function SettingsContentHost({
     case 'governance':
       return <GovernancePanel activeSection={activeSection} />;
     default:
-      return <BasicSettingsPanel activeSection={activeSection} />;
+      return (
+        <BasicSettingsPanel
+          activeSection={activeSection}
+          workspaceId={workspaceId}
+          initialCatalogCategory={initialCatalogCategory}
+        />
+      );
   }
 }

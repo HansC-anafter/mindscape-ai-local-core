@@ -39,6 +39,8 @@ export default function SettingsPage() {
   const [activeProvider, setActiveProvider] = useState<string | undefined>();
   const [activeModel, setActiveModel] = useState<string | undefined>();
   const [activeService, setActiveService] = useState<string | undefined>();
+  const [workspaceId, setWorkspaceId] = useState<string | undefined>();
+  const [initialCatalogCategory, setInitialCatalogCategory] = useState<string | undefined>();
 
   // Ref for Chat-First UX - allows buttons to trigger assistant chat
   const assistantRef = useRef<SettingsConfigAssistantHandle>(null);
@@ -52,6 +54,8 @@ export default function SettingsPage() {
     const providerParam = searchParams?.get('provider' as any);
     const modelParam = searchParams?.get('model' as any);
     const serviceParam = searchParams?.get('service' as any);
+    const workspaceIdParam = searchParams?.get('workspace_id' as any);
+    const catalogParam = searchParams?.get('catalog' as any);
 
     const credentialsSections = new Set(['service-credentials', 'oauth-integrations', 'oauth']);
     const validTabs: SettingsTab[] = ['tools', 'basic', 'credentials', 'mindscape', 'ai-team-governance', 'social_media', 'localization', 'service_status', 'packs_status', 'governance', 'runtime'];
@@ -85,6 +89,8 @@ export default function SettingsPage() {
     setActiveProvider(providerParam || undefined);
     setActiveModel(modelParam || undefined);
     setActiveService(serviceParam || undefined);
+    setWorkspaceId(workspaceIdParam || undefined);
+    setInitialCatalogCategory(catalogParam || undefined);
   }, [searchParams]);
 
   const handleNavigate = (tab: SettingsTab, section?: string, provider?: string, model?: string, service?: string) => {
@@ -111,6 +117,12 @@ export default function SettingsPage() {
     if (service) {
       params?.set('service', service);
     }
+    if (workspaceId) {
+      params?.set('workspace_id', workspaceId);
+    }
+    if (initialCatalogCategory && tab === 'basic') {
+      params?.set('catalog', initialCatalogCategory);
+    }
     router.push(`/settings?${params?.toString()}`);
   };
 
@@ -119,6 +131,8 @@ export default function SettingsPage() {
       activeTab={activeTab}
       activeSection={activeSection}
       activeProvider={activeProvider}
+      workspaceId={workspaceId}
+      initialCatalogCategory={initialCatalogCategory}
       onCredentialsNavigate={(section, provider) => handleNavigate('credentials', section, provider)}
       onSendToAssistant={handleSendToAssistant}
     />

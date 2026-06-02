@@ -1,7 +1,6 @@
 'use client';
 
 import React, { Suspense, useEffect, useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import {
   Bot,
   ChevronDown,
@@ -19,6 +18,13 @@ import {
 
 import { useWorkspaceDataOptional } from '@/contexts/WorkspaceDataContext';
 import { isDocumentHidden } from '@/lib/page-visibility';
+import { openAppRouteInNewWindow } from '@/lib/navigation/openAppRouteInNewWindow';
+import {
+  WorkspaceAgentsStatusCard,
+  type WorkspaceAgentsStatusSnapshot,
+} from '@/components/workspace/WorkspaceAgentsStatusCard';
+import { WorkspaceExecutionSettingsControls } from '@/components/workspace/WorkspaceExecutionSettingsControls';
+import { WorkspaceToolOverlayFloatingPanel } from '@/components/workspace/WorkspaceToolOverlayFloatingPanel';
 import {
   HostResourceStatusSummaryCard,
   type HostResourceSummary,
@@ -42,41 +48,8 @@ const SECTIONS: Array<{ id: SettingsSection; icon: React.ReactNode }> = [
   { id: 'Data', icon: <Database aria-hidden="true" className="h-4 w-4" /> },
 ];
 
-interface ChatModelOption {
-  model_name: string;
-  provider: string;
-  description?: string;
-}
-
-interface WorkspaceChatRoutePayload {
-  chat_model?: {
-    model_name: string;
-    provider: string;
-    metadata?: Record<string, any>;
-  } | null;
-  available_chat_models?: ChatModelOption[];
-  route_authority?: string;
-  source?: string;
-  dispatch_chain?: string[];
-}
-
-interface AgentInfo {
-  id: string;
-  name: string;
-  status: string;
-  transport?: string | null;
-  reason?: string | null;
-}
-
-interface WorkspaceExecutorRoutePayload {
-  primary_executor_runtime?: string | null;
-  resolved_executor_runtime?: string | null;
-  route_authority?: string;
-  dispatch_chain?: string[];
-}
-
 interface StatusSnapshot {
-  agents: Record<string, any> | null;
+  agents: WorkspaceAgentsStatusSnapshot | null;
   xtts: Record<string, any> | null;
   mcpGateway: Record<string, any> | null;
   hostResources: HostResourceSummary | null;
@@ -194,7 +167,6 @@ function StatusSection({
   apiUrl: string;
   workspaceId: string;
 }) {
-  const router = useRouter();
   const workspaceData = useWorkspaceDataOptional();
   const [loading, setLoading] = useState(false);
   const [statusError, setStatusError] = useState<string | null>(null);
@@ -265,11 +237,8 @@ function StatusSection({
         <StatusMetric label="Issues" value={String(systemStatus?.critical_issues_count ?? 0)} />
         <StatusMetric label="Updated" value={snapshot?.updatedAt || '-'} />
       </div>
+      <WorkspaceAgentsStatusCard workspaceId={workspaceId} agentsSnapshot={snapshot?.agents || null} />
       <div className="rounded border border-gray-200 p-2 text-xs dark:border-gray-800">
-        <div className="flex justify-between gap-2 py-1">
-          <span className="text-gray-500 dark:text-gray-400">Agents</span>
-          <span className="truncate font-medium">{snapshot?.agents ? 'Available' : 'Unchecked'}</span>
-        </div>
         <div className="flex justify-between gap-2 py-1">
           <span className="text-gray-500 dark:text-gray-400">XTTS</span>
           <span className="truncate font-medium">{snapshot?.xtts?.status || snapshot?.xtts?.state || 'Unchecked'}</span>
@@ -282,7 +251,7 @@ function StatusSection({
       <HostResourceStatusSummaryCard
         summary={snapshot?.hostResources || null}
         loading={loading}
-        onOpenDashboard={() => router.push('/settings?tab=runtime&section=host-resources')}
+        onOpenDashboard={() => openAppRouteInNewWindow(`/settings?tab=runtime&section=host-resources&workspace_id=${encodeURIComponent(workspaceId)}`)}
       />
       {statusError ? (
         <div className="rounded border border-red-200 bg-red-50 p-2 text-xs text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">
@@ -457,10 +426,6 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-function modelOptionKey(model: ChatModelOption): string {
-  return `${model.provider}::${model.model_name}`;
-}
-
 function ExecutionSection({
   apiUrl,
   workspaceId,
@@ -468,211 +433,12 @@ function ExecutionSection({
   apiUrl: string;
   workspaceId: string;
 }) {
-  const router = useRouter();
-  const workspaceData = useWorkspaceDataOptional();
-  const [chatRoute, setChatRoute] = useState<WorkspaceChatRoutePayload | null>(null);
-  const [executorRoute, setExecutorRoute] = useState<WorkspaceExecutorRoutePayload | null>(null);
-  const [agents, setAgents] = useState<AgentInfo[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [testing, setTesting] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
-
-  const loadExecutionSnapshot = React.useCallback(async () => {
-    if (isDocumentHidden()) {
-      return;
-    }
-    setLoading(true);
-    setMessage(null);
-    try {
-      const [chatResponse, executorResponse, agentsResponse] = await Promise.all([
-        fetch(`${apiUrl}/api/v1/settings/model-route-registry/workspace-chat?workspace_id=${encodeURIComponent(workspaceId)}&profile_id=default-user`),
-        fetch(`${apiUrl}/api/v1/settings/model-route-registry/workspace-executor?workspace_id=${encodeURIComponent(workspaceId)}`),
-        fetch(`${apiUrl}/api/v1/workspaces/${workspaceId}/agents`),
-      ]);
-      if (chatResponse.ok) {
-        setChatRoute(await chatResponse.json());
-      }
-      if (executorResponse.ok) {
-        setExecutorRoute(await executorResponse.json());
-      }
-      if (agentsResponse.ok) {
-        const data = await agentsResponse.json();
-        setAgents(Array.isArray(data?.agents) ? data.agents : []);
-      }
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Execution snapshot failed');
-    } finally {
-      setLoading(false);
-    }
-  }, [apiUrl, workspaceId]);
-
-  useEffect(() => {
-    void loadExecutionSnapshot();
-  }, [loadExecutionSnapshot]);
-
-  const currentChatModel = chatRoute?.chat_model || null;
-  const selectedModelKey = currentChatModel
-    ? modelOptionKey(currentChatModel)
-    : '';
-  const currentExecutor = executorRoute?.primary_executor_runtime
-    || executorRoute?.resolved_executor_runtime
-    || '';
-
-  const updateChatModel = async (selectedKey: string) => {
-    const selected = (chatRoute?.available_chat_models || []).find(
-      (model) => modelOptionKey(model) === selectedKey,
-    );
-    if (!selected) {
-      return;
-    }
-    setSaving(true);
-    setMessage(null);
-    try {
-      const response = await fetch(
-        `${apiUrl}/api/v1/settings/model-route-registry/local-core/chat-default?model_name=${encodeURIComponent(selected.model_name)}&provider=${encodeURIComponent(selected.provider)}`,
-        { method: 'PUT', headers: { 'Content-Type': 'application/json' } },
-      );
-      if (!response.ok) {
-        throw new Error(`Chat model update failed: ${response.status}`);
-      }
-      setChatRoute(await response.json());
-      setMessage('Chat model saved');
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Chat model update failed');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const updateExecutor = async (runtimeId: string) => {
-    setSaving(true);
-    setMessage(null);
-    try {
-      const response = await fetch(`${apiUrl}/api/v1/settings/model-route-registry/workspace-executor`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          workspace_id: workspaceId,
-          executor_runtime: runtimeId || null,
-        }),
-      });
-      if (!response.ok) {
-        throw new Error(`Executor update failed: ${response.status}`);
-      }
-      setExecutorRoute(await response.json());
-      setMessage(runtimeId ? 'Executor saved' : 'Executor reset to Mindscape LLM');
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Executor update failed');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const testChatModel = async () => {
-    setTesting(true);
-    setMessage(null);
-    try {
-      const response = await fetch(`${apiUrl}/api/v1/system-settings/llm-models/test-chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      });
-      const data = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw new Error(data?.message || `Chat model test failed: ${response.status}`);
-      }
-      setMessage(data?.message || 'Chat model test completed');
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Chat model test failed');
-    } finally {
-      setTesting(false);
-    }
-  };
-
-  return (
-    <div className="space-y-3" data-testid="workspace-settings-execution-section">
-      <div className="rounded border border-gray-200 p-2 text-xs dark:border-gray-800">
-        <div className="flex items-start gap-2">
-          <Bot aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-gray-500" />
-          <div className="min-w-0">
-            <div className="font-semibold">Workspace Execution</div>
-            <div className="break-words text-gray-500 dark:text-gray-400">
-              {workspaceData?.systemStatus?.llm_provider || currentChatModel?.provider || 'Mindscape LLM'}
-              {currentChatModel?.model_name ? ` - ${currentChatModel.model_name}` : ''}
-            </div>
-            <div className="break-words text-gray-500 dark:text-gray-400">
-              Source: {chatRoute?.source || currentChatModel?.metadata?.source || 'model-route-registry'}
-            </div>
-          </div>
-        </div>
-      </div>
-      <Field label="Chat Model">
-        <select
-          className="w-full rounded border border-gray-200 bg-white px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-900"
-          disabled={saving || loading || !chatRoute?.available_chat_models?.length}
-          value={selectedModelKey}
-          onChange={(event) => void updateChatModel(event.target.value)}
-        >
-          {chatRoute?.available_chat_models?.length ? (
-            chatRoute.available_chat_models.map((model) => (
-              <option key={modelOptionKey(model)} value={modelOptionKey(model)}>
-                {model.model_name} ({model.provider})
-              </option>
-            ))
-          ) : (
-            <option value="">No chat models available</option>
-          )}
-        </select>
-      </Field>
-      <Field label="Workspace Executor">
-        <select
-          className="w-full rounded border border-gray-200 bg-white px-2 py-1.5 text-sm dark:border-gray-700 dark:bg-gray-900"
-          disabled={saving || loading}
-          value={currentExecutor}
-          onChange={(event) => void updateExecutor(event.target.value)}
-        >
-          <option value="">Mindscape LLM</option>
-          {agents.map((agent) => (
-            <option key={agent.id} value={agent.id}>
-              {agent.name || agent.id}{agent.status === 'available' ? '' : ' (offline)'}
-            </option>
-          ))}
-        </select>
-      </Field>
-      <button
-        type="button"
-        className="inline-flex w-full items-center justify-center gap-2 rounded border border-gray-200 px-3 py-2 text-sm font-semibold hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900"
-        disabled={testing}
-        onClick={() => void testChatModel()}
-      >
-        <RefreshCw aria-hidden="true" className={`h-4 w-4 ${testing ? 'animate-spin' : ''}`} />
-        {testing ? 'Testing' : 'Test Chat Model'}
-      </button>
-      <div className="grid grid-cols-2 gap-2">
-        <button
-          type="button"
-          className="inline-flex min-w-0 items-center justify-center gap-2 rounded border border-gray-200 px-2 py-2 text-xs font-semibold hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900"
-          onClick={() => router.push('/settings?tab=basic&section=llm-chat')}
-        >
-          <ExternalLink aria-hidden="true" className="h-4 w-4 shrink-0" />
-          <span className="truncate">LLM Settings</span>
-        </button>
-        <button
-          type="button"
-          className="inline-flex min-w-0 items-center justify-center gap-2 rounded border border-gray-200 px-2 py-2 text-xs font-semibold hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900"
-          onClick={() => router.push('/settings?tab=basic&section=model-routing-registry')}
-        >
-          <ExternalLink aria-hidden="true" className="h-4 w-4 shrink-0" />
-          <span className="truncate">Routing</span>
-        </button>
-      </div>
-      {message ? <div className="text-xs text-gray-500 dark:text-gray-400">{message}</div> : null}
-    </div>
-  );
+  return <WorkspaceExecutionSettingsControls apiUrl={apiUrl} workspaceId={workspaceId} />;
 }
 
 function ToolEnginesSection({ workspaceId }: { workspaceId: string }) {
-  const router = useRouter();
+  const [toolOverlayOpen, setToolOverlayOpen] = useState(false);
+
   return (
     <div className="space-y-3" data-testid="workspace-settings-tools-section">
       <div className="rounded border border-gray-200 p-2 text-xs dark:border-gray-800">
@@ -689,7 +455,15 @@ function ToolEnginesSection({ workspaceId }: { workspaceId: string }) {
       <button
         type="button"
         className="inline-flex w-full items-center justify-center gap-2 rounded border border-gray-200 px-3 py-2 text-sm font-semibold hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900"
-        onClick={() => router.push('/settings?tab=runtime&section=runtime-environments')}
+        onClick={() => setToolOverlayOpen(true)}
+      >
+        <SlidersHorizontal aria-hidden="true" className="h-4 w-4" />
+        Open Tool Overlay
+      </button>
+      <button
+        type="button"
+        className="inline-flex w-full items-center justify-center gap-2 rounded border border-gray-200 px-3 py-2 text-sm font-semibold hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900"
+        onClick={() => openAppRouteInNewWindow(`/settings?tab=runtime&section=runtime-environments&workspace_id=${encodeURIComponent(workspaceId)}`)}
       >
         <ExternalLink aria-hidden="true" className="h-4 w-4" />
         Open Tool Runtime Settings
@@ -699,6 +473,11 @@ function ToolEnginesSection({ workspaceId }: { workspaceId: string }) {
           <CapabilityExtensionSlot section="runtime-environments" workspaceId={workspaceId} />
         </Suspense>
       </div>
+      <WorkspaceToolOverlayFloatingPanel
+        open={toolOverlayOpen}
+        workspaceId={workspaceId}
+        onClose={() => setToolOverlayOpen(false)}
+      />
     </div>
   );
 }
@@ -710,7 +489,6 @@ function DataSection({
   apiUrl: string;
   workspaceId: string;
 }) {
-  const router = useRouter();
   const workspaceData = useWorkspaceDataOptional();
   const workspace = workspaceData?.workspace;
   const [dataSourcesOpen, setDataSourcesOpen] = useState(false);
@@ -753,7 +531,7 @@ function DataSection({
       <button
         type="button"
         className="inline-flex w-full items-center justify-center gap-2 rounded border border-gray-200 px-3 py-2 text-sm font-semibold hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900"
-        onClick={() => router.push(`/workspaces/${workspaceId}/instruction`)}
+        onClick={() => openAppRouteInNewWindow(`/workspaces/${workspaceId}/instruction`)}
       >
         <ExternalLink aria-hidden="true" className="h-4 w-4" />
         Open Instructions
@@ -761,7 +539,7 @@ function DataSection({
       <button
         type="button"
         className="inline-flex w-full items-center justify-center gap-2 rounded border border-gray-200 px-3 py-2 text-sm font-semibold hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900"
-        onClick={() => router.push('/settings')}
+        onClick={() => openAppRouteInNewWindow(`/settings?workspace_id=${encodeURIComponent(workspaceId)}`)}
       >
         <ExternalLink aria-hidden="true" className="h-4 w-4" />
         Open System Settings

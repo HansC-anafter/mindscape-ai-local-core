@@ -5,6 +5,8 @@ import { Card } from './Card';
 
 interface BasicSettingsSectionHostProps {
   activeSection?: string;
+  workspaceId?: string;
+  initialCatalogCategory?: string;
 }
 
 function BasicSectionFallback() {
@@ -52,7 +54,11 @@ const RuntimeBackupSettings = dynamic(
   { ssr: false, loading: BasicSectionFallback }
 );
 
-export function BasicSettingsSectionHost({ activeSection }: BasicSettingsSectionHostProps) {
+export function BasicSettingsSectionHost({
+  activeSection,
+  workspaceId,
+  initialCatalogCategory,
+}: BasicSettingsSectionHostProps) {
   switch (activeSection) {
     case 'oauth':
       return (
@@ -100,7 +106,10 @@ export function BasicSettingsSectionHost({ activeSection }: BasicSettingsSection
     case 'llm-chat':
       return (
         <Card className="h-full min-h-0 flex flex-col">
-          <ModelsAndQuotaPanel />
+          <ModelsAndQuotaPanel
+            workspaceId={workspaceId}
+            initialCatalogCategory={initialCatalogCategory}
+          />
         </Card>
       );
     default:
