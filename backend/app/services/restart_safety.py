@@ -29,19 +29,7 @@ def inspect_restart_blockers() -> Dict[str, Any]:
                 ).scalar()
                 or 0
             )
-            active_meeting_sessions = int(
-                conn.execute(
-                    text(
-                        """
-                        SELECT COUNT(*)
-                        FROM meeting_sessions
-                        WHERE ended_at IS NULL
-                          AND status IN ('planned', 'active', 'closing')
-                        """
-                    )
-                ).scalar()
-                or 0
-            )
+            active_meeting_sessions = _count_fresh_meeting_sessions(conn)
             active_pending_dispatch = int(
                 conn.execute(
                     text(
@@ -101,3 +89,59 @@ def format_restart_blocker_detail(blockers: Dict[str, Any]) -> str:
     if blockers.get("error"):
         return str(blockers["error"])
     return "unknown workload counts"
+
+
+def _count_fresh_meeting_sessions(conn: Any) -> int:
+    query = text(
+        """
+        WITH candidates AS (
+            SELECT
+                status,
+                started_at,
+                CASE
+                    WHEN metadata->>'last_round_updated_at' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'
+                    THEN (metadata->>'last_round_updated_at')::timestamptz
+                    ELSE NULL
+                END AS last_round_updated_at,
+                CASE
+                    WHEN metadata->>'pipeline_stage_updated_at' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'
+                    THEN (metadata->>'pipeline_stage_updated_at')::timestamptz
+                    ELSE NULL
+                END AS pipeline_stage_updated_at,
+                CASE
+                    WHEN metadata->>'dispatch_updated_at' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'
+                    THEN (metadata->>'dispatch_updated_at')::timestamptz
+                    ELSE NULL
+                END AS dispatch_updated_at,
+                CASE
+                    WHEN metadata->>'updated_at' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'
+                    THEN (metadata->>'updated_at')::timestamptz
+                    ELSE NULL
+                END AS metadata_updated_at
+            FROM meeting_sessions
+            WHERE ended_at IS NULL
+              AND status IN ('planned', 'active', 'closing')
+        ),
+        activity AS (
+            SELECT
+                status,
+                GREATEST(
+                    started_at,
+                    COALESCE(last_round_updated_at, started_at),
+                    COALESCE(pipeline_stage_updated_at, started_at),
+                    COALESCE(dispatch_updated_at, started_at),
+                    COALESCE(metadata_updated_at, started_at)
+                ) AS last_activity_at
+            FROM candidates
+        )
+        SELECT COUNT(*)
+        FROM activity
+        WHERE last_activity_at >= now() - (
+            CASE
+                WHEN status = 'planned' THEN interval '15 minutes'
+                ELSE interval '30 minutes'
+            END
+        )
+        """
+    )
+    return int(conn.execute(query).scalar() or 0)
