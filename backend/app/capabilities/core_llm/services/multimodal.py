@@ -14,6 +14,7 @@ import json
 import logging
 import os
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -24,14 +25,60 @@ logger = logging.getLogger(__name__)
 _MLX_SEMAPHORE = asyncio.Semaphore(1)
 _MLX_CONNECT_TIMEOUT_SECONDS = float(os.getenv("VLM_CONNECT_TIMEOUT_SECONDS", "30"))
 _MLX_READ_TIMEOUT_SECONDS = float(os.getenv("VLM_READ_TIMEOUT_SECONDS", "2400"))
+_MLX_PROGRESS_READ_TIMEOUT_SECONDS = (
+    float(os.getenv("VLM_PROGRESS_READ_TIMEOUT_SECONDS"))
+    if os.getenv("VLM_PROGRESS_READ_TIMEOUT_SECONDS")
+    else None
+)
 _MLX_WRITE_TIMEOUT_SECONDS = float(os.getenv("VLM_WRITE_TIMEOUT_SECONDS", "120"))
 _MLX_POOL_TIMEOUT_SECONDS = float(os.getenv("VLM_POOL_TIMEOUT_SECONDS", "30"))
 _MLX_MAX_OUTPUT_TOKENS_CAP_DEFAULT = 12288
 _WATCHDOG_STATE_DIR = Path(os.getenv("VLM_WATCHDOG_STATE_DIR", "/app/data/runtime/mlx-watchdog"))
 _WATCHDOG_STATE_FILE = _WATCHDOG_STATE_DIR / "inflight_request.json"
+_MLX_PROCESS_LOCK_FILE_OVERRIDE = os.getenv("VLM_PROCESS_LOCK_FILE")
 _WATCHDOG_HEARTBEAT_INTERVAL_SECONDS = float(
     os.getenv("VLM_WATCHDOG_HEARTBEAT_INTERVAL_SECONDS", "5")
 )
+_WATCHDOG_CLIENT_TIMEOUT_GRACE_SECONDS = float(
+    os.getenv("VLM_CLIENT_TIMEOUT_WATCHDOG_GRACE_SECONDS", "1200")
+)
+
+
+@dataclass
+class _VlmProcessFileLock:
+    path: Path
+    fd: Any = None
+
+    async def __aenter__(self):
+        await asyncio.to_thread(self._acquire)
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        await asyncio.to_thread(self._release)
+        return False
+
+    def _acquire(self) -> None:
+        import fcntl
+
+        lock_path = self.path
+        try:
+            lock_path.parent.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            lock_path = Path(os.getenv("TMPDIR", "/tmp")) / "mindscape-vlm-provider.lock"
+            lock_path.parent.mkdir(parents=True, exist_ok=True)
+        self.fd = lock_path.open("a+")
+        fcntl.flock(self.fd.fileno(), fcntl.LOCK_EX)
+
+    def _release(self) -> None:
+        if self.fd is None:
+            return
+        import fcntl
+
+        try:
+            fcntl.flock(self.fd.fileno(), fcntl.LOCK_UN)
+        finally:
+            self.fd.close()
+            self.fd = None
 
 
 def _coerce_positive_int(value: Any) -> Optional[int]:
@@ -92,7 +139,46 @@ def _looks_like_visible_loop_prose(text: str) -> bool:
 
 
 def _mlx_server_progress_enabled() -> bool:
-    return os.getenv("VLM_PROGRESS_ENABLED", "").lower() in {"1", "true", "yes", "on"}
+    return os.getenv("VLM_PROGRESS_ENABLED", "true").lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def _build_mlx_http_timeout(
+    httpx_module: Any,
+    *,
+    server_progress_enabled: bool,
+) -> Any:
+    read_timeout = (
+        _MLX_PROGRESS_READ_TIMEOUT_SECONDS
+        if server_progress_enabled
+        else _MLX_READ_TIMEOUT_SECONDS
+    )
+    return httpx_module.Timeout(
+        connect=_MLX_CONNECT_TIMEOUT_SECONDS,
+        read=read_timeout,
+        write=_MLX_WRITE_TIMEOUT_SECONDS,
+        pool=_MLX_POOL_TIMEOUT_SECONDS,
+    )
+
+
+def _should_preserve_watchdog_state_on_error(error: BaseException) -> bool:
+    try:
+        import httpx
+    except Exception:
+        httpx = None
+    if httpx is not None and isinstance(error, httpx.ReadTimeout):
+        return True
+    return error.__class__.__name__ == "ReadTimeout"
+
+
+def _mlx_process_lock_file() -> Path:
+    if _MLX_PROCESS_LOCK_FILE_OVERRIDE:
+        return Path(_MLX_PROCESS_LOCK_FILE_OVERRIDE)
+    return _WATCHDOG_STATE_DIR / "mlx_provider.lock"
 
 
 def _write_watchdog_state(payload: Dict[str, Any]) -> None:
@@ -115,6 +201,21 @@ def _clear_watchdog_state() -> None:
         pass
     except Exception as exc:
         logger.debug("[MultimodalAnalyze] Failed to clear watchdog state: %s", exc)
+
+
+def _preserve_watchdog_state_for_client_timeout(payload: Dict[str, Any]) -> None:
+    timeout_at = time.time()
+    timeout_payload = dict(payload)
+    timeout_payload.update(
+        {
+            "status": "active",
+            "phase": "client_timeout_grace",
+            "heartbeat_at": timeout_at,
+            "client_timeout_at": timeout_at,
+            "grace_until": timeout_at + _WATCHDOG_CLIENT_TIMEOUT_GRACE_SECONDS,
+        }
+    )
+    _write_watchdog_state(timeout_payload)
 
 
 async def _watchdog_heartbeat(payload: Dict[str, Any]) -> None:
@@ -371,7 +472,7 @@ async def _route_mlx_server(
     model_name: str,
     temperature: float,
     *,
-    base_url: str,
+    base_url: Optional[str] = None,
     route_metadata: Optional[Dict[str, Any]] = None,
     request_id: str = "",
     reference_id: str = "",
@@ -383,6 +484,8 @@ async def _route_mlx_server(
     """Route to the OpenAI-compatible vision endpoint selected by registry."""
     import httpx
 
+    if not base_url:
+        base_url = _resolve_multimodal_base_url(route_metadata or {})
     url = f"{base_url}/v1/chat/completions"
     reasoning_trace_mode = _normalize_reasoning_trace_mode(reasoning_trace_mode)
     payload_stats = payload_stats or {}
@@ -443,11 +546,10 @@ async def _route_mlx_server(
         }
     ]
 
-    timeout = httpx.Timeout(
-        connect=_MLX_CONNECT_TIMEOUT_SECONDS,
-        read=_MLX_READ_TIMEOUT_SECONDS,
-        write=_MLX_WRITE_TIMEOUT_SECONDS,
-        pool=_MLX_POOL_TIMEOUT_SECONDS,
+    server_progress_enabled = _mlx_server_progress_enabled()
+    timeout = _build_mlx_http_timeout(
+        httpx,
+        server_progress_enabled=server_progress_enabled,
     )
 
     async with httpx.AsyncClient(timeout=timeout) as client:
@@ -485,33 +587,50 @@ async def _route_mlx_server(
                 "started_at": time.time(),
                 "heartbeat_at": time.time(),
             }
-            _write_watchdog_state(watchdog_payload)
-            heartbeat_task = asyncio.create_task(_watchdog_heartbeat(watchdog_payload))
-            # Acquire semaphore so only one local VLM inference runs at a time.
+            heartbeat_task = None
+            request_error: Optional[BaseException] = None
             try:
                 async with _MLX_SEMAPHORE:
-                    queue_wait_ms = (time.perf_counter() - queue_started) * 1000
-                    logger.info(
-                        "[MultimodalAnalyze] Multimodal endpoint semaphore acquired for %s with %d images",
-                        main_shortcode, len(content) - 1,
-                    )
-                    post_started = time.perf_counter()
-                    resp = await client.post(
-                        url,
-                        json={
-                            "model": model_name,
-                            "messages": messages,
-                            "temperature": temperature,
-                            "max_tokens": resolved_max,
-                            "response_format": {"type": "json_object"},
-                        },
-                    )
-                    mlx_post_ms = (time.perf_counter() - post_started) * 1000
+                    async with _VlmProcessFileLock(_mlx_process_lock_file()):
+                        queue_wait_ms = (time.perf_counter() - queue_started) * 1000
+                        watchdog_payload["started_at"] = time.time()
+                        watchdog_payload["heartbeat_at"] = time.time()
+                        _write_watchdog_state(watchdog_payload)
+                        heartbeat_task = asyncio.create_task(
+                            _watchdog_heartbeat(watchdog_payload)
+                        )
+                        logger.info(
+                            "[MultimodalAnalyze] Multimodal endpoint provider lock acquired for %s with %d images",
+                            main_shortcode,
+                            len(content) - 1,
+                        )
+                        post_started = time.perf_counter()
+                        try:
+                            resp = await client.post(
+                                url,
+                                json={
+                                    "model": model_name,
+                                    "messages": messages,
+                                    "temperature": temperature,
+                                    "max_tokens": resolved_max,
+                                    "response_format": {"type": "json_object"},
+                                },
+                            )
+                        except BaseException as exc:
+                            request_error = exc
+                            raise
+                        mlx_post_ms = (time.perf_counter() - post_started) * 1000
             finally:
-                heartbeat_task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await heartbeat_task
-                _clear_watchdog_state()
+                if heartbeat_task is not None:
+                    heartbeat_task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await heartbeat_task
+                if request_error and _should_preserve_watchdog_state_on_error(
+                    request_error
+                ):
+                    _preserve_watchdog_state_for_client_timeout(watchdog_payload)
+                else:
+                    _clear_watchdog_state()
             
             resp.raise_for_status()
             data = resp.json()
