@@ -291,7 +291,7 @@ async def get_host_resource_snapshot(*, refresh: bool = False) -> dict[str, Any]
 
 def list_host_resource_lanes() -> list[dict[str, Any]]:
     registry = load_lane_registry()
-    snapshot = get_cached_snapshot_or_degraded()
+    snapshot = _cached_snapshot if isinstance(_cached_snapshot, dict) else {}
     lanes = snapshot.get("lanes")
     if isinstance(lanes, list):
         merged = dict(registry)

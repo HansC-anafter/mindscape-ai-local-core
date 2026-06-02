@@ -47,6 +47,9 @@ DEFAULT_LANES: dict[str, dict[str, Any]] = {
     },
 }
 
+_manifest_lane_overlay_signature_cache: tuple[tuple[str, int, int], ...] | None = None
+_manifest_lane_overlays_cache: dict[str, dict[str, Any]] | None = None
+
 
 def _overlay_lanes(base: dict[str, dict[str, Any]], raw: Any) -> dict[str, dict[str, Any]]:
     if not isinstance(raw, dict):
@@ -75,10 +78,46 @@ def _capabilities_dir() -> Path:
     return Path(__file__).resolve().parents[2] / "capabilities"
 
 
+def clear_lane_registry_cache() -> None:
+    global _manifest_lane_overlay_signature_cache, _manifest_lane_overlays_cache
+    _manifest_lane_overlay_signature_cache = None
+    _manifest_lane_overlays_cache = None
+
+
+def _manifest_overlay_signature(
+    capabilities_dir: Path,
+) -> tuple[tuple[str, int, int], ...]:
+    if not capabilities_dir.exists():
+        return ()
+    signature: list[tuple[str, int, int]] = []
+    for manifest_path in sorted(capabilities_dir.glob("*/manifest.yaml")):
+        try:
+            stat = manifest_path.stat()
+        except OSError:
+            continue
+        signature.append(
+            (
+                str(manifest_path),
+                int(stat.st_mtime_ns),
+                int(stat.st_size),
+            )
+        )
+    return tuple(signature)
+
+
 def _load_manifest_lane_overlays() -> dict[str, dict[str, Any]]:
+    global _manifest_lane_overlay_signature_cache, _manifest_lane_overlays_cache
     lanes: dict[str, dict[str, Any]] = {}
     capabilities_dir = _capabilities_dir()
-    if not capabilities_dir.exists():
+    signature = _manifest_overlay_signature(capabilities_dir)
+    if (
+        _manifest_lane_overlay_signature_cache == signature
+        and _manifest_lane_overlays_cache is not None
+    ):
+        return copy.deepcopy(_manifest_lane_overlays_cache)
+    if not signature:
+        _manifest_lane_overlay_signature_cache = signature
+        _manifest_lane_overlays_cache = {}
         return lanes
     for manifest_path in sorted(capabilities_dir.glob("*/manifest.yaml")):
         try:
@@ -91,6 +130,8 @@ def _load_manifest_lane_overlays() -> dict[str, dict[str, Any]]:
         for lane_id, lane in raw_lanes.items():
             if isinstance(lane_id, str) and isinstance(lane, dict):
                 lanes[lane_id] = lane
+    _manifest_lane_overlay_signature_cache = signature
+    _manifest_lane_overlays_cache = copy.deepcopy(lanes)
     return lanes
 
 

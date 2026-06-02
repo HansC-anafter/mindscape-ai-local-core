@@ -1,6 +1,60 @@
 from backend.app.services.host_resources import lane_registry
 
 
+def test_manifest_overlay_cache_reuses_unchanged_signature(monkeypatch, tmp_path):
+    lane_registry.clear_lane_registry_cache()
+    capability_dir = tmp_path / "capabilities" / "ig"
+    capability_dir.mkdir(parents=True)
+    (capability_dir / "manifest.yaml").write_text(
+        """
+host_resource_lanes:
+  runner:vision_mlx_high:
+    label: Vision MLX High
+""",
+        encoding="utf-8",
+    )
+    calls = {"count": 0}
+
+    def _safe_load(raw):
+        calls["count"] += 1
+        return {
+            "host_resource_lanes": {
+                "runner:vision_mlx_high": {"label": "Vision MLX High"}
+            }
+        }
+
+    monkeypatch.setattr(
+        lane_registry,
+        "_capabilities_dir",
+        lambda: tmp_path / "capabilities",
+    )
+    monkeypatch.setattr(lane_registry.yaml, "safe_load", _safe_load)
+
+    first = lane_registry._load_manifest_lane_overlays()
+    second = lane_registry._load_manifest_lane_overlays()
+
+    assert calls["count"] == 1
+    assert first == second
+
+
+def test_list_host_resource_lanes_uses_registry_when_snapshot_missing(monkeypatch):
+    from backend.app.services.host_resources import manager
+
+    monkeypatch.setattr(manager, "_cached_snapshot", None)
+    monkeypatch.setattr(
+        manager,
+        "load_lane_registry",
+        lambda: {"runner:test": {"lane_id": "runner:test"}},
+    )
+    monkeypatch.setattr(
+        manager,
+        "degraded_snapshot",
+        lambda reason: (_ for _ in ()).throw(AssertionError(reason)),
+    )
+
+    assert manager.list_host_resource_lanes() == [{"lane_id": "runner:test"}]
+
+
 def test_manifest_overlay_declares_flux2_klein_lane(monkeypatch, tmp_path):
     capability_dir = tmp_path / "capabilities" / "comfyui_runtime"
     capability_dir.mkdir(parents=True)
