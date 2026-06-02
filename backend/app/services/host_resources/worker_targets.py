@@ -98,11 +98,6 @@ async def set_lane_worker_target(
             "reason": "desired_worker_count_exceeds_max_concurrency",
         }
 
-    updated_lane = update_dynamic_lane(
-        lane_id,
-        {"desired_worker_count": desired},
-    ) or lane
-
     if desired > 0:
         gate_open, gate = await _resource_gate_allows_start()
         if not gate_open:
@@ -113,18 +108,22 @@ async def set_lane_worker_target(
                 "max_concurrency": max_concurrency,
                 "reason": gate.get("reason") or "resource_gate_blocked",
                 "gate": gate,
-                "lane": updated_lane,
+                "lane": lane,
             }
     else:
         gate = {"reason": "stop_target_does_not_require_resource_gate"}
+        lane = update_dynamic_lane(
+            lane_id,
+            {"desired_worker_count": desired},
+        ) or lane
 
     arguments = {
         "lane_id": lane_id,
         "desired_worker_count": desired,
-        "queue_shard": updated_lane.get("queue_shard"),
-        "runner_profile": updated_lane.get("runner_profile"),
-        "resource_class": updated_lane.get("resource_class"),
-        "worker_env": _worker_env_for_lane(updated_lane),
+        "queue_shard": lane.get("queue_shard"),
+        "runner_profile": lane.get("runner_profile"),
+        "resource_class": lane.get("resource_class"),
+        "worker_env": _worker_env_for_lane(lane),
     }
     try:
         result = await call_host_resource_lane_workers_set(arguments)
@@ -137,10 +136,16 @@ async def set_lane_worker_target(
             "reason": "host_bridge_worker_target_failed",
             "error": str(exc),
             "gate": gate,
-            "lane": updated_lane,
+            "lane": lane,
         }
 
     accepted = bool(result.get("accepted") or result.get("success"))
+    persisted_lane = lane
+    if desired > 0 and accepted:
+        persisted_lane = update_dynamic_lane(
+            lane_id,
+            {"desired_worker_count": desired},
+        ) or lane
     return {
         "accepted": accepted,
         "lane_id": lane_id,
@@ -149,5 +154,5 @@ async def set_lane_worker_target(
         "reason": result.get("reason") if not accepted else "worker_target_accepted",
         "host_bridge_result": result,
         "gate": gate,
-        "lane": updated_lane,
+        "lane": persisted_lane,
     }
