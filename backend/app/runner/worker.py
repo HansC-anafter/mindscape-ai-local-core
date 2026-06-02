@@ -278,23 +278,6 @@ async def _reset_orphaned_running_tasks(
                     }
                 )
 
-            concurrency = ctx2.get("concurrency")
-            inputs = ctx2.get("inputs") if isinstance(ctx2.get("inputs"), dict) else {}
-            reference_id = str(inputs.get("reference_id") or "").strip()
-            if (
-                isinstance(concurrency, dict)
-                and concurrency.get("lock_scope") == "playbook"
-                and reference_id
-            ):
-                ctx2["concurrency"] = {
-                    "lock_scope": "playbook_input",
-                    "lock_key_input": "reference_id",
-                    "max_parallel": 1,
-                }
-                update_kwargs["concurrency_key"] = (
-                    f"concurrency:playbook_input:{t.pack_id}:{reference_id}"
-                )
-
             if update_kwargs:
                 update_kwargs["execution_context"] = ctx2
                 tasks_store.update_task(t.id, **update_kwargs)

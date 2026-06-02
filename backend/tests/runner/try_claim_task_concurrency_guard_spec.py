@@ -120,6 +120,19 @@ def _following_ctx(user_data_dir: str) -> dict:
     }
 
 
+def _pinned_reference_ctx(reference_id: str) -> dict:
+    return {
+        "playbook_code": "ig_analyze_pinned_reference",
+        "inputs": {
+            "reference_id": reference_id,
+        },
+        "concurrency": {
+            "lock_scope": "playbook",
+            "max_parallel": 1,
+        },
+    }
+
+
 def test_try_claim_task_blocks_same_profile_running_conflict():
     store = _SqliteClaimStore()
     profile_dir = "/app/data/ig-browser-profiles/default"
@@ -168,3 +181,27 @@ def test_try_claim_task_allows_distinct_profile():
 
     assert claimed is True
     assert store.fetch_status("pending-1") == TaskStatus.RUNNING.value
+
+
+def test_try_claim_task_blocks_pinned_reference_playbook_scope():
+    store = _SqliteClaimStore()
+    lock_key = "concurrency:playbook:ig_analyze_pinned_reference"
+    store.insert_task(
+        task_id="running-pinned",
+        status=TaskStatus.RUNNING.value,
+        pack_id="ig",
+        execution_context=_pinned_reference_ctx("ref-a"),
+        concurrency_key=lock_key,
+    )
+    store.insert_task(
+        task_id="pending-pinned",
+        status=TaskStatus.PENDING.value,
+        pack_id="ig",
+        execution_context=_pinned_reference_ctx("ref-b"),
+        concurrency_key=lock_key,
+    )
+
+    claimed = store.try_claim_task("pending-pinned", runner_id="runner-a")
+
+    assert claimed is False
+    assert store.fetch_status("pending-pinned") == TaskStatus.PENDING.value
