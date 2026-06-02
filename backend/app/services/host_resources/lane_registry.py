@@ -8,6 +8,8 @@ from typing import Any
 
 import yaml
 
+from .dynamic_lane_store import list_dynamic_lanes
+
 
 DEFAULT_LANES: dict[str, dict[str, Any]] = {
     "runner:browser_local": {
@@ -94,6 +96,10 @@ def _load_manifest_lane_overlays() -> dict[str, dict[str, Any]]:
 
 def load_lane_registry() -> dict[str, dict[str, Any]]:
     lanes = _overlay_lanes(DEFAULT_LANES, _load_manifest_lane_overlays())
+    for lane in list_dynamic_lanes():
+        lane_id = lane.get("lane_id")
+        if isinstance(lane_id, str) and lane_id.strip():
+            lanes[lane_id] = lane
     return copy.deepcopy(lanes)
 
 

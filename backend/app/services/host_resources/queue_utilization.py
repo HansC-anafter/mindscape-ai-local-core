@@ -15,6 +15,7 @@ from backend.app.services.runner_topology import RUNNER_READY_QUEUE_ORDER
 from backend.app.services.stores.postgres_base import PostgresStoreBase
 from backend.app.services.stores.redis.runner_queue_store import RedisRunnerQueueStore
 
+from .dynamic_lane_store import list_dynamic_queue_shards
 from .route_identity_projection import read_route_identity_projections
 
 
@@ -62,9 +63,14 @@ def _clamped_scan_limit(value: int | None = None) -> int:
 
 
 def _default_queue_stores() -> list[RedisRunnerQueueStore]:
+    queue_shards: list[str] = []
+    for queue_shard in [*RUNNER_READY_QUEUE_ORDER, *list_dynamic_queue_shards()]:
+        normalized = str(queue_shard or "").strip()
+        if normalized and normalized not in queue_shards:
+            queue_shards.append(normalized)
     return [
         RedisRunnerQueueStore(pack_id=queue_shard)
-        for queue_shard in RUNNER_READY_QUEUE_ORDER
+        for queue_shard in queue_shards
     ]
 
 

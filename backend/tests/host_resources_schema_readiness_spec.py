@@ -59,14 +59,14 @@ def test_schema_readiness_passes_when_required_revision_tables_and_indexes_exist
             *schema_readiness.REQUIRED_TABLES,
             *schema_readiness.REQUIRED_INDEXES,
         ],
-        revisions=["20260514123000"],
+        revisions=[schema_readiness.REQUIRED_REVISION],
     )
 
     report = schema_readiness.check_host_resource_schema_readiness(store)
 
     assert report["ready"] is True
     assert report["connectable"] is True
-    assert report["required_revision"] == "20260514010000"
+    assert report["required_revision"] == schema_readiness.REQUIRED_REVISION
     assert report["migration_applied"] is True
     assert report["missing_tables"] == []
     assert report["missing_indexes"] == []
@@ -92,12 +92,16 @@ def test_schema_readiness_endpoint_returns_read_only_contract(monkeypatch):
         host_resources,
         "check_host_resource_schema_readiness",
         lambda: {
-            "ready": True,
-            "connectable": True,
-            "required_revision": "20260514010000",
-            "migration_applied": True,
-            "applied_revisions": ["20260514123000"],
-            "tables": {"host_resource_reservations": True, "host_resource_events": True},
+              "ready": True,
+              "connectable": True,
+              "required_revision": schema_readiness.REQUIRED_REVISION,
+              "migration_applied": True,
+              "applied_revisions": ["20260514123000"],
+              "tables": {
+                  "host_resource_reservations": True,
+                  "host_resource_events": True,
+                  "host_resource_lanes": True,
+              },
             "indexes": {},
             "missing_tables": [],
             "missing_indexes": [],
@@ -112,4 +116,4 @@ def test_schema_readiness_endpoint_returns_read_only_contract(monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["ready"] is True
-    assert response.json()["required_revision"] == "20260514010000"
+    assert response.json()["required_revision"] == schema_readiness.REQUIRED_REVISION

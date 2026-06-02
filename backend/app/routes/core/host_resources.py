@@ -22,6 +22,10 @@ from backend.app.services.host_resources.manager import (
     resume_runner_claim_gate,
     update_notification,
 )
+from backend.app.services.host_resources.dynamic_lane_store import (
+    create_dynamic_lane,
+    update_dynamic_lane,
+)
 from backend.app.services.host_resources.queue_utilization import (
     build_live_queue_utilization,
     get_latest_queue_utilization_snapshot,
@@ -31,6 +35,7 @@ from backend.app.services.host_resources.schema_readiness import (
     check_host_resource_schema_readiness,
 )
 from backend.app.services.host_resources.summary import build_host_resource_summary
+from backend.app.services.host_resources.worker_targets import set_lane_worker_target
 
 
 router = APIRouter(prefix="/api/v1/host-resources", tags=["host-resources"])
@@ -72,6 +77,41 @@ async def get_queue_utilization(live: bool = Query(False)) -> dict[str, Any]:
 @router.get("/lanes")
 async def get_lanes() -> dict[str, Any]:
     return {"lanes": list_host_resource_lanes()}
+
+
+@router.post("/lanes")
+async def create_lane(payload: dict[str, Any] = Body(default_factory=dict)) -> dict[str, Any]:
+    try:
+        lane = create_dynamic_lane(payload)
+    except ValueError as exc:
+        reason = str(exc)
+        if reason == "duplicate_lane_id":
+            raise HTTPException(status_code=409, detail=reason) from exc
+        raise HTTPException(status_code=422, detail=reason) from exc
+    return {"lane": lane}
+
+
+@router.patch("/lanes/{lane_id:path}")
+async def patch_lane(
+    lane_id: str,
+    payload: dict[str, Any] = Body(default_factory=dict),
+) -> dict[str, Any]:
+    try:
+        lane = update_dynamic_lane(lane_id, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if not lane:
+        raise HTTPException(status_code=404, detail="dynamic_lane_not_found")
+    return {"lane": lane}
+
+
+@router.post("/lanes/{lane_id:path}/worker-target")
+async def post_lane_worker_target(
+    lane_id: str,
+    payload: dict[str, Any] = Body(default_factory=dict),
+) -> dict[str, Any]:
+    desired_worker_count = int((payload or {}).get("desired_worker_count") or 0)
+    return await set_lane_worker_target(lane_id, desired_worker_count)
 
 
 @router.get("/admission-preview")

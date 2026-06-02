@@ -10,17 +10,21 @@ from sqlalchemy import text
 from backend.app.services.stores.postgres_base import PostgresStoreBase
 
 
-REQUIRED_REVISION = "20260514010000"
+REQUIRED_REVISION = "20260603010000"
 UPGRADE_COMMAND = "alembic -c backend/alembic.postgres.ini upgrade head"
 REQUIRED_TABLES = (
     "host_resource_reservations",
     "host_resource_events",
+    "host_resource_lanes",
 )
 REQUIRED_INDEXES = (
     "idx_host_resource_reservations_active",
     "idx_host_resource_reservations_lane_created",
     "idx_host_resource_events_reservation_time",
     "idx_host_resource_events_type_time",
+    "idx_host_resource_lanes_workspace_scope",
+    "idx_host_resource_lanes_capability_kind",
+    "idx_host_resource_lanes_queue_shard",
 )
 
 

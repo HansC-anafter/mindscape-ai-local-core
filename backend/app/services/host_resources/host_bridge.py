@@ -95,3 +95,29 @@ async def call_host_resource_probe(
     if not isinstance(payload, dict):
         raise HostBridgeError("host_resource_probe JSON was not an object")
     return payload
+
+
+async def call_host_resource_lane_workers_set(
+    arguments: dict[str, Any],
+    *,
+    timeout_seconds: float = 8.0,
+) -> dict[str, Any]:
+    result = await _post_mcp(
+        "tools/call",
+        {
+            "name": "host_resource_lane_workers_set",
+            "arguments": arguments,
+        },
+        timeout_seconds=timeout_seconds,
+    )
+    content = result.get("content")
+    if not isinstance(content, list) or not content:
+        return result
+    text = content[0].get("text") if isinstance(content[0], dict) else None
+    if not isinstance(text, str) or not text.strip():
+        return result
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        return result
+    return payload if isinstance(payload, dict) else result

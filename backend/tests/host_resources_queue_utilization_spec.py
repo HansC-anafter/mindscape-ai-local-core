@@ -199,3 +199,20 @@ def test_queue_utilization_migration_avoids_task_registry_and_task_indexes():
     assert "idx_tasks_live_queue_lock_utilization" not in source
     assert "CREATE INDEX" in source
     assert "ON tasks" not in source
+
+
+def test_default_queue_stores_include_dynamic_lanes(monkeypatch):
+    monkeypatch.setattr(
+        queue_utilization,
+        "list_dynamic_queue_shards",
+        lambda: ["vision_mlx_high", "vision_local"],
+    )
+
+    stores = queue_utilization._default_queue_stores()
+
+    assert [store.pack_id for store in stores] == [
+        "vision_local",
+        "browser_local",
+        "default_local",
+        "vision_mlx_high",
+    ]

@@ -329,3 +329,59 @@ def test_route_reservation_events_endpoint_returns_events(monkeypatch):
             }
         ]
     }
+
+
+def test_create_lane_endpoint_returns_created_dynamic_lane(monkeypatch):
+    received = {}
+
+    def _create_dynamic_lane(payload):
+        received.update(payload)
+        return {"lane_id": payload["lane_id"], "queue_shard": payload["queue_shard"]}
+
+    monkeypatch.setattr(host_resources, "create_dynamic_lane", _create_dynamic_lane)
+    app = FastAPI()
+    app.include_router(host_resources.router)
+
+    response = TestClient(app).post(
+        "/api/v1/host-resources/lanes",
+        json={
+            "lane_id": "runner:vision_mlx_high",
+            "capability_scope": "ig",
+            "label": "Vision MLX High",
+            "kind": "vision_analyze",
+            "queue_shard": "vision_mlx_high",
+            "runner_profile": "vision_mlx_high",
+            "resource_class": "compute",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["lane"]["queue_shard"] == "vision_mlx_high"
+    assert received["lane_id"] == "runner:vision_mlx_high"
+
+
+def test_worker_target_endpoint_returns_blocked_result(monkeypatch):
+    async def _set_lane_worker_target(lane_id, desired_worker_count):
+        return {
+            "accepted": False,
+            "lane_id": lane_id,
+            "desired_worker_count": desired_worker_count,
+            "reason": "pgbouncer_client_waiting",
+        }
+
+    monkeypatch.setattr(
+        host_resources,
+        "set_lane_worker_target",
+        _set_lane_worker_target,
+    )
+    app = FastAPI()
+    app.include_router(host_resources.router)
+
+    response = TestClient(app).post(
+        "/api/v1/host-resources/lanes/runner:vision_mlx_high/worker-target",
+        json={"desired_worker_count": 1},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["accepted"] is False
+    assert response.json()["reason"] == "pgbouncer_client_waiting"

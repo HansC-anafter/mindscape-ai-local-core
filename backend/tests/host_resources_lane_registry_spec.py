@@ -46,3 +46,28 @@ def test_default_registry_keeps_pack_specific_lanes_out_of_core(monkeypatch, tmp
     assert "runner:default_local" in lanes
     assert "comfyui_runtime:flux2_klein_true_v2_q6_local" not in lanes
     assert "mlx:qwen9b_4bit_vision" not in lanes
+
+
+def test_registry_merges_dynamic_lanes(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        lane_registry,
+        "_capabilities_dir",
+        lambda: tmp_path / "capabilities",
+    )
+    monkeypatch.setattr(
+        lane_registry,
+        "list_dynamic_lanes",
+        lambda: [
+            {
+                "lane_id": "runner:vision_mlx_high",
+                "label": "Vision MLX High",
+                "kind": "vision_analyze",
+                "queue_shard": "vision_mlx_high",
+                "capability_scope": "ig",
+            }
+        ],
+    )
+
+    lanes = lane_registry.load_lane_registry()
+
+    assert lanes["runner:vision_mlx_high"]["queue_shard"] == "vision_mlx_high"

@@ -47,6 +47,20 @@ else
 end
 """
 
+LUA_REROUTE_PENDING = """
+local removed = 0
+for index = 3, #KEYS do
+    removed = removed + redis.call("lrem", KEYS[index], 0, ARGV[1])
+end
+removed = removed + redis.call("lrem", KEYS[2], 0, ARGV[1])
+if removed <= 0 then
+    return {0, 0}
+end
+redis.call("setex", KEYS[1], ARGV[3], ARGV[2])
+redis.call("lpush", KEYS[2], ARGV[1])
+return {removed, 1}
+"""
+
 class RedisRunnerQueueStore:
     def __init__(self, pack_id: str = "default"):
         self.pack_id = pack_id
@@ -222,6 +236,53 @@ class RedisRunnerQueueStore:
         except Exception as e:
             logger.error(f"[Redis Queue] Failed targeted dequeue {normalized_task_id}: {e}")
             return None
+
+    async def reroute_pending_task(
+        self,
+        task_id: str,
+        *,
+        source_shards: list[str] | tuple[str, ...],
+        route_identity: dict | None = None,
+    ) -> dict:
+        """Move a pending task into this queue atomically with route projection."""
+        client = await self._get_client()
+        if not client:
+            return {"removed_count": 0, "pushed": False}
+
+        normalized_task_id = str(task_id or "").strip()
+        if not normalized_task_id:
+            return {"removed_count": 0, "pushed": False}
+
+        source_keys: list[str] = []
+        for shard in source_shards or []:
+            normalized_shard = str(shard or "").strip()
+            if not normalized_shard:
+                continue
+            key = RedisRunnerQueueStore(pack_id=normalized_shard).q_pending
+            if key not in source_keys:
+                source_keys.append(key)
+
+        try:
+            result = await client.eval(
+                LUA_REROUTE_PENDING,
+                2 + len(source_keys),
+                route_identity_key(normalized_task_id),
+                self.q_pending,
+                *source_keys,
+                normalized_task_id,
+                serialize_route_identity_projection(normalized_task_id, route_identity),
+                ROUTE_IDENTITY_TTL_SECONDS,
+            )
+            if isinstance(result, (list, tuple)):
+                removed_count = int(result[0] or 0) if result else 0
+                pushed = bool(int(result[1] or 0)) if len(result) > 1 else False
+            else:
+                removed_count = int(result or 0)
+                pushed = removed_count > 0
+            return {"removed_count": removed_count, "pushed": pushed}
+        except Exception as e:
+            logger.error(f"[Redis Queue] Failed pending reroute {normalized_task_id}: {e}")
+            return {"removed_count": 0, "pushed": False}
 
     async def ack_task(self, task_id: str) -> bool:
         """Acknowledge task completion by removing from processing."""

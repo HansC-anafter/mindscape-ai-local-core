@@ -23,6 +23,14 @@ _MANAGER_EXPORTS = {
     "pause_lane",
 }
 
+_DYNAMIC_LANE_EXPORTS = {
+    "create_dynamic_lane",
+    "get_dynamic_lane",
+    "list_dynamic_lanes",
+    "list_dynamic_queue_shards",
+    "update_dynamic_lane",
+}
+
 _SUBMODULE_EXPORTS = {
     "lane_registry",
     "manager",
@@ -38,6 +46,8 @@ def __getattr__(name: str) -> Any:
         return getattr(import_module(f"{__name__}.advisor"), name)
     if name in _MANAGER_EXPORTS:
         return getattr(import_module(f"{__name__}.manager"), name)
+    if name in _DYNAMIC_LANE_EXPORTS:
+        return getattr(import_module(f"{__name__}.dynamic_lane_store"), name)
     if name in _SUBMODULE_EXPORTS:
         return import_module(f"{__name__}.{name}")
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
@@ -49,6 +59,10 @@ __all__ = [
     "evaluate_runner_requirements",
     "get_host_resource_snapshot",
     "get_runner_claim_gate",
+    "create_dynamic_lane",
+    "get_dynamic_lane",
+    "list_dynamic_lanes",
+    "list_dynamic_queue_shards",
     "list_active_route_reservations",
     "list_host_resource_lanes",
     "pause_lane",
@@ -56,4 +70,5 @@ __all__ = [
     "resume_lane",
     "resume_runner_claim_gate",
     "route_gate",
+    "update_dynamic_lane",
 ]

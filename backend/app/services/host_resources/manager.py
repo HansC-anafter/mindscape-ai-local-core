@@ -290,11 +290,19 @@ async def get_host_resource_snapshot(*, refresh: bool = False) -> dict[str, Any]
 
 
 def list_host_resource_lanes() -> list[dict[str, Any]]:
+    registry = load_lane_registry()
     snapshot = get_cached_snapshot_or_degraded()
     lanes = snapshot.get("lanes")
     if isinstance(lanes, list):
-        return [lane for lane in lanes if isinstance(lane, dict)]
-    return list(load_lane_registry().values())
+        merged = dict(registry)
+        for lane in lanes:
+            if not isinstance(lane, dict):
+                continue
+            lane_id = lane.get("lane_id")
+            if isinstance(lane_id, str) and lane_id.strip():
+                merged[lane_id] = {**merged.get(lane_id, {}), **lane}
+        return list(merged.values())
+    return list(registry.values())
 
 
 def pause_lane(lane_id: str) -> dict[str, Any]:
