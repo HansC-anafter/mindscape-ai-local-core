@@ -699,44 +699,74 @@ class DispatchOrchestrator:
 
         attempt.mark_started()
         route_context = await load_executor_route_context(target_workspace_id)
+        planner_contract_binding = getattr(phase, "planner_contract_binding", None)
+        planner_contract_payload = (
+            planner_contract_binding.as_execution_context()
+            if hasattr(planner_contract_binding, "as_execution_context")
+            else planner_contract_binding.model_dump(mode="json", exclude_none=True)
+            if hasattr(planner_contract_binding, "model_dump")
+            else planner_contract_binding
+            if isinstance(planner_contract_binding, dict)
+            else None
+        )
+        task_params = {
+            "tool_name": phase.tool_name,
+            "input_params": phase.input_params or {},
+            "title": phase.name,
+            "description": phase.description or "",
+        }
+        task_execution_context = {
+            "phase_id": attempt.phase_id,
+            "attempt_id": attempt.id,
+            "task_ir_id": attempt.task_ir_id,
+            "profile_id": self.profile_id,
+            "project_id": self.project_id,
+            "inputs": phase.input_params or {},
+            "tool_name": phase.tool_name,
+            "capability_profile": phase.capability_profile,
+            "executor_route_context": route_context,
+            **ir_provenance,
+        }
+        if planner_contract_payload:
+            task_params["planner_contract_binding"] = planner_contract_payload
+            task_execution_context["planner_contract_binding"] = planner_contract_payload
+
         task = Task(
             id=str(uuid.uuid4()),
             workspace_id=target_workspace_id,
-                    message_id=attempt.id,
+            message_id=attempt.id,
             pack_id=phase.tool_name or "meeting_dispatch",
             task_type="tool_execution",
             status=TaskStatus.PENDING,
-            params={
-                "tool_name": phase.tool_name,
-                "input_params": phase.input_params or {},
-                "title": phase.name,
-                "description": phase.description or "",
-            },
-            execution_context={
-                "phase_id": attempt.phase_id,
-                "attempt_id": attempt.id,
-                "task_ir_id": attempt.task_ir_id,
-                "profile_id": self.profile_id,
-                "project_id": self.project_id,
-                # Runner reads execution_context.inputs as tool arguments
-                "inputs": phase.input_params or {},
-                "tool_name": phase.tool_name,
-                # v3.1 F3: capability_profile for model routing in runner
-                "capability_profile": phase.capability_profile,
-                "executor_route_context": route_context,
-                # Feature 1: IR provenance snapshot
-                **ir_provenance,
-            },
+            params=task_params,
+            execution_context=task_execution_context,
             meeting_session_id=getattr(self.session, "id", None),
             project_id=self.project_id,
         )
         if self.tasks_store:
             try:
                 self.tasks_store.create_task(task)
-                return {"task_id": task.id, "tool_name": phase.tool_name}
+                attempt.adapter_meta["task_id"] = task.id
+                attempt.adapter_meta["tool_name"] = phase.tool_name
+                if planner_contract_payload:
+                    attempt.adapter_meta["planner_contract_binding_id"] = (
+                        planner_contract_payload.get("binding_id")
+                        if isinstance(planner_contract_payload, dict)
+                        else None
+                    )
+                return {
+                    "task_id": task.id,
+                    "tool_name": phase.tool_name,
+                    "planner_contract_binding": planner_contract_payload,
+                }
             except Exception:
                 raise
-        return {"task_id": None, "tool_name": phase.tool_name, "dry_run": True}
+        return {
+            "task_id": None,
+            "tool_name": phase.tool_name,
+            "planner_contract_binding": planner_contract_payload,
+            "dry_run": True,
+        }
 
     async def _dispatch_agent(
         self,

@@ -46,6 +46,41 @@ class DeliverableSpec(BaseModel):
     )
 
 
+class DataOperationEffect(str, Enum):
+    """Planner-visible data operation effect."""
+
+    READ = "read"
+    WRITE = "write"
+    ACTION = "action"
+    DELETE = "delete"
+
+
+class DataOperationContract(BaseModel):
+    """Contract-level data operation intent before tool binding."""
+
+    id: str = Field(..., description="Contract-scoped stable ID: OP1, OP2, ...")
+    resource_kind: str = Field(
+        ..., description="Pack resource kind such as seed, reference, or creative_space"
+    )
+    effect: DataOperationEffect = Field(..., description="Requested data effect")
+    tool_name: Optional[str] = Field(
+        default=None,
+        description="Optional explicit planner tool name when the compiler can infer it",
+    )
+    query: Optional[Dict[str, Any]] = Field(
+        default=None, description="Structured read/write selector or payload hints"
+    )
+    target_object_kind: Optional[str] = Field(
+        default=None, description="Optional AOL object kind targeted by the operation"
+    )
+    acceptance_condition: Optional[str] = Field(
+        default=None, description="Operation-level acceptance condition"
+    )
+    metadata: Dict[str, Any] = Field(
+        default_factory=dict, description="Additional planner-safe operation metadata"
+    )
+
+
 class RequestContract(BaseModel):
     """Structured governance contract compiled from user request.
 
@@ -81,6 +116,13 @@ class RequestContract(BaseModel):
             "deliverable_ids, then provide input_params defaults so meeting "
             "merges pack-specific bootstrap data via the request contract "
             "instead of host-core hardcoding."
+        ),
+    )
+    data_operations: List[DataOperationContract] = Field(
+        default_factory=list,
+        description=(
+            "Planner-visible data read/write/action intents preserved before "
+            "binding them to installed capability planner_contract tools."
         ),
     )
     scale_estimate: ScaleEstimate = Field(

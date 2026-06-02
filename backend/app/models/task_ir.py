@@ -21,6 +21,10 @@ from typing import Dict, Any, List, Optional, Union
 from enum import Enum
 from pydantic import BaseModel, ConfigDict, Field
 
+from backend.app.services.orchestration.meeting.planner_contract_execution.models import (
+    PlannerContractBinding,
+)
+
 
 class TaskStatus(str, Enum):
     """Task execution status"""
@@ -190,6 +194,10 @@ class PhaseIR(BaseModel):
     input_params: Optional[Dict[str, Any]] = Field(
         None,
         description="Input parameters for tool invocation",
+    )
+    planner_contract_binding: Optional[PlannerContractBinding] = Field(
+        None,
+        description="Deterministic binding to an installed planner_contract tool",
     )
     blocked_by: Optional[List[int]] = Field(
         None,

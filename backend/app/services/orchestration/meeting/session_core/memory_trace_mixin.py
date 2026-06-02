@@ -316,12 +316,16 @@ class MeetingSessionMemoryTraceMixin:
         canonical_memory: Optional[Dict[str, Any]],
         meeting_decision_ids: List[str],
         action_items: List[Dict[str, Any]],
+        dispatch_result: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         session_id = getattr(getattr(self, "session", None), "id", "") or ""
         action_item_node_ids = [
             f"action_item:{session_id}:{index}"
             for index, _item in enumerate(action_items)
         ]
+        planner_bound_tool_result_node_ids = (
+            self._extract_planner_bound_tool_result_node_ids(dispatch_result)
+        )
         explicit: Dict[str, Any] = {
             "session_node_id": f"meeting_session:{session_id}" if session_id else None,
             "selected_packet_node_ids": list(selected_packet_node_ids),
@@ -344,6 +348,7 @@ class MeetingSessionMemoryTraceMixin:
             "writeback_run_id": (
                 canonical_memory.get("writeback_run_id") if canonical_memory else None
             ),
+            "planner_bound_tool_result_node_ids": planner_bound_tool_result_node_ids,
         }
         return {
             "explicit": {
@@ -353,3 +358,54 @@ class MeetingSessionMemoryTraceMixin:
             },
             "inferred": None,
         }
+
+    @staticmethod
+    def _safe_graph_id(value: Any) -> str:
+        raw = str(value or "none")
+        return "".join(ch if ch.isalnum() or ch in {"_", "-"} else "_" for ch in raw)[:96]
+
+    def _extract_planner_bound_tool_result_node_ids(
+        self,
+        dispatch_result: Optional[Dict[str, Any]],
+    ) -> List[str]:
+        if not isinstance(dispatch_result, dict):
+            return []
+        node_ids: List[str] = []
+
+        def add(task_id: Any, binding_id: Any = None) -> None:
+            if not task_id:
+                return
+            safe_task_id = self._safe_graph_id(task_id)
+            for node_id in (
+                f"planner-binding-{self._safe_graph_id(binding_id)}" if binding_id else None,
+                f"tool-result-{safe_task_id}",
+            ):
+                if node_id and node_id not in node_ids:
+                    node_ids.append(node_id)
+
+        attempts = dispatch_result.get("attempts")
+        if isinstance(attempts, dict):
+            for attempt in attempts.values():
+                if not isinstance(attempt, dict):
+                    continue
+                adapter_meta = attempt.get("adapter_meta")
+                if not isinstance(adapter_meta, dict):
+                    continue
+                if adapter_meta.get("planner_contract_binding_id"):
+                    add(
+                        adapter_meta.get("task_id"),
+                        adapter_meta.get("planner_contract_binding_id"),
+                    )
+
+        phase_results = dispatch_result.get("phase_results")
+        if isinstance(phase_results, list):
+            for item in phase_results:
+                if not isinstance(item, dict):
+                    continue
+                result = item.get("result")
+                if not isinstance(result, dict):
+                    continue
+                binding = result.get("planner_contract_binding")
+                if isinstance(binding, dict):
+                    add(result.get("task_id"), binding.get("binding_id"))
+        return node_ids

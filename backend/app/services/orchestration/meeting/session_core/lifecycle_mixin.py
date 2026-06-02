@@ -236,6 +236,7 @@ class MeetingSessionLifecycleMixin:
                 if getattr(decision, "id", "")
             ],
             action_items=action_items,
+            dispatch_result=dispatch_result,
         )
         self._writeback_capability_metadata_updates_to_workspace()
         self.session_store.update(self.session)
