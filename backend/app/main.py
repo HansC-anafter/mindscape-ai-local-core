@@ -313,6 +313,8 @@ async def health_check():
 
 # Service URLs reachable from inside Docker (backend proxies these for the frontend)
 _HOST_SERVICE_URLS: dict = {
+    "stt": os.getenv("WHISPER_SERVICE_URL", "http://whisper-service:8006")
+    + "/health",
     "xtts": os.getenv("XTTS_SERVICE_URL", "http://xtts-service:8020") + "/health",
     "mcp-gateway": os.getenv(
         "MCP_GATEWAY_HEALTH_URL", "http://host.docker.internal:8180/health"
@@ -326,6 +328,7 @@ async def host_service_health(service: str):
     Proxy health checks for host/sidecar services that the frontend cannot reach directly.
 
     Supported services:
+      - stt          -> whisper-service:8006/health (Docker sidecar)
       - xtts         → xtts-service:8020/health  (Docker sidecar)
       - mcp-gateway  → host.docker.internal:8180/health (Node process on host)
     """

@@ -88,6 +88,7 @@ test_*.yaml
 !backend/tests/test_gitignore_pack_neutrality.py
 !backend/tests/test_aol_target_only_attach.py
 !backend/tests/test_capability_runtime_contract_paths.py
+!backend/tests/core/workspace/test_event_stream_lifecycle.py
 !backend/tests/services/read_models/
 !backend/tests/services/read_models/*_test.py
 !backend/tests/routes/core/workspace_summary_route_test.py

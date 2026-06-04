@@ -12,6 +12,17 @@ import IntentChips from '../../app/workspaces/components/IntentChips';
 import { WorkspaceChatRuntimeControls } from './WorkspaceChatRuntimeControls';
 import { getApiBaseUrl } from '@/lib/api-url';
 
+const LazyMeetingVoiceTurnButton = React.lazy(() => (
+  import('./MeetingVoiceTurnButton').then((module) => ({
+    default: module.MeetingVoiceTurnButton,
+  }))
+));
+const LazyRealtimeVoiceSessionButton = React.lazy(() => (
+  import('./RealtimeVoiceSessionButton').then((module) => ({
+    default: module.RealtimeVoiceSessionButton,
+  }))
+));
+
 interface InputAreaProps {
   workspaceId: string;
   apiUrl: string;
@@ -21,6 +32,7 @@ interface InputAreaProps {
   isLoading: boolean;
   canSend: boolean;
   layoutVariant?: 'default' | 'meeting_pane';
+  meetingId?: string | null;
   onFilesChanged?: (files: any[], analyzingFiles: Set<string>, analyzeFile: (file: any) => Promise<any>, clearFiles: () => void) => void;
 }
 
@@ -33,6 +45,7 @@ export function InputArea({
   isLoading,
   canSend,
   layoutVariant = 'default',
+  meetingId,
   onFilesChanged,
 }: InputAreaProps) {
   const { input, setInput, llmConfigured, duplicateFileToast, copiedAll } = useUIState();
@@ -166,6 +179,26 @@ export function InputArea({
                 apiUrl={resolvedApiUrl}
                 layout="inline"
               />
+            ) : null
+          }
+          actionContent={
+            meetingId ? (
+              <React.Suspense fallback={null}>
+                <div className="flex items-center gap-1">
+                  <LazyRealtimeVoiceSessionButton
+                    workspaceId={workspaceId}
+                    meetingId={meetingId}
+                    apiUrl={resolvedApiUrl}
+                    disabled={llmConfigured === false}
+                  />
+                  <LazyMeetingVoiceTurnButton
+                    workspaceId={workspaceId}
+                    meetingId={meetingId}
+                    apiUrl={resolvedApiUrl}
+                    disabled={llmConfigured === false}
+                  />
+                </div>
+              </React.Suspense>
             ) : null
           }
           onFileUpload={() => fileInputRef.current?.click()}

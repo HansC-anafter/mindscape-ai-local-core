@@ -8,6 +8,7 @@ interface InputBottomBarProps {
   copiedAll: boolean;
   onCopyAll: () => void;
   leadingContent?: React.ReactNode;
+  actionContent?: React.ReactNode;
   showCopyAll?: boolean;
   onFileUpload: () => void;
   onSend: () => void;
@@ -21,6 +22,7 @@ export function InputBottomBar({
   copiedAll,
   onCopyAll,
   leadingContent,
+  actionContent,
   showCopyAll = true,
   onFileUpload,
   onSend,
@@ -61,6 +63,7 @@ export function InputBottomBar({
       </div>
 
       <div className="flex items-center gap-2">
+        {actionContent}
         <button
           type="button"
           onClick={onFileUpload}

@@ -42,6 +42,7 @@ interface WorkspaceChatProps {
   expectedArtifacts?: string[];
   projectId?: string;  // Current project ID (if user is in a project context)
   threadId?: string | null;
+  meetingId?: string | null;
   layoutVariant?: WorkspaceChatLayoutVariant;
 }
 
@@ -53,6 +54,7 @@ function WorkspaceChatContent({
   expectedArtifacts,
   projectId,
   threadId,
+  meetingId,
   layoutVariant = 'default',
 }: WorkspaceChatProps) {
   // Use Context for state management
@@ -555,6 +557,7 @@ function WorkspaceChatContent({
       <InputArea
         workspaceId={workspaceId}
         apiUrl={apiUrl}
+        meetingId={meetingId || (layoutVariant === 'meeting_pane' ? threadId : null)}
         onSend={handleSend}
         onFileAnalyzed={onFileAnalyzed}
         onCopyAll={handleCopyAllMessages}
