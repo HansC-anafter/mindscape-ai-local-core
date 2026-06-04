@@ -339,6 +339,14 @@ def _pending_revisions(
     return [str(revision) for revision in revisions if str(revision) not in applied]
 
 
+def _should_use_branch_scoped_upgrade(
+    revisions: list[str],
+    branch_auto_discover: bool,
+) -> bool:
+    """Return whether migration execution must target a capability branch head."""
+    return branch_auto_discover and not revisions
+
+
 def execute_migrations(
     local_core_root: Path,
     capabilities_dir: Path,
@@ -537,7 +545,7 @@ def execute_migrations(
 
         pending_revisions = _pending_revisions(revisions, applied_revisions)
 
-        if pack_declares_branch_label(capability_code, current_migration_files):
+        if _should_use_branch_scoped_upgrade(revisions, use_branch_scoped):
             target = f"{capability_code}@head"
             logger.info(
                 f"Branch-scoped migration: upgrading {target} for {capability_code}"
