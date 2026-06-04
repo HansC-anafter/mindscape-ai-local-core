@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Plus, Power, Route } from 'lucide-react';
 import { settingsApi } from '../../../utils/settingsApi';
 import { Card } from '../../Card';
@@ -19,6 +19,8 @@ export interface HostResourceLaneManagerLane {
   max_concurrency?: number | null;
   desired_worker_count?: number | null;
   state?: string | null;
+  metadata?: Record<string, unknown> | null;
+  model_profile?: Record<string, unknown> | null;
 }
 
 interface HostResourceLaneManagerPanelProps {
@@ -42,13 +44,67 @@ function stateClass(state?: string | null): string {
   return 'border-gray-200 bg-gray-50 text-gray-600 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300';
 }
 
+interface RuntimeEnvironment {
+  id: string;
+  name?: string;
+  status?: string;
+  metadata?: Record<string, unknown>;
+}
+
+interface HostResourceSlotOption {
+  runtimeId: string;
+  name: string;
+  adapterId: string;
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function slotOptionFromRuntime(runtime: RuntimeEnvironment): HostResourceSlotOption | null {
+  const metadata = asRecord(runtime.metadata);
+  const nested = asRecord(metadata.host_resource_slot);
+  const source = Object.keys(nested).length ? nested : metadata;
+  const adapterId = String(source.adapter_id || source.runtime_adapter_id || '').trim();
+  if (!adapterId || runtime.status !== 'active' && runtime.status !== 'configured') return null;
+  return {
+    runtimeId: runtime.id,
+    name: runtime.name || runtime.id,
+    adapterId,
+  };
+}
+
 export function HostResourceLaneManagerPanel({
   lanes,
   onRefresh,
 }: HostResourceLaneManagerPanelProps) {
   const [label, setLabel] = useState('');
+  const [runtimeEnvironmentId, setRuntimeEnvironmentId] = useState('');
+  const [slotOptions, setSlotOptions] = useState<HostResourceSlotOption[]>([]);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    settingsApi
+      .get<{ runtimes?: RuntimeEnvironment[] }>('/api/v1/runtime-environments')
+      .then((payload) => {
+        if (!mounted) return;
+        const options = (Array.isArray(payload.runtimes) ? payload.runtimes : [])
+          .map(slotOptionFromRuntime)
+          .filter((slot): slot is HostResourceSlotOption => Boolean(slot));
+        setSlotOptions(options);
+        setRuntimeEnvironmentId((current) => current || options[0]?.runtimeId || '');
+      })
+      .catch((err) => {
+        if (mounted) setError(err instanceof Error ? err.message : 'Failed to load host slots');
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const managedLanes = useMemo(() => (
     [...lanes]
@@ -58,7 +114,8 @@ export function HostResourceLaneManagerPanel({
 
   const createLane = async () => {
     const nextLabel = label.trim();
-    if (!nextLabel) return;
+    const selectedSlot = slotOptions.find((slot) => slot.runtimeId === runtimeEnvironmentId);
+    if (!nextLabel || !selectedSlot) return;
     const slug = slugifyLaneName(nextLabel);
     setBusyKey('create');
     setError(null);
@@ -77,7 +134,11 @@ export function HostResourceLaneManagerPanel({
         max_concurrency: 1,
         desired_worker_count: 0,
         model_profile: {},
-        metadata: { source: 'settings_host_resources' },
+        metadata: {
+          source: 'settings_host_resources',
+          adapter_id: selectedSlot.adapterId,
+          runtime_environment_id: selectedSlot.runtimeId,
+        },
       });
       setLabel('');
       await onRefresh();
@@ -119,7 +180,21 @@ export function HostResourceLaneManagerPanel({
             {managedLanes.length} registered lane{managedLanes.length === 1 ? '' : 's'}
           </div>
         </div>
-        <div className="flex min-w-0 gap-2">
+        <div className="flex min-w-0 flex-wrap gap-2">
+          <select
+            value={runtimeEnvironmentId}
+            onChange={(event) => setRuntimeEnvironmentId(event.target.value)}
+            className="h-9 min-w-[180px] rounded-md border border-default bg-surface px-2 text-sm text-primary outline-none focus:border-blue-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+          >
+            {slotOptions.map((slot) => (
+              <option key={slot.runtimeId} value={slot.runtimeId}>
+                {slot.name}
+              </option>
+            ))}
+            {!slotOptions.length ? (
+              <option value="">No host slot</option>
+            ) : null}
+          </select>
           <input
             value={label}
             onChange={(event) => setLabel(event.target.value)}
@@ -129,7 +204,7 @@ export function HostResourceLaneManagerPanel({
           <button
             type="button"
             onClick={() => void createLane()}
-            disabled={!label.trim() || busyKey === 'create'}
+            disabled={!label.trim() || !runtimeEnvironmentId || busyKey === 'create'}
             className="inline-flex h-9 items-center gap-1 rounded-md border border-default px-3 text-sm font-medium text-primary hover:bg-surface-secondary disabled:opacity-50 dark:border-gray-700 dark:text-gray-100 dark:hover:bg-gray-800"
           >
             <Plus className="h-4 w-4" aria-hidden="true" />
@@ -161,6 +236,9 @@ export function HostResourceLaneManagerPanel({
                   </div>
                   <div className="mt-1 truncate text-xs text-secondary dark:text-gray-400">
                     {lane.queue_shard || 'no shard'} · {lane.runner_profile || 'no profile'}
+                  </div>
+                  <div className="mt-1 truncate text-xs text-secondary dark:text-gray-400">
+                    {String(asRecord(lane.metadata).runtime_environment_id || 'no host slot')}
                   </div>
                 </div>
                 <span className={`shrink-0 rounded-md border px-2 py-0.5 text-[11px] font-medium ${stateClass(lane.state)}`}>

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import uuid
 import os
 import logging
 from datetime import datetime, timedelta, timezone
@@ -337,69 +336,15 @@ def _normalized_route_request(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def create_route_reservation(payload: dict[str, Any]) -> dict[str, Any]:
-    reservation_id = f"hostres_{uuid.uuid4().hex}"
-    ttl_seconds = _ttl_seconds_from_payload(payload)
-    created_at = _utc_now()
-    reservation = {
-        "reservation_id": reservation_id,
-        "state": "reserved_waiting",
-        "created_at": created_at.isoformat(),
-        "updated_at": created_at.isoformat(),
-        "expires_at": (created_at + timedelta(seconds=ttl_seconds)).isoformat(),
-        "ttl_seconds": ttl_seconds,
-        "route_request": _normalized_route_request(payload),
-    }
-    ledger_persisted = _save_reservation_to_ledger(reservation)
-    _append_reservation_event(
-        "reservation_created",
-        reservation=reservation,
-        payload={"reservation": reservation},
-    )
-    reservation["ledger_persisted"] = ledger_persisted
-    _write_route_projection(reservation)
-    return reservation
+    from .route_reservation_service import create_route_reservation as create
+
+    return create(payload)
 
 
 def cancel_route_reservation(reservation_id: str) -> dict[str, Any]:
-    reservation = _route_reservations.get(reservation_id)
-    if not reservation:
-        persisted = _read_json_map(ROUTE_RESERVATIONS_KEY)
-        raw_reservation = persisted.get(reservation_id)
-        if isinstance(raw_reservation, dict):
-            reservation = raw_reservation
-    if not reservation:
-        store = _get_route_reservation_store()
-        if store:
-            try:
-                reservation = store.cancel_reservation(reservation_id)
-            except Exception as exc:
-                logger.debug("Failed to cancel durable host resource reservation: %s", exc)
-                reservation = None
-        if not reservation:
-            return {"reservation_id": reservation_id, "state": "not_found"}
-    reservation = dict(reservation)
-    cancelled_at = _utc_now_iso()
-    reservation["state"] = "cancelled"
-    reservation["cancelled_at"] = cancelled_at
-    reservation["updated_at"] = cancelled_at
-    ledger_persisted = False
-    store = _get_route_reservation_store()
-    if store:
-        try:
-            durable = store.cancel_reservation(reservation_id, cancelled_at=cancelled_at)
-            if isinstance(durable, dict):
-                reservation = {**reservation, **durable}
-            ledger_persisted = bool(durable)
-        except Exception as exc:
-            logger.debug("Failed to update durable host resource cancellation: %s", exc)
-    _append_reservation_event(
-        "reservation_cancelled",
-        reservation=reservation,
-        payload={"reservation_id": reservation_id},
-    )
-    reservation["ledger_persisted"] = ledger_persisted
-    _write_route_projection(reservation)
-    return reservation
+    from .route_reservation_service import cancel_route_reservation as cancel
+
+    return cancel(reservation_id)
 
 
 def rehydrate_route_reservation_projection() -> list[dict[str, Any]]:

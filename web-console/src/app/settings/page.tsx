@@ -6,12 +6,9 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import Header from '../../components/Header';
 import { t } from '../../lib/i18n';
 import { SettingsNavigation } from './components/SettingsNavigation';
+import { SettingsConfigAssistant, type SettingsConfigAssistantHandle } from './components/SettingsConfigAssistant';
 import { SettingsNotificationContainer } from './hooks/useSettingsNotification';
 import type { SettingsTab } from './types';
-
-interface SettingsConfigAssistantHandle {
-  sendMessage: (message: string) => void;
-}
 
 function SettingsPanelFallback() {
   return (
@@ -23,10 +20,6 @@ function SettingsPanelFallback() {
 
 const SettingsContentHost = dynamic(
   () => import('./components/SettingsContentHost').then((mod) => mod.SettingsContentHost),
-  { ssr: false, loading: SettingsPanelFallback }
-);
-const SettingsConfigAssistant = dynamic(
-  () => import('./components/SettingsConfigAssistant').then((mod) => mod.SettingsConfigAssistant),
   { ssr: false, loading: SettingsPanelFallback }
 );
 

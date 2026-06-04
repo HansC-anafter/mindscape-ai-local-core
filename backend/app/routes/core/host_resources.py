@@ -4,11 +4,14 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from fastapi import APIRouter, Body, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 
-from backend.app.services.host_resources.manager import (
+from backend.app.dependencies.auth import AuthContext, get_current_user
+from backend.app.services.host_resources.route_reservation_service import (
     cancel_route_reservation,
     create_route_reservation,
+)
+from backend.app.services.host_resources.manager import (
     get_cached_snapshot_or_degraded,
     get_host_resource_snapshot,
     get_runner_claim_gate,
@@ -31,11 +34,28 @@ from backend.app.services.host_resources.queue_utilization import (
     get_latest_queue_utilization_snapshot,
 )
 from backend.app.services.host_resources.route_intents import build_route_intent_preview
+from backend.app.services.host_resources.runtime_adapter_catalog import list_runtime_adapters
 from backend.app.services.host_resources.schema_readiness import (
     check_host_resource_schema_readiness,
 )
 from backend.app.services.host_resources.summary import build_host_resource_summary
 from backend.app.services.host_resources.worker_targets import set_lane_worker_target
+from backend.app.services.host_resources.allocation_blueprints import (
+    apply_allocation_blueprint_to_workspace,
+    build_workspace_allocation_effective_matrix,
+    get_allocation_blueprint,
+    list_allocation_blueprints,
+)
+from backend.app.services.host_resources.workspace_allocations import (
+    HostResourceWorkspaceAllocationStore,
+    workspace_allocation_decision,
+)
+from backend.app.services.resource_governance import (
+    build_resource_governance_context,
+    is_global_resource_admin,
+    require_global_resource_admin,
+    require_workspace_resource_access,
+)
 
 
 router = APIRouter(prefix="/api/v1/host-resources", tags=["host-resources"])
@@ -74,13 +94,22 @@ async def get_queue_utilization(live: bool = Query(False)) -> dict[str, Any]:
     return get_latest_queue_utilization_snapshot()
 
 
+@router.get("/adapter-catalog")
+async def get_adapter_catalog() -> dict[str, Any]:
+    return {"adapters": list_runtime_adapters()}
+
+
 @router.get("/lanes")
 async def get_lanes() -> dict[str, Any]:
     return {"lanes": list_host_resource_lanes()}
 
 
 @router.post("/lanes")
-async def create_lane(payload: dict[str, Any] = Body(default_factory=dict)) -> dict[str, Any]:
+async def create_lane(
+    payload: dict[str, Any] = Body(default_factory=dict),
+    current_user: AuthContext = Depends(get_current_user),
+) -> dict[str, Any]:
+    require_global_resource_admin(current_user)
     try:
         lane = create_dynamic_lane(payload)
     except ValueError as exc:
@@ -95,7 +124,9 @@ async def create_lane(payload: dict[str, Any] = Body(default_factory=dict)) -> d
 async def patch_lane(
     lane_id: str,
     payload: dict[str, Any] = Body(default_factory=dict),
+    current_user: AuthContext = Depends(get_current_user),
 ) -> dict[str, Any]:
+    require_global_resource_admin(current_user)
     try:
         lane = update_dynamic_lane(lane_id, payload)
     except ValueError as exc:
@@ -109,9 +140,17 @@ async def patch_lane(
 async def post_lane_worker_target(
     lane_id: str,
     payload: dict[str, Any] = Body(default_factory=dict),
+    current_user: AuthContext = Depends(get_current_user),
 ) -> dict[str, Any]:
     desired_worker_count = int((payload or {}).get("desired_worker_count") or 0)
-    return await set_lane_worker_target(lane_id, desired_worker_count)
+    return await set_lane_worker_target(
+        lane_id,
+        desired_worker_count,
+        auth_context=current_user,
+        workspace_id=(payload or {}).get("workspace_id"),
+        allocation_id=(payload or {}).get("workspace_allocation_id")
+        or (payload or {}).get("allocation_id"),
+    )
 
 
 @router.get("/admission-preview")
@@ -131,13 +170,147 @@ async def get_admission_preview(
 
 
 @router.post("/lanes/{lane_id:path}/pause")
-async def pause_host_lane(lane_id: str) -> dict[str, Any]:
+async def pause_host_lane(
+    lane_id: str,
+    current_user: AuthContext = Depends(get_current_user),
+) -> dict[str, Any]:
+    require_global_resource_admin(current_user)
     return pause_lane(lane_id)
 
 
 @router.post("/lanes/{lane_id:path}/resume")
-async def resume_host_lane(lane_id: str) -> dict[str, Any]:
+async def resume_host_lane(
+    lane_id: str,
+    current_user: AuthContext = Depends(get_current_user),
+) -> dict[str, Any]:
+    require_global_resource_admin(current_user)
     return resume_lane(lane_id)
+
+
+@router.get("/workspace-allocations")
+async def get_workspace_allocations(
+    workspace_id: Optional[str] = Query(None),
+    lane_id: Optional[str] = Query(None),
+    limit: int = Query(100, ge=1, le=500),
+    current_user: AuthContext = Depends(get_current_user),
+) -> dict[str, Any]:
+    context = build_resource_governance_context(
+        current_user,
+        workspace_id=workspace_id,
+    )
+    scoped_workspace_id = workspace_id
+    if not is_global_resource_admin(current_user):
+        scoped_workspace_id = context.get("workspace_id")
+    elif workspace_id:
+        scoped_workspace_id = require_workspace_resource_access(current_user, workspace_id)
+    allocations = HostResourceWorkspaceAllocationStore("core").list_allocations(
+        workspace_id=scoped_workspace_id,
+        lane_id=lane_id,
+        limit=limit,
+    )
+    effective = None
+    if scoped_workspace_id:
+        effective = build_workspace_allocation_effective_matrix(
+            workspace_id=scoped_workspace_id,
+        )
+    return {
+        "allocations": allocations,
+        "effective": effective,
+        "governance_context": context,
+    }
+
+
+@router.get("/allocation-blueprints")
+async def get_allocation_blueprints(
+    current_user: AuthContext = Depends(get_current_user),
+) -> dict[str, Any]:
+    require_global_resource_admin(current_user)
+    return list_allocation_blueprints()
+
+
+@router.get("/allocation-blueprints/{blueprint_id}")
+async def get_allocation_blueprint_by_id(
+    blueprint_id: str,
+    current_user: AuthContext = Depends(get_current_user),
+) -> dict[str, Any]:
+    require_global_resource_admin(current_user)
+    blueprint = get_allocation_blueprint(blueprint_id)
+    if not blueprint:
+        raise HTTPException(status_code=404, detail="allocation_blueprint_not_found")
+    return {"blueprint": blueprint}
+
+
+@router.post("/allocation-blueprints/{blueprint_id}/apply")
+async def post_apply_allocation_blueprint(
+    blueprint_id: str,
+    payload: dict[str, Any] = Body(default_factory=dict),
+    current_user: AuthContext = Depends(get_current_user),
+) -> dict[str, Any]:
+    workspace_id = require_workspace_resource_access(
+        current_user,
+        payload.get("workspace_id"),
+    )
+    try:
+        result = apply_allocation_blueprint_to_workspace(
+            workspace_id=workspace_id,
+            blueprint_id=blueprint_id,
+            actor_id=current_user.user_id,
+        )
+    except ValueError as exc:
+        reason = str(exc)
+        if reason == "allocation_blueprint_not_found":
+            raise HTTPException(status_code=404, detail=reason) from exc
+        raise HTTPException(status_code=422, detail=reason) from exc
+    return {
+        **result,
+        "effective": build_workspace_allocation_effective_matrix(
+            workspace_id=workspace_id,
+        ),
+        "governance_context": build_resource_governance_context(
+            current_user,
+            workspace_id=workspace_id,
+        ),
+    }
+
+
+@router.put("/workspace-allocations/{allocation_id}")
+async def put_workspace_allocation(
+    allocation_id: str,
+    payload: dict[str, Any] = Body(default_factory=dict),
+    current_user: AuthContext = Depends(get_current_user),
+) -> dict[str, Any]:
+    workspace_id = payload.get("workspace_id")
+    require_global_resource_admin(current_user)
+    require_workspace_resource_access(current_user, workspace_id)
+    allocation = HostResourceWorkspaceAllocationStore("core").upsert_allocation(
+        payload,
+        allocation_id=allocation_id,
+        actor_id=current_user.user_id,
+    )
+    return {"allocation": allocation}
+
+
+@router.post("/workspace-allocations/preview")
+async def post_workspace_allocation_preview(
+    payload: dict[str, Any] = Body(default_factory=dict),
+    current_user: AuthContext = Depends(get_current_user),
+) -> dict[str, Any]:
+    workspace_id = require_workspace_resource_access(
+        current_user,
+        payload.get("workspace_id"),
+    )
+    decision = workspace_allocation_decision(
+        workspace_id=workspace_id,
+        lane_id=payload.get("lane_id"),
+        allocation_id=payload.get("workspace_allocation_id") or payload.get("allocation_id"),
+    )
+    return {
+        "workspace_allocation_decision": decision,
+        "governance_context": build_resource_governance_context(
+            current_user,
+            workspace_id=workspace_id,
+        ),
+    }
 
 
 @router.get("/route-reservations")
@@ -157,8 +330,9 @@ async def get_route_reservations(
 @router.post("/route-intents/preview")
 async def post_route_intent_preview(
     payload: Optional[dict[str, Any]] = Body(default=None),
+    current_user: AuthContext = Depends(get_current_user),
 ) -> dict[str, Any]:
-    return await build_route_intent_preview(payload or {})
+    return await build_route_intent_preview(payload or {}, auth_context=current_user)
 
 
 @router.get("/route-reservations/events")
@@ -177,13 +351,17 @@ async def get_route_reservation_events(
 @router.post("/route-reservations")
 async def post_route_reservation(
     payload: Optional[dict[str, Any]] = Body(default=None),
+    current_user: AuthContext = Depends(get_current_user),
 ) -> dict[str, Any]:
-    return create_route_reservation(payload or {})
+    return create_route_reservation(payload or {}, auth_context=current_user)
 
 
 @router.delete("/route-reservations/{reservation_id}")
-async def delete_route_reservation(reservation_id: str) -> dict[str, Any]:
-    return cancel_route_reservation(reservation_id)
+async def delete_route_reservation(
+    reservation_id: str,
+    current_user: AuthContext = Depends(get_current_user),
+) -> dict[str, Any]:
+    return cancel_route_reservation(reservation_id, auth_context=current_user)
 
 
 @router.get("/runner-claim-gate")
@@ -194,12 +372,17 @@ async def get_runner_claim_gate_state() -> dict[str, Any]:
 @router.post("/runner-claim-gate/pause")
 async def pause_runner_claims(
     payload: Optional[dict[str, Any]] = Body(default=None),
+    current_user: AuthContext = Depends(get_current_user),
 ) -> dict[str, Any]:
+    require_global_resource_admin(current_user)
     return pause_runner_claim_gate(payload or {})
 
 
 @router.post("/runner-claim-gate/resume")
-async def resume_runner_claims() -> dict[str, Any]:
+async def resume_runner_claims(
+    current_user: AuthContext = Depends(get_current_user),
+) -> dict[str, Any]:
+    require_global_resource_admin(current_user)
     return resume_runner_claim_gate()
 
 

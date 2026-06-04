@@ -5,9 +5,16 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+from backend.app.dependencies.auth import AuthContext
+from backend.app.services.resource_governance import (
+    build_resource_governance_context,
+    require_workspace_resource_access,
+)
+
 from .lane_registry import get_lane
 from .manager import get_cached_snapshot_or_degraded, get_host_resource_snapshot
 from .queue_preview import build_route_reservation_candidate_previews
+from .workspace_allocations import workspace_allocation_decision
 
 
 def _string_list(value: Any) -> list[str]:
@@ -42,7 +49,61 @@ def _route_request_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
     return raw
 
 
-async def build_route_intent_preview(payload: dict[str, Any] | None = None) -> dict[str, Any]:
+def _clean_string(value: Any) -> str | None:
+    if value is None:
+        return None
+    normalized = str(value).strip()
+    return normalized or None
+
+
+def _allocation_preview_decision(
+    *,
+    payload: dict[str, Any],
+    route_request: dict[str, Any],
+    auth_context: AuthContext | None,
+) -> dict[str, Any]:
+    if auth_context is None:
+        return {"accepted": True, "reason": "compatibility_no_auth_context"}
+    workspace_id = _clean_string(
+        route_request.get("workspace_id") or payload.get("workspace_id")
+    )
+    allocation_id = _clean_string(
+        route_request.get("workspace_allocation_id")
+        or route_request.get("allocation_id")
+        or payload.get("workspace_allocation_id")
+        or payload.get("allocation_id")
+    )
+    governance_context = build_resource_governance_context(
+        auth_context,
+        workspace_id=workspace_id,
+    )
+    if governance_context.get("is_global_admin") and not workspace_id:
+        return {
+            "accepted": True,
+            "reason": "global_admin_allocation_bypass",
+            "governance_context": governance_context,
+        }
+    workspace_id = require_workspace_resource_access(auth_context, workspace_id)
+    decision = workspace_allocation_decision(
+        workspace_id=workspace_id,
+        lane_id=_clean_string(route_request.get("target_lane")),
+        allocation_id=allocation_id,
+    )
+    if decision.get("accepted"):
+        route_request["workspace_id"] = workspace_id
+        allocation = decision.get("allocation") if isinstance(decision.get("allocation"), dict) else {}
+        route_request["workspace_allocation_id"] = allocation.get("allocation_id")
+    return {
+        **decision,
+        "governance_context": governance_context,
+    }
+
+
+async def build_route_intent_preview(
+    payload: dict[str, Any] | None = None,
+    *,
+    auth_context: AuthContext | None = None,
+) -> dict[str, Any]:
     payload = payload or {}
     route_request = _route_request_from_payload(payload or {})
     target_lane = str(route_request.get("target_lane") or "").strip() or None
@@ -75,6 +136,11 @@ async def build_route_intent_preview(payload: dict[str, Any] | None = None) -> d
     lane_resource_flavor = (lane or {}).get("resource_flavor") or requirements.get("resource_flavor")
     if not route_request.get("resource_flavor") and lane_resource_flavor:
         route_request["resource_flavor"] = lane_resource_flavor
+    allocation_decision = _allocation_preview_decision(
+        payload=payload,
+        route_request=route_request,
+        auth_context=auth_context,
+    )
 
     preview_errors: list[dict[str, Any]] = []
     if payload.get("refresh"):
@@ -137,6 +203,7 @@ async def build_route_intent_preview(payload: dict[str, Any] | None = None) -> d
             "target_lane": target_lane,
             "decision": "preview_ready",
             "reason": None,
+            "workspace_allocation_decision": allocation_decision,
             "resource_flavor": route_request.get("resource_flavor"),
             "resource_groups": route_request.get("resource_groups") or [],
             "estimated_memory_mb": estimated_memory_mb,

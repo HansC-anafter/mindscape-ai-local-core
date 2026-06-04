@@ -108,8 +108,12 @@ export function SettingsContentHost({
     case 'tools':
       return <ToolsPanel activeSection={activeSection} activeProvider={activeProvider} />;
     case 'runtime':
-      if (activeSection === 'host-resources') {
-        return <HostResourcesPanel />;
+      if (
+        activeSection === 'host-resources'
+        || activeSection === 'host-resources-observability'
+        || activeSection === 'workspace-resource-allocations'
+      ) {
+        return <HostResourcesPanel activeSection={activeSection} workspaceId={workspaceId} />;
       }
       return <RuntimeEnvironmentsSettings />;
     case 'localization':

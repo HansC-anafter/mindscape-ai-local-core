@@ -4,10 +4,6 @@ import { useState, useEffect, useCallback } from 'react';
 import { settingsApi } from '../utils/settingsApi';
 import type { BackendConfig, ToolConnection } from '../types';
 
-import { getApiBaseUrl } from '../../../lib/api-url';
-
-const API_URL = getApiBaseUrl();
-
 export interface SettingsContext {
   currentTab: string;
   currentSection?: string;
@@ -58,24 +54,17 @@ export function useSettingsContext(currentTab: string, currentSection?: string) 
         settingsApi.get<string[]>('/api/v1/capability-packs/enabled', { silent: true }),
       ]);
 
-      let healthStatus = null;
+      let healthStatus: any = null;
       try {
         const workspaceId = typeof window !== 'undefined'
           ? localStorage.getItem('currentWorkspaceId')
           : null;
-        if (workspaceId) {
-          const healthResponse = await fetch(`${API_URL}/api/v1/workspaces/${workspaceId}/health`);
-          if (healthResponse.ok) {
-            healthStatus = await healthResponse.json();
-          }
-        } else {
-          const generalHealth = await fetch(`${API_URL}/health`);
-          if (generalHealth.ok) {
-            healthStatus = await generalHealth.json();
-          }
-        }
+        healthStatus = await settingsApi.get(
+          workspaceId ? `/api/v1/workspaces/${workspaceId}/health` : '/health',
+          { silent: true },
+        );
       } catch (err) {
-        console.error('Failed to fetch health status:', err);
+        healthStatus = null;
       }
 
       const snapshot: SettingsContext['configSnapshot'] = {

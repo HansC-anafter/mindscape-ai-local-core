@@ -38,11 +38,42 @@ export const buildBackendLivenessUrl = (baseUrl: string): string => (
   `${baseUrl.replace(/\/$/, '')}${BACKEND_LIVENESS_PATH}`
 );
 
-const getApiUrl = async (forceRefresh: boolean = false): Promise<string> => {
+const normalizeApiUrlForBrowser = (apiUrl: string): string => {
+  if (typeof window === 'undefined') {
+    return apiUrl;
+  }
+  return normalizeBrowserReachableUrl(apiUrl);
+};
+
+const buildApiRequestUrl = (apiUrl: string, endpoint: string): string => {
+  if (!endpoint.startsWith('http')) {
+    return `${normalizeApiUrlForBrowser(apiUrl)}${endpoint}`;
+  }
+
+  if (typeof window === 'undefined') {
+    return endpoint;
+  }
+
+  const browserReachableUrl = normalizeBrowserReachableUrl(endpoint);
+  if (browserReachableUrl !== '') {
+    return browserReachableUrl;
+  }
+
+  try {
+    const parsed = new URL(endpoint);
+    return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+  } catch {
+    return endpoint;
+  }
+};
+
+export const getApiUrl = async (forceRefresh: boolean = false): Promise<string> => {
   const now = Date.now();
 
   // Return cached URL if available and not force-refreshing
   if (apiUrlCache !== null && !forceRefresh) {
+    apiUrlCache = normalizeApiUrlForBrowser(apiUrlCache);
+
     // Rate-limit validation: only re-validate after VALIDATION_INTERVAL
     if (now - lastValidationTime < VALIDATION_INTERVAL) {
       return apiUrlCache;
@@ -195,7 +226,7 @@ const getApiUrl = async (forceRefresh: boolean = false): Promise<string> => {
     }
 
     // Fallback to initial URL
-    apiUrlCache = initialUrl;
+    apiUrlCache = normalizeApiUrlForBrowser(initialUrl);
     lastValidationTime = Date.now();
     return apiUrlCache;
   })();
@@ -205,7 +236,7 @@ const getApiUrl = async (forceRefresh: boolean = false): Promise<string> => {
 
 // Synchronous version (returns initial URL, for initialization)
 const getApiUrlSync = (): string => {
-  return getInitialApiUrl();
+  return normalizeApiUrlForBrowser(getInitialApiUrl());
 };
 
 export const getInitialApiUrlForClient = (): string => {
@@ -272,7 +303,7 @@ export const settingsApi = {
   baseURL: getApiUrlSync(),
   get: async <T>(endpoint: string, options?: { silent?: boolean }): Promise<T> => {
     const apiUrl = await getApiUrl();
-    const url = endpoint.startsWith('http') ? endpoint : `${apiUrl}${endpoint}`;
+    const url = buildApiRequestUrl(apiUrl, endpoint);
 
     try {
       const response = await fetch(url);
@@ -304,7 +335,7 @@ export const settingsApi = {
 
   put: async <T>(endpoint: string, data: unknown): Promise<T> => {
     const apiUrl = await getApiUrl();
-    const url = endpoint.startsWith('http') ? endpoint : `${apiUrl}${endpoint}`;
+    const url = buildApiRequestUrl(apiUrl, endpoint);
     const response = await fetch(url, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -321,7 +352,7 @@ export const settingsApi = {
 
   patch: async <T>(endpoint: string, data: unknown): Promise<T> => {
     const apiUrl = await getApiUrl();
-    const url = endpoint.startsWith('http') ? endpoint : `${apiUrl}${endpoint}`;
+    const url = buildApiRequestUrl(apiUrl, endpoint);
     const response = await fetch(url, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -338,7 +369,7 @@ export const settingsApi = {
 
   post: async <T>(endpoint: string, data?: unknown): Promise<T> => {
     const apiUrl = await getApiUrl();
-    const url = endpoint.startsWith('http') ? endpoint : `${apiUrl}${endpoint}`;
+    const url = buildApiRequestUrl(apiUrl, endpoint);
     const options: RequestInit = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -360,7 +391,7 @@ export const settingsApi = {
 
   postFormData: async <T>(endpoint: string, formData: FormData): Promise<T> => {
     const apiUrl = await getApiUrl();
-    const url = endpoint.startsWith('http') ? endpoint : `${apiUrl}${endpoint}`;
+    const url = buildApiRequestUrl(apiUrl, endpoint);
     const response = await fetch(url, {
       method: 'POST',
       body: formData,
@@ -376,7 +407,7 @@ export const settingsApi = {
 
   delete: async <T>(endpoint: string): Promise<T> => {
     const apiUrl = await getApiUrl();
-    const url = endpoint.startsWith('http') ? endpoint : `${apiUrl}${endpoint}`;
+    const url = buildApiRequestUrl(apiUrl, endpoint);
     const response = await fetch(url, {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },

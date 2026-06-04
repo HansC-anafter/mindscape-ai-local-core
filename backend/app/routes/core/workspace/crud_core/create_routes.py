@@ -195,6 +195,24 @@ async def create_workspace(
 
         created = await asyncio.to_thread(store.create_workspace, workspace)
 
+        try:
+            from backend.app.services.host_resources.allocation_blueprints import (
+                apply_default_host_resource_blueprint_to_workspace,
+            )
+
+            await asyncio.to_thread(
+                apply_default_host_resource_blueprint_to_workspace,
+                workspace_id=created.id,
+                owner_user_id=owner_user_id,
+                actor_id=owner_user_id,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Failed to apply default host resource blueprint for workspace %s: %s",
+                created.id,
+                exc,
+            )
+
         # Auto-register background routine for state sync (skip for system workspaces)
         # System workspaces are for validation/testing and should not have background routines
         if not getattr(created, "is_system", False):

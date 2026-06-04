@@ -20,7 +20,9 @@ from backend.app.routes.core.intents import router as intents_router
 from backend.app.routes.core.chapters import router as chapters_router
 from backend.app.routes.core.artifacts import router as artifacts_router
 from backend.app.routes.core.resources import router as resources_router
+from backend.app.routes.core.host_services import router as host_services_router
 from backend.app.routes.core.host_resources import router as host_resources_router
+from backend.app.routes.core.resource_governance import router as resource_governance_router
 from backend.app.routes.core.system_settings import router as system_settings_router
 from backend.app.routes.core.settings_extensions import router as settings_extensions_router
 from backend.app.routes.core.model_route_registry import (
@@ -317,7 +319,9 @@ def register_core_routes(app: FastAPI) -> None:
 
     # Generic resource routes (neutral interface)
     app.include_router(resources_router, tags=["resources"])
+    app.include_router(host_services_router)
     app.include_router(host_resources_router)
+    app.include_router(resource_governance_router)
 
     # Legacy specific routes (kept for backward compatibility, will be deprecated)
     app.include_router(intents_router, tags=["intents"])

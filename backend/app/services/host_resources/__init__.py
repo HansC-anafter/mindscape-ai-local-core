@@ -11,8 +11,6 @@ _ADVISOR_EXPORTS = {
 }
 
 _MANAGER_EXPORTS = {
-    "cancel_route_reservation",
-    "create_route_reservation",
     "get_host_resource_snapshot",
     "get_runner_claim_gate",
     "list_active_route_reservations",
@@ -21,6 +19,11 @@ _MANAGER_EXPORTS = {
     "resume_lane",
     "resume_runner_claim_gate",
     "pause_lane",
+}
+
+_ROUTE_RESERVATION_EXPORTS = {
+    "cancel_route_reservation",
+    "create_route_reservation",
 }
 
 _DYNAMIC_LANE_EXPORTS = {
@@ -46,6 +49,8 @@ def __getattr__(name: str) -> Any:
         return getattr(import_module(f"{__name__}.advisor"), name)
     if name in _MANAGER_EXPORTS:
         return getattr(import_module(f"{__name__}.manager"), name)
+    if name in _ROUTE_RESERVATION_EXPORTS:
+        return getattr(import_module(f"{__name__}.route_reservation_service"), name)
     if name in _DYNAMIC_LANE_EXPORTS:
         return getattr(import_module(f"{__name__}.dynamic_lane_store"), name)
     if name in _SUBMODULE_EXPORTS:

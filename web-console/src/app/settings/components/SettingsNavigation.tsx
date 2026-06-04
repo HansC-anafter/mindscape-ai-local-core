@@ -1,34 +1,15 @@
 'use client';
 
 import React from 'react';
-import Activity from 'lucide-react/dist/esm/icons/activity.js';
-import Brain from 'lucide-react/dist/esm/icons/brain.js';
 import ChevronRight from 'lucide-react/dist/esm/icons/chevron-right.js';
-import KeyRound from 'lucide-react/dist/esm/icons/key-round.js';
-import Languages from 'lucide-react/dist/esm/icons/languages.js';
-import Package from 'lucide-react/dist/esm/icons/package.js';
-import PlayCircle from 'lucide-react/dist/esm/icons/play-circle.js';
-import SettingsIcon from 'lucide-react/dist/esm/icons/settings.js';
-import Share2 from 'lucide-react/dist/esm/icons/share-2.js';
-import ShieldCheck from 'lucide-react/dist/esm/icons/shield-check.js';
-import UsersRound from 'lucide-react/dist/esm/icons/users-round.js';
-import Wrench from 'lucide-react/dist/esm/icons/wrench.js';
 import { t } from '../../../lib/i18n';
 import type { SettingsTab } from '../types';
-
-type NavigationIcon = React.ComponentType<React.SVGProps<SVGSVGElement>>;
-
-interface NavigationItem {
-  id: string;
-  label: string;
-  icon?: NavigationIcon;
-  tab: SettingsTab;
-  section?: string;
-  provider?: string;
-  model?: string;
-  service?: string;
-  children?: NavigationItem[];
-}
+import {
+  activeExpandableItemIds,
+  navigationItemMatches,
+  navigationItems,
+  type NavigationItem,
+} from '../navigation/settingsNavigationRegistry';
 
 interface SettingsNavigationProps {
   activeTab: SettingsTab;
@@ -39,403 +20,31 @@ interface SettingsNavigationProps {
   onNavigate: (tab: SettingsTab, section?: string, provider?: string, model?: string, service?: string) => void;
 }
 
-function isItemActive(
-  item: NavigationItem,
-  activeTab: SettingsTab,
-  activeSection?: string,
-  activeProvider?: string,
-  activeService?: string
-): boolean {
-  if (item.tab !== activeTab) return false;
-  if (activeSection && item.section !== activeSection) return false;
-  if (activeProvider && item.provider !== activeProvider) return false;
-  if (activeService && item.service !== activeService) return false;
-  return true;
+function useActiveContext({
+  activeTab,
+  activeSection,
+  activeProvider,
+  activeModel,
+  activeService,
+}: Omit<SettingsNavigationProps, 'onNavigate'>) {
+  return React.useMemo(
+    () => ({
+      activeTab,
+      activeSection,
+      activeProvider,
+      activeModel,
+      activeService,
+    }),
+    [activeModel, activeProvider, activeSection, activeService, activeTab],
+  );
 }
 
-const navigationItems: NavigationItem[] = [
-  {
-    id: 'basic',
-    label: 'basicSettings',
-    icon: SettingsIcon,
-    tab: 'basic',
-    children: [
-      {
-        id: 'backend-mode',
-        label: 'backendMode',
-        tab: 'basic',
-        section: 'backend-mode',
-      },
-      {
-        id: 'language-preference',
-        label: 'languagePreference',
-        tab: 'basic',
-        section: 'language-preference',
-      },
-      {
-        id: 'models-and-quota',
-        label: 'modelsAndQuota',
-        tab: 'basic',
-        section: 'models-and-quota',
-      },
-      {
-        id: 'model-routing-registry',
-        label: 'modelRoutingRegistry',
-        tab: 'basic',
-        section: 'model-routing-registry',
-      },
-      {
-        id: 'theme-preset',
-        label: 'themePreset',
-        tab: 'basic',
-        section: 'theme-preset',
-      },
-      {
-        id: 'cloud-extension',
-        label: 'cloudExtension',
-        tab: 'basic',
-        section: 'cloud-extension',
-      },
-      {
-        id: 'unsplash-fingerprints',
-        label: 'unsplashFingerprints',
-        tab: 'basic',
-        section: 'unsplash-fingerprints',
-      },
-      {
-        id: 'port-configuration',
-        label: 'portConfiguration',
-        tab: 'basic',
-        section: 'port-configuration',
-      },
-      {
-        id: 'runtime-backup',
-        label: 'localRuntimeBackup',
-        tab: 'basic',
-        section: 'runtime-backup',
-      },
-    ],
-  },
-  {
-    id: 'credentials',
-    label: 'credentialsAndOAuth',
-    icon: KeyRound,
-    tab: 'credentials',
-    children: [
-      {
-        id: 'service-credentials',
-        label: 'serviceCredentials',
-        tab: 'credentials',
-        section: 'service-credentials',
-      },
-      {
-        id: 'oauth-integrations',
-        label: 'oauthIntegration',
-        tab: 'credentials',
-        section: 'oauth-integrations',
-      },
-    ],
-  },
-  {
-    id: 'mindscape',
-    label: 'mindscapeConfiguration',
-    icon: Brain,
-    tab: 'mindscape',
-  },
-  {
-    id: 'ai-team-governance',
-    label: 'aiTeamGovernance',
-    icon: UsersRound,
-    tab: 'ai-team-governance',
-    children: [
-      {
-        id: 'install-agents',
-        label: 'installAgents',
-        tab: 'ai-team-governance',
-        section: 'install-agents',
-      },
-      {
-        id: 'installed-agents',
-        label: 'installedAgents',
-        tab: 'ai-team-governance',
-        section: 'installed-agents',
-      },
-      {
-        id: 'model-policy',
-        label: 'modelPolicy',
-        tab: 'ai-team-governance',
-        section: 'model-policy',
-      },
-      {
-        id: 'network-policy',
-        label: 'networkPolicy',
-        tab: 'ai-team-governance',
-        section: 'network-policy',
-      },
-      {
-        id: 'secrets-policy',
-        label: 'secretsPolicy',
-        tab: 'ai-team-governance',
-        section: 'secrets-policy',
-      },
-    ],
-  },
-
-  {
-    id: 'runtime',
-    label: 'runtimeEnvironments',
-    icon: PlayCircle,
-    tab: 'runtime',
-    children: [
-      {
-        id: 'runtime-environments',
-        label: 'runtimeEnvironments',
-        tab: 'runtime',
-        section: 'runtime-environments',
-      },
-      {
-        id: 'host-resources',
-        label: 'hostResources',
-        tab: 'runtime',
-        section: 'host-resources',
-      },
-    ],
-  },
-  {
-    id: 'tools',
-    label: 'toolsAndIntegrations',
-    icon: Wrench,
-    tab: 'tools',
-    children: [
-      {
-        id: 'system-tools',
-        label: 'systemTools',
-        tab: 'tools',
-        section: 'system-tools',
-      },
-      {
-        id: 'external-saas-tools',
-        label: 'externalSAASTools',
-        tab: 'tools',
-        section: 'external-saas-tools',
-      },
-      {
-        id: 'mcp-server',
-        label: 'mcpServer',
-        tab: 'tools',
-        section: 'mcp-server',
-        children: [
-          {
-            id: 'mcp-openai',
-            label: 'OpenAI',
-            tab: 'tools',
-            section: 'mcp-server',
-            provider: 'openai',
-          },
-          {
-            id: 'mcp-anthropic',
-            label: 'Anthropic',
-            tab: 'tools',
-            section: 'mcp-server',
-            provider: 'anthropic',
-          },
-          {
-            id: 'mcp-github',
-            label: 'GitHub',
-            tab: 'tools',
-            section: 'mcp-server',
-            provider: 'github',
-          },
-          {
-            id: 'mcp-google',
-            label: 'Google',
-            tab: 'tools',
-            section: 'mcp-server',
-            provider: 'google',
-          },
-          {
-            id: 'mcp-custom',
-            label: 'customMCP',
-            tab: 'tools',
-            section: 'mcp-server',
-            provider: 'custom',
-          },
-        ],
-      },
-      {
-        id: 'third-party-workflow',
-        label: 'thirdPartyWorkflow',
-        tab: 'tools',
-        section: 'third-party-workflow',
-        children: [
-          {
-            id: 'workflow-zapier',
-            label: 'Zapier',
-            tab: 'tools',
-            section: 'third-party-workflow',
-            provider: 'zapier',
-          },
-          {
-            id: 'workflow-n8n',
-            label: 'n8n',
-            tab: 'tools',
-            section: 'third-party-workflow',
-            provider: 'n8n',
-          },
-          {
-            id: 'workflow-make',
-            label: 'Make',
-            tab: 'tools',
-            section: 'third-party-workflow',
-            provider: 'make',
-          },
-          {
-            id: 'workflow-integromat',
-            label: 'Integromat',
-            tab: 'tools',
-            section: 'third-party-workflow',
-            provider: 'integromat',
-          },
-          {
-            id: 'workflow-custom',
-            label: 'customWorkflow',
-            tab: 'tools',
-            section: 'third-party-workflow',
-            provider: 'custom',
-          },
-        ],
-      },
-    ],
-  },
-  {
-    id: 'social_media',
-    label: 'socialMediaIntegration',
-    icon: Share2,
-    tab: 'social_media',
-    children: [
-      {
-        id: 'twitter',
-        label: 'twitterIntegration',
-        tab: 'social_media',
-        provider: 'twitter',
-      },
-      {
-        id: 'facebook',
-        label: 'facebookIntegration',
-        tab: 'social_media',
-        provider: 'facebook',
-      },
-      {
-        id: 'instagram',
-        label: 'instagramIntegration',
-        tab: 'social_media',
-        provider: 'instagram',
-      },
-      {
-        id: 'linkedin',
-        label: 'linkedinIntegration',
-        tab: 'social_media',
-        provider: 'linkedin',
-      },
-      {
-        id: 'youtube',
-        label: 'youtubeIntegration',
-        tab: 'social_media',
-        provider: 'youtube',
-      },
-      {
-        id: 'line',
-        label: 'lineIntegration',
-        tab: 'social_media',
-        provider: 'line',
-      },
-    ],
-  },
-  {
-    id: 'localization',
-    label: 'localization',
-    icon: Languages,
-    tab: 'localization',
-    children: [
-      {
-        id: 'auto-translation',
-        label: 'autoTranslation',
-        tab: 'localization',
-        section: 'auto-translation',
-      },
-      {
-        id: 'translation-management',
-        label: 'translationManagement',
-        tab: 'localization',
-        section: 'translation-management',
-      },
-    ],
-  },
-  {
-    id: 'governance',
-    label: 'governance',
-    icon: ShieldCheck,
-    tab: 'governance',
-    children: [
-      {
-        id: 'node-governance',
-        label: 'nodeGovernance',
-        tab: 'governance',
-        section: 'node',
-      },
-      {
-        id: 'preflight',
-        label: 'preflight',
-        tab: 'governance',
-        section: 'preflight',
-      },
-      {
-        id: 'governance-mode',
-        label: 'governanceMode',
-        tab: 'governance',
-        section: 'mode',
-      },
-      {
-        id: 'cost-governance',
-        label: 'costGovernance',
-        tab: 'governance',
-        section: 'cost',
-      },
-      {
-        id: 'policy-service',
-        label: 'policyService',
-        tab: 'governance',
-        section: 'policy',
-      },
-    ],
-  },
-  {
-    id: 'packs_status',
-    label: 'capabilityPacks',
-    icon: Package,
-    tab: 'packs_status',
-    children: [
-      {
-        id: 'capability-packages',
-        label: 'capabilityPackages',
-        tab: 'packs_status',
-        section: 'packages',
-      },
-      {
-        id: 'capability-suites',
-        label: 'capabilitySuites',
-        tab: 'packs_status',
-        section: 'suites',
-      },
-    ],
-  },
-  {
-    id: 'service_status',
-    label: 'serviceStatus',
-    icon: Activity,
-    tab: 'service_status',
-  },
-];
+function firstNavigableChild(item: NavigationItem): NavigationItem | null {
+  if (!item.children?.length) return null;
+  const [firstChild] = item.children;
+  if (!firstChild) return null;
+  return firstChild.children?.length ? firstNavigableChild(firstChild) || firstChild : firstChild;
+}
 
 export function SettingsNavigation({
   activeTab,
@@ -447,11 +56,28 @@ export function SettingsNavigation({
 }: SettingsNavigationProps) {
   const [hoveredItemId, setHoveredItemId] = React.useState<string | null>(null);
   const [expandedItems, setExpandedItems] = React.useState<Set<string>>(
-    new Set(['basic', 'credentials'])
+    new Set(['basic', 'credentials']),
   );
+  const activeContext = useActiveContext({
+    activeTab,
+    activeSection,
+    activeProvider,
+    activeModel,
+    activeService,
+  });
+
+  React.useEffect(() => {
+    const ids = activeExpandableItemIds(activeContext);
+    if (!ids.length) return;
+    setExpandedItems((prev) => {
+      const next = new Set(prev);
+      ids.forEach((id) => next.add(id));
+      return next;
+    });
+  }, [activeContext]);
 
   const toggleExpand = (itemId: string) => {
-    setExpandedItems(prev => {
+    setExpandedItems((prev) => {
       const next = new Set(prev);
       if (next.has(itemId)) {
         next.delete(itemId);
@@ -462,190 +88,94 @@ export function SettingsNavigation({
     });
   };
 
+  const navigateToItem = (item: NavigationItem) => {
+    if (item.children?.length) {
+      const child = firstNavigableChild(item);
+      if (child) {
+        onNavigate(child.tab, child.section, child.provider, child.model, child.service);
+        return;
+      }
+    }
+    if (item.tab === 'social_media' && item.provider) {
+      onNavigate(item.tab, undefined, item.provider, item.model, item.service);
+      return;
+    }
+    onNavigate(item.tab, item.section, item.provider, item.model, item.service);
+  };
+
+  const renderItem = (item: NavigationItem, depth: number = 0): React.ReactNode => {
+    const hasChildren = Boolean(item.children?.length);
+    const isExpanded = expandedItems.has(item.id);
+    const isActive = navigationItemMatches(item, activeContext);
+    const Icon = item.icon;
+    const paddingClass = depth === 0 ? 'px-2 py-1.5' : depth === 1 ? 'px-2 py-1' : 'px-2 py-0.5';
+    const childIndentClass = depth === 0 ? 'ml-4' : 'ml-3';
+    const textClass = depth === 0 ? 'text-primary dark:text-gray-300' : 'text-secondary dark:text-gray-400';
+    const activeClass = depth === 0
+      ? 'bg-accent-10 dark:bg-purple-900/30 text-accent dark:text-purple-300 border-l-4 border-accent dark:border-purple-500'
+      : 'bg-accent-10 dark:bg-purple-900/40 text-accent dark:text-purple-300 font-medium';
+
+    return (
+      <div key={item.id}>
+        <div className="flex items-center justify-between">
+          <button
+            onClick={() => {
+              if (hasChildren && !isExpanded) {
+                toggleExpand(item.id);
+              }
+              navigateToItem(item);
+            }}
+            className={`flex-1 rounded-md text-left text-xs transition-colors ${paddingClass} ${depth === 0 ? 'font-medium flex items-center gap-1.5' : ''} ${
+              isActive
+                ? activeClass
+                : hoveredItemId === item.id
+                  ? `bg-tertiary dark:hover:bg-gray-700 ${textClass}`
+                  : textClass
+            }`}
+            onMouseEnter={(event) => {
+              event.stopPropagation();
+              if (!isActive) setHoveredItemId(item.id);
+            }}
+            onMouseLeave={(event) => {
+              event.stopPropagation();
+              setHoveredItemId(null);
+            }}
+          >
+            {Icon && <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />}
+            <span>{t(item.label as any) || item.label}</span>
+          </button>
+          {hasChildren && (
+            <button
+              onClick={(event) => {
+                event.stopPropagation();
+                toggleExpand(item.id);
+              }}
+              className="rounded-md px-1 py-1.5 transition-colors hover:bg-surface-secondary dark:hover:bg-gray-700"
+            >
+              <ChevronRight
+                className={`h-3 w-3 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
+                aria-hidden="true"
+              />
+            </button>
+          )}
+        </div>
+        {hasChildren ? (
+          <div
+            className={`${childIndentClass} mt-1 space-y-0.5 overflow-hidden transition-all duration-300 ease-in-out ${
+              isExpanded ? 'max-h-[1000px] opacity-100' : 'max-h-0 opacity-0'
+            }`}
+          >
+            {item.children!.map((child) => renderItem(child, depth + 1))}
+          </div>
+        ) : null}
+      </div>
+    );
+  };
+
   return (
-    <div className="flex flex-col h-full overflow-hidden">
-      <nav className="space-y-1 flex-1 overflow-y-auto min-h-0 px-2 pt-2">
-        {navigationItems.map((item) => {
-          const isActive = activeTab === item.tab && (!activeSection || item.tab === 'packs_status');
-          const hasChildren = item.children && item.children.length > 0;
-          const isExpanded = expandedItems.has(item.id);
-          const Icon = item.icon;
-
-          return (
-            <div key={item.id}>
-              <div className="flex items-center justify-between">
-                <button
-                  onClick={() => {
-                    if (hasChildren) {
-                      if (!isExpanded) {
-                        toggleExpand(item.id);
-                      }
-                      if (item.tab === 'social_media') {
-                        onNavigate(item.tab);
-                        return;
-                      }
-                      const firstChild = item.children![0];
-                      if (firstChild) {
-                        onNavigate(firstChild.tab, firstChild.section, firstChild.provider, firstChild.model, firstChild.service);
-                        return;
-                      }
-                    }
-                    onNavigate(item.tab);
-                  }}
-                  className={`flex-1 text-left px-2 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-1.5 ${isActive
-                    ? 'bg-accent-10 dark:bg-purple-900/30 text-accent dark:text-purple-300 border-l-4 border-accent dark:border-purple-500'
-                    : hoveredItemId === item.id
-                      ? 'bg-tertiary dark:hover:bg-gray-700 text-primary dark:text-gray-300'
-                      : 'text-primary dark:text-gray-300'
-                    }`}
-                  onMouseEnter={(e) => {
-                    e.stopPropagation();
-                    if (!isActive) {
-                      setHoveredItemId(item.id);
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    e.stopPropagation();
-                    setHoveredItemId(null);
-                  }}
-                >
-                  {Icon && <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />}
-                  <span>{t(item.label as any)}</span>
-                </button>
-                {hasChildren && (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      toggleExpand(item.id);
-                    }}
-                    className="px-1 py-1.5 rounded-md hover:bg-surface-secondary dark:hover:bg-gray-700 transition-colors"
-                  >
-                    <ChevronRight
-                      className={`h-3 w-3 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
-                      aria-hidden="true"
-                    />
-                  </button>
-                )}
-              </div>
-
-              {hasChildren && (
-                <div
-                  className={`ml-4 mt-1 space-y-0.5 overflow-hidden transition-all duration-300 ease-in-out ${isExpanded ? 'max-h-[1000px] opacity-100' : 'max-h-0 opacity-0'
-                    }`}
-                >
-                  {item.children!.map((child) => {
-                    const hasGrandchildren = child.children && child.children.length > 0;
-                    const isChildExpanded = expandedItems.has(child.id);
-                    const isChildActive = activeTab === child.tab &&
-                      (child.tab === 'social_media'
-                        ? activeProvider === child.provider
-                        : activeSection === child.section && !activeProvider);
-
-                    return (
-                      <div key={child.id}>
-                        <div className="flex items-center justify-between">
-                          <button
-                            onClick={() => {
-                              if (hasGrandchildren) {
-                                if (!expandedItems.has(child.id)) {
-                                  toggleExpand(child.id);
-                                }
-                                const firstGrandchild = child.children![0];
-                                if (firstGrandchild) {
-                                  onNavigate(firstGrandchild.tab, firstGrandchild.section, firstGrandchild.provider, firstGrandchild.model, firstGrandchild.service);
-                                  return;
-                                }
-                              }
-                              if (child.tab === 'social_media' && child.provider) {
-                                onNavigate(child.tab, undefined, child.provider);
-                                return;
-                              }
-                              onNavigate(child.tab, child.section);
-                            }}
-                            className={`flex-1 text-left px-2 py-1 rounded-md text-xs transition-colors ${isChildActive
-                              ? 'bg-accent-10 dark:bg-purple-900/40 text-accent dark:text-purple-300 font-medium'
-                              : hoveredItemId === child.id
-                                ? 'bg-tertiary dark:hover:bg-gray-700 text-secondary dark:text-gray-400'
-                                : 'text-secondary dark:text-gray-400'
-                              }`}
-                            onMouseEnter={(e) => {
-                              e.stopPropagation();
-                              if (!isChildActive) {
-                                setHoveredItemId(child.id);
-                              }
-                            }}
-                            onMouseLeave={(e) => {
-                              e.stopPropagation();
-                              setHoveredItemId(null);
-                            }}
-                          >
-                            <span>{t(child.label as any)}</span>
-                          </button>
-                          {hasGrandchildren && (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                toggleExpand(child.id);
-                              }}
-                              className="px-1 py-1 rounded-md hover:bg-surface-secondary dark:hover:bg-gray-700 transition-colors"
-                            >
-                              <svg
-                                className={`w-2.5 h-2.5 transition-transform ${isChildExpanded ? 'rotate-90' : ''}`}
-                                fill="none"
-                                stroke="currentColor"
-                                viewBox="0 0 24 24"
-                              >
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                              </svg>
-                            </button>
-                          )}
-                        </div>
-
-                        {hasGrandchildren && (
-                          <div
-                            className={`ml-3 mt-0.5 space-y-0.5 overflow-hidden transition-all duration-300 ease-in-out ${isChildExpanded ? 'max-h-[1000px] opacity-100' : 'max-h-0 opacity-0'
-                              }`}
-                          >
-                            {child.children!.map((grandchild) => {
-                              const isGrandchildActive = activeTab === grandchild.tab &&
-                                activeSection === grandchild.section &&
-                                activeProvider === grandchild.provider;
-
-                              return (
-                                <button
-                                  key={grandchild.id}
-                                  onClick={() => onNavigate(grandchild.tab, grandchild.section, grandchild.provider, grandchild.model)}
-                                  className={`w-full text-left px-2 py-0.5 rounded text-xs transition-colors ${isGrandchildActive
-                                    ? 'bg-accent-10 dark:bg-purple-900/50 text-accent dark:text-purple-200 font-medium'
-                                    : hoveredItemId === grandchild.id
-                                      ? 'bg-tertiary dark:hover:bg-gray-700 text-secondary dark:text-gray-400'
-                                      : 'text-secondary dark:text-gray-400'
-                                    }`}
-                                  onMouseEnter={(e) => {
-                                    e.stopPropagation();
-                                    if (!isGrandchildActive) {
-                                      setHoveredItemId(grandchild.id);
-                                    }
-                                  }}
-                                  onMouseLeave={(e) => {
-                                    e.stopPropagation();
-                                    setHoveredItemId(null);
-                                  }}
-                                >
-                                  {t(grandchild.label as any) || grandchild.label}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          );
-        })}
+    <div className="flex h-full flex-col overflow-hidden">
+      <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto px-2 pt-2">
+        {navigationItems.map((item) => renderItem(item))}
       </nav>
     </div>
   );
