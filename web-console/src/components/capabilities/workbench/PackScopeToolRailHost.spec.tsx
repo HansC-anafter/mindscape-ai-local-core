@@ -78,7 +78,7 @@ describe('PackScopeToolRailHost', () => {
     window.localStorage.clear();
   });
 
-  it('loads a manifest panel lazily and emits a tool AOL object on click', async () => {
+  it('loads a manifest panel lazily without entering AOL object selection', async () => {
     const onSelectObject = vi.fn();
     const onNavigationCollapsedChange = vi.fn();
 
@@ -99,19 +99,7 @@ describe('PackScopeToolRailHost', () => {
 
     fireEvent.click(screen.getByTestId('pack-scope-tool-ig:feed_grid_card_load_limit'));
 
-    expect(onSelectObject).toHaveBeenCalledWith({
-      ownerPack: 'ig',
-      objectKind: 'tool',
-      objectId: 'feed_grid_card_load_limit',
-      sourceSurface: 'workbench.left_tool_rail',
-      label: 'Feed Load',
-      role: 'constraint',
-      selector: {
-        object_uri: 'mindscape://ig/tool/feed_grid_card_load_limit',
-        runtime_tool_code: 'ig_query_references',
-        state_schema: feedLoadTool.state_schema,
-      },
-    });
+    expect(onSelectObject).not.toHaveBeenCalled();
     expect(primeCapabilityUIComponentMetadata).toHaveBeenCalledWith('ig', [feedLoadTool.panel_component]);
     await waitFor(() => {
       expect(loadCapabilityUIComponent).toHaveBeenCalledWith(
@@ -155,6 +143,6 @@ describe('PackScopeToolRailHost', () => {
     await waitFor(() => {
       expect(screen.getByTestId('loaded-pack-tool-panel')).toBeInTheDocument();
     });
-    expect(onSelectObject).toHaveBeenCalledTimes(1);
+    expect(onSelectObject).not.toHaveBeenCalled();
   });
 });

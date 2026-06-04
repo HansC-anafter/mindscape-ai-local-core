@@ -11,8 +11,9 @@ import sys
 import json
 import asyncio
 from datetime import datetime, timezone
+from collections.abc import Awaitable, Callable
 from typing import Optional, AsyncGenerator, List
-from fastapi import APIRouter, HTTPException, Path, Query, Depends
+from fastapi import APIRouter, HTTPException, Path, Query, Depends, Request
 from fastapi.responses import StreamingResponse
 
 from backend.app.routes.workspace_schemas import (
@@ -29,6 +30,7 @@ from backend.app.services.mindscape_store import MindscapeStore
 from backend.app.services.stores.timeline_items_store import TimelineItemsStore
 from backend.app.services.stores.tasks_store import TasksStore
 from backend.app.models.mindscape import EventType
+from backend.features.workspace.event_stream_lifecycle import should_stop_event_stream
 
 router = APIRouter(prefix="/api/v1/workspaces", tags=["workspaces-timeline"])
 logger = logging.getLogger(__name__)
@@ -412,6 +414,7 @@ async def event_stream_generator(
     project_id: Optional[str] = None,
     start_time: Optional[datetime] = None,
     last_event_id: Optional[str] = None,
+    client_disconnected: Optional[Callable[[], Awaitable[bool]]] = None,
 ) -> AsyncGenerator[str, None]:
     """
     Generate SSE event stream for unified events (ReAct/ToT loop visualization)
@@ -494,6 +497,13 @@ async def event_stream_generator(
         poll_count = 0
         while True:
             try:
+                if await should_stop_event_stream(
+                    client_disconnected,
+                    logger=logger,
+                    workspace_id=workspace_id,
+                ):
+                    break
+
                 poll_count += 1
                 # Query for new events using get_events_by_workspace
                 # Get events after last_poll_time
@@ -657,6 +667,7 @@ async def event_stream_generator(
 
 @router.get("/{workspace_id}/events/stream")
 async def stream_workspace_events(
+    request: Request,
     workspace_id: str = Path(..., description="Workspace ID"),
     event_types: Optional[str] = Query(
         None, description="Comma-separated list of event types to filter"
@@ -715,6 +726,7 @@ async def stream_workspace_events(
                 project_id=project_id,
                 start_time=start_time_dt,
                 last_event_id=last_event_id,
+                client_disconnected=request.is_disconnected,
             ),
             media_type="text/event-stream",
             headers={

@@ -5,6 +5,7 @@ import {
   classifyProxyUpstream,
   clearDevApiReadCacheForTests,
   computeNextDevRestartDelayMs,
+  copyProxyUpgradeHeaders,
   copyProxyResponseHeaders,
   createFrontendProxyServer,
   isDevApiProxyPath,
@@ -205,6 +206,31 @@ describe('frontend dev proxy', () => {
       copyProxyResponseHeaders({}, '/api/v1/ig/references/ref-1/image?workspace_id=ws-1', 'GET', 200),
     ).toMatchObject({
       'cache-control': 'public, max-age=86400, immutable',
+    });
+  });
+
+  it('restores WebSocket upgrade headers for the upstream Next dev handshake', () => {
+    const headers = copyProxyUpgradeHeaders(
+      {
+        host: 'localhost:8300',
+        connection: 'Upgrade',
+        upgrade: 'websocket',
+        'sec-websocket-key': 'dGhlIHNhbXBsZSBub25jZQ==',
+        'sec-websocket-version': '13',
+      },
+      {
+        hostname: '127.0.0.1',
+        port: 3001,
+      },
+    );
+
+    expect(headers).toMatchObject({
+      host: '127.0.0.1:3001',
+      connection: 'Upgrade',
+      upgrade: 'websocket',
+      'sec-websocket-key': 'dGhlIHNhbXBsZSBub25jZQ==',
+      'sec-websocket-version': '13',
+      'x-mindscape-web-console-proxy': '1',
     });
   });
 

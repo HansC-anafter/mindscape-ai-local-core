@@ -1,5 +1,4 @@
-import CapabilityUiHostClientLoader from './CapabilityUiHostClientLoader';
-import WorkspaceSurfaceShell from './WorkspaceSurfaceShell';
+import CapabilityUiHostRouteClient from './CapabilityUiHostRouteClient';
 
 interface RenderCapabilityUiHostPageOptions {
   workspaceId: string;
@@ -13,16 +12,10 @@ export async function renderCapabilityUiHostPage({
   surfacePath = [],
 }: RenderCapabilityUiHostPageOptions) {
   return (
-    <WorkspaceSurfaceShell
+    <CapabilityUiHostRouteClient
       workspaceId={workspaceId}
-      activeCapabilityCode={capabilityCode}
+      capabilityCode={capabilityCode}
       surfacePath={surfacePath}
-    >
-      <CapabilityUiHostClientLoader
-        workspaceId={workspaceId}
-        capabilityCode={capabilityCode}
-        surfacePath={surfacePath}
-      />
-    </WorkspaceSurfaceShell>
+    />
   );
 }

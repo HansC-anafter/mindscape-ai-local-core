@@ -60,9 +60,11 @@ describe('CapabilityWorkbenchShell', () => {
     expect(screen.getByTestId('pack-navigation')).toBeInTheDocument();
     expect(screen.getByTestId('pack-main')).toBeInTheDocument();
     expect(screen.getByTestId('pack-scope-tool-ig:feed_grid_card_load_limit')).toBeInTheDocument();
+    expect(screen.getByTestId('capability-workbench-content-slot')).toHaveClass('flex');
 
     fireEvent.click(screen.getByTestId('pack-scope-navigation-toggle'));
-    expect(screen.queryByTestId('pack-navigation')).not.toBeInTheDocument();
+    expect(screen.getByTestId('capability-workbench-navigation-slot')).toHaveAttribute('data-navigation-state', 'closed');
+    expect(screen.getByTestId('capability-workbench-navigation-slot').className).toContain('ease-[cubic-bezier(0.2,0.8,0.2,1)]');
   });
 
   it('temporarily opens collapsed navigation on rail toggle hover', () => {
@@ -78,12 +80,12 @@ describe('CapabilityWorkbenchShell', () => {
     );
 
     fireEvent.click(screen.getByTestId('pack-scope-navigation-toggle'));
-    expect(screen.queryByTestId('pack-navigation')).not.toBeInTheDocument();
+    expect(screen.getByTestId('capability-workbench-navigation-slot')).toHaveAttribute('data-navigation-state', 'closed');
 
     fireEvent.mouseEnter(screen.getByTestId('pack-scope-navigation-toggle'));
-    expect(screen.getByTestId('pack-navigation')).toBeInTheDocument();
+    expect(screen.getByTestId('capability-workbench-navigation-slot')).toHaveAttribute('data-navigation-state', 'open');
 
     fireEvent.mouseLeave(screen.getByTestId('capability-workbench-navigation-region'));
-    expect(screen.queryByTestId('pack-navigation')).not.toBeInTheDocument();
+    expect(screen.getByTestId('capability-workbench-navigation-slot')).toHaveAttribute('data-navigation-state', 'closed');
   });
 });

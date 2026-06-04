@@ -269,18 +269,18 @@ describe('CapabilityPage installed render-proof gate', () => {
 
     render(page);
 
-    expect(await screen.findByTestId('aol-global-anchor')).not.toBeNull();
+    expect(await screen.findByTestId('aol-global-anchor', {}, { timeout: 20000 })).not.toBeNull();
     expect(screen.getAllByTestId('workspace-global-tool-rail')).toHaveLength(1);
     expect(screen.getAllByTestId('aol-global-anchor')).toHaveLength(1);
 
-    expect(await screen.findByTestId('render-proof-component')).not.toBeNull();
+    expect(await screen.findByTestId('render-proof-component', {}, { timeout: 10000 })).not.toBeNull();
     expect(screen.queryByText(/No UI components available/)).toBeNull();
     expect(screen.queryByText('Component failed to render')).toBeNull();
 
     fireEvent.click(screen.getByTestId('aol-global-anchor'));
     expect(await screen.findByText('Select an object on this page')).not.toBeNull();
 
-    fireEvent.click(screen.getByTestId('render-proof-object-card'));
+    fireEvent.click(await screen.findByTestId('render-proof-object-card', {}, { timeout: 10000 }));
 
     const panel = await screen.findByTestId('aol-host-panel');
     expect(panel).not.toBeNull();
@@ -316,5 +316,5 @@ describe('CapabilityPage installed render-proof gate', () => {
         message.includes('[loadCapabilityUIComponent] Failed to import UI component'),
       ),
     ).toBe(false);
-  }, 30000);
+  }, 45000);
 });

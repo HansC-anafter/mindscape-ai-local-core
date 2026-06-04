@@ -179,4 +179,24 @@ describe('CapabilityUiHostClientLoader', () => {
       expect(screen.getByText('Request failed: 503')).toBeInTheDocument();
     });
   });
+
+  it('renders a recoverable timeout error when metadata loading is aborted', async () => {
+    const fetchMock = vi.fn(async () => {
+      throw new Error('signal is aborted without reason');
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(
+      <CapabilityUiHostClientLoader
+        workspaceId="ws_test"
+        capabilityCode="ig_loader_abort"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+    expect(screen.getByText('Capability UI failed to load')).toBeInTheDocument();
+    expect(screen.getByText('Capability UI metadata request timed out after 30 seconds')).toBeInTheDocument();
+  });
 });

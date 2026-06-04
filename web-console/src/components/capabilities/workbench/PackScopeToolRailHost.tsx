@@ -20,8 +20,6 @@ import type { LucideIcon } from 'lucide-react';
 
 import type {
   AddressableObjectHostBridge,
-  AddressableObjectRole,
-  AddressableSelectionTarget,
 } from '@/lib/addressable-object-layer';
 import {
   loadCapabilityUIComponent,
@@ -198,36 +196,15 @@ export function PackScopeToolRailHost({
     };
   }, [activeTool, apiUrl, tools]);
 
-  const emitToolSelection = React.useCallback((tool: WorkspaceToolDefinition) => {
-    if (!aolHost || !tool.aol) {
-      return;
-    }
-    const selection: AddressableSelectionTarget = {
-      ownerPack: tool.capability_code,
-      objectKind: tool.aol.object_kind,
-      objectId: tool.id,
-      sourceSurface: tool.slot,
-      label: tool.label,
-      role: tool.aol.role as AddressableObjectRole,
-      selector: {
-        object_uri: tool.aol.object_uri,
-        runtime_tool_code: tool.runtime_tool_code,
-        state_schema: tool.state_schema,
-      },
-    };
-    void aolHost.onSelectObject(selection);
-  }, [aolHost]);
-
   const activateTool = React.useCallback((tool: WorkspaceToolDefinition) => {
     setActiveToolKey((current) => {
       const next = current === tool.tool_key ? null : tool.tool_key;
       if (next) {
         setPanelExpanded(false);
-        emitToolSelection(tool);
       }
       return next;
     });
-  }, [emitToolSelection]);
+  }, []);
 
   React.useEffect(() => {
     if (orderedTools.length === 0) {
@@ -244,11 +221,10 @@ export function PackScopeToolRailHost({
       event.preventDefault();
       setActiveToolKey(matchedTool.tool_key);
       setPanelExpanded(false);
-      emitToolSelection(matchedTool);
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [emitToolSelection, orderedTools]);
+  }, [orderedTools]);
 
   const handleDrop = React.useCallback((targetToolKey: string) => {
     if (!draggedToolKey || draggedToolKey === targetToolKey) {

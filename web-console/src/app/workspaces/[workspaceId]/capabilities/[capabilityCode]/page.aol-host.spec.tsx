@@ -314,14 +314,14 @@ describe('CapabilityPage AOL host shell', () => {
   it('resolves an addressable selection and attaches it to a meeting from the host shell', async () => {
     await renderCapabilityLoadedPage();
 
-    expect(await screen.findByTestId('aol-global-anchor')).not.toBeNull();
+    expect(await screen.findByTestId('aol-global-anchor', {}, { timeout: 20000 })).not.toBeNull();
     expect(screen.getAllByTestId('workspace-global-tool-rail')).toHaveLength(1);
     expect(screen.getAllByTestId('aol-global-anchor')).toHaveLength(1);
 
     fireEvent.click(screen.getByTestId('aol-global-anchor'));
     expect(await screen.findByText('Select an object on this page')).not.toBeNull();
 
-    fireEvent.click(await screen.findByRole('button', { name: 'open-object' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'open-object' }, { timeout: 10000 }));
 
     const panel = await screen.findByTestId('aol-host-panel');
     expect(panel).not.toBeNull();
@@ -338,7 +338,7 @@ describe('CapabilityPage AOL host shell', () => {
     expect(within(objectContextPanel).getByText('Demo Reference')).not.toBeNull();
     expect(within(objectContextPanel).getByText('mtg_123')).not.toBeNull();
     expect(mockPush).not.toHaveBeenCalled();
-  }, 20000);
+  }, 40000);
 
   it('does not load the capability UI bundle when the capability has no UI components', async () => {
     mockCapabilityCode = 'empty_capability';

@@ -33,16 +33,21 @@ interface UIComponentInfo {
   asset_path?: string;
 }
 
+const MINDSCAPE_RUNTIME_REACT_BRIDGE_OWNER = '__mindscapeRuntimeReactBridgeOwner';
+
+type MindscapeRuntimeReactBridge = {
+  React: typeof ReactRuntime;
+  ReactDOM: Pick<typeof ReactDOMRuntime, 'flushSync' | 'createPortal'>;
+  [MINDSCAPE_RUNTIME_REACT_BRIDGE_OWNER]?: 'host';
+};
+
 declare global {
   // Test-only override so Vitest can short-circuit the webpack-only require.context branch.
   // eslint-disable-next-line no-var
   var __MINDSCAPE_CAPABILITY_UI_TEST_CONTEXT__: CapabilityComponentsContext | undefined;
   // Runtime ESM packs receive React from the host bundle through this bridge.
   // eslint-disable-next-line no-var
-  var MindscapeRuntimeReact: {
-    React: typeof ReactRuntime;
-    ReactDOM: Pick<typeof ReactDOMRuntime, 'flushSync' | 'createPortal'>;
-  } | undefined;
+  var MindscapeRuntimeReact: MindscapeRuntimeReactBridge | undefined;
 }
 
 function normalizeCapabilityComponentKeys(
@@ -391,12 +396,17 @@ function clearLoadedComponentCacheFor(capabilityCode: string, componentCode: str
 }
 
 function ensureRuntimeReactBridge(): void {
+  if (globalThis.MindscapeRuntimeReact?.[MINDSCAPE_RUNTIME_REACT_BRIDGE_OWNER] === 'host') {
+    return;
+  }
+
   globalThis.MindscapeRuntimeReact = {
     React: ReactRuntime,
     ReactDOM: {
       flushSync: ReactDOMRuntime.flushSync,
       createPortal: ReactDOMRuntime.createPortal,
     },
+    [MINDSCAPE_RUNTIME_REACT_BRIDGE_OWNER]: 'host',
   };
 }
 

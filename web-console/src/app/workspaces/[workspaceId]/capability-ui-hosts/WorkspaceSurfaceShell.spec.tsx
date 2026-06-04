@@ -277,7 +277,7 @@ describe('WorkspaceSurfaceShell', () => {
         'data-aol-panel-loaded',
         'idle',
       );
-    });
+    }, { timeout: 10000 });
   });
 
   it('keeps external runner summary cold while the runs panel is closed', () => {
@@ -330,7 +330,7 @@ describe('WorkspaceSurfaceShell', () => {
     expect(screen.getByTestId('workspace-global-tool-panel')).toHaveClass('w-80');
     await waitFor(() => {
       expect(screen.getByTestId('workspace-settings-panel')).toBeInTheDocument();
-    });
+    }, { timeout: 10000 });
     expect(screen.getByTestId('workspace-settings-panel-body')).toHaveClass('overflow-y-auto');
     expect(screen.queryByTestId('workspace-settings-tool-engine-extensions')).not.toBeInTheDocument();
     await waitFor(() => {

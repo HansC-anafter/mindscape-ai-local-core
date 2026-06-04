@@ -2,7 +2,7 @@
 
 import React, { Suspense } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { AOLRuntimeShell } from '@/components/capabilities/aol-runtime-shell/AOLRuntimeShell';
+import { AOLRuntimeShellBridge } from '@/components/capabilities/aol-runtime-shell/AOLRuntimeShellBridge';
 import { buildCapabilitySurfaceId } from '@/components/capabilities/aol-runtime-shell/runtimeShellState';
 import { getApiBaseUrl } from '@/lib/api-url';
 
@@ -173,7 +173,7 @@ export default function CapabilityLoadedComponentsView({
     const shouldUseScrollableShell = shouldWrapScrollableMainPage(resolvedMainPageComponentInfo);
 
     return (
-      <AOLRuntimeShell
+      <AOLRuntimeShellBridge
         apiUrl={apiUrl}
         workspaceId={workspaceId}
         capabilityCode={capabilityCode}
@@ -188,7 +188,7 @@ export default function CapabilityLoadedComponentsView({
             {renderLoadedComponent(key, Component, componentCode, aolHost)}
           </div>
         )}
-      </AOLRuntimeShell>
+      </AOLRuntimeShellBridge>
     );
   }
 
@@ -198,7 +198,7 @@ export default function CapabilityLoadedComponentsView({
     const defaultComponentCode = mainPageComponents[0]?.code || resolvedMainPageComponentInfo.code;
 
     return (
-      <AOLRuntimeShell
+      <AOLRuntimeShellBridge
         apiUrl={apiUrl}
         workspaceId={workspaceId}
         capabilityCode={capabilityCode}
@@ -251,12 +251,12 @@ export default function CapabilityLoadedComponentsView({
             </div>
           </div>
         )}
-      </AOLRuntimeShell>
+      </AOLRuntimeShellBridge>
     );
   }
 
   return (
-    <AOLRuntimeShell
+    <AOLRuntimeShellBridge
       apiUrl={apiUrl}
       workspaceId={workspaceId}
       capabilityCode={capabilityCode}
@@ -317,6 +317,6 @@ export default function CapabilityLoadedComponentsView({
           </div>
         </div>
       )}
-    </AOLRuntimeShell>
+    </AOLRuntimeShellBridge>
   );
 }

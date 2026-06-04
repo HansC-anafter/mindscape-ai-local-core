@@ -142,6 +142,16 @@ function copyProxyRequestHeaders(headers, target) {
   return nextHeaders;
 }
 
+export function copyProxyUpgradeHeaders(headers, target) {
+  const nextHeaders = copyProxyRequestHeaders(headers, target);
+  const upgradeHeader = headers?.upgrade;
+  nextHeaders.connection = 'Upgrade';
+  nextHeaders.upgrade = Array.isArray(upgradeHeader)
+    ? upgradeHeader[0] || 'websocket'
+    : upgradeHeader || 'websocket';
+  return nextHeaders;
+}
+
 function shouldPreserveDevApiCacheControl(requestUrl = '/', method = 'GET') {
   if (method !== 'GET' && method !== 'HEAD') {
     return false;
@@ -586,7 +596,7 @@ function proxyUpgrade(req, socket, head) {
     ? resolveDevApiProxyTarget(req.url)
     : resolveNextProxyTarget(req.url);
   const upstream = net.connect(target.port, target.hostname, () => {
-    const headers = copyProxyRequestHeaders(req.headers, target);
+    const headers = copyProxyUpgradeHeaders(req.headers, target);
     upstream.write(
       `${req.method} ${target.path} HTTP/${req.httpVersion}\r\n` +
       Object.entries(headers)
