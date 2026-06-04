@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, lazy, useEffect, useMemo, useState, type ComponentType, type Ref } from 'react';
+import React, { Suspense, lazy, useEffect, useMemo, useState, type ComponentType, type Ref } from 'react';
 
 import { useT } from '@/lib/i18n';
 import {

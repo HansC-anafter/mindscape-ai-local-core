@@ -1,6 +1,6 @@
 'use client';
 
-import { useContext, useEffect, useMemo, useRef } from 'react';
+import React, { useContext, useEffect, useMemo, useRef } from 'react';
 
 import type { AddressableObjectHostBridge } from '@/lib/addressable-object-layer';
 import {

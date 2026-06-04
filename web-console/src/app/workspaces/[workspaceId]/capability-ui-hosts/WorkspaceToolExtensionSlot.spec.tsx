@@ -41,6 +41,7 @@ describe('WorkspaceToolExtensionSlot', () => {
       capability_code: 'ig',
       id: 'runs_panel',
       group: 'capability' as const,
+      slot: 'workspace.right_rail.tool' as const,
       label: 'Runs',
       icon: 'Activity',
       order: 10,

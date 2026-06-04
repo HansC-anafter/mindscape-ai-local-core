@@ -15,6 +15,10 @@ vi.mock('@/lib/api-url', () => ({
   getApiBaseUrl: () => 'http://api.test',
 }));
 
+vi.mock('@/lib/page-visibility', () => ({
+  isDocumentHidden: () => false,
+}));
+
 vi.mock('@/lib/i18n', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/i18n')>();
   return {
@@ -329,9 +333,12 @@ describe('WorkspaceSurfaceShell', () => {
     });
     expect(screen.getByTestId('workspace-settings-panel-body')).toHaveClass('overflow-y-auto');
     expect(screen.queryByTestId('workspace-settings-tool-engine-extensions')).not.toBeInTheDocument();
-    expect(fetchSpy).toHaveBeenCalledWith('http://api.test/api/v1/workspaces/ws_test/agents');
-    expect(fetchSpy).toHaveBeenCalledWith('http://api.test/api/v1/host/services/xtts/health');
-    expect(fetchSpy).toHaveBeenCalledWith('http://api.test/api/v1/host/services/mcp-gateway/health');
+    await waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledWith('http://api.test/api/v1/workspaces/ws_test/agents');
+      expect(fetchSpy).toHaveBeenCalledWith('http://api.test/api/v1/host/services/xtts/health');
+      expect(fetchSpy).toHaveBeenCalledWith('http://api.test/api/v1/host/services/mcp-gateway/health');
+      expect(fetchSpy).toHaveBeenCalledWith('http://api.test/api/v1/host-resources/summary?allow_stale=true');
+    });
     expect(screen.getByTestId('aol-workspace-region')).toHaveAttribute(
       'data-aol-panel-loaded',
       'idle',
@@ -370,6 +377,7 @@ describe('WorkspaceSurfaceShell', () => {
         capability_code: 'ig',
         id: 'runs_panel',
         group: 'capability',
+        slot: 'workspace.right_rail.tool',
         label: 'Runs',
         icon: 'Activity',
         order: 10,

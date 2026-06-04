@@ -14,6 +14,7 @@ const igRunsTool: WorkspaceToolDefinition = {
   capability_code: 'ig',
   id: 'runs_panel',
   group: 'capability',
+  slot: 'workspace.right_rail.tool',
   label: 'Runs',
   icon: 'Activity',
   order: 10,
@@ -145,6 +146,20 @@ describe('workspace right-region contract', () => {
         preload: false,
       },
     });
+  });
+
+  it('does not normalize left tool rail contributions into the right region', () => {
+    expect(normalizeWorkspaceToolContributions([
+      {
+        ...igRunsTool,
+        tool_key: 'ig:feed_grid_card_load_limit',
+        id: 'feed_grid_card_load_limit',
+        slot: 'workbench.left_tool_rail',
+        label: 'Feed Load',
+        icon: 'SlidersHorizontal',
+        order: 10,
+      },
+    ])).toEqual([]);
   });
 
   it('normalizes settings panels as settings-panel contributions, not rail tools', () => {

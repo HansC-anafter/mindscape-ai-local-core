@@ -1,4 +1,5 @@
 import type { WorkspaceToolDefinition } from '@/lib/workspace-tools/workspace-tool-registry';
+import { isPackRightRailTool } from '@/lib/workspace-tool-contributions/workspace-tool-contribution-contract';
 
 export type WorkspaceRightRegionSource =
   | 'core.builtin'
@@ -173,7 +174,7 @@ export function isPackRunsPanelContentProvider(tool: WorkspaceToolDefinition): b
 }
 
 export function isPackWorkspaceRailToolVisible(tool: WorkspaceToolDefinition): boolean {
-  return !isReservedWorkspaceRightRegionId(tool.id);
+  return isPackRightRailTool(tool) && !isReservedWorkspaceRightRegionId(tool.id);
 }
 
 export function createCoreRightRailContribution(

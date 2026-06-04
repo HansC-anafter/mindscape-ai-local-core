@@ -50,4 +50,85 @@ describe('workspace tool registry', () => {
       ]),
     ).toEqual([]);
   });
+
+  it('preserves runtime asset metadata for workspace tool panels', () => {
+    const tools = normalizeWorkspaceToolDefinitions('ig', [
+      {
+        id: 'host_resource_lanes',
+        group: 'capability',
+        label: 'Host Lanes',
+        icon: 'Route',
+        order: 20,
+        panel_component_code: 'IGHostResourceLanesWorkspaceToolPanel',
+        panel_component: {
+          code: 'IGHostResourceLanesWorkspaceToolPanel',
+          path: 'ui/IGHostResourceLanesWorkspaceToolPanel.tsx',
+          asset_url: '/api/v1/capability-packs/installed-capabilities/ig/ui-assets/1.0.88/components/IGHostResourceLanesWorkspaceToolPanel.mjs',
+          integrity: 'sha256-test',
+          runtime: 'mindscape-react-bridge-v1',
+          bytes: 16113,
+          asset_path: '1.0.88/components/IGHostResourceLanesWorkspaceToolPanel.mjs',
+        },
+      },
+    ]);
+
+    expect(tools[0].panel_component).toEqual(
+      expect.objectContaining({
+        asset_url: '/api/v1/capability-packs/installed-capabilities/ig/ui-assets/1.0.88/components/IGHostResourceLanesWorkspaceToolPanel.mjs',
+        integrity: 'sha256-test',
+        runtime: 'mindscape-react-bridge-v1',
+        bytes: 16113,
+        asset_path: '1.0.88/components/IGHostResourceLanesWorkspaceToolPanel.mjs',
+      }),
+    );
+  });
+
+  it('normalizes slot-aware pack tools with runtime object metadata', () => {
+    const tools = normalizeWorkspaceToolDefinitions('ig', [
+      {
+        id: 'feed_grid_card_load_limit',
+        group: 'capability',
+        slot: 'workbench.left_tool_rail',
+        label: 'Feed Load',
+        icon: 'SlidersHorizontal',
+        order: 10,
+        shortcut: 'B',
+        panel_component_code: 'FeedGridLoadToolPanel',
+        runtime_tool_code: 'ig_query_references',
+        aol: {
+          object_kind: 'tool',
+          object_uri: 'mindscape://ig/tool/feed_grid_card_load_limit',
+          role: 'constraint',
+        },
+        state_schema: {
+          load_limit: {
+            type: 'integer',
+            min: 1,
+            max: 300,
+          },
+        },
+        panel_component: {
+          code: 'FeedGridLoadToolPanel',
+          path: 'ui/workbench/feedGridTool/FeedGridLoadToolPanel.tsx',
+        },
+      },
+    ]);
+
+    expect(tools[0]).toMatchObject({
+      tool_key: 'ig:feed_grid_card_load_limit',
+      slot: 'workbench.left_tool_rail',
+      shortcut: 'B',
+      runtime_tool_code: 'ig_query_references',
+      aol: {
+        object_kind: 'tool',
+        object_uri: 'mindscape://ig/tool/feed_grid_card_load_limit',
+        role: 'constraint',
+      },
+    });
+    expect(tools[0].state_schema).toEqual(
+      expect.objectContaining({
+        load_limit: expect.objectContaining({ max: 300 }),
+      }),
+    );
+  });
 });

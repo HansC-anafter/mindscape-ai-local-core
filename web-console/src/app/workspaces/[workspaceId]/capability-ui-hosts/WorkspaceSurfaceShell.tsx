@@ -9,7 +9,12 @@ import {
   CapabilityWorkbenchInfoProvider,
   useCapabilityWorkbenchInfoMetadata,
 } from '@/components/capabilities/workbench/CapabilityWorkbenchInfoProvider';
+import { PackScopeToolContributionsProvider } from '@/components/capabilities/workbench/usePackScopeToolContributions';
 import { getApiBaseUrl } from '@/lib/api-url';
+import {
+  WORKBENCH_LEFT_TOOL_RAIL_SLOT,
+  filterWorkspaceToolsBySlot,
+} from '@/lib/workspace-tool-contributions/workspace-tool-contribution-contract';
 import {
   isPackWorkspaceRailToolVisible,
   normalizeWorkspaceToolContributions,
@@ -104,6 +109,10 @@ function WorkspaceSurfaceShellContent({
     () => workspaceToolDefinitions.tools.filter(isPackWorkspaceRailToolVisible),
     [workspaceToolDefinitions.tools],
   );
+  const leftRailTools = React.useMemo<WorkspaceToolDefinition[]>(
+    () => filterWorkspaceToolsBySlot(workspaceToolDefinitions.tools, WORKBENCH_LEFT_TOOL_RAIL_SLOT),
+    [workspaceToolDefinitions.tools],
+  );
   const extensionContributions = React.useMemo(
     () => normalizeWorkspaceToolContributions(extensionTools),
     [extensionTools],
@@ -146,18 +155,23 @@ function WorkspaceSurfaceShellContent({
     <AOLRuntimeShellProvider workspaceId={workspaceId}>
       <CapabilityWorkbenchInfoProvider>
         <WorkspaceWorkbenchInfoToolRegistration scopeId={contributionScopeId} />
-        <section
-          className="relative h-full min-h-0 min-w-0 flex-1 overflow-hidden bg-white dark:bg-gray-950"
-          data-testid="workspace-surface-shell"
-          data-active-capability-code={activeCapabilityCode}
-          data-surface-path={surfacePath.join('/')}
+        <PackScopeToolContributionsProvider
+          capabilityCode={activeCapabilityCode}
+          tools={leftRailTools}
         >
-          <div className="flex h-full min-h-0 min-w-0 overflow-hidden">
-            <div className="min-w-0 flex-1 overflow-hidden">
-              {children}
+          <section
+            className="relative h-full min-h-0 min-w-0 flex-1 overflow-hidden bg-white dark:bg-gray-950"
+            data-testid="workspace-surface-shell"
+            data-active-capability-code={activeCapabilityCode}
+            data-surface-path={surfacePath.join('/')}
+          >
+            <div className="flex h-full min-h-0 min-w-0 overflow-hidden">
+              <div className="min-w-0 flex-1 overflow-hidden">
+                {children}
+              </div>
             </div>
-          </div>
-        </section>
+          </section>
+        </PackScopeToolContributionsProvider>
       </CapabilityWorkbenchInfoProvider>
     </AOLRuntimeShellProvider>
   );
