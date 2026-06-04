@@ -96,6 +96,7 @@ from backend.app.runner.worker_db_budget import (
     WorkerDbBudgetDecision,
     decide_worker_db_budget,
 )
+from backend.app.runner.claim_admission import decide_runner_claim_admission
 from backend.app.runner.browser_fair_candidate_scheduler import (
     select_browser_fair_candidate,
 )
@@ -1572,15 +1573,32 @@ async def run_forever() -> None:
             if await _repair_misqueued_task_if_needed(task_id, t_data, task_queue):
                 continue
 
-            if not runner_profile_can_claim_task(runner_profile, t_data):
+            claim_admission = decide_runner_claim_admission(
+                t_data,
+                runner_profile,
+                db_budget,
+                resource_snapshot,
+            )
+            if not claim_admission.allow:
+                admission_payload = claim_admission.observability
                 logger.info(
-                    "[Worker] Task %s not claimable by profile=%s target_profile=%s queue=%s. Delaying for another runner.",
+                    "[Worker] Claim admission deferred task=%s reason=%s profile=%s target_profile=%s queue=%s delay_seconds=%s db_budget_reason=%s workspace_id=%s pack_id=%s task_type=%s",
                     task_id,
+                    claim_admission.reason,
                     runner_profile.profile_code,
-                    resolve_target_runner_profile(t_data),
+                    admission_payload.get("target_runner_profile")
+                    or resolve_target_runner_profile(t_data),
                     getattr(t_data, "queue_shard", None),
+                    claim_admission.delay_seconds,
+                    admission_payload.get("db_budget_reason"),
+                    admission_payload.get("workspace_id"),
+                    admission_payload.get("pack_id"),
+                    admission_payload.get("task_type"),
                 )
-                await task_queue.nack_task_to_delayed(task_id, delay_sec=5)
+                await task_queue.nack_task_to_delayed(
+                    task_id,
+                    delay_sec=max(1, claim_admission.delay_seconds or 5),
+                )
                 continue
 
             try:
@@ -1599,25 +1617,34 @@ async def run_forever() -> None:
                     exc,
                 )
                 workspace_quota_decision = None
-            if workspace_quota_decision is not None and not workspace_quota_decision.allow:
+            claim_admission = decide_runner_claim_admission(
+                t_data,
+                runner_profile,
+                db_budget,
+                resource_snapshot,
+                workspace_quota_decision=workspace_quota_decision,
+            )
+            if not claim_admission.allow and claim_admission.action == "park":
                 now_dt = datetime.now(timezone.utc)
-                quota_payload = workspace_quota_decision.to_dict()
+                quota_payload = claim_admission.workspace_quota_payload or {}
                 parked_update = _build_parked_task_update(
                     (
                         t_data.execution_context
                         if isinstance(t_data.execution_context, dict)
                         else {}
                     ),
-                    reason=workspace_quota_decision.reason,
-                    delay_seconds=10,
+                    reason=claim_admission.reason,
+                    delay_seconds=max(1, claim_admission.delay_seconds or 10),
                     now=now_dt,
                     current_queue_shard=getattr(t_data, "queue_shard", None),
                 )
                 parked_context = dict(parked_update.get("execution_context") or {})
                 parked_context["workspace_quota_admission"] = quota_payload
+                parked_context["runner_claim_admission"] = claim_admission.observability
                 parked_update["execution_context"] = parked_context
                 parked_update["blocked_payload"] = {
                     "workspace_quota_admission": quota_payload,
+                    "runner_claim_admission": claim_admission.observability,
                 }
                 await asyncio.to_thread(
                     tasks_store.update_task,
