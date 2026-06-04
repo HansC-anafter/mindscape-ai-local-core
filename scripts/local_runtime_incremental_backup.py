@@ -403,8 +403,23 @@ def parse_rsync_stat_bytes(output: str, label: str) -> int:
     return int(match.group(1).replace(",", ""))
 
 
+def estimate_temp_parent(source: Path, previous: Path | None) -> Path:
+    if previous and previous.is_dir():
+        try:
+            parent = previous.parents[1]
+        except IndexError:
+            parent = previous.parent
+    else:
+        parent = source.parent
+    parent.mkdir(parents=True, exist_ok=True)
+    return parent
+
+
 def estimate_snapshot_transfer_bytes(source: Path, previous: Path | None, timeout_seconds: int) -> int:
-    with tempfile.TemporaryDirectory(prefix="mindscape-runtime-backup-estimate-") as tmp_dir:
+    with tempfile.TemporaryDirectory(
+        prefix="mindscape-runtime-backup-estimate-",
+        dir=str(estimate_temp_parent(source, previous)),
+    ) as tmp_dir:
         cmd = rsync_snapshot_base_cmd()
         cmd.extend(["--dry-run", "--stats"])
         if previous and previous.is_dir():
@@ -424,7 +439,10 @@ def estimate_mirror_snapshot_transfer_bytes(
     scopes: list[str],
     timeout_seconds: int,
 ) -> int:
-    with tempfile.TemporaryDirectory(prefix="mindscape-runtime-mirror-estimate-") as tmp_dir:
+    with tempfile.TemporaryDirectory(
+        prefix="mindscape-runtime-mirror-estimate-",
+        dir=str(estimate_temp_parent(source, previous)),
+    ) as tmp_dir:
         cmd = ["rsync", "-aH", "--delete", "--delete-excluded", "--dry-run", "--stats"]
         if previous and previous.is_dir():
             cmd.append(f"--link-dest={previous}")

@@ -25,6 +25,16 @@ def _get_role_url(role: str) -> Optional[str]:
     return None
 
 
+def _get_role_readonly_url(role: str) -> Optional[str]:
+    role_key = role.upper()
+    url = os.getenv(f"DATABASE_URL_{role_key}_READONLY") or os.getenv(
+        f"POSTGRES_{role_key}_READONLY_URL"
+    )
+    if url and (url.startswith("postgresql://") or url.startswith("postgres://")):
+        return url
+    return None
+
+
 def _get_legacy_url() -> Optional[str]:
     url = os.getenv("DATABASE_URL", "")
     if url.startswith("postgresql://") or url.startswith("postgres://"):
@@ -49,6 +59,7 @@ def _build_role_url(role: str) -> Optional[str]:
 
 _resolved_url_cache: dict[str, str | None] = {}
 _resolved_session_url_cache: dict[str, str | None] = {}
+_resolved_readonly_url_cache: dict[str, str | None] = {}
 
 
 def _resolve_postgres_url(role: str) -> str | None:
@@ -106,6 +117,46 @@ def get_postgres_url_vector(required: bool = True) -> str:
 def get_postgres_url(required: bool = True) -> str:
     """Backward-compatible alias for core PostgreSQL URL."""
     return get_postgres_url_core(required=required)
+
+
+def _resolve_postgres_readonly_url(role: str) -> str | None:
+    if role in _resolved_readonly_url_cache:
+        return _resolved_readonly_url_cache[role]
+
+    url = _get_role_readonly_url(role)
+    if url:
+        logger.info(f"Using PostgreSQL {role} read-only URL from env")
+        _resolved_readonly_url_cache[role] = url
+        return url
+
+    _resolved_readonly_url_cache[role] = None
+    return None
+
+
+def get_postgres_url_core_readonly(required: bool = False) -> str:
+    """Get optional read-only PostgreSQL URL for the core database."""
+    url = _resolve_postgres_readonly_url(ROLE_CORE)
+    if url:
+        return url
+    if required:
+        raise ValueError(
+            "PostgreSQL core read-only configuration missing. "
+            "Set DATABASE_URL_CORE_READONLY to a PgBouncer read-only alias."
+        )
+    return ""
+
+
+def get_postgres_url_vector_readonly(required: bool = False) -> str:
+    """Get optional read-only PostgreSQL URL for the vector database."""
+    url = _resolve_postgres_readonly_url(ROLE_VECTOR)
+    if url:
+        return url
+    if required:
+        raise ValueError(
+            "PostgreSQL vector read-only configuration missing. "
+            "Set DATABASE_URL_VECTOR_READONLY to a PgBouncer read-only alias."
+        )
+    return ""
 
 
 def _get_role_session_url(role: str) -> Optional[str]:

@@ -178,6 +178,26 @@ def test_policy_accepts_valid_wal_archive_segment(monkeypatch, tmp_path):
     assert plan["wal_segment_size_mismatches"] == []
 
 
+def test_estimate_temp_parent_uses_backup_root_for_previous_snapshot(tmp_path):
+    source = tmp_path / "runtime" / "data"
+    previous = tmp_path / "primary" / "incremental_20260520T000000Z" / "app-data"
+    source.mkdir(parents=True)
+    previous.mkdir(parents=True)
+
+    temp_parent = incremental.estimate_temp_parent(source, previous)
+
+    assert temp_parent == tmp_path / "primary"
+
+
+def test_estimate_temp_parent_uses_source_parent_without_previous_snapshot(tmp_path):
+    source = tmp_path / "runtime" / "data"
+    source.mkdir(parents=True)
+
+    temp_parent = incremental.estimate_temp_parent(source, None)
+
+    assert temp_parent == tmp_path / "runtime"
+
+
 def test_prune_incremental_removes_oldest_snapshot_and_unprotected_base(monkeypatch, tmp_path):
     root = tmp_path / "backups"
     wal_root = root / "postgres-wal-archive"

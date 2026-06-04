@@ -29,6 +29,35 @@ def test_transaction_engine_uses_queue_pool_kwargs(monkeypatch):
     assert captured["kwargs"]["connect_args"]["application_name"] == "local-core-test"
 
 
+def test_readonly_transaction_engine_uses_queue_pool_kwargs(monkeypatch):
+    captured = {}
+
+    def fake_create_engine(url, **kwargs):
+        captured["url"] = url
+        captured["kwargs"] = kwargs
+        return object()
+
+    monkeypatch.setattr(engine_factory, "create_engine", fake_create_engine)
+    monkeypatch.setenv("DB_POOL_SIZE", "3")
+    monkeypatch.setenv("DB_MAX_OVERFLOW", "0")
+    monkeypatch.setenv("DB_POOL_TIMEOUT", "4")
+
+    engine_factory.create_readonly_transaction_engine(
+        "postgresql://u:p@pgbouncer:6432/core_readonly",
+        "local-core-readonly-test",
+    )
+
+    assert captured["url"] == "postgresql://u:p@pgbouncer:6432/core_readonly"
+    assert captured["kwargs"]["pool_size"] == 3
+    assert captured["kwargs"]["max_overflow"] == 0
+    assert captured["kwargs"]["pool_timeout"] == 4
+    assert captured["kwargs"]["pool_use_lifo"] is True
+    assert (
+        captured["kwargs"]["connect_args"]["application_name"]
+        == "local-core-readonly-test"
+    )
+
+
 def test_transient_and_session_engines_use_nullpool(monkeypatch):
     calls = []
 

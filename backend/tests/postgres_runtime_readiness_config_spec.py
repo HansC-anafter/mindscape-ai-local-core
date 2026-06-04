@@ -51,9 +51,25 @@ def test_postgres_completion_runtime_defines_pooling_replica_and_redis_aof():
     assert "pgbouncer:" in compose
     assert "postgres-replica:" in compose
     assert "LOCAL_CORE_DB_POOL_HOST:-pgbouncer" in compose
+    assert "DATABASE_URL_CORE_READONLY" in compose
+    assert "DATABASE_URL_VECTOR_READONLY" in compose
+    assert "mindscape_core_readonly" in compose
+    assert "mindscape_vectors_readonly" in compose
     assert "--appendonly" in compose
     assert '"yes"' in compose
     assert "LOCAL_CORE_REDIS_HOST_DIR" in compose
+
+    pgbouncer_ini = (repo_root / "docker/pgbouncer/pgbouncer.ini").read_text(
+        encoding="utf-8"
+    )
+    assert (
+        "mindscape_core_readonly = host=postgres-replica port=5432 "
+        "dbname=mindscape_core pool_size=10"
+    ) in pgbouncer_ini
+    assert (
+        "mindscape_vectors_readonly = host=postgres-replica port=5432 "
+        "dbname=mindscape_vectors pool_size=5"
+    ) in pgbouncer_ini
 
 
 def test_runtime_images_include_reclaim_client_package():

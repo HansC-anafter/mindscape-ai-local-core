@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import httpx
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from backend.app.models.system_settings import SettingType, SystemSetting
@@ -34,6 +34,8 @@ KEY_MIN_FREE_GB = "local_runtime_backup.min_free_gb"
 KEY_REQUIRE_MIRROR = "local_runtime_backup.require_mirror"
 KEY_BASE_INTERVAL_HOURS = "local_runtime_backup.base_interval_hours"
 KEY_MIRROR_SCOPES = "local_runtime_backup.mirror_scopes"
+KEY_GOOGLE_DRIVE_RESOURCE_SYNC_ENABLED = "local_runtime_backup.google_drive_resource_sync_enabled"
+KEY_GOOGLE_DRIVE_RESOURCE_ROOT = "local_runtime_backup.google_drive_resource_root"
 
 DEFAULT_MIRROR_SCOPES = ["postgres_chain", "runtime_metadata", "auth_state"]
 AVAILABLE_MIRROR_SCOPES = {
@@ -58,6 +60,22 @@ class LocalRuntimeBackupConfig(BaseModel):
     require_mirror: bool = False
     base_interval_hours: int = 168
     mirror_scopes: List[str] = Field(default_factory=lambda: list(DEFAULT_MIRROR_SCOPES))
+    google_drive_resource_sync_enabled: bool = False
+    google_drive_resource_root: str = ""
+
+
+class GoogleDriveRuntimeSyncStatus(BaseModel):
+    available: bool = False
+    account_label: str = ""
+    mount_path: str = ""
+    my_drive_path: str = ""
+    recommended_mirror_root: str = ""
+    recommended_resource_root: str = ""
+    recommended_mirror_scopes: List[str] = Field(default_factory=lambda: list(DEFAULT_MIRROR_SCOPES))
+    mirror_root_active: bool = False
+    resource_sync_enabled: bool = False
+    resource_root: str = ""
+    warnings: List[str] = Field(default_factory=list)
 
 
 class LocalRuntimeBackupStatus(BaseModel):
@@ -86,6 +104,7 @@ class LocalRuntimeBackupStatus(BaseModel):
     latest_backup: Optional[Dict[str, Any]] = None
     latest_job: Optional[Dict[str, Any]] = None
     commands: Dict[str, str]
+    google_drive_sync: GoogleDriveRuntimeSyncStatus = Field(default_factory=GoogleDriveRuntimeSyncStatus)
     warnings: List[str] = Field(default_factory=list)
 
 
@@ -102,6 +121,11 @@ class BackupJobRequest(BaseModel):
 
 class VerifyBackupRequest(BaseModel):
     backup_dir: Optional[str] = None
+
+
+class GoogleDrivePrepareRequest(BaseModel):
+    mirror_root: Optional[str] = None
+    resource_root: Optional[str] = None
 
 
 def _is_localhost(request: Request) -> bool:
@@ -242,6 +266,15 @@ def _load_config() -> LocalRuntimeBackupConfig:
             _env_int("LOCAL_CORE_BACKUP_BASE_INTERVAL_HOURS", 168),
         ),
         mirror_scopes=_get_mirror_scopes(),
+        google_drive_resource_sync_enabled=_get_bool(
+            KEY_GOOGLE_DRIVE_RESOURCE_SYNC_ENABLED,
+            os.getenv("LOCAL_CORE_GOOGLE_DRIVE_RESOURCE_SYNC_ENABLED", "").strip().lower()
+            in {"1", "true", "yes", "on"},
+        ),
+        google_drive_resource_root=_get_str(
+            KEY_GOOGLE_DRIVE_RESOURCE_ROOT,
+            os.getenv("LOCAL_CORE_GOOGLE_DRIVE_RESOURCE_ROOT", ""),
+        ),
     )
 
 
@@ -339,6 +372,46 @@ def _build_commands(config: LocalRuntimeBackupConfig, latest_backup: Optional[Di
         "dry_run": dry_run,
         "verify_latest": verify,
     }
+
+
+def _path_starts_with(path: str, root: str) -> bool:
+    if not path or not root:
+        return False
+    candidate = Path(path).expanduser()
+    parent = Path(root).expanduser()
+    return candidate.parts[: len(parent.parts)] == parent.parts
+
+
+async def _google_drive_sync_status(
+    config: LocalRuntimeBackupConfig,
+    device_available: bool,
+) -> GoogleDriveRuntimeSyncStatus:
+    status = GoogleDriveRuntimeSyncStatus(
+        resource_sync_enabled=config.google_drive_resource_sync_enabled,
+        resource_root=config.google_drive_resource_root,
+    )
+    if not device_available:
+        status.warnings.append("Device Node is required to inspect the host Google Drive mount.")
+        return status
+
+    try:
+        response = await _call_backup_job(["google-drive-status"], timeout_seconds=15)
+    except HTTPException as exc:
+        status.warnings.append(str(exc.detail))
+        return status
+
+    my_drive_path = str(response.get("my_drive_path") or "")
+    recommended_scopes = response.get("recommended_mirror_scopes") or DEFAULT_MIRROR_SCOPES
+    status.available = bool(response.get("available"))
+    status.account_label = str(response.get("account_label") or "")
+    status.mount_path = str(response.get("mount_path") or "")
+    status.my_drive_path = my_drive_path
+    status.recommended_mirror_root = str(response.get("recommended_mirror_root") or "")
+    status.recommended_resource_root = str(response.get("recommended_resource_root") or "")
+    status.recommended_mirror_scopes = _normalize_mirror_scopes(recommended_scopes)
+    status.mirror_root_active = _path_starts_with(config.mirror_root, my_drive_path)
+    status.warnings.extend(str(item) for item in response.get("warnings") or [])
+    return status
 
 
 def _profile_state_summary(backup_dir: Path) -> Optional[Dict[str, Any]]:
@@ -530,6 +603,8 @@ def _merge_request_config(request: BackupJobRequest) -> LocalRuntimeBackupConfig
         mirror_scopes=_normalize_mirror_scopes(
             config.mirror_scopes if request.mirror_scopes is None else request.mirror_scopes
         ),
+        google_drive_resource_sync_enabled=config.google_drive_resource_sync_enabled,
+        google_drive_resource_root=config.google_drive_resource_root,
     )
 
 
@@ -540,7 +615,7 @@ def _job_args(command: str, config: LocalRuntimeBackupConfig) -> List[str]:
 
 
 @router.get("/backups/local-runtime", response_model=LocalRuntimeBackupStatus)
-async def get_local_runtime_backup_status():
+async def get_local_runtime_backup_status(include_plan: bool = Query(False)):
     config = _load_config()
     latest = _latest_backup()
     warnings: List[str] = []
@@ -577,41 +652,51 @@ async def get_local_runtime_backup_status():
         warnings.append(f"Backup root does not exist yet: {backup_root}")
 
     device_available = await _device_node_available()
+    google_drive_sync = await _google_drive_sync_status(config, device_available)
     latest_job: Optional[Dict[str, Any]] = None
     if device_available:
-        try:
-            plan_response = await _call_backup_job(_job_args("plan", config), timeout_seconds=45)
-            if isinstance(plan_response.get("policy"), dict):
-                policy = plan_response["policy"]
-                backup_root_label = str(policy.get("primary_root") or backup_root_label)
-            primary_free_bytes = plan_response.get("primary_free_bytes")
-            mirror_free_bytes = plan_response.get("mirror_free_bytes")
-            postgres_archive_mode = plan_response.get("postgres_archive_mode")
-            postgres_wal_ready_count = plan_response.get("postgres_wal_ready_count")
-            postgres_wal_bytes = plan_response.get("postgres_wal_bytes")
-            wal_archive_dir = plan_response.get("wal_archive_dir")
-            wal_segment_count = plan_response.get("wal_segment_count")
-            wal_archive_bytes = plan_response.get("wal_archive_bytes")
-            base_backup_id = plan_response.get("base_backup_id")
-            base_backup_created_at = plan_response.get("base_backup_created_at")
-            base_backup_age_hours = plan_response.get("base_backup_age_hours")
-            base_backup_required = plan_response.get("base_backup_required")
-            latest_file_snapshot_id = plan_response.get("latest_file_snapshot_id")
-            can_run = bool(plan_response.get("can_run"))
-            blocking_reasons = [str(item) for item in plan_response.get("blocking_reasons") or []]
-            warnings.extend(str(item) for item in plan_response.get("warnings") or [])
-        except HTTPException as exc:
-            warnings.append(str(exc.detail))
-        try:
-            latest_response = await _call_backup_job(_job_args("latest-backup", config), timeout_seconds=15)
-            latest = latest_response.get("latest_backup") or latest
-        except HTTPException as exc:
-            warnings.append(str(exc.detail))
         try:
             job_response = await _call_backup_job(_job_args("status", config), timeout_seconds=15)
             latest_job = job_response.get("job")
             if latest_job:
                 latest_job["log_tail"] = job_response.get("log_tail") or []
+        except HTTPException as exc:
+            warnings.append(str(exc.detail))
+
+        job_running = bool(latest_job and latest_job.get("state") == "running")
+        if job_running:
+            blocking_reasons.append("backup_job_running")
+        elif config.require_mirror and not config.mirror_root:
+            blocking_reasons.append("mirror_required_but_not_configured")
+        elif include_plan:
+            try:
+                plan_response = await _call_backup_job(_job_args("plan", config), timeout_seconds=45)
+                if isinstance(plan_response.get("policy"), dict):
+                    policy = plan_response["policy"]
+                    backup_root_label = str(policy.get("primary_root") or backup_root_label)
+                primary_free_bytes = plan_response.get("primary_free_bytes")
+                mirror_free_bytes = plan_response.get("mirror_free_bytes")
+                postgres_archive_mode = plan_response.get("postgres_archive_mode")
+                postgres_wal_ready_count = plan_response.get("postgres_wal_ready_count")
+                postgres_wal_bytes = plan_response.get("postgres_wal_bytes")
+                wal_archive_dir = plan_response.get("wal_archive_dir")
+                wal_segment_count = plan_response.get("wal_segment_count")
+                wal_archive_bytes = plan_response.get("wal_archive_bytes")
+                base_backup_id = plan_response.get("base_backup_id")
+                base_backup_created_at = plan_response.get("base_backup_created_at")
+                base_backup_age_hours = plan_response.get("base_backup_age_hours")
+                base_backup_required = plan_response.get("base_backup_required")
+                latest_file_snapshot_id = plan_response.get("latest_file_snapshot_id")
+                can_run = bool(plan_response.get("can_run"))
+                blocking_reasons = [str(item) for item in plan_response.get("blocking_reasons") or []]
+                warnings.extend(str(item) for item in plan_response.get("warnings") or [])
+            except HTTPException as exc:
+                warnings.append(str(exc.detail))
+        else:
+            can_run = True
+        try:
+            latest_response = await _call_backup_job(_job_args("latest-backup", config), timeout_seconds=15)
+            latest = latest_response.get("latest_backup") or latest
         except HTTPException as exc:
             warnings.append(str(exc.detail))
     else:
@@ -663,6 +748,7 @@ async def get_local_runtime_backup_status():
         latest_backup=latest,
         latest_job=latest_job,
         commands=_build_commands(config, latest),
+        google_drive_sync=google_drive_sync,
         warnings=warnings,
     )
 
@@ -709,6 +795,16 @@ async def update_local_runtime_backup_config(config: LocalRuntimeBackupConfig):
         ",".join(_normalize_mirror_scopes(config.mirror_scopes)),
         "Comma-separated mirror data scopes for local runtime backup",
     )
+    _save_bool_setting(
+        KEY_GOOGLE_DRIVE_RESOURCE_SYNC_ENABLED,
+        config.google_drive_resource_sync_enabled,
+        "Enable Google Drive-backed local resource collaboration",
+    )
+    _save_string_setting(
+        KEY_GOOGLE_DRIVE_RESOURCE_ROOT,
+        config.google_drive_resource_root.strip(),
+        "Host Google Drive root for local resource collaboration",
+    )
     return await get_local_runtime_backup_status()
 
 
@@ -748,3 +844,26 @@ async def verify_local_runtime_backup(request: Request, body: VerifyBackupReques
     if body.backup_dir:
         args.extend(["--backup-dir", body.backup_dir])
     return await _call_backup_job(args, timeout_seconds=1205)
+
+
+@router.post("/backups/local-runtime/google-drive/prepare")
+async def prepare_google_drive_runtime_sync(
+    request: Request,
+    body: GoogleDrivePrepareRequest = GoogleDrivePrepareRequest(),
+):
+    if not _is_localhost(request):
+        raise HTTPException(status_code=403, detail="Google Drive sync controls are restricted to localhost")
+
+    config = _load_config()
+    mirror_root = (body.mirror_root if body.mirror_root is not None else config.mirror_root).strip()
+    resource_root = (
+        body.resource_root
+        if body.resource_root is not None
+        else config.google_drive_resource_root
+    ).strip()
+    args = ["prepare-google-drive"]
+    if mirror_root:
+        args.extend(["--mirror-root", mirror_root])
+    if resource_root:
+        args.extend(["--resource-root", resource_root])
+    return await _call_backup_job(args, timeout_seconds=30)

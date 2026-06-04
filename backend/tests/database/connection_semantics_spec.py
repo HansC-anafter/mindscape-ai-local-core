@@ -6,6 +6,7 @@ from backend.app.database import config as db_config
 def _clear_db_url_caches() -> None:
     db_config._resolved_url_cache.clear()
     db_config._resolved_session_url_cache.clear()
+    db_config._resolved_readonly_url_cache.clear()
 
 
 def test_transaction_and_session_urls_are_separate(monkeypatch):
@@ -46,6 +47,45 @@ def test_missing_session_url_does_not_fallback_to_transaction_url(monkeypatch):
 
     with pytest.raises(ValueError, match="DATABASE_URL_CORE_SESSION"):
         db_config.get_postgres_url_core_session()
+
+
+def test_readonly_urls_are_explicit_and_separate(monkeypatch):
+    _clear_db_url_caches()
+    monkeypatch.setenv(
+        "DATABASE_URL_CORE",
+        "postgresql://mindscape:pw@pgbouncer:6432/mindscape_core",
+    )
+    monkeypatch.setenv(
+        "DATABASE_URL_CORE_READONLY",
+        "postgresql://mindscape:pw@pgbouncer:6432/mindscape_core_readonly",
+    )
+    monkeypatch.setenv(
+        "DATABASE_URL_VECTOR_READONLY",
+        "postgresql://mindscape:pw@pgbouncer:6432/mindscape_vectors_readonly",
+    )
+
+    assert (
+        "pgbouncer:6432/mindscape_core_readonly"
+        in db_config.get_postgres_url_core_readonly()
+    )
+    assert (
+        "pgbouncer:6432/mindscape_vectors_readonly"
+        in db_config.get_postgres_url_vector_readonly()
+    )
+
+
+def test_missing_readonly_url_does_not_fallback_to_transaction_url(monkeypatch):
+    _clear_db_url_caches()
+    monkeypatch.setenv(
+        "DATABASE_URL_CORE",
+        "postgresql://mindscape:pw@pgbouncer:6432/mindscape_core",
+    )
+    monkeypatch.delenv("DATABASE_URL_CORE_READONLY", raising=False)
+    monkeypatch.delenv("POSTGRES_CORE_READONLY_URL", raising=False)
+
+    assert db_config.get_postgres_url_core_readonly(required=False) == ""
+    with pytest.raises(ValueError, match="DATABASE_URL_CORE_READONLY"):
+        db_config.get_postgres_url_core_readonly(required=True)
 
 
 def test_engine_kwargs_include_timeout_and_lifo(monkeypatch):

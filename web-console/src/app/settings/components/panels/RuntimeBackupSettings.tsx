@@ -5,7 +5,9 @@ import {
   AlertTriangle,
   CheckCircle2,
   Clipboard,
+  Cloud,
   Database,
+  FolderSync,
   HardDrive,
   Play,
   RefreshCw,
@@ -25,6 +27,8 @@ interface BackupConfig {
   require_mirror: boolean;
   base_interval_hours: number;
   mirror_scopes: string[];
+  google_drive_resource_sync_enabled: boolean;
+  google_drive_resource_root: string;
 }
 
 interface BackupSummary {
@@ -58,6 +62,20 @@ interface BackupJob {
   backup_dir?: string;
   error?: string;
   log_tail?: string[];
+}
+
+interface GoogleDriveSyncStatus {
+  available: boolean;
+  account_label: string;
+  mount_path: string;
+  my_drive_path: string;
+  recommended_mirror_root: string;
+  recommended_resource_root: string;
+  recommended_mirror_scopes: string[];
+  mirror_root_active: boolean;
+  resource_sync_enabled: boolean;
+  resource_root: string;
+  warnings: string[];
 }
 
 interface BackupStatus {
@@ -97,6 +115,7 @@ interface BackupStatus {
   latest_backup?: BackupSummary | null;
   latest_job?: BackupJob | null;
   commands: Record<'create' | 'dry_run' | 'verify_latest', string>;
+  google_drive_sync?: GoogleDriveSyncStatus;
   warnings: string[];
 }
 
@@ -108,6 +127,53 @@ const mirrorScopeOptions = [
   'model_cache',
   'workspace_artifacts',
 ] as const;
+
+const defaultBackupConfig: BackupConfig = {
+  backup_root: '',
+  mirror_root: '',
+  retention_local_count: 7,
+  retention_mirror_count: 3,
+  min_free_gb: 20,
+  require_mirror: false,
+  base_interval_hours: 168,
+  mirror_scopes: ['postgres_chain', 'runtime_metadata', 'auth_state'],
+  google_drive_resource_sync_enabled: false,
+  google_drive_resource_root: '',
+};
+
+function normalizeConfig(config?: Partial<BackupConfig>): BackupConfig {
+  return {
+    ...defaultBackupConfig,
+    ...(config || {}),
+    mirror_scopes: config?.mirror_scopes?.length
+      ? config.mirror_scopes
+      : defaultBackupConfig.mirror_scopes,
+  };
+}
+
+function deriveGoogleDriveStatusFromConfig(config: BackupConfig): GoogleDriveSyncStatus | null {
+  const sourcePath = config.mirror_root || config.google_drive_resource_root;
+  const match = sourcePath.match(/^(.*\/GoogleDrive-[^/]+\/(?:我的雲端硬碟|My Drive))(?:\/.*)?$/);
+  if (!match) return null;
+
+  const myDrivePath = match[1];
+  const mountPath = myDrivePath.replace(/\/(?:我的雲端硬碟|My Drive)$/, '');
+  const accountLabel = mountPath.split('/').pop()?.replace(/^GoogleDrive-/, '') || '';
+  return {
+    available: true,
+    account_label: accountLabel,
+    mount_path: mountPath,
+    my_drive_path: myDrivePath,
+    recommended_mirror_root: config.mirror_root || `${myDrivePath}/Mindscape/local-core-runtime-backups`,
+    recommended_resource_root:
+      config.google_drive_resource_root || `${myDrivePath}/Mindscape/local-core-resource-collaboration`,
+    recommended_mirror_scopes: defaultBackupConfig.mirror_scopes,
+    mirror_root_active: Boolean(config.mirror_root),
+    resource_sync_enabled: config.google_drive_resource_sync_enabled,
+    resource_root: config.google_drive_resource_root,
+    warnings: [],
+  };
+}
 
 function formatBytes(bytes?: number): string {
   if (!bytes || bytes <= 0) return '0 B';
@@ -142,16 +208,7 @@ function commandOutput(payload: any): string {
 
 export function RuntimeBackupSettings() {
   const [status, setStatus] = useState<BackupStatus | null>(null);
-  const [config, setConfig] = useState<BackupConfig>({
-    backup_root: '',
-    mirror_root: '',
-    retention_local_count: 7,
-    retention_mirror_count: 3,
-    min_free_gb: 20,
-    require_mirror: false,
-    base_interval_hours: 168,
-    mirror_scopes: ['postgres_chain', 'runtime_metadata', 'auth_state'],
-  });
+  const [config, setConfig] = useState<BackupConfig>(defaultBackupConfig);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
@@ -170,7 +227,7 @@ export function RuntimeBackupSettings() {
     try {
       const data = await settingsApi.get<BackupStatus>('/api/v1/system-settings/backups/local-runtime');
       setStatus(data);
-      setConfig(data.config);
+      setConfig(normalizeConfig(data.config));
       setLoadError(null);
     } catch (error: any) {
       const message = error.message || t('localRuntimeBackupLoadFailed' as any);
@@ -189,13 +246,13 @@ export function RuntimeBackupSettings() {
     if (!jobRunning) return;
     const timer = window.setInterval(() => {
       loadStatus();
-    }, 5000);
+    }, 30000);
     return () => window.clearInterval(timer);
   }, [jobRunning]);
 
   const configChanged = useMemo(() => {
     if (!status) return false;
-    return JSON.stringify(status.config) !== JSON.stringify(config);
+    return JSON.stringify(normalizeConfig(status.config)) !== JSON.stringify(config);
   }, [status, config]);
 
   const updateConfig = (key: keyof BackupConfig, value: BackupConfig[keyof BackupConfig]) => {
@@ -224,7 +281,7 @@ export function RuntimeBackupSettings() {
         config
       );
       setStatus(data);
-      setConfig(data.config);
+      setConfig(normalizeConfig(data.config));
       showNotification('success', t('localRuntimeBackupConfigSaved' as any));
     } catch (error: any) {
       showNotification('error', error.message || t('localRuntimeBackupSaveFailed' as any));
@@ -246,6 +303,46 @@ export function RuntimeBackupSettings() {
       setOutput(commandOutput(result));
       await loadStatus();
       showNotification('success', t(`localRuntimeBackup${action === 'dry-run' ? 'DryRun' : action === 'start' ? 'Started' : 'Verified'}` as any));
+    } catch (error: any) {
+      showNotification('error', error.message || t('localRuntimeBackupActionFailed' as any));
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const applyGoogleDriveDefaults = () => {
+    const googleDrive = status?.google_drive_sync;
+    if (!googleDrive?.available) return;
+    const recommendedScopes = new Set(
+      googleDrive.recommended_mirror_scopes?.length
+        ? googleDrive.recommended_mirror_scopes
+        : defaultBackupConfig.mirror_scopes
+    );
+    recommendedScopes.add('postgres_chain');
+    setConfig((current) => ({
+      ...current,
+      mirror_root: googleDrive.recommended_mirror_root || current.mirror_root,
+      require_mirror: true,
+      mirror_scopes: mirrorScopeOptions.filter((item) => recommendedScopes.has(item)),
+      google_drive_resource_sync_enabled: true,
+      google_drive_resource_root: googleDrive.recommended_resource_root || current.google_drive_resource_root,
+    }));
+  };
+
+  const prepareGoogleDriveSync = async () => {
+    try {
+      setBusyAction('prepare-google-drive');
+      setOutput('');
+      const result = await settingsApi.post<any>(
+        '/api/v1/system-settings/backups/local-runtime/google-drive/prepare',
+        {
+          mirror_root: config.mirror_root,
+          resource_root: config.google_drive_resource_root,
+        }
+      );
+      setOutput(commandOutput(result));
+      await loadStatus();
+      showNotification('success', t('localRuntimeBackupGoogleDrivePrepared' as any));
     } catch (error: any) {
       showNotification('error', error.message || t('localRuntimeBackupActionFailed' as any));
     } finally {
@@ -281,6 +378,10 @@ export function RuntimeBackupSettings() {
     policy.mode === 'incremental_runtime_backup'
       ? t('localRuntimeBackupIncrementalMode' as any)
       : policy.mode || '-';
+  const googleDrive =
+    status?.google_drive_sync?.available
+      ? status.google_drive_sync
+      : deriveGoogleDriveStatusFromConfig(config) || status?.google_drive_sync || null;
 
   return (
     <Card className="space-y-6">
@@ -505,6 +606,109 @@ export function RuntimeBackupSettings() {
                 </span>
               </label>
             ))}
+          </div>
+        </div>
+        <div className="space-y-3 rounded-md border border-default p-3 dark:border-gray-700">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <div className="flex items-center gap-2 text-sm font-medium text-primary dark:text-gray-100">
+                <Cloud className="h-4 w-4" />
+                {t('localRuntimeBackupGoogleDriveSync' as any)}
+              </div>
+              <div className="mt-1 text-xs text-secondary dark:text-gray-400">
+                {t('localRuntimeBackupGoogleDriveSyncHelp' as any)}
+              </div>
+            </div>
+            <div className="inline-flex items-center gap-2 text-xs">
+              {googleDrive?.available ? (
+                <>
+                  <CheckCircle2 className="h-4 w-4 text-green-600" />
+                  <span className="text-green-700 dark:text-green-300">
+                    {googleDrive.account_label || t('available' as any)}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <AlertTriangle className="h-4 w-4 text-yellow-600" />
+                  <span className="text-yellow-700 dark:text-yellow-300">{t('notConfigured' as any)}</span>
+                </>
+              )}
+            </div>
+          </div>
+
+          {googleDrive?.available ? (
+            <div className="space-y-2 text-xs text-secondary dark:text-gray-400">
+              <div className="break-all">
+                {t('localRuntimeBackupGoogleDriveMyDrive' as any)}: {googleDrive.my_drive_path || '-'}
+              </div>
+              <div className="break-all">
+                {t('localRuntimeBackupGoogleDriveRecommendedMirror' as any)}: {googleDrive.recommended_mirror_root || '-'}
+              </div>
+              <div className="break-all">
+                {t('localRuntimeBackupGoogleDriveRecommendedResource' as any)}: {googleDrive.recommended_resource_root || '-'}
+              </div>
+            </div>
+          ) : (
+            <p className="text-xs text-yellow-700 dark:text-yellow-300">
+              {googleDrive?.warnings?.[0] || t('localRuntimeBackupGoogleDriveUnavailable' as any)}
+            </p>
+          )}
+
+          <div className="grid gap-3 md:grid-cols-2">
+            <label className="flex items-start gap-3 text-sm">
+              <input
+                type="checkbox"
+                checked={config.google_drive_resource_sync_enabled}
+                onChange={(event) => updateConfig('google_drive_resource_sync_enabled', event.target.checked)}
+                className="mt-1"
+              />
+              <span>
+                <span className="font-medium text-primary dark:text-gray-100">
+                  {t('localRuntimeBackupGoogleDriveResourceSync' as any)}
+                </span>
+                <span className="block text-secondary dark:text-gray-400">
+                  {t('localRuntimeBackupGoogleDriveResourceSyncHelp' as any)}
+                </span>
+              </span>
+            </label>
+            <label className="text-sm">
+              <span className="font-medium text-primary dark:text-gray-100">
+                {t('localRuntimeBackupGoogleDriveResourceRoot' as any)}
+              </span>
+              <input
+                type="text"
+                value={config.google_drive_resource_root}
+                onChange={(event) => updateConfig('google_drive_resource_root', event.target.value)}
+                className="mt-1 w-full rounded-md border border-default bg-surface-primary px-3 py-2 text-sm text-primary dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+              />
+            </label>
+          </div>
+
+          <div className="rounded-md bg-yellow-50 p-3 text-xs text-yellow-900 dark:bg-yellow-900/20 dark:text-yellow-200">
+            {t('localRuntimeBackupGoogleDriveSafetyNote' as any)}
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={applyGoogleDriveDefaults}
+              disabled={!googleDrive?.available || busyAction !== null}
+              className="inline-flex items-center gap-2 rounded-md border border-default px-3 py-2 text-sm font-medium text-primary hover:bg-surface-accent disabled:opacity-50 dark:border-gray-600 dark:text-gray-100 dark:hover:bg-gray-700"
+            >
+              <FolderSync className="h-4 w-4" />
+              {t('localRuntimeBackupApplyGoogleDrive' as any)}
+            </button>
+            <button
+              type="button"
+              onClick={prepareGoogleDriveSync}
+              disabled={!googleDrive?.available || busyAction !== null || !config.mirror_root || !config.google_drive_resource_root}
+              className="inline-flex items-center gap-2 rounded-md border border-default px-3 py-2 text-sm font-medium text-primary hover:bg-surface-accent disabled:opacity-50 dark:border-gray-600 dark:text-gray-100 dark:hover:bg-gray-700"
+            >
+              <FolderSync className="h-4 w-4" />
+              {busyAction === 'prepare-google-drive'
+                ? t('checking' as any)
+                : t('localRuntimeBackupPrepareGoogleDrive' as any)}
+            </button>
           </div>
         </div>
         <div className="flex flex-wrap gap-2">

@@ -57,6 +57,22 @@ def create_transaction_engine(
     return create_engine(url, **kwargs)
 
 
+def create_readonly_transaction_engine(
+    url: str,
+    application_name: str | None = None,
+    connect_args: dict[str, Any] | None = None,
+    engine_options: dict[str, Any] | None = None,
+) -> Engine:
+    """Create a bounded QueuePool engine for explicit read-only replica traffic."""
+
+    return create_transaction_engine(
+        url,
+        application_name=application_name,
+        connect_args=connect_args,
+        engine_options=engine_options,
+    )
+
+
 def create_transient_transaction_engine(
     url: str,
     application_name: str | None = None,

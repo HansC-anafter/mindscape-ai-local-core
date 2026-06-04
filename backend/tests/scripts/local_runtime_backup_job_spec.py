@@ -119,3 +119,40 @@ def test_latest_backup_reads_incremental_manifest_components(tmp_path):
     assert latest["latest_backup"]["total_bytes"] == 123
     assert latest["latest_backup"]["base_backup_id"] == "base_20260520T000000Z"
     assert latest["latest_backup"]["file_snapshot_id"] == "incremental"
+
+
+def test_google_drive_status_detects_my_drive_mount(tmp_path, monkeypatch):
+    cloud_root = tmp_path / "CloudStorage"
+    my_drive = cloud_root / "GoogleDrive-hans@anafter.co" / "我的雲端硬碟"
+    my_drive.mkdir(parents=True)
+    monkeypatch.setenv("GOOGLE_DRIVE_CLOUDSTORAGE_ROOT", str(cloud_root))
+
+    status = job.command_google_drive_status(Namespace())
+
+    assert status["available"] is True
+    assert status["account_label"] == "hans@anafter.co"
+    assert status["my_drive_path"] == str(my_drive)
+    assert status["recommended_mirror_root"] == str(my_drive / "Mindscape" / "local-core-runtime-backups")
+    assert status["recommended_resource_root"] == str(my_drive / "Mindscape" / "local-core-resource-collaboration")
+    assert status["recommended_mirror_scopes"] == ["postgres_chain", "runtime_metadata", "auth_state"]
+
+
+def test_prepare_google_drive_creates_collaboration_policy(tmp_path, monkeypatch):
+    cloud_root = tmp_path / "CloudStorage"
+    my_drive = cloud_root / "GoogleDrive-hans@anafter.co" / "My Drive"
+    my_drive.mkdir(parents=True)
+    monkeypatch.setenv("GOOGLE_DRIVE_CLOUDSTORAGE_ROOT", str(cloud_root))
+
+    mirror_root = my_drive / "Mindscape" / "local-core-runtime-backups"
+    resource_root = my_drive / "Mindscape" / "local-core-resource-collaboration"
+    result = job.command_prepare_google_drive(
+        Namespace(mirror_root=str(mirror_root), resource_root=str(resource_root))
+    )
+
+    assert result["success"] is True
+    assert result["prepared"] is True
+    assert mirror_root.is_dir()
+    assert (resource_root / "incoming").is_dir()
+    assert (resource_root / "outgoing").is_dir()
+    assert (resource_root / "resource-index").is_dir()
+    assert (resource_root / ".mindscape-sync-policy.json").is_file()

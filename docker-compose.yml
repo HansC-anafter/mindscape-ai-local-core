@@ -8,6 +8,8 @@ x-runner-environment: &runner-environment
   REDIS_PASSWORD: ${REDIS_PASSWORD:-}
   DATABASE_URL_CORE: postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/${POSTGRES_CORE_DB:-mindscape_core}
   DATABASE_URL_VECTOR: postgresql://${POSTGRES_VECTOR_USER:-mindscape}:${POSTGRES_VECTOR_PASSWORD:-mindscape_password}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/${POSTGRES_VECTOR_DB:-mindscape_vectors}
+  DATABASE_URL_CORE_READONLY: postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/mindscape_core_readonly
+  DATABASE_URL_VECTOR_READONLY: postgresql://${POSTGRES_VECTOR_USER:-mindscape}:${POSTGRES_VECTOR_PASSWORD:-mindscape_password}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/mindscape_vectors_readonly
   DATABASE_URL: postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/${POSTGRES_CORE_DB:-mindscape_core}
   DATABASE_URL_CORE_SESSION: postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@postgres:5432/${POSTGRES_CORE_DB:-mindscape_core}
   DATABASE_URL_VECTOR_SESSION: postgresql://${POSTGRES_VECTOR_USER:-mindscape}:${POSTGRES_VECTOR_PASSWORD:-mindscape_password}@postgres:5432/${POSTGRES_VECTOR_DB:-mindscape_vectors}
@@ -153,6 +155,8 @@ services:
       # Database
       - DATABASE_URL_CORE=postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/${POSTGRES_CORE_DB:-mindscape_core}
       - DATABASE_URL_VECTOR=postgresql://${POSTGRES_VECTOR_USER:-mindscape}:${POSTGRES_VECTOR_PASSWORD:-mindscape_password}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/${POSTGRES_VECTOR_DB:-mindscape_vectors}
+      - DATABASE_URL_CORE_READONLY=postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/mindscape_core_readonly
+      - DATABASE_URL_VECTOR_READONLY=postgresql://${POSTGRES_VECTOR_USER:-mindscape}:${POSTGRES_VECTOR_PASSWORD:-mindscape_password}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/mindscape_vectors_readonly
       - DATABASE_URL=postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/${POSTGRES_CORE_DB:-mindscape_core}
       - DATABASE_URL_CORE_SESSION=postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@postgres:5432/${POSTGRES_CORE_DB:-mindscape_core}
       - DATABASE_URL_VECTOR_SESSION=postgresql://${POSTGRES_VECTOR_USER:-mindscape}:${POSTGRES_VECTOR_PASSWORD:-mindscape_password}@postgres:5432/${POSTGRES_VECTOR_DB:-mindscape_vectors}
@@ -305,6 +309,8 @@ services:
       - REDIS_PASSWORD=${REDIS_PASSWORD:-}
       - DATABASE_URL_CORE=postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/${POSTGRES_CORE_DB:-mindscape_core}
       - DATABASE_URL_VECTOR=postgresql://${POSTGRES_VECTOR_USER:-mindscape}:${POSTGRES_VECTOR_PASSWORD:-mindscape_password}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/${POSTGRES_VECTOR_DB:-mindscape_vectors}
+      - DATABASE_URL_CORE_READONLY=postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/mindscape_core_readonly
+      - DATABASE_URL_VECTOR_READONLY=postgresql://${POSTGRES_VECTOR_USER:-mindscape}:${POSTGRES_VECTOR_PASSWORD:-mindscape_password}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/mindscape_vectors_readonly
       - DATABASE_URL=postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/${POSTGRES_CORE_DB:-mindscape_core}
       - DATABASE_URL_CORE_SESSION=postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@postgres:5432/${POSTGRES_CORE_DB:-mindscape_core}
       - DATABASE_URL_VECTOR_SESSION=postgresql://${POSTGRES_VECTOR_USER:-mindscape}:${POSTGRES_VECTOR_PASSWORD:-mindscape_password}@postgres:5432/${POSTGRES_VECTOR_DB:-mindscape_vectors}

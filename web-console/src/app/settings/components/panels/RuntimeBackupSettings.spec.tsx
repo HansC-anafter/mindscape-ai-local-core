@@ -30,6 +30,18 @@ const translations = vi.hoisted<Record<string, string>>(() => ({
   localRuntimeBackupDeviceNode: 'Device Node',
   localRuntimeBackupFileSnapshot: 'File snapshot',
   localRuntimeBackupFree: 'Free',
+  localRuntimeBackupGoogleDriveMyDrive: 'My Drive',
+  localRuntimeBackupGoogleDrivePrepared: 'Google Drive folders prepared',
+  localRuntimeBackupGoogleDriveRecommendedMirror: 'Recommended backup mirror',
+  localRuntimeBackupGoogleDriveRecommendedResource: 'Recommended resource collaboration root',
+  localRuntimeBackupGoogleDriveResourceRoot: 'Resource collaboration root',
+  localRuntimeBackupGoogleDriveResourceSync: 'Resource collaboration',
+  localRuntimeBackupGoogleDriveResourceSyncHelp: 'Create a Drive-backed folder for resource manifests, indexes, incoming bundles, and outgoing bundles.',
+  localRuntimeBackupGoogleDriveSafetyNote: 'Do not sync whole data disks, live runtime databases, dependency folders, model caches, or temporary workspaces through Google Drive.',
+  localRuntimeBackupGoogleDriveSync: 'Google Drive Sync',
+  localRuntimeBackupGoogleDriveSyncHelp: 'Use the local Google Drive mount for verified backup copies and small resource collaboration folders.',
+  localRuntimeBackupGoogleDriveUnavailable: 'Google Drive for desktop is not mounted on this host.',
+  localRuntimeBackupApplyGoogleDrive: 'Use Google Drive paths',
   localRuntimeBackupIncrementalCard: 'Incremental Runtime Backup',
   localRuntimeBackupIncrementalMode: 'Incremental runtime backup',
   localRuntimeBackupMirrorRoot: 'Mirror Root',
@@ -51,6 +63,7 @@ const translations = vi.hoisted<Record<string, string>>(() => ({
   localRuntimeBackupMirrorStatus: 'Mirror Status',
   localRuntimeBackupMode: 'Mode',
   localRuntimeBackupPolicy: 'Backup Policy',
+  localRuntimeBackupPrepareGoogleDrive: 'Prepare folders',
   localRuntimeBackupPrimaryRoot: 'Primary Root',
   localRuntimeBackupPrimaryRootHelp: 'Incremental runtime backup target',
   localRuntimeBackupRequireMirror: 'Require Mirror',
@@ -98,6 +111,8 @@ const backupStatus = {
     require_mirror: true,
     base_interval_hours: 168,
     mirror_scopes: ['postgres_chain', 'runtime_metadata', 'auth_state'],
+    google_drive_resource_sync_enabled: false,
+    google_drive_resource_root: '',
   },
   backup_root: '/primary/backups',
   policy: {
@@ -133,6 +148,19 @@ const backupStatus = {
   device_node_available: true,
   latest_backup: null,
   latest_job: null,
+  google_drive_sync: {
+    available: true,
+    account_label: 'hans@anafter.co',
+    mount_path: '/Users/shock/Library/CloudStorage/GoogleDrive-hans@anafter.co',
+    my_drive_path: '/Users/shock/Library/CloudStorage/GoogleDrive-hans@anafter.co/我的雲端硬碟',
+    recommended_mirror_root: '/Users/shock/Library/CloudStorage/GoogleDrive-hans@anafter.co/我的雲端硬碟/Mindscape/local-core-runtime-backups',
+    recommended_resource_root: '/Users/shock/Library/CloudStorage/GoogleDrive-hans@anafter.co/我的雲端硬碟/Mindscape/local-core-resource-collaboration',
+    recommended_mirror_scopes: ['postgres_chain', 'runtime_metadata', 'auth_state'],
+    mirror_root_active: false,
+    resource_sync_enabled: false,
+    resource_root: '',
+    warnings: [],
+  },
   commands: {
     create: 'python3 scripts/local_runtime_backup_job.py start',
     dry_run: 'python3 scripts/local_runtime_backup_job.py plan',
@@ -164,6 +192,8 @@ describe('RuntimeBackupSettings', () => {
     expect(screen.getByDisplayValue('/mirror/backups')).toBeInTheDocument();
     expect(screen.getByDisplayValue('168')).toBeInTheDocument();
     expect(screen.getByText('Mirror Scopes')).toBeInTheDocument();
+    expect(screen.getByText('Google Drive Sync')).toBeInTheDocument();
+    expect(screen.getByText('Use Google Drive paths')).toBeInTheDocument();
     expect(screen.getByLabelText(/Blob storage/)).not.toBeChecked();
     expect(screen.getByLabelText(/Model cache/)).not.toBeChecked();
     expect(screen.getByLabelText(/Workspace artifacts/)).not.toBeChecked();
@@ -192,5 +222,19 @@ describe('RuntimeBackupSettings', () => {
         }),
       );
     });
+  });
+
+  it('applies the detected Google Drive mirror and collaboration roots', async () => {
+    render(<RuntimeBackupSettings />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Use Google Drive paths')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText('Use Google Drive paths'));
+
+    expect(screen.getByDisplayValue('/Users/shock/Library/CloudStorage/GoogleDrive-hans@anafter.co/我的雲端硬碟/Mindscape/local-core-runtime-backups')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('/Users/shock/Library/CloudStorage/GoogleDrive-hans@anafter.co/我的雲端硬碟/Mindscape/local-core-resource-collaboration')).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: /Resource collaboration/ })).toBeChecked();
   });
 });
