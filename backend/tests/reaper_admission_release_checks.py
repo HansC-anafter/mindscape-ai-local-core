@@ -34,19 +34,42 @@ class _FakeRedisClient:
     def __init__(self):
         self.enqueued: list[str] = []
         self.operations: list[tuple[str, str]] = []
+        self.pending_members: list[str] = []
+        self.processing_members: list[str] = []
+        self.delayed_members: list[str] = []
 
     def pipeline(self):
         return _FakePipeline(self)
+
+    async def lrange(self, _queue_name, _start, _end):
+        return list(self.pending_members)
+
+    async def zrange(self, queue_name, _start, _end):
+        if "processing" in queue_name:
+            return list(self.processing_members)
+        if "delayed" in queue_name:
+            return list(self.delayed_members)
+        return []
+
+    async def mget(self, keys):
+        return [None for _key in keys]
 
 
 class _FakeRedisQueue:
     def __init__(self, pack_id: str):
         self.pack_id = pack_id
         self.q_pending = f"{pack_id}:pending"
+        self.q_processing = f"{pack_id}:processing"
+        self.q_delayed = f"{pack_id}:delayed"
         self._client = _FakeRedisClient()
 
     async def _get_client(self):
         return self._client
+
+    async def enqueue_task(self, task_id: str, *, route_identity=None):
+        self._client.enqueued.append(task_id)
+        self._client.operations.append(("enqueue", task_id))
+        return True
 
 
 class _FakeTasksStore:
@@ -95,6 +118,11 @@ class _FakeTasksStore:
 
     def list_due_unblocked_cold_tasks(self, *, queue_shard=None, limit=200):
         self.unblocked_cold_calls += 1
+        return self._tasks[:limit]
+
+    def list_runnable_playbook_execution_tasks(
+        self, workspace_id=None, limit=500, queue_shard=None
+    ):
         return self._tasks[:limit]
 
     def update_task(self, task_id, **kwargs):
@@ -257,6 +285,72 @@ def test_blocked_release_limit_keeps_small_fairness_floor(monkeypatch):
     assert reaper._blocked_release_limit(ready_target=64, ready_depth=80) == 4
     assert reaper._blocked_release_limit(ready_target=64, ready_depth=60) == 4
     assert reaper._blocked_release_limit(ready_target=64, ready_depth=10) == 54
+
+
+@pytest.mark.asyncio
+async def test_browser_peer_frontier_refills_batch_and_detail_when_hot_queue_lacks_peer_lanes(monkeypatch):
+    monkeypatch.setenv("LOCAL_CORE_RUNNER_BROWSER_PEER_REFILL_LIMIT", "4")
+    now = _utc_now()
+    tasks = [
+        Task(
+            id="task-following",
+            workspace_id="ws-1",
+            message_id="msg-following",
+            execution_id="exec-following",
+            pack_id="ig_analyze_following",
+            task_type="playbook_execution",
+            status=TaskStatus.PENDING,
+            queue_shard="browser_local",
+            created_at=now,
+            next_eligible_at=now,
+            frontier_state="ready",
+            execution_context={"playbook_code": "ig_analyze_following"},
+        ),
+        Task(
+            id="task-detail",
+            workspace_id="ws-1",
+            message_id="msg-detail",
+            execution_id="exec-detail",
+            pack_id="ig_pin_post_detail",
+            task_type="playbook_execution",
+            status=TaskStatus.PENDING,
+            queue_shard="browser_local",
+            created_at=now,
+            next_eligible_at=now,
+            frontier_state="ready",
+            execution_context={"playbook_code": "ig_pin_post_detail"},
+        ),
+        Task(
+            id="task-batch",
+            workspace_id="ws-1",
+            message_id="msg-batch",
+            execution_id="exec-batch",
+            pack_id="ig_batch_pin_references",
+            task_type="playbook_execution",
+            status=TaskStatus.PENDING,
+            queue_shard="browser_local",
+            created_at=now,
+            next_eligible_at=now,
+            frontier_state="ready",
+            execution_context={"playbook_code": "ig_batch_pin_references"},
+        ),
+    ]
+    store = _FakeTasksStore(tasks)
+    queue = _FakeRedisQueue("browser_local")
+    queue._client.pending_members = ["existing-following"]
+
+    refilled = await reaper._refill_browser_peer_frontier(store, queue)
+
+    assert refilled == 2
+    assert queue._client.enqueued == ["task-detail", "task-batch"]
+    assert [task_id for task_id, _update in store.updated] == [
+        "task-detail",
+        "task-batch",
+    ]
+    assert [update["frontier_state"] for _task_id, update in store.updated] == [
+        "ready",
+        "ready",
+    ]
 
 
 def _build_stale_queued_running_task_without_owner() -> Task:

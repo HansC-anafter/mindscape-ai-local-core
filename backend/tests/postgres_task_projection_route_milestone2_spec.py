@@ -78,6 +78,25 @@ def test_workspace_execution_activity_service_uses_projection_only():
     assert "CASE LOWER(status)" in service_source
 
 
+def test_workspace_execution_activity_post_detail_hydration_is_bounded():
+    service_source = (
+        _backend_root()
+        / "app/services/workspace_execution_activity.py"
+    ).read_text(encoding="utf-8")
+    hydration_source = (
+        _backend_root()
+        / "app/services/workspace_execution_input_hydration.py"
+    ).read_text(encoding="utf-8")
+
+    assert "hydrate_missing_execution_inputs" in service_source
+    assert "ig_pin_post_detail" in hydration_source
+    assert "FROM tasks" in hydration_source
+    assert "WHERE id IN :task_ids" in hydration_source
+    assert "pack_id = :pack_id" in hydration_source
+    assert "shortcodes" in hydration_source
+    assert "tags" in hydration_source
+
+
 def test_projection_read_indexes_are_nonblocking_and_reversible():
     migration_source = (
         _backend_root()
@@ -151,3 +170,5 @@ def test_projection_compact_inputs_are_schema_managed():
     assert "task_summary_projection" in migration_source
     assert "compact_inputs" in projection_builder_source
     assert "tasks.params::jsonb" in projection_builder_source
+    assert "'shortcodes'" in projection_builder_source
+    assert "'tags'" in projection_builder_source

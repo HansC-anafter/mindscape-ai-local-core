@@ -1583,6 +1583,50 @@ async def run_forever() -> None:
                 await task_queue.nack_task_to_delayed(task_id, delay_sec=5)
                 continue
 
+            try:
+                from backend.app.services.host_resources.workspace_quota_admission import (
+                    decide_workspace_quota_admission_for_task,
+                )
+
+                workspace_quota_decision = await asyncio.to_thread(
+                    decide_workspace_quota_admission_for_task,
+                    t_data,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Workspace quota admission unavailable for task %s: %s",
+                    task_id,
+                    exc,
+                )
+                workspace_quota_decision = None
+            if workspace_quota_decision is not None and not workspace_quota_decision.allow:
+                now_dt = datetime.now(timezone.utc)
+                quota_payload = workspace_quota_decision.to_dict()
+                parked_update = _build_parked_task_update(
+                    (
+                        t_data.execution_context
+                        if isinstance(t_data.execution_context, dict)
+                        else {}
+                    ),
+                    reason=workspace_quota_decision.reason,
+                    delay_seconds=10,
+                    now=now_dt,
+                    current_queue_shard=getattr(t_data, "queue_shard", None),
+                )
+                parked_context = dict(parked_update.get("execution_context") or {})
+                parked_context["workspace_quota_admission"] = quota_payload
+                parked_update["execution_context"] = parked_context
+                parked_update["blocked_payload"] = {
+                    "workspace_quota_admission": quota_payload,
+                }
+                await asyncio.to_thread(
+                    tasks_store.update_task,
+                    t_data.id,
+                    **parked_update,
+                )
+                await task_queue.ack_task(task_id)
+                continue
+
             # Check per-task dependencies.
             lock_ctx = (
                 t_data.execution_context

@@ -25,6 +25,7 @@ from backend.app.services.runner_resources import (
 from backend.app.services.runner_live_state import RunnerLiveStateStore
 from backend.app.services.host_resources.route_identity_projection import (
     build_route_identity_projection,
+    read_route_identity_projections,
 )
 
 from backend.app.runner.concurrency import _resolve_lock_keys
@@ -37,6 +38,13 @@ logger = logging.getLogger(__name__)
 _CONCURRENCY_LOCKED_REASON = "concurrency_locked"
 _DEPENDENCY_HOLD_REASON = "dependency_hold"
 _RESOURCE_WAIT_REASON = RESOURCE_WAIT_REASON
+_BROWSER_LOCAL_QUEUE_SHARD = "browser_local"
+_BROWSER_PEER_FRONTIER_LANES = frozenset(
+    {
+        "ig_batch_pin_references",
+        "ig_pin_post_detail",
+    }
+)
 
 
 def _task_runner_id(task: Task, ctx: dict[str, Any]) -> Optional[str]:
@@ -94,6 +102,10 @@ def _blocked_release_limit(ready_target: int, ready_depth: int) -> int:
         _env_int("LOCAL_CORE_RUNNER_BLOCKED_RELEASE_MINIMUM", 4),
     )
     return max(capacity_limit, floor_limit)
+
+
+def _browser_peer_frontier_refill_limit() -> int:
+    return max(0, _env_int("LOCAL_CORE_RUNNER_BROWSER_PEER_REFILL_LIMIT", 4))
 
 
 def _resource_wait_keys_from_context(ctx: dict[str, Any]) -> list[str]:
@@ -493,6 +505,141 @@ async def _mark_frontier_ready(
             logger.warning(
                 f"[Bridge] Failed to mirror ready frontier state for task {task_id}: {e}"
             )
+
+
+async def _queued_transport_task_ids(
+    queue_family: list[RedisRunnerQueueStore],
+) -> list[str]:
+    queued: list[str] = []
+    for queue_store in queue_family:
+        queue_client = await queue_store._get_client()
+        if not queue_client:
+            continue
+        pending_members = await queue_client.lrange(queue_store.q_pending, 0, -1)
+        processing_members = await queue_client.zrange(queue_store.q_processing, 0, -1)
+        delayed_members = await queue_client.zrange(queue_store.q_delayed, 0, -1)
+        queued.extend(_normalize_task_id(task_id) for task_id in pending_members)
+        queued.extend(_normalize_task_id(task_id) for task_id in processing_members)
+        queued.extend(_normalize_task_id(task_id) for task_id in delayed_members)
+    return list(dict.fromkeys(queued))
+
+
+def _browser_lane_key_from_task(task: Task) -> Optional[str]:
+    try:
+        from backend.app.runner.browser_fair_candidate_scheduler import (
+            normalize_browser_lane_key,
+        )
+
+        ctx = task.execution_context if isinstance(task.execution_context, dict) else {}
+        return normalize_browser_lane_key(
+            getattr(task, "pack_id", None),
+            ctx.get("playbook_code"),
+        )
+    except Exception:
+        return None
+
+
+async def _queued_browser_peer_lanes(
+    client: Any,
+    queued_task_ids: list[str],
+) -> set[str]:
+    if not queued_task_ids:
+        return set()
+    try:
+        from backend.app.runner.browser_fair_candidate_scheduler import (
+            normalize_browser_lane_key,
+        )
+
+        scan_limit = max(
+            1,
+            _env_int("LOCAL_CORE_RUNNER_BROWSER_PEER_SCAN_LIMIT", 512),
+        )
+        projections = await read_route_identity_projections(
+            client,
+            queued_task_ids[:scan_limit],
+        )
+        lanes: set[str] = set()
+        for projection in projections.values():
+            lane_key = normalize_browser_lane_key(
+                projection.get("pack_id"),
+                projection.get("playbook_code"),
+            )
+            if lane_key in _BROWSER_PEER_FRONTIER_LANES:
+                lanes.add(lane_key)
+        return lanes
+    except Exception:
+        return set()
+
+
+async def _refill_browser_peer_frontier(
+    tasks_store: TasksStore,
+    redis_queue: RedisRunnerQueueStore,
+    *,
+    all_queues: Optional[list[RedisRunnerQueueStore]] = None,
+) -> int:
+    """Keep browser peer playbooks visible even when the hot queue is full."""
+    if redis_queue.pack_id != _BROWSER_LOCAL_QUEUE_SHARD:
+        return 0
+
+    refill_limit = _browser_peer_frontier_refill_limit()
+    if refill_limit <= 0:
+        return 0
+
+    client = await redis_queue._get_client()
+    if not client:
+        return 0
+
+    queue_family = all_queues or [redis_queue]
+    queued_task_ids = await _queued_transport_task_ids(queue_family)
+    queued_task_id_set = set(queued_task_ids)
+    queued_lanes = await _queued_browser_peer_lanes(client, queued_task_ids)
+    if _BROWSER_PEER_FRONTIER_LANES.issubset(queued_lanes):
+        return 0
+
+    candidate_limit = max(refill_limit * 8, refill_limit)
+    pending_tasks = await asyncio.to_thread(
+        tasks_store.list_runnable_playbook_execution_tasks,
+        None,
+        candidate_limit,
+        redis_queue.pack_id,
+    )
+
+    selected_tasks: list[Task] = []
+    selected_lanes: set[str] = set()
+    for task in pending_tasks:
+        task_id = str(getattr(task, "id", "") or "").strip()
+        if not task_id or task_id in queued_task_id_set:
+            continue
+        lane_key = _browser_lane_key_from_task(task)
+        if lane_key not in _BROWSER_PEER_FRONTIER_LANES:
+            continue
+        if lane_key in queued_lanes or lane_key in selected_lanes:
+            continue
+        selected_tasks.append(task)
+        selected_lanes.add(lane_key)
+        if len(selected_tasks) >= refill_limit:
+            break
+
+    if not selected_tasks:
+        return 0
+
+    for task in selected_tasks:
+        await redis_queue.enqueue_task(
+            str(task.id),
+            route_identity=build_route_identity_projection(task),
+        )
+
+    await _mark_frontier_ready(
+        tasks_store,
+        [str(task.id) for task in selected_tasks],
+        queue_shard=redis_queue.pack_id,
+    )
+    logger.warning(
+        "[Bridge] Refilled browser peer frontier with %d task(s) lanes=%s.",
+        len(selected_tasks),
+        ",".join(sorted(selected_lanes)),
+    )
+    return len(selected_tasks)
 
 
 def _force_release_lock(
@@ -947,6 +1094,13 @@ async def _reap_redis_queues(
             release_limit=release_limit,
         )
         ready_depth += cold_released_count
+
+        peer_refilled_count = await _refill_browser_peer_frontier(
+            tasks_store,
+            redis_queue,
+            all_queues=all_queues,
+        )
+        ready_depth += peer_refilled_count
 
         # 3. DB Bridge Sync (Eventual Consistency Repair)
         #    Keep only a bounded ready frontier in Redis. Do not materialize

@@ -7,6 +7,9 @@ from typing import Any, Dict, List, Optional, Sequence
 
 from sqlalchemy import bindparam, text
 
+from app.services.workspace_execution_input_hydration import (
+    hydrate_missing_execution_inputs,
+)
 from app.services.stores.postgres_base import PostgresStoreBase
 
 
@@ -89,10 +92,18 @@ class WorkspaceExecutionActivityStore(PostgresStoreBase):
         statement = self._bind_expanding(statement, query_parts)
         with self.get_connection() as conn:
             rows = conn.execute(statement, params).fetchall()
+            execution_rows = rows[:normalized_limit]
+            row_mappings = [self._mapping(row) for row in execution_rows]
+            input_overlays = hydrate_missing_execution_inputs(conn, row_mappings)
 
         has_more = len(rows) > normalized_limit
-        execution_rows = rows[:normalized_limit]
-        executions = [self._row_to_execution_payload(row) for row in execution_rows]
+        executions = [
+            self._row_to_execution_payload(
+                row,
+                input_overlay=input_overlays.get(str(self._mapping(row).get("task_id") or "")),
+            )
+            for row in execution_rows
+        ]
         return {
             "executions": executions,
             "limit": normalized_limit,
@@ -462,10 +473,17 @@ class WorkspaceExecutionActivityStore(PostgresStoreBase):
             last_event_at
         """
 
-    def _row_to_execution_payload(self, row: Any) -> Dict[str, Any]:
+    def _row_to_execution_payload(
+        self,
+        row: Any,
+        *,
+        input_overlay: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
         mapping = self._mapping(row)
         status = str(mapping.get("status") or "")
         compact_inputs = self._as_dict(mapping.get("compact_inputs"))
+        if input_overlay:
+            compact_inputs = {**compact_inputs, **input_overlay}
         context = self._compact_execution_context(mapping, compact_inputs)
         return {
             "id": mapping.get("task_id"),

@@ -95,10 +95,11 @@ def decide_worker_db_budget(
 
     active_total = _watched_client_active_total(decision)
     if active_total >= high_client_active_threshold():
+        has_spare_capacity = inflight < max_inflight
         return WorkerDbBudgetDecision(
             allow_claim_scan=True,
             claim_scan_limit_multiplier=high_client_scan_multiplier(),
-            allow_release_maintenance=False,
+            allow_release_maintenance=has_spare_capacity,
             allow_postgres_heartbeat=True,
             wait_seconds=0,
             reason="pgbouncer_client_active_budget",

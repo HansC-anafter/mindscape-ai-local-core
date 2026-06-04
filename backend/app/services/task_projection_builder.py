@@ -44,6 +44,18 @@ jsonb_strip_nulls(
             tasks.execution_context::jsonb->>'source_handle',
             tasks.params::jsonb->>'source_handle'
         ),
+        'shortcode', COALESCE(
+            tasks.execution_context::jsonb->'inputs'->>'shortcode',
+            tasks.params::jsonb->>'shortcode'
+        ),
+        'shortcodes', COALESCE(
+            tasks.execution_context::jsonb->'inputs'->'shortcodes',
+            tasks.params::jsonb->'shortcodes'
+        ),
+        'tags', COALESCE(
+            tasks.execution_context::jsonb->'inputs'->'tags',
+            tasks.params::jsonb->'tags'
+        ),
         'target_handle', COALESCE(
             tasks.execution_context::jsonb->'inputs'->>'target_handle',
             tasks.execution_context::jsonb->>'target_handle',

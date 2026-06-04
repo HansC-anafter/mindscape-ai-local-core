@@ -25,6 +25,11 @@ from backend.app.services.chat_orchestrator_service import ChatOrchestratorServi
 from .handlers.cta_handler import handle_cta_action
 from .handlers.suggestion_handler import handle_suggestion_action
 from .streaming.generator import generate_streaming_response
+from .sync_completion import (
+    DEFAULT_SYNC_COMPLETION_TIMEOUT_SECONDS,
+    resolve_sync_display_thread_id,
+    run_sync_chat_with_timeout,
+)
 
 router = APIRouter(prefix="/api/v1/workspaces", tags=["workspaces-chat"])
 logger = logging.getLogger(__name__)
@@ -95,24 +100,74 @@ async def workspace_chat(
         # stream=False: await synchronously and return display_events
         # (used by messaging_handler for LINE reply delivery)
         if not getattr(request, "stream", True):
-            await service.run_background_chat(
-                request=request,
-                workspace=workspace,
-                workspace_id=workspace_id,
-                profile_id=profile_id,
-                user_event_id=user_event_id,
+            sync_result = await run_sync_chat_with_timeout(
+                service.run_background_chat(
+                    request=request,
+                    workspace=workspace,
+                    workspace_id=workspace_id,
+                    profile_id=profile_id,
+                    user_event_id=user_event_id,
+                ),
+                timeout_seconds=DEFAULT_SYNC_COMPLETION_TIMEOUT_SECONDS,
             )
+
+            if sync_result.timed_out:
+                error_message = (
+                    sync_result.error_message
+                    or "Workspace chat sync completion timed out."
+                )
+                await service._create_error_event(
+                    workspace_id,
+                    profile_id,
+                    None,
+                    error_message,
+                    retry_data={
+                        "message": request.message,
+                        "error_code": sync_result.error_code,
+                    },
+                )
+                return JSONResponse(
+                    status_code=504,
+                    content={
+                        "status": "failed",
+                        "event_id": user_event_id,
+                        "workspace_id": workspace_id,
+                        "display_events": [
+                            {
+                                "id": user_event_id,
+                                "actor": "system",
+                                "payload": {
+                                    "message": (
+                                        "Error processing request: "
+                                        f"{error_message}"
+                                    ),
+                                    "type": "error",
+                                },
+                                "timestamp": None,
+                            }
+                        ],
+                        "error": {
+                            "code": sync_result.error_code,
+                            "message": error_message,
+                        },
+                    },
+                )
 
             # Fetch the generated events from DB to return to caller
             try:
                 import asyncio
 
                 loop = asyncio.get_running_loop()
+                display_thread_id = await resolve_sync_display_thread_id(
+                    request=request,
+                    workspace_id=workspace_id,
+                    store=orchestrator.store,
+                )
                 events = await loop.run_in_executor(
                     None,
                     lambda: orchestrator.store.events.get_events_by_thread(
                         workspace_id=workspace_id,
-                        thread_id=None,
+                        thread_id=display_thread_id,
                         limit=5,
                     ),
                 )
