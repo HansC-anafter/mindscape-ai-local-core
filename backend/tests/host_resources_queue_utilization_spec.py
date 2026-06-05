@@ -95,6 +95,52 @@ def _projection(task_id, pack_id, concurrency_key):
 
 
 @pytest.mark.asyncio
+async def test_live_queue_utilization_excludes_drain_runner_available_slots(monkeypatch):
+    queue = _FakeQueue("browser_local", ["task-a"])
+    queue.client.projections[
+        "mindscape:host_resources:route_identity:task-a"
+    ] = _projection("task-a", "ig_pin_post_detail", "ig_profile:a")
+
+    async def _heartbeats(_queue_store):
+        return [
+            {
+                "runner_id": "runner-browser-1",
+                "queue_shards": ["browser_local"],
+                "capacity": {
+                    "max_inflight": 3,
+                    "inflight": 2,
+                    "available_slots": 1,
+                },
+                "claim_control": {
+                    "mode": "drain",
+                    "claim_enabled": False,
+                },
+            }
+        ]
+
+    monkeypatch.setattr(
+        queue_utilization,
+        "list_active_runner_resource_heartbeats",
+        _heartbeats,
+    )
+
+    snapshot = await build_live_queue_utilization(
+        queue_stores=[queue],
+        scan_limit=1,
+        now_epoch=1000,
+    )
+
+    capacity = snapshot["capacity_by_queue_shard"]["browser_local"]
+    assert capacity["active_runner_count"] == 1
+    assert capacity["claimable_runner_count"] == 0
+    assert capacity["claim_blocked_runner_count"] == 1
+    assert capacity["max_inflight_total"] == 3
+    assert capacity["inflight_total"] == 2
+    assert capacity["available_slots_total"] == 0
+    assert capacity["claimable_available_slots_total"] == 0
+
+
+@pytest.mark.asyncio
 async def test_live_queue_utilization_uses_bounded_redis_data(monkeypatch):
     queue = _FakeQueue(
         "browser_local",

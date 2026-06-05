@@ -196,9 +196,12 @@ def _capacity_by_queue_shard(
     capacity_by_queue = {
         queue_name: {
             "active_runner_count": 0,
+            "claimable_runner_count": 0,
+            "claim_blocked_runner_count": 0,
             "max_inflight_total": 0,
             "inflight_total": 0,
             "available_slots_total": 0,
+            "claimable_available_slots_total": 0,
             "utilization_ratio": None,
             "runner_ids": [],
         }
@@ -214,21 +217,45 @@ def _capacity_by_queue_shard(
         capacity = heartbeat.get("capacity")
         if not isinstance(capacity, dict):
             capacity = {}
+        claim_control = heartbeat.get("claim_control")
+        if not isinstance(claim_control, dict):
+            claim_control = {}
+        claim_mode = str(claim_control.get("mode") or "active").strip().lower()
+        claim_enabled = (
+            claim_mode == "active" and claim_control.get("claim_enabled") is not False
+        )
         for queue_shard in queue_shards:
             if queue_shard not in capacity_by_queue:
                 capacity_by_queue[queue_shard] = {
                     "active_runner_count": 0,
+                    "claimable_runner_count": 0,
+                    "claim_blocked_runner_count": 0,
                     "max_inflight_total": 0,
                     "inflight_total": 0,
                     "available_slots_total": 0,
+                    "claimable_available_slots_total": 0,
                     "utilization_ratio": None,
                     "runner_ids": [],
                 }
             row = capacity_by_queue[queue_shard]
             row["active_runner_count"] += 1
+            if claim_enabled:
+                row["claimable_runner_count"] = (
+                    _to_int(row.get("claimable_runner_count")) + 1
+                )
+            else:
+                row["claim_blocked_runner_count"] = (
+                    _to_int(row.get("claim_blocked_runner_count")) + 1
+                )
             row["max_inflight_total"] += _to_int(capacity.get("max_inflight"))
             row["inflight_total"] += _to_int(capacity.get("inflight"))
-            row["available_slots_total"] += _to_int(capacity.get("available_slots"))
+            available_slots = _to_int(capacity.get("available_slots"))
+            if claim_enabled:
+                row["available_slots_total"] += available_slots
+                row["claimable_available_slots_total"] = (
+                    _to_int(row.get("claimable_available_slots_total"))
+                    + available_slots
+                )
             runner_id = str(heartbeat.get("runner_id") or "").strip()
             if runner_id:
                 row["runner_ids"].append(runner_id)

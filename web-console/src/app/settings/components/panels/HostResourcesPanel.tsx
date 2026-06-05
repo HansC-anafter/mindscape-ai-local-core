@@ -12,6 +12,7 @@ import {
 import { HostResourceAdapterCatalogPanel } from './host-resources/HostResourceAdapterCatalogPanel';
 import { HostResourceSlotRegistryPanel } from './host-resources/HostResourceSlotRegistryPanel';
 import { HostResourcesObservabilityPanel } from './host-resources/HostResourcesObservabilityPanel';
+import { HostResourceRunnerControlPanel } from './host-resources/HostResourceRunnerControlPanel';
 import { HostResourceWorkspaceAllocationsPanel } from './host-resources/HostResourceWorkspaceAllocationsPanel';
 
 interface HostResourcesPanelProps {
@@ -87,6 +88,7 @@ export function HostResourcesPanel({ activeSection, workspaceId }: HostResources
         ) : null}
         <HostResourceSlotRegistryPanel />
         <HostResourceAdapterCatalogPanel />
+        <HostResourceRunnerControlPanel />
         <HostResourceLaneManagerPanel
           lanes={lanes}
           onRefresh={loadRegistryState}

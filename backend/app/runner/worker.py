@@ -52,6 +52,11 @@ from backend.app.services.host_resources.route_identity_projection import (
 from backend.app.services.host_resources.queue_utilization import (
     write_queue_utilization_snapshot_if_leader,
 )
+from backend.app.services.host_resources.runner_claim_modes import (
+    active_runner_claim_control,
+    get_runner_claim_control,
+    runner_claims_enabled,
+)
 
 # Sub-module imports
 from backend.app.runner.utils import _utc_now, _parse_utc_iso, _env_int
@@ -1230,6 +1235,7 @@ async def run_forever() -> None:
     next_route_drain_gate_log_at = 0.0
     next_db_pressure_log_at = 0.0
     next_postgres_heartbeat_pressure_log_at = 0.0
+    next_runner_claim_control_log_at = 0.0
     last_postgres_heartbeat_epoch = 0.0
     playbook_fair_scan_limit = _env_int(
         "LOCAL_CORE_RUNNER_PLAYBOOK_FAIR_SCAN_LIMIT",
@@ -1290,21 +1296,42 @@ async def run_forever() -> None:
             resource_snapshot = None
 
         try:
-            db_pressure = await check_db_pool_pressure(
+            runner_claim_control = await get_runner_claim_control(
                 redis_queue,
-                owner_id=f"{runner_id}:claim",
+                runner_id=runner_id,
             )
-        except Exception as e:
-            logger.warning("PgBouncer pressure check failed in runner loop: %s", e)
-            db_pressure = DbPoolPressureDecision.paused_for(
-                "pgbouncer_pressure_probe_failed"
+        except Exception:
+            runner_claim_control = active_runner_claim_control(runner_id)
+        runner_claiming_enabled = runner_claims_enabled(runner_claim_control)
+
+        if runner_claiming_enabled:
+            try:
+                db_pressure = await check_db_pool_pressure(
+                    redis_queue,
+                    owner_id=f"{runner_id}:claim",
+                )
+            except Exception as e:
+                logger.warning("PgBouncer pressure check failed in runner loop: %s", e)
+                db_pressure = DbPoolPressureDecision.paused_for(
+                    "pgbouncer_pressure_probe_failed"
+                )
+            db_budget = decide_worker_db_budget(
+                db_pressure,
+                profile_code=runner_profile.profile_code,
+                inflight=len(inflight),
+                max_inflight=max_inflight,
             )
-        db_budget = decide_worker_db_budget(
-            db_pressure,
-            profile_code=runner_profile.profile_code,
-            inflight=len(inflight),
-            max_inflight=max_inflight,
-        )
+        else:
+            reason = f"runner_claim_mode_{runner_claim_control.mode}"
+            db_pressure = DbPoolPressureDecision.open(reason=reason)
+            db_budget = WorkerDbBudgetDecision(
+                allow_claim_scan=False,
+                claim_scan_limit_multiplier=0.0,
+                allow_release_maintenance=True,
+                allow_postgres_heartbeat=False,
+                wait_seconds=0,
+                reason=reason,
+            )
 
         if postgres_heartbeat_enabled:
             now_epoch = datetime.now(timezone.utc).timestamp()
@@ -1324,7 +1351,7 @@ async def run_forever() -> None:
                     last_postgres_heartbeat_epoch = now_epoch
                 except Exception as e:
                     db_recovery_backoff.note_failure(e)
-            else:
+            elif runner_claiming_enabled:
                 now_loop = asyncio.get_event_loop().time()
                 if now_loop >= next_postgres_heartbeat_pressure_log_at:
                     logger.warning(
@@ -1344,6 +1371,7 @@ async def run_forever() -> None:
                     queue_shards=list(runner_profile.accepted_queue_partitions),
                     capacity=capacity,
                     resource_snapshot=resource_snapshot,
+                    claim_control=runner_claim_control.to_dict(),
                 ),
             )
         except Exception:
@@ -1407,6 +1435,21 @@ async def run_forever() -> None:
                     5.0,
                 )
             )
+            continue
+
+        if not runner_claiming_enabled:
+            now_loop = asyncio.get_event_loop().time()
+            if now_loop >= next_runner_claim_control_log_at:
+                logger.warning(
+                    "Runner claim mode blocks new claims runner_id=%s profile=%s mode=%s inflight=%s reason=%s",
+                    runner_id,
+                    runner_profile.profile_code,
+                    runner_claim_control.mode,
+                    len(inflight),
+                    runner_claim_control.reason,
+                )
+                next_runner_claim_control_log_at = now_loop + 30.0
+            await asyncio.sleep(poll_interval_ms / 1000)
             continue
 
         claim_gate_paused, claim_gate = _runner_claim_gate_paused()

@@ -22,6 +22,7 @@ def build_runner_resource_heartbeat(
     queue_shards: list[str] | tuple[str, ...],
     capacity: Any,
     resource_snapshot: dict[str, Any] | None,
+    claim_control: dict[str, Any] | None = None,
     now_epoch: float | None = None,
 ) -> dict[str, Any]:
     captured_at = float(now_epoch if now_epoch is not None else time.time())
@@ -39,6 +40,11 @@ def build_runner_resource_heartbeat(
             "saturated": bool(getattr(capacity, "saturated", False)),
         },
         "resource_snapshot": resource_snapshot or {},
+        "claim_control": claim_control or {
+            "mode": "active",
+            "claim_enabled": True,
+            "source": "default",
+        },
     }
 
 

@@ -87,6 +87,10 @@ capabilities:
     trust_level: read
     confirm_required: false
 
+  host_resource_runner_spillover_control:
+    trust_level: execute
+    confirm_required: false
+
   # Admin-level operations for infrastructure management
   docker_admin:
     trust_level: admin

@@ -33,6 +33,14 @@ from backend.app.services.host_resources.queue_utilization import (
     build_live_queue_utilization,
     get_latest_queue_utilization_snapshot,
 )
+from backend.app.services.host_resources.runner_claim_modes import (
+    attach_runner_claim_controls,
+    set_runner_claim_mode_sync,
+)
+from backend.app.services.host_resources.runner_spillover_control import (
+    runner_spillover_action,
+    runner_spillover_status,
+)
 from backend.app.services.host_resources.route_intents import build_route_intent_preview
 from backend.app.services.host_resources.runtime_adapter_catalog import list_runtime_adapters
 from backend.app.services.host_resources.schema_readiness import (
@@ -50,6 +58,8 @@ from backend.app.services.host_resources.workspace_allocations import (
     HostResourceWorkspaceAllocationStore,
     workspace_allocation_decision,
 )
+from backend.app.services.runner_resources import list_active_runner_resource_heartbeats
+from backend.app.services.stores.redis.runner_queue_store import RedisRunnerQueueStore
 from backend.app.services.resource_governance import (
     build_resource_governance_context,
     is_global_resource_admin,
@@ -102,6 +112,75 @@ async def get_adapter_catalog() -> dict[str, Any]:
 @router.get("/lanes")
 async def get_lanes() -> dict[str, Any]:
     return {"lanes": list_host_resource_lanes()}
+
+
+@router.get("/runners")
+async def get_runners(
+    current_user: AuthContext = Depends(get_current_user),
+) -> dict[str, Any]:
+    require_global_resource_admin(current_user)
+    redis_queue = RedisRunnerQueueStore()
+    heartbeats = await list_active_runner_resource_heartbeats(redis_queue)
+    runners = await attach_runner_claim_controls(redis_queue, heartbeats)
+    runners.sort(key=lambda item: str(item.get("runner_id") or ""))
+    return {
+        "runners": runners,
+        "count": len(runners),
+        "governance_context": build_resource_governance_context(current_user),
+    }
+
+
+@router.put("/runners/{runner_id:path}/claim-mode")
+async def put_runner_claim_mode(
+    runner_id: str,
+    payload: dict[str, Any] = Body(default_factory=dict),
+    current_user: AuthContext = Depends(get_current_user),
+) -> dict[str, Any]:
+    require_global_resource_admin(current_user)
+    try:
+        control = set_runner_claim_mode_sync(
+            runner_id,
+            str((payload or {}).get("mode") or "active"),
+            reason=(payload or {}).get("reason"),
+            updated_by=current_user.user_id,
+            ttl_seconds=(payload or {}).get("ttl_seconds"),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return {
+        "runner_id": runner_id,
+        "claim_control": control.to_dict(),
+        "governance_context": build_resource_governance_context(current_user),
+    }
+
+
+@router.get("/runner-spillover")
+async def get_runner_spillover(
+    current_user: AuthContext = Depends(get_current_user),
+) -> dict[str, Any]:
+    require_global_resource_admin(current_user)
+    return {
+        **await runner_spillover_status(),
+        "governance_context": build_resource_governance_context(current_user),
+    }
+
+
+@router.post("/runner-spillover")
+async def post_runner_spillover(
+    payload: dict[str, Any] = Body(default_factory=dict),
+    current_user: AuthContext = Depends(get_current_user),
+) -> dict[str, Any]:
+    require_global_resource_admin(current_user)
+    try:
+        result = await runner_spillover_action(payload or {})
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {
+        **result,
+        "governance_context": build_resource_governance_context(current_user),
+    }
 
 
 @router.post("/lanes")

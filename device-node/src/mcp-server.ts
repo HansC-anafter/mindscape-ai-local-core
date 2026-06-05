@@ -17,6 +17,7 @@ import { filesystemRead, filesystemWrite, filesystemList } from "./capabilities/
 import { shellExecute } from "./capabilities/shell.js";
 import { hostResourceProbe } from "./capabilities/host-resource-probe.js";
 import { hostResourceLaneWorkersSet } from "./capabilities/host-resource-lane-workers.js";
+import { hostResourceRunnerSpilloverControl } from "./capabilities/host-resource-runner-spillover.js";
 import * as http from "http";
 
 export interface MCPServerConfig {
@@ -167,6 +168,32 @@ export class MCPServer {
             },
             handler: hostResourceLaneWorkersSet,
             trustLevel: TrustLevel.READ,
+        });
+
+        this.registerTool({
+            name: "host_resource_runner_spillover_control",
+            description: "Control the fixed runner-spillover compose service",
+            inputSchema: {
+                type: "object",
+                properties: {
+                    action: {
+                        type: "string",
+                        enum: ["status", "start", "stop"],
+                        description: "Spillover action",
+                    },
+                    profile_code: {
+                        type: "string",
+                        enum: ["default_local", "browser_local", "vision_local"],
+                        description: "Runner profile for start/status context",
+                    },
+                    max_inflight: {
+                        type: "number",
+                        description: "Bounded max inflight for start, clamped to 1-4",
+                    },
+                },
+            },
+            handler: hostResourceRunnerSpilloverControl,
+            trustLevel: TrustLevel.EXECUTE,
         });
     }
 
