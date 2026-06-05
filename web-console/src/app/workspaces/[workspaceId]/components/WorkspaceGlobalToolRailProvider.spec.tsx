@@ -41,6 +41,17 @@ vi.mock('../capability-ui-hosts/WorkspaceRunsPanel', async () => {
   };
 });
 
+vi.mock('@/components/workspace/device-binding/MotionSourceRailPanel', async () => {
+  const ReactModule = await import('react');
+  return {
+    default: () => ReactModule.createElement(
+      'div',
+      { 'data-testid': 'mock-motion-source-panel' },
+      'Motion source panel',
+    ),
+  };
+});
+
 vi.mock('@/components/workspace/ThreadBundlePanel', async () => {
   const ReactModule = await import('react');
   return {
@@ -106,6 +117,21 @@ describe('WorkspaceGlobalToolRailProvider', () => {
       'noopener,noreferrer',
     );
     expect(screen.queryByTestId('workspace-global-tool-panel')).toBeNull();
+  });
+
+  it('opens the motion source panel from the runtime rail', async () => {
+    render(
+      <WorkspaceGlobalToolRailProvider workspaceId="ws_motion">
+        <section>Workspace content</section>
+      </WorkspaceGlobalToolRailProvider>,
+    );
+
+    fireEvent.click(screen.getByTestId('workspace-motion-source-tool'));
+
+    expect(screen.getByTestId('workspace-global-tool-panel')).toHaveAttribute('data-active-tool-key', 'core:motion_source');
+    await waitFor(() => {
+      expect(screen.getByTestId('mock-motion-source-panel')).toBeInTheDocument();
+    });
   });
 
   it('registers the bundle tool only when a thread is selected', async () => {

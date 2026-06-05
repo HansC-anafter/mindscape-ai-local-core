@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { Activity, GitGraph, Package, Settings as SettingsIcon, X } from 'lucide-react';
+import { Activity, GitGraph, Package, Settings as SettingsIcon, Smartphone, X } from 'lucide-react';
 
 import {
   WorkspaceToolRail,
@@ -24,6 +24,7 @@ import {
 const WorkspaceRunsPanel = React.lazy(() => import('../capability-ui-hosts/WorkspaceRunsPanel'));
 const WorkspaceSettingsToolPanel = React.lazy(() => import('../capability-ui-hosts/WorkspaceSettingsToolPanel'));
 const WorkspacePackToolPanel = React.lazy(() => import('../capability-ui-hosts/WorkspacePackToolPanel'));
+const MotionSourceRailPanel = React.lazy(() => import('@/components/workspace/device-binding/MotionSourceRailPanel'));
 
 const GROUP_LABELS: Record<WorkspaceRightRegionGroup, string> = {
   execution: 'Runs',
@@ -160,6 +161,18 @@ export default function WorkspaceGlobalToolRailProvider({
       testId: 'workspace-pack-tool',
       renderPanel: () => (
         <WorkspacePackToolPanel workspaceId={workspaceId} apiUrl={apiUrl} />
+      ),
+    },
+    {
+      key: 'core:motion_source',
+      id: 'motion_source',
+      label: 'Motion Source',
+      icon: <Smartphone aria-hidden="true" className="h-4 w-4" />,
+      group: 'runtime',
+      order: 30,
+      testId: 'workspace-motion-source-tool',
+      renderPanel: () => (
+        <MotionSourceRailPanel workspaceId={workspaceId} apiUrl={apiUrl} />
       ),
     },
     {

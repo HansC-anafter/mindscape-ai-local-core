@@ -340,6 +340,28 @@ describe('CapabilityPage AOL host shell', () => {
     expect(mockPush).not.toHaveBeenCalled();
   }, 40000);
 
+  it('retries a transient null component import before showing diagnostics', async () => {
+    mockLoadCapabilityUIComponent
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(() => <div>retry-loaded-workbench</div>);
+
+    await renderCapabilityLoadedPage();
+
+    expect(await screen.findByText('retry-loaded-workbench')).not.toBeNull();
+    expect(screen.queryByText('Capability components failed to load.')).toBeNull();
+    expect(mockLoadCapabilityUIComponent).toHaveBeenCalledTimes(2);
+  });
+
+  it('shows component load diagnostics when metadata exists but component import fails', async () => {
+    mockLoadCapabilityUIComponent.mockResolvedValue(null);
+
+    await renderCapabilityLoadedPage();
+
+    expect(await screen.findByText('Capability components failed to load.')).not.toBeNull();
+    expect(screen.getByText('IGWorkbenchPage')).not.toBeNull();
+    expect(screen.getByText(/No React component was resolved/)).not.toBeNull();
+  });
+
   it('does not load the capability UI bundle when the capability has no UI components', async () => {
     mockCapabilityCode = 'empty_capability';
 

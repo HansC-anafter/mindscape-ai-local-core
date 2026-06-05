@@ -47,6 +47,8 @@ export interface UIComponentInfo {
   playbook_codes: string[];
   import_path: string;
   layout_hint?: 'default' | 'scrollable_full_bleed';
+  asset_url?: string;
+  runtime?: string;
 }
 
 export interface CapabilityInfo {
@@ -64,6 +66,7 @@ interface CapabilityLoadedComponentsViewProps {
   capabilityInfo: CapabilityInfo | null;
   uiComponents: UIComponentInfo[];
   loadedComponents: Map<string, React.ComponentType<any>>;
+  loadErrors?: Map<string, string>;
   loading: boolean;
   aolRoutePath?: string;
   surfacePath?: readonly string[];
@@ -87,6 +90,7 @@ export default function CapabilityLoadedComponentsView({
   capabilityInfo,
   uiComponents,
   loadedComponents,
+  loadErrors = new Map(),
   loading,
   aolRoutePath,
   surfacePath = [],
@@ -311,7 +315,19 @@ export default function CapabilityLoadedComponentsView({
 
             {loadedComponents.size === 0 ? (
               <div className="py-8 text-center text-sm text-gray-500 dark:text-gray-400">
-                No components loaded. Some components may have failed to load.
+                <div className="font-medium text-gray-700 dark:text-gray-200">
+                  Capability components failed to load.
+                </div>
+                <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                  {Array.from(loadErrors.entries()).slice(0, 3).map(([componentCode, message]) => (
+                    <div key={componentCode}>
+                      <span className="font-medium">{componentCode}</span>: {message}
+                    </div>
+                  ))}
+                  {loadErrors.size === 0 ? (
+                    <div>No component loader diagnostics were reported.</div>
+                  ) : null}
+                </div>
               </div>
             ) : null}
           </div>

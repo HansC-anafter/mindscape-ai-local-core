@@ -25,6 +25,7 @@ export type WorkspaceRightRegionCoreContributionId =
   | 'pack'
   | 'graph'
   | 'bundle'
+  | 'motion_source'
   | 'object'
   | 'flow';
 
@@ -130,6 +131,7 @@ export const RESERVED_WORKSPACE_RIGHT_REGION_IDS = new Set([
   'pack',
   'graph',
   'bundle',
+  'motion_source',
   'object',
   'flow',
 ]);
