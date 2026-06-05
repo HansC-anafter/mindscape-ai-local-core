@@ -10,9 +10,11 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   PanelRight,
+  Pin,
   Route,
   Settings,
   SlidersHorizontal,
+  UserPlus,
   Wrench,
   X,
 } from 'lucide-react';
@@ -43,9 +45,11 @@ const ICONS: Record<string, LucideIcon> = {
   Box,
   Panel: PanelRight,
   PanelRight,
+  Pin,
   Route,
   Settings,
   SlidersHorizontal,
+  UserPlus,
   Wrench,
 };
 

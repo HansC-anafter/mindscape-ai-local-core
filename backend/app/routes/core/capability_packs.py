@@ -173,6 +173,10 @@ def get_capability_workspace_tools(capability_code: str):
     return _installed_routes.get_capability_workspace_tools(capability_code)
 
 
+def _clear_installed_capability_route_cache() -> None:
+    _installed_routes.clear_installed_capability_route_cache()
+
+
 __all__ = [
     "router",
     "HTTPException",
@@ -212,4 +216,5 @@ __all__ = [
     "get_capability_ui_components",
     "_format_ui_component_for_response",
     "get_capability_workspace_tools",
+    "_clear_installed_capability_route_cache",
 ]

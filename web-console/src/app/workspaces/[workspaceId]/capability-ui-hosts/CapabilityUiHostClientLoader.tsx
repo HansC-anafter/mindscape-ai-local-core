@@ -122,8 +122,9 @@ function getCapabilityUiMetadata(
     return cached.promise;
   }
   const promise = loadCapabilityUiMetadata(apiUrl, capabilityCode)
-    .finally(() => {
+    .catch((error) => {
       metadataCache.delete(key);
+      throw error;
     });
   metadataCache.set(key, {
     promise,

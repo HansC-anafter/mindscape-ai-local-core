@@ -9,9 +9,17 @@ import {
   prewarmNextDevRoutes,
 } from './dev-proxy/prewarm.mjs';
 import { resolveApiRoutePlane } from './dev-proxy/api-route-plane.mjs';
+import {
+  isFrontendDocumentHeadReadinessRequest,
+  writeFrontendDocumentHeadReadiness,
+} from './dev-proxy/head-readiness.mjs';
 
 export { resolveFrontendPrewarmPaths } from './dev-proxy/prewarm.mjs';
 export { resolveApiRoutePlane } from './dev-proxy/api-route-plane.mjs';
+export {
+  isFrontendDocumentHeadReadinessRequest,
+  writeFrontendDocumentHeadReadiness,
+} from './dev-proxy/head-readiness.mjs';
 
 const PUBLIC_HOST = process.env.FRONTEND_PROXY_HOST || '0.0.0.0';
 const PUBLIC_PORT = Number.parseInt(process.env.PORT || '3000', 10);
@@ -161,6 +169,7 @@ function shouldPreserveDevApiCacheControl(requestUrl = '/', method = 'GET') {
     const parsed = new URL(requestUrl, 'http://localhost');
     return (
       parsed.pathname.startsWith('/api/v1/media/') ||
+      /^\/api\/v1\/capability-packs\/installed-capabilities\/[^/]+\/ui-assets\/.+/.test(parsed.pathname) ||
       /^\/api\/v1\/ig\/references\/[^/]+\/image$/.test(parsed.pathname)
     );
   } catch {
@@ -622,6 +631,10 @@ export function createFrontendProxyServer({ nextRunningRef }) {
   const server = http.createServer((req, res) => {
     if (isFrontendLivenessPath(req.url)) {
       writeFrontendLiveness(res, nextRunningRef.current);
+      return;
+    }
+    if (isFrontendDocumentHeadReadinessRequest(req.method, req.url)) {
+      writeFrontendDocumentHeadReadiness(res, nextRunningRef.current);
       return;
     }
 

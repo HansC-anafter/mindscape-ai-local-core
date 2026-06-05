@@ -1,5 +1,5 @@
-import logging
 import json
+import logging
 import mimetypes
 import os
 import time
@@ -9,6 +9,13 @@ from typing import Any, Dict, List
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 
+from .cache_state import (
+    clear_installed_capability_route_cache,
+    get_cached_capability_route_payload,
+    get_cached_runtime_ui_index,
+    set_cached_capability_route_payload,
+    set_cached_runtime_ui_index,
+)
 from .manifest_scan import (
     _WORKSPACE_TOOL_ID_PATTERN,
     _format_installed_capability,
@@ -111,6 +118,13 @@ def list_installed_capabilities():
 @router.get("/installed-capabilities/{capability_code}")
 def get_installed_capability(capability_code: str):
     try:
+        cached_payload = get_cached_capability_route_payload(
+            "installed-capability",
+            capability_code,
+        )
+        if cached_payload is not None:
+            return JSONResponse(content=cached_payload)
+
         pack_meta = _get_pack_meta_by_code(capability_code)
         if not pack_meta:
             raise HTTPException(
@@ -125,7 +139,13 @@ def get_installed_capability(capability_code: str):
                 detail=f"Capability '{capability_code}' is not installed",
             )
 
-        return JSONResponse(content=_format_installed_capability(pack_meta))
+        payload = _format_installed_capability(pack_meta)
+        set_cached_capability_route_payload(
+            "installed-capability",
+            capability_code,
+            payload,
+        )
+        return JSONResponse(content=payload)
     except HTTPException:
         raise
     except Exception as e:
@@ -151,6 +171,13 @@ def get_capability_ui_components(capability_code: str):
     Component code must be installed via RuntimeAssetsInstaller, not hardcoded.
     """
     try:
+        cached_payload = get_cached_capability_route_payload(
+            "ui-components",
+            capability_code,
+        )
+        if cached_payload is not None:
+            return cached_payload
+
         pack_meta = _get_pack_meta_by_code(capability_code)
         if not pack_meta:
             raise HTTPException(
@@ -173,6 +200,11 @@ def get_capability_ui_components(capability_code: str):
             for component in ui_components
         ]
 
+        set_cached_capability_route_payload(
+            "ui-components",
+            capability_code,
+            formatted_components,
+        )
         return formatted_components
     except HTTPException:
         raise
@@ -233,6 +265,10 @@ def _runtime_ui_assets_root() -> Path:
 
 def _load_runtime_ui_index(capability_code: str) -> Dict[str, Any]:
     try:
+        cached_payload = get_cached_runtime_ui_index(capability_code)
+        if cached_payload is not None:
+            return cached_payload
+
         pack_meta = _get_pack_meta_by_code(capability_code)
         manifest_file = pack_meta.get("_file_path") if pack_meta else None
         if not manifest_file:
@@ -240,7 +276,11 @@ def _load_runtime_ui_index(capability_code: str) -> Dict[str, Any]:
         sidecar_path = Path(manifest_file).parent / "ui_runtime_assets.json"
         if not sidecar_path.exists():
             return {}
-        return json.loads(sidecar_path.read_text(encoding="utf-8"))
+        payload = json.loads(sidecar_path.read_text(encoding="utf-8"))
+        if isinstance(payload, dict):
+            set_cached_runtime_ui_index(capability_code, payload)
+            return payload
+        return {}
     except Exception as exc:
         logger.warning(
             "Failed to load runtime UI index for %s: %s",

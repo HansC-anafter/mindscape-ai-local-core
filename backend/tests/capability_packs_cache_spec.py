@@ -9,6 +9,7 @@ from backend.app.routes.core import capability_packs
 def _reset_pack_yaml_cache():
     capability_packs._pack_yaml_cache = None
     capability_packs._pack_yaml_cache_time = 0
+    capability_packs._clear_installed_capability_route_cache()
 
 
 def test_pack_yaml_scan_cache_deduplicates_concurrent_default_scans(monkeypatch):
@@ -167,6 +168,7 @@ ui_components:
 
 
 def test_get_capability_ui_components_returns_layout_hint(monkeypatch):
+    _reset_pack_yaml_cache()
     monkeypatch.setattr(
         capability_packs,
         "_get_pack_meta_by_code",
@@ -198,6 +200,96 @@ def test_get_capability_ui_components_returns_layout_hint(monkeypatch):
 
     assert components[0]["layout_hint"] == "scrollable_full_bleed"
     assert components[1]["layout_hint"] == "default"
+
+
+def test_get_capability_ui_components_caches_success_payload(monkeypatch):
+    _reset_pack_yaml_cache()
+    calls = {"installed": 0, "meta": 0}
+    pack_meta = {
+        "id": "demo_pack",
+        "code": "demo_pack",
+        "ui_components": [
+            {
+                "code": "DemoPage",
+                "path": "ui/components/DemoPage.tsx",
+                "description": "Cached demo",
+                "export": "default",
+            }
+        ],
+    }
+
+    def fake_get_pack_meta_by_code(capability_code):
+        calls["meta"] += 1
+        return pack_meta
+
+    def fake_get_installed_pack_ids():
+        calls["installed"] += 1
+        return {"demo_pack"}
+
+    monkeypatch.setattr(
+        capability_packs,
+        "_get_pack_meta_by_code",
+        fake_get_pack_meta_by_code,
+    )
+    monkeypatch.setattr(
+        capability_packs,
+        "_get_installed_pack_ids",
+        fake_get_installed_pack_ids,
+    )
+    monkeypatch.setattr(
+        capability_packs._installed_routes,
+        "_get_runtime_ui_component",
+        lambda capability_code, component_code: {},
+    )
+
+    first = capability_packs.get_capability_ui_components("demo_pack")
+    first[0]["description"] = "mutated"
+    second = capability_packs.get_capability_ui_components("demo_pack")
+
+    assert calls == {"installed": 1, "meta": 1}
+    assert second[0]["description"] == "Cached demo"
+
+
+def test_runtime_ui_index_cache_deduplicates_component_lookup(monkeypatch, tmp_path):
+    _reset_pack_yaml_cache()
+    calls = 0
+    manifest_path = tmp_path / "manifest.yaml"
+    manifest_path.write_text("code: demo_pack\n", encoding="utf-8")
+    (tmp_path / "ui_runtime_assets.json").write_text(
+        """
+{
+  "components": [
+    {"code": "DemoOne", "asset_url": "/one.js"},
+    {"code": "DemoTwo", "asset_url": "/two.js"}
+  ]
+}
+""",
+        encoding="utf-8",
+    )
+
+    def fake_get_pack_meta_by_code(capability_code):
+        nonlocal calls
+        calls += 1
+        return {"_file_path": str(manifest_path)}
+
+    monkeypatch.setattr(
+        capability_packs._installed_routes,
+        "_get_pack_meta_by_code",
+        fake_get_pack_meta_by_code,
+    )
+
+    first = capability_packs._installed_routes._get_runtime_ui_component(
+        "demo_pack",
+        "DemoOne",
+    )
+    second = capability_packs._installed_routes._get_runtime_ui_component(
+        "demo_pack",
+        "DemoTwo",
+    )
+
+    assert calls == 1
+    assert first["asset_url"] == "/one.js"
+    assert second["asset_url"] == "/two.js"
 
 
 def test_get_capability_workspace_tools_joins_panel_component(monkeypatch):

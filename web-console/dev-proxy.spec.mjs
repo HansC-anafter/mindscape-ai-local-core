@@ -209,6 +209,25 @@ describe('frontend dev proxy', () => {
     });
   });
 
+  it('preserves immutable cache headers for installed capability UI assets', () => {
+    const assetPath = '/api/v1/capability-packs/installed-capabilities/ig/ui-assets/1.0.94/components/IGWorkbenchPage.mjs';
+    expect(
+      copyProxyResponseHeaders(
+        { 'cache-control': 'public, max-age=31536000, immutable' },
+        assetPath,
+        'GET',
+        200,
+      ),
+    ).toMatchObject({
+      'cache-control': 'public, max-age=31536000, immutable',
+    });
+    expect(
+      copyProxyResponseHeaders({}, assetPath, 'GET', 500),
+    ).toMatchObject({
+      'cache-control': 'no-store',
+    });
+  });
+
   it('restores WebSocket upgrade headers for the upstream Next dev handshake', () => {
     const headers = copyProxyUpgradeHeaders(
       {
