@@ -86,8 +86,10 @@ MLX_PID=$!
 # 2. Track stderr log growth while MLX is busy loading/prefilling.
 # If /v1/models stops responding and neither counter advances across
 # WATCHDOG_MAX_FAILURES consecutive checks, treat the process as hung.
-STDOUT_LOG="$(dirname "$0")/logs/mlx-server.log"
-STDERR_LOG="$(dirname "$0")/logs/mlx-server.error.log"
+LOG_DIR="${MLX_LOG_DIR:-$(dirname "$0")/logs}"
+mkdir -p "$LOG_DIR" 2>/dev/null || true
+STDOUT_LOG="${LOG_DIR}/mlx-server.log"
+STDERR_LOG="${LOG_DIR}/mlx-server.error.log"
 
 _count_ok_lines() {
   grep -c "200 OK" "$STDOUT_LOG" 2>/dev/null || echo 0
