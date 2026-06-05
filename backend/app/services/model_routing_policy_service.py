@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
@@ -140,6 +141,67 @@ class ModelRoutingPolicyService:
         normalized_scope = str(scope or "local").strip() or "local"
         return self._settings_store.get_profile_model_bindings_for_scope(normalized_scope)
 
+    @staticmethod
+    def _resolve_host_resource_env_profile_model(
+        *,
+        profile: str,
+        scope: str,
+    ) -> Optional[ResolvedProfileModelRoute]:
+        """Resolve an explicit host-resource worker model binding."""
+
+        normalized_profile = str(profile or "").strip()
+        normalized_scope = str(scope or "local").strip() or "local"
+        if normalized_scope != "local" or normalized_profile != "vision":
+            return None
+
+        adapter_id = str(os.getenv("LOCAL_CORE_RUNTIME_ADAPTER_ID") or "").strip()
+        if adapter_id != "apple_mlx_vlm":
+            return None
+
+        model_name = (
+            str(os.getenv("MLX_MODEL") or "").strip()
+            or str(os.getenv("LOCAL_CORE_RUNTIME_MODEL") or "").strip()
+        )
+        if not model_name:
+            return None
+
+        endpoint = (
+            str(os.getenv("LOCAL_CORE_RUNTIME_ENDPOINT") or "").strip()
+            or str(os.getenv("MLX_BASE_URL") or "").strip()
+        )
+        port = str(os.getenv("MLX_PORT") or "").strip()
+        if not endpoint and port:
+            endpoint = f"http://host.docker.internal:{port}"
+        if not endpoint:
+            return None
+
+        metadata = {
+            "runtime_provider": "mlx",
+            "base_url": endpoint.rstrip("/"),
+            "host_resource_adapter_id": adapter_id,
+            "host_resource_runtime_environment_id": str(
+                os.getenv("LOCAL_CORE_RUNTIME_ENVIRONMENT_ID") or ""
+            ).strip(),
+            "host_resource_lane_id": str(
+                os.getenv("LOCAL_CORE_HOST_RESOURCE_LANE_ID")
+                or os.getenv("LOCAL_CORE_RUNNER_PROFILE")
+                or ""
+            ).strip(),
+            "route_authority": "host-resource-runtime-env",
+        }
+        max_tokens = str(os.getenv("LOCAL_CORE_RUNTIME_MAX_OUTPUT_TOKENS") or "").strip()
+        if max_tokens:
+            metadata["local_max_output_tokens_cap"] = max_tokens
+
+        return ResolvedProfileModelRoute(
+            profile=normalized_profile,
+            scope=normalized_scope,
+            model_name=model_name,
+            provider="mlx",
+            source="host_resource_runtime_env.local.vision",
+            metadata={key: value for key, value in metadata.items() if value},
+        )
+
     def _find_enabled_model_config(
         self,
         *,
@@ -254,6 +316,13 @@ class ModelRoutingPolicyService:
     ) -> ResolvedProfileModelRoute:
         normalized_profile = str(profile or "").strip()
         normalized_scope = str(scope or "local").strip() or "local"
+        host_resource_route = self._resolve_host_resource_env_profile_model(
+            profile=normalized_profile,
+            scope=normalized_scope,
+        )
+        if host_resource_route is not None:
+            return host_resource_route
+
         source = (
             f"system_settings.profile_model_bindings."
             f"{normalized_scope}.{normalized_profile or '<unset>'}"

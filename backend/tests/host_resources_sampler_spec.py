@@ -4,6 +4,34 @@ from backend.app.services.host_resources.route_intents import build_route_intent
 from backend.app.services.host_resources.samplers import degraded_snapshot, snapshot_from_probe
 
 
+def _mlx_lane(
+    *,
+    lane_id="runner:vision_mlx_high",
+    port=8210,
+    model="mlx-community/Qwen3.5-9B-4bit",
+    memory_mb=7168,
+    groups=None,
+):
+    queue_shard = lane_id.split(":", 1)[-1]
+    return {
+        "lane_id": lane_id,
+        "label": "Vision MLX High",
+        "kind": "vision_analyze",
+        "queue_shard": queue_shard,
+        "resource_flavor": "local.mlx.vision",
+        "model_profile": {
+            "port": port,
+            "model": model,
+            "memory_reserve_mb": memory_mb,
+        },
+        "requirements": {
+            "memory_mb": memory_mb,
+            "memory_source": "dynamic_lane_config",
+            "exclusive_groups": groups or [queue_shard, "comfyui_runtime", "mps_generation"],
+        },
+    }
+
+
 def _probe_payload():
     return {
         "sampled_at": "2026-05-12T00:00:00Z",
@@ -40,14 +68,64 @@ def _probe_payload():
     }
 
 
-def test_snapshot_marks_mlx_consumer_as_declared_unified_memory_reservation():
+def test_snapshot_marks_mlx_consumer_as_declared_unified_memory_reservation(monkeypatch):
+    import backend.app.services.host_resources.samplers as samplers
+
+    monkeypatch.setattr(
+        samplers,
+        "load_lane_registry",
+        lambda: {"runner:vision_mlx_high": _mlx_lane()},
+    )
+
     snapshot = snapshot_from_probe(_probe_payload())
 
     assert snapshot["degraded"] is False
     assert snapshot["host"]["memory_pressure"]["free_percent"] == 35
-    assert snapshot["consumers"][0]["consumer_id"] == "mlx:qwen9b_4bit_vision"
+    assert snapshot["consumers"][0]["consumer_id"] == "mlx:runner:vision_mlx_high"
+    assert snapshot["consumers"][0]["model"] == "mlx-community/Qwen3.5-9B-4bit"
+    assert snapshot["consumers"][0]["port"] == 8210
     assert snapshot["consumers"][0]["memory_mb"] == 7168
     assert snapshot["consumers"][0]["memory_source"] == "declared"
+
+
+def test_snapshot_keeps_multiple_mlx_processes_distinct_by_lane_port(monkeypatch):
+    import backend.app.services.host_resources.samplers as samplers
+
+    payload = _probe_payload()
+    payload["probes"]["process_census"]["parsed"].append(
+        {
+            "pid": 79871,
+            "ppid": 79004,
+            "cpu_percent": 1.0,
+            "memory_percent": 0.1,
+            "rss_kb": 52800,
+            "vsz_kb": 420933568,
+            "command": "/opt/miniconda3/bin/python",
+            "args": "/opt/miniconda3/bin/python -m mlx_vlm.server --port=8211 --host 0.0.0.0",
+        }
+    )
+    monkeypatch.setattr(
+        samplers,
+        "load_lane_registry",
+        lambda: {
+            "runner:vision_mlx_high": _mlx_lane(),
+            "runner:vision_mlx_35b": _mlx_lane(
+                lane_id="runner:vision_mlx_35b",
+                port=8211,
+                model="froggeric/Qwen3.6-35B-A3B-Uncensored-Heretic-MLX-4bit",
+                memory_mb=28672,
+                groups=["vision_mlx_35b", "comfyui_runtime", "mps_generation"],
+            ),
+        },
+    )
+
+    snapshot = snapshot_from_probe(payload)
+
+    consumers = {consumer["consumer_id"]: consumer for consumer in snapshot["consumers"]}
+    assert set(consumers) == {"mlx:runner:vision_mlx_high", "mlx:runner:vision_mlx_35b"}
+    assert consumers["mlx:runner:vision_mlx_35b"]["memory_mb"] == 28672
+    assert consumers["mlx:runner:vision_mlx_35b"]["port"] == 8211
+    assert snapshot["capacity"]["reserved_memory_mb"] == 35840
 
 
 def test_degraded_snapshot_marks_lanes_degraded():
@@ -62,6 +140,7 @@ def test_degraded_snapshot_marks_lanes_degraded():
 async def test_route_intent_preview_uses_manifest_declared_comfyui_lane(monkeypatch, tmp_path):
     import backend.app.services.host_resources.lane_registry as lane_registry
     import backend.app.services.host_resources.route_intents as route_intents
+    import backend.app.services.host_resources.samplers as samplers
 
     async def _snapshot(refresh=False):
         return snapshot_from_probe(_probe_payload())
@@ -100,6 +179,11 @@ host_resource_lanes:
     monkeypatch.setattr(route_intents, "get_host_resource_snapshot", _snapshot)
     monkeypatch.setattr(route_intents, "build_route_reservation_candidate_previews", _candidate_previews)
     monkeypatch.setattr(lane_registry, "_capabilities_dir", lambda: tmp_path / "capabilities")
+    monkeypatch.setattr(
+        samplers,
+        "load_lane_registry",
+        lambda: {"runner:vision_mlx_high": _mlx_lane()},
+    )
 
     preview = await build_route_intent_preview(
         {
@@ -136,6 +220,7 @@ async def test_route_intent_preview_keeps_reservation_payload_when_candidate_sca
 
     import backend.app.services.host_resources.lane_registry as lane_registry
     import backend.app.services.host_resources.route_intents as route_intents
+    import backend.app.services.host_resources.samplers as samplers
 
     async def _snapshot(refresh=False):
         return snapshot_from_probe(_probe_payload())
@@ -166,6 +251,11 @@ host_resource_lanes:
     monkeypatch.setattr(route_intents, "get_host_resource_snapshot", _snapshot)
     monkeypatch.setattr(route_intents, "build_route_reservation_candidate_previews", _slow_candidate_previews)
     monkeypatch.setattr(lane_registry, "_capabilities_dir", lambda: tmp_path / "capabilities")
+    monkeypatch.setattr(
+        samplers,
+        "load_lane_registry",
+        lambda: {"runner:vision_mlx_high": _mlx_lane()},
+    )
 
     preview = await build_route_intent_preview(
         {

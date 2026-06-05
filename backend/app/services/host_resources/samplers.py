@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shlex
 from datetime import datetime, timezone
 from typing import Any
 
@@ -20,6 +21,28 @@ def _int_value(value: Any, default: int = 0) -> int:
         return int(value)
     except Exception:
         return default
+
+
+def _clean_string(value: Any) -> str | None:
+    if value is None:
+        return None
+    normalized = str(value).strip()
+    return normalized or None
+
+
+def _dict(value: Any) -> dict[str, Any]:
+    return dict(value) if isinstance(value, dict) else {}
+
+
+def _string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    cleaned: list[str] = []
+    for item in value:
+        normalized = _clean_string(item)
+        if normalized and normalized not in cleaned:
+            cleaned.append(normalized)
+    return cleaned
 
 
 def _memory_pressure_state(free_percent: int | None) -> str:
@@ -63,7 +86,123 @@ def _probe_errors(probe_payload: dict[str, Any]) -> list[dict[str, Any]]:
     return errors
 
 
-def _consumer_from_process(process: dict[str, Any]) -> dict[str, Any] | None:
+def _process_port_from_args(args: str) -> int | None:
+    try:
+        tokens = shlex.split(args)
+    except ValueError:
+        tokens = args.split()
+    for index, token in enumerate(tokens):
+        if token == "--port" and index + 1 < len(tokens):
+            port = _int_value(tokens[index + 1], default=0)
+            return port if port > 0 else None
+        if token.startswith("--port="):
+            port = _int_value(token.split("=", 1)[1], default=0)
+            return port if port > 0 else None
+    return None
+
+
+def _mlx_lane_index(lanes: dict[str, dict[str, Any]]) -> dict[int, dict[str, Any]]:
+    indexed: dict[int, dict[str, Any]] = {}
+    for lane in lanes.values():
+        if not isinstance(lane, dict):
+            continue
+        model_profile = _dict(lane.get("model_profile"))
+        port = _int_value(model_profile.get("port"), default=0)
+        if port <= 0:
+            continue
+        resource_flavor = _clean_string(lane.get("resource_flavor"))
+        adapter_id = _clean_string(
+            _dict(lane.get("metadata")).get("adapter_id")
+            or _dict(lane.get("metadata")).get("runtime_adapter_id")
+            or model_profile.get("adapter_id")
+        )
+        if resource_flavor == "local.mlx.vision" or adapter_id in {"apple_mlx_vlm", "apple_mlx_lm"}:
+            indexed[port] = lane
+    return indexed
+
+
+def _mlx_consumer_from_lane(
+    *,
+    process: dict[str, Any],
+    lane: dict[str, Any],
+    port: int,
+    kind: str,
+    rss_mb: float,
+) -> dict[str, Any]:
+    lane_id = _clean_string(lane.get("lane_id")) or f"port:{port}"
+    requirements = _dict(lane.get("requirements"))
+    model_profile = _dict(lane.get("model_profile"))
+    model = _clean_string(model_profile.get("model") or model_profile.get("model_id"))
+    memory_mb = _int_value(requirements.get("memory_mb"), default=0)
+    memory_source_detail = _clean_string(requirements.get("memory_source"))
+    if memory_mb <= 0:
+        memory_mb = _int_value(model_profile.get("memory_reserve_mb"), default=0)
+        memory_source_detail = "model_profile.memory_reserve_mb" if memory_mb > 0 else None
+    if memory_mb > 0:
+        memory_source = "declared"
+        confidence = "declared"
+    else:
+        memory_mb = rss_mb
+        memory_source = "rss"
+        confidence = "observed"
+    groups = _string_list(requirements.get("exclusive_groups"))
+    if not groups:
+        groups = [
+            group
+            for group in [
+                _clean_string(lane.get("queue_shard")),
+                "mlx_runtime",
+            ]
+            if group
+        ]
+    return {
+        "consumer_id": f"mlx:{lane_id}",
+        "label": f"MLX {model}" if model else str(lane.get("label") or "MLX Runtime"),
+        "kind": kind,
+        "pid": _int_value(process.get("pid")),
+        "command": process.get("args") or process.get("command"),
+        "memory_mb": memory_mb,
+        "memory_source": memory_source,
+        "memory_source_detail": memory_source_detail,
+        "rss_mb": rss_mb,
+        "confidence": confidence,
+        "exclusive_groups": groups,
+        "lane_id": lane_id,
+        "model": model,
+        "port": port,
+    }
+
+
+def _unknown_mlx_consumer(
+    *,
+    process: dict[str, Any],
+    port: int | None,
+    kind: str,
+    rss_mb: float,
+) -> dict[str, Any]:
+    pid = _int_value(process.get("pid"))
+    consumer = {
+        "consumer_id": f"mlx:process:{pid}",
+        "label": "MLX Runtime",
+        "kind": kind,
+        "pid": pid,
+        "command": process.get("args") or process.get("command"),
+        "memory_mb": rss_mb,
+        "memory_source": "rss",
+        "rss_mb": rss_mb,
+        "confidence": "observed",
+        "exclusive_groups": ["mlx_runtime"],
+    }
+    if port:
+        consumer["port"] = port
+    return consumer
+
+
+def _consumer_from_process(
+    process: dict[str, Any],
+    *,
+    mlx_lanes_by_port: dict[int, dict[str, Any]] | None = None,
+) -> dict[str, Any] | None:
     args = str(process.get("args") or "")
     command = str(process.get("command") or "")
     combined = f"{command} {args}".lower()
@@ -71,18 +210,23 @@ def _consumer_from_process(process: dict[str, Any]) -> dict[str, Any] | None:
     rss_mb = round(_int_value(process.get("rss_kb")) / 1024, 1)
 
     if "mlx_vlm" in combined or "mlx_lm" in combined:
-        return {
-            "consumer_id": "mlx:qwen9b_4bit_vision",
-            "label": "MLX Qwen9B 4bit Vision",
-            "kind": "process",
-            "pid": pid,
-            "command": args or command,
-            "memory_mb": 7168,
-            "memory_source": "declared",
-            "rss_mb": rss_mb,
-            "confidence": "declared",
-            "exclusive_groups": ["apple_metal_heavy", "mlx_vision_llm"],
-        }
+        kind = "mlx_vlm" if "mlx_vlm" in combined else "mlx_lm"
+        port = _process_port_from_args(args or command)
+        lane = (mlx_lanes_by_port or {}).get(port or 0)
+        if lane and port:
+            return _mlx_consumer_from_lane(
+                process=process,
+                lane=lane,
+                port=port,
+                kind=kind,
+                rss_mb=rss_mb,
+            )
+        return _unknown_mlx_consumer(
+            process=process,
+            port=port,
+            kind=kind,
+            rss_mb=rss_mb,
+        )
     if "ollama" in combined:
         return {
             "consumer_id": f"ollama:process:{pid}",
@@ -177,15 +321,20 @@ def _consumer_from_process(process: dict[str, Any]) -> dict[str, Any] | None:
     return None
 
 
-def _consumers_from_probe(probe_payload: dict[str, Any]) -> list[dict[str, Any]]:
+def _consumers_from_probe(
+    probe_payload: dict[str, Any],
+    *,
+    lane_registry: dict[str, dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
     processes = _probe_parsed_value(probe_payload, "process_census")
     raw_processes = processes if isinstance(processes, list) else []
+    mlx_lanes_by_port = _mlx_lane_index(lane_registry or load_lane_registry())
     consumers: list[dict[str, Any]] = []
     seen: set[str] = set()
     for process in raw_processes:
         if not isinstance(process, dict):
             continue
-        consumer = _consumer_from_process(process)
+        consumer = _consumer_from_process(process, mlx_lanes_by_port=mlx_lanes_by_port)
         if not consumer:
             continue
         key = str(consumer.get("consumer_id") or "")
@@ -249,7 +398,8 @@ def snapshot_from_probe(
     free_percent = pressure.get("free_percent")
     if free_percent is not None:
         free_percent = _int_value(free_percent)
-    consumers = _consumers_from_probe(probe_payload)
+    lane_registry = load_lane_registry()
+    consumers = _consumers_from_probe(probe_payload, lane_registry=lane_registry)
     reserved_memory_mb = sum(
         _int_value(consumer.get("memory_mb"))
         for consumer in consumers
@@ -264,7 +414,7 @@ def snapshot_from_probe(
         for group in consumer.get("exclusive_groups", [])
         if isinstance(group, str)
     }
-    for lane in load_lane_registry().values():
+    for lane in lane_registry.values():
         lane_copy = dict(lane)
         requirements = dict(lane.get("requirements") or {})
         lane_copy["requirements"] = requirements

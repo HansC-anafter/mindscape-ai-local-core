@@ -267,6 +267,12 @@ def get_cached_snapshot_or_degraded() -> dict[str, Any]:
     return degraded_snapshot("host_resource_snapshot_unavailable")
 
 
+def clear_host_resource_snapshot_cache() -> None:
+    global _cached_snapshot, _cached_at
+    _cached_snapshot = None
+    _cached_at = None
+
+
 async def refresh_host_resource_snapshot() -> dict[str, Any]:
     global _cached_snapshot, _cached_at
     async with _get_refresh_lock():

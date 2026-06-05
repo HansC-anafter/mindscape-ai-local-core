@@ -12,6 +12,7 @@ from backend.app.services.host_resources.route_reservation_service import (
     create_route_reservation,
 )
 from backend.app.services.host_resources.manager import (
+    clear_host_resource_snapshot_cache,
     get_cached_snapshot_or_degraded,
     get_host_resource_snapshot,
     get_runner_claim_gate,
@@ -196,6 +197,7 @@ async def create_lane(
         if reason == "duplicate_lane_id":
             raise HTTPException(status_code=409, detail=reason) from exc
         raise HTTPException(status_code=422, detail=reason) from exc
+    clear_host_resource_snapshot_cache()
     return {"lane": lane}
 
 
@@ -212,6 +214,7 @@ async def patch_lane(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     if not lane:
         raise HTTPException(status_code=404, detail="dynamic_lane_not_found")
+    clear_host_resource_snapshot_cache()
     return {"lane": lane}
 
 

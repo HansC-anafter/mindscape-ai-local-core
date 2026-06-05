@@ -36,7 +36,8 @@ def _worker_env_for_lane(lane: dict[str, Any]) -> dict[str, Any]:
         "LOCAL_CORE_RUNNER_ACCEPTED_RESOURCE_CLASSES": lane.get("resource_class"),
         "LOCAL_CORE_RUNNER_ACCEPTED_CAPABILITY_CODES": "ig_analyze_pinned_reference",
         "LOCAL_CORE_RUNNER_MAX_INFLIGHT": 1,
-        "LOCAL_CORE_RUNNER_RUNTIME_ID": f"mlx:{lane.get('lane_id')}",
+        "LOCAL_CORE_RUNNER_DISPATCH_MODE": "docker_local",
+        "LOCAL_CORE_HOST_RESOURCE_LANE_ID": lane.get("lane_id"),
     }
     model = model_profile.get("model")
     if model:

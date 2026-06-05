@@ -100,6 +100,40 @@ def _model_binding_for(
     )
     if not scope or not profile:
         return {"model": None, "scope": scope, "profile": profile, "source": "not_required"}
+    model_profile = _dict(lane.get("model_profile"))
+    lane_model = _clean_string(model_profile.get("model"))
+    if lane_model:
+        return {
+            "model": lane_model,
+            "scope": scope,
+            "profile": profile,
+            "source": "lane.model_profile.model",
+        }
+    lane_model_id = _clean_string(model_profile.get("model_id"))
+    if lane_model_id:
+        return {
+            "model": lane_model_id,
+            "scope": scope,
+            "profile": profile,
+            "source": "lane.model_profile.model_id",
+        }
+    raw_slot = _dict(slot.get("raw"))
+    slot_model = _clean_string(raw_slot.get("model"))
+    if slot_model:
+        return {
+            "model": slot_model,
+            "scope": scope,
+            "profile": profile,
+            "source": "host_resource_slot.model",
+        }
+    slot_model_id = _clean_string(raw_slot.get("model_id"))
+    if slot_model_id:
+        return {
+            "model": slot_model_id,
+            "scope": scope,
+            "profile": profile,
+            "source": "host_resource_slot.model_id",
+        }
     bindings = SystemSettingsStore().get_profile_model_bindings_for_scope(scope)
     model = _clean_string(bindings.get(profile)) if isinstance(bindings, dict) else None
     return {
@@ -134,13 +168,16 @@ def _worker_env_for_resolution(
         "LOCAL_CORE_RUNNER_ACCEPTED_RESOURCE_CLASSES": lane.get("resource_class"),
         "LOCAL_CORE_RUNNER_ACCEPTED_CAPABILITY_CODES": "ig_analyze_pinned_reference",
         "LOCAL_CORE_RUNNER_MAX_INFLIGHT": 1,
-        "LOCAL_CORE_RUNNER_RUNTIME_ID": f"{adapter['adapter_id']}:{lane.get('lane_id')}",
+        "LOCAL_CORE_RUNNER_DISPATCH_MODE": "docker_local",
+        "LOCAL_CORE_HOST_RESOURCE_LANE_ID": lane.get("lane_id"),
     }
     base_url = _clean_string(endpoint.get("base_url"))
     if base_url:
         env["LOCAL_CORE_RUNTIME_ENDPOINT"] = base_url
     if adapter["adapter_id"] == "apple_mlx_vlm":
         env["MLX_PORT"] = port
+        if base_url:
+            env["MLX_BASE_URL"] = base_url
         if model_binding.get("model"):
             env["MLX_MODEL"] = model_binding["model"]
     elif adapter["adapter_id"] == "ollama_llama_cpp":
