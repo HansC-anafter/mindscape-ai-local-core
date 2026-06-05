@@ -3,9 +3,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { RealtimeVoiceSessionButton } from './RealtimeVoiceSessionButton';
 import {
-  createBrowserVadController,
   openRealtimeVoiceSession,
 } from '@/lib/meeting-voice/realtimeVoiceSessionClient';
+import { createBrowserVadController } from '@/lib/meeting-voice/browserVadController';
 import { fetchXttsHealth } from '@/lib/meeting-voice/voicePlaybackQueue';
 
 const mocks = vi.hoisted(() => ({
@@ -28,6 +28,9 @@ vi.mock('@/lib/meeting-voice/realtimeVoiceSessionClient', () => ({
     mocks.sessionInput = input;
     return mocks.socket;
   }),
+}));
+
+vi.mock('@/lib/meeting-voice/browserVadController', () => ({
   createBrowserVadController: vi.fn(async (input) => {
     mocks.vadInput = input;
     return mocks.vad;

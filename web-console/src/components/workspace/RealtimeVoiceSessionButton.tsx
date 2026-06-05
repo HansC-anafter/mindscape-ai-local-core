@@ -4,12 +4,11 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Mic2, Radio, Square, X } from 'lucide-react';
 
 import {
-  createBrowserVadController,
   openRealtimeVoiceSession,
-  type BrowserVadController,
   type RealtimeVoiceSessionEvent,
   type RealtimeVoiceSessionSocket,
 } from '@/lib/meeting-voice/realtimeVoiceSessionClient';
+import type { BrowserVadController } from '@/lib/meeting-voice/browserVadController';
 import {
   fetchXttsHealth,
   VoicePlaybackQueue,
@@ -134,6 +133,9 @@ export function RealtimeVoiceSessionButton({
         onOpen: async () => {
           socket.send({ type: 'session_start' });
           try {
+            const { createBrowserVadController } = await import(
+              '@/lib/meeting-voice/browserVadController'
+            );
             const vad = await createBrowserVadController({
               onSpeechStart: () => setState('listening'),
               onSpeechEnd: async (window) => {
