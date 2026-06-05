@@ -22,6 +22,11 @@ const LazyRealtimeVoiceSessionButton = React.lazy(() => (
     default: module.RealtimeVoiceSessionButton,
   }))
 ));
+const LazyDeviceBindingPanel = React.lazy(() => (
+  import('./device-binding/DeviceBindingPanel').then((module) => ({
+    default: module.DeviceBindingPanel,
+  }))
+));
 
 interface InputAreaProps {
   workspaceId: string;
@@ -182,9 +187,15 @@ export function InputArea({
             ) : null
           }
           actionContent={
-            meetingId ? (
-              <React.Suspense fallback={null}>
-                <div className="flex items-center gap-1">
+            <React.Suspense fallback={null}>
+              <div className="flex items-center gap-1">
+                <LazyDeviceBindingPanel
+                  workspaceId={workspaceId}
+                  apiUrl={resolvedApiUrl}
+                  disabled={llmConfigured === false}
+                />
+                {meetingId ? (
+                  <>
                   <LazyRealtimeVoiceSessionButton
                     workspaceId={workspaceId}
                     meetingId={meetingId}
@@ -197,9 +208,10 @@ export function InputArea({
                     apiUrl={resolvedApiUrl}
                     disabled={llmConfigured === false}
                   />
-                </div>
-              </React.Suspense>
-            ) : null
+                  </>
+                ) : null}
+              </div>
+            </React.Suspense>
           }
           onFileUpload={() => fileInputRef.current?.click()}
           onSend={() => onSend({ preventDefault: () => { } } as React.FormEvent)}

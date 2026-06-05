@@ -15,6 +15,7 @@ from . import (
     workbench,
     health,
     meeting_commands,
+    device_bindings,
     meeting_voice,
     meeting_voice_sessions,
     meeting_graph,
@@ -42,6 +43,7 @@ router.include_router(tasks.router)
 router.include_router(workbench.router)
 router.include_router(health.router)
 router.include_router(meeting_commands.router)
+router.include_router(device_bindings.router)
 router.include_router(meeting_voice.router)
 router.include_router(meeting_voice_sessions.router)
 router.include_router(meeting_graph.router)
