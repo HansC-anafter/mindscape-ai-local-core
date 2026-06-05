@@ -216,6 +216,20 @@ class DeviceBindingRegistry:
             and entry.state not in {"revoked", "expired", "closed", "rejected"}
         ]
 
+    def get_active_session(
+        self,
+        *,
+        workspace_id: str,
+        session_id: str,
+    ) -> DeviceSessionEntry | None:
+        self.cleanup_expired()
+        entry = self._sessions.get(session_id)
+        if entry is None or entry.workspace_id != workspace_id:
+            return None
+        if entry.state in {"revoked", "expired", "closed", "rejected"}:
+            return None
+        return entry
+
     def cleanup_expired(self, *, now_epoch: float | None = None) -> int:
         now = time.time() if now_epoch is None else now_epoch
         removed = 0

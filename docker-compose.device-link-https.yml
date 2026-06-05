@@ -1,0 +1,14 @@
+services:
+  frontend:
+    ports:
+      - "${DEVICE_LINK_HTTPS_HOST_PORT:-8343}:8343"
+    environment:
+      - DEVICE_LINK_HTTPS_ENABLED=1
+      - DEVICE_LINK_HTTPS_HOST=0.0.0.0
+      - DEVICE_LINK_HTTPS_PORT=8343
+      - DEVICE_LINK_PUBLIC_ORIGIN=${DEVICE_LINK_PUBLIC_ORIGIN:?set trusted LAN HTTPS origin, for example https://192.168.1.20:8343}
+      - DEVICE_LINK_HTTPS_CERT_FILE=/run/mindscape/device-link/tls.crt
+      - DEVICE_LINK_HTTPS_KEY_FILE=/run/mindscape/device-link/tls.key
+    volumes:
+      - ${DEVICE_LINK_HTTPS_CERT_HOST_FILE:?set trusted certificate host path}:/run/mindscape/device-link/tls.crt:ro
+      - ${DEVICE_LINK_HTTPS_KEY_HOST_FILE:?set trusted key host path}:/run/mindscape/device-link/tls.key:ro

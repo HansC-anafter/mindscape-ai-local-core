@@ -12,6 +12,7 @@ import {
   type DevicePairingCode,
   type DeviceSessionEntry,
 } from '@/lib/device-binding/deviceBindingClient';
+import { PhoneSourcePreview } from './PhoneSourcePreview';
 
 interface DeviceBindingPanelProps {
   apiUrl: string;
@@ -41,10 +42,15 @@ export function DeviceBindingPanel({
 
   const deviceLink = useMemo(() => {
     if (!pairing || typeof window === 'undefined') {
-      return pairing?.device_link_path || '';
+      if (!pairing) {
+        return '';
+      }
+      return `${pairing.device_link_path}?workspaceId=${encodeURIComponent(workspaceId)}`;
     }
-    return new URL(pairing.device_link_path, window.location.origin).toString();
-  }, [pairing]);
+    const url = new URL(pairing.device_link_path, window.location.origin);
+    url.searchParams.set('workspaceId', workspaceId);
+    return url.toString();
+  }, [pairing, workspaceId]);
 
   const applyEvent = (event: DeviceControlEvent) => {
     if (event.type === 'pairing_ready') {
@@ -183,25 +189,32 @@ export function DeviceBindingPanel({
             {sessions.map((session) => (
               <div
                 key={session.session_id}
-                className="flex items-center justify-between gap-2 rounded-md border border-gray-200 px-2 py-1.5 dark:border-gray-700"
+                className="rounded-md border border-gray-200 px-2 py-1.5 dark:border-gray-700"
               >
-                <div className="min-w-0">
-                  <div className="truncate font-medium text-gray-900 dark:text-gray-100">
-                    {session.display_name || session.device_id}
+                <div className="flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="truncate font-medium text-gray-900 dark:text-gray-100">
+                      {session.display_name || session.device_id}
+                    </div>
+                    <div className="truncate text-gray-500 dark:text-gray-400">
+                      {session.source_types.join(', ') || session.state}
+                    </div>
                   </div>
-                  <div className="truncate text-gray-500 dark:text-gray-400">
-                    {session.source_types.join(', ') || session.state}
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void revokeSession(session.session_id)}
+                    className="inline-flex h-7 w-7 items-center justify-center rounded-md text-gray-500 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
+                    aria-label={`Revoke ${session.display_name || session.device_id}`}
+                    title="Revoke device"
+                  >
+                    <Unplug className="h-4 w-4" aria-hidden="true" />
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => void revokeSession(session.session_id)}
-                  className="inline-flex h-7 w-7 items-center justify-center rounded-md text-gray-500 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
-                  aria-label={`Revoke ${session.display_name || session.device_id}`}
-                  title="Revoke device"
-                >
-                  <Unplug className="h-4 w-4" aria-hidden="true" />
-                </button>
+                <PhoneSourcePreview
+                  apiUrl={apiUrl}
+                  workspaceId={workspaceId}
+                  session={session}
+                />
               </div>
             ))}
           </div>

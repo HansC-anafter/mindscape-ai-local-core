@@ -22,11 +22,6 @@ const LazyRealtimeVoiceSessionButton = React.lazy(() => (
     default: module.RealtimeVoiceSessionButton,
   }))
 ));
-const LazyDeviceBindingPanel = React.lazy(() => (
-  import('./device-binding/DeviceBindingPanel').then((module) => ({
-    default: module.DeviceBindingPanel,
-  }))
-));
 
 interface InputAreaProps {
   workspaceId: string;
@@ -189,11 +184,6 @@ export function InputArea({
           actionContent={
             <React.Suspense fallback={null}>
               <div className="flex items-center gap-1">
-                <LazyDeviceBindingPanel
-                  workspaceId={workspaceId}
-                  apiUrl={resolvedApiUrl}
-                  disabled={llmConfigured === false}
-                />
                 {meetingId ? (
                   <>
                   <LazyRealtimeVoiceSessionButton

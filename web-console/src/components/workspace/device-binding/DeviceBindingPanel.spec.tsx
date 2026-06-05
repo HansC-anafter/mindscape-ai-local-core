@@ -36,6 +36,12 @@ vi.mock('@/lib/device-binding/deviceBindingClient', () => ({
   })),
 }));
 
+vi.mock('./PhoneSourcePreview', () => ({
+  PhoneSourcePreview: ({ session }: any) => (
+    <div data-testid={`mock-phone-source-preview-${session.session_id}`} />
+  ),
+}));
+
 describe('DeviceBindingPanel', () => {
   afterEach(() => {
     vi.clearAllMocks();

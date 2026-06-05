@@ -1,6 +1,7 @@
 export type DeviceSourceType =
   | 'phone_camera'
   | 'desktop_camera'
+  | 'usb_camera'
   | 'virtual_camera'
   | 'microphone';
 

@@ -5,12 +5,13 @@ export default function DeviceLinkPage({
   searchParams,
 }: {
   params: { pairingCode?: string };
-  searchParams?: { workspaceId?: string };
+  searchParams?: { workspaceId?: string; sourceMode?: string };
 }) {
   return (
     <DeviceLinkPageClient
       pairingCode={params.pairingCode || ''}
       workspaceId={searchParams?.workspaceId || 'default'}
+      initialSourceMode={searchParams?.sourceMode === 'camera' ? 'camera' : 'phone'}
     />
   );
 }

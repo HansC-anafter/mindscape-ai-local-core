@@ -13,6 +13,7 @@ import {
   isFrontendDocumentHeadReadinessRequest,
   writeFrontendDocumentHeadReadiness,
 } from './dev-proxy/head-readiness.mjs';
+import { startDeviceLinkHttpsProxy } from './dev-proxy/device-link-https.mjs';
 
 export { resolveFrontendPrewarmPaths } from './dev-proxy/prewarm.mjs';
 export { resolveApiRoutePlane } from './dev-proxy/api-route-plane.mjs';
@@ -20,6 +21,12 @@ export {
   isFrontendDocumentHeadReadinessRequest,
   writeFrontendDocumentHeadReadiness,
 } from './dev-proxy/head-readiness.mjs';
+export {
+  isAllowedDeviceLinkHttpsPath,
+  isDeviceLinkHttpsReadinessPath,
+  resolveDeviceLinkHttpsConfig,
+  startDeviceLinkHttpsProxy,
+} from './dev-proxy/device-link-https.mjs';
 
 const PUBLIC_HOST = process.env.FRONTEND_PROXY_HOST || '0.0.0.0';
 const PUBLIC_PORT = Number.parseInt(process.env.PORT || '3000', 10);
@@ -654,6 +661,7 @@ export function start() {
   let nextProcess = null;
   let restartTimer = null;
   let prewarmTimer = null;
+  let deviceLinkHttpsServer = null;
   let restartCount = 0;
   let shuttingDown = false;
   const server = createFrontendProxyServer({ nextRunningRef });
@@ -710,6 +718,10 @@ export function start() {
 
   server.listen(PUBLIC_PORT, PUBLIC_HOST, () => {
     console.log(`[frontend-proxy] listening on ${PUBLIC_HOST}:${PUBLIC_PORT}, proxying to ${NEXT_HOST}:${NEXT_PORT}`);
+    deviceLinkHttpsServer = startDeviceLinkHttpsProxy({
+      targetHost: '127.0.0.1',
+      targetPort: PUBLIC_PORT,
+    });
   });
 
   const shutdown = () => {
@@ -722,6 +734,8 @@ export function start() {
       clearTimeout(prewarmTimer);
       prewarmTimer = null;
     }
+    deviceLinkHttpsServer?.close();
+    deviceLinkHttpsServer = null;
     server.close(() => {
       nextProcess?.kill('SIGTERM');
     });
