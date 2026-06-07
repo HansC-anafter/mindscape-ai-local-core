@@ -259,6 +259,8 @@ export const settingsKeys = {
   keyboardShortcuts: true,
   keyboardShortcutsDescription: true,
   keyboardShortcutsSearch: true,
+  keyboardShortcutsPackFilter: true,
+  keyboardShortcutsAllInstalledPacks: true,
   keyboardShortcutsCommand: true,
   keyboardShortcutsOwner: true,
   keyboardShortcutsDefault: true,

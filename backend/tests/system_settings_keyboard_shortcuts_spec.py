@@ -3,6 +3,7 @@ import pytest
 from pydantic import ValidationError
 
 from backend.app.models.system_settings import SettingType
+from backend.app.services import keyboard_shortcut_catalog
 from backend.app.services.keyboard_shortcut_profile import (
     KEYBOARD_SHORTCUTS_SETTING_KEY,
     KeyboardShortcutProfile,
@@ -60,3 +61,53 @@ def test_keyboard_shortcut_profile_rejects_duplicate_binding_ids():
 
     with pytest.raises(ValidationError):
         KeyboardShortcutProfile.model_validate(payload)
+
+
+def test_keyboard_shortcut_catalog_filters_uninstalled_pack_manifests(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        keyboard_shortcut_catalog,
+        "_get_installed_pack_ids",
+        lambda: {"installed_demo"},
+    )
+    monkeypatch.setattr(
+        keyboard_shortcut_catalog,
+        "_scan_pack_yaml_files",
+        lambda: [
+            {
+                "id": "installed_demo",
+                "code": "installed_demo",
+                "display_name": "Installed Demo",
+                "workspace_tools": [
+                    {
+                        "id": "open_panel",
+                        "label": "Open Panel",
+                        "shortcut": "F8",
+                        "slot": "workbench.left_tool_rail",
+                    }
+                ],
+            },
+            {
+                "id": "not_installed_demo",
+                "code": "not_installed_demo",
+                "display_name": "Not Installed Demo",
+                "workspace_tools": [
+                    {
+                        "id": "hidden_panel",
+                        "label": "Hidden Panel",
+                        "shortcut": "F7",
+                    }
+                ],
+            },
+        ],
+    )
+
+    catalog = keyboard_shortcut_catalog.build_keyboard_shortcut_catalog()
+
+    assert len(catalog) == 1
+    assert catalog[0]["owner_id"] == "installed_demo"
+    assert catalog[0]["owner_label"] == "Installed Demo"
+    assert catalog[0]["binding_id"] == (
+        "workspace_tool:installed_demo:open_panel:open"
+    )

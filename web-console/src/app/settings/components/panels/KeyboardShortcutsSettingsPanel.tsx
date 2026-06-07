@@ -42,6 +42,8 @@ interface ShortcutRow {
   source: string;
 }
 
+const ALL_OWNER_FILTER = '__all__';
+
 function commandToCatalogItem(command: KeyboardShortcutCommand): KeyboardShortcutCatalogItem {
   return {
     bindingId: command.bindingId,
@@ -58,6 +60,10 @@ function commandToCatalogItem(command: KeyboardShortcutCommand): KeyboardShortcu
 
 function bindingKey(bindingId: string): string {
   return bindingId;
+}
+
+function ownerFilterValue(row: ShortcutRow): string {
+  return `${row.ownerType}:${row.ownerId || row.ownerType}`;
 }
 
 function buildRows(
@@ -142,6 +148,7 @@ export function KeyboardShortcutsSettingsPanel() {
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [listeningBindingId, setListeningBindingId] = React.useState<string | null>(null);
   const [query, setQuery] = React.useState('');
+  const [selectedOwnerFilter, setSelectedOwnerFilter] = React.useState(ALL_OWNER_FILTER);
 
   const reload = React.useCallback(async () => {
     setLoading(true);
@@ -169,17 +176,44 @@ export function KeyboardShortcutsSettingsPanel() {
   }, [reload]);
 
   const conflicts = React.useMemo(() => detectConflicts(rows), [rows]);
+  const ownerOptions = React.useMemo(() => {
+    const byOwner = new Map<string, { value: string; label: string; count: number }>();
+    rows.forEach((row) => {
+      const value = ownerFilterValue(row);
+      const option = byOwner.get(value) || {
+        value,
+        label: row.ownerLabel || row.ownerId || row.ownerType,
+        count: 0,
+      };
+      option.count += 1;
+      byOwner.set(value, option);
+    });
+    return Array.from(byOwner.values()).sort((left, right) => left.label.localeCompare(right.label));
+  }, [rows]);
+  React.useEffect(() => {
+    if (
+      selectedOwnerFilter !== ALL_OWNER_FILTER
+      && !ownerOptions.some((option) => option.value === selectedOwnerFilter)
+    ) {
+      setSelectedOwnerFilter(ALL_OWNER_FILTER);
+    }
+  }, [ownerOptions, selectedOwnerFilter]);
+  const ownerScopedRows = React.useMemo(() => (
+    selectedOwnerFilter === ALL_OWNER_FILTER
+      ? rows
+      : rows.filter((row) => ownerFilterValue(row) === selectedOwnerFilter)
+  ), [rows, selectedOwnerFilter]);
   const filteredRows = React.useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     if (!normalizedQuery) {
-      return rows;
+      return ownerScopedRows;
     }
-    return rows.filter((row) => (
+    return ownerScopedRows.filter((row) => (
       row.label.toLowerCase().includes(normalizedQuery)
       || row.bindingId.toLowerCase().includes(normalizedQuery)
       || (row.ownerLabel || row.ownerId || '').toLowerCase().includes(normalizedQuery)
     ));
-  }, [query, rows]);
+  }, [ownerScopedRows, query]);
 
   const updateRow = React.useCallback((bindingId: string, update: Partial<ShortcutRow>) => {
     setRows((currentRows) => currentRows.map((row) => (
@@ -272,7 +306,7 @@ export function KeyboardShortcutsSettingsPanel() {
         </div>
       ) : null}
 
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <input
           type="search"
           value={query}
@@ -280,8 +314,27 @@ export function KeyboardShortcutsSettingsPanel() {
           placeholder={t('keyboardShortcutsSearch' as any)}
           className="h-9 w-full rounded-md border border-default bg-surface-primary px-3 text-sm text-primary outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/20 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 sm:max-w-sm"
         />
-        <div className="text-xs text-tertiary dark:text-gray-500">
-          {filteredRows.length} / {rows.length}
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
+          <label className="flex items-center gap-2 text-xs text-secondary dark:text-gray-400">
+            <span className="whitespace-nowrap">{t('keyboardShortcutsPackFilter' as any)}</span>
+            <select
+              value={selectedOwnerFilter}
+              onChange={(event) => setSelectedOwnerFilter(event.target.value)}
+              className="h-9 min-w-44 rounded-md border border-default bg-surface-primary px-2 text-sm text-primary outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/20 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+            >
+              <option value={ALL_OWNER_FILTER}>
+                {t('keyboardShortcutsAllInstalledPacks' as any)}
+              </option>
+              {ownerOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label} ({option.count})
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="text-xs text-tertiary dark:text-gray-500">
+            {filteredRows.length} / {ownerScopedRows.length}
+          </div>
         </div>
       </div>
 

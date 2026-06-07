@@ -216,6 +216,8 @@ export const settingsEn = {
   keyboardShortcuts: 'Keyboard Shortcuts',
   keyboardShortcutsDescription: 'Customize core and pack shortcuts. Changes are saved to local-core settings.',
   keyboardShortcutsSearch: 'Search commands or packs',
+  keyboardShortcutsPackFilter: 'Pack',
+  keyboardShortcutsAllInstalledPacks: 'All installed packs',
   keyboardShortcutsCommand: 'Command',
   keyboardShortcutsOwner: 'Owner',
   keyboardShortcutsDefault: 'Default',
