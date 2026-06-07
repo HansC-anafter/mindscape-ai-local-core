@@ -1,6 +1,7 @@
 from contextlib import contextmanager
 from datetime import datetime, timezone
 import json
+from types import SimpleNamespace
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.pool import StaticPool
@@ -27,18 +28,37 @@ class _SqliteClaimStore(TasksStoreRunnerMixin):
                     """
                     CREATE TABLE tasks (
                         id TEXT PRIMARY KEY,
+                        workspace_id TEXT,
                         status TEXT NOT NULL,
                         params TEXT,
                         execution_context TEXT,
                         pack_id TEXT NOT NULL,
+                        task_type TEXT,
+                        queue_shard TEXT,
                         concurrency_key TEXT,
                         started_at TIMESTAMP,
                         runner_id TEXT,
                         heartbeat_at TIMESTAMP,
+                        error TEXT,
                         blocked_reason TEXT,
                         blocked_payload TEXT,
                         frontier_state TEXT,
                         frontier_enqueued_at TIMESTAMP
+                    )
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE host_resource_workspace_allocations (
+                        allocation_id TEXT PRIMARY KEY,
+                        workspace_id TEXT NOT NULL,
+                        queue_shard TEXT NOT NULL,
+                        task_family TEXT NOT NULL,
+                        state TEXT NOT NULL,
+                        max_parallel_task_claims INTEGER NOT NULL,
+                        metadata TEXT
                     )
                     """
                 )
@@ -74,32 +94,102 @@ class _SqliteClaimStore(TasksStoreRunnerMixin):
         pack_id: str,
         execution_context: dict,
         concurrency_key: str | None,
+        workspace_id: str = "ws-1",
+        queue_shard: str = "browser_local",
+        task_type: str | None = None,
+        blocked_reason: str | None = None,
     ) -> None:
         with self._engine.begin() as conn:
             conn.execute(
                 text(
                     """
                     INSERT INTO tasks (
-                        id, status, params, execution_context, pack_id, concurrency_key,
+                        id, workspace_id, status, params, execution_context,
+                        pack_id, task_type, queue_shard, concurrency_key,
                         started_at, blocked_reason, blocked_payload, frontier_state, frontier_enqueued_at
                     ) VALUES (
-                        :id, :status, :params, :execution_context, :pack_id, :concurrency_key,
-                        NULL, NULL, NULL, :frontier_state, NULL
+                        :id, :workspace_id, :status, :params, :execution_context,
+                        :pack_id, :task_type, :queue_shard, :concurrency_key,
+                        NULL, :blocked_reason, NULL, :frontier_state, NULL
                     )
                     """
                 ),
                 {
                     "id": task_id,
+                    "workspace_id": workspace_id,
                     "status": status,
                     "params": self.serialize_json({}),
                     "execution_context": self.serialize_json(execution_context),
                     "pack_id": pack_id,
+                    "task_type": task_type or pack_id,
+                    "queue_shard": queue_shard,
                     "concurrency_key": concurrency_key,
+                    "blocked_reason": blocked_reason,
                     "frontier_state": (
                         "running" if status == TaskStatus.RUNNING.value else "ready"
                     ),
                 },
             )
+
+    def insert_allocation(
+        self,
+        *,
+        allocation_id: str = "alloc-browser",
+        workspace_id: str = "ws-1",
+        queue_shard: str = "browser_local",
+        task_family: str = "ig_browser_capture",
+        max_parallel_task_claims: int = 4,
+        state: str = "enabled",
+        selectors: list[str] | None = None,
+    ) -> dict:
+        metadata = {"task_selectors": selectors or ["ig_analyze_following"]}
+        with self._engine.begin() as conn:
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO host_resource_workspace_allocations (
+                        allocation_id, workspace_id, queue_shard, task_family,
+                        state, max_parallel_task_claims, metadata
+                    ) VALUES (
+                        :allocation_id, :workspace_id, :queue_shard, :task_family,
+                        :state, :max_parallel_task_claims, :metadata
+                    )
+                    """
+                ),
+                {
+                    "allocation_id": allocation_id,
+                    "workspace_id": workspace_id,
+                    "queue_shard": queue_shard,
+                    "task_family": task_family,
+                    "state": state,
+                    "max_parallel_task_claims": max_parallel_task_claims,
+                    "metadata": self.serialize_json(metadata),
+                },
+            )
+        return {
+            "allocation_id": allocation_id,
+            "workspace_id": workspace_id,
+            "queue_shard": queue_shard,
+            "task_family": task_family,
+            "state": state,
+            "max_parallel_task_claims": max_parallel_task_claims,
+            "metadata": metadata,
+        }
+
+    def fetch_task_row(self, task_id: str):
+        with self._engine.begin() as conn:
+            row = conn.execute(
+                text(
+                    """
+                    SELECT status, runner_id, heartbeat_at, blocked_reason,
+                           blocked_payload, execution_context
+                    FROM tasks
+                    WHERE id = :task_id
+                    """
+                ),
+                {"task_id": task_id},
+            ).fetchone()
+        return row
 
     def fetch_status(self, task_id: str) -> str:
         with self._engine.begin() as conn:
@@ -183,6 +273,33 @@ def test_try_claim_task_allows_distinct_profile():
     assert store.fetch_status("pending-1") == TaskStatus.RUNNING.value
 
 
+def test_update_task_heartbeat_refreshes_running_row_and_clears_stale_block():
+    store = _SqliteClaimStore()
+    store.insert_task(
+        task_id="running-1",
+        status=TaskStatus.RUNNING.value,
+        pack_id="ig_pin_post_detail",
+        execution_context={"status": "running"},
+        concurrency_key="profile:nagomi_art",
+        blocked_reason="concurrency_locked",
+    )
+
+    should_abort = store.update_task_heartbeat("running-1", runner_id="runner-a")
+
+    row = store.fetch_task_row("running-1")
+    ctx = store.deserialize_json(row.execution_context)
+    assert should_abort is False
+    assert row.status == TaskStatus.RUNNING.value
+    assert row.runner_id == "runner-a"
+    assert row.heartbeat_at is not None
+    assert row.blocked_reason is None
+    assert row.blocked_payload is None
+    assert ctx["status"] == "running"
+    assert ctx["runner_id"] == "runner-a"
+    assert ctx["heartbeat_at"]
+    assert ctx["runner_heartbeat_at"]
+
+
 def test_try_claim_task_blocks_pinned_reference_playbook_scope():
     store = _SqliteClaimStore()
     lock_key = "concurrency:playbook:ig_analyze_pinned_reference"
@@ -205,3 +322,67 @@ def test_try_claim_task_blocks_pinned_reference_playbook_scope():
 
     assert claimed is False
     assert store.fetch_status("pending-pinned") == TaskStatus.PENDING.value
+
+
+def test_try_claim_task_blocks_workspace_quota_over_parallel_cap():
+    store = _SqliteClaimStore()
+    allocation = store.insert_allocation(max_parallel_task_claims=4)
+    profile_dir = "/app/data/ig-browser-profiles/default"
+    for index in range(4):
+        store.insert_task(
+            task_id=f"running-{index}",
+            status=TaskStatus.RUNNING.value,
+            pack_id="ig_analyze_following",
+            execution_context=_following_ctx(f"{profile_dir}-{index}"),
+            concurrency_key=f"ig_profile:{profile_dir}-{index}",
+        )
+    store.insert_task(
+        task_id="pending-1",
+        status=TaskStatus.PENDING.value,
+        pack_id="ig_analyze_following",
+        execution_context=_following_ctx(f"{profile_dir}-pending"),
+        concurrency_key=f"ig_profile:{profile_dir}-pending",
+    )
+
+    claimed = store.try_claim_task(
+        "pending-1",
+        runner_id="runner-a",
+        workspace_quota_decision=SimpleNamespace(
+            to_dict=lambda: {"allow": True, "allocation": allocation}
+        ),
+    )
+
+    assert claimed is False
+    assert store.fetch_status("pending-1") == TaskStatus.PENDING.value
+
+
+def test_try_claim_task_allows_workspace_quota_at_available_slot():
+    store = _SqliteClaimStore()
+    allocation = store.insert_allocation(max_parallel_task_claims=4)
+    profile_dir = "/app/data/ig-browser-profiles/default"
+    for index in range(3):
+        store.insert_task(
+            task_id=f"running-{index}",
+            status=TaskStatus.RUNNING.value,
+            pack_id="ig_analyze_following",
+            execution_context=_following_ctx(f"{profile_dir}-{index}"),
+            concurrency_key=f"ig_profile:{profile_dir}-{index}",
+        )
+    store.insert_task(
+        task_id="pending-1",
+        status=TaskStatus.PENDING.value,
+        pack_id="ig_analyze_following",
+        execution_context=_following_ctx(f"{profile_dir}-pending"),
+        concurrency_key=f"ig_profile:{profile_dir}-pending",
+    )
+
+    claimed = store.try_claim_task(
+        "pending-1",
+        runner_id="runner-a",
+        workspace_quota_decision=SimpleNamespace(
+            to_dict=lambda: {"allow": True, "allocation": allocation}
+        ),
+    )
+
+    assert claimed is True
+    assert store.fetch_status("pending-1") == TaskStatus.RUNNING.value

@@ -66,6 +66,12 @@ from backend.app.runner.concurrency import (
     _resolve_lock_keys,
     _build_inputs,
 )
+from backend.app.runner.reference_concurrency_repair import (
+    normalize_reference_analysis_concurrency,
+)
+from backend.app.runner.redis_transport_repair import (
+    normalize_task_id as _normalize_transport_task_id,
+)
 from backend.app.runner.lifecycle_hooks import _invoke_on_fail_hook
 from backend.app.runner.resource_pressure import (
     build_runner_resource_snapshot,
@@ -160,8 +166,15 @@ async def _load_active_runner_ids(
                 for row in heartbeats
                 if str(row.get("runner_id") or "").strip()
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning(
+                "Runner resource heartbeat publish failed runner_id=%s profile=%s inflight=%s max_inflight=%s reason=%s",
+                runner_id,
+                runner_profile.profile_code,
+                len(inflight),
+                max_inflight,
+                exc,
+            )
     if active_runner_ids:
         return active_runner_ids
 
@@ -242,16 +255,25 @@ async def _reset_orphaned_running_tasks(
                     "previous_runner_id": old_runner,
                     "new_runner_id": current_runner_id,
                 }
+                ctx2, concurrency_key = normalize_reference_analysis_concurrency(
+                    pack_id=t.pack_id,
+                    ctx=ctx2,
+                )
+                update_kwargs = {
+                    "execution_context": ctx2,
+                    "status": TaskStatus.PENDING,
+                    "frontier_state": "ready",
+                    "started_at": None,
+                    "blocked_reason": None,
+                    "queue_shard": getattr(t, "queue_shard", None),
+                    "runner_id": None,
+                    "heartbeat_at": None,
+                }
+                if concurrency_key:
+                    update_kwargs["concurrency_key"] = concurrency_key
                 tasks_store.update_task(
                     t.id,
-                    execution_context=ctx2,
-                    status=TaskStatus.PENDING,
-                    frontier_state="ready",
-                    started_at=None,
-                    blocked_reason=None,
-                    queue_shard=getattr(t, "queue_shard", None),
-                    runner_id=None,
-                    heartbeat_at=None,
+                    **update_kwargs,
                 )
                 reset_task_ids.add(str(t.id))
                 reset_count += 1
@@ -290,6 +312,12 @@ async def _reset_orphaned_running_tasks(
                 )
 
             if update_kwargs:
+                ctx2, concurrency_key = normalize_reference_analysis_concurrency(
+                    pack_id=t.pack_id,
+                    ctx=ctx2,
+                )
+                if concurrency_key:
+                    update_kwargs["concurrency_key"] = concurrency_key
                 update_kwargs["execution_context"] = ctx2
                 tasks_store.update_task(t.id, **update_kwargs)
                 reset_task_ids.add(str(t.id))
@@ -322,6 +350,7 @@ async def _purge_task_ids_from_transport(
             pipe = client.pipeline()
             for task_id in normalized_ids:
                 pipe.lrem(queue_store.q_pending, 0, task_id)
+                pipe.lrem(queue_store.q_temp, 0, task_id)
             pipe.zrem(queue_store.q_processing, *normalized_ids)
             pipe.zrem(queue_store.q_delayed, *normalized_ids)
             results = await pipe.execute()
@@ -445,9 +474,7 @@ def _split_ready_target(total_target: int, shard_names: list[str]) -> dict[str, 
 
 
 def _normalize_task_id(raw_value: object) -> str:
-    if isinstance(raw_value, bytes):
-        return raw_value.decode()
-    return str(raw_value)
+    return _normalize_transport_task_id(raw_value)
 
 
 async def _collect_transport_members(
@@ -459,9 +486,11 @@ async def _collect_transport_members(
         if not client:
             continue
         pending_members = await client.lrange(queue_store.q_pending, 0, -1)
+        temp_members = await client.lrange(queue_store.q_temp, 0, -1)
         processing_members = await client.zrange(queue_store.q_processing, 0, -1)
         delayed_members = await client.zrange(queue_store.q_delayed, 0, -1)
         members.update(_normalize_task_id(item) for item in pending_members)
+        members.update(_normalize_task_id(item) for item in temp_members)
         members.update(_normalize_task_id(item) for item in processing_members)
         members.update(_normalize_task_id(item) for item in delayed_members)
     return members
@@ -1599,7 +1628,13 @@ async def run_forever() -> None:
                 logger.info(
                     f"[Worker] Task {task_id} popped but no longer PENDING (status: {t_data.status.value}). Dropping duplicate queue item."
                 )
-                await task_queue.ack_task(task_id)
+                if t_data.status == TaskStatus.RUNNING:
+                    await task_queue.touch_visibility_timeout(
+                        task_id,
+                        added_time_sec=visibility_timeout_sec,
+                    )
+                else:
+                    await task_queue.ack_task(task_id)
                 continue
 
             if not _pending_task_runnable_from_queue(t_data):
@@ -1859,6 +1894,7 @@ async def run_forever() -> None:
                 t_data.id,
                 runner_id=runner_id,
                 concurrency_keys=lock_keys,
+                workspace_quota_decision=workspace_quota_decision,
             )
             if not claimed:
                 db_conflict = False
@@ -1869,7 +1905,7 @@ async def run_forever() -> None:
                         lock_keys,
                     )
                 logger.warning(
-                    f"[Worker] DB claim failed for Task {task_id}. Ghost pop or duplicated. Acking."
+                    f"[Worker] DB claim failed for Task {task_id}. Evaluating conflict/quota before queue acknowledgement."
                 )
                 for held_key in lock_keys:
                     try:
@@ -1882,6 +1918,61 @@ async def run_forever() -> None:
                         resource_decision.acquired_leases,
                         owner_id=lock_owner_id,
                     )
+                if not db_conflict:
+                    try:
+                        from backend.app.services.host_resources.workspace_quota_admission import (
+                            decide_workspace_quota_admission_for_task,
+                        )
+
+                        post_claim_quota_decision = await asyncio.to_thread(
+                            decide_workspace_quota_admission_for_task,
+                            t_data,
+                        )
+                    except Exception:
+                        post_claim_quota_decision = None
+                    post_claim_admission = decide_runner_claim_admission(
+                        t_data,
+                        runner_profile,
+                        db_budget,
+                        resource_snapshot,
+                        workspace_quota_decision=post_claim_quota_decision,
+                    )
+                    if (
+                        not post_claim_admission.allow
+                        and post_claim_admission.action == "park"
+                    ):
+                        quota_payload = (
+                            post_claim_admission.workspace_quota_payload or {}
+                        )
+                        parked_update = _build_parked_task_update(
+                            lock_ctx,
+                            reason=post_claim_admission.reason,
+                            delay_seconds=max(
+                                1,
+                                post_claim_admission.delay_seconds or 10,
+                            ),
+                            now=_utc_now(),
+                            current_queue_shard=getattr(t_data, "queue_shard", None),
+                        )
+                        parked_context = dict(
+                            parked_update.get("execution_context") or {}
+                        )
+                        parked_context["workspace_quota_admission"] = quota_payload
+                        parked_context["runner_claim_admission"] = (
+                            post_claim_admission.observability
+                        )
+                        parked_update["execution_context"] = parked_context
+                        parked_update["blocked_payload"] = {
+                            "workspace_quota_admission": quota_payload,
+                            "runner_claim_admission": post_claim_admission.observability,
+                        }
+                        await asyncio.to_thread(
+                            tasks_store.update_task,
+                            t_data.id,
+                            **parked_update,
+                        )
+                        await task_queue.ack_task(task_id)
+                        continue
                 if db_conflict:
                     parked_update = _build_parked_task_update(
                         lock_ctx,

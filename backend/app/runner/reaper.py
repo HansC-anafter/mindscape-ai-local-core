@@ -31,6 +31,14 @@ from backend.app.services.host_resources.route_identity_projection import (
 from backend.app.runner.concurrency import _resolve_lock_keys
 from backend.app.runner.database_backoff import is_database_recovery_error
 from backend.app.runner.lifecycle_hooks import _invoke_on_fail_hook
+from backend.app.runner.redis_transport_repair import (
+    TERMINAL_TASK_STATUSES,
+    normalize_task_id as _normalize_transport_task_id,
+    reconcile_transport_membership,
+    recycle_visibility_timeout_item,
+    resolve_transport_queue_store,
+    task_is_runnable_pending,
+)
 from backend.app.runner.utils import _env_int, _parse_utc_iso, _utc_now
 
 logger = logging.getLogger(__name__)
@@ -218,9 +226,7 @@ def _emit_run_state_changed_for_task(
 
 
 def _normalize_task_id(raw_value: object) -> str:
-    if isinstance(raw_value, bytes):
-        return raw_value.decode()
-    return str(raw_value)
+    return _normalize_transport_task_id(raw_value)
 
 
 def _watchdog_pack_allowlist() -> set[str]:
@@ -516,9 +522,11 @@ async def _queued_transport_task_ids(
         if not queue_client:
             continue
         pending_members = await queue_client.lrange(queue_store.q_pending, 0, -1)
+        temp_members = await queue_client.lrange(queue_store.q_temp, 0, -1)
         processing_members = await queue_client.zrange(queue_store.q_processing, 0, -1)
         delayed_members = await queue_client.zrange(queue_store.q_delayed, 0, -1)
         queued.extend(_normalize_task_id(task_id) for task_id in pending_members)
+        queued.extend(_normalize_task_id(task_id) for task_id in temp_members)
         queued.extend(_normalize_task_id(task_id) for task_id in processing_members)
         queued.extend(_normalize_task_id(task_id) for task_id in delayed_members)
     return list(dict.fromkeys(queued))
@@ -698,6 +706,143 @@ async def _async_force_release(
                 logger.info(f"[Reaper] Force-released lock {lock_key}")
     except Exception as e:
         logger.warning(f"[Reaper] Failed to force-release lock {lock_key}: {e}")
+
+
+def _resolve_transport_queue_store(
+    redis_queue: RedisRunnerQueueStore,
+    queue_shard: Optional[str],
+) -> RedisRunnerQueueStore:
+    return resolve_transport_queue_store(redis_queue, queue_shard)
+
+
+async def _async_reconcile_transport_membership(
+    redis_queue: RedisRunnerQueueStore,
+    *,
+    task_id: str,
+    queue_shard: Optional[str],
+    reenqueue_pending: bool,
+) -> None:
+    target_queue = _resolve_transport_queue_store(redis_queue, queue_shard)
+    if target_queue is not redis_queue:
+        await reconcile_transport_membership(
+            redis_queue,
+            task_id=task_id,
+            reenqueue_pending=False,
+        )
+    await reconcile_transport_membership(
+        target_queue,
+        task_id=task_id,
+        reenqueue_pending=reenqueue_pending,
+    )
+
+
+async def _recycle_visibility_timeout_item(
+    *,
+    tasks_store: TasksStore,
+    redis_queue: RedisRunnerQueueStore,
+    client: Any,
+    task_id: str,
+    now_dt: datetime,
+    stale_limit: datetime,
+) -> str:
+    return await recycle_visibility_timeout_item(
+        tasks_store=tasks_store,
+        redis_queue=redis_queue,
+        task_id=task_id,
+        now_dt=now_dt,
+        stale_limit=stale_limit,
+        effective_heartbeat_at=_effective_task_heartbeat_at,
+        reconcile_membership=_async_reconcile_transport_membership,
+    )
+
+
+async def _reconcile_temp_transport_items(
+    tasks_store: TasksStore,
+    redis_queue: RedisRunnerQueueStore,
+    client: Any,
+    *,
+    scan_limit: int,
+) -> int:
+    if scan_limit <= 0:
+        return 0
+    temp_items = await client.lrange(redis_queue.q_temp, 0, max(0, scan_limit - 1))
+    repaired = 0
+    for raw_task_id in temp_items:
+        task_id = _normalize_task_id(raw_task_id).strip()
+        if not task_id:
+            continue
+        task = await asyncio.to_thread(tasks_store.get_task, task_id)
+        if not task:
+            await _async_reconcile_transport_membership(
+                redis_queue,
+                task_id=task_id,
+                queue_shard=redis_queue.pack_id,
+                reenqueue_pending=False,
+            )
+            repaired += 1
+            continue
+        status = getattr(task, "status", None)
+        if status in TERMINAL_TASK_STATUSES or status == TaskStatus.RUNNING:
+            await _async_reconcile_transport_membership(
+                redis_queue,
+                task_id=task_id,
+                queue_shard=getattr(task, "queue_shard", None),
+                reenqueue_pending=False,
+            )
+            repaired += 1
+            continue
+        await _async_reconcile_transport_membership(
+            redis_queue,
+            task_id=task_id,
+            queue_shard=getattr(task, "queue_shard", None),
+            reenqueue_pending=task_is_runnable_pending(task),
+        )
+        repaired += 1
+    return repaired
+
+
+async def _scrub_processing_terminal_items(
+    tasks_store: TasksStore,
+    redis_queue: RedisRunnerQueueStore,
+    client: Any,
+    *,
+    skip_task_ids: set[str],
+    scan_limit: int,
+) -> int:
+    if scan_limit <= 0:
+        return 0
+    processing_items = await client.zrange(
+        redis_queue.q_processing,
+        0,
+        max(0, scan_limit - 1),
+    )
+    repaired = 0
+    for raw_task_id in processing_items:
+        task_id = _normalize_task_id(raw_task_id).strip()
+        if not task_id or task_id in skip_task_ids:
+            continue
+        task = await asyncio.to_thread(tasks_store.get_task, task_id)
+        if not task:
+            await _async_reconcile_transport_membership(
+                redis_queue,
+                task_id=task_id,
+                queue_shard=redis_queue.pack_id,
+                reenqueue_pending=False,
+            )
+            repaired += 1
+            continue
+        status = getattr(task, "status", None)
+        if status in TERMINAL_TASK_STATUSES or (
+            status == TaskStatus.PENDING and not task_is_runnable_pending(task)
+        ):
+            await _async_reconcile_transport_membership(
+                redis_queue,
+                task_id=task_id,
+                queue_shard=getattr(task, "queue_shard", None),
+                reenqueue_pending=False,
+            )
+            repaired += 1
+    return repaired
 
 
 def _requeue_stale_queued_task(
@@ -964,6 +1109,7 @@ async def _reap_redis_queues(
         now_ts = redis_queue._utc_now_timestamp()
         ready_target = ready_target_override or _env_int("LOCAL_CORE_RUNNER_READY_TARGET", 64)
         delayed_move_limit = _env_int("LOCAL_CORE_RUNNER_DELAYED_MOVE_LIMIT", 100)
+        transport_repair_limit = _env_int("LOCAL_CORE_RUNNER_TRANSPORT_REPAIR_LIMIT", 100)
         
         # 1. Delayed Queue Mover — move in small pipeline batches to avoid
         #    blocking Redis single-threaded processing (SLOWLOG showed 17ms for 688-item pipeline).
@@ -1001,56 +1147,53 @@ async def _reap_redis_queues(
             except Exception as e:
                 logger.warning(f"Failed to batch move delayed tasks: {e}")
 
+        temp_repaired = await _reconcile_temp_transport_items(
+            tasks_store,
+            redis_queue,
+            client,
+            scan_limit=transport_repair_limit,
+        )
+        if temp_repaired:
+            logger.warning(
+                "[Bridge] Repaired %d temp transport member(s) on shard %s.",
+                temp_repaired,
+                redis_queue.pack_id,
+            )
+
         # 2. Visibility Timeout Recycler
         stale_items = await client.zrangebyscore(redis_queue.q_processing, "-inf", now_ts)
+        stale_item_ids = {_normalize_task_id(task_id) for task_id in stale_items}
+        scrubbed_count = await _scrub_processing_terminal_items(
+            tasks_store,
+            redis_queue,
+            client,
+            skip_task_ids=stale_item_ids,
+            scan_limit=transport_repair_limit,
+        )
+        if scrubbed_count:
+            logger.warning(
+                "[Bridge] Scrubbed %d invalid processing transport member(s) on shard %s.",
+                scrubbed_count,
+                redis_queue.pack_id,
+            )
         for task_id in stale_items:
             try:
-                t_data = await asyncio.to_thread(tasks_store.get_task, task_id)
-                if not t_data:
-                    await redis_queue.ack_task(task_id)
-                    continue
-                
-                # Check actual DB Truth
-                if t_data.status not in (TaskStatus.PENDING, TaskStatus.RUNNING):
-                    await redis_queue.ack_task(task_id)
-                    continue
-                
-                ctx = t_data.execution_context if isinstance(t_data.execution_context, dict) else {}
-                ctx_heartbeat = _effective_task_heartbeat_at(t_data, ctx)
-                stale_limit = _utc_now() - timedelta(seconds=_env_int("LOCAL_CORE_RUNNER_STALE_TASK_SECONDS", 180))
-                
-                if ctx_heartbeat and ctx_heartbeat > stale_limit:
-                    # DB heartbeat is fresh, touching visibility and skipping
-                    await redis_queue.touch_visibility_timeout(task_id, 180)
-                    continue
-                
-                # Genuinely abandoned
-                logger.warning(f"[Bridge] Task {task_id} visibility timeout expired. Reverting to queue.")
-                ctx2 = dict(ctx)
-                ctx2.pop('runner_id', None)
-                ctx2.pop('heartbeat_at', None)
-                ctx2["status"] = "queued"
-                await asyncio.to_thread(
-                    tasks_store.update_task, 
-                    task_id, 
-                    execution_context=ctx2, 
-                    status=TaskStatus.PENDING, 
-                    started_at=None,
-                    next_eligible_at=_utc_now(),
-                    blocked_reason=None,
-                    blocked_payload=None,
-                    runner_id=None,
-                    heartbeat_at=None,
-                    frontier_state="ready",
-                    frontier_enqueued_at=_utc_now(),
+                result = await _recycle_visibility_timeout_item(
+                    tasks_store=tasks_store,
+                    redis_queue=redis_queue,
+                    client=client,
+                    task_id=_normalize_task_id(task_id),
+                    now_dt=_utc_now(),
+                    stale_limit=_utc_now()
+                    - timedelta(
+                        seconds=_env_int("LOCAL_CORE_RUNNER_STALE_TASK_SECONDS", 180)
+                    ),
                 )
-                
-                await redis_queue.enqueue_task(
-                    _normalize_task_id(task_id),
-                    route_identity=build_route_identity_projection(t_data),
-                )
-                await client.zrem(redis_queue.q_processing, task_id)
-                
+                if result == "requeued":
+                    logger.warning(
+                        "[Bridge] Task %s visibility timeout expired. Reverting to queue.",
+                        _normalize_task_id(task_id),
+                    )
             except Exception as e:
                 logger.error(f"Failed to recycle visibility task {task_id}: {e}")
 
@@ -1117,6 +1260,7 @@ async def _reap_redis_queues(
                 if not queue_client:
                     continue
                 pending_members = await queue_client.lrange(queue_store.q_pending, 0, -1)
+                temp_members = await queue_client.lrange(queue_store.q_temp, 0, -1)
                 processing_members = await queue_client.zrange(
                     queue_store.q_processing, 0, -1
                 )
@@ -1124,6 +1268,7 @@ async def _reap_redis_queues(
                     queue_store.q_delayed, 0, -1
                 )
                 all_queued.update(_normalize_task_id(task_id) for task_id in pending_members)
+                all_queued.update(_normalize_task_id(task_id) for task_id in temp_members)
                 all_queued.update(
                     _normalize_task_id(task_id) for task_id in processing_members
                 )

@@ -116,6 +116,161 @@ def _normalize_concurrency_keys(raw_keys: Optional[List[str]]) -> List[str]:
     return keys
 
 
+def _clean_string(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    normalized = str(value).strip()
+    return normalized or None
+
+
+def _clean_int(value: Any, *, default: int = 0) -> int:
+    try:
+        return int(value)
+    except Exception:
+        return default
+
+
+def _decision_to_payload(workspace_quota_decision: Any) -> Optional[Dict[str, Any]]:
+    if workspace_quota_decision is None:
+        return None
+    to_dict = getattr(workspace_quota_decision, "to_dict", None)
+    if callable(to_dict):
+        try:
+            payload = to_dict()
+            return payload if isinstance(payload, dict) else None
+        except Exception:
+            return None
+    return workspace_quota_decision if isinstance(workspace_quota_decision, dict) else None
+
+
+def _json_mapping(raw_value: Any) -> Dict[str, Any]:
+    if isinstance(raw_value, dict):
+        return raw_value
+    if isinstance(raw_value, str) and raw_value.strip():
+        try:
+            parsed = json.loads(raw_value)
+            return parsed if isinstance(parsed, dict) else {}
+        except Exception:
+            return {}
+    return {}
+
+
+def _quota_selectors(allocation: Dict[str, Any]) -> List[str]:
+    metadata = _json_mapping(allocation.get("metadata"))
+    selectors = metadata.get("task_selectors")
+    if not isinstance(selectors, list):
+        return []
+    normalized: List[str] = []
+    seen: set[str] = set()
+    for selector in selectors:
+        value = _clean_string(selector)
+        if not value or value in seen:
+            continue
+        normalized.append(value)
+        seen.add(value)
+    return normalized
+
+
+def _workspace_quota_allows_claim(
+    conn,
+    *,
+    task_id: str,
+    row: Any,
+    workspace_quota_decision: Any,
+) -> bool:
+    payload = _decision_to_payload(workspace_quota_decision)
+    allocation = payload.get("allocation") if isinstance(payload, dict) else None
+    if not isinstance(allocation, dict):
+        return True
+
+    allocation_id = _clean_string(allocation.get("allocation_id"))
+    workspace_id = _clean_string(getattr(row, "workspace_id", None))
+    queue_shard = _clean_string(getattr(row, "queue_shard", None))
+    if not allocation_id or not workspace_id or not queue_shard:
+        return True
+
+    lock_suffix = "" if conn.dialect.name == "sqlite" else " FOR UPDATE"
+    locked = conn.execute(
+        text(
+            f"""
+            SELECT allocation_id, state, max_parallel_task_claims, metadata
+            FROM host_resource_workspace_allocations
+            WHERE allocation_id = :allocation_id
+            {lock_suffix}
+            """
+        ),
+        {"allocation_id": allocation_id},
+    ).fetchone()
+    if not locked:
+        return False
+    if _clean_string(getattr(locked, "state", None)) != "enabled":
+        return False
+
+    locked_allocation = {
+        "metadata": getattr(locked, "metadata", None),
+    }
+    if not _quota_selectors(locked_allocation):
+        locked_allocation["metadata"] = allocation.get("metadata")
+    selectors = _quota_selectors(locked_allocation)
+    max_parallel_task_claims = max(
+        1,
+        _clean_int(getattr(locked, "max_parallel_task_claims", None), default=1),
+    )
+
+    params: Dict[str, Any] = {
+        "workspace_id": workspace_id,
+        "queue_shard": queue_shard,
+        "running_status": TaskStatus.RUNNING.value,
+        "task_id": task_id,
+    }
+    selector_sql = ""
+    if selectors:
+        placeholders: List[str] = []
+        for index, selector in enumerate(selectors):
+            key = f"selector_{index}"
+            params[key] = selector
+            placeholders.append(f":{key}")
+        selector_list = ", ".join(placeholders)
+        playbook_expr = (
+            "json_extract(execution_context, '$.playbook_code')"
+            if conn.dialect.name == "sqlite"
+            else "execution_context::jsonb->>'playbook_code'"
+        )
+        selector_sql = f"""
+          AND (
+                pack_id IN ({selector_list})
+                OR task_type IN ({selector_list})
+                OR {playbook_expr} IN ({selector_list})
+          )
+        """
+
+    active_count = conn.execute(
+        text(
+            f"""
+            SELECT COUNT(*)::int
+            FROM tasks
+            WHERE workspace_id = :workspace_id
+              AND queue_shard = :queue_shard
+              AND status = :running_status
+              AND id <> :task_id
+              {selector_sql}
+            """
+            if conn.dialect.name != "sqlite"
+            else f"""
+            SELECT COUNT(*)
+            FROM tasks
+            WHERE workspace_id = :workspace_id
+              AND queue_shard = :queue_shard
+              AND status = :running_status
+              AND id <> :task_id
+              {selector_sql}
+            """
+        ),
+        params,
+    ).scalar()
+    return _clean_int(active_count, default=0) < max_parallel_task_claims
+
+
 def _running_concurrency_conflict_clause(
     concurrency_keys: List[str],
 ) -> tuple[str, Dict[str, str]]:
@@ -169,6 +324,7 @@ class TasksStoreRunnerMixin:
         task_id: str,
         runner_id: str,
         concurrency_keys: Optional[List[str]] = None,
+        workspace_quota_decision: Any = None,
     ) -> bool:
         now = _utc_now()
 
@@ -176,7 +332,15 @@ class TasksStoreRunnerMixin:
             row = conn.execute(
                 text(
                     """
-                    SELECT status, concurrency_key, params, execution_context
+                    SELECT
+                        status,
+                        concurrency_key,
+                        params,
+                        execution_context,
+                        workspace_id,
+                        queue_shard,
+                        pack_id,
+                        task_type
                     FROM tasks
                     WHERE id = :task_id
                 """
@@ -188,6 +352,14 @@ class TasksStoreRunnerMixin:
 
             current_status = getattr(row, "status", None)
             if current_status != TaskStatus.PENDING.value:
+                return False
+
+            if not _workspace_quota_allows_claim(
+                conn,
+                task_id=task_id,
+                row=row,
+                workspace_quota_decision=workspace_quota_decision,
+            ):
                 return False
 
             task_params = self.deserialize_json(getattr(row, "params", None), {})
@@ -269,34 +441,71 @@ class TasksStoreRunnerMixin:
             TaskStatus.EXPIRED.value,
         }
 
-        with self.get_connection() as conn:
+        now = _utc_now()
+        with self.transaction() as conn:
             row = conn.execute(
                 text(
                     """
-                    SELECT status, error
+                    SELECT status, error, execution_context
                     FROM tasks
                     WHERE id = :task_id
                     """
                 ),
                 {"task_id": task_id},
             ).fetchone()
-        if not row:
-            return True
+            if not row:
+                return True
 
-        status_raw = getattr(row, "status", None)
-        error_raw = getattr(row, "error", None) or ""
-        if status_raw in abort_statuses:
-            logger.warning(
-                "Task %s status=%s - signalling abort to runner", task_id, status_raw
-            )
-            return True
-        if status_raw == TaskStatus.FAILED.value and error_raw != restart_error:
-            logger.warning(
-                "Task %s externally failed (%s) - signalling abort",
-                task_id,
-                error_raw,
-            )
-            return True
+            status_raw = getattr(row, "status", None)
+            error_raw = getattr(row, "error", None) or ""
+            if status_raw in abort_statuses:
+                logger.warning(
+                    "Task %s status=%s - signalling abort to runner",
+                    task_id,
+                    status_raw,
+                )
+                return True
+            if status_raw == TaskStatus.FAILED.value and error_raw != restart_error:
+                logger.warning(
+                    "Task %s externally failed (%s) - signalling abort",
+                    task_id,
+                    error_raw,
+                )
+                return True
+
+            if status_raw == TaskStatus.RUNNING.value:
+                ctx = self.deserialize_json(
+                    getattr(row, "execution_context", None),
+                    {},
+                )
+                if not isinstance(ctx, dict):
+                    ctx = {}
+                ctx["status"] = "running"
+                ctx["heartbeat_at"] = now.isoformat()
+                ctx["runner_heartbeat_at"] = now.isoformat()
+                if runner_id:
+                    ctx["runner_id"] = runner_id
+                conn.execute(
+                    text(
+                        """
+                        UPDATE tasks
+                        SET heartbeat_at = :heartbeat_at,
+                            runner_id = COALESCE(:runner_id, runner_id),
+                            execution_context = :execution_context,
+                            blocked_reason = NULL,
+                            blocked_payload = NULL
+                        WHERE id = :task_id
+                          AND status = :running_status
+                        """
+                    ),
+                    {
+                        "task_id": task_id,
+                        "running_status": TaskStatus.RUNNING.value,
+                        "heartbeat_at": now,
+                        "runner_id": runner_id,
+                        "execution_context": self.serialize_json(ctx),
+                    },
+                )
 
         logger.debug("Checked abort state for task %s (runner=%s)", task_id, runner_id)
         return False

@@ -69,6 +69,7 @@ class RedisRunnerQueueStore:
         self.q_processing = f"mindscape:queue:processing:{pack_id}"
         self.q_delayed = f"mindscape:queue:delayed:{pack_id}"
         self.q_deadletter = f"mindscape:queue:deadletter:{pack_id}"
+        self.q_temp = f"mindscape:queue:temp:{pack_id}"
 
     async def _get_client(self):
         return await get_async_redis_client()
@@ -154,7 +155,7 @@ class RedisRunnerQueueStore:
             await asyncio.sleep(timeout)
             return None
 
-        temp_list = f"mindscape:queue:temp:{self.pack_id}"
+        temp_list = self.q_temp
         try:
             # Using BLMOVE (Redis 6+) if available, else fallback down.
             item = await client.blmove(
@@ -188,7 +189,7 @@ class RedisRunnerQueueStore:
         if not client:
             return None
 
-        temp_list = f"mindscape:queue:temp:{self.pack_id}"
+        temp_list = self.q_temp
         try:
             item = await client.lmove(
                 self.q_pending,
@@ -337,13 +338,9 @@ class RedisRunnerQueueStore:
             return False
         
         try:
-            # Only update if it actually exists in processing
-            score = await client.zscore(self.q_processing, task_id)
-            if score is not None:
-                new_deadline = self._utc_now_timestamp() + added_time_sec
-                await client.zadd(self.q_processing, {task_id: new_deadline})
-                return True
-            return False
+            new_deadline = self._utc_now_timestamp() + added_time_sec
+            await client.zadd(self.q_processing, {task_id: new_deadline})
+            return True
         except Exception:
             return False
 
