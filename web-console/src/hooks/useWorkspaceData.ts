@@ -5,6 +5,10 @@ import { useWorkspaceMetadata } from '@/contexts/WorkspaceMetadataContext';
 import { useMessages } from '@/contexts/MessagesContext';
 import { isDocumentHidden, onDocumentVisible } from '@/lib/page-visibility';
 import { sharedGetFetch } from '@/lib/resilient-fetch';
+import {
+  markWorkspaceReadinessAttempt,
+  shouldRequestWorkspaceReadiness,
+} from '@/lib/workspace-readiness-policy';
 
 interface UseWorkspaceDataOptions {
   enabled?: boolean;
@@ -96,11 +100,17 @@ export function useWorkspaceData(
     if (!enabled || !workspaceId || apiUrl == null || isDocumentHidden()) {
       return;
     }
+    if (!shouldRequestWorkspaceReadiness(workspaceId, {
+      hasLocalSnapshot: Boolean(systemHealth),
+    })) {
+      return;
+    }
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 5000);
 
     try {
+      markWorkspaceReadinessAttempt(workspaceId);
       const response = await sharedGetFetch(
         `${apiUrl}/api/v1/workspaces/${workspaceId}/health`,
         { method: 'GET', signal: controller.signal },
@@ -119,7 +129,7 @@ export function useWorkspaceData(
         console.error('Failed to load system health:', err);
       }
     }
-  }, [workspaceId, apiUrl, enabled, setSystemHealth, onSystemHealthLoaded]);
+  }, [workspaceId, apiUrl, enabled, systemHealth, setSystemHealth, onSystemHealthLoaded]);
 
   const loadContextTokenCount = useCallback(async () => {
     if (!enabled || !workspaceId || apiUrl == null || isDocumentHidden()) {

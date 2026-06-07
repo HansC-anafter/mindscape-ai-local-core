@@ -15,6 +15,12 @@ import React, {
 import { getApiBaseUrl } from '../lib/api-url';
 import { isDocumentHidden, onDocumentVisible } from '../lib/page-visibility';
 import { sharedGetFetch } from '../lib/resilient-fetch';
+import {
+  WORKSPACE_READINESS_BACKGROUND_POLL_MS,
+  WORKSPACE_READINESS_CACHE_MS,
+  markWorkspaceReadinessAttempt,
+  shouldRequestWorkspaceReadiness,
+} from '../lib/workspace-readiness-policy';
 
 // This is evaluated at runtime, not module load time
 // Use synchronous version for immediate use, but prefer async version when possible
@@ -101,7 +107,7 @@ interface SystemStatus {
   has_issues: boolean;
 }
 
-const SYSTEM_STATUS_CACHE_MS = 30_000;
+const SYSTEM_STATUS_CACHE_MS = WORKSPACE_READINESS_CACHE_MS;
 
 interface WorkspaceDataContextType {
   // Data
@@ -470,8 +476,17 @@ export function WorkspaceDataProvider({
       setSystemStatus(cached.data);
       return;
     }
+    if (!shouldRequestWorkspaceReadiness(workspaceId, {
+      force: options?.force,
+      hasLocalSnapshot: Boolean(cached),
+      minIntervalMs: SYSTEM_STATUS_CACHE_MS,
+    })) {
+      if (cached) setSystemStatus(cached.data);
+      return;
+    }
 
     loadingSystemStatusRef.current = true;
+    markWorkspaceReadinessAttempt(workspaceId);
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
 
@@ -701,7 +716,7 @@ export function WorkspaceDataProvider({
     if (!workspaceId || workspaceId === 'new') return;
     const interval = setInterval(() => {
       if (mountedRef.current && !isDocumentHidden()) loadSystemStatus();
-    }, 60_000);
+    }, WORKSPACE_READINESS_BACKGROUND_POLL_MS);
     return () => clearInterval(interval);
   }, [workspaceId, loadSystemStatus, isCapabilityHostProfile]);
 
