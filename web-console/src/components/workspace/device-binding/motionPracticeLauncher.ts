@@ -3,9 +3,9 @@
 import type { DeviceSessionEntry } from '@/lib/device-binding/deviceBindingClient';
 import { submitMeetingCommandEnvelope } from '@/components/capabilities/meeting-workbench/meetingCommandLedger';
 import {
-  buildMotionPracticeIntentText,
-  buildMotionPracticeSessionId,
-  resolveMotionPracticeTarget,
+  buildMotionPracticeIntentText as buildMotionPracticeIntentTextFromTarget,
+  buildMotionPracticeSessionId as buildMotionPracticeSessionIdFromTarget,
+  resolveMotionPracticeTarget as resolveMotionPracticeTargetFromTarget,
   type MotionPracticeCoachPack,
   type MotionPracticeMode,
 } from './motionPracticeTargets';
@@ -247,7 +247,7 @@ export function buildYogaLivePracticeRollup({
 }): Record<string, unknown> {
   const sourceRef = buildMotionSourceRef(input.sourceSession);
   return {
-    practice_session_id: buildMotionPracticeSessionId(input),
+    practice_session_id: buildMotionPracticeSessionIdFromTarget(input),
     workspace_id: input.workspaceId,
     teacher_library_ref: input.expertLibraryRef?.trim() || null,
     asana_refs: [],
@@ -378,7 +378,7 @@ export function buildMotionPracticeCommandParameters({
 export async function launchMotionPractice(
   input: MotionPracticeLaunchInput,
 ): Promise<MotionPracticeLaunchResult> {
-  const target = resolveMotionPracticeTarget(input.coachPack, input.practiceMode);
+  const target = resolveMotionPracticeTargetFromTarget(input.coachPack, input.practiceMode);
   if (!target.enabled) {
     throw new Error(target.blockedReason || 'motion_practice_target_not_ready');
   }
@@ -398,7 +398,7 @@ export async function launchMotionPractice(
       status: 'active',
       liveSessionId,
       sourceSessionId: input.sourceSession.session_id,
-      practiceSessionId: buildMotionPracticeSessionId(input),
+      practiceSessionId: buildMotionPracticeSessionIdFromTarget(input),
       liveGuidanceEnabled: true,
       coachPack: input.coachPack,
       practiceMode: input.practiceMode,
@@ -418,7 +418,7 @@ export async function launchMotionPractice(
     apiUrl: input.apiUrl,
     workspaceId: input.workspaceId,
     meetingId: meeting.id,
-    command: buildMotionPracticeIntentText(input),
+    command: buildMotionPracticeIntentTextFromTarget(input),
     originSurface: 'workspace_motion_source_practice_launcher',
     threadId: meeting.thread_id || meeting.id,
     mentionRefs: [],
@@ -441,7 +441,7 @@ export async function launchMotionPractice(
     status: command.status,
     liveSessionId,
     sourceSessionId: input.sourceSession.session_id,
-    practiceSessionId: buildMotionPracticeSessionId(input),
+    practiceSessionId: buildMotionPracticeSessionIdFromTarget(input),
     liveGuidanceEnabled: false,
     coachPack: input.coachPack,
     practiceMode: input.practiceMode,
