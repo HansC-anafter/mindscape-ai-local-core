@@ -7,10 +7,12 @@ import {
   primeCapabilityUIComponentMetadata,
 } from '@/lib/capability-ui-loader';
 import { KeyboardShortcutProvider } from '@/lib/keyboard-shortcuts';
+import { useKeyboardShortcuts } from '@/lib/keyboard-shortcuts';
 import type {
   AddressableObjectHostBridge,
   AddressableSelectionTarget,
 } from '@/lib/addressable-object-layer';
+import type { KeyboardShortcutProfile } from '@/lib/keyboard-shortcuts';
 import type { WorkspaceToolDefinition } from '@/lib/workspace-tools/workspace-tool-registry';
 import { PackScopeToolRailHost } from './PackScopeToolRailHost';
 
@@ -92,6 +94,18 @@ function createAolHost(
   };
 }
 
+function ShortcutProfileController({
+  onReady,
+}: {
+  onReady: (setProfile: (profile: KeyboardShortcutProfile) => void) => void;
+}) {
+  const { setProfile } = useKeyboardShortcuts();
+  React.useEffect(() => {
+    onReady(setProfile);
+  }, [onReady, setProfile]);
+  return null;
+}
+
 describe('PackScopeToolRailHost', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -170,5 +184,56 @@ describe('PackScopeToolRailHost', () => {
       expect(screen.getByTestId('loaded-pack-tool-panel')).toBeInTheDocument();
     });
     expect(onSelectObject).not.toHaveBeenCalled();
+  });
+
+  it('uses saved profile overrides for display and dispatch without reloading tools', async () => {
+    let applyProfile: (profile: KeyboardShortcutProfile) => void = () => undefined;
+    const onReady = vi.fn((setProfile: (profile: KeyboardShortcutProfile) => void) => {
+      applyProfile = setProfile;
+    });
+
+    render(
+      <KeyboardShortcutProvider loadProfileOnMount={false}>
+        <ShortcutProfileController onReady={onReady} />
+        <PackScopeToolRailHost
+          workspaceId="ws_test"
+          capabilityCode="ig"
+          apiUrl="http://api.test"
+          tools={[feedLoadTool]}
+          navigationCollapsed
+          aolHost={createAolHost(vi.fn())}
+          onNavigationCollapsedChange={vi.fn()}
+        />
+      </KeyboardShortcutProvider>,
+    );
+
+    const toolButton = screen.getByTestId('pack-scope-tool-ig:feed_grid_card_load_limit');
+    expect(toolButton).toHaveAttribute('title', 'Feed Load (F9)');
+
+    applyProfile({
+      schema_version: 1,
+      bindings: [
+        {
+          binding_id: 'workspace_tool:ig:feed_grid_card_load_limit:open',
+          command_id: 'pack.workspace_tool.open',
+          owner_type: 'pack',
+          owner_id: 'ig',
+          shortcut: 'F',
+          disabled: false,
+        },
+      ],
+    });
+
+    await waitFor(() => {
+      expect(toolButton).toHaveAttribute('title', 'Feed Load (F)');
+    });
+
+    fireEvent.keyDown(window, { key: 'F9' });
+    expect(loadCapabilityUIComponent).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(window, { key: 'F' });
+    await waitFor(() => {
+      expect(screen.getByTestId('loaded-pack-tool-panel')).toBeInTheDocument();
+    });
   });
 });

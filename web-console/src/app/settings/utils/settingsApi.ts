@@ -45,26 +45,34 @@ const normalizeApiUrlForBrowser = (apiUrl: string): string => {
   return normalizeBrowserReachableUrl(apiUrl);
 };
 
-const buildApiRequestUrl = (apiUrl: string, endpoint: string): string => {
+const normalizeResolvedRequestUrlForBrowser = (requestUrl: string): string => {
+  if (typeof window === 'undefined' || !requestUrl.startsWith('http')) {
+    return requestUrl;
+  }
+
+  const browserReachableUrl = normalizeBrowserReachableUrl(requestUrl);
+  if (browserReachableUrl !== '') {
+    return browserReachableUrl;
+  }
+
+  try {
+    const parsed = new URL(requestUrl);
+    return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+  } catch {
+    return requestUrl;
+  }
+};
+
+export const buildApiRequestUrl = (apiUrl: string, endpoint: string): string => {
   if (!endpoint.startsWith('http')) {
-    return `${normalizeApiUrlForBrowser(apiUrl)}${endpoint}`;
+    return normalizeResolvedRequestUrlForBrowser(`${normalizeApiUrlForBrowser(apiUrl)}${endpoint}`);
   }
 
   if (typeof window === 'undefined') {
     return endpoint;
   }
 
-  const browserReachableUrl = normalizeBrowserReachableUrl(endpoint);
-  if (browserReachableUrl !== '') {
-    return browserReachableUrl;
-  }
-
-  try {
-    const parsed = new URL(endpoint);
-    return `${parsed.pathname}${parsed.search}${parsed.hash}`;
-  } catch {
-    return endpoint;
-  }
+  return normalizeResolvedRequestUrlForBrowser(endpoint);
 };
 
 export const getApiUrl = async (forceRefresh: boolean = false): Promise<string> => {

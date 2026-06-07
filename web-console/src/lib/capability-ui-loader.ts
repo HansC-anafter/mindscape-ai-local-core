@@ -12,6 +12,7 @@ import { lazy, ComponentType } from 'react';
 import * as ReactRuntime from 'react';
 import * as ReactDOMRuntime from 'react-dom';
 import { convertImportPathToContextKey, normalizeCapabilityContextKey } from './capability-path';
+import { buildRuntimeAssetFetchUrl } from './capability-runtime-asset-url';
 import { loadRegisteredCapabilityComponentsContext } from './capability-ui-context-registry';
 import type {
   CapabilityComponentModuleLoad,
@@ -444,7 +445,10 @@ async function loadRuntimeESMComponent(
     return null;
   }
   ensureRuntimeReactBridge();
-  const assetUrl = resolveRuntimeAssetUrl(component.asset_url, apiUrl);
+  const assetUrl = buildRuntimeAssetFetchUrl(
+    resolveRuntimeAssetUrl(component.asset_url, apiUrl),
+    component.integrity,
+  );
   const response = await fetch(assetUrl, { cache: 'force-cache' });
   if (!response.ok) {
     throw new Error(`Runtime asset fetch failed: ${response.status}`);

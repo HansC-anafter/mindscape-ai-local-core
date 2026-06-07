@@ -14,6 +14,23 @@ import { resolveKeyboardShortcut, getEffectiveShortcut } from './shortcut-resolv
 import { shortcutToAria } from './shortcut-normalization';
 
 const KeyboardShortcutContext = React.createContext<KeyboardShortcutContextValue | null>(null);
+const PROFILE_SYNC_CHANNEL = 'mindscape.keyboard-shortcuts.profile.v1';
+const PROFILE_SYNC_STORAGE_KEY = 'mindscape.keyboard-shortcuts.profile.updated.v1';
+
+interface RuntimeKeyboardShortcutBridge {
+  getSnapshot: () => KeyboardShortcutContextValue | null;
+  subscribe: (listener: () => void) => () => void;
+  setSnapshot: (sourceId: string, snapshot: KeyboardShortcutContextValue) => void;
+  clearSnapshot: (sourceId: string) => void;
+}
+
+declare global {
+  // Runtime ESM capability assets cannot consume the host React context directly.
+  // This bridge exposes the host shortcut provider without adding per-key API calls.
+  // eslint-disable-next-line no-var
+  var MindscapeRuntimeKeyboardShortcuts: RuntimeKeyboardShortcutBridge | undefined;
+}
+
 const FALLBACK_SHORTCUT_CONTEXT: KeyboardShortcutContextValue = {
   commands: [],
   profile: EMPTY_KEYBOARD_SHORTCUT_PROFILE,
@@ -25,6 +42,88 @@ const FALLBACK_SHORTCUT_CONTEXT: KeyboardShortcutContextValue = {
   getCommandAriaShortcut: (_bindingId, defaultShortcut) => shortcutToAria(defaultShortcut),
 };
 
+interface ProfileSyncMessage {
+  type: 'keyboard-shortcuts-profile-updated';
+  sourceId: string;
+  timestamp: number;
+  profile: KeyboardShortcutProfile;
+}
+
+function isKeyboardShortcutProfile(value: unknown): value is KeyboardShortcutProfile {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  const profile = value as Partial<KeyboardShortcutProfile>;
+  return profile.schema_version === 1 && Array.isArray(profile.bindings);
+}
+
+function isProfileSyncMessage(value: unknown): value is ProfileSyncMessage {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  const message = value as Partial<ProfileSyncMessage>;
+  return message.type === 'keyboard-shortcuts-profile-updated'
+    && typeof message.sourceId === 'string'
+    && isKeyboardShortcutProfile(message.profile);
+}
+
+function createProfileSyncSourceId(): string {
+  return `shortcut-profile-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function getRuntimeKeyboardShortcutBridge(): RuntimeKeyboardShortcutBridge | null {
+  if (typeof globalThis === 'undefined') {
+    return null;
+  }
+  if (globalThis.MindscapeRuntimeKeyboardShortcuts) {
+    return globalThis.MindscapeRuntimeKeyboardShortcuts;
+  }
+
+  let snapshot: KeyboardShortcutContextValue | null = null;
+  let sourceId: string | null = null;
+  const listeners = new Set<() => void>();
+  const notify = () => {
+    for (const listener of Array.from(listeners)) {
+      listener();
+    }
+  };
+  const bridge: RuntimeKeyboardShortcutBridge = {
+    getSnapshot: () => snapshot,
+    subscribe: (listener) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+    setSnapshot: (nextSourceId, nextSnapshot) => {
+      sourceId = nextSourceId;
+      snapshot = nextSnapshot;
+      notify();
+    },
+    clearSnapshot: (nextSourceId) => {
+      if (sourceId !== nextSourceId) {
+        return;
+      }
+      sourceId = null;
+      snapshot = null;
+      notify();
+    },
+  };
+  globalThis.MindscapeRuntimeKeyboardShortcuts = bridge;
+  return bridge;
+}
+
+function useRuntimeKeyboardShortcutBridge(): KeyboardShortcutContextValue | null {
+  const subscribe = React.useCallback((listener: () => void) => (
+    getRuntimeKeyboardShortcutBridge()?.subscribe(listener) || (() => undefined)
+  ), []);
+  const getSnapshot = React.useCallback(() => (
+    getRuntimeKeyboardShortcutBridge()?.getSnapshot() || null
+  ), []);
+
+  return React.useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+}
+
 export function KeyboardShortcutProvider({
   children,
   loadProfileOnMount = true,
@@ -35,18 +134,80 @@ export function KeyboardShortcutProvider({
   const commandsRef = React.useRef(new Map<string, KeyboardShortcutCommand>());
   const profileRef = React.useRef<KeyboardShortcutProfile>(EMPTY_KEYBOARD_SHORTCUT_PROFILE);
   const activeScopesRef = React.useRef(new Set<string>(['global']));
+  const syncSourceIdRef = React.useRef(createProfileSyncSourceId());
+  const syncChannelRef = React.useRef<BroadcastChannel | null>(null);
   const [commandsVersion, setCommandsVersion] = React.useState(0);
   const [profile, setProfileState] = React.useState<KeyboardShortcutProfile>(EMPTY_KEYBOARD_SHORTCUT_PROFILE);
 
-  const setProfile = React.useCallback((nextProfile: KeyboardShortcutProfile) => {
+  const applyProfile = React.useCallback((nextProfile: KeyboardShortcutProfile) => {
     profileRef.current = nextProfile;
     setProfileState(nextProfile);
   }, []);
 
+  const publishProfile = React.useCallback((nextProfile: KeyboardShortcutProfile) => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    const message: ProfileSyncMessage = {
+      type: 'keyboard-shortcuts-profile-updated',
+      sourceId: syncSourceIdRef.current,
+      timestamp: Date.now(),
+      profile: nextProfile,
+    };
+    syncChannelRef.current?.postMessage(message);
+    try {
+      window.localStorage.setItem(PROFILE_SYNC_STORAGE_KEY, JSON.stringify(message));
+    } catch {
+      // Ignore storage failures; BroadcastChannel remains the primary sync path.
+    }
+  }, []);
+
+  const setProfile = React.useCallback((nextProfile: KeyboardShortcutProfile) => {
+    applyProfile(nextProfile);
+    publishProfile(nextProfile);
+  }, [applyProfile, publishProfile]);
+
   const reloadProfile = React.useCallback(async () => {
     const result = await loadKeyboardShortcutProfile();
-    setProfile(result.profile);
-  }, [setProfile]);
+    applyProfile(result.profile);
+  }, [applyProfile]);
+
+  React.useEffect(() => {
+    if (typeof window === 'undefined') {
+      return undefined;
+    }
+    const handleSyncMessage = (value: unknown) => {
+      if (!isProfileSyncMessage(value) || value.sourceId === syncSourceIdRef.current) {
+        return;
+      }
+      applyProfile(value.profile);
+    };
+
+    if ('BroadcastChannel' in window) {
+      const channel = new BroadcastChannel(PROFILE_SYNC_CHANNEL);
+      channel.onmessage = (event) => handleSyncMessage(event.data);
+      syncChannelRef.current = channel;
+    }
+
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key !== PROFILE_SYNC_STORAGE_KEY || !event.newValue) {
+        return;
+      }
+      try {
+        handleSyncMessage(JSON.parse(event.newValue));
+      } catch {
+        // Ignore malformed cross-tab messages.
+      }
+    };
+    window.addEventListener('storage', handleStorage);
+
+    return () => {
+      window.removeEventListener('storage', handleStorage);
+      syncChannelRef.current?.close();
+      syncChannelRef.current = null;
+    };
+  }, [applyProfile]);
+
 
   React.useEffect(() => {
     if (!loadProfileOnMount) {
@@ -140,6 +301,16 @@ export function KeyboardShortcutProvider({
     setProfile,
   ]);
 
+  React.useEffect(() => {
+    const bridge = getRuntimeKeyboardShortcutBridge();
+    if (!bridge) {
+      return undefined;
+    }
+    const sourceId = syncSourceIdRef.current;
+    bridge.setSnapshot(sourceId, value);
+    return () => bridge.clearSnapshot(sourceId);
+  }, [value]);
+
   return (
     <KeyboardShortcutContext.Provider value={value}>
       {children}
@@ -149,5 +320,6 @@ export function KeyboardShortcutProvider({
 
 export function useKeyboardShortcuts(): KeyboardShortcutContextValue {
   const context = React.useContext(KeyboardShortcutContext);
-  return context || FALLBACK_SHORTCUT_CONTEXT;
+  const bridgeContext = useRuntimeKeyboardShortcutBridge();
+  return context || bridgeContext || FALLBACK_SHORTCUT_CONTEXT;
 }

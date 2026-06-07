@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 import './globals.css'
 import { LocaleProvider } from '../lib/i18n'
 import { ThemeProvider } from '../lib/theme-provider'
-import { KeyboardShortcutProvider } from '../lib/keyboard-shortcuts/KeyboardShortcutProvider'
+import { KeyboardShortcutProvider } from '../lib/keyboard-shortcuts'
 
 export const metadata: Metadata = {
   title: 'Mindscape AI - Personal Agent Console',

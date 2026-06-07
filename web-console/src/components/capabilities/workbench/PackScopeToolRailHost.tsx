@@ -90,6 +90,23 @@ function iconForTool(tool: WorkspaceToolDefinition) {
   return <Icon aria-hidden className="h-3.5 w-3.5" strokeWidth={1.8} />;
 }
 
+function bindingIdForTool(tool: WorkspaceToolDefinition): string {
+  return `workspace_tool:${tool.tool_key}:open`;
+}
+
+function toolWithEffectiveShortcut(
+  tool: WorkspaceToolDefinition,
+  effectiveShortcut: string | undefined,
+): WorkspaceToolDefinition {
+  if (tool.shortcut === effectiveShortcut) {
+    return tool;
+  }
+  return {
+    ...tool,
+    shortcut: effectiveShortcut,
+  };
+}
+
 export function PackScopeToolRailHost({
   workspaceId,
   capabilityCode,
@@ -118,6 +135,13 @@ export function PackScopeToolRailHost({
   const activeTool = React.useMemo(
     () => orderedTools.find((tool) => tool.tool_key === activeToolKey) || null,
     [activeToolKey, orderedTools],
+  );
+  const activeToolEffectiveShortcut = activeTool
+    ? getCommandShortcut(bindingIdForTool(activeTool), activeTool.shortcut)
+    : undefined;
+  const effectiveActiveTool = React.useMemo(
+    () => (activeTool ? toolWithEffectiveShortcut(activeTool, activeToolEffectiveShortcut) : null),
+    [activeTool, activeToolEffectiveShortcut],
   );
 
   React.useEffect(() => {
@@ -254,7 +278,7 @@ export function PackScopeToolRailHost({
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-0.5 py-1.5">
           <div className="flex flex-col items-center gap-0.5">
             {orderedTools.map((tool) => {
-              const bindingId = `workspace_tool:${tool.tool_key}:open`;
+              const bindingId = bindingIdForTool(tool);
               const currentShortcut = getCommandShortcut(bindingId, tool.shortcut);
               const ariaShortcut = getCommandAriaShortcut(bindingId, tool.shortcut);
               return (
@@ -292,13 +316,13 @@ export function PackScopeToolRailHost({
           </div>
         </div>
       </aside>
-      {activeTool ? (
+      {effectiveActiveTool ? (
         <section
           className={`fixed z-40 overflow-hidden rounded-md border border-zinc-800 bg-zinc-950/95 text-zinc-100 shadow-xl shadow-black/25 backdrop-blur-sm ${
             panelExpanded ? 'w-[280px]' : 'max-w-[340px]'
           }`}
           data-testid="pack-scope-tool-panel"
-          data-active-tool-key={activeTool.tool_key}
+          data-active-tool-key={effectiveActiveTool.tool_key}
           data-panel-expanded={panelExpanded ? 'true' : 'false'}
           style={{
             left: floatingPosition.left,
@@ -309,7 +333,7 @@ export function PackScopeToolRailHost({
             <LoadedPanel
               workspaceId={workspaceId}
               apiUrl={apiUrl}
-              tool={activeTool}
+              tool={effectiveActiveTool}
               aolHost={aolHost}
               panelCollapsed={!panelExpanded}
               onPanelCollapsedChange={(collapsed: boolean) => setPanelExpanded(!collapsed)}
@@ -326,7 +350,7 @@ export function PackScopeToolRailHost({
               ) : (
                 <ChevronRight aria-hidden className="h-3.5 w-3.5 shrink-0 text-zinc-500" />
               )}
-              <span className="min-w-0 truncate">{activeTool.label}</span>
+              <span className="min-w-0 truncate">{effectiveActiveTool.label}</span>
               <X
                 aria-hidden
                 className="ml-auto h-3.5 w-3.5 shrink-0 text-zinc-500"
