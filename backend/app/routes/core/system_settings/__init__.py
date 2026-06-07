@@ -21,6 +21,7 @@ from . import (
     files,
     assistant,
     local_content,
+    keyboard_shortcuts,
 )
 
 router = APIRouter(prefix="/api/v1/system-settings", tags=["system-settings"])
@@ -40,6 +41,7 @@ router.include_router(backups.router)
 router.include_router(service_endpoints.router)
 router.include_router(ports.router)  # Port configuration routes
 router.include_router(files.router)  # File system utility routes
+router.include_router(keyboard_shortcuts.router)
 router.include_router(
     local_content.router
 )  # Local content access (Device Node filesystem + Notes)

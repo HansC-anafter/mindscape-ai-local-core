@@ -12,7 +12,7 @@ interface CapabilityWorkbenchShellProps {
   apiUrl: string;
   navigation?: React.ReactNode;
   children: React.ReactNode;
-  aolHost?: Pick<AddressableObjectHostBridge, 'onSelectObject'>;
+  aolHost?: AddressableObjectHostBridge;
   className?: string;
 }
 
@@ -50,11 +50,20 @@ export function CapabilityWorkbenchShell({
     }
   }, [navigationCollapsed]);
 
+  const handleWorkbenchClick = React.useCallback(() => {
+    if (!showNavigation) {
+      return;
+    }
+    setNavigationCollapsed(true);
+    setNavigationHoverOpen(false);
+  }, [showNavigation]);
+
   return (
     <div
       className={className || 'relative flex min-h-0 flex-1 overflow-hidden'}
       data-testid="capability-workbench-shell"
       data-capability-code={capabilityCode}
+      onClick={handleWorkbenchClick}
     >
       <div
         className="flex min-h-0 shrink-0 overflow-hidden"

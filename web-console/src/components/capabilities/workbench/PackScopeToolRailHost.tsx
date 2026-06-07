@@ -27,6 +27,7 @@ import {
   loadCapabilityUIComponent,
   primeCapabilityUIComponentMetadata,
 } from '@/lib/capability-ui-loader';
+import { useKeyboardShortcuts } from '@/lib/keyboard-shortcuts';
 import type { WorkspaceToolDefinition } from '@/lib/workspace-tools/workspace-tool-registry';
 
 interface PackScopeToolRailHostProps {
@@ -35,7 +36,7 @@ interface PackScopeToolRailHostProps {
   apiUrl: string;
   tools: WorkspaceToolDefinition[];
   navigationCollapsed: boolean;
-  aolHost?: Pick<AddressableObjectHostBridge, 'onSelectObject'>;
+  aolHost?: AddressableObjectHostBridge;
   onNavigationCollapsedChange: (collapsed: boolean) => void;
   onNavigationToggleHover?: () => void;
 }
@@ -52,36 +53,6 @@ const ICONS: Record<string, LucideIcon> = {
   UserPlus,
   Wrench,
 };
-
-function isEditableTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) {
-    return false;
-  }
-  const tagName = target.tagName.toLowerCase();
-  return tagName === 'input'
-    || tagName === 'textarea'
-    || tagName === 'select'
-    || target.isContentEditable;
-}
-
-function shortcutMatches(shortcut: string | undefined, event: KeyboardEvent): boolean {
-  if (!shortcut) {
-    return false;
-  }
-  const parts = shortcut.toLowerCase().split('+').map((part) => part.trim()).filter(Boolean);
-  const key = parts[parts.length - 1];
-  if (!key || event.key.toLowerCase() !== key) {
-    return false;
-  }
-  const wantsShift = parts.includes('shift');
-  const wantsAlt = parts.includes('alt') || parts.includes('option');
-  const wantsCtrl = parts.includes('ctrl') || parts.includes('control');
-  const wantsMeta = parts.includes('meta') || parts.includes('cmd') || parts.includes('command');
-  return event.shiftKey === wantsShift
-    && event.altKey === wantsAlt
-    && event.ctrlKey === wantsCtrl
-    && event.metaKey === wantsMeta;
-}
 
 function readStoredOrder(storageKey: string): string[] {
   if (typeof window === 'undefined') {
@@ -131,6 +102,12 @@ export function PackScopeToolRailHost({
 }: PackScopeToolRailHostProps) {
   const storageKey = `workspace:${workspaceId || 'default'}:capability:${capabilityCode}:tool-order`;
   const railRef = React.useRef<HTMLElement | null>(null);
+  const {
+    activateScope,
+    getCommandAriaShortcut,
+    getCommandShortcut,
+    registerCommand,
+  } = useKeyboardShortcuts();
   const [orderedKeys, setOrderedKeys] = React.useState<string[]>(() => readStoredOrder(storageKey));
   const [activeToolKey, setActiveToolKey] = React.useState<string | null>(null);
   const [draggedToolKey, setDraggedToolKey] = React.useState<string | null>(null);
@@ -211,24 +188,31 @@ export function PackScopeToolRailHost({
   }, []);
 
   React.useEffect(() => {
-    if (orderedTools.length === 0) {
-      return undefined;
-    }
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (isEditableTarget(event.target)) {
-        return;
-      }
-      const matchedTool = orderedTools.find((tool) => shortcutMatches(tool.shortcut, event));
-      if (!matchedTool) {
-        return;
-      }
-      event.preventDefault();
-      setActiveToolKey(matchedTool.tool_key);
-      setPanelExpanded(false);
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [orderedTools]);
+    const scope = `workbench:${workspaceId}:${capabilityCode}`;
+    return activateScope(scope);
+  }, [activateScope, capabilityCode, workspaceId]);
+
+  React.useEffect(() => {
+    const scope = `workbench:${workspaceId}:${capabilityCode}`;
+    const disposers = orderedTools
+      .filter((tool) => Boolean(tool.shortcut))
+      .map((tool) => registerCommand({
+        bindingId: `workspace_tool:${tool.tool_key}:open`,
+        commandId: 'pack.workspace_tool.open',
+        label: tool.label,
+        ownerType: 'pack',
+        ownerId: tool.capability_code,
+        ownerLabel: tool.capability_code,
+        defaultShortcut: tool.shortcut,
+        scope,
+        preventDefault: true,
+        action: () => {
+          setActiveToolKey(tool.tool_key);
+          setPanelExpanded(false);
+        },
+      }));
+    return () => disposers.forEach((dispose) => dispose());
+  }, [capabilityCode, orderedTools, registerCommand, workspaceId]);
 
   const handleDrop = React.useCallback((targetToolKey: string) => {
     if (!draggedToolKey || draggedToolKey === targetToolKey) {
@@ -269,36 +253,42 @@ export function PackScopeToolRailHost({
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-0.5 py-1.5">
           <div className="flex flex-col items-center gap-0.5">
-            {orderedTools.map((tool) => (
-              <div
-                key={tool.tool_key}
-                draggable
-                onDragStart={() => setDraggedToolKey(tool.tool_key)}
-                onDragOver={(event) => event.preventDefault()}
-                onDrop={() => handleDrop(tool.tool_key)}
-                className="group relative"
-              >
-                <button
-                  type="button"
-                  aria-label={tool.label}
-                  aria-pressed={activeToolKey === tool.tool_key}
-                  title={tool.shortcut ? `${tool.label} (${tool.shortcut})` : tool.label}
-                  data-testid={`pack-scope-tool-${tool.tool_key}`}
-                  onClick={() => activateTool(tool)}
-                  className={`inline-flex h-7 w-7 items-center justify-center rounded-sm border text-zinc-500 transition focus:outline-none focus:ring-2 focus:ring-blue-500 dark:text-zinc-400 ${
-                    activeToolKey === tool.tool_key
-                      ? 'border-blue-500 bg-white text-blue-700 shadow-sm dark:border-blue-400 dark:bg-blue-950/40 dark:text-blue-200'
-                      : 'border-transparent bg-transparent hover:border-zinc-300 hover:bg-white hover:text-zinc-950 dark:hover:border-zinc-700 dark:hover:bg-zinc-900 dark:hover:text-white'
-                  }`}
+            {orderedTools.map((tool) => {
+              const bindingId = `workspace_tool:${tool.tool_key}:open`;
+              const currentShortcut = getCommandShortcut(bindingId, tool.shortcut);
+              const ariaShortcut = getCommandAriaShortcut(bindingId, tool.shortcut);
+              return (
+                <div
+                  key={tool.tool_key}
+                  draggable
+                  onDragStart={() => setDraggedToolKey(tool.tool_key)}
+                  onDragOver={(event) => event.preventDefault()}
+                  onDrop={() => handleDrop(tool.tool_key)}
+                  className="group relative"
                 >
-                  {iconForTool(tool)}
-                </button>
-                <GripVertical
-                  aria-hidden
-                  className="pointer-events-none absolute -left-0.5 top-2 h-2.5 w-2.5 text-zinc-300 opacity-0 transition group-hover:opacity-100 dark:text-zinc-600"
-                />
-              </div>
-            ))}
+                  <button
+                    type="button"
+                    aria-label={tool.label}
+                    aria-pressed={activeToolKey === tool.tool_key}
+                    aria-keyshortcuts={ariaShortcut}
+                    title={currentShortcut ? `${tool.label} (${currentShortcut})` : tool.label}
+                    data-testid={`pack-scope-tool-${tool.tool_key}`}
+                    onClick={() => activateTool(tool)}
+                    className={`inline-flex h-7 w-7 items-center justify-center rounded-sm border text-zinc-500 transition focus:outline-none focus:ring-2 focus:ring-blue-500 dark:text-zinc-400 ${
+                      activeToolKey === tool.tool_key
+                        ? 'border-blue-500 bg-white text-blue-700 shadow-sm dark:border-blue-400 dark:bg-blue-950/40 dark:text-blue-200'
+                        : 'border-transparent bg-transparent hover:border-zinc-300 hover:bg-white hover:text-zinc-950 dark:hover:border-zinc-700 dark:hover:bg-zinc-900 dark:hover:text-white'
+                    }`}
+                  >
+                    {iconForTool(tool)}
+                  </button>
+                  <GripVertical
+                    aria-hidden
+                    className="pointer-events-none absolute -left-0.5 top-2 h-2.5 w-2.5 text-zinc-300 opacity-0 transition group-hover:opacity-100 dark:text-zinc-600"
+                  />
+                </div>
+              );
+            })}
           </div>
         </div>
       </aside>
@@ -340,7 +330,7 @@ export function PackScopeToolRailHost({
               <X
                 aria-hidden
                 className="ml-auto h-3.5 w-3.5 shrink-0 text-zinc-500"
-                onClick={(event) => {
+                onClick={(event: React.MouseEvent<SVGSVGElement>) => {
                   event.stopPropagation();
                   setActiveToolKey(null);
                 }}

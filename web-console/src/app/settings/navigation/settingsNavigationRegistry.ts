@@ -42,6 +42,7 @@ export const navigationItems: NavigationItem[] = [
     tab: 'basic',
     children: [
       { id: 'backend-mode', label: 'backendMode', tab: 'basic', section: 'backend-mode' },
+      { id: 'keyboard-shortcuts', label: 'keyboardShortcuts', tab: 'basic', section: 'keyboard-shortcuts' },
       { id: 'language-preference', label: 'languagePreference', tab: 'basic', section: 'language-preference' },
       { id: 'models-and-quota', label: 'modelsAndQuota', tab: 'basic', section: 'models-and-quota' },
       { id: 'model-routing-registry', label: 'modelRoutingRegistry', tab: 'basic', section: 'model-routing-registry' },

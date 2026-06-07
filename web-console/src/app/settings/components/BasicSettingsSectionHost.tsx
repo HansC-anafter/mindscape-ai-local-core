@@ -53,6 +53,10 @@ const RuntimeBackupSettings = dynamic(
   () => import('./panels/RuntimeBackupSettings').then((mod) => mod.RuntimeBackupSettings),
   { ssr: false, loading: BasicSectionFallback }
 );
+const KeyboardShortcutsSettingsPanel = dynamic(
+  () => import('./panels/KeyboardShortcutsSettingsPanel').then((mod) => mod.KeyboardShortcutsSettingsPanel),
+  { ssr: false, loading: BasicSectionFallback }
+);
 
 export function BasicSettingsSectionHost({
   activeSection,
@@ -100,6 +104,8 @@ export function BasicSettingsSectionHost({
       );
     case 'runtime-backup':
       return <RuntimeBackupSettings />;
+    case 'keyboard-shortcuts':
+      return <KeyboardShortcutsSettingsPanel />;
     case 'models-and-quota':
     case 'api-quota':
     case 'embedding':

@@ -2,6 +2,7 @@ import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { AddressableObjectHostBridge } from '@/lib/addressable-object-layer';
 import type { WorkspaceToolDefinition } from '@/lib/workspace-tools/workspace-tool-registry';
 import { CapabilityWorkbenchShell } from './CapabilityWorkbenchShell';
 
@@ -38,6 +39,19 @@ const feedLoadTool: WorkspaceToolDefinition = {
   },
 };
 
+function createAolHost(): AddressableObjectHostBridge {
+  return {
+    mode: 'idle',
+    selection: null,
+    currentMeetingId: null,
+    requestObjectTargeting: vi.fn(),
+    cancelObjectTargeting: vi.fn(),
+    onSelectObject: vi.fn(),
+    clearCurrentObject: vi.fn(),
+    openCurrentMeeting: vi.fn(),
+  };
+}
+
 describe('CapabilityWorkbenchShell', () => {
   beforeEach(() => {
     window.__MindscapePackScopeToolContributions = { ig: [feedLoadTool] };
@@ -49,7 +63,7 @@ describe('CapabilityWorkbenchShell', () => {
         workspaceId="ws_test"
         capabilityCode="ig"
         apiUrl="http://api.test"
-        aolHost={{ onSelectObject: vi.fn() }}
+        aolHost={createAolHost()}
         navigation={<aside data-testid="pack-navigation">Navigation</aside>}
       >
         <main data-testid="pack-main">Main</main>
@@ -86,6 +100,30 @@ describe('CapabilityWorkbenchShell', () => {
     expect(screen.getByTestId('capability-workbench-navigation-slot')).toHaveAttribute('data-navigation-state', 'open');
 
     fireEvent.mouseLeave(screen.getByTestId('capability-workbench-navigation-region'));
+    expect(screen.getByTestId('capability-workbench-navigation-slot')).toHaveAttribute('data-navigation-state', 'closed');
+  });
+
+  it('auto-collapses navigation from workbench clicks without requiring the hover toggle', () => {
+    render(
+      <CapabilityWorkbenchShell
+        workspaceId="ws_test"
+        capabilityCode="ig"
+        apiUrl="http://api.test"
+        navigation={<aside data-testid="pack-navigation">Navigation</aside>}
+      >
+        <main data-testid="pack-main">Main</main>
+      </CapabilityWorkbenchShell>,
+    );
+
+    expect(screen.getByTestId('capability-workbench-navigation-slot')).toHaveAttribute('data-navigation-state', 'open');
+
+    fireEvent.click(screen.getByTestId('pack-main'));
+    expect(screen.getByTestId('capability-workbench-navigation-slot')).toHaveAttribute('data-navigation-state', 'closed');
+
+    fireEvent.mouseEnter(screen.getByTestId('pack-scope-navigation-toggle'));
+    expect(screen.getByTestId('capability-workbench-navigation-slot')).toHaveAttribute('data-navigation-state', 'open');
+
+    fireEvent.click(screen.getByTestId('pack-main'));
     expect(screen.getByTestId('capability-workbench-navigation-slot')).toHaveAttribute('data-navigation-state', 'closed');
   });
 });

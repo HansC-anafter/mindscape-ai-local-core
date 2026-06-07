@@ -6,6 +6,11 @@ import {
   loadCapabilityUIComponent,
   primeCapabilityUIComponentMetadata,
 } from '@/lib/capability-ui-loader';
+import { KeyboardShortcutProvider } from '@/lib/keyboard-shortcuts';
+import type {
+  AddressableObjectHostBridge,
+  AddressableSelectionTarget,
+} from '@/lib/addressable-object-layer';
 import type { WorkspaceToolDefinition } from '@/lib/workspace-tools/workspace-tool-registry';
 import { PackScopeToolRailHost } from './PackScopeToolRailHost';
 
@@ -72,6 +77,21 @@ const feedLoadTool: WorkspaceToolDefinition = {
   },
 };
 
+function createAolHost(
+  onSelectObject: AddressableObjectHostBridge['onSelectObject'],
+): AddressableObjectHostBridge {
+  return {
+    mode: 'idle',
+    selection: null,
+    currentMeetingId: null,
+    requestObjectTargeting: vi.fn(),
+    cancelObjectTargeting: vi.fn(),
+    onSelectObject,
+    clearCurrentObject: vi.fn(),
+    openCurrentMeeting: vi.fn(),
+  };
+}
+
 describe('PackScopeToolRailHost', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -79,19 +99,23 @@ describe('PackScopeToolRailHost', () => {
   });
 
   it('loads a manifest panel lazily without entering AOL object selection', async () => {
-    const onSelectObject = vi.fn();
+    const onSelectObject = vi.fn((selection: AddressableSelectionTarget) => {
+      void selection;
+    });
     const onNavigationCollapsedChange = vi.fn();
 
     render(
-      <PackScopeToolRailHost
-        workspaceId="ws_test"
-        capabilityCode="ig"
-        apiUrl="http://api.test"
-        tools={[feedLoadTool]}
-        navigationCollapsed={false}
-        aolHost={{ onSelectObject }}
-        onNavigationCollapsedChange={onNavigationCollapsedChange}
-      />,
+      <KeyboardShortcutProvider loadProfileOnMount={false}>
+        <PackScopeToolRailHost
+          workspaceId="ws_test"
+          capabilityCode="ig"
+          apiUrl="http://api.test"
+          tools={[feedLoadTool]}
+          navigationCollapsed={false}
+          aolHost={createAolHost(onSelectObject)}
+          onNavigationCollapsedChange={onNavigationCollapsedChange}
+        />
+      </KeyboardShortcutProvider>,
     );
 
     expect(screen.getByTestId('pack-scope-tool-rail')).toBeInTheDocument();
@@ -118,10 +142,12 @@ describe('PackScopeToolRailHost', () => {
   });
 
   it('opens the panel from the manifest shortcut without hitting editable targets', async () => {
-    const onSelectObject = vi.fn();
+    const onSelectObject = vi.fn((selection: AddressableSelectionTarget) => {
+      void selection;
+    });
 
     render(
-      <>
+      <KeyboardShortcutProvider loadProfileOnMount={false}>
         <input data-testid="shortcut-input" />
         <PackScopeToolRailHost
           workspaceId="ws_test"
@@ -129,10 +155,10 @@ describe('PackScopeToolRailHost', () => {
           apiUrl="http://api.test"
           tools={[feedLoadTool]}
           navigationCollapsed
-          aolHost={{ onSelectObject }}
+          aolHost={createAolHost(onSelectObject)}
           onNavigationCollapsedChange={vi.fn()}
         />
-      </>,
+      </KeyboardShortcutProvider>,
     );
 
     fireEvent.keyDown(screen.getByTestId('shortcut-input'), { key: 'F9' });
