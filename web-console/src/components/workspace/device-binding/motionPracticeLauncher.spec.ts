@@ -129,4 +129,19 @@ describe('motionPracticeLauncher', () => {
     });
     expectNoRawPayload(parameters);
   });
+
+  it('enables live guidance as a non-command launch target', () => {
+    expect(resolveMotionPracticeTarget('yogacoach', 'live_guidance')).toMatchObject({
+      enabled: true,
+      packCode: 'yogacoach',
+      playbookCode: null,
+      launchKind: 'live_guidance',
+    });
+    expect(resolveMotionPracticeTarget('dance_motion_coach', 'live_guidance')).toMatchObject({
+      enabled: true,
+      packCode: 'dance_motion_coach',
+      playbookCode: null,
+      launchKind: 'live_guidance',
+    });
+  });
 });

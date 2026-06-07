@@ -255,7 +255,7 @@ describe('MotionSourceRailPanel', () => {
     );
   });
 
-  it('shows non-ready practice routes without dispatching a command', async () => {
+  it('shows non-ready Dance teacher assessment without dispatching a command', async () => {
     render(
       <MotionSourceRailPanel
         apiUrl="http://api.test"
@@ -287,11 +287,11 @@ describe('MotionSourceRailPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Dance' }));
     fireEvent.change(screen.getByTestId('motion-practice-mode-select'), {
-      target: { value: 'live_guidance' },
+      target: { value: 'teacher_assessment' },
     });
 
     expect(screen.getByTestId('motion-practice-readiness')).toHaveTextContent(
-      'Dance live guidance and teacher assessment are pending.',
+      'Dance teacher assessment is pending.',
     );
     expect(screen.getByTestId('motion-practice-start-button')).toBeDisabled();
     expect(submitMeetingCommandEnvelope).not.toHaveBeenCalled();

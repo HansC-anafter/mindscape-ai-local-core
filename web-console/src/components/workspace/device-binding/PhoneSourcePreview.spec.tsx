@@ -116,12 +116,14 @@ describe('PhoneSourcePreview', () => {
     );
   });
 
-  it('starts motion analysis from the received stream when a live motion session exists', () => {
+  it('starts motion analysis from the received stream when a live motion session exists', async () => {
+    const onMotionWindowAppended = vi.fn();
     const { unmount } = render(
       <PhoneSourcePreview
         apiUrl="http://api.test"
         workspaceId="ws_device"
         liveMotionSessionId="lms_motion_practice"
+        onMotionWindowAppended={onMotionWindowAppended}
         session={{
           session_id: 'session_1',
           workspace_id: 'ws_device',
@@ -149,6 +151,25 @@ describe('PhoneSourcePreview', () => {
       }),
     );
     expect(mocks.motionController.start).toHaveBeenCalled();
+
+    const summary = {
+      window_id: 'window_1',
+      live_session_id: 'lms_motion_practice',
+      ts_start_ms: 0,
+      ts_end_ms: 2000,
+      skeleton_family: 'mediapipe_pose_33',
+      confidence_stats: { mean_confidence: 0.8 },
+      scores: {},
+      findings: ['Shift weight back.'],
+      keypoint_frame_count: 20,
+      metadata: {},
+    };
+    await mocks.motionControllerInput.appendMotionWindow(summary, 123);
+    expect(onMotionWindowAppended).toHaveBeenCalledWith({
+      liveSessionId: 'lms_motion_practice',
+      response: { accepted: true },
+      summary,
+    });
 
     unmount();
 
