@@ -23,12 +23,17 @@ import {
   MotionPracticeSessionStatusPanel,
   type MotionPracticeLaunchState,
 } from './MotionPracticeSessionStatusPanel';
+import {
+  MotionPracticeLiveGuidancePanel,
+  type MotionPracticeWindowAppendEvent,
+} from './MotionPracticeLiveGuidancePanel';
 
 interface MotionPracticeRailControllerProps {
   apiUrl: string;
   workspaceId: string;
   sessions: DeviceSessionEntry[];
   result: MotionPracticeLaunchResult | null;
+  latestWindowAppend?: MotionPracticeWindowAppendEvent | null;
   onResultChange: (result: MotionPracticeLaunchResult | null) => void;
 }
 
@@ -37,6 +42,7 @@ export function MotionPracticeRailController({
   workspaceId,
   sessions,
   result,
+  latestWindowAppend = null,
   onResultChange,
 }: MotionPracticeRailControllerProps) {
   const [selectedSessionId, setSelectedSessionId] = useState<string>('');
@@ -87,7 +93,7 @@ export function MotionPracticeRailController({
   ]);
 
   const startPractice = async () => {
-    if (!selectedSession || !target.enabled || !target.playbookCode) {
+    if (!selectedSession || !target.enabled) {
       return;
     }
     setLaunchState('starting');
@@ -232,6 +238,13 @@ export function MotionPracticeRailController({
         result={result}
       />
 
+      <MotionPracticeLiveGuidancePanel
+        apiUrl={apiUrl}
+        workspaceId={workspaceId}
+        result={result}
+        latestWindowAppend={latestWindowAppend}
+      />
+
       <button
         type="button"
         onClick={() => void startPractice()}
@@ -242,7 +255,7 @@ export function MotionPracticeRailController({
         {launchState === 'starting'
           ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
           : <PlayCircle className="h-4 w-4" aria-hidden="true" />}
-        Start practice
+        {target.launchKind === 'live_guidance' ? 'Start guidance' : 'Start practice'}
       </button>
 
       <MotionPracticeRecordsPanel

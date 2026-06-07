@@ -10,6 +10,7 @@ export type MotionPracticeTarget = {
   enabled: boolean;
   packCode: string;
   playbookCode: string | null;
+  launchKind: 'command' | 'live_guidance';
   readinessLabel: string;
   blockedReason?: string;
 };
@@ -29,9 +30,13 @@ export type MotionPracticeLaunchInput = {
 
 export type MotionPracticeLaunchResult = {
   meetingId: string;
-  commandId: string;
+  commandId: string | null;
   liveSessionId: string | null;
   sourceSessionId: string;
+  practiceSessionId: string;
+  liveGuidanceEnabled: boolean;
+  coachPack: MotionPracticeCoachPack;
+  practiceMode: MotionPracticeMode;
   status: string;
 };
 
@@ -224,6 +229,10 @@ export function buildMotionPracticeResourcePolicy(): Record<string, boolean | st
   };
 }
 
+export function buildMotionPracticeSessionId(input: MotionPracticeLaunchInput): string {
+  return `${input.sourceSession.session_id}:${input.practiceMode}`;
+}
+
 export function buildMotionPracticeCommandMetadata(
   input: MotionPracticeLaunchInput,
 ): Record<string, unknown> {
@@ -248,24 +257,35 @@ export function resolveMotionPracticeTarget(
         enabled: true,
         packCode: 'dance_motion_coach',
         playbookCode: 'dance_motion_coach_session_summary',
+        launchKind: 'command',
         readinessLabel: 'Ready to submit a Dance Coach session-close summary command.',
+      };
+    }
+    if (practiceMode === 'live_guidance') {
+      return {
+        enabled: true,
+        packCode: 'dance_motion_coach',
+        playbookCode: null,
+        launchKind: 'live_guidance',
+        readinessLabel: 'Ready to start bounded Dance live guidance without command ledger writes.',
       };
     }
     return {
       enabled: false,
       packCode: 'dance_motion_coach',
       playbookCode: null,
-      readinessLabel: 'Dance live guidance and teacher assessment are pending.',
-      blockedReason: 'Dance currently exposes a session-close summary playbook only.',
+      launchKind: 'command',
+      readinessLabel: 'Dance teacher assessment is pending.',
+      blockedReason: 'Dance currently exposes a session-close summary playbook and bounded live guidance only.',
     };
   }
   if (practiceMode === 'live_guidance') {
     return {
-      enabled: false,
+      enabled: true,
       packCode: 'yogacoach',
       playbookCode: null,
-      readinessLabel: 'Live guidance needs analyzer-to-cue streaming before launch.',
-      blockedReason: 'Realtime pose windows are not yet bridged from WebRTC into motion_runtime.analysis cues.',
+      launchKind: 'live_guidance',
+      readinessLabel: 'Ready to start bounded AI Yoga live guidance without command ledger writes.',
     };
   }
   if (practiceMode === 'teacher_assessment') {
@@ -273,6 +293,7 @@ export function resolveMotionPracticeTarget(
       enabled: true,
       packCode: 'yogacoach',
       playbookCode: 'yogacoach_teacher_learning_assessment',
+      launchKind: 'command',
       readinessLabel: 'Ready to submit a teacher-facing assessment command.',
     };
   }
@@ -280,6 +301,7 @@ export function resolveMotionPracticeTarget(
     enabled: true,
     packCode: 'yogacoach',
     playbookCode: 'yogacoach_student_practice_summary',
+    launchKind: 'command',
     readinessLabel: 'Ready to submit a student summary command.',
   };
 }
@@ -295,7 +317,7 @@ export function buildYogaLivePracticeRollup({
 }): Record<string, unknown> {
   const sourceRef = buildMotionSourceRef(input.sourceSession);
   return {
-    practice_session_id: `${input.sourceSession.session_id}:${input.practiceMode}`,
+    practice_session_id: buildMotionPracticeSessionId(input),
     workspace_id: input.workspaceId,
     teacher_library_ref: input.expertLibraryRef?.trim() || null,
     asana_refs: [],
@@ -434,7 +456,7 @@ export async function launchMotionPractice(
   input: MotionPracticeLaunchInput,
 ): Promise<MotionPracticeLaunchResult> {
   const target = resolveMotionPracticeTarget(input.coachPack, input.practiceMode);
-  if (!target.enabled || !target.playbookCode) {
+  if (!target.enabled) {
     throw new Error(target.blockedReason || 'motion_practice_target_not_ready');
   }
 
@@ -444,6 +466,26 @@ export async function launchMotionPractice(
     input,
   );
   const liveSessionPayload = await registerLiveMotionSession(input, meeting.id);
+  const liveSessionId = readLiveSessionId(liveSessionPayload);
+
+  if (target.launchKind === 'live_guidance') {
+    return {
+      meetingId: meeting.id,
+      commandId: null,
+      status: 'active',
+      liveSessionId,
+      sourceSessionId: input.sourceSession.session_id,
+      practiceSessionId: buildMotionPracticeSessionId(input),
+      liveGuidanceEnabled: true,
+      coachPack: input.coachPack,
+      practiceMode: input.practiceMode,
+    };
+  }
+
+  if (!target.playbookCode) {
+    throw new Error(target.blockedReason || 'motion_practice_playbook_not_ready');
+  }
+
   const parameters = buildMotionPracticeCommandParameters({
     input,
     meetingId: meeting.id,
@@ -474,7 +516,11 @@ export async function launchMotionPractice(
     meetingId: meeting.id,
     commandId: command.commandId,
     status: command.status,
-    liveSessionId: readLiveSessionId(liveSessionPayload),
+    liveSessionId,
     sourceSessionId: input.sourceSession.session_id,
+    practiceSessionId: buildMotionPracticeSessionId(input),
+    liveGuidanceEnabled: false,
+    coachPack: input.coachPack,
+    practiceMode: input.practiceMode,
   };
 }

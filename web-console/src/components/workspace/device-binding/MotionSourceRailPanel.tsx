@@ -20,6 +20,7 @@ import {
 import { createQrCodeSvgPath } from '@/lib/media-transport/qrCode';
 import { MotionPracticeRailController } from './practice/MotionPracticeRailController';
 import type { MotionPracticeLaunchResult } from './motionPracticeLauncher';
+import type { MotionPracticeWindowAppendEvent } from './practice/MotionPracticeLiveGuidancePanel';
 
 interface MotionSourceRailPanelProps {
   apiUrl: string;
@@ -70,6 +71,8 @@ export function MotionSourceRailPanel({
   const [sessions, setSessions] = useState<DeviceSessionEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [practiceResult, setPracticeResult] = useState<MotionPracticeLaunchResult | null>(null);
+  const [latestWindowAppend, setLatestWindowAppend] =
+    useState<MotionPracticeWindowAppendEvent | null>(null);
   const [phonePublicOrigin, setPhonePublicOrigin] = useState('');
   const socketRef = useRef<DeviceControlSocket | null>(null);
 
@@ -307,6 +310,7 @@ export function MotionSourceRailPanel({
                   ? practiceResult.liveSessionId
                   : null
               }
+              onMotionWindowAppended={setLatestWindowAppend}
             />
           </div>
         ))}
@@ -317,6 +321,7 @@ export function MotionSourceRailPanel({
         workspaceId={workspaceId}
         sessions={sessions}
         result={practiceResult}
+        latestWindowAppend={latestWindowAppend}
         onResultChange={setPracticeResult}
       />
 

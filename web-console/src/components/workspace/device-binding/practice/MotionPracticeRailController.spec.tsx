@@ -6,13 +6,31 @@ import { launchMotionPractice } from '../motionPracticeLauncher';
 import type { DeviceSessionEntry } from '@/lib/device-binding/deviceBindingClient';
 
 const mocks = vi.hoisted(() => ({
-  launchMotionPractice: vi.fn(async () => ({
-    meetingId: 'mtg_motion',
-    commandId: 'cmd_motion',
-    liveSessionId: 'lms_motion',
-    sourceSessionId: 'session_1',
-    status: 'accepted',
-  })),
+  launchMotionPractice: vi.fn(async (input: { practiceMode?: string }) => (
+    input.practiceMode === 'live_guidance'
+      ? {
+          meetingId: 'mtg_motion',
+          commandId: null,
+          liveSessionId: 'lms_motion',
+          sourceSessionId: 'session_1',
+          practiceSessionId: 'session_1:live_guidance',
+          liveGuidanceEnabled: true,
+          coachPack: 'yogacoach',
+          practiceMode: 'live_guidance',
+          status: 'active',
+        }
+      : {
+          meetingId: 'mtg_motion',
+          commandId: 'cmd_motion',
+          liveSessionId: 'lms_motion',
+          sourceSessionId: 'session_1',
+          practiceSessionId: 'session_1:record_summary',
+          liveGuidanceEnabled: false,
+          coachPack: 'yogacoach',
+          practiceMode: 'record_summary',
+          status: 'accepted',
+        }
+  )),
 }));
 
 vi.mock('../motionPracticeLauncher', async (importOriginal) => {
@@ -22,6 +40,10 @@ vi.mock('../motionPracticeLauncher', async (importOriginal) => {
     launchMotionPractice: mocks.launchMotionPractice,
   };
 });
+
+vi.mock('./MotionPracticeLiveGuidancePanel', () => ({
+  MotionPracticeLiveGuidancePanel: () => <div data-testid="motion-guidance-panel" />,
+}));
 
 const sourceSession: DeviceSessionEntry = {
   session_id: 'session_1',
@@ -92,7 +114,34 @@ describe('MotionPracticeRailController', () => {
     setIntervalSpy.mockRestore();
   });
 
-  it('blocks non-ready live guidance routes without submitting', () => {
+  it('starts live guidance without requiring a command playbook', async () => {
+    render(
+      <MotionPracticeRailController
+        apiUrl="http://api.test"
+        workspaceId="ws_device"
+        sessions={[sourceSession]}
+        result={null}
+        onResultChange={vi.fn()}
+      />,
+    );
+
+    fireEvent.change(screen.getByTestId('motion-practice-mode-select'), {
+      target: { value: 'live_guidance' },
+    });
+
+    expect(screen.getByTestId('motion-practice-readiness')).toHaveTextContent(
+      'Ready to start bounded AI Yoga live guidance without command ledger writes.',
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('motion-practice-start-button'));
+    });
+
+    expect(launchMotionPractice).toHaveBeenCalledWith(
+      expect.objectContaining({ practiceMode: 'live_guidance' }),
+    );
+  });
+
+  it('blocks non-ready Dance teacher assessment without submitting', () => {
     render(
       <MotionPracticeRailController
         apiUrl="http://api.test"
@@ -105,11 +154,11 @@ describe('MotionPracticeRailController', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Dance' }));
     fireEvent.change(screen.getByTestId('motion-practice-mode-select'), {
-      target: { value: 'live_guidance' },
+      target: { value: 'teacher_assessment' },
     });
 
     expect(screen.getByTestId('motion-practice-readiness')).toHaveTextContent(
-      'Dance live guidance and teacher assessment are pending.',
+      'Dance teacher assessment is pending.',
     );
     expect(screen.getByTestId('motion-practice-start-button')).toBeDisabled();
     expect(launchMotionPractice).not.toHaveBeenCalled();

@@ -16,12 +16,14 @@ import {
   type LivePoseWindowControllerStatus,
 } from '@/lib/motion-analysis/livePoseWindow';
 import { appendMotionWindow } from '@/lib/motion-analysis/motionWindowClient';
+import type { MotionPracticeWindowAppendEvent } from './practice/MotionPracticeLiveGuidancePanel';
 
 interface PhoneSourcePreviewProps {
   apiUrl: string;
   workspaceId: string;
   session: DeviceSessionEntry;
   liveMotionSessionId?: string | null;
+  onMotionWindowAppended?: (event: MotionPracticeWindowAppendEvent) => void;
 }
 
 export function PhoneSourcePreview({
@@ -29,6 +31,7 @@ export function PhoneSourcePreview({
   workspaceId,
   session,
   liveMotionSessionId = null,
+  onMotionWindowAppended,
 }: PhoneSourcePreviewProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const handleRef = useRef<WebRTCSessionHandle | null>(null);
@@ -63,11 +66,18 @@ export function PhoneSourcePreview({
       liveSessionId: liveMotionSessionId,
       adapter: createBrowserMediaPipePoseAdapter(),
       appendMotionWindow: async (summary, receivedAtMs) => {
-        await appendMotionWindow({
+        const response = await appendMotionWindow({
           apiUrl,
           summary,
           receivedAtMs,
         });
+        if (liveMotionSessionId) {
+          onMotionWindowAppended?.({
+            liveSessionId: liveMotionSessionId,
+            response,
+            summary,
+          });
+        }
       },
       metadata: {
         workspace_id: workspaceId,
@@ -78,7 +88,15 @@ export function PhoneSourcePreview({
     });
     motionControllerRef.current = controller;
     controller.start();
-  }, [apiUrl, liveMotionSessionId, session.session_id, session.source_types, stopMotionAnalysis, workspaceId]);
+  }, [
+    apiUrl,
+    liveMotionSessionId,
+    onMotionWindowAppended,
+    session.session_id,
+    session.source_types,
+    stopMotionAnalysis,
+    workspaceId,
+  ]);
 
   useEffect(() => {
     startMotionAnalysisRef.current = startMotionAnalysis;

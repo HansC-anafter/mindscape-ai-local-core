@@ -43,11 +43,16 @@ export function MotionPracticeSessionStatusPanel({
 
       {result ? (
         <div className="space-y-1 rounded border border-emerald-200 bg-emerald-50 p-2 text-xs text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200">
-          <div>Submitted: {result.status}</div>
+          <div>{result.liveGuidanceEnabled ? 'Live guidance' : 'Submitted'}: {result.status}</div>
           <div className="break-all font-mono">meeting {result.meetingId}</div>
-          <div className="break-all font-mono">command {result.commandId}</div>
+          {result.commandId ? (
+            <div className="break-all font-mono">command {result.commandId}</div>
+          ) : null}
           {result.liveSessionId ? (
             <div className="break-all font-mono">motion {result.liveSessionId}</div>
+          ) : null}
+          {result.liveGuidanceEnabled ? (
+            <div className="break-all font-mono">practice {result.practiceSessionId}</div>
           ) : null}
         </div>
       ) : null}
