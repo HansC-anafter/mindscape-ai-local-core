@@ -44,6 +44,56 @@ export function buildLedgerIntentText(
   return normalized || fallback;
 }
 
+function resolveDispatchMode({
+  actionParameters,
+  requestedAction,
+  selectedPackTool,
+  mentionRefs,
+  objectActionEntries,
+  metadata,
+}: Pick<
+  SubmitMeetingCommandEnvelopeArgs,
+  | 'actionParameters'
+  | 'requestedAction'
+  | 'selectedPackTool'
+  | 'mentionRefs'
+  | 'objectActionEntries'
+  | 'metadata'
+>): string {
+  const safeActionParameters = actionParameters || {};
+  const safeMetadata = metadata || {};
+  const hasSelectedGuidance = Boolean(
+    safeActionParameters.selected_guidance_id ||
+    safeActionParameters.selected_guidance_metadata ||
+    safeActionParameters.selected_guidance_cards,
+  );
+  const forceMeetingOrchestration = Boolean(
+    safeActionParameters.force_meeting_orchestration ||
+    safeActionParameters.forceMeetingOrchestration ||
+    safeMetadata.force_meeting_orchestration ||
+    safeMetadata.forceMeetingOrchestration,
+  );
+  if (forceMeetingOrchestration) {
+    return 'route_meeting_orchestration';
+  }
+  const metadataDispatchMode = typeof safeMetadata.dispatch_mode === 'string'
+    ? safeMetadata.dispatch_mode
+    : '';
+  const requestedPlaybookCode = requestedAction && typeof requestedAction.playbook_code === 'string'
+    ? requestedAction.playbook_code.trim()
+    : '';
+  if (
+    metadataDispatchMode === 'route_playbook' &&
+    safeMetadata.explicit_override === true &&
+    requestedPlaybookCode
+  ) {
+    return 'route_playbook';
+  }
+  return objectActionEntries.length > 0 || mentionRefs.length > 0 || selectedPackTool !== null || requestedAction !== null || hasSelectedGuidance
+    ? 'route_meeting_orchestration'
+    : 'route_chat';
+}
+
 export async function submitMeetingCommandEnvelope({
   apiUrl,
   workspaceId,
@@ -58,21 +108,20 @@ export async function submitMeetingCommandEnvelope({
   requestedAction = null,
   metadata = {},
 }: SubmitMeetingCommandEnvelopeArgs): Promise<MeetingCommandLedgerAcceptance> {
-  const hasSelectedGuidance = Boolean(
-    actionParameters.selected_guidance_id ||
-    actionParameters.selected_guidance_metadata ||
-    actionParameters.selected_guidance_cards,
-  );
   const forceMeetingOrchestration = Boolean(
     actionParameters.force_meeting_orchestration ||
     actionParameters.forceMeetingOrchestration ||
     metadata.force_meeting_orchestration ||
     metadata.forceMeetingOrchestration,
   );
-  const dispatchMode =
-    forceMeetingOrchestration || objectActionEntries.length > 0 || mentionRefs.length > 0 || selectedPackTool !== null || requestedAction !== null || hasSelectedGuidance
-      ? 'route_meeting_orchestration'
-      : 'route_chat';
+  const dispatchMode = resolveDispatchMode({
+    actionParameters,
+    requestedAction,
+    selectedPackTool,
+    mentionRefs,
+    objectActionEntries,
+    metadata,
+  });
   const payload = await postApiJson(
     apiUrl,
     `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/meetings/${encodeURIComponent(meetingId)}/commands`,

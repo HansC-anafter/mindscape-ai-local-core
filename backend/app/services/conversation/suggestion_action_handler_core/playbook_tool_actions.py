@@ -102,9 +102,10 @@ async def handle_execute_playbook(
         logger.error("_handle_execute_playbook: Playbook %s not found", playbook_code)
         raise ValueError(f"Playbook {playbook_code} not found")
 
-    playbook_run = handler.playbook_service.playbook_loader.load_playbook_run(
+    playbook_run = await handler.playbook_service.load_playbook_run(
         playbook_code=playbook_code,
         locale=locale,
+        workspace_id=ctx.workspace_id,
     )
     if not playbook_run or not playbook_run.has_json():
         logger.error(

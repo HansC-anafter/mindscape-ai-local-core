@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Radio, Square, Volume2, VolumeX } from 'lucide-react';
+import { FileText, Radio, Square, Volume2, VolumeX } from 'lucide-react';
 
 import {
   buildMotionGuidanceWindowEvent,
@@ -16,6 +16,11 @@ import {
   VoicePlaybackQueue,
 } from '@/lib/meeting-voice/voicePlaybackQueue';
 import type { MotionPracticeLaunchResult } from '../motionPracticeLauncher';
+import type { MotionPracticeLaunchInput } from '../motionPracticeLauncher';
+import {
+  closeMotionPracticeLiveGuidanceSession,
+  type MotionPracticeClosureResult,
+} from '../motionPracticeClosure';
 import type { AppendMotionWindowResponse } from '@/lib/motion-analysis/motionWindowClient';
 import type { MotionWindowSummary } from '@/lib/motion-analysis/livePoseWindow';
 
@@ -30,10 +35,12 @@ interface MotionPracticeLiveGuidancePanelProps {
   workspaceId: string;
   result: MotionPracticeLaunchResult | null;
   latestWindowAppend: MotionPracticeWindowAppendEvent | null;
+  closureInput?: MotionPracticeLaunchInput | null;
 }
 
 type GuidanceConnectionState = 'idle' | 'connecting' | 'ready' | 'closed' | 'error';
 type VoiceState = 'unknown' | 'available' | 'unavailable';
+type ClosureState = 'idle' | 'closing' | 'rolling_up' | 'submitted' | 'error';
 
 function toGuidanceWindowEvent(
   appendEvent: MotionPracticeWindowAppendEvent,
@@ -55,17 +62,22 @@ export function MotionPracticeLiveGuidancePanel({
   workspaceId,
   result,
   latestWindowAppend,
+  closureInput = null,
 }: MotionPracticeLiveGuidancePanelProps) {
   const [state, setState] = useState<GuidanceConnectionState>('idle');
   const [muted, setMuted] = useState(false);
   const [voiceState, setVoiceState] = useState<VoiceState>('unknown');
   const [lastCue, setLastCue] = useState<MotionGuidanceEvent | null>(null);
   const [lastError, setLastError] = useState<string | null>(null);
+  const [closureState, setClosureState] = useState<ClosureState>('idle');
+  const [closureResult, setClosureResult] = useState<MotionPracticeClosureResult | null>(null);
   const socketRef = useRef<MotionGuidanceSocket | null>(null);
   const playbackRef = useRef(new VoicePlaybackQueue());
   const mutedRef = useRef(muted);
   const voiceStateRef = useRef<VoiceState>(voiceState);
   const sentWindowEventRef = useRef<string | null>(null);
+  const closeRequestedRef = useRef(false);
+  const closureStartedRef = useRef<string | null>(null);
 
   useEffect(() => {
     mutedRef.current = muted;
@@ -77,6 +89,13 @@ export function MotionPracticeLiveGuidancePanel({
   useEffect(() => {
     voiceStateRef.current = voiceState;
   }, [voiceState]);
+
+  useEffect(() => {
+    closeRequestedRef.current = false;
+    closureStartedRef.current = null;
+    setClosureState('idle');
+    setClosureResult(null);
+  }, [result?.liveSessionId, result?.practiceSessionId]);
 
   const speakCue = useCallback(async (event: MotionGuidanceEvent) => {
     if (!event.speakable || !event.cue_text || mutedRef.current) {
@@ -97,6 +116,32 @@ export function MotionPracticeLiveGuidancePanel({
     }
   }, [apiUrl]);
 
+  const runClosureSummary = useCallback(async () => {
+    if (!result?.liveGuidanceEnabled || !result.liveSessionId || !closureInput) {
+      setClosureState('error');
+      setLastError('motion_practice_closure_input_missing');
+      return;
+    }
+    const closureKey = `${result.practiceSessionId}:${result.liveSessionId}`;
+    if (closureStartedRef.current === closureKey) {
+      return;
+    }
+    closureStartedRef.current = closureKey;
+    setClosureState('rolling_up');
+    setLastError(null);
+    try {
+      const nextClosureResult = await closeMotionPracticeLiveGuidanceSession({
+        input: closureInput,
+        result,
+      });
+      setClosureResult(nextClosureResult);
+      setClosureState('submitted');
+    } catch (error) {
+      setClosureState('error');
+      setLastError(error instanceof Error ? error.message : 'motion_practice_closure_failed');
+    }
+  }, [closureInput, result]);
+
   const handleGuidanceEvent = useCallback((event: MotionGuidanceEvent) => {
     if (event.type === 'session_ready') {
       setState('ready');
@@ -110,6 +155,9 @@ export function MotionPracticeLiveGuidancePanel({
     }
     if (event.type === 'session_closed') {
       setState('closed');
+      if (closeRequestedRef.current) {
+        void runClosureSummary();
+      }
       return;
     }
     if (event.type === 'session_error') {
@@ -124,7 +172,7 @@ export function MotionPracticeLiveGuidancePanel({
       setLastCue(event);
       void speakCue(event);
     }
-  }, [apiUrl, speakCue]);
+  }, [apiUrl, runClosureSummary, speakCue]);
 
   useEffect(() => {
     if (!result?.liveGuidanceEnabled || !result.liveSessionId || !result.practiceSessionId) {
@@ -188,6 +236,21 @@ export function MotionPracticeLiveGuidancePanel({
     socketRef.current?.send({ type: 'interrupt', event_id: `${result?.practiceSessionId || 'practice'}:interrupt` });
   };
 
+  const closeGuidance = () => {
+    if (!result?.practiceSessionId || !socketRef.current) {
+      setClosureState('error');
+      setLastError('motion_guidance_socket_not_ready');
+      return;
+    }
+    closeRequestedRef.current = true;
+    setClosureState('closing');
+    setLastError(null);
+    socketRef.current.send({
+      type: 'session_close',
+      event_id: `${result.practiceSessionId}:session_close`,
+    });
+  };
+
   if (!result?.liveGuidanceEnabled) {
     return null;
   }
@@ -223,7 +286,20 @@ export function MotionPracticeLiveGuidancePanel({
         </div>
       ) : null}
 
-      <div className="grid grid-cols-2 gap-2">
+      {closureState !== 'idle' ? (
+        <div className="rounded border border-sky-200 bg-white p-2 dark:border-sky-800 dark:bg-gray-950" data-testid="motion-guidance-closure-state">
+          <div className="text-[11px] uppercase tracking-normal text-sky-600 dark:text-sky-300">
+            session close
+          </div>
+          <div>
+            {closureState === 'submitted'
+              ? `rollup ${closureResult?.rollup.motion_rollup_ref || 'emitted'} · command ${closureResult?.command.commandId || 'accepted'}`
+              : closureState}
+          </div>
+        </div>
+      ) : null}
+
+      <div className="grid grid-cols-3 gap-2">
         <button
           type="button"
           onClick={() => setMuted((value) => !value)}
@@ -241,6 +317,17 @@ export function MotionPracticeLiveGuidancePanel({
         >
           <Square className="h-3.5 w-3.5" aria-hidden="true" />
           Interrupt
+        </button>
+        <button
+          type="button"
+          onClick={closeGuidance}
+          disabled={!closureInput || closureState === 'closing' || closureState === 'rolling_up' || closureState === 'submitted'}
+          className="inline-flex items-center justify-center gap-1 rounded-md border border-sky-300 bg-white px-2 py-1.5 font-medium hover:bg-sky-100 disabled:cursor-not-allowed disabled:bg-sky-100 disabled:text-sky-400 dark:border-sky-800 dark:bg-gray-950 dark:hover:bg-sky-950 dark:disabled:bg-sky-950/30"
+          data-testid="motion-guidance-close-button"
+          title="End guidance and submit a compact practice summary"
+        >
+          <FileText className="h-3.5 w-3.5" aria-hidden="true" />
+          End
         </button>
       </div>
     </div>

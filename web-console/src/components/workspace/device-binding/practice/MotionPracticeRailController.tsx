@@ -9,6 +9,7 @@ import {
   launchMotionPractice,
   resolveMotionPracticeTarget,
   type MotionPracticeCoachPack,
+  type MotionPracticeLaunchInput,
   type MotionPracticeLaunchResult,
   type MotionPracticeMode,
 } from '../motionPracticeLauncher';
@@ -56,6 +57,7 @@ export function MotionPracticeRailController({
     );
   const [launchState, setLaunchState] = useState<MotionPracticeLaunchState>('idle');
   const [launchError, setLaunchError] = useState<string | null>(null);
+  const [activeLaunchInput, setActiveLaunchInput] = useState<MotionPracticeLaunchInput | null>(null);
 
   const target = useMemo(
     () => resolveMotionPracticeTarget(coachPack, practiceMode),
@@ -96,23 +98,27 @@ export function MotionPracticeRailController({
     if (!selectedSession || !target.enabled) {
       return;
     }
+    const launchInput: MotionPracticeLaunchInput = {
+      apiUrl,
+      workspaceId,
+      sourceSession: selectedSession,
+      coachPack,
+      practiceMode,
+      expertLibraryRef,
+      instructionRefs,
+      userGoal,
+    };
     setLaunchState('starting');
     setLaunchError(null);
+    setActiveLaunchInput(null);
     onResultChange(null);
     try {
-      const nextResult = await launchMotionPractice({
-        apiUrl,
-        workspaceId,
-        sourceSession: selectedSession,
-        coachPack,
-        practiceMode,
-        expertLibraryRef,
-        instructionRefs,
-        userGoal,
-      });
+      const nextResult = await launchMotionPractice(launchInput);
+      setActiveLaunchInput(launchInput);
       onResultChange(nextResult);
       setLaunchState('submitted');
     } catch (nextError) {
+      setActiveLaunchInput(null);
       setLaunchError(nextError instanceof Error ? nextError.message : 'motion_practice_launch_failed');
       setLaunchState('error');
     }
@@ -243,6 +249,7 @@ export function MotionPracticeRailController({
         workspaceId={workspaceId}
         result={result}
         latestWindowAppend={latestWindowAppend}
+        closureInput={result?.liveGuidanceEnabled ? activeLaunchInput : null}
       />
 
       <button

@@ -162,4 +162,56 @@ describe('meetingCommandLedger', () => {
     expect(requestBody.metadata.force_meeting_orchestration).toBe(true);
     expect(requestBody.metadata.action_parameters.active_capability_code).toBe('ig');
   });
+
+  it('preserves explicit route_playbook dispatch for direct playbook commands', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      command_id: 'cmd_playbook',
+      status: 'accepted',
+      dispatch_result: {
+        playbook_execution: {
+          status: 'accepted',
+        },
+      },
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await submitMeetingCommandEnvelope({
+      apiUrl: 'http://api.test',
+      workspaceId: 'ws_demo',
+      meetingId: 'mtg_playbook',
+      command: 'Summarize closed motion practice',
+      originSurface: 'workspace_motion_source_practice_closure',
+      threadId: 'mtg_playbook',
+      mentionRefs: [],
+      objectActionEntries: [],
+      selectedPackTool: null,
+      actionParameters: {
+        live_practice_rollup: {
+          window_count: 3,
+        },
+      },
+      requestedAction: {
+        verb: 'execute_playbook',
+        pack_code: 'yogacoach',
+        playbook_code: 'yogacoach_student_practice_summary',
+        write_mode: 'recommendation_only',
+        parameters: {},
+      },
+      metadata: {
+        dispatch_mode: 'route_playbook',
+        explicit_override: true,
+        motion_practice_command: true,
+        motion_practice_close: true,
+      },
+    });
+
+    const firstRequestInit = (fetchMock.mock.calls[0] as unknown as [string, RequestInit] | undefined)?.[1];
+    const requestBody = JSON.parse(String(firstRequestInit?.body || '{}'));
+    expect(requestBody.metadata.dispatch_mode).toBe('route_playbook');
+    expect(requestBody.metadata.explicit_override).toBe(true);
+    expect(requestBody.metadata.force_meeting_orchestration).toBe(false);
+  });
 });

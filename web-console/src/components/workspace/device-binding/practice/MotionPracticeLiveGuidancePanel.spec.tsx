@@ -2,13 +2,26 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { MotionPracticeLiveGuidancePanel } from './MotionPracticeLiveGuidancePanel';
-import type { MotionPracticeLaunchResult } from '../motionPracticeLauncher';
+import type { MotionPracticeLaunchInput, MotionPracticeLaunchResult } from '../motionPracticeLauncher';
+import type { DeviceSessionEntry } from '@/lib/device-binding/deviceBindingClient';
 
 const mocks = vi.hoisted(() => ({
   fetchXttsHealth: vi.fn(async () => ({ available: true })),
   synthesizeXttsSpeech: vi.fn(async () => new Blob(['RIFF'], { type: 'audio/wav' })),
   enqueue: vi.fn(),
   interrupt: vi.fn(),
+  closeMotionPracticeLiveGuidanceSession: vi.fn(async () => ({
+    rollup: {
+      emitted: true,
+      motion_rollup_ref: 'mindscape://motion_runtime/session-rollups/lms_motion',
+      artifact_id: 'artifact_motion_rollup',
+    },
+    command: {
+      commandId: 'cmd_summary',
+      status: 'accepted',
+      dispatchResult: null,
+    },
+  })),
 }));
 
 vi.mock('@/lib/meeting-voice/voicePlaybackQueue', () => ({
@@ -20,6 +33,23 @@ vi.mock('@/lib/meeting-voice/voicePlaybackQueue', () => ({
   },
 }));
 
+vi.mock('../motionPracticeClosure', () => ({
+  closeMotionPracticeLiveGuidanceSession: mocks.closeMotionPracticeLiveGuidanceSession,
+}));
+
+const sourceSession: DeviceSessionEntry = {
+  session_id: 'session_1',
+  workspace_id: 'ws_device',
+  pairing_code: 'PAIR1234',
+  device_id: 'phone_1',
+  display_name: 'Phone',
+  source_types: ['phone_camera'],
+  state: 'active',
+  created_at_epoch: 1,
+  updated_at_epoch: 1,
+  expires_at_epoch: 61,
+};
+
 const result: MotionPracticeLaunchResult = {
   meetingId: 'mtg_motion',
   commandId: null,
@@ -30,6 +60,17 @@ const result: MotionPracticeLaunchResult = {
   coachPack: 'yogacoach',
   practiceMode: 'live_guidance',
   status: 'active',
+};
+
+const closureInput: MotionPracticeLaunchInput = {
+  apiUrl: 'http://api.test',
+  workspaceId: 'ws_motion',
+  sourceSession,
+  coachPack: 'yogacoach',
+  practiceMode: 'live_guidance',
+  expertLibraryRef: 'mindscape://teacher/ref',
+  instructionRefs: [{ ref_type: 'youtube_instruction_ref', video_ref: 'https://youtu.be/demo' }],
+  userGoal: 'Improve balance.',
 };
 
 describe('MotionPracticeLiveGuidancePanel', () => {
@@ -70,6 +111,7 @@ describe('MotionPracticeLiveGuidancePanel', () => {
         workspaceId="ws_motion"
         result={result}
         latestWindowAppend={null}
+        closureInput={closureInput}
       />,
     );
 
@@ -113,6 +155,7 @@ describe('MotionPracticeLiveGuidancePanel', () => {
             metadata: { source: 'test' },
           },
         }}
+        closureInput={closureInput}
       />,
     );
 
@@ -151,6 +194,33 @@ describe('MotionPracticeLiveGuidancePanel', () => {
     expect(mocks.interrupt).toHaveBeenCalled();
     expect(instances[0].sent.map((message) => JSON.parse(message))).toContainEqual(
       expect.objectContaining({ type: 'interrupt' }),
+    );
+
+    fireEvent.click(screen.getByTestId('motion-guidance-close-button'));
+    expect(instances[0].sent.map((message) => JSON.parse(message))).toContainEqual(
+      expect.objectContaining({ type: 'session_close' }),
+    );
+    expect(mocks.closeMotionPracticeLiveGuidanceSession).not.toHaveBeenCalled();
+
+    await act(async () => {
+      instances[0].onmessage?.({
+        data: JSON.stringify({
+          type: 'session_closed',
+          workspace_id: 'ws_motion',
+          meeting_id: 'mtg_motion',
+          practice_session_id: 'session_1:live_guidance',
+          state: 'closed',
+        }),
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(mocks.closeMotionPracticeLiveGuidanceSession).toHaveBeenCalledWith({
+      input: closureInput,
+      result,
+    });
+    expect(screen.getByTestId('motion-guidance-closure-state')).toHaveTextContent(
+      'cmd_summary',
     );
     expect(setIntervalSpy).not.toHaveBeenCalled();
     setIntervalSpy.mockRestore();
