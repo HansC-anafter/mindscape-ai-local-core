@@ -14,6 +14,8 @@ export type MotionPracticeTarget = {
   blockedReason?: string;
 };
 
+export type MotionPracticeInstructionRef = Record<string, unknown>;
+
 export type MotionPracticeLaunchInput = {
   apiUrl: string;
   workspaceId: string;
@@ -21,6 +23,7 @@ export type MotionPracticeLaunchInput = {
   coachPack: MotionPracticeCoachPack;
   practiceMode: MotionPracticeMode;
   expertLibraryRef?: string;
+  instructionRefs?: MotionPracticeInstructionRef[];
   userGoal?: string;
 };
 
@@ -28,6 +31,7 @@ export type MotionPracticeLaunchResult = {
   meetingId: string;
   commandId: string;
   liveSessionId: string | null;
+  sourceSessionId: string;
   status: string;
 };
 
@@ -219,17 +223,40 @@ export function buildMotionPracticeResourcePolicy(): Record<string, boolean | st
     transport: 'webrtc_signal_and_peer_connection',
   };
 }
+
+export function buildMotionPracticeCommandMetadata(
+  input: MotionPracticeLaunchInput,
+): Record<string, unknown> {
+  return {
+    dispatch_mode: 'route_playbook',
+    explicit_override: true,
+    motion_practice_launch: true,
+    motion_practice_command: true,
+    coach_pack: input.coachPack,
+    practice_mode: input.practiceMode,
+    resource_policy: buildMotionPracticeResourcePolicy(),
+  };
+}
+
 export function resolveMotionPracticeTarget(
   coachPack: MotionPracticeCoachPack,
   practiceMode: MotionPracticeMode,
 ): MotionPracticeTarget {
   if (coachPack === 'dance_motion_coach') {
+    if (practiceMode === 'record_summary') {
+      return {
+        enabled: true,
+        packCode: 'dance_motion_coach',
+        playbookCode: 'dance_motion_coach_session_summary',
+        readinessLabel: 'Ready to submit a Dance Coach session-close summary command.',
+      };
+    }
     return {
       enabled: false,
       packCode: 'dance_motion_coach',
       playbookCode: null,
-      readinessLabel: 'Dance pack contract exists; meeting playbook route is pending.',
-      blockedReason: 'Dance guidance has schemas/tools but no pack playbook exposed to Meeting Engine yet.',
+      readinessLabel: 'Dance live guidance and teacher assessment are pending.',
+      blockedReason: 'Dance currently exposes a session-close summary playbook only.',
     };
   }
   if (practiceMode === 'live_guidance') {
@@ -292,8 +319,55 @@ export function buildYogaLivePracticeRollup({
       source_surface: 'workspace_motion_source_practice_launcher',
       coach_pack: input.coachPack,
       practice_mode: input.practiceMode,
+      instruction_refs: input.instructionRefs || [],
       resource_policy: buildMotionPracticeResourcePolicy(),
     },
+  };
+}
+
+function buildDancePracticeSession({
+  input,
+  liveSessionId,
+}: {
+  input: MotionPracticeLaunchInput;
+  liveSessionId: string | null;
+}): Record<string, unknown> {
+  return {
+    workspace_id: input.workspaceId,
+    capture_session_id: input.sourceSession.session_id,
+    live_motion_session_id: liveSessionId,
+    expert_library_ref: input.expertLibraryRef?.trim()
+      || 'mindscape://dance_motion_coach/expert-library/default',
+    choreography_segment_ref: null,
+    rhythm_rubric_ref: null,
+    style_rubric_ref: null,
+    metadata: {
+      source_surface: 'workspace_motion_source_practice_launcher',
+      source_types: input.sourceSession.source_types,
+      instruction_refs: input.instructionRefs || [],
+      resource_policy: buildMotionPracticeResourcePolicy(),
+    },
+  };
+}
+
+function buildDanceMotionSummary({
+  input,
+  meetingId,
+  liveSessionId,
+}: {
+  input: MotionPracticeLaunchInput;
+  meetingId: string;
+  liveSessionId: string | null;
+}): Record<string, unknown> {
+  return {
+    motion_summary_ref: liveSessionId
+      ? `mindscape://motion_runtime/live-session/${encodeURIComponent(liveSessionId)}`
+      : buildMotionSourceRef(input.sourceSession),
+    live_session_id: liveSessionId,
+    meeting_session_id: meetingId,
+    scores: {},
+    findings: ['More live motion windows are required before scoring.'],
+    instruction_refs: input.instructionRefs || [],
   };
 }
 
@@ -314,6 +388,31 @@ export function buildMotionPracticeCommandParameters({
   liveSessionPayload: Record<string, unknown>;
 }): Record<string, unknown> {
   const liveSessionId = readLiveSessionId(liveSessionPayload);
+  const livePracticeRollup = buildYogaLivePracticeRollup({
+    input,
+    meetingId,
+    liveSessionId,
+  });
+  if (input.coachPack === 'dance_motion_coach') {
+    return {
+      workspace_id: input.workspaceId,
+      meeting_session_id: meetingId,
+      capture_session_id: input.sourceSession.session_id,
+      device_profile_ref: buildMotionSourceRef(input.sourceSession),
+      source_types: input.sourceSession.source_types,
+      expert_library_ref: input.expertLibraryRef?.trim() || null,
+      user_id: 'default-user',
+      user_goal: input.userGoal?.trim() || '',
+      coach_pack: input.coachPack,
+      practice_mode: input.practiceMode,
+      motion_runtime_live_session: liveSessionPayload.live_session || null,
+      live_practice_rollup: livePracticeRollup,
+      practice_session: buildDancePracticeSession({ input, liveSessionId }),
+      motion_summary: buildDanceMotionSummary({ input, meetingId, liveSessionId }),
+      rubric_hint: input.userGoal?.trim() || '',
+      resource_policy: buildMotionPracticeResourcePolicy(),
+    };
+  }
   return {
     workspace_id: input.workspaceId,
     meeting_session_id: meetingId,
@@ -326,11 +425,7 @@ export function buildMotionPracticeCommandParameters({
     coach_pack: input.coachPack,
     practice_mode: input.practiceMode,
     motion_runtime_live_session: liveSessionPayload.live_session || null,
-    live_practice_rollup: buildYogaLivePracticeRollup({
-      input,
-      meetingId,
-      liveSessionId,
-    }),
+    live_practice_rollup: livePracticeRollup,
     resource_policy: buildMotionPracticeResourcePolicy(),
   };
 }
@@ -372,13 +467,7 @@ export async function launchMotionPractice(
       write_mode: 'recommendation_only',
       parameters,
     },
-    metadata: {
-      force_meeting_orchestration: true,
-      motion_practice_launch: true,
-      coach_pack: input.coachPack,
-      practice_mode: input.practiceMode,
-      resource_policy: buildMotionPracticeResourcePolicy(),
-    },
+    metadata: buildMotionPracticeCommandMetadata(input),
   });
 
   return {
@@ -386,5 +475,6 @@ export async function launchMotionPractice(
     commandId: command.commandId,
     status: command.status,
     liveSessionId: readLiveSessionId(liveSessionPayload),
+    sourceSessionId: input.sourceSession.session_id,
   };
 }

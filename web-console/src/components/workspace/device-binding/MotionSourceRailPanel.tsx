@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { BookOpenCheck, Link2, Loader2, MonitorUp, PlayCircle, Smartphone, Unplug } from 'lucide-react';
+import { Link2, Loader2, MonitorUp, Smartphone, Unplug } from 'lucide-react';
 
 import {
   createDevicePairingCode,
@@ -14,13 +14,12 @@ import {
 } from '@/lib/device-binding/deviceBindingClient';
 import { PhoneSourcePreview } from './PhoneSourcePreview';
 import {
-  buildMotionPracticeIntentText,
-  launchMotionPractice,
-  resolveMotionPracticeTarget,
-  type MotionPracticeCoachPack,
-  type MotionPracticeLaunchResult,
-  type MotionPracticeMode,
-} from './motionPracticeLauncher';
+  assessDeviceLinkOriginReadiness,
+  resolveDeviceLinkPublicOrigin,
+} from '@/lib/media-transport/deviceLinkReadiness';
+import { createQrCodeSvgPath } from '@/lib/media-transport/qrCode';
+import { MotionPracticeRailController } from './practice/MotionPracticeRailController';
+import type { MotionPracticeLaunchResult } from './motionPracticeLauncher';
 
 interface MotionSourceRailPanelProps {
   apiUrl: string;
@@ -29,7 +28,6 @@ interface MotionSourceRailPanelProps {
 }
 
 type PanelState = 'idle' | 'creating' | 'pairing' | 'connected' | 'error';
-type PracticeLaunchState = 'idle' | 'starting' | 'submitted' | 'error';
 
 function sortSessions(sessions: DeviceSessionEntry[]): DeviceSessionEntry[] {
   return [...sessions].sort((left, right) => left.created_at_epoch - right.created_at_epoch);
@@ -41,14 +39,22 @@ function buildDeviceLink(
   pairing: DevicePairingCode | null,
   workspaceId: string,
   sourceMode: DeviceLinkSourceMode,
+  publicOrigin?: string,
 ): string {
   if (!pairing) {
     return '';
   }
+  const fallbackPath = `${pairing.device_link_path}?workspaceId=${encodeURIComponent(workspaceId)}&sourceMode=${sourceMode}`;
   if (typeof window === 'undefined') {
     return `${pairing.device_link_path}?workspaceId=${encodeURIComponent(workspaceId)}&sourceMode=${sourceMode}`;
   }
-  const url = new URL(pairing.device_link_path, window.location.origin);
+  const origin = publicOrigin?.trim() || window.location.origin;
+  let url: URL;
+  try {
+    url = new URL(pairing.device_link_path, origin);
+  } catch {
+    return fallbackPath;
+  }
   url.searchParams.set('workspaceId', workspaceId);
   url.searchParams.set('sourceMode', sourceMode);
   return url.toString();
@@ -63,45 +69,37 @@ export function MotionSourceRailPanel({
   const [pairing, setPairing] = useState<DevicePairingCode | null>(null);
   const [sessions, setSessions] = useState<DeviceSessionEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [selectedSessionId, setSelectedSessionId] = useState<string>('');
-  const [coachPack, setCoachPack] = useState<MotionPracticeCoachPack>('yogacoach');
-  const [practiceMode, setPracticeMode] = useState<MotionPracticeMode>('record_summary');
-  const [expertLibraryRef, setExpertLibraryRef] = useState('');
-  const [userGoal, setUserGoal] = useState('');
-  const [practiceState, setPracticeState] = useState<PracticeLaunchState>('idle');
-  const [practiceError, setPracticeError] = useState<string | null>(null);
   const [practiceResult, setPracticeResult] = useState<MotionPracticeLaunchResult | null>(null);
+  const [phonePublicOrigin, setPhonePublicOrigin] = useState('');
   const socketRef = useRef<DeviceControlSocket | null>(null);
 
   useEffect(() => () => socketRef.current?.close(), []);
 
+  const fallbackBrowserOrigin = typeof window === 'undefined' ? '' : window.location.origin;
+  const phoneOrigin = useMemo(() => resolveDeviceLinkPublicOrigin({
+    overrideOrigin: phonePublicOrigin,
+    fallbackOrigin: fallbackBrowserOrigin,
+  }), [fallbackBrowserOrigin, phonePublicOrigin]);
+  const phoneReadiness = useMemo(
+    () => assessDeviceLinkOriginReadiness(phoneOrigin),
+    [phoneOrigin],
+  );
   const phoneDeviceLink = useMemo(() => (
-    buildDeviceLink(pairing, workspaceId, 'phone')
-  ), [pairing, workspaceId]);
+    buildDeviceLink(pairing, workspaceId, 'phone', phoneOrigin)
+  ), [pairing, phoneOrigin, workspaceId]);
+  const phoneQrCode = useMemo(() => {
+    if (!phoneReadiness.qrReady || !phoneDeviceLink) {
+      return null;
+    }
+    try {
+      return createQrCodeSvgPath(phoneDeviceLink);
+    } catch {
+      return null;
+    }
+  }, [phoneDeviceLink, phoneReadiness.qrReady]);
   const desktopDeviceLink = useMemo(() => (
     buildDeviceLink(pairing, workspaceId, 'camera')
   ), [pairing, workspaceId]);
-  const target = useMemo(
-    () => resolveMotionPracticeTarget(coachPack, practiceMode),
-    [coachPack, practiceMode],
-  );
-  const selectedSession = useMemo(() => (
-    sessions.find((session) => session.session_id === selectedSessionId) || sessions[0] || null
-  ), [selectedSessionId, sessions]);
-  const practiceCommandPreview = useMemo(() => (
-    selectedSession
-      ? buildMotionPracticeIntentText({
-          apiUrl,
-          workspaceId,
-          sourceSession: selectedSession,
-          coachPack,
-          practiceMode,
-          expertLibraryRef,
-          userGoal,
-        })
-      : ''
-  ), [apiUrl, coachPack, expertLibraryRef, practiceMode, selectedSession, userGoal, workspaceId]);
-
   const applyEvent = useCallback((event: DeviceControlEvent) => {
     if (event.type === 'pairing_ready') {
       setState('pairing');
@@ -120,16 +118,6 @@ export function MotionSourceRailPanel({
       setSessions(sortSessions(event.active_sessions));
     }
   }, []);
-
-  useEffect(() => {
-    if (!sessions.length) {
-      setSelectedSessionId('');
-      return;
-    }
-    if (!sessions.some((session) => session.session_id === selectedSessionId)) {
-      setSelectedSessionId(sessions[0].session_id);
-    }
-  }, [selectedSessionId, sessions]);
 
   const startPairing = useCallback(async () => {
     if (disabled || state === 'creating') {
@@ -182,38 +170,6 @@ export function MotionSourceRailPanel({
     }
   };
 
-  const startPractice = async () => {
-    if (!selectedSession || !target.enabled || !target.playbookCode) {
-      return;
-    }
-    setPracticeState('starting');
-    setPracticeError(null);
-    setPracticeResult(null);
-    try {
-      const result = await launchMotionPractice({
-        apiUrl,
-        workspaceId,
-        sourceSession: selectedSession,
-        coachPack,
-        practiceMode,
-        expertLibraryRef,
-        userGoal,
-      });
-      setPracticeResult(result);
-      setPracticeState('submitted');
-    } catch (nextError) {
-      setPracticeError(nextError instanceof Error ? nextError.message : 'motion_practice_launch_failed');
-      setPracticeState('error');
-    }
-  };
-
-  const copyPracticeCommand = async () => {
-    if (!practiceCommandPreview || typeof navigator === 'undefined' || !navigator.clipboard) {
-      return;
-    }
-    await navigator.clipboard.writeText(practiceCommandPreview);
-  };
-
   return (
     <div className="flex min-h-full flex-col gap-3 p-3 text-xs">
       <div className="rounded-md border border-gray-200 bg-gray-50 p-3 dark:border-gray-800 dark:bg-gray-900">
@@ -246,6 +202,52 @@ export function MotionSourceRailPanel({
             >
               {phoneDeviceLink}
             </a>
+            <label className="mt-2 block">
+              <span className="mb-1 block text-[10px] font-medium uppercase tracking-normal text-gray-500 dark:text-gray-400">
+                Phone HTTPS origin
+              </span>
+              <input
+                value={phonePublicOrigin}
+                onChange={(event) => setPhonePublicOrigin(event.target.value)}
+                placeholder="https://192.168.x.x:8343"
+                className="w-full rounded border border-gray-300 bg-white px-2 py-1 text-[11px] text-gray-900 placeholder:text-gray-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+                data-testid="phone-public-origin-input"
+              />
+            </label>
+            <div
+              className={`mt-2 rounded border px-2 py-1 text-[11px] ${
+                phoneReadiness.state === 'ready'
+                  ? 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200'
+                  : 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200'
+              }`}
+              data-testid="phone-lan-readiness"
+            >
+              {phoneReadiness.message}
+            </div>
+            <div
+              className="mt-2 rounded border border-gray-200 px-2 py-1 text-[11px] text-gray-600 dark:border-gray-800 dark:text-gray-300"
+              data-testid="phone-qr-readiness"
+            >
+              {phoneReadiness.qrReady
+                ? 'QR-ready link: open this HTTPS link on the phone.'
+                : 'QR blocked until a non-localhost HTTPS origin is configured.'}
+            </div>
+            {phoneQrCode ? (
+              <div
+                className="mt-2 flex justify-center rounded border border-gray-200 bg-white p-2 text-gray-950 dark:border-gray-800"
+                data-testid="phone-qr-code"
+              >
+                <svg
+                  role="img"
+                  aria-label="Phone pairing QR code"
+                  viewBox={`0 0 ${phoneQrCode.viewBoxSize} ${phoneQrCode.viewBoxSize}`}
+                  className="h-36 w-36"
+                  shapeRendering="crispEdges"
+                >
+                  <path d={phoneQrCode.path} fill="currentColor" />
+                </svg>
+              </div>
+            ) : null}
           </div>
           <div className="rounded border border-gray-200 p-2 dark:border-gray-800">
             <div className="mb-1 flex items-center gap-1 font-medium text-gray-800 dark:text-gray-100">
@@ -300,169 +302,23 @@ export function MotionSourceRailPanel({
               apiUrl={apiUrl}
               workspaceId={workspaceId}
               session={session}
+              liveMotionSessionId={
+                practiceResult?.sourceSessionId === session.session_id
+                  ? practiceResult.liveSessionId
+                  : null
+              }
             />
           </div>
         ))}
       </div>
 
-      <div className="space-y-3 rounded-md border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-gray-950">
-        <div className="flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-gray-100">
-          <BookOpenCheck className="h-4 w-4 text-emerald-600" aria-hidden="true" />
-          Practice
-        </div>
-
-        {sessions.length ? (
-          <label className="block">
-            <span className="mb-1 block text-[11px] font-medium uppercase tracking-normal text-gray-500 dark:text-gray-400">
-              Motion source
-            </span>
-            <select
-              value={selectedSession?.session_id || ''}
-              onChange={(event) => setSelectedSessionId(event.target.value)}
-              className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-xs text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
-              data-testid="motion-practice-source-select"
-            >
-              {sessions.map((session) => (
-                <option key={session.session_id} value={session.session_id}>
-                  {session.display_name || session.device_id} - {session.source_types.join(', ') || session.state}
-                </option>
-              ))}
-            </select>
-          </label>
-        ) : (
-          <div className="rounded border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
-            Connect a phone, OBS virtual camera, or desktop camera before launching practice.
-          </div>
-        )}
-
-        <div>
-          <div className="mb-1 text-[11px] font-medium uppercase tracking-normal text-gray-500 dark:text-gray-400">
-            Coach
-          </div>
-          <div className="grid grid-cols-2 gap-1">
-            <button
-              type="button"
-              onClick={() => setCoachPack('yogacoach')}
-              className={`rounded-md border px-2 py-1.5 text-xs font-medium ${
-                coachPack === 'yogacoach'
-                  ? 'border-emerald-500 bg-emerald-50 text-emerald-800 dark:border-emerald-500 dark:bg-emerald-950/40 dark:text-emerald-100'
-                  : 'border-gray-200 text-gray-700 hover:bg-gray-50 dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-900'
-              }`}
-            >
-              AI Yoga
-            </button>
-            <button
-              type="button"
-              onClick={() => setCoachPack('dance_motion_coach')}
-              className={`rounded-md border px-2 py-1.5 text-xs font-medium ${
-                coachPack === 'dance_motion_coach'
-                  ? 'border-emerald-500 bg-emerald-50 text-emerald-800 dark:border-emerald-500 dark:bg-emerald-950/40 dark:text-emerald-100'
-                  : 'border-gray-200 text-gray-700 hover:bg-gray-50 dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-900'
-              }`}
-            >
-              Dance
-            </button>
-          </div>
-        </div>
-
-        <label className="block">
-          <span className="mb-1 block text-[11px] font-medium uppercase tracking-normal text-gray-500 dark:text-gray-400">
-            Workflow
-          </span>
-          <select
-            value={practiceMode}
-            onChange={(event) => setPracticeMode(event.target.value as MotionPracticeMode)}
-            className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-xs text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
-            data-testid="motion-practice-mode-select"
-          >
-            <option value="record_summary">Record + summary</option>
-            <option value="teacher_assessment">Teacher assessment</option>
-            <option value="live_guidance">Live guidance</option>
-          </select>
-        </label>
-
-        <label className="block">
-          <span className="mb-1 block text-[11px] font-medium uppercase tracking-normal text-gray-500 dark:text-gray-400">
-            Teacher/video ref
-          </span>
-          <input
-            value={expertLibraryRef}
-            onChange={(event) => setExpertLibraryRef(event.target.value)}
-            placeholder="mindscape://yogacoach/teacher-library/..."
-            className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-xs text-gray-900 placeholder:text-gray-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
-          />
-        </label>
-
-        <label className="block">
-          <span className="mb-1 block text-[11px] font-medium uppercase tracking-normal text-gray-500 dark:text-gray-400">
-            Goal
-          </span>
-          <input
-            value={userGoal}
-            onChange={(event) => setUserGoal(event.target.value)}
-            placeholder="alignment, rhythm, balance..."
-            className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-xs text-gray-900 placeholder:text-gray-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
-          />
-        </label>
-
-        <div
-          className={`rounded border p-2 text-xs ${
-            target.enabled
-              ? 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200'
-              : 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200'
-          }`}
-          data-testid="motion-practice-readiness"
-        >
-          {target.readinessLabel}
-        </div>
-
-        {practiceError ? (
-          <div className="rounded border border-red-200 bg-red-50 p-2 text-xs text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-200">
-            {practiceError}
-          </div>
-        ) : null}
-
-        {practiceResult ? (
-          <div className="space-y-1 rounded border border-emerald-200 bg-emerald-50 p-2 text-xs text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200">
-            <div>Submitted: {practiceResult.status}</div>
-            <div className="break-all font-mono">meeting {practiceResult.meetingId}</div>
-            <div className="break-all font-mono">command {practiceResult.commandId}</div>
-            {practiceResult.liveSessionId ? (
-              <div className="break-all font-mono">motion {practiceResult.liveSessionId}</div>
-            ) : null}
-          </div>
-        ) : null}
-
-        <button
-          type="button"
-          onClick={() => void startPractice()}
-          disabled={!selectedSession || !target.enabled || practiceState === 'starting'}
-          className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-emerald-600 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-gray-300 disabled:text-gray-500 dark:disabled:bg-gray-800 dark:disabled:text-gray-500"
-          data-testid="motion-practice-start-button"
-        >
-          {practiceState === 'starting'
-            ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-            : <PlayCircle className="h-4 w-4" aria-hidden="true" />}
-          Start practice
-        </button>
-
-        <div className="grid grid-cols-2 gap-2">
-          <button
-            type="button"
-            onClick={() => void copyPracticeCommand()}
-            disabled={!practiceCommandPreview}
-            className="rounded-md border border-gray-300 px-2 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:text-gray-400 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-900"
-          >
-            Copy command
-          </button>
-          <a
-            href={`/workspaces/${encodeURIComponent(workspaceId)}/meetings${practiceResult ? `?session_id=${encodeURIComponent(practiceResult.meetingId)}` : ''}`}
-            className="rounded-md border border-gray-300 px-2 py-1.5 text-center text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-900"
-          >
-            Records
-          </a>
-        </div>
-      </div>
+      <MotionPracticeRailController
+        apiUrl={apiUrl}
+        workspaceId={workspaceId}
+        sessions={sessions}
+        result={practiceResult}
+        onResultChange={setPracticeResult}
+      />
 
       <button
         type="button"

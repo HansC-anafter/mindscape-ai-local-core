@@ -129,8 +129,26 @@ def _has_action_entries(canonical: MeetingCommandEnvelope) -> bool:
     return isinstance(entries, list) and bool(entries)
 
 
+def _is_explicit_playbook_route(canonical: MeetingCommandEnvelope) -> bool:
+    return (
+        canonical.metadata.get("dispatch_mode") == "route_playbook"
+        and explicit_direct_override(canonical)
+        and canonical.requested_action is not None
+        and bool(canonical.requested_action.playbook_code)
+    )
+
+
+def _is_motion_practice_playbook_command(canonical: MeetingCommandEnvelope) -> bool:
+    return _is_explicit_playbook_route(canonical) and (
+        _truthy_flag(_metadata_action_value(canonical, "motion_practice_launch"))
+        or _truthy_flag(_metadata_action_value(canonical, "motion_practice_command"))
+    )
+
+
 def should_route_meeting_orchestration(canonical: MeetingCommandEnvelope) -> bool:
     dispatch_mode = canonical.metadata.get("dispatch_mode")
+    if _is_motion_practice_playbook_command(canonical):
+        return False
     if _truthy_flag(_metadata_action_value(canonical, "force_meeting_orchestration")):
         return True
     if _truthy_flag(_metadata_action_value(canonical, "forceMeetingOrchestration")):
@@ -164,12 +182,7 @@ def should_route_object_action(canonical: MeetingCommandEnvelope) -> bool:
 
 
 def should_route_playbook(canonical: MeetingCommandEnvelope) -> bool:
-    return (
-        canonical.metadata.get("dispatch_mode") == "route_playbook"
-        and explicit_direct_override(canonical)
-        and canonical.requested_action is not None
-        and bool(canonical.requested_action.playbook_code)
-    )
+    return _is_explicit_playbook_route(canonical)
 
 
 def should_route_chat(canonical: MeetingCommandEnvelope) -> bool:
@@ -390,6 +403,7 @@ async def dispatch_playbook_for_command(
 
     instruction = command_instruction(canonical)
     thread_id = canonical.thread_id or command.thread_id or meeting_id
+    motion_practice_command = _is_motion_practice_playbook_command(canonical)
     action_params = {
         **(requested.parameters if requested else {}),
         "playbook_code": playbook_code,
@@ -397,20 +411,24 @@ async def dispatch_playbook_for_command(
         "instruction": instruction,
         "message": instruction,
         "command_id": command.command_id,
+        "meeting_command_id": command.command_id,
         "command_ledger_status": command.status.value,
         "meeting_id": meeting_id,
         "meeting_session_id": meeting_id,
         "thread_id": thread_id,
         "meeting_command": instruction,
+        "motion_practice_command": motion_practice_command,
         "meeting_mentions": canonical.meeting_mentions,
         "object_action_entries": command_context_objects(canonical),
         "source_surface": canonical.origin_surface,
         "request_context": {
             "command_id": command.command_id,
+            "meeting_command_id": command.command_id,
             "origin_surface": canonical.origin_surface,
             "source_surface": canonical.origin_surface,
             "dispatch_source": "meeting_command_route",
             "dispatch_mode": "route_playbook",
+            "motion_practice_command": motion_practice_command,
         },
     }
     command.status = MeetingCommandStatus.RUNNING

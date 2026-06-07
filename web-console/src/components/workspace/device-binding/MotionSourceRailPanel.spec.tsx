@@ -38,8 +38,11 @@ vi.mock('@/lib/device-binding/deviceBindingClient', () => ({
 }));
 
 vi.mock('./PhoneSourcePreview', () => ({
-  PhoneSourcePreview: ({ session }: any) => (
-    <div data-testid={`mock-phone-source-preview-${session.session_id}`} />
+  PhoneSourcePreview: ({ session, liveMotionSessionId }: any) => (
+    <div
+      data-testid={`mock-phone-source-preview-${session.session_id}`}
+      data-live-motion-session-id={liveMotionSessionId || ''}
+    />
   ),
 }));
 
@@ -82,6 +85,33 @@ describe('MotionSourceRailPanel', () => {
     expect(screen.getByRole('link', { name: 'Desktop camera source link' })).toHaveAttribute(
       'href',
       'http://localhost:3000/device-link/PAIR1234?workspaceId=ws_device&sourceMode=camera',
+    );
+  });
+
+  it('renders a scannable phone QR only for HTTPS LAN origins', async () => {
+    render(
+      <MotionSourceRailPanel
+        apiUrl="http://api.test"
+        workspaceId="ws_device"
+      />,
+    );
+
+    await screen.findByText('PAIR1234');
+
+    expect(screen.queryByTestId('phone-qr-code')).toBeNull();
+
+    fireEvent.change(screen.getByTestId('phone-public-origin-input'), {
+      target: { value: 'https://192.168.1.20:8343' },
+    });
+
+    expect(screen.getByTestId('phone-qr-readiness')).toHaveTextContent('QR-ready link');
+    expect(screen.getByRole('link', { name: 'Phone source link' })).toHaveAttribute(
+      'href',
+      'https://192.168.1.20:8343/device-link/PAIR1234?workspaceId=ws_device&sourceMode=phone',
+    );
+    expect(screen.getByTestId('phone-qr-code').querySelector('svg')).toHaveAttribute(
+      'aria-label',
+      'Phone pairing QR code',
     );
   });
 
@@ -219,6 +249,10 @@ describe('MotionSourceRailPanel', () => {
     );
     expect(screen.getByText('Submitted: accepted')).toBeInTheDocument();
     expect(screen.getByText('motion lms_motion_practice')).toBeInTheDocument();
+    expect(screen.getByTestId('mock-phone-source-preview-session_1')).toHaveAttribute(
+      'data-live-motion-session-id',
+      'lms_motion_practice',
+    );
   });
 
   it('shows non-ready practice routes without dispatching a command', async () => {
@@ -252,9 +286,12 @@ describe('MotionSourceRailPanel', () => {
     });
 
     fireEvent.click(screen.getByRole('button', { name: 'Dance' }));
+    fireEvent.change(screen.getByTestId('motion-practice-mode-select'), {
+      target: { value: 'live_guidance' },
+    });
 
     expect(screen.getByTestId('motion-practice-readiness')).toHaveTextContent(
-      'Dance pack contract exists',
+      'Dance live guidance and teacher assessment are pending.',
     );
     expect(screen.getByTestId('motion-practice-start-button')).toBeDisabled();
     expect(submitMeetingCommandEnvelope).not.toHaveBeenCalled();
