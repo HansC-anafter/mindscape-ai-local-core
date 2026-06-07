@@ -520,9 +520,11 @@ export function AOLMeetingBottomShell({
                     runtimeSnapshot={runtimeSnapshot}
                     workspaceId={workspaceId}
                     apiUrl={apiUrl}
+                    capabilityCode={capabilityCode}
                     meetingId={activeMeetingId}
                     summary={effectiveSummary}
                     attachResponse={effectiveAttachResponse}
+                    surfaceRoute={surfaceRoute}
                     objectGraphProjections={objectGraphProjections}
                     objectGraphLoading={objectGraphLoading}
                     objectGraphError={objectGraphError}

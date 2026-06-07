@@ -2,6 +2,7 @@ import type { AddressableObjectSummary, ObjectGraphProjection, ObjectMeetingAtta
 import { addressableRefKey, formatEventTime, formatKind, getEventTitle, getEventType, graphRefLabel } from "./meetingGraphProjection";
 import type { InspectorTab, MeetingCommandImpact, MeetingEventSummary, MeetingNode, MeetingTranslate, RuntimeInspectorSnapshot } from "./meetingWorkbenchTypes";
 import { MeetingRuntimeInspectorContent } from "./MeetingRuntimeInspectorPanel";
+import { RuntimeCommandSurfaceSlot } from "./RuntimeCommandSurfaceSlot";
 
 export function MeetingDefaultInspectorContent({
   activeInspector,
@@ -9,9 +10,11 @@ export function MeetingDefaultInspectorContent({
   runtimeSnapshot,
   workspaceId,
   apiUrl,
+  capabilityCode = '',
   meetingId,
   summary,
   attachResponse,
+  surfaceRoute = '',
   objectGraphProjections,
   objectGraphLoading,
   objectGraphError,
@@ -27,9 +30,11 @@ export function MeetingDefaultInspectorContent({
   runtimeSnapshot: RuntimeInspectorSnapshot;
   workspaceId: string;
   apiUrl: string;
+  capabilityCode?: string;
   meetingId: string;
   summary: AddressableObjectSummary | null;
   attachResponse: ObjectMeetingAttachResponse | null;
+  surfaceRoute?: string;
   objectGraphProjections: ObjectGraphProjection[];
   objectGraphLoading: boolean;
   objectGraphError: string | null;
@@ -81,7 +86,20 @@ export function MeetingDefaultInspectorContent({
       ) : null}
 
       {activeInspector === 'runtime' ? (
-        <MeetingRuntimeInspectorContent runtimeSnapshot={runtimeSnapshot} />
+        <MeetingRuntimeInspectorContent
+          runtimeSnapshot={runtimeSnapshot}
+          commandSurfaceSlot={
+            <RuntimeCommandSurfaceSlot
+              workspaceId={workspaceId}
+              apiUrl={apiUrl}
+              capabilityCode={capabilityCode}
+              meetingId={meetingId}
+              selectedObjectRef={attachResponse?.target_ref || summary?.ref || null}
+              runtimeSnapshot={runtimeSnapshot}
+              surfaceRoute={surfaceRoute || 'meeting_workbench'}
+            />
+          }
+        />
       ) : null}
 
       {activeInspector === 'session' ? (

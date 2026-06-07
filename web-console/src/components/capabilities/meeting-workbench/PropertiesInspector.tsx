@@ -82,9 +82,11 @@ export function MeetingInspectorPanel({
   runtimeSnapshot,
   workspaceId,
   apiUrl,
+  capabilityCode = '',
   meetingId,
   summary,
   attachResponse,
+  surfaceRoute = '',
   objectGraphProjections,
   objectGraphLoading,
   objectGraphError,
@@ -102,9 +104,11 @@ export function MeetingInspectorPanel({
   runtimeSnapshot: RuntimeInspectorSnapshot;
   workspaceId: string;
   apiUrl: string;
+  capabilityCode?: string;
   meetingId: string;
   summary: AddressableObjectSummary | null;
   attachResponse: ObjectMeetingAttachResponse | null;
+  surfaceRoute?: string;
   objectGraphProjections: ObjectGraphProjection[];
   objectGraphLoading: boolean;
   objectGraphError: string | null;
@@ -146,9 +150,12 @@ export function MeetingInspectorPanel({
             selectedNode={selectedNode}
             runtimeSnapshot={runtimeSnapshot}
             workspaceId={workspaceId}
+            apiUrl={apiUrl}
+            capabilityCode={capabilityCode}
             meetingId={meetingId}
             summary={summary}
             attachResponse={attachResponse}
+            surfaceRoute={surfaceRoute}
             objectGraphProjections={objectGraphProjections}
             objectGraphLoading={objectGraphLoading}
             objectGraphError={objectGraphError}
@@ -162,9 +169,11 @@ export function MeetingInspectorPanel({
             runtimeSnapshot={runtimeSnapshot}
             workspaceId={workspaceId}
             apiUrl={apiUrl}
+            capabilityCode={capabilityCode}
             meetingId={meetingId}
             summary={summary}
             attachResponse={attachResponse}
+            surfaceRoute={surfaceRoute}
             objectGraphProjections={objectGraphProjections}
             objectGraphLoading={objectGraphLoading}
             objectGraphError={objectGraphError}

@@ -87,6 +87,16 @@ export interface RuntimeInspectorSnapshot {
   error: string | null;
 }
 
+export interface RuntimeCommandSurfaceContext {
+  workspaceId: string;
+  apiUrl: string;
+  capabilityCode: string;
+  meetingId: string;
+  selectedObjectRef: AddressableObjectRef | null;
+  runtimeSnapshot: RuntimeInspectorSnapshot;
+  surfaceRoute: string;
+}
+
 export interface MeetingSessionSummary {
   id: string;
   workspace_id?: string;

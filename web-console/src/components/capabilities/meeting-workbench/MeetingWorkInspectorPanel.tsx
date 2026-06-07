@@ -4,6 +4,7 @@ import type {
   ObjectMeetingAttachResponse,
 } from '@/lib/addressable-object-layer';
 import { MeetingRuntimeInspectorContent } from './MeetingRuntimeInspectorPanel';
+import { RuntimeCommandSurfaceSlot } from './RuntimeCommandSurfaceSlot';
 import {
   collectObjectGuidanceCards,
   collectObjectGuidanceReviewAffordances,
@@ -121,9 +122,12 @@ export function MeetingWorkInspectorContent({
   selectedNode,
   runtimeSnapshot,
   workspaceId,
+  apiUrl,
+  capabilityCode = '',
   meetingId,
   summary,
   attachResponse,
+  surfaceRoute = '',
   objectGraphProjections,
   objectGraphLoading,
   objectGraphError,
@@ -134,9 +138,12 @@ export function MeetingWorkInspectorContent({
   selectedNode: MeetingNode | null;
   runtimeSnapshot: RuntimeInspectorSnapshot;
   workspaceId: string;
+  apiUrl?: string;
+  capabilityCode?: string;
   meetingId: string;
   summary: AddressableObjectSummary | null;
   attachResponse: ObjectMeetingAttachResponse | null;
+  surfaceRoute?: string;
   objectGraphProjections: ObjectGraphProjection[];
   objectGraphLoading: boolean;
   objectGraphError: string | null;
@@ -312,7 +319,22 @@ export function MeetingWorkInspectorContent({
   }
 
   if (activeInspector === 'runtime') {
-    return <MeetingRuntimeInspectorContent runtimeSnapshot={runtimeSnapshot} />;
+    return (
+      <MeetingRuntimeInspectorContent
+        runtimeSnapshot={runtimeSnapshot}
+        commandSurfaceSlot={
+          <RuntimeCommandSurfaceSlot
+            workspaceId={workspaceId}
+            apiUrl={apiUrl || ''}
+            capabilityCode={capabilityCode}
+            meetingId={meetingId}
+            selectedObjectRef={attachResponse?.target_ref || summary?.ref || null}
+            runtimeSnapshot={runtimeSnapshot}
+            surfaceRoute={surfaceRoute || 'meeting_workbench'}
+          />
+        }
+      />
+    );
   }
 
   if (activeInspector === 'patch') {

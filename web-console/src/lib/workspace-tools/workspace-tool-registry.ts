@@ -1,5 +1,8 @@
 export type WorkspaceToolGroup = 'workspace' | 'execution' | 'meeting' | 'capability';
-export type WorkspaceToolSlot = 'workspace.right_rail.tool' | 'workbench.left_tool_rail';
+export type WorkspaceToolSlot =
+  | 'workspace.right_rail.tool'
+  | 'workbench.left_tool_rail'
+  | 'aol.runtime.command_surface';
 
 export interface WorkspaceToolAOLDefinition {
   object_kind: string;
@@ -45,6 +48,7 @@ const PACK_TOOL_GROUPS = new Set<WorkspaceToolGroup>(['capability']);
 const PACK_TOOL_SLOTS = new Set<WorkspaceToolSlot>([
   'workspace.right_rail.tool',
   'workbench.left_tool_rail',
+  'aol.runtime.command_surface',
 ]);
 
 function normalizeWorkspaceToolAOL(value: unknown): WorkspaceToolAOLDefinition | undefined {

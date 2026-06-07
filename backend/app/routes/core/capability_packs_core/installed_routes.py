@@ -27,7 +27,11 @@ from .manifest_scan import (
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-_WORKSPACE_TOOL_SLOTS = {"workspace.right_rail.tool", "workbench.left_tool_rail"}
+_WORKSPACE_TOOL_SLOTS = {
+    "workspace.right_rail.tool",
+    "workbench.left_tool_rail",
+    "aol.runtime.command_surface",
+}
 
 
 def _planner_exposed_tool_codes(pack_meta: Dict[str, Any]) -> set[str]:

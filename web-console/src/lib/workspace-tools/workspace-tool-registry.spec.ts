@@ -131,4 +131,29 @@ describe('workspace tool registry', () => {
       }),
     );
   });
+
+  it('accepts AOL runtime command surface tools without changing the panel contract', () => {
+    const tools = normalizeWorkspaceToolDefinitions('ig', [
+      {
+        id: 'model_lane_commands',
+        group: 'capability',
+        slot: 'aol.runtime.command_surface',
+        label: 'Model Lanes',
+        icon: 'Route',
+        order: 10,
+        panel_component_code: 'IGModelLaneCommandPanel',
+        panel_component: {
+          code: 'IGModelLaneCommandPanel',
+          path: 'ui/modelLaneCommands/IGModelLaneCommandPanel.tsx',
+        },
+      },
+    ]);
+
+    expect(tools).toHaveLength(1);
+    expect(tools[0]).toMatchObject({
+      tool_key: 'ig:model_lane_commands',
+      slot: 'aol.runtime.command_surface',
+      panel_component_code: 'IGModelLaneCommandPanel',
+    });
+  });
 });

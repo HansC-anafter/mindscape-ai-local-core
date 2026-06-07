@@ -1,11 +1,14 @@
 import { Cpu } from 'lucide-react';
+import type { ReactNode } from 'react';
 
 import type { RuntimeInspectorSnapshot } from './meetingWorkbenchTypes';
 
 export function MeetingRuntimeInspectorContent({
   runtimeSnapshot,
+  commandSurfaceSlot = null,
 }: {
   runtimeSnapshot: RuntimeInspectorSnapshot;
+  commandSurfaceSlot?: ReactNode;
 }) {
   return (
     <div className="space-y-3">
@@ -97,6 +100,7 @@ export function MeetingRuntimeInspectorContent({
           ) : null}
         </div>
       </div>
+      {commandSurfaceSlot}
     </div>
   );
 }

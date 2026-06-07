@@ -5,6 +5,7 @@ import type {
 
 export const WORKSPACE_TOOL_RIGHT_RAIL_SLOT: WorkspaceToolSlot = 'workspace.right_rail.tool';
 export const WORKBENCH_LEFT_TOOL_RAIL_SLOT: WorkspaceToolSlot = 'workbench.left_tool_rail';
+export const AOL_RUNTIME_COMMAND_SURFACE_SLOT: WorkspaceToolSlot = 'aol.runtime.command_surface';
 
 export function getWorkspaceToolSlot(tool: WorkspaceToolDefinition): WorkspaceToolSlot {
   return tool.slot || WORKSPACE_TOOL_RIGHT_RAIL_SLOT;
@@ -25,4 +26,8 @@ export function isPackRightRailTool(tool: WorkspaceToolDefinition): boolean {
 
 export function isPackLeftToolRailTool(tool: WorkspaceToolDefinition): boolean {
   return getWorkspaceToolSlot(tool) === WORKBENCH_LEFT_TOOL_RAIL_SLOT;
+}
+
+export function isAOLRuntimeCommandSurfaceTool(tool: WorkspaceToolDefinition): boolean {
+  return getWorkspaceToolSlot(tool) === AOL_RUNTIME_COMMAND_SURFACE_SLOT;
 }
