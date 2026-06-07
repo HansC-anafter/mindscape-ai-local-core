@@ -5,7 +5,7 @@ Keyboard shortcut preference endpoints.
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Body, HTTPException
 from pydantic import Field
 
 from backend.app.services.keyboard_shortcut_catalog import (
@@ -70,9 +70,17 @@ async def get_keyboard_shortcuts() -> KeyboardShortcutProfileResponse:
 
 @router.put("/keyboard-shortcuts", response_model=KeyboardShortcutProfileResponse)
 async def put_keyboard_shortcuts(
-    profile: KeyboardShortcutProfile,
+    payload: Dict[str, Any] = Body(...),
 ) -> KeyboardShortcutProfileResponse:
     """Persist the complete keyboard shortcut profile."""
+    try:
+        profile = KeyboardShortcutProfile.model_validate(payload)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid keyboard shortcut profile: {exc}",
+        ) from exc
+
     setting = build_keyboard_shortcut_setting(profile)
     updated = settings_store.save_setting(setting)
     return KeyboardShortcutProfileResponse(
