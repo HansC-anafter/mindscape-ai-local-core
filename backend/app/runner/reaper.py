@@ -23,6 +23,10 @@ from backend.app.services.runner_resources import (
     resource_lease_keys_from_context,
 )
 from backend.app.services.runner_live_state import RunnerLiveStateStore
+from backend.app.services.host_resources.workspace_quota_admission import (
+    WORKSPACE_QUOTA_EXHAUSTED_REASON,
+    decide_workspace_quota_admission_for_task,
+)
 from backend.app.services.host_resources.route_identity_projection import (
     build_route_identity_projection,
     read_route_identity_projections,
@@ -46,6 +50,7 @@ logger = logging.getLogger(__name__)
 _CONCURRENCY_LOCKED_REASON = "concurrency_locked"
 _DEPENDENCY_HOLD_REASON = "dependency_hold"
 _RESOURCE_WAIT_REASON = RESOURCE_WAIT_REASON
+_WORKSPACE_QUOTA_EXHAUSTED_REASON = WORKSPACE_QUOTA_EXHAUSTED_REASON
 _BROWSER_LOCAL_QUEUE_SHARD = "browser_local"
 _BROWSER_PEER_FRONTIER_LANES = frozenset(
     {
@@ -166,6 +171,66 @@ def _host_resource_wait_still_blocked(ctx: dict[str, Any]) -> Optional[Any]:
     except Exception:
         return None
     return None
+
+
+def _workspace_quota_payload(decision: Any) -> dict[str, Any]:
+    to_dict = getattr(decision, "to_dict", None)
+    if callable(to_dict):
+        try:
+            payload = to_dict()
+            if isinstance(payload, dict):
+                return payload
+        except Exception:
+            return {}
+    payload: dict[str, Any] = {
+        "allow": getattr(decision, "allow", None),
+        "reason": getattr(decision, "reason", None),
+        "active_count": getattr(decision, "active_count", None),
+        "max_parallel_task_claims": getattr(decision, "max_parallel_task_claims", None),
+    }
+    allocation = getattr(decision, "allocation", None)
+    if isinstance(allocation, dict):
+        payload["allocation"] = allocation
+    return {key: value for key, value in payload.items() if value is not None}
+
+
+def _workspace_quota_allocation(decision: Any, payload: dict[str, Any]) -> dict[str, Any]:
+    allocation = getattr(decision, "allocation", None)
+    if isinstance(allocation, dict):
+        return allocation
+    payload_allocation = payload.get("allocation")
+    return payload_allocation if isinstance(payload_allocation, dict) else {}
+
+
+def _workspace_quota_task_selectors(allocation: dict[str, Any]) -> list[str]:
+    metadata = allocation.get("metadata")
+    if not isinstance(metadata, dict):
+        metadata = {}
+    selectors = metadata.get("task_selectors")
+    if not isinstance(selectors, list):
+        return []
+    return [
+        normalized
+        for normalized in (str(selector).strip() for selector in selectors)
+        if normalized
+    ]
+
+
+def _workspace_quota_release_key(task: Task, allocation: dict[str, Any]) -> str:
+    allocation_id = str(allocation.get("allocation_id") or "").strip()
+    if allocation_id:
+        return allocation_id
+    workspace_id = str(getattr(task, "workspace_id", "") or "").strip()
+    queue_shard = str(getattr(task, "queue_shard", "") or "").strip()
+    task_family = str(allocation.get("task_family") or "").strip()
+    return f"{workspace_id}:{queue_shard}:{task_family}"
+
+
+def _workspace_quota_int(value: Any, *, default: int = 0) -> int:
+    try:
+        return int(value)
+    except Exception:
+        return default
 
 
 def _is_stale_started_task(task: Task, threshold: datetime) -> bool:
@@ -1223,6 +1288,14 @@ async def _reap_redis_queues(
         ready_depth += resource_released_count
 
         release_limit = max(0, ready_target - ready_depth)
+        workspace_quota_released_count = await _release_workspace_quota_tasks(
+            tasks_store,
+            redis_queue,
+            release_limit=release_limit,
+        )
+        ready_depth += workspace_quota_released_count
+
+        release_limit = max(0, ready_target - ready_depth)
         released_count = await _release_admission_deferred_tasks(
             tasks_store,
             redis_queue,
@@ -1408,6 +1481,234 @@ async def _release_admission_deferred_tasks(
             exc,
         )
 
+    return len(released_task_ids)
+
+
+async def _release_workspace_quota_tasks(
+    tasks_store: TasksStore,
+    redis_queue: RedisRunnerQueueStore,
+    *,
+    release_limit: int,
+) -> int:
+    if release_limit <= 0:
+        return 0
+
+    list_due_workspace_quota_tasks = getattr(
+        tasks_store,
+        "list_due_workspace_quota_tasks",
+        None,
+    )
+    if not list_due_workspace_quota_tasks:
+        return 0
+
+    due_tasks = await asyncio.to_thread(
+        list_due_workspace_quota_tasks,
+        queue_shard=redis_queue.pack_id,
+        limit=max(release_limit * 4, release_limit),
+    )
+    if not due_tasks:
+        return 0
+
+    client = await redis_queue._get_client()
+    if not client:
+        return 0
+
+    count_ready_workspace_quota_tasks = getattr(
+        tasks_store,
+        "count_ready_workspace_quota_tasks",
+        None,
+    )
+    try_release_workspace_quota_task = getattr(
+        tasks_store,
+        "try_release_workspace_quota_task",
+        None,
+    )
+    now = _utc_now()
+    blocked_next_eligible_at = now + timedelta(
+        seconds=max(
+            1,
+            _env_int("LOCAL_CORE_WORKSPACE_QUOTA_RELEASE_BACKOFF_SECONDS", 10),
+        )
+    )
+    released_task_ids: list[str] = []
+    released_by_allocation: dict[str, int] = {}
+    ready_count_by_allocation: dict[str, int] = {}
+
+    for task in due_tasks:
+        if len(released_task_ids) >= release_limit:
+            break
+        if getattr(task, "blocked_reason", None) != _WORKSPACE_QUOTA_EXHAUSTED_REASON:
+            continue
+
+        try:
+            decision = await asyncio.to_thread(
+                decide_workspace_quota_admission_for_task,
+                task,
+            )
+            payload = _workspace_quota_payload(decision)
+            allocation = _workspace_quota_allocation(decision, payload)
+            allocation_key = _workspace_quota_release_key(task, allocation)
+            max_parallel_task_claims = max(
+                1,
+                _workspace_quota_int(
+                    getattr(decision, "max_parallel_task_claims", None)
+                    or payload.get("max_parallel_task_claims"),
+                    default=1,
+                ),
+            )
+            active_count = max(
+                0,
+                _workspace_quota_int(
+                    getattr(decision, "active_count", None)
+                    or payload.get("active_count"),
+                    default=0,
+                ),
+            )
+            selectors = _workspace_quota_task_selectors(allocation)
+            atomic_release = callable(try_release_workspace_quota_task)
+
+            if not atomic_release and allocation_key not in ready_count_by_allocation:
+                ready_count = 0
+                if callable(count_ready_workspace_quota_tasks):
+                    ready_count = await asyncio.to_thread(
+                        count_ready_workspace_quota_tasks,
+                        workspace_id=str(getattr(task, "workspace_id", "") or ""),
+                        queue_shard=str(
+                            getattr(task, "queue_shard", "")
+                            or redis_queue.pack_id
+                        ),
+                        selectors=selectors,
+                    )
+                ready_count_by_allocation[allocation_key] = max(0, int(ready_count or 0))
+
+            reserved_count = (
+                active_count
+                + ready_count_by_allocation.get(allocation_key, 0)
+                + released_by_allocation.get(allocation_key, 0)
+            )
+            quota_available = bool(getattr(decision, "allow", False)) and (
+                atomic_release or reserved_count < max_parallel_task_claims
+            )
+            if not quota_available:
+                blocked_payload = dict(payload)
+                blocked_payload["ready_pending_count"] = ready_count_by_allocation.get(
+                    allocation_key,
+                    0,
+                )
+                blocked_payload["released_in_loop"] = released_by_allocation.get(
+                    allocation_key,
+                    0,
+                )
+                await asyncio.to_thread(
+                    tasks_store.update_task,
+                    task.id,
+                    next_eligible_at=blocked_next_eligible_at,
+                    blocked_reason=(
+                        _WORKSPACE_QUOTA_EXHAUSTED_REASON
+                        if bool(getattr(decision, "allow", False))
+                        else (
+                            str(getattr(decision, "reason", "") or "").strip()
+                            or _WORKSPACE_QUOTA_EXHAUSTED_REASON
+                        )
+                    ),
+                    blocked_payload=blocked_payload,
+                    frontier_state="cold",
+                    frontier_enqueued_at=None,
+                    return_updated=False,
+                )
+                continue
+
+            raw_ctx = task.execution_context
+            update_kwargs = dict(
+                next_eligible_at=now,
+                blocked_reason=None,
+                blocked_payload=None,
+                queue_shard=getattr(task, "queue_shard", None) or redis_queue.pack_id,
+                frontier_state="ready",
+                frontier_enqueued_at=now,
+            )
+            if isinstance(raw_ctx, dict):
+                ctx2 = dict(raw_ctx)
+                ctx2.pop("workspace_quota_admission", None)
+                ctx2.pop("runner_claim_admission", None)
+                ctx2.pop("resume_after", None)
+                update_kwargs["execution_context"] = ctx2
+            if atomic_release:
+                task_selector = str(
+                    getattr(task, "pack_id", None)
+                    or update_kwargs.get("execution_context", {}).get("playbook_code")
+                    or getattr(task, "task_type", "")
+                    or ""
+                ).strip()
+                released = await asyncio.to_thread(
+                    try_release_workspace_quota_task,
+                    task.id,
+                    workspace_id=str(getattr(task, "workspace_id", "") or ""),
+                    queue_shard=str(
+                        getattr(task, "queue_shard", "") or redis_queue.pack_id
+                    ),
+                    selectors=selectors,
+                    task_selector=task_selector,
+                    allocation_key=allocation_key,
+                    max_parallel_task_claims=max_parallel_task_claims,
+                    execution_context=update_kwargs.get("execution_context"),
+                    now=now,
+                )
+                if not released:
+                    blocked_payload = dict(payload)
+                    blocked_payload["atomic_release"] = "reserved_capacity_unavailable"
+                    await asyncio.to_thread(
+                        tasks_store.update_task,
+                        task.id,
+                        next_eligible_at=blocked_next_eligible_at,
+                        blocked_reason=_WORKSPACE_QUOTA_EXHAUSTED_REASON,
+                        blocked_payload=blocked_payload,
+                        frontier_state="cold",
+                        frontier_enqueued_at=None,
+                        return_updated=False,
+                    )
+                    continue
+            else:
+                await asyncio.to_thread(
+                    tasks_store.update_task,
+                    task.id,
+                    return_updated=False,
+                    **update_kwargs,
+                )
+            released_task_ids.append(task.id)
+            released_by_allocation[allocation_key] = (
+                released_by_allocation.get(allocation_key, 0) + 1
+            )
+        except Exception as exc:
+            logger.warning(
+                "[Bridge] Failed to release workspace quota task %s on shard %s: %s",
+                getattr(task, "id", None),
+                redis_queue.pack_id,
+                exc,
+            )
+
+    if not released_task_ids:
+        return 0
+
+    try:
+        pipe = client.pipeline()
+        for task_id in released_task_ids:
+            pipe.rpush(redis_queue.q_pending, task_id)
+        await pipe.execute()
+    except Exception as exc:
+        logger.warning(
+            "[Bridge] Failed to enqueue %d workspace quota task(s) for shard %s: %s",
+            len(released_task_ids),
+            redis_queue.pack_id,
+            exc,
+        )
+        return 0
+
+    logger.warning(
+        "[Bridge] Released %d workspace quota task(s) on shard %s.",
+        len(released_task_ids),
+        redis_queue.pack_id,
+    )
     return len(released_task_ids)
 
 

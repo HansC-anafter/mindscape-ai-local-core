@@ -59,6 +59,7 @@ class _FakeRedisQueue:
     def __init__(self, pack_id: str):
         self.pack_id = pack_id
         self.q_pending = f"{pack_id}:pending"
+        self.q_temp = f"{pack_id}:temp"
         self.q_processing = f"{pack_id}:processing"
         self.q_delayed = f"{pack_id}:delayed"
         self._client = _FakeRedisClient()
@@ -80,7 +81,9 @@ class _FakeTasksStore:
         self.concurrency_locked_calls = 0
         self.dependency_hold_calls = 0
         self.resource_wait_calls = 0
+        self.workspace_quota_calls = 0
         self.unblocked_cold_calls = 0
+        self.ready_workspace_quota_count = 0
 
     def list_running_playbook_execution_tasks(self, *, workspace_id=None, limit=200):
         return [
@@ -116,6 +119,15 @@ class _FakeTasksStore:
         self.resource_wait_calls += 1
         return self._tasks[:limit]
 
+    def list_due_workspace_quota_tasks(self, *, queue_shard=None, limit=200):
+        self.workspace_quota_calls += 1
+        return self._tasks[:limit]
+
+    def count_ready_workspace_quota_tasks(
+        self, *, workspace_id, queue_shard, selectors
+    ):
+        return self.ready_workspace_quota_count
+
     def list_due_unblocked_cold_tasks(self, *, queue_shard=None, limit=200):
         self.unblocked_cold_calls += 1
         return self._tasks[:limit]
@@ -135,6 +147,37 @@ class _FakeAdmissionService:
 
     def evaluate_on_release(self, _tasks_store, _task):
         return self.decision
+
+
+class _FakeWorkspaceQuotaDecision:
+    def __init__(
+        self,
+        *,
+        allow=True,
+        active_count=0,
+        max_parallel_task_claims=4,
+        reason="workspace_allocation_available",
+    ):
+        self.allow = allow
+        self.reason = reason
+        self.active_count = active_count
+        self.max_parallel_task_claims = max_parallel_task_claims
+        self.allocation = {
+            "allocation_id": "alloc-browser",
+            "task_family": "ig_browser_capture",
+            "metadata": {
+                "task_selectors": ["ig_pin_post_detail", "ig_analyze_following"]
+            },
+        }
+
+    def to_dict(self):
+        return {
+            "allow": self.allow,
+            "reason": self.reason,
+            "active_count": self.active_count,
+            "max_parallel_task_claims": self.max_parallel_task_claims,
+            "allocation": self.allocation,
+        }
 
 
 def _build_deferred_task() -> Task:
@@ -255,6 +298,32 @@ def _build_resource_wait_task(
                 "requirements": requirements or {},
             },
             "runner_resource_leases": [{"lease_key": resource_key}],
+            "resume_after": now.isoformat(),
+        },
+    )
+
+
+def _build_workspace_quota_task(task_id: str = "task-quota") -> Task:
+    now = _utc_now()
+    return Task(
+        id=task_id,
+        workspace_id="ws-1",
+        message_id=f"msg-{task_id}",
+        execution_id=f"exec-{task_id}",
+        pack_id="ig_analyze_following",
+        task_type="playbook_execution",
+        status=TaskStatus.PENDING,
+        queue_shard="browser_local",
+        created_at=now - timedelta(minutes=5),
+        next_eligible_at=now - timedelta(minutes=1),
+        blocked_reason="workspace_allocation_quota_exhausted",
+        frontier_state="cold",
+        execution_context={
+            "playbook_code": "ig_analyze_following",
+            "workspace_quota_admission": {
+                "reason": "workspace_allocation_quota_exhausted"
+            },
+            "runner_claim_admission": {"runner_profile": "browser_local"},
             "resume_after": now.isoformat(),
         },
     )
@@ -722,6 +791,84 @@ async def test_releases_one_due_resource_wait_task_per_resource_key():
     assert released == 1
     assert queue._client.enqueued == ["task-resource-a"]
     assert [task_id for task_id, _update in store.updated] == ["task-resource-a"]
+
+
+@pytest.mark.asyncio
+async def test_releases_workspace_quota_task_only_with_available_reserved_capacity(
+    monkeypatch,
+):
+    store = _FakeTasksStore(
+        [
+            _build_workspace_quota_task("task-quota-a"),
+            _build_workspace_quota_task("task-quota-b"),
+        ]
+    )
+    store.ready_workspace_quota_count = 2
+    queue = _FakeRedisQueue("browser_local")
+    monkeypatch.setattr(
+        reaper,
+        "decide_workspace_quota_admission_for_task",
+        lambda _task: _FakeWorkspaceQuotaDecision(
+            allow=True,
+            active_count=1,
+            max_parallel_task_claims=4,
+        ),
+    )
+
+    released = await reaper._release_workspace_quota_tasks(
+        store,
+        queue,
+        release_limit=4,
+    )
+
+    assert released == 1
+    assert store.workspace_quota_calls == 1
+    assert queue._client.enqueued == ["task-quota-a"]
+    assert [task_id for task_id, _update in store.updated] == [
+        "task-quota-a",
+        "task-quota-b",
+    ]
+    released_update = store.updated[0][1]
+    assert released_update["blocked_reason"] is None
+    assert released_update["blocked_payload"] is None
+    assert released_update["frontier_state"] == "ready"
+    assert "workspace_quota_admission" not in released_update["execution_context"]
+    assert "runner_claim_admission" not in released_update["execution_context"]
+    assert "resume_after" not in released_update["execution_context"]
+    blocked_update = store.updated[1][1]
+    assert blocked_update["blocked_reason"] == "workspace_allocation_quota_exhausted"
+    assert blocked_update["frontier_state"] == "cold"
+
+
+@pytest.mark.asyncio
+async def test_reextends_workspace_quota_task_when_reserved_capacity_is_full(
+    monkeypatch,
+):
+    store = _FakeTasksStore([_build_workspace_quota_task()])
+    store.ready_workspace_quota_count = 3
+    queue = _FakeRedisQueue("browser_local")
+    monkeypatch.setattr(
+        reaper,
+        "decide_workspace_quota_admission_for_task",
+        lambda _task: _FakeWorkspaceQuotaDecision(
+            allow=True,
+            active_count=1,
+            max_parallel_task_claims=4,
+        ),
+    )
+
+    released = await reaper._release_workspace_quota_tasks(
+        store,
+        queue,
+        release_limit=4,
+    )
+
+    assert released == 0
+    assert queue._client.enqueued == []
+    update = store.updated[0][1]
+    assert update["blocked_reason"] == "workspace_allocation_quota_exhausted"
+    assert update["frontier_state"] == "cold"
+    assert update["blocked_payload"]["ready_pending_count"] == 3
 
 
 @pytest.mark.asyncio

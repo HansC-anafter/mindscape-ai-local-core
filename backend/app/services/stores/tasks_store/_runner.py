@@ -294,6 +294,50 @@ def _running_concurrency_conflict_clause(
     )
 
 
+def _workspace_quota_selector_sql(
+    conn,
+    *,
+    selectors: List[str],
+    params: Dict[str, Any],
+    key_prefix: str,
+) -> str:
+    if not selectors:
+        return ""
+    placeholders: List[str] = []
+    for index, selector in enumerate(selectors):
+        key = f"{key_prefix}_{index}"
+        params[key] = selector
+        placeholders.append(f":{key}")
+    selector_list = ", ".join(placeholders)
+    playbook_expr = (
+        "json_extract(execution_context, '$.playbook_code')"
+        if conn.dialect.name == "sqlite"
+        else "execution_context::jsonb->>'playbook_code'"
+    )
+    return f"""
+      AND (
+            pack_id IN ({selector_list})
+            OR task_type IN ({selector_list})
+            OR {playbook_expr} IN ({selector_list})
+      )
+    """
+
+
+def _workspace_quota_task_selector_sql(conn) -> str:
+    playbook_expr = (
+        "json_extract(execution_context, '$.playbook_code')"
+        if conn.dialect.name == "sqlite"
+        else "execution_context::jsonb->>'playbook_code'"
+    )
+    return f"""
+      AND (
+            pack_id = :task_selector
+            OR task_type = :task_selector
+            OR {playbook_expr} = :task_selector
+      )
+    """
+
+
 class TasksStoreRunnerMixin:
     """Runner lifecycle operations for TasksStore."""
 
@@ -318,6 +362,136 @@ class TasksStoreRunnerMixin:
                 },
             ).fetchone()
             return bool(row and row[0])
+
+    def try_release_workspace_quota_task(
+        self,
+        task_id: str,
+        *,
+        workspace_id: str,
+        queue_shard: str,
+        selectors: List[str],
+        task_selector: str,
+        allocation_key: str,
+        max_parallel_task_claims: int,
+        execution_context: Optional[Dict[str, Any]] = None,
+        now: Optional[datetime] = None,
+    ) -> bool:
+        now = now or _utc_now()
+        max_parallel_task_claims = max(
+            1,
+            _clean_int(max_parallel_task_claims, default=1),
+        )
+        normalized_selectors = [
+            selector
+            for selector in (_clean_string(selector) for selector in selectors)
+            if selector
+        ]
+        fairness_overflow_limit = max_parallel_task_claims + max(
+            0,
+            len(normalized_selectors) - 1,
+        )
+        task_selector = _clean_string(task_selector) or ""
+        lock_key = _clean_string(allocation_key) or f"{workspace_id}:{queue_shard}"
+
+        with self.transaction() as conn:
+            if conn.dialect.name != "sqlite":
+                conn.execute(
+                    text("SELECT pg_advisory_xact_lock(hashtext(:lock_key))"),
+                    {"lock_key": lock_key},
+                )
+
+            params: Dict[str, Any] = {
+                "workspace_id": workspace_id,
+                "queue_shard": queue_shard,
+                "running_status": TaskStatus.RUNNING.value,
+                "pending_status": TaskStatus.PENDING.value,
+                "ready_frontier_state": "ready",
+                "task_selector": task_selector,
+            }
+            selector_sql = _workspace_quota_selector_sql(
+                conn,
+                selectors=normalized_selectors,
+                params=params,
+                key_prefix="selector",
+            )
+            task_selector_sql = (
+                _workspace_quota_task_selector_sql(conn) if task_selector else ""
+            )
+            count_cast = "::int" if conn.dialect.name != "sqlite" else ""
+            count_row = conn.execute(
+                text(
+                    f"""
+                    SELECT
+                        COUNT(*){count_cast} AS reserved_total,
+                        SUM(
+                            CASE
+                                WHEN TRUE {task_selector_sql} THEN 1
+                                ELSE 0
+                            END
+                        ){count_cast} AS reserved_same_selector
+                    FROM tasks
+                    WHERE workspace_id = :workspace_id
+                      AND queue_shard = :queue_shard
+                      AND (
+                            status = :running_status
+                            OR (
+                                status = :pending_status
+                                AND frontier_state = :ready_frontier_state
+                                AND (blocked_reason IS NULL OR blocked_reason = '')
+                            )
+                      )
+                      {selector_sql}
+                    """
+                ),
+                params,
+            ).fetchone()
+            reserved_total = _clean_int(
+                getattr(count_row, "reserved_total", 0),
+                default=0,
+            )
+            reserved_same_selector = _clean_int(
+                getattr(count_row, "reserved_same_selector", 0),
+                default=0,
+            )
+            if reserved_total >= max_parallel_task_claims and (
+                reserved_same_selector > 0
+                or reserved_total >= fairness_overflow_limit
+            ):
+                return False
+
+            result = conn.execute(
+                text(
+                    """
+                    UPDATE tasks
+                    SET next_eligible_at = :now,
+                        blocked_reason = NULL,
+                        blocked_payload = NULL,
+                        queue_shard = :queue_shard,
+                        frontier_state = :ready_frontier_state,
+                        frontier_enqueued_at = :now,
+                        execution_context = COALESCE(:execution_context, execution_context)
+                    WHERE id = :task_id
+                      AND status = :pending_status
+                      AND frontier_state = :cold_frontier_state
+                      AND blocked_reason = :quota_blocked_reason
+                    """
+                ),
+                {
+                    "task_id": task_id,
+                    "now": now,
+                    "queue_shard": queue_shard,
+                    "pending_status": TaskStatus.PENDING.value,
+                    "ready_frontier_state": "ready",
+                    "cold_frontier_state": "cold",
+                    "quota_blocked_reason": "workspace_allocation_quota_exhausted",
+                    "execution_context": (
+                        self.serialize_json(execution_context)
+                        if isinstance(execution_context, dict)
+                        else None
+                    ),
+                },
+            )
+            return result.rowcount == 1
 
     def try_claim_task(
         self,

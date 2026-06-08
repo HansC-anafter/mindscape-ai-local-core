@@ -36,6 +36,7 @@ class _SqliteClaimStore(TasksStoreRunnerMixin):
                         task_type TEXT,
                         queue_shard TEXT,
                         concurrency_key TEXT,
+                        next_eligible_at TIMESTAMP,
                         started_at TIMESTAMP,
                         runner_id TEXT,
                         heartbeat_at TIMESTAMP,
@@ -98,6 +99,7 @@ class _SqliteClaimStore(TasksStoreRunnerMixin):
         queue_shard: str = "browser_local",
         task_type: str | None = None,
         blocked_reason: str | None = None,
+        frontier_state: str | None = None,
     ) -> None:
         with self._engine.begin() as conn:
             conn.execute(
@@ -106,11 +108,12 @@ class _SqliteClaimStore(TasksStoreRunnerMixin):
                     INSERT INTO tasks (
                         id, workspace_id, status, params, execution_context,
                         pack_id, task_type, queue_shard, concurrency_key,
-                        started_at, blocked_reason, blocked_payload, frontier_state, frontier_enqueued_at
+                        next_eligible_at, started_at, blocked_reason,
+                        blocked_payload, frontier_state, frontier_enqueued_at
                     ) VALUES (
                         :id, :workspace_id, :status, :params, :execution_context,
                         :pack_id, :task_type, :queue_shard, :concurrency_key,
-                        NULL, :blocked_reason, NULL, :frontier_state, NULL
+                        NULL, NULL, :blocked_reason, NULL, :frontier_state, NULL
                     )
                     """
                 ),
@@ -126,7 +129,12 @@ class _SqliteClaimStore(TasksStoreRunnerMixin):
                     "concurrency_key": concurrency_key,
                     "blocked_reason": blocked_reason,
                     "frontier_state": (
-                        "running" if status == TaskStatus.RUNNING.value else "ready"
+                        frontier_state
+                        or (
+                            "running"
+                            if status == TaskStatus.RUNNING.value
+                            else "ready"
+                        )
                     ),
                 },
             )
@@ -195,6 +203,14 @@ class _SqliteClaimStore(TasksStoreRunnerMixin):
         with self._engine.begin() as conn:
             row = conn.execute(
                 text("SELECT status FROM tasks WHERE id = :task_id"),
+                {"task_id": task_id},
+            ).fetchone()
+        return str(row[0])
+
+    def fetch_frontier(self, task_id: str) -> str:
+        with self._engine.begin() as conn:
+            row = conn.execute(
+                text("SELECT frontier_state FROM tasks WHERE id = :task_id"),
                 {"task_id": task_id},
             ).fetchone()
         return str(row[0])
@@ -386,3 +402,123 @@ def test_try_claim_task_allows_workspace_quota_at_available_slot():
 
     assert claimed is True
     assert store.fetch_status("pending-1") == TaskStatus.RUNNING.value
+
+
+def test_try_release_workspace_quota_task_moves_cold_task_to_ready():
+    store = _SqliteClaimStore()
+    store.insert_allocation(
+        max_parallel_task_claims=4,
+        selectors=["ig_analyze_following", "ig_pin_post_detail"],
+    )
+    store.insert_task(
+        task_id="quota-cold-1",
+        status=TaskStatus.PENDING.value,
+        pack_id="ig_analyze_following",
+        execution_context={
+            "playbook_code": "ig_analyze_following",
+            "workspace_quota_admission": {"reason": "quota"},
+        },
+        concurrency_key=None,
+        blocked_reason="workspace_allocation_quota_exhausted",
+        frontier_state="cold",
+    )
+
+    released = store.try_release_workspace_quota_task(
+        "quota-cold-1",
+        workspace_id="ws-1",
+        queue_shard="browser_local",
+        selectors=["ig_analyze_following", "ig_pin_post_detail"],
+        task_selector="ig_analyze_following",
+        allocation_key="alloc-browser",
+        max_parallel_task_claims=4,
+        execution_context={"playbook_code": "ig_analyze_following"},
+    )
+
+    row = store.fetch_task_row("quota-cold-1")
+    assert released is True
+    assert store.fetch_frontier("quota-cold-1") == "ready"
+    assert row.blocked_reason is None
+    assert row.blocked_payload is None
+    assert store.deserialize_json(row.execution_context) == {
+        "playbook_code": "ig_analyze_following"
+    }
+
+
+def test_try_release_workspace_quota_task_blocks_same_selector_when_reserved_full():
+    store = _SqliteClaimStore()
+    store.insert_allocation(
+        max_parallel_task_claims=4,
+        selectors=["ig_analyze_following", "ig_pin_post_detail"],
+    )
+    for index in range(4):
+        store.insert_task(
+            task_id=f"ready-following-{index}",
+            status=TaskStatus.PENDING.value,
+            pack_id="ig_analyze_following",
+            execution_context={"playbook_code": "ig_analyze_following"},
+            concurrency_key=None,
+            frontier_state="ready",
+        )
+    store.insert_task(
+        task_id="quota-cold-1",
+        status=TaskStatus.PENDING.value,
+        pack_id="ig_analyze_following",
+        execution_context={"playbook_code": "ig_analyze_following"},
+        concurrency_key=None,
+        blocked_reason="workspace_allocation_quota_exhausted",
+        frontier_state="cold",
+    )
+
+    released = store.try_release_workspace_quota_task(
+        "quota-cold-1",
+        workspace_id="ws-1",
+        queue_shard="browser_local",
+        selectors=["ig_analyze_following", "ig_pin_post_detail"],
+        task_selector="ig_analyze_following",
+        allocation_key="alloc-browser",
+        max_parallel_task_claims=4,
+        execution_context={"playbook_code": "ig_analyze_following"},
+    )
+
+    assert released is False
+    assert store.fetch_frontier("quota-cold-1") == "cold"
+
+
+def test_try_release_workspace_quota_task_allows_one_missing_selector_candidate():
+    store = _SqliteClaimStore()
+    store.insert_allocation(
+        max_parallel_task_claims=4,
+        selectors=["ig_analyze_following", "ig_pin_post_detail"],
+    )
+    for index in range(4):
+        store.insert_task(
+            task_id=f"ready-detail-{index}",
+            status=TaskStatus.PENDING.value,
+            pack_id="ig_pin_post_detail",
+            execution_context={"playbook_code": "ig_pin_post_detail"},
+            concurrency_key=None,
+            frontier_state="ready",
+        )
+    store.insert_task(
+        task_id="quota-cold-following",
+        status=TaskStatus.PENDING.value,
+        pack_id="ig_analyze_following",
+        execution_context={"playbook_code": "ig_analyze_following"},
+        concurrency_key=None,
+        blocked_reason="workspace_allocation_quota_exhausted",
+        frontier_state="cold",
+    )
+
+    released = store.try_release_workspace_quota_task(
+        "quota-cold-following",
+        workspace_id="ws-1",
+        queue_shard="browser_local",
+        selectors=["ig_analyze_following", "ig_pin_post_detail"],
+        task_selector="ig_analyze_following",
+        allocation_key="alloc-browser",
+        max_parallel_task_claims=4,
+        execution_context={"playbook_code": "ig_analyze_following"},
+    )
+
+    assert released is True
+    assert store.fetch_frontier("quota-cold-following") == "ready"

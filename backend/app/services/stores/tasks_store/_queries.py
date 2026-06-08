@@ -17,6 +17,7 @@ from backend.app.services.runner_topology import (
 from backend.app.services.task_admission_service import ADMISSION_DEFERRED_REASON
 
 logger = logging.getLogger(__name__)
+_WORKSPACE_QUOTA_EXHAUSTED_REASON = "workspace_allocation_quota_exhausted"
 _COLD_RELEASE_SCAN_MIN = 4096
 _COLD_RELEASE_SCAN_MULTIPLIER = 64
 _COLD_RELEASE_SCAN_MAX = 50000
@@ -1265,6 +1266,82 @@ class TasksStoreQueryMixin:
             queue_shard=queue_shard,
             limit=limit,
         )
+
+    def list_due_workspace_quota_tasks(
+        self,
+        *,
+        queue_shard: Optional[str] = None,
+        limit: int = 200,
+    ) -> List[Task]:
+        return self._list_ranked_cold_release_candidates(
+            blocked_reason=_WORKSPACE_QUOTA_EXHAUSTED_REASON,
+            queue_shard=queue_shard,
+            limit=limit,
+        )
+
+    def count_ready_workspace_quota_tasks(
+        self,
+        *,
+        workspace_id: str,
+        queue_shard: str,
+        selectors: list[str],
+    ) -> int:
+        selector_clauses: list[str] = []
+        params: Dict[str, Any] = {
+            "workspace_id": workspace_id,
+            "status": TaskStatus.PENDING.value,
+            "frontier_state": "ready",
+        }
+
+        queue_clause, queue_params = build_queue_partition_filter_clause(
+            "queue_shard",
+            queue_shard,
+            param_prefix="queue_partition",
+        )
+        params.update(queue_params)
+
+        if selectors:
+            selector_params: Dict[str, Any] = {}
+            placeholders: list[str] = []
+            for index, selector in enumerate(selectors):
+                key = f"selector_{index}"
+                selector_params[key] = selector
+                placeholders.append(f":{key}")
+            params.update(selector_params)
+            selector_list = ", ".join(placeholders)
+            selector_clauses.append(
+                f"""
+                (
+                    pack_id IN ({selector_list})
+                    OR execution_context->>'playbook_code' IN ({selector_list})
+                    OR task_type IN ({selector_list})
+                )
+                """
+            )
+
+        selector_sql = (
+            f"AND {' AND '.join(selector_clauses)}" if selector_clauses else ""
+        )
+        with self.get_connection() as conn:
+            value = conn.execute(
+                text(
+                    f"""
+                    SELECT COUNT(*)::int
+                    FROM tasks
+                    WHERE workspace_id = :workspace_id
+                      AND {queue_clause}
+                      AND status = :status
+                      AND frontier_state = :frontier_state
+                      AND (blocked_reason IS NULL OR blocked_reason = '')
+                      {selector_sql}
+                    """
+                ),
+                params,
+            ).scalar()
+        try:
+            return int(value or 0)
+        except Exception:
+            return 0
 
     def list_due_unblocked_cold_tasks(
         self,
