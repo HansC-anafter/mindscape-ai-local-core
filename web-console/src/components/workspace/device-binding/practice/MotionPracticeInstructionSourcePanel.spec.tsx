@@ -49,6 +49,37 @@ describe('MotionPracticeInstructionSourcePanel', () => {
     ]);
   });
 
+  it('attaches upstream course chapters to instruction refs', () => {
+    expect(buildMotionPracticeInstructionRefs({
+      kind: 'local_video_smoke_ref',
+      value: 'mindscape://motion-video-smoke/session/demo',
+      courseChapters: [
+        {
+          chapter_id: 'chapter_1',
+          title: 'Warmup',
+          start_ms: 0,
+          end_ms: 5000,
+        },
+      ],
+    })).toEqual([
+      {
+        ref_type: 'local_video_smoke_ref',
+        source_provider: 'local_video',
+        media_ref: 'mindscape://motion-video-smoke/session/demo',
+        frame_readable: false,
+        motion_analysis_source: true,
+        course_chapters: [
+          {
+            chapter_id: 'chapter_1',
+            title: 'Warmup',
+            start_ms: 0,
+            end_ms: 5000,
+          },
+        ],
+      },
+    ]);
+  });
+
   it('updates controlled source state without creating an interval loop', () => {
     const setIntervalSpy = vi.spyOn(globalThis, 'setInterval');
     const onChange = vi.fn();

@@ -6,6 +6,23 @@ import {
   type LivePoseWindowAdapter,
   type MotionWindowSummary,
 } from './livePoseWindow';
+import type { CapturePoseSampleMetrics } from './captureMotionMetrics';
+
+function buildCaptureMetrics(): CapturePoseSampleMetrics {
+  return {
+    bodyCenterX: 0.5,
+    bodyCenterY: 0.45,
+    confidence: 0.82,
+    lineDeltas: [
+      {
+        nodeId: 'shoulder_line',
+        nodeLabel: 'Shoulder line',
+        signedDelta: 0.04,
+        confidence: 0.82,
+      },
+    ],
+  };
+}
 
 function buildSample(timestampMs: number) {
   return {
@@ -13,6 +30,7 @@ function buildSample(timestampMs: number) {
     confidence: 0.82,
     visiblePointCount: 30,
     totalPointCount: 33,
+    captureMetrics: buildCaptureMetrics(),
   };
 }
 
@@ -64,6 +82,21 @@ describe('livePoseWindow', () => {
     });
     expect(summary?.confidence_stats.sample_count).toBe(30);
     expect(summary?.scores.pose_confidence).toBeGreaterThan(0.8);
+    expect(summary?.metadata).toMatchObject({
+      pose_provider: 'mediapipe_pose',
+      provider_code: 'browser_mediapipe_pose_lite',
+      provider_schema_id: 'mediapipe_pose_landmarker_lite_video',
+      keypoint_schema_id: 'mediapipe_pose_33',
+      motion_metric_schema_version: 'capture_motion_metrics.v1',
+      dwpose_node_deltas: [
+        expect.objectContaining({
+          node_id: 'shoulder_line',
+          metric: 'capture_line_level_delta',
+        }),
+      ],
+      sway_metrics: expect.any(Array),
+      phase_metrics: expect.any(Array),
+    });
     expectNoRawPayload(summary as MotionWindowSummary);
   });
 

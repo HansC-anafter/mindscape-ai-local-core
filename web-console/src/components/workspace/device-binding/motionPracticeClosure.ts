@@ -21,6 +21,7 @@ export type MotionPracticeSessionRollupSummary = {
   finding_counts?: Record<string, number>;
   top_findings?: string[];
   motion_window_refs?: string[];
+  motion_window_digests?: Record<string, unknown>[];
   [key: string]: unknown;
 };
 
@@ -75,6 +76,24 @@ function readStringArray(value: unknown): string[] {
   return value
     .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
     .map((item) => item.trim());
+}
+
+function readRecordArray(value: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter((item): item is Record<string, unknown> => isRecord(item));
+}
+
+function readInstructionCourseChapters(
+  instructionRefs: MotionPracticeLaunchInput['instructionRefs'],
+): Record<string, unknown>[] {
+  const chapters: Record<string, unknown>[] = [];
+  for (const ref of instructionRefs || []) {
+    const nested = isRecord(ref) ? ref.course_chapters : null;
+    chapters.push(...readRecordArray(nested));
+  }
+  return chapters;
 }
 
 function readRollupSummary(rollup: MotionPracticeSessionRollupResponse): MotionPracticeSessionRollupSummary {
@@ -149,6 +168,7 @@ export async function emitMotionPracticeSessionRollup({
         practice_mode: input.practiceMode,
         practice_session_id: result.practiceSessionId,
         capture_session_id: input.sourceSession.session_id,
+        course_chapters: readInstructionCourseChapters(input.instructionRefs),
         resource_policy: buildMotionPracticeResourcePolicy(),
       },
     },
@@ -173,6 +193,9 @@ export function buildLivePracticeRollupFromSessionRollup({
   const motionRollupRef = readString(rollup.motion_rollup_ref);
   const artifactId = readString(rollup.artifact_id);
   const topFindings = readStringArray(summary.top_findings);
+  const courseChapters = readInstructionCourseChapters(input.instructionRefs);
+  const motionWindowDigests = readRecordArray(summary.motion_window_digests);
+  const motionWindowRefs = readStringArray(summary.motion_window_refs);
   return {
     practice_session_id: result.practiceSessionId,
     workspace_id: input.workspaceId,
@@ -203,6 +226,9 @@ export function buildLivePracticeRollupFromSessionRollup({
       coach_pack: input.coachPack,
       practice_mode: input.practiceMode,
       instruction_refs: input.instructionRefs || [],
+      course_chapters: courseChapters,
+      motion_window_refs: motionWindowRefs,
+      motion_window_digests: motionWindowDigests,
       motion_rollup_ref: motionRollupRef || null,
       artifact_id: artifactId || null,
       artifact_registry: isRecord(rollup.artifact_registry) ? rollup.artifact_registry : null,

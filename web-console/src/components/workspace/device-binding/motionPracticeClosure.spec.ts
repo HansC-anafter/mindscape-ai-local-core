@@ -48,6 +48,14 @@ const baseInput: MotionPracticeLaunchInput = {
       video_ref: 'https://www.youtube.com/watch?v=demo',
       frame_readable: false,
       motion_analysis_source: false,
+      course_chapters: [
+        {
+          chapter_id: 'chapter_1',
+          title: 'Warmup',
+          start_ms: 0,
+          end_ms: 5000,
+        },
+      ],
     },
   ],
   userGoal: 'Improve balance.',
@@ -79,6 +87,16 @@ const rollupResponse: MotionPracticeSessionRollupResponse = {
     finding_counts: { correction: 2 },
     top_findings: ['Keep the left knee tracking over the toes.'],
     motion_window_refs: ['window_1', 'window_2'],
+    motion_window_digests: [
+      {
+        motion_window_ref: 'window_1',
+        window_index: 0,
+        start_ms: 0,
+        end_ms: 5000,
+        confidence: 0.82,
+        top_findings: ['Keep the left knee tracking over the toes.'],
+      },
+    ],
   },
 };
 
@@ -129,6 +147,16 @@ describe('motionPracticeClosure', () => {
         instruction_refs: baseInput.instructionRefs,
         max_window_refs: 100,
         max_top_findings: 8,
+        metadata: expect.objectContaining({
+          course_chapters: [
+            {
+              chapter_id: 'chapter_1',
+              title: 'Warmup',
+              start_ms: 0,
+              end_ms: 5000,
+            },
+          ],
+        }),
       }),
     );
 
@@ -160,6 +188,23 @@ describe('motionPracticeClosure', () => {
           artifact_id: 'artifact_motion_rollup',
         }),
       ],
+      metadata: expect.objectContaining({
+        course_chapters: [
+          {
+            chapter_id: 'chapter_1',
+            title: 'Warmup',
+            start_ms: 0,
+            end_ms: 5000,
+          },
+        ],
+        motion_window_digests: [
+          expect.objectContaining({
+            motion_window_ref: 'window_1',
+            confidence: 0.82,
+          }),
+        ],
+        motion_window_refs: ['window_1', 'window_2'],
+      }),
     });
     expect(commandArgs.metadata).toMatchObject({
       motion_practice_close: true,

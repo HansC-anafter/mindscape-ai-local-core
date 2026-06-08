@@ -230,13 +230,10 @@ export function PackScopeToolRailHost({
         defaultShortcut: tool.shortcut,
         scope,
         preventDefault: true,
-        action: () => {
-          setActiveToolKey(tool.tool_key);
-          setPanelExpanded(false);
-        },
+        action: () => activateTool(tool),
       }));
     return () => disposers.forEach((dispose) => dispose());
-  }, [capabilityCode, orderedTools, registerCommand, workspaceId]);
+  }, [activateTool, capabilityCode, orderedTools, registerCommand, workspaceId]);
 
   const handleDrop = React.useCallback((targetToolKey: string) => {
     if (!draggedToolKey || draggedToolKey === targetToolKey) {

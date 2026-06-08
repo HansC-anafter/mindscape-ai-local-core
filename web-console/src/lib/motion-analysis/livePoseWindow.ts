@@ -1,10 +1,17 @@
 'use client';
 
+import {
+  buildCaptureMotionWindowMetadata,
+  deriveMediaPipePoseCaptureSample,
+  type CapturePoseSampleMetrics,
+} from './captureMotionMetrics';
+
 export type PoseSampleSummary = {
   timestampMs: number;
   confidence: number;
   visiblePointCount: number;
   totalPointCount: number;
+  captureMetrics?: CapturePoseSampleMetrics | null;
 };
 
 export type MotionWindowSummary = {
@@ -153,6 +160,7 @@ function summarizePoints(points: unknown, timestampMs: number): PoseSampleSummar
     confidence: roundMetric(average(confidenceValues)),
     visiblePointCount,
     totalPointCount: points.length,
+    captureMetrics: deriveMediaPipePoseCaptureSample(points),
   };
 }
 
@@ -269,6 +277,7 @@ export function createLivePoseWindowAccumulator({
         window_ms: windowMs,
         max_samples: maxSamples,
         ...metadata,
+        ...buildCaptureMotionWindowMetadata(samples),
       },
     };
   };

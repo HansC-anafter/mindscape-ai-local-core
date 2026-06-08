@@ -162,13 +162,55 @@ describe('PhoneSourcePreview', () => {
       scores: {},
       findings: ['Shift weight back.'],
       keypoint_frame_count: 20,
-      metadata: {},
+      metadata: {
+        pose_provider: 'mediapipe_pose',
+        provider_code: 'browser_mediapipe_pose_lite',
+        provider_schema_id: 'mediapipe_pose_landmarker_lite_video',
+        keypoint_schema_id: 'mediapipe_pose_33',
+        motion_metric_schema_version: 'capture_motion_metrics.v1',
+        dwpose_node_deltas: [
+          {
+            node_id: 'shoulder_line',
+            metric: 'capture_line_level_delta',
+            learner_value: 0.04,
+            reference_value: 0,
+            delta_score: 0.333,
+            severity: 'green',
+          },
+        ],
+        sway_metrics: [
+          {
+            axis: 'front_back',
+            phase: 'window',
+            learner_value: 0.03,
+            reference_value: 0.04,
+            delta_score: 0.188,
+            severity: 'green',
+          },
+        ],
+        phase_metrics: [
+          {
+            phase: 'hold',
+            axis: 'front_back',
+            learner_value: 0.02,
+            reference_value: 0.02,
+            delta_score: 0.167,
+            severity: 'green',
+          },
+        ],
+      },
     };
     await mocks.motionControllerInput.appendMotionWindow(summary, 123);
     expect(onMotionWindowAppended).toHaveBeenCalledWith({
       liveSessionId: 'lms_motion_practice',
       response: { accepted: true },
-      summary,
+      summary: expect.objectContaining({
+        metadata: expect.objectContaining({
+          dwpose_node_deltas: expect.any(Array),
+          sway_metrics: expect.any(Array),
+          phase_metrics: expect.any(Array),
+        }),
+      }),
     });
 
     unmount();

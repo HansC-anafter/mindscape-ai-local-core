@@ -126,4 +126,63 @@ describe('CapabilityWorkbenchShell', () => {
     fireEvent.click(screen.getByTestId('pack-main'));
     expect(screen.getByTestId('capability-workbench-navigation-slot')).toHaveAttribute('data-navigation-state', 'closed');
   });
+
+  it('auto-collapses navigation from document clicks outside the workbench shell', () => {
+    render(
+      <>
+        <button data-testid="host-header-nav" type="button">
+          Header
+        </button>
+        <CapabilityWorkbenchShell
+          workspaceId="ws_test"
+          capabilityCode="ig"
+          apiUrl="http://api.test"
+          navigation={<aside data-testid="pack-navigation">Navigation</aside>}
+        >
+          <main data-testid="pack-main">Main</main>
+        </CapabilityWorkbenchShell>
+      </>,
+    );
+
+    expect(screen.getByTestId('capability-workbench-navigation-slot')).toHaveAttribute('data-navigation-state', 'open');
+
+    fireEvent.click(screen.getByTestId('host-header-nav'));
+    expect(screen.getByTestId('capability-workbench-navigation-slot')).toHaveAttribute('data-navigation-state', 'closed');
+
+    fireEvent.mouseEnter(screen.getByTestId('pack-scope-navigation-toggle'));
+    expect(screen.getByTestId('capability-workbench-navigation-slot')).toHaveAttribute('data-navigation-state', 'open');
+
+    fireEvent.click(screen.getByTestId('host-header-nav'));
+    expect(screen.getByTestId('capability-workbench-navigation-slot')).toHaveAttribute('data-navigation-state', 'closed');
+  });
+
+  it('auto-collapses navigation from captured scroll events', () => {
+    render(
+      <CapabilityWorkbenchShell
+        workspaceId="ws_test"
+        capabilityCode="ig"
+        apiUrl="http://api.test"
+        navigation={<aside data-testid="pack-navigation">Navigation</aside>}
+      >
+        <main data-testid="pack-main">Main</main>
+      </CapabilityWorkbenchShell>,
+    );
+
+    expect(screen.getByTestId('capability-workbench-navigation-slot')).toHaveAttribute('data-navigation-state', 'open');
+
+    fireEvent.scroll(screen.getByTestId('pack-main'));
+    expect(screen.getByTestId('capability-workbench-navigation-slot')).toHaveAttribute('data-navigation-state', 'closed');
+
+    fireEvent.mouseEnter(screen.getByTestId('pack-scope-navigation-toggle'));
+    expect(screen.getByTestId('capability-workbench-navigation-slot')).toHaveAttribute('data-navigation-state', 'open');
+
+    fireEvent.scroll(document);
+    expect(screen.getByTestId('capability-workbench-navigation-slot')).toHaveAttribute('data-navigation-state', 'closed');
+
+    fireEvent.mouseEnter(screen.getByTestId('pack-scope-navigation-toggle'));
+    expect(screen.getByTestId('capability-workbench-navigation-slot')).toHaveAttribute('data-navigation-state', 'open');
+
+    fireEvent.scroll(window);
+    expect(screen.getByTestId('capability-workbench-navigation-slot')).toHaveAttribute('data-navigation-state', 'closed');
+  });
 });

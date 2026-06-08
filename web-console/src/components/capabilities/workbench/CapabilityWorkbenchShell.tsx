@@ -50,7 +50,7 @@ export function CapabilityWorkbenchShell({
     }
   }, [navigationCollapsed]);
 
-  const handleWorkbenchClick = React.useCallback(() => {
+  const collapseNavigation = React.useCallback(() => {
     if (!showNavigation) {
       return;
     }
@@ -58,12 +58,33 @@ export function CapabilityWorkbenchShell({
     setNavigationHoverOpen(false);
   }, [showNavigation]);
 
+  React.useEffect(() => {
+    if (!showNavigation || typeof document === 'undefined') {
+      return undefined;
+    }
+
+    function handleDocumentInteraction() {
+      removeDocumentInteractionListeners();
+      collapseNavigation();
+    }
+
+    function removeDocumentInteractionListeners() {
+      document.removeEventListener('click', handleDocumentInteraction, true);
+      document.removeEventListener('scroll', handleDocumentInteraction, true);
+      window.removeEventListener('scroll', handleDocumentInteraction, true);
+    }
+
+    document.addEventListener('click', handleDocumentInteraction, true);
+    document.addEventListener('scroll', handleDocumentInteraction, { capture: true, passive: true });
+    window.addEventListener('scroll', handleDocumentInteraction, { capture: true, passive: true });
+    return removeDocumentInteractionListeners;
+  }, [collapseNavigation, showNavigation]);
+
   return (
     <div
       className={className || 'relative flex min-h-0 flex-1 overflow-hidden'}
       data-testid="capability-workbench-shell"
       data-capability-code={capabilityCode}
-      onClick={handleWorkbenchClick}
     >
       <div
         className="flex min-h-0 shrink-0 overflow-hidden"

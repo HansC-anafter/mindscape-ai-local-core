@@ -36,6 +36,7 @@ vi.mock('@/lib/capability-ui-loader', async () => {
         {
           'data-testid': 'loaded-pack-tool-panel',
           'data-panel-collapsed': String(Boolean(panelCollapsed)),
+          'data-tool-shortcut': tool.shortcut || '',
         },
         `${tool.id}:${workspaceId}:${apiUrl}`,
       );
@@ -184,6 +185,11 @@ describe('PackScopeToolRailHost', () => {
       expect(screen.getByTestId('loaded-pack-tool-panel')).toBeInTheDocument();
     });
     expect(onSelectObject).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(window, { key: 'F9' });
+    await waitFor(() => {
+      expect(screen.queryByTestId('loaded-pack-tool-panel')).not.toBeInTheDocument();
+    });
   });
 
   it('uses saved profile overrides for display and dispatch without reloading tools', async () => {
@@ -234,6 +240,12 @@ describe('PackScopeToolRailHost', () => {
     fireEvent.keyDown(window, { key: 'F' });
     await waitFor(() => {
       expect(screen.getByTestId('loaded-pack-tool-panel')).toBeInTheDocument();
+      expect(screen.getByTestId('loaded-pack-tool-panel')).toHaveAttribute('data-tool-shortcut', 'F');
+    });
+
+    fireEvent.keyDown(window, { key: 'F' });
+    await waitFor(() => {
+      expect(screen.queryByTestId('loaded-pack-tool-panel')).not.toBeInTheDocument();
     });
   });
 });

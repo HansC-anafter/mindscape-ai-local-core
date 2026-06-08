@@ -12,6 +12,7 @@ export type MotionPracticeInstructionSourceKind =
 export type MotionPracticeInstructionSourceState = {
   kind: MotionPracticeInstructionSourceKind;
   value: string;
+  courseChapters?: Record<string, unknown>[];
 };
 
 export const DEFAULT_MOTION_PRACTICE_INSTRUCTION_SOURCE: MotionPracticeInstructionSourceState = {
@@ -35,6 +36,9 @@ export function buildMotionPracticeInstructionRefs(
   source: MotionPracticeInstructionSourceState,
 ): MotionPracticeInstructionRef[] {
   const value = source.value.trim();
+  const courseChapters = Array.isArray(source.courseChapters)
+    ? source.courseChapters
+    : [];
   if (source.kind === 'local_video_smoke_ref') {
     return [
       {
@@ -43,6 +47,7 @@ export function buildMotionPracticeInstructionRefs(
         media_ref: value || 'mindscape://motion-video-smoke/current',
         frame_readable: false,
         motion_analysis_source: true,
+        ...(courseChapters.length ? { course_chapters: courseChapters } : {}),
       },
     ];
   }
@@ -57,6 +62,7 @@ export function buildMotionPracticeInstructionRefs(
         video_ref: value,
         frame_readable: false,
         motion_analysis_source: false,
+        ...(courseChapters.length ? { course_chapters: courseChapters } : {}),
       },
     ];
   }
@@ -67,6 +73,7 @@ export function buildMotionPracticeInstructionRefs(
       teacher_ref: value,
       frame_readable: false,
       motion_analysis_source: false,
+      ...(courseChapters.length ? { course_chapters: courseChapters } : {}),
     },
   ];
 }
@@ -92,6 +99,7 @@ export function MotionPracticeInstructionSourcePanel({
           onChange={(event) => onChange({
             kind: event.target.value as MotionPracticeInstructionSourceKind,
             value: '',
+            courseChapters: source.courseChapters,
           })}
           className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-xs text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
           data-testid="motion-practice-instruction-source-kind"

@@ -16,6 +16,7 @@ import {
   readLocalVideoLiveSessionId,
   registerLocalVideoLiveSession,
 } from './localVideoMotionSmokeSession';
+import { MotionPracticeReviewComparisonPanel } from './MotionPracticeReviewComparisonPanel';
 
 interface LocalVideoMotionSmokePageProps {
   workspaceId: string;
@@ -42,6 +43,7 @@ export function LocalVideoMotionSmokePage({
   const [state, setState] = useState<SmokeState>('idle');
   const [error, setError] = useState<string | null>(null);
   const [motionStatus, setMotionStatus] = useState<LivePoseWindowControllerStatus>(initialMotionStatus);
+  const [reviewExecutionId, setReviewExecutionId] = useState('');
 
   const stopMotion = useCallback(() => {
     motionControllerRef.current?.stop();
@@ -248,6 +250,19 @@ export function LocalVideoMotionSmokePage({
               </dl>
             </div>
 
+            <label className="block rounded border border-neutral-800 bg-neutral-950 p-3 text-sm">
+              <span className="mb-2 block text-xs uppercase tracking-normal text-neutral-500">
+                Review execution
+              </span>
+              <input
+                value={reviewExecutionId}
+                onChange={(event) => setReviewExecutionId(event.target.value)}
+                placeholder="execution_id"
+                className="w-full rounded border border-neutral-700 bg-neutral-900 px-2 py-2 text-xs text-neutral-100 placeholder:text-neutral-500"
+                data-testid="local-video-motion-smoke-review-execution"
+              />
+            </label>
+
             {error && (
               <div className="rounded border border-red-700 bg-red-950/40 p-3 text-sm text-red-100">
                 {error}
@@ -255,6 +270,11 @@ export function LocalVideoMotionSmokePage({
             )}
           </aside>
         </section>
+
+        <MotionPracticeReviewComparisonPanel
+          apiUrl={apiUrl}
+          executionId={reviewExecutionId}
+        />
       </div>
     </main>
   );
