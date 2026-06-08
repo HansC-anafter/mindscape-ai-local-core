@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from sqlalchemy import text
@@ -29,6 +30,68 @@ def _clean_int(value: Any, *, default: int = 0) -> int:
 
 def _dict(value: Any) -> dict[str, Any]:
     return dict(value) if isinstance(value, dict) else {}
+
+
+def _clean_string_list(value: Any) -> list[str]:
+    if isinstance(value, str):
+        candidates = value.split(",")
+    elif isinstance(value, list | tuple | set):
+        candidates = list(value)
+    else:
+        candidates = []
+    cleaned: list[str] = []
+    for candidate in candidates:
+        normalized = _clean_string(candidate)
+        if normalized and normalized not in cleaned:
+            cleaned.append(normalized)
+    return cleaned
+
+
+def accepted_capability_codes_for_lane(lane: dict[str, Any]) -> str:
+    metadata = _dict(lane.get("metadata"))
+    model_profile = _dict(lane.get("model_profile"))
+    runner_metadata = _dict(metadata.get("runner"))
+    sources = (
+        lane.get("accepted_capability_codes"),
+        metadata.get("accepted_capability_codes"),
+        metadata.get("capability_codes"),
+        runner_metadata.get("accepted_capability_codes"),
+        runner_metadata.get("capability_codes"),
+        model_profile.get("accepted_capability_codes"),
+        model_profile.get("capability_codes"),
+    )
+    for source in sources:
+        codes = _clean_string_list(source)
+        if codes:
+            return ",".join(codes)
+    return "ig_analyze_pinned_reference"
+
+
+def runner_max_inflight_for_lane(lane: dict[str, Any]) -> int:
+    metadata = _dict(lane.get("metadata"))
+    model_profile = _dict(lane.get("model_profile"))
+    runner_metadata = _dict(metadata.get("runner"))
+    lane_max = max(1, _clean_int(lane.get("max_concurrency"), default=1))
+    for source in (
+        runner_metadata.get("max_inflight"),
+        metadata.get("max_inflight"),
+        model_profile.get("max_inflight"),
+        lane.get("max_inflight"),
+    ):
+        parsed = _clean_int(source, default=0)
+        if parsed > 0:
+            return min(parsed, lane_max)
+    return lane_max
+
+
+def _safe_lane_slug(lane_id: Any) -> str:
+    normalized = _clean_string(lane_id) or "lane"
+    slug = re.sub(r"[^a-zA-Z0-9._-]+", "_", normalized).strip("_")
+    return slug or "lane"
+
+
+def _lane_watchdog_container_file(lane: dict[str, Any], *, suffix: str) -> str:
+    return f"/app/data/runtime/mlx-watchdog/{_safe_lane_slug(lane.get('lane_id'))}.{suffix}"
 
 
 class RuntimeEnvironmentSlotStore(PostgresStoreBase):
@@ -166,8 +229,8 @@ def _worker_env_for_resolution(
         "LOCAL_CORE_RUNNER_PROFILE": lane.get("runner_profile"),
         "LOCAL_CORE_RUNNER_ACCEPTED_PARTITIONS": lane.get("queue_shard"),
         "LOCAL_CORE_RUNNER_ACCEPTED_RESOURCE_CLASSES": lane.get("resource_class"),
-        "LOCAL_CORE_RUNNER_ACCEPTED_CAPABILITY_CODES": "ig_analyze_pinned_reference",
-        "LOCAL_CORE_RUNNER_MAX_INFLIGHT": 1,
+        "LOCAL_CORE_RUNNER_ACCEPTED_CAPABILITY_CODES": accepted_capability_codes_for_lane(lane),
+        "LOCAL_CORE_RUNNER_MAX_INFLIGHT": runner_max_inflight_for_lane(lane),
         "LOCAL_CORE_RUNNER_DISPATCH_MODE": "docker_local",
         "LOCAL_CORE_HOST_RESOURCE_LANE_ID": lane.get("lane_id"),
     }
@@ -176,6 +239,17 @@ def _worker_env_for_resolution(
         env["LOCAL_CORE_RUNTIME_ENDPOINT"] = base_url
     if adapter["adapter_id"] == "apple_mlx_vlm":
         env["MLX_PORT"] = port
+        env["VLM_WATCHDOG_STATE_FILE"] = _lane_watchdog_container_file(lane, suffix="json")
+        env["VLM_PROCESS_LOCK_FILE"] = _lane_watchdog_container_file(lane, suffix="lock")
+        max_output_tokens = _clean_int(
+            model_profile.get("max_new_tokens") or model_profile.get("max_output_tokens"),
+            default=0,
+        )
+        if max_output_tokens > 0:
+            env["LOCAL_CORE_RUNTIME_MAX_OUTPUT_TOKENS"] = max_output_tokens
+        context_budget_tokens = _clean_int(model_profile.get("context_budget_tokens"), default=0)
+        if context_budget_tokens > 0:
+            env["LOCAL_CORE_RUNTIME_CONTEXT_BUDGET_TOKENS"] = context_budget_tokens
         if base_url:
             env["MLX_BASE_URL"] = base_url
         if model_binding.get("model"):

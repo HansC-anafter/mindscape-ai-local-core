@@ -192,6 +192,17 @@ class ModelRoutingPolicyService:
         max_tokens = str(os.getenv("LOCAL_CORE_RUNTIME_MAX_OUTPUT_TOKENS") or "").strip()
         if max_tokens:
             metadata["local_max_output_tokens_cap"] = max_tokens
+        context_budget_tokens = str(
+            os.getenv("LOCAL_CORE_RUNTIME_CONTEXT_BUDGET_TOKENS") or ""
+        ).strip()
+        if context_budget_tokens:
+            metadata["local_context_budget_tokens"] = context_budget_tokens
+        watchdog_state_file = str(os.getenv("VLM_WATCHDOG_STATE_FILE") or "").strip()
+        if watchdog_state_file:
+            metadata["vlm_watchdog_state_file"] = watchdog_state_file
+        process_lock_file = str(os.getenv("VLM_PROCESS_LOCK_FILE") or "").strip()
+        if process_lock_file:
+            metadata["vlm_process_lock_file"] = process_lock_file
 
         return ResolvedProfileModelRoute(
             profile=normalized_profile,

@@ -13,6 +13,7 @@ import importlib.util
 import json
 import logging
 import os
+import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -34,7 +35,6 @@ _MLX_WRITE_TIMEOUT_SECONDS = float(os.getenv("VLM_WRITE_TIMEOUT_SECONDS", "120")
 _MLX_POOL_TIMEOUT_SECONDS = float(os.getenv("VLM_POOL_TIMEOUT_SECONDS", "30"))
 _MLX_MAX_OUTPUT_TOKENS_CAP_DEFAULT = 12288
 _WATCHDOG_STATE_DIR = Path(os.getenv("VLM_WATCHDOG_STATE_DIR", "/app/data/runtime/mlx-watchdog"))
-_WATCHDOG_STATE_FILE = _WATCHDOG_STATE_DIR / "inflight_request.json"
 _MLX_PROCESS_LOCK_FILE_OVERRIDE = os.getenv("VLM_PROCESS_LOCK_FILE")
 _WATCHDOG_HEARTBEAT_INTERVAL_SECONDS = float(
     os.getenv("VLM_WATCHDOG_HEARTBEAT_INTERVAL_SECONDS", "5")
@@ -175,35 +175,73 @@ def _should_preserve_watchdog_state_on_error(error: BaseException) -> bool:
     return error.__class__.__name__ == "ReadTimeout"
 
 
-def _mlx_process_lock_file() -> Path:
+def _safe_lane_slug(value: Any) -> str:
+    normalized = str(value or "").strip() or "lane"
+    slug = re.sub(r"[^a-zA-Z0-9._-]+", "_", normalized).strip("_")
+    return slug or "lane"
+
+
+def _host_resource_lane_id(route_metadata: Optional[Dict[str, Any]] = None) -> str:
+    metadata = route_metadata or {}
+    return str(
+        metadata.get("host_resource_lane_id")
+        or os.getenv("LOCAL_CORE_HOST_RESOURCE_LANE_ID")
+        or os.getenv("LOCAL_CORE_RUNNER_PROFILE")
+        or ""
+    ).strip()
+
+
+def _watchdog_state_file(route_metadata: Optional[Dict[str, Any]] = None) -> Path:
+    metadata = route_metadata or {}
+    explicit = str(
+        metadata.get("vlm_watchdog_state_file")
+        or os.getenv("VLM_WATCHDOG_STATE_FILE")
+        or ""
+    ).strip()
+    if explicit:
+        return Path(explicit)
+    lane_id = _host_resource_lane_id(metadata)
+    if lane_id:
+        return _WATCHDOG_STATE_DIR / f"{_safe_lane_slug(lane_id)}.json"
+    return _WATCHDOG_STATE_DIR / "inflight_request.json"
+
+
+def _mlx_process_lock_file(route_metadata: Optional[Dict[str, Any]] = None) -> Path:
+    metadata = route_metadata or {}
+    explicit = str(metadata.get("vlm_process_lock_file") or "").strip()
+    if explicit:
+        return Path(explicit)
     if _MLX_PROCESS_LOCK_FILE_OVERRIDE:
         return Path(_MLX_PROCESS_LOCK_FILE_OVERRIDE)
+    lane_id = _host_resource_lane_id(metadata)
+    if lane_id:
+        return _WATCHDOG_STATE_DIR / f"{_safe_lane_slug(lane_id)}.lock"
     return _WATCHDOG_STATE_DIR / "mlx_provider.lock"
 
 
-def _write_watchdog_state(payload: Dict[str, Any]) -> None:
+def _write_watchdog_state(payload: Dict[str, Any], state_file: Path) -> None:
     try:
-        _WATCHDOG_STATE_DIR.mkdir(parents=True, exist_ok=True)
-        tmp_path = _WATCHDOG_STATE_FILE.with_suffix(".json.tmp")
+        state_file.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = state_file.with_suffix(".json.tmp")
         tmp_path.write_text(
             json.dumps(payload, ensure_ascii=False, sort_keys=True),
             encoding="utf-8",
         )
-        tmp_path.replace(_WATCHDOG_STATE_FILE)
+        tmp_path.replace(state_file)
     except Exception as exc:
         logger.debug("[MultimodalAnalyze] Failed to write watchdog state: %s", exc)
 
 
-def _clear_watchdog_state() -> None:
+def _clear_watchdog_state(state_file: Path) -> None:
     try:
-        _WATCHDOG_STATE_FILE.unlink()
+        state_file.unlink()
     except FileNotFoundError:
         pass
     except Exception as exc:
         logger.debug("[MultimodalAnalyze] Failed to clear watchdog state: %s", exc)
 
 
-def _preserve_watchdog_state_for_client_timeout(payload: Dict[str, Any]) -> None:
+def _preserve_watchdog_state_for_client_timeout(payload: Dict[str, Any], state_file: Path) -> None:
     timeout_at = time.time()
     timeout_payload = dict(payload)
     timeout_payload.update(
@@ -215,15 +253,15 @@ def _preserve_watchdog_state_for_client_timeout(payload: Dict[str, Any]) -> None
             "grace_until": timeout_at + _WATCHDOG_CLIENT_TIMEOUT_GRACE_SECONDS,
         }
     )
-    _write_watchdog_state(timeout_payload)
+    _write_watchdog_state(timeout_payload, state_file)
 
 
-async def _watchdog_heartbeat(payload: Dict[str, Any]) -> None:
+async def _watchdog_heartbeat(payload: Dict[str, Any], state_file: Path) -> None:
     while True:
         await asyncio.sleep(_WATCHDOG_HEARTBEAT_INTERVAL_SECONDS)
         heartbeat_payload = dict(payload)
         heartbeat_payload["heartbeat_at"] = time.time()
-        _write_watchdog_state(heartbeat_payload)
+        _write_watchdog_state(heartbeat_payload, state_file)
 
 
 def _detect_image_mime(b64_data: str) -> str:
@@ -551,6 +589,8 @@ async def _route_mlx_server(
         httpx,
         server_progress_enabled=server_progress_enabled,
     )
+    watchdog_state_file = _watchdog_state_file(route_metadata)
+    process_lock_file = _mlx_process_lock_file(route_metadata)
 
     async with httpx.AsyncClient(timeout=timeout) as client:
         try:
@@ -584,6 +624,7 @@ async def _route_mlx_server(
                 "reference_id": reference_id,
                 "analysis_profile": analysis_profile,
                 "model": model_name,
+                "host_resource_lane_id": _host_resource_lane_id(route_metadata),
                 "started_at": time.time(),
                 "heartbeat_at": time.time(),
             }
@@ -591,13 +632,13 @@ async def _route_mlx_server(
             request_error: Optional[BaseException] = None
             try:
                 async with _MLX_SEMAPHORE:
-                    async with _VlmProcessFileLock(_mlx_process_lock_file()):
+                    async with _VlmProcessFileLock(process_lock_file):
                         queue_wait_ms = (time.perf_counter() - queue_started) * 1000
                         watchdog_payload["started_at"] = time.time()
                         watchdog_payload["heartbeat_at"] = time.time()
-                        _write_watchdog_state(watchdog_payload)
+                        _write_watchdog_state(watchdog_payload, watchdog_state_file)
                         heartbeat_task = asyncio.create_task(
-                            _watchdog_heartbeat(watchdog_payload)
+                            _watchdog_heartbeat(watchdog_payload, watchdog_state_file)
                         )
                         logger.info(
                             "[MultimodalAnalyze] Multimodal endpoint provider lock acquired for %s with %d images",
@@ -628,9 +669,12 @@ async def _route_mlx_server(
                 if request_error and _should_preserve_watchdog_state_on_error(
                     request_error
                 ):
-                    _preserve_watchdog_state_for_client_timeout(watchdog_payload)
+                    _preserve_watchdog_state_for_client_timeout(
+                        watchdog_payload,
+                        watchdog_state_file,
+                    )
                 else:
-                    _clear_watchdog_state()
+                    _clear_watchdog_state(watchdog_state_file)
             
             resp.raise_for_status()
             data = resp.json()

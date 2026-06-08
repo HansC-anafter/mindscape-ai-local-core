@@ -154,3 +154,88 @@ def test_worker_target_resolution_uses_slot_model_before_profile_binding(monkeyp
     assert result["worker_env"]["MLX_MODEL"] == "slot-model/qwen-vision"
     assert result["worker_env"]["LOCAL_CORE_RUNNER_DISPATCH_MODE"] == "docker_local"
     assert "LOCAL_CORE_RUNNER_RUNTIME_ID" not in result["worker_env"]
+
+
+def test_worker_target_resolution_uses_dynamic_synthesis_lane_capabilities(monkeypatch):
+    import backend.app.services.host_resources.worker_target_resolution as resolution
+
+    accepted_codes = [
+        "ig_synthesize_carousel_layered",
+        "ig_summarize_posts_layered",
+        "ig_aggregate_target_layered",
+        "ig_seed_cluster_assimilate_reference",
+        "ig_seed_cluster_compact_summary",
+    ]
+
+    class _RuntimeStore:
+        def get_runtime_environment(self, runtime_environment_id):
+            assert runtime_environment_id == "runtime-35b-synthesis"
+            return {
+                "id": runtime_environment_id,
+                "status": "configured",
+                "metadata": {
+                    "host_resource_slot": {
+                        "adapter_id": "apple_mlx_vlm",
+                        "endpoint": {
+                            "base_url": "http://localhost:8212",
+                            "port": 8212,
+                            "health_path": "/v1/models",
+                        },
+                        "model_binding_scope": "local",
+                        "model_binding_profile": "synthesis",
+                        "model": "froggeric/Qwen3.6-35B-A3B-Uncensored-Heretic-MLX-4bit",
+                    }
+                },
+            }
+
+    class _SettingsStore:
+        def get_profile_model_bindings_for_scope(self, scope):
+            return {"synthesis": "profile-model/unused"}
+
+    monkeypatch.setattr(resolution, "RuntimeEnvironmentSlotStore", lambda scope: _RuntimeStore())
+    monkeypatch.setattr(resolution, "SystemSettingsStore", lambda: _SettingsStore())
+    lane = {
+        "lane_id": "runner:35b_synthesis",
+        "resource_flavor": "local.mlx.vision",
+        "runner_profile": "35b_synthesis",
+        "queue_shard": "ig_synthesis",
+        "resource_class": "compute",
+        "max_concurrency": 1,
+        "model_profile": {
+            "runtime_environment_id": "runtime-35b-synthesis",
+            "port": 8212,
+            "context_budget_tokens": 8192,
+            "max_new_tokens": 12288,
+        },
+        "metadata": {
+            "accepted_capability_codes": accepted_codes,
+            "requirements": {
+                "resource_flavor": "local.mlx.vision",
+                "memory_mb": 28672,
+            },
+        },
+    }
+
+    result = resolve_worker_target(lane, 1)
+
+    assert result["accepted"] is True
+    assert result["worker_env"]["LOCAL_CORE_RUNNER_ACCEPTED_PARTITIONS"] == "ig_synthesis"
+    assert result["worker_env"]["LOCAL_CORE_RUNNER_ACCEPTED_CAPABILITY_CODES"] == ",".join(
+        accepted_codes
+    )
+    assert result["worker_env"]["LOCAL_CORE_RUNNER_MAX_INFLIGHT"] == 1
+    assert result["worker_env"]["MLX_PORT"] == 8212
+    assert result["worker_env"]["MLX_BASE_URL"] == "http://localhost:8212"
+    assert (
+        result["worker_env"]["VLM_WATCHDOG_STATE_FILE"]
+        == "/app/data/runtime/mlx-watchdog/runner_35b_synthesis.json"
+    )
+    assert (
+        result["worker_env"]["VLM_PROCESS_LOCK_FILE"]
+        == "/app/data/runtime/mlx-watchdog/runner_35b_synthesis.lock"
+    )
+    assert result["worker_env"]["LOCAL_CORE_RUNTIME_CONTEXT_BUDGET_TOKENS"] == 8192
+    assert result["worker_env"]["LOCAL_CORE_RUNTIME_MAX_OUTPUT_TOKENS"] == 12288
+    assert result["worker_env"]["MLX_MODEL"] == (
+        "froggeric/Qwen3.6-35B-A3B-Uncensored-Heretic-MLX-4bit"
+    )

@@ -84,7 +84,7 @@ capabilities:
     confirm_required: false
 
   host_resource_lane_workers_set:
-    trust_level: read
+    trust_level: execute
     confirm_required: false
 
   host_resource_runner_spillover_control:

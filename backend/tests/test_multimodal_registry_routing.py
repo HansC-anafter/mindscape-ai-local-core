@@ -69,6 +69,51 @@ def test_multimodal_base_url_accepts_registry_endpoint_alias():
     )
 
 
+def test_multimodal_watchdog_state_file_defaults_to_legacy_shared_path(monkeypatch):
+    monkeypatch.delenv("LOCAL_CORE_HOST_RESOURCE_LANE_ID", raising=False)
+    monkeypatch.delenv("LOCAL_CORE_RUNNER_PROFILE", raising=False)
+    monkeypatch.delenv("VLM_WATCHDOG_STATE_FILE", raising=False)
+
+    assert (
+        str(multimodal._watchdog_state_file({}))
+        == "/app/data/runtime/mlx-watchdog/inflight_request.json"
+    )
+
+
+def test_multimodal_watchdog_state_file_uses_host_resource_lane_metadata(monkeypatch):
+    monkeypatch.delenv("VLM_WATCHDOG_STATE_FILE", raising=False)
+
+    assert (
+        str(
+            multimodal._watchdog_state_file(
+                {"host_resource_lane_id": "runner:35b_synthesis"}
+            )
+        )
+        == "/app/data/runtime/mlx-watchdog/runner_35b_synthesis.json"
+    )
+    assert (
+        str(
+            multimodal._mlx_process_lock_file(
+                {"host_resource_lane_id": "runner:35b_synthesis"}
+            )
+        )
+        == "/app/data/runtime/mlx-watchdog/runner_35b_synthesis.lock"
+    )
+
+
+def test_multimodal_watchdog_state_file_prefers_route_metadata_path(monkeypatch):
+    monkeypatch.delenv("VLM_WATCHDOG_STATE_FILE", raising=False)
+
+    assert (
+        str(
+            multimodal._watchdog_state_file(
+                {"vlm_watchdog_state_file": "/tmp/custom-lane.json"}
+            )
+        )
+        == "/tmp/custom-lane.json"
+    )
+
+
 def test_multimodal_route_has_no_non_registry_selection_paths():
     source = multimodal.__loader__.get_source(multimodal.__name__)
 

@@ -100,7 +100,7 @@ async def call_host_resource_probe(
 async def call_host_resource_lane_workers_set(
     arguments: dict[str, Any],
     *,
-    timeout_seconds: float = 8.0,
+    timeout_seconds: float = 30.0,
 ) -> dict[str, Any]:
     result = await _post_mcp(
         "tools/call",

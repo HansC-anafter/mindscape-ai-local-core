@@ -16,7 +16,11 @@ from .host_bridge import HostBridgeError, call_host_resource_lane_workers_set
 from .manager import get_host_resource_snapshot, list_active_route_reservations
 from .summary import build_host_resource_summary
 from .workspace_allocations import workspace_allocation_decision
-from .worker_target_resolution import resolve_worker_target
+from .worker_target_resolution import (
+    accepted_capability_codes_for_lane,
+    resolve_worker_target,
+    runner_max_inflight_for_lane,
+)
 
 
 def _clean_int(value: Any, *, default: int = 0) -> int:
@@ -34,8 +38,8 @@ def _worker_env_for_lane(lane: dict[str, Any]) -> dict[str, Any]:
         "LOCAL_CORE_RUNNER_PROFILE": lane.get("runner_profile"),
         "LOCAL_CORE_RUNNER_ACCEPTED_PARTITIONS": lane.get("queue_shard"),
         "LOCAL_CORE_RUNNER_ACCEPTED_RESOURCE_CLASSES": lane.get("resource_class"),
-        "LOCAL_CORE_RUNNER_ACCEPTED_CAPABILITY_CODES": "ig_analyze_pinned_reference",
-        "LOCAL_CORE_RUNNER_MAX_INFLIGHT": 1,
+        "LOCAL_CORE_RUNNER_ACCEPTED_CAPABILITY_CODES": accepted_capability_codes_for_lane(lane),
+        "LOCAL_CORE_RUNNER_MAX_INFLIGHT": runner_max_inflight_for_lane(lane),
         "LOCAL_CORE_RUNNER_DISPATCH_MODE": "docker_local",
         "LOCAL_CORE_HOST_RESOURCE_LANE_ID": lane.get("lane_id"),
     }
@@ -50,6 +54,15 @@ def _clean_string(value: Any) -> str | None:
         return None
     normalized = str(value).strip()
     return normalized or None
+
+
+def _lane_state_for_worker_result(*, desired: int, result: dict[str, Any]) -> str:
+    if desired <= 0:
+        return "offline"
+    reason = _clean_string(result.get("reason"))
+    if reason in {"worker_target_already_running", "worker_target_port_already_listening"}:
+        return "available"
+    return "starting"
 
 
 def _workspace_quota_decision(
@@ -211,10 +224,6 @@ async def set_lane_worker_target(
             }
     else:
         gate = {"reason": "stop_target_does_not_require_resource_gate"}
-        lane = update_dynamic_lane(
-            lane_id,
-            {"desired_worker_count": desired},
-        ) or lane
 
     arguments = {
         "lane_id": lane_id,
@@ -243,7 +252,18 @@ async def set_lane_worker_target(
     if desired > 0 and accepted:
         persisted_lane = update_dynamic_lane(
             lane_id,
-            {"desired_worker_count": desired},
+            {
+                "desired_worker_count": desired,
+                "state": _lane_state_for_worker_result(desired=desired, result=result),
+            },
+        ) or lane
+    elif desired <= 0:
+        persisted_lane = update_dynamic_lane(
+            lane_id,
+            {
+                "desired_worker_count": desired,
+                "state": "offline" if accepted else "degraded",
+            },
         ) or lane
     return {
         "accepted": accepted,

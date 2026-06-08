@@ -167,7 +167,7 @@ export class MCPServer {
                 required: ["lane_id", "desired_worker_count"],
             },
             handler: hostResourceLaneWorkersSet,
-            trustLevel: TrustLevel.READ,
+            trustLevel: TrustLevel.EXECUTE,
         });
 
         this.registerTool({

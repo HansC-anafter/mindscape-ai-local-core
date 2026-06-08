@@ -108,6 +108,112 @@ async def test_positive_worker_target_requires_runtime_slot_before_gate(monkeypa
 
 
 @pytest.mark.asyncio
+async def test_stop_worker_target_marks_degraded_when_host_stop_not_verified(monkeypatch):
+    lane = {
+        "lane_id": "runner:35b_synthesis",
+        "queue_shard": "synthesis_mlx_high",
+        "runner_profile": "synthesis_mlx_high",
+        "resource_class": "compute",
+        "max_concurrency": 1,
+        "desired_worker_count": 1,
+        "state": "available",
+        "model_profile": {"port": 8212, "model": "froggeric/Qwen3.6-35B-A3B-Uncensored-Heretic-MLX-4bit"},
+    }
+    update_calls = []
+    bridge_calls = []
+
+    async def _call_host_resource_lane_workers_set(arguments):
+        bridge_calls.append(arguments)
+        return {
+            "accepted": False,
+            "reason": "worker_target_stop_incomplete",
+            "port_listening": True,
+            "remaining_port_owners": [12345],
+        }
+
+    def _update_dynamic_lane(lane_id, payload):
+        assert bridge_calls
+        update_calls.append((lane_id, payload))
+        return {**lane, **payload}
+
+    monkeypatch.setattr(worker_targets, "get_dynamic_lane", lambda lane_id: lane)
+    monkeypatch.setattr(worker_targets, "update_dynamic_lane", _update_dynamic_lane)
+    monkeypatch.setattr(
+        worker_targets,
+        "call_host_resource_lane_workers_set",
+        _call_host_resource_lane_workers_set,
+    )
+
+    result = await worker_targets.set_lane_worker_target("runner:35b_synthesis", 0)
+
+    assert result["accepted"] is False
+    assert result["reason"] == "worker_target_stop_incomplete"
+    assert result["lane"]["desired_worker_count"] == 0
+    assert result["lane"]["state"] == "degraded"
+    assert update_calls == [
+        (
+            "runner:35b_synthesis",
+            {
+                "desired_worker_count": 0,
+                "state": "degraded",
+            },
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_stop_worker_target_marks_offline_after_host_stop_verified(monkeypatch):
+    lane = {
+        "lane_id": "runner:35b_synthesis",
+        "queue_shard": "synthesis_mlx_high",
+        "runner_profile": "synthesis_mlx_high",
+        "resource_class": "compute",
+        "max_concurrency": 1,
+        "desired_worker_count": 1,
+        "state": "available",
+        "model_profile": {"port": 8212, "model": "froggeric/Qwen3.6-35B-A3B-Uncensored-Heretic-MLX-4bit"},
+    }
+    update_calls = []
+    bridge_calls = []
+
+    async def _call_host_resource_lane_workers_set(arguments):
+        bridge_calls.append(arguments)
+        return {
+            "accepted": True,
+            "reason": "worker_target_stopped",
+            "stop_verified": True,
+        }
+
+    def _update_dynamic_lane(lane_id, payload):
+        assert bridge_calls
+        update_calls.append((lane_id, payload))
+        return {**lane, **payload}
+
+    monkeypatch.setattr(worker_targets, "get_dynamic_lane", lambda lane_id: lane)
+    monkeypatch.setattr(worker_targets, "update_dynamic_lane", _update_dynamic_lane)
+    monkeypatch.setattr(
+        worker_targets,
+        "call_host_resource_lane_workers_set",
+        _call_host_resource_lane_workers_set,
+    )
+
+    result = await worker_targets.set_lane_worker_target("runner:35b_synthesis", 0)
+
+    assert result["accepted"] is True
+    assert result["lane"]["desired_worker_count"] == 0
+    assert result["lane"]["state"] == "offline"
+    assert update_calls == [
+        (
+            "runner:35b_synthesis",
+            {
+                "desired_worker_count": 0,
+                "state": "offline",
+            },
+        )
+    ]
+
+
+@pytest.mark.asyncio
 async def test_workspace_worker_target_quota_blocks_before_runtime_resolution(monkeypatch):
     lane = {
         "lane_id": "runner:vision_mlx_high",
