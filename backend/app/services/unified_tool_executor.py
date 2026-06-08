@@ -278,12 +278,14 @@ class UnifiedToolExecutor:
                         register_workspace_tools,
                         register_filesystem_tools,
                         register_mindscape_graph_tools,
+                        register_reporting_tools,
                         register_meeting_planner_tools,
                     )
 
                     register_workspace_tools()
                     register_filesystem_tools()
                     register_mindscape_graph_tools()
+                    register_reporting_tools()
                     register_meeting_planner_tools()
                 except Exception:
                     pass

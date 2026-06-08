@@ -208,6 +208,7 @@ class ToolListService:
                 register_workspace_tools,
                 register_filesystem_tools,
                 register_mindscape_graph_tools,
+                register_reporting_tools,
             )
 
             # Ensure both workspace and filesystem tools are registered.
@@ -222,17 +223,23 @@ class ToolListService:
                 register_filesystem_tools()
             if "mindscape_graph.overview" not in builtin_tools:
                 register_mindscape_graph_tools()
+            if "workspace_write_html_report" not in builtin_tools:
+                register_reporting_tools()
             builtin_tools = get_all_mindscape_tools()
 
             result = []
             for tool_id, tool in builtin_tools.items():
                 name = tool.metadata.name if hasattr(tool, "metadata") else tool_id
                 desc = tool.metadata.description if hasattr(tool, "metadata") else ""
-                category = (
-                    tool.metadata.category.value
+                category_value = (
+                    tool.metadata.category
                     if hasattr(tool, "metadata")
-                    and hasattr(tool.metadata.category, "value")
                     else "general"
+                )
+                category = (
+                    category_value.value
+                    if hasattr(category_value, "value")
+                    else str(category_value or "general")
                 )
 
                 result.append(

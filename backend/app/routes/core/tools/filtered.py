@@ -33,6 +33,20 @@ SAFE_DEFAULT_TOOL_IDS = [
     "filesystem_list_files",
     "filesystem_read_file",
 ]
+REPORTING_HINT_TERMS = (
+    "html",
+    "report",
+    "artifact",
+    "meeting engine",
+    "meeting",
+    "報告",
+    "產出",
+    "輸出",
+)
+REPORTING_TOOL_IDS = (
+    "core.workspace_write_html_report",
+    "workspace_write_html_report",
+)
 
 
 class FilteredToolsRequest(BaseModel):
@@ -216,6 +230,29 @@ def _deterministic_sort_key(tool: RegisteredTool) -> tuple:
     return (source_priority, cap_prefix, tool.tool_id)
 
 
+def _should_include_reporting_tool(task_hint: str) -> bool:
+    """Return whether the task should expose the core HTML report writer."""
+    normalized = task_hint.lower()
+    return any(term in normalized for term in REPORTING_HINT_TERMS)
+
+
+def _ensure_reporting_tool(
+    tools: List[RegisteredTool],
+    tool_by_id: dict,
+    task_hint: str,
+) -> List[RegisteredTool]:
+    """Prepend one reporting tool when the task asks for report output."""
+    if not _should_include_reporting_tool(task_hint):
+        return tools
+
+    existing_ids = {tool.tool_id for tool in tools}
+    for tool_id in REPORTING_TOOL_IDS:
+        tool = tool_by_id.get(tool_id)
+        if tool and tool_id not in existing_ids:
+            return [tool] + tools
+    return tools
+
+
 @router.post("/filtered", response_model=FilteredToolsResponse)
 async def list_filtered_tools(
     body: FilteredToolsRequest,
@@ -334,6 +371,8 @@ async def list_filtered_tools(
         else:
             remaining.sort(key=_deterministic_sort_key)
         result_tools = list(safe_defaults) + remaining[: body.max_tools]
+
+    result_tools = _ensure_reporting_tool(result_tools, tool_by_id, task_hint)
 
     # 3. Hard cap
     result_tools = result_tools[:MAX_TOTAL_TOOLS]

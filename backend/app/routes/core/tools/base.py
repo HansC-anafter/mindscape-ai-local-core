@@ -23,6 +23,11 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/tools", tags=["tools"])
 
+REPORTING_TOOL_IDS = {
+    "core.workspace_write_html_report",
+    "workspace_write_html_report",
+}
+
 
 import functools
 
@@ -285,6 +290,54 @@ async def list_tools(
         logger.info(f"list_tools: Added {added_count} capability tools to response")
     except Exception as e:
         logger.warning(f"Failed to load capability tools: {e}", exc_info=True)
+
+    # Include only the core reporting writer from builtin tools so the general
+    # catalog can surface the Meeting Engine report output primitive without
+    # broadening this legacy list route to every builtin tool.
+    try:
+        from backend.app.services.tool_list_service import ToolListService
+
+        tool_list_service = ToolListService()
+        builtin_tools = tool_list_service._get_builtin_tools()
+        for tool_info in builtin_tools:
+            if tool_info.tool_id not in REPORTING_TOOL_IDS:
+                continue
+            if any(t.tool_id == tool_info.tool_id for t in tools):
+                continue
+            tool = tool_info.metadata.get("tool") if tool_info.metadata else None
+            metadata = getattr(tool, "metadata", None)
+            input_schema = (
+                metadata.input_schema.model_dump()
+                if metadata is not None and getattr(metadata, "input_schema", None)
+                else {}
+            )
+            danger_level = (
+                getattr(metadata, "danger_level", "medium")
+                if metadata is not None
+                else "medium"
+            )
+            tools.append(
+                RegisteredTool(
+                    tool_id=tool_info.tool_id,
+                    site_id="builtin",
+                    provider="builtin",
+                    display_name=tool_info.name,
+                    origin_capability_id="core.reporting",
+                    category=tool_info.category,
+                    description=tool_info.description,
+                    endpoint="",
+                    methods=[],
+                    danger_level=str(danger_level),
+                    input_schema=input_schema,
+                    enabled=tool_info.enabled,
+                    read_only=False,
+                    allowed_agent_roles=[],
+                    side_effect_level="soft_write",
+                    scope="system",
+                )
+            )
+    except Exception as e:
+        logger.warning(f"Failed to load reporting builtin tools: {e}", exc_info=True)
 
     # Fallback: if capability tools are still missing, load them from installed manifests.
     try:
