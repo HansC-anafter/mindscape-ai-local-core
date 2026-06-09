@@ -28,6 +28,7 @@ _OBJECT_INDEX_SYNC_TASK_ATTR = "_object_index_sync_task"
 _CAPABILITY_INSTALL_JOB_WORKER_TASK_ATTR = "_capability_install_job_worker_task"
 _CODEX_POOL_SWEEPER_SERVICE_ATTR = "_codex_pool_sweeper_service"
 _HOST_RESOURCE_REHYDRATE_TASK_ATTR = "_host_resource_rehydrate_task"
+_HOST_RESOURCE_WORKER_RECONCILE_TASK_ATTR = "_host_resource_worker_reconcile_task"
 _POST_READY_HEAVY_WORK_LOCK_ATTR = "_post_ready_heavy_work_lock"
 
 
@@ -878,6 +879,31 @@ async def run_startup(app: FastAPI):
             e,
         )
 
+    if is_execution_plane():
+        try:
+            from backend.app.services.host_resources.worker_target_reconciler import (
+                run_worker_target_reconcile_loop,
+            )
+
+            host_resource_worker_reconcile_task = asyncio.create_task(
+                run_worker_target_reconcile_loop(),
+                name="host-resource-worker-target-reconcile",
+            )
+            setattr(
+                app.state,
+                _HOST_RESOURCE_WORKER_RECONCILE_TASK_ATTR,
+                host_resource_worker_reconcile_task,
+            )
+            logger.info("Host resource worker target reconcile task scheduled")
+        except Exception as e:
+            logger.warning(
+                "Failed to schedule host resource worker target reconcile task: %s",
+                e,
+                exc_info=True,
+            )
+    else:
+        setattr(app.state, _HOST_RESOURCE_WORKER_RECONCILE_TASK_ATTR, None)
+
     try:
         from backend.app.services.codex_pool_sweeper_service import (
             get_codex_pool_sweeper_service,
@@ -1029,6 +1055,26 @@ async def run_shutdown(app: FastAPI):
         except Exception as exc:
             logger.warning(
                 "Host resource rehydrate task shutdown wait failed: %s",
+                exc,
+            )
+
+    host_resource_worker_reconcile_task = getattr(
+        app.state,
+        _HOST_RESOURCE_WORKER_RECONCILE_TASK_ATTR,
+        None,
+    )
+    if (
+        host_resource_worker_reconcile_task is not None
+        and not host_resource_worker_reconcile_task.done()
+    ):
+        host_resource_worker_reconcile_task.cancel()
+        try:
+            await host_resource_worker_reconcile_task
+        except asyncio.CancelledError:
+            logger.info("Host resource worker target reconcile task cancelled during shutdown")
+        except Exception as exc:
+            logger.warning(
+                "Host resource worker target reconcile shutdown wait failed: %s",
                 exc,
             )
 

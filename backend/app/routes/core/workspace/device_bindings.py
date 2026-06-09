@@ -104,6 +104,22 @@ async def _broadcast_to_workspace_observers(
         )
 
 
+async def _broadcast_to_source_devices(
+    *,
+    registry: DeviceBindingRegistry,
+    workspace_id: str,
+    pairing_code: str,
+    event: DeviceControlEvent,
+) -> None:
+    for entry in registry.list_active_sessions(workspace_id=workspace_id):
+        if entry.pairing_code != pairing_code or entry.websocket is None:
+            continue
+        try:
+            await _send_event(entry.websocket, event)
+        except RuntimeError:
+            continue
+
+
 @router.post(
     "/{workspace_id}/device-bindings/pairing-codes",
     response_model=DevicePairingCode,
@@ -350,7 +366,26 @@ async def _run_workspace_observer(
     )
     try:
         while True:
-            await _receive_control_message(websocket)
+            message = await _receive_control_message(websocket)
+            if message.type == "reference_lesson_state":
+                event = DeviceControlEvent(
+                    type="reference_lesson_state",
+                    workspace_id=workspace_id,
+                    pairing_code=pairing_code,
+                    reference_lesson_state=message.reference_lesson_state or {},
+                    active_sessions=registry.list_active_sessions(workspace_id=workspace_id),
+                )
+                await _broadcast_to_source_devices(
+                    registry=registry,
+                    workspace_id=workspace_id,
+                    pairing_code=pairing_code,
+                    event=event,
+                )
+                await _broadcast_to_workspace_observers(
+                    registry=registry,
+                    pairing_code=pairing_code,
+                    event=event,
+                )
     finally:
         registry.detach_workspace_observer(
             pairing_code=pairing_code,

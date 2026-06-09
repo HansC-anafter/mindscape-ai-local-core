@@ -151,3 +151,49 @@ def test_device_binding_revoke_route_broadcasts_terminal_event() -> None:
             assert response.json()["type"] == "session_revoked"
             assert _receive(source_ws)["type"] == "session_revoked"
             assert _receive(workspace_ws)["type"] == "session_revoked"
+
+
+def test_device_binding_control_ws_broadcasts_reference_lesson_state() -> None:
+    module = _load_device_bindings_module()
+    registry = DeviceBindingRegistry()
+    client = TestClient(_build_app(module, registry=registry))
+    pairing = client.post(
+        "/api/v1/workspaces/ws_device/device-bindings/pairing-codes",
+        json={},
+    ).json()
+    control_url = (
+        "/api/v1/workspaces/ws_device/device-bindings/"
+        f"{pairing['pairing_code']}/control"
+    )
+
+    with client.websocket_connect(control_url) as workspace_ws:
+        workspace_ws.send_json({"type": "workspace_subscribe"})
+        assert _receive(workspace_ws)["type"] == "pairing_ready"
+
+        with client.websocket_connect(control_url) as source_ws:
+            source_ws.send_json({"type": "source_join", "device_id": "pad_1"})
+            assert _receive(source_ws)["type"] == "session_paired"
+            assert _receive(workspace_ws)["type"] == "session_paired"
+
+            workspace_ws.send_json(
+                {
+                    "type": "reference_lesson_state",
+                    "reference_lesson_state": {
+                        "chapter_ref": "chapter_01",
+                        "title": "Mountain pose alignment",
+                        "timestamp_ms": 65000,
+                        "poster_ref": "artifact://poster",
+                        "focus_cue": "Ground both feet before raising arms.",
+                    },
+                }
+            )
+
+            source_event = _receive(source_ws)
+            workspace_event = _receive(workspace_ws)
+            assert source_event["type"] == "reference_lesson_state"
+            assert source_event["reference_lesson_state"]["title"] == "Mountain pose alignment"
+            assert source_event["reference_lesson_state"]["timestamp_ms"] == 65000
+            assert workspace_event["type"] == "reference_lesson_state"
+            assert workspace_event["reference_lesson_state"]["focus_cue"] == (
+                "Ground both feet before raising arms."
+            )

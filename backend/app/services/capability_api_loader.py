@@ -251,7 +251,16 @@ class CapabilityAPILoader:
             # Ensure capability directory is in sys.path for relative imports
             if str(capability_dir) not in sys.path:
                 sys.path.insert(0, str(capability_dir))
-            spec.loader.exec_module(module)
+            previous_module = sys.modules.get(module_name)
+            sys.modules[module_name] = module
+            try:
+                spec.loader.exec_module(module)
+            except Exception:
+                if previous_module is None:
+                    sys.modules.pop(module_name, None)
+                else:
+                    sys.modules[module_name] = previous_module
+                raise
 
             router_export = cap_def.get("router_export", "router")
 
@@ -729,12 +738,7 @@ def activate_seeded_capability_apis(
     registered_descriptor_keys = state.setdefault("registered_descriptor_keys", set())
     for descriptor in descriptors:
         descriptor_key = _descriptor_state_key(descriptor)
-        if descriptor_key in registered_descriptor_keys:
-            logger.debug(
-                "Skipping capability API router for %s; prefix already registered",
-                descriptor.capability_code,
-            )
-            continue
+        descriptor_marked_registered = descriptor_key in registered_descriptor_keys
         manifest = load_manifest_for_descriptor(descriptor)
         manifest_path = descriptor.manifest_path if descriptor.manifest_path.exists() else None
         try:
@@ -748,6 +752,18 @@ def activate_seeded_capability_apis(
             manifest_prefix = descriptor.cap_def.get("prefix", "") or ""
             expected_routes = loader.extract_routes_from_router(router, manifest_prefix)
             existing_routes = set(loader.registered_routes)
+            if descriptor_marked_registered:
+                if expected_routes and expected_routes.issubset(existing_routes):
+                    logger.debug(
+                        "Skipping capability API router for %s; descriptor routes are already registered",
+                        descriptor.capability_code,
+                    )
+                    continue
+                registered_descriptor_keys.discard(descriptor_key)
+                logger.warning(
+                    "Re-registering stale capability API descriptor for %s; descriptor was marked registered but routes are absent",
+                    descriptor.capability_code,
+                )
             if expected_routes and expected_routes.issubset(existing_routes):
                 registered_descriptor_keys.add(descriptor_key)
                 logger.debug(

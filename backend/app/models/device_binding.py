@@ -28,6 +28,7 @@ DeviceBindingSessionState = Literal[
 DeviceControlMessageType = Literal[
     "workspace_subscribe",
     "source_join",
+    "reference_lesson_state",
     "heartbeat",
     "session_close",
     "ack",
@@ -35,6 +36,7 @@ DeviceControlMessageType = Literal[
 
 DeviceControlEventType = Literal[
     "pairing_ready",
+    "reference_lesson_state",
     "session_paired",
     "session_active",
     "session_revoked",
@@ -98,6 +100,7 @@ class DeviceControlMessage(BaseModel):
     display_name: Optional[str] = None
     source_types: List[DeviceSourceType] = Field(default_factory=list)
     metadata: Dict[str, Any] = Field(default_factory=dict)
+    reference_lesson_state: Optional[Dict[str, Any]] = None
 
 
 class DeviceControlEvent(BaseModel):
@@ -118,6 +121,7 @@ class DeviceControlEvent(BaseModel):
     reason: Optional[str] = None
     message: Optional[str] = None
     recoverable: Optional[bool] = None
+    reference_lesson_state: Optional[Dict[str, Any]] = None
 
 
 __all__ = [

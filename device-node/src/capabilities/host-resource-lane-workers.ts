@@ -24,6 +24,7 @@ interface ManagedWorker {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const workers = new Map<string, ManagedWorker>();
+const WORKER_START_GRACE_SECONDS = 120;
 
 function cleanString(value: unknown): string {
     return String(value || "").trim();
@@ -241,6 +242,14 @@ async function listDescendantPids(pid: number, seen = new Set<number>()): Promis
 
 function uniquePositivePids(pids: number[]): number[] {
     return Array.from(new Set(pids.filter((pid) => Number.isFinite(pid) && pid > 0)));
+}
+
+function workerAgeSeconds(worker: ManagedWorker): number {
+    const startedAt = Date.parse(worker.startedAt);
+    if (!Number.isFinite(startedAt)) {
+        return Number.POSITIVE_INFINITY;
+    }
+    return Math.max(0, (Date.now() - startedAt) / 1000);
 }
 
 async function workerStopCandidates(worker: ManagedWorker | undefined, port: number): Promise<number[]> {
@@ -461,20 +470,54 @@ export async function hostResourceLaneWorkersSet(args: Record<string, unknown>):
         };
     }
     const current = workers.get(laneId);
-    if (current && await isPortListening(current.port)) {
-        return {
-            accepted: true,
-            reason: "worker_target_already_running",
-            lane_id: laneId,
-            queue_shard: queueShard || null,
-            runner_profile: runnerProfile || null,
-            resource_class: resourceClass || null,
-            desired_worker_count: desiredWorkerCount,
-            active_worker_count: 1,
-            pid: current.pid,
-            port: current.port,
-            worker_env_keys: Object.keys(workerEnv).sort(),
-        };
+    if (current) {
+        if (await isPortListening(current.port)) {
+            return {
+                accepted: true,
+                reason: "worker_target_already_running",
+                lane_id: laneId,
+                queue_shard: queueShard || null,
+                runner_profile: runnerProfile || null,
+                resource_class: resourceClass || null,
+                desired_worker_count: desiredWorkerCount,
+                active_worker_count: 1,
+                pid: current.pid,
+                port: current.port,
+                worker_env_keys: Object.keys(workerEnv).sort(),
+            };
+        }
+        const ageSeconds = workerAgeSeconds(current);
+        if (ageSeconds < WORKER_START_GRACE_SECONDS) {
+            return {
+                accepted: true,
+                reason: "worker_target_starting",
+                lane_id: laneId,
+                queue_shard: queueShard || null,
+                runner_profile: runnerProfile || null,
+                resource_class: resourceClass || null,
+                desired_worker_count: desiredWorkerCount,
+                active_worker_count: 0,
+                pid: current.pid,
+                port: current.port,
+                started_at: current.startedAt,
+                worker_age_seconds: ageSeconds,
+                startup_grace_seconds: WORKER_START_GRACE_SECONDS,
+                worker_env_keys: Object.keys(workerEnv).sort(),
+            };
+        }
+        const stopResult = await stopLaneWorker(laneId, current.port);
+        if (stopResult.accepted !== true) {
+            return {
+                ...stopResult,
+                reason: "worker_target_restart_blocked",
+                queue_shard: queueShard || null,
+                runner_profile: runnerProfile || null,
+                resource_class: resourceClass || null,
+                desired_worker_count: desiredWorkerCount,
+                blocked_worker_pid: current.pid,
+                blocked_worker_port: current.port,
+            };
+        }
     }
     if (await isPortListening(port)) {
         return {
