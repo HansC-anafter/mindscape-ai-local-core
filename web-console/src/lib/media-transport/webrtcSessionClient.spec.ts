@@ -5,6 +5,7 @@ import {
   createLanPeerConnection,
   openWebRTCSignalSocket,
   startDesktopBrowserSourceSession,
+  startPhoneBrowserSourceSession,
 } from './webrtcSessionClient';
 
 describe('webrtcSessionClient', () => {
@@ -137,6 +138,48 @@ describe('webrtcSessionClient', () => {
         frameRate: { max: 30 },
       },
       audio: false,
+    });
+  });
+
+  it('starts phone camera sources with requested facing mode', async () => {
+    const getUserMedia = vi.fn(async () => ({
+      getTracks: () => [{ stop: vi.fn() }],
+    }));
+    class WebSocketMock {
+      static OPEN = 1;
+      readyState = WebSocketMock.OPEN;
+      onopen: (() => void) | null = null;
+      onmessage: ((message: { data: string }) => void) | null = null;
+      onerror: (() => void) | null = null;
+      onclose: (() => void) | null = null;
+
+      constructor(public url: string) {}
+
+      send = vi.fn();
+      close = vi.fn();
+    }
+    vi.stubGlobal('WebSocket', WebSocketMock);
+    Object.defineProperty(globalThis.navigator, 'mediaDevices', {
+      configurable: true,
+      value: { getUserMedia },
+    });
+
+    await startPhoneBrowserSourceSession({
+      apiBase: 'http://api.test',
+      workspaceId: 'ws_device',
+      deviceSessionId: 'session_1',
+      mediaSessionId: 'session_1',
+      facingMode: 'user',
+    });
+
+    expect(getUserMedia).toHaveBeenCalledWith({
+      video: {
+        facingMode: { ideal: 'user' },
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
+        frameRate: { max: 30 },
+      },
+      audio: true,
     });
   });
 });

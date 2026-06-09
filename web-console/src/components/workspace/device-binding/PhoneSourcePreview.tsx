@@ -16,14 +16,14 @@ import {
   type LivePoseWindowControllerStatus,
 } from '@/lib/motion-analysis/livePoseWindow';
 import { appendMotionWindow } from '@/lib/motion-analysis/motionWindowClient';
-import type { MotionPracticeWindowAppendEvent } from './practice/MotionPracticeLiveGuidancePanel';
+import type { MotionWindowAppendEvent } from './motionWindowAppendEvent';
 
 interface PhoneSourcePreviewProps {
   apiUrl: string;
   workspaceId: string;
   session: DeviceSessionEntry;
   liveMotionSessionId?: string | null;
-  onMotionWindowAppended?: (event: MotionPracticeWindowAppendEvent) => void;
+  onMotionWindowAppended?: (event: MotionWindowAppendEvent) => void;
 }
 
 export function PhoneSourcePreview({

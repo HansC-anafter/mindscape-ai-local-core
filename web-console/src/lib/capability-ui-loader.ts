@@ -662,7 +662,11 @@ export function artifactsMatchComponent(
   // capability routes, not inside artifact preview slots.
   if (
     typeof component?.code === 'string' &&
-    (component.code.endsWith('Page') || component.code.endsWith('StudioPage'))
+    (
+      component.code.endsWith('Page')
+      || component.code.endsWith('StudioPage')
+      || component.code.endsWith('Workbench')
+    )
   ) {
     return false;
   }

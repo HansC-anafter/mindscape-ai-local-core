@@ -23,7 +23,14 @@ interface PackPanelProps {
 type PackSubTab = 'thinking' | 'capabilities' | 'apps';
 
 function isMainPageComponent(component: NonNullable<InstalledCapability['ui_components']>[number]): boolean {
-  return Boolean(component.code && (component.code.endsWith('Page') || component.code.endsWith('StudioPage')));
+  return Boolean(
+    component.code
+    && (
+      component.code.endsWith('Page')
+      || component.code.endsWith('StudioPage')
+      || component.code.endsWith('Workbench')
+    )
+  );
 }
 
 export function PackPanel({

@@ -21,21 +21,15 @@ import {
   closeMotionPracticeLiveGuidanceSession,
   type MotionPracticeClosureResult,
 } from '../motionPracticeClosure';
-import type { AppendMotionWindowResponse } from '@/lib/motion-analysis/motionWindowClient';
-import type { MotionWindowSummary } from '@/lib/motion-analysis/livePoseWindow';
-
-export type MotionPracticeWindowAppendEvent = {
-  liveSessionId: string;
-  response: AppendMotionWindowResponse;
-  summary: MotionWindowSummary;
-};
+import type { MotionWindowAppendEvent } from '../motionWindowAppendEvent';
 
 interface MotionPracticeLiveGuidancePanelProps {
   apiUrl: string;
   workspaceId: string;
   result: MotionPracticeLaunchResult | null;
-  latestWindowAppend: MotionPracticeWindowAppendEvent | null;
+  latestWindowAppend: MotionWindowAppendEvent | null;
   closureInput?: MotionPracticeLaunchInput | null;
+  onClosureResultChange?: (result: MotionPracticeClosureResult | null) => void;
 }
 
 type GuidanceConnectionState = 'idle' | 'connecting' | 'ready' | 'closed' | 'error';
@@ -43,7 +37,7 @@ type VoiceState = 'unknown' | 'available' | 'unavailable';
 type ClosureState = 'idle' | 'closing' | 'rolling_up' | 'submitted' | 'error';
 
 function toGuidanceWindowEvent(
-  appendEvent: MotionPracticeWindowAppendEvent,
+  appendEvent: MotionWindowAppendEvent,
 ): MotionGuidanceWindowEvent | null {
   if (!appendEvent.response.accepted) {
     return null;
@@ -63,6 +57,7 @@ export function MotionPracticeLiveGuidancePanel({
   result,
   latestWindowAppend,
   closureInput = null,
+  onClosureResultChange,
 }: MotionPracticeLiveGuidancePanelProps) {
   const [state, setState] = useState<GuidanceConnectionState>('idle');
   const [muted, setMuted] = useState(false);
@@ -95,7 +90,8 @@ export function MotionPracticeLiveGuidancePanel({
     closureStartedRef.current = null;
     setClosureState('idle');
     setClosureResult(null);
-  }, [result?.liveSessionId, result?.practiceSessionId]);
+    onClosureResultChange?.(null);
+  }, [onClosureResultChange, result?.liveSessionId, result?.practiceSessionId]);
 
   const speakCue = useCallback(async (event: MotionGuidanceEvent) => {
     if (!event.speakable || !event.cue_text || mutedRef.current) {
@@ -135,12 +131,13 @@ export function MotionPracticeLiveGuidancePanel({
         result,
       });
       setClosureResult(nextClosureResult);
+      onClosureResultChange?.(nextClosureResult);
       setClosureState('submitted');
     } catch (error) {
       setClosureState('error');
       setLastError(error instanceof Error ? error.message : 'motion_practice_closure_failed');
     }
-  }, [closureInput, result]);
+  }, [closureInput, onClosureResultChange, result]);
 
   const handleGuidanceEvent = useCallback((event: MotionGuidanceEvent) => {
     if (event.type === 'session_ready') {

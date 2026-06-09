@@ -92,7 +92,11 @@ const artifactsMatchComponent = (artifacts: Artifact[], component: any): boolean
 
   if (
     typeof component?.code === 'string' &&
-    (component.code.endsWith('Page') || component.code.endsWith('StudioPage'))
+    (
+      component.code.endsWith('Page')
+      || component.code.endsWith('StudioPage')
+      || component.code.endsWith('Workbench')
+    )
   ) {
     return false;
   }

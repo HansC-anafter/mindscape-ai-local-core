@@ -48,6 +48,8 @@ export type MediaStreamRef = {
   started_at_epoch: number;
 };
 
+export type CameraFacingMode = 'user' | 'environment';
+
 export type WebRTCSignalSocket = {
   raw: WebSocket;
   send: (message: MediaSignalMessage) => void;
@@ -87,6 +89,7 @@ export type PhoneBrowserSourceSessionInput = {
   deviceSessionId: string;
   mediaSessionId: string;
   audio?: boolean;
+  facingMode?: CameraFacingMode;
   onLocalStream?: (stream: MediaStream) => void;
   onState?: (state: WebRTCSessionState) => void;
   onError?: (error: Error) => void;
@@ -325,7 +328,7 @@ export async function startPhoneBrowserSourceSession(
     ...input,
     sourceKind: 'phone_camera',
     video: {
-      facingMode: { ideal: 'environment' },
+      facingMode: { ideal: input.facingMode || 'environment' },
       width: { ideal: 1280 },
       height: { ideal: 720 },
       frameRate: { max: 30 },

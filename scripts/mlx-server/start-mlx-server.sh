@@ -62,6 +62,7 @@ WATCHDOG_STATE_FILE="${MLX_WATCHDOG_STATE_FILE:-/Volumes/OWC Ultra 4T/mindscape-
 WATCHDOG_INFLIGHT_HARD_TIMEOUT="${MLX_WATCHDOG_INFLIGHT_HARD_TIMEOUT:-7200}"
 WATCHDOG_INFLIGHT_HEARTBEAT_TIMEOUT="${MLX_WATCHDOG_INFLIGHT_HEARTBEAT_TIMEOUT:-120}"
 WATCHDOG_STATE_HELPER="$(dirname "$0")/watchdog_state.py"
+WATCHDOG_IDLE_FAILURE_MODE="${MLX_WATCHDOG_IDLE_FAILURE_MODE:-ignore}"
 mkdir -p "$(dirname "$WATCHDOG_STATE_FILE")" 2>/dev/null || true
 rm -f "$WATCHDOG_STATE_FILE" 2>/dev/null || true
 
@@ -74,6 +75,16 @@ echo "[mlx-server] Watchdog inflight state: ${WATCHDOG_STATE_FILE}"
   --port "$PORT" \
   --host "$HOST" &
 MLX_PID=$!
+
+cleanup_mlx_child() {
+  if [ -n "${MLX_PID:-}" ] && kill -0 "$MLX_PID" 2>/dev/null; then
+    kill "$MLX_PID" 2>/dev/null || true
+    sleep 2
+    kill -9 "$MLX_PID" 2>/dev/null || true
+  fi
+}
+
+trap cleanup_mlx_child EXIT INT TERM
 
 # -- Liveness watchdog --
 # If MLX hangs mid-inference, it blocks the entire event loop and can't
@@ -118,7 +129,18 @@ while kill -0 "$MLX_PID" 2>/dev/null; do
     # Health check failed - did MLX complete any request or emit progress since last check?
     current_ok_count=$(_count_ok_lines)
     current_stderr_size=$(_file_size "$STDERR_LOG")
-    if [ -f "$WATCHDOG_STATE_HELPER" ] && state_msg="$("$PYTHON" "$WATCHDOG_STATE_HELPER" --state-file "$WATCHDOG_STATE_FILE" --hard-timeout "$WATCHDOG_INFLIGHT_HARD_TIMEOUT" --heartbeat-timeout "$WATCHDOG_INFLIGHT_HEARTBEAT_TIMEOUT" 2>&1)"; then
+    inflight_active=0
+    state_msg=""
+    if [ -f "$WATCHDOG_STATE_HELPER" ]; then
+      set +e
+      state_msg="$("$PYTHON" "$WATCHDOG_STATE_HELPER" --state-file "$WATCHDOG_STATE_FILE" --hard-timeout "$WATCHDOG_INFLIGHT_HARD_TIMEOUT" --heartbeat-timeout "$WATCHDOG_INFLIGHT_HEARTBEAT_TIMEOUT" 2>&1)"
+      state_status=$?
+      set -e
+      if [ "$state_status" -eq 0 ]; then
+        inflight_active=1
+      fi
+    fi
+    if [ "$inflight_active" -eq 1 ]; then
       # A VLM request is actively heartbeating from the runner. Qwen3.5 can block
       # /v1/models during long generation, so do not count this as a hung server.
       echo "[mlx-watchdog] Health check failed but inflight request is still active (${state_msg}) - not counting"
@@ -137,17 +159,24 @@ while kill -0 "$MLX_PID" 2>/dev/null; do
       echo "[mlx-watchdog] Health check failed but MLX emitted stderr progress (${last_stderr_size}->${current_stderr_size}) - not counting"
       failures=0
       last_stderr_size=$current_stderr_size
+    elif [ "$WATCHDOG_IDLE_FAILURE_MODE" = "ignore" ]; then
+      # Idle runtimes should stay resident. When there is no active request,
+      # let the backend reconcile loop handle dead runtimes instead of
+      # repeatedly killing and respawning the host-side worker.
+      echo "[mlx-watchdog] Health check failed with no active inflight request; leaving idle runtime untouched"
+      failures=0
+      last_ok_count=$current_ok_count
+      last_stderr_size=$current_stderr_size
     else
       failures=$((failures + 1))
-      echo "[mlx-watchdog] Health check failed, no new completions (${failures}/${WATCHDOG_MAX_FAILURES})"
+      echo "[mlx-watchdog] Health check failed while idle (${failures}/${WATCHDOG_MAX_FAILURES})"
 
       if [ "$failures" -ge "$WATCHDOG_MAX_FAILURES" ]; then
-        echo "[mlx-watchdog] ${WATCHDOG_MAX_FAILURES} consecutive failures - killing MLX (PID ${MLX_PID})"
+        echo "[mlx-watchdog] ${WATCHDOG_MAX_FAILURES} idle failures - killing MLX (PID ${MLX_PID})"
         kill "$MLX_PID" 2>/dev/null || true
         sleep 2
-        # Force kill if still alive
         kill -9 "$MLX_PID" 2>/dev/null || true
-        echo "[mlx-watchdog] MLX killed. Exiting so launchd KeepAlive restarts."
+        echo "[mlx-watchdog] MLX killed after idle failures. Exiting so launchd KeepAlive restarts."
         exit 1
       fi
     fi

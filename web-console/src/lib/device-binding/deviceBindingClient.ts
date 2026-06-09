@@ -39,6 +39,7 @@ export type DeviceSessionEntry = {
 export type DeviceControlEvent = {
   type:
     | 'pairing_ready'
+    | 'reference_lesson_state'
     | 'session_paired'
     | 'session_active'
     | 'session_revoked'
@@ -59,10 +60,27 @@ export type DeviceControlEvent = {
   reason?: string;
   message?: string;
   recoverable?: boolean;
+  reference_lesson_state?: {
+    chapter_ref?: string;
+    title?: string;
+    timestamp_ms?: number;
+    poster_ref?: string;
+    focus_cue?: string;
+  } | null;
 };
 
 export type DeviceControlMessage =
   | { type: 'workspace_subscribe' }
+  | {
+      type: 'reference_lesson_state';
+      reference_lesson_state: {
+        chapter_ref?: string;
+        title?: string;
+        timestamp_ms?: number;
+        poster_ref?: string;
+        focus_cue?: string;
+      };
+    }
   | {
       type: 'source_join';
       device_id?: string;

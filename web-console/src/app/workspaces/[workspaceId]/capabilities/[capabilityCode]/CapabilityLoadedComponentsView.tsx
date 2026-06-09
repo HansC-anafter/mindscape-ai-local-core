@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { AOLRuntimeShellBridge } from '@/components/capabilities/aol-runtime-shell/AOLRuntimeShellBridge';
 import { buildCapabilitySurfaceId } from '@/components/capabilities/aol-runtime-shell/runtimeShellState';
 import { getApiBaseUrl } from '@/lib/api-url';
+import MotionCoachWorkbenchHost from './MotionCoachWorkbenchHost';
 
 interface ComponentErrorBoundaryProps {
   children: React.ReactNode;
@@ -73,7 +74,14 @@ interface CapabilityLoadedComponentsViewProps {
 }
 
 export function isMainPageComponent(component: UIComponentInfo): boolean {
-  return Boolean(component.code && (component.code.endsWith('Page') || component.code.endsWith('StudioPage')));
+  return Boolean(
+    component.code
+    && (
+      component.code.endsWith('Page')
+      || component.code.endsWith('StudioPage')
+      || component.code.endsWith('Workbench')
+    )
+  );
 }
 
 export function buildComponentKey(capabilityId: string, componentCode: string): string {
@@ -82,6 +90,16 @@ export function buildComponentKey(capabilityId: string, componentCode: string): 
 
 function shouldWrapScrollableMainPage(component: UIComponentInfo | null | undefined): boolean {
   return component?.layout_hint === 'scrollable_full_bleed';
+}
+
+function shouldUseMotionCoachWorkbenchHost(
+  capabilityCode: string,
+  componentCode: string,
+): capabilityCode is 'yogacoach' | 'dance_motion_coach' {
+  if (capabilityCode !== 'yogacoach' && capabilityCode !== 'dance_motion_coach') {
+    return false;
+  }
+  return componentCode === 'YogaPracticeWorkbenchPage' || componentCode === 'DancePracticeWorkbenchPage';
 }
 
 export default function CapabilityLoadedComponentsView({
@@ -131,12 +149,23 @@ export default function CapabilityLoadedComponentsView({
           </div>
         )
       }>
-        <Component
-          workspaceId={workspaceId}
-          apiUrl={apiUrl}
-          aolHost={aolHost}
-          surfacePath={surfacePath}
-        />
+        {shouldUseMotionCoachWorkbenchHost(capabilityCode, componentCode) ? (
+          <MotionCoachWorkbenchHost
+            workspaceId={workspaceId}
+            apiUrl={apiUrl}
+            capabilityCode={capabilityCode}
+            Component={Component}
+            aolHost={aolHost}
+            surfacePath={surfacePath}
+          />
+        ) : (
+          <Component
+            workspaceId={workspaceId}
+            apiUrl={apiUrl}
+            aolHost={aolHost}
+            surfacePath={surfacePath}
+          />
+        )}
       </Suspense>
     </ComponentErrorBoundary>
   );

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { BookOpenCheck, Loader2, PlayCircle } from 'lucide-react';
 
 import type { DeviceSessionEntry } from '@/lib/device-binding/deviceBindingClient';
@@ -26,16 +26,23 @@ import {
 } from './MotionPracticeSessionStatusPanel';
 import {
   MotionPracticeLiveGuidancePanel,
-  type MotionPracticeWindowAppendEvent,
 } from './MotionPracticeLiveGuidancePanel';
+import type { MotionWindowAppendEvent } from '../motionWindowAppendEvent';
+import type { MotionPracticeClosureResult } from '../motionPracticeClosure';
 
 interface MotionPracticeRailControllerProps {
   apiUrl: string;
   workspaceId: string;
   sessions: DeviceSessionEntry[];
   result: MotionPracticeLaunchResult | null;
-  latestWindowAppend?: MotionPracticeWindowAppendEvent | null;
+  latestWindowAppend?: MotionWindowAppendEvent | null;
   onResultChange: (result: MotionPracticeLaunchResult | null) => void;
+  onLaunchInputChange?: (input: MotionPracticeLaunchInput | null) => void;
+  onClosureResultChange?: (result: MotionPracticeClosureResult | null) => void;
+  selectedSessionId?: string;
+  onSelectedSessionChange?: (sessionId: string) => void;
+  coachPackLock?: MotionPracticeCoachPack | null;
+  defaultPracticeMode?: MotionPracticeMode;
 }
 
 export function MotionPracticeRailController({
@@ -45,10 +52,16 @@ export function MotionPracticeRailController({
   result,
   latestWindowAppend = null,
   onResultChange,
+  onLaunchInputChange,
+  onClosureResultChange,
+  selectedSessionId: selectedSessionIdProp,
+  onSelectedSessionChange,
+  coachPackLock = null,
+  defaultPracticeMode = 'record_summary',
 }: MotionPracticeRailControllerProps) {
-  const [selectedSessionId, setSelectedSessionId] = useState<string>('');
-  const [coachPack, setCoachPack] = useState<MotionPracticeCoachPack>('yogacoach');
-  const [practiceMode, setPracticeMode] = useState<MotionPracticeMode>('record_summary');
+  const [selectedSessionIdState, setSelectedSessionIdState] = useState<string>('');
+  const [coachPack, setCoachPack] = useState<MotionPracticeCoachPack>(coachPackLock || 'yogacoach');
+  const [practiceMode, setPracticeMode] = useState<MotionPracticeMode>(defaultPracticeMode);
   const [expertLibraryRef, setExpertLibraryRef] = useState('');
   const [userGoal, setUserGoal] = useState('');
   const [instructionSource, setInstructionSource] =
@@ -63,6 +76,13 @@ export function MotionPracticeRailController({
     () => resolveMotionPracticeTarget(coachPack, practiceMode),
     [coachPack, practiceMode],
   );
+  const selectedSessionId = selectedSessionIdProp ?? selectedSessionIdState;
+
+  useEffect(() => {
+    if (coachPackLock && coachPack !== coachPackLock) {
+      setCoachPack(coachPackLock);
+    }
+  }, [coachPack, coachPackLock]);
   const selectedSession = useMemo(() => (
     sessions.find((session) => session.session_id === selectedSessionId) || sessions[0] || null
   ), [selectedSessionId, sessions]);
@@ -111,14 +131,17 @@ export function MotionPracticeRailController({
     setLaunchState('starting');
     setLaunchError(null);
     setActiveLaunchInput(null);
+    onLaunchInputChange?.(null);
     onResultChange(null);
     try {
       const nextResult = await launchMotionPractice(launchInput);
       setActiveLaunchInput(launchInput);
+      onLaunchInputChange?.(launchInput);
       onResultChange(nextResult);
       setLaunchState('submitted');
     } catch (nextError) {
       setActiveLaunchInput(null);
+      onLaunchInputChange?.(null);
       setLaunchError(nextError instanceof Error ? nextError.message : 'motion_practice_launch_failed');
       setLaunchState('error');
     }
@@ -145,7 +168,10 @@ export function MotionPracticeRailController({
           </span>
           <select
             value={selectedSession?.session_id || ''}
-            onChange={(event) => setSelectedSessionId(event.target.value)}
+            onChange={(event) => {
+              setSelectedSessionIdState(event.target.value);
+              onSelectedSessionChange?.(event.target.value);
+            }}
             className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-xs text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
             data-testid="motion-practice-source-select"
           >
@@ -162,35 +188,37 @@ export function MotionPracticeRailController({
         </div>
       )}
 
-      <div>
-        <div className="mb-1 text-[11px] font-medium uppercase tracking-normal text-gray-500 dark:text-gray-400">
-          Coach
+      {coachPackLock ? null : (
+        <div>
+          <div className="mb-1 text-[11px] font-medium uppercase tracking-normal text-gray-500 dark:text-gray-400">
+            Coach
+          </div>
+          <div className="grid grid-cols-2 gap-1">
+            <button
+              type="button"
+              onClick={() => setCoachPack('yogacoach')}
+              className={`rounded-md border px-2 py-1.5 text-xs font-medium ${
+                coachPack === 'yogacoach'
+                  ? 'border-emerald-500 bg-emerald-50 text-emerald-800 dark:border-emerald-500 dark:bg-emerald-950/40 dark:text-emerald-100'
+                  : 'border-gray-200 text-gray-700 hover:bg-gray-50 dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-900'
+              }`}
+            >
+              AI Yoga
+            </button>
+            <button
+              type="button"
+              onClick={() => setCoachPack('dance_motion_coach')}
+              className={`rounded-md border px-2 py-1.5 text-xs font-medium ${
+                coachPack === 'dance_motion_coach'
+                  ? 'border-emerald-500 bg-emerald-50 text-emerald-800 dark:border-emerald-500 dark:bg-emerald-950/40 dark:text-emerald-100'
+                  : 'border-gray-200 text-gray-700 hover:bg-gray-50 dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-900'
+              }`}
+            >
+              Dance
+            </button>
+          </div>
         </div>
-        <div className="grid grid-cols-2 gap-1">
-          <button
-            type="button"
-            onClick={() => setCoachPack('yogacoach')}
-            className={`rounded-md border px-2 py-1.5 text-xs font-medium ${
-              coachPack === 'yogacoach'
-                ? 'border-emerald-500 bg-emerald-50 text-emerald-800 dark:border-emerald-500 dark:bg-emerald-950/40 dark:text-emerald-100'
-                : 'border-gray-200 text-gray-700 hover:bg-gray-50 dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-900'
-            }`}
-          >
-            AI Yoga
-          </button>
-          <button
-            type="button"
-            onClick={() => setCoachPack('dance_motion_coach')}
-            className={`rounded-md border px-2 py-1.5 text-xs font-medium ${
-              coachPack === 'dance_motion_coach'
-                ? 'border-emerald-500 bg-emerald-50 text-emerald-800 dark:border-emerald-500 dark:bg-emerald-950/40 dark:text-emerald-100'
-                : 'border-gray-200 text-gray-700 hover:bg-gray-50 dark:border-gray-800 dark:text-gray-200 dark:hover:bg-gray-900'
-            }`}
-          >
-            Dance
-          </button>
-        </div>
-      </div>
+      )}
 
       <label className="block">
         <span className="mb-1 block text-[11px] font-medium uppercase tracking-normal text-gray-500 dark:text-gray-400">
@@ -250,6 +278,7 @@ export function MotionPracticeRailController({
         result={result}
         latestWindowAppend={latestWindowAppend}
         closureInput={result?.liveGuidanceEnabled ? activeLaunchInput : null}
+        onClosureResultChange={onClosureResultChange}
       />
 
       <button

@@ -35,6 +35,7 @@ export type MotionPracticeLaunchInput = {
 export type MotionPracticeLaunchResult = {
   meetingId: string;
   commandId: string | null;
+  playbookExecutionId?: string | null;
   liveSessionId: string | null;
   sourceSessionId: string;
   practiceSessionId: string;
@@ -206,6 +207,21 @@ function readLiveSessionId(liveSessionPayload: Record<string, unknown>): string 
   }
   const id = liveSession.live_session_id;
   return typeof id === 'string' && id.trim() ? id.trim() : null;
+}
+
+function readPlaybookExecutionId(
+  dispatchResult: Record<string, unknown> | null,
+): string | null {
+  if (!dispatchResult || !isRecord(dispatchResult.playbook)) {
+    return null;
+  }
+  const triggeredPlaybook = isRecord(dispatchResult.playbook.triggered_playbook)
+    ? dispatchResult.playbook.triggered_playbook
+    : null;
+  const executionId = triggeredPlaybook?.execution_id;
+  return typeof executionId === 'string' && executionId.trim()
+    ? executionId.trim()
+    : null;
 }
 
 export function buildMotionSourceRef(session: DeviceSessionEntry): string {
@@ -395,6 +411,7 @@ export async function launchMotionPractice(
     return {
       meetingId: meeting.id,
       commandId: null,
+      playbookExecutionId: null,
       status: 'active',
       liveSessionId,
       sourceSessionId: input.sourceSession.session_id,
@@ -438,6 +455,7 @@ export async function launchMotionPractice(
   return {
     meetingId: meeting.id,
     commandId: command.commandId,
+    playbookExecutionId: readPlaybookExecutionId(command.dispatchResult),
     status: command.status,
     liveSessionId,
     sourceSessionId: input.sourceSession.session_id,
