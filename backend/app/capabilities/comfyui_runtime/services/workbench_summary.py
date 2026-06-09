@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import concurrent.futures
+import os
 from typing import Any, Dict, Optional
 
 from capabilities.comfyui_runtime.services.workbench_summary_profiles import (
@@ -81,8 +83,30 @@ def _runtime_ref_for_health(runtime_ref: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _build_preview_runtime_audit_payload() -> Dict[str, Any]:
+    timeout_seconds = float(
+        os.getenv("COMFYUI_RUNTIME_HEALTH_AUDIT_TIMEOUT_SECONDS", "5")
+    )
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
     try:
-        sync_payload = sync_preview_runtime_audit()
+        future = executor.submit(sync_preview_runtime_audit)
+        sync_payload = future.result(timeout=max(timeout_seconds, 1.0))
+    except concurrent.futures.TimeoutError:
+        return {
+            "status": "failed",
+            "stderr": "preview_runtime_audit_timeout",
+            "returncode": 124,
+            "command": [],
+            "summary_text": "",
+            "audit_verdict": "audit_timeout",
+            "effective_runtime_config": {},
+            "dependency_conflicts": [],
+            "python_env": {},
+            "process_profiles": [],
+            "shared_venv_risk": {"state": "unknown"},
+            "kimodo_preflight": {"state": "unknown", "blocked_reasons": []},
+            "kimodo_isolated_runtime": {"runtime_state": "unknown"},
+            "recommended_transformers_strategy": "audit_timeout",
+        }
     except Exception as exc:
         return {
             "status": "failed",
@@ -97,8 +121,11 @@ def _build_preview_runtime_audit_payload() -> Dict[str, Any]:
             "process_profiles": [],
             "shared_venv_risk": {"state": "unknown"},
             "kimodo_preflight": {"state": "unknown", "blocked_reasons": []},
+            "kimodo_isolated_runtime": {"runtime_state": "unknown"},
             "recommended_transformers_strategy": "audit_unavailable",
         }
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
 
     readiness = dict(sync_payload.get("readiness") or {})
     return {
@@ -118,6 +145,9 @@ def _build_preview_runtime_audit_payload() -> Dict[str, Any]:
         "process_profiles": list(readiness.get("process_profiles") or []),
         "shared_venv_risk": dict(readiness.get("shared_venv_risk") or {}),
         "kimodo_preflight": dict(readiness.get("kimodo_preflight") or {}),
+        "kimodo_isolated_runtime": dict(
+            readiness.get("kimodo_isolated_runtime") or {}
+        ),
         "recommended_transformers_strategy": str(
             readiness.get("recommended_transformers_strategy") or "audit_unavailable"
         ),
@@ -411,6 +441,10 @@ async def build_runtime_health(
         "regional_multi_subject_preview",
         {},
     )
+    flux2_klein_true_v2_q6_lane = lane_by_id.get(
+        "flux2_klein_true_v2_q6_local",
+        {},
+    )
     preview_profile = next(
         (profile for profile in profiles if profile.get("profile_id") == "vr_preview_local"),
         {},
@@ -425,6 +459,9 @@ async def build_runtime_health(
         ),
         "multi_subject_preview": _recommended_state(
             lane=regional_multi_subject_lane
+        ),
+        "flux2_klein_true_v2_q6_preview": _recommended_state(
+            lane=flux2_klein_true_v2_q6_lane
         ),
         "talking_head_preview": _recommended_state(lane=talking_head_lane),
     }
@@ -442,6 +479,14 @@ async def build_runtime_health(
     ).strip()
     if regional_multi_subject_ready_verdict and regional_multi_subject_ready_verdict != "ready":
         active_failures.append("regional_multi_subject_runtime_unavailable")
+    flux2_klein_true_v2_q6_ready_verdict = str(
+        flux2_klein_true_v2_q6_lane.get("ready_verdict") or ""
+    ).strip()
+    if (
+        flux2_klein_true_v2_q6_ready_verdict
+        and flux2_klein_true_v2_q6_ready_verdict != "ready"
+    ):
+        active_failures.append("flux2_klein_true_v2_q6_runtime_unavailable")
     talking_head_install_action_state = str(
         talking_head_lane.get("install_action_state") or ""
     ).strip()
@@ -485,6 +530,8 @@ async def build_runtime_health(
         "process_profiles": preview_runtime_audit.get("process_profiles") or [],
         "shared_venv_risk": preview_runtime_audit.get("shared_venv_risk") or {},
         "kimodo_preflight": preview_runtime_audit.get("kimodo_preflight") or {},
+        "kimodo_isolated_runtime": preview_runtime_audit.get("kimodo_isolated_runtime")
+        or {},
         "recommended_transformers_strategy": preview_runtime_audit.get(
             "recommended_transformers_strategy"
         ),

@@ -13,6 +13,7 @@ import os
 from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional
 
 from backend.app.models.system_settings import SettingType, SystemSetting
+from backend.app.services.huggingface_auth_resolver import resolve_huggingface_auth
 from capabilities.comfyui_runtime.services.regional_adapter_backend_catalog import (
     DEFAULT_REGIONAL_ADAPTER_BACKEND_PRESET,
     get_regional_adapter_backend_preset,
@@ -452,6 +453,22 @@ class ComfyUIPreviewRuntimeConfigService:
         )
         self.settings_store.save_setting(setting)
         return merged
+
+    def get_host_secret_env(self) -> Dict[str, Any]:
+        auth = resolve_huggingface_auth(settings_store=self.settings_store)
+        payload: Dict[str, Any] = {
+            "huggingface_auth_configured": auth.configured,
+            "huggingface_auth_source": auth.source,
+        }
+        if auth.token:
+            payload.update(
+                {
+                    "HF_TOKEN": auth.token,
+                    "HUGGINGFACE_HUB_TOKEN": auth.token,
+                    "HUGGING_FACE_HUB_TOKEN": auth.token,
+                }
+            )
+        return payload
 
     def get_effective_config(self) -> Dict[str, Any]:
         stored = self.get_stored_config()

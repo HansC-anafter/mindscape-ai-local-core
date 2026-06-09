@@ -32,6 +32,9 @@ from capabilities.comfyui_runtime.services.runtime_config import (
     ComfyUIPreviewRuntimeConfigService,
     derive_runtime_paths_from_install_path,
 )
+from capabilities.comfyui_runtime.api.workflow_assets import (
+    router as workflow_assets_router,
+)
 
 try:
     from backend.app.services.device_node_filesystem import (
@@ -45,6 +48,7 @@ except ImportError:
     )
 
 router = APIRouter()
+router.include_router(workflow_assets_router)
 runtime_config_service: Optional[ComfyUIPreviewRuntimeConfigService] = None
 
 
@@ -288,19 +292,19 @@ async def validate_runtime_host_path(
     guidance: List[str] = []
 
     if not exists:
-        issues.append("指定路徑不存在。")
+        issues.append("The specified path does not exist.")
     if exists and not is_directory:
-        issues.append("指定路徑不是資料夾。")
+        issues.append("The specified path is not a directory.")
     if exists and is_directory and not readable:
-        issues.append("指定路徑不可讀，無法掃描 ComfyUI 安裝內容。")
+        issues.append("The specified path is not readable, so the ComfyUI installation cannot be scanned.")
     if exists and is_directory and not writable:
-        issues.append("指定路徑不可寫，ComfyUI base directory 無法安全寫入 logs/output/user。")
+        issues.append("The specified path is not writable, so the ComfyUI base directory cannot safely write logs, output, or user data.")
     if exists and is_directory and readable and not any_main_py:
-        issues.append("找不到可辨識的 ComfyUI main.py。標準 repo 可直接指向根目錄；若是 App bundle 或分離式安裝，請填 main.py override。")
+        issues.append("No recognizable ComfyUI main.py was found. Standard repositories can point to the root directory; app bundles or split installs must provide a main.py override.")
     if exists and is_directory and readable and not stats.get(detections["python_bin"]["path"], {}).get("exists", False):
-        guidance.append("未找到 Python binary，若你的 ComfyUI 不在標準 .venv 位置，請填 Python override。")
+        guidance.append("No Python binary was found. Provide a Python override if this ComfyUI install does not use the standard .venv location.")
     if exists and is_directory and readable and not stats.get(detections["extra_model_paths_config"]["path"], {}).get("exists", False):
-        guidance.append("未找到 extra_model_paths.yaml；這不是硬錯誤，但若要掛載額外模型目錄，建議另行指定。")
+        guidance.append("No extra_model_paths.yaml was found. This is not a hard error, but extra model directories should be configured explicitly when needed.")
 
     valid_access = exists and is_directory and readable and writable
     status = (
@@ -354,9 +358,9 @@ async def update_runtime_config(
     return {
         "success": True,
         "message": (
-            "ComfyUI runtime 設定已清除"
+            "ComfyUI runtime settings cleared"
             if request.clear
-            else "ComfyUI runtime 設定已儲存"
+            else "ComfyUI runtime settings saved"
         ),
         "configured": stored,
         "effective": effective,

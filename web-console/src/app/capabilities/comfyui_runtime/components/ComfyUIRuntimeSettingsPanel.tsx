@@ -144,10 +144,10 @@ const defaultForm: ComfyUIRuntimeConfigured = {
 
 const displayValue = (value?: string | number | null) => {
   if (value == null) {
-    return '未設定';
+    return 'Not set';
   }
   const text = String(value).trim();
-  return text || '未設定';
+  return text || 'Not set';
 };
 
 const truthyLabel = (value: boolean) => (value ? 'yes' : 'no');
@@ -216,7 +216,7 @@ export default function ComfyUIRuntimeSettingsPanel() {
       setPresetOptions(presetsPayload.presets?.length ? presetsPayload.presets : FALLBACK_TALKING_HEAD_PRESET_OPTIONS);
       setValidationResult(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : '載入 ComfyUI runtime 設定失敗');
+      setError(err instanceof Error ? err.message : 'Failed to load ComfyUI runtime settings');
     } finally {
       setLoading(false);
     }
@@ -253,7 +253,7 @@ export default function ComfyUIRuntimeSettingsPanel() {
   ) => {
     const trimmed = installPath.trim();
     if (!trimmed) {
-      setError('請先輸入或選擇 ComfyUI 安裝路徑');
+      setError('Enter or choose the ComfyUI install path first');
       return null;
     }
 
@@ -272,9 +272,9 @@ export default function ComfyUIRuntimeSettingsPanel() {
       }
 
       if (result.status === 'ready') {
-        setSuccess(options?.successMessage || '已驗證 host 路徑、權限與標準 ComfyUI 結構');
+        setSuccess(options?.successMessage || 'Host path, permissions, and standard ComfyUI structure verified');
       } else if (result.status === 'needs_overrides') {
-        setSuccess(options?.successMessage || 'host 路徑與權限可用，但仍需補 override');
+        setSuccess(options?.successMessage || 'Host path and permissions are usable, but overrides are still required');
       } else if (result.issues.length > 0) {
         setError(result.issues[0]);
       }
@@ -282,7 +282,7 @@ export default function ComfyUIRuntimeSettingsPanel() {
       return result;
     } catch (err) {
       setValidationResult(null);
-      setError(err instanceof Error ? err.message : '驗證 ComfyUI host 路徑失敗');
+      setError(err instanceof Error ? err.message : 'Failed to validate ComfyUI host path');
       return null;
     } finally {
       setValidatingPath(false);
@@ -305,10 +305,10 @@ export default function ComfyUIRuntimeSettingsPanel() {
       setConfig((prev) => ({ ...prev, install_path: chosenPath }));
       await validateHostPath(chosenPath, {
         applySuggestions: true,
-        successMessage: '已從 host 選擇目錄並完成權限驗證',
+        successMessage: 'Host directory selected and permissions verified',
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : '無法開啟 host 目錄選擇器');
+      setError(err instanceof Error ? err.message : 'Failed to open host directory picker');
     } finally {
       setChoosingDirectory(false);
     }
@@ -317,7 +317,7 @@ export default function ComfyUIRuntimeSettingsPanel() {
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!config.install_path?.trim()) {
-      setError('ComfyUI 安裝路徑不能為空');
+      setError('ComfyUI install path cannot be empty');
       return;
     }
 
@@ -351,9 +351,9 @@ export default function ComfyUIRuntimeSettingsPanel() {
         ...defaultForm,
         ...response.configured,
       });
-      setSuccess(response.message || 'ComfyUI runtime 設定已儲存');
+      setSuccess(response.message || 'ComfyUI runtime settings saved');
     } catch (err) {
-      setError(err instanceof Error ? err.message : '儲存 ComfyUI runtime 設定失敗');
+      setError(err instanceof Error ? err.message : 'Failed to save ComfyUI runtime settings');
     } finally {
       setSaving(false);
     }
@@ -371,9 +371,9 @@ export default function ComfyUIRuntimeSettingsPanel() {
       setConfig(defaultForm);
       setEffective(response.effective);
       setValidationResult(null);
-      setSuccess(response.message || 'ComfyUI runtime 設定已清除');
+      setSuccess(response.message || 'ComfyUI runtime settings cleared');
     } catch (err) {
-      setError(err instanceof Error ? err.message : '清除 ComfyUI runtime 設定失敗');
+      setError(err instanceof Error ? err.message : 'Failed to clear ComfyUI runtime settings');
     } finally {
       setClearing(false);
     }
@@ -388,7 +388,7 @@ export default function ComfyUIRuntimeSettingsPanel() {
   const effectiveTalkingHeadSourceInstall = effective?.talking_head_source_install || null;
 
   if (loading) {
-    return <div className="text-center py-4 text-sm text-gray-500 dark:text-gray-400">載入中...</div>;
+    return <div className="text-center py-4 text-sm text-gray-500 dark:text-gray-400">Loading...</div>;
   }
 
   return (
@@ -398,7 +398,7 @@ export default function ComfyUIRuntimeSettingsPanel() {
           ComfyUI Local Runtime
         </h3>
         <p className="text-sm text-gray-600 dark:text-gray-400">
-          這裡管理的是 host 上的 ComfyUI 安裝點。請用本機目錄選擇器授權路徑，再驗證讀寫權限與可推導的 ComfyUI 結構；不再保留任何機器特定硬編碼 fallback。
+          This panel manages the ComfyUI install point on the host. Use the local directory picker to grant path access, then validate read/write permissions and the derived ComfyUI structure. Machine-specific hardcoded fallbacks are not retained.
         </p>
       </div>
 
@@ -408,11 +408,11 @@ export default function ComfyUIRuntimeSettingsPanel() {
       <div className="rounded-lg border border-default dark:border-gray-700 bg-surface-secondary dark:bg-gray-800 p-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <div className="text-sm font-medium text-primary dark:text-gray-100">目前生效設定</div>
+            <div className="text-sm font-medium text-primary dark:text-gray-100">Effective Settings</div>
             <div className="mt-1 text-xs text-secondary dark:text-gray-400">
               {effective?.install_path_configured
-                ? '已指定 host 安裝路徑'
-                : '尚未指定。install_path 不會再退回任何硬編碼路徑。'}
+                ? 'Host install path is configured'
+                : 'Not configured. install_path no longer falls back to hardcoded paths.'}
             </div>
           </div>
           <span
@@ -422,7 +422,7 @@ export default function ComfyUIRuntimeSettingsPanel() {
                 : 'bg-yellow-50 text-yellow-700 border border-yellow-200 dark:bg-yellow-900/20 dark:text-yellow-300 dark:border-yellow-800'
             }`}
           >
-            {effective?.install_path_configured ? '已設定' : '未設定'}
+            {effective?.install_path_configured ? 'Configured' : 'Not set'}
           </span>
         </div>
 
@@ -526,7 +526,7 @@ export default function ComfyUIRuntimeSettingsPanel() {
                   ))}
                 </div>
               ) : (
-                <div className="mt-1">無</div>
+                <div className="mt-1">None</div>
               )}
             </div>
             <div className="mt-3">
@@ -538,7 +538,7 @@ export default function ComfyUIRuntimeSettingsPanel() {
                   ))}
                 </div>
               ) : (
-                <div className="mt-1">無</div>
+                <div className="mt-1">None</div>
               )}
             </div>
             <div className="mt-3">
@@ -550,7 +550,7 @@ export default function ComfyUIRuntimeSettingsPanel() {
                   ))}
                 </div>
               ) : (
-                <div className="mt-1">無</div>
+                <div className="mt-1">None</div>
               )}
             </div>
           </div>
@@ -560,7 +560,7 @@ export default function ComfyUIRuntimeSettingsPanel() {
       <form onSubmit={handleSave} className="space-y-4">
         <div>
           <label className="block text-sm font-medium text-primary dark:text-gray-300 mb-2">
-            ComfyUI 安裝路徑
+            ComfyUI install path
           </label>
           <div className="flex gap-2">
             <div className="relative flex-1">
@@ -576,7 +576,7 @@ export default function ComfyUIRuntimeSettingsPanel() {
                 onClick={handleChooseInstallPath}
                 disabled={choosingDirectory}
                 className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 p-1 disabled:opacity-50"
-                title="從 host 選擇資料夾"
+                title="Choose folder from host"
               >
                 <FolderSearch size={18} />
               </button>
@@ -587,11 +587,11 @@ export default function ComfyUIRuntimeSettingsPanel() {
               disabled={validatingPath}
               className="rounded-md bg-gray-700 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
             >
-              {validatingPath ? '驗證中...' : '驗證權限'}
+              {validatingPath ? 'Validating...' : 'Validate permissions'}
             </button>
           </div>
           <p className="mt-2 text-xs text-secondary dark:text-gray-400">
-            目錄按鈕會直接呼叫 host Finder 選擇器。這裡驗證的是 host 實際存在、是否可讀寫，以及能否推導出標準 ComfyUI 路徑，不是容器內假掃描。
+            The directory button calls the host Finder picker directly. Validation checks the real host path, read/write access, and derivable standard ComfyUI paths, not a fake in-container scan.
           </p>
         </div>
 
@@ -607,10 +607,10 @@ export default function ComfyUIRuntimeSettingsPanel() {
           >
             <div className="font-medium">
               {validationResult.status === 'ready'
-                ? 'host 路徑已通過驗證'
+                ? 'Host path validation passed'
                 : validationResult.status === 'needs_overrides'
-                  ? 'host 路徑可用，但需要補 override'
-                  : 'host 路徑驗證失敗'}
+                  ? 'Host path is usable, but overrides are required'
+                  : 'Host path validation failed'}
             </div>
             <div className="mt-2 grid gap-2 text-xs md:grid-cols-2">
               <div>exists: {truthyLabel(validationResult.checks.exists)}</div>
@@ -654,7 +654,7 @@ export default function ComfyUIRuntimeSettingsPanel() {
               type="text"
               value={config.main_py || ''}
               onChange={(e) => setConfig((prev) => ({ ...prev, main_py: e.target.value }))}
-              placeholder="可留空，自動推導"
+              placeholder="Optional, auto-derived"
               className={inputClass}
             />
           </div>
@@ -664,7 +664,7 @@ export default function ComfyUIRuntimeSettingsPanel() {
               type="text"
               value={config.python_bin || ''}
               onChange={(e) => setConfig((prev) => ({ ...prev, python_bin: e.target.value }))}
-              placeholder="可留空，自動推導"
+              placeholder="Optional, auto-derived"
               className={inputClass}
             />
           </div>
@@ -674,7 +674,7 @@ export default function ComfyUIRuntimeSettingsPanel() {
               type="text"
               value={config.extra_model_paths_config || ''}
               onChange={(e) => setConfig((prev) => ({ ...prev, extra_model_paths_config: e.target.value }))}
-              placeholder="可留空，自動推導"
+              placeholder="Optional, auto-derived"
               className={inputClass}
             />
           </div>
@@ -684,7 +684,7 @@ export default function ComfyUIRuntimeSettingsPanel() {
               type="text"
               value={config.log_file || ''}
               onChange={(e) => setConfig((prev) => ({ ...prev, log_file: e.target.value }))}
-              placeholder="可留空，自動推導"
+              placeholder="Optional, auto-derived"
               className={inputClass}
             />
           </div>
@@ -723,7 +723,7 @@ export default function ComfyUIRuntimeSettingsPanel() {
           <div className="mb-3">
             <div className="text-sm font-medium text-primary dark:text-gray-100">Talking-head Source Install</div>
             <p className="mt-1 text-xs text-secondary dark:text-gray-400">
-              這些欄位會直接驅動 talking-head runtime bootstrap。若 repo URL 留空，系統只會檢查指定 custom node 目錄，不會自動 clone。
+              These fields drive the talking-head runtime bootstrap directly. When the repo URL is empty, the system only checks the specified custom node directory and does not auto-clone.
             </p>
           </div>
           <div className="grid gap-4 md:grid-cols-2">
@@ -750,7 +750,7 @@ export default function ComfyUIRuntimeSettingsPanel() {
               </select>
               {selectedPreset ? (
                 <div className="mt-2 rounded-md border border-default dark:border-gray-700 bg-surface-accent dark:bg-gray-900/40 p-3 text-xs text-secondary dark:text-gray-400">
-                  <div>{selectedPreset.description || '此 preset 會提供 backend family 與 deployment-level 預設 repo/ref。'}</div>
+                  <div>{selectedPreset.description || 'This preset provides the backend family and deployment-level default repo/ref.'}</div>
                   <div className="mt-2">supports_auto_install: {truthyLabel(Boolean(selectedPreset.supports_auto_install))}</div>
                   <div className="mt-1">contract verification mode: {displayValue(selectedPreset.contract_verification_mode)}</div>
                   <div className="mt-1 break-all">default backend repo: {displayValue(selectedPreset.default_backend_repo)}</div>
@@ -765,7 +765,7 @@ export default function ComfyUIRuntimeSettingsPanel() {
                       ))}
                     </div>
                   ) : (
-                    <div className="mt-1">無</div>
+                    <div className="mt-1">None</div>
                   )}
                   <div className="mt-2">declared node classes:</div>
                   {(selectedPreset.declared_node_classes || []).length ? (
@@ -775,7 +775,7 @@ export default function ComfyUIRuntimeSettingsPanel() {
                       ))}
                     </div>
                   ) : (
-                    <div className="mt-1">無</div>
+                    <div className="mt-1">None</div>
                   )}
                 </div>
               ) : null}
@@ -818,7 +818,7 @@ export default function ComfyUIRuntimeSettingsPanel() {
                 type="text"
                 value={config.talking_head_backend_dir || ''}
                 onChange={(e) => setConfig((prev) => ({ ...prev, talking_head_backend_dir: e.target.value }))}
-                placeholder="可留空，自動推導"
+                placeholder="Optional, auto-derived"
                 className={inputClass}
               />
             </div>
@@ -848,7 +848,7 @@ export default function ComfyUIRuntimeSettingsPanel() {
                 type="text"
                 value={config.talking_head_viseme_bridge_dir || ''}
                 onChange={(e) => setConfig((prev) => ({ ...prev, talking_head_viseme_bridge_dir: e.target.value }))}
-                placeholder="可留空，自動推導"
+                placeholder="Optional, auto-derived"
                 className={inputClass}
               />
             </div>
@@ -861,7 +861,7 @@ export default function ComfyUIRuntimeSettingsPanel() {
             disabled={saving}
             className="px-4 py-2 bg-gray-700 text-white rounded-md hover:bg-gray-800 disabled:opacity-50"
           >
-            {saving ? '儲存中...' : '儲存設定'}
+            {saving ? 'Saving...' : 'Save settings'}
           </button>
           <button
             type="button"
@@ -869,7 +869,7 @@ export default function ComfyUIRuntimeSettingsPanel() {
             disabled={clearing}
             className="px-4 py-2 border border-default dark:border-gray-600 rounded-md text-primary dark:text-gray-200 hover:bg-surface-accent dark:hover:bg-gray-700 disabled:opacity-50"
           >
-            {clearing ? '清除中...' : '清除 override'}
+            {clearing ? 'Clearing...' : 'Clear override'}
           </button>
         </div>
       </form>

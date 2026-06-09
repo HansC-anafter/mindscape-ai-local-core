@@ -2,6 +2,7 @@ code: comfyui_runtime
 display_name: "ComfyUI Runtime"
 version: "1.2.0"
 type: feature
+aol_maturity: AOL-2
 description: "Infrastructure management for ComfyUI rendering engine. Supports local GPU (CUDA/MPS) and remote execution."
 category: infrastructure
 tags:
@@ -17,14 +18,296 @@ portability:
     - cloud
   degradation_strategy: graceful
 
+host_resource_lanes:
+  comfyui_runtime:flux2_klein_true_v2_q6_local:
+    label: "FLUX2 Klein True V2 Q6 Local Lane"
+    kind: generation_lane
+    resource_flavor: local.mps.comfyui
+    profile_id: vr_flux2_klein_true_v2_q6_local
+    requirements:
+      memory_mb: 16384
+      memory_source: declared_manifest_model_footprint
+      cpu_weight: 4
+      exclusive_groups:
+        - mps_generation
+        - comfyui_runtime
+      resource_flavor: local.mps.comfyui
+
 dependencies:
   required: []
   optional:
-    - code: storage
-    - code: video_renderer
+    - name: storage
+      code: storage
+      degraded_features:
+        - external_artifact_persistence
+      fallback: use_local_runtime_artifact_refs
+    - name: video_renderer
+      code: video_renderer
+      degraded_features:
+        - video_renderer_workflow_source_sync
+      fallback: use_comfyui_owned_workflow_templates
+    - name: motion_runtime
+      code: motion_runtime
+      degraded_features:
+        - motion_runtime_workflow_source_sync
+      fallback: use_comfyui_owned_workflow_templates
+
+object_exports:
+  - kind: comfyui_workflow
+    display_name: "ComfyUI Workflow"
+    canonical_schema: capabilities.comfyui_runtime.schema.workflow_asset
+    id_field: workflow_id
+    selector_families: [object_root, graph_node]
+    indexer_backend: capabilities.comfyui_runtime.services.object_layer.workflow_runtime:sync_workflow_index
+    mention_fields:
+      - workflow_id
+      - display_name
+      - source_template_id
+    summary_fields:
+      - workflow_id
+      - display_name
+      - readiness_status
+      - source_pack_code
+      - workflow_format
+    supports:
+      - summary
+      - detail
+      - actions
+      - meeting_projection
+      - graph_projection
+  - kind: comfyui_model_asset
+    display_name: "ComfyUI Model Asset"
+    canonical_schema: capabilities.comfyui_runtime.schema.workflow_asset
+    id_field: model_asset_id
+    selector_families: [object_root, pack_local_path]
+    indexer_backend: capabilities.comfyui_runtime.services.object_layer.workflow_runtime:sync_model_index
+    mention_fields:
+      - model_asset_id
+      - filename
+      - display_name
+    summary_fields:
+      - model_asset_id
+      - role
+      - filename
+      - compatibility_status
+    supports:
+      - summary
+      - graph_projection
+  - kind: comfyui_custom_node_asset
+    display_name: "ComfyUI Custom Node Asset"
+    canonical_schema: capabilities.comfyui_runtime.schema.workflow_asset
+    id_field: custom_node_asset_id
+    selector_families: [object_root, graph_node]
+    indexer_backend: capabilities.comfyui_runtime.services.object_layer.workflow_runtime:sync_custom_node_index
+    mention_fields:
+      - custom_node_asset_id
+      - node_class
+      - node_family
+    summary_fields:
+      - custom_node_asset_id
+      - node_class
+      - node_family
+      - compatibility_status
+    supports:
+      - summary
+      - graph_projection
+  - kind: comfyui_workflow_batch
+    display_name: "ComfyUI Workflow Batch"
+    canonical_schema: capabilities.comfyui_runtime.schema.workflow_asset
+    id_field: batch_id
+    selector_families: [object_root, graph_node]
+    indexer_backend: capabilities.comfyui_runtime.services.object_layer.workflow_runtime:sync_batch_index
+    mention_fields:
+      - batch_id
+      - status
+    summary_fields:
+      - batch_id
+      - status
+      - workflow_refs
+      - source_object_refs
+    supports:
+      - summary
+      - detail
+      - graph_projection
+  - kind: comfyui_run_receipt
+    display_name: "ComfyUI Run Receipt"
+    canonical_schema: capabilities.comfyui_runtime.schema.workflow_asset
+    id_field: run_receipt_id
+    selector_families: [object_root, graph_node]
+    indexer_backend: capabilities.comfyui_runtime.services.object_layer.workflow_runtime:sync_receipt_index
+    mention_fields:
+      - run_receipt_id
+      - workflow_id
+      - batch_id
+      - status
+    summary_fields:
+      - run_receipt_id
+      - workflow_id
+      - batch_id
+      - status
+      - error_summary
+    supports:
+      - summary
+      - detail
+      - graph_projection
+
+object_resolvers:
+  - kind: comfyui_workflow
+    summary_backend: capabilities.comfyui_runtime.services.object_layer.workflow_runtime:resolve_workflow_summary
+    detail_backend: capabilities.comfyui_runtime.services.object_layer.workflow_runtime:resolve_workflow_detail
+    actions_backend: capabilities.comfyui_runtime.services.object_layer.workflow_runtime:resolve_workflow_actions
+  - kind: comfyui_model_asset
+    summary_backend: capabilities.comfyui_runtime.services.object_layer.workflow_runtime:resolve_model_summary
+  - kind: comfyui_custom_node_asset
+    summary_backend: capabilities.comfyui_runtime.services.object_layer.workflow_runtime:resolve_custom_node_summary
+  - kind: comfyui_workflow_batch
+    summary_backend: capabilities.comfyui_runtime.services.object_layer.workflow_runtime:resolve_batch_summary
+  - kind: comfyui_run_receipt
+    summary_backend: capabilities.comfyui_runtime.services.object_layer.workflow_runtime:resolve_receipt_summary
+
+meeting_projections:
+  - kind: comfyui_workflow
+    projection_backend: capabilities.comfyui_runtime.services.object_layer.workflow_runtime:project_workflow_for_meeting
+    projection_schema: capabilities.comfyui_runtime.schema.workflow_asset
+    verbs:
+      - attach
+      - preview
+      - stage
+
+graph_projections:
+  - kind: comfyui_workflow
+    backend: capabilities.comfyui_runtime.services.object_layer.workflow_runtime:project_workflow_for_graph
+    node_kind: comfyui_workflow
+    relation_kinds:
+      - depends_on_model
+      - depends_on_custom_node
+      - imported_from_source_pack
+  - kind: comfyui_workflow_batch
+    backend: capabilities.comfyui_runtime.services.object_layer.workflow_runtime:project_batch_for_graph
+    node_kind: comfyui_workflow_batch
+    relation_kinds:
+      - uses_source_object
+      - contains_batch_item
+      - included_in_batch
+  - kind: comfyui_run_receipt
+    backend: capabilities.comfyui_runtime.services.object_layer.workflow_runtime:project_receipt_for_graph
+    node_kind: comfyui_run_receipt
+    relation_kinds:
+      - produced_run_receipt
+      - generated_output_artifact
+
+affordances:
+  - verb: dispatch_workflow_batch
+    label: "Dispatch ComfyUI workflow batch"
+    description: "Plan and dispatch a ComfyUI workflow batch from object refs."
+    object_kinds:
+      - comfyui_workflow
+      - comfyui_workflow_batch
+    input_schema:
+      type: object
+      required:
+        - workflow_ref
+      properties:
+        workflow_ref:
+          type: string
+        source_object_refs:
+          type: array
+        batch_id:
+          type: string
+    output_schema:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+        batch:
+          type: object
+        receipts:
+          type: array
+    required_roles:
+      - source
+      - target
+    write_modes:
+      - staged
+      - owner_canonical_lane
+    planner_backend: capabilities.comfyui_runtime.services.object_layer.workflow_runtime:plan_dispatch_workflow_batch
+    executor_backend: capabilities.comfyui_runtime.services.object_layer.workflow_runtime:execute_dispatch_workflow_batch
+
+composition_graph_nodes:
+  enabled: true
+  contract_version: "1.0.0"
+  nodes:
+    - id: comfyui_lane_adapter
+      label: "ComfyUI Lane"
+      category: generation
+      input_ports:
+        - id: reference_set
+          direction: input
+          data_type: ig_reference_set
+          required: true
+      output_ports:
+        - id: run_receipt
+          direction: output
+          data_type: comfyui_run_receipt
+      payload_schema:
+        type: object
+        required:
+          - workflow_ref
+        properties:
+          workflow_ref:
+            type: string
+          target_runtime_profile:
+            type: string
+        additionalProperties: true
+      executor:
+        backend: capabilities.comfyui_runtime.services.graph_nodes.lane_adapter:run_comfyui_lane_adapter
+      option_sources:
+        workflow_ref:
+          backend: capabilities.comfyui_runtime.services.graph_nodes.lane_adapter:list_comfyui_lane_options
 
 # Tools
 tools:
+  - code: comfyui_import_workflow_asset
+    name: comfyui_import_workflow_asset
+    description: "Import a ComfyUI workflow asset as AOL metadata."
+    backend: capabilities.comfyui_runtime.tools.workflow_asset_tools:comfyui_import_workflow_asset
+
+  - code: comfyui_sync_workflow_source_pack
+    name: comfyui_sync_workflow_source_pack
+    description: "Sync workflow templates from a source pack into ComfyUI workflow objects."
+    backend: capabilities.comfyui_runtime.tools.workflow_asset_tools:comfyui_sync_workflow_source_pack
+
+  - code: comfyui_sync_model_assets
+    name: comfyui_sync_model_assets
+    description: "Sync model asset metadata from workflow requirements."
+    backend: capabilities.comfyui_runtime.tools.workflow_asset_tools:comfyui_sync_model_assets
+
+  - code: comfyui_sync_custom_node_assets
+    name: comfyui_sync_custom_node_assets
+    description: "Sync custom node asset metadata from workflow requirements."
+    backend: capabilities.comfyui_runtime.tools.workflow_asset_tools:comfyui_sync_custom_node_assets
+
+  - code: comfyui_plan_workflow_batch
+    name: comfyui_plan_workflow_batch
+    description: "Plan a ComfyUI workflow batch from workflow and source object refs."
+    backend: capabilities.comfyui_runtime.tools.workflow_asset_tools:comfyui_plan_workflow_batch
+
+  - code: comfyui_execute_workflow_batch
+    name: comfyui_execute_workflow_batch
+    description: "Execute a pre-planned ComfyUI workflow batch."
+    backend: capabilities.comfyui_runtime.tools.workflow_asset_tools:comfyui_execute_workflow_batch
+
+  - code: comfyui_dispatch_workflow_batch
+    name: comfyui_dispatch_workflow_batch
+    description: "Idempotently plan and execute a ComfyUI workflow batch."
+    backend: capabilities.comfyui_runtime.tools.workflow_asset_tools:comfyui_dispatch_workflow_batch
+
+  - code: comfyui_get_run_receipt
+    name: comfyui_get_run_receipt
+    description: "Read a ComfyUI run receipt object."
+    backend: capabilities.comfyui_runtime.tools.workflow_asset_tools:comfyui_get_run_receipt
+
   - code: comfyui_detect_platform
     name: comfyui_detect_platform
     description: "Detect GPU platform and recommend installation profile"
@@ -78,7 +361,7 @@ tools:
       properties:
         profile_id:
           type: string
-          enum: [vr_minimal, vr_preview_local, vr_face_bootstrap_local, vr_face_aux_facecard_local, vr_generative, vr_wan22_14b_kj, vr_liveportrait_hybrid_talking_head_preview, vr_liveportrait_hybrid_talking_head_quality, vr_regional_multi_subject_preview]
+          enum: [vr_minimal, vr_preview_local, vr_face_bootstrap_local, vr_face_aux_facecard_local, vr_generative, vr_flux2_klein_true_v2_q6_local, vr_wan22_14b_kj, vr_liveportrait_hybrid_talking_head_preview, vr_liveportrait_hybrid_talking_head_quality, vr_regional_multi_subject_preview]
         models_dir:
           type: string
           description: "Target models directory"
@@ -110,6 +393,87 @@ tools:
 
 # Playbooks
 playbooks:
+  - code: comfyui_workflow_import
+    display_name: "ComfyUI Workflow Import"
+    display_name_zh: "ComfyUI Workflow 匯入"
+    locales: [zh-TW, en]
+    path: playbooks/{locale}/comfyui_workflow_import.md
+    spec_path: playbooks/specs/comfyui_workflow_import.json
+    description: "Import a workflow into the ComfyUI AOL object layer."
+    tool_dependencies:
+      - comfyui_runtime.comfyui_import_workflow_asset
+
+  - code: comfyui_workflow_source_pack_sync
+    display_name: "ComfyUI Workflow Source Pack Sync"
+    display_name_zh: "ComfyUI Workflow Source Pack 同步"
+    locales: [zh-TW, en]
+    path: playbooks/{locale}/comfyui_workflow_source_pack_sync.md
+    spec_path: playbooks/specs/comfyui_workflow_source_pack_sync.json
+    description: "Sync workflow templates from video_renderer or motion_runtime."
+    tool_dependencies:
+      - comfyui_runtime.comfyui_sync_workflow_source_pack
+
+  - code: comfyui_model_asset_sync
+    display_name: "ComfyUI Model Asset Sync"
+    display_name_zh: "ComfyUI Model Asset 同步"
+    locales: [zh-TW, en]
+    path: playbooks/{locale}/comfyui_model_asset_sync.md
+    spec_path: playbooks/specs/comfyui_model_asset_sync.json
+    description: "Sync model assets required by ComfyUI workflows."
+    tool_dependencies:
+      - comfyui_runtime.comfyui_sync_model_assets
+
+  - code: comfyui_custom_node_asset_sync
+    display_name: "ComfyUI Custom Node Asset Sync"
+    display_name_zh: "ComfyUI Custom Node Asset 同步"
+    locales: [zh-TW, en]
+    path: playbooks/{locale}/comfyui_custom_node_asset_sync.md
+    spec_path: playbooks/specs/comfyui_custom_node_asset_sync.json
+    description: "Sync custom node assets required by ComfyUI workflows."
+    tool_dependencies:
+      - comfyui_runtime.comfyui_sync_custom_node_assets
+
+  - code: comfyui_workflow_batch_plan
+    display_name: "ComfyUI Workflow Batch Plan"
+    display_name_zh: "ComfyUI Workflow Batch 規劃"
+    locales: [zh-TW, en]
+    path: playbooks/{locale}/comfyui_workflow_batch_plan.md
+    spec_path: playbooks/specs/comfyui_workflow_batch_plan.json
+    description: "Plan a ComfyUI workflow batch from object refs."
+    tool_dependencies:
+      - comfyui_runtime.comfyui_plan_workflow_batch
+
+  - code: comfyui_workflow_batch_execute
+    display_name: "ComfyUI Workflow Batch Execute"
+    display_name_zh: "ComfyUI Workflow Batch 執行"
+    locales: [zh-TW, en]
+    path: playbooks/{locale}/comfyui_workflow_batch_execute.md
+    spec_path: playbooks/specs/comfyui_workflow_batch_execute.json
+    description: "Execute a planned ComfyUI workflow batch."
+    tool_dependencies:
+      - comfyui_runtime.comfyui_execute_workflow_batch
+
+  - code: comfyui_workflow_batch_dispatch
+    display_name: "ComfyUI Workflow Batch Dispatch"
+    display_name_zh: "ComfyUI Workflow Batch 派工"
+    locales: [zh-TW, en]
+    path: playbooks/{locale}/comfyui_workflow_batch_dispatch.md
+    spec_path: playbooks/specs/comfyui_workflow_batch_dispatch.json
+    description: "Idempotently plan and execute a ComfyUI workflow batch."
+    tool_dependencies:
+      - comfyui_runtime.comfyui_dispatch_workflow_batch
+
+  - code: comfyui_workflow_smoke
+    display_name: "ComfyUI Workflow Smoke"
+    display_name_zh: "ComfyUI Workflow Smoke"
+    locales: [zh-TW, en]
+    path: playbooks/{locale}/comfyui_workflow_smoke.md
+    spec_path: playbooks/specs/comfyui_workflow_smoke.json
+    description: "Smoke test ComfyUI workflow source sync and dispatch receipt creation."
+    tool_dependencies:
+      - comfyui_runtime.comfyui_sync_workflow_source_pack
+      - comfyui_runtime.comfyui_dispatch_workflow_batch
+
   - code: comfyui_setup
     display_name: "ComfyUI Setup"
     display_name_zh: "ComfyUI 安裝設置"
@@ -303,6 +667,51 @@ models:
     license:
       spdx_id: "Apache-2.0"
 
+  - model_id: flux2_klein_true_v2_q6_gguf
+    display_name: "FLUX2 Klein 9B True V2 Q6_K GGUF"
+    role: diffusion_model
+    provider: huggingface
+    repo_id: "wikeeyang/Flux2-Klein-9B-True-V2"
+    revision: "main"
+    files:
+      - filename: "Flux2-Klein-9B-True-v2-Q6_K.gguf"
+        expected_hash: "sha256:92643c547c7ea16c724cee0f84cbb9066f08f1df2cf6a473c08b2f067a699bc5"
+        size_bytes: 7865424256
+    license:
+      spdx_id: "other"
+    hardware_requirements:
+      min_vram_gb: 16
+      supports_cpu_fallback: false
+
+  - model_id: flux2_klein_qwen3_8b_fp8mixed
+    display_name: "FLUX2 Klein 9B Qwen3 8B FP8 Mixed Text Encoder"
+    role: text_encoder
+    provider: huggingface
+    repo_id: "Comfy-Org/vae-text-encorder-for-flux-klein-9b"
+    revision: "main"
+    files:
+      - filename: "qwen_3_8b_fp8mixed.safetensors"
+        expected_hash: "sha256:abad16806e0cbabc54e0325d6565847443fe396d5f0be38bb3cd3fe75a1201d6"
+        size_bytes: 8664848742
+    license:
+      spdx_id: "other"
+    hardware_requirements:
+      min_vram_gb: 16
+      supports_cpu_fallback: false
+
+  - model_id: flux2_vae
+    display_name: "FLUX2 VAE"
+    role: vae
+    provider: huggingface
+    repo_id: "Comfy-Org/flux2-dev"
+    revision: "main"
+    files:
+      - filename: "flux2-vae.safetensors"
+        expected_hash: "sha256:d64f3a68e1cc4f9f4e29b6e0da38a0204fe9a49f2d4053f0ec1fa1ca02f9c4b5"
+        size_bytes: 336213556
+    license:
+      spdx_id: "other"
+
   - model_id: sam_vit_l_segment_anything
     display_name: "SAM ViT-L"
     role: segmentation_model
@@ -462,6 +871,9 @@ profiles:
     model_ids:
       - sdxl_base_1_0
       - controlnet_openpose_sdxl
+      - sam_vit_l_segment_anything
+      - groundingdino_swint_ogc
+      - groundingdino_swint_ogc_cfg
 
   - profile_id: vr_face_aux_facecard_local
     display_name: "Local Face-Card Preprocess"
@@ -479,6 +891,14 @@ profiles:
       - controlnet_openpose_v11p
       - controlnet_depth_v11f1p
       - sdxl_vae
+
+  - profile_id: vr_flux2_klein_true_v2_q6_local
+    display_name: "FLUX2 Klein True V2 Q6 Local"
+    description: "Local ComfyUI-GGUF lane for FLUX2 Klein 9B True V2 Q6_K with Qwen3 8B fp8mixed text encoder, Flux2 VAE, and a 25-step default preview workflow."
+    model_ids:
+      - flux2_klein_true_v2_q6_gguf
+      - flux2_klein_qwen3_8b_fp8mixed
+      - flux2_vae
 
   - profile_id: vr_wan22_14b_kj
     display_name: "Wan2.2 Video Generation"
