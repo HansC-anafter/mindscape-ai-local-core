@@ -546,7 +546,7 @@ class PlannerToolPlanCompiler:
                 return self._optional_string(overrides.get("pack_role_name"))
         return None
 
-    def _resolve_selector(self, selector: Any, context: Any) -> Optional[str]:
+    def _resolve_selector(self, selector: Any, context: Any) -> Any:
         value = str(selector or "").strip()
         if not value.startswith("$context."):
             return None
@@ -555,8 +555,10 @@ class PlannerToolPlanCompiler:
             if not isinstance(current, dict):
                 return None
             current = current.get(part)
-        text = str(current or "").strip()
-        return text or None
+        if isinstance(current, str):
+            text = current.strip()
+            return text or None
+        return current
 
     def _resolve_declarative_value(
         self,

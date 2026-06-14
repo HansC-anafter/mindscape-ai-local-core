@@ -186,6 +186,9 @@ class DeclarativeRoleProfileResolver:
                             "title": "$category.label",
                             "brief_text": "$context.primary.brief_text",
                             "source_channel_kind": "$context.primary.source_channel_kind",
+                            "required_skills": "$context.primary.required_skills",
+                            "duration_days": "$context.primary.duration_days",
+                            "score": "$context.primary.score",
                             "metadata": {
                                 "source": "$context.primary.source_url",
                             },
@@ -208,6 +211,9 @@ class DeclarativeRoleProfileResolver:
                         "brief_text": "Create one bounded product render.",
                         "source_channel_kind": "manual_note",
                         "source_url": "mindscape://fixture/opportunity/1",
+                        "required_skills": ["lighting", "materials"],
+                        "duration_days": 5,
+                        "score": 0.74,
                     }
                 }
             },
@@ -279,6 +285,9 @@ def test_declarative_planner_lane_compiler_builds_fixture_role_profile_plan(
     assert plan.steps[0].tool_name == "fixture_pack.fixture_create_practice_sprint"
     assert plan.steps[0].arguments["title"] == "Product render"
     assert plan.steps[0].arguments["brief_text"] == "Create one bounded product render."
+    assert plan.steps[0].arguments["required_skills"] == ["lighting", "materials"]
+    assert plan.steps[0].arguments["duration_days"] == 5
+    assert plan.steps[0].arguments["score"] == 0.74
     assert plan.steps[0].arguments["metadata"]["source"] == (
         "mindscape://fixture/opportunity/1"
     )
