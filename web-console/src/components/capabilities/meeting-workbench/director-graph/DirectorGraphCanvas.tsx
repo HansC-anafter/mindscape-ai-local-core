@@ -18,7 +18,6 @@ import { Copy, Maximize2, Redo2, Save, Trash2, Undo2 } from 'lucide-react';
 
 import {
   fetchCompositionGraphNodeOptions,
-  fetchCompositionGraphRun,
   importCompositionGraph,
   runCompositionGraph,
   type CompositionGraphCommandEnvelopeDraft,
@@ -50,6 +49,7 @@ import { DirectorGraphInspector } from './DirectorGraphInspector';
 import { DirectorGraphPalette } from './DirectorGraphPalette';
 import { useCompositionGraphContracts } from './useCompositionGraphContracts';
 import { useCompositionGraphDraft } from './useCompositionGraphDraft';
+import { useCompositionGraphRunMonitor } from './useCompositionGraphRunMonitor';
 
 type DirectorGraphNodeData = {
   graphNode: CompositionGraphNode;
@@ -304,6 +304,29 @@ export function DirectorGraphCanvas({
   const [runStatus, setRunStatus] = useState<CompositionGraphRunStatus | 'idle'>('idle');
   const [activeRun, setActiveRun] = useState<CompositionGraphRun | null>(null);
   const [runDiagnostics, setRunDiagnostics] = useState<CompositionGraphDiagnostic[]>([]);
+
+  const runMonitor = useCompositionGraphRunMonitor({
+    apiUrl,
+    workspaceId,
+    onRun: (run) => {
+      setActiveRun(run);
+      setRunStatus(run.status);
+      setRunDiagnostics([
+        ...(run.diagnostics || []),
+        ...Object.values(run.node_states || {}).flatMap((state) => state.diagnostics || []),
+      ]);
+    },
+    onError: (error) => {
+      setRunStatus('failed');
+      setRunDiagnostics([
+        {
+          code: 'graph_run_monitor_failed',
+          message: error.message,
+          severity: 'error',
+        },
+      ]);
+    },
+  });
   const [comfyLaneOptions, setComfyLaneOptions] = useState<CompositionGraphNodeOption[]>([]);
   const [comfyLaneDiagnostics, setComfyLaneDiagnostics] = useState<CompositionGraphDiagnostic[]>([]);
   const { draft, saveDraft, saveError, saving } = useCompositionGraphDraft({ apiUrl, workspaceId });
@@ -537,21 +560,7 @@ export function DirectorGraphCanvas({
         viewport: INITIAL_VIEWPORT,
         metadata: { source_surface: 'meeting_workbench_director_graph' },
       });
-      setActiveRun(response.run);
-      setRunStatus(response.run.status);
-      setRunDiagnostics(response.run.diagnostics || []);
-      let currentRun = response.run;
-      while (currentRun.status === 'pending' || currentRun.status === 'running') {
-        await new Promise((resolve) => window.setTimeout(resolve, 2000));
-        const polled = await fetchCompositionGraphRun(apiUrl, workspaceId, currentRun.id);
-        currentRun = polled.run;
-        setActiveRun(currentRun);
-        setRunStatus(currentRun.status);
-        setRunDiagnostics([
-          ...(currentRun.diagnostics || []),
-          ...Object.values(currentRun.node_states || {}).flatMap((state) => state.diagnostics || []),
-        ]);
-      }
+      runMonitor.subscribe(response.run);
     } catch (cause) {
       setRunStatus('failed');
       setRunDiagnostics([

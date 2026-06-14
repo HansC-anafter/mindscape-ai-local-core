@@ -23,11 +23,15 @@ from backend.app.models.object_runtime import (
     CompositionGraphRunResponse,
     CompositionGraphRunResumeRequest,
 )
+from backend.app.models.run_harness import RunHarnessObservation
 from backend.app.models.workspace import Workspace
 from backend.app.routes.workspace_dependencies import get_store, get_workspace
 from backend.app.services.mindscape_store import MindscapeStore
 from backend.app.services.object_runtime.composition_graph_service import (
     CompositionGraphService,
+)
+from backend.app.services.run_harness.composition_graph_adapter import (
+    CompositionGraphHarnessAdapter,
 )
 from backend.app.services.stores.installed_packs_store import InstalledPacksStore
 
@@ -150,7 +154,14 @@ async def compile_composition_graph(
     store: MindscapeStore = Depends(get_store),
 ) -> CompositionGraphCompileResponse:
     del workspace
-    return await _build_service(store).compile_graph(workspace_id, request)
+    compiled = await _build_service(store).compile_graph(workspace_id, request)
+    if request.output_mode == "run_harness_spec":
+        return CompositionGraphHarnessAdapter().compile_spec(
+            workspace_id=workspace_id,
+            request=request,
+            compiled=compiled,
+        )
+    return compiled
 
 
 @router.post(
@@ -179,6 +190,24 @@ async def get_composition_graph_run(
 ) -> CompositionGraphRunResponse:
     del workspace
     return _build_service(store).get_run(workspace_id, graph_run_id)
+
+
+@router.get(
+    "/{workspace_id}/composition-graph/runs/{graph_run_id}/run-harness-observation",
+    response_model=RunHarnessObservation,
+)
+async def get_composition_graph_run_harness_observation(
+    workspace_id: str = PathParam(..., description="Workspace ID"),
+    graph_run_id: str = PathParam(..., description="Composition graph run ID"),
+    workspace: Workspace = Depends(get_workspace),
+    store: MindscapeStore = Depends(get_store),
+) -> RunHarnessObservation:
+    del workspace
+    response = _build_service(store).get_run(workspace_id, graph_run_id)
+    return CompositionGraphHarnessAdapter().map_observation(
+        workspace_id=workspace_id,
+        run=response.run,
+    )
 
 
 @router.post(

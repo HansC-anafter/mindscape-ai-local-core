@@ -89,6 +89,29 @@ async def process_pipeline(
 
         meeting_enabled = route_decision.route_kind == RouteKind.MEETING
 
+        if not meeting_enabled and execution_mode in ("execution", "hybrid"):
+            from backend.app.services.run_harness.envelope_builder import (
+                RunIntentEnvelopeBuilder,
+            )
+            from backend.app.services.run_harness.router import RunHarnessRouter
+
+            intent_envelope = RunIntentEnvelopeBuilder().build_for_pipeline(
+                decision_id=route_decision.decision_id,
+                workspace_id=workspace_id,
+                profile_id=profile_id,
+                intent_text=message,
+                request=request,
+                workspace=pipeline.workspace,
+                runtime_profile=pipeline.runtime_profile,
+            )
+            harness_selection = RunHarnessRouter().select(intent_envelope)
+            result.run_intent_envelope = intent_envelope.model_dump(
+                mode="json", exclude_none=True
+            )
+            result.run_harness_selection = harness_selection.model_dump(
+                mode="json", exclude_none=True
+            )
+
         session = None
         if meeting_enabled:
             session = await ensure_meeting_session(

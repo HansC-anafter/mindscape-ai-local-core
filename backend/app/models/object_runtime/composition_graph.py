@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from backend.app.models.object_runtime.meeting import ObjectRoleEntry
+from backend.app.models.run_harness import RunHarnessSpec
 
 CompositionGraphPortDirection = Literal["input", "output"]
 CompositionGraphDiagnosticSeverity = Literal["error", "warning", "info"]
@@ -98,7 +99,9 @@ class CompositionGraphCompileTarget(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     backend: str = Field(min_length=1)
-    output_mode: Literal["meeting_command_envelope"] = "meeting_command_envelope"
+    output_mode: Literal["meeting_command_envelope", "run_harness_spec"] = (
+        "meeting_command_envelope"
+    )
 
 
 class CompositionGraphNodeExecutorTarget(BaseModel):
@@ -381,6 +384,9 @@ class CompositionGraphCompileRequest(BaseModel):
     object_action_entries: List[ObjectRoleEntry] = Field(default_factory=list)
     selected_pack_tool: Optional[str] = None
     action_parameters: Dict[str, Any] = Field(default_factory=dict)
+    output_mode: Literal["meeting_command_envelope", "run_harness_spec"] = (
+        "meeting_command_envelope"
+    )
 
 
 class CompositionGraphCompileResponse(BaseModel):
@@ -390,9 +396,12 @@ class CompositionGraphCompileResponse(BaseModel):
 
     workspace_id: str
     status: CompositionGraphCompileStatus
-    output_mode: Literal["meeting_command_envelope"] = "meeting_command_envelope"
+    output_mode: Literal["meeting_command_envelope", "run_harness_spec"] = (
+        "meeting_command_envelope"
+    )
     diagnostics: List[CompositionGraphDiagnostic] = Field(default_factory=list)
     command_envelope: Optional[CompositionGraphCommandEnvelopeDraft] = None
+    run_harness_spec: Optional[RunHarnessSpec] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
 

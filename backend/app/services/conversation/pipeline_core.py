@@ -39,6 +39,8 @@ class PipelineResult:
     artifact_ids: List[str] = field(default_factory=list)
     artifact_file_paths: List[str] = field(default_factory=list)
     completion_status: Optional[str] = None
+    run_intent_envelope: Optional[Dict[str, Any]] = None
+    run_harness_selection: Optional[Dict[str, Any]] = None
     success: bool = True
     error: Optional[str] = None
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 import sys
 import types
 from pathlib import Path
@@ -11,7 +12,22 @@ import yaml
 from fastapi import FastAPI
 
 from backend.app.models.workspace import Workspace
-from backend.app.routes.core.workspace import composition_graph
+
+_ROUTE_PATH = (
+    Path(__file__).resolve().parents[3]
+    / "app"
+    / "routes"
+    / "core"
+    / "workspace"
+    / "composition_graph.py"
+)
+_ROUTE_SPEC = importlib.util.spec_from_file_location(
+    "composition_graph_route_under_test",
+    _ROUTE_PATH,
+)
+assert _ROUTE_SPEC is not None and _ROUTE_SPEC.loader is not None
+composition_graph = importlib.util.module_from_spec(_ROUTE_SPEC)
+_ROUTE_SPEC.loader.exec_module(composition_graph)
 
 
 class MemoryArtifactsStore:
@@ -293,3 +309,31 @@ def test_composition_graph_import_returns_diagnostics(monkeypatch, tmp_path):
     payload = response.json()
     assert payload["valid"] is False
     assert payload["diagnostics"][0]["code"] == "unknown_node_type"
+
+
+def test_composition_graph_run_exposes_run_harness_observation(monkeypatch, tmp_path):
+    client = ASGIAsyncTestClient(build_app(monkeypatch, tmp_path))
+
+    run_response = client.post(
+        "/api/v1/workspaces/ws/composition-graph/run",
+        json={
+            "graph_id": "graph-observation",
+            "command": "Observe run harness state",
+            "nodes": [],
+            "edges": [],
+        },
+    )
+    assert run_response.status_code == 200
+    run_id = run_response.json()["run"]["id"]
+
+    observation = client.get(
+        f"/api/v1/workspaces/ws/composition-graph/runs/{run_id}/run-harness-observation"
+    )
+
+    assert observation.status_code == 200
+    payload = observation.json()
+    assert payload["workspace_id"] == "ws"
+    assert payload["episode"]["episode_id"] == f"composition-graph-episode:{run_id}"
+    assert payload["result"]["run_id"] == run_id
+    assert payload["result"]["harness_kind"] == "composition_graph"
+    assert payload["source"] == "composition_graph_run"

@@ -13,6 +13,11 @@ import os
 import functools
 from typing import List, Dict, Any, Optional, Set
 from dataclasses import dataclass
+from pathlib import Path
+
+import yaml
+
+from app.services.runtime_pack_hygiene import is_ignored_runtime_pack_dir
 
 logger = logging.getLogger(__name__)
 
@@ -313,13 +318,53 @@ class ToolListService:
                     )
                 )
 
-            return result
+            manifest_fallback_tools = self._load_manifest_capability_tools()
+            if not manifest_fallback_tools:
+                return result
+
+            deduped: Dict[str, ToolInfo] = {tool.tool_id: tool for tool in result}
+            for tool in manifest_fallback_tools:
+                deduped.setdefault(tool.tool_id, tool)
+            return list(deduped.values())
 
         except Exception as e:
             logger.warning(
                 f"ToolListService: Failed to get capability tools: {e}", exc_info=True
             )
             return []
+
+    def _load_manifest_capability_tools(self) -> List[ToolInfo]:
+        capabilities_dir = Path(__file__).resolve().parents[1] / "capabilities"
+        signature = self._manifest_scan_signature(capabilities_dir)
+        if signature is None:
+            return []
+        return list(
+            _load_manifest_capability_tools_cached(str(capabilities_dir), signature)
+        )
+
+    def _manifest_scan_signature(
+        self,
+        capabilities_dir: Path,
+    ) -> Optional[tuple[int, int]]:
+        if not capabilities_dir.exists():
+            return None
+        manifest_count = 0
+        newest_mtime_ns = 0
+        for capability_dir in capabilities_dir.iterdir():
+            if (
+                not capability_dir.is_dir()
+                or is_ignored_runtime_pack_dir(capability_dir.name)
+            ):
+                continue
+            manifest_path = capability_dir / "manifest.yaml"
+            if not manifest_path.exists():
+                continue
+            manifest_count += 1
+            newest_mtime_ns = max(
+                newest_mtime_ns,
+                manifest_path.stat().st_mtime_ns,
+            )
+        return (manifest_count, newest_mtime_ns)
 
     def get_tool_by_id(self, tool_id: str) -> Optional[ToolInfo]:
         """
@@ -382,3 +427,56 @@ def get_tool_list_service(data_dir: Optional[str] = None) -> ToolListService:
     if _tool_list_service is None:
         _tool_list_service = ToolListService(data_dir=data_dir)
     return _tool_list_service
+
+
+@functools.lru_cache(maxsize=8)
+def _load_manifest_capability_tools_cached(
+    capabilities_dir_str: str,
+    signature: tuple[int, int],
+) -> tuple[ToolInfo, ...]:
+    del signature
+    capabilities_dir = Path(capabilities_dir_str)
+    result: list[ToolInfo] = []
+    for capability_dir in capabilities_dir.iterdir():
+        if (
+            not capability_dir.is_dir()
+            or is_ignored_runtime_pack_dir(capability_dir.name)
+        ):
+            continue
+        manifest_path = capability_dir / "manifest.yaml"
+        if not manifest_path.exists():
+            continue
+        try:
+            manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8")) or {}
+        except Exception as exc:
+            logger.debug(
+                f"ToolListService: Failed to read manifest fallback for {capability_dir.name}: {exc}"
+            )
+            continue
+        capability_code = manifest.get("code") or capability_dir.name
+        for tool_cfg in manifest.get("tools", []) or []:
+            if not isinstance(tool_cfg, dict):
+                continue
+            tool_code = tool_cfg.get("code") or tool_cfg.get("name")
+            if not tool_code:
+                continue
+            tool_id = f"{capability_code}.{tool_code}"
+            result.append(
+                ToolInfo(
+                    tool_id=tool_id,
+                    name=tool_cfg.get("name") or tool_code,
+                    description=tool_cfg.get("description") or "",
+                    category=tool_cfg.get("category") or "capability",
+                    source="capability",
+                    enabled=True,
+                    metadata={
+                        "tool_info": {
+                            "capability": capability_code,
+                            "tool_name": tool_code,
+                            "tool_info": tool_cfg,
+                            "backend": tool_cfg.get("backend"),
+                        }
+                    },
+                )
+            )
+    return tuple(result)

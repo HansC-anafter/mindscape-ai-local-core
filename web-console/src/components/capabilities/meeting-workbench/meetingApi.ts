@@ -5,17 +5,24 @@ export function buildApiUrls(apiUrl: string, path: string): string[] {
   return primaryUrl === normalizedPath ? [normalizedPath] : [primaryUrl, normalizedPath];
 }
 
-export async function fetchApiJson(apiUrl: string, path: string): Promise<unknown> {
+export async function fetchApiJson(
+  apiUrl: string,
+  path: string,
+  signal?: AbortSignal,
+): Promise<unknown> {
   let lastError: unknown = null;
   for (const url of buildApiUrls(apiUrl, path)) {
     try {
-      const response = await fetch(url, { credentials: 'same-origin' });
+      const response = await fetch(url, { credentials: 'same-origin', signal });
       if (!response.ok) {
         throw new Error(`Request failed: ${response.status}`);
       }
       return await response.json();
     } catch (error) {
       lastError = error;
+      if (signal?.aborted) {
+        throw error;
+      }
     }
   }
 

@@ -45,7 +45,7 @@ export interface CompositionGraphEdgeType {
 
 export interface CompositionGraphCompileTarget {
   backend: string;
-  output_mode: 'meeting_command_envelope';
+  output_mode: 'meeting_command_envelope' | 'run_harness_spec';
 }
 
 export interface CompositionGraphContract {
@@ -132,9 +132,10 @@ export interface CompositionGraphCommandEnvelopeDraft {
 export interface CompositionGraphCompileResponse {
   workspace_id: string;
   status: CompositionGraphCompileStatus;
-  output_mode: 'meeting_command_envelope';
+  output_mode: 'meeting_command_envelope' | 'run_harness_spec';
   diagnostics: CompositionGraphDiagnostic[];
   command_envelope?: CompositionGraphCommandEnvelopeDraft | null;
+  run_harness_spec?: Record<string, unknown> | null;
   metadata?: Record<string, unknown>;
 }
 
@@ -237,6 +238,7 @@ export interface CompositionGraphCompileRequest {
   object_action_entries?: unknown[];
   selected_pack_tool?: string | null;
   action_parameters?: Record<string, unknown>;
+  output_mode?: 'meeting_command_envelope' | 'run_harness_spec';
 }
 
 export interface CompositionGraphRunRequest {
@@ -353,10 +355,12 @@ export async function fetchCompositionGraphRun(
   apiUrl: string,
   workspaceId: string,
   graphRunId: string,
+  signal?: AbortSignal,
 ): Promise<CompositionGraphRunResponse> {
   const payload = await fetchApiJson(
     apiUrl,
     `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/composition-graph/runs/${encodeURIComponent(graphRunId)}`,
+    signal,
   );
   return payload as CompositionGraphRunResponse;
 }
