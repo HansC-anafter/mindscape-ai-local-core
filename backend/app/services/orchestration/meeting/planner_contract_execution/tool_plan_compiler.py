@@ -467,7 +467,16 @@ class PlannerToolPlanCompiler:
         selected_profile: Any,
     ) -> Dict[str, Any]:
         raw_arguments = raw_step.get("arguments")
-        arguments = dict(raw_arguments) if isinstance(raw_arguments, dict) else {}
+        context = (
+            selected_profile.selection_context.get("context")
+            if isinstance(selected_profile.selection_context, dict)
+            else {}
+        )
+        arguments = self._resolve_declarative_value(
+            dict(raw_arguments) if isinstance(raw_arguments, dict) else {},
+            category=category,
+            context=context,
+        )
         arguments.setdefault("workspace_id", workspace_id)
         arguments.setdefault("category_label", category.label)
         arguments.setdefault("idempotency_key", category.idempotency_key)
@@ -548,6 +557,43 @@ class PlannerToolPlanCompiler:
             current = current.get(part)
         text = str(current or "").strip()
         return text or None
+
+    def _resolve_declarative_value(
+        self,
+        value: Any,
+        *,
+        category: PlannerToolPlanCategory,
+        context: Any,
+    ) -> Any:
+        if isinstance(value, dict):
+            return {
+                str(key): self._resolve_declarative_value(
+                    item,
+                    category=category,
+                    context=context,
+                )
+                for key, item in value.items()
+            }
+        if isinstance(value, list):
+            return [
+                self._resolve_declarative_value(
+                    item,
+                    category=category,
+                    context=context,
+                )
+                for item in value
+            ]
+        if not isinstance(value, str):
+            return value
+        if value == "$category.label":
+            return category.label
+        if value == "$category.description":
+            return category.description
+        if value == "$category.idempotency_key":
+            return category.idempotency_key
+        if value.startswith("$context."):
+            return self._resolve_selector(value, context)
+        return value
 
     def _flag_enabled(self, name: str) -> bool:
         return str(os.getenv(name, "")).strip().lower() in {"1", "true", "yes", "on"}

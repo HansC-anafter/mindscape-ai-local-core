@@ -182,6 +182,14 @@ class DeclarativeRoleProfileResolver:
                         "resource_kind": "practice_sprint",
                         "effect": "write",
                         "slot": "planner",
+                        "arguments": {
+                            "title": "$category.label",
+                            "brief_text": "$context.primary.brief_text",
+                            "source_channel_kind": "$context.primary.source_channel_kind",
+                            "metadata": {
+                                "source": "$context.primary.source_url",
+                            },
+                        },
                     },
                     {
                         "step_code": "update_learning_ledger",
@@ -193,7 +201,16 @@ class DeclarativeRoleProfileResolver:
                 ],
             },
             manifest_path="/tmp/fixture_pack/manifest.yaml",
-            selection_context={"context": {"primary": {"title": "Product render"}}},
+            selection_context={
+                "context": {
+                    "primary": {
+                        "title": "Product render",
+                        "brief_text": "Create one bounded product render.",
+                        "source_channel_kind": "manual_note",
+                        "source_url": "mindscape://fixture/opportunity/1",
+                    }
+                }
+            },
         )
 
 
@@ -260,6 +277,11 @@ def test_declarative_planner_lane_compiler_builds_fixture_role_profile_plan(
         "update_learning_ledger",
     ]
     assert plan.steps[0].tool_name == "fixture_pack.fixture_create_practice_sprint"
+    assert plan.steps[0].arguments["title"] == "Product render"
+    assert plan.steps[0].arguments["brief_text"] == "Create one bounded product render."
+    assert plan.steps[0].arguments["metadata"]["source"] == (
+        "mindscape://fixture/opportunity/1"
+    )
     assert plan.steps[0].pack_role_name == "fixture_mentor"
     assert plan.steps[0].trace_id == "trace-fixture-role-profile"
     assert plan.steps[1].depends_on == ["create_practice_sprint_active_opportunity"]
