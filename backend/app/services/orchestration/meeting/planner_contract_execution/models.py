@@ -32,6 +32,12 @@ class PlannerDataOperation(BaseModel):
     target_object_kind: Optional[str] = Field(default=None)
     acceptance_condition: Optional[str] = Field(default=None)
     metadata: Dict[str, Any] = Field(default_factory=dict)
+    meeting_role_profile_code: Optional[str] = Field(default=None)
+    meeting_lane_code: Optional[str] = Field(default=None)
+    pack_role_name: Optional[str] = Field(default=None)
+    idempotency_scope: Optional[str] = Field(default=None)
+    resource_budget_class: Optional[str] = Field(default=None)
+    trace_id: Optional[str] = Field(default=None)
 
 
 class PlannerContractBinding(BaseModel):
@@ -53,6 +59,12 @@ class PlannerContractBinding(BaseModel):
     idempotency: Optional[str] = Field(default=None)
     approval_required: bool = Field(default=False)
     audit_fields: List[str] = Field(default_factory=list)
+    meeting_role_profile_code: Optional[str] = Field(default=None)
+    meeting_lane_code: Optional[str] = Field(default=None)
+    pack_role_name: Optional[str] = Field(default=None)
+    idempotency_scope: Optional[str] = Field(default=None)
+    resource_budget_class: Optional[str] = Field(default=None)
+    trace_id: Optional[str] = Field(default=None)
     source: str = Field(default="installed_manifest")
     contract: Dict[str, Any] = Field(default_factory=dict)
 

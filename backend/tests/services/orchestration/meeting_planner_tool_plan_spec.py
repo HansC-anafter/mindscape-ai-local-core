@@ -6,6 +6,9 @@ from backend.app.services.orchestration.meeting.planner_contract_execution.manif
 from backend.app.services.orchestration.meeting.planner_contract_execution.tool_plan_compiler import (
     PlannerToolPlanCompiler,
 )
+from backend.app.services.orchestration.meeting.role_profiles.resolver import (
+    SelectedMeetingRoleProfile,
+)
 
 
 def _planner_tool(code, resource_kind, effect, execution_hints):
@@ -99,6 +102,101 @@ class FakeRegistry(PlannerContractManifestRegistry):
         ]
 
 
+def _fixture_planner_tool(code, resource_kind, effect, *, idempotency="idempotency_key"):
+    return {
+        "pack_id": "fixture_pack",
+        "tool_code": code,
+        "canonical_tool_name": f"fixture_pack.{code}",
+        "planner_contract": {
+            "exposed": True,
+            "resource_kind": resource_kind,
+            "effect": effect,
+            "workspace_scoped": True,
+            "idempotency": "none" if effect == "read" else idempotency,
+            "audit_fields": ["workspace_id"],
+            "execution_hints": {
+                "result_selectors": {"object_id": "$.object.id"},
+                "max_selector_fanout": 50,
+            },
+        },
+        "execution_hints": {
+            "result_selectors": {"object_id": "$.object.id"},
+            "max_selector_fanout": 50,
+        },
+        "manifest_path": "/tmp/fixture_pack/manifest.yaml",
+    }
+
+
+class DeclarativeRegistry(PlannerContractManifestRegistry):
+    @staticmethod
+    def active_pack_id(session_metadata):
+        return "fixture_pack"
+
+    def __init__(self, *, idempotency="idempotency_key"):
+        self.idempotency = idempotency
+
+    def load_planner_tools_for_pack(self, pack_id):
+        assert pack_id == "fixture_pack"
+        return [
+            _fixture_planner_tool(
+                "fixture_create_practice_sprint",
+                "practice_sprint",
+                "write",
+                idempotency=self.idempotency,
+            ),
+            _fixture_planner_tool(
+                "fixture_update_learning_ledger",
+                "learning_ledger",
+                "write",
+                idempotency=self.idempotency,
+            ),
+        ]
+
+
+class DeclarativeRoleProfileResolver:
+    def resolve(self, *, session_metadata=None, request_contract=None):
+        return SelectedMeetingRoleProfile(
+            pack_id="fixture_pack",
+            code="fixture_practice_plan",
+            display_name="Fixture Practice Planning",
+            match={
+                "playbook_codes": ["fixture_daily_guided_practice"],
+                "expected_outputs": ["practice_sprint"],
+                "context_object_kinds": ["fixture_opportunity"],
+            },
+            slot_overrides={
+                "planner": {"pack_role_name": "fixture_mentor"},
+                "executor": {"pack_role_name": "fixture_dispatcher"},
+            },
+            planner_lane={
+                "code": "fixture_practice_lane",
+                "categories": [
+                    {
+                        "category_id": "active_opportunity",
+                        "label_selector": "$context.primary.title",
+                    }
+                ],
+                "steps": [
+                    {
+                        "step_code": "create_practice_sprint",
+                        "resource_kind": "practice_sprint",
+                        "effect": "write",
+                        "slot": "planner",
+                    },
+                    {
+                        "step_code": "update_learning_ledger",
+                        "resource_kind": "learning_ledger",
+                        "effect": "write",
+                        "depends_on": ["create_practice_sprint"],
+                        "slot": "executor",
+                    },
+                ],
+            },
+            manifest_path="/tmp/fixture_pack/manifest.yaml",
+            selection_context={"context": {"primary": {"title": "Product render"}}},
+        )
+
+
 def test_planner_tool_plan_compiler_builds_ig_category_plan():
     plan = PlannerToolPlanCompiler(FakeRegistry()).compile(
         request_contract={
@@ -130,6 +228,65 @@ def test_planner_tool_plan_compiler_builds_ig_category_plan():
     assert first_add_members.input_bindings["object_uris"][0].startswith(
         "$steps.list_seeds_cat_"
     )
+
+
+def test_declarative_planner_lane_compiler_builds_fixture_role_profile_plan(
+    monkeypatch,
+):
+    monkeypatch.setenv("MEETING_ROLE_PROFILES_ENABLED", "true")
+    monkeypatch.setenv("DECLARATIVE_PLANNER_LANE_ENABLED", "true")
+
+    plan = PlannerToolPlanCompiler(
+        DeclarativeRegistry(),
+        DeclarativeRoleProfileResolver(),
+    ).compile(
+        request_contract={"source_message": "fixture practice"},
+        session_metadata={
+            "active_capability_code": "fixture_pack",
+            "trace_id": "trace-fixture-role-profile",
+            "resource_budget_class": "interactive",
+        },
+        workspace_id="ws_demo",
+        meeting_id="mtg_demo",
+    )
+
+    assert plan is not None
+    assert plan.metadata["source"] == "meeting_role_profile_planner_lane"
+    assert plan.metadata["meeting_role_profile_code"] == "fixture_practice_plan"
+    assert plan.metadata["meeting_lane_code"] == "fixture_practice_lane"
+    assert [category.label for category in plan.categories] == ["Product render"]
+    assert [step.role for step in plan.steps] == [
+        "create_practice_sprint",
+        "update_learning_ledger",
+    ]
+    assert plan.steps[0].tool_name == "fixture_pack.fixture_create_practice_sprint"
+    assert plan.steps[0].pack_role_name == "fixture_mentor"
+    assert plan.steps[0].trace_id == "trace-fixture-role-profile"
+    assert plan.steps[1].depends_on == ["create_practice_sprint_active_opportunity"]
+    assert (
+        plan.steps[1].arguments["metadata"]["planner_contract"][
+            "meeting_role_profile_code"
+        ]
+        == "fixture_practice_plan"
+    )
+
+
+def test_declarative_planner_lane_rejects_mutating_step_without_idempotency(
+    monkeypatch,
+):
+    monkeypatch.setenv("MEETING_ROLE_PROFILES_ENABLED", "true")
+    monkeypatch.setenv("DECLARATIVE_PLANNER_LANE_ENABLED", "true")
+
+    with pytest.raises(ValueError, match="needs idempotency"):
+        PlannerToolPlanCompiler(
+            DeclarativeRegistry(idempotency="none"),
+            DeclarativeRoleProfileResolver(),
+        ).compile(
+            request_contract={"source_message": "fixture practice"},
+            session_metadata={"active_capability_code": "fixture_pack"},
+            workspace_id="ws_demo",
+            meeting_id="mtg_demo",
+        )
 
 
 @pytest.mark.asyncio

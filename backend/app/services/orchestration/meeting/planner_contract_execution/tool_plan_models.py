@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -32,6 +32,11 @@ class PlannerToolPlanStep(BaseModel):
     max_selector_fanout: int = Field(default=200, ge=1, le=500)
     depends_on: List[str] = Field(default_factory=list)
     planner_contract: Dict[str, Any] = Field(default_factory=dict)
+    meeting_role_profile_code: Optional[str] = Field(default=None)
+    meeting_lane_code: Optional[str] = Field(default=None)
+    pack_role_name: Optional[str] = Field(default=None)
+    resource_budget_class: Optional[str] = Field(default=None)
+    trace_id: Optional[str] = Field(default=None)
 
 
 class PlannerToolPlan(BaseModel):

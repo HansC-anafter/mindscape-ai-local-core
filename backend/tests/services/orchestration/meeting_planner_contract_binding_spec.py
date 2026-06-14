@@ -94,6 +94,14 @@ def test_binds_phase_tool_to_installed_planner_contract(tmp_path):
                     resource_kind="reference",
                     effect=DataOperationEffect.READ,
                     tool_name="ig_query_references",
+                    metadata={
+                        "meeting_role_profile_code": "fixture_practice_plan",
+                        "meeting_lane_code": "fixture_practice_lane",
+                        "pack_role_name": "fixture_mentor",
+                        "idempotency_scope": "meeting",
+                        "resource_budget_class": "interactive",
+                        "trace_id": "trace-bfc-core-role-profile",
+                    },
                 )
             ]
         ),
@@ -105,6 +113,15 @@ def test_binds_phase_tool_to_installed_planner_contract(tmp_path):
     assert phase.planner_contract_binding is not None
     assert phase.planner_contract_binding.resource_kind == "reference"
     assert phase.planner_contract_binding.approval_required is False
+    assert (
+        phase.planner_contract_binding.meeting_role_profile_code
+        == "fixture_practice_plan"
+    )
+    assert phase.planner_contract_binding.meeting_lane_code == "fixture_practice_lane"
+    assert phase.planner_contract_binding.pack_role_name == "fixture_mentor"
+    execution_context = phase.planner_contract_binding.as_execution_context()
+    assert execution_context["resource_budget_class"] == "interactive"
+    assert execution_context["trace_id"] == "trace-bfc-core-role-profile"
 
 
 @pytest.mark.asyncio

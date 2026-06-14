@@ -2,6 +2,7 @@
 Default multi-agent roster and topology for governance meetings.
 """
 
+import os
 from typing import Any, Dict, Optional
 
 from backend.app.models.playbook import AgentDefinition
@@ -152,7 +153,52 @@ def build_meeting_roster(
         agent_config = workspace_metadata.get("meeting_agents")
         if agent_config and isinstance(agent_config, dict):
             roster = _apply_agent_overrides(roster, agent_config)
+    if _meeting_role_profiles_enabled():
+        roster = _apply_pack_role_profile_overlay(
+            roster=roster,
+            workspace_metadata=workspace_metadata,
+        )
     return roster
+
+
+def _meeting_role_profiles_enabled() -> bool:
+    return str(os.getenv("MEETING_ROLE_PROFILES_ENABLED", "")).strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def _apply_pack_role_profile_overlay(
+    *,
+    roster: Dict[str, AgentDefinition],
+    workspace_metadata: Optional[Dict[str, Any]],
+) -> Dict[str, AgentDefinition]:
+    metadata = workspace_metadata if isinstance(workspace_metadata, dict) else {}
+    try:
+        from backend.app.services.orchestration.meeting.role_profiles import (
+            MeetingRoleProfileResolver,
+            apply_meeting_role_profile_overlay,
+        )
+
+        selected = MeetingRoleProfileResolver().resolve(
+            session_metadata=metadata,
+            request_contract=metadata.get("request_contract"),
+        )
+    except Exception:
+        return roster
+    if not selected or not _role_profile_pack_allowed(selected.pack_id):
+        return roster
+    return apply_meeting_role_profile_overlay(roster, selected)
+
+
+def _role_profile_pack_allowed(pack_id: str) -> bool:
+    raw_codes = str(os.getenv("MEETING_ROLE_PROFILES_ENABLED_PACK_CODES", "")).strip()
+    if not raw_codes:
+        return True
+    allowed = {code.strip() for code in raw_codes.split(",") if code.strip()}
+    return pack_id in allowed
 
 
 def _apply_agent_overrides(
@@ -170,16 +216,11 @@ def _apply_agent_overrides(
             new_prompt = agent.system_prompt + "\n" + suffix
         new_tools = overrides.get("tools", agent.tools)
         if new_prompt != agent.system_prompt or new_tools != agent.tools:
-            roster[agent_id] = AgentDefinition(
-                agent_id=agent.agent_id,
-                agent_name=agent.agent_name,
-                role=agent.role,
-                system_prompt=new_prompt,
-                tools=new_tools,
-                responsibility_boundary=agent.responsibility_boundary,
-                critical_rules=agent.critical_rules,
-                communication_style=agent.communication_style,
-                success_metrics=agent.success_metrics,
+            roster[agent_id] = agent.model_copy(
+                update={
+                    "system_prompt": new_prompt,
+                    "tools": new_tools,
+                }
             )
     return roster
 

@@ -86,3 +86,19 @@ class AgentDefinition(BaseModel):
         default=None,
         description="Measurable quality criteria for role output",
     )
+    pack_role_name: Optional[str] = Field(
+        default=None,
+        description="Concrete pack-defined role name overlaid on this core slot",
+    )
+    meeting_role_profile_code: Optional[str] = Field(
+        default=None,
+        description="Selected pack role profile code for this meeting roster slot",
+    )
+    meeting_lane_code: Optional[str] = Field(
+        default=None,
+        description="Selected meeting lane code for this role profile",
+    )
+    role_profile_metadata: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Planner-safe role profile metadata for trace and review",
+    )

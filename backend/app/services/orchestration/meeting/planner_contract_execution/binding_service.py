@@ -19,6 +19,15 @@ from backend.app.services.orchestration.meeting.planner_contract_execution.model
 
 logger = logging.getLogger(__name__)
 
+_ROLE_METADATA_KEYS = (
+    "meeting_role_profile_code",
+    "meeting_lane_code",
+    "pack_role_name",
+    "idempotency_scope",
+    "resource_budget_class",
+    "trace_id",
+)
+
 
 class PlannerContractBindingService:
     """Attach deterministic planner contract bindings to TaskIR phases."""
@@ -108,11 +117,16 @@ class PlannerContractBindingService:
             payload = raw.model_dump() if hasattr(raw, "model_dump") else raw
             if not isinstance(payload, dict):
                 continue
-            effect = str(payload.get("effect") or "").strip().lower()
+            effect = self._enum_value(payload.get("effect")).strip().lower()
             resource_kind = str(payload.get("resource_kind") or "").strip()
             if effect not in PlannerContractEffect._value2member_map_ or not resource_kind:
                 continue
             query = payload.get("query")
+            metadata = (
+                payload.get("metadata")
+                if isinstance(payload.get("metadata"), dict)
+                else {}
+            )
             operations.append(
                 PlannerDataOperation(
                     id=str(payload.get("id") or f"OP{index}"),
@@ -126,11 +140,8 @@ class PlannerContractBindingService:
                     query=query if isinstance(query, dict) else {},
                     target_object_kind=payload.get("target_object_kind"),
                     acceptance_condition=payload.get("acceptance_condition"),
-                    metadata=(
-                        payload.get("metadata")
-                        if isinstance(payload.get("metadata"), dict)
-                        else {}
-                    ),
+                    metadata=metadata,
+                    **self._role_metadata(metadata),
                 )
             )
         return operations
@@ -217,6 +228,10 @@ class PlannerContractBindingService:
             "phase_id": getattr(phase, "id", ""),
             "tool_name": canonical_tool_name,
             "operation_id": operation.id if operation else None,
+            "meeting_role_profile_code": (
+                operation.meeting_role_profile_code if operation else None
+            ),
+            "meeting_lane_code": operation.meeting_lane_code if operation else None,
         }
         digest = hashlib.sha256(
             json.dumps(binding_seed, sort_keys=True, separators=(",", ":")).encode("utf-8")
@@ -249,6 +264,29 @@ class PlannerContractBindingService:
                 for field in list(contract.get("audit_fields") or [])
                 if str(field or "").strip()
             ],
+            **self._binding_role_metadata(operation),
             source=str(tool.get("manifest_path") or "installed_manifest"),
             contract=contract,
         )
+
+    def _role_metadata(self, metadata: Dict[str, Any]) -> Dict[str, Optional[str]]:
+        return {
+            key: self._optional_string(metadata.get(key))
+            for key in _ROLE_METADATA_KEYS
+        }
+
+    def _binding_role_metadata(
+        self,
+        operation: Optional[PlannerDataOperation],
+    ) -> Dict[str, Optional[str]]:
+        if operation is None:
+            return {key: None for key in _ROLE_METADATA_KEYS}
+        return {key: getattr(operation, key) for key in _ROLE_METADATA_KEYS}
+
+    def _optional_string(self, value: Any) -> Optional[str]:
+        text = str(value or "").strip()
+        return text or None
+
+    def _enum_value(self, value: Any) -> str:
+        enum_value = getattr(value, "value", value)
+        return str(enum_value or "")
