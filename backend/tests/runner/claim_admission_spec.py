@@ -58,7 +58,11 @@ def test_claim_admission_allows_default_open_path():
         _Task(),
         _profile(),
         _budget(),
-        {"admission": {"state": "open"}, "memory": {"working_set_ratio": 0.25}},
+        {
+            "admission": {"state": "open"},
+            "memory": {"working_set_ratio": 0.25},
+            "cpu": {"usage_ratio": 0.5, "throttled_ratio": 0.1},
+        },
     )
 
     assert decision.allow is True
@@ -67,6 +71,8 @@ def test_claim_admission_allows_default_open_path():
     assert decision.observability["pack_id"] == "ig_analyze_following"
     assert decision.observability["queue_shard"] == "default_local"
     assert decision.observability["resource_admission_state"] == "open"
+    assert decision.observability["cpu_usage_ratio"] == 0.5
+    assert decision.observability["cpu_throttled_ratio"] == 0.1
 
 
 def test_claim_admission_delays_when_db_budget_pauses_claim_scan():
@@ -90,7 +96,7 @@ def test_claim_admission_delays_when_db_budget_pauses_claim_scan():
 
 
 def test_claim_admission_delays_runner_profile_mismatch():
-    task = _Task(queue_shard="browser_local")
+    task = _Task(pack_id="ig_pin_post_detail", queue_shard="browser_local")
 
     decision = decide_runner_claim_admission(
         task,

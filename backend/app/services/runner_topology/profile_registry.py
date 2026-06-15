@@ -151,6 +151,14 @@ def get_builtin_runner_profiles(
             accepted_resource_classes=(RESOURCE_CLASS_BROWSER,),
             max_inflight=max_inflight,
         ),
+        "browser_revisit_local": _build_profile(
+            profile_code="browser_revisit_local",
+            display_name="Browser Revisit Local Runner",
+            accepted_queue_partitions=(BROWSER_LOCAL_QUEUE_PARTITION,),
+            accepted_resource_classes=(RESOURCE_CLASS_BROWSER,),
+            accepted_capability_codes=("ig_analyze_following",),
+            max_inflight=max_inflight,
+        ),
         "vision_local": _build_profile(
             profile_code="vision_local",
             display_name="Vision Local Runner",

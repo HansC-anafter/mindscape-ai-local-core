@@ -17,6 +17,9 @@ from .profile_registry import (
     RunnerProfile,
 )
 
+_BROWSER_REVISIT_PROFILE = "browser_revisit_local"
+_BROWSER_REVISIT_PACK_IDS = frozenset({"ig_analyze_following"})
+
 
 @dataclass(frozen=True)
 class TaskRoutingTarget:
@@ -39,6 +42,21 @@ def _default_resource_class_for_queue_partition(queue_partition: Optional[str]) 
     if normalized_partition == BROWSER_LOCAL_QUEUE_PARTITION:
         return RESOURCE_CLASS_BROWSER
     return RESOURCE_CLASS_COMPUTE
+
+
+def _default_runner_profile_hint(
+    *,
+    pack_id: Optional[str],
+    queue_partition: str,
+    resource_class: str,
+) -> Optional[str]:
+    if (
+        pack_id in _BROWSER_REVISIT_PACK_IDS
+        and queue_partition == BROWSER_LOCAL_QUEUE_PARTITION
+        and resource_class == RESOURCE_CLASS_BROWSER
+    ):
+        return _BROWSER_REVISIT_PROFILE
+    return None
 
 
 def resolve_task_routing_target(task: Any) -> TaskRoutingTarget:
@@ -70,6 +88,11 @@ def resolve_task_routing_target(task: Any) -> TaskRoutingTarget:
         runner_profile_hint = (
             _normalized_string(task.get("runner_profile_hint"))
             or _normalized_string(ctx.get("runner_profile_hint"))
+            or _default_runner_profile_hint(
+                pack_id=pack_id,
+                queue_partition=queue_partition,
+                resource_class=resource_class,
+            )
         )
     else:
         ctx = getattr(task, "execution_context", None)
@@ -90,7 +113,13 @@ def resolve_task_routing_target(task: Any) -> TaskRoutingTarget:
             or _default_resource_class_for_queue_partition(queue_partition)
         )
         capability_code = _normalized_string(ctx.get("capability_code"))
-        runner_profile_hint = _normalized_string(ctx.get("runner_profile_hint"))
+        runner_profile_hint = _normalized_string(
+            ctx.get("runner_profile_hint")
+        ) or _default_runner_profile_hint(
+            pack_id=pack_id,
+            queue_partition=queue_partition,
+            resource_class=resource_class,
+        )
 
     return TaskRoutingTarget(
         queue_partition=queue_partition,

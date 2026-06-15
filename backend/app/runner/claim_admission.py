@@ -68,12 +68,16 @@ def _resource_observability(resource_snapshot: dict[str, Any] | None) -> dict[st
         return {}
     admission = resource_snapshot.get("admission")
     memory = resource_snapshot.get("memory")
+    cpu = resource_snapshot.get("cpu")
     payload: dict[str, Any] = {}
     if isinstance(admission, dict):
         payload["resource_admission_state"] = admission.get("state")
         payload["resource_admission_reasons"] = admission.get("reasons")
     if isinstance(memory, dict):
         payload["memory_working_set_ratio"] = memory.get("working_set_ratio")
+    if isinstance(cpu, dict):
+        payload["cpu_usage_ratio"] = cpu.get("usage_ratio")
+        payload["cpu_throttled_ratio"] = cpu.get("throttled_ratio")
     return payload
 
 

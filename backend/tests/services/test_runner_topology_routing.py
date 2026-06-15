@@ -9,7 +9,7 @@ from backend.app.services.runner_topology import (
 
 def _build_task(
     *,
-    pack_id: str = "ig_analyze_following",
+    pack_id: str = "ig_pin_post_detail",
     queue_shard: str = "browser_local",
     resource_class: str = "browser",
     capability_code: str | None = "ig",
@@ -62,6 +62,22 @@ def test_resolve_target_runner_profile_prefers_runner_profile_hint():
     assert resolve_target_runner_profile(task) == "gpu_training"
 
 
+def test_resolve_target_runner_profile_routes_following_to_revisit_runner():
+    task = _build_task(pack_id="ig_analyze_following")
+
+    target = resolve_task_routing_target(task)
+
+    assert target.queue_partition == "browser_local"
+    assert target.runner_profile_hint == "browser_revisit_local"
+    assert resolve_target_runner_profile(task) == "browser_revisit_local"
+
+
+def test_general_browser_task_stays_on_browser_runner():
+    task = _build_task(pack_id="ig_pin_post_detail")
+
+    assert resolve_target_runner_profile(task) == "browser_local"
+
+
 def test_runner_profile_can_claim_task_checks_partition_and_resource_class():
     browser_profile = RunnerProfile(
         profile_code="browser_local",
@@ -109,6 +125,28 @@ def test_runner_profile_can_claim_task_rejects_mismatched_profile_hint():
         browser_profile,
         _build_task(runner_profile_hint="vision_local"),
     )
+
+
+def test_general_browser_profile_cannot_claim_following_revisit_task():
+    browser_profile = RunnerProfile(
+        profile_code="browser_local",
+        display_name="Browser",
+        dispatch_mode="docker_local",
+        accepted_resource_classes=("browser",),
+        accepted_queue_partitions=("browser_local",),
+    )
+    revisit_profile = RunnerProfile(
+        profile_code="browser_revisit_local",
+        display_name="Browser Revisit",
+        dispatch_mode="docker_local",
+        accepted_resource_classes=("browser",),
+        accepted_queue_partitions=("browser_local",),
+        accepted_capability_codes=("ig_analyze_following",),
+    )
+    task = _build_task(pack_id="ig_analyze_following")
+
+    assert not runner_profile_can_claim_task(browser_profile, task)
+    assert runner_profile_can_claim_task(revisit_profile, task)
 
 
 def test_runner_profile_can_claim_task_respects_capability_filter():

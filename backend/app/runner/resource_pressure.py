@@ -12,6 +12,12 @@ import time
 from pathlib import Path
 from typing import Any, Optional
 
+from backend.app.runner.resource_pressure_cpu import (
+    build_cpu_delta_snapshot,
+    read_cpu_counters,
+    reset_cpu_samples_for_tests,
+)
+
 _BROWSER_RESOURCE_CLASS = "browser"
 _COOLDOWN_UNTIL_EPOCH = 0.0
 
@@ -189,6 +195,7 @@ def build_runner_resource_snapshot(
     """Build a JSON-safe cgroup resource snapshot for runner heartbeat/admission."""
     now = float(now_epoch if now_epoch is not None else time.time())
     counters = _read_cgroup_counters(cgroup_root)
+    cpu_counters = read_cpu_counters(cgroup_root)
 
     memory_current = counters["memory_current_bytes"]
     memory_limit = counters["memory_limit_bytes"]
@@ -218,6 +225,11 @@ def build_runner_resource_snapshot(
             "limit_raw": counters["pids_limit_raw"],
             "ratio": _ratio(pids_current, pids_limit),
         },
+        "cpu": build_cpu_delta_snapshot(
+            cgroup_root=cgroup_root,
+            now_epoch=now,
+            counters=cpu_counters,
+        ),
     }
     snapshot["admission"] = evaluate_browser_resource_pressure(
         snapshot,
@@ -245,9 +257,18 @@ def evaluate_browser_resource_pressure(
     pids_hard_ratio = _env_optional_float("LOCAL_CORE_RUNNER_BROWSER_PIDS_HARD_RATIO")
     pids_soft_count = _env_optional_int("LOCAL_CORE_RUNNER_BROWSER_PIDS_SOFT_COUNT")
     pids_hard_count = _env_optional_int("LOCAL_CORE_RUNNER_BROWSER_PIDS_HARD_COUNT")
+    cpu_soft_ratio = _env_float("LOCAL_CORE_RUNNER_BROWSER_CPU_SOFT_RATIO", 0.90)
+    cpu_hard_ratio = _env_float("LOCAL_CORE_RUNNER_BROWSER_CPU_HARD_RATIO", 0.98)
+    cpu_throttled_soft_ratio = _env_optional_float(
+        "LOCAL_CORE_RUNNER_BROWSER_CPU_THROTTLED_SOFT_RATIO"
+    )
+    cpu_throttled_hard_ratio = _env_optional_float(
+        "LOCAL_CORE_RUNNER_BROWSER_CPU_THROTTLED_HARD_RATIO"
+    )
 
     memory = snapshot.get("memory") if isinstance(snapshot, dict) else {}
     pids = snapshot.get("pids") if isinstance(snapshot, dict) else {}
+    cpu = snapshot.get("cpu") if isinstance(snapshot, dict) else {}
     inflight = snapshot.get("inflight") if isinstance(snapshot, dict) else None
     browser_session_max_active = max(
         1,
@@ -261,6 +282,10 @@ def evaluate_browser_resource_pressure(
             memory_ratio = memory.get("current_ratio")
     pids_ratio = pids.get("ratio") if isinstance(pids, dict) else None
     pids_current = pids.get("current") if isinstance(pids, dict) else None
+    cpu_ratio = cpu.get("usage_ratio") if isinstance(cpu, dict) else None
+    cpu_throttled_ratio = (
+        cpu.get("throttled_ratio") if isinstance(cpu, dict) else None
+    )
 
     reasons: list[str] = []
     hard_reasons: list[str] = []
@@ -282,6 +307,24 @@ def evaluate_browser_resource_pressure(
             hard_reasons.append("pids_hard_count")
         elif pids_soft_count is not None and pids_current >= pids_soft_count:
             reasons.append("pids_soft_count")
+
+    if isinstance(cpu_ratio, (int, float)):
+        if cpu_ratio >= cpu_hard_ratio:
+            hard_reasons.append("cpu_hard")
+        elif cpu_ratio >= cpu_soft_ratio:
+            reasons.append("cpu_soft")
+
+    if isinstance(cpu_throttled_ratio, (int, float)):
+        if (
+            cpu_throttled_hard_ratio is not None
+            and cpu_throttled_ratio >= cpu_throttled_hard_ratio
+        ):
+            hard_reasons.append("cpu_throttled_hard")
+        elif (
+            cpu_throttled_soft_ratio is not None
+            and cpu_throttled_ratio >= cpu_throttled_soft_ratio
+        ):
+            reasons.append("cpu_throttled_soft")
 
     if isinstance(inflight, int) and inflight >= browser_session_max_active:
         reasons.append("browser_session_slots")
@@ -305,6 +348,8 @@ def evaluate_browser_resource_pressure(
         "reasons": hard_reasons or reasons,
         "memory_soft_ratio": memory_soft_ratio,
         "memory_hard_ratio": memory_hard_ratio,
+        "cpu_soft_ratio": cpu_soft_ratio,
+        "cpu_hard_ratio": cpu_hard_ratio,
         "browser_session_max_active": browser_session_max_active,
         "cooldown_seconds": cooldown_seconds,
         "cooldown_until_epoch": (
@@ -346,3 +391,4 @@ def classify_subprocess_resource_failure(
 def _reset_resource_cooldown_for_tests() -> None:
     global _COOLDOWN_UNTIL_EPOCH
     _COOLDOWN_UNTIL_EPOCH = 0.0
+    reset_cpu_samples_for_tests()

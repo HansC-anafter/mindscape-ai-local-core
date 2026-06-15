@@ -42,6 +42,48 @@ def test_runner_resource_snapshot_uses_cgroup_working_set(tmp_path, monkeypatch)
     assert snapshot["admission"]["should_defer"] is False
 
 
+def test_runner_resource_pressure_defers_on_cpu_soft_ratio(tmp_path, monkeypatch):
+    monkeypatch.setenv("LOCAL_CORE_RUNNER_BROWSER_CPU_SOFT_RATIO", "0.80")
+    monkeypatch.setenv("LOCAL_CORE_RUNNER_BROWSER_CPU_HARD_RATIO", "0.99")
+    resource_pressure._reset_resource_cooldown_for_tests()
+
+    _write(tmp_path / "memory.current", "100")
+    _write(tmp_path / "memory.max", "1000")
+    _write(tmp_path / "memory.stat", "inactive_file 0\n")
+    _write(tmp_path / "pids.current", "12")
+    _write(tmp_path / "pids.max", "max")
+    _write(
+        tmp_path / "cpu.stat",
+        "usage_usec 1000000\nnr_periods 10\nnr_throttled 0\nthrottled_usec 0\n",
+    )
+    _write(tmp_path / "cpu.max", "100000 100000")
+
+    first = resource_pressure.build_runner_resource_snapshot(
+        profile_code="runner-browser",
+        cgroup_root=tmp_path,
+        now_epoch=100.0,
+    )
+    assert first["cpu"]["usage_ratio"] is None
+    assert first["admission"]["should_defer"] is False
+
+    _write(
+        tmp_path / "cpu.stat",
+        "usage_usec 1900000\nnr_periods 20\nnr_throttled 1\nthrottled_usec 1000\n",
+    )
+
+    second = resource_pressure.build_runner_resource_snapshot(
+        profile_code="runner-browser",
+        cgroup_root=tmp_path,
+        now_epoch=101.0,
+    )
+
+    assert second["cpu"]["quota_cores"] == 1.0
+    assert second["cpu"]["usage_ratio"] == pytest.approx(0.9)
+    assert second["admission"]["state"] == "soft_defer"
+    assert second["admission"]["should_defer"] is True
+    assert second["admission"]["reasons"] == ["cpu_soft"]
+
+
 def test_runner_resource_pressure_defers_when_browser_session_slots_are_full(
     tmp_path,
     monkeypatch,

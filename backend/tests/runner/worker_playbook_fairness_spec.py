@@ -1,6 +1,8 @@
 import asyncio
 from pathlib import Path
 
+import pytest
+
 from backend.app.models.workspace import Task, TaskStatus, _utc_now
 from backend.app.runner import worker
 from backend.app.runner.worker import (
@@ -134,6 +136,18 @@ def _browser_profile() -> RunnerProfile:
     )
 
 
+def _browser_revisit_profile() -> RunnerProfile:
+    return RunnerProfile(
+        profile_code="browser_revisit_local",
+        display_name="Browser Revisit",
+        dispatch_mode="docker_local",
+        accepted_resource_classes=("browser",),
+        accepted_queue_partitions=("browser_local",),
+        accepted_capability_codes=("ig_analyze_following",),
+        max_inflight=1,
+    )
+
+
 def _default_profile() -> RunnerProfile:
     return RunnerProfile(
         profile_code="default_local",
@@ -145,7 +159,7 @@ def _default_profile() -> RunnerProfile:
     )
 
 
-def test_route_gate_policy_selects_playbook_diversity():
+def test_route_gate_policy_selects_following_for_revisit_profile():
     queue = _FakeFairQueue(["task-following", "task-batch"])
     for task_id, pack_id in {
         "task-following": "ig_analyze_following",
@@ -158,7 +172,7 @@ def test_route_gate_policy_selects_playbook_diversity():
     task_id, queue_store, drain_wait = asyncio.run(
         _dequeue_by_route_gate_policy(
             [queue],
-            runner_profile=_browser_profile(),
+            runner_profile=_browser_revisit_profile(),
             visibility_timeout_sec=180,
             scan_limit=10,
             active_pack_ids={"ig_batch_pin_references"},
@@ -341,12 +355,29 @@ def test_worker_non_browser_keeps_existing_fifo_path(monkeypatch):
     assert queue.promoted == []
 
 
-def test_runner_browser_compose_has_no_reserved_analyze_following_slot():
-    compose_path = Path(__file__).resolve().parents[3] / "docker-compose.yml"
+def test_runner_default_compose_is_dedicated_following_revisit_lane():
+    compose_path = next(
+        (
+            candidate
+            for candidate in [
+                Path(__file__).resolve().parents[3] / "docker-compose.yml",
+                Path(__file__).resolve().parents[4] / "docker-compose.yml",
+            ]
+            if candidate.is_file()
+        ),
+        None,
+    )
+    if compose_path is None:
+        pytest.skip("docker-compose.yml is not mounted in this test container")
     compose_text = compose_path.read_text(encoding="utf-8")
 
     assert "LOCAL_CORE_RUNNER_RESERVED_PACK_SLOTS" not in compose_text
     assert "ig_analyze_following=1" not in compose_text
+    assert "LOCAL_CORE_RUNNER_DEFAULT_PROFILE:-browser_revisit_local" in compose_text
+    assert (
+        "LOCAL_CORE_RUNNER_DEFAULT_ACCEPTED_CAPABILITY_CODES:-ig_analyze_following"
+        in compose_text
+    )
 
 
 def test_database_recovery_error_detection_and_backoff():
