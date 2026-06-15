@@ -341,6 +341,24 @@ describe('WorkspaceSettingsToolPanel', () => {
     expect(screen.getByTestId('mock-workspace-tool-overlay-floating-panel')).toHaveAttribute('data-workspace-id', 'ws_test');
   });
 
+  it('loads workspace-scoped social media provider settings only from the Social section', async () => {
+    const fetchMock = stubOkFetch();
+
+    render(<WorkspaceSettingsToolPanel workspaceId="ws_test" apiUrl="http://api.test" />);
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(4);
+    });
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/api/v1/settings/extensions'))).toBe(false);
+
+    fireEvent.click(screen.getByRole('button', { name: /Social/ }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('mock-capability-extension-slot')).toHaveTextContent('social-media:youtube');
+    });
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/settings/extensions?section=social-media%3Ayoutube&workspace_id=ws_test');
+  });
+
   it('treats workspace execution as LLM model routing, not tool runtime extensions', async () => {
     const fetchMock = stubOkFetch();
 

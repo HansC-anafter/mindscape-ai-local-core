@@ -42,11 +42,11 @@ describe('RuntimeEnvironmentsSettings extension loader', () => {
     registryMock.loadCapabilityUIComponent.mockResolvedValue(LoadedRuntimePanel);
 
     const LazyPanel = createRuntimeSettingsExtensionComponent({
-      capabilityCode: 'youtube',
-      componentCode: 'YoutubeRuntimeSettingsPanel',
-      title: 'YouTube Data API',
-      description: 'Configure YouTube Data API key',
-      importPath: '@/app/capabilities/youtube/components/YoutubeRuntimeSettingsPanel.tsx',
+      capabilityCode: 'global_runtime_status',
+      componentCode: 'GlobalRuntimeStatusPanel',
+      title: 'Global Runtime Status',
+      description: 'Configure global runtime status',
+      importPath: '@/app/capabilities/global_runtime_status/components/GlobalRuntimeStatusPanel.tsx',
       export: 'default',
     });
 
@@ -60,18 +60,18 @@ describe('RuntimeEnvironmentsSettings extension loader', () => {
       expect(screen.getByTestId('loaded-runtime-panel')).toHaveTextContent('ig-browser:');
     });
     expect(registryMock.primeCapabilityUIComponentMetadata).toHaveBeenCalledWith(
-      'youtube',
+      'global_runtime_status',
       [
         expect.objectContaining({
-          code: 'YoutubeRuntimeSettingsPanel',
-          path: 'ui/components/YoutubeRuntimeSettingsPanel.tsx',
-          import_path: '@/app/capabilities/youtube/components/YoutubeRuntimeSettingsPanel.tsx',
+          code: 'GlobalRuntimeStatusPanel',
+          path: 'ui/components/GlobalRuntimeStatusPanel.tsx',
+          import_path: '@/app/capabilities/global_runtime_status/components/GlobalRuntimeStatusPanel.tsx',
         }),
       ],
     );
     expect(registryMock.loadCapabilityUIComponent).toHaveBeenCalledWith(
-      'youtube',
-      'YoutubeRuntimeSettingsPanel',
+      'global_runtime_status',
+      'GlobalRuntimeStatusPanel',
       expect.any(String),
     );
   });
@@ -89,16 +89,16 @@ describe('RuntimeEnvironmentsSettings extension loader', () => {
         return {
           ok: true,
           json: async () => ([{
-            capability_code: 'youtube',
-            component_code: 'YoutubeRuntimeSettingsPanel',
+            capability_code: 'global_runtime_status',
+            component_code: 'GlobalRuntimeStatusPanel',
             section: 'runtime-environments',
-            title: 'YouTube Data API',
-            description: 'Configure the YouTube Data API key used by the YouTube refs workbench.',
+            title: 'Global Runtime Status',
+            description: 'Configure global runtime status.',
             display_mode: null,
             requires_workspace_id: false,
             show_when: { always: true },
             props_schema: null,
-            import_path: '@/app/capabilities/youtube/components/YoutubeRuntimeSettingsPanel.tsx',
+            import_path: '@/app/capabilities/global_runtime_status/components/GlobalRuntimeStatusPanel.tsx',
             export: 'default',
           }]),
         } as Response;
@@ -116,12 +116,12 @@ describe('RuntimeEnvironmentsSettings extension loader', () => {
     render(<RuntimeEnvironmentsSettings />);
 
     await waitFor(() => {
-      expect(screen.getByText('YouTube Data API')).toBeInTheDocument();
+      expect(screen.getByText('Global Runtime Status')).toBeInTheDocument();
       expect(screen.getByTestId('loaded-runtime-panel')).toHaveTextContent('global:');
     });
     expect(registryMock.loadCapabilityUIComponent).toHaveBeenCalledWith(
-      'youtube',
-      'YoutubeRuntimeSettingsPanel',
+      'global_runtime_status',
+      'GlobalRuntimeStatusPanel',
       expect.any(String),
     );
   });
