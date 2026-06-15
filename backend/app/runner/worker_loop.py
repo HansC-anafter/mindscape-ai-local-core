@@ -416,6 +416,7 @@ async def run_forever() -> None:
             resource_snapshot=resource_snapshot,
             capacity=capacity,
             dep_checker=dep_checker,
+            visibility_timeout_sec=visibility_timeout_sec,
             lock_ttl_seconds=lock_ttl_seconds,
             db_recovery_backoff=db_recovery_backoff,
         )
