@@ -3,6 +3,7 @@ TasksStore CRUD core — create, get, update operations + private helpers.
 """
 
 import logging
+import os
 from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 
@@ -11,7 +12,9 @@ from sqlalchemy import text
 from app.services.stores.base import StoreNotFoundError
 from app.models.workspace import Task, TaskStatus
 from backend.app.services.runner_topology import (
+    BROWSER_LOCAL_QUEUE_PARTITION,
     DEFAULT_LOCAL_QUEUE_PARTITION,
+    VISION_LOCAL_QUEUE_PARTITION,
     canonical_queue_partition_for_pack,
     merge_runner_metadata_into_context,
     normalize_queue_partition,
@@ -89,6 +92,13 @@ def _normalize_queue_shard(value: Any) -> Optional[str]:
     return normalize_queue_partition(value, fallback=None)
 
 
+def _clean_queue_shard(value: Any) -> Optional[str]:
+    if not isinstance(value, str):
+        return None
+    cleaned = value.strip()
+    return cleaned or None
+
+
 def _resolve_queue_shard(
     pack_id: str, execution_context: Optional[Dict[str, Any]] = None
 ) -> str:
@@ -96,7 +106,7 @@ def _resolve_queue_shard(
     if isinstance(execution_context, dict):
         explicit_queue_shard = _normalize_queue_shard(
             execution_context.get("queue_partition")
-        ) or _normalize_queue_shard(
+        ) or _clean_queue_shard(
             execution_context.get("queue_shard")
         )
     if explicit_queue_shard:
@@ -110,7 +120,27 @@ def _resolve_queue_shard(
         )
         if metadata_queue_shard:
             return metadata_queue_shard
+    if isinstance(execution_context, dict):
+        resource_class = str(execution_context.get("resource_class") or "").strip().lower()
+        if resource_class == "browser":
+            return BROWSER_LOCAL_QUEUE_PARTITION
+        if resource_class == "compute":
+            return VISION_LOCAL_QUEUE_PARTITION
     return canonical_queue_partition_for_pack(pack_id)
+
+
+def _resolve_hydrated_queue_shard(
+    pack_id: str, execution_context: Optional[Dict[str, Any]] = None
+) -> str:
+    if isinstance(execution_context, dict):
+        explicit_queue_shard = _normalize_queue_shard(
+            execution_context.get("queue_partition")
+        ) or _normalize_queue_shard(
+            execution_context.get("queue_shard")
+        )
+        if explicit_queue_shard:
+            return explicit_queue_shard
+    return _resolve_queue_shard(pack_id, execution_context)
 
 
 def _enrich_runner_task_context(task: Task) -> None:
@@ -243,6 +273,11 @@ class TasksStoreCrudMixin:
 
     def _enqueue_runner_task_after_commit(self, task: Task) -> None:
         """Best-effort Redis enqueue after the DB transaction has committed."""
+        if os.getenv(
+            "LOCAL_CORE_TASK_POST_COMMIT_ENQUEUE_ENABLED",
+            "true",
+        ).lower() in {"0", "false", "no", "off"}:
+            return
         if task.status != TaskStatus.PENDING:
             return
         if task.task_type not in ("playbook_execution", "tool_execution"):
@@ -823,7 +858,15 @@ class TasksStoreCrudMixin:
             existing_row = conn.execute(
                 text(
                     """
-                    SELECT status
+                    SELECT
+                        status,
+                        pack_id,
+                        task_type,
+                        created_at,
+                        next_eligible_at,
+                        blocked_reason,
+                        frontier_state,
+                        frontier_enqueued_at
                     FROM tasks
                     WHERE id = :task_id
                     """
@@ -1015,7 +1058,15 @@ class TasksStoreCrudMixin:
             existing_row = conn.execute(
                 text(
                     """
-                    SELECT status
+                    SELECT
+                        status,
+                        pack_id,
+                        task_type,
+                        created_at,
+                        next_eligible_at,
+                        blocked_reason,
+                        frontier_state,
+                        frontier_enqueued_at
                     FROM tasks
                     WHERE id = :task_id
                     """
@@ -1023,12 +1074,99 @@ class TasksStoreCrudMixin:
                 {"task_id": task_id},
             ).fetchone()
             existing_status = None
+            existing_mapping = None
             if existing_row:
+                existing_mapping = (
+                    existing_row._mapping if hasattr(existing_row, "_mapping") else None
+                )
                 existing_status = (
-                    existing_row._mapping["status"]
-                    if hasattr(existing_row, "_mapping")
+                    existing_mapping["status"]
+                    if existing_mapping is not None
                     else existing_row[0]
                 )
+            if execution_context is not None and existing_row:
+                explicit_update_keys = set(kwargs.keys())
+                status_source = kwargs.get("status", existing_status)
+                status_raw = _coerce_task_status(status_source)
+                existing_task_type = (
+                    existing_mapping["task_type"]
+                    if existing_mapping is not None
+                    else existing_row[2]
+                )
+                if (
+                    existing_task_type in _RUNNER_TASK_TYPES
+                    and status_raw == TaskStatus.PENDING.value
+                ):
+                    now = _utc_now()
+                    existing_next_eligible_at = self._coerce_datetime(
+                        existing_mapping["next_eligible_at"]
+                        if existing_mapping is not None
+                        else existing_row[4]
+                    )
+                    effective_next_eligible_at = existing_next_eligible_at
+                    parsed_resume_after = _parse_resume_after(
+                        execution_context.get("resume_after")
+                    )
+                    if (
+                        parsed_resume_after is not None
+                        and "next_eligible_at" not in explicit_update_keys
+                    ):
+                        updates.append("next_eligible_at = :next_eligible_at")
+                        params["next_eligible_at"] = parsed_resume_after
+                        effective_next_eligible_at = parsed_resume_after
+
+                    existing_blocked_reason = (
+                        existing_mapping["blocked_reason"]
+                        if existing_mapping is not None
+                        else existing_row[5]
+                    )
+                    effective_blocked_reason = existing_blocked_reason
+                    derived_blocked_reason = execution_context.get("runner_skip_reason")
+                    if (
+                        not derived_blocked_reason
+                        and isinstance(execution_context.get("dependency_hold"), dict)
+                    ):
+                        derived_blocked_reason = "dependency_hold"
+                    if (
+                        derived_blocked_reason
+                        and "blocked_reason" not in explicit_update_keys
+                    ):
+                        updates.append("blocked_reason = :blocked_reason")
+                        params["blocked_reason"] = derived_blocked_reason
+                        effective_blocked_reason = derived_blocked_reason
+
+                    if effective_blocked_reason:
+                        derived_frontier_state = "cold"
+                    elif effective_next_eligible_at and effective_next_eligible_at > now:
+                        derived_frontier_state = "cold"
+                    else:
+                        derived_frontier_state = "ready"
+
+                    if "frontier_state" not in explicit_update_keys:
+                        updates.append("frontier_state = :frontier_state")
+                        params["frontier_state"] = derived_frontier_state
+
+                    if "frontier_enqueued_at" not in explicit_update_keys:
+                        existing_frontier_enqueued_at = self._coerce_datetime(
+                            existing_mapping["frontier_enqueued_at"]
+                            if existing_mapping is not None
+                            else existing_row[7]
+                        )
+                        existing_created_at = self._coerce_datetime(
+                            existing_mapping["created_at"]
+                            if existing_mapping is not None
+                            else existing_row[3]
+                        )
+                        if derived_frontier_state == "ready":
+                            frontier_enqueued_at = (
+                                existing_frontier_enqueued_at
+                                or existing_created_at
+                                or now
+                            )
+                        else:
+                            frontier_enqueued_at = None
+                        updates.append("frontier_enqueued_at = :frontier_enqueued_at")
+                        params["frontier_enqueued_at"] = frontier_enqueued_at
             query = text(f"UPDATE tasks SET {', '.join(updates)} WHERE id = :task_id")
             result_row = conn.execute(query, params)
             if result_row.rowcount == 0:
@@ -1232,9 +1370,12 @@ class TasksStoreCrudMixin:
             or _utc_now(),
             blocked_reason=getattr(row, "blocked_reason", None),
             blocked_payload=blocked_payload,
-            queue_shard=normalize_queue_partition(
-                getattr(row, "queue_shard", None),
-                fallback=DEFAULT_LOCAL_QUEUE_PARTITION,
+            queue_shard=(
+                normalize_queue_partition(
+                    getattr(row, "queue_shard", None),
+                    fallback=None,
+                )
+                or _resolve_hydrated_queue_shard(row.pack_id, execution_context)
             ),
             concurrency_key=getattr(row, "concurrency_key", None),
             frontier_state=getattr(row, "frontier_state", "cold") or "cold",
