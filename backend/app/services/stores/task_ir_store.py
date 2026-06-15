@@ -5,7 +5,6 @@ Manages the persistence of Task IR objects, enabling cross-engine task state
 sharing and long-running task resumption.
 """
 
-import json
 import logging
 from datetime import datetime, timezone
 
@@ -16,8 +15,12 @@ def _utc_now():
 
 
 from typing import Dict, Any, List, Optional
+from backend.app.services.stores.task_ir_projection import (
+    row_to_task_ir,
+    task_ir_stats_from_row,
+)
 from backend.app.services.stores.base import StoreBase, StoreNotFoundError
-from backend.app.models.task_ir import TaskIR, TaskIRUpdate, PhaseIR, ArtifactReference
+from backend.app.models.task_ir import TaskIR, TaskIRUpdate
 
 logger = logging.getLogger(__name__)
 
@@ -436,39 +439,7 @@ class TaskIRStore(StoreBase):
         Returns:
             Task IR instance
         """
-        # Parse JSON fields
-        phases_data = self.deserialize_json(row["phases"])
-        artifacts_data = self.deserialize_json(row["artifacts"])
-        metadata_data = self.deserialize_json(row["metadata"])
-
-        # Convert to model instances
-        phases = [PhaseIR(**phase_data) for phase_data in phases_data]
-        artifacts = [
-            ArtifactReference(**artifact_data) for artifact_data in artifacts_data
-        ]
-
-        from backend.app.models.task_ir import ExecutionMetadata
-
-        metadata = ExecutionMetadata(**metadata_data)
-
-        return TaskIR(
-            task_id=row["task_id"],
-            intent_instance_id=row["intent_instance_id"],
-            workspace_id=row["workspace_id"],
-            actor_id=row["actor_id"],
-            current_phase=row["current_phase"],
-            status=row["status"],
-            phases=phases,
-            artifacts=artifacts,
-            metadata=metadata,
-            created_at=datetime.fromisoformat(row["created_at"]),
-            updated_at=datetime.fromisoformat(row["updated_at"]),
-            last_checkpoint_at=(
-                datetime.fromisoformat(row["last_checkpoint_at"])
-                if row["last_checkpoint_at"]
-                else None
-            ),
-        )
+        return row_to_task_ir(row, deserialize_json=self.deserialize_json)
 
     def get_task_ir_stats(self, workspace_id: Optional[str] = None) -> Dict[str, Any]:
         """
@@ -511,19 +482,4 @@ class TaskIRStore(StoreBase):
                 )
 
             row = cursor.fetchone()
-            if row:
-                return {
-                    "total_tasks": row[0],
-                    "completed_tasks": row[1],
-                    "running_tasks": row[2],
-                    "failed_tasks": row[3],
-                    "avg_duration_hours": row[4] if row[4] else 0,
-                }
-
-            return {
-                "total_tasks": 0,
-                "completed_tasks": 0,
-                "running_tasks": 0,
-                "failed_tasks": 0,
-                "avg_duration_hours": 0,
-            }
+            return task_ir_stats_from_row(row)

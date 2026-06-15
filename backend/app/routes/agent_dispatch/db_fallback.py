@@ -13,6 +13,14 @@ import time
 from typing import Any, Dict, List, Optional
 
 from .connection_manager import _get_core_db_connection, _get_worker_instance_id
+from .db_fallback_projection import (
+    consumer_dispatch_failed_result,
+    insert_failed_result,
+    pending_dispatch_task,
+    pending_record_from_row,
+    pending_result_from_row,
+    timeout_result,
+)
 from .models import InflightTask
 
 logger = logging.getLogger(__name__)
@@ -43,11 +51,7 @@ class DbFallbackMixin:
                 "[AgentWS] Failed to insert pending_dispatch for %s",
                 execution_id,
             )
-            return {
-                "execution_id": execution_id,
-                "status": "failed",
-                "error": f"Cross-worker DB fallback failed: {exc}",
-            }
+            return insert_failed_result(execution_id, exc)
 
         poll_interval = 0.5
         last_activity = time.monotonic()
@@ -92,11 +96,7 @@ class DbFallbackMixin:
             timeout,
             execution_id,
         )
-        return {
-            "execution_id": execution_id,
-            "status": "timeout",
-            "error": f"No activity for {timeout:.0f}s (cross-worker)",
-        }
+        return timeout_result(execution_id, timeout)
 
     async def consume_pending_dispatches(self) -> None:
         """Background task: poll pending_dispatch and dispatch locally."""
@@ -184,11 +184,7 @@ class DbFallbackMixin:
                         await asyncio.to_thread(
                             self._db_write_pending_result,
                             exec_id,
-                            {
-                                "execution_id": exec_id,
-                                "status": "failed",
-                                "error": f"Consumer dispatch failed: {exc}",
-                            },
+                            consumer_dispatch_failed_result(exec_id, exc),
                         )
                         continue
 
@@ -387,15 +383,7 @@ class DbFallbackMixin:
                     "WHERE execution_id = %s",
                     (execution_id,),
                 )
-                row = cur.fetchone()
-                if not row:
-                    return None, None, None
-                result_data, status, progress_at = row
-                if status == "done" and result_data is not None:
-                    if isinstance(result_data, str):
-                        return json.loads(result_data), status, progress_at
-                    return result_data, status, progress_at
-                return None, status, progress_at
+                return pending_result_from_row(cur.fetchone())
         finally:
             conn.close()
 
@@ -413,20 +401,7 @@ class DbFallbackMixin:
                     "WHERE execution_id = %s",
                     (execution_id,),
                 )
-                row = cur.fetchone()
-                if not row:
-                    return None
-                workspace_id, payload_data, status, result_data = row
-                if isinstance(payload_data, str):
-                    payload_data = json.loads(payload_data)
-                if isinstance(result_data, str):
-                    result_data = json.loads(result_data)
-                return {
-                    "workspace_id": workspace_id,
-                    "payload": payload_data,
-                    "status": status,
-                    "result_data": result_data,
-                }
+                return pending_record_from_row(cur.fetchone())
         finally:
             conn.close()
 
@@ -513,15 +488,7 @@ class DbFallbackMixin:
                         "WHERE id = %s",
                         (os.getpid(), _get_worker_instance_id(), row_id),
                     )
-                    if isinstance(payload_data, str):
-                        payload_data = json.loads(payload_data)
-                    result.append(
-                        {
-                            "execution_id": exec_id,
-                            "workspace_id": ws_id,
-                            "payload": payload_data,
-                        }
-                    )
+                    result.append(pending_dispatch_task(exec_id, ws_id, payload_data))
 
                 conn.commit()
                 return result

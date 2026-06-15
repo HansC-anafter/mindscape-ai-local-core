@@ -1,7 +1,6 @@
 """Postgres adaptation of ArtifactsStore."""
 
 import logging
-import re
 from datetime import datetime, timezone
 
 
@@ -13,8 +12,13 @@ def _utc_now():
 from typing import Any, Dict, List, Optional
 from sqlalchemy import text
 
+from .artifacts_projection import (
+    build_artifact_filters,
+    normalize_artifact_type,
+    row_to_artifact,
+)
 from ..postgres_base import PostgresStoreBase
-from app.models.workspace import Artifact, ArtifactType, PrimaryActionType
+from app.models.workspace import Artifact
 from ..artifacts_store import ArtifactsStore
 
 logger = logging.getLogger(__name__)
@@ -32,45 +36,6 @@ class PostgresArtifactsStore(PostgresStoreBase):
         "created_at, updated_at"
     )
 
-    def _build_artifact_filters(
-        self,
-        workspace_id: str,
-        playbook_code: Optional[str] = None,
-        intent_id: Optional[str] = None,
-        platform: Optional[str] = None,
-        kind: Optional[str] = None,
-        artifact_types: Optional[List[str]] = None,
-    ) -> tuple[str, Dict[str, Any]]:
-        """Build reusable SQL WHERE clause and params for artifact listing/count."""
-        clauses = ["workspace_id = :workspace_id"]
-        params: Dict[str, Any] = {"workspace_id": workspace_id}
-
-        if playbook_code:
-            clauses.append("playbook_code = :playbook_code")
-            params["playbook_code"] = playbook_code
-
-        if intent_id:
-            clauses.append("intent_id = :intent_id")
-            params["intent_id"] = intent_id
-
-        if platform:
-            escaped_platform = re.escape(platform)
-            clauses.append("metadata ~ :platform_regex")
-            params["platform_regex"] = (
-                f'"platform"\\s*:\\s*"{escaped_platform}"'
-            )
-
-        if kind:
-            escaped_kind = re.escape(kind)
-            clauses.append("metadata ~ :kind_regex")
-            params["kind_regex"] = f'"kind"\\s*:\\s*"{escaped_kind}"'
-
-        if artifact_types:
-            clauses.append("artifact_type = ANY(:artifact_types)")
-            params["artifact_types"] = artifact_types
-
-        return " AND ".join(clauses), params
-
     def count_artifacts(
         self,
         workspace_id: str,
@@ -81,7 +46,7 @@ class PostgresArtifactsStore(PostgresStoreBase):
         artifact_types: Optional[List[str]] = None,
     ) -> int:
         """Count artifacts with DB-level filtering."""
-        where_clause, params = self._build_artifact_filters(
+        where_clause, params = build_artifact_filters(
             workspace_id=workspace_id,
             playbook_code=playbook_code,
             intent_id=intent_id,
@@ -112,7 +77,7 @@ class PostgresArtifactsStore(PostgresStoreBase):
 
         When include_content is False, the content column is not selected/deserialized.
         """
-        where_clause, params = self._build_artifact_filters(
+        where_clause, params = build_artifact_filters(
             workspace_id=workspace_id,
             playbook_code=playbook_code,
             intent_id=intent_id,
@@ -286,9 +251,7 @@ class PostgresArtifactsStore(PostgresStoreBase):
         limit: Optional[int] = None,
     ) -> List[Artifact]:
         """List artifacts for a playbook/type tuple."""
-        artifact_type_value = (
-            artifact_type.value if hasattr(artifact_type, "value") else artifact_type
-        )
+        artifact_type_value = normalize_artifact_type(artifact_type)
         with self.get_connection() as conn:
             query_str = (
                 "SELECT * FROM artifacts "
@@ -316,9 +279,7 @@ class PostgresArtifactsStore(PostgresStoreBase):
         artifact_type: str,
     ) -> List[Artifact]:
         """List artifacts currently marked latest for a playbook/type tuple."""
-        artifact_type_value = (
-            artifact_type.value if hasattr(artifact_type, "value") else artifact_type
-        )
+        artifact_type_value = normalize_artifact_type(artifact_type)
         with self.get_connection() as conn:
             query = text(
                 """
@@ -345,9 +306,7 @@ class PostgresArtifactsStore(PostgresStoreBase):
         self, workspace_id: str, playbook_code: str, artifact_type: str
     ) -> int:
         """Return the next artifact version for a playbook/type tuple."""
-        artifact_type_value = (
-            artifact_type.value if hasattr(artifact_type, "value") else artifact_type
-        )
+        artifact_type_value = normalize_artifact_type(artifact_type)
         with self.get_connection() as conn:
             query = text(
                 """
@@ -483,28 +442,10 @@ class PostgresArtifactsStore(PostgresStoreBase):
 
     def _row_to_artifact(self, row, include_content: bool = True) -> Artifact:
         """Convert database row to Artifact model."""
-        content = {}
-        if include_content:
-            content = self.deserialize_json(row.content, {})
-
-        return Artifact(
-            id=row.id,
-            workspace_id=row.workspace_id,
-            intent_id=row.intent_id,
-            task_id=row.task_id,
-            execution_id=row.execution_id,
-            thread_id=row.thread_id,
-            playbook_code=row.playbook_code,
-            artifact_type=ArtifactType(row.artifact_type),
-            title=row.title,
-            summary=row.summary if row.summary else "",
-            content=content,
-            storage_ref=row.storage_ref,
-            sync_state=row.sync_state,
-            primary_action_type=PrimaryActionType(row.primary_action_type),
-            metadata=self.deserialize_json(row.metadata, {}),
-            created_at=row.created_at,
-            updated_at=row.updated_at,
+        return row_to_artifact(
+            row,
+            deserialize_json=self.deserialize_json,
+            include_content=include_content,
         )
 
     def _assert_artifact_payload_budget(
