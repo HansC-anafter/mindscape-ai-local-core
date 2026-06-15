@@ -36,6 +36,7 @@ class RuntimeBindingTarget:
     transport: Optional[str]
     site_key: Optional[str]
     device_id: Optional[str]
+    binding_scope: Optional[str]
     via: str
 
 
@@ -134,6 +135,7 @@ def resolve_runtime_binding(
         transport=transport,
         site_key=site_key,
         device_id=device_id,
+        binding_scope=None,
         via=via,
     )
 
@@ -205,6 +207,12 @@ def _normalize_runtime_environment_metadata(snapshot: Any) -> dict[str, str]:
     if config_url and "runtime_url" not in normalized:
         normalized["runtime_url"] = config_url
 
+    host_resource_slot = metadata.get("host_resource_slot")
+    if isinstance(host_resource_slot, dict):
+        binding_scope = _normalized_string(host_resource_slot.get("model_binding_scope"))
+        if binding_scope:
+            normalized["binding_scope"] = binding_scope
+
     return normalized
 
 
@@ -225,6 +233,7 @@ def resolve_runtime_dispatch_target(
     transport = binding.transport
     site_key = binding.site_key
     device_id = binding.device_id
+    binding_scope = binding.binding_scope
     via = binding.via
 
     hydrated = False
@@ -257,6 +266,9 @@ def resolve_runtime_dispatch_target(
                 if resolved_device_id:
                     device_id = resolved_device_id
                     hydrated = True
+            if not binding_scope and runtime_meta.get("binding_scope"):
+                binding_scope = runtime_meta["binding_scope"]
+                hydrated = True
 
     if runtime_id and not dispatch_mode:
         dispatch_mode = "external_runtime"
@@ -273,5 +285,6 @@ def resolve_runtime_dispatch_target(
         transport=transport,
         site_key=site_key,
         device_id=device_id,
+        binding_scope=binding_scope,
         via=via,
     )

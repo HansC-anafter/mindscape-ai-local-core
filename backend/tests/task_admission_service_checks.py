@@ -50,10 +50,11 @@ def _build_task(
 class _MemoryTasksStore:
     def __init__(self) -> None:
         self.rows: list[dict] = []
+        self.single_flight_queries: list[str] = []
 
     @contextmanager
     def get_connection(self):
-        yield _MemoryTaskPressureConnection(self.rows)
+        yield _MemoryTaskPressureConnection(self.rows, self.single_flight_queries)
 
     def insert_rows(self, *rows: dict) -> None:
         self.rows.extend(dict(row) for row in rows)
@@ -68,13 +69,20 @@ class _MemoryTaskPressureResult:
 
 
 class _MemoryTaskPressureConnection:
-    def __init__(self, rows: list[dict]) -> None:
+    def __init__(self, rows: list[dict], single_flight_queries: list[str]) -> None:
         self.rows = rows
+        self.single_flight_queries = single_flight_queries
 
     def execute(self, query, params):
         query_text = str(query)
         if "concurrency_key = :concurrency_key" in query_text:
-            return _MemoryTaskPressureResult(self._single_flight_conflict(params))
+            query_kind = (
+                "pending" if "status = :pending_status" in query_text else "running"
+            )
+            self.single_flight_queries.append(query_kind)
+            return _MemoryTaskPressureResult(
+                self._single_flight_conflict(params, query_kind)
+            )
         if "pending_total" in query_text:
             return _MemoryTaskPressureResult(self._pending_pressure(params))
         if "running_total" in query_text:
@@ -123,8 +131,8 @@ class _MemoryTaskPressureConnection:
         ]
         return SimpleNamespace(running_total=len(running_rows))
 
-    def _single_flight_conflict(self, params: dict):
-        for row in self.rows:
+    def _single_flight_conflict(self, params: dict, query_kind: str):
+        for row in sorted(self.rows, key=lambda item: (item["created_at"], item["id"])):
             if row.get("id") == params["task_id"]:
                 continue
             if row.get("concurrency_key") != params["concurrency_key"]:
@@ -134,15 +142,18 @@ class _MemoryTaskPressureConnection:
                 params["task_type_tool"],
             }:
                 continue
-            if row.get("status") == params["running_status"] and (
-                row.get("frontier_state") in {None, params["running_frontier_state"]}
+            if (
+                query_kind == "running"
+                and row.get("status") == params["running_status"]
+                and row.get("frontier_state")
+                in {None, params["running_frontier_state"]}
             ):
                 return SimpleNamespace(
                     id=row.get("id"),
                     status=row.get("status"),
                     frontier_state=row.get("frontier_state"),
                 )
-            if (
+            if query_kind == "pending" and (
                 row.get("status") == params["pending_status"]
                 and row.get("frontier_state")
                 in {params["ready_frontier_state"], params["running_frontier_state"]}
@@ -421,6 +432,7 @@ def test_single_flight_defers_same_playbook_key_when_ready_task_exists(monkeypat
     assert decision.blocked_payload["reason"] == "active_window"
     assert decision.blocked_payload["conflict_task_id"] == "ready-existing"
     assert decision.execution_context["admission"]["state"] == "deferred"
+    assert store.single_flight_queries == ["running", "pending"]
 
 
 def test_single_flight_allows_different_playbook_key(monkeypatch):
@@ -476,3 +488,4 @@ def test_single_flight_release_keeps_task_cold_when_same_key_running(monkeypatch
     assert decision.allow is False
     assert decision.blocked_payload["policy"] == "single_flight_admission"
     assert decision.blocked_payload["conflict_task_id"] == "running-existing"
+    assert store.single_flight_queries == ["running"]

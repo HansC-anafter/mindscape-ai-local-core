@@ -1,5 +1,6 @@
 from backend.app.models.workspace import Task, TaskStatus, _utc_now
 from backend.app.runner.task_executor import _apply_runtime_binding_to_playbook_task
+from backend.app.services.runner_topology.runtime_binding import RuntimeBindingTarget
 
 
 def _build_task(*, task_type: str = "playbook_execution", capability_code: str = "character_training") -> Task:
@@ -98,3 +99,53 @@ def test_apply_runtime_binding_to_playbook_task_does_not_force_remote_for_tool_t
     assert "execution_backend" not in inputs
     assert "remote_request_payload" not in inputs
     assert ctx["selected_runtime_id"] == "runtime-gpu-b"
+
+
+def test_apply_runtime_binding_to_playbook_task_keeps_local_host_runtime_in_process(
+    monkeypatch,
+):
+    task = _build_task(capability_code="decision_assets.synthesize")
+
+    monkeypatch.setattr(
+        "backend.app.runner.task_executor.resolve_runner_profile_from_env",
+        lambda default_max_inflight=1: type(
+            "Profile",
+            (),
+            {
+                "profile_code": "35b_synthesis",
+                "display_name": "35B",
+                "dispatch_mode": "external_runtime",
+                "accepted_resource_classes": ("compute",),
+                "accepted_queue_partitions": ("decision_synthesis",),
+                "runtime_id": "runtime-35b-synthesis",
+                "max_inflight": 1,
+                "enabled": True,
+            },
+        )(),
+    )
+    monkeypatch.setattr(
+        "backend.app.runner.task_executor.resolve_runtime_dispatch_target",
+        lambda *_args, **_kwargs: RuntimeBindingTarget(
+            dispatch_mode="external_runtime",
+            runtime_id="runtime-35b-synthesis",
+            runtime_url="http://localhost:8212",
+            transport="mlx_vlm_http",
+            site_key=None,
+            device_id=None,
+            binding_scope="local",
+            via="task_runtime_affinity+runner_profile+runtime_environment",
+        ),
+    )
+
+    inputs, ctx, _binding = _apply_runtime_binding_to_playbook_task(
+        task,
+        task.execution_context,
+        {"workspace_id": task.workspace_id},
+        profile_id="default-user",
+    )
+
+    assert "execution_backend" not in inputs
+    assert "remote_request_payload" not in inputs
+    assert inputs["runtime_id"] == "runtime-35b-synthesis"
+    assert ctx["runtime_binding"]["binding_scope"] == "local"
+    assert ctx["selected_runtime_id"] == "runtime-35b-synthesis"

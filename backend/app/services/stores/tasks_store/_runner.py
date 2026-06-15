@@ -17,6 +17,12 @@ from ._base import _utc_now
 
 logger = logging.getLogger(__name__)
 
+_WORKSPACE_QUOTA_RELEASE_REASONS = (
+    "workspace_allocation_quota_exhausted",
+    "workspace_allocation_required",
+    "workspace_allocation_disabled",
+)
+
 _CLAIM_CONTEXT_STALE_KEYS = (
     "dependency_hold",
     "error",
@@ -373,6 +379,7 @@ class TasksStoreRunnerMixin:
         task_selector: str,
         allocation_key: str,
         max_parallel_task_claims: int,
+        blocked_reasons: Optional[List[str]] = None,
         execution_context: Optional[Dict[str, Any]] = None,
         now: Optional[datetime] = None,
     ) -> bool:
@@ -386,6 +393,20 @@ class TasksStoreRunnerMixin:
             for selector in (_clean_string(selector) for selector in selectors)
             if selector
         ]
+        normalized_blocked_reasons = [
+            reason
+            for reason in (
+                _clean_string(reason)
+                for reason in (
+                    blocked_reasons
+                    if blocked_reasons is not None
+                    else _WORKSPACE_QUOTA_RELEASE_REASONS
+                )
+            )
+            if reason
+        ]
+        if not normalized_blocked_reasons:
+            normalized_blocked_reasons = list(_WORKSPACE_QUOTA_RELEASE_REASONS)
         fairness_overflow_limit = max_parallel_task_claims + max(
             0,
             len(normalized_selectors) - 1,
@@ -461,7 +482,7 @@ class TasksStoreRunnerMixin:
 
             result = conn.execute(
                 text(
-                    """
+                    f"""
                     UPDATE tasks
                     SET next_eligible_at = :now,
                         blocked_reason = NULL,
@@ -473,7 +494,7 @@ class TasksStoreRunnerMixin:
                     WHERE id = :task_id
                       AND status = :pending_status
                       AND frontier_state = :cold_frontier_state
-                      AND blocked_reason = :quota_blocked_reason
+                      AND blocked_reason IN ({", ".join(f":blocked_reason_{index}" for index in range(len(normalized_blocked_reasons)))})
                     """
                 ),
                 {
@@ -483,12 +504,15 @@ class TasksStoreRunnerMixin:
                     "pending_status": TaskStatus.PENDING.value,
                     "ready_frontier_state": "ready",
                     "cold_frontier_state": "cold",
-                    "quota_blocked_reason": "workspace_allocation_quota_exhausted",
                     "execution_context": (
                         self.serialize_json(execution_context)
                         if isinstance(execution_context, dict)
                         else None
                     ),
+                    **{
+                        f"blocked_reason_{index}": reason
+                        for index, reason in enumerate(normalized_blocked_reasons)
+                    },
                 },
             )
             return result.rowcount == 1

@@ -1,5 +1,5 @@
 """
-TasksStore query mixin — all list_* and find_* read-only methods.
+TasksStore query mixin - all list_* and find_* read-only methods.
 """
 
 import logging
@@ -18,6 +18,13 @@ from backend.app.services.task_admission_service import ADMISSION_DEFERRED_REASO
 
 logger = logging.getLogger(__name__)
 _WORKSPACE_QUOTA_EXHAUSTED_REASON = "workspace_allocation_quota_exhausted"
+_WORKSPACE_ALLOCATION_REQUIRED_REASON = "workspace_allocation_required"
+_WORKSPACE_ALLOCATION_DISABLED_REASON = "workspace_allocation_disabled"
+_WORKSPACE_QUOTA_RELEASE_REASONS = (
+    _WORKSPACE_QUOTA_EXHAUSTED_REASON,
+    _WORKSPACE_ALLOCATION_REQUIRED_REASON,
+    _WORKSPACE_ALLOCATION_DISABLED_REASON,
+)
 _COLD_RELEASE_SCAN_MIN = 4096
 _COLD_RELEASE_SCAN_MULTIPLIER = 64
 _COLD_RELEASE_SCAN_MAX = 50000
@@ -217,6 +224,7 @@ _COLD_RELEASE_CANDIDATE_SELECT_FROM_ALIAS = """
         t.execution_context,
         t.created_at,
         t.next_eligible_at,
+        t.blocked_reason,
         t.queue_shard,
         t.concurrency_key
     FROM chosen c
@@ -235,6 +243,7 @@ _COLD_RELEASE_COMPACT_CANDIDATE_SELECT_FROM_ALIAS = """
         NULL::jsonb AS execution_context,
         t.created_at,
         t.next_eligible_at,
+        t.blocked_reason,
         t.queue_shard,
         t.concurrency_key
     FROM chosen c
@@ -1180,6 +1189,111 @@ class TasksStoreQueryMixin:
                 for row in rows
             ]
 
+    def _list_ranked_cold_release_candidates_for_reasons(
+        self,
+        *,
+        blocked_reasons: list[str],
+        queue_shard: Optional[str],
+        limit: int,
+        include_execution_context: bool = True,
+    ) -> List[Task]:
+        normalized_reasons = [
+            reason.strip()
+            for reason in blocked_reasons
+            if isinstance(reason, str) and reason.strip()
+        ]
+        if not normalized_reasons:
+            return []
+
+        query_parts = [
+            """
+            WITH sampled AS (
+                SELECT
+                    id,
+                    pack_id,
+                    blocked_reason,
+                    next_eligible_at,
+                    created_at
+                FROM tasks
+                WHERE task_type IN (:task_type_pb, :task_type_tool)
+                  AND status = :status
+                  AND frontier_state = :frontier_state
+                  AND next_eligible_at <= :now
+            """,
+        ]
+        params: Dict[str, Any] = {
+            "task_type_pb": "playbook_execution",
+            "task_type_tool": "tool_execution",
+            "status": TaskStatus.PENDING.value,
+            "frontier_state": "cold",
+            "now": datetime.now(timezone.utc),
+            "limit": limit,
+            "scan_limit": _cold_release_scan_limit(limit),
+        }
+        reason_placeholders: list[str] = []
+        for index, reason in enumerate(normalized_reasons):
+            key = f"blocked_reason_{index}"
+            params[key] = reason
+            reason_placeholders.append(f":{key}")
+        query_parts.append(
+            f"AND blocked_reason IN ({', '.join(reason_placeholders)})"
+        )
+
+        if queue_shard:
+            queue_clause, queue_params = build_queue_partition_filter_clause(
+                "queue_shard",
+                queue_shard,
+                param_prefix="queue_partition",
+            )
+            query_parts.append(f"AND {queue_clause}")
+            params.update(queue_params)
+
+        query_parts.append(
+            """
+                ORDER BY next_eligible_at ASC, created_at ASC, id ASC
+                LIMIT :scan_limit
+            ),
+            ranked AS (
+                SELECT
+                    id,
+                    blocked_reason,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY pack_id
+                        ORDER BY next_eligible_at ASC, created_at ASC, id ASC
+                    ) AS pack_rank,
+                    next_eligible_at,
+                    created_at
+                FROM sampled
+            ),
+            chosen AS (
+                SELECT id, blocked_reason, pack_rank, next_eligible_at, created_at
+                FROM ranked
+                ORDER BY pack_rank ASC, next_eligible_at ASC, created_at ASC, id ASC
+                LIMIT :limit
+            )
+            """
+        )
+        query_parts.append(
+            _COLD_RELEASE_CANDIDATE_SELECT_FROM_ALIAS
+            if include_execution_context
+            else _COLD_RELEASE_COMPACT_CANDIDATE_SELECT_FROM_ALIAS
+        )
+        query_parts.append(
+            "ORDER BY c.pack_rank ASC, c.next_eligible_at ASC, c.created_at ASC, c.id ASC"
+        )
+
+        with self.get_connection() as conn:
+            rows = conn.execute(text(" ".join(query_parts)), params).fetchall()
+            return [
+                self._row_to_blocked_release_candidate(
+                    row,
+                    blocked_reason=str(
+                        getattr(row, "blocked_reason", "") or ""
+                    ).strip(),
+                )
+                for row in rows
+            ]
+
     def _list_ordered_cold_release_candidates(
         self,
         *,
@@ -1273,8 +1387,8 @@ class TasksStoreQueryMixin:
         queue_shard: Optional[str] = None,
         limit: int = 200,
     ) -> List[Task]:
-        return self._list_ranked_cold_release_candidates(
-            blocked_reason=_WORKSPACE_QUOTA_EXHAUSTED_REASON,
+        return self._list_ranked_cold_release_candidates_for_reasons(
+            blocked_reasons=list(_WORKSPACE_QUOTA_RELEASE_REASONS),
             queue_shard=queue_shard,
             limit=limit,
         )

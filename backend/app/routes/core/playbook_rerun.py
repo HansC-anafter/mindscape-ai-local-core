@@ -362,7 +362,7 @@ async def rerun_playbook_execution(
                                 else None
                             ),
                             intent_instance_id=None,
-                            status="running",
+                            status="queued",
                             phase="queue",
                             last_checkpoint=None,
                             progress_log_path=None,

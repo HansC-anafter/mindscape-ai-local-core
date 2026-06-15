@@ -1,12 +1,45 @@
 """Runner lifecycle hooks — generic on_fail hook invocation."""
 
+import asyncio
+import inspect
 import logging
 from typing import Any, Dict
 
 logger = logging.getLogger(__name__)
 
 
-def _invoke_on_fail_hook(
+def _resolve_tool_backend_ref(tool_slot: str) -> str | None:
+    """Resolve a lifecycle hook tool slot into a Python backend reference."""
+    if ":" in tool_slot:
+        return tool_slot
+    if "." not in tool_slot:
+        return None
+
+    try:
+        from backend.app.services.capability_registry import (
+            get_tool_backend,
+            load_capabilities,
+        )
+    except Exception:
+        return None
+
+    parts = tool_slot.split(".", 1)
+    if len(parts) != 2:
+        return None
+
+    backend_ref = get_tool_backend(parts[0], parts[1])
+    if backend_ref:
+        return backend_ref
+
+    try:
+        load_capabilities()
+    except Exception:
+        return None
+
+    return get_tool_backend(parts[0], parts[1])
+
+
+async def _invoke_on_fail_hook(
     execution_context: Dict[str, Any],
     failure_reason: str,
     task_id: str,
@@ -64,20 +97,7 @@ def _invoke_on_fail_hook(
 
         backend_ref = None
 
-        # Strategy 1: capability registry lookup (tool_slot = "cap.tool")
-        if ":" not in tool_slot and "." in tool_slot:
-            try:
-                from backend.app.services.capability_registry import get_tool_backend
-
-                parts = tool_slot.split(".", 1)
-                if len(parts) == 2:
-                    backend_ref = get_tool_backend(parts[0], parts[1])
-            except Exception:
-                pass
-
-        # Strategy 2: direct Python import path
-        if not backend_ref and ":" in tool_slot:
-            backend_ref = tool_slot
+        backend_ref = _resolve_tool_backend_ref(tool_slot)
 
         if not backend_ref:
             logger.warning(
@@ -89,6 +109,8 @@ def _invoke_on_fail_hook(
         mod = importlib.import_module(module_path)
         func = getattr(mod, func_name)
         result = func(**resolved)
+        if inspect.isawaitable(result):
+            result = await result
         logger.info(
             f"on_fail hook invoked: {tool_slot} for task {task_id} " f"result={result}"
         )
@@ -96,3 +118,18 @@ def _invoke_on_fail_hook(
     except Exception as e:
         logger.warning(f"on_fail hook failed (non-fatal): {e}")
         return False
+
+
+def _invoke_on_fail_hook_sync(
+    execution_context: Dict[str, Any],
+    failure_reason: str,
+    task_id: str,
+) -> bool:
+    """Invoke the async lifecycle hook helper from synchronous runner paths."""
+    return asyncio.run(
+        _invoke_on_fail_hook(
+            execution_context=execution_context,
+            failure_reason=failure_reason,
+            task_id=task_id,
+        )
+    )

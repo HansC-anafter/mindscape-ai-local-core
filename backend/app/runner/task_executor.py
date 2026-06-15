@@ -10,6 +10,7 @@ import time
 import traceback
 from datetime import timedelta
 from typing import Any, Dict, Optional
+from urllib.parse import urlparse
 
 from backend.app.models.workspace import Task, TaskStatus
 from backend.app.services.execution_intent_resolver import (
@@ -110,11 +111,40 @@ def _serialize_runtime_binding(binding: Any) -> Dict[str, Any]:
         "dispatch_mode": getattr(binding, "dispatch_mode", None),
         "via": getattr(binding, "via", None),
     }
-    for key in ("runtime_id", "runtime_url", "transport", "site_key", "device_id"):
+    for key in (
+        "runtime_id",
+        "runtime_url",
+        "transport",
+        "site_key",
+        "device_id",
+        "binding_scope",
+    ):
         value = getattr(binding, key, None)
         if isinstance(value, str) and value.strip():
             payload[key] = value.strip()
     return {key: value for key, value in payload.items() if value}
+
+
+def _runtime_binding_targets_local_host_runtime(binding_payload: Dict[str, Any]) -> bool:
+    binding_scope = str(binding_payload.get("binding_scope") or "").strip().lower()
+    if binding_scope == "local":
+        return True
+
+    runtime_url = str(binding_payload.get("runtime_url") or "").strip()
+    if not runtime_url:
+        return False
+
+    try:
+        hostname = (urlparse(runtime_url).hostname or "").strip().lower()
+    except Exception:
+        return False
+    return hostname in {"localhost", "127.0.0.1", "::1", "host.docker.internal"}
+
+
+def _should_force_remote_execution(binding_payload: Dict[str, Any]) -> bool:
+    if binding_payload.get("dispatch_mode") != "external_runtime":
+        return False
+    return not _runtime_binding_targets_local_host_runtime(binding_payload)
 
 
 def _apply_runtime_binding_to_playbook_task(
@@ -149,9 +179,8 @@ def _apply_runtime_binding_to_playbook_task(
     if binding_payload.get("device_id"):
         updated_inputs.setdefault("target_device_id", binding_payload["device_id"])
 
-    if (
-        task.task_type == "playbook_execution"
-        and binding_payload.get("dispatch_mode") == "external_runtime"
+    if task.task_type == "playbook_execution" and _should_force_remote_execution(
+        binding_payload
     ):
         updated_inputs["execution_backend"] = "remote"
         updated_inputs.setdefault("remote_job_type", "playbook")
@@ -596,7 +625,7 @@ async def _mark_task_failed(
             hook_invoked = False
             if not resource_wait:
                 try:
-                    hook_invoked = _invoke_on_fail_hook(ctxf, msg, latest.id)
+                    hook_invoked = await _invoke_on_fail_hook(ctxf, msg, latest.id)
                 except Exception as hook_err:
                     logger.warning(f"on_fail hook error for task {task_id}: {hook_err}")
 

@@ -7,6 +7,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.pool import StaticPool
 
 from backend.app.models.workspace import TaskStatus
+from backend.app.services.stores.tasks_store._queries import TasksStoreQueryMixin
 from backend.app.services.stores.tasks_store._runner import TasksStoreRunnerMixin
 
 
@@ -14,7 +15,7 @@ def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-class _SqliteClaimStore(TasksStoreRunnerMixin):
+class _SqliteClaimStore(TasksStoreQueryMixin, TasksStoreRunnerMixin):
     def __init__(self) -> None:
         self._engine = create_engine(
             "sqlite+pysqlite:///:memory:",
@@ -29,6 +30,8 @@ class _SqliteClaimStore(TasksStoreRunnerMixin):
                     CREATE TABLE tasks (
                         id TEXT PRIMARY KEY,
                         workspace_id TEXT,
+                        message_id TEXT,
+                        execution_id TEXT,
                         status TEXT NOT NULL,
                         params TEXT,
                         execution_context TEXT,
@@ -36,8 +39,10 @@ class _SqliteClaimStore(TasksStoreRunnerMixin):
                         task_type TEXT,
                         queue_shard TEXT,
                         concurrency_key TEXT,
+                        created_at TIMESTAMP,
                         next_eligible_at TIMESTAMP,
                         started_at TIMESTAMP,
+                        completed_at TIMESTAMP,
                         runner_id TEXT,
                         heartbeat_at TIMESTAMP,
                         error TEXT,
@@ -87,6 +92,13 @@ class _SqliteClaimStore(TasksStoreRunnerMixin):
             return json.loads(data)
         return {} if default is None else default
 
+    def _coerce_datetime(self, value):
+        if value is None or isinstance(value, datetime):
+            return value
+        if isinstance(value, str):
+            return datetime.fromisoformat(value)
+        return value
+
     def insert_task(
         self,
         *,
@@ -100,26 +112,33 @@ class _SqliteClaimStore(TasksStoreRunnerMixin):
         task_type: str | None = None,
         blocked_reason: str | None = None,
         frontier_state: str | None = None,
+        next_eligible_at: datetime | None = None,
+        created_at: datetime | None = None,
     ) -> None:
+        created_at = created_at or _utc_now()
+        next_eligible_at = next_eligible_at or created_at
         with self._engine.begin() as conn:
             conn.execute(
                 text(
                     """
                     INSERT INTO tasks (
-                        id, workspace_id, status, params, execution_context,
+                        id, workspace_id, message_id, execution_id, status, params, execution_context,
                         pack_id, task_type, queue_shard, concurrency_key,
-                        next_eligible_at, started_at, blocked_reason,
-                        blocked_payload, frontier_state, frontier_enqueued_at
+                        created_at, next_eligible_at, started_at, completed_at,
+                        blocked_reason, blocked_payload, frontier_state, frontier_enqueued_at
                     ) VALUES (
-                        :id, :workspace_id, :status, :params, :execution_context,
+                        :id, :workspace_id, :message_id, :execution_id, :status, :params, :execution_context,
                         :pack_id, :task_type, :queue_shard, :concurrency_key,
-                        NULL, NULL, :blocked_reason, NULL, :frontier_state, NULL
+                        :created_at, :next_eligible_at, NULL, NULL,
+                        :blocked_reason, NULL, :frontier_state, NULL
                     )
                     """
                 ),
                 {
                     "id": task_id,
                     "workspace_id": workspace_id,
+                    "message_id": f"msg-{task_id}",
+                    "execution_id": f"exec-{task_id}",
                     "status": status,
                     "params": self.serialize_json({}),
                     "execution_context": self.serialize_json(execution_context),
@@ -127,6 +146,8 @@ class _SqliteClaimStore(TasksStoreRunnerMixin):
                     "task_type": task_type or pack_id,
                     "queue_shard": queue_shard,
                     "concurrency_key": concurrency_key,
+                    "created_at": created_at,
+                    "next_eligible_at": next_eligible_at,
                     "blocked_reason": blocked_reason,
                     "frontier_state": (
                         frontier_state
@@ -522,3 +543,78 @@ def test_try_release_workspace_quota_task_allows_one_missing_selector_candidate(
 
     assert released is True
     assert store.fetch_frontier("quota-cold-following") == "ready"
+
+
+def test_try_release_workspace_quota_task_moves_allocation_required_cold_task_to_ready():
+    store = _SqliteClaimStore()
+    store.insert_allocation(
+        max_parallel_task_claims=1,
+        queue_shard="decision_synthesis",
+        task_family="decision_assets_synthesize",
+        selectors=["decision_assets_synthesize"],
+    )
+    store.insert_task(
+        task_id="decision-cold-1",
+        status=TaskStatus.PENDING.value,
+        pack_id="decision_assets_synthesize",
+        execution_context={"playbook_code": "decision_assets_synthesize"},
+        concurrency_key=None,
+        queue_shard="decision_synthesis",
+        task_type="playbook_execution",
+        blocked_reason="workspace_allocation_required",
+        frontier_state="cold",
+    )
+
+    released = store.try_release_workspace_quota_task(
+        "decision-cold-1",
+        workspace_id="ws-1",
+        queue_shard="decision_synthesis",
+        selectors=["decision_assets_synthesize"],
+        task_selector="decision_assets_synthesize",
+        allocation_key="alloc-decision",
+        max_parallel_task_claims=1,
+        execution_context={"playbook_code": "decision_assets_synthesize"},
+    )
+
+    row = store.fetch_task_row("decision-cold-1")
+    assert released is True
+    assert store.fetch_frontier("decision-cold-1") == "ready"
+    assert row.blocked_reason is None
+
+
+def test_list_due_workspace_quota_tasks_includes_allocation_required_and_disabled():
+    store = _SqliteClaimStore()
+    for task_id, blocked_reason in (
+        ("decision-required", "workspace_allocation_required"),
+        ("decision-disabled", "workspace_allocation_disabled"),
+        ("decision-quota", "workspace_allocation_quota_exhausted"),
+    ):
+        store.insert_task(
+            task_id=task_id,
+            status=TaskStatus.PENDING.value,
+            pack_id="decision_assets_synthesize",
+            execution_context={"playbook_code": "decision_assets_synthesize"},
+            concurrency_key=None,
+            queue_shard="decision_synthesis",
+            task_type="playbook_execution",
+            blocked_reason=blocked_reason,
+            frontier_state="cold",
+            created_at=_utc_now(),
+            next_eligible_at=_utc_now(),
+        )
+
+    tasks = store.list_due_workspace_quota_tasks(
+        queue_shard="decision_synthesis",
+        limit=10,
+    )
+
+    assert {task.id for task in tasks} == {
+        "decision-required",
+        "decision-disabled",
+        "decision-quota",
+    }
+    assert {task.blocked_reason for task in tasks} == {
+        "workspace_allocation_required",
+        "workspace_allocation_disabled",
+        "workspace_allocation_quota_exhausted",
+    }

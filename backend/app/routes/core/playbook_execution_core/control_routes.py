@@ -266,7 +266,7 @@ async def start_playbook_execution(
                                 else None
                             ),
                             intent_instance_id=None,
-                            status="running",
+                            status="queued",
                             phase="queue",
                             last_checkpoint=None,
                             progress_log_path=None,
@@ -349,9 +349,9 @@ async def start_playbook_execution(
                     "execution_mode": "workflow",
                     "playbook_code": playbook_code,
                     "execution_id": execution_id,
-                    "status": "running",
+                    "status": "queued",
                     "result": {
-                        "status": "running",
+                        "status": "queued",
                         "execution_id": execution_id,
                         "note": "Execution queued",
                     },

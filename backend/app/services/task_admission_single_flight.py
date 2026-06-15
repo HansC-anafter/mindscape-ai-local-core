@@ -105,29 +105,30 @@ def evaluate_single_flight_admission(
     effective_now = now or _utc_now()
     concurrency_key = str(task.concurrency_key).strip()
     task_id = str(getattr(task, "id", "") or "")
-    query = text(
+    running_query = text(
         """
         SELECT id, status, frontier_state
         FROM tasks
         WHERE concurrency_key = :concurrency_key
           AND id <> :task_id
           AND task_type IN (:task_type_pb, :task_type_tool)
-          AND (
-            (
-              status = :running_status
-              AND COALESCE(frontier_state, :running_frontier_state) = :running_frontier_state
-            )
-            OR (
-              status = :pending_status
-              AND frontier_state IN (:ready_frontier_state, :running_frontier_state)
-              AND (blocked_reason IS NULL OR blocked_reason = :unblocked_reason)
-              AND next_eligible_at <= :now
-            )
-          )
-        ORDER BY
-          CASE WHEN status = :running_status THEN 0 ELSE 1 END,
-          created_at ASC,
-          id ASC
+          AND status = :running_status
+          AND COALESCE(frontier_state, :running_frontier_state) = :running_frontier_state
+        LIMIT 1
+        """
+    )
+    pending_query = text(
+        """
+        SELECT id, status, frontier_state
+        FROM tasks
+        WHERE concurrency_key = :concurrency_key
+          AND id <> :task_id
+          AND task_type IN (:task_type_pb, :task_type_tool)
+          AND status = :pending_status
+          AND frontier_state IN (:ready_frontier_state, :running_frontier_state)
+          AND (blocked_reason IS NULL OR blocked_reason = :unblocked_reason)
+          AND next_eligible_at <= :now
+        ORDER BY created_at ASC, id ASC
         LIMIT 1
         """
     )
@@ -145,7 +146,9 @@ def evaluate_single_flight_admission(
     }
     try:
         with tasks_store.get_connection() as conn:
-            conflict = conn.execute(query, params).fetchone()
+            conflict = conn.execute(running_query, params).fetchone()
+            if conflict is None:
+                conflict = conn.execute(pending_query, params).fetchone()
     except Exception as exc:
         logger.warning(
             "Single-flight admission query failed for key=%s shard=%s: %s",

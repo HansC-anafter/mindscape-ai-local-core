@@ -658,6 +658,13 @@ class TasksStoreCrudMixin:
                 "error": task.error,
             }
             conn.execute(query, params)
+            if task.task_type in ("playbook_execution", "tool_execution"):
+                self._sync_playbook_execution_status(
+                    conn,
+                    task.execution_id,
+                    task.status,
+                    task_execution_context,
+                )
             task.parent_execution_id = resolved_parent_id
             run_id = self._record_run_control_from_task(conn, task)
             self._record_task_control_event(

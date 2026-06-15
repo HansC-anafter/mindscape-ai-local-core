@@ -142,3 +142,35 @@ def test_resolve_runtime_dispatch_target_hydrates_runtime_environment_metadata()
     assert binding.device_id == "gpu-node-b"
     assert binding.transport == "http"
     assert binding.via == "runner_profile+runtime_environment"
+
+
+def test_resolve_runtime_dispatch_target_hydrates_local_binding_scope():
+    profile = RunnerProfile(
+        profile_code="35b_synthesis",
+        display_name="35B",
+        dispatch_mode="external_runtime",
+        accepted_resource_classes=("compute",),
+        accepted_queue_partitions=("decision_synthesis",),
+        runtime_id="runtime-35b-synthesis",
+    )
+
+    binding = resolve_runtime_dispatch_target(
+        profile,
+        _build_task(),
+        runtime_lookup=lambda runtime_id: {
+            "runtime_id": runtime_id,
+            "config_url": "http://localhost:8212",
+            "metadata": {
+                "host_resource_slot": {
+                    "adapter_id": "apple_mlx_vlm",
+                    "model_binding_scope": "local",
+                }
+            },
+        },
+    )
+
+    assert binding.runtime_id == "runtime-35b-synthesis"
+    assert binding.dispatch_mode == "external_runtime"
+    assert binding.runtime_url == "http://localhost:8212"
+    assert binding.binding_scope == "local"
+    assert binding.via == "runner_profile+runtime_environment"

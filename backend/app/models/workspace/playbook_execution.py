@@ -128,7 +128,10 @@ class PlaybookExecution(BaseModel):
     thread_id: Optional[str] = Field(
         None, description="Associated conversation thread ID"
     )
-    status: str = Field(..., description="Execution status: running/paused/done/failed")
+    status: str = Field(
+        ...,
+        description="Execution status: queued/running/paused/done/failed",
+    )
     phase: Optional[str] = Field(None, description="Current phase ID")
     last_checkpoint: Optional[str] = Field(
         None, description="Last checkpoint data (JSON)"

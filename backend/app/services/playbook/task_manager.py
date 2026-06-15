@@ -14,6 +14,7 @@ def _utc_now():
 from typing import Dict, Optional, Any
 
 from backend.app.models.workspace import Task, TaskStatus
+from backend.app.runner.lifecycle_hooks import _invoke_on_fail_hook_sync
 from backend.app.services.stores.tasks_store import TasksStore
 
 logger = logging.getLogger(__name__)
@@ -106,11 +107,25 @@ class PlaybookTaskManager:
         try:
             task = self.tasks_store.get_task_by_execution_id(execution_id)
             if task:
+                execution_context = (
+                    task.execution_context
+                    if isinstance(task.execution_context, dict)
+                    else {}
+                )
                 self.tasks_store.update_task_status(
                     task_id=task.id,
                     status=TaskStatus.FAILED,
-                    error=error[:1000]
+                    error=error[:1000],
+                    completed_at=_utc_now(),
                 )
+                try:
+                    _invoke_on_fail_hook_sync(execution_context, error, task.id)
+                except Exception as hook_error:
+                    logger.warning(
+                        "PlaybookTaskManager: on_fail hook error for task %s: %s",
+                        task.id,
+                        hook_error,
+                    )
                 logger.info(f"PlaybookTaskManager: Updated execution task {execution_id} status to FAILED")
                 return True
             return False
@@ -144,4 +159,3 @@ class PlaybookTaskManager:
         except Exception as e:
             logger.warning(f"PlaybookTaskManager: Failed to update task status or cleanup execution: {e}")
             return False
-

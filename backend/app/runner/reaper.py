@@ -24,6 +24,8 @@ from backend.app.services.runner_resources import (
 )
 from backend.app.services.runner_live_state import RunnerLiveStateStore
 from backend.app.services.host_resources.workspace_quota_admission import (
+    WORKSPACE_ALLOCATION_DISABLED_REASON,
+    WORKSPACE_ALLOCATION_REQUIRED_REASON,
     WORKSPACE_QUOTA_EXHAUSTED_REASON,
     decide_workspace_quota_admission_for_task,
 )
@@ -34,7 +36,7 @@ from backend.app.services.host_resources.route_identity_projection import (
 
 from backend.app.runner.concurrency import _resolve_lock_keys
 from backend.app.runner.database_backoff import is_database_recovery_error
-from backend.app.runner.lifecycle_hooks import _invoke_on_fail_hook
+from backend.app.runner.lifecycle_hooks import _invoke_on_fail_hook_sync
 from backend.app.runner.redis_transport_repair import (
     TERMINAL_TASK_STATUSES,
     normalize_task_id as _normalize_transport_task_id,
@@ -51,6 +53,15 @@ _CONCURRENCY_LOCKED_REASON = "concurrency_locked"
 _DEPENDENCY_HOLD_REASON = "dependency_hold"
 _RESOURCE_WAIT_REASON = RESOURCE_WAIT_REASON
 _WORKSPACE_QUOTA_EXHAUSTED_REASON = WORKSPACE_QUOTA_EXHAUSTED_REASON
+_WORKSPACE_ALLOCATION_REQUIRED_REASON = WORKSPACE_ALLOCATION_REQUIRED_REASON
+_WORKSPACE_ALLOCATION_DISABLED_REASON = WORKSPACE_ALLOCATION_DISABLED_REASON
+_WORKSPACE_QUOTA_RELEASE_REASONS = frozenset(
+    {
+        _WORKSPACE_QUOTA_EXHAUSTED_REASON,
+        _WORKSPACE_ALLOCATION_REQUIRED_REASON,
+        _WORKSPACE_ALLOCATION_DISABLED_REASON,
+    }
+)
 _BROWSER_LOCAL_QUEUE_SHARD = "browser_local"
 _BROWSER_PEER_FRONTIER_LANES = frozenset(
     {
@@ -1103,7 +1114,7 @@ def _reap_stale_running_tasks(
                 # Try on_fail lifecycle hook first (declared in playbook spec).
                 hook_handled = False
                 try:
-                    hook_handled = _invoke_on_fail_hook(ctx2, msg, t.id)
+                    hook_handled = _invoke_on_fail_hook_sync(ctx2, msg, t.id)
                 except Exception as hook_err:
                     logger.warning(f"Reaper on_fail hook error for {t.id}: {hook_err}")
 
@@ -1537,7 +1548,7 @@ async def _release_workspace_quota_tasks(
     for task in due_tasks:
         if len(released_task_ids) >= release_limit:
             break
-        if getattr(task, "blocked_reason", None) != _WORKSPACE_QUOTA_EXHAUSTED_REASON:
+        if getattr(task, "blocked_reason", None) not in _WORKSPACE_QUOTA_RELEASE_REASONS:
             continue
 
         try:
@@ -1651,6 +1662,7 @@ async def _release_workspace_quota_tasks(
                     task_selector=task_selector,
                     allocation_key=allocation_key,
                     max_parallel_task_claims=max_parallel_task_claims,
+                    blocked_reasons=list(_WORKSPACE_QUOTA_RELEASE_REASONS),
                     execution_context=update_kwargs.get("execution_context"),
                     now=now,
                 )
