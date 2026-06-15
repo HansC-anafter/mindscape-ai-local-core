@@ -180,6 +180,13 @@ class ExecutePlannerToolPlanTool(MindscapeTool):
         if not separator:
             return None
         previous = step_results.get(step_id)
+        if previous is None:
+            fallback_step_id = self._resolve_legacy_role_step_id(
+                role_token=step_id,
+                category=category,
+                step_results=step_results,
+            )
+            previous = step_results.get(fallback_step_id) if fallback_step_id else None
         if not previous:
             return None
         selector_name = selector_path.strip()
@@ -188,6 +195,41 @@ class ExecutePlannerToolPlanTool(MindscapeTool):
             return selected_results.get(selector_name)
         raw_result = previous.get("result")
         return self._select_json_path(raw_result, f"$.{selector_name}", 500)
+
+    def _resolve_legacy_role_step_id(
+        self,
+        *,
+        role_token: str,
+        category: Optional[PlannerToolPlanCategory],
+        step_results: Dict[str, Dict[str, Any]],
+    ) -> Optional[str]:
+        """
+        Backward compatibility: some planner contracts still emit role-based
+        `$steps.<role>.result.*` bindings. Resolve them deterministically.
+
+        Resolution order:
+          1) match by same role and same category_id.
+          2) fallback to global unique match by role only.
+        """
+        if not step_results:
+            return None
+
+        category_matches: List[str] = []
+        global_matches: List[str] = []
+        for step_id, step_result in step_results.items():
+            report = step_result.get("report") if isinstance(step_result, dict) else None
+            if not isinstance(report, dict):
+                continue
+            if report.get("role") == role_token:
+                global_matches.append(step_id)
+                if category is not None and report.get("category_id") == category.category_id:
+                    category_matches.append(step_id)
+
+        if len(category_matches) == 1:
+            return category_matches[0]
+        if not category_matches and len(global_matches) == 1:
+            return global_matches[0]
+        return None
 
     def _select_results(
         self,

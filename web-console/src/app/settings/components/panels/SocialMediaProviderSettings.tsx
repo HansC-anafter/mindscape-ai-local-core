@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { Suspense, useEffect, useMemo, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { t } from '../../../../lib/i18n';
 import { Card } from '../Card';
@@ -15,6 +15,7 @@ import {
 } from '../SocialMediaIcons';
 
 import { getApiBaseUrl } from '../../../../lib/api-url';
+import { createLazySettingsExtensionComponent } from '../../../../lib/settings-extension-component-loader';
 
 const API_URL = getApiBaseUrl();
 const PROFILE_ID = 'default-user';
@@ -49,6 +50,17 @@ interface RegisteredTool {
   read_only: boolean;
 }
 
+interface SettingsExtensionPanel {
+  capability_code: string;
+  component_code: string;
+  title: string;
+  description?: string;
+  requires_workspace_id?: boolean;
+  props_schema?: Record<string, any>;
+  import_path: string;
+  export: string;
+}
+
 const SOCIAL_MEDIA_PLATFORMS: Record<string, { label: string; Icon: React.ComponentType<{ className?: string }>; color: string }> = {
   twitter: { label: 'twitterIntegration', Icon: TwitterIcon, color: 'text-blue-500' },
   facebook: { label: 'facebookIntegration', Icon: FacebookIcon, color: 'text-blue-600' },
@@ -60,10 +72,11 @@ const SOCIAL_MEDIA_PLATFORMS: Record<string, { label: string; Icon: React.Compon
 
 interface SocialMediaProviderSettingsProps {
   provider: string;
+  workspaceId?: string;
   onBack: () => void;
 }
 
-export function SocialMediaProviderSettings({ provider, onBack }: SocialMediaProviderSettingsProps) {
+export function SocialMediaProviderSettings({ provider, workspaceId, onBack }: SocialMediaProviderSettingsProps) {
   const searchParams = useSearchParams();
   const router = useRouter();
   const [connection, setConnection] = useState<SocialMediaConnection | null>(null);
@@ -74,6 +87,8 @@ export function SocialMediaProviderSettings({ provider, onBack }: SocialMediaPro
   const [connecting, setConnecting] = useState(false);
   const [loadingTools, setLoadingTools] = useState(false);
   const [savingConfig, setSavingConfig] = useState(false);
+  const [settingsPanels, setSettingsPanels] = useState<SettingsExtensionPanel[]>([]);
+  const [loadingSettingsPanels, setLoadingSettingsPanels] = useState(false);
 
   // Connection mode (only for LINE)
   const [connectionMode, setConnectionMode] = useState<'local' | 'remote'>('local');
@@ -94,8 +109,48 @@ export function SocialMediaProviderSettings({ provider, onBack }: SocialMediaPro
 
   const platform = SOCIAL_MEDIA_PLATFORMS[provider];
   const isLine = provider === 'line';
+  const isPackWorkspaceProvider = provider === 'youtube' || settingsPanels.length > 0;
+
+  const providerSettingsPanels = useMemo(() => (
+    settingsPanels.map((panel) => ({
+      panel,
+      LazyComponent: createLazySettingsExtensionComponent(panel, API_URL),
+    }))
+  ), [settingsPanels]);
 
   useEffect(() => {
+    const loadProviderSettingsPanels = async () => {
+      try {
+        setLoadingSettingsPanels(true);
+        const params = new URLSearchParams({ section: `social-media:${provider}` });
+        if (workspaceId) {
+          params.set('workspace_id', workspaceId);
+        }
+        const response = await fetch(`${API_URL}/api/v1/settings/extensions?${params.toString()}`);
+        if (!response.ok) {
+          setSettingsPanels([]);
+          return;
+        }
+        const data = await response.json();
+        setSettingsPanels(Array.isArray(data) ? data : []);
+      } catch (err) {
+        console.warn('Failed to load social media provider settings panels:', err);
+        setSettingsPanels([]);
+      } finally {
+        setLoadingSettingsPanels(false);
+      }
+    };
+    void loadProviderSettingsPanels();
+  }, [provider, workspaceId]);
+
+  useEffect(() => {
+    if (provider === 'youtube') {
+      setConnection(null);
+      setTools([]);
+      setLoading(false);
+      return;
+    }
+
     const oauthSuccess = searchParams?.get('oauth_success' as any);
     const oauthError = searchParams?.get('oauth_error' as any);
     const callbackProvider = searchParams?.get('provider' as any);
@@ -464,8 +519,50 @@ export function SocialMediaProviderSettings({ provider, onBack }: SocialMediaPro
       {success && <InlineAlert type="success" message={success} onDismiss={() => setSuccess(null)} />}
 
       <div className="space-y-6">
+        {provider === 'youtube' && !workspaceId && (
+          <InlineAlert
+            type="warning"
+            message="Open YouTube settings from a workspace. Global shared YouTube credentials are not supported."
+          />
+        )}
+
+        {loadingSettingsPanels && (
+          <div className="rounded-lg border border-gray-200 p-4 text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
+            Loading workspace provider settings...
+          </div>
+        )}
+
+        {providerSettingsPanels.map(({ panel, LazyComponent }) => {
+          const props: Record<string, any> = {
+            apiUrl: API_URL,
+          };
+          if (panel.requires_workspace_id) {
+            props.workspaceId = workspaceId;
+          }
+          return (
+            <div
+              key={`${panel.capability_code}:${panel.component_code}`}
+              className="rounded-lg border border-gray-200 dark:border-gray-700 p-4"
+            >
+              <div className="mb-4">
+                <h3 className="font-medium text-gray-900 dark:text-gray-100">
+                  {panel.title}
+                </h3>
+                {panel.description ? (
+                  <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                    {panel.description}
+                  </p>
+                ) : null}
+              </div>
+              <Suspense fallback={<div className="text-sm text-gray-500 dark:text-gray-400">Loading {panel.title}...</div>}>
+                <LazyComponent {...props} />
+              </Suspense>
+            </div>
+          );
+        })}
+
         {/* Connection Mode Selection (LINE only) */}
-        {isLine && (
+        {isLine && !isPackWorkspaceProvider && (
           <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
             <h3 className="font-medium text-gray-900 dark:text-gray-100 mb-4">
               {t('lineConnectionMode' as any)}
@@ -512,7 +609,7 @@ export function SocialMediaProviderSettings({ provider, onBack }: SocialMediaPro
         )}
 
         {/* OAuth Configuration Section (Local mode) */}
-        {(!isLine || connectionMode === 'local') && (
+        {!isPackWorkspaceProvider && (!isLine || connectionMode === 'local') && (
           <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
             <h3 className="font-medium text-gray-900 dark:text-gray-100 mb-4">
               {'OAuth Configuration'}
@@ -581,7 +678,7 @@ export function SocialMediaProviderSettings({ provider, onBack }: SocialMediaPro
         )}
 
         {/* Cloud Remote Tools Configuration Section (Remote mode) */}
-        {isLine && connectionMode === 'remote' && (
+        {isLine && !isPackWorkspaceProvider && connectionMode === 'remote' && (
           <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
             <h3 className="font-medium text-gray-900 dark:text-gray-100 mb-4">
               {t('lineCloudRemoteTools' as any)}
@@ -651,7 +748,7 @@ export function SocialMediaProviderSettings({ provider, onBack }: SocialMediaPro
         )}
 
         {/* Connection Status Section */}
-        <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+        {!isPackWorkspaceProvider && <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
           <div className="flex items-center justify-between mb-4">
             <div>
               <h3 className="font-medium text-gray-900 dark:text-gray-100 mb-1">
@@ -728,10 +825,10 @@ export function SocialMediaProviderSettings({ provider, onBack }: SocialMediaPro
               </div>
             </div>
           )}
-        </div>
+        </div>}
 
         {/* Discovered Tools Section */}
-        {isConnected && connection && (
+        {!isPackWorkspaceProvider && isConnected && connection && (
           <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-medium text-gray-900 dark:text-gray-100">

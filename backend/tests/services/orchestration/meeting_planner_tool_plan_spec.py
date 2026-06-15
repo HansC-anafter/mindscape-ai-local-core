@@ -6,6 +6,11 @@ from backend.app.services.orchestration.meeting.planner_contract_execution.manif
 from backend.app.services.orchestration.meeting.planner_contract_execution.tool_plan_compiler import (
     PlannerToolPlanCompiler,
 )
+from backend.app.services.orchestration.meeting.planner_contract_execution.tool_plan_models import (
+    PlannerToolPlan,
+    PlannerToolPlanCategory,
+    PlannerToolPlanStep,
+)
 from backend.app.services.orchestration.meeting.role_profiles.resolver import (
     SelectedMeetingRoleProfile,
 )
@@ -390,3 +395,216 @@ async def test_execute_planner_tool_plan_merges_seed_and_reference_members(monke
         "mindscape://ig/seed/yoga_studio",
         "mindscape://ig/reference/ref_yoga",
     ]
+
+
+@pytest.mark.asyncio
+async def test_execute_planner_tool_plan_legacy_role_bindings_resolve_to_step_results(
+    monkeypatch,
+):
+    from backend.app.services.tools.meeting_planner import tool_plan as tool_plan_module
+
+    calls = []
+
+    class FakeExecutionResult:
+        def __init__(self, result):
+            self.success = True
+            self.result = result
+            self.error = None
+
+    class FakeUnifiedToolExecutor:
+        async def execute_tool(self, tool_name, arguments):
+            calls.append((tool_name, arguments))
+            if tool_name.endswith("bfc_build_opportunity_sprint"):
+                return FakeExecutionResult(
+                    {
+                        "objects": {
+                            "opportunity_brief": {"opportunity_brief_id": "brief-1"},
+                            "practice_sprint": {"practice_sprint_id": "sprint-1"},
+                            "delivery_rubric": {"delivery_rubric_id": "rubric-1"},
+                        }
+                    }
+                )
+            if tool_name.endswith("bfc_review_artifact_attempt"):
+                return FakeExecutionResult(
+                    {
+                        "objects": {
+                            "artifact_attempt": {"artifact_attempt_id": "artifact-attempt-1"},
+                            "artifact_qa_report": {
+                                "artifact_qa_report_id": "artifact-qa-1"
+                            },
+                        }
+                    }
+                )
+            if tool_name.endswith("bfc_draft_application_package"):
+                return FakeExecutionResult(
+                    {
+                        "objects": {
+                            "proposal_draft": {"proposal_draft_id": "proposal-1"},
+                            "application_attempt": {
+                                "application_attempt_id": "application-attempt-1"
+                            },
+                            "portfolio_case": {"portfolio_case_id": "portfolio-1"},
+                        }
+                    }
+                )
+            return FakeExecutionResult({})
+
+    monkeypatch.setattr(
+        tool_plan_module,
+        "UnifiedToolExecutor",
+        lambda: FakeUnifiedToolExecutor(),
+    )
+
+    plan = PlannerToolPlan(
+        plan_id="legacy-binding-plan",
+        workspace_id="ws_legacy",
+        meeting_id="mtg_legacy",
+        pack_id="blender_freelance_coach",
+        categories=[
+            PlannerToolPlanCategory(
+                category_id="active_opportunity",
+                label="Active opportunity",
+                description="",
+                idempotency_key="idemp-1",
+            )
+        ],
+        steps=[
+            PlannerToolPlanStep(
+                step_id="build_opportunity_sprint_active_opportunity",
+                role="build_opportunity_sprint",
+                category_id="active_opportunity",
+                category_label="Active opportunity",
+                tool_name="blender_freelance_coach.bfc_build_opportunity_sprint",
+                resource_kind="practice_sprint",
+                effect="write",
+                arguments={},
+                input_bindings={},
+                result_selectors={
+                    "opportunity_brief_id": "$.objects.opportunity_brief.opportunity_brief_id",
+                    "practice_sprint_id": "$.objects.practice_sprint.practice_sprint_id",
+                    "delivery_rubric_id": "$.objects.delivery_rubric.delivery_rubric_id",
+                },
+                depends_on=[],
+            ),
+            PlannerToolPlanStep(
+                step_id="review_artifact_attempt_active_opportunity",
+                role="review_artifact_attempt",
+                category_id="active_opportunity",
+                category_label="Active opportunity",
+                tool_name="blender_freelance_coach.bfc_review_artifact_attempt",
+                resource_kind="artifact_qa_report",
+                effect="write",
+                arguments={"artifact_summary": "summary"},
+                input_bindings={
+                    "practice_sprint_id": "$steps.build_opportunity_sprint.result.practice_sprint_id",
+                    "opportunity_brief_id": "$steps.build_opportunity_sprint.result.opportunity_brief_id",
+                    "delivery_rubric_id": "$steps.build_opportunity_sprint.result.delivery_rubric_id",
+                },
+                result_selectors={
+                    "artifact_attempt_id": "$.objects.artifact_attempt.artifact_attempt_id",
+                    "artifact_qa_report_id": "$.objects.artifact_qa_report.artifact_qa_report_id",
+                },
+                depends_on=["build_opportunity_sprint_active_opportunity"],
+            ),
+            PlannerToolPlanStep(
+                step_id="draft_application_package_active_opportunity",
+                role="draft_application_package",
+                category_id="active_opportunity",
+                category_label="Active opportunity",
+                tool_name="blender_freelance_coach.bfc_draft_application_package",
+                resource_kind="proposal_draft",
+                effect="write",
+                arguments={"title": "Active opportunity"},
+                input_bindings={
+                    "opportunity_brief_id": "$steps.build_opportunity_sprint.result.opportunity_brief_id",
+                    "artifact_attempt_id": "$steps.review_artifact_attempt.result.artifact_attempt_id",
+                    "artifact_qa_report_id": "$steps.review_artifact_attempt.result.artifact_qa_report_id",
+                },
+                result_selectors={
+                    "portfolio_case_id": "$.objects.portfolio_case.portfolio_case_id",
+                },
+                depends_on=[
+                    "build_opportunity_sprint_active_opportunity",
+                    "review_artifact_attempt_active_opportunity",
+                ],
+            ),
+        ],
+    )
+
+    tool = tool_plan_module.ExecutePlannerToolPlanTool()
+    result = await tool.execute(planner_tool_plan=plan.as_execution_payload())
+
+    assert result["status"] == "success"
+    assert len(calls) == 3
+    _, review_args = calls[1]
+    assert review_args["practice_sprint_id"] == "sprint-1"
+    assert review_args["opportunity_brief_id"] == "brief-1"
+    assert review_args["delivery_rubric_id"] == "rubric-1"
+    _, draft_args = calls[2]
+    assert draft_args["opportunity_brief_id"] == "brief-1"
+    assert draft_args["artifact_attempt_id"] == "artifact-attempt-1"
+    assert draft_args["artifact_qa_report_id"] == "artifact-qa-1"
+
+
+def test_compile_bfc_declaraive_plan_step_bindings_use_step_id(monkeypatch):
+    monkeypatch.setenv("MEETING_ROLE_PROFILES_ENABLED", "true")
+    monkeypatch.setenv("DECLARATIVE_PLANNER_LANE_ENABLED", "true")
+    monkeypatch.setenv(
+        "MEETING_ROLE_PROFILES_ENABLED_PACK_CODES",
+        "blender_freelance_coach",
+    )
+
+    plan = PlannerToolPlanCompiler().compile(
+        request_contract={"source_message": "practice delivery"},
+        session_metadata={
+            "active_capability_code": "blender_freelance_coach",
+            "meeting_role_profile_code": "bfc_practice_delivery",
+            "playbook_code": "bfc_daily_guided_practice",
+            "context": {
+                "primary": {
+                    "title": "Blender Practice Scenario",
+                    "brief_text": "Create a stylized still life in Blender.",
+                    "source_channel_kind": "manual_note",
+                    "commerciality": "commercial",
+                    "source_terms_risk": "low",
+                    "required_skills": ["modeling", "texturing"],
+                    "deliverable_types": ["portfolio_render"],
+                    "budget_summary": "N/A",
+                    "deadline_summary": "2 days",
+                    "duration_days": 7,
+                    "goal": "Produce a client-ready portfolio render",
+                    "acceptance_criteria": ["Topology count <= 30k"],
+                    "artifact_summary": "Initial test viewport pass",
+                    "change_summary": "N/A",
+                    "findings": ["geometry alignment"],
+                    "next_fix_tasks": ["Bake normals"],
+                    "qa_score": 0.8,
+                    "public_summary": "Stylized still life",
+                    "pitch_text": "Manual practice piece.",
+                    "delivery_plan": ["model", "texture", "lighting"],
+                }
+            },
+        },
+        workspace_id="ws_demo_bfc",
+        meeting_id="mtg_demo_bfc",
+    )
+
+    assert plan is not None
+    assert [step.role for step in plan.steps] == [
+        "build_opportunity_sprint",
+        "review_artifact_attempt",
+        "draft_application_package",
+    ]
+
+    for step in plan.steps:
+        for binding in step.input_bindings.values():
+            if isinstance(binding, str):
+                assert binding.startswith("$steps.")
+                assert not binding.startswith("$steps.build_opportunity_sprint.")
+                assert not binding.startswith("$steps.review_artifact_attempt.")
+            elif isinstance(binding, list):
+                for item in binding:
+                    assert isinstance(item, str)
+                    assert item.startswith("$steps.")
+                    assert not item.startswith("$steps.build_opportunity_sprint.")
+                    assert not item.startswith("$steps.review_artifact_attempt.")

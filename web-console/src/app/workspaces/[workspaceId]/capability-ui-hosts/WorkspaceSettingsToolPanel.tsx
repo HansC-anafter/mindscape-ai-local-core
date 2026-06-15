@@ -13,6 +13,7 @@ import {
   RefreshCw,
   Save,
   Settings as SettingsIcon,
+  Share2,
   SlidersHorizontal,
 } from 'lucide-react';
 
@@ -33,7 +34,7 @@ import {
 const CapabilityExtensionSlot = React.lazy(() => import('../components/CapabilityExtensionSlot'));
 const StoragePathConfigModal = React.lazy(() => import('@/components/StoragePathConfigModal'));
 
-type SettingsSection = 'Status' | 'Workspace' | 'Execution' | 'Tools' | 'Data';
+type SettingsSection = 'Status' | 'Workspace' | 'Execution' | 'Tools' | 'Social' | 'Data';
 
 interface WorkspaceSettingsToolPanelProps {
   workspaceId: string;
@@ -45,6 +46,7 @@ const SECTIONS: Array<{ id: SettingsSection; icon: React.ReactNode }> = [
   { id: 'Workspace', icon: <SettingsIcon aria-hidden="true" className="h-4 w-4" /> },
   { id: 'Execution', icon: <Bot aria-hidden="true" className="h-4 w-4" /> },
   { id: 'Tools', icon: <SlidersHorizontal aria-hidden="true" className="h-4 w-4" /> },
+  { id: 'Social', icon: <Share2 aria-hidden="true" className="h-4 w-4" /> },
   { id: 'Data', icon: <Database aria-hidden="true" className="h-4 w-4" /> },
 ];
 
@@ -79,6 +81,7 @@ export default function WorkspaceSettingsToolPanel({
     Workspace: false,
     Execution: false,
     Tools: false,
+    Social: false,
     Data: false,
   });
 
@@ -101,6 +104,9 @@ export default function WorkspaceSettingsToolPanel({
     }
     if (sectionId === 'Tools') {
       return <ToolEnginesSection workspaceId={workspaceId} />;
+    }
+    if (sectionId === 'Social') {
+      return <SocialMediaSection workspaceId={workspaceId} />;
     }
     return <DataSection apiUrl={apiUrl} workspaceId={workspaceId} />;
   };
@@ -478,6 +484,37 @@ function ToolEnginesSection({ workspaceId }: { workspaceId: string }) {
         workspaceId={workspaceId}
         onClose={() => setToolOverlayOpen(false)}
       />
+    </div>
+  );
+}
+
+function SocialMediaSection({ workspaceId }: { workspaceId: string }) {
+  return (
+    <div className="space-y-3" data-testid="workspace-settings-social-section">
+      <div className="rounded border border-gray-200 p-2 text-xs dark:border-gray-800">
+        <div className="flex items-start gap-2">
+          <Share2 aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-gray-500" />
+          <div className="min-w-0">
+            <div className="font-semibold">Social Media</div>
+            <div className="break-words text-gray-500 dark:text-gray-400">
+              Workspace-scoped provider credentials and reference intake settings.
+            </div>
+          </div>
+        </div>
+      </div>
+      <button
+        type="button"
+        className="inline-flex w-full items-center justify-center gap-2 rounded border border-gray-200 px-3 py-2 text-sm font-semibold hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900"
+        onClick={() => openAppRouteInNewWindow(`/settings?tab=social_media&provider=youtube&configure=1&workspace_id=${encodeURIComponent(workspaceId)}`)}
+      >
+        <ExternalLink aria-hidden="true" className="h-4 w-4" />
+        Open YouTube Workspace Settings
+      </button>
+      <div data-testid="workspace-settings-social-media-extensions">
+        <Suspense fallback={<div className="p-2 text-xs text-gray-500">Loading social media extensions...</div>}>
+          <CapabilityExtensionSlot section="social-media:youtube" workspaceId={workspaceId} />
+        </Suspense>
+      </div>
     </div>
   );
 }
