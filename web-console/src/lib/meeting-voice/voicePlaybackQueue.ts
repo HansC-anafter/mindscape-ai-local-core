@@ -15,10 +15,11 @@ export async function fetchXttsHealth(apiBase: string): Promise<XttsHealthResult
   try {
     const response = await fetch(apiUrl(apiBase, '/api/v1/host/services/xtts/health'));
     const body = await response.json().catch(() => ({}));
-    if (!response.ok || body?.status !== 'healthy') {
+    const status = typeof body?.status === 'string' ? body.status : '';
+    if (!response.ok || (status !== 'healthy' && status !== 'ok')) {
       return {
         available: false,
-        reason: body?.reason || body?.error || body?.status || response.statusText,
+        reason: body?.reason || body?.error || status || response.statusText,
       };
     }
     return { available: true };

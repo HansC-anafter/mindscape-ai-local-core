@@ -182,4 +182,216 @@ describe('webrtcSessionClient', () => {
       audio: true,
     });
   });
+
+  it('replaces phone camera video track without closing the media session', async () => {
+    const oldVideoTrack = { kind: 'video', readyState: 'live', stop: vi.fn() };
+    const audioTrack = { kind: 'audio', readyState: 'live', stop: vi.fn() };
+    const newVideoTrack = { kind: 'video', readyState: 'live', stop: vi.fn() };
+    class MediaStreamMock {
+      constructor(private tracks: any[]) {}
+
+      getTracks = () => this.tracks;
+      getVideoTracks = () => this.tracks.filter((track) => track.kind === 'video');
+      getAudioTracks = () => this.tracks.filter((track) => track.kind === 'audio');
+    }
+    const initialStream = new MediaStreamMock([oldVideoTrack, audioTrack]);
+    const replacementStream = new MediaStreamMock([newVideoTrack]);
+    const getUserMedia = vi.fn()
+      .mockResolvedValueOnce(initialStream)
+      .mockResolvedValueOnce(replacementStream);
+    const replaceTrack = vi.fn();
+    const sockets: WebSocketMock[] = [];
+    class WebSocketMock {
+      static OPEN = 1;
+      readyState = WebSocketMock.OPEN;
+      onopen: (() => void) | null = null;
+      onmessage: ((message: { data: string }) => void) | null = null;
+      onerror: (() => void) | null = null;
+      onclose: (() => void) | null = null;
+
+      constructor(public url: string) {
+        sockets.push(this);
+      }
+
+      send = vi.fn();
+      close = vi.fn();
+    }
+    class RTCPeerConnectionMock {
+      connectionState: RTCPeerConnectionState = 'new';
+      onicecandidate: ((event: RTCPeerConnectionIceEvent) => void) | null = null;
+      ontrack: ((event: RTCTrackEvent) => void) | null = null;
+      onconnectionstatechange: (() => void) | null = null;
+
+      addTrack = vi.fn();
+      createOffer = vi.fn(async () => ({ sdp: 'offer' }));
+      setLocalDescription = vi.fn();
+      getSenders = vi.fn(() => [{ track: oldVideoTrack, replaceTrack }]);
+      getStats = vi.fn(async () => new Map() as unknown as RTCStatsReport);
+      close = vi.fn();
+    }
+    vi.stubGlobal('MediaStream', MediaStreamMock);
+    vi.stubGlobal('WebSocket', WebSocketMock);
+    vi.stubGlobal('RTCPeerConnection', RTCPeerConnectionMock);
+    Object.defineProperty(globalThis.navigator, 'mediaDevices', {
+      configurable: true,
+      value: { getUserMedia },
+    });
+
+    const handle = await startPhoneBrowserSourceSession({
+      apiBase: 'http://api.test',
+      workspaceId: 'ws_device',
+      deviceSessionId: 'session_1',
+      mediaSessionId: 'session_1',
+      facingMode: 'environment',
+    });
+    sockets[0].onmessage?.({
+      data: JSON.stringify({
+        type: 'participant_joined',
+        sender: 'source',
+        workspace_id: 'ws_device',
+        device_session_id: 'session_1',
+        media_session_id: 'session_1',
+        created_at_epoch: 1,
+      }),
+    });
+    await Promise.resolve();
+
+    const nextStream = await handle.replaceVideoTrack?.({
+      facingMode: { ideal: 'user' },
+      width: { ideal: 1280 },
+      height: { ideal: 720 },
+      frameRate: { max: 30 },
+    });
+
+    expect(getUserMedia).toHaveBeenNthCalledWith(2, {
+      video: {
+        facingMode: { ideal: 'user' },
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
+        frameRate: { max: 30 },
+      },
+      audio: false,
+    });
+    expect(replaceTrack).toHaveBeenCalledWith(newVideoTrack);
+    expect(oldVideoTrack.stop).toHaveBeenCalled();
+    expect(sockets[0].close).not.toHaveBeenCalled();
+    expect(nextStream?.getVideoTracks()).toEqual([newVideoTrack]);
+  });
+
+  it('switches phone capture orientation by replacing the outgoing presentation track', async () => {
+    const rawVideoTrack = { kind: 'video', readyState: 'live', stop: vi.fn() };
+    const audioTrack = { kind: 'audio', readyState: 'live', stop: vi.fn() };
+    const portraitVideoTrack = { kind: 'video', readyState: 'live', stop: vi.fn() };
+    const landscapeVideoTrack = { kind: 'video', readyState: 'live', stop: vi.fn() };
+    class MediaStreamMock {
+      constructor(private tracks: any[]) {}
+
+      getTracks = () => this.tracks;
+      getVideoTracks = () => this.tracks.filter((track) => track.kind === 'video');
+      getAudioTracks = () => this.tracks.filter((track) => track.kind === 'audio');
+    }
+    const initialStream = new MediaStreamMock([rawVideoTrack, audioTrack]);
+    const getUserMedia = vi.fn().mockResolvedValue(initialStream);
+    const canvasInstances: any[] = [];
+    const transformedTracks = [portraitVideoTrack, landscapeVideoTrack];
+    const createElement = vi.spyOn(document, 'createElement').mockImplementation((tagName: string) => {
+      if (tagName === 'canvas') {
+        const canvas = {
+          width: 0,
+          height: 0,
+          getContext: vi.fn(() => ({
+            clearRect: vi.fn(),
+            drawImage: vi.fn(),
+          })),
+          captureStream: vi.fn(() => new MediaStreamMock([transformedTracks.shift()])),
+        };
+        canvasInstances.push(canvas);
+        return canvas as unknown as HTMLElement;
+      }
+      if (tagName === 'video') {
+        return {
+          muted: false,
+          playsInline: false,
+          srcObject: null,
+          videoWidth: 640,
+          videoHeight: 480,
+          play: vi.fn(async () => undefined),
+          pause: vi.fn(),
+        } as unknown as HTMLElement;
+      }
+      return document.createElement(tagName);
+    });
+    const requestAnimationFrame = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(() => 1);
+    const cancelAnimationFrame = vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => undefined);
+    const replaceTrack = vi.fn();
+    const sockets: WebSocketMock[] = [];
+    class WebSocketMock {
+      static OPEN = 1;
+      readyState = WebSocketMock.OPEN;
+      onopen: (() => void) | null = null;
+      onmessage: ((message: { data: string }) => void) | null = null;
+      onerror: (() => void) | null = null;
+      onclose: (() => void) | null = null;
+
+      constructor(public url: string) {
+        sockets.push(this);
+      }
+
+      send = vi.fn();
+      close = vi.fn();
+    }
+    class RTCPeerConnectionMock {
+      connectionState: RTCPeerConnectionState = 'new';
+      onicecandidate: ((event: RTCPeerConnectionIceEvent) => void) | null = null;
+      ontrack: ((event: RTCTrackEvent) => void) | null = null;
+      onconnectionstatechange: (() => void) | null = null;
+
+      addTrack = vi.fn();
+      createOffer = vi.fn(async () => ({ sdp: 'offer' }));
+      setLocalDescription = vi.fn();
+      getSenders = vi.fn(() => [{ track: portraitVideoTrack, replaceTrack }]);
+      getStats = vi.fn(async () => new Map() as unknown as RTCStatsReport);
+      close = vi.fn();
+    }
+    vi.stubGlobal('MediaStream', MediaStreamMock);
+    vi.stubGlobal('WebSocket', WebSocketMock);
+    vi.stubGlobal('RTCPeerConnection', RTCPeerConnectionMock);
+    Object.defineProperty(globalThis.navigator, 'mediaDevices', {
+      configurable: true,
+      value: { getUserMedia },
+    });
+
+    const handle = await startPhoneBrowserSourceSession({
+      apiBase: 'http://api.test',
+      workspaceId: 'ws_device',
+      deviceSessionId: 'session_1',
+      mediaSessionId: 'session_1',
+      facingMode: 'environment',
+      videoOrientation: 'portrait',
+    });
+    sockets[0].onmessage?.({
+      data: JSON.stringify({
+        type: 'participant_joined',
+        sender: 'source',
+        workspace_id: 'ws_device',
+        device_session_id: 'session_1',
+        media_session_id: 'session_1',
+        created_at_epoch: 1,
+      }),
+    });
+    await Promise.resolve();
+
+    const nextStream = await handle.setVideoOrientation?.('landscape');
+
+    expect(canvasInstances[0]).toMatchObject({ width: 720, height: 1280 });
+    expect(canvasInstances[1]).toMatchObject({ width: 1280, height: 720 });
+    expect(replaceTrack).toHaveBeenCalledWith(landscapeVideoTrack);
+    expect(portraitVideoTrack.stop).toHaveBeenCalled();
+    expect(nextStream?.getVideoTracks()).toEqual([landscapeVideoTrack]);
+    expect(sockets[0].close).not.toHaveBeenCalled();
+
+    createElement.mockRestore();
+    requestAnimationFrame.mockRestore();
+    cancelAnimationFrame.mockRestore();
+  });
 });

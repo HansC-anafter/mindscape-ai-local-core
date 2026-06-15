@@ -10,9 +10,11 @@ import {
 import { getApiBaseUrl } from '@/lib/api-url';
 import { assessBrowserMediaCaptureReadiness } from '@/lib/media-transport/secureContextGuard';
 import {
+  buildPhoneVideoConstraints,
   startDesktopBrowserSourceSession,
   startPhoneBrowserSourceSession,
   type CameraFacingMode,
+  type CaptureOrientation,
   type WebRTCSessionHandle,
   type WebRTCSessionState,
 } from '@/lib/media-transport/webrtcSessionClient';
@@ -40,6 +42,12 @@ export type ReferenceLessonState = {
   poster_ref?: string;
   focus_cue?: string;
 };
+
+export type CaptureControlState =
+  | 'idle'
+  | 'switching_camera'
+  | 'switching_orientation'
+  | 'fullscreen';
 
 export interface DeviceLinkCaptureSessionOptions {
   pairingCode: string;
@@ -74,6 +82,70 @@ function isActiveLinkState(state: LinkState): boolean {
   return state === 'connecting' || state === 'paired' || state === 'streaming';
 }
 
+function connectionStatusLabel(state: LinkState, mediaState: WebRTCSessionState | 'idle' | 'error'): string {
+  if (state === 'connecting') {
+    return 'Connecting';
+  }
+  if (state === 'paired') {
+    return mediaState === 'connected' ? 'Connected' : 'Paired';
+  }
+  if (state === 'streaming') {
+    return mediaState === 'connected' ? 'Streaming' : 'Camera active';
+  }
+  if (state === 'secure_context_required') {
+    return 'HTTPS required';
+  }
+  if (state === 'error') {
+    return 'Connection error';
+  }
+  if (state === 'closed') {
+    return 'Connection closed';
+  }
+  return 'Ready';
+}
+
+function connectionStatusDetail(state: LinkState, mediaState: WebRTCSessionState | 'idle' | 'error'): string {
+  if (state === 'connecting') {
+    return 'Pairing with the workspace. Do not tap Connect again.';
+  }
+  if (state === 'paired') {
+    return mediaState === 'connected'
+      ? 'Workspace receiver connected. Keep this page open.'
+      : 'Device paired. Keep this page open while the workspace starts the receiver.';
+  }
+  if (state === 'streaming') {
+    return mediaState === 'connected'
+      ? 'Live video is streaming to the workspace.'
+      : 'Camera is active. Keep your full body in frame while the receiver connects.';
+  }
+  if (state === 'secure_context_required') {
+    return 'Open this link from the LAN HTTPS origin before capture.';
+  }
+  if (state === 'error') {
+    return 'Reconnect only after fixing camera permission, network, or pairing state.';
+  }
+  if (state === 'closed') {
+    return 'The source session closed. Reconnect if you want to start a new session.';
+  }
+  return 'Tap Connect once, then keep this page open.';
+}
+
+function connectButtonLabel(state: LinkState, mediaState: WebRTCSessionState | 'idle' | 'error'): string {
+  if (state === 'connecting') {
+    return 'Connecting';
+  }
+  if (state === 'paired') {
+    return mediaState === 'connected' ? 'Connected' : 'Paired';
+  }
+  if (state === 'streaming') {
+    return 'Streaming';
+  }
+  if (state === 'closed' || state === 'error') {
+    return 'Reconnect';
+  }
+  return 'Connect';
+}
+
 export function useDeviceLinkCaptureSession({
   pairingCode,
   workspaceId,
@@ -88,15 +160,20 @@ export function useDeviceLinkCaptureSession({
   const [selectedCamera, setSelectedCamera] = useState<BrowserVideoInputSource | null>(null);
   const [mediaState, setMediaState] = useState<WebRTCSessionState | 'idle' | 'error'>('idle');
   const [phoneFacingMode, setPhoneFacingMode] = useState<CameraFacingMode>('environment');
+  const [captureOrientation, setCaptureOrientation] = useState<CaptureOrientation>('portrait');
   const [deviceSessionId, setDeviceSessionId] = useState<string | null>(null);
   const [referenceLessonState, setReferenceLessonState] = useState<ReferenceLessonState | null>(null);
   const [fullscreenSupported, setFullscreenSupported] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [fullscreenMessage, setFullscreenMessage] = useState<string | null>(null);
+  const [captureControlState, setCaptureControlState] = useState<CaptureControlState>('idle');
 
   const socketRef = useRef<DeviceControlSocket | null>(null);
   const mediaRef = useRef<WebRTCSessionHandle | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const suppressMediaErrorRef = useRef(false);
+  const desiredPhoneFacingModeRef = useRef<CameraFacingMode>('environment');
+  const desiredCaptureOrientationRef = useRef<CaptureOrientation>('portrait');
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const captureRootRef = useRef<HTMLElement | null>(null);
   const apiUrl = useMemo(() => getApiBaseUrl(), []);
@@ -168,22 +245,50 @@ export function useDeviceLinkCaptureSession({
         onLocalStream: setLocalStream,
         onState: applyMediaState,
         onError: (error: Error) => {
+          if (suppressMediaErrorRef.current) {
+            setMessage(error.message);
+            return;
+          }
           setMediaState('error');
           setState('error');
           setMessage(error.message);
         },
       };
-      mediaRef.current = sourceMode === 'phone'
+      const nextMedia = sourceMode === 'phone'
         ? await startPhoneBrowserSourceSession({
             ...baseInput,
             audio: true,
             facingMode,
+            videoOrientation: desiredCaptureOrientationRef.current,
           })
         : await startDesktopBrowserSourceSession({
             ...baseInput,
             sourceKind: selectedCameraKind,
             deviceId: selectedCamera?.deviceId,
           });
+      mediaRef.current = nextMedia;
+      const desiredFacingMode = desiredPhoneFacingModeRef.current;
+      if (
+        sourceMode === 'phone'
+        && desiredFacingMode !== facingMode
+        && nextMedia.replaceVideoTrack
+      ) {
+        const nextStream = await nextMedia.replaceVideoTrack(
+          buildPhoneVideoConstraints(desiredFacingMode),
+        );
+        streamRef.current = nextStream;
+        setLocalStream(nextStream);
+      }
+      const desiredCaptureOrientation = desiredCaptureOrientationRef.current;
+      if (
+        sourceMode === 'phone'
+        && desiredCaptureOrientation !== captureOrientation
+        && nextMedia.setVideoOrientation
+      ) {
+        const nextStream = await nextMedia.setVideoOrientation(desiredCaptureOrientation);
+        streamRef.current = nextStream;
+        setLocalStream(nextStream);
+      }
     } catch (error) {
       setMediaState('error');
       setState('error');
@@ -192,6 +297,7 @@ export function useDeviceLinkCaptureSession({
   }, [
     apiUrl,
     applyMediaState,
+    captureOrientation,
     phoneFacingMode,
     selectedCamera?.deviceId,
     selectedCameraKind,
@@ -203,9 +309,45 @@ export function useDeviceLinkCaptureSession({
     if (!deviceSessionId || sourceMode !== 'phone') {
       return;
     }
+    const currentMedia = mediaRef.current;
+    if (!currentMedia) {
+      return;
+    }
+    if (currentMedia.replaceVideoTrack) {
+      suppressMediaErrorRef.current = true;
+      try {
+        const nextStream = await currentMedia.replaceVideoTrack(
+          buildPhoneVideoConstraints(nextFacingMode),
+          { orientation: desiredCaptureOrientationRef.current },
+        );
+        streamRef.current = nextStream;
+        setLocalStream(nextStream);
+        setMessage(nextFacingMode === 'environment'
+          ? 'Rear camera enabled.'
+          : 'Front camera enabled.');
+        return;
+      } catch (error) {
+        setMessage('Camera switch needed a media restart. Keep this page open.');
+      } finally {
+        suppressMediaErrorRef.current = false;
+      }
+    }
     stopMediaSession();
     setMediaState('idle');
-    await startMediaSession(deviceSessionId, nextFacingMode);
+    const beforeRestartHandle = mediaRef.current;
+    try {
+      await startMediaSession(deviceSessionId, nextFacingMode);
+      if (!mediaRef.current || mediaRef.current === beforeRestartHandle) {
+        return;
+      }
+      setMessage(nextFacingMode === 'environment'
+        ? 'Rear camera enabled.'
+        : 'Front camera enabled.');
+    } catch (error) {
+      setMediaState('error');
+      setState('error');
+      setMessage(error instanceof Error ? error.message : 'phone_camera_flip_failed');
+    }
   }, [deviceSessionId, sourceMode, startMediaSession, stopMediaSession]);
 
   const handleEvent = useCallback((event: DeviceControlEvent) => {
@@ -213,9 +355,18 @@ export function useDeviceLinkCaptureSession({
       setReferenceLessonState(event.reference_lesson_state || null);
       return;
     }
-    if (event.type === 'session_paired' || event.type === 'heartbeat_ack') {
+    if (event.type === 'session_paired') {
       setState('paired');
-      setMessage(event.display_name || event.device_id || 'paired');
+      setMessage('Connected. Keep this page open while the workspace receiver starts.');
+      if (event.session_id) {
+        setDeviceSessionId(event.session_id);
+        void startMediaSession(event.session_id);
+      }
+      return;
+    }
+    if (event.type === 'heartbeat_ack') {
+      setState((current) => (current === 'streaming' ? 'streaming' : 'paired'));
+      setMessage('Connected. Keep this page open while practice capture runs.');
       if (event.session_id) {
         setDeviceSessionId(event.session_id);
         void startMediaSession(event.session_id);
@@ -269,7 +420,15 @@ export function useDeviceLinkCaptureSession({
           metadata: {
             user_agent: typeof navigator === 'undefined' ? 'unknown' : navigator.userAgent,
             source_mode: sourceMode,
-            ...(sourceMode === 'phone' ? { camera_facing_mode: phoneFacingMode } : {}),
+            secure_context: Boolean(typeof window !== 'undefined' && window.isSecureContext),
+            source_origin_scheme: typeof window === 'undefined'
+              ? 'unknown'
+              : window.location.protocol.replace(':', ''),
+            capture_surface: 'device_link',
+            ...(sourceMode === 'phone' ? {
+              camera_facing_mode: phoneFacingMode,
+              capture_orientation: desiredCaptureOrientationRef.current,
+            } : {}),
           },
         });
       },
@@ -287,6 +446,7 @@ export function useDeviceLinkCaptureSession({
     apiUrl,
     handleEvent,
     pairingCode,
+    captureOrientation,
     phoneFacingMode,
     selectedCameraKind,
     sourceMode,
@@ -304,11 +464,54 @@ export function useDeviceLinkCaptureSession({
 
   const flipPhoneCamera = useCallback(async () => {
     const nextMode: CameraFacingMode = phoneFacingMode === 'environment' ? 'user' : 'environment';
+    desiredPhoneFacingModeRef.current = nextMode;
     setPhoneFacingMode(nextMode);
-    if (sourceMode === 'phone' && deviceSessionId && (state === 'paired' || state === 'streaming')) {
-      await restartPhoneMediaSession(nextMode);
+    if (sourceMode !== 'phone' || !deviceSessionId) {
+      return;
     }
-  }, [deviceSessionId, phoneFacingMode, restartPhoneMediaSession, sourceMode, state]);
+    setCaptureControlState('switching_camera');
+    try {
+      await restartPhoneMediaSession(nextMode);
+    } finally {
+      setCaptureControlState('idle');
+    }
+  }, [deviceSessionId, phoneFacingMode, restartPhoneMediaSession, sourceMode]);
+
+  const toggleCaptureOrientation = useCallback(async () => {
+    const nextOrientation: CaptureOrientation = captureOrientation === 'portrait' ? 'landscape' : 'portrait';
+    const previousOrientation = captureOrientation;
+    desiredCaptureOrientationRef.current = nextOrientation;
+    setCaptureOrientation(nextOrientation);
+    if (sourceMode !== 'phone' || !deviceSessionId) {
+      return;
+    }
+    const currentMedia = mediaRef.current;
+    if (!currentMedia?.setVideoOrientation) {
+      desiredCaptureOrientationRef.current = previousOrientation;
+      setCaptureOrientation(previousOrientation);
+      setMessage('This browser cannot rotate the outgoing camera stream. Rotate the phone physically or reconnect.');
+      return;
+    }
+    setCaptureControlState('switching_orientation');
+    suppressMediaErrorRef.current = true;
+    try {
+      const nextStream = await currentMedia.setVideoOrientation(nextOrientation);
+      streamRef.current = nextStream;
+      setLocalStream(nextStream);
+      setMessage(nextOrientation === 'portrait'
+        ? 'Portrait capture enabled.'
+        : 'Landscape capture enabled.');
+    } catch (error) {
+      desiredCaptureOrientationRef.current = previousOrientation;
+      setCaptureOrientation(previousOrientation);
+      setMessage(error instanceof Error
+        ? `Capture orientation stayed ${previousOrientation}: ${error.message}`
+        : `Capture orientation stayed ${previousOrientation}.`);
+    } finally {
+      suppressMediaErrorRef.current = false;
+      setCaptureControlState('idle');
+    }
+  }, [captureOrientation, deviceSessionId, sourceMode]);
 
   const toggleFullscreen = useCallback(async () => {
     const root = captureRootRef.current;
@@ -316,6 +519,7 @@ export function useDeviceLinkCaptureSession({
       setFullscreenMessage('Fullscreen unavailable. The capture layout stays edge-to-edge.');
       return;
     }
+    setCaptureControlState('fullscreen');
     try {
       if (document.fullscreenElement === root) {
         await document.exitFullscreen();
@@ -325,6 +529,8 @@ export function useDeviceLinkCaptureSession({
       setFullscreenMessage(null);
     } catch {
       setFullscreenMessage('Fullscreen was blocked by this browser.');
+    } finally {
+      setCaptureControlState('idle');
     }
   }, [fullscreenSupported]);
 
@@ -334,8 +540,15 @@ export function useDeviceLinkCaptureSession({
   return {
     active,
     apiUrl,
+    canConnect: !active,
+    captureControlBusy: captureControlState !== 'idle',
+    captureControlState,
     captureRootRef,
+    captureOrientation,
     connect,
+    connectButtonLabel: connectButtonLabel(state, mediaState),
+    connectionStatusDetail: connectionStatusDetail(state, mediaState),
+    connectionStatusLabel: connectionStatusLabel(state, mediaState),
     deviceSessionId,
     flipPhoneCamera,
     fullscreenMessage,
@@ -355,6 +568,7 @@ export function useDeviceLinkCaptureSession({
     sourceMode,
     state,
     toggleFullscreen,
+    toggleCaptureOrientation,
     videoRef,
     videoTrackLabel,
     workspaceId,

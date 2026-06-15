@@ -120,7 +120,7 @@ function buildRsGenerator(degree: number): number[] {
     });
     coefficients = next;
   }
-  return coefficients.slice(0, degree);
+  return coefficients.slice(0, degree).reverse();
 }
 
 function computeEcc(data: number[], degree: number): number[] {

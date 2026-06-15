@@ -29,12 +29,12 @@ router = APIRouter()
 )
 async def submit_meeting_command(
     envelope: MeetingCommandEnvelope,
+    background_tasks: BackgroundTasks,
     workspace_id: str = Path(..., description="Workspace ID"),
     meeting_id: str = Path(..., description="Meeting/session ID"),
     workspace: Workspace = Depends(get_workspace),
     orchestrator: ConversationOrchestrator = Depends(get_orchestrator),
     mindscape_store: MindscapeStore = Depends(get_store),
-    background_tasks: BackgroundTasks = None,
 ) -> MeetingCommandAcceptResponse:
     """Persist a server-canonical command envelope as a ledger row."""
 

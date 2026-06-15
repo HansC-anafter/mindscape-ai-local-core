@@ -36,6 +36,12 @@ function CaptureSourceRailContent({
     startPairing,
   } = useCaptureSourceBridge();
 
+  React.useEffect(() => {
+    if (state === 'idle' && !pairing && !disabled) {
+      void startPairing();
+    }
+  }, [disabled, pairing, startPairing, state]);
+
   return (
     <div className="flex min-h-full flex-col gap-3 p-3 text-xs">
       <div className="rounded-md border border-gray-200 bg-gray-50 p-3 dark:border-gray-800 dark:bg-gray-900">
@@ -107,7 +113,7 @@ function CaptureSourceRailContent({
                   role="img"
                   aria-label="Phone pairing QR code"
                   viewBox={`0 0 ${phoneQrCode.viewBoxSize} ${phoneQrCode.viewBoxSize}`}
-                  className="h-36 w-36"
+                  className="h-48 w-48"
                   shapeRendering="crispEdges"
                 >
                   <path d={phoneQrCode.path} fill="currentColor" />

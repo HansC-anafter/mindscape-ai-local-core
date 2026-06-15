@@ -4,6 +4,7 @@ import {
   buildDeviceControlWebSocketUrl,
   buildDevicePairingCodeUrl,
   buildDeviceRevokeUrl,
+  buildWorkspaceDeviceControlWebSocketUrl,
   openDeviceControlSocket,
 } from './deviceBindingClient';
 
@@ -29,6 +30,12 @@ describe('deviceBindingClient', () => {
         pairingCode: 'ABCD1234',
       }),
     ).toBe('wss://console.test/api/v1/workspaces/ws%201/device-bindings/ABCD1234/control');
+    expect(
+      buildWorkspaceDeviceControlWebSocketUrl({
+        apiBase: 'https://console.test',
+        workspaceId: 'ws 1',
+      }),
+    ).toBe('wss://console.test/api/v1/workspaces/ws%201/device-bindings/control');
   });
 
   it('sends JSON control messages only after socket open', () => {

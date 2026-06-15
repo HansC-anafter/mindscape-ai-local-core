@@ -6,6 +6,7 @@ import { BookOpen, Camera, CheckCircle2, Loader2, Video, XCircle } from 'lucide-
 import { DesktopSourcePicker } from '@/components/workspace/device-binding/DesktopSourcePicker';
 import { DesktopSourcePreview } from '@/components/workspace/device-binding/DesktopSourcePreview';
 import { CameraFacingModeToggle } from './CameraFacingModeToggle';
+import { CaptureOrientationToggle } from './CaptureOrientationToggle';
 import { CaptureFullscreenButton } from './CaptureFullscreenButton';
 import { CaptureGuidanceOverlay } from './CaptureGuidanceOverlay';
 import type { ReferenceLessonState, useDeviceLinkCaptureSession } from './useDeviceLinkCaptureSession';
@@ -96,7 +97,7 @@ export function PadCaptureCompanion({ session }: PadCaptureCompanionProps) {
               <div className="min-w-0">
                 <h1 className="text-lg font-semibold">Capture companion</h1>
                 <p className="truncate text-sm text-white/55">
-                  {session.state} · {session.videoTrackLabel || session.mediaState}
+                  {session.connectionStatusLabel} · {session.videoTrackLabel || session.mediaState}
                 </p>
               </div>
             </div>
@@ -126,6 +127,8 @@ export function PadCaptureCompanion({ session }: PadCaptureCompanionProps) {
               />
             )}
             <CaptureGuidanceOverlay
+              captureOrientation={session.captureOrientation}
+              facingMode={session.phoneFacingMode}
               linkState={session.state}
               mediaState={session.mediaState}
               sourceMode={session.sourceMode}
@@ -165,32 +168,46 @@ export function PadCaptureCompanion({ session }: PadCaptureCompanionProps) {
               </div>
             ) : null}
 
-            {session.message || session.fullscreenMessage ? (
-              <div className="rounded-md border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-white/80">
-                {session.message || session.fullscreenMessage}
+            {session.message || session.fullscreenMessage || session.connectionStatusDetail ? (
+              <div
+                className="rounded-md border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-white/80"
+                data-testid="device-link-connection-status-detail"
+              >
+                {session.message || session.fullscreenMessage || session.connectionStatusDetail}
               </div>
             ) : null}
 
-            <div className="grid grid-cols-[auto_auto_1fr] gap-2">
+            <div className="grid grid-cols-[auto_auto_auto_1fr] gap-2">
               {session.sourceMode === 'phone' ? (
                 <CameraFacingModeToggle
-                  disabled={session.state === 'connecting'}
+                  disabled={session.state === 'connecting' || session.captureControlBusy}
                   facingMode={session.phoneFacingMode}
                   onFlip={session.flipPhoneCamera}
+                  busy={session.captureControlState === 'switching_camera'}
+                />
+              ) : null}
+              {session.sourceMode === 'phone' ? (
+                <CaptureOrientationToggle
+                  disabled={session.state === 'connecting' || session.captureControlBusy}
+                  orientation={session.captureOrientation}
+                  onToggle={session.toggleCaptureOrientation}
+                  busy={session.captureControlState === 'switching_orientation'}
                 />
               ) : null}
               <CaptureFullscreenButton
+                disabled={session.captureControlBusy && session.captureControlState !== 'fullscreen'}
                 isFullscreen={session.isFullscreen}
                 onToggle={session.toggleFullscreen}
+                busy={session.captureControlState === 'fullscreen'}
               />
               <button
                 type="button"
                 onClick={session.connect}
-                disabled={session.active}
+                disabled={!session.canConnect}
                 className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md bg-sky-500 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-sky-600 disabled:cursor-not-allowed disabled:bg-gray-700 disabled:text-gray-400"
               >
                 {session.state === 'connecting' ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}
-                Connect
+                {session.connectButtonLabel}
               </button>
             </div>
           </footer>

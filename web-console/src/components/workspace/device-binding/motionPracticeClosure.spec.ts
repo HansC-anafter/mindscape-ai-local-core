@@ -28,6 +28,11 @@ const sourceSession: DeviceSessionEntry = {
   device_id: 'phone_1',
   display_name: 'Phone',
   source_types: ['phone_camera'],
+  metadata: {
+    secure_context: true,
+    source_origin_scheme: 'https',
+    capture_surface: 'device_link',
+  },
   state: 'active',
   created_at_epoch: 1,
   updated_at_epoch: 1,
@@ -95,10 +100,51 @@ const rollupResponse: MotionPracticeSessionRollupResponse = {
         end_ms: 5000,
         confidence: 0.82,
         top_findings: ['Keep the left knee tracking over the toes.'],
+        source_session_id: 'session_1',
+        dwpose_node_deltas: [{ node_id: 'left_knee', delta_score: 0.18 }],
+        sway_metrics: [{ axis: 'front_back', delta_score: 0.12 }],
+        phase_metrics: [{ phase: 'hold', delta_score: 0.1 }],
       },
     ],
   },
 };
+
+function buildLargeDigest(index: number): Record<string, unknown> {
+  return {
+    motion_window_ref: `window_${index}`,
+    window_index: index,
+    start_ms: index * 2000,
+    end_ms: index * 2000 + 1800,
+    confidence: 0.7,
+    top_findings: [
+      'Keep the body centered over the base while continuing the current posture.',
+      'Use a slower breath cycle before moving into the next practice phase.',
+      'This extra finding should not be included in the compact command payload.',
+    ],
+    source_session_id: 'session_1',
+    pose_provider: 'mediapipe_pose',
+    keypoint_schema_id: 'mediapipe_pose_33',
+    dwpose_node_deltas: Array.from({ length: 8 }, (_unused, nestedIndex) => ({
+      node_id: `node_${nestedIndex}`,
+      label: `Node ${nestedIndex}`,
+      delta_score: 0.1 + nestedIndex / 100,
+      finding: 'A long node finding that explains a visible alignment delta across the learner body.',
+      guidance: 'A long node guidance text that should be capped before it enters worker task params.',
+    })),
+    sway_metrics: Array.from({ length: 6 }, (_unused, nestedIndex) => ({
+      axis: nestedIndex % 2 === 0 ? 'left_right' : 'front_back',
+      delta_score: 0.2 + nestedIndex / 100,
+      finding: 'A long sway finding that would become noisy if repeated for every captured window.',
+      guidance: 'A long sway guidance text that should stay representative but compact.',
+    })),
+    phase_metrics: Array.from({ length: 6 }, (_unused, nestedIndex) => ({
+      phase: nestedIndex % 2 === 0 ? 'enter' : 'hold',
+      delta_score: 0.3 + nestedIndex / 100,
+      finding: 'A long phase finding that describes a timing or stability gap.',
+      guidance: 'A long phase guidance text that should remain bounded.',
+    })),
+  };
+}
 
 function expectNoRawPayload(payload: unknown) {
   const forbiddenKeys = new Set([
@@ -204,6 +250,20 @@ describe('motionPracticeClosure', () => {
           }),
         ],
         motion_window_refs: ['window_1', 'window_2'],
+        physical_device_evidence: expect.objectContaining({
+          source_session_id: 'session_1',
+          device_kind: 'phone',
+          transport: 'webrtc',
+          paired: true,
+          secure_context: true,
+          remote_stream_received: true,
+          receiver_motion_window_count: 4,
+          receiver_metric_families: [
+            'dwpose_node_deltas',
+            'sway_metrics',
+            'phase_metrics',
+          ],
+        }),
       }),
     });
     expect(commandArgs.metadata).toMatchObject({
@@ -213,6 +273,49 @@ describe('motionPracticeClosure', () => {
     });
     expect(closure.command.commandId).toBe('cmd_summary');
     expectNoRawPayload(commandArgs);
+  });
+
+  it('bounds closure command payload before it enters task params storage', () => {
+    const largeRollup: MotionPracticeSessionRollupResponse = {
+      ...rollupResponse,
+      summary: {
+        ...rollupResponse.summary,
+        window_count: 80,
+        motion_window_refs: Array.from({ length: 80 }, (_unused, index) => `window_${index}`),
+        motion_window_digests: Array.from({ length: 80 }, (_unused, index) => buildLargeDigest(index)),
+      },
+    };
+
+    const parameters = buildMotionPracticeClosureCommandParameters({
+      input: baseInput,
+      result: launchResult,
+      rollup: largeRollup,
+    });
+
+    const metadata = parameters.live_practice_rollup as Record<string, unknown>;
+    const nestedMetadata = metadata.metadata as Record<string, unknown>;
+    expect(nestedMetadata.motion_window_digests).toHaveLength(3);
+    expect(nestedMetadata.motion_window_refs).toHaveLength(80);
+    expect(nestedMetadata.motion_window_digest_policy).toMatchObject({
+      command_cap: 3,
+      original_digest_count: 80,
+      truncated: true,
+      full_rollup_ref: 'mindscape://motion_runtime/session-rollups/lms_motion',
+      full_rollup_artifact_id: 'artifact_motion_rollup',
+    });
+    expect(nestedMetadata.physical_device_evidence).toMatchObject({
+      receiver_motion_window_count: 80,
+      receiver_metric_families: [
+        'dwpose_node_deltas',
+        'sway_metrics',
+        'phase_metrics',
+      ],
+    });
+    expect(
+      (nestedMetadata.motion_window_digests as Record<string, unknown>[])[0].dwpose_node_deltas,
+    ).toHaveLength(2);
+    expect(new TextEncoder().encode(JSON.stringify(parameters)).byteLength).toBeLessThan(12000);
+    expectNoRawPayload(parameters);
   });
 
   it('maps Dance closure commands to the Dance session summary playbook', () => {

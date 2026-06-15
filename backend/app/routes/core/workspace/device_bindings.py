@@ -6,7 +6,7 @@ import json
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Path, WebSocket, WebSocketDisconnect
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from backend.app.models.device_binding import (
     DeviceCapabilityDeclaration,
@@ -32,6 +32,7 @@ class CreateDevicePairingCodeRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     label: str | None = None
+    expires_in_seconds: int | None = Field(default=None, ge=1, le=600)
 
 
 async def _send_event(websocket: WebSocket, event: DeviceControlEvent) -> None:
@@ -103,6 +104,20 @@ async def _broadcast_to_workspace_observers(
             websocket=observer,
         )
 
+    stale_workspace_observers: list[WebSocket] = []
+    for observer in registry.workspace_session_observers(
+        workspace_id=event.workspace_id,
+    ):
+        try:
+            await _send_event(observer, event)
+        except RuntimeError:
+            stale_workspace_observers.append(observer)
+    for observer in stale_workspace_observers:
+        registry.detach_workspace_session_observer(
+            workspace_id=event.workspace_id,
+            websocket=observer,
+        )
+
 
 async def _broadcast_to_source_devices(
     *,
@@ -112,7 +127,7 @@ async def _broadcast_to_source_devices(
     event: DeviceControlEvent,
 ) -> None:
     for entry in registry.list_active_sessions(workspace_id=workspace_id):
-        if entry.pairing_code != pairing_code or entry.websocket is None:
+        if (pairing_code and entry.pairing_code != pairing_code) or entry.websocket is None:
             continue
         try:
             await _send_event(entry.websocket, event)
@@ -132,9 +147,11 @@ async def create_device_pairing_code(
 ) -> DevicePairingCode:
     """Issue one short-lived device pairing code for this workspace."""
 
-    _ = payload
     _ = workspace
-    return registry.create_pairing_code(workspace_id=workspace_id)
+    return registry.create_pairing_code(
+        workspace_id=workspace_id,
+        ttl_seconds=payload.expires_in_seconds if payload is not None else None,
+    )
 
 
 @router.post(
@@ -176,6 +193,96 @@ async def revoke_device_binding_session(
         event=event,
     )
     return event
+
+
+@router.websocket("/{workspace_id}/device-bindings/control")
+async def control_workspace_device_sessions(
+    websocket: WebSocket,
+    workspace_id: str,
+    workspace: Workspace = Depends(get_workspace),
+    registry: DeviceBindingRegistry = Depends(get_device_binding_registry),
+) -> None:
+    """Observe all active device sessions for one workspace without polling."""
+
+    _ = workspace
+    await websocket.accept()
+    attached = False
+    try:
+        message = await _receive_control_message(websocket)
+        if message.type != "workspace_subscribe":
+            await _send_event(
+                websocket,
+                _error_event(
+                    workspace_id=workspace_id,
+                    pairing_code="",
+                    reason="workspace_subscribe_required",
+                    message="The first workspace control message must subscribe to the workspace.",
+                    recoverable=False,
+                ),
+            )
+            await websocket.close(code=4400, reason="workspace_subscribe_required")
+            return
+        registry.attach_workspace_session_observer(
+            workspace_id=workspace_id,
+            websocket=websocket,
+        )
+        attached = True
+        await _send_event(
+            websocket,
+            DeviceControlEvent(
+                type="session_active",
+                workspace_id=workspace_id,
+                state="active",
+                active_sessions=registry.list_active_sessions(workspace_id=workspace_id),
+            ),
+        )
+        while True:
+            message = await _receive_control_message(websocket)
+            if message.type == "reference_lesson_state":
+                event = DeviceControlEvent(
+                    type="reference_lesson_state",
+                    workspace_id=workspace_id,
+                    reference_lesson_state=message.reference_lesson_state or {},
+                    active_sessions=registry.list_active_sessions(workspace_id=workspace_id),
+                )
+                await _broadcast_to_source_devices(
+                    registry=registry,
+                    workspace_id=workspace_id,
+                    pairing_code="",
+                    event=event,
+                )
+                await _broadcast_workspace_session_observers(
+                    registry=registry,
+                    workspace_id=workspace_id,
+                    event=event,
+                )
+    except WebSocketDisconnect:
+        pass
+    finally:
+        if attached:
+            registry.detach_workspace_session_observer(
+                workspace_id=workspace_id,
+                websocket=websocket,
+            )
+
+
+async def _broadcast_workspace_session_observers(
+    *,
+    registry: DeviceBindingRegistry,
+    workspace_id: str,
+    event: DeviceControlEvent,
+) -> None:
+    stale: list[WebSocket] = []
+    for observer in registry.workspace_session_observers(workspace_id=workspace_id):
+        try:
+            await _send_event(observer, event)
+        except RuntimeError:
+            stale.append(observer)
+    for observer in stale:
+        registry.detach_workspace_session_observer(
+            workspace_id=workspace_id,
+            websocket=observer,
+        )
 
 
 @router.websocket("/{workspace_id}/device-bindings/{pairing_code}/control")

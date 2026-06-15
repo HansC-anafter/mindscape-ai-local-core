@@ -14,7 +14,7 @@ describe('voicePlaybackQueue XTTS helpers', () => {
   it('checks XTTS health through the existing host-services health route', async () => {
     const fetchMock = vi.fn(async () => ({
       ok: true,
-      json: async () => ({ status: 'healthy' }),
+      json: async () => ({ status: 'ok' }),
     }));
     vi.stubGlobal('fetch', fetchMock);
 

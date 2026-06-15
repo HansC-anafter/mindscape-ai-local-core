@@ -16,6 +16,7 @@ from backend.app.models.device_binding import (
 
 
 DEVICE_PAIRING_CODE_TTL_SECONDS = 120
+MAX_DEVICE_PAIRING_CODE_TTL_SECONDS = 600
 DEVICE_SESSION_TTL_SECONDS = 60
 MAX_ACTIVE_SOURCE_DEVICES_PER_WORKSPACE = 3
 _PAIRING_ALPHABET = string.ascii_uppercase + string.digits
@@ -55,16 +56,23 @@ class DeviceBindingRegistry:
     def __init__(self) -> None:
         self._pairings: dict[str, _PairingRecord] = {}
         self._sessions: dict[str, DeviceSessionEntry] = {}
+        self._workspace_observers: dict[str, list[Any]] = {}
 
-    def create_pairing_code(self, *, workspace_id: str) -> DevicePairingCode:
+    def create_pairing_code(
+        self,
+        *,
+        workspace_id: str,
+        ttl_seconds: int | None = None,
+    ) -> DevicePairingCode:
         now = time.time()
         self.cleanup_expired(now_epoch=now)
+        effective_ttl = _normalize_pairing_ttl_seconds(ttl_seconds)
         pairing_code = self._generate_pairing_code()
         pairing = DevicePairingCode(
             workspace_id=workspace_id,
             pairing_code=pairing_code,
-            expires_at_epoch=now + DEVICE_PAIRING_CODE_TTL_SECONDS,
-            expires_in_seconds=DEVICE_PAIRING_CODE_TTL_SECONDS,
+            expires_at_epoch=now + effective_ttl,
+            expires_in_seconds=effective_ttl,
             device_link_path=f"/device-link/{pairing_code}",
         )
         self._pairings[pairing_code] = _PairingRecord(pairing=pairing)
@@ -99,6 +107,34 @@ class DeviceBindingRegistry:
         if record is None:
             return []
         return list(record.observer_websockets)
+
+    def attach_workspace_session_observer(
+        self,
+        *,
+        workspace_id: str,
+        websocket: Any,
+    ) -> None:
+        observers = self._workspace_observers.setdefault(workspace_id, [])
+        if websocket not in observers:
+            observers.append(websocket)
+
+    def detach_workspace_session_observer(
+        self,
+        *,
+        workspace_id: str,
+        websocket: Any,
+    ) -> None:
+        observers = self._workspace_observers.get(workspace_id)
+        if observers is None:
+            return
+        remaining = [observer for observer in observers if observer is not websocket]
+        if remaining:
+            self._workspace_observers[workspace_id] = remaining
+            return
+        self._workspace_observers.pop(workspace_id, None)
+
+    def workspace_session_observers(self, *, workspace_id: str) -> list[Any]:
+        return list(self._workspace_observers.get(workspace_id, []))
 
     def connect_source_device(
         self,
@@ -138,6 +174,7 @@ class DeviceBindingRegistry:
             device_id=declaration.device_id or self._generate_device_id(),
             display_name=declaration.display_name,
             source_types=declaration.source_types,
+            metadata=dict(declaration.metadata),
             state="paired",
             created_at_epoch=now,
             updated_at_epoch=now,
@@ -191,6 +228,10 @@ class DeviceBindingRegistry:
         entry.terminal_reason = reason
         entry.updated_at_epoch = time.time()
         self._sessions.pop(session_id, None)
+        self._release_pairing_session(
+            pairing_code=entry.pairing_code,
+            session_id=entry.session_id,
+        )
         return entry
 
     def close_session(
@@ -205,6 +246,10 @@ class DeviceBindingRegistry:
         entry.state = "closed"
         entry.terminal_reason = reason
         entry.updated_at_epoch = time.time()
+        self._release_pairing_session(
+            pairing_code=entry.pairing_code,
+            session_id=entry.session_id,
+        )
         return entry
 
     def list_active_sessions(self, *, workspace_id: str) -> list[DeviceSessionEntry]:
@@ -236,7 +281,11 @@ class DeviceBindingRegistry:
         expired_pairings = [
             code
             for code, record in self._pairings.items()
-            if record.expired(now) and not record.consumed_session_id
+            if record.expired(now)
+            and (
+                not record.consumed_session_id
+                or record.consumed_session_id not in self._sessions
+            )
         ]
         for code in expired_pairings:
             self._pairings.pop(code, None)
@@ -293,7 +342,18 @@ class DeviceBindingRegistry:
         entry.terminal_reason = "session_expired"
         entry.updated_at_epoch = time.time()
         self._sessions.pop(entry.session_id, None)
+        self._release_pairing_session(
+            pairing_code=entry.pairing_code,
+            session_id=entry.session_id,
+        )
         return entry
+
+    def _release_pairing_session(self, *, pairing_code: str, session_id: str) -> None:
+        record = self._pairings.get(pairing_code)
+        if record is None:
+            return
+        if record.consumed_session_id == session_id:
+            record.consumed_session_id = None
 
     def _generate_pairing_code(self) -> str:
         while True:
@@ -317,9 +377,16 @@ def get_device_binding_registry() -> DeviceBindingRegistry:
     return _registry
 
 
+def _normalize_pairing_ttl_seconds(ttl_seconds: int | None) -> int:
+    if ttl_seconds is None:
+        return DEVICE_PAIRING_CODE_TTL_SECONDS
+    return max(1, min(int(ttl_seconds), MAX_DEVICE_PAIRING_CODE_TTL_SECONDS))
+
+
 __all__ = [
     "DEVICE_PAIRING_CODE_TTL_SECONDS",
     "DEVICE_SESSION_TTL_SECONDS",
+    "MAX_DEVICE_PAIRING_CODE_TTL_SECONDS",
     "MAX_ACTIVE_SOURCE_DEVICES_PER_WORKSPACE",
     "DeviceBindingRegistry",
     "DeviceBindingRegistryError",

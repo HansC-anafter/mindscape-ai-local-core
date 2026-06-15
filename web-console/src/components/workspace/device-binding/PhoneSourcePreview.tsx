@@ -24,6 +24,11 @@ interface PhoneSourcePreviewProps {
   session: DeviceSessionEntry;
   liveMotionSessionId?: string | null;
   onMotionWindowAppended?: (event: MotionWindowAppendEvent) => void;
+  className?: string;
+}
+
+function cn(...classes: Array<string | null | undefined | false>): string {
+  return classes.filter(Boolean).join(' ');
 }
 
 export function PhoneSourcePreview({
@@ -32,6 +37,7 @@ export function PhoneSourcePreview({
   session,
   liveMotionSessionId = null,
   onMotionWindowAppended,
+  className,
 }: PhoneSourcePreviewProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const handleRef = useRef<WebRTCSessionHandle | null>(null);
@@ -158,7 +164,12 @@ export function PhoneSourcePreview({
     : 'practice_required';
 
   return (
-    <div className="mt-2 overflow-hidden rounded-md border border-gray-200 bg-black dark:border-gray-700">
+    <div
+      className={cn(
+        'mt-2 overflow-hidden rounded-md border border-gray-200 bg-black dark:border-gray-700',
+        className,
+      )}
+    >
       <div className="relative aspect-video w-full">
         <video
           ref={videoRef}

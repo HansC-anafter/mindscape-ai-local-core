@@ -82,6 +82,7 @@ class DeviceSessionEntry(BaseModel):
     device_id: str
     display_name: Optional[str] = None
     source_types: List[DeviceSourceType] = Field(default_factory=list)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
     state: DeviceBindingSessionState
     created_at_epoch: float
     updated_at_epoch: float

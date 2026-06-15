@@ -6,6 +6,7 @@ import { Camera, CheckCircle2, Loader2, Video, XCircle } from 'lucide-react';
 import { DesktopSourcePicker } from '@/components/workspace/device-binding/DesktopSourcePicker';
 import { DesktopSourcePreview } from '@/components/workspace/device-binding/DesktopSourcePreview';
 import { CameraFacingModeToggle } from './CameraFacingModeToggle';
+import { CaptureOrientationToggle } from './CaptureOrientationToggle';
 import { CaptureFullscreenButton } from './CaptureFullscreenButton';
 import { CaptureGuidanceOverlay } from './CaptureGuidanceOverlay';
 import type { useDeviceLinkCaptureSession } from './useDeviceLinkCaptureSession';
@@ -58,6 +59,8 @@ export function MobileCaptureCockpit({ session }: MobileCaptureCockpitProps) {
             />
           )}
           <CaptureGuidanceOverlay
+            captureOrientation={session.captureOrientation}
+            facingMode={session.phoneFacingMode}
             linkState={session.state}
             mediaState={session.mediaState}
             sourceMode={session.sourceMode}
@@ -73,7 +76,9 @@ export function MobileCaptureCockpit({ session }: MobileCaptureCockpitProps) {
               </div>
               <div className="min-w-0">
                 <h1 className="text-base font-semibold">Motion source</h1>
-                <p className="truncate text-xs text-white/70">{session.state}</p>
+                <p className="truncate text-xs text-white/70">
+                  {session.connectionStatusLabel} · {session.videoTrackLabel || session.mediaState}
+                </p>
               </div>
             </div>
             <div className="rounded-md border border-white/10 bg-black/35 px-3 py-2 font-mono text-xs text-white/80 backdrop-blur">
@@ -113,9 +118,12 @@ export function MobileCaptureCockpit({ session }: MobileCaptureCockpitProps) {
               </div>
             ) : null}
 
-            {session.message ? (
-              <div className="rounded-md border border-white/10 bg-black/50 px-3 py-2 text-sm text-white/85 backdrop-blur">
-                {session.message}
+            {session.message || session.connectionStatusDetail ? (
+              <div
+                className="rounded-md border border-white/10 bg-black/50 px-3 py-2 text-sm text-white/85 backdrop-blur"
+                data-testid="device-link-connection-status-detail"
+              >
+                {session.message || session.connectionStatusDetail}
               </div>
             ) : null}
             {session.fullscreenMessage ? (
@@ -124,26 +132,37 @@ export function MobileCaptureCockpit({ session }: MobileCaptureCockpitProps) {
               </div>
             ) : null}
 
-            <div className="grid grid-cols-[auto_auto_1fr] gap-2">
+            <div className="grid grid-cols-[auto_auto_auto_1fr] gap-2">
               {session.sourceMode === 'phone' ? (
                 <CameraFacingModeToggle
-                  disabled={session.state === 'connecting'}
+                  disabled={session.state === 'connecting' || session.captureControlBusy}
                   facingMode={session.phoneFacingMode}
                   onFlip={session.flipPhoneCamera}
+                  busy={session.captureControlState === 'switching_camera'}
+                />
+              ) : null}
+              {session.sourceMode === 'phone' ? (
+                <CaptureOrientationToggle
+                  disabled={session.state === 'connecting' || session.captureControlBusy}
+                  orientation={session.captureOrientation}
+                  onToggle={session.toggleCaptureOrientation}
+                  busy={session.captureControlState === 'switching_orientation'}
                 />
               ) : null}
               <CaptureFullscreenButton
+                disabled={session.captureControlBusy && session.captureControlState !== 'fullscreen'}
                 isFullscreen={session.isFullscreen}
                 onToggle={session.toggleFullscreen}
+                busy={session.captureControlState === 'fullscreen'}
               />
               <button
                 type="button"
                 onClick={session.connect}
-                disabled={session.active}
+                disabled={!session.canConnect}
                 className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md bg-sky-500 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-sky-600 disabled:cursor-not-allowed disabled:bg-gray-700 disabled:text-gray-400"
               >
                 {session.state === 'connecting' ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}
-                Connect
+                {session.connectButtonLabel}
               </button>
             </div>
           </div>

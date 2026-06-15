@@ -5,7 +5,7 @@ import { createElement } from 'react';
 import { MotionSourceRailPanel } from './MotionSourceRailPanel';
 import {
   createDevicePairingCode,
-  openDeviceControlSocket,
+  openWorkspaceDeviceControlSocket,
   revokeDeviceSession,
 } from '@/lib/device-binding/deviceBindingClient';
 
@@ -26,7 +26,7 @@ vi.mock('@/lib/device-binding/deviceBindingClient', () => ({
     expires_in_seconds: 120,
     device_link_path: '/device-link/PAIR1234',
   })),
-  openDeviceControlSocket: vi.fn((input) => {
+  openWorkspaceDeviceControlSocket: vi.fn((input) => {
     mocks.socketInput = input;
     return mocks.socket;
   }),
@@ -70,7 +70,13 @@ describe('MotionSourceRailPanel', () => {
       apiBase: 'http://api.test',
       workspaceId: 'ws_device',
     });
-    expect(openDeviceControlSocket).toHaveBeenCalledTimes(1);
+    expect(openWorkspaceDeviceControlSocket).toHaveBeenCalledTimes(1);
+    expect(openWorkspaceDeviceControlSocket).toHaveBeenCalledWith(
+      expect.objectContaining({
+        apiBase: 'http://api.test',
+        workspaceId: 'ws_device',
+      }),
+    );
     expect(screen.getByRole('link', { name: 'Phone source link' })).toHaveAttribute(
       'href',
       'http://localhost:3000/device-link/PAIR1234?workspaceId=ws_device&sourceMode=phone',
@@ -78,6 +84,11 @@ describe('MotionSourceRailPanel', () => {
     expect(screen.getByRole('link', { name: 'Desktop camera source link' })).toHaveAttribute(
       'href',
       'http://localhost:3000/device-link/PAIR1234?workspaceId=ws_device&sourceMode=camera',
+    );
+    expect(screen.getByText('Local-core device link')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Open Device Link settings' })).toHaveAttribute(
+      'href',
+      '/settings?tab=runtime&section=device-link-readiness&workspace_id=ws_device',
     );
   });
 
@@ -105,6 +116,30 @@ describe('MotionSourceRailPanel', () => {
     expect(screen.getByTestId('phone-qr-code').querySelector('svg')).toHaveAttribute(
       'aria-label',
       'Phone pairing QR code',
+    );
+  });
+
+  it('auto-populates the phone HTTPS origin from local-core device-link readiness', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        public_origin: 'https://192.168.0.104:8343',
+      }),
+    })));
+
+    render(
+      createElement(MotionSourceRailPanel, {
+        apiUrl: 'http://api.test',
+        workspaceId: 'ws_device',
+      }),
+    );
+
+    await screen.findByText('PAIR1234');
+    expect(await screen.findByTestId('phone-qr-code')).toBeInTheDocument();
+    expect(screen.getByTestId('phone-public-origin-input')).toHaveValue('https://192.168.0.104:8343');
+    expect(screen.getByRole('link', { name: 'Phone source link' })).toHaveAttribute(
+      'href',
+      'https://192.168.0.104:8343/device-link/PAIR1234?workspaceId=ws_device&sourceMode=phone',
     );
   });
 

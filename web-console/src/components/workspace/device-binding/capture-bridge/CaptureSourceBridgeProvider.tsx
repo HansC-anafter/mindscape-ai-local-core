@@ -13,7 +13,7 @@ import React, {
 
 import {
   createDevicePairingCode,
-  openDeviceControlSocket,
+  openWorkspaceDeviceControlSocket,
   revokeDeviceSession,
   type DeviceControlEvent,
   type DeviceControlSocket,
@@ -105,8 +105,35 @@ export function CaptureSourceBridgeProvider({
     useState<CaptureSourceReferenceLessonState | null>(null);
   const [phonePublicOrigin, setPhonePublicOrigin] = useState('');
   const socketRef = useRef<DeviceControlSocket | null>(null);
+  const phonePublicOriginTouchedRef = useRef(false);
 
   useEffect(() => () => socketRef.current?.close(), []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof fetch !== 'function') {
+      return;
+    }
+    const controller = new AbortController();
+    void fetch('/api/v1/host/services/device-link-https/health', {
+      cache: 'no-store',
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          return null;
+        }
+        return response.json() as Promise<{ public_origin?: string | null }>;
+      })
+      .then((body) => {
+        const publicOrigin = String(body?.public_origin || '').trim();
+        if (!publicOrigin || phonePublicOriginTouchedRef.current) {
+          return;
+        }
+        setPhonePublicOrigin((current) => current || publicOrigin);
+      })
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, []);
 
   const fallbackBrowserOrigin = typeof window === 'undefined' ? '' : window.location.origin;
   const phoneOrigin = useMemo(() => resolveDeviceLinkPublicOrigin({
@@ -142,8 +169,11 @@ export function CaptureSourceBridgeProvider({
     if (event.type === 'pairing_ready') {
       setState('pairing');
     }
-    if (event.type === 'session_paired' || event.type === 'session_active') {
+    if (event.type === 'session_paired') {
       setState('connected');
+    }
+    if (event.type === 'session_active') {
+      setState(event.active_sessions?.length ? 'connected' : 'pairing');
     }
     if (event.type === 'session_revoked' || event.type === 'session_closed' || event.type === 'session_expired') {
       setState(event.active_sessions?.length ? 'connected' : 'pairing');
@@ -175,10 +205,9 @@ export function CaptureSourceBridgeProvider({
         workspaceId,
       });
       setPairing(nextPairing);
-      const socket = openDeviceControlSocket({
+      const socket = openWorkspaceDeviceControlSocket({
         apiBase: apiUrl,
         workspaceId,
-        pairingCode: nextPairing.pairing_code,
         onOpen: () => socket.send({ type: 'workspace_subscribe' }),
         onEvent: applyEvent,
         onError: (nextError) => {
@@ -193,12 +222,6 @@ export function CaptureSourceBridgeProvider({
     }
   }, [apiUrl, applyEvent, disabled, state, workspaceId]);
 
-  useEffect(() => {
-    if (state === 'idle' && !pairing && !disabled) {
-      void startPairing();
-    }
-  }, [disabled, pairing, startPairing, state]);
-
   const revokeSession = useCallback(async (sessionId: string) => {
     try {
       await revokeDeviceSession({
@@ -211,6 +234,11 @@ export function CaptureSourceBridgeProvider({
       setState('error');
     }
   }, [apiUrl, workspaceId]);
+
+  const setPhonePublicOriginValue = useCallback((origin: string) => {
+    phonePublicOriginTouchedRef.current = true;
+    setPhonePublicOrigin(origin);
+  }, []);
 
   const value = useMemo<CaptureSourceBridgeContextValue>(() => ({
     apiUrl,
@@ -227,7 +255,7 @@ export function CaptureSourceBridgeProvider({
     phoneDeviceLink,
     phoneQrCode,
     desktopDeviceLink,
-    setPhonePublicOrigin,
+    setPhonePublicOrigin: setPhonePublicOriginValue,
     startPairing,
     revokeSession,
   }), [
@@ -244,6 +272,7 @@ export function CaptureSourceBridgeProvider({
     referenceLessonState,
     revokeSession,
     sessions,
+    setPhonePublicOriginValue,
     startPairing,
     state,
     workspaceId,

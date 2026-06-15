@@ -61,6 +61,33 @@ def test_device_binding_pairing_code_route_issues_code() -> None:
     assert payload["device_link_path"] == f"/device-link/{payload['pairing_code']}"
 
 
+def test_device_binding_pairing_code_route_accepts_smoke_ttl() -> None:
+    module = _load_device_bindings_module()
+    registry = DeviceBindingRegistry()
+    client = TestClient(_build_app(module, registry=registry))
+
+    response = client.post(
+        "/api/v1/workspaces/ws_device/device-bindings/pairing-codes",
+        json={"expires_in_seconds": 600},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["expires_in_seconds"] == 600
+
+
+def test_device_binding_pairing_code_route_rejects_unbounded_ttl() -> None:
+    module = _load_device_bindings_module()
+    registry = DeviceBindingRegistry()
+    client = TestClient(_build_app(module, registry=registry))
+
+    response = client.post(
+        "/api/v1/workspaces/ws_device/device-bindings/pairing-codes",
+        json={"expires_in_seconds": 601},
+    )
+
+    assert response.status_code == 422
+
+
 def test_device_binding_control_ws_pairs_source_and_notifies_workspace() -> None:
     module = _load_device_bindings_module()
     registry = DeviceBindingRegistry()
@@ -118,6 +145,80 @@ def test_device_binding_control_ws_rejects_duplicate_pairing_code() -> None:
             error = _receive(duplicate)
             assert error["type"] == "session_error"
             assert error["reason"] == "duplicate_pairing_code"
+
+
+def test_device_binding_control_ws_allows_reconnect_after_session_close() -> None:
+    module = _load_device_bindings_module()
+    registry = DeviceBindingRegistry()
+    client = TestClient(_build_app(module, registry=registry))
+    pairing = client.post(
+        "/api/v1/workspaces/ws_device/device-bindings/pairing-codes",
+        json={},
+    ).json()
+    control_url = (
+        "/api/v1/workspaces/ws_device/device-bindings/"
+        f"{pairing['pairing_code']}/control"
+    )
+
+    with client.websocket_connect(control_url) as first:
+        first.send_json({"type": "source_join", "device_id": "phone_1"})
+        first_session = _receive(first)
+        assert first_session["type"] == "session_paired"
+        first.send_json({"type": "session_close"})
+        closed = _receive(first)
+        assert closed["type"] == "session_closed"
+
+    with client.websocket_connect(control_url) as second:
+        second.send_json({"type": "source_join", "device_id": "phone_1"})
+        second_session = _receive(second)
+
+        assert second_session["type"] == "session_paired"
+        assert second_session["session_id"] != first_session["session_id"]
+
+
+def test_workspace_device_control_restores_existing_sessions_and_observes_new_pairings() -> None:
+    module = _load_device_bindings_module()
+    registry = DeviceBindingRegistry()
+    client = TestClient(_build_app(module, registry=registry))
+    first_pairing = client.post(
+        "/api/v1/workspaces/ws_device/device-bindings/pairing-codes",
+        json={},
+    ).json()
+    first_control_url = (
+        "/api/v1/workspaces/ws_device/device-bindings/"
+        f"{first_pairing['pairing_code']}/control"
+    )
+    workspace_control_url = "/api/v1/workspaces/ws_device/device-bindings/control"
+
+    with client.websocket_connect(first_control_url) as first_source:
+        first_source.send_json({"type": "source_join", "device_id": "phone_1"})
+        first_session = _receive(first_source)
+
+        with client.websocket_connect(workspace_control_url) as workspace_ws:
+            workspace_ws.send_json({"type": "workspace_subscribe"})
+            initial = _receive(workspace_ws)
+
+            assert initial["type"] == "session_active"
+            assert initial["active_sessions"][0]["session_id"] == first_session["session_id"]
+
+            second_pairing = client.post(
+                "/api/v1/workspaces/ws_device/device-bindings/pairing-codes",
+                json={},
+            ).json()
+            second_control_url = (
+                "/api/v1/workspaces/ws_device/device-bindings/"
+                f"{second_pairing['pairing_code']}/control"
+            )
+            with client.websocket_connect(second_control_url) as second_source:
+                second_source.send_json({"type": "source_join", "device_id": "phone_2"})
+                assert _receive(second_source)["type"] == "session_paired"
+                update = _receive(workspace_ws)
+
+                assert update["type"] == "session_paired"
+                assert [entry["device_id"] for entry in update["active_sessions"]] == [
+                    "phone_1",
+                    "phone_2",
+                ]
 
 
 def test_device_binding_revoke_route_broadcasts_terminal_event() -> None:

@@ -29,6 +29,7 @@ export type DeviceSessionEntry = {
   device_id: string;
   display_name?: string | null;
   source_types: DeviceSourceType[];
+  metadata?: Record<string, unknown>;
   state: DeviceBindingSessionState;
   created_at_epoch: number;
   updated_at_epoch: number;
@@ -108,6 +109,11 @@ export type OpenDeviceControlSocketInput = {
   onClose?: () => void;
 };
 
+export type OpenWorkspaceDeviceControlSocketInput = Omit<
+  OpenDeviceControlSocketInput,
+  'pairingCode'
+>;
+
 function trimTrailingSlash(value: string): string {
   return value.replace(/\/+$/, '');
 }
@@ -162,6 +168,21 @@ export function buildDeviceControlWebSocketUrl({
   return url.toString();
 }
 
+export function buildWorkspaceDeviceControlWebSocketUrl({
+  apiBase,
+  workspaceId,
+}: {
+  apiBase: string;
+  workspaceId: string;
+}): string {
+  const base = resolveHttpBase(apiBase);
+  const url = new URL(base, getBrowserOrigin());
+  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+  url.pathname = `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/device-bindings/control`;
+  url.search = '';
+  return url.toString();
+}
+
 export async function createDevicePairingCode({
   apiBase,
   workspaceId,
@@ -201,7 +222,20 @@ export async function revokeDeviceSession({
 export function openDeviceControlSocket(
   input: OpenDeviceControlSocketInput,
 ): DeviceControlSocket {
-  const socket = new WebSocket(buildDeviceControlWebSocketUrl(input));
+  return openControlSocket(buildDeviceControlWebSocketUrl(input), input);
+}
+
+export function openWorkspaceDeviceControlSocket(
+  input: OpenWorkspaceDeviceControlSocketInput,
+): DeviceControlSocket {
+  return openControlSocket(buildWorkspaceDeviceControlWebSocketUrl(input), input);
+}
+
+function openControlSocket(
+  url: string,
+  input: OpenWorkspaceDeviceControlSocketInput,
+): DeviceControlSocket {
+  const socket = new WebSocket(url);
   socket.onopen = () => input.onOpen?.();
   socket.onmessage = (message) => {
     try {

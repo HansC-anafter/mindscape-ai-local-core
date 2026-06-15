@@ -7,6 +7,7 @@ from backend.app.services.orchestration.meeting.device_binding_registry import (
     DEVICE_PAIRING_CODE_TTL_SECONDS,
     DEVICE_SESSION_TTL_SECONDS,
     MAX_ACTIVE_SOURCE_DEVICES_PER_WORKSPACE,
+    MAX_DEVICE_PAIRING_CODE_TTL_SECONDS,
     DeviceBindingRegistry,
     DeviceBindingRegistryError,
 )
@@ -17,6 +18,11 @@ def _declaration(index: int = 1) -> DeviceCapabilityDeclaration:
         device_id=f"device_{index}",
         display_name=f"Device {index}",
         source_types=["phone_camera", "microphone"],
+        metadata={
+            "secure_context": True,
+            "source_origin_scheme": "https",
+            "capture_surface": "device_link",
+        },
     )
 
 
@@ -28,6 +34,16 @@ def test_registry_creates_pairing_code_with_fixed_ttl() -> None:
     assert pairing.workspace_id == "ws_device"
     assert pairing.expires_in_seconds == DEVICE_PAIRING_CODE_TTL_SECONDS
     assert pairing.device_link_path == f"/device-link/{pairing.pairing_code}"
+
+
+def test_registry_allows_bounded_pairing_ttl_override() -> None:
+    registry = DeviceBindingRegistry()
+
+    pairing = registry.create_pairing_code(workspace_id="ws_device", ttl_seconds=600)
+    capped = registry.create_pairing_code(workspace_id="ws_device", ttl_seconds=3600)
+
+    assert pairing.expires_in_seconds == 600
+    assert capped.expires_in_seconds == MAX_DEVICE_PAIRING_CODE_TTL_SECONDS
 
 
 def test_registry_rejects_expired_pairing_code() -> None:
@@ -74,6 +90,11 @@ def test_registry_rejects_duplicate_pairing_code_connect() -> None:
     )
 
     assert first.state == "paired"
+    assert first.metadata == {
+        "secure_context": True,
+        "source_origin_scheme": "https",
+        "capture_surface": "device_link",
+    }
     with pytest.raises(DeviceBindingRegistryError) as exc_info:
         registry.connect_source_device(
             workspace_id="ws_device",
@@ -83,6 +104,53 @@ def test_registry_rejects_duplicate_pairing_code_connect() -> None:
         )
 
     assert exc_info.value.reason == "duplicate_pairing_code"
+
+
+def test_registry_releases_pairing_code_after_closed_session_for_reconnect() -> None:
+    registry = DeviceBindingRegistry()
+    pairing = registry.create_pairing_code(workspace_id="ws_device")
+    first = registry.connect_source_device(
+        workspace_id="ws_device",
+        pairing_code=pairing.pairing_code,
+        declaration=_declaration(),
+        websocket=object(),
+    )
+
+    closed = registry.close_session(session_id=first.session_id)
+    second = registry.connect_source_device(
+        workspace_id="ws_device",
+        pairing_code=pairing.pairing_code,
+        declaration=_declaration(2),
+        websocket=object(),
+    )
+
+    assert closed is not None
+    assert closed.state == "closed"
+    assert second.state == "paired"
+    assert second.session_id != first.session_id
+    assert registry.active_count(workspace_id="ws_device") == 1
+
+
+def test_registry_releases_pairing_code_after_revoked_session_for_reconnect() -> None:
+    registry = DeviceBindingRegistry()
+    pairing = registry.create_pairing_code(workspace_id="ws_device")
+    first = registry.connect_source_device(
+        workspace_id="ws_device",
+        pairing_code=pairing.pairing_code,
+        declaration=_declaration(),
+        websocket=object(),
+    )
+
+    registry.revoke_session(workspace_id="ws_device", session_id=first.session_id)
+    second = registry.connect_source_device(
+        workspace_id="ws_device",
+        pairing_code=pairing.pairing_code,
+        declaration=_declaration(2),
+        websocket=object(),
+    )
+
+    assert second.state == "paired"
+    assert second.session_id != first.session_id
 
 
 def test_registry_caps_active_source_devices_per_workspace() -> None:
@@ -142,3 +210,30 @@ def test_registry_refresh_extends_session_ttl() -> None:
 
     assert refreshed.state == "active"
     assert refreshed.expires_at_epoch >= refreshed.updated_at_epoch + DEVICE_SESSION_TTL_SECONDS - 1
+
+
+def test_registry_tracks_workspace_session_observers_independent_of_pairing_code() -> None:
+    registry = DeviceBindingRegistry()
+    first = object()
+    second = object()
+
+    registry.attach_workspace_session_observer(
+        workspace_id="ws_device",
+        websocket=first,
+    )
+    registry.attach_workspace_session_observer(
+        workspace_id="ws_device",
+        websocket=second,
+    )
+
+    assert registry.workspace_session_observers(workspace_id="ws_device") == [
+        first,
+        second,
+    ]
+
+    registry.detach_workspace_session_observer(
+        workspace_id="ws_device",
+        websocket=first,
+    )
+
+    assert registry.workspace_session_observers(workspace_id="ws_device") == [second]

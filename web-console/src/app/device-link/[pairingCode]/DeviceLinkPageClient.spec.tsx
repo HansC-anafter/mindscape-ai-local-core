@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createElement } from 'react';
 
@@ -16,6 +16,8 @@ const mocks = vi.hoisted(() => ({
     raw: {},
   },
   socketInput: null as any,
+  phoneInputs: [] as any[],
+  desktopInputs: [] as any[],
   phoneHandles: [] as any[],
   desktopHandles: [] as any[],
   readiness: {
@@ -52,11 +54,33 @@ vi.mock('@/lib/device-binding/deviceBindingClient', () => ({
 }));
 
 vi.mock('@/lib/media-transport/webrtcSessionClient', () => ({
+  buildPhoneVideoConstraints: (facingMode = 'environment') => ({
+    facingMode: { ideal: facingMode },
+    width: { ideal: 1280 },
+    height: { ideal: 720 },
+    frameRate: { max: 30 },
+  }),
   startPhoneBrowserSourceSession: vi.fn(async (input) => {
+    mocks.phoneInputs.push(input);
     const stream = mocks.createStream(`phone_${input.facingMode || 'environment'}`);
     input.onLocalStream?.(stream);
     const handle = {
       stop: vi.fn(() => stream.getTracks().forEach((track: any) => track.stop())),
+      replaceVideoTrack: vi.fn(async (video: MediaTrackConstraints) => {
+        const facingMode = typeof video.facingMode === 'object'
+          && video.facingMode
+          && 'ideal' in video.facingMode
+          ? String(video.facingMode.ideal)
+          : 'environment';
+        const nextStream = mocks.createStream(`phone_${facingMode}`);
+        input.onLocalStream?.(nextStream);
+        return nextStream;
+      }),
+      setVideoOrientation: vi.fn(async (orientation: 'portrait' | 'landscape') => {
+        const nextStream = mocks.createStream(`phone_${input.facingMode || 'environment'}_${orientation}`);
+        input.onLocalStream?.(nextStream);
+        return nextStream;
+      }),
       peerConnection: null,
       localStream: stream,
     };
@@ -64,6 +88,7 @@ vi.mock('@/lib/media-transport/webrtcSessionClient', () => ({
     return handle;
   }),
   startDesktopBrowserSourceSession: vi.fn(async (input) => {
+    mocks.desktopInputs.push(input);
     const stream = mocks.createStream('desktop_camera');
     input.onLocalStream?.(stream);
     const handle = {
@@ -104,6 +129,8 @@ describe('DeviceLinkPageClient', () => {
   afterEach(() => {
     vi.clearAllMocks();
     mocks.socketInput = null;
+    mocks.phoneInputs = [];
+    mocks.desktopInputs = [];
     mocks.phoneHandles = [];
     mocks.desktopHandles = [];
     mocks.readiness = { allowed: true };
@@ -128,8 +155,8 @@ describe('DeviceLinkPageClient', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
     });
 
-    expect(screen.getByText('secure_context_required')).toBeTruthy();
     expect(screen.getAllByText('HTTPS required').length).toBeGreaterThan(0);
+    expect(screen.getByTestId('device-link-connection-status-detail')).toHaveTextContent('HTTPS required');
     expect(openDeviceControlSocket).not.toHaveBeenCalled();
   });
 
@@ -151,9 +178,13 @@ describe('DeviceLinkPageClient', () => {
     expect(mocks.socket.send).toHaveBeenCalledWith(
       expect.objectContaining({
         type: 'source_join',
-        metadata: expect.objectContaining({
-          camera_facing_mode: 'environment',
-          source_mode: 'phone',
+          metadata: expect.objectContaining({
+            camera_facing_mode: 'environment',
+            capture_orientation: 'portrait',
+            source_mode: 'phone',
+            secure_context: false,
+          source_origin_scheme: 'http',
+          capture_surface: 'device_link',
         }),
       }),
     );
@@ -174,11 +205,55 @@ describe('DeviceLinkPageClient', () => {
         deviceSessionId: 'session_1',
         mediaSessionId: 'session_1',
         facingMode: 'environment',
+        videoOrientation: 'portrait',
       }),
     );
   });
 
-  it('flips phone camera by stopping the current media handle and restarting the same session', async () => {
+  it('sends requested phone capture orientation when changed before connect', async () => {
+    render(
+      createElement(DeviceLinkPageClient, {
+        pairingCode: 'PAIR1234',
+        workspaceId: 'ws_device',
+      }),
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Use landscape capture' }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
+    });
+    act(() => {
+      mocks.socketInput.onOpen();
+    });
+
+    expect(mocks.socket.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'source_join',
+        metadata: expect.objectContaining({
+          capture_orientation: 'landscape',
+        }),
+      }),
+    );
+
+    await act(async () => {
+      mocks.socketInput.onEvent({
+        type: 'session_paired',
+        workspace_id: 'ws_device',
+        session_id: 'session_1',
+        device_id: 'phone_1',
+      });
+    });
+
+    expect(startPhoneBrowserSourceSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        videoOrientation: 'landscape',
+      }),
+    );
+  });
+
+  it('disables repeat connect and keeps streaming visible across heartbeat acknowledgements', async () => {
     render(
       createElement(DeviceLinkPageClient, {
         pairingCode: 'PAIR1234',
@@ -201,18 +276,219 @@ describe('DeviceLinkPageClient', () => {
       });
     });
 
+    expect(screen.getByRole('button', { name: 'Paired' })).toBeDisabled();
+    expect(screen.getByTestId('device-link-connection-status-detail')).toHaveTextContent(
+      'Connected. Keep this page open while the workspace receiver starts.',
+    );
+
+    await act(async () => {
+      mocks.phoneInputs[0].onState('connected');
+    });
+
+    expect(screen.getByRole('button', { name: 'Streaming' })).toBeDisabled();
+
+    await act(async () => {
+      mocks.socketInput.onEvent({
+        type: 'heartbeat_ack',
+        workspace_id: 'ws_device',
+        session_id: 'session_1',
+        device_id: 'phone_1',
+      });
+    });
+
+    expect(screen.getByRole('button', { name: 'Streaming' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Paired' })).toBeNull();
+  });
+
+  it('reconnects by opening a fresh control socket after the source session closes', async () => {
+    render(
+      createElement(DeviceLinkPageClient, {
+        pairingCode: 'PAIR1234',
+        workspaceId: 'ws_device',
+      }),
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
+    });
+    act(() => {
+      mocks.socketInput.onOpen();
+    });
+    await act(async () => {
+      mocks.socketInput.onEvent({
+        type: 'session_paired',
+        workspace_id: 'ws_device',
+        session_id: 'session_1',
+        device_id: 'phone_1',
+      });
+    });
+    await act(async () => {
+      mocks.socketInput.onEvent({
+        type: 'session_closed',
+        workspace_id: 'ws_device',
+        session_id: 'session_1',
+        device_id: 'phone_1',
+        reason: 'socket_closed',
+      });
+    });
+
+    expect(screen.getByRole('button', { name: 'Reconnect' })).toBeEnabled();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Reconnect' }));
+    });
+    act(() => {
+      mocks.socketInput.onOpen();
+    });
+
+    expect(openDeviceControlSocket).toHaveBeenCalledTimes(2);
+    expect(mocks.socket.send).toHaveBeenCalledTimes(2);
+    expect(mocks.socket.send).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        type: 'source_join',
+        display_name: 'Phone camera',
+        source_types: ['phone_camera', 'microphone'],
+      }),
+    );
+  });
+
+  it('flips phone camera by replacing the video track without closing the media session', async () => {
+    render(
+      createElement(DeviceLinkPageClient, {
+        pairingCode: 'PAIR1234',
+        workspaceId: 'ws_device',
+      }),
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
+    });
+    act(() => {
+      mocks.socketInput.onOpen();
+    });
+    await act(async () => {
+      mocks.socketInput.onEvent({
+        type: 'session_paired',
+        workspace_id: 'ws_device',
+        session_id: 'session_1',
+        device_id: 'phone_1',
+      });
+    });
+    await waitFor(() => expect(mocks.phoneHandles).toHaveLength(1));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      mocks.phoneInputs[0].onState('connected');
+    });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Streaming' })).toBeDisabled());
+
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Use front camera' }));
     });
 
-    expect(mocks.phoneHandles[0].stop).toHaveBeenCalled();
-    expect(startPhoneBrowserSourceSession).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({
-        deviceSessionId: 'session_1',
-        mediaSessionId: 'session_1',
-        facingMode: 'user',
+    expect(mocks.phoneHandles[0].stop).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(mocks.phoneHandles[0].replaceVideoTrack).toHaveBeenCalledWith(
+        expect.objectContaining({
+          facingMode: { ideal: 'user' },
+        }),
+        expect.objectContaining({
+          orientation: 'portrait',
+        }),
+      ),
+    );
+    expect(startPhoneBrowserSourceSession).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the phone source recoverable when camera replacement needs a media restart', async () => {
+    render(
+      createElement(DeviceLinkPageClient, {
+        pairingCode: 'PAIR1234',
+        workspaceId: 'ws_device',
       }),
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
+    });
+    act(() => {
+      mocks.socketInput.onOpen();
+    });
+    await act(async () => {
+      mocks.socketInput.onEvent({
+        type: 'session_paired',
+        workspace_id: 'ws_device',
+        session_id: 'session_1',
+        device_id: 'phone_1',
+      });
+    });
+    await waitFor(() => expect(mocks.phoneHandles).toHaveLength(1));
+    await act(async () => {
+      mocks.phoneInputs[0].onState('connected');
+    });
+    mocks.phoneHandles[0].replaceVideoTrack.mockImplementationOnce(async () => {
+      const error = new Error('replace_track_failed');
+      mocks.phoneInputs[0].onError(error);
+      throw error;
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Use front camera' }));
+    });
+
+    await waitFor(() => expect(startPhoneBrowserSourceSession).toHaveBeenCalledTimes(2));
+    expect(mocks.phoneHandles[0].stop).toHaveBeenCalledTimes(1);
+    expect(startPhoneBrowserSourceSession).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        facingMode: 'user',
+        videoOrientation: 'portrait',
+      }),
+    );
+    expect(screen.getByTestId('device-link-connection-status-detail')).toHaveTextContent(
+      'Front camera enabled.',
+    );
+    expect(screen.queryByRole('button', { name: 'Reconnect' })).toBeNull();
+  });
+
+  it('switches phone capture orientation without reopening the media session', async () => {
+    render(
+      createElement(DeviceLinkPageClient, {
+        pairingCode: 'PAIR1234',
+        workspaceId: 'ws_device',
+      }),
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
+    });
+    act(() => {
+      mocks.socketInput.onOpen();
+    });
+    await act(async () => {
+      mocks.socketInput.onEvent({
+        type: 'session_paired',
+        workspace_id: 'ws_device',
+        session_id: 'session_1',
+        device_id: 'phone_1',
+      });
+    });
+    await waitFor(() => expect(mocks.phoneHandles).toHaveLength(1));
+    await act(async () => {
+      mocks.phoneInputs[0].onState('connected');
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Use landscape capture' }));
+    });
+
+    expect(mocks.phoneHandles[0].setVideoOrientation).toHaveBeenCalledWith('landscape');
+    expect(startPhoneBrowserSourceSession).toHaveBeenCalledTimes(1);
+    expect(openDeviceControlSocket).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('device-link-connection-status-detail')).toHaveTextContent(
+      'Landscape capture enabled.',
     );
   });
 
@@ -259,6 +535,9 @@ describe('DeviceLinkPageClient', () => {
         source_types: ['virtual_camera'],
         metadata: expect.objectContaining({
           source_mode: 'camera',
+          secure_context: false,
+          source_origin_scheme: 'http',
+          capture_surface: 'device_link',
         }),
       }),
     );

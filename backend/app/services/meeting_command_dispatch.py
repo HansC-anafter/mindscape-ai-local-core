@@ -234,6 +234,54 @@ def _meeting_orchestration_timeout_result(
     }
 
 
+async def _run_meeting_orchestration_in_background(
+    *,
+    command_id: str,
+    canonical: MeetingCommandEnvelope,
+    session: Any,
+    workspace: Workspace,
+    store: Any,
+    session_store: Any,
+    command_store: Any,
+    workspace_id: str,
+) -> None:
+    """Run meeting orchestration in background and persist late command updates."""
+
+    from backend.app.services.stores.meeting_command_store import MeetingCommandStore
+
+    command_store = command_store or MeetingCommandStore()
+    command = command_store.get(command_id)
+    if command is None:
+        return
+
+    try:
+        command, _ = await dispatch_meeting_orchestration_for_command(
+            command=command,
+            canonical=canonical,
+            session=session,
+            workspace=workspace,
+            store=store,
+            session_store=session_store,
+            workspace_id=workspace_id,
+        )
+    except Exception as exc:
+        logger.exception(
+            "Meeting orchestration background task failed for command %s",
+            command_id,
+        )
+        command = command.model_copy(
+            update={
+                "status": MeetingCommandStatus.FAILED,
+                "metadata": {
+                    **command.metadata,
+                    "dispatch_status": "failed",
+                    "dispatch_error": str(exc),
+                },
+            }
+        )
+    command_store.save(command)
+
+
 async def dispatch_meeting_orchestration_for_command(
     *,
     command: MeetingCommandRecord,

@@ -17,6 +17,7 @@ from backend.app.models.meeting_command import (
 from backend.app.models.workspace import Workspace
 from backend.app.services.conversation_orchestrator import ConversationOrchestrator
 from backend.app.services.meeting_command_dispatch import (
+    _run_meeting_orchestration_in_background,
     dispatch_chat_for_command,
     dispatch_meeting_orchestration_for_command,
     dispatch_object_action_for_command,
@@ -197,19 +198,61 @@ class MeetingCommandSubmissionService:
 
         if should_route_meeting_orchestration(canonical):
             try:
-                command, dispatch_result = await dispatch_meeting_orchestration_for_command(
-                    command=saved,
-                    canonical=canonical,
-                    session=session,
-                    workspace=workspace,
-                    store=mindscape_store,
-                    session_store=self.session_store,
-                    workspace_id=workspace_id,
-                )
+                if background_tasks is not None:
+                    command = saved.model_copy(
+                        update={
+                            "status": MeetingCommandStatus.ACCEPTED,
+                            "metadata": {
+                                **saved.metadata,
+                                "dispatch_status": "accepted",
+                                "dispatch_mode": "route_meeting_orchestration",
+                                "meeting_orchestration": {
+                                    "status": "accepted",
+                                    "completion_status": "accepted",
+                                    "artifact_landing_status": "pending",
+                                    "request_contract_aol_metadata": getattr(
+                                        session, "metadata", {}
+                                    ).get("request_contract", {})
+                                    if isinstance(getattr(session, "metadata", None), dict)
+                                    else {},
+                                },
+                            },
+                        }
+                    )
+                    background_tasks.add_task(
+                        _run_meeting_orchestration_in_background,
+                        command_id=saved.command_id,
+                        canonical=canonical,
+                        session=session,
+                        workspace=workspace,
+                        store=mindscape_store,
+                        session_store=self.session_store,
+                        command_store=self.command_store,
+                        workspace_id=workspace_id,
+                    )
+                    dispatch_result = {
+                        "meeting_orchestration": {
+                            "status": "accepted",
+                            "artifact_landing_status": "pending",
+                            "task_ir_id": None,
+                        }
+                    }
+                    saved = command
+                else:
+                    command, dispatch_result = await dispatch_meeting_orchestration_for_command(
+                        command=saved,
+                        canonical=canonical,
+                        session=session,
+                        workspace=workspace,
+                        store=mindscape_store,
+                        session_store=self.session_store,
+                        workspace_id=workspace_id,
+                    )
+                    saved = command
             except Exception as exc:
                 saved = self._save_failed_command(saved, exc)
                 raise
-            saved = self.command_store.save(command)
+            saved = self.command_store.save(saved)
         elif should_route_object_action(canonical):
             try:
                 command, dispatch_result = await dispatch_object_action_for_command(

@@ -49,6 +49,7 @@ export type MediaStreamRef = {
 };
 
 export type CameraFacingMode = 'user' | 'environment';
+export type CaptureOrientation = 'portrait' | 'landscape';
 
 export type WebRTCSignalSocket = {
   raw: WebSocket;
@@ -81,6 +82,11 @@ export type WebRTCSessionHandle = {
   stop: () => void;
   peerConnection: RTCPeerConnection | null;
   localStream?: MediaStream;
+  replaceVideoTrack?: (
+    video: MediaTrackConstraints,
+    options?: { orientation?: CaptureOrientation },
+  ) => Promise<MediaStream>;
+  setVideoOrientation?: (orientation: CaptureOrientation) => Promise<MediaStream>;
 };
 
 export type PhoneBrowserSourceSessionInput = {
@@ -90,6 +96,7 @@ export type PhoneBrowserSourceSessionInput = {
   mediaSessionId: string;
   audio?: boolean;
   facingMode?: CameraFacingMode;
+  videoOrientation?: CaptureOrientation;
   onLocalStream?: (stream: MediaStream) => void;
   onState?: (state: WebRTCSessionState) => void;
   onError?: (error: Error) => void;
@@ -133,8 +140,111 @@ function getBrowserOrigin(): string {
   return window.location.origin;
 }
 
+function getStreamAudioTracks(stream: MediaStream): MediaStreamTrack[] {
+  return typeof stream.getAudioTracks === 'function'
+    ? stream.getAudioTracks().filter((track) => track.readyState !== 'ended')
+    : stream.getTracks().filter((track) => track.kind === 'audio' && track.readyState !== 'ended');
+}
+
+function getStreamVideoTracks(stream: MediaStream): MediaStreamTrack[] {
+  return typeof stream.getVideoTracks === 'function'
+    ? stream.getVideoTracks().filter((track) => track.readyState !== 'ended')
+    : stream.getTracks().filter((track) => track.kind === 'video' && track.readyState !== 'ended');
+}
+
+function getCanvasOutputSize(orientation: CaptureOrientation): { width: number; height: number } {
+  return orientation === 'portrait'
+    ? { width: 720, height: 1280 }
+    : { width: 1280, height: 720 };
+}
+
+async function createPresentationStream({
+  rawStream,
+  orientation,
+}: {
+  rawStream: MediaStream;
+  orientation?: CaptureOrientation;
+}): Promise<{ stream: MediaStream; cleanup: () => void; transformed: boolean }> {
+  const [rawVideoTrack] = getStreamVideoTracks(rawStream);
+  const fallback = { stream: rawStream, cleanup: () => undefined, transformed: false };
+  if (!rawVideoTrack || !orientation || typeof document === 'undefined') {
+    return fallback;
+  }
+  const canvas = document.createElement('canvas');
+  if (typeof canvas.captureStream !== 'function') {
+    return fallback;
+  }
+  const video = document.createElement('video');
+  const sourceVideoStream = new MediaStream([rawVideoTrack]);
+  const { width, height } = getCanvasOutputSize(orientation);
+  canvas.width = width;
+  canvas.height = height;
+  video.muted = true;
+  video.playsInline = true;
+  video.srcObject = sourceVideoStream;
+  try {
+    await video.play();
+  } catch {
+    video.srcObject = null;
+    return fallback;
+  }
+  const context = canvas.getContext('2d');
+  if (!context) {
+    video.pause();
+    video.srcObject = null;
+    return fallback;
+  }
+
+  let frameId = 0;
+  let active = true;
+  const draw = () => {
+    if (!active) {
+      return;
+    }
+    const sourceWidth = video.videoWidth || width;
+    const sourceHeight = video.videoHeight || height;
+    const scale = Math.max(width / sourceWidth, height / sourceHeight);
+    const drawWidth = sourceWidth * scale;
+    const drawHeight = sourceHeight * scale;
+    const drawX = (width - drawWidth) / 2;
+    const drawY = (height - drawHeight) / 2;
+    context.clearRect(0, 0, width, height);
+    context.drawImage(video, drawX, drawY, drawWidth, drawHeight);
+    frameId = window.requestAnimationFrame(draw);
+  };
+  draw();
+
+  const transformedVideoStream = canvas.captureStream(30);
+  const [transformedVideoTrack] = transformedVideoStream.getVideoTracks();
+  if (!transformedVideoTrack) {
+    active = false;
+    window.cancelAnimationFrame(frameId);
+    video.pause();
+    video.srcObject = null;
+    return fallback;
+  }
+  const stream = new MediaStream([...getStreamAudioTracks(rawStream), transformedVideoTrack]);
+  const cleanup = () => {
+    active = false;
+    window.cancelAnimationFrame(frameId);
+    transformedVideoTrack.stop();
+    video.pause();
+    video.srcObject = null;
+  };
+  return { stream, cleanup, transformed: true };
+}
+
 function resolveHttpBase(apiBase: string): string {
   return trimTrailingSlash(apiBase || getBrowserOrigin()) || getBrowserOrigin();
+}
+
+export function buildPhoneVideoConstraints(facingMode?: CameraFacingMode): MediaTrackConstraints {
+  return {
+    facingMode: { ideal: facingMode || 'environment' },
+    width: { ideal: 1280 },
+    height: { ideal: 720 },
+    frameRate: { max: 30 },
+  };
 }
 
 export function buildWebRTCSignalWebSocketUrl({
@@ -219,10 +329,16 @@ export function createLanPeerConnection({
 export async function startBrowserMediaSourceSession(
   input: BrowserMediaSourceSessionInput,
 ): Promise<WebRTCSessionHandle> {
-  const stream = await navigator.mediaDevices.getUserMedia({
+  let videoOrientation = input.videoOrientation;
+  let rawStream = await navigator.mediaDevices.getUserMedia({
     video: input.video,
     audio: input.audio ?? true,
   });
+  let presentation = await createPresentationStream({
+    rawStream,
+    orientation: videoOrientation,
+  });
+  let stream = presentation.stream;
   input.onLocalStream?.(stream);
   input.onState?.('local_stream_ready');
 
@@ -272,10 +388,106 @@ export async function startBrowserMediaSourceSession(
     }
     signalSocket.close();
     peerConnection?.close();
-    for (const track of stream.getTracks()) {
+    presentation.cleanup();
+    for (const track of rawStream.getTracks()) {
       track.stop();
     }
     input.onState?.('closed');
+  };
+
+  const replacePeerVideoTrack = async (nextStream: MediaStream) => {
+    const [nextVideoTrack] = nextStream.getVideoTracks();
+    if (!nextVideoTrack) {
+      throw new Error('replacement_video_track_missing');
+    }
+    if (peerConnection) {
+      const videoSender = peerConnection.getSenders().find((sender) => sender.track?.kind === 'video');
+      if (videoSender && typeof videoSender.replaceTrack === 'function') {
+        await videoSender.replaceTrack(nextVideoTrack);
+      } else {
+        peerConnection.addTrack(nextVideoTrack, nextStream);
+      }
+    }
+  };
+
+  const setVideoOrientation = async (orientation: CaptureOrientation): Promise<MediaStream> => {
+    if (stopped) {
+      throw new Error('media_session_stopped');
+    }
+    videoOrientation = orientation;
+    const nextPresentation = await createPresentationStream({
+      rawStream,
+      orientation,
+    });
+    await replacePeerVideoTrack(nextPresentation.stream);
+    presentation.cleanup();
+    presentation = nextPresentation;
+    stream = nextPresentation.stream;
+    input.onLocalStream?.(stream);
+    return stream;
+  };
+
+  const replaceVideoTrack = async (
+    video: MediaTrackConstraints,
+    options?: { orientation?: CaptureOrientation },
+  ): Promise<MediaStream> => {
+    if (stopped) {
+      throw new Error('media_session_stopped');
+    }
+    const oldRawVideoTracks = getStreamVideoTracks(rawStream);
+    let releasedOldCamera = false;
+    let nextVideoStream: MediaStream | null = null;
+    try {
+      try {
+        nextVideoStream = await navigator.mediaDevices.getUserMedia({
+          video,
+          audio: false,
+        });
+      } catch {
+        for (const track of oldRawVideoTracks) {
+          track.stop();
+        }
+        releasedOldCamera = true;
+        nextVideoStream = await navigator.mediaDevices.getUserMedia({
+          video,
+          audio: false,
+        });
+      }
+
+      const [nextVideoTrack] = nextVideoStream.getVideoTracks();
+      if (!nextVideoTrack) {
+        throw new Error('replacement_video_track_missing');
+      }
+
+      const audioTracks = getStreamAudioTracks(rawStream);
+      const nextRawStream = new MediaStream([...audioTracks, nextVideoTrack]);
+      videoOrientation = options?.orientation || videoOrientation;
+      const nextPresentation = await createPresentationStream({
+        rawStream: nextRawStream,
+        orientation: videoOrientation,
+      });
+      await replacePeerVideoTrack(nextPresentation.stream);
+
+      if (!releasedOldCamera) {
+        for (const track of oldRawVideoTracks) {
+          track.stop();
+        }
+      }
+      presentation.cleanup();
+      rawStream = nextRawStream;
+      presentation = nextPresentation;
+      stream = nextPresentation.stream;
+      input.onLocalStream?.(stream);
+      return stream;
+    } catch (error) {
+      if (nextVideoStream) {
+        for (const track of nextVideoStream.getTracks()) {
+          track.stop();
+        }
+      }
+      input.onError?.(error instanceof Error ? error : new Error('video_track_replace_failed'));
+      throw error;
+    }
   };
 
   signalSocket = openWebRTCSignalSocket({
@@ -317,7 +529,11 @@ export async function startBrowserMediaSourceSession(
     get peerConnection() {
       return peerConnection;
     },
-    localStream: stream,
+    get localStream() {
+      return stream;
+    },
+    replaceVideoTrack,
+    setVideoOrientation,
   };
 }
 
@@ -327,12 +543,8 @@ export async function startPhoneBrowserSourceSession(
   return startBrowserMediaSourceSession({
     ...input,
     sourceKind: 'phone_camera',
-    video: {
-      facingMode: { ideal: input.facingMode || 'environment' },
-      width: { ideal: 1280 },
-      height: { ideal: 720 },
-      frameRate: { max: 30 },
-    },
+    video: buildPhoneVideoConstraints(input.facingMode),
+    videoOrientation: input.videoOrientation,
   });
 }
 

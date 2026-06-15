@@ -40,6 +40,11 @@ export type MotionPracticeClosureResult = {
   command: MeetingCommandLedgerAcceptance;
 };
 
+const MAX_COMMAND_MOTION_DIGESTS = 3;
+const MAX_COMMAND_DIGEST_FINDINGS = 2;
+const MAX_COMMAND_DIGEST_METRICS = 2;
+const MAX_COMMAND_TEXT_CHARS = 96;
+
 type MotionPracticeClosureTarget = {
   packCode: 'yogacoach' | 'dance_motion_coach';
   playbookCode: 'yogacoach_student_practice_summary' | 'dance_motion_coach_session_summary';
@@ -55,6 +60,10 @@ function readString(value: unknown): string {
 
 function readNumber(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
+function readBoolean(value: unknown): boolean {
+  return value === true;
 }
 
 function readNumberRecord(value: unknown): Record<string, number> {
@@ -85,6 +94,94 @@ function readRecordArray(value: unknown): Record<string, unknown>[] {
   return value.filter((item): item is Record<string, unknown> => isRecord(item));
 }
 
+function truncateText(value: unknown, maxChars = MAX_COMMAND_TEXT_CHARS): string {
+  const text = readString(value);
+  return text.length > maxChars ? `${text.slice(0, Math.max(0, maxChars - 3))}...` : text;
+}
+
+function compactMetricRecordForCommand(value: unknown): Record<string, unknown> {
+  if (!isRecord(value)) {
+    return {};
+  }
+  const compact: Record<string, unknown> = {};
+  for (const key of [
+    'node_id',
+    'axis',
+    'phase',
+    'metric_id',
+    'label',
+    'finding',
+    'guidance',
+    'cue',
+    'message',
+  ]) {
+    const text = truncateText(value[key]);
+    if (text) {
+      compact[key] = text;
+    }
+  }
+  for (const key of ['delta_score', 'delta', 'confidence', 'score']) {
+    const nested = value[key];
+    if (typeof nested === 'number' && Number.isFinite(nested)) {
+      compact[key] = Math.round(nested * 1000) / 1000;
+    }
+  }
+  return compact;
+}
+
+function compactMetricListForCommand(value: unknown): Record<string, unknown>[] {
+  return readRecordArray(value)
+    .slice(0, MAX_COMMAND_DIGEST_METRICS)
+    .map(compactMetricRecordForCommand)
+    .filter((item) => Object.keys(item).length > 0);
+}
+
+function compactMotionWindowDigestForCommand(digest: Record<string, unknown>): Record<string, unknown> {
+  const compact: Record<string, unknown> = {};
+  for (const key of [
+    'motion_window_ref',
+    'source_session_id',
+    'pose_provider',
+    'provider_code',
+    'provider_schema_id',
+    'keypoint_schema_id',
+    'motion_metric_schema_version',
+  ]) {
+    const text = readString(digest[key]);
+    if (text) {
+      compact[key] = text;
+    }
+  }
+  for (const key of ['window_index', 'start_ms', 'end_ms', 'confidence']) {
+    const value = digest[key];
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      compact[key] = Math.round(value * 1000) / 1000;
+    }
+  }
+  const findings = readStringArray(digest.top_findings)
+    .slice(0, MAX_COMMAND_DIGEST_FINDINGS)
+    .map((finding) => truncateText(finding));
+  if (findings.length) {
+    compact.top_findings = findings;
+  }
+  for (const key of ['dwpose_node_deltas', 'sway_metrics', 'phase_metrics']) {
+    const metrics = compactMetricListForCommand(digest[key]);
+    if (metrics.length) {
+      compact[key] = metrics;
+    }
+  }
+  return compact;
+}
+
+function compactMotionWindowDigestsForCommand(
+  digests: Record<string, unknown>[],
+): Record<string, unknown>[] {
+  return digests
+    .slice(0, MAX_COMMAND_MOTION_DIGESTS)
+    .map(compactMotionWindowDigestForCommand)
+    .filter((digest) => Object.keys(digest).length > 0);
+}
+
 function readInstructionCourseChapters(
   instructionRefs: MotionPracticeLaunchInput['instructionRefs'],
 ): Record<string, unknown>[] {
@@ -96,10 +193,68 @@ function readInstructionCourseChapters(
   return chapters;
 }
 
+function compactInstructionRefsForCommand(
+  instructionRefs: MotionPracticeLaunchInput['instructionRefs'],
+): Record<string, unknown>[] {
+  return (instructionRefs || []).slice(0, 3).map((ref) => ({
+    ref_type: readString(ref.ref_type) || null,
+    source_provider: readString(ref.source_provider) || null,
+    video_ref: truncateText(ref.video_ref, 96) || null,
+    motion_analysis_source: ref.motion_analysis_source === true,
+  }));
+}
+
 function readRollupSummary(rollup: MotionPracticeSessionRollupResponse): MotionPracticeSessionRollupSummary {
   return isRecord(rollup.summary)
     ? rollup.summary as MotionPracticeSessionRollupSummary
     : {};
+}
+
+function buildPhysicalDeviceEvidence({
+  input,
+  motionWindowDigests,
+  summaryWindowCount,
+}: {
+  input: MotionPracticeLaunchInput;
+  motionWindowDigests: Record<string, unknown>[];
+  summaryWindowCount: number;
+}): Record<string, unknown> {
+  const sourceSessionId = input.sourceSession.session_id;
+  const sourceMetadata = isRecord(input.sourceSession.metadata)
+    ? input.sourceSession.metadata
+    : {};
+  const matchingDigests = motionWindowDigests.filter(
+    (digest) => readString(digest.source_session_id) === sourceSessionId,
+  );
+  const receiverMetricFamilies = [
+    'dwpose_node_deltas',
+    'sway_metrics',
+    'phase_metrics',
+  ].filter((family) => matchingDigests.some((digest) => readRecordArray(digest[family]).length > 0));
+  const sourceTypes = input.sourceSession.source_types;
+  const deviceKind = sourceTypes.includes('phone_camera')
+    ? 'phone'
+    : sourceTypes.includes('virtual_camera')
+      ? 'virtual_camera'
+      : sourceTypes.includes('usb_camera')
+        ? 'usb_camera'
+        : sourceTypes.includes('desktop_camera')
+          ? 'desktop_camera'
+          : 'unknown';
+  return {
+    source_session_id: sourceSessionId,
+    source_types: sourceTypes,
+    session_state: input.sourceSession.state,
+    paired: ['paired', 'active'].includes(input.sourceSession.state),
+    device_kind: deviceKind,
+    transport: 'webrtc',
+    capture_surface: readString(sourceMetadata.capture_surface) || 'unknown',
+    secure_context: readBoolean(sourceMetadata.secure_context),
+    source_origin_scheme: readString(sourceMetadata.source_origin_scheme) || 'unknown',
+    remote_stream_received: summaryWindowCount > 0 || matchingDigests.length > 0,
+    receiver_motion_window_count: summaryWindowCount || matchingDigests.length,
+    receiver_metric_families: receiverMetricFamilies,
+  };
 }
 
 function inferSummaryConfidence(summary: MotionPracticeSessionRollupSummary): string {
@@ -194,15 +349,22 @@ export function buildLivePracticeRollupFromSessionRollup({
   const artifactId = readString(rollup.artifact_id);
   const topFindings = readStringArray(summary.top_findings);
   const courseChapters = readInstructionCourseChapters(input.instructionRefs);
-  const motionWindowDigests = readRecordArray(summary.motion_window_digests);
+  const allMotionWindowDigests = readRecordArray(summary.motion_window_digests);
+  const commandMotionWindowDigests = compactMotionWindowDigestsForCommand(allMotionWindowDigests);
   const motionWindowRefs = readStringArray(summary.motion_window_refs);
+  const windowCount = readNumber(summary.window_count);
+  const physicalDeviceEvidence = buildPhysicalDeviceEvidence({
+    input,
+    motionWindowDigests: commandMotionWindowDigests,
+    summaryWindowCount: windowCount,
+  });
   return {
     practice_session_id: result.practiceSessionId,
     workspace_id: input.workspaceId,
     teacher_library_ref: input.expertLibraryRef?.trim() || null,
     asana_refs: [],
     duration_ms: readNumber(summary.duration_ms),
-    window_count: readNumber(summary.window_count),
+    window_count: windowCount,
     motion_summary_refs: [
       {
         ref_type: 'motion_session_rollup',
@@ -225,15 +387,23 @@ export function buildLivePracticeRollupFromSessionRollup({
       source_surface: 'workspace_motion_source_practice_closure',
       coach_pack: input.coachPack,
       practice_mode: input.practiceMode,
-      instruction_refs: input.instructionRefs || [],
+      instruction_ref_count: (input.instructionRefs || []).length,
+      instruction_refs: compactInstructionRefsForCommand(input.instructionRefs),
       course_chapters: courseChapters,
       motion_window_refs: motionWindowRefs,
-      motion_window_digests: motionWindowDigests,
+      motion_window_digests: commandMotionWindowDigests,
+      motion_window_digest_policy: {
+        command_cap: MAX_COMMAND_MOTION_DIGESTS,
+        original_digest_count: allMotionWindowDigests.length,
+        truncated: allMotionWindowDigests.length > commandMotionWindowDigests.length,
+        full_rollup_ref: motionRollupRef || null,
+        full_rollup_artifact_id: artifactId || null,
+      },
       motion_rollup_ref: motionRollupRef || null,
       artifact_id: artifactId || null,
-      artifact_registry: isRecord(rollup.artifact_registry) ? rollup.artifact_registry : null,
+      artifact_registry_available: isRecord(rollup.artifact_registry),
       rollup_emitted: Boolean(rollup.emitted),
-      resource_policy: buildMotionPracticeResourcePolicy(),
+      physical_device_evidence: physicalDeviceEvidence,
     },
   };
 }
