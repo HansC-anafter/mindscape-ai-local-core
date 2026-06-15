@@ -17,7 +17,7 @@ case "$wal_file" in
     ;;
 esac
 
-if ! printf '%s\n' "$wal_file" | grep -Eq '^([0-9A-F]{24}|[0-9A-F]{8}\.history)$'; then
+if ! printf '%s\n' "$wal_file" | grep -Eq '^([0-9A-F]{24}|[0-9A-F]{8}\.history|[0-9A-F]{24}\.[0-9A-F]{8}\.backup)$'; then
   echo "invalid WAL archive filename: $wal_file" >&2
   exit 2
 fi

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import json
 import os
 import re
@@ -23,9 +24,17 @@ BYTES_PER_GB = 1024**3
 WAL_ARCHIVE_CONTAINER_DIR = "/var/lib/postgresql/wal_archive"
 WAL_SEGMENT_BYTES = 16 * 1024 * 1024
 WAL_SEGMENT_RE = re.compile(r"^[0-9A-F]{24}$")
+BACKUP_LABEL_START_WAL_RE = re.compile(r"START WAL LOCATION: .*?\(file ([0-9A-F]{24})\)")
 MANAGED_ARCHIVE_COMMAND = "/usr/local/bin/mindscape-archive-wal"
 TRANSIENT_RSYNC_CODES = {23, 24}
-RSYNC_SNAPSHOT_EXCLUDES = ["postgres", "backups", "e2e-traces", "ig_thumbnails"]
+RSYNC_SNAPSHOT_EXCLUDES = [
+    "postgres",
+    "backups",
+    "e2e-traces",
+    "ig_thumbnails",
+    "ig_debug_*.png",
+    "ig_visit_timeout_*.png",
+]
 MIRROR_SCOPE_POSTGRES = "postgres_chain"
 MIRROR_DEFAULT_SCOPES = [MIRROR_SCOPE_POSTGRES, "runtime_metadata", "auth_state"]
 MIRROR_SCOPE_DEFINITIONS = {
@@ -265,7 +274,9 @@ def resolve_primary_root(output_dir: str | None) -> Path:
 
 
 def resolve_mirror_root(mirror_root: str | None) -> Path | None:
-    return resolve_path(mirror_root or os.environ.get("LOCAL_CORE_BACKUP_MIRROR_ROOT"))
+    if mirror_root is not None:
+        return resolve_path(mirror_root)
+    return resolve_path(os.environ.get("LOCAL_CORE_BACKUP_MIRROR_ROOT"))
 
 
 def resolve_wal_archive_root(primary_root: Path) -> Path:
@@ -341,6 +352,18 @@ def wal_archive_segment_size_mismatches(wal_root: Path) -> list[dict[str, Any]]:
     return sorted(mismatches, key=lambda item: str(item["name"]))
 
 
+def base_backup_start_segment(base_dir: Path) -> str:
+    label = base_dir / "backup_label"
+    if not label.is_file():
+        return ""
+    try:
+        text = label.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+    match = BACKUP_LABEL_START_WAL_RE.search(text)
+    return match.group(1) if match else ""
+
+
 def dir_size_bytes(path: Path) -> int:
     total = 0
     if not path.exists():
@@ -356,11 +379,81 @@ def dir_size_bytes(path: Path) -> int:
     return total
 
 
+def parse_du_output_bytes(output: str) -> int:
+    total = 0
+    for line in output.splitlines():
+        parts = line.split(None, 1)
+        if not parts:
+            continue
+        try:
+            total += int(parts[0]) * 1024
+        except ValueError:
+            continue
+    return total
+
+
+def disk_usage_many_bytes(paths: list[Path], timeout_seconds: int = 300) -> int:
+    existing = [path for path in paths if path.exists()]
+    if not existing:
+        return 0
+    total = 0
+    chunk_size = 128
+    for index in range(0, len(existing), chunk_size):
+        chunk = existing[index : index + chunk_size]
+        try:
+            result = subprocess.run(
+                ["du", "-sk", *[str(path) for path in chunk]],
+                cwd=REPO_ROOT,
+                check=False,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=timeout_seconds,
+            )
+            parsed = parse_du_output_bytes(result.stdout)
+            if parsed:
+                total += parsed
+                continue
+        except Exception:
+            pass
+        total += sum(dir_size_bytes(path) for path in chunk if path.exists())
+    return total
+
+
+def disk_usage_bytes(path: Path, timeout_seconds: int = 300) -> int:
+    if not path.exists():
+        return 0
+    try:
+        return disk_usage_many_bytes([path], timeout_seconds=timeout_seconds)
+    except Exception:
+        return dir_size_bytes(path)
+
+
+def mixed_path_usage_bytes(paths: list[Path]) -> int:
+    total = 0
+    dirs: list[Path] = []
+    for path in paths:
+        try:
+            if not path.exists():
+                continue
+            if path.is_file():
+                total += path.stat().st_size
+            else:
+                dirs.append(path)
+        except OSError:
+            continue
+    return total + disk_usage_many_bytes(dirs)
+
+
 def rsync_snapshot_base_cmd() -> list[str]:
-    cmd = ["rsync", "-aH", "--delete"]
+    cmd = ["rsync", "-a", "--delete"]
     for excluded in RSYNC_SNAPSHOT_EXCLUDES:
         cmd.extend(["--exclude", excluded])
     return cmd
+
+
+def snapshot_path_excluded(name: str) -> bool:
+    return any(fnmatch.fnmatch(name, pattern) for pattern in RSYNC_SNAPSHOT_EXCLUDES)
 
 
 def mirror_scope_entries(scopes: list[str]) -> list[dict[str, str]]:
@@ -403,6 +496,38 @@ def parse_rsync_stat_bytes(output: str, label: str) -> int:
     return int(match.group(1).replace(",", ""))
 
 
+def snapshot_source_size_bytes(source: Path) -> int:
+    if not source.exists():
+        return 0
+    return mixed_path_usage_bytes(
+        [item for item in source.iterdir() if not snapshot_path_excluded(item.name)]
+    )
+
+
+def scoped_source_size_bytes(source: Path, scopes: list[str]) -> int:
+    return mixed_path_usage_bytes([source / entry["path"] for entry in mirror_scope_entries(scopes)])
+
+
+def estimate_bytes_from_rsync_result(
+    result: subprocess.CompletedProcess[str],
+    *,
+    fallback_bytes: int,
+    failure_label: str,
+) -> int:
+    output = "\n".join(part for part in (result.stdout, result.stderr) if part)
+    transferred = parse_rsync_stat_bytes(output, "Total transferred file size")
+    parsed = transferred or parse_rsync_stat_bytes(output, "Total file size")
+    if result.returncode == 0:
+        return parsed
+    if result.returncode in TRANSIENT_RSYNC_CODES:
+        return parsed or fallback_bytes
+    raise SystemExit(f"{failure_label} failed with exit code {result.returncode}: {result.stderr}")
+
+
+def use_rsync_dry_run_estimate() -> bool:
+    return parse_bool(os.environ.get("LOCAL_CORE_BACKUP_RSYNC_DRY_RUN_ESTIMATE"), False)
+
+
 def estimate_temp_parent(source: Path, previous: Path | None) -> Path:
     if previous and previous.is_dir():
         try:
@@ -416,6 +541,8 @@ def estimate_temp_parent(source: Path, previous: Path | None) -> Path:
 
 
 def estimate_snapshot_transfer_bytes(source: Path, previous: Path | None, timeout_seconds: int) -> int:
+    if not use_rsync_dry_run_estimate():
+        return snapshot_source_size_bytes(source)
     with tempfile.TemporaryDirectory(
         prefix="mindscape-runtime-backup-estimate-",
         dir=str(estimate_temp_parent(source, previous)),
@@ -426,11 +553,15 @@ def estimate_snapshot_transfer_bytes(source: Path, previous: Path | None, timeou
             cmd.append(f"--link-dest={previous}")
         cmd.extend([f"{source}/", f"{tmp_dir}/"])
         result = run_capture(cmd, timeout=timeout_seconds)
-    if result.returncode != 0:
-        raise SystemExit(f"rsync dry-run failed with exit code {result.returncode}: {result.stderr}")
-    output = "\n".join(part for part in (result.stdout, result.stderr) if part)
-    transferred = parse_rsync_stat_bytes(output, "Total transferred file size")
-    return transferred or parse_rsync_stat_bytes(output, "Total file size")
+        if result.returncode != 0 and previous is not None:
+            fallback_cmd = rsync_snapshot_base_cmd()
+            fallback_cmd.extend(["--dry-run", "--stats", f"{source}/", f"{tmp_dir}/"])
+            result = run_capture(fallback_cmd, timeout=timeout_seconds)
+    return estimate_bytes_from_rsync_result(
+        result,
+        fallback_bytes=snapshot_source_size_bytes(source),
+        failure_label="rsync dry-run",
+    )
 
 
 def estimate_mirror_snapshot_transfer_bytes(
@@ -439,21 +570,23 @@ def estimate_mirror_snapshot_transfer_bytes(
     scopes: list[str],
     timeout_seconds: int,
 ) -> int:
+    if not use_rsync_dry_run_estimate():
+        return scoped_source_size_bytes(source, scopes)
     with tempfile.TemporaryDirectory(
         prefix="mindscape-runtime-mirror-estimate-",
         dir=str(estimate_temp_parent(source, previous)),
     ) as tmp_dir:
-        cmd = ["rsync", "-aH", "--delete", "--delete-excluded", "--dry-run", "--stats"]
+        cmd = ["rsync", "-a", "--delete", "--delete-excluded", "--dry-run", "--stats"]
         if previous and previous.is_dir():
             cmd.append(f"--link-dest={previous}")
         add_mirror_scope_filters(cmd, scopes)
         cmd.extend([f"{source}/", f"{tmp_dir}/"])
         result = run_capture(cmd, timeout=timeout_seconds)
-    if result.returncode != 0:
-        raise SystemExit(f"mirror rsync dry-run failed with exit code {result.returncode}: {result.stderr}")
-    output = "\n".join(part for part in (result.stdout, result.stderr) if part)
-    transferred = parse_rsync_stat_bytes(output, "Total transferred file size")
-    return transferred or parse_rsync_stat_bytes(output, "Total file size")
+    return estimate_bytes_from_rsync_result(
+        result,
+        fallback_bytes=scoped_source_size_bytes(source, scopes),
+        failure_label="mirror rsync dry-run",
+    )
 
 
 def latest_incremental_manifest(primary_root: Path) -> dict[str, Any] | None:
@@ -779,7 +912,7 @@ def build_plan(args: argparse.Namespace) -> dict[str, Any]:
         "wal_archive_dir": str(wal_root),
         "wal_segment_count": len(wal_segments),
         "wal_segment_size_mismatches": wal_size_mismatches,
-        "wal_archive_bytes": dir_size_bytes(wal_root),
+        "wal_archive_bytes": disk_usage_bytes(wal_root),
         "base_backup_id": latest_base_manifest.get("base_backup_id") if latest_base_manifest else "",
         "base_backup_created_at": latest_base_manifest.get("created_at") if latest_base_manifest else "",
         "base_backup_age_hours": base_age,
@@ -802,7 +935,7 @@ def run_pg_basebackup(base_id: str, wal_root: Path, timeout_seconds: int) -> dic
         "set -e; "
         f"rm -rf {container_base}.partial {container_base}; "
         f"mkdir -p {container_base}.partial; "
-        f"pg_basebackup -U \"${{POSTGRES_USER:-mindscape}}\" -D {container_base}.partial -Fp -Xs -P; "
+        f"pg_basebackup -U \"${{POSTGRES_USER:-mindscape}}\" -D {container_base}.partial -Fp -Xs -P -c fast; "
         f"mv {container_base}.partial {container_base}"
     )
     cmd = ["docker", "exec", "mindscape-ai-local-core-postgres", "sh", "-lc", command]
@@ -813,9 +946,10 @@ def run_pg_basebackup(base_id: str, wal_root: Path, timeout_seconds: int) -> dic
         "created_at": utc_now(),
         "host_base_dir": str(host_base_dir),
         "container_base_dir": container_base,
+        "start_wal_segment": base_backup_start_segment(host_base_dir),
         "command": cmd,
         "output": output,
-        "bytes": dir_size_bytes(host_base_dir),
+        "bytes": disk_usage_bytes(host_base_dir),
     }
     write_json(base_manifest_path(host_base_dir), manifest)
     return manifest
@@ -839,20 +973,28 @@ def switch_wal() -> None:
     )
 
 
-def rsync_snapshot(source: Path, target: Path, previous: Path | None, timeout_seconds: int) -> list[dict[str, Any]]:
+def rsync_snapshot_command(source: Path, target: Path, previous: Path | None) -> list[str]:
     base_cmd = rsync_snapshot_base_cmd()
     if previous and previous.is_dir():
         base_cmd.append(f"--link-dest={previous}")
     base_cmd.extend([f"{source}/", f"{target}/"])
+    return base_cmd
 
+
+def run_rsync_snapshot_attempts(
+    cmd: list[str],
+    *,
+    target: Path,
+    timeout_seconds: int,
+) -> tuple[bool, list[dict[str, Any]]]:
     results: list[dict[str, Any]] = []
     attempts = 0
     while attempts < 3:
         attempts += 1
-        result = run_capture(base_cmd, timeout=timeout_seconds)
+        result = run_capture(cmd, timeout=timeout_seconds)
         results.append(
             {
-                "command": base_cmd,
+                "command": cmd,
                 "returncode": result.returncode,
                 "stdout": result.stdout,
                 "stderr": result.stderr,
@@ -860,12 +1002,45 @@ def rsync_snapshot(source: Path, target: Path, previous: Path | None, timeout_se
             }
         )
         if result.returncode == 0:
-            if attempts == 1:
-                continue
-            return results
+            return True, results
         if result.returncode not in TRANSIENT_RSYNC_CODES:
-            raise SystemExit(f"rsync failed with exit code {result.returncode}: {result.stderr}")
-    last = results[-1]
+            return False, results
+        shutil.rmtree(target, ignore_errors=True)
+        target.parent.mkdir(parents=True, exist_ok=True)
+    return False, results
+
+
+def rsync_snapshot(source: Path, target: Path, previous: Path | None, timeout_seconds: int) -> list[dict[str, Any]]:
+    base_cmd = rsync_snapshot_command(source, target, previous)
+    success, results = run_rsync_snapshot_attempts(base_cmd, target=target, timeout_seconds=timeout_seconds)
+    if success:
+        return results
+
+    last = results[-1] if results else {}
+    if previous is not None:
+        shutil.rmtree(target, ignore_errors=True)
+        fallback_cmd = rsync_snapshot_command(source, target, None)
+        fallback_success, fallback_results = run_rsync_snapshot_attempts(
+            fallback_cmd,
+            target=target,
+            timeout_seconds=timeout_seconds,
+        )
+        results.extend(fallback_results)
+        if fallback_success:
+            results.append(
+                {
+                    "command": fallback_cmd,
+                    "returncode": 0,
+                    "stdout": "",
+                    "stderr": "",
+                    "attempt": 0,
+                    "warning": "link_dest_failed_fell_back_to_full_snapshot",
+                    "failed_link_dest": str(previous),
+                }
+            )
+            return results
+        last = results[-1] if results else last
+
     raise SystemExit(f"rsync did not converge after retries: {last.get('stderr')}")
 
 
@@ -912,18 +1087,62 @@ def prune_incremental(
     protected_base_ids.discard("")
     removed_bases: list[str] = []
     root = base_root(primary_root, wal_root)
+    protected_start_segments: list[str] = []
     if root.is_dir():
         for base_dir in root.iterdir():
-            if base_dir.is_dir() and base_dir.name not in protected_base_ids:
+            if not base_dir.is_dir():
+                continue
+            if base_dir.name in protected_base_ids:
+                start_segment = base_backup_start_segment(base_dir)
+                if start_segment:
+                    protected_start_segments.append(start_segment)
+                continue
+            else:
                 shutil.rmtree(base_dir)
                 removed_bases.append(str(base_dir))
+
+    removed_wal_segments: list[str] = []
+    warnings: list[str] = []
+    if protected_start_segments and wal_root and wal_root.is_dir():
+        earliest_required_segment = min(protected_start_segments)
+        for wal_path in wal_root.iterdir():
+            if not wal_path.is_file() or not WAL_SEGMENT_RE.fullmatch(wal_path.name):
+                continue
+            if wal_path.name < earliest_required_segment:
+                wal_path.unlink()
+                removed_wal_segments.append(str(wal_path))
+    else:
+        warnings.append("wal_prune_skipped_no_protected_base_start_segment")
 
     return {
         "snapshots": removed,
         "base_backups": removed_bases,
-        "wal_segments": [],
-        "warnings": ["wal_prune_skipped_dependency_window_not_proven"],
+        "wal_segments": removed_wal_segments,
+        "warnings": warnings,
     }
+
+
+def wal_manifest_entry_required(segment: str, required_start: str) -> bool:
+    if not required_start:
+        return True
+    name = str(segment)
+    if len(name) < 24 or any(ch not in "0123456789ABCDEF" for ch in name[:24]):
+        return True
+    return name[:24] >= required_start
+
+
+def refresh_manifest_wal_state(manifest: dict[str, Any], wal_root: Path) -> None:
+    postgres = manifest.setdefault("components", {}).setdefault("postgres", {})
+    wal_segments = list_wal_segments(wal_root)
+    postgres["wal_segments"] = wal_segments
+    postgres["wal_segment_count"] = len(wal_segments)
+    postgres["wal_archive_bytes"] = dir_size_bytes(wal_root)
+    if wal_segments:
+        postgres["wal_start_segment"] = wal_segments[0]
+        postgres["wal_end_segment"] = wal_segments[-1]
+    else:
+        postgres["wal_start_segment"] = ""
+        postgres["wal_end_segment"] = ""
 
 
 def verify_incremental_dir(backup_dir: Path, *, restore_drill: bool = False) -> dict[str, Any]:
@@ -953,8 +1172,11 @@ def verify_incremental_dir(backup_dir: Path, *, restore_drill: bool = False) -> 
     wal_root = Path(str(postgres.get("wal_archive_dir") or ""))
     if not wal_root.is_dir():
         raise SystemExit(f"WAL archive directory not found: {wal_root}")
+    required_start = str(postgres.get("base_backup_start_wal_segment") or "")
     missing = []
     for segment in postgres.get("wal_segments") or []:
+        if not wal_manifest_entry_required(str(segment), required_start):
+            continue
         if not (wal_root / str(segment)).is_file():
             missing.append(str(segment))
     if missing:
@@ -1030,7 +1252,7 @@ def mirror_incremental_artifacts(
     mirror_backup_dir.mkdir(parents=True, exist_ok=True)
     mirror_wal_root.mkdir(parents=True, exist_ok=True)
 
-    backup_cmd = ["rsync", "-aH", "--delete", "--delete-excluded"]
+    backup_cmd = ["rsync", "-a", "--delete", "--delete-excluded"]
     previous_snapshot_id = str(
         manifest.get("components", {}).get("files", {}).get("previous_snapshot_id") or ""
     )
@@ -1044,8 +1266,8 @@ def mirror_incremental_artifacts(
 
     commands = [
         backup_cmd,
-        ["rsync", "-aH", "--delete", f"{wal_root}/", f"{mirror_wal_root}/"],
-        ["rsync", "-aH", "--delete", f"{state_root(primary_root)}/", f"{mirror_state_root}/"],
+        ["rsync", "-a", "--delete", f"{wal_root}/", f"{mirror_wal_root}/"],
+        ["rsync", "-a", "--delete", f"{state_root(primary_root)}/", f"{mirror_state_root}/"],
     ]
     results = []
     for cmd in commands:
@@ -1136,10 +1358,12 @@ def capacity_preflight(
             timeout_seconds,
         )
     postgres_base_estimate_bytes = (
-        dir_size_bytes(resolve_data_host_dir() / "postgres") if plan["base_backup_required"] else 0
+        disk_usage_bytes(resolve_data_host_dir() / "postgres") if plan["base_backup_required"] else 0
     )
-    wal_estimate_bytes = dir_size_bytes(wal_root)
-    primary_estimated_required_bytes = snapshot_transfer_bytes + postgres_base_estimate_bytes + wal_estimate_bytes
+    wal_estimate_bytes = parse_int(plan.get("wal_archive_bytes"), 0)
+    if wal_estimate_bytes <= 0:
+        wal_estimate_bytes = disk_usage_bytes(wal_root)
+    primary_estimated_required_bytes = snapshot_transfer_bytes + postgres_base_estimate_bytes
     mirror_estimated_required_bytes = mirror_snapshot_transfer_bytes + postgres_base_estimate_bytes + wal_estimate_bytes
     primary_free = disk_free_bytes(primary_root)
     mirror_free = disk_free_bytes(mirror_root) if mirror_root else None
@@ -1225,6 +1449,7 @@ def run_policy(args: argparse.Namespace) -> dict[str, Any]:
                 "base_backup_dir": str(base_dir),
                 "container_base_dir": active_base.get("container_base_dir"),
                 "base_backup_created_at": active_base.get("created_at"),
+                "base_backup_start_wal_segment": active_base.get("start_wal_segment", ""),
                 "base_backup_required": plan["base_backup_required"],
                 "wal_archive_dir": str(wal_root),
                 "wal_start_segment": new_wal[0] if new_wal else (after_wal[0] if after_wal else ""),
@@ -1271,6 +1496,8 @@ def run_policy(args: argparse.Namespace) -> dict[str, Any]:
     )
 
     local_pruned = prune_incremental(primary_root, config["retention_local_count"], backup_dir, wal_root=wal_root)
+    refresh_manifest_wal_state(manifest, wal_root)
+    write_json(backup_dir / "manifest.json", manifest)
     mirror_result: dict[str, Any] = {"enabled": False}
     if mirror_root is not None:
         mirror_result = mirror_incremental_artifacts(

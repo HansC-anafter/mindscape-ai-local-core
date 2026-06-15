@@ -108,6 +108,13 @@ Useful settings include:
 - `OLLAMA_HOST` and `OLLAMA_BASE_URL` when connecting to a host Ollama service
 - `LOCAL_CORE_DATA_HOST_DIR`, `LOCAL_CORE_POSTGRES_HOST_DIR`, and `LOCAL_CORE_LOGS_HOST_DIR` when moving data and logs outside the repository tree
 - `TZ` for container timezone
+- `MOBILE_WORKBENCH_GATEWAY_ENABLED=1` to enable frontend allowlist mode for external gateway entry
+- `MOBILE_WORKBENCH_GATEWAY_EXTRA_PATH_RULES` for additional allowed paths (comma separated), e.g. `"/api/v1/admin/preview,regex:^/custom-gateway/.+"`
+- `MOBILE_WORKBENCH_GATEWAY_ALLOWLIST_EMAILS`, `MOBILE_WORKBENCH_GATEWAY_ALLOWLIST_GROUPS` for identity allowlist
+- `MOBILE_WORKBENCH_GATEWAY_WORKSPACE_ALLOWLIST` for operator workspace brakes; pack capability ingress is managed per workspace from the Gateway policy workbench
+- `MOBILE_WORKBENCH_GATEWAY_JWT_AUDIENCE`, `MOBILE_WORKBENCH_GATEWAY_JWT_ISSUER` for Cloudflare Access claim constraints
+- `MOBILE_WORKBENCH_GATEWAY_JWT_PUBLIC_KEY` or `MOBILE_WORKBENCH_GATEWAY_JWT_PUBLIC_KEY_FILE` and `MOBILE_WORKBENCH_GATEWAY_REQUIRE_SIGNATURE_VERIFICATION=1` for optional signature verification
+- `MOBILE_WORKBENCH_GATEWAY_HEALTH_URL` if you need to override the settings-panel health surface target
 
 Do not commit `.env`, local data, logs, backups, credentials, or generated runtime artifacts.
 

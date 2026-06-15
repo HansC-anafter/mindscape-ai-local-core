@@ -330,7 +330,7 @@ def tail_log(path: str | None, lines: int) -> list[str]:
 def add_policy_flags(cmd: list[str], args: argparse.Namespace) -> list[str]:
     if getattr(args, "output_dir", None) and "--output-dir" not in cmd:
         cmd.extend(["--output-dir", str(args.output_dir)])
-    if getattr(args, "mirror_root", None):
+    if getattr(args, "mirror_root", None) is not None:
         cmd.extend(["--mirror-root", str(args.mirror_root)])
     if getattr(args, "retention_local_count", None) is not None:
         cmd.extend(["--retention-local-count", str(args.retention_local_count)])

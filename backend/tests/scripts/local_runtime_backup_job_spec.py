@@ -91,6 +91,33 @@ def test_policy_flags_use_single_configurable_path():
     ]
 
 
+def test_policy_flags_allow_empty_mirror_root_to_disable_env_default():
+    args = Namespace(
+        output_dir="/primary",
+        mirror_root="",
+        retention_local_count=None,
+        retention_mirror_count=None,
+        min_free_gb=None,
+        require_mirror=False,
+        base_interval_hours=None,
+        mirror_scopes=None,
+    )
+
+    cmd = job.add_policy_flags(["python3", "scripts/local_runtime_backup_policy.py", "plan"], args)
+
+    assert cmd == [
+        "python3",
+        "scripts/local_runtime_backup_policy.py",
+        "plan",
+        "--output-dir",
+        "/primary",
+        "--mirror-root",
+        "",
+        "--require-mirror",
+        "false",
+    ]
+
+
 def test_latest_backup_reads_incremental_manifest_components(tmp_path):
     root = tmp_path / "backups"
     backup_dir = root / "incremental"

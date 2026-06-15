@@ -1,4 +1,5 @@
 import os
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -39,6 +40,33 @@ def test_postgres_compose_uses_managed_runtime_image():
     )
     assert "COPY docker/postgres/archive-wal.sh /usr/local/bin/mindscape-archive-wal" in postgres_dockerfile
     assert "chmod 0755 /usr/local/bin/mindscape-archive-wal" in postgres_dockerfile
+
+
+def test_postgres_archive_wal_accepts_base_backup_history_files(tmp_path):
+    repo_root = _repo_root()
+    if repo_root is None:
+        pytest.skip("Repository root files are not mounted in this container")
+
+    wal_file = "000000010000032100000001.002CC200.backup"
+    source_path = tmp_path / wal_file
+    archive_dir = tmp_path / "archive"
+    source_bytes = b"START WAL LOCATION: 321/10002CC2 (file 000000010000032100000001)\n"
+
+    archive_dir.mkdir()
+    source_path.write_bytes(source_bytes)
+
+    subprocess.run(
+        [
+            "sh",
+            str(repo_root / "docker/postgres/archive-wal.sh"),
+            str(source_path),
+            wal_file,
+            str(archive_dir),
+        ],
+        check=True,
+    )
+
+    assert (archive_dir / wal_file).read_bytes() == source_bytes
 
 
 def test_postgres_completion_runtime_defines_pooling_replica_and_redis_aof():
