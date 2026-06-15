@@ -3,6 +3,7 @@
 import React from 'react';
 
 export type WorkspaceToolRailTone = 'light' | 'dark';
+export type WorkspaceToolRailPlacement = 'side' | 'bottom' | 'tray';
 
 export interface WorkspaceToolRailGroup {
   id: string;
@@ -15,6 +16,7 @@ interface WorkspaceToolRailProps {
   ariaLabel: string;
   groups: WorkspaceToolRailGroup[];
   tone?: WorkspaceToolRailTone;
+  placement?: WorkspaceToolRailPlacement;
   testId?: string;
 }
 
@@ -28,13 +30,43 @@ interface WorkspaceToolRailButtonProps {
   onClick: () => void;
 }
 
-function railClassName(tone: WorkspaceToolRailTone): string {
+function railClassName(tone: WorkspaceToolRailTone, placement: WorkspaceToolRailPlacement): string {
+  if (placement === 'bottom') {
+    return tone === 'dark'
+      ? 'pointer-events-auto flex w-full shrink-0 items-center justify-center overflow-x-auto border-t border-stone-800 bg-black/90 px-2 py-1.5 pb-[calc(0.375rem+env(safe-area-inset-bottom,0px))] backdrop-blur'
+      : 'pointer-events-auto flex w-full shrink-0 items-center justify-center overflow-x-auto border-t border-gray-200 bg-white/90 px-2 py-1.5 pb-[calc(0.375rem+env(safe-area-inset-bottom,0px))] shadow-[0_-6px_18px_rgba(15,23,42,0.08)] backdrop-blur dark:border-gray-700 dark:bg-gray-900/90';
+  }
+  if (placement === 'tray') {
+    return tone === 'dark'
+      ? 'pointer-events-auto flex min-h-0 w-10 shrink-0 flex-col items-center rounded-xl border border-stone-800 bg-black/95 px-1 py-2 shadow-xl backdrop-blur'
+      : 'pointer-events-auto flex min-h-0 w-10 shrink-0 flex-col items-center rounded-xl border border-gray-200 bg-white/95 px-1 py-2 shadow-xl backdrop-blur dark:border-gray-700 dark:bg-gray-900/95';
+  }
   return tone === 'dark'
     ? 'pointer-events-auto flex h-full w-9 shrink-0 flex-col items-center border-l border-stone-800 bg-black/90 pb-3 pt-12 backdrop-blur'
     : 'pointer-events-auto flex h-full w-10 shrink-0 flex-col items-center border-l border-gray-200 bg-white/90 pb-3 pt-12 shadow-[-6px_0_18px_rgba(15,23,42,0.08)] backdrop-blur dark:border-gray-700 dark:bg-gray-900/90';
 }
 
-function groupClassName(tone: WorkspaceToolRailTone, hasDivider: boolean): string {
+function groupClassName(
+  tone: WorkspaceToolRailTone,
+  hasDivider: boolean,
+  placement: WorkspaceToolRailPlacement,
+): string {
+  if (placement === 'bottom') {
+    const dividerClass = hasDivider
+      ? tone === 'dark'
+        ? 'border-r border-stone-800 pr-2'
+        : 'border-r border-gray-200 pr-2 dark:border-gray-700'
+      : '';
+    return `flex shrink-0 items-center gap-1 px-1 ${dividerClass}`.trim();
+  }
+  if (placement === 'tray') {
+    const dividerClass = hasDivider
+      ? tone === 'dark'
+        ? 'border-b border-stone-800 pb-2'
+        : 'border-b border-gray-200 pb-2 dark:border-gray-700'
+      : '';
+    return `flex w-full flex-col items-center gap-1 px-0.5 ${dividerClass}`.trim();
+  }
   const dividerClass = hasDivider
     ? tone === 'dark'
       ? 'border-b border-stone-800 pb-3'
@@ -53,13 +85,15 @@ export function WorkspaceToolRail({
   ariaLabel,
   groups,
   tone = 'light',
+  placement = 'side',
   testId = 'workspace-tool-rail',
 }: WorkspaceToolRailProps) {
   return (
     <nav
-      className={railClassName(tone)}
+      className={railClassName(tone, placement)}
       data-testid={testId}
       data-workspace-tool-rail="true"
+      data-workspace-tool-rail-placement={placement}
       aria-label={ariaLabel}
     >
       {groups.map((group, index) => {
@@ -67,7 +101,9 @@ export function WorkspaceToolRail({
         return (
           <div
             key={group.id}
-            className={index === 0 ? groupClassName(tone, hasDivider) : `${groupClassName(tone, hasDivider)} pt-3`}
+            className={index === 0
+              ? groupClassName(tone, hasDivider, placement)
+              : `${groupClassName(tone, hasDivider, placement)} ${placement === 'bottom' ? '' : placement === 'tray' ? 'pt-2' : 'pt-3'}`}
             data-testid={group.testId}
           >
             {group.children}

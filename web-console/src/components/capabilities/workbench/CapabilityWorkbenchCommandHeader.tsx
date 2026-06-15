@@ -3,6 +3,7 @@
 import React from 'react';
 
 import type { CapabilityWorkbenchCommandHeaderProps } from '@/types/capability-workbench';
+import { useCapabilityWorkbenchPlacement } from './CapabilityWorkbenchResponsiveFrame';
 
 function SlotFrame({
   children,
@@ -30,39 +31,108 @@ export function CapabilityWorkbenchCommandHeader({
   contextToolbarSlot,
   statusSlot,
   utilitySlot,
+  mobileVariant = 'default',
   className = '',
 }: CapabilityWorkbenchCommandHeaderProps) {
+  const placement = useCapabilityWorkbenchPlacement();
+  const useCompactMobileLayout = mobileVariant === 'compact' && placement === 'mobile';
+
+  if (useCompactMobileLayout) {
+    const compactMetaSlots = [
+      {
+        children: primaryToolbarSlot,
+        className: 'shrink-0',
+        testId: 'capability-workbench-command-header-primary-toolbar',
+      },
+      {
+        children: contextToolbarSlot,
+        className: 'shrink-0',
+        testId: 'capability-workbench-command-header-context-toolbar',
+      },
+      {
+        children: statusSlot,
+        className: 'shrink-0',
+        testId: 'capability-workbench-command-header-status',
+      },
+    ].filter((slot) => Boolean(slot.children));
+
+    return (
+      <header
+        className={`grid shrink-0 grid-cols-1 gap-2 border-b border-stone-800 bg-stone-950 px-3 py-2 text-stone-100 ${className}`.trim()}
+        data-testid="capability-workbench-command-header"
+        data-mobile-variant="compact"
+      >
+        <div className="flex min-w-0 items-start gap-2">
+          <SlotFrame
+            className="min-w-0 flex-1"
+            testId="capability-workbench-command-header-brand"
+          >
+            {brandSlot}
+          </SlotFrame>
+          <SlotFrame
+            className="shrink-0"
+            testId="capability-workbench-command-header-utility"
+          >
+            {utilitySlot}
+          </SlotFrame>
+        </div>
+        <SlotFrame
+          className="min-w-0 max-w-full"
+          testId="capability-workbench-command-header-mode"
+        >
+          {modeSlot}
+        </SlotFrame>
+        {compactMetaSlots.length > 0 ? (
+          <div
+            className="flex min-w-0 items-center gap-2 overflow-x-auto pb-0.5"
+            data-testid="capability-workbench-command-header-mobile-meta-strip"
+          >
+            {compactMetaSlots.map((slot) => (
+              <SlotFrame
+                key={slot.testId}
+                className={slot.className}
+                testId={slot.testId}
+              >
+                {slot.children}
+              </SlotFrame>
+            ))}
+          </div>
+        ) : null}
+      </header>
+    );
+  }
+
   return (
     <header
-      className={`flex min-h-[56px] shrink-0 items-center gap-3 border-b border-stone-800 bg-stone-950 px-3 py-2 text-stone-100 ${className}`.trim()}
+      className={`flex min-h-[56px] shrink-0 flex-wrap items-center gap-2 border-b border-stone-800 bg-stone-950 px-3 py-2 text-stone-100 md:flex-nowrap md:gap-3 ${className}`.trim()}
       data-testid="capability-workbench-command-header"
     >
       <SlotFrame
-        className="w-[220px] shrink-0"
+        className="w-full shrink-0 md:w-[220px]"
         testId="capability-workbench-command-header-brand"
       >
         {brandSlot}
       </SlotFrame>
       <SlotFrame
-        className="shrink-0"
+        className="max-w-full shrink-0 overflow-x-auto"
         testId="capability-workbench-command-header-mode"
       >
         {modeSlot}
       </SlotFrame>
       <SlotFrame
-        className="shrink-0"
+        className="max-w-full shrink-0 overflow-x-auto"
         testId="capability-workbench-command-header-primary-toolbar"
       >
         {primaryToolbarSlot}
       </SlotFrame>
       <SlotFrame
-        className="min-w-[160px] flex-1"
+        className="min-w-[120px] flex-1 md:min-w-[160px]"
         testId="capability-workbench-command-header-context-toolbar"
       >
         {contextToolbarSlot}
       </SlotFrame>
       <SlotFrame
-        className="shrink-0"
+        className="max-w-full shrink-0 overflow-x-auto"
         testId="capability-workbench-command-header-status"
       >
         {statusSlot}

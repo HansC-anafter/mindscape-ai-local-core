@@ -1,5 +1,6 @@
 import http from 'node:http';
 import net from 'node:net';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
@@ -10,13 +11,42 @@ import {
 } from './dev-proxy/prewarm.mjs';
 import { resolveApiRoutePlane } from './dev-proxy/api-route-plane.mjs';
 import {
+  DEFAULT_FRONTEND_DOCUMENT_SINGLEFLIGHT_MAX_BODY_BYTES,
+  isFrontendDocumentRequest,
+  normalizeFrontendDocumentSingleflightKey,
+} from './dev-proxy/document-singleflight.mjs';
+import {
   isFrontendDocumentHeadReadinessRequest,
   writeFrontendDocumentHeadReadiness,
 } from './dev-proxy/head-readiness.mjs';
-import { startDeviceLinkHttpsProxy } from './dev-proxy/device-link-https.mjs';
+import {
+  resolveDeviceLinkHttpsConfig,
+  startDeviceLinkHttpsProxy,
+} from './dev-proxy/device-link-https.mjs';
+import {
+  isMobileWorkbenchGatewayPathAllowed,
+  isMobileWorkbenchGatewayRequestAllowed,
+  isMobileWorkbenchGatewayRequestAllowedAsync,
+  isLoopbackControlPlaneRequest,
+  formatMobileWorkbenchGatewayConfig,
+  resolveMobileWorkbenchGatewayConfig,
+} from './dev-proxy/mobile-workbench-gateway.mjs';
+import {
+  createMobileWorkbenchGatewayPolicyResolver,
+} from './dev-proxy/mobile-workbench-gateway-policy-resolver.mjs';
+import {
+  createRemoteWorkbenchObservability,
+  DEFAULT_AUDIT_LIMIT,
+} from './dev-proxy/remote-workbench-observability.mjs';
 
 export { resolveFrontendPrewarmPaths } from './dev-proxy/prewarm.mjs';
 export { resolveApiRoutePlane } from './dev-proxy/api-route-plane.mjs';
+export {
+  DEFAULT_FRONTEND_DOCUMENT_SINGLEFLIGHT_MAX_BODY_BYTES,
+  createFrontendDocumentSingleflight,
+  isFrontendDocumentRequest,
+  normalizeFrontendDocumentSingleflightKey,
+} from './dev-proxy/document-singleflight.mjs';
 export {
   isFrontendDocumentHeadReadinessRequest,
   writeFrontendDocumentHeadReadiness,
@@ -27,6 +57,17 @@ export {
   resolveDeviceLinkHttpsConfig,
   startDeviceLinkHttpsProxy,
 } from './dev-proxy/device-link-https.mjs';
+export {
+  isMobileWorkbenchGatewayPathAllowed,
+  isMobileWorkbenchGatewayRequestAllowed,
+  isMobileWorkbenchGatewayRequestAllowedAsync,
+  isLoopbackControlPlaneRequest,
+  formatMobileWorkbenchGatewayConfig,
+  resolveMobileWorkbenchGatewayConfig,
+} from './dev-proxy/mobile-workbench-gateway.mjs';
+export {
+  createRemoteWorkbenchObservability,
+} from './dev-proxy/remote-workbench-observability.mjs';
 
 const PUBLIC_HOST = process.env.FRONTEND_PROXY_HOST || '0.0.0.0';
 const PUBLIC_PORT = Number.parseInt(process.env.PORT || '3000', 10);
@@ -54,8 +95,14 @@ const DEV_API_READ_CACHE_MAX_BODY_BYTES = Number.parseInt(
   process.env.FRONTEND_PROXY_READ_CACHE_MAX_BODY_BYTES || String(1024 * 1024),
   10,
 );
+const FRONTEND_DOCUMENT_SINGLEFLIGHT_MAX_BODY_BYTES = Number.parseInt(
+  process.env.FRONTEND_DOCUMENT_SINGLEFLIGHT_MAX_BODY_BYTES
+    || String(DEFAULT_FRONTEND_DOCUMENT_SINGLEFLIGHT_MAX_BODY_BYTES),
+  10,
+);
 const devApiReadCache = new Map();
 const devApiReadInflight = new Map();
+const frontendDocumentStreamInflight = new Map();
 const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
 const SERVICE_ENDPOINT_SEED_PATHS = [
   process.env.MINDSCAPE_SERVICE_ENDPOINT_SEED,
@@ -145,6 +192,12 @@ export function resolveDevApiProxyTarget(requestUrl = '/') {
   };
 }
 
+function buildInternalApiUrl(requestPath = '/') {
+  const target = resolveDevApiProxyTarget(requestPath);
+  const port = target.port ? `:${target.port}` : '';
+  return `${target.protocol}//${target.hostname}${port}${target.path}`;
+}
+
 function copyProxyRequestHeaders(headers, target) {
   const nextHeaders = {};
   for (const [key, value] of Object.entries(headers || {})) {
@@ -203,6 +256,10 @@ export function copyProxyResponseHeaders(headers, requestUrl = '/', method = 'GE
 export function clearDevApiReadCacheForTests() {
   devApiReadCache.clear();
   devApiReadInflight.clear();
+}
+
+export function clearFrontendDocumentSingleflightForTests() {
+  frontendDocumentStreamInflight.clear();
 }
 
 export function resolveDevApiReadCacheTtlMs(requestUrl = '/', method = 'GET') {
@@ -327,7 +384,7 @@ function fetchBufferedDevApiResponse(req, target) {
   });
 }
 
-function tryProxyCachedDevApiRead(req, res, target, logCompletion) {
+function tryProxyCachedDevApiRead(req, res, target, logCompletion, markTerminalError = null) {
   const ttlMs = resolveDevApiReadCacheTtlMs(req.url, req.method);
   if (!ttlMs) {
     return false;
@@ -365,19 +422,188 @@ function tryProxyCachedDevApiRead(req, res, target, logCompletion) {
       writeBufferedProxyResponse(record, req, res);
     })
     .catch((error) => {
-      writeProxyTimingLog({
-        event: 'upstream_error',
-        method: req.method,
-        path: normalizeProxyLogPath(req.url),
-        upstream: 'backend_api',
-        duration_ms: 0,
-        error: error?.code || error?.message || 'unknown',
-      });
+      if (typeof markTerminalError === 'function') {
+        markTerminalError(error?.code || error?.message || 'unknown');
+      }
       if (!res.headersSent) {
         res.writeHead(502, { 'content-type': 'application/json', 'cache-control': 'no-store' });
       }
       res.end(JSON.stringify({ error: 'backend_dev_proxy_unavailable' }));
     });
+  return true;
+}
+
+function writeFrontendDocumentSubscriberError(subscriber, errorCode) {
+  if (typeof subscriber.markTerminalError === 'function') {
+    subscriber.markTerminalError(errorCode);
+  }
+  if (!subscriber.res.headersSent) {
+    subscriber.res.writeHead(502, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+  }
+  if (!subscriber.res.destroyed && !subscriber.res.writableEnded) {
+    subscriber.res.end(JSON.stringify({ error: 'next_dev_proxy_unavailable' }));
+  }
+}
+
+function writeFrontendDocumentSubscriberHeaders(flight, subscriber) {
+  if (!flight.headers || subscriber.res.headersSent || subscriber.res.destroyed || subscriber.res.writableEnded) {
+    return;
+  }
+  subscriber.res.writeHead(
+    flight.statusCode || 502,
+    copyProxyResponseHeaders(flight.headers, subscriber.req.url, subscriber.req.method, flight.statusCode || 502),
+  );
+}
+
+function writeFrontendDocumentSubscriberChunk(subscriber, chunk) {
+  if (subscriber.res.destroyed || subscriber.res.writableEnded) {
+    return;
+  }
+  try {
+    subscriber.res.write(chunk);
+  } catch (error) {
+    if (error?.code !== 'EPIPE' && error?.code !== 'ECONNRESET') {
+      throw error;
+    }
+  }
+}
+
+function endFrontendDocumentSubscriber(subscriber) {
+  if (subscriber.res.destroyed || subscriber.res.writableEnded) {
+    return;
+  }
+  try {
+    subscriber.res.end();
+    subscriber.logCompletion('finish', {
+      document_singleflight: subscriber.shared ? 'shared' : 'origin',
+    });
+  } catch (error) {
+    if (error?.code !== 'EPIPE' && error?.code !== 'ECONNRESET') {
+      throw error;
+    }
+  }
+}
+
+function attachFrontendDocumentSubscriber(flight, subscriber) {
+  flight.subscribers.add(subscriber);
+  const detach = () => {
+    flight.subscribers.delete(subscriber);
+  };
+  subscriber.res.on('close', detach);
+
+  if (flight.errorCode) {
+    writeFrontendDocumentSubscriberError(subscriber, flight.errorCode);
+    return;
+  }
+
+  if (flight.headers) {
+    writeFrontendDocumentSubscriberHeaders(flight, subscriber);
+    if (flight.replayable) {
+      for (const chunk of flight.chunks) {
+        writeFrontendDocumentSubscriberChunk(subscriber, chunk);
+      }
+    } else if (subscriber.shared) {
+      writeFrontendDocumentSubscriberError(subscriber, 'frontend_document_singleflight_replay_unavailable');
+      return;
+    }
+  }
+
+  if (flight.ended) {
+    endFrontendDocumentSubscriber(subscriber);
+  }
+}
+
+function failFrontendDocumentFlight(flight, key, errorCode) {
+  flight.errorCode = errorCode;
+  frontendDocumentStreamInflight.delete(key);
+  for (const subscriber of Array.from(flight.subscribers)) {
+    writeFrontendDocumentSubscriberError(subscriber, errorCode);
+  }
+  flight.subscribers.clear();
+}
+
+function startFrontendDocumentFlight(req, target, key) {
+  const flight = {
+    chunks: [],
+    ended: false,
+    errorCode: null,
+    headers: null,
+    replayable: true,
+    statusCode: null,
+    subscribers: new Set(),
+    totalBytes: 0,
+  };
+  frontendDocumentStreamInflight.set(key, flight);
+
+  const upstream = http.request(
+    {
+      hostname: target.hostname,
+      port: target.port,
+      method: 'GET',
+      path: target.path,
+      headers: copyProxyRequestHeaders(req.headers, target),
+    },
+    (upstreamRes) => {
+      flight.statusCode = upstreamRes.statusCode || 502;
+      flight.headers = upstreamRes.headers;
+      for (const subscriber of Array.from(flight.subscribers)) {
+        writeFrontendDocumentSubscriberHeaders(flight, subscriber);
+      }
+      upstreamRes.on('data', (chunk) => {
+        flight.totalBytes += chunk.length;
+        if (flight.totalBytes <= FRONTEND_DOCUMENT_SINGLEFLIGHT_MAX_BODY_BYTES && flight.replayable) {
+          flight.chunks.push(Buffer.from(chunk));
+        } else {
+          flight.replayable = false;
+          flight.chunks.length = 0;
+        }
+        for (const subscriber of Array.from(flight.subscribers)) {
+          writeFrontendDocumentSubscriberChunk(subscriber, chunk);
+        }
+      });
+      upstreamRes.on('end', () => {
+        flight.ended = true;
+        frontendDocumentStreamInflight.delete(key);
+        for (const subscriber of Array.from(flight.subscribers)) {
+          endFrontendDocumentSubscriber(subscriber);
+        }
+        flight.subscribers.clear();
+      });
+      upstreamRes.on('error', (error) => {
+        failFrontendDocumentFlight(
+          flight,
+          key,
+          error?.code || error?.message || 'upstream_response_error',
+        );
+      });
+    },
+  );
+
+  upstream.on('error', (error) => {
+    failFrontendDocumentFlight(flight, key, error?.code || error?.message || 'unknown');
+  });
+  upstream.end();
+  return flight;
+}
+
+function tryProxySingleflightNextDocument(req, res, target, logCompletion, markTerminalError = null) {
+  const key = normalizeFrontendDocumentSingleflightKey(req.method, req.url);
+  if (!key || !isFrontendDocumentRequest(req.method, req.url)) {
+    return false;
+  }
+
+  let flight = frontendDocumentStreamInflight.get(key);
+  const shared = Boolean(flight);
+  if (!flight) {
+    flight = startFrontendDocumentFlight(req, target, key);
+  }
+  attachFrontendDocumentSubscriber(flight, {
+    logCompletion,
+    markTerminalError,
+    req,
+    res,
+    shared,
+  });
   return true;
 }
 
@@ -397,9 +623,173 @@ function writeFrontendLiveness(res, nextRunning) {
   res.end(body);
 }
 
+function isMobileWorkbenchGatewayHealthRequest(requestUrl = '/', method = 'GET') {
+  if (String(method || 'GET').toUpperCase() !== 'GET') {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(requestUrl, 'http://localhost');
+    return parsed.pathname === '/api/v1/host/services/mobile-workbench-gateway/health';
+  } catch {
+    return String(requestUrl || '') === '/api/v1/host/services/mobile-workbench-gateway/health';
+  }
+}
+
+function isMobileWorkbenchGatewaySummaryRequest(requestUrl = '/', method = 'GET') {
+  if (String(method || 'GET').toUpperCase() !== 'GET') {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(requestUrl, 'http://localhost');
+    return parsed.pathname === '/api/v1/host/services/mobile-workbench-gateway/summary';
+  } catch {
+    return String(requestUrl || '') === '/api/v1/host/services/mobile-workbench-gateway/summary';
+  }
+}
+
+function isMobileWorkbenchGatewayAuditRequest(requestUrl = '/', method = 'GET') {
+  if (String(method || 'GET').toUpperCase() !== 'GET') {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(requestUrl, 'http://localhost');
+    return parsed.pathname === '/api/v1/host/services/mobile-workbench-gateway/audit';
+  } catch {
+    return String(requestUrl || '') === '/api/v1/host/services/mobile-workbench-gateway/audit';
+  }
+}
+
+export function isDeviceLinkHttpsHealthRequest(requestUrl = '/', method = 'GET') {
+  if (String(method || 'GET').toUpperCase() !== 'GET') {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(requestUrl, 'http://localhost');
+    return parsed.pathname === '/api/v1/host/services/device-link-https/health';
+  } catch {
+    return String(requestUrl || '') === '/api/v1/host/services/device-link-https/health';
+  }
+}
+
+export function writeDeviceLinkHttpsHealth(res, config = resolveDeviceLinkHttpsConfig()) {
+  const body = JSON.stringify({
+    status: config.enabled ? 'ok' : 'disabled',
+    service: 'device-link-https',
+    enabled: config.enabled,
+    reason: config.reason,
+    errors: [...(config.errors || [])],
+    public_origin: config.publicOrigin || null,
+    host: config.host,
+    port: config.port,
+  });
+
+  res.writeHead(200, {
+    'content-type': 'application/json',
+    'cache-control': 'no-store',
+    'content-length': Buffer.byteLength(body),
+  });
+  res.end(body);
+}
+
+function writeMobileWorkbenchGatewayHealth(res, config = resolveMobileWorkbenchGatewayConfig()) {
+  const formatted = formatMobileWorkbenchGatewayConfig(config);
+  const statusCode = 200;
+  const body = JSON.stringify({
+    status: config.enabled ? 'ok' : 'disabled',
+    service: 'mobile-workbench-gateway',
+    enabled: config.enabled,
+    reason: config.reason,
+    errors: [...(config.errors || [])],
+    gateway: formatted,
+  });
+
+  res.writeHead(statusCode, {
+    'content-type': 'application/json',
+    'cache-control': 'no-store',
+    'content-length': Buffer.byteLength(body),
+  });
+  res.end(body);
+}
+
+function parseMobileWorkbenchGatewayReadQuery(requestUrl = '/') {
+  const parsed = new URL(requestUrl, 'http://localhost');
+  const workspaceId = String(parsed.searchParams.get('workspace_id') || '').trim() || null;
+  const capabilityCode = String(parsed.searchParams.get('capability_code') || '').trim() || null;
+  const originType = String(parsed.searchParams.get('origin_type') || 'public_host').trim() || 'public_host';
+  const limitValue = parsed.searchParams.get('limit');
+  const limit = limitValue === null ? DEFAULT_AUDIT_LIMIT : Number.parseInt(limitValue, 10);
+  return {
+    workspaceId,
+    capabilityCode,
+    originType,
+    limit,
+  };
+}
+
+async function writeMobileWorkbenchGatewaySummary(res, remoteWorkbenchObservability, requestUrl = '/') {
+  const query = parseMobileWorkbenchGatewayReadQuery(requestUrl);
+  const body = JSON.stringify(await remoteWorkbenchObservability.readSummary({
+    workspaceId: query.workspaceId,
+    capabilityCode: query.capabilityCode,
+    originType: query.originType,
+  }));
+  res.writeHead(200, {
+    'content-type': 'application/json',
+    'cache-control': 'no-store',
+    'content-length': Buffer.byteLength(body),
+  });
+  res.end(body);
+}
+
+async function writeMobileWorkbenchGatewayAudit(res, remoteWorkbenchObservability, requestUrl = '/') {
+  const query = parseMobileWorkbenchGatewayReadQuery(requestUrl);
+  const body = JSON.stringify(await remoteWorkbenchObservability.readAuditTail({
+    workspaceId: query.workspaceId,
+    capabilityCode: query.capabilityCode,
+    originType: query.originType,
+    limit: query.limit,
+  }));
+  res.writeHead(200, {
+    'content-type': 'application/json',
+    'cache-control': 'no-store',
+    'content-length': Buffer.byteLength(body),
+  });
+  res.end(body);
+}
+
+function writeMobileWorkbenchGatewayRejection(res, requestResult = {}, requestUrl = '/') {
+  const reason = String(requestResult?.reason || 'mobile_workbench_gateway_access_denied');
+  const path = requestUrl;
+  const statusCode = Number(requestResult?.status_code) === 403 ? 403 : 404;
+  const body = JSON.stringify({
+    error: reason,
+    path,
+    reason_code: requestResult.reason_code || undefined,
+    context: requestResult.context || undefined,
+  });
+  res.writeHead(statusCode, {
+    'content-type': 'application/json',
+    'cache-control': 'no-store',
+    'content-length': Buffer.byteLength(body),
+  });
+  res.end(body);
+  return {
+    statusCode,
+    bodyBytes: Buffer.byteLength(body),
+  };
+}
+
 export function computeNextDevRestartDelayMs(restartCount) {
   const boundedCount = Math.max(0, Math.min(Number(restartCount) || 0, 5));
   return Math.min(30_000, 1_000 * (2 ** boundedCount));
+}
+
+export function createDeviceLinkIngressToken() {
+  return crypto.randomBytes(32).toString('hex');
 }
 
 export function normalizeProxyLogPath(requestUrl = '/') {
@@ -426,6 +816,25 @@ export function classifyProxyUpstream(requestUrl = '/') {
 
 function roundedDurationMs(startedAt) {
   return Math.round((performance.now() - startedAt) * 100) / 100;
+}
+
+function resolveChunkByteLength(chunk, encoding) {
+  if (chunk === undefined || chunk === null) {
+    return 0;
+  }
+  if (typeof chunk === 'string') {
+    return Buffer.byteLength(chunk, typeof encoding === 'string' ? encoding : 'utf8');
+  }
+  if (Buffer.isBuffer(chunk)) {
+    return chunk.length;
+  }
+  if (ArrayBuffer.isView(chunk)) {
+    return chunk.byteLength;
+  }
+  if (chunk instanceof ArrayBuffer) {
+    return chunk.byteLength;
+  }
+  return 0;
 }
 
 export function resolveNextDevArgs(
@@ -493,17 +902,30 @@ function resolveNextProxyTarget(requestUrl = '/') {
   };
 }
 
-function proxyHttpRequest(req, res) {
-  const requestId = ++requestSequence;
+function proxyHttpRequest(req, res, { requestId = ++requestSequence, onComplete = null } = {}) {
   const startedAt = performance.now();
   const upstreamKind = classifyProxyUpstream(req.url);
   const logPath = normalizeProxyLogPath(req.url);
   let upstreamStatus = null;
   let upstreamHeaderMs = null;
   let completionLogged = false;
+  let responseBytes = 0;
+  let terminalEvent = 'finish';
+  let terminalError = null;
   const target = upstreamKind.startsWith('backend_') || upstreamKind === 'media_proxy'
     ? resolveDevApiProxyTarget(req.url)
     : resolveNextProxyTarget(req.url);
+
+  const originalWrite = res.write.bind(res);
+  const originalEnd = res.end.bind(res);
+  res.write = function patchedWrite(chunk, encoding, callback) {
+    responseBytes += resolveChunkByteLength(chunk, encoding);
+    return originalWrite(chunk, encoding, callback);
+  };
+  res.end = function patchedEnd(chunk, encoding, callback) {
+    responseBytes += resolveChunkByteLength(chunk, encoding);
+    return originalEnd(chunk, encoding, callback);
+  };
 
   writeProxyTimingLog({
     event: 'start',
@@ -528,8 +950,23 @@ function proxyHttpRequest(req, res) {
       upstream_status: upstreamStatus,
       upstream_header_ms: upstreamHeaderMs,
       duration_ms: roundedDurationMs(startedAt),
+      response_bytes: responseBytes,
       ...extra,
     });
+    if (typeof onComplete === 'function') {
+      onComplete({
+        event,
+        method: req.method,
+        path: logPath,
+        upstreamKind,
+        statusCode: res.statusCode || upstreamStatus,
+        upstreamStatus,
+        upstreamHeaderMs,
+        durationMs: roundedDurationMs(startedAt),
+        responseBytes,
+        ...extra,
+      });
+    }
   };
 
   req.on('aborted', () => {
@@ -543,16 +980,41 @@ function proxyHttpRequest(req, res) {
   });
 
   res.on('finish', () => {
-    logCompletion('finish');
+    logCompletion(terminalEvent, terminalError ? { error: terminalError } : {});
   });
 
   res.on('close', () => {
     if (!res.writableEnded) {
-      logCompletion('client_closed');
+      logCompletion(
+        terminalEvent !== 'finish' ? terminalEvent : 'client_closed',
+        terminalError ? { error: terminalError } : {},
+      );
     }
   });
 
-  if (upstreamKind === 'backend_execution_api' && tryProxyCachedDevApiRead(req, res, target, logCompletion)) {
+  if (upstreamKind === 'backend_execution_api' && tryProxyCachedDevApiRead(
+    req,
+    res,
+    target,
+    logCompletion,
+    (errorCode) => {
+      terminalEvent = 'upstream_error';
+      terminalError = errorCode;
+    },
+  )) {
+    return;
+  }
+
+  if (upstreamKind === 'next_dev' && tryProxySingleflightNextDocument(
+    req,
+    res,
+    target,
+    logCompletion,
+    (errorCode) => {
+      terminalEvent = 'upstream_error';
+      terminalError = errorCode;
+    },
+  )) {
     return;
   }
 
@@ -572,7 +1034,8 @@ function proxyHttpRequest(req, res) {
         copyProxyResponseHeaders(upstreamRes.headers, req.url, req.method, upstreamRes.statusCode || 502),
       );
       upstreamRes.on('error', (error) => {
-        logCompletion('upstream_error', { error: error?.code || error?.message || 'upstream_response_error' });
+        terminalEvent = 'upstream_error';
+        terminalError = error?.code || error?.message || 'upstream_response_error';
         if (!res.destroyed) {
           res.destroy(error);
         }
@@ -587,15 +1050,8 @@ function proxyHttpRequest(req, res) {
   });
 
   upstream.on('error', (error) => {
-    writeProxyTimingLog({
-      event: 'upstream_error',
-      id: requestId,
-      method: req.method,
-      path: logPath,
-      upstream: upstreamKind,
-      duration_ms: roundedDurationMs(startedAt),
-      error: error?.code || error?.message || 'unknown',
-    });
+    terminalEvent = 'upstream_error';
+    terminalError = error?.code || error?.message || 'unknown';
     if (!res.headersSent) {
       res.writeHead(502, { 'content-type': 'application/json', 'cache-control': 'no-store' });
     }
@@ -607,7 +1063,31 @@ function proxyHttpRequest(req, res) {
   req.pipe(upstream);
 }
 
-function proxyUpgrade(req, socket, head) {
+async function loadRemoteWorkbenchRunnerSnapshot() {
+  const response = await fetch(buildInternalApiUrl('/api/v1/system-settings/health/queue/metrics'));
+  if (!response.ok) {
+    throw new Error(`queue_metrics_request_failed:${response.status}`);
+  }
+  return await response.json();
+}
+
+async function proxyUpgrade(req, socket, head, mobileWorkbenchGatewayConfig, deviceLinkIngressToken = '', resolveWorkspaceCapabilityPolicy = null) {
+  const requestResult = await isMobileWorkbenchGatewayRequestAllowedAsync(
+    req.url,
+    req.headers,
+    mobileWorkbenchGatewayConfig,
+    {
+      deviceLinkIngressToken,
+      requestMethod: req.method,
+      resolveWorkspaceCapabilityPolicy,
+    },
+  );
+  if (!requestResult.allowed) {
+    const statusCode = Number(requestResult.status_code) === 403 ? 403 : 404;
+    socket.end(`HTTP/1.1 ${statusCode} ${statusCode === 403 ? 'Forbidden' : 'Not Found'}\r\n\r\n`);
+    return;
+  }
+
   const target = isDevApiProxyPath(req.url)
     ? resolveDevApiProxyTarget(req.url)
     : resolveNextProxyTarget(req.url);
@@ -634,8 +1114,52 @@ function proxyUpgrade(req, socket, head) {
   });
 }
 
-export function createFrontendProxyServer({ nextRunningRef }) {
+export function createFrontendProxyServer({
+  nextRunningRef = { current: false },
+  mobileWorkbenchGatewayConfig = resolveMobileWorkbenchGatewayConfig(),
+  deviceLinkIngressToken = '',
+  remoteWorkbenchObservability = createRemoteWorkbenchObservability({
+    loadRunnerSnapshot: loadRemoteWorkbenchRunnerSnapshot,
+  }),
+} = {}) {
+  const resolveWorkspaceCapabilityPolicy = createMobileWorkbenchGatewayPolicyResolver({
+    buildInternalApiUrl,
+  });
+
   const server = http.createServer((req, res) => {
+    void (async () => {
+    if (isDeviceLinkHttpsHealthRequest(req.url, req.method)) {
+      writeDeviceLinkHttpsHealth(res);
+      return;
+    }
+    if (isMobileWorkbenchGatewayHealthRequest(req.url, req.method)) {
+      writeMobileWorkbenchGatewayHealth(res, mobileWorkbenchGatewayConfig);
+      return;
+    }
+    if (isMobileWorkbenchGatewaySummaryRequest(req.url, req.method)) {
+      if (!isLoopbackControlPlaneRequest(req.headers)) {
+        writeMobileWorkbenchGatewayRejection(
+          res,
+          { reason: 'mobile_workbench_gateway_path_not_allowed', status_code: 404 },
+          req.url,
+        );
+        return;
+      }
+      await writeMobileWorkbenchGatewaySummary(res, remoteWorkbenchObservability, req.url);
+      return;
+    }
+    if (isMobileWorkbenchGatewayAuditRequest(req.url, req.method)) {
+      if (!isLoopbackControlPlaneRequest(req.headers)) {
+        writeMobileWorkbenchGatewayRejection(
+          res,
+          { reason: 'mobile_workbench_gateway_path_not_allowed', status_code: 404 },
+          req.url,
+        );
+        return;
+      }
+      await writeMobileWorkbenchGatewayAudit(res, remoteWorkbenchObservability, req.url);
+      return;
+    }
     if (isFrontendLivenessPath(req.url)) {
       writeFrontendLiveness(res, nextRunningRef.current);
       return;
@@ -644,11 +1168,66 @@ export function createFrontendProxyServer({ nextRunningRef }) {
       writeFrontendDocumentHeadReadiness(res, nextRunningRef.current);
       return;
     }
+    const requestId = ++requestSequence;
+    const requestResult = await isMobileWorkbenchGatewayRequestAllowedAsync(
+      req.url,
+      req.headers,
+      mobileWorkbenchGatewayConfig,
+      {
+        deviceLinkIngressToken,
+        requestMethod: req.method,
+        resolveWorkspaceCapabilityPolicy,
+      },
+    );
+    const requestObservation = remoteWorkbenchObservability.createObservation({
+      requestId,
+      requestUrl: req.url,
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      requestResult,
+      mobileWorkbenchGatewayConfig,
+    });
+    if (!requestResult.allowed) {
+      const rejection = writeMobileWorkbenchGatewayRejection(res, requestResult, req.url);
+      void remoteWorkbenchObservability.recordDeniedRequest(requestObservation, {
+        requestResult,
+        statusCode: rejection.statusCode,
+        responseBytes: rejection.bodyBytes,
+      });
+      return;
+    }
 
-    proxyHttpRequest(req, res);
+    proxyHttpRequest(req, res, {
+      requestId,
+      onComplete: (event) => {
+        void remoteWorkbenchObservability.recordCompletedRequest(requestObservation, event);
+      },
+    });
+    })().catch((error) => {
+      if (!res.headersSent) {
+        res.writeHead(500, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+      }
+      if (!res.writableEnded) {
+        res.end(JSON.stringify({
+          error: 'frontend_proxy_request_failed',
+          detail: error?.message || 'unknown_error',
+        }));
+      }
+    });
   });
 
-  server.on('upgrade', proxyUpgrade);
+  server.on('upgrade', (req, socket, head) => {
+    void proxyUpgrade(
+      req,
+      socket,
+      head,
+      mobileWorkbenchGatewayConfig,
+      deviceLinkIngressToken,
+      resolveWorkspaceCapabilityPolicy,
+    ).catch(() => {
+      socket.destroy();
+    });
+  });
   server.on('clientError', (_error, socket) => {
     socket.end('HTTP/1.1 400 Bad Request\r\n\r\n');
   });
@@ -658,13 +1237,14 @@ export function createFrontendProxyServer({ nextRunningRef }) {
 
 export function start() {
   const nextRunningRef = { current: false };
+  const deviceLinkIngressToken = createDeviceLinkIngressToken();
   let nextProcess = null;
   let restartTimer = null;
   let prewarmTimer = null;
   let deviceLinkHttpsServer = null;
   let restartCount = 0;
   let shuttingDown = false;
-  const server = createFrontendProxyServer({ nextRunningRef });
+  const server = createFrontendProxyServer({ nextRunningRef, deviceLinkIngressToken });
 
   const launchNextDev = () => {
     if (shuttingDown) {
@@ -721,6 +1301,7 @@ export function start() {
     deviceLinkHttpsServer = startDeviceLinkHttpsProxy({
       targetHost: '127.0.0.1',
       targetPort: PUBLIC_PORT,
+      ingressToken: deviceLinkIngressToken,
     });
   });
 

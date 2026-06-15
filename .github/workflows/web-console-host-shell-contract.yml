@@ -1,0 +1,57 @@
+name: Web Console Host Shell Contract
+
+on:
+  pull_request:
+    paths:
+      - 'web-console/dev-proxy.mjs'
+      - 'web-console/dev-proxy.spec.mjs'
+      - 'web-console/dev-proxy/**'
+      - 'web-console/src/app/workspaces/[workspaceId]/capability-ui-hosts/**'
+      - 'web-console/src/app/workspaces/[workspaceId]/capabilities/[capabilityCode]/page.aol-host.spec.tsx'
+      - 'web-console/src/components/capabilities/aol-runtime-shell/**'
+      - 'web-console/package.json'
+      - 'web-console/package-lock.json'
+      - 'web-console/vitest.config.ts'
+      - '.github/workflows/web-console-host-shell-contract.yml'
+  push:
+    branches: [master, main]
+    paths:
+      - 'web-console/dev-proxy.mjs'
+      - 'web-console/dev-proxy.spec.mjs'
+      - 'web-console/dev-proxy/**'
+      - 'web-console/src/app/workspaces/[workspaceId]/capability-ui-hosts/**'
+      - 'web-console/src/app/workspaces/[workspaceId]/capabilities/[capabilityCode]/page.aol-host.spec.tsx'
+      - 'web-console/src/components/capabilities/aol-runtime-shell/**'
+      - 'web-console/package.json'
+      - 'web-console/package-lock.json'
+      - 'web-console/vitest.config.ts'
+      - '.github/workflows/web-console-host-shell-contract.yml'
+
+jobs:
+  host-shell-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: web-console/package-lock.json
+
+      - name: Install web-console dependencies
+        working-directory: web-console
+        run: npm ci
+
+      - name: Run host shell contract specs
+        working-directory: web-console
+        run: |
+          ./node_modules/.bin/vitest run \
+            dev-proxy/api-route-plane.spec.mjs \
+            dev-proxy.spec.mjs \
+            'src/app/workspaces/[workspaceId]/capability-ui-hosts/CapabilityUiHostRouteClient.spec.tsx' \
+            'src/app/workspaces/[workspaceId]/capability-ui-hosts/CapabilityUiHostClientLoader.spec.tsx' \
+            'src/app/workspaces/[workspaceId]/capability-ui-hosts/WorkspaceSurfaceShell.spec.tsx' \
+            'src/components/capabilities/aol-runtime-shell/AOLRuntimeShellBridge.spec.tsx' \
+            'src/app/workspaces/[workspaceId]/capabilities/[capabilityCode]/page.aol-host.spec.tsx'

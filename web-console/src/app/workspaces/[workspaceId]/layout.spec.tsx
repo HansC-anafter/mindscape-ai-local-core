@@ -23,5 +23,6 @@ describe('WorkspaceLayout', () => {
 
     expect(main).toHaveClass('flex', 'min-h-0', 'flex-1', 'overflow-hidden');
     expect(main?.parentElement).toHaveClass('relative', 'flex', 'min-h-0', 'flex-1', 'overflow-hidden');
+    expect(main?.parentElement?.parentElement).toHaveClass('h-dvh');
   });
 });

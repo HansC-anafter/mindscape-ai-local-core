@@ -3,6 +3,12 @@
 import React from 'react';
 
 import type { AddressableObjectHostBridge } from '@/lib/addressable-object-layer';
+import {
+  getCapabilityWorkbenchNavigationRegionClassName,
+  getCapabilityWorkbenchNavigationSlotClassName,
+  getCapabilityWorkbenchShellClassName,
+  useCapabilityWorkbenchPlacement,
+} from './CapabilityWorkbenchResponsiveFrame';
 import { PackScopeToolRailHost } from './PackScopeToolRailHost';
 import { usePackScopeToolContributions } from './usePackScopeToolContributions';
 
@@ -26,10 +32,18 @@ export function CapabilityWorkbenchShell({
   className,
 }: CapabilityWorkbenchShellProps) {
   const tools = usePackScopeToolContributions(capabilityCode);
+  const placement = useCapabilityWorkbenchPlacement();
   const [navigationCollapsed, setNavigationCollapsed] = React.useState(false);
   const [navigationHoverOpen, setNavigationHoverOpen] = React.useState(false);
   const showNavigation = !navigationCollapsed || navigationHoverOpen;
   const navigationState = showNavigation ? 'open' : 'closed';
+
+  React.useEffect(() => {
+    if (placement === 'mobile') {
+      setNavigationCollapsed(true);
+      setNavigationHoverOpen(false);
+    }
+  }, [placement]);
 
   const handleNavigationCollapsedChange = React.useCallback((collapsed: boolean) => {
     setNavigationCollapsed(collapsed);
@@ -82,23 +96,24 @@ export function CapabilityWorkbenchShell({
 
   return (
     <div
-      className={className || 'relative flex min-h-0 flex-1 overflow-hidden'}
+      className={getCapabilityWorkbenchShellClassName(className)}
       data-testid="capability-workbench-shell"
       data-capability-code={capabilityCode}
+      data-workbench-placement={placement}
     >
       <div
-        className="flex min-h-0 shrink-0 overflow-hidden"
+        className={getCapabilityWorkbenchNavigationRegionClassName()}
         data-testid="capability-workbench-navigation-region"
         data-navigation-state={navigationState}
+        data-workbench-placement={placement}
         onMouseLeave={handleNavigationRegionMouseLeave}
       >
         <div
           aria-hidden={!showNavigation}
-          className={`min-h-0 shrink-0 overflow-hidden transition-[width,opacity] duration-200 ease-[cubic-bezier(0.2,0.8,0.2,1)] ${
-            showNavigation ? 'w-64 opacity-100' : 'w-0 opacity-0'
-          }`}
+          className={getCapabilityWorkbenchNavigationSlotClassName(showNavigation)}
           data-testid="capability-workbench-navigation-slot"
           data-navigation-state={navigationState}
+          data-workbench-placement={placement}
         >
           {navigation}
         </div>
@@ -107,6 +122,7 @@ export function CapabilityWorkbenchShell({
           capabilityCode={capabilityCode}
           apiUrl={apiUrl}
           tools={tools}
+          placement={placement}
           navigationCollapsed={!showNavigation}
           aolHost={aolHost}
           onNavigationCollapsedChange={handleNavigationCollapsedChange}

@@ -30,6 +30,24 @@ describe('PackPanel capability workbench routing', () => {
 
     vi.mocked(getInstalledCapabilities).mockResolvedValue([
         {
+          id: 'mindscape_cloud_integration',
+          code: 'mindscape_cloud_integration',
+          display_name: 'Mindscape Cloud Integration',
+          description: 'Gateway control plane',
+          version: '1.0.0',
+          ui_components: [
+            {
+              code: 'MindscapeMobileWorkbenchGatewayPage',
+              path: 'ui/components/MindscapeMobileWorkbenchGatewayPage.tsx',
+              description: 'Gateway policy page',
+              export: 'default',
+              artifact_types: [],
+              playbook_codes: [],
+              import_path: '@/app/capabilities/mindscape_cloud_integration/components/MindscapeMobileWorkbenchGatewayPage',
+            },
+          ],
+        },
+        {
           id: 'ig',
           code: 'ig',
           display_name: 'Instagram Workbench',
@@ -65,11 +83,30 @@ describe('PackPanel capability workbench routing', () => {
     await screen.findByText('Instagram Workbench');
     expect(getInstalledCapabilities).toHaveBeenCalledTimes(1);
     expect(getInstalledCapabilities).toHaveBeenCalledWith('http://api.test');
-    fireEvent.click(screen.getByRole('button', { name: 'Open UI' }));
+    fireEvent.click(screen.getAllByRole('button', { name: 'Open UI' })[1]);
 
     await waitFor(() => {
       expect(mockWindowOpen).toHaveBeenCalledWith(
         '/workspaces/ws-test/capability-ui-hosts/ig',
+        '_blank',
+      );
+    });
+  });
+
+  it('opens the cloud integration gateway control page for the selected pack', async () => {
+    render(
+      <PackPanel
+        workspaceId="ws-test"
+        apiUrl="http://api.test"
+      />,
+    );
+
+    await screen.findByText('Instagram Workbench');
+    fireEvent.click(screen.getByRole('button', { name: 'Remote workbench' }));
+
+    await waitFor(() => {
+      expect(mockWindowOpen).toHaveBeenCalledWith(
+        '/workspaces/ws-test/capability-ui-hosts/mindscape_cloud_integration?component=MindscapeMobileWorkbenchGatewayPage&target_capability=ig',
         '_blank',
       );
     });

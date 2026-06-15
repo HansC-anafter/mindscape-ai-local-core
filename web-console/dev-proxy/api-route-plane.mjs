@@ -1,12 +1,14 @@
 const CONTROL_EXACT_PATHS = new Set([
   '/api/v1/capability-packs/install-from-file',
   '/api/v1/capability-packs/install-from-cloud',
+  '/api/v1/capability-packs/installed-capabilities',
   '/api/v1/system-settings/restart',
 ]);
 
 const CONTROL_PREFIXES = [
   '/api/v1/admin/',
   '/api/v1/capability-packs/install-jobs/',
+  '/api/v1/capability-packs/installed-capabilities/',
   '/api/v1/cloud-providers/',
   '/api/v1/deployment/',
   '/api/v1/settings/extensions/',

@@ -21,6 +21,7 @@ interface PackPanelProps {
 }
 
 type PackSubTab = 'thinking' | 'capabilities' | 'apps';
+const GATEWAY_CONTROL_CAPABILITY_CODE = 'mindscape_cloud_integration';
 
 function isMainPageComponent(component: NonNullable<InstalledCapability['ui_components']>[number]): boolean {
   return Boolean(
@@ -79,6 +80,25 @@ export function PackPanel({
     );
     window.open(url, '_blank');
   };
+
+  const openGatewayControlUI = (targetCapabilityCode: string) => {
+    const url = buildCapabilityWorkbenchPath(
+      workspaceId,
+      GATEWAY_CONTROL_CAPABILITY_CODE,
+      {
+        searchParams: {
+          component: 'MindscapeMobileWorkbenchGatewayPage',
+          target_capability: targetCapabilityCode,
+        },
+      },
+    );
+    window.open(url, '_blank');
+  };
+
+  const hasGatewayControlPack = installedCapabilities.some((capability) => {
+    const capabilityCode = String(capability.code || capability.id || '').trim();
+    return capabilityCode === GATEWAY_CONTROL_CAPABILITY_CODE;
+  });
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -228,15 +248,29 @@ export function PackPanel({
                           <div className="text-[10px] text-tertiary dark:text-gray-500">
                             {cap.ui_components!.length} UI component{cap.ui_components!.length > 1 ? 's' : ''}
                           </div>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              capabilityIdentifier && openCapabilityUI(capabilityIdentifier);
-                            }}
-                            className="px-2 py-1 text-[10px] bg-blue-500 hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700 text-white rounded transition-colors"
-                          >
-                            {t('openUI' as any) || 'Open UI'}
-                          </button>
+                          <div className="flex items-center gap-2">
+                            {hasGatewayControlPack && capabilityIdentifier !== GATEWAY_CONTROL_CAPABILITY_CODE ? (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  capabilityIdentifier && openGatewayControlUI(capabilityIdentifier);
+                                }}
+                                className="px-2 py-1 text-[10px] rounded border border-amber-300 bg-amber-50 text-amber-800 hover:border-amber-400 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-200"
+                              >
+                                Remote workbench
+                              </button>
+                            ) : null}
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                capabilityIdentifier && openCapabilityUI(capabilityIdentifier);
+                              }}
+                              className="px-2 py-1 text-[10px] bg-blue-500 hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700 text-white rounded transition-colors"
+                            >
+                              {t('openUI' as any) || 'Open UI'}
+                            </button>
+                          </div>
                         </div>
                       </div>
                     );
@@ -321,12 +355,23 @@ export function PackPanel({
                           <div className="text-[10px] text-tertiary dark:text-gray-500">
                             {cap.ui_components!.length} UI component{cap.ui_components!.length > 1 ? 's' : ''} available
                           </div>
-                          <button
-                            onClick={() => capabilityCode && openCapabilityUI(capabilityCode)}
-                            className="px-2 py-1 text-[10px] bg-blue-500 hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700 text-white rounded transition-colors"
-                          >
-                            {t('openUI' as any) || 'Open UI'}
-                          </button>
+                          <div className="flex items-center gap-2">
+                            {hasGatewayControlPack && capabilityCode !== GATEWAY_CONTROL_CAPABILITY_CODE ? (
+                              <button
+                                type="button"
+                                onClick={() => capabilityCode && openGatewayControlUI(capabilityCode)}
+                                className="px-2 py-1 text-[10px] rounded border border-amber-300 bg-amber-50 text-amber-800 hover:border-amber-400 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-200"
+                              >
+                                Gateway policy
+                              </button>
+                            ) : null}
+                            <button
+                              onClick={() => capabilityCode && openCapabilityUI(capabilityCode)}
+                              className="px-2 py-1 text-[10px] bg-blue-500 hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700 text-white rounded transition-colors"
+                            >
+                              {t('openUI' as any) || 'Open UI'}
+                            </button>
+                          </div>
                         </div>
                       )}
                       {!hasUIComponents && (

@@ -4,6 +4,7 @@ import React from 'react';
 
 import { buildCapabilityWorkbenchPath } from '@/lib/capability-static-hosts';
 import { getApiBaseUrl } from '@/lib/api-url';
+import CapabilityLoadedComponents from '../capabilities/[capabilityCode]/CapabilityLoadedComponents';
 import type {
   CapabilityInfo,
   UIComponentInfo,
@@ -26,10 +27,7 @@ type CapabilityUiMetadataCacheEntry = {
 
 const CAPABILITY_UI_METADATA_TIMEOUT_MS = 30000;
 const metadataCache = new Map<string, CapabilityUiMetadataCacheEntry>();
-const capabilityLoadedComponentsModule = import('../capabilities/[capabilityCode]/CapabilityLoadedComponents');
-const CapabilityLoadedComponents = React.lazy(
-  () => capabilityLoadedComponentsModule,
-);
+const WorkspaceSurfaceShell = React.lazy(() => import('./WorkspaceSurfaceShell'));
 
 function CapabilityUiLoadingState() {
   return (
@@ -161,8 +159,9 @@ export default function CapabilityUiHostClientLoader({
     };
   }, [apiUrl, capabilityCode]);
 
+  let content: React.ReactNode;
   if (error) {
-    return (
+    content = (
       <div className="flex h-full items-center justify-center p-4">
         <div className="max-w-md text-center">
           <h2 className="mb-2 text-lg font-semibold text-gray-900 dark:text-gray-100">
@@ -172,14 +171,10 @@ export default function CapabilityUiHostClientLoader({
         </div>
       </div>
     );
-  }
-
-  if (!metadata) {
-    return <CapabilityUiLoadingState />;
-  }
-
-  return (
-    <React.Suspense fallback={<CapabilityUiLoadingState />}>
+  } else if (!metadata) {
+    content = <CapabilityUiLoadingState />;
+  } else {
+    content = (
       <CapabilityLoadedComponents
         workspaceId={workspaceId}
         capabilityCode={capabilityCode}
@@ -188,6 +183,18 @@ export default function CapabilityUiHostClientLoader({
         surfacePath={surfacePath}
         aolRoutePath={buildCapabilityWorkbenchPath(workspaceId, capabilityCode, { surfacePath })}
       />
+    );
+  }
+
+  return (
+    <React.Suspense fallback={<CapabilityUiLoadingState />}>
+      <WorkspaceSurfaceShell
+        workspaceId={workspaceId}
+        activeCapabilityCode={capabilityCode}
+        surfacePath={surfacePath}
+      >
+        {content}
+      </WorkspaceSurfaceShell>
     </React.Suspense>
   );
 }

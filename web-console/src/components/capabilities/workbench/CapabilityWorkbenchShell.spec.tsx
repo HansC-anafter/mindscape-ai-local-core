@@ -1,6 +1,6 @@
 import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { AddressableObjectHostBridge } from '@/lib/addressable-object-layer';
 import type { WorkspaceToolDefinition } from '@/lib/workspace-tools/workspace-tool-registry';
@@ -55,6 +55,10 @@ function createAolHost(): AddressableObjectHostBridge {
 describe('CapabilityWorkbenchShell', () => {
   beforeEach(() => {
     window.__MindscapePackScopeToolContributions = { ig: [feedLoadTool] };
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it('renders navigation, local-core left rail, and pack tools from the global bridge', () => {
@@ -184,5 +188,34 @@ describe('CapabilityWorkbenchShell', () => {
 
     fireEvent.scroll(window);
     expect(screen.getByTestId('capability-workbench-navigation-slot')).toHaveAttribute('data-navigation-state', 'closed');
+  });
+
+  it('uses mobile placement without reserving desktop side navigation width', async () => {
+    vi.stubGlobal('matchMedia', vi.fn(() => ({
+      matches: true,
+      media: '(max-width: 767px)',
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })));
+
+    render(
+      <CapabilityWorkbenchShell
+        workspaceId="ws_test"
+        capabilityCode="ig"
+        apiUrl="http://api.test"
+        navigation={<aside data-testid="pack-navigation">Navigation</aside>}
+      >
+        <main data-testid="pack-main">Main</main>
+      </CapabilityWorkbenchShell>,
+    );
+
+    expect(screen.getByTestId('capability-workbench-shell')).toHaveAttribute('data-workbench-placement', 'mobile');
+    expect(screen.getByTestId('pack-scope-tool-rail')).toHaveAttribute('data-workbench-placement', 'mobile');
+    expect(screen.getByTestId('capability-workbench-navigation-slot')).toHaveAttribute('data-navigation-state', 'closed');
+
+    fireEvent.click(screen.getByTestId('pack-scope-navigation-toggle'));
+
+    expect(screen.getByTestId('capability-workbench-navigation-slot')).toHaveAttribute('data-navigation-state', 'open');
+    expect(screen.getByTestId('capability-workbench-navigation-slot').className).toContain('max-h-[70dvh]');
   });
 });

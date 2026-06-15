@@ -1,13 +1,14 @@
 'use client';
 
 import React from 'react';
-import { Activity, GitGraph, Package, Settings as SettingsIcon, Smartphone, X } from 'lucide-react';
+import { Activity, GitGraph, Package, PanelRight, Settings as SettingsIcon, Smartphone, X } from 'lucide-react';
 
 import {
   WorkspaceToolRail,
   WorkspaceToolRailButton,
   type WorkspaceToolRailGroup,
 } from '@/components/workspace/WorkspaceToolRail';
+import { useCapabilityWorkbenchPlacement } from '@/components/capabilities/workbench/CapabilityWorkbenchResponsiveFrame';
 import { useWorkspaceDataOptional } from '@/contexts/WorkspaceDataContext';
 import { getApiBaseUrl } from '@/lib/api-url';
 import { openAppRouteInNewWindow } from '@/lib/navigation/openAppRouteInNewWindow';
@@ -95,12 +96,19 @@ export default function WorkspaceGlobalToolRailProvider({
 }: WorkspaceGlobalToolRailProviderProps) {
   const apiUrl = getApiBaseUrl();
   const workspaceData = useWorkspaceDataOptional();
+  const placement = useCapabilityWorkbenchPlacement();
+  const railPlacement = placement === 'mobile' ? 'tray' : 'side';
   const [activeToolKey, setActiveToolKey] = React.useState<string | null>(null);
   const [activeCapabilityCode, setActiveCapabilityCode] = React.useState<string | null>(null);
+  const [mobileTrayOpen, setMobileTrayOpen] = React.useState(false);
   const [registeredScopeContributions, setRegisteredScopeContributions] = React.useState<Record<string, WorkspaceGlobalToolContribution[]>>({});
+  const deepLinkedToolHrefRef = React.useRef<string | null>(null);
+  const mobileTrayAnchorRef = React.useRef<HTMLDivElement | null>(null);
+  const mobilePanelRef = React.useRef<HTMLElement | null>(null);
   const activeExecutionCount = (workspaceData?.executions || []).filter((execution) => (
     isActiveExecutionStatus(execution.status)
   )).length;
+  const isMobilePlacement = placement === 'mobile';
 
   const registerToolContributions = React.useCallback((
     scopeId: string,
@@ -204,6 +212,85 @@ export default function WorkspaceGlobalToolRailProvider({
     }
   }, [activeContribution, activeToolKey]);
 
+  React.useEffect(() => {
+    if (!isMobilePlacement) {
+      setMobileTrayOpen(false);
+      return;
+    }
+    if (activeContribution?.renderPanel) {
+      setMobileTrayOpen(true);
+    }
+  }, [activeContribution, isMobilePlacement]);
+
+  React.useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    if (deepLinkedToolHrefRef.current === window.location.href) {
+      return;
+    }
+    const toolId = new URLSearchParams(window.location.search).get('tool');
+    if (!toolId) {
+      deepLinkedToolHrefRef.current = window.location.href;
+      return;
+    }
+    const linkedContribution = visibleContributions.find((contribution) => (
+      contribution.id === toolId || contribution.key === toolId
+    ));
+    if (!linkedContribution?.renderPanel) {
+      return;
+    }
+    deepLinkedToolHrefRef.current = window.location.href;
+    setActiveToolKey(linkedContribution.key);
+  }, [visibleContributions]);
+
+  React.useEffect(() => {
+    if (!isMobilePlacement || !mobileTrayOpen || typeof document === 'undefined') {
+      return undefined;
+    }
+
+    function dismissMobileTray(event?: Event) {
+      const target = event?.target;
+      if (target instanceof Node) {
+        if (mobileTrayAnchorRef.current?.contains(target) || mobilePanelRef.current?.contains(target)) {
+          return;
+        }
+      }
+
+      document.removeEventListener('click', dismissMobileTray, true);
+      document.removeEventListener('scroll', dismissMobileTray, true);
+      window.removeEventListener('scroll', dismissMobileTray, true);
+      setMobileTrayOpen(false);
+      setActiveToolKey(null);
+    }
+
+    document.addEventListener('click', dismissMobileTray, true);
+    document.addEventListener('scroll', dismissMobileTray, { capture: true, passive: true });
+    window.addEventListener('scroll', dismissMobileTray, { capture: true, passive: true });
+
+    return () => {
+      document.removeEventListener('click', dismissMobileTray, true);
+      document.removeEventListener('scroll', dismissMobileTray, true);
+      window.removeEventListener('scroll', dismissMobileTray, true);
+    };
+  }, [isMobilePlacement, mobileTrayOpen]);
+
+  const handleContributionClick = React.useCallback((contribution: WorkspaceGlobalToolContribution) => {
+    if (contribution.disabled) {
+      return;
+    }
+    if (contribution.onSelect) {
+      setActiveToolKey(null);
+      setMobileTrayOpen(false);
+      contribution.onSelect();
+      return;
+    }
+    if (contribution.renderPanel) {
+      setMobileTrayOpen(true);
+      setActiveToolKey((current) => (current === contribution.key ? null : contribution.key));
+    }
+  }, []);
+
   const groups = React.useMemo<WorkspaceToolRailGroup[]>(() => {
     const grouped = new Map<WorkspaceRightRegionGroup, WorkspaceGlobalToolContribution[]>();
     visibleContributions.forEach((contribution) => {
@@ -230,19 +317,7 @@ export default function WorkspaceGlobalToolRailProvider({
                     disabled={contribution.disabled}
                     badge={contribution.badge}
                     testId={contribution.testId}
-                    onClick={() => {
-                      if (contribution.disabled) {
-                        return;
-                      }
-                      if (contribution.onSelect) {
-                        setActiveToolKey(null);
-                        contribution.onSelect();
-                        return;
-                      }
-                      if (contribution.renderPanel) {
-                        setActiveToolKey((current) => (current === contribution.key ? null : contribution.key));
-                      }
-                    }}
+                    onClick={() => handleContributionClick(contribution)}
                   />
                 )}
               </React.Fragment>
@@ -250,7 +325,7 @@ export default function WorkspaceGlobalToolRailProvider({
           </>
         ),
       }));
-  }, [activeToolKey, visibleContributions]);
+  }, [activeToolKey, handleContributionClick, visibleContributions]);
 
   const contextValue = React.useMemo(() => ({
     activeToolKey,
@@ -260,46 +335,99 @@ export default function WorkspaceGlobalToolRailProvider({
     registerToolContributions,
   }), [activeCapabilityCode, activeToolKey, registerToolContributions]);
 
+  const workspaceToolRail = (
+    <WorkspaceToolRail
+      ariaLabel="Workspace tools"
+      testId="workspace-global-tool-rail"
+      placement={railPlacement}
+      groups={groups}
+    />
+  );
+
+  const workspaceToolPanel = activeContribution?.renderPanel ? (
+    <aside
+      ref={mobilePanelRef}
+      className={isMobilePlacement
+        ? 'absolute right-14 top-2 z-40 flex max-h-[min(78dvh,36rem)] w-[min(20rem,calc(100vw-4.75rem))] max-w-[calc(100vw-4.75rem)] flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl dark:border-gray-800 dark:bg-gray-950'
+        : `flex h-full ${WORKSPACE_RIGHT_REGION_PANEL_WIDTH_CLASS} shrink-0 flex-col border-l border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-950`}
+      data-testid="workspace-global-tool-panel"
+      data-active-tool-key={activeContribution.key}
+      data-workbench-placement={placement}
+    >
+      <div className="flex h-10 shrink-0 items-center justify-between border-b border-gray-200 px-3 dark:border-gray-800">
+        <div className="min-w-0 truncate text-xs font-semibold text-gray-700 dark:text-gray-200">
+          {activeContribution.label}
+        </div>
+        <button
+          type="button"
+          aria-label={`Close ${activeContribution.label}`}
+          className="inline-flex h-7 w-7 items-center justify-center rounded text-gray-500 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-900 dark:hover:text-gray-100"
+          onClick={() => setActiveToolKey(null)}
+        >
+          <X aria-hidden="true" className="h-4 w-4" />
+        </button>
+      </div>
+      <div className={WORKSPACE_RIGHT_REGION_PANEL_BODY_CLASS}>
+        <React.Suspense fallback={<WorkspaceToolPanelLoadingState label={activeContribution.label} />}>
+          {activeContribution.renderPanel()}
+        </React.Suspense>
+      </div>
+    </aside>
+  ) : null;
+
   return (
     <WorkspaceGlobalToolRailContext.Provider value={contextValue}>
       <div
-        className="relative flex h-full min-h-0 flex-1 overflow-hidden"
+        className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden md:flex-row"
         data-testid="workspace-global-tool-shell"
+        data-workbench-placement={placement}
       >
-        <main className="flex h-full min-h-0 flex-1 overflow-hidden">
+        <main className="order-1 flex h-full min-h-0 flex-1 overflow-hidden md:order-none">
           {children}
         </main>
-        {activeContribution?.renderPanel ? (
-          <aside
-            className={`flex h-full ${WORKSPACE_RIGHT_REGION_PANEL_WIDTH_CLASS} shrink-0 flex-col border-l border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-950`}
-            data-testid="workspace-global-tool-panel"
-            data-active-tool-key={activeContribution.key}
-          >
-            <div className="flex h-10 shrink-0 items-center justify-between border-b border-gray-200 px-3 dark:border-gray-800">
-              <div className="min-w-0 truncate text-xs font-semibold text-gray-700 dark:text-gray-200">
-                {activeContribution.label}
-              </div>
-              <button
-                type="button"
-                aria-label={`Close ${activeContribution.label}`}
-                className="inline-flex h-7 w-7 items-center justify-center rounded text-gray-500 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-900 dark:hover:text-gray-100"
-                onClick={() => setActiveToolKey(null)}
-              >
-                <X aria-hidden="true" className="h-4 w-4" />
-              </button>
+        {isMobilePlacement ? (
+          <>
+            {workspaceToolPanel}
+            <div
+              ref={mobileTrayAnchorRef}
+              className="absolute right-2 top-2 z-50"
+              data-testid="workspace-global-tool-tray-anchor"
+            >
+              {mobileTrayOpen ? (
+                <div className="flex flex-col items-end gap-2">
+                  <button
+                    type="button"
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 bg-white/95 text-gray-500 shadow-md backdrop-blur transition hover:bg-white hover:text-gray-900 dark:border-gray-800 dark:bg-gray-950/95 dark:text-gray-400 dark:hover:text-gray-100"
+                    aria-label="Close workspace tools"
+                    data-testid="workspace-global-tool-tray-close"
+                    onClick={() => {
+                      setMobileTrayOpen(false);
+                      setActiveToolKey(null);
+                    }}
+                  >
+                    <X aria-hidden="true" className="h-4 w-4" />
+                  </button>
+                  {workspaceToolRail}
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white/95 text-gray-700 shadow-lg backdrop-blur transition hover:bg-white dark:border-gray-800 dark:bg-gray-950/95 dark:text-gray-200"
+                  aria-label="Open workspace tools"
+                  data-testid="workspace-global-tool-tray-toggle"
+                  onClick={() => setMobileTrayOpen(true)}
+                >
+                  <PanelRight aria-hidden="true" className="h-4 w-4" />
+                </button>
+              )}
             </div>
-            <div className={WORKSPACE_RIGHT_REGION_PANEL_BODY_CLASS}>
-              <React.Suspense fallback={<WorkspaceToolPanelLoadingState label={activeContribution.label} />}>
-                {activeContribution.renderPanel()}
-              </React.Suspense>
-            </div>
-          </aside>
-        ) : null}
-        <WorkspaceToolRail
-          ariaLabel="Workspace tools"
-          testId="workspace-global-tool-rail"
-          groups={groups}
-        />
+          </>
+        ) : (
+          <>
+            {workspaceToolPanel}
+            {workspaceToolRail}
+          </>
+        )}
       </div>
     </WorkspaceGlobalToolRailContext.Provider>
   );

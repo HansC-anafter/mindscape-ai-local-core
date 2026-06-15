@@ -9,6 +9,17 @@ import {
   type AOLRuntimeSurfaceContext,
 } from './AOLRuntimeShellContext';
 
+const NOOP_HOST_BRIDGE: AddressableObjectHostBridge = {
+  mode: 'idle',
+  selection: null,
+  currentMeetingId: null,
+  requestObjectTargeting: () => {},
+  cancelObjectTargeting: () => {},
+  onSelectObject: () => {},
+  clearCurrentObject: () => {},
+  openCurrentMeeting: () => {},
+};
+
 export function AOLRuntimeShellBridge({
   apiUrl,
   workspaceId,
@@ -19,10 +30,8 @@ export function AOLRuntimeShellBridge({
 }: AOLRuntimeShellProps) {
   const controller = useContext(AOLRuntimeShellContext);
   const registrationIdRef = useRef<string | null>(null);
-
-  if (!controller) {
-    throw new Error('AOLRuntimeShellBridge requires AOLRuntimeShellProvider.');
-  }
+  const activateSurface = controller?.activateSurface;
+  const deactivateSurface = controller?.deactivateSurface;
 
   if (!registrationIdRef.current) {
     registrationIdRef.current = `aol-surface-${Math.random().toString(36).slice(2)}`;
@@ -40,15 +49,22 @@ export function AOLRuntimeShellBridge({
   );
 
   useEffect(() => {
+    if (!activateSurface || !deactivateSurface) {
+      return undefined;
+    }
     const registrationId = registrationIdRef.current;
     if (!registrationId) {
-      return;
+      return undefined;
     }
-    controller.activateSurface(surfaceContext, registrationId);
+    activateSurface(surfaceContext, registrationId);
     return () => {
-      controller.deactivateSurface(surfaceContext, registrationId);
+      deactivateSurface(surfaceContext, registrationId);
     };
-  }, [controller.activateSurface, controller.deactivateSurface, surfaceContext]);
+  }, [activateSurface, deactivateSurface, surfaceContext]);
+
+  if (!controller) {
+    return <>{children(NOOP_HOST_BRIDGE)}</>;
+  }
 
   const hostBridge = useMemo<AddressableObjectHostBridge>(
     () => ({

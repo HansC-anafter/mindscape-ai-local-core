@@ -35,4 +35,26 @@ describe('WorkspaceToolRail', () => {
     expect(screen.getByRole('button', { name: 'Object' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Flow' })).toBeInTheDocument();
   });
+
+  it('supports bottom placement for narrow workbench frames', () => {
+    render(
+      <WorkspaceToolRail
+        ariaLabel="Workspace tools"
+        placement="bottom"
+        groups={[
+          {
+            id: 'runtime',
+            label: 'Runtime',
+            children: <button type="button">Runtime</button>,
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByTestId('workspace-tool-rail')).toHaveAttribute(
+      'data-workspace-tool-rail-placement',
+      'bottom',
+    );
+    expect(screen.getByTestId('workspace-tool-rail').className).toContain('border-t');
+  });
 });

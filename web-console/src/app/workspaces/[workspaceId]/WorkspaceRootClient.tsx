@@ -2,6 +2,7 @@
 
 import dynamic from 'next/dynamic';
 import Header from '@/components/Header';
+import { CAPABILITY_WORKBENCH_VIEWPORT_CLASS } from '@/components/capabilities/workbench/CapabilityWorkbenchResponsiveFrame';
 import UpdateBanner from '@/components/sync/UpdateBanner';
 import WorkspaceRuntimeFrame from './components/WorkspaceRuntimeFrame';
 
@@ -22,7 +23,7 @@ const WorkspacePageClient = dynamic(() => import('./WorkspacePageClient'), {
 
 export default function WorkspaceRootClient({ workspaceId }: { workspaceId: string }) {
   return (
-    <div className="flex h-screen flex-col">
+    <div className={CAPABILITY_WORKBENCH_VIEWPORT_CLASS}>
       <Header />
       <UpdateBanner clientVersion="1.0.0" />
       <WorkspaceRuntimeFrame workspaceId={workspaceId}>

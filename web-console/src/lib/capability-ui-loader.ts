@@ -13,7 +13,6 @@ import * as ReactRuntime from 'react';
 import * as ReactDOMRuntime from 'react-dom';
 import { convertImportPathToContextKey, normalizeCapabilityContextKey } from './capability-path';
 import { buildRuntimeAssetFetchUrl } from './capability-runtime-asset-url';
-import { loadRegisteredCapabilityComponentsContext } from './capability-ui-context-registry';
 import type {
   CapabilityComponentModuleLoad,
   CapabilityComponentsContext,
@@ -260,6 +259,9 @@ async function getCapabilityComponentsResolver(
 
   if (!resolverCache.has(cacheKey)) {
     resolverCache.set(cacheKey, (async () => {
+      const { loadRegisteredCapabilityComponentsContext } = await import(
+        './capability-ui-context-registry'
+      );
       const loaded = await loadRegisteredCapabilityComponentsContext(cacheKey);
       if (!loaded) {
         return null;

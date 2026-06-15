@@ -79,6 +79,7 @@ export interface CapabilityWorkbenchCommandHeaderProps {
   contextToolbarSlot?: ReactNode;
   statusSlot?: ReactNode;
   utilitySlot?: ReactNode;
+  mobileVariant?: 'default' | 'compact';
   className?: string;
 }
 

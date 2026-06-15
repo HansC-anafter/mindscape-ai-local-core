@@ -248,4 +248,31 @@ describe('PackScopeToolRailHost', () => {
       expect(screen.queryByTestId('loaded-pack-tool-panel')).not.toBeInTheDocument();
     });
   });
+
+  it('uses bottom placement for mobile rail and panel without desktop coordinates', async () => {
+    render(
+      <KeyboardShortcutProvider loadProfileOnMount={false}>
+        <PackScopeToolRailHost
+          workspaceId="ws_test"
+          capabilityCode="ig"
+          apiUrl="http://api.test"
+          tools={[feedLoadTool]}
+          placement="mobile"
+          navigationCollapsed
+          aolHost={createAolHost(vi.fn())}
+          onNavigationCollapsedChange={vi.fn()}
+        />
+      </KeyboardShortcutProvider>,
+    );
+
+    expect(screen.getByTestId('pack-scope-tool-rail')).toHaveAttribute('data-workbench-placement', 'mobile');
+
+    fireEvent.click(screen.getByTestId('pack-scope-tool-ig:feed_grid_card_load_limit'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('pack-scope-tool-panel')).toHaveAttribute('data-workbench-placement', 'mobile');
+      expect(screen.getByTestId('loaded-pack-tool-panel')).toBeInTheDocument();
+    });
+    expect(screen.getByTestId('pack-scope-tool-panel').getAttribute('style') || '').not.toContain('left');
+  });
 });

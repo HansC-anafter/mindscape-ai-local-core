@@ -8,6 +8,14 @@ describe('API route plane', () => {
       plane: 'control',
       serviceId: 'local_core.control_api',
     });
+    expect(resolveApiRoutePlane('/api/v1/capability-packs/installed-capabilities')).toMatchObject({
+      plane: 'control',
+      serviceId: 'local_core.control_api',
+    });
+    expect(resolveApiRoutePlane('/api/v1/capability-packs/installed-capabilities/ig/ui-components')).toMatchObject({
+      plane: 'control',
+      serviceId: 'local_core.control_api',
+    });
     expect(resolveApiRoutePlane('/api/v1/capability-packs/install-jobs/job-1')).toMatchObject({
       plane: 'control',
     });

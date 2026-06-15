@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
+import { CAPABILITY_WORKBENCH_VIEWPORT_CLASS } from '@/components/capabilities/workbench/CapabilityWorkbenchResponsiveFrame';
 
 interface WorkspaceLayoutProps {
   children: React.ReactNode;
@@ -62,7 +63,7 @@ export default function WorkspaceLayout({
 
   if (isCapabilitySurfacePath) {
     return (
-      <div className="flex h-screen flex-col">
+      <div className={CAPABILITY_WORKBENCH_VIEWPORT_CLASS}>
         <div className="relative flex min-h-0 flex-1 overflow-hidden">
           <main className="flex min-h-0 flex-1 overflow-hidden">
             {children}
@@ -74,14 +75,14 @@ export default function WorkspaceLayout({
 
   if (!WorkspaceChrome) {
     return (
-      <div className="flex h-screen flex-col">
+      <div className={CAPABILITY_WORKBENCH_VIEWPORT_CLASS}>
         <div className="relative flex flex-1 overflow-hidden" />
       </div>
     );
   }
 
   return (
-    <div className="flex h-screen flex-col">
+    <div className={CAPABILITY_WORKBENCH_VIEWPORT_CLASS}>
       <WorkspaceChrome workspaceId={workspaceId}>
         {children}
       </WorkspaceChrome>

@@ -29,12 +29,20 @@ import {
 } from '@/lib/capability-ui-loader';
 import { useKeyboardShortcuts } from '@/lib/keyboard-shortcuts';
 import type { WorkspaceToolDefinition } from '@/lib/workspace-tools/workspace-tool-registry';
+import {
+  getPackScopeToolListClassName,
+  getPackScopeToolListInnerClassName,
+  getPackScopeToolPanelClassName,
+  getPackScopeToolRailClassName,
+  type CapabilityWorkbenchPlacement,
+} from './CapabilityWorkbenchResponsiveFrame';
 
 interface PackScopeToolRailHostProps {
   workspaceId: string;
   capabilityCode: string;
   apiUrl: string;
   tools: WorkspaceToolDefinition[];
+  placement?: CapabilityWorkbenchPlacement;
   navigationCollapsed: boolean;
   aolHost?: AddressableObjectHostBridge;
   onNavigationCollapsedChange: (collapsed: boolean) => void;
@@ -112,6 +120,7 @@ export function PackScopeToolRailHost({
   capabilityCode,
   apiUrl,
   tools,
+  placement = 'desktop',
   navigationCollapsed,
   aolHost,
   onNavigationCollapsedChange,
@@ -155,7 +164,7 @@ export function PackScopeToolRailHost({
   }, [activeToolKey, orderedTools]);
 
   const updateFloatingPosition = React.useCallback(() => {
-    if (typeof window === 'undefined' || !railRef.current) {
+    if (placement === 'mobile' || typeof window === 'undefined' || !railRef.current) {
       return;
     }
     const railRect = railRef.current.getBoundingClientRect();
@@ -164,7 +173,7 @@ export function PackScopeToolRailHost({
       left: Math.max(8, Math.round(railRect.right + 8)),
       bottom: Math.max(12, Math.round(window.innerHeight - (shellRect?.bottom ?? window.innerHeight) + 12)),
     });
-  }, []);
+  }, [placement]);
 
   React.useEffect(() => {
     updateFloatingPosition();
@@ -173,7 +182,7 @@ export function PackScopeToolRailHost({
     }
     window.addEventListener('resize', updateFloatingPosition);
     return () => window.removeEventListener('resize', updateFloatingPosition);
-  }, [activeToolKey, navigationCollapsed, updateFloatingPosition]);
+  }, [activeToolKey, navigationCollapsed, placement, updateFloatingPosition]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -252,8 +261,9 @@ export function PackScopeToolRailHost({
     <>
       <aside
         ref={railRef}
-        className="flex h-full min-h-0 w-9 shrink-0 flex-col border-r border-gray-200 bg-zinc-50/95 shadow-[inset_-1px_0_0_rgba(0,0,0,0.02)] dark:border-zinc-800 dark:bg-zinc-950"
+        className={getPackScopeToolRailClassName(placement)}
         data-testid="pack-scope-tool-rail"
+        data-workbench-placement={placement}
       >
         <div className="flex h-8 shrink-0 items-center justify-center border-b border-gray-200 dark:border-zinc-800">
           <button
@@ -262,7 +272,7 @@ export function PackScopeToolRailHost({
             title={navigationCollapsed ? 'Expand navigation' : 'Collapse navigation'}
             data-testid="pack-scope-navigation-toggle"
             onClick={() => onNavigationCollapsedChange(!navigationCollapsed)}
-            onMouseEnter={onNavigationToggleHover}
+            onMouseEnter={placement === 'desktop' ? onNavigationToggleHover : undefined}
             className="inline-flex h-7 w-7 items-center justify-center rounded-sm border border-transparent text-zinc-500 transition hover:border-zinc-300 hover:bg-white hover:text-zinc-950 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:text-zinc-400 dark:hover:border-zinc-700 dark:hover:bg-zinc-900 dark:hover:text-white"
           >
             {navigationCollapsed ? (
@@ -272,8 +282,8 @@ export function PackScopeToolRailHost({
             )}
           </button>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-0.5 py-1.5">
-          <div className="flex flex-col items-center gap-0.5">
+        <div className={getPackScopeToolListClassName(placement)}>
+          <div className={getPackScopeToolListInnerClassName(placement)}>
             {orderedTools.map((tool) => {
               const bindingId = bindingIdForTool(tool);
               const currentShortcut = getCommandShortcut(bindingId, tool.shortcut);
@@ -315,16 +325,15 @@ export function PackScopeToolRailHost({
       </aside>
       {effectiveActiveTool ? (
         <section
-          className={`fixed z-40 overflow-hidden rounded-md border border-zinc-800 bg-zinc-950/95 text-zinc-100 shadow-xl shadow-black/25 backdrop-blur-sm ${
-            panelExpanded ? 'w-[280px]' : 'max-w-[340px]'
-          }`}
+          className={getPackScopeToolPanelClassName(placement, panelExpanded)}
           data-testid="pack-scope-tool-panel"
           data-active-tool-key={effectiveActiveTool.tool_key}
           data-panel-expanded={panelExpanded ? 'true' : 'false'}
-          style={{
+          data-workbench-placement={placement}
+          style={placement === 'desktop' ? {
             left: floatingPosition.left,
             bottom: floatingPosition.bottom,
-          }}
+          } : undefined}
         >
           {LoadedPanel ? (
             <LoadedPanel

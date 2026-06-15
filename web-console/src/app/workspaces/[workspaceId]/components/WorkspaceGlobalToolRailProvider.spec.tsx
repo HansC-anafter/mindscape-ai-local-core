@@ -66,6 +66,7 @@ vi.mock('@/components/workspace/ThreadBundlePanel', async () => {
 describe('WorkspaceGlobalToolRailProvider', () => {
   beforeEach(() => {
     vi.stubGlobal('open', windowOpenMock);
+    window.history.replaceState({}, '', '/workspaces/ws_test');
   });
 
   afterEach(() => {
@@ -134,6 +135,21 @@ describe('WorkspaceGlobalToolRailProvider', () => {
     });
   });
 
+  it('opens the motion source panel from a workspace tool deep link', async () => {
+    window.history.replaceState({}, '', '/workspaces/ws_motion?tool=motion_source');
+
+    render(
+      <WorkspaceGlobalToolRailProvider workspaceId="ws_motion">
+        <section>Workspace content</section>
+      </WorkspaceGlobalToolRailProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('workspace-global-tool-panel')).toHaveAttribute('data-active-tool-key', 'core:motion_source');
+    });
+    expect(screen.getByTestId('mock-motion-source-panel')).toBeInTheDocument();
+  });
+
   it('registers the bundle tool only when a thread is selected', async () => {
     const { rerender } = render(
       <WorkspaceGlobalToolRailProvider workspaceId="ws_test">
@@ -163,6 +179,35 @@ describe('WorkspaceGlobalToolRailProvider', () => {
     expect(screen.getByTestId('workspace-global-tool-panel')).toHaveAttribute('data-active-tool-key', 'core:bundle');
     await waitFor(() => {
       expect(screen.getByTestId('mock-thread-bundle-panel')).toHaveTextContent('Bundle thread_1');
+    });
+  });
+
+  it('uses a top-right tray and overlay panel placement on mobile workbench frames', async () => {
+    vi.stubGlobal('matchMedia', vi.fn(() => ({
+      matches: true,
+      media: '(max-width: 767px)',
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })));
+
+    render(
+      <WorkspaceGlobalToolRailProvider workspaceId="ws_mobile">
+        <section>Workspace content</section>
+      </WorkspaceGlobalToolRailProvider>,
+    );
+
+    expect(screen.getByTestId('workspace-global-tool-shell')).toHaveAttribute('data-workbench-placement', 'mobile');
+    expect(screen.queryByTestId('workspace-global-tool-rail')).toBeNull();
+    expect(screen.getByTestId('workspace-global-tool-tray-toggle')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('workspace-global-tool-tray-toggle'));
+    expect(screen.getByTestId('workspace-global-tool-rail')).toHaveAttribute('data-workspace-tool-rail-placement', 'tray');
+
+    fireEvent.click(screen.getByTestId('workspace-settings-tool'));
+
+    expect(screen.getByTestId('workspace-global-tool-panel')).toHaveAttribute('data-workbench-placement', 'mobile');
+    await waitFor(() => {
+      expect(screen.getByTestId('mock-settings-panel')).toBeInTheDocument();
     });
   });
 });
