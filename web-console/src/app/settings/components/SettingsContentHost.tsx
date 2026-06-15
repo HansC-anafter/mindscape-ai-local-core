@@ -66,6 +66,10 @@ const RuntimeEnvironmentsSettings = dynamic(
   () => import('./panels/RuntimeEnvironmentsSettings').then((mod) => mod.RuntimeEnvironmentsSettings),
   { ssr: false, loading: SettingsContentFallback }
 );
+const DeviceLinkReadinessPanel = dynamic(
+  () => import('./panels/DeviceLinkReadinessPanel').then((mod) => mod.DeviceLinkReadinessPanel),
+  { ssr: false, loading: SettingsContentFallback }
+);
 const HostResourcesPanel = dynamic(
   () => import('./panels/HostResourcesPanel').then((mod) => mod.HostResourcesPanel),
   { ssr: false, loading: SettingsContentFallback }
@@ -114,6 +118,9 @@ export function SettingsContentHost({
         || activeSection === 'workspace-resource-allocations'
       ) {
         return <HostResourcesPanel activeSection={activeSection} workspaceId={workspaceId} />;
+      }
+      if (activeSection === 'device-link-readiness') {
+        return <DeviceLinkReadinessPanel workspaceId={workspaceId} />;
       }
       return <RuntimeEnvironmentsSettings />;
     case 'localization':

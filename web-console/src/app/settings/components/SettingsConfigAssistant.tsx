@@ -144,10 +144,10 @@ export const SettingsConfigAssistant = forwardRef<SettingsConfigAssistantHandle,
             suggestions.push('They usually require external service setup or technical partner support');
             suggestions.push('You can skip them if you only need the local environment');
           } else if (currentSection === 'developer-integrations') {
-            content = 'You are configuring developer integrations.';
-            suggestions.push('These tools require external environments or technical coordination');
-            suggestions.push('They are best for teams with engineering or service provider support');
-            suggestions.push('General users can skip them for now');
+            content = 'You are configuring developer integrations for external access layers.';
+            suggestions.push('Use these when a trusted network or tunnel sits in front of the local UI');
+            suggestions.push('Remote Workbench Gateway is the current reference integration');
+            suggestions.push('Keep the path allowlist narrow and verify Access JWT claims');
           } else if (currentSection === 'general-integrations') {
             content = 'You are configuring general integrations.';
             suggestions.push('These are commonly used tool integrations');

@@ -893,16 +893,16 @@ function writeProxyTimingLog(event) {
   }
 }
 
-function resolveNextProxyTarget(requestUrl = '/') {
+function resolveNextProxyTarget(requestUrl = '/', nextProxyTarget = null) {
   return {
-    hostname: NEXT_HOST,
-    port: NEXT_PORT,
+    hostname: nextProxyTarget?.hostname || NEXT_HOST,
+    port: nextProxyTarget?.port || NEXT_PORT,
     protocol: 'http:',
     path: requestUrl,
   };
 }
 
-function proxyHttpRequest(req, res, { requestId = ++requestSequence, onComplete = null } = {}) {
+function proxyHttpRequest(req, res, { requestId = ++requestSequence, onComplete = null, nextProxyTarget = null } = {}) {
   const startedAt = performance.now();
   const upstreamKind = classifyProxyUpstream(req.url);
   const logPath = normalizeProxyLogPath(req.url);
@@ -914,7 +914,7 @@ function proxyHttpRequest(req, res, { requestId = ++requestSequence, onComplete 
   let terminalError = null;
   const target = upstreamKind.startsWith('backend_') || upstreamKind === 'media_proxy'
     ? resolveDevApiProxyTarget(req.url)
-    : resolveNextProxyTarget(req.url);
+    : resolveNextProxyTarget(req.url, nextProxyTarget);
 
   const originalWrite = res.write.bind(res);
   const originalEnd = res.end.bind(res);
@@ -1071,7 +1071,15 @@ async function loadRemoteWorkbenchRunnerSnapshot() {
   return await response.json();
 }
 
-async function proxyUpgrade(req, socket, head, mobileWorkbenchGatewayConfig, deviceLinkIngressToken = '', resolveWorkspaceCapabilityPolicy = null) {
+async function proxyUpgrade(
+  req,
+  socket,
+  head,
+  mobileWorkbenchGatewayConfig,
+  deviceLinkIngressToken = '',
+  resolveWorkspaceCapabilityPolicy = null,
+  nextProxyTarget = null,
+) {
   const requestResult = await isMobileWorkbenchGatewayRequestAllowedAsync(
     req.url,
     req.headers,
@@ -1090,7 +1098,7 @@ async function proxyUpgrade(req, socket, head, mobileWorkbenchGatewayConfig, dev
 
   const target = isDevApiProxyPath(req.url)
     ? resolveDevApiProxyTarget(req.url)
-    : resolveNextProxyTarget(req.url);
+    : resolveNextProxyTarget(req.url, nextProxyTarget);
   const upstream = net.connect(target.port, target.hostname, () => {
     const headers = copyProxyUpgradeHeaders(req.headers, target);
     upstream.write(
@@ -1116,6 +1124,7 @@ async function proxyUpgrade(req, socket, head, mobileWorkbenchGatewayConfig, dev
 
 export function createFrontendProxyServer({
   nextRunningRef = { current: false },
+  nextProxyTarget = null,
   mobileWorkbenchGatewayConfig = resolveMobileWorkbenchGatewayConfig(),
   deviceLinkIngressToken = '',
   remoteWorkbenchObservability = createRemoteWorkbenchObservability({
@@ -1199,6 +1208,7 @@ export function createFrontendProxyServer({
 
     proxyHttpRequest(req, res, {
       requestId,
+      nextProxyTarget,
       onComplete: (event) => {
         void remoteWorkbenchObservability.recordCompletedRequest(requestObservation, event);
       },
@@ -1224,6 +1234,7 @@ export function createFrontendProxyServer({
       mobileWorkbenchGatewayConfig,
       deviceLinkIngressToken,
       resolveWorkspaceCapabilityPolicy,
+      nextProxyTarget,
     ).catch(() => {
       socket.destroy();
     });

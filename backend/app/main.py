@@ -319,6 +319,10 @@ _HOST_SERVICE_URLS: dict = {
     "mcp-gateway": os.getenv(
         "MCP_GATEWAY_HEALTH_URL", "http://host.docker.internal:8180/health"
     ),
+    "mobile-workbench-gateway": os.getenv(
+        "MOBILE_WORKBENCH_GATEWAY_HEALTH_URL",
+        "http://frontend:3000/api/v1/host/services/mobile-workbench-gateway/health",
+    ),
 }
 
 
@@ -331,6 +335,7 @@ async def host_service_health(service: str):
       - stt          -> whisper-service:8006/health (Docker sidecar)
       - xtts         → xtts-service:8020/health  (Docker sidecar)
       - mcp-gateway  → host.docker.internal:8180/health (Node process on host)
+      - mobile-workbench-gateway -> frontend:3000/api/v1/host/services/mobile-workbench-gateway/health
     """
     import httpx as _httpx
 

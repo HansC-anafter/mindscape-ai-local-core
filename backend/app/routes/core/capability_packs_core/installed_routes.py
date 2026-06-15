@@ -23,6 +23,9 @@ from .manifest_scan import (
     _get_pack_meta_by_code,
     _scan_pack_yaml_files,
 )
+from .mobile_workbench_gateway_support import (
+    build_mobile_workbench_gateway_support_payload,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -499,4 +502,43 @@ def get_capability_workspace_tools(capability_code: str):
         )
         raise HTTPException(
             status_code=500, detail=f"Failed to get workspace tools: {str(e)}"
+        )
+
+
+@router.get(
+    "/installed-capabilities/{capability_code}/mobile-workbench-gateway-support",
+    response_model=Dict[str, Any],
+)
+def get_capability_mobile_workbench_gateway_support(capability_code: str):
+    try:
+        pack_meta = _get_pack_meta_by_code(capability_code)
+        if not pack_meta:
+            raise HTTPException(
+                status_code=404, detail=f"Capability '{capability_code}' not found"
+            )
+
+        installed_ids = _get_installed_pack_ids()
+        pack_id = pack_meta.get("id")
+        if pack_id not in installed_ids:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Capability '{capability_code}' (pack_id: {pack_id}) is not installed",
+            )
+
+        return build_mobile_workbench_gateway_support_payload(
+            capability_code,
+            pack_meta,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            "Failed to get mobile workbench gateway support for capability %s: %s",
+            capability_code,
+            e,
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get mobile workbench gateway support: {str(e)}",
         )

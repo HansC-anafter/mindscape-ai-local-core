@@ -250,6 +250,118 @@ def test_get_capability_ui_components_caches_success_payload(monkeypatch):
     assert second[0]["description"] == "Cached demo"
 
 
+def test_get_capability_mobile_workbench_gateway_support_formats_runtime_manifest(
+    monkeypatch,
+):
+    _reset_pack_yaml_cache()
+    monkeypatch.setattr(
+        capability_packs,
+        "_get_pack_meta_by_code",
+        lambda capability_code: {
+            "id": "yogacoach",
+            "code": "yogacoach",
+            "display_name": "YogaCoach",
+            "ui_components": [
+                {
+                    "code": "YogaPracticeWorkbenchPage",
+                    "path": "ui/workbench/practice/YogaPracticeWorkbenchPage.tsx",
+                    "description": "Yoga practice workbench",
+                    "export": "default",
+                }
+            ],
+            "apis": [
+                {"prefix": "/api/v1/capabilities/yogacoach"},
+                {"prefix": "/api/v1/capabilities/yogacoach"},
+            ],
+        },
+    )
+    monkeypatch.setattr(
+        capability_packs, "_get_installed_pack_ids", lambda: {"yogacoach"}
+    )
+
+    payload = capability_packs.get_capability_mobile_workbench_gateway_support(
+        "yogacoach"
+    )
+
+    assert payload["capability_code"] == "yogacoach"
+    assert payload["supported"] is True
+    assert (
+        payload["host_route_template"]
+        == "/workspaces/{workspaceId}/capability-ui-hosts/yogacoach"
+    )
+    assert payload["main_page_component_codes"] == ["YogaPracticeWorkbenchPage"]
+    assert payload["api_prefixes"] == ["/api/v1/capabilities/yogacoach"]
+
+
+def test_get_installed_pack_ids_caches_store_lookup(monkeypatch):
+    _reset_pack_yaml_cache()
+    calls = 0
+
+    def fake_list_installed_pack_ids():
+        nonlocal calls
+        calls += 1
+        return ["demo_pack", "dance_motion_coach"]
+
+    monkeypatch.setattr(
+        capability_packs._manifest_scan.installed_packs_store,
+        "list_installed_pack_ids",
+        fake_list_installed_pack_ids,
+    )
+
+    first = capability_packs._get_installed_pack_ids()
+    second = capability_packs._get_installed_pack_ids()
+
+    assert first == {"demo_pack", "dance_motion_coach"}
+    assert second == {"demo_pack", "dance_motion_coach"}
+    assert calls == 1
+
+
+def test_get_pack_meta_by_code_caches_default_lookup(monkeypatch, tmp_path):
+    _reset_pack_yaml_cache()
+    manifest_dir = tmp_path / "app" / "capabilities" / "demo_pack"
+    manifest_dir.mkdir(parents=True)
+    manifest_path = manifest_dir / "manifest.yaml"
+    manifest_path.write_text(
+        """
+code: demo_pack
+display_name: Demo Pack
+version: 0.2.0
+description: Runtime manifest lookup smoke.
+ui_components:
+  - code: DemoPage
+    path: ui/components/DemoPage.tsx
+""",
+        encoding="utf-8",
+    )
+
+    candidate_calls = 0
+
+    def fake_candidate_paths(capability_code, base_dir=None):
+        nonlocal candidate_calls
+        candidate_calls += 1
+        return [(manifest_path, "capability_manifest", "demo_pack")]
+
+    monkeypatch.setattr(
+        capability_packs._manifest_scan,
+        "_candidate_pack_manifest_paths",
+        fake_candidate_paths,
+    )
+    monkeypatch.setattr(
+        capability_packs._manifest_scan,
+        "_scan_pack_yaml_files",
+        lambda base_dir=None: [],
+    )
+
+    first = capability_packs._get_pack_meta_by_code("demo-pack")
+    second = capability_packs._get_pack_meta_by_code("demo-pack")
+
+    assert first is not None
+    assert second is not None
+    assert first["id"] == "demo_pack"
+    assert second["id"] == "demo_pack"
+    assert candidate_calls == 1
+
+
 def test_runtime_ui_index_cache_deduplicates_component_lookup(monkeypatch, tmp_path):
     _reset_pack_yaml_cache()
     calls = 0

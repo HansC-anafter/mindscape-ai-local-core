@@ -73,6 +73,12 @@ _backups/
 /.runtime-bundles/
 /backend/.runtime-bundles/
 
+# Local device-link TLS material
+/.runtime/device-link/
+/web-console/public/device-link/rootCA.cer
+/web-console/public/device-link/rootCA.crt
+/web-console/public/device-link/rootCA.mobileconfig
+
 # Test files
 test_data/
 tests/

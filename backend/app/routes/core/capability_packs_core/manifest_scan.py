@@ -12,6 +12,12 @@ import yaml
 
 from backend.app.services.runtime_pack_hygiene import is_ignored_runtime_pack_dir
 from backend.app.services.stores.installed_packs_store import InstalledPacksStore
+from .cache_state import (
+    get_cached_installed_pack_ids,
+    get_cached_pack_meta_by_code,
+    set_cached_installed_pack_ids,
+    set_cached_pack_meta_by_code,
+)
 
 logger = logging.getLogger(__name__)
 installed_packs_store = InstalledPacksStore()
@@ -130,6 +136,11 @@ def _get_pack_meta_by_code(
     capability_code: str,
     base_dir: Optional[Path] = None,
 ) -> Optional[Dict[str, Any]]:
+    if base_dir is None:
+        cached = get_cached_pack_meta_by_code(capability_code)
+        if cached is not None:
+            return cached
+
     variants = set(_safe_pack_code_variants(capability_code))
     if not variants:
         return None
@@ -153,10 +164,14 @@ def _get_pack_meta_by_code(
 
     for meta in merged_by_id.values():
         if meta.get("id") in variants or meta.get("code") in variants:
+            if base_dir is None:
+                set_cached_pack_meta_by_code(capability_code, meta)
             return meta
 
     for meta in _scan_pack_yaml_files(base_dir):
         if meta.get("id") in variants or meta.get("code") in variants:
+            if base_dir is None:
+                set_cached_pack_meta_by_code(capability_code, meta)
             return meta
     return None
 
@@ -420,7 +435,12 @@ def _scan_pack_yaml_files(base_dir: Optional[Path] = None) -> List[Dict[str, Any
 
 def _get_installed_pack_ids() -> set:
     """Get set of installed pack IDs from database"""
-    return set(installed_packs_store.list_installed_pack_ids())
+    cached = get_cached_installed_pack_ids()
+    if cached is not None:
+        return cached
+    payload = set(installed_packs_store.list_installed_pack_ids())
+    set_cached_installed_pack_ids(payload)
+    return payload
 
 
 def _get_enabled_pack_ids() -> set:

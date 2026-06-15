@@ -20,6 +20,7 @@ import { LocalFilesystemManager } from './wizards/LocalFilesystemManager';
 import { ObsidianConfigWizard } from './wizards/ObsidianConfigWizard';
 import { UnsplashConnectionWizard } from './wizards/UnsplashConnectionWizard';
 import { MCPServerPanel } from './panels/MCPServerPanel';
+import { MobileWorkbenchGatewayPanel } from './panels/MobileWorkbenchGatewayPanel';
 import { ThirdPartyWorkflowPanel } from './panels/ThirdPartyWorkflowPanel';
 import { useTools } from '../hooks/useTools';
 import { dispatchToolConfigUpdated } from '../../../lib/tool-status-events';
@@ -399,6 +400,10 @@ export function ToolsPanel({ activeSection, activeProvider }: ToolsPanelProps = 
 
       {activeSection === 'mcp-server' && (
         <MCPServerPanel activeProvider={activeProvider} />
+      )}
+
+      {activeSection === 'developer-integrations' && (
+        <MobileWorkbenchGatewayPanel />
       )}
 
       {activeSection === 'third-party-workflow' && (

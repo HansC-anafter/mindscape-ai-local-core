@@ -84,6 +84,7 @@ export const navigationItems: NavigationItem[] = [
     tab: 'runtime',
     children: [
       { id: 'runtime-environments', label: 'runtimeEnvironments', tab: 'runtime', section: 'runtime-environments' },
+      { id: 'device-link-readiness', label: 'Device Link', tab: 'runtime', section: 'device-link-readiness' },
       { id: 'host-resources', label: 'hostResources', tab: 'runtime', section: 'host-resources' },
       { id: 'workspace-resource-allocations', label: 'workspaceResourceAllocations', tab: 'runtime', section: 'workspace-resource-allocations' },
       { id: 'host-resources-observability', label: 'hostResourceObservability', tab: 'runtime', section: 'host-resources-observability' },
@@ -97,6 +98,7 @@ export const navigationItems: NavigationItem[] = [
     children: [
       { id: 'system-tools', label: 'systemTools', tab: 'tools', section: 'system-tools' },
       { id: 'external-saas-tools', label: 'externalSAASTools', tab: 'tools', section: 'external-saas-tools' },
+      { id: 'developer-integrations', label: 'developerIntegrations', tab: 'tools', section: 'developer-integrations' },
       {
         id: 'mcp-server',
         label: 'mcpServer',

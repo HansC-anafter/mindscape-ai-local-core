@@ -173,6 +173,13 @@ def get_capability_workspace_tools(capability_code: str):
     return _installed_routes.get_capability_workspace_tools(capability_code)
 
 
+def get_capability_mobile_workbench_gateway_support(capability_code: str):
+    _sync_installed_route_helpers()
+    return _installed_routes.get_capability_mobile_workbench_gateway_support(
+        capability_code
+    )
+
+
 def _clear_installed_capability_route_cache() -> None:
     _installed_routes.clear_installed_capability_route_cache()
 
@@ -216,5 +223,6 @@ __all__ = [
     "get_capability_ui_components",
     "_format_ui_component_for_response",
     "get_capability_workspace_tools",
+    "get_capability_mobile_workbench_gateway_support",
     "_clear_installed_capability_route_cache",
 ]
