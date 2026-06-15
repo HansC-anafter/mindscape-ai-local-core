@@ -42,12 +42,12 @@ from backend.app.runner.worker_startup import (
     _runner_lock_ttl_seconds,
 )
 from backend.app.runner.worker_transport import (
-    _build_ready_queue_stores,
+    _build_ready_queue_stores as _build_ready_queue_stores_impl,
     _collect_transport_members,
     _dequeue_from_ready_queues,
     _normalize_task_id,
     _pending_task_runnable_from_queue,
-    _repair_misqueued_task_if_needed,
+    _repair_misqueued_task_if_needed as _repair_misqueued_task_if_needed_impl,
     _resolve_task_queue_shard,
     _split_ready_target,
 )
@@ -114,6 +114,28 @@ __all__ = [
     "run_forever",
     "main",
 ]
+
+
+def _build_ready_queue_stores(
+    queue_partitions: list[str] | tuple[str, ...] | None = None,
+) -> dict[str, RedisRunnerQueueStore]:
+    return _build_ready_queue_stores_impl(
+        queue_partitions,
+        queue_store_factory=RedisRunnerQueueStore,
+    )
+
+
+async def _repair_misqueued_task_if_needed(
+    task_id: str,
+    task_data,
+    task_queue: RedisRunnerQueueStore,
+) -> bool:
+    return await _repair_misqueued_task_if_needed_impl(
+        task_id,
+        task_data,
+        task_queue,
+        queue_store_factory=RedisRunnerQueueStore,
+    )
 
 
 def main() -> None:

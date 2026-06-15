@@ -51,10 +51,12 @@ def _resolve_task_queue_shard(
 
 def _build_ready_queue_stores(
     queue_partitions: Optional[list[str] | tuple[str, ...]] = None,
+    *,
+    queue_store_factory=RedisRunnerQueueStore,
 ) -> dict[str, RedisRunnerQueueStore]:
     queue_order = list(queue_partitions or RUNNER_READY_QUEUE_ORDER)
     return {
-        shard_name: RedisRunnerQueueStore(pack_id=shard_name)
+        shard_name: queue_store_factory(pack_id=shard_name)
         for shard_name in queue_order
     }
 
@@ -131,6 +133,8 @@ async def _repair_misqueued_task_if_needed(
     task_id: str,
     task_data,
     task_queue: RedisRunnerQueueStore,
+    *,
+    queue_store_factory=RedisRunnerQueueStore,
 ) -> bool:
     expected_shard = normalize_queue_partition(
         getattr(task_data, "queue_shard", None),
@@ -143,7 +147,7 @@ async def _repair_misqueued_task_if_needed(
     if expected_shard == current_shard:
         return False
 
-    target_queue = RedisRunnerQueueStore(pack_id=expected_shard)
+    target_queue = queue_store_factory(pack_id=expected_shard)
     try:
         enqueued = await target_queue.enqueue_task(
             task_id,

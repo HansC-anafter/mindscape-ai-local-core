@@ -128,8 +128,9 @@ async def _reset_orphaned_running_tasks(
                     "previous_runner_id": old_runner,
                     "new_runner_id": current_runner_id,
                 }
+                pack_id = getattr(t, "pack_id", None) or ctx.get("playbook_code") or ""
                 ctx2, concurrency_key = normalize_reference_analysis_concurrency(
-                    pack_id=t.pack_id,
+                    pack_id=pack_id,
                     ctx=ctx2,
                 )
                 update_kwargs = {
@@ -185,8 +186,9 @@ async def _reset_orphaned_running_tasks(
                 )
 
             if update_kwargs:
+                pack_id = getattr(t, "pack_id", None) or ctx.get("playbook_code") or ""
                 ctx2, concurrency_key = normalize_reference_analysis_concurrency(
-                    pack_id=t.pack_id,
+                    pack_id=pack_id,
                     ctx=ctx2,
                 )
                 if concurrency_key:
@@ -223,7 +225,8 @@ async def _purge_task_ids_from_transport(
             pipe = client.pipeline()
             for task_id in normalized_ids:
                 pipe.lrem(queue_store.q_pending, 0, task_id)
-                pipe.lrem(queue_store.q_temp, 0, task_id)
+                if hasattr(queue_store, "q_temp"):
+                    pipe.lrem(queue_store.q_temp, 0, task_id)
             pipe.zrem(queue_store.q_processing, *normalized_ids)
             pipe.zrem(queue_store.q_delayed, *normalized_ids)
             results = await pipe.execute()
