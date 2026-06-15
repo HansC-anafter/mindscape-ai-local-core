@@ -639,12 +639,11 @@ class TasksStoreRunnerMixin:
             TaskStatus.EXPIRED.value,
         }
 
-        now = _utc_now()
-        with self.transaction() as conn:
+        with self.get_connection() as conn:
             row = conn.execute(
                 text(
                     """
-                    SELECT status, error, execution_context
+                    SELECT status, error
                     FROM tasks
                     WHERE id = :task_id
                     """
@@ -670,40 +669,6 @@ class TasksStoreRunnerMixin:
                     error_raw,
                 )
                 return True
-
-            if status_raw == TaskStatus.RUNNING.value:
-                ctx = self.deserialize_json(
-                    getattr(row, "execution_context", None),
-                    {},
-                )
-                if not isinstance(ctx, dict):
-                    ctx = {}
-                ctx["status"] = "running"
-                ctx["heartbeat_at"] = now.isoformat()
-                ctx["runner_heartbeat_at"] = now.isoformat()
-                if runner_id:
-                    ctx["runner_id"] = runner_id
-                conn.execute(
-                    text(
-                        """
-                        UPDATE tasks
-                        SET heartbeat_at = :heartbeat_at,
-                            runner_id = COALESCE(:runner_id, runner_id),
-                            execution_context = :execution_context,
-                            blocked_reason = NULL,
-                            blocked_payload = NULL
-                        WHERE id = :task_id
-                          AND status = :running_status
-                        """
-                    ),
-                    {
-                        "task_id": task_id,
-                        "running_status": TaskStatus.RUNNING.value,
-                        "heartbeat_at": now,
-                        "runner_id": runner_id,
-                        "execution_context": self.serialize_json(ctx),
-                    },
-                )
 
         logger.debug("Checked abort state for task %s (runner=%s)", task_id, runner_id)
         return False

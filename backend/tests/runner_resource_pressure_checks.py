@@ -332,7 +332,8 @@ async def test_success_clears_stale_resource_pressure_metadata():
     updated_context = store.update_kwargs["execution_context"]
     assert store.update_kwargs["status"] == TaskStatus.SUCCEEDED
     assert updated_context["status"] == "succeeded"
-    assert updated_context["runner_id"] == "runner-browser"
+    assert updated_context["last_runner_id"] == "runner-browser"
+    assert "runner_id" not in updated_context
     assert updated_context["retry_count"] == 1
     for stale_key in (
         "resource_pressure",

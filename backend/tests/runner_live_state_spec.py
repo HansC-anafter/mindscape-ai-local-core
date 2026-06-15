@@ -97,4 +97,4 @@ def test_reaper_uses_runner_live_state_before_legacy_heartbeat():
 
     assert "RunnerLiveStateStore" in source
     assert "get_task_heartbeat" in source
-    assert "_effective_task_heartbeat_at(t_data, ctx)" in source
+    assert "_effective_task_heartbeat_at(t, ctx, live_state_store)" in source

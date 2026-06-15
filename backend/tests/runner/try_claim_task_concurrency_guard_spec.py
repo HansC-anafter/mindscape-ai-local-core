@@ -310,7 +310,7 @@ def test_try_claim_task_allows_distinct_profile():
     assert store.fetch_status("pending-1") == TaskStatus.RUNNING.value
 
 
-def test_update_task_heartbeat_refreshes_running_row_and_clears_stale_block():
+def test_update_task_heartbeat_only_reads_abort_state():
     store = _SqliteClaimStore()
     store.insert_task(
         task_id="running-1",
@@ -327,14 +327,14 @@ def test_update_task_heartbeat_refreshes_running_row_and_clears_stale_block():
     ctx = store.deserialize_json(row.execution_context)
     assert should_abort is False
     assert row.status == TaskStatus.RUNNING.value
-    assert row.runner_id == "runner-a"
-    assert row.heartbeat_at is not None
-    assert row.blocked_reason is None
+    assert row.runner_id is None
+    assert row.heartbeat_at is None
+    assert row.blocked_reason == "concurrency_locked"
     assert row.blocked_payload is None
     assert ctx["status"] == "running"
-    assert ctx["runner_id"] == "runner-a"
-    assert ctx["heartbeat_at"]
-    assert ctx["runner_heartbeat_at"]
+    assert "runner_id" not in ctx
+    assert "heartbeat_at" not in ctx
+    assert "runner_heartbeat_at" not in ctx
 
 
 def test_try_claim_task_blocks_pinned_reference_playbook_scope():
