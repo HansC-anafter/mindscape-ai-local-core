@@ -31,52 +31,19 @@ Usage:
 import json
 import logging
 import uuid
-from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
-from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional
+
+from app.services.stores.graph_changelog_models import (
+    ChangelogEntry,
+    decode_json_state,
+    rows_to_changelog_entries,
+)
+from app.services.stores.graph_changelog_operations import GraphChangelogOperationMixin
 
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class ChangelogEntry:
-    """A single changelog entry"""
-
-    id: str
-    workspace_id: str
-    version: int
-    operation: str
-    target_type: str
-    target_id: str
-    after_state: Dict[str, Any]
-    actor: str
-    status: str = "pending"
-    before_state: Optional[Dict[str, Any]] = None
-    actor_context: Optional[str] = None
-    created_at: Optional[datetime] = None
-    applied_at: Optional[datetime] = None
-    applied_by: Optional[str] = None
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "id": self.id,
-            "workspace_id": self.workspace_id,
-            "version": self.version,
-            "operation": self.operation,
-            "target_type": self.target_type,
-            "target_id": self.target_id,
-            "before_state": self.before_state,
-            "after_state": self.after_state,
-            "actor": self.actor,
-            "actor_context": self.actor_context,
-            "status": self.status,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "applied_at": self.applied_at.isoformat() if self.applied_at else None,
-            "applied_by": self.applied_by,
-        }
-
-
-class GraphChangelogStore:
+class GraphChangelogStore(GraphChangelogOperationMixin):
     """
     Graph Changelog Store - Event Sourcing for Mindscape Graph
 
@@ -251,7 +218,7 @@ class GraphChangelogStore:
             operation = row[2]
             target_type = row[3]
             target_id = row[4]
-            after_state = json.loads(row[6]) if row[6] else {}
+            after_state = decode_json_state(row[6], {}) or {}
 
             # Apply the actual change to the graph
             self._apply_graph_operation(
@@ -365,7 +332,7 @@ class GraphChangelogStore:
                     "error": f"Change is not applied (status: {row[7]})",
                 }
 
-            before_state = json.loads(row[5]) if row[5] else None
+            before_state = decode_json_state(row[5])
             if before_state is None:
                 return {"success": False, "error": "No before_state available for undo"}
 
@@ -443,27 +410,7 @@ class GraphChangelogStore:
             cursor.execute(query, tuple(params))
             rows = cursor.fetchall()
 
-            entries = []
-            for row in rows:
-                entries.append(
-                    ChangelogEntry(
-                        id=row[0],
-                        workspace_id=row[1],
-                        version=row[2],
-                        operation=row[3],
-                        target_type=row[4],
-                        target_id=row[5],
-                        before_state=json.loads(row[6]) if row[6] else None,
-                        after_state=json.loads(row[7]) if row[7] else {},
-                        actor=row[8],
-                        actor_context=row[9],
-                        status=row[10],
-                        created_at=row[11],
-                        applied_at=row[12],
-                        applied_by=row[13],
-                    )
-                )
-            return entries
+            return rows_to_changelog_entries(rows)
         except Exception as e:
             logger.error(f"Failed to get pending changes: {e}")
             return []
@@ -515,27 +462,7 @@ class GraphChangelogStore:
             cursor.execute(query, (workspace_id, limit))
             rows = cursor.fetchall()
 
-            entries = []
-            for row in rows:
-                entries.append(
-                    ChangelogEntry(
-                        id=row[0],
-                        workspace_id=row[1],
-                        version=row[2],
-                        operation=row[3],
-                        target_type=row[4],
-                        target_id=row[5],
-                        before_state=json.loads(row[6]) if row[6] else None,
-                        after_state=json.loads(row[7]) if row[7] else {},
-                        actor=row[8],
-                        actor_context=row[9],
-                        status=row[10],
-                        created_at=row[11],
-                        applied_at=row[12],
-                        applied_by=row[13],
-                    )
-                )
-            return entries
+            return rows_to_changelog_entries(rows)
         except Exception as e:
             logger.error(f"Failed to get history: {e}")
             return []
@@ -565,114 +492,3 @@ class GraphChangelogStore:
             return 0
         finally:
             conn.close()
-
-    def _apply_graph_operation(
-        self,
-        workspace_id: str,
-        operation: str,
-        target_type: str,
-        target_id: str,
-        state: Dict[str, Any],
-    ) -> None:
-        """
-        Apply an operation to the actual graph store.
-
-        This is the integration point with MindscapeGraphService.
-        """
-        try:
-            from backend.app.services.mindscape_graph_service import (
-                GraphOverlay,
-                OverlayNode,
-                MindscapeEdge,
-                EdgeType,
-                EdgeOrigin,
-                NodeStatus,
-            )
-            from backend.app.services.stores.mindscape_overlay_store import (
-                MindscapeOverlayStore,
-            )
-
-            overlay_store = MindscapeOverlayStore()
-
-            if target_type == "node":
-                # Get or create overlay
-                overlay = overlay_store.get_overlay("workspace", workspace_id)
-                if not overlay:
-                    overlay = GraphOverlay()
-
-                if operation == "create_node":
-                    # Create new OverlayNode
-                    new_node = OverlayNode(
-                        id=state.get("id", target_id),
-                        type=state.get("type", "intent"),
-                        label=state.get("label", ""),
-                        position=state.get(
-                            "position", {"x": state.get("x", 0), "y": state.get("y", 0)}
-                        ),
-                        metadata=state.get("metadata", {}),
-                    )
-                    overlay.manual_nodes.append(new_node)
-                    overlay_store.save_overlay("workspace", workspace_id, overlay)
-
-                elif operation == "update_node":
-                    # Update node position or rename
-                    if "position" in state or ("x" in state and "y" in state):
-                        pos = state.get(
-                            "position", {"x": state.get("x", 0), "y": state.get("y", 0)}
-                        )
-                        overlay.node_positions[target_id] = pos
-                    if "label" in state:
-                        overlay.renames[target_id] = state["label"]
-                    overlay_store.save_overlay("workspace", workspace_id, overlay)
-
-                elif operation == "delete_node":
-                    # Remove from manual nodes
-                    overlay.manual_nodes = [
-                        n for n in overlay.manual_nodes if n.id != target_id
-                    ]
-                    overlay_store.save_overlay("workspace", workspace_id, overlay)
-
-            elif target_type == "edge":
-                overlay = overlay_store.get_overlay("workspace", workspace_id)
-                if not overlay:
-                    overlay = GraphOverlay()
-
-                if operation == "create_edge":
-                    new_edge = MindscapeEdge(
-                        id=state.get("id", target_id),
-                        from_id=state.get("from_id", ""),
-                        to_id=state.get("to_id", ""),
-                        type=EdgeType(state.get("type", "related_to")),
-                        origin=EdgeOrigin(state.get("origin", "manual")),
-                        confidence=state.get("confidence", 1.0),
-                        status=NodeStatus(state.get("status", "accepted")),
-                        metadata=state.get("metadata", {}),
-                    )
-                    overlay.manual_edges.append(new_edge)
-                    overlay_store.save_overlay("workspace", workspace_id, overlay)
-
-                elif operation == "delete_edge":
-                    overlay.manual_edges = [
-                        e for e in overlay.manual_edges if e.id != target_id
-                    ]
-                    overlay_store.save_overlay("workspace", workspace_id, overlay)
-
-            logger.info(
-                f"Applied graph operation: {operation} on {target_type}:{target_id}"
-            )
-        except Exception as e:
-            logger.error(f"Failed to apply graph operation: {e}")
-            raise
-
-    def _get_reverse_operation(self, operation: str) -> str:
-        """Get the reverse operation for undo"""
-        reverse_map = {
-            "create_node": "delete_node",
-            "delete_node": "create_node",
-            "update_node": "update_node",  # Uses before_state
-            "create_edge": "delete_edge",
-            "delete_edge": "create_edge",
-            "update_edge": "update_edge",
-            "update_overlay": "update_overlay",
-        }
-        return reverse_map.get(operation, operation)
