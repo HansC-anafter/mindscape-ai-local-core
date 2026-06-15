@@ -6,7 +6,6 @@ Handles batch processing, error recovery, and progress tracking.
 """
 
 import logging
-import os
 import asyncio
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timezone
@@ -19,7 +18,6 @@ def _utc_now():
 
 from uuid import UUID
 import psycopg2
-from psycopg2.extras import RealDictCursor, Json
 
 from app.database.config import get_vector_postgres_config
 
@@ -32,6 +30,13 @@ from backend.app.models.embedding_migration import (
     ItemStatus,
 )
 from backend.app.services.embedding_migration_store import EmbeddingMigrationStore
+from backend.app.services.embedding_migration_apply import apply_migration_strategy
+from backend.app.services.embedding_migration_providers import regenerate_embedding
+from backend.app.services.embedding_migration_queries import (
+    count_embeddings_to_migrate,
+    fetch_embeddings_to_migrate,
+)
+from backend.app.services.embedding_migration_text import extract_source_text
 
 logger = logging.getLogger(__name__)
 
@@ -123,45 +128,14 @@ class EmbeddingMigrationService:
             Number of embeddings to migrate
         """
 
-        def _count_sync():
-            conn = self._get_connection()
-            try:
-                cursor = conn.cursor()
-
-                where_clauses = [
-                    "metadata->>'embedding_model' = %s",
-                    "metadata->>'embedding_provider' = %s",
-                ]
-                params = [source_model, source_provider]
-
-                if workspace_id:
-                    where_clauses.append("workspace_id = %s")
-                    params.append(workspace_id)
-
-                if intent_id:
-                    where_clauses.append("intent_id = %s")
-                    params.append(intent_id)
-
-                if scope:
-                    where_clauses.append("scope = %s")
-                    params.append(scope)
-
-                where_sql = "WHERE " + " AND ".join(where_clauses)
-
-                query = f"""
-                    SELECT COUNT(*) as count
-                    FROM mindscape_personal
-                    {where_sql}
-                """
-
-                cursor.execute(query, params)
-                result = cursor.fetchone()
-                return result[0] if result else 0
-
-            finally:
-                conn.close()
-
-        return await asyncio.to_thread(_count_sync)
+        return await count_embeddings_to_migrate(
+            get_connection=self._get_connection,
+            source_model=source_model,
+            source_provider=source_provider,
+            workspace_id=workspace_id,
+            intent_id=intent_id,
+            scope=scope,
+        )
 
     async def get_migration_status(
         self, migration_id: UUID
@@ -292,46 +266,10 @@ class EmbeddingMigrationService:
             List of embedding records
         """
 
-        def _fetch_sync():
-            conn = self._get_connection()
-            try:
-                cursor = conn.cursor(cursor_factory=RealDictCursor)
-
-                where_clauses = [
-                    "metadata->>'embedding_model' = %s",
-                    "metadata->>'embedding_provider' = %s",
-                ]
-                params = [migration.source_model, migration.source_provider]
-
-                if migration.workspace_id:
-                    where_clauses.append("workspace_id = %s")
-                    params.append(migration.workspace_id)
-
-                if migration.intent_id:
-                    where_clauses.append("intent_id = %s")
-                    params.append(migration.intent_id)
-
-                if migration.scope:
-                    where_clauses.append("scope = %s")
-                    params.append(migration.scope)
-
-                where_sql = "WHERE " + " AND ".join(where_clauses)
-
-                query = f"""
-                    SELECT *
-                    FROM mindscape_personal
-                    {where_sql}
-                    ORDER BY created_at
-                """
-
-                cursor.execute(query, params)
-                results = cursor.fetchall()
-                return [dict(row) for row in results]
-
-            finally:
-                conn.close()
-
-        return await asyncio.to_thread(_fetch_sync)
+        return await fetch_embeddings_to_migrate(
+            get_connection=self._get_connection,
+            migration=migration,
+        )
 
     async def _create_migration_items(
         self, migration: EmbeddingMigration, embeddings: List[Dict[str, Any]]
@@ -456,27 +394,7 @@ class EmbeddingMigrationService:
         Returns:
             Source text or None if not found
         """
-        # Try to get content directly
-        if "content" in embedding_record and embedding_record["content"]:
-            return embedding_record["content"]
-
-        # Try to get from metadata
-        metadata = embedding_record.get("metadata", {})
-        if isinstance(metadata, str):
-            import json
-
-            try:
-                metadata = json.loads(metadata)
-            except json.JSONDecodeError:
-                return None
-
-        if isinstance(metadata, dict):
-            # Try various fields
-            for field in ["seed_text", "text", "content", "body"]:
-                if field in metadata and metadata[field]:
-                    return metadata[field]
-
-        return None
+        return extract_source_text(embedding_record)
 
     async def _regenerate_embedding(
         self, source_text: str, target_model: str, target_provider: str
@@ -492,111 +410,11 @@ class EmbeddingMigrationService:
         Returns:
             New embedding vector or None if failed
         """
-        try:
-            from backend.app.services.config_store import ConfigStore
-            import os
-
-            config_store = ConfigStore()
-            config = config_store.get_or_create_config("default-user")
-
-            if target_provider == "openai":
-                api_key = config.agent_backend.openai_api_key or os.getenv(
-                    "OPENAI_API_KEY"
-                )
-                if not api_key:
-                    logger.error("OpenAI API key not configured")
-                    return None
-
-                import openai
-
-                client = openai.OpenAI(api_key=api_key)
-                response = client.embeddings.create(
-                    model=target_model, input=source_text
-                )
-
-                if response.data and len(response.data) > 0:
-                    return response.data[0].embedding
-
-            elif target_provider == "gemini-api":
-                api_key = os.getenv("GOOGLE_AI_API_KEY") or os.getenv("GEMINI_API_KEY")
-                if not api_key:
-                    logger.error("Google AI API key not configured")
-                    return None
-
-                import google.generativeai as genai
-
-                genai.configure(api_key=api_key)
-                result = genai.embed_content(
-                    model=f"models/{target_model}",
-                    content=source_text,
-                )
-                embedding = result.get("embedding", [])
-                return embedding if embedding else None
-
-            elif target_provider == "vertex-ai":
-                from backend.app.routes.core.system_settings.shared import (
-                    settings_store,
-                )
-
-                service_account_setting = settings_store.get_setting(
-                    "vertex_ai_service_account_json"
-                )
-                project_id_setting = settings_store.get_setting("vertex_ai_project_id")
-                location_setting = settings_store.get_setting("vertex_ai_location")
-
-                vertex_sa_json = (
-                    service_account_setting.value
-                    if service_account_setting and service_account_setting.value
-                    else os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
-                )
-                vertex_project_id = (
-                    project_id_setting.value
-                    if project_id_setting and project_id_setting.value
-                    else os.getenv("GOOGLE_CLOUD_PROJECT")
-                )
-                vertex_location = (
-                    location_setting.value
-                    if location_setting and location_setting.value
-                    else os.getenv("VERTEX_LOCATION", "us-central1")
-                )
-
-                if not vertex_sa_json or not vertex_project_id:
-                    logger.error("Vertex AI credentials not configured")
-                    return None
-
-                import json
-                from google.oauth2 import service_account
-                from vertexai.language_models import TextEmbeddingModel
-                import vertexai
-
-                try:
-                    sa_info = json.loads(vertex_sa_json)
-                    credentials = service_account.Credentials.from_service_account_info(
-                        sa_info
-                    )
-                except (json.JSONDecodeError, ValueError):
-                    credentials = service_account.Credentials.from_service_account_file(
-                        vertex_sa_json
-                    )
-
-                vertexai.init(
-                    project=vertex_project_id,
-                    location=vertex_location,
-                    credentials=credentials,
-                )
-
-                model = TextEmbeddingModel.from_pretrained(target_model)
-                embeddings = model.get_embeddings([source_text])
-                if embeddings and len(embeddings) > 0 and embeddings[0].values:
-                    return embeddings[0].values
-
-            else:
-                logger.error(f"Unsupported provider: {target_provider}")
-                return None
-
-        except Exception as e:
-            logger.error(f"Failed to regenerate embedding: {e}", exc_info=True)
-            return None
+        return await regenerate_embedding(
+            source_text=source_text,
+            target_model=target_model,
+            target_provider=target_provider,
+        )
 
     async def _apply_migration_strategy(
         self,
@@ -615,175 +433,14 @@ class EmbeddingMigrationService:
             migration_item: Migration item
         """
 
-        def _apply_sync():
-            conn = self._get_connection()
-            try:
-                cursor = conn.cursor()
-
-                if migration.strategy == MigrationStrategy.REPLACE:
-                    # Update existing record with new embedding
-                    metadata = embedding_record.get("metadata", {})
-                    if isinstance(metadata, str):
-                        import json
-
-                        try:
-                            metadata = json.loads(metadata)
-                        except json.JSONDecodeError:
-                            metadata = {}
-
-                    if not isinstance(metadata, dict):
-                        metadata = {}
-
-                    metadata["embedding_model"] = migration.target_model
-                    metadata["embedding_provider"] = migration.target_provider
-                    metadata["embedding_dimension"] = len(new_embedding)
-                    metadata["migrated_at"] = _utc_now().isoformat()
-                    metadata["migrated_from"] = migration.source_model
-
-                    cursor.execute(
-                        """
-                        UPDATE mindscape_personal
-                        SET embedding = %s::vector,
-                            metadata = %s,
-                            updated_at = NOW()
-                        WHERE id = %s
-                    """,
-                        (new_embedding, Json(metadata), embedding_record["id"]),
-                    )
-
-                    migration_item.target_embedding_id = str(embedding_record["id"])
-                    self.store.update_migration_item(migration_item)
-
-                elif migration.strategy == MigrationStrategy.PRESERVE:
-                    # Create new record with new embedding
-                    import uuid
-
-                    new_id = str(uuid.uuid4())
-
-                    metadata = embedding_record.get("metadata", {})
-                    if isinstance(metadata, str):
-                        import json
-
-                        try:
-                            metadata = json.loads(metadata)
-                        except json.JSONDecodeError:
-                            metadata = {}
-
-                    if not isinstance(metadata, dict):
-                        metadata = {}
-
-                    metadata["embedding_model"] = migration.target_model
-                    metadata["embedding_provider"] = migration.target_provider
-                    metadata["embedding_dimension"] = len(new_embedding)
-                    metadata["migrated_at"] = _utc_now().isoformat()
-                    metadata["migrated_from"] = migration.source_model
-                    metadata["original_id"] = str(embedding_record["id"])
-
-                    cursor.execute(
-                        """
-                        INSERT INTO mindscape_personal
-                        (id, user_id, source_type, content, metadata, confidence, weight,
-                         embedding, scope, workspace_id, intent_id, importance, tags,
-                         created_at, updated_at, last_used_at)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s::vector, %s, %s, %s, %s, %s, NOW(), NOW(), NOW())
-                    """,
-                        (
-                            new_id,
-                            embedding_record.get("user_id"),
-                            embedding_record.get("source_type"),
-                            embedding_record.get("content"),
-                            Json(metadata),
-                            embedding_record.get("confidence", 1.0),
-                            embedding_record.get("weight", 1.0),
-                            new_embedding,
-                            embedding_record.get("scope"),
-                            embedding_record.get("workspace_id"),
-                            embedding_record.get("intent_id"),
-                            embedding_record.get("importance", 0.5),
-                            embedding_record.get("tags", []),
-                        ),
-                    )
-
-                    migration_item.target_embedding_id = new_id
-                    self.store.update_migration_item(migration_item)
-
-                elif migration.strategy == MigrationStrategy.DEPRECATE:
-                    # Mark old embedding as deprecated, create new one
-                    old_metadata = embedding_record.get("metadata", {})
-                    if isinstance(old_metadata, str):
-                        import json
-
-                        try:
-                            old_metadata = json.loads(old_metadata)
-                        except json.JSONDecodeError:
-                            old_metadata = {}
-
-                    if not isinstance(old_metadata, dict):
-                        old_metadata = {}
-
-                    old_metadata["deprecated"] = True
-                    old_metadata["deprecated_at"] = _utc_now().isoformat()
-                    old_metadata["deprecated_by"] = str(migration.id)
-
-                    cursor.execute(
-                        """
-                        UPDATE mindscape_personal
-                        SET metadata = %s,
-                            updated_at = NOW()
-                        WHERE id = %s
-                    """,
-                        (Json(old_metadata), embedding_record["id"]),
-                    )
-
-                    # Create new record
-                    import uuid
-
-                    new_id = str(uuid.uuid4())
-
-                    new_metadata = old_metadata.copy()
-                    new_metadata["embedding_model"] = migration.target_model
-                    new_metadata["embedding_provider"] = migration.target_provider
-                    new_metadata["embedding_dimension"] = len(new_embedding)
-                    new_metadata["migrated_at"] = _utc_now().isoformat()
-                    new_metadata["migrated_from"] = migration.source_model
-                    new_metadata.pop("deprecated", None)
-                    new_metadata.pop("deprecated_at", None)
-                    new_metadata.pop("deprecated_by", None)
-
-                    cursor.execute(
-                        """
-                        INSERT INTO mindscape_personal
-                        (id, user_id, source_type, content, metadata, confidence, weight,
-                         embedding, scope, workspace_id, intent_id, importance, tags,
-                         created_at, updated_at, last_used_at)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s::vector, %s, %s, %s, %s, %s, NOW(), NOW(), NOW())
-                    """,
-                        (
-                            new_id,
-                            embedding_record.get("user_id"),
-                            embedding_record.get("source_type"),
-                            embedding_record.get("content"),
-                            Json(new_metadata),
-                            embedding_record.get("confidence", 1.0),
-                            embedding_record.get("weight", 1.0),
-                            new_embedding,
-                            embedding_record.get("scope"),
-                            embedding_record.get("workspace_id"),
-                            embedding_record.get("intent_id"),
-                            embedding_record.get("importance", 0.5),
-                            embedding_record.get("tags", []),
-                        ),
-                    )
-
-                    migration_item.target_embedding_id = new_id
-                    self.store.update_migration_item(migration_item)
-
-                conn.commit()
-
-            finally:
-                conn.close()
-
-        await asyncio.to_thread(_apply_sync)
+        await apply_migration_strategy(
+            get_connection=self._get_connection,
+            store=self.store,
+            migration=migration,
+            embedding_record=embedding_record,
+            new_embedding=new_embedding,
+            migration_item=migration_item,
+        )
 
     async def cancel_migration(self, migration_id: UUID) -> bool:
         """
