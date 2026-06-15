@@ -23,6 +23,7 @@ from . import (
     meeting_graph,
     object_runtime,
     profiles,
+    run_harness,
     run_observations,
     runtime,
     pinned,
@@ -54,6 +55,7 @@ router.include_router(meeting_graph.router)
 router.include_router(object_runtime.router)
 router.include_router(composition_graph.router)
 router.include_router(profiles.router)
+router.include_router(run_harness.router)
 router.include_router(run_observations.router)
 router.include_router(runtime.router)
 router.include_router(pinned.router)

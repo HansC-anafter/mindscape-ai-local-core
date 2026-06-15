@@ -11,6 +11,12 @@ from backend.app.services.execution_core.errors import RecoverableStepError
 from backend.app.services.playbook_run_executor_core.result_compaction import (
     compact_workflow_result_for_task_context,
 )
+from backend.app.services.run_harness.workflow_ledger_bridge import (
+    record_run_harness_workflow_failed as record_failed,
+    record_run_harness_workflow_pending as record_pending,
+    record_run_harness_workflow_started as record_started,
+    record_run_harness_workflow_terminal as record_terminal,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -511,6 +517,14 @@ def persist_runtime_result(
                     task_id=existing_task.id,
                     result=canonical_workflow_result,
                 )
+        bridge_compact_result = dict(compact_workflow_result)
+        bridge_compact_result["workflow_failed"] = workflow_failed
+        record_terminal(
+            normalized_inputs=normalized_inputs,
+            execution_id=execution_id,
+            runtime_result=runtime_result,
+            compact_result=bridge_compact_result,
+        )
     except Exception as exc:
         logger.warning(
             "PlaybookRunExecutor: Failed to persist execution context: %s",
@@ -523,6 +537,7 @@ def mark_pending_runtime_task(
     *,
     execution_id: str,
     error: RecoverableStepError,
+    normalized_inputs: Optional[Dict[str, Any]] = None,
     utc_now_fn: Callable[[], Any] = _utc_now,
 ) -> None:
     try:
@@ -557,6 +572,15 @@ def mark_pending_runtime_task(
                 frontier_enqueued_at=next_eligible_at,
                 error=str(error),
             )
+        record_pending(
+            normalized_inputs=normalized_inputs or {},
+            execution_id=execution_id,
+            checkpoint={
+                "step_id": getattr(error, "step_id", None),
+                "error_type": getattr(error, "error_type", None),
+            },
+            error=str(error),
+        )
     except Exception as exc:
         logger.error(
             "PlaybookRunExecutor: Failed to set task pending: %s",
@@ -600,6 +624,11 @@ def mark_failed_runtime_task(
                 completed_at=utc_now_fn(),
                 error=str(error),
             )
+        record_failed(
+            normalized_inputs=normalized_inputs,
+            execution_id=execution_id,
+            error=error,
+        )
     except Exception:
         pass
 
@@ -768,6 +797,16 @@ async def execute_runtime_workflow(
         profile_id=profile_id,
         normalized_inputs=normalized_inputs,
     )
+    record_started(
+        normalized_inputs=normalized_inputs,
+        execution_id=execution_id,
+        metadata={
+            "playbook_code": playbook_code,
+            "runtime": runtime.name,
+            "workspace_id": workspace_id,
+            "project_id": project_id,
+        },
+    )
 
     async def _run_runtime_in_background() -> None:
         try:
@@ -824,6 +863,7 @@ async def execute_runtime_workflow(
             mark_pending_runtime_task(
                 execution_id=execution_id,
                 error=exc,
+                normalized_inputs=normalized_inputs,
             )
         except Exception as exc:
             logger.error(
