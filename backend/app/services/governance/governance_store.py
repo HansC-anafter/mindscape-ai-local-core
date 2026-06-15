@@ -18,6 +18,13 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import text
 
+from backend.app.services.governance.governance_projection import (
+    build_cost_usage_summary,
+    build_governance_metrics,
+    map_decision_row,
+    map_execution_decision_row,
+    parse_iso_datetime,
+)
 from backend.app.services.stores.postgres_base import PostgresStoreBase
 
 logger = logging.getLogger(__name__)
@@ -141,8 +148,8 @@ class GovernanceStore(PostgresStoreBase):
         """
         params: Dict[str, Any] = {"workspace_id": workspace_id}
 
-        start_dt = self._parse_iso_datetime(start_date)
-        end_dt = self._parse_iso_datetime(end_date)
+        start_dt = parse_iso_datetime(start_date, logger=logger)
+        end_dt = parse_iso_datetime(end_date, logger=logger)
 
         if layer:
             base_query += " AND layer = :layer"
@@ -167,28 +174,10 @@ class GovernanceStore(PostgresStoreBase):
             total = conn.execute(text(count_query), params).scalar() or 0
             rows = conn.execute(text(paged_query), params).fetchall()
 
-        decisions: List[Dict[str, Any]] = []
-        for row in rows:
-            data = row._mapping
-            metadata_payload = self.deserialize_json(data.get("metadata"), default={})
-            timestamp_val = data.get("timestamp")
-            timestamp_str = (
-                timestamp_val.isoformat() if hasattr(timestamp_val, "isoformat") else str(timestamp_val)
-            )
-
-            decisions.append(
-                {
-                    "decision_id": data.get("decision_id"),
-                    "timestamp": timestamp_str,
-                    "layer": data.get("layer"),
-                    "approved": bool(data.get("approved")),
-                    "reason": data.get("reason"),
-                    "playbook_code": data.get("playbook_code"),
-                    "metadata": metadata_payload or {},
-                }
-            )
-
-        return decisions, total
+        return [
+            map_decision_row(row, deserialize_json=self.deserialize_json)
+            for row in rows
+        ], total
 
     def list_decisions_for_execution(
         self,
@@ -225,30 +214,10 @@ class GovernanceStore(PostgresStoreBase):
                 },
             ).fetchall()
 
-        decisions: List[Dict[str, Any]] = []
-        for row in rows:
-            data = row._mapping
-            metadata_payload = self.deserialize_json(data.get("metadata"), default={})
-            timestamp_val = data.get("timestamp")
-            timestamp_str = (
-                timestamp_val.isoformat()
-                if hasattr(timestamp_val, "isoformat")
-                else str(timestamp_val)
-            )
-            decisions.append(
-                {
-                    "decision_id": data.get("decision_id"),
-                    "workspace_id": data.get("workspace_id"),
-                    "execution_id": data.get("execution_id"),
-                    "timestamp": timestamp_str,
-                    "layer": data.get("layer"),
-                    "approved": bool(data.get("approved")),
-                    "reason": data.get("reason"),
-                    "playbook_code": data.get("playbook_code"),
-                    "metadata": metadata_payload or {},
-                }
-            )
-        return decisions
+        return [
+            map_execution_decision_row(row, deserialize_json=self.deserialize_json)
+            for row in rows
+        ]
 
     def get_today_usage(self, workspace_id: str) -> float:
         with self.get_connection() as conn:
@@ -350,19 +319,12 @@ class GovernanceStore(PostgresStoreBase):
                 },
             ).fetchall()
 
-        trend = [
-            {"date": row[0].isoformat() if hasattr(row[0], "isoformat") else str(row[0]), "cost": float(row[1])}
-            for row in trend_rows
-        ]
-        breakdown_by_playbook = {row[0]: float(row[1]) for row in breakdown_playbook_rows}
-        breakdown_by_model = {row[0]: float(row[1]) for row in breakdown_model_rows}
-
-        breakdown = {
-            "by_playbook": breakdown_by_playbook,
-            "by_model": breakdown_by_model,
-        }
-
-        return float(current_usage), trend, breakdown
+        return build_cost_usage_summary(
+            current_usage,
+            trend_rows,
+            breakdown_playbook_rows,
+            breakdown_model_rows,
+        )
 
     def get_governance_metrics(
         self,
@@ -391,23 +353,6 @@ class GovernanceStore(PostgresStoreBase):
                 ),
                 {"workspace_id": workspace_id, "start_timestamp": start_timestamp},
             ).fetchall()
-
-            layer_totals: Dict[str, int] = {}
-            layer_rejected: Dict[str, int] = {}
-            for row in rejection_rows:
-                layer_totals[row[0]] = int(row[1] or 0)
-                layer_rejected[row[0]] = int(row[2] or 0)
-
-            rejection_rate = {
-                "cost": self._calculate_rate(layer_rejected.get("cost"), layer_totals.get("cost")),
-                "node": self._calculate_rate(layer_rejected.get("node"), layer_totals.get("node")),
-                "policy": self._calculate_rate(layer_rejected.get("policy"), layer_totals.get("policy")),
-                "preflight": self._calculate_rate(layer_rejected.get("preflight"), layer_totals.get("preflight")),
-                "overall": 0.0,
-            }
-            total_all = sum(layer_totals.values())
-            rejected_all = sum(layer_rejected.values())
-            rejection_rate["overall"] = self._calculate_rate(rejected_all, total_all)
 
             cost_trend_rows = conn.execute(
                 text(
@@ -455,73 +400,10 @@ class GovernanceStore(PostgresStoreBase):
                 {"workspace_id": workspace_id, "start_timestamp": start_timestamp},
             ).fetchall()
 
-        cost_trend = [
-            {"date": row[0].isoformat() if hasattr(row[0], "isoformat") else str(row[0]), "cost": float(row[1])}
-            for row in cost_trend_rows
-        ]
-
-        violation_frequency = {
-            "policy": {
-                "role_violation": 0,
-                "data_domain_violation": 0,
-                "pii_violation": 0,
-            },
-            "node": {
-                "blacklist": 0,
-                "risk_label": 0,
-                "throttle": 0,
-            },
-        }
-
-        for row in violation_rows:
-            layer = row[0]
-            reason = (row[1] or "").lower()
-            count = int(row[2] or 0)
-
-            if layer == "policy":
-                if "role" in reason:
-                    violation_frequency["policy"]["role_violation"] += count
-                elif "domain" in reason:
-                    violation_frequency["policy"]["data_domain_violation"] += count
-                elif "pii" in reason:
-                    violation_frequency["policy"]["pii_violation"] += count
-            elif layer == "node":
-                if "blacklist" in reason:
-                    violation_frequency["node"]["blacklist"] += count
-                elif "risk" in reason:
-                    violation_frequency["node"]["risk_label"] += count
-                elif "throttle" in reason or "limit" in reason:
-                    violation_frequency["node"]["throttle"] += count
-
-        preflight_failure_reasons = {
-            "missing_inputs": 0,
-            "missing_credentials": 0,
-            "environment_issues": 0,
-        }
-        for row in preflight_rows:
-            metadata_payload = self.deserialize_json(row[0], default={})
-            count = int(row[1] or 0)
-            if metadata_payload.get("missing_inputs"):
-                preflight_failure_reasons["missing_inputs"] += count
-            if metadata_payload.get("missing_credentials"):
-                preflight_failure_reasons["missing_credentials"] += count
-            if metadata_payload.get("environment_issues"):
-                preflight_failure_reasons["environment_issues"] += count
-
-        return rejection_rate, cost_trend, violation_frequency, preflight_failure_reasons
-
-    @staticmethod
-    def _calculate_rate(rejected: Optional[int], total: Optional[int]) -> float:
-        if not total:
-            return 0.0
-        return (float(rejected or 0) / float(total)) * 100.0
-
-    @staticmethod
-    def _parse_iso_datetime(value: Optional[str]) -> Optional[datetime]:
-        if not value:
-            return None
-        try:
-            return datetime.fromisoformat(value)
-        except (TypeError, ValueError) as exc:
-            logger.warning(f"Invalid datetime filter: {value} ({exc})")
-            return None
+        return build_governance_metrics(
+            rejection_rows,
+            cost_trend_rows,
+            violation_rows,
+            preflight_rows,
+            deserialize_json=self.deserialize_json,
+        )
