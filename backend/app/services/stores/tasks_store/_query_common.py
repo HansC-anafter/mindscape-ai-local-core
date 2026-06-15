@@ -5,10 +5,11 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from app.models.workspace import Task, TaskStatus
+from app.models.workspace import Task
 from backend.app.services.task_admission_service import ADMISSION_DEFERRED_REASON
 
 from ._base import _resolve_hydrated_queue_shard, _utc_now
+from ._crud_helpers import coerce_task_status_enum
 
 _WORKSPACE_QUOTA_EXHAUSTED_REASON = "workspace_allocation_quota_exhausted"
 _WORKSPACE_ALLOCATION_REQUIRED_REASON = "workspace_allocation_required"
@@ -319,7 +320,7 @@ class TasksStoreQueryCommonMixin:
             execution_id=getattr(row, "execution_id", None),
             pack_id=row.pack_id,
             task_type=row.task_type,
-            status=TaskStatus(row.status),
+            status=coerce_task_status_enum(row.status),
             params={},
             result=None,
             execution_context=execution_context,

@@ -5,10 +5,14 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Optional
 
-from app.models.workspace import Task, TaskStatus
+from app.models.workspace import Task
 from backend.app.services.runner_topology import normalize_queue_partition
 
-from ._crud_helpers import _resolve_hydrated_queue_shard, _utc_now
+from ._crud_helpers import (
+    _resolve_hydrated_queue_shard,
+    _utc_now,
+    coerce_task_status_enum,
+)
 
 
 class TasksStoreRowProjectionMixin:
@@ -57,7 +61,7 @@ class TasksStoreRowProjectionMixin:
             project_id=project_id,
             pack_id=row.pack_id,
             task_type=row.task_type,
-            status=TaskStatus(row.status),
+            status=coerce_task_status_enum(row.status),
             params=self.deserialize_json(row.params, {}),
             result=self.deserialize_json(row.result),
             execution_context=execution_context,

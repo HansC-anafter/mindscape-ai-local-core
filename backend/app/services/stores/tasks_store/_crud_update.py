@@ -19,6 +19,7 @@ from ._crud_control import _publish_terminal_event
 from ._crud_helpers import (
     _RUNNER_TASK_TYPES,
     _TERMINAL_TASK_STATUSES,
+    coerce_task_status_enum,
     _coerce_task_status,
     _normalize_frontier_updates_for_status,
     _parse_resume_after,
@@ -219,11 +220,7 @@ class TasksStoreUpdateMixin:
             try:
                 status_val = kwargs.get("status")
                 if status_val is not None:
-                    status_obj = (
-                        status_val
-                        if isinstance(status_val, TaskStatus)
-                        else TaskStatus(status_val)
-                    )
+                    status_obj = coerce_task_status_enum(status_val)
                     row = conn.execute(
                         text("SELECT execution_id FROM tasks WHERE id = :task_id"),
                         {"task_id": task_id},

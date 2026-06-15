@@ -31,8 +31,7 @@ def _normalize_frontier_updates_for_status(kwargs: Dict[str, Any]) -> Dict[str, 
     if status_val is None:
         return normalized
 
-    status_raw = status_val.value if hasattr(status_val, "value") else str(status_val)
-    status_raw = str(status_raw).strip().lower()
+    status_raw = normalize_task_status_value(status_val)
 
     if status_raw in _TERMINAL_TASK_STATUSES:
         normalized["frontier_state"] = "done"
@@ -52,9 +51,22 @@ def _utc_now() -> datetime:
 
 
 def _coerce_task_status(status: Any) -> str:
+    return normalize_task_status_value(status)
+
+
+def normalize_task_status_value(status: Any) -> str:
     if hasattr(status, "value"):
-        return str(status.value)
-    return str(status)
+        raw_value = str(status.value)
+    else:
+        raw_value = str(status)
+    normalized = raw_value.strip().lower()
+    if normalized == "cancelled":
+        return TaskStatus.CANCELLED_BY_USER.value
+    return normalized
+
+
+def coerce_task_status_enum(status: Any) -> TaskStatus:
+    return TaskStatus(normalize_task_status_value(status))
 
 
 def _parse_resume_after(raw_value: Any) -> Optional[datetime]:

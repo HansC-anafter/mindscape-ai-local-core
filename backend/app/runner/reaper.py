@@ -1195,31 +1195,49 @@ async def _reap_redis_queues(
         )
         if delayed_items:
             try:
-                moved = 0
+                moved_task_ids: list[str] = []
                 for i in range(0, len(delayed_items), _PIPELINE_BATCH):
                     batch = delayed_items[i:i + _PIPELINE_BATCH]
                     for task_id in batch:
                         normalized_task_id = _normalize_task_id(task_id)
-                        task = await asyncio.to_thread(tasks_store.get_task, normalized_task_id)
+                        try:
+                            task = await asyncio.to_thread(
+                                tasks_store.get_task,
+                                normalized_task_id,
+                            )
+                        except ValueError as task_status_error:
+                            logger.warning(
+                                "[Bridge] Dropping unreadable delayed queue item task_id=%s shard=%s: %s",
+                                normalized_task_id,
+                                redis_queue.pack_id,
+                                task_status_error,
+                            )
+                            await client.zrem(redis_queue.q_delayed, task_id)
+                            continue
+                        if task is None:
+                            await client.zrem(redis_queue.q_delayed, task_id)
+                            continue
+                        status = getattr(task, "status", None)
+                        status_raw = status.value if hasattr(status, "value") else str(status)
+                        if status_raw in TERMINAL_TASK_STATUSES or status_raw != TaskStatus.PENDING.value:
+                            await client.zrem(redis_queue.q_delayed, task_id)
+                            continue
                         await redis_queue.enqueue_task(
                             normalized_task_id,
-                            route_identity=(
-                                build_route_identity_projection(task)
-                                if task
-                                else {"task_id": normalized_task_id}
-                            ),
+                            route_identity=build_route_identity_projection(task),
                         )
                         await client.zrem(redis_queue.q_delayed, task_id)
-                    moved += len(batch)
+                        moved_task_ids.append(normalized_task_id)
                     # Yield so Redis can serve other clients between batches
                     if i + _PIPELINE_BATCH < len(delayed_items):
                         await asyncio.sleep(0)
-                await _mark_frontier_ready(
-                    tasks_store,
-                    [str(task_id) for task_id in delayed_items],
-                    queue_shard=redis_queue.pack_id,
-                )
-                logger.info(f"[Bridge] Moved {moved} tasks from delayed to pending queue.")
+                if moved_task_ids:
+                    await _mark_frontier_ready(
+                        tasks_store,
+                        moved_task_ids,
+                        queue_shard=redis_queue.pack_id,
+                    )
+                logger.info(f"[Bridge] Moved {len(moved_task_ids)} tasks from delayed to pending queue.")
             except Exception as e:
                 logger.warning(f"Failed to batch move delayed tasks: {e}")
 
