@@ -8,6 +8,10 @@ import {
   getMeetingPanePresetHeight,
   MEETING_PANE_DEFAULT_HEIGHT,
 } from './runtimeShellState';
+import {
+  getMeetingWorkbenchDefaultPanePreset,
+  getMeetingWorkbenchViewportClass,
+} from '../meeting-workbench/meetingWorkbenchPanelLayoutState';
 
 interface RuntimeShellMeetingPaneSizing {
   shellRootRef: RefObject<HTMLDivElement | null>;
@@ -51,6 +55,16 @@ export function useRuntimeShellMeetingPaneSizing(isMeetingOpen: boolean): Runtim
     const rootHeight = shellRootRef.current?.getBoundingClientRect().height ?? MEETING_PANE_DEFAULT_HEIGHT;
     setMeetingPaneHeight(clampMeetingPaneHeight(getMeetingPanePresetHeight(preset, rootHeight), rootHeight));
   }, []);
+
+  useEffect(() => {
+    if (!isMeetingOpen) {
+      return;
+    }
+
+    const rootHeight = shellRootRef.current?.getBoundingClientRect().height ?? MEETING_PANE_DEFAULT_HEIGHT;
+    const defaultPreset = getMeetingWorkbenchDefaultPanePreset(getMeetingWorkbenchViewportClass());
+    setMeetingPaneHeight(clampMeetingPaneHeight(getMeetingPanePresetHeight(defaultPreset, rootHeight), rootHeight));
+  }, [isMeetingOpen]);
 
   useEffect(() => {
     if (!isMeetingOpen) {

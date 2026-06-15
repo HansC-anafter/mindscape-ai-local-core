@@ -8,6 +8,7 @@ export function DirectorGraphImportExport({
   onExport,
   onImport,
   onInvalidImport,
+  presentation = 'inline',
   t,
 }: {
   value: string;
@@ -16,10 +17,20 @@ export function DirectorGraphImportExport({
   onExport: () => void;
   onImport: (payload: CompositionGraphImportExportPayload) => void;
   onInvalidImport: (message: string) => void;
+  presentation?: 'inline' | 'drawer';
   t: MeetingTranslate;
 }) {
+  const drawerPresentation = presentation === 'drawer';
+
   return (
-    <div className="flex min-h-0 flex-col gap-2 border-t border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-950">
+    <div
+      className={
+        drawerPresentation
+          ? 'flex min-h-0 flex-1 flex-col gap-2 bg-white px-4 pb-4 pt-4 dark:bg-slate-950'
+          : 'flex min-h-0 flex-col gap-2 border-t border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-950'
+      }
+      data-testid="director-graph-import-export"
+    >
       <div className="flex items-center justify-between gap-2">
         <div className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500 dark:text-slate-400">
           {t('directorGraphJsonTitle')}
@@ -52,7 +63,9 @@ export function DirectorGraphImportExport({
       <textarea
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="h-28 resize-none rounded border border-slate-200 bg-slate-50 p-2 font-mono text-[11px] text-slate-700 outline-none focus:border-blue-300 focus:bg-white dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:focus:border-blue-700"
+        className={`resize-none rounded border border-slate-200 bg-slate-50 p-2 font-mono text-[11px] text-slate-700 outline-none focus:border-blue-300 focus:bg-white dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:focus:border-blue-700 ${
+          drawerPresentation ? 'min-h-0 flex-1' : 'h-28'
+        }`}
         data-testid="director-graph-json"
         aria-label={t('directorGraphJsonTitle')}
       />

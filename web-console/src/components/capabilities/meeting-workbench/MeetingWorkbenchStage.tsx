@@ -33,6 +33,7 @@ export function MeetingWorkbenchStage({
   selectedObjectRef,
   onCommandEnvelope,
   inspectorSlot,
+  showOutliner = true,
   t,
 }: {
   apiUrl: string;
@@ -59,6 +60,7 @@ export function MeetingWorkbenchStage({
   selectedObjectRef: AddressableObjectRef | null;
   onCommandEnvelope: (envelope: CompositionGraphCommandEnvelopeDraft) => Promise<void>;
   inspectorSlot?: ReactNode;
+  showOutliner?: boolean;
   t: MeetingTranslate;
 }) {
   return (
@@ -67,17 +69,19 @@ export function MeetingWorkbenchStage({
       data-testid="meeting-workbench-stage"
     >
       <div className="flex min-h-0 flex-1" data-testid="meeting-workbench-main-editors">
-        <ObjectOutlinerPanel
-          graphViewMode={graphViewMode}
-          nodes={nodes}
-          summary={summary}
-          attachResponse={attachResponse}
-          selectedNodeId={selectedNodeId}
-          activeMissingContext={activeMissingContext}
-          onSelectNode={onSelectNode}
-          onSelectMissingContext={onSelectMissingContext}
-          t={t}
-        />
+        {showOutliner ? (
+          <ObjectOutlinerPanel
+            graphViewMode={graphViewMode}
+            nodes={nodes}
+            summary={summary}
+            attachResponse={attachResponse}
+            selectedNodeId={selectedNodeId}
+            activeMissingContext={activeMissingContext}
+            onSelectNode={onSelectNode}
+            onSelectMissingContext={onSelectMissingContext}
+            t={t}
+          />
+        ) : null}
         <MeetingTaskCanvas
           apiUrl={apiUrl}
           workspaceId={workspaceId}

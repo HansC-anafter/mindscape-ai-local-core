@@ -223,6 +223,7 @@ export function ObjectOutlinerPanel({
   activeMissingContext,
   onSelectNode,
   onSelectMissingContext,
+  presentation = 'inline',
   t,
 }: {
   graphViewMode: GraphViewMode;
@@ -233,6 +234,7 @@ export function ObjectOutlinerPanel({
   activeMissingContext: MeetingMissingContext | null;
   onSelectNode: (nodeId: string) => void;
   onSelectMissingContext: (context: MeetingMissingContext) => void;
+  presentation?: 'inline' | 'drawer';
   t: MeetingTranslate;
 }) {
   if (graphViewMode !== 'work') {
@@ -243,11 +245,19 @@ export function ObjectOutlinerPanel({
 
   return (
     <aside
-      className="hidden w-60 shrink-0 flex-col border-r border-slate-200 bg-white/95 dark:border-slate-800 dark:bg-slate-950/95 lg:flex"
+      className={presentation === 'drawer'
+        ? 'flex min-h-0 w-full flex-1 flex-col bg-white dark:bg-slate-950'
+        : 'hidden w-60 shrink-0 flex-col border-r border-slate-200 bg-white/95 dark:border-slate-800 dark:bg-slate-950/95 lg:flex'}
       data-testid="meeting-object-outliner"
       aria-label={t('meetingWorkbenchObjectOutliner')}
     >
-      <div className="flex h-9 shrink-0 items-center gap-2 border-b border-slate-200 px-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500 dark:border-slate-800 dark:text-slate-400">
+      <div
+        className={`flex h-9 shrink-0 items-center gap-2 px-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400 ${
+          presentation === 'drawer'
+            ? 'border-b border-slate-200 dark:border-slate-800'
+            : 'border-b border-slate-200 dark:border-slate-800'
+        }`}
+      >
         <Boxes className="h-3.5 w-3.5" aria-hidden="true" />
         {t('meetingWorkbenchObjectOutliner')}
       </div>

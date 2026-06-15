@@ -101,11 +101,13 @@ export function MeetingObjectContextPanel({
   surfaceRoute,
   onSwitchObject,
   onClose,
+  presentation = 'floating',
 }: Pick<
   AOLMeetingBottomShellProps,
   'summary' | 'selection' | 'attachResponse' | 'meetingId' | 'surfaceRoute' | 'onSwitchObject'
 > & {
   onClose: () => void;
+  presentation?: 'floating' | 'drawer';
 }) {
   const ref = summary?.ref ?? null;
   const labels = summary?.labels ?? [];
@@ -115,7 +117,9 @@ export function MeetingObjectContextPanel({
 
   return (
     <section
-      className="pointer-events-auto flex max-h-full w-full flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl dark:border-slate-800 dark:bg-slate-950"
+      className={presentation === 'drawer'
+        ? 'flex h-full min-h-0 w-full flex-col overflow-hidden bg-white dark:bg-slate-950'
+        : 'pointer-events-auto flex max-h-full w-full flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl dark:border-slate-800 dark:bg-slate-950'}
       id="meeting-object-context-panel"
       data-testid="meeting-object-context-panel"
       aria-label="Meeting object context"
@@ -246,6 +250,7 @@ export function MeetingSessionsPopover({
   onCreateSession,
   onSelectSession,
   onClose,
+  presentation = 'floating',
 }: {
   sessions: MeetingSessionSummary[];
   activeMeetingId: string;
@@ -256,6 +261,7 @@ export function MeetingSessionsPopover({
   onCreateSession: () => void;
   onSelectSession: (session: MeetingSessionSummary) => void;
   onClose: () => void;
+  presentation?: 'floating' | 'drawer';
 }) {
   const [sessionQuery, setSessionQuery] = useState('');
   const normalizedQuery = sessionQuery.trim().toLowerCase();
@@ -272,7 +278,9 @@ export function MeetingSessionsPopover({
 
   return (
     <section
-      className="pointer-events-auto rounded-lg border border-slate-200 bg-white shadow-xl dark:border-slate-800 dark:bg-slate-950"
+      className={presentation === 'drawer'
+        ? 'flex h-full min-h-0 flex-col bg-white dark:bg-slate-950'
+        : 'pointer-events-auto rounded-lg border border-slate-200 bg-white shadow-xl dark:border-slate-800 dark:bg-slate-950'}
       id="meeting-sessions-popover"
       data-testid="meeting-sessions-popover"
       aria-label="Meeting sessions"

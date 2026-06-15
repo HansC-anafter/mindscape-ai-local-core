@@ -35,17 +35,23 @@ export function MeetingInspectorRail({
   activeInspector,
   graphViewMode,
   onToggleInspector,
+  placement = 'trailing',
   t,
 }: {
   activeInspector: InspectorTab | null;
   graphViewMode: GraphViewMode;
   onToggleInspector: (tab: InspectorTab) => void;
+  placement?: 'leading' | 'trailing';
   t: MeetingTranslate;
 }) {
   const tabs = getInspectorTabs(graphViewMode);
   return (
     <nav
-      className="flex w-12 shrink-0 flex-col items-center gap-2 border-l border-slate-200 bg-white px-1.5 py-3 dark:border-slate-800 dark:bg-slate-950"
+      className={`flex w-12 shrink-0 flex-col items-center gap-2 bg-white px-1.5 py-3 dark:bg-slate-950 ${
+        placement === 'leading'
+          ? 'border-r border-slate-200 dark:border-slate-800'
+          : 'border-l border-slate-200 dark:border-slate-800'
+      }`}
       data-testid="meeting-inspector-rail"
       aria-label={t('meetingWorkbenchInspectorLabel')}
     >
@@ -96,6 +102,7 @@ export function MeetingInspectorPanel({
   activeTraceFilter,
   onTraceFilterChange,
   onClose,
+  presentation = 'inline',
   t,
 }: {
   activeInspector: InspectorTab;
@@ -118,6 +125,7 @@ export function MeetingInspectorPanel({
   activeTraceFilter: string | null;
   onTraceFilterChange: (filter: string | null) => void;
   onClose: () => void;
+  presentation?: 'inline' | 'drawer';
   t: MeetingTranslate;
 }) {
   const title = getInspectorTabs(graphViewMode).find((tab) => tab.id === activeInspector)
@@ -127,7 +135,10 @@ export function MeetingInspectorPanel({
 
   return (
     <aside
-      className="flex w-[340px] shrink-0 flex-col border-l border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950"
+      id="meeting-inspector-panel"
+      className={presentation === 'drawer'
+        ? 'flex min-h-0 flex-1 flex-col bg-white dark:bg-slate-950'
+        : 'flex w-[340px] shrink-0 flex-col border-l border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950'}
       data-testid="meeting-inspector-panel"
     >
       <div className="flex h-11 shrink-0 items-center justify-between border-b border-slate-200 px-3 dark:border-slate-800">
@@ -200,13 +211,17 @@ export function MeetingInspectorPanel({
 export function MeetingConsoleDrawer({
   selectedNode,
   onClose,
+  presentation = 'inline',
 }: {
   selectedNode: MeetingNode | null;
   onClose: () => void;
+  presentation?: 'inline' | 'drawer';
 }) {
   return (
     <section
-      className="h-[38%] max-h-40 shrink-0 border-t border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950"
+      className={presentation === 'drawer'
+        ? 'flex min-h-0 flex-1 flex-col bg-white dark:bg-slate-950'
+        : 'h-[38%] max-h-40 shrink-0 border-t border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950'}
       data-testid="meeting-console-drawer"
       aria-label="Meeting console"
     >
@@ -223,7 +238,11 @@ export function MeetingConsoleDrawer({
           <X className="h-4 w-4" aria-hidden="true" />
         </button>
       </div>
-      <div className="grid h-[calc(100%-2.25rem)] grid-cols-[minmax(0,1fr)_220px] gap-3 overflow-auto px-3 py-2 text-xs">
+      <div
+        className={presentation === 'drawer'
+          ? 'grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-auto px-3 py-2 text-xs md:grid-cols-[minmax(0,1fr)_220px]'
+          : 'grid h-[calc(100%-2.25rem)] grid-cols-[minmax(0,1fr)_220px] gap-3 overflow-auto px-3 py-2 text-xs'}
+      >
         <div className="rounded-md border border-slate-200 p-2 dark:border-slate-800">
           <div className="font-semibold text-slate-900 dark:text-slate-100">Node detail</div>
           <p className="mt-1 leading-5 text-slate-500 dark:text-slate-400">

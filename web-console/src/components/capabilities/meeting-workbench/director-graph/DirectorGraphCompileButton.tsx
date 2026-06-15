@@ -7,11 +7,13 @@ export function DirectorGraphCompileButton({
   disabled,
   status,
   onCompile,
+  showLabel = true,
   t,
 }: {
   disabled: boolean;
   status: CompositionGraphRunStatus | 'idle';
   onCompile: () => void;
+  showLabel?: boolean;
   t: MeetingTranslate;
 }) {
   return (
@@ -24,7 +26,7 @@ export function DirectorGraphCompileButton({
       title={t('directorGraphRun')}
     >
       <Play className="h-4 w-4" aria-hidden="true" />
-      <span>{status === 'running' ? t('directorGraphRunning') : t('directorGraphRun')}</span>
+      {showLabel ? <span>{status === 'running' ? t('directorGraphRunning') : t('directorGraphRun')}</span> : null}
     </button>
   );
 }

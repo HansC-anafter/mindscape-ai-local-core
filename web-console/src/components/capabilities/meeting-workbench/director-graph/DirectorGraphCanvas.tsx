@@ -14,7 +14,7 @@ import {
   type NodeProps,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { Copy, Maximize2, Redo2, Save, Trash2, Undo2 } from 'lucide-react';
+import { Braces, Copy, Layers, Maximize2, Redo2, Save, SlidersHorizontal, Trash2, Undo2 } from 'lucide-react';
 
 import {
   fetchCompositionGraphNodeOptions,
@@ -33,6 +33,7 @@ import {
   type CompositionGraphViewport,
 } from '@/lib/composition-graph';
 import type { AddressableObjectRef } from '@/lib/addressable-object-layer';
+import { useMeetingWorkbenchViewportClass } from '../meetingWorkbenchPanelLayoutState';
 import type { MeetingMentionItem, MeetingTranslate } from '../meetingWorkbenchTypes';
 import { DirectorGraphCompileButton } from './DirectorGraphCompileButton';
 import {
@@ -47,6 +48,7 @@ import {
 import { DirectorGraphImportExport } from './DirectorGraphImportExport';
 import { DirectorGraphInspector } from './DirectorGraphInspector';
 import { DirectorGraphPalette } from './DirectorGraphPalette';
+import { DirectorGraphResponsiveSurface, type DirectorGraphSecondarySurface } from './DirectorGraphResponsiveSurface';
 import { useCompositionGraphContracts } from './useCompositionGraphContracts';
 import { useCompositionGraphDraft } from './useCompositionGraphDraft';
 import { useCompositionGraphRunMonitor } from './useCompositionGraphRunMonitor';
@@ -304,6 +306,7 @@ export function DirectorGraphCanvas({
   const [runStatus, setRunStatus] = useState<CompositionGraphRunStatus | 'idle'>('idle');
   const [activeRun, setActiveRun] = useState<CompositionGraphRun | null>(null);
   const [runDiagnostics, setRunDiagnostics] = useState<CompositionGraphDiagnostic[]>([]);
+  const [compactSurface, setCompactSurface] = useState<DirectorGraphSecondarySurface | null>(null);
 
   const runMonitor = useCompositionGraphRunMonitor({
     apiUrl,
@@ -336,6 +339,9 @@ export function DirectorGraphCanvas({
     [nodes, selectedNodeId],
   );
   const selectedNodeType = selectedNode ? nodeTypeById.get(selectedNode.type) || getUnknownNodeType(selectedNode.type) : null;
+  const viewportClass = useMeetingWorkbenchViewportClass();
+  const compactViewport = viewportClass !== 'desktop';
+  const mobileViewport = viewportClass === 'mobile';
 
   React.useEffect(() => {
     if (!selectedPrimaryPack && contracts.length > 0) {
@@ -384,6 +390,12 @@ export function DirectorGraphCanvas({
   React.useEffect(() => {
     setNodes((current) => toFlowNodes(toGraphNodes(current), nodeTypeById, activeRun));
   }, [activeRun, nodeTypeById]);
+
+  React.useEffect(() => {
+    if (!compactViewport) {
+      setCompactSurface(null);
+    }
+  }, [compactViewport]);
 
   React.useEffect(() => {
     if (
@@ -622,6 +634,20 @@ export function DirectorGraphCanvas({
     }
   }
 
+  function handleToggleCompactSurface(surface: DirectorGraphSecondarySurface) {
+    setCompactSurface((current) => (current === surface ? null : surface));
+  }
+
+  function handlePatchSelectedNode(patch: Record<string, unknown>) {
+    if (!selectedNodeId) {
+      return;
+    }
+    const graphNodes = toGraphNodes(nodes).map((node) =>
+      node.id === selectedNodeId ? { ...node, payload: { ...node.payload, ...patch } } : node,
+    );
+    applySnapshot({ nodes: graphNodes, edges: toGraphEdges(edges) });
+  }
+
   const hasComfyLaneNode = nodes.some((node) => node.data.graphNode.type === 'comfyui_lane_adapter');
   const missingComfyWorkflow = nodes.some((node) => {
     if (node.data.graphNode.type !== 'comfyui_lane_adapter') {
@@ -645,157 +671,259 @@ export function DirectorGraphCanvas({
 
   const toolbarButtonClass =
     'inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-900 dark:disabled:text-slate-700';
+  const compactSurfaceButtonClass = (active: boolean) =>
+    `inline-flex h-8 w-8 items-center justify-center rounded-md border transition ${
+      active
+        ? 'border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-200'
+        : 'border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-900'
+    }`;
+  const statusText = contractsLoading
+    ? t('directorGraphLoadingContracts')
+    : contractsError || diagnosticText(diagnostics) || t('directorGraphReady');
+  const diagnosticsText =
+    operationError || saveError || diagnosticText(runBlockedDiagnostics) || diagnosticText(runDiagnostics);
+  const saveButtonLabel = saving ? t('directorGraphSaving') : t('directorGraphSave');
+  const runDisabled = !meetingId || runBlockedDiagnostics.length > 0;
+
+  const palettePanel = (
+    <DirectorGraphPalette
+      contracts={contracts}
+      nodeTypes={availableNodeTypes}
+      selectedPrimaryPack={selectedPrimaryPack}
+      onSelectPrimaryPack={setSelectedPrimaryPack}
+      onAddNode={addNode}
+      presentation={compactViewport ? 'drawer' : 'inline'}
+      t={t}
+    />
+  );
+
+  const inspectorPanel = (
+    <DirectorGraphInspector
+      node={selectedNode}
+      nodeType={selectedNodeType}
+      payloadText={payloadText}
+      error={payloadError}
+      comfyLaneOptions={comfyLaneOptions}
+      onPayloadTextChange={setPayloadText}
+      onApplyPayload={handleApplyPayload}
+      onPatchPayload={handlePatchSelectedNode}
+      presentation={compactViewport ? 'drawer' : 'inline'}
+      t={t}
+    />
+  );
+
+  const importExportPanel = (
+    <DirectorGraphImportExport
+      value={jsonText}
+      error={importError}
+      onChange={setJsonText}
+      onExport={handleExport}
+      onImport={handleImport}
+      onInvalidImport={setImportError}
+      presentation={compactViewport ? 'drawer' : 'inline'}
+      t={t}
+    />
+  );
+
+  const canvasSurface = (
+    <div
+      className="min-h-0 flex-1"
+      onDragOver={(event) => {
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'copy';
+      }}
+      onDrop={(event) => {
+        event.preventDefault();
+        const nodeTypeId = event.dataTransfer.getData('application/x-composition-graph-node-type');
+        const nodeType = nodeTypeById.get(nodeTypeId);
+        if (!nodeType) {
+          return;
+        }
+        const bounds = event.currentTarget.getBoundingClientRect();
+        addNode(nodeType, { x: event.clientX - bounds.left - 112, y: event.clientY - bounds.top - 48 });
+      }}
+    >
+      <ReactFlow
+        nodes={nodes}
+        edges={edges}
+        nodeTypes={nodeTypes}
+        onNodesChange={(changes) => {
+          setNodes((current) =>
+            changes.reduce((nextNodes, change) => {
+              if (change.type === 'position' && change.position) {
+                return nextNodes.map((node) =>
+                  node.id === change.id ? { ...node, position: change.position || node.position } : node,
+                );
+              }
+              if (change.type === 'select') {
+                setSelectedNodeId(change.selected ? change.id : selectedNodeId);
+              }
+              return nextNodes;
+            }, current),
+          );
+        }}
+        onEdgesChange={() => undefined}
+        onConnect={handleConnect}
+        onNodeClick={(_event, node) => setSelectedNodeId(node.id)}
+        fitView
+      >
+        <Background />
+        <MiniMap data-testid="director-graph-minimap" pannable zoomable />
+        <Controls />
+      </ReactFlow>
+    </div>
+  );
+
+  const desktopToolbar = (
+    <div className="flex items-center gap-1">
+      <button type="button" onClick={handleUndo} className={toolbarButtonClass} data-testid="director-graph-undo" title={t('directorGraphUndo')}>
+        <Undo2 className="h-4 w-4" aria-hidden="true" />
+      </button>
+      <button type="button" onClick={handleRedo} className={toolbarButtonClass} data-testid="director-graph-redo" title={t('directorGraphRedo')}>
+        <Redo2 className="h-4 w-4" aria-hidden="true" />
+      </button>
+      <button
+        type="button"
+        onClick={() => selectedNode && setClipboardNode(selectedNode)}
+        disabled={!selectedNode}
+        className={toolbarButtonClass}
+        data-testid="director-graph-copy"
+        title={t('directorGraphCopy')}
+      >
+        <Copy className="h-4 w-4" aria-hidden="true" />
+      </button>
+      <button type="button" onClick={handlePaste} disabled={!clipboardNode} className={toolbarButtonClass} data-testid="director-graph-paste" title={t('directorGraphPaste')}>
+        <Copy className="h-4 w-4 rotate-180" aria-hidden="true" />
+      </button>
+      <button type="button" onClick={handleDelete} disabled={!selectedNode} className={toolbarButtonClass} data-testid="director-graph-delete" title={t('directorGraphDelete')}>
+        <Trash2 className="h-4 w-4" aria-hidden="true" />
+      </button>
+      <button type="button" onClick={() => window.dispatchEvent(new Event('resize'))} className={toolbarButtonClass} data-testid="director-graph-fit" title={t('directorGraphFit')}>
+        <Maximize2 className="h-4 w-4" aria-hidden="true" />
+      </button>
+      <button
+        type="button"
+        onClick={handleSave}
+        disabled={!meetingId || saving}
+        className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-200 px-2.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300 dark:border-slate-800 dark:text-slate-200 dark:hover:bg-slate-900 dark:disabled:text-slate-700"
+        data-testid="director-graph-save"
+        title={t('directorGraphSave')}
+      >
+        <Save className="h-4 w-4" aria-hidden="true" />
+        <span>{saveButtonLabel}</span>
+      </button>
+      <DirectorGraphCompileButton disabled={runDisabled} status={runStatus} onCompile={handleRun} t={t} />
+    </div>
+  );
+
+  const compactPrimaryActions = (
+    <>
+      <button
+        type="button"
+        onClick={handleSave}
+        disabled={!meetingId || saving}
+        className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-200 px-2.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300 dark:border-slate-800 dark:text-slate-200 dark:hover:bg-slate-900 dark:disabled:text-slate-700"
+        data-testid="director-graph-save"
+        title={t('directorGraphSave')}
+      >
+        <Save className="h-4 w-4" aria-hidden="true" />
+        <span className={mobileViewport ? 'sr-only' : undefined}>{saveButtonLabel}</span>
+      </button>
+      <DirectorGraphCompileButton
+        disabled={runDisabled}
+        status={runStatus}
+        onCompile={handleRun}
+        showLabel={!mobileViewport}
+        t={t}
+      />
+    </>
+  );
+
+  const compactUtilityActions = (
+    <>
+      <button
+        type="button"
+        onClick={() => handleToggleCompactSurface('palette')}
+        className={compactSurfaceButtonClass(compactSurface === 'palette')}
+        data-testid="director-graph-toggle-palette"
+        title={t('directorGraphPalette')}
+        aria-pressed={compactSurface === 'palette'}
+      >
+        <Layers className="h-4 w-4" aria-hidden="true" />
+      </button>
+      <button
+        type="button"
+        onClick={() => handleToggleCompactSurface('inspector')}
+        className={compactSurfaceButtonClass(compactSurface === 'inspector')}
+        data-testid="director-graph-toggle-inspector"
+        title={t('directorGraphInspector')}
+        aria-pressed={compactSurface === 'inspector'}
+      >
+        <SlidersHorizontal className="h-4 w-4" aria-hidden="true" />
+      </button>
+      <button
+        type="button"
+        onClick={() => handleToggleCompactSurface('json')}
+        className={compactSurfaceButtonClass(compactSurface === 'json')}
+        data-testid="director-graph-toggle-json"
+        title={t('directorGraphJsonTitle')}
+        aria-pressed={compactSurface === 'json'}
+      >
+        <Braces className="h-4 w-4" aria-hidden="true" />
+      </button>
+      <button type="button" onClick={handleUndo} className={toolbarButtonClass} data-testid="director-graph-undo" title={t('directorGraphUndo')}>
+        <Undo2 className="h-4 w-4" aria-hidden="true" />
+      </button>
+      <button type="button" onClick={handleRedo} className={toolbarButtonClass} data-testid="director-graph-redo" title={t('directorGraphRedo')}>
+        <Redo2 className="h-4 w-4" aria-hidden="true" />
+      </button>
+      <button
+        type="button"
+        onClick={() => selectedNode && setClipboardNode(selectedNode)}
+        disabled={!selectedNode}
+        className={toolbarButtonClass}
+        data-testid="director-graph-copy"
+        title={t('directorGraphCopy')}
+      >
+        <Copy className="h-4 w-4" aria-hidden="true" />
+      </button>
+      <button type="button" onClick={handlePaste} disabled={!clipboardNode} className={toolbarButtonClass} data-testid="director-graph-paste" title={t('directorGraphPaste')}>
+        <Copy className="h-4 w-4 rotate-180" aria-hidden="true" />
+      </button>
+      <button type="button" onClick={handleDelete} disabled={!selectedNode} className={toolbarButtonClass} data-testid="director-graph-delete" title={t('directorGraphDelete')}>
+        <Trash2 className="h-4 w-4" aria-hidden="true" />
+      </button>
+      <button type="button" onClick={() => window.dispatchEvent(new Event('resize'))} className={toolbarButtonClass} data-testid="director-graph-fit" title={t('directorGraphFit')}>
+        <Maximize2 className="h-4 w-4" aria-hidden="true" />
+      </button>
+    </>
+  );
+
+  const diagnosticsNode = diagnosticsText ? (
+    <div
+      className="border-t border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-200"
+      data-testid="director-graph-diagnostics"
+    >
+      {diagnosticsText}
+    </div>
+  ) : null;
 
   return (
-    <section
-      className="flex min-h-0 flex-1 bg-slate-100 text-slate-900 dark:bg-slate-950 dark:text-slate-100"
-      data-testid="director-graph-canvas"
-    >
-      <DirectorGraphPalette
-        contracts={contracts}
-        nodeTypes={availableNodeTypes}
-        selectedPrimaryPack={selectedPrimaryPack}
-        onSelectPrimaryPack={setSelectedPrimaryPack}
-        onAddNode={addNode}
-        t={t}
-      />
-      <div className="flex min-w-0 flex-1 flex-col">
-        <div className="flex h-12 shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-white px-3 dark:border-slate-800 dark:bg-slate-950">
-          <div className="min-w-0">
-            <div className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">
-              {t('meetingWorkbenchDirectorGraph')}
-            </div>
-            <div className="truncate text-xs text-slate-500 dark:text-slate-400">
-              {contractsLoading
-                ? t('directorGraphLoadingContracts')
-                : contractsError || diagnosticText(diagnostics) || t('directorGraphReady')}
-            </div>
-          </div>
-          <div className="flex items-center gap-1">
-            <button type="button" onClick={handleUndo} className={toolbarButtonClass} data-testid="director-graph-undo" title={t('directorGraphUndo')}>
-              <Undo2 className="h-4 w-4" aria-hidden="true" />
-            </button>
-            <button type="button" onClick={handleRedo} className={toolbarButtonClass} data-testid="director-graph-redo" title={t('directorGraphRedo')}>
-              <Redo2 className="h-4 w-4" aria-hidden="true" />
-            </button>
-            <button
-              type="button"
-              onClick={() => selectedNode && setClipboardNode(selectedNode)}
-              disabled={!selectedNode}
-              className={toolbarButtonClass}
-              data-testid="director-graph-copy"
-              title={t('directorGraphCopy')}
-            >
-              <Copy className="h-4 w-4" aria-hidden="true" />
-            </button>
-            <button type="button" onClick={handlePaste} disabled={!clipboardNode} className={toolbarButtonClass} data-testid="director-graph-paste" title={t('directorGraphPaste')}>
-              <Copy className="h-4 w-4 rotate-180" aria-hidden="true" />
-            </button>
-            <button type="button" onClick={handleDelete} disabled={!selectedNode} className={toolbarButtonClass} data-testid="director-graph-delete" title={t('directorGraphDelete')}>
-              <Trash2 className="h-4 w-4" aria-hidden="true" />
-            </button>
-            <button type="button" onClick={() => window.dispatchEvent(new Event('resize'))} className={toolbarButtonClass} data-testid="director-graph-fit" title={t('directorGraphFit')}>
-              <Maximize2 className="h-4 w-4" aria-hidden="true" />
-            </button>
-            <button
-              type="button"
-              onClick={handleSave}
-              disabled={!meetingId || saving}
-              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-200 px-2.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300 dark:border-slate-800 dark:text-slate-200 dark:hover:bg-slate-900 dark:disabled:text-slate-700"
-              data-testid="director-graph-save"
-              title={t('directorGraphSave')}
-            >
-              <Save className="h-4 w-4" aria-hidden="true" />
-              <span>{saving ? t('directorGraphSaving') : t('directorGraphSave')}</span>
-            </button>
-            <DirectorGraphCompileButton
-              disabled={!meetingId || runBlockedDiagnostics.length > 0}
-              status={runStatus}
-              onCompile={handleRun}
-              t={t}
-            />
-          </div>
-        </div>
-        <div
-          className="min-h-0 flex-1"
-          onDragOver={(event) => {
-            event.preventDefault();
-            event.dataTransfer.dropEffect = 'copy';
-          }}
-          onDrop={(event) => {
-            event.preventDefault();
-            const nodeTypeId = event.dataTransfer.getData('application/x-composition-graph-node-type');
-            const nodeType = nodeTypeById.get(nodeTypeId);
-            if (!nodeType) {
-              return;
-            }
-            const bounds = event.currentTarget.getBoundingClientRect();
-            addNode(nodeType, { x: event.clientX - bounds.left - 112, y: event.clientY - bounds.top - 48 });
-          }}
-        >
-          <ReactFlow
-            nodes={nodes}
-            edges={edges}
-            nodeTypes={nodeTypes}
-            onNodesChange={(changes) => {
-              setNodes((current) =>
-                changes.reduce((nextNodes, change) => {
-                  if (change.type === 'position' && change.position) {
-                    return nextNodes.map((node) =>
-                      node.id === change.id ? { ...node, position: change.position || node.position } : node,
-                    );
-                  }
-                  if (change.type === 'select') {
-                    setSelectedNodeId(change.selected ? change.id : selectedNodeId);
-                  }
-                  return nextNodes;
-                }, current),
-              );
-            }}
-            onEdgesChange={() => undefined}
-            onConnect={handleConnect}
-            onNodeClick={(_event, node) => setSelectedNodeId(node.id)}
-            fitView
-          >
-            <Background />
-            <MiniMap data-testid="director-graph-minimap" pannable zoomable />
-            <Controls />
-          </ReactFlow>
-        </div>
-        <DirectorGraphImportExport
-          value={jsonText}
-          error={importError}
-          onChange={setJsonText}
-          onExport={handleExport}
-          onImport={handleImport}
-          onInvalidImport={setImportError}
-          t={t}
-        />
-        {operationError || saveError || runBlockedDiagnostics.length > 0 || runDiagnostics.length > 0 ? (
-          <div className="border-t border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-200" data-testid="director-graph-diagnostics">
-            {operationError || saveError || diagnosticText(runBlockedDiagnostics) || diagnosticText(runDiagnostics)}
-          </div>
-        ) : null}
-      </div>
-      <DirectorGraphInspector
-        node={selectedNode}
-        nodeType={selectedNodeType}
-        payloadText={payloadText}
-        error={payloadError}
-        comfyLaneOptions={comfyLaneOptions}
-        onPayloadTextChange={setPayloadText}
-        onApplyPayload={handleApplyPayload}
-        onPatchPayload={(patch) => {
-          if (!selectedNodeId) {
-            return;
-          }
-          const graphNodes = toGraphNodes(nodes).map((node) =>
-            node.id === selectedNodeId ? { ...node, payload: { ...node.payload, ...patch } } : node,
-          );
-          applySnapshot({ nodes: graphNodes, edges: toGraphEdges(edges) });
-        }}
-        t={t}
-      />
-    </section>
+    <DirectorGraphResponsiveSurface
+      viewportClass={viewportClass}
+      title={t('meetingWorkbenchDirectorGraph')}
+      status={statusText}
+      palette={palettePanel}
+      canvas={canvasSurface}
+      inspector={inspectorPanel}
+      importExport={importExportPanel}
+      diagnostics={diagnosticsNode}
+      desktopToolbar={desktopToolbar}
+      compactPrimaryActions={compactPrimaryActions}
+      compactUtilityActions={compactUtilityActions}
+      compactSurface={compactSurface}
+      onCloseCompactSurface={() => setCompactSurface(null)}
+      t={t}
+    />
   );
 }

@@ -88,12 +88,36 @@ const sceneMentionItems: MeetingMentionItem[] = [
 describe('DirectorGraphCanvas', () => {
   installAOLMeetingBottomShellTestHarness();
 
+  function stubCompactViewport() {
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn((query: string) => ({
+        matches:
+          query === '(max-width: 767px)' ||
+          query === '(min-width: 768px) and (max-width: 1023px)',
+        media: query,
+        onchange: null,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      })),
+    );
+    Object.defineProperty(window, 'innerWidth', {
+      configurable: true,
+      writable: true,
+      value: 390,
+    });
+  }
+
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
   afterEach(() => {
     vi.clearAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it('renders contract node types, saves draft payloads, and runs the graph', async () => {
@@ -171,6 +195,46 @@ describe('DirectorGraphCanvas', () => {
           String(url).includes('/composition-graph/import'),
         ),
       ).toBe(true);
+    });
+  });
+
+  it('uses a single secondary drawer for palette, inspector, and json on compact viewports', async () => {
+    stubCompactViewport();
+
+    render(
+      <DirectorGraphCanvas
+        apiUrl="http://api.test"
+        workspaceId="ws-global"
+        meetingId="mtg_global"
+        threadId="mtg_global"
+        command=""
+        selectedPackTool={null}
+        onCommandEnvelope={vi.fn().mockResolvedValue(undefined)}
+        t={t}
+      />,
+    );
+
+    expect(await screen.findByTestId('reactflow-mock')).toBeInTheDocument();
+    expect(screen.queryByTestId('director-graph-palette')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('director-graph-inspector')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('director-graph-import-export')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('director-graph-toggle-palette'));
+    expect(await screen.findByTestId('meeting-secondary-drawer')).toHaveAttribute('data-secondary-surface', 'palette');
+    expect(screen.getByTestId('director-graph-palette')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('director-graph-node-type-director_focus'));
+    fireEvent.click(screen.getByTestId('director-graph-toggle-inspector'));
+    expect(await screen.findByTestId('meeting-secondary-drawer')).toHaveAttribute('data-secondary-surface', 'inspector');
+    expect(screen.getByTestId('director-graph-inspector')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('director-graph-toggle-json'));
+    expect(await screen.findByTestId('meeting-secondary-drawer')).toHaveAttribute('data-secondary-surface', 'json');
+    expect(screen.getByTestId('director-graph-import-export')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('meeting-secondary-drawer-backdrop'));
+    await waitFor(() => {
+      expect(screen.queryByTestId('meeting-secondary-drawer')).not.toBeInTheDocument();
     });
   });
 });

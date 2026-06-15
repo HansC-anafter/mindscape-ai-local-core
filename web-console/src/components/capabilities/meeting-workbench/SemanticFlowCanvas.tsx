@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { Box, FileText, MousePointer2, PlusCircle, RotateCcw, ZoomIn, ZoomOut } from 'lucide-react';
+import { Box, FileText, MousePointer2, PlusCircle, RotateCcw, SlidersHorizontal, ZoomIn, ZoomOut } from 'lucide-react';
 
 import {
   CANVAS_ZOOM_STEP,
@@ -65,6 +65,9 @@ export function MeetingHeaderToolbar({
   onSelectNextStep,
   onSelectMissingContext,
   onTogglePanel,
+  showInspectorToggle = false,
+  inspectorPanelActive = false,
+  onToggleInspectorPanel,
   onGraphViewModeChange,
   t,
 }: {
@@ -87,6 +90,9 @@ export function MeetingHeaderToolbar({
   onSelectNextStep: (() => void) | null;
   onSelectMissingContext: (() => void) | null;
   onTogglePanel: (panel: MeetingInfoPanel) => void;
+  showInspectorToggle?: boolean;
+  inspectorPanelActive?: boolean;
+  onToggleInspectorPanel?: () => void;
   onGraphViewModeChange: (mode: GraphViewMode) => void;
   t: MeetingTranslate;
 }) {
@@ -142,8 +148,26 @@ export function MeetingHeaderToolbar({
           title={t('meetingWorkbenchNewSession')}
         >
           <PlusCircle className="h-4 w-4" aria-hidden="true" />
-          <span>{t('meetingWorkbenchNewSession')}</span>
+          <span className="hidden sm:inline">{t('meetingWorkbenchNewSession')}</span>
         </button>
+        {showInspectorToggle ? (
+          <button
+            type="button"
+            onClick={onToggleInspectorPanel}
+            className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border transition-colors ${
+              inspectorPanelActive
+                ? 'border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-700 dark:bg-blue-950/40 dark:text-blue-300'
+                : 'border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800'
+            }`}
+            data-testid="meeting-inspector-toggle"
+            aria-label={t('meetingWorkbenchInspectorLabel')}
+            aria-expanded={inspectorPanelActive}
+            aria-controls="meeting-inspector-panel"
+            title={t('meetingWorkbenchInspectorLabel')}
+          >
+            <SlidersHorizontal className="h-4 w-4" aria-hidden="true" />
+          </button>
+        ) : null}
         <div
           className="hidden items-center overflow-hidden rounded-md border border-slate-200 bg-slate-50 p-0.5 dark:border-slate-800 dark:bg-slate-900 md:flex"
           data-testid="meeting-graph-view-mode"

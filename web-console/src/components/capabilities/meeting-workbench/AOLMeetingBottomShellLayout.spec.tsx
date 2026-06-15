@@ -1,6 +1,6 @@
 import React from 'react';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import AOLMeetingBottomShell from './AOLMeetingBottomShell';
 import { attachResponse, summary } from './meetingWorkbenchTestData';
@@ -8,8 +8,26 @@ import { installAOLMeetingBottomShellTestHarness } from './meetingWorkbenchTestH
 import { MeetingWorkSubgraphCanvas } from './MeetingWorkSubgraphCanvas';
 import type { MeetingGraphEdge, MeetingNode, MeetingTranslate } from './meetingWorkbenchTypes';
 
+function stubCompactViewport() {
+  vi.stubGlobal('matchMedia', vi.fn((query: string) => ({
+    matches:
+      query === '(max-width: 767px)'
+        ? true
+        : query === '(min-width: 768px) and (max-width: 1023px)'
+          ? false
+          : false,
+    media: query,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+  })));
+}
+
 describe('AOLMeetingBottomShell layout and runtime graph', () => {
   installAOLMeetingBottomShellTestHarness();
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
 
   it('opens as a graph-first bottom shell with collapsed inspector and console', async () => {
     render(
@@ -86,6 +104,47 @@ describe('AOLMeetingBottomShell layout and runtime graph', () => {
     expect(screen.getAllByText('Ready for instruction').length).toBeGreaterThan(0);
     expect(screen.queryByTestId('meeting-inspector-panel')).toBeNull();
     expect(screen.queryByTestId('meeting-console-drawer')).toBeNull();
+  });
+
+  it('uses a single secondary drawer on compact viewports', async () => {
+    stubCompactViewport();
+
+    render(
+      <AOLMeetingBottomShell
+        workspaceId="ws-global"
+        apiUrl="http://api.test"
+        meetingId="mtg_global"
+        summary={summary}
+        selection={null}
+        attachResponse={attachResponse}
+        surfaceRoute="/workspaces/ws-global/capabilities/ig"
+        onSwitchObject={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByTestId('meeting-inspector-rail')).toBeNull();
+    expect(screen.queryByTestId('meeting-object-outliner')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('meeting-object-context-toggle'));
+    expect(screen.getByTestId('meeting-secondary-drawer')).toHaveAttribute('data-secondary-surface', 'object');
+    expect(screen.getByTestId('meeting-object-context-panel')).toBeInTheDocument();
+    expect(screen.getByTestId('meeting-object-outliner')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('meeting-sessions-toggle'));
+    expect(screen.getByTestId('meeting-secondary-drawer')).toHaveAttribute('data-secondary-surface', 'sessions');
+    expect(await screen.findByTestId('meeting-sessions-popover')).toBeInTheDocument();
+    expect(screen.queryByTestId('meeting-object-context-panel')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('meeting-inspector-toggle'));
+    expect(screen.getByTestId('meeting-secondary-drawer')).toHaveAttribute('data-secondary-surface', 'inspector');
+    expect(screen.getByTestId('meeting-inspector-rail')).toBeInTheDocument();
+    expect(screen.getByTestId('meeting-inspector-panel')).toBeInTheDocument();
+    expect(screen.queryByTestId('meeting-sessions-popover')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('meeting-console-toggle'));
+    expect(screen.getByTestId('meeting-secondary-drawer')).toHaveAttribute('data-secondary-surface', 'console');
+    expect(screen.getByTestId('meeting-console-drawer')).toBeInTheDocument();
+    expect(screen.queryByTestId('meeting-inspector-panel')).toBeNull();
   });
 
   it('renders meeting-owned execution graph nodes from task closure proof', async () => {

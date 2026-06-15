@@ -9,6 +9,7 @@ export function DirectorGraphPalette({
   selectedPrimaryPack,
   onSelectPrimaryPack,
   onAddNode,
+  presentation = 'inline',
   t,
 }: {
   contracts: CompositionGraphContract[];
@@ -16,14 +17,21 @@ export function DirectorGraphPalette({
   selectedPrimaryPack: string | null;
   onSelectPrimaryPack: (capabilityCode: string | null) => void;
   onAddNode: (nodeType: CompositionGraphNodeType) => void;
+  presentation?: 'inline' | 'drawer';
   t: MeetingTranslate;
 }) {
+  const drawerPresentation = presentation === 'drawer';
+
   return (
     <aside
-      className="flex w-64 shrink-0 flex-col border-r border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950"
+      className={
+        drawerPresentation
+          ? 'flex min-h-0 flex-1 flex-col bg-white dark:bg-slate-950'
+          : 'flex w-64 shrink-0 flex-col border-r border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950'
+      }
       data-testid="director-graph-palette"
     >
-      <div className="border-b border-slate-200 p-3 dark:border-slate-800">
+      <div className={`border-b border-slate-200 dark:border-slate-800 ${drawerPresentation ? 'px-4 pb-3 pt-4' : 'p-3'}`}>
         <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.08em] text-slate-500 dark:text-slate-400">
           <Layers className="h-4 w-4" aria-hidden="true" />
           {t('directorGraphPalette')}
@@ -45,7 +53,7 @@ export function DirectorGraphPalette({
           </select>
         </label>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto p-2">
+      <div className={`min-h-0 flex-1 overflow-y-auto ${drawerPresentation ? 'px-4 pb-4' : 'p-2'}`}>
         {nodeTypes.map((nodeType) => (
           <button
             key={`${nodeType.source}:${nodeType.capability_code || 'core'}:${nodeType.id}`}
