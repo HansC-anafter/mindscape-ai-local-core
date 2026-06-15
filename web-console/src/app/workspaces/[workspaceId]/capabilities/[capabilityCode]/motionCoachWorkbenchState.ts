@@ -231,6 +231,94 @@ function resolveLessonSourceLabel(launchInput: MotionPracticeLaunchInput | null)
   return 'Instruction source pending';
 }
 
+function resolveFirstInstructionRef(launchInput: MotionPracticeLaunchInput | null): Record<string, unknown> | null {
+  return launchInput?.instructionRefs?.find((item) => isRecord(item)) || null;
+}
+
+function resolveInstructionArtifactRef(launchInput: MotionPracticeLaunchInput | null): string {
+  const firstInstructionRef = resolveFirstInstructionRef(launchInput);
+  if (firstInstructionRef) {
+    return readString(firstInstructionRef.artifact_ref)
+      || readString(firstInstructionRef.video_understanding_artifact_ref)
+      || readString(firstInstructionRef.video_ref)
+      || readString(firstInstructionRef.media_ref)
+      || readString(firstInstructionRef.teacher_ref);
+  }
+  return launchInput?.expertLibraryRef?.trim() || '';
+}
+
+function resolveInstructionProvider(launchInput: MotionPracticeLaunchInput | null): string {
+  const firstInstructionRef = resolveFirstInstructionRef(launchInput);
+  if (!firstInstructionRef) {
+    return 'missing';
+  }
+  return readString(firstInstructionRef.source_provider)
+    || readString(firstInstructionRef.provider)
+    || readString(firstInstructionRef.ref_type)
+    || 'local';
+}
+
+function resolveInstructionArtifactSchemaId(launchInput: MotionPracticeLaunchInput | null): string {
+  const firstInstructionRef = resolveFirstInstructionRef(launchInput);
+  if (!firstInstructionRef) {
+    return 'vcs_instruction_video_prepared_bundle.v1';
+  }
+  return readString(firstInstructionRef.artifact_schema_id)
+    || readString(firstInstructionRef.schema_id)
+    || 'vcs_instruction_video_prepared_bundle.v1';
+}
+
+function buildReferenceLessonImportRef(
+  input: MotionCoachWorkbenchStateInput,
+  segments: TimelineSegment[],
+): Record<string, unknown> {
+  const artifactRef = resolveInstructionArtifactRef(input.launchInput);
+  const sourceProvider = resolveInstructionProvider(input.launchInput);
+  const firstInstructionRef = resolveFirstInstructionRef(input.launchInput);
+  const hasReferenceCue = Boolean(
+    readString(input.referenceLessonState?.lesson_id)
+      || readString(input.referenceLessonState?.chapter_ref)
+      || readString(input.referenceLessonState?.title)
+      || readString(input.referenceLessonState?.focus_cue)
+      || input.referenceLessonState?.timestamp_ms !== undefined,
+  );
+  const hasCourseSegments = segments.length > 0;
+  const status = hasCourseSegments && artifactRef
+    ? 'ready'
+    : hasCourseSegments
+      ? 'review_required'
+      : hasReferenceCue
+        ? 'materializing'
+        : 'missing';
+  const confidence = status === 'ready'
+    ? clamp01(readNumber(firstInstructionRef?.confidence) || readNumber(firstInstructionRef?.provider_confidence) || 0.85)
+    : status === 'materializing'
+      ? 0.35
+      : 0;
+  const blockedReason = status === 'ready'
+    ? ''
+    : status === 'review_required'
+      ? 'Teacher lesson chapters exist but no source artifact reference is attached.'
+      : status === 'materializing'
+        ? 'Live teacher cue is present; waiting for materialized course chapters.'
+        : 'Choose a teacher lesson or materialized reference asset before live motion comparison.';
+
+  return {
+    id: artifactRef
+      ? `reference_lesson_import:${artifactRef}`
+      : 'reference_lesson_import_pending',
+    status,
+    ...(artifactRef ? { artifact_ref: artifactRef } : {}),
+    confidence,
+    human_patch_required: status !== 'ready',
+    ready_chapter_count: status === 'ready' ? segments.length : 0,
+    ...(blockedReason ? { blocked_reason: blockedReason } : {}),
+    contract_version: 'yogacoach.reference_lesson_import.v1',
+    artifact_schema_id: resolveInstructionArtifactSchemaId(input.launchInput),
+    source_provider: sourceProvider,
+  };
+}
+
 function mapSeverity(value: unknown): 'green' | 'yellow' | 'red' | 'unknown' {
   const severity = readString(value);
   return severity === 'green' || severity === 'yellow' || severity === 'red'
@@ -505,6 +593,7 @@ export function buildYogaPracticeWorkbenchState(
       motion_window_count: readNumber(input.closureResult?.rollup.summary?.window_count) || digests.length,
       digests,
     },
+    reference_lesson_import_ref: buildReferenceLessonImportRef(input, segments),
     reference_lesson_state: {
       lesson_id: readString(input.launchInput?.expertLibraryRef) || 'lesson_pending',
       title: lessonTitle,

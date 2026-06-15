@@ -142,10 +142,52 @@ describe('motionCoachWorkbenchState', () => {
       phase: 'hold',
       confidence: 0.82,
     });
+    expect(state.reference_lesson_import_ref).toMatchObject({
+      status: 'ready',
+      artifact_ref: 'mindscape://teacher/ref',
+      confidence: 0.85,
+      human_patch_required: false,
+      ready_chapter_count: 1,
+      source_provider: 'manual_teacher_ref',
+      artifact_schema_id: 'vcs_instruction_video_prepared_bundle.v1',
+    });
     expect(state.meeting_feedback_ref).toMatchObject({
       status: 'streaming',
     });
     expect(state.meeting_feedback_ref.cues).toContain('Keep shoulders level.');
+  });
+
+  it('keeps Yoga reference import materializing when only a live teacher cue is available', () => {
+    const state = buildYogaPracticeWorkbenchState({
+      capabilityCode: 'yogacoach',
+      selectedSession: sourceSession,
+      referenceLessonState: {
+        lesson_id: 'lesson-live',
+        chapter_ref: 'standing_alignment',
+        title: 'Foundation Flow',
+        timestamp_ms: 1000,
+        focus_cue: 'Lift through the collarbones.',
+      },
+      launchInput: null,
+      practiceResult: null,
+      motionWindowEvents: [],
+      closureResult: null,
+    }) as Record<string, any>;
+
+    expect(state.reference_lesson_import_ref).toMatchObject({
+      id: 'reference_lesson_import_pending',
+      status: 'materializing',
+      confidence: 0.35,
+      human_patch_required: true,
+      ready_chapter_count: 0,
+      source_provider: 'missing',
+      artifact_schema_id: 'vcs_instruction_video_prepared_bundle.v1',
+    });
+    expect(state.reference_lesson_import_ref.blocked_reason).toContain('waiting for materialized course chapters');
+    expect(state.reference_lesson_state.chapters[0]).toMatchObject({
+      id: 'standing_alignment',
+      title: 'Foundation Flow',
+    });
   });
 
   it('builds a ready Dance workbench state from session-close rollup output', () => {
