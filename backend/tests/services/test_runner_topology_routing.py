@@ -62,14 +62,14 @@ def test_resolve_target_runner_profile_prefers_runner_profile_hint():
     assert resolve_target_runner_profile(task) == "gpu_training"
 
 
-def test_resolve_target_runner_profile_routes_following_to_revisit_runner():
+def test_resolve_target_runner_profile_keeps_following_on_general_browser_runner():
     task = _build_task(pack_id="ig_analyze_following")
 
     target = resolve_task_routing_target(task)
 
     assert target.queue_partition == "browser_local"
-    assert target.runner_profile_hint == "browser_revisit_local"
-    assert resolve_target_runner_profile(task) == "browser_revisit_local"
+    assert target.runner_profile_hint is None
+    assert resolve_target_runner_profile(task) == "browser_local"
 
 
 def test_general_browser_task_stays_on_browser_runner():
@@ -127,7 +127,7 @@ def test_runner_profile_can_claim_task_rejects_mismatched_profile_hint():
     )
 
 
-def test_general_browser_profile_cannot_claim_following_revisit_task():
+def test_general_browser_profile_can_claim_following_without_explicit_profile_hint():
     browser_profile = RunnerProfile(
         profile_code="browser_local",
         display_name="Browser",
@@ -135,18 +135,9 @@ def test_general_browser_profile_cannot_claim_following_revisit_task():
         accepted_resource_classes=("browser",),
         accepted_queue_partitions=("browser_local",),
     )
-    revisit_profile = RunnerProfile(
-        profile_code="browser_revisit_local",
-        display_name="Browser Revisit",
-        dispatch_mode="docker_local",
-        accepted_resource_classes=("browser",),
-        accepted_queue_partitions=("browser_local",),
-        accepted_capability_codes=("ig_analyze_following",),
-    )
     task = _build_task(pack_id="ig_analyze_following")
 
-    assert not runner_profile_can_claim_task(browser_profile, task)
-    assert runner_profile_can_claim_task(revisit_profile, task)
+    assert runner_profile_can_claim_task(browser_profile, task)
 
 
 def test_runner_profile_can_claim_task_respects_capability_filter():

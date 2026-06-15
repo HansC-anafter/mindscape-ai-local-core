@@ -136,18 +136,6 @@ def _browser_profile() -> RunnerProfile:
     )
 
 
-def _browser_revisit_profile() -> RunnerProfile:
-    return RunnerProfile(
-        profile_code="browser_revisit_local",
-        display_name="Browser Revisit",
-        dispatch_mode="docker_local",
-        accepted_resource_classes=("browser",),
-        accepted_queue_partitions=("browser_local",),
-        accepted_capability_codes=("ig_analyze_following",),
-        max_inflight=1,
-    )
-
-
 def _default_profile() -> RunnerProfile:
     return RunnerProfile(
         profile_code="default_local",
@@ -159,23 +147,32 @@ def _default_profile() -> RunnerProfile:
     )
 
 
-def test_route_gate_policy_selects_following_for_revisit_profile():
+def test_worker_browser_fairness_keeps_following_available_to_general_browser_profile():
     queue = _FakeFairQueue(["task-following", "task-batch"])
-    for task_id, pack_id in {
-        "task-following": "ig_analyze_following",
-        "task-batch": "ig_batch_pin_references",
-    }.items():
-        queue.client.projections[
-            f"mindscape:host_resources:route_identity:{task_id}"
-        ] = serialize_route_identity_projection(task_id, _projection(task_id, pack_id))
+    tasks_store = _FakeCandidateTasksStore(
+        {
+            "task-following": _candidate_projection(
+                "task-following",
+                "ig_analyze_following",
+            ),
+            "task-batch": _candidate_projection(
+                "task-batch",
+                "ig_batch_pin_references",
+            ),
+        },
+        {
+            "ig_analyze_following": 0,
+            "ig_batch_pin_references": 1,
+        },
+    )
 
     task_id, queue_store, drain_wait = asyncio.run(
-        _dequeue_by_route_gate_policy(
+        _dequeue_by_browser_fair_candidate_policy(
             [queue],
-            runner_profile=_browser_revisit_profile(),
+            tasks_store=tasks_store,
+            runner_profile=_browser_profile(),
             visibility_timeout_sec=180,
             scan_limit=10,
-            active_pack_ids={"ig_batch_pin_references"},
         )
     )
 
@@ -183,6 +180,7 @@ def test_route_gate_policy_selects_following_for_revisit_profile():
     assert queue_store is queue
     assert drain_wait is False
     assert queue.promoted == ["task-following"]
+    assert tasks_store.requested_ids == ["task-following", "task-batch"]
 
 
 def test_route_gate_policy_falls_back_when_only_same_playbook():
@@ -355,7 +353,7 @@ def test_worker_non_browser_keeps_existing_fifo_path(monkeypatch):
     assert queue.promoted == []
 
 
-def test_runner_default_compose_is_dedicated_following_revisit_lane():
+def test_runner_default_compose_remains_general_browser_spare_lane():
     compose_path = next(
         (
             candidate
@@ -373,11 +371,9 @@ def test_runner_default_compose_is_dedicated_following_revisit_lane():
 
     assert "LOCAL_CORE_RUNNER_RESERVED_PACK_SLOTS" not in compose_text
     assert "ig_analyze_following=1" not in compose_text
-    assert "LOCAL_CORE_RUNNER_DEFAULT_PROFILE:-browser_revisit_local" in compose_text
-    assert (
-        "LOCAL_CORE_RUNNER_DEFAULT_ACCEPTED_CAPABILITY_CODES:-ig_analyze_following"
-        in compose_text
-    )
+    assert "LOCAL_CORE_RUNNER_DEFAULT_PROFILE:-browser_local" in compose_text
+    assert "LOCAL_CORE_RUNNER_DEFAULT_ACCEPTED_CAPABILITY_CODES" not in compose_text
+    assert "LOCAL_CORE_RUNNER_DEFAULT_MAX_INFLIGHT:-3" in compose_text
 
 
 def test_database_recovery_error_detection_and_backoff():
