@@ -6,7 +6,11 @@ Handles mind events (timeline) CRUD operations
 from datetime import datetime
 from typing import List, Optional, Dict, Any
 from backend.app.services.stores.base import StoreBase
-from ...models.mindscape import MindEvent, EventType, EventActor
+from backend.app.services.stores.events_projection import (
+    row_to_event,
+    rows_to_events,
+)
+from ...models.mindscape import MindEvent, EventType
 import logging
 
 logger = logging.getLogger(__name__)
@@ -192,21 +196,7 @@ class EventsStore(StoreBase):
 
             cursor.execute(query, params)
             rows = cursor.fetchall()
-            # Convert rows to events, with error handling
-            events = []
-            for i, row in enumerate(rows):
-                try:
-                    event = self._row_to_event(row)
-                    events.append(event)
-                except Exception as e:
-                    import logging
-                    logger = logging.getLogger(__name__)
-                    logger.error(f"Error converting row {i} to event in get_events (base): {e}")
-                    import traceback
-                    logger.error(traceback.format_exc())
-                    # Skip this row and continue
-                    continue
-            return events
+            return self._rows_to_events(rows, "to event in get_events (base)")
 
     def get_events_by_project(
         self,
@@ -245,21 +235,7 @@ class EventsStore(StoreBase):
 
             cursor.execute(query, params)
             rows = cursor.fetchall()
-            # Convert rows to events, with error handling
-            events = []
-            for i, row in enumerate(rows):
-                try:
-                    event = self._row_to_event(row)
-                    events.append(event)
-                except Exception as e:
-                    import logging
-                    logger = logging.getLogger(__name__)
-                    logger.error(f"Error converting row {i} to event in get_events: {e}")
-                    import traceback
-                    logger.error(traceback.format_exc())
-                    # Skip this row and continue
-                    continue
-            return events
+            return self._rows_to_events(rows, "to event in get_events")
 
     def get_events_by_workspace(
         self,
@@ -304,21 +280,7 @@ class EventsStore(StoreBase):
 
             cursor.execute(query, params)
             rows = cursor.fetchall()
-            # Convert rows to events, with error handling
-            events = []
-            for i, row in enumerate(rows):
-                try:
-                    event = self._row_to_event(row)
-                    events.append(event)
-                except Exception as e:
-                    import logging
-                    logger = logging.getLogger(__name__)
-                    logger.error(f"Error converting row {i} to event in get_events_by_workspace: {e}")
-                    import traceback
-                    logger.error(traceback.format_exc())
-                    # Skip this row and continue
-                    continue
-            return events
+            return self._rows_to_events(rows, "to event in get_events_by_workspace")
 
     def get_events_by_thread(
         self,
@@ -365,21 +327,7 @@ class EventsStore(StoreBase):
 
             cursor.execute(query, params)
             rows = cursor.fetchall()
-            # Convert rows to events, with error handling
-            events = []
-            for i, row in enumerate(rows):
-                try:
-                    event = self._row_to_event(row)
-                    events.append(event)
-                except Exception as e:
-                    import logging
-                    logger = logging.getLogger(__name__)
-                    logger.error(f"Error converting row {i} to event in get_events_by_thread: {e}")
-                    import traceback
-                    logger.error(traceback.format_exc())
-                    # Skip this row and continue
-                    continue
-            return events
+            return self._rows_to_events(rows, "to event in get_events_by_thread")
 
     def get_events_by_meeting_session(
         self,
@@ -427,20 +375,7 @@ class EventsStore(StoreBase):
                 cursor.execute(query, params)
                 rows = cursor.fetchall()
 
-            events = []
-            for i, row in enumerate(rows):
-                try:
-                    event = self._row_to_event(row)
-                    events.append(event)
-                except Exception as e:
-                    import logging
-
-                    logger = logging.getLogger(__name__)
-                    logger.error(
-                        f"Error converting row {i} in get_events_by_meeting_session: {e}"
-                    )
-                    continue
-            return events
+            return self._rows_to_events(rows, "in get_events_by_meeting_session")
 
     def count_messages_by_thread(
         self,
@@ -556,126 +491,20 @@ class EventsStore(StoreBase):
 
             cursor.execute(query, params)
             rows = cursor.fetchall()
-            # Convert rows to events, with error handling
-            events = []
-            for i, row in enumerate(rows):
-                try:
-                    event = self._row_to_event(row)
-                    events.append(event)
-                except Exception as e:
-                    import logging
-                    logger = logging.getLogger(__name__)
-                    logger.error(f"Error converting row {i} to event in get_timeline: {e}")
-                    import traceback
-                    logger.error(traceback.format_exc())
-                    # Skip this row and continue
-                    continue
-            return events
+            return self._rows_to_events(rows, "to event in get_timeline")
 
     def _row_to_event(self, row) -> MindEvent:
-        """Convert database row to MindEvent"""
-        # sqlite3.Row doesn't support .get(), use direct access with None check
-        # Ensure we extract string values from sqlite3.Row before deserializing
-        # sqlite3.Row returns None for NULL values, so we can safely check
+        return row_to_event(
+            row,
+            deserialize_json=self.deserialize_json,
+            from_isoformat=self.from_isoformat,
+            logger=logger,
+        )
 
-        # Extract values from sqlite3.Row - these should be Python native types
-        # For TEXT columns, sqlite3.Row returns str or None
-        # For JSON columns stored as TEXT, we get the JSON string
-        try:
-            payload_val = row['payload']
-            entity_ids_val = row['entity_ids']
-            metadata_val = row['metadata']
-        except KeyError as e:
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.error(f"Missing column in row: {e}, available columns: {row.keys() if hasattr(row, 'keys') else 'unknown'}")
-            raise
-
-        # Check if values are sqlite3.Row objects (shouldn't happen, but handle it)
-        if hasattr(payload_val, '__class__') and payload_val.__class__.__name__ == 'Row':
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.error(f"payload_val is sqlite3.Row object! This shouldn't happen. Row keys: {payload_val.keys() if hasattr(payload_val, 'keys') else 'unknown'}")
-            payload_val = None
-
-        if hasattr(entity_ids_val, '__class__') and entity_ids_val.__class__.__name__ == 'Row':
-            entity_ids_val = None
-
-        if hasattr(metadata_val, '__class__') and metadata_val.__class__.__name__ == 'Row':
-            metadata_val = None
-
-        # Convert to string if not None, otherwise use None
-        # sqlite3.Row should return str for TEXT columns, but ensure it's a string
-        payload_str = str(payload_val) if payload_val is not None else None
-        entity_ids_str = str(entity_ids_val) if entity_ids_val is not None else None
-        metadata_str = str(metadata_val) if metadata_val is not None else None
-
-        # Deserialize JSON fields
-        payload = self.deserialize_json(payload_str, {})
-        entity_ids = self.deserialize_json(entity_ids_str, [])
-        metadata = self.deserialize_json(metadata_str, {})
-
-        # Deep clean: Recursively remove any sqlite3.Row objects
-        def clean_dict(d):
-            """Recursively clean dict to remove sqlite3.Row objects"""
-            if not isinstance(d, dict):
-                return {}
-            cleaned = {}
-            for key, value in d.items():
-                # Check if value is sqlite3.Row
-                if hasattr(value, '__class__'):
-                    class_name = value.__class__.__name__
-                    module_name = getattr(value.__class__, '__module__', '')
-                    if class_name == 'Row' or 'sqlite3' in module_name:
-                        # Skip sqlite3.Row values
-                        continue
-                    # If value is a dict, recursively clean it
-                    if isinstance(value, dict):
-                        value = clean_dict(value)
-                cleaned[key] = value
-            return cleaned
-
-        # Ensure payload is a dict and clean it
-        if not isinstance(payload, dict):
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.warning(f"deserialize_json returned non-dict payload: type={type(payload)}, value={payload}")
-            payload = {}
-        else:
-            payload = clean_dict(payload)
-
-        # Ensure entity_ids is a list
-        if not isinstance(entity_ids, list):
-            entity_ids = []
-
-        # Ensure metadata is a dict and clean it
-        if not isinstance(metadata, dict):
-            metadata = {}
-        else:
-            metadata = clean_dict(metadata)
-
-        try:
-            return MindEvent(
-                id=str(row['id']),
-                timestamp=self.from_isoformat(row['timestamp']),
-                actor=EventActor(row['actor']),
-                channel=str(row['channel']),
-                profile_id=str(row['profile_id']),
-                project_id=str(row['project_id']) if row['project_id'] else None,
-                workspace_id=str(row['workspace_id']) if row['workspace_id'] else None,
-                thread_id=str(row['thread_id']) if 'thread_id' in row.keys() and row['thread_id'] else None,
-                event_type=EventType(row['event_type']),
-                payload=payload,
-                entity_ids=entity_ids,
-                metadata=metadata
-            )
-        except Exception as e:
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.error(f"Error creating MindEvent: {e}")
-            logger.error(f"Payload type: {type(payload)}, Payload: {payload}")
-            logger.error(f"Entity IDs type: {type(entity_ids)}, Entity IDs: {entity_ids}")
-            logger.error(f"Metadata type: {type(metadata)}, Metadata: {metadata}")
-            import traceback
-            logger.error(traceback.format_exc())
-            raise
+    def _rows_to_events(self, rows, context: str) -> List[MindEvent]:
+        return rows_to_events(
+            rows,
+            row_to_event=self._row_to_event,
+            context=context,
+            logger=logger,
+        )
