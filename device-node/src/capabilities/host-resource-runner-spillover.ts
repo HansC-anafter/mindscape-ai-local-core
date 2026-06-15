@@ -9,6 +9,16 @@ interface SpilloverArgs {
     action?: unknown;
     profile_code?: unknown;
     max_inflight?: unknown;
+    accepted_partitions?: unknown;
+    accepted_resource_classes?: unknown;
+    accepted_capability_codes?: unknown;
+    runtime_endpoint?: unknown;
+    runtime_id?: unknown;
+    runtime_model?: unknown;
+    runtime_max_output_tokens?: unknown;
+    runtime_context_budget_tokens?: unknown;
+    display_name?: unknown;
+    db_application_name?: unknown;
 }
 
 interface ProfileDefaults {
@@ -42,6 +52,12 @@ const PROFILE_DEFAULTS: Record<SpilloverProfile, ProfileDefaults> = {
         defaultMaxInflight: 1,
     },
 };
+const CUSTOM_PROFILE_REQUIRED_FIELDS = [
+    "accepted_partitions",
+    "accepted_resource_classes",
+    "accepted_capability_codes",
+    "runtime_endpoint",
+] as const;
 
 function cleanString(value: unknown): string {
     return String(value || "").trim();
@@ -55,10 +71,18 @@ function cleanAction(value: unknown): SpilloverAction {
     return action;
 }
 
-function cleanProfile(value: unknown): SpilloverProfile {
+function cleanBuiltinProfile(value: unknown): SpilloverProfile {
     const profile = cleanString(value || "default_local") as SpilloverProfile;
     if (!Object.prototype.hasOwnProperty.call(PROFILE_DEFAULTS, profile)) {
         throw new Error(`Unsupported spillover profile: ${profile}`);
+    }
+    return profile;
+}
+
+function cleanCustomProfile(value: unknown): string {
+    const profile = cleanString(value);
+    if (!profile) {
+        throw new Error("Custom spillover profile is required");
     }
     return profile;
 }
@@ -69,6 +93,20 @@ function cleanMaxInflight(value: unknown, fallback: number): number {
         return fallback;
     }
     return Math.min(Math.max(parsed, 1), 4);
+}
+
+function usesCustomProfile(payload: SpilloverArgs): boolean {
+    return CUSTOM_PROFILE_REQUIRED_FIELDS.some((fieldName) =>
+        cleanString(payload[fieldName]).length > 0
+    );
+}
+
+function cleanRequiredField(payload: SpilloverArgs, fieldName: string): string {
+    const value = cleanString(payload[fieldName as keyof SpilloverArgs]);
+    if (!value) {
+        throw new Error(`${fieldName} is required for custom spillover profiles`);
+    }
+    return value;
 }
 
 function projectRoot(): string {
@@ -166,9 +204,36 @@ export async function hostResourceRunnerSpilloverControl(
 ): Promise<Record<string, unknown>> {
     const payload = args as SpilloverArgs;
     const action = cleanAction(payload.action);
-    const profileCode = cleanProfile(payload.profile_code);
-    const defaults = PROFILE_DEFAULTS[profileCode];
+    const customProfile = usesCustomProfile(payload);
+    const profileCode = customProfile
+        ? cleanCustomProfile(payload.profile_code)
+        : cleanBuiltinProfile(payload.profile_code);
+    const defaults = !customProfile
+        ? PROFILE_DEFAULTS[profileCode as SpilloverProfile]
+        : {
+            partitions: cleanRequiredField(payload, "accepted_partitions"),
+            resourceClasses: cleanRequiredField(payload, "accepted_resource_classes"),
+            defaultMaxInflight: 1,
+        };
     const maxInflight = cleanMaxInflight(payload.max_inflight, defaults.defaultMaxInflight);
+    const acceptedCapabilityCodes = customProfile
+        ? cleanRequiredField(payload, "accepted_capability_codes")
+        : "";
+    const runtimeEndpoint = customProfile
+        ? cleanRequiredField(payload, "runtime_endpoint")
+        : "";
+    const runtimeId = cleanString(payload.runtime_id) || `spillover:${profileCode}`;
+    const runtimeModel = cleanString(payload.runtime_model);
+    const runtimeMaxOutputTokens = cleanString(payload.runtime_max_output_tokens);
+    const runtimeContextBudgetTokens = cleanString(
+        payload.runtime_context_budget_tokens
+    );
+    const displayName =
+        cleanString(payload.display_name) ||
+        (customProfile ? profileCode : `Spillover ${profileCode}`);
+    const dbApplicationName =
+        cleanString(payload.db_application_name) ||
+        `local-core-runner-spillover-${profileCode}`;
     const cwd = projectRoot();
     const env = {
         ...process.env,
@@ -176,9 +241,15 @@ export async function hostResourceRunnerSpilloverControl(
         LOCAL_CORE_RUNNER_SPILLOVER_ACCEPTED_PARTITIONS: defaults.partitions,
         LOCAL_CORE_RUNNER_SPILLOVER_ACCEPTED_RESOURCE_CLASSES: defaults.resourceClasses,
         LOCAL_CORE_RUNNER_SPILLOVER_MAX_INFLIGHT: String(maxInflight),
-        LOCAL_CORE_RUNNER_SPILLOVER_RUNTIME_ID: `spillover:${profileCode}`,
-        LOCAL_CORE_RUNNER_SPILLOVER_DB_APPLICATION_NAME: `local-core-runner-spillover-${profileCode}`,
-        LOCAL_CORE_RUNNER_SPILLOVER_DISPLAY_NAME: `Spillover ${profileCode}`,
+        LOCAL_CORE_RUNNER_SPILLOVER_RUNTIME_ID: runtimeId,
+        LOCAL_CORE_RUNNER_SPILLOVER_DB_APPLICATION_NAME: dbApplicationName,
+        LOCAL_CORE_RUNNER_SPILLOVER_DISPLAY_NAME: displayName,
+        LOCAL_CORE_RUNNER_SPILLOVER_ACCEPTED_CAPABILITY_CODES: acceptedCapabilityCodes,
+        LOCAL_CORE_RUNNER_SPILLOVER_RUNTIME_ENDPOINT: runtimeEndpoint,
+        LOCAL_CORE_RUNNER_SPILLOVER_RUNTIME_MODEL: runtimeModel,
+        LOCAL_CORE_RUNNER_SPILLOVER_RUNTIME_MAX_OUTPUT_TOKENS: runtimeMaxOutputTokens,
+        LOCAL_CORE_RUNNER_SPILLOVER_RUNTIME_CONTEXT_BUDGET_TOKENS:
+            runtimeContextBudgetTokens,
     };
     const dockerArgs = commandArgs(action);
     const dockerBin = dockerCommand();

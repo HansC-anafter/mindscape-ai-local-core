@@ -108,6 +108,61 @@ async def test_positive_worker_target_requires_runtime_slot_before_gate(monkeypa
 
 
 @pytest.mark.asyncio
+async def test_worker_target_fallback_env_includes_lane_watchdog_settings(monkeypatch):
+    lane = {
+        "lane_id": "runner:decision_synthesis_35b",
+        "queue_shard": "decision_synthesis",
+        "runner_profile": "35b_synthesis",
+        "resource_class": "compute",
+        "max_concurrency": 1,
+        "desired_worker_count": 0,
+        "resource_flavor": "local.mlx.vision",
+        "model_profile": {
+            "port": 8212,
+            "model": "froggeric/Qwen3.6-35B-A3B-Uncensored-Heretic-MLX-4bit",
+            "watchdog": {
+                "inflight_hard_timeout_seconds": 10800,
+                "inflight_heartbeat_timeout_seconds": 180,
+                "inflight_ustate_max_failures": 12,
+            },
+        },
+        "metadata": {},
+    }
+    bridge_calls = []
+
+    async def _resource_gate_allows_start():
+        return True, {"reason": "resource_gate_open"}
+
+    async def _call_host_resource_lane_workers_set(arguments):
+        bridge_calls.append(arguments)
+        return {"accepted": True, "reason": "worker_target_started"}
+
+    monkeypatch.setattr(worker_targets, "get_dynamic_lane", lambda lane_id: lane)
+    monkeypatch.setattr(
+        worker_targets,
+        "resolve_worker_target",
+        lambda resolved_lane, desired: {
+            "accepted": True,
+            "reason": "worker_target_resolved",
+        },
+    )
+    monkeypatch.setattr(worker_targets, "_resource_gate_allows_start", _resource_gate_allows_start)
+    monkeypatch.setattr(
+        worker_targets,
+        "call_host_resource_lane_workers_set",
+        _call_host_resource_lane_workers_set,
+    )
+    monkeypatch.setattr(worker_targets, "update_dynamic_lane", lambda lane_id, payload: lane)
+
+    result = await worker_targets.set_lane_worker_target("runner:decision_synthesis_35b", 1)
+
+    assert result["accepted"] is True
+    assert bridge_calls[0]["worker_env"]["MLX_WATCHDOG_INFLIGHT_HARD_TIMEOUT"] == 10800
+    assert bridge_calls[0]["worker_env"]["MLX_WATCHDOG_INFLIGHT_HEARTBEAT_TIMEOUT"] == 180
+    assert bridge_calls[0]["worker_env"]["MLX_WATCHDOG_INFLIGHT_USTATE_MAX_FAILURES"] == 12
+
+
+@pytest.mark.asyncio
 async def test_stop_worker_target_marks_degraded_when_host_stop_not_verified(monkeypatch):
     lane = {
         "lane_id": "runner:35b_synthesis",

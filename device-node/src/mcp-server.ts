@@ -183,12 +183,56 @@ export class MCPServer {
                     },
                     profile_code: {
                         type: "string",
-                        enum: ["default_local", "browser_local", "vision_local"],
-                        description: "Runner profile for start/status context",
+                        description:
+                            "Built-in runner profile or a custom profile code for spillover start/status context",
                     },
                     max_inflight: {
                         type: "number",
                         description: "Bounded max inflight for start, clamped to 1-4",
+                    },
+                    accepted_partitions: {
+                        type: "string",
+                        description:
+                            "Required for custom profiles; comma-separated queue partitions",
+                    },
+                    accepted_resource_classes: {
+                        type: "string",
+                        description:
+                            "Required for custom profiles; comma-separated resource classes",
+                    },
+                    accepted_capability_codes: {
+                        type: "string",
+                        description:
+                            "Required for custom profiles; comma-separated capability codes",
+                    },
+                    runtime_endpoint: {
+                        type: "string",
+                        description:
+                            "Required for custom profiles; runtime base URL exposed to the runner",
+                    },
+                    runtime_id: {
+                        type: "string",
+                        description: "Optional runtime identifier override",
+                    },
+                    runtime_model: {
+                        type: "string",
+                        description: "Optional runtime model override",
+                    },
+                    runtime_max_output_tokens: {
+                        type: "string",
+                        description: "Optional runtime max output token cap",
+                    },
+                    runtime_context_budget_tokens: {
+                        type: "string",
+                        description: "Optional runtime context budget token cap",
+                    },
+                    display_name: {
+                        type: "string",
+                        description: "Optional runner display name override",
+                    },
+                    db_application_name: {
+                        type: "string",
+                        description: "Optional PostgreSQL application_name override",
                     },
                 },
             },

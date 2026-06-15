@@ -18,6 +18,7 @@ from .summary import build_host_resource_summary
 from .workspace_allocations import workspace_allocation_decision
 from .worker_target_resolution import (
     accepted_capability_codes_for_lane,
+    mlx_watchdog_env_for_lane,
     resolve_worker_target,
     runner_max_inflight_for_lane,
 )
@@ -46,6 +47,7 @@ def _worker_env_for_lane(lane: dict[str, Any]) -> dict[str, Any]:
     model = model_profile.get("model")
     if model:
         env["MLX_MODEL"] = model
+    env.update(mlx_watchdog_env_for_lane(lane))
     return env
 
 

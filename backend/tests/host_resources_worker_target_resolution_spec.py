@@ -206,6 +206,13 @@ def test_worker_target_resolution_uses_dynamic_synthesis_lane_capabilities(monke
             "port": 8212,
             "context_budget_tokens": 8192,
             "max_new_tokens": 12288,
+            "watchdog": {
+                "inflight_hard_timeout_seconds": 10800,
+                "inflight_heartbeat_timeout_seconds": 180,
+                "inflight_ustate_max_failures": 12,
+                "inflight_ustate_samples": 3,
+                "inflight_ustate_sample_delay_seconds": 1,
+            },
         },
         "metadata": {
             "accepted_capability_codes": accepted_codes,
@@ -236,6 +243,11 @@ def test_worker_target_resolution_uses_dynamic_synthesis_lane_capabilities(monke
     )
     assert result["worker_env"]["LOCAL_CORE_RUNTIME_CONTEXT_BUDGET_TOKENS"] == 8192
     assert result["worker_env"]["LOCAL_CORE_RUNTIME_MAX_OUTPUT_TOKENS"] == 12288
+    assert result["worker_env"]["MLX_WATCHDOG_INFLIGHT_HARD_TIMEOUT"] == 10800
+    assert result["worker_env"]["MLX_WATCHDOG_INFLIGHT_HEARTBEAT_TIMEOUT"] == 180
+    assert result["worker_env"]["MLX_WATCHDOG_INFLIGHT_USTATE_MAX_FAILURES"] == 12
+    assert result["worker_env"]["MLX_WATCHDOG_INFLIGHT_USTATE_SAMPLES"] == 3
+    assert result["worker_env"]["MLX_WATCHDOG_INFLIGHT_USTATE_SAMPLE_DELAY"] == 1
     assert result["worker_env"]["MLX_MODEL"] == (
         "froggeric/Qwen3.6-35B-A3B-Uncensored-Heretic-MLX-4bit"
     )

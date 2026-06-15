@@ -94,6 +94,35 @@ def _lane_watchdog_container_file(lane: dict[str, Any], *, suffix: str) -> str:
     return f"/app/data/runtime/mlx-watchdog/{_safe_lane_slug(lane.get('lane_id'))}.{suffix}"
 
 
+def mlx_watchdog_env_for_lane(lane: dict[str, Any]) -> dict[str, int | str]:
+    model_profile = _dict(lane.get("model_profile"))
+    watchdog = _dict(model_profile.get("watchdog"))
+    env: dict[str, int | str] = {}
+
+    integer_mappings = (
+        ("interval_seconds", "MLX_WATCHDOG_INTERVAL"),
+        ("idle_max_failures", "MLX_WATCHDOG_MAX_FAILURES"),
+        ("inflight_hard_timeout_seconds", "MLX_WATCHDOG_INFLIGHT_HARD_TIMEOUT"),
+        ("inflight_heartbeat_timeout_seconds", "MLX_WATCHDOG_INFLIGHT_HEARTBEAT_TIMEOUT"),
+        ("inflight_ustate_max_failures", "MLX_WATCHDOG_INFLIGHT_USTATE_MAX_FAILURES"),
+        ("inflight_ustate_samples", "MLX_WATCHDOG_INFLIGHT_USTATE_SAMPLES"),
+        (
+            "inflight_ustate_sample_delay_seconds",
+            "MLX_WATCHDOG_INFLIGHT_USTATE_SAMPLE_DELAY",
+        ),
+        ("min_hard_timeout_seconds", "MLX_WATCHDOG_MIN_HARD_TIMEOUT_SECONDS"),
+    )
+    for config_key, env_key in integer_mappings:
+        parsed = _clean_int(watchdog.get(config_key), default=0)
+        if parsed > 0:
+            env[env_key] = parsed
+
+    idle_failure_mode = _clean_string(watchdog.get("idle_failure_mode"))
+    if idle_failure_mode:
+        env["MLX_WATCHDOG_IDLE_FAILURE_MODE"] = idle_failure_mode
+    return env
+
+
 class RuntimeEnvironmentSlotStore(PostgresStoreBase):
     def get_runtime_environment(self, runtime_environment_id: str) -> dict[str, Any] | None:
         runtime_id = _clean_string(runtime_environment_id)
@@ -241,6 +270,7 @@ def _worker_env_for_resolution(
         env["MLX_PORT"] = port
         env["VLM_WATCHDOG_STATE_FILE"] = _lane_watchdog_container_file(lane, suffix="json")
         env["VLM_PROCESS_LOCK_FILE"] = _lane_watchdog_container_file(lane, suffix="lock")
+        env.update(mlx_watchdog_env_for_lane(lane))
         max_output_tokens = _clean_int(
             model_profile.get("max_new_tokens") or model_profile.get("max_output_tokens"),
             default=0,

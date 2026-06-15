@@ -3,6 +3,12 @@ import { closeSync, existsSync, mkdirSync, openSync, readFileSync } from "fs";
 import * as net from "net";
 import * as path from "path";
 import { fileURLToPath } from "url";
+import {
+    clearPersistedManagedWorkerState,
+    persistManagedWorkerState,
+    readPersistedManagedWorkerState,
+    type ManagedWorkerState,
+} from "./host-resource-lane-worker-state.js";
 
 interface LaneWorkerTargetArgs {
     lane_id?: unknown;
@@ -13,14 +19,7 @@ interface LaneWorkerTargetArgs {
     worker_env?: unknown;
 }
 
-interface ManagedWorker {
-    laneId: string;
-    pid: number;
-    port: number;
-    logDir: string;
-    watchdogStateFile: string;
-    startedAt: string;
-}
+type ManagedWorker = ManagedWorkerState;
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const workers = new Map<string, ManagedWorker>();
@@ -304,8 +303,30 @@ async function waitForStopVerification(
     };
 }
 
-async function stopLaneWorker(laneId: string, port: number): Promise<Record<string, unknown>> {
-    const worker = workers.get(laneId);
+function resolveManagedWorker(root: string, laneId: string): ManagedWorker | undefined {
+    const current = workers.get(laneId);
+    if (current) {
+        return current;
+    }
+    const persisted = readPersistedManagedWorkerState(root, laneId);
+    if (!persisted) {
+        return undefined;
+    }
+    if (!isPidAlive(persisted.pid)) {
+        clearPersistedManagedWorkerState(root, laneId, persisted.pid);
+        return undefined;
+    }
+    workers.set(laneId, persisted);
+    return persisted;
+}
+
+async function stopLaneWorker(
+    laneId: string,
+    port: number,
+    root?: string,
+): Promise<Record<string, unknown>> {
+    const launcherRoot = root || mlxLauncherPath()?.root;
+    const worker = launcherRoot ? resolveManagedWorker(launcherRoot, laneId) : workers.get(laneId);
     const stoppedPids: number[] = [];
     const signalWorkerGroup = (signal: NodeJS.Signals): void => {
         if (!worker) {
@@ -331,6 +352,9 @@ async function stopLaneWorker(laneId: string, port: number): Promise<Record<stri
     }
     if (verification.verified) {
         workers.delete(laneId);
+        if (launcherRoot) {
+            clearPersistedManagedWorkerState(launcherRoot, laneId, worker?.pid);
+        }
     }
     const uniqueStoppedPids = uniquePositivePids(stoppedPids);
     return {
@@ -397,11 +421,13 @@ function spawnMlxWorker(
         startedAt: new Date().toISOString(),
     };
     workers.set(laneId, worker);
+    persistManagedWorkerState(launcher.root, worker);
     child.once("exit", () => {
         const current = workers.get(laneId);
         if (current?.pid === child.pid) {
             workers.delete(laneId);
         }
+        clearPersistedManagedWorkerState(launcher.root, laneId, child.pid);
     });
     return worker;
 }
@@ -469,7 +495,7 @@ export async function hostResourceLaneWorkersSet(args: Record<string, unknown>):
             lane_id: laneId,
         };
     }
-    const current = workers.get(laneId);
+    const current = resolveManagedWorker(launcher.root, laneId);
     if (current) {
         if (await isPortListening(current.port)) {
             return {
@@ -505,7 +531,7 @@ export async function hostResourceLaneWorkersSet(args: Record<string, unknown>):
                 worker_env_keys: Object.keys(workerEnv).sort(),
             };
         }
-        const stopResult = await stopLaneWorker(laneId, current.port);
+        const stopResult = await stopLaneWorker(laneId, current.port, launcher.root);
         if (stopResult.accepted !== true) {
             return {
                 ...stopResult,
@@ -520,9 +546,10 @@ export async function hostResourceLaneWorkersSet(args: Record<string, unknown>):
         }
     }
     if (await isPortListening(port)) {
+        const portOwners = await listPortOwners(port);
         return {
-            accepted: true,
-            reason: "worker_target_port_already_listening",
+            accepted: false,
+            reason: "worker_target_port_conflict_unmanaged",
             lane_id: laneId,
             queue_shard: queueShard || null,
             runner_profile: runnerProfile || null,
@@ -530,6 +557,7 @@ export async function hostResourceLaneWorkersSet(args: Record<string, unknown>):
             desired_worker_count: desiredWorkerCount,
             active_worker_count: 1,
             port,
+            port_owners: portOwners,
             worker_env_keys: Object.keys(workerEnv).sort(),
         };
     }
