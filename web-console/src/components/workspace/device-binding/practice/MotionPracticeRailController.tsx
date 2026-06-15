@@ -90,6 +90,7 @@ export function MotionPracticeRailController({
     () => buildMotionPracticeInstructionRefs(instructionSource),
     [instructionSource],
   );
+  const instructionSourceError = instructionSource.courseChaptersError || null;
   const commandPreview = useMemo(() => (
     selectedSession
       ? buildMotionPracticeIntentText({
@@ -115,7 +116,7 @@ export function MotionPracticeRailController({
   ]);
 
   const startPractice = async () => {
-    if (!selectedSession || !target.enabled) {
+    if (!selectedSession || !target.enabled || instructionSourceError) {
       return;
     }
     const launchInput: MotionPracticeLaunchInput = {
@@ -281,10 +282,16 @@ export function MotionPracticeRailController({
         onClosureResultChange={onClosureResultChange}
       />
 
+      {instructionSourceError ? (
+        <div className="rounded border border-red-200 bg-red-50 p-2 text-xs text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
+          Fix materialized chapters JSON before launching practice.
+        </div>
+      ) : null}
+
       <button
         type="button"
         onClick={() => void startPractice()}
-        disabled={!selectedSession || !target.enabled || launchState === 'starting'}
+        disabled={!selectedSession || !target.enabled || launchState === 'starting' || Boolean(instructionSourceError)}
         className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-emerald-600 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-gray-300 disabled:text-gray-500 dark:disabled:bg-gray-800 dark:disabled:text-gray-500"
         data-testid="motion-practice-start-button"
       >
