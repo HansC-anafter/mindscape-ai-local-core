@@ -237,4 +237,32 @@ describe('RuntimeBackupSettings', () => {
     expect(screen.getByDisplayValue('/Users/shock/Library/CloudStorage/GoogleDrive-hans@anafter.co/我的雲端硬碟/Mindscape/local-core-resource-collaboration')).toBeInTheDocument();
     expect(screen.getByRole('checkbox', { name: /Resource collaboration/ })).toBeChecked();
   });
+
+  it('arms a single 30 second status poll only while a backup job is running', async () => {
+    const setIntervalSpy = vi.spyOn(window, 'setInterval');
+    const clearIntervalSpy = vi.spyOn(window, 'clearInterval');
+    apiMock.get.mockResolvedValue({
+      ...backupStatus,
+      latest_job: {
+        job_id: 'backup-job-running',
+        state: 'running',
+        started_at: '2026-05-20T00:00:00Z',
+      },
+    });
+
+    const { unmount } = render(<RuntimeBackupSettings />);
+
+    await waitFor(() => {
+      expect(setIntervalSpy).toHaveBeenCalledWith(expect.any(Function), 30000);
+    });
+    const pollingCallIndex = setIntervalSpy.mock.calls.findIndex((call) => call[1] === 30000);
+    const pollingCalls = setIntervalSpy.mock.calls.filter((call) => call[1] === 30000);
+    expect(pollingCalls).toHaveLength(1);
+
+    unmount();
+
+    expect(clearIntervalSpy).toHaveBeenCalledWith(setIntervalSpy.mock.results[pollingCallIndex].value);
+    setIntervalSpy.mockRestore();
+    clearIntervalSpy.mockRestore();
+  });
 });
