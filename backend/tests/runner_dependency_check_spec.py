@@ -76,6 +76,27 @@ def test_mlx_watchdog_accepts_current_vlm_state_schema(monkeypatch, tmp_path):
     assert DependencyChecker(cache_ttl=0)._mlx_watchdog_is_fresh() is True
 
 
+def test_mlx_watchdog_prefers_lane_specific_runner_state_file(monkeypatch, tmp_path):
+    state_file = tmp_path / "runner_decision_synthesis_35b.json"
+    now = time.time()
+    state_file.write_text(
+        json.dumps(
+            {
+                "status": "active",
+                "phase": "generating",
+                "started_at": now - 120,
+                "heartbeat_at": now - 3,
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(dependency_check, "_WATCHDOG_STATE_DIR", tmp_path)
+    monkeypatch.setenv("LOCAL_CORE_HOST_RESOURCE_LANE_ID", "runner:decision_synthesis_35b")
+    monkeypatch.setenv("VLM_WATCHDOG_STATE_FILE", str(state_file))
+
+    assert DependencyChecker(cache_ttl=0)._mlx_watchdog_is_fresh() is True
+
+
 def test_mlx_watchdog_rejects_stale_current_vlm_state(monkeypatch, tmp_path):
     state_file = tmp_path / "inflight_request.json"
     now = time.time()
@@ -95,3 +116,24 @@ def test_mlx_watchdog_rejects_stale_current_vlm_state(monkeypatch, tmp_path):
     monkeypatch.setattr(dependency_check, "_WATCHDOG_HEARTBEAT_TTL_SECONDS", 45)
 
     assert DependencyChecker(cache_ttl=0)._mlx_watchdog_is_fresh() is False
+
+
+def test_resolve_mlx_probe_target_prefers_runtime_endpoint(monkeypatch):
+    monkeypatch.setenv("LOCAL_CORE_RUNTIME_ENDPOINT", "http://host.docker.internal:8212")
+    monkeypatch.setenv("MLX_BASE_URL", "http://host.docker.internal:8210")
+    monkeypatch.setenv("MLX_PORT", "8210")
+    monkeypatch.setenv("MLX_HOST_FROM_RUNNER", "legacy-host")
+
+    assert dependency_check._resolve_mlx_probe_target() == (
+        "host.docker.internal",
+        8212,
+    )
+
+
+def test_resolve_mlx_probe_target_falls_back_to_legacy_host_and_port(monkeypatch):
+    monkeypatch.delenv("LOCAL_CORE_RUNTIME_ENDPOINT", raising=False)
+    monkeypatch.delenv("MLX_BASE_URL", raising=False)
+    monkeypatch.setenv("MLX_PORT", "8210")
+    monkeypatch.setenv("MLX_HOST_FROM_RUNNER", "legacy-host")
+
+    assert dependency_check._resolve_mlx_probe_target() == ("legacy-host", 8210)

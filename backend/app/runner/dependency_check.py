@@ -20,6 +20,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
 
 from backend.app.services.runner_topology import (
     merge_runner_metadata_into_context,
@@ -44,6 +45,64 @@ _WATCHDOG_PREFILL_TIMEOUT_SECONDS = max(
     _WATCHDOG_HEARTBEAT_TTL_SECONDS,
     int(os.getenv("MLX_WATCHDOG_INFLIGHT_PREFILL_TIMEOUT", "1800")),
 )
+
+
+def _safe_lane_slug(value: object) -> str:
+    normalized = str(value or "").strip() or "lane"
+    slug = "".join(
+        ch if ch.isalnum() or ch in "._-" else "_"
+        for ch in normalized
+    ).strip("_")
+    return slug or "lane"
+
+
+def _host_resource_lane_id() -> str:
+    return str(
+        os.getenv("LOCAL_CORE_HOST_RESOURCE_LANE_ID")
+        or os.getenv("LOCAL_CORE_RUNNER_PROFILE")
+        or ""
+    ).strip()
+
+
+def _watchdog_state_files() -> list[Path]:
+    candidates: list[Path] = []
+    explicit = str(os.getenv("VLM_WATCHDOG_STATE_FILE") or "").strip()
+    if explicit:
+        candidates.append(Path(explicit))
+    lane_id = _host_resource_lane_id()
+    if lane_id:
+        candidates.append(_WATCHDOG_STATE_DIR / f"{_safe_lane_slug(lane_id)}.json")
+    candidates.append(_WATCHDOG_STATE_FILE)
+
+    unique: list[Path] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        key = str(candidate)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(candidate)
+    return unique
+
+
+def _resolve_mlx_probe_target() -> tuple[str, int]:
+    endpoint = str(
+        os.getenv("LOCAL_CORE_RUNTIME_ENDPOINT")
+        or os.getenv("MLX_BASE_URL")
+        or ""
+    ).strip()
+    if endpoint:
+        candidate = endpoint if "://" in endpoint else f"http://{endpoint}"
+        parsed = urlparse(candidate)
+        if parsed.hostname:
+            port = parsed.port
+            if port is None:
+                port = 443 if parsed.scheme == "https" else 80
+            return parsed.hostname, int(port)
+
+    port = int(os.getenv("MLX_PORT", "8210"))
+    host = os.getenv("MLX_HOST_FROM_RUNNER", "host.docker.internal")
+    return host, port
 
 
 @dataclass
@@ -215,16 +274,11 @@ class DependencyChecker:
         fresh watchdog heartbeat as evidence that the in-flight request is
         making progress instead of treating MLX as dead.
         """
-        port = os.getenv("MLX_PORT", "8210")
-        # Inside Docker uses host.docker.internal; host runs can use localhost.
-        host = os.getenv(
-            "MLX_HOST_FROM_RUNNER",
-            "host.docker.internal"
-        )
+        host, port = _resolve_mlx_probe_target()
 
         try:
             reader, writer = await asyncio.wait_for(
-                asyncio.open_connection(host, int(port)),
+                asyncio.open_connection(host, port),
                 timeout=1.0,
             )
             request = (
@@ -262,10 +316,16 @@ class DependencyChecker:
             return False, str(e)
 
     def _mlx_watchdog_is_fresh(self) -> bool:
+        for state_file in _watchdog_state_files():
+            if self._mlx_watchdog_file_is_fresh(state_file):
+                return True
+        return False
+
+    def _mlx_watchdog_file_is_fresh(self, state_file: Path) -> bool:
         try:
-            if not _WATCHDOG_STATE_FILE.exists():
+            if not state_file.exists():
                 return False
-            payload = json.loads(_WATCHDOG_STATE_FILE.read_text(encoding="utf-8"))
+            payload = json.loads(state_file.read_text(encoding="utf-8"))
             if not isinstance(payload, dict):
                 return False
             if str(payload.get("status") or "").strip().lower() != "active":

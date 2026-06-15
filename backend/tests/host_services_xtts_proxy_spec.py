@@ -115,7 +115,7 @@ def test_synthesize_xtts_audio_posts_bounded_payload(monkeypatch) -> None:
     assert result.audio_bytes == b"RIFF"
     assert result.media_type == "audio/wav"
     assert captured == {
-        "timeout": 20.0,
+        "timeout": 180.0,
         "endpoint": "http://xtts.local/tts",
         "json": {
             "text": "今天的練習完成了。",

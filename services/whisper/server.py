@@ -5,24 +5,28 @@ Exposes POST /transcribe and GET /health.
 Matches the API contract expected by whisper_runtime._transcribe_local.
 """
 
+import asyncio
 import base64
-import io
-import time
 import logging
-import tempfile
 import os
+import tempfile
+import threading
+import time
 
 from fastapi import FastAPI
 from pydantic import BaseModel
-from typing import Optional, List, Dict, Any
+from typing import Any, Dict, List, Optional
 
 app = FastAPI(title="Whisper ASR Service", version="1.0.0")
 logger = logging.getLogger("whisper-service")
 logging.basicConfig(level=logging.INFO)
 
 # Lazy init
+DEFAULT_WHISPER_MODEL = os.getenv("WHISPER_MODEL", "openai/whisper-small")
 _model = None
 _model_size = None
+_model_lock = threading.Lock()
+_transcription_lock = threading.Lock()
 
 
 def get_model(model_name: str = "medium", device: str = "cpu"):
@@ -34,21 +38,24 @@ def get_model(model_name: str = "medium", device: str = "cpu"):
         size = "small"
     if _model is not None and _model_size == size:
         return _model
-    logger.info(f"Loading faster-whisper model: {size} (device={device})")
-    from faster_whisper import WhisperModel
+    with _model_lock:
+        if _model is not None and _model_size == size:
+            return _model
+        logger.info(f"Loading faster-whisper model: {size} (device={device})")
+        from faster_whisper import WhisperModel
 
-    compute = "int8" if device == "cpu" else "float16"
-    _model = WhisperModel(size, device=device, compute_type=compute)
-    _model_size = size
-    logger.info(f"Model loaded: {size}")
-    return _model
+        compute = "int8" if device == "cpu" else "float16"
+        _model = WhisperModel(size, device=device, compute_type=compute)
+        _model_size = size
+        logger.info(f"Model loaded: {size}")
+        return _model
 
 
 class TranscribeRequest(BaseModel):
     audio: str  # base64-encoded audio bytes
     language: Optional[str] = "auto"
     task: str = "transcribe"
-    model: str = "openai/whisper-medium"
+    model: str = DEFAULT_WHISPER_MODEL
     device: str = "cpu"
 
 
@@ -67,11 +74,13 @@ class TranscribeResponse(BaseModel):
 
 @app.get("/health")
 async def health():
-    return {"status": "healthy", "model_loaded": _model is not None}
+    return {
+        "status": "healthy",
+        "model_loaded": _model is not None,
+        "busy": _transcription_lock.locked(),
+    }
 
-
-@app.post("/transcribe", response_model=TranscribeResponse)
-async def transcribe(req: TranscribeRequest):
+def _transcribe_sync(req: TranscribeRequest) -> TranscribeResponse:
     t0 = time.time()
 
     # Decode audio
@@ -86,44 +95,50 @@ async def transcribe(req: TranscribeRequest):
         tmp_path = tmp.name
 
     try:
-        model = get_model(req.model, req.device)
-        lang = None if req.language == "auto" else req.language
+        with _transcription_lock:
+            model = get_model(req.model, req.device)
+            lang = None if req.language == "auto" else req.language
 
-        segments_iter, info = model.transcribe(
-            tmp_path,
-            language=lang,
-            task=req.task,
-            beam_size=5,
-            vad_filter=True,
-        )
-
-        segments = []
-        full_text_parts = []
-        for seg in segments_iter:
-            segments.append(
-                {
-                    "start": round(seg.start, 3),
-                    "end": round(seg.end, 3),
-                    "text": seg.text.strip(),
-                }
+            segments_iter, info = model.transcribe(
+                tmp_path,
+                language=lang,
+                task=req.task,
+                beam_size=5,
+                vad_filter=True,
             )
-            full_text_parts.append(seg.text.strip())
 
-        full_text = " ".join(full_text_parts)
-        elapsed = time.time() - t0
-        logger.info(
-            f"Transcription done: {len(segments)} segs, "
-            f"lang={info.language}, dur={info.duration:.1f}s, elapsed={elapsed:.1f}s"
-        )
+            segments = []
+            full_text_parts = []
+            for seg in segments_iter:
+                segments.append(
+                    {
+                        "start": round(seg.start, 3),
+                        "end": round(seg.end, 3),
+                        "text": seg.text.strip(),
+                    }
+                )
+                full_text_parts.append(seg.text.strip())
 
-        return TranscribeResponse(
-            text=full_text,
-            segments=segments,
-            language=info.language,
-            duration=info.duration,
-        )
+            full_text = " ".join(full_text_parts)
+            elapsed = time.time() - t0
+            logger.info(
+                f"Transcription done: {len(segments)} segs, "
+                f"lang={info.language}, dur={info.duration:.1f}s, elapsed={elapsed:.1f}s"
+            )
+
+            return TranscribeResponse(
+                text=full_text,
+                segments=segments,
+                language=info.language,
+                duration=info.duration,
+            )
     finally:
         os.unlink(tmp_path)
+
+
+@app.post("/transcribe", response_model=TranscribeResponse)
+async def transcribe(req: TranscribeRequest):
+    return await asyncio.to_thread(_transcribe_sync, req)
 
 
 if __name__ == "__main__":

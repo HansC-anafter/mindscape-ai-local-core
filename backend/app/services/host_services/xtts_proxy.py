@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 
 DEFAULT_XTTS_BASE_URL = "http://xtts-service:8020"
 MAX_TTS_TEXT_CHARS = 700
-XTTS_SYNTHESIS_TIMEOUT_SECONDS = 20.0
+XTTS_SYNTHESIS_TIMEOUT_SECONDS = 180.0
 
 
 class XTTSSynthesisRequest(BaseModel):
@@ -58,15 +58,31 @@ def get_xtts_base_url() -> str:
     return os.getenv("XTTS_SERVICE_URL", DEFAULT_XTTS_BASE_URL).rstrip("/")
 
 
+def get_xtts_synthesis_timeout_seconds() -> float:
+    raw_value = os.getenv("XTTS_SYNTHESIS_TIMEOUT_SECONDS", "").strip()
+    if not raw_value:
+        return XTTS_SYNTHESIS_TIMEOUT_SECONDS
+    try:
+        parsed = float(raw_value)
+    except ValueError:
+        return XTTS_SYNTHESIS_TIMEOUT_SECONDS
+    return parsed if parsed > 0 else XTTS_SYNTHESIS_TIMEOUT_SECONDS
+
+
 async def synthesize_xtts_audio(
     request: XTTSSynthesisRequest,
     *,
     base_url: str | None = None,
-    timeout_seconds: float = XTTS_SYNTHESIS_TIMEOUT_SECONDS,
+    timeout_seconds: float | None = None,
 ) -> XTTSAudioResult:
     """Return audio bytes from the XTTS sidecar without persistence."""
 
     endpoint = f"{(base_url or get_xtts_base_url()).rstrip('/')}/tts"
+    effective_timeout_seconds = (
+        timeout_seconds
+        if timeout_seconds is not None and timeout_seconds > 0
+        else get_xtts_synthesis_timeout_seconds()
+    )
     payload = {
         "text": request.text.strip(),
         "language": request.language,
@@ -74,7 +90,7 @@ async def synthesize_xtts_audio(
         "output_format": request.output_format,
     }
     try:
-        async with httpx.AsyncClient(timeout=timeout_seconds) as client:
+        async with httpx.AsyncClient(timeout=effective_timeout_seconds) as client:
             response = await client.post(endpoint, json=payload)
     except httpx.TimeoutException as exc:
         raise XTTSSynthesisUnavailable(reason="xtts_timeout", error=str(exc)) from exc
@@ -102,5 +118,6 @@ __all__ = [
     "XTTSSynthesisRequest",
     "XTTSSynthesisUnavailable",
     "get_xtts_base_url",
+    "get_xtts_synthesis_timeout_seconds",
     "synthesize_xtts_audio",
 ]

@@ -54,6 +54,12 @@ WATCHDOG_INTERVAL="${MLX_WATCHDOG_INTERVAL:-60}"
 # The hard timeout is the last-resort ceiling for a heartbeating local VLM
 # request; it must allow occasional long analyses to exceed 2400s.
 WATCHDOG_MAX_FAILURES="${MLX_WATCHDOG_MAX_FAILURES:-10}"
+# Consecutive inflight U-state checks before kill. This targets the macOS /
+# Metal residency stall case where the runner keeps heartbeating but the MLX
+# process is trapped in uninterruptible sleep and makes no observable progress.
+WATCHDOG_INFLIGHT_USTATE_MAX_FAILURES="${MLX_WATCHDOG_INFLIGHT_USTATE_MAX_FAILURES:-3}"
+WATCHDOG_INFLIGHT_USTATE_SAMPLES="${MLX_WATCHDOG_INFLIGHT_USTATE_SAMPLES:-3}"
+WATCHDOG_INFLIGHT_USTATE_SAMPLE_DELAY="${MLX_WATCHDOG_INFLIGHT_USTATE_SAMPLE_DELAY:-1}"
 # Health check curl timeout (must be < WATCHDOG_INTERVAL)
 WATCHDOG_CURL_TIMEOUT=5
 # The backend/runner writes this through the Docker bind mount at
@@ -110,7 +116,35 @@ _file_size() {
   stat -f "%z" "$1" 2>/dev/null || echo 0
 }
 
+_pid_stat() {
+  ps -p "$1" -o stat= 2>/dev/null | tr -d '[:space:]'
+}
+
+_observe_inflight_pid_state() {
+  local pid="$1"
+  local attempts="$2"
+  local delay_seconds="$3"
+  local observed_state=""
+  local sample_index=1
+
+  while [ "$sample_index" -le "$attempts" ]; do
+    observed_state="$(_pid_stat "$pid")"
+    if [ -n "$observed_state" ] && printf '%s' "$observed_state" | grep -q "U"; then
+      printf '%s' "$observed_state"
+      return 0
+    fi
+    if [ "$sample_index" -lt "$attempts" ]; then
+      sleep "$delay_seconds"
+    fi
+    sample_index=$((sample_index + 1))
+  done
+
+  printf '%s' "$observed_state"
+  return 1
+}
+
 failures=0
+inflight_ustate_failures=0
 last_ok_count=$(_count_ok_lines)
 last_stderr_size=$(_file_size "$STDERR_LOG")
 
@@ -123,6 +157,7 @@ while kill -0 "$MLX_PID" 2>/dev/null; do
       echo "[mlx-watchdog] Health check OK, resetting failure count (was ${failures})"
     fi
     failures=0
+    inflight_ustate_failures=0
     last_ok_count=$(_count_ok_lines)
     last_stderr_size=$(_file_size "$STDERR_LOG")
   else
@@ -140,17 +175,11 @@ while kill -0 "$MLX_PID" 2>/dev/null; do
         inflight_active=1
       fi
     fi
-    if [ "$inflight_active" -eq 1 ]; then
-      # A VLM request is actively heartbeating from the runner. Qwen3.5 can block
-      # /v1/models during long generation, so do not count this as a hung server.
-      echo "[mlx-watchdog] Health check failed but inflight request is still active (${state_msg}) - not counting"
-      failures=0
-      last_ok_count=$current_ok_count
-      last_stderr_size=$current_stderr_size
-    elif [ "$current_ok_count" -gt "$last_ok_count" ]; then
+    if [ "$current_ok_count" -gt "$last_ok_count" ]; then
       # New 200 OK lines appeared - MLX completed work, just busy with next request
       echo "[mlx-watchdog] Health check failed but MLX completed requests (${last_ok_count}->${current_ok_count}) - not counting"
       failures=0
+      inflight_ustate_failures=0
       last_ok_count=$current_ok_count
       last_stderr_size=$current_stderr_size
     elif [ "$current_stderr_size" -gt "$last_stderr_size" ]; then
@@ -158,6 +187,30 @@ while kill -0 "$MLX_PID" 2>/dev/null; do
       # Treat recent log activity as evidence the process is still alive.
       echo "[mlx-watchdog] Health check failed but MLX emitted stderr progress (${last_stderr_size}->${current_stderr_size}) - not counting"
       failures=0
+      inflight_ustate_failures=0
+      last_ok_count=$current_ok_count
+      last_stderr_size=$current_stderr_size
+    elif [ "$inflight_active" -eq 1 ]; then
+      if current_pid_state="$(_observe_inflight_pid_state "$MLX_PID" "$WATCHDOG_INFLIGHT_USTATE_SAMPLES" "$WATCHDOG_INFLIGHT_USTATE_SAMPLE_DELAY")"; then
+        inflight_ustate_failures=$((inflight_ustate_failures + 1))
+        echo "[mlx-watchdog] Health check failed with inflight request active and MLX pid state=${current_pid_state} (${inflight_ustate_failures}/${WATCHDOG_INFLIGHT_USTATE_MAX_FAILURES})"
+        if [ "$inflight_ustate_failures" -ge "$WATCHDOG_INFLIGHT_USTATE_MAX_FAILURES" ]; then
+          echo "[mlx-watchdog] Inflight U-state threshold reached - killing MLX (PID ${MLX_PID})"
+          kill "$MLX_PID" 2>/dev/null || true
+          sleep 2
+          kill -9 "$MLX_PID" 2>/dev/null || true
+          echo "[mlx-watchdog] MLX killed after repeated inflight U-state stalls. Exiting so launchd KeepAlive restarts."
+          exit 1
+        fi
+      else
+        # A VLM request is actively heartbeating from the runner. Qwen lanes can block
+        # /v1/models during healthy long generation, so do not count this as a hang
+        # unless the process also falls into repeated U-state stalls.
+        echo "[mlx-watchdog] Health check failed but inflight request is still active (${state_msg}) pid_state=${current_pid_state:-unknown} - not counting"
+        inflight_ustate_failures=0
+      fi
+      failures=0
+      last_ok_count=$current_ok_count
       last_stderr_size=$current_stderr_size
     elif [ "$WATCHDOG_IDLE_FAILURE_MODE" = "ignore" ]; then
       # Idle runtimes should stay resident. When there is no active request,
@@ -165,10 +218,12 @@ while kill -0 "$MLX_PID" 2>/dev/null; do
       # repeatedly killing and respawning the host-side worker.
       echo "[mlx-watchdog] Health check failed with no active inflight request; leaving idle runtime untouched"
       failures=0
+      inflight_ustate_failures=0
       last_ok_count=$current_ok_count
       last_stderr_size=$current_stderr_size
     else
       failures=$((failures + 1))
+      inflight_ustate_failures=0
       echo "[mlx-watchdog] Health check failed while idle (${failures}/${WATCHDOG_MAX_FAILURES})"
 
       if [ "$failures" -ge "$WATCHDOG_MAX_FAILURES" ]; then

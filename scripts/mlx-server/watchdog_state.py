@@ -7,6 +7,7 @@ import argparse
 import json
 import os
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
@@ -17,6 +18,22 @@ def _coerce_float(value: Any) -> Optional[float]:
     try:
         return float(value)
     except (TypeError, ValueError):
+        return None
+
+
+def _coerce_timestamp(value: Any) -> Optional[float]:
+    numeric = _coerce_float(value)
+    if numeric is not None:
+        return numeric
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    normalized = text.replace("Z", "+00:00")
+    try:
+        return datetime.fromisoformat(normalized).timestamp()
+    except ValueError:
         return None
 
 
@@ -66,10 +83,10 @@ def main() -> int:
             print(f"inactive status={payload.get('status')!r}")
         return 1
 
-    started_at = _coerce_float(payload.get("started_at"))
+    started_at = _coerce_timestamp(payload.get("started_at"))
     if started_at is None:
         started_at = _coerce_float(payload.get("started_at_epoch"))
-    heartbeat_at = _coerce_float(payload.get("heartbeat_at"))
+    heartbeat_at = _coerce_timestamp(payload.get("heartbeat_at"))
     if heartbeat_at is None:
         heartbeat_at = _coerce_float(payload.get("heartbeat_at_epoch"))
     if heartbeat_at is None:

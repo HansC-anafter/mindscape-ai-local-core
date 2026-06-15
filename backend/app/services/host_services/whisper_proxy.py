@@ -12,9 +12,10 @@ from pydantic import BaseModel, Field
 
 
 DEFAULT_WHISPER_BASE_URL = "http://whisper-service:8006"
+DEFAULT_WHISPER_MODEL = "openai/whisper-small"
 MAX_STT_AUDIO_BYTES = 8 * 1024 * 1024
 MAX_STT_AUDIO_BASE64_CHARS = 12 * 1024 * 1024
-WHISPER_TRANSCRIPTION_TIMEOUT_SECONDS = 45.0
+WHISPER_TRANSCRIPTION_TIMEOUT_SECONDS = 600.0
 
 
 class WhisperTranscriptionRequest(BaseModel):
@@ -23,7 +24,7 @@ class WhisperTranscriptionRequest(BaseModel):
     audio_base64: str = Field(..., min_length=1, max_length=MAX_STT_AUDIO_BASE64_CHARS)
     language: str | None = "auto"
     task: Literal["transcribe", "translate"] = "transcribe"
-    model: str = "openai/whisper-medium"
+    model: str = DEFAULT_WHISPER_MODEL
     device: str = "cpu"
 
 
@@ -110,16 +111,32 @@ def get_whisper_base_url() -> str:
     return os.getenv("WHISPER_SERVICE_URL", DEFAULT_WHISPER_BASE_URL).rstrip("/")
 
 
+def get_whisper_transcription_timeout_seconds() -> float:
+    raw_value = os.getenv("WHISPER_TRANSCRIPTION_TIMEOUT_SECONDS", "").strip()
+    if not raw_value:
+        return WHISPER_TRANSCRIPTION_TIMEOUT_SECONDS
+    try:
+        parsed = float(raw_value)
+    except ValueError:
+        return WHISPER_TRANSCRIPTION_TIMEOUT_SECONDS
+    return parsed if parsed > 0 else WHISPER_TRANSCRIPTION_TIMEOUT_SECONDS
+
+
 async def transcribe_whisper_audio(
     request: WhisperTranscriptionRequest,
     *,
     base_url: str | None = None,
-    timeout_seconds: float = WHISPER_TRANSCRIPTION_TIMEOUT_SECONDS,
+    timeout_seconds: float | None = None,
 ) -> WhisperTranscriptionResult:
     """Return a bounded transcript from the Whisper sidecar without persistence."""
 
     validate_whisper_audio_payload(request.audio_base64)
     endpoint = f"{(base_url or get_whisper_base_url()).rstrip('/')}/transcribe"
+    effective_timeout_seconds = (
+        timeout_seconds
+        if timeout_seconds is not None and timeout_seconds > 0
+        else get_whisper_transcription_timeout_seconds()
+    )
     payload = {
         "audio": request.audio_base64,
         "language": request.language or "auto",
@@ -128,7 +145,7 @@ async def transcribe_whisper_audio(
         "device": request.device,
     }
     try:
-        async with httpx.AsyncClient(timeout=timeout_seconds) as client:
+        async with httpx.AsyncClient(timeout=effective_timeout_seconds) as client:
             response = await client.post(endpoint, json=payload)
     except httpx.TimeoutException as exc:
         raise WhisperTranscriptionUnavailable(
@@ -159,6 +176,7 @@ async def transcribe_whisper_audio(
 
 __all__ = [
     "DEFAULT_WHISPER_BASE_URL",
+    "DEFAULT_WHISPER_MODEL",
     "MAX_STT_AUDIO_BASE64_CHARS",
     "MAX_STT_AUDIO_BYTES",
     "WHISPER_TRANSCRIPTION_TIMEOUT_SECONDS",
@@ -167,6 +185,7 @@ __all__ = [
     "WhisperTranscriptionResult",
     "WhisperTranscriptionUnavailable",
     "get_whisper_base_url",
+    "get_whisper_transcription_timeout_seconds",
     "transcribe_whisper_audio",
     "validate_whisper_audio_payload",
 ]

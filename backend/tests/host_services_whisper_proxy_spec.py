@@ -135,13 +135,13 @@ def test_transcribe_whisper_audio_posts_sidecar_payload(monkeypatch) -> None:
 
     assert result.text == "hello"
     assert captured == {
-        "timeout": 45.0,
+        "timeout": 600.0,
         "endpoint": "http://whisper.local/transcribe",
         "json": {
             "audio": _audio_payload(),
             "language": "auto",
             "task": "transcribe",
-            "model": "openai/whisper-medium",
+            "model": "openai/whisper-small",
             "device": "cpu",
         },
     }

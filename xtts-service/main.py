@@ -12,14 +12,16 @@ Endpoints:
 Speaker voice profiles are loaded from /app/voices/{profile_id}/sample.wav
 """
 
+import asyncio
 import logging
 import os
 import tempfile
+import threading
 from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import Response
 from pydantic import BaseModel
 
 logger = logging.getLogger("xtts_service")
@@ -31,6 +33,8 @@ app = FastAPI(title="Mindscape XTTS-v2 Service", version="1.0.0")
 
 _tts = None
 _model_loaded = False
+_model_lock = threading.Lock()
+_synthesis_lock = threading.Lock()
 VOICES_DIR = Path(os.getenv("XTTS_VOICES_DIR", "/app/voices"))
 MODEL_NAME = os.getenv("XTTS_MODEL", "tts_models/multilingual/multi-dataset/xtts_v2")
 DEFAULT_LANGUAGE = os.getenv("XTTS_DEFAULT_LANGUAGE", "zh-cn")
@@ -43,34 +47,37 @@ def _load_model():
     if _model_loaded:
         return _tts
 
-    logger.info("Loading XTTS-v2 model: %s", MODEL_NAME)
-    try:
-        # PyTorch 2.6+ changed torch.load default to weights_only=True,
-        # but Coqui TTS checkpoints contain custom classes (XttsConfig etc.)
-        # that require unpickling. Patch torch.load to allow this.
-        import torch
-        import functools
+    with _model_lock:
+        if _model_loaded:
+            return _tts
+        logger.info("Loading XTTS-v2 model: %s", MODEL_NAME)
+        try:
+            # PyTorch 2.6+ changed torch.load default to weights_only=True,
+            # but Coqui TTS checkpoints contain custom classes (XttsConfig etc.)
+            # that require unpickling. Patch torch.load to allow this.
+            import functools
+            import torch
 
-        _original_torch_load = torch.load
+            _original_torch_load = torch.load
 
-        @functools.wraps(_original_torch_load)
-        def _patched_load(*args, **kwargs):
-            kwargs.setdefault("weights_only", False)
-            return _original_torch_load(*args, **kwargs)
+            @functools.wraps(_original_torch_load)
+            def _patched_load(*args, **kwargs):
+                kwargs.setdefault("weights_only", False)
+                return _original_torch_load(*args, **kwargs)
 
-        torch.load = _patched_load
+            torch.load = _patched_load
 
-        from TTS.api import TTS
+            from TTS.api import TTS
 
-        use_gpu = USE_GPU == "true" or (USE_GPU == "auto" and _has_acceleration())
-        logger.info("GPU/MPS acceleration: %s", use_gpu)
-        _tts = TTS(MODEL_NAME, gpu=use_gpu)
-        _model_loaded = True
-        logger.info("XTTS-v2 model loaded successfully")
-        return _tts
-    except Exception as e:
-        logger.error("Failed to load XTTS-v2: %s", e)
-        raise RuntimeError(f"XTTS-v2 model load failed: {e}") from e
+            use_gpu = USE_GPU == "true" or (USE_GPU == "auto" and _has_acceleration())
+            logger.info("GPU/MPS acceleration: %s", use_gpu)
+            _tts = TTS(MODEL_NAME, gpu=use_gpu)
+            _model_loaded = True
+            logger.info("XTTS-v2 model loaded successfully")
+            return _tts
+        except Exception as e:
+            logger.error("Failed to load XTTS-v2: %s", e)
+            raise RuntimeError(f"XTTS-v2 model load failed: {e}") from e
 
 
 def _has_acceleration() -> bool:
@@ -128,6 +135,7 @@ async def health():
         "model_loaded": _model_loaded,
         "voices_dir": str(VOICES_DIR),
         "acceleration": _has_acceleration(),
+        "busy": _synthesis_lock.locked(),
     }
 
 
@@ -144,8 +152,7 @@ async def list_voices():
     return {"voices": voices}
 
 
-@app.post("/tts")
-async def synthesize(req: TTSRequest):
+def _synthesize_sync(req: TTSRequest) -> tuple[bytes, str]:
     """
     Synthesize text to speech using XTTS-v2.
 
@@ -174,30 +181,31 @@ async def synthesize(req: TTSRequest):
             req.voice_profile_id,
         )
 
-        if speaker_wav:
-            # Zero-shot voice clone with provided speaker
-            tts.tts_to_file(
-                text=req.text,
-                speaker_wav=speaker_wav,
-                language=language,
-                file_path=out_path,
-            )
-        else:
-            # XTTS-v2 is multi-speaker and always requires a reference wav.
-            # Fall back to the 'default' voice profile.
-            default_wav = _get_speaker_wav("default")
-            if not default_wav:
-                raise HTTPException(
-                    status_code=400,
-                    detail="No voice_profile_id provided and no default voice profile found. "
-                    "Place a sample.wav in data/tts/voices/default/",
+        with _synthesis_lock:
+            if speaker_wav:
+                # Zero-shot voice clone with provided speaker
+                tts.tts_to_file(
+                    text=req.text,
+                    speaker_wav=speaker_wav,
+                    language=language,
+                    file_path=out_path,
                 )
-            tts.tts_to_file(
-                text=req.text,
-                speaker_wav=default_wav,
-                language=language,
-                file_path=out_path,
-            )
+            else:
+                # XTTS-v2 is multi-speaker and always requires a reference wav.
+                # Fall back to the 'default' voice profile.
+                default_wav = _get_speaker_wav("default")
+                if not default_wav:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="No voice_profile_id provided and no default voice profile found. "
+                        "Place a sample.wav in data/tts/voices/default/",
+                    )
+                tts.tts_to_file(
+                    text=req.text,
+                    speaker_wav=default_wav,
+                    language=language,
+                    file_path=out_path,
+                )
 
         # Convert to mp3 if requested
         if req.output_format == "mp3":
@@ -220,7 +228,7 @@ async def synthesize(req: TTSRequest):
         logger.info(
             "TTS done: %d bytes, format=%s", len(audio_bytes), req.output_format
         )
-        return Response(content=audio_bytes, media_type=media_type)
+        return audio_bytes, media_type
 
     finally:
         for p in [out_path, out_path.replace(".wav", ".mp3")]:
@@ -230,8 +238,13 @@ async def synthesize(req: TTSRequest):
                 pass
 
 
-@app.post("/tts/clone")
-async def synthesize_clone(req: TTSCloneRequest):
+@app.post("/tts")
+async def synthesize(req: TTSRequest):
+    audio_bytes, media_type = await asyncio.to_thread(_synthesize_sync, req)
+    return Response(content=audio_bytes, media_type=media_type)
+
+
+def _synthesize_clone_sync(req: TTSCloneRequest) -> bytes:
     """
     Zero-shot voice clone: provide reference WAV as base64, get audio back.
     """
@@ -259,18 +272,24 @@ async def synthesize_clone(req: TTSCloneRequest):
         out_path = out_tmp.name
 
     try:
-        tts.tts_to_file(
-            text=req.text,
-            speaker_wav=ref_path,
-            language=language,
-            file_path=out_path,
-        )
+        with _synthesis_lock:
+            tts.tts_to_file(
+                text=req.text,
+                speaker_wav=ref_path,
+                language=language,
+                file_path=out_path,
+            )
         with open(out_path, "rb") as f:
-            audio_bytes = f.read()
-        return Response(content=audio_bytes, media_type="audio/wav")
+            return f.read()
     finally:
         for p in [ref_path, out_path]:
             try:
                 Path(p).unlink(missing_ok=True)
             except Exception:
                 pass
+
+
+@app.post("/tts/clone")
+async def synthesize_clone(req: TTSCloneRequest):
+    audio_bytes = await asyncio.to_thread(_synthesize_clone_sync, req)
+    return Response(content=audio_bytes, media_type="audio/wav")
