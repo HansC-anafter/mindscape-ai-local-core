@@ -4,7 +4,8 @@ from backend.app.runner import db_pool_pressure, worker
 
 
 class _FakeQueue:
-    pass
+    async def _get_client(self):
+        return object()
 
 
 @pytest.mark.asyncio
