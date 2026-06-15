@@ -72,6 +72,10 @@ STATEMENTS = [
     "CREATE INDEX IF NOT EXISTS idx_tasks_pending_runner_ownership_cleanup ON tasks (queue_shard, next_eligible_at, created_at, id) WHERE status = 'pending' AND task_type IN ('playbook_execution', 'tool_execution') AND ((execution_context->>'runner_id') IS NOT NULL OR (execution_context->>'heartbeat_at') IS NOT NULL OR started_at IS NOT NULL)",
     "CREATE INDEX IF NOT EXISTS idx_tasks_pending_concurrency_key ON tasks (concurrency_key, created_at, id) WHERE status = 'pending' AND concurrency_key IS NOT NULL",
     "CREATE INDEX IF NOT EXISTS idx_tasks_pending_queue_position ON tasks (queue_shard, next_eligible_at, created_at, id) WHERE status = 'pending' AND task_type IN ('playbook_execution', 'tool_execution')",
+    "CREATE INDEX IF NOT EXISTS idx_tasks_cold_workspace_quota_due_shard ON tasks (queue_shard, next_eligible_at, created_at, id) WHERE status = 'pending' AND frontier_state = 'cold' AND blocked_reason IN ('workspace_allocation_quota_exhausted', 'workspace_allocation_required', 'workspace_allocation_disabled') AND task_type IN ('playbook_execution', 'tool_execution')",
+    "CREATE INDEX IF NOT EXISTS idx_tasks_ready_running_ws_reserved ON tasks (workspace_id, queue_shard, id) WHERE status = 'running' OR (status = 'pending' AND frontier_state = 'ready' AND (blocked_reason IS NULL OR blocked_reason = ''))",
+    "CREATE INDEX IF NOT EXISTS idx_tasks_ready_running_ws_pack_selector ON tasks (workspace_id, queue_shard, pack_id, id) WHERE pack_id IS NOT NULL AND (status = 'running' OR (status = 'pending' AND frontier_state = 'ready' AND (blocked_reason IS NULL OR blocked_reason = '')))",
+    "CREATE INDEX IF NOT EXISTS idx_tasks_ready_running_ws_playbook_selector ON tasks (workspace_id, queue_shard, ((execution_context->>'playbook_code')), id) WHERE (execution_context->>'playbook_code') IS NOT NULL AND (status = 'running' OR (status = 'pending' AND frontier_state = 'ready' AND (blocked_reason IS NULL OR blocked_reason = '')))",
 ]
 
 
