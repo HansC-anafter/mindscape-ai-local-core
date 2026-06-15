@@ -112,6 +112,7 @@ export function AOLMeetingBottomShell({
     meetingSessions,
     meetingSessionsLoading,
     meetingSessionsError,
+    refreshMeetingSessions,
     meetingEvents,
     meetingEventsLoading,
     meetingEventsError,
@@ -491,6 +492,9 @@ export function AOLMeetingBottomShell({
             creating={startingBlankMeetingSession}
             createError={startBlankMeetingSessionError}
             onCreateSession={handleStartBlankMeetingSession}
+            onRetry={() => {
+              void refreshMeetingSessions();
+            }}
             onSelectSession={(session) => {
               setActiveMeetingId(session.id);
               setSelectedNodeId('ready');
@@ -567,6 +571,9 @@ export function AOLMeetingBottomShell({
           creating={startingBlankMeetingSession}
           createError={startBlankMeetingSessionError}
           onCreateSession={handleStartBlankMeetingSession}
+          onRetry={() => {
+            void refreshMeetingSessions();
+          }}
           onSelectSession={(session) => {
             setActiveMeetingId(session.id);
             setSelectedNodeId('ready');

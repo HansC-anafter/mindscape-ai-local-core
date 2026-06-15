@@ -32,6 +32,7 @@ export interface MeetingWorkbenchDataState {
   meetingSessions: MeetingSessionSummary[];
   meetingSessionsLoading: boolean;
   meetingSessionsError: string | null;
+  refreshMeetingSessions: () => Promise<void>;
   meetingEvents: MeetingEventSummary[];
   meetingEventsLoading: boolean;
   meetingEventsError: string | null;
@@ -90,6 +91,7 @@ export function useMeetingWorkbenchData({
     meetingSessions,
     meetingSessionsLoading,
     meetingSessionsError,
+    refreshMeetingSessions,
     meetingEvents,
     meetingEventsLoading,
     meetingEventsError,
@@ -158,6 +160,7 @@ export function useMeetingWorkbenchData({
     meetingSessions,
     meetingSessionsLoading,
     meetingSessionsError,
+    refreshMeetingSessions,
     meetingEvents,
     meetingEventsLoading,
     meetingEventsError,

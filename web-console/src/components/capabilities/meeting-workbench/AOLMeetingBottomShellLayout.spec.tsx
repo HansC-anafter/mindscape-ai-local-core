@@ -296,6 +296,51 @@ describe('AOLMeetingBottomShell layout and runtime graph', () => {
     expect(screen.queryByTestId('meeting-session-card-mtg_global')).toBeNull();
   });
 
+  it('retries the meeting session popover after a transient load failure', async () => {
+    const fetchMock = vi.mocked(global.fetch);
+    const defaultFetch = fetchMock.getMockImplementation();
+    let sessionLoadCount = 0;
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.includes('/api/v1/workspaces/ws-global/meeting-sessions?limit=')) {
+        sessionLoadCount += 1;
+        if (sessionLoadCount === 1) {
+          return new Response(JSON.stringify({ detail: 'database recovery' }), {
+            status: 500,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+      }
+      if (!defaultFetch) {
+        throw new Error(`Unhandled fetch: ${url}`);
+      }
+      return defaultFetch(input, init);
+    });
+
+    render(
+      <AOLMeetingBottomShell
+        workspaceId="ws-global"
+        apiUrl="http://api.test"
+        meetingId="mtg_global"
+        summary={summary}
+        selection={null}
+        attachResponse={attachResponse}
+        surfaceRoute="/workspaces/ws-global/capabilities/ig"
+        onSwitchObject={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('meeting-sessions-toggle'));
+    expect(await screen.findByTestId('meeting-session-retry')).toBeInTheDocument();
+    expect(screen.getByTestId('meeting-session-strip')).toHaveTextContent('Failed to fetch meeting sessions: 500');
+
+    fireEvent.click(screen.getByTestId('meeting-session-retry'));
+
+    expect(await screen.findByTestId('meeting-session-card-mtg_global')).toBeInTheDocument();
+    expect(screen.queryByTestId('meeting-session-retry')).toBeNull();
+    expect(sessionLoadCount).toBe(2);
+  });
+
   it('projects persisted meeting events into semantic lanes and collapses noisy action items', async () => {
     render(
       <AOLMeetingBottomShell

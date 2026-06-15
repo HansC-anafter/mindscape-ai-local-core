@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { FileText, PlusCircle, X } from "lucide-react";
+import { FileText, PlusCircle, RefreshCw, X } from "lucide-react";
 
 import { formatKind } from "./meetingGraphProjection";
 import { getSessionDisplayTitle, getSessionSearchCorpus } from "./meetingSessionContext";
@@ -248,6 +248,7 @@ export function MeetingSessionsPopover({
   creating,
   createError,
   onCreateSession,
+  onRetry,
   onSelectSession,
   onClose,
   presentation = 'floating',
@@ -259,6 +260,7 @@ export function MeetingSessionsPopover({
   creating: boolean;
   createError: string | null;
   onCreateSession: () => void;
+  onRetry: () => void;
   onSelectSession: (session: MeetingSessionSummary) => void;
   onClose: () => void;
   presentation?: 'floating' | 'drawer';
@@ -294,6 +296,18 @@ export function MeetingSessionsPopover({
           </span>
         </div>
         <div className="flex items-center gap-1">
+          {error ? (
+            <button
+              type="button"
+              onClick={onRetry}
+              disabled={loading}
+              className="inline-flex h-7 items-center gap-1 rounded-md border border-amber-200 px-2 text-[11px] font-semibold text-amber-700 transition-colors hover:bg-amber-50 hover:text-amber-900 disabled:cursor-wait disabled:opacity-60 dark:border-amber-900/50 dark:text-amber-300 dark:hover:bg-amber-950/30"
+              data-testid="meeting-session-retry"
+            >
+              <RefreshCw className={loading ? 'h-3.5 w-3.5 animate-spin' : 'h-3.5 w-3.5'} aria-hidden="true" />
+              {loading ? 'Retrying' : 'Retry'}
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={onCreateSession}

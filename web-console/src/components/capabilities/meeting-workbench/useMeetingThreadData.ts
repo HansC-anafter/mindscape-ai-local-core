@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
+import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
 
 import { subscribeEventStream, type UnifiedEvent } from '@/components/workspace/eventProjector';
 import { postApiJson } from './meetingApi';
@@ -76,6 +76,7 @@ export interface MeetingThreadDataState {
   meetingSessions: MeetingSessionSummary[];
   meetingSessionsLoading: boolean;
   meetingSessionsError: string | null;
+  refreshMeetingSessions: () => Promise<void>;
   meetingEvents: MeetingEventSummary[];
   meetingEventsLoading: boolean;
   meetingEventsError: string | null;
@@ -115,48 +116,50 @@ export function useMeetingThreadData({
     setActiveMeetingId(meetingId ?? '');
   }, [meetingId]);
 
-  useEffect(() => {
-    let cancelled = false;
+  const refreshMeetingSessions = useCallback(async (signal?: AbortSignal) => {
+    setMeetingSessionsLoading(true);
+    setMeetingSessionsError(null);
 
-    async function fetchMeetingSessions() {
-      setMeetingSessionsLoading(true);
-      setMeetingSessionsError(null);
-
-      try {
-        const response = await fetch(
-          `${apiUrl}/api/v1/workspaces/${encodeURIComponent(workspaceId)}/meeting-sessions?limit=${MEETING_SESSION_LIST_LIMIT}&metadata=summary`,
-        );
-        if (!response.ok) {
-          throw new Error(`Failed to fetch meeting sessions: ${response.status}`);
-        }
-        const data = await response.json() as { sessions?: unknown };
-        if (cancelled) {
-          return;
-        }
-        const rawSessions = Array.isArray(data.sessions) ? data.sessions : [];
-        const sessions = rawSessions
-          .filter(isRecord)
-          .map((session: Record<string, unknown>) => session as unknown as MeetingSessionSummary);
-        setMeetingSessions(sessions);
-        setActiveMeetingId((current) => current || sessions[0]?.id || '');
-      } catch (error) {
-        if (!cancelled) {
-          setMeetingSessions([]);
-          setMeetingSessionsError(error instanceof Error ? error.message : 'Failed to load meeting sessions.');
-        }
-      } finally {
-        if (!cancelled) {
-          setMeetingSessionsLoading(false);
-        }
+    try {
+      const response = await fetch(
+        `${apiUrl}/api/v1/workspaces/${encodeURIComponent(workspaceId)}/meeting-sessions?limit=${MEETING_SESSION_LIST_LIMIT}&metadata=summary`,
+        { signal },
+      );
+      if (!response.ok) {
+        throw new Error(`Failed to fetch meeting sessions: ${response.status}`);
+      }
+      const data = await response.json() as { sessions?: unknown };
+      if (signal?.aborted) {
+        return;
+      }
+      const rawSessions = Array.isArray(data.sessions) ? data.sessions : [];
+      const sessions = rawSessions
+        .filter(isRecord)
+        .map((session: Record<string, unknown>) => session as unknown as MeetingSessionSummary);
+      setMeetingSessions(sessions);
+      setActiveMeetingId((current) => current || sessions[0]?.id || '');
+    } catch (error) {
+      if (signal?.aborted) {
+        return;
+      }
+      setMeetingSessions([]);
+      setMeetingSessionsError(error instanceof Error ? error.message : 'Failed to load meeting sessions.');
+    } finally {
+      if (!signal?.aborted) {
+        setMeetingSessionsLoading(false);
       }
     }
+  }, [apiUrl, workspaceId]);
 
-    void fetchMeetingSessions();
+  useEffect(() => {
+    const controller = new AbortController();
+
+    void refreshMeetingSessions(controller.signal);
 
     return () => {
-      cancelled = true;
+      controller.abort();
     };
-  }, [apiUrl, meetingId, workspaceId]);
+  }, [meetingId, refreshMeetingSessions]);
 
   async function startBlankMeetingSession(metadata: Record<string, unknown> = {}): Promise<MeetingSessionSummary> {
     setStartingBlankMeetingSession(true);
@@ -464,6 +467,7 @@ export function useMeetingThreadData({
     meetingSessions,
     meetingSessionsLoading,
     meetingSessionsError,
+    refreshMeetingSessions: () => refreshMeetingSessions(),
     meetingEvents,
     meetingEventsLoading,
     meetingEventsError,
