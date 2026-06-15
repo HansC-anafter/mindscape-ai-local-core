@@ -10,7 +10,9 @@ from sqlalchemy import text
 
 from app.models.workspace import Task, TaskStatus
 from backend.app.services.runner_topology import (
+    BROWSER_LOCAL_QUEUE_PARTITION,
     build_queue_partition_filter_clause,
+    normalize_queue_partition,
     queue_partition_matches,
 )
 from backend.app.services.task_admission_service import ADMISSION_DEFERRED_REASON
@@ -178,7 +180,7 @@ class TasksStoreCandidateQueryMixin:
             WHERE task_type IN (:task_type_pb, :task_type_tool)
             AND status = :status
             AND frontier_state = :frontier_state
-            AND next_eligible_at <= :now
+            AND COALESCE(next_eligible_at, created_at) <= :now
             AND COALESCE(blocked_reason, '') <> :admission_blocked_reason
             """
         ]
@@ -201,7 +203,24 @@ class TasksStoreCandidateQueryMixin:
                 queue_shard,
                 param_prefix="queue_partition",
             )
-            query_parts.append(f"AND {queue_clause}")
+            if (
+                normalize_queue_partition(queue_shard, fallback=None)
+                == BROWSER_LOCAL_QUEUE_PARTITION
+            ):
+                query_parts.append(
+                    f"""
+                    AND (
+                        {queue_clause}
+                        OR (
+                            queue_shard IS NULL
+                            AND execution_context->>'resource_class' = :legacy_resource_class
+                        )
+                    )
+                    """
+                )
+                params["legacy_resource_class"] = "browser"
+            else:
+                query_parts.append(f"AND {queue_clause}")
             params.update(queue_params)
 
         query_parts.append(

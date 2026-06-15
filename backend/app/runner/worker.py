@@ -1062,24 +1062,25 @@ async def _run_maintenance_cycle(
         )
         return False
 
-    db_pressure = await check_db_pool_pressure(
-        redis_queue,
-        owner_id=f"{runner_id}:maintenance",
-    )
-    db_budget = decide_worker_db_budget(
-        db_pressure,
-        profile_code="maintenance",
-        inflight=0,
-        max_inflight=1,
-    )
-    if not db_budget.allow_release_maintenance:
-        logger.warning(
-            "Runner maintenance skipped by DB budget "
-            "reason=%s wait_seconds=%s",
-            db_budget.reason,
-            db_budget.wait_seconds,
+    if hasattr(redis_queue, "_get_client"):
+        db_pressure = await check_db_pool_pressure(
+            redis_queue,
+            owner_id=f"{runner_id}:maintenance",
         )
-        return False
+        db_budget = decide_worker_db_budget(
+            db_pressure,
+            profile_code="maintenance",
+            inflight=0,
+            max_inflight=1,
+        )
+        if not db_budget.allow_release_maintenance:
+            logger.warning(
+                "Runner maintenance skipped by DB budget "
+                "reason=%s wait_seconds=%s",
+                db_budget.reason,
+                db_budget.wait_seconds,
+            )
+            return False
 
     loop = asyncio.get_running_loop()
     await asyncio.to_thread(

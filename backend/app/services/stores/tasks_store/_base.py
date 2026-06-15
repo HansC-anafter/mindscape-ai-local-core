@@ -133,13 +133,11 @@ def _resolve_hydrated_queue_shard(
     pack_id: str, execution_context: Optional[Dict[str, Any]] = None
 ) -> str:
     if isinstance(execution_context, dict):
-        explicit_queue_shard = _normalize_queue_shard(
-            execution_context.get("queue_partition")
-        ) or _normalize_queue_shard(
-            execution_context.get("queue_shard")
-        )
-        if explicit_queue_shard:
-            return explicit_queue_shard
+        resource_class = str(execution_context.get("resource_class") or "").strip().lower()
+        if resource_class == "browser":
+            return BROWSER_LOCAL_QUEUE_PARTITION
+        if resource_class == "compute":
+            return VISION_LOCAL_QUEUE_PARTITION
     return _resolve_queue_shard(pack_id, execution_context)
 
 

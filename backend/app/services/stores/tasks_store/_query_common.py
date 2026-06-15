@@ -8,7 +8,7 @@ from typing import List, Optional
 from app.models.workspace import Task, TaskStatus
 from backend.app.services.task_admission_service import ADMISSION_DEFERRED_REASON
 
-from ._base import _utc_now
+from ._base import _resolve_hydrated_queue_shard, _utc_now
 
 _WORKSPACE_QUOTA_EXHAUSTED_REASON = "workspace_allocation_quota_exhausted"
 _WORKSPACE_ALLOCATION_REQUIRED_REASON = "workspace_allocation_required"
@@ -327,7 +327,10 @@ class TasksStoreQueryCommonMixin:
             next_eligible_at=next_eligible_at,
             blocked_reason=blocked_reason,
             blocked_payload=getattr(row, "blocked_payload", None),
-            queue_shard=getattr(row, "queue_shard", None) or "default",
+            queue_shard=(
+                getattr(row, "queue_shard", None)
+                or _resolve_hydrated_queue_shard(row.pack_id, execution_context)
+            ),
             concurrency_key=getattr(row, "concurrency_key", None),
             frontier_state="cold",
             runner_id=getattr(row, "runner_id", None),
