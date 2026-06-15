@@ -32,8 +32,12 @@ export default function CapabilityExtensionSlot({ section, workspaceId }: Capabi
         const loadPanels = async () => {
             try {
                 const base = getApiBaseUrl();
+                const params = new URLSearchParams({ section });
+                if (workspaceId) {
+                    params.set('workspace_id', workspaceId);
+                }
                 const response = await fetch(
-                    `${base}/api/v1/settings/extensions?section=${encodeURIComponent(section)}`
+                    `${base}/api/v1/settings/extensions?${params.toString()}`
                 );
                 if (response.ok) {
                     const data = await response.json();

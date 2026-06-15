@@ -40,6 +40,7 @@ def activate_installed_capability_routes(
         capability_code=capability_code,
         activation_mode=f"explicit_install_activation:{reason}",
         activation_service=PackActivationService(),
+        force_refresh=True,
     )
     duration_ms = round((time.monotonic() - started) * 1000, 2)
     if duration_ms >= 1000:

@@ -5,7 +5,13 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { SocialMediaOverview } from './panels/SocialMediaOverview';
 import { SocialMediaProviderSettings } from './panels/SocialMediaProviderSettings';
 
-export function SocialMediaPanel({ activeProvider }: { activeProvider?: string }) {
+export function SocialMediaPanel({
+  activeProvider,
+  workspaceId,
+}: {
+  activeProvider?: string;
+  workspaceId?: string;
+}) {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -15,15 +21,27 @@ export function SocialMediaPanel({ activeProvider }: { activeProvider?: string }
 
   const handleNavigate = (provider: string) => {
     // Navigate to configuration page
-    router.push(`/settings?tab=social_media&provider=${provider}&configure=1`);
+    const params = new URLSearchParams({
+      tab: 'social_media',
+      provider,
+      configure: '1',
+    });
+    if (workspaceId) {
+      params.set('workspace_id', workspaceId);
+    }
+    router.push(`/settings?${params.toString()}`);
   };
 
   const handleBack = () => {
-    router.push('/settings?tab=social_media');
+    const params = new URLSearchParams({ tab: 'social_media' });
+    if (workspaceId) {
+      params.set('workspace_id', workspaceId);
+    }
+    router.push(`/settings?${params.toString()}`);
   };
 
   if (shouldShowConfig && activeProvider) {
-    return <SocialMediaProviderSettings provider={activeProvider} onBack={handleBack} />;
+    return <SocialMediaProviderSettings provider={activeProvider} workspaceId={workspaceId} onBack={handleBack} />;
   }
 
   return <SocialMediaOverview onNavigate={handleNavigate} />;

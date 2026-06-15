@@ -423,8 +423,9 @@ class CapabilityAPILoader:
                 elif isinstance(route, APIRouter):
                     extract_from_mount(route, mount_path)
 
-        router_prefix = getattr(router, "prefix", "") or ""
-        base_prefix = manifest_prefix + router_prefix
+        # APIRouter.routes already include router.prefix. Only prepend the
+        # manifest-level prefix that FastAPI adds when the router is included.
+        base_prefix = manifest_prefix
 
         for route in router.routes:
             if isinstance(route, Route):
@@ -581,17 +582,43 @@ def _extract_registered_routes_from_app(app: FastAPI) -> Set[Tuple[str, str]]:
     def extract_from_mount(mount: Mount, prefix: str = ""):
         mount_path = prefix + mount.path
         for route in mount.routes:
-            if isinstance(route, Route):
+            if hasattr(route, "methods") and hasattr(route, "path"):
                 extract_from_route(route, mount_path)
             elif isinstance(route, Mount):
                 extract_from_mount(route, mount_path)
 
     for route in app.router.routes:
-        if isinstance(route, Route):
+        if hasattr(route, "methods") and hasattr(route, "path"):
             extract_from_route(route)
         elif isinstance(route, Mount):
             extract_from_mount(route)
     return routes
+
+
+def _remove_routes_for_prefixes(app: FastAPI, prefixes: List[str]) -> int:
+    normalized_prefixes = [
+        prefix.rstrip("/")
+        for prefix in prefixes
+        if isinstance(prefix, str) and prefix.strip()
+    ]
+    if not normalized_prefixes:
+        return 0
+
+    kept_routes = []
+    removed_count = 0
+    for route in app.router.routes:
+        route_path = getattr(route, "path", "")
+        should_remove = any(
+            route_path == prefix or route_path.startswith(f"{prefix}/")
+            for prefix in normalized_prefixes
+        )
+        if should_remove:
+            removed_count += 1
+            continue
+        kept_routes.append(route)
+    if removed_count:
+        app.router.routes = kept_routes
+    return removed_count
 
 
 def _capability_registration_complete(app: FastAPI, capability_code: str) -> bool:
@@ -773,6 +800,23 @@ def activate_seeded_capability_apis(
                 continue
 
             conflicts = sorted(expected_routes & existing_routes)
+            missing_routes = expected_routes - existing_routes
+            if conflicts and missing_routes:
+                removed_count = _remove_routes_for_prefixes(
+                    app,
+                    build_descriptor_registered_prefixes(descriptor, router),
+                )
+                if removed_count:
+                    logger.warning(
+                        "Replacing stale capability API routes for %s; removed=%d missing=%d",
+                        descriptor.capability_code,
+                        removed_count,
+                        len(missing_routes),
+                    )
+                    registered_descriptor_keys.discard(descriptor_key)
+                    loader.registered_routes = _extract_registered_routes_from_app(app)
+                    existing_routes = set(loader.registered_routes)
+                    conflicts = sorted(expected_routes & existing_routes)
             if conflicts:
                 conflict_details = ", ".join(f"{method} {path}" for method, path in conflicts)
                 raise ValueError(
@@ -857,6 +901,7 @@ def activate_capability_api_code(
     route_collector: Optional[List[Any]] = None,
     activation_mode: str = "request_activate",
     activation_service: Optional[Any] = None,
+    force_refresh: bool = False,
 ) -> List[APIRouter]:
     state = _get_runtime_state(app)
     activation_lock = state["activation_lock"]
@@ -864,8 +909,12 @@ def activate_capability_api_code(
         capability_already_activated = capability_code in state.get(
             "activated_capabilities", set()
         )
-        if capability_already_activated and _capability_registration_complete(
-            app, capability_code
+        if (
+            not force_refresh
+            and capability_already_activated
+            and _capability_registration_complete(
+                app, capability_code
+            )
         ):
             return []
         descriptors = state.get("descriptors_by_capability", {}).get(capability_code) or []

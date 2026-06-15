@@ -195,6 +195,7 @@ def check_show_when(
 @router.get("/extensions")
 async def get_settings_extensions(
     section: Optional[str] = Query(None, description="Filter by section"),
+    workspace_id: Optional[str] = Query(None, description="Workspace ID for workspace-scoped settings panels"),
     db: Session = Depends(get_db),
 ) -> List[Dict[str, Any]]:
     """
@@ -234,6 +235,9 @@ async def get_settings_extensions(
                 component_section = settings_config.get("section")
 
                 if section and component_section != section:
+                    continue
+
+                if settings_config.get("requires_workspace_id") and not workspace_id:
                     continue
 
                 show_when = settings_config.get("show_when", {})

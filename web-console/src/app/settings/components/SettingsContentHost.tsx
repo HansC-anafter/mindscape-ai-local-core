@@ -108,7 +108,7 @@ export function SettingsContentHost({
     case 'ai-team-governance':
       return <AITeamGovernancePanel activeSection={activeSection} onSendToAssistant={onSendToAssistant} />;
     case 'social_media':
-      return <SocialMediaPanel activeProvider={activeProvider} />;
+      return <SocialMediaPanel activeProvider={activeProvider} workspaceId={workspaceId} />;
     case 'tools':
       return <ToolsPanel activeSection={activeSection} activeProvider={activeProvider} />;
     case 'runtime':
