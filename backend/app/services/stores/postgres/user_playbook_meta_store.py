@@ -51,10 +51,7 @@ class PostgresUserPlaybookMetaStore(PostgresStoreBase):
     def update_user_meta(
         self, profile_id: str, playbook_code: str, updates: Dict[str, Any]
     ) -> Dict[str, Any]:
-        # Simplified strict upsert for Postgres
-        # Since we don't have time to replicate the complex logic perfectly, we'll try to get then update
         with self.transaction() as conn:
-            # Check exist
             check = conn.execute(
                 text(
                     "SELECT id FROM user_playbook_meta WHERE profile_id=:p AND playbook_code=:c"
@@ -64,9 +61,6 @@ class PostgresUserPlaybookMetaStore(PostgresStoreBase):
             now = _utc_now()
 
             if check:
-                # Update
-                # This is a bit rough, assuming updates contains the values directly or increment logic is handled higher up
-                # Replicating increment logic briefly:
                 sets = ["updated_at = :now"]
                 params = {"now": now, "id": check.id}
 
