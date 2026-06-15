@@ -8,6 +8,7 @@ from backend.app.services.runner_topology import (
     DEFAULT_LOCAL_QUEUE_PARTITION,
     build_queue_partition_filter_clause,
     normalize_queue_partition,
+    queue_partition_aliases,
 )
 from backend.app.services.task_admission_service import ADMISSION_DEFERRED_REASON
 
@@ -133,11 +134,15 @@ class QueuePositionCache:
             return None
 
     def get_total(self, queue_shard: str) -> int:
+        raw = str(queue_shard or "").strip()
         canonical = normalize_queue_partition(
             queue_shard,
             fallback=DEFAULT_LOCAL_QUEUE_PARTITION,
         )
-        return self._eligible_totals.get(canonical, 0)
+        for key in (canonical, *queue_partition_aliases(canonical), raw):
+            if key in self._eligible_totals:
+                return self._eligible_totals[key]
+        return 0
 
     @property
     def total(self) -> int:
