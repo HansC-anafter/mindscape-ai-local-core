@@ -66,7 +66,7 @@ def test_runner_live_state_can_clear_task_keys():
 def test_update_task_heartbeat_does_not_write_tasks_hot_row():
     source = (
         Path(__file__).resolve().parents[1]
-        / "app/services/stores/tasks_store/_runner.py"
+        / "app/services/stores/tasks_store/_runner_lifecycle.py"
     ).read_text(encoding="utf-8")
     method_source = source.split("def update_task_heartbeat", maxsplit=1)[1].split(
         "def should_abort_task",
