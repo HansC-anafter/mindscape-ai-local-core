@@ -7,132 +7,28 @@ state snapshots, and links to decisions/traces/intents.
 
 import logging
 from typing import Optional, List, Dict, Any
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 from sqlalchemy import text
 
 from backend.app.models.meeting_decision import MeetingDecision
+from backend.app.services.stores.meeting_session_projection import (
+    is_active_session_fresh,
+    row_to_meeting_decision,
+    row_to_session,
+    unresolved_decision_from_row,
+)
+from backend.app.services.stores.meeting_session_schema import (
+    DECISIONS_INDEX_DDL,
+    DECISIONS_TABLE_DDL,
+    INDEX_DDL,
+    MEETING_SESSION_ALTER_DDL,
+    TABLE_DDL,
+)
 from backend.app.services.stores.postgres_base import PostgresStoreBase
 from backend.app.models.meeting_session import MeetingSession, MeetingStatus
 
 logger = logging.getLogger(__name__)
-
-DEFAULT_ACTIVE_SESSION_FRESHNESS = timedelta(minutes=30)
-DEFAULT_PLANNED_SESSION_FRESHNESS = timedelta(minutes=15)
-SESSION_ACTIVITY_METADATA_KEYS = (
-    "last_round_updated_at",
-    "pipeline_stage_updated_at",
-    "dispatch_updated_at",
-    "updated_at",
-)
-
-
-TABLE_DDL = """
-CREATE TABLE IF NOT EXISTS meeting_sessions (
-    id               TEXT PRIMARY KEY,
-    workspace_id     TEXT NOT NULL,
-    project_id       TEXT,
-    thread_id        TEXT,
-    lens_id          TEXT,
-    started_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
-    ended_at         TIMESTAMPTZ,
-    status           TEXT NOT NULL DEFAULT 'planned',
-    meeting_type     TEXT NOT NULL DEFAULT 'general',
-    agenda           JSONB DEFAULT '[]',
-    success_criteria JSONB DEFAULT '[]',
-    round_count      INTEGER DEFAULT 0,
-    max_rounds       INTEGER DEFAULT 5,
-    action_items     JSONB DEFAULT '[]',
-    minutes_md       TEXT DEFAULT '',
-    state_before     JSONB DEFAULT '{}',
-    state_after      JSONB DEFAULT '{}',
-    decisions        JSONB DEFAULT '[]',
-    traces           JSONB DEFAULT '[]',
-    intents_patched  JSONB DEFAULT '[]',
-    metadata         JSONB DEFAULT '{}'
-);
-"""
-
-DECISIONS_TABLE_DDL = """
-CREATE TABLE IF NOT EXISTS meeting_decisions (
-    id                  TEXT PRIMARY KEY,
-    session_id          TEXT NOT NULL,
-    workspace_id        TEXT NOT NULL,
-    category            VARCHAR(32) NOT NULL DEFAULT 'action',
-    content             TEXT NOT NULL,
-    status              VARCHAR(32) DEFAULT 'pending',
-    resolved_by_task_id TEXT,
-    source_action_item  JSONB DEFAULT '{}',
-    created_at          TIMESTAMPTZ DEFAULT NOW()
-);
-"""
-
-DECISIONS_INDEX_DDL = [
-    "CREATE INDEX IF NOT EXISTS idx_decisions_session ON meeting_decisions(session_id)",
-    "CREATE INDEX IF NOT EXISTS idx_decisions_ws_status ON meeting_decisions(workspace_id, status)",
-]
-
-INDEX_DDL = [
-    "CREATE INDEX IF NOT EXISTS idx_meeting_sessions_ws_thread ON meeting_sessions(workspace_id, thread_id)",
-    "CREATE INDEX IF NOT EXISTS idx_meeting_sessions_ws_project ON meeting_sessions(workspace_id, project_id)",
-    "CREATE INDEX IF NOT EXISTS idx_meeting_sessions_active ON meeting_sessions(workspace_id, ended_at)",
-]
-
-
-def _coerce_activity_datetime(value: Any) -> Optional[datetime]:
-    if value is None:
-        return None
-    if isinstance(value, datetime):
-        dt = value
-    else:
-        try:
-            dt = datetime.fromisoformat(str(value))
-        except Exception:
-            return None
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(timezone.utc)
-
-
-def is_active_session_fresh(
-    session: MeetingSession,
-    *,
-    now: Optional[datetime] = None,
-    active_ttl: timedelta = DEFAULT_ACTIVE_SESSION_FRESHNESS,
-    planned_ttl: timedelta = DEFAULT_PLANNED_SESSION_FRESHNESS,
-) -> bool:
-    if session is None or session.ended_at is not None:
-        return False
-
-    effective_now = now or datetime.now(timezone.utc)
-    if effective_now.tzinfo is None:
-        effective_now = effective_now.replace(tzinfo=timezone.utc)
-    else:
-        effective_now = effective_now.astimezone(timezone.utc)
-
-    metadata = session.metadata or {}
-    activity_points: List[datetime] = []
-
-    started_at = _coerce_activity_datetime(session.started_at)
-    if started_at is not None:
-        activity_points.append(started_at)
-
-    for key in SESSION_ACTIVITY_METADATA_KEYS:
-        activity_dt = _coerce_activity_datetime(metadata.get(key))
-        if activity_dt is not None:
-            activity_points.append(activity_dt)
-
-    if not activity_points:
-        return False
-
-    last_activity = max(activity_points)
-    ttl = (
-        planned_ttl
-        if session.status == MeetingStatus.PLANNED
-        else active_ttl
-    )
-    return last_activity >= (effective_now - ttl)
-
 
 class MeetingSessionStore(PostgresStoreBase):
     """Store for MeetingSession persistence (Postgres)."""
@@ -147,22 +43,10 @@ class MeetingSessionStore(PostgresStoreBase):
 
     def ensure_table(self) -> None:
         """Create the meeting_sessions and meeting_decisions tables if they do not exist."""
-        alter_ddls = [
-            "ALTER TABLE meeting_sessions ADD COLUMN IF NOT EXISTS project_id TEXT",
-            "ALTER TABLE meeting_sessions ADD COLUMN IF NOT EXISTS lens_id TEXT",
-            "ALTER TABLE meeting_sessions ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'planned'",
-            "ALTER TABLE meeting_sessions ADD COLUMN IF NOT EXISTS meeting_type TEXT NOT NULL DEFAULT 'general'",
-            "ALTER TABLE meeting_sessions ADD COLUMN IF NOT EXISTS agenda JSONB DEFAULT '[]'::jsonb",
-            "ALTER TABLE meeting_sessions ADD COLUMN IF NOT EXISTS success_criteria JSONB DEFAULT '[]'::jsonb",
-            "ALTER TABLE meeting_sessions ADD COLUMN IF NOT EXISTS round_count INTEGER DEFAULT 0",
-            "ALTER TABLE meeting_sessions ADD COLUMN IF NOT EXISTS max_rounds INTEGER DEFAULT 5",
-            "ALTER TABLE meeting_sessions ADD COLUMN IF NOT EXISTS action_items JSONB DEFAULT '[]'::jsonb",
-            "ALTER TABLE meeting_sessions ADD COLUMN IF NOT EXISTS minutes_md TEXT DEFAULT ''",
-        ]
         with self.transaction() as conn:
             conn.execute(text(TABLE_DDL))
             conn.execute(text(DECISIONS_TABLE_DDL))
-            for alter in alter_ddls:
+            for alter in MEETING_SESSION_ALTER_DDL:
                 conn.execute(text(alter))
             for idx in INDEX_DDL:
                 conn.execute(text(idx))
@@ -484,50 +368,9 @@ class MeetingSessionStore(PostgresStoreBase):
 
     # ============== Internal ==============
 
-    @staticmethod
-    def _row_data(row) -> Dict[str, Any]:
-        return row._mapping if hasattr(row, "_mapping") else row
-
     def _row_to_session(self, row) -> MeetingSession:
         """Convert a database row to a MeetingSession."""
-        data = self._row_data(row)
-        status_raw = data.get("status", MeetingStatus.PLANNED.value)
-        try:
-            status = MeetingStatus(status_raw)
-        except Exception:
-            status = MeetingStatus.PLANNED
-
-        started_at = data["started_at"]
-        if not isinstance(started_at, datetime):
-            started_at = datetime.fromisoformat(str(started_at))
-
-        ended_at = data.get("ended_at")
-        if ended_at and not isinstance(ended_at, datetime):
-            ended_at = datetime.fromisoformat(str(ended_at))
-
-        return MeetingSession(
-            id=data["id"],
-            workspace_id=data["workspace_id"],
-            project_id=data.get("project_id"),
-            thread_id=data.get("thread_id"),
-            lens_id=data.get("lens_id"),
-            started_at=started_at,
-            ended_at=ended_at,
-            status=status,
-            meeting_type=data.get("meeting_type", "general"),
-            agenda=self.deserialize_json(data.get("agenda"), []),
-            success_criteria=self.deserialize_json(data.get("success_criteria"), []),
-            round_count=data.get("round_count", 0) or 0,
-            max_rounds=data.get("max_rounds", 5) or 5,
-            action_items=self.deserialize_json(data.get("action_items"), []),
-            minutes_md=data.get("minutes_md", "") or "",
-            state_before=self.deserialize_json(data.get("state_before"), {}),
-            state_after=self.deserialize_json(data.get("state_after"), {}),
-            decisions=self.deserialize_json(data.get("decisions"), []),
-            traces=self.deserialize_json(data.get("traces"), []),
-            intents_patched=self.deserialize_json(data.get("intents_patched"), []),
-            metadata=self.deserialize_json(data.get("metadata"), {}),
-        )
+        return row_to_session(row, deserialize_json=self.deserialize_json)
 
     # ============== Decisions CRUD ==============
 
@@ -585,19 +428,7 @@ class MeetingSessionStore(PostgresStoreBase):
             rows = conn.execute(
                 query, {"workspace_id": workspace_id, "limit": limit}
             ).fetchall()
-            return [
-                {
-                    "id": r[0],
-                    "session_id": r[1],
-                    "workspace_id": r[2],
-                    "category": r[3],
-                    "content": r[4],
-                    "status": r[5],
-                    "resolved_by_task_id": r[6],
-                    "created_at": r[7].isoformat() if r[7] else None,
-                }
-                for r in rows
-            ]
+            return [unresolved_decision_from_row(r) for r in rows]
 
     def list_decisions_by_session(self, session_id: str) -> List[MeetingDecision]:
         """List structured meeting decisions for a session, oldest first."""
@@ -615,21 +446,4 @@ class MeetingSessionStore(PostgresStoreBase):
             return [self._row_to_meeting_decision(row) for row in rows]
 
     def _row_to_meeting_decision(self, row: Any) -> MeetingDecision:
-        data = row._mapping if hasattr(row, "_mapping") else row
-        created_at = data["created_at"]
-        if created_at and not isinstance(created_at, datetime):
-            created_at = datetime.fromisoformat(str(created_at))
-        return MeetingDecision(
-            id=data["id"],
-            session_id=data["session_id"],
-            workspace_id=data["workspace_id"],
-            category=data["category"],
-            content=data["content"],
-            status=data.get("status") or "pending",
-            resolved_by_task_id=data.get("resolved_by_task_id"),
-            source_action_item=self.deserialize_json(
-                data.get("source_action_item"),
-                default={},
-            ),
-            created_at=created_at,
-        )
+        return row_to_meeting_decision(row, deserialize_json=self.deserialize_json)
