@@ -1,56 +1,52 @@
 import '@testing-library/jest-dom/vitest';
 import React, { Suspense } from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   createRuntimeSettingsExtensionComponent,
   resolveRuntimeModalPanels,
+  RuntimeEnvironmentsSettings,
   shouldRenderSettingsPanelInline,
 } from './RuntimeEnvironmentsSettings';
 
 const registryMock = vi.hoisted(() => ({
-  loadRegisteredCapabilityComponentsContext: vi.fn(),
+  loadCapabilityUIComponent: vi.fn(),
+  primeCapabilityUIComponentMetadata: vi.fn(),
 }));
 
-vi.mock('../../../../lib/capability-ui-context-registry', () => ({
-  loadRegisteredCapabilityComponentsContext: registryMock.loadRegisteredCapabilityComponentsContext,
+vi.mock('../../../../lib/capability-ui-loader', () => ({
+  loadCapabilityUIComponent: registryMock.loadCapabilityUIComponent,
+  primeCapabilityUIComponentMetadata: registryMock.primeCapabilityUIComponentMetadata,
 }));
 
-function LoadedRuntimePanel({ runtimeId }: { runtimeId?: string }) {
-  return <div data-testid="loaded-runtime-panel">{runtimeId}</div>;
+vi.mock('./HostResourcesPanel', () => ({
+  HostResourcesPanel: () => <div data-testid="host-resources-panel" />,
+}));
+
+function LoadedRuntimePanel({ apiUrl, runtimeId }: { apiUrl?: string; runtimeId?: string }) {
+  return <div data-testid="loaded-runtime-panel">{runtimeId || 'global'}:{apiUrl || 'no-api'}</div>;
 }
 
 describe('RuntimeEnvironmentsSettings extension loader', () => {
   beforeEach(() => {
-    registryMock.loadRegisteredCapabilityComponentsContext.mockReset();
+    registryMock.loadCapabilityUIComponent.mockReset();
+    registryMock.primeCapabilityUIComponentMetadata.mockReset();
   });
 
-  it('loads runtime settings panels from the registered capability-scoped context', async () => {
-    const context = Object.assign(
-      vi.fn(async (key: string) => {
-        if (key === './components/RuntimePanel.tsx') {
-          return { default: LoadedRuntimePanel };
-        }
-        return { default: () => <div data-testid="unexpected-panel">{key}</div> };
-      }),
-      {
-        keys: () => [
-          './components/RuntimePanel.tsx',
-          './components/SourcesTab.collections.cases.tsx',
-        ],
-      },
-    );
-    registryMock.loadRegisteredCapabilityComponentsContext.mockResolvedValue({
-      capabilityCode: 'ig',
-      context,
-    });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('loads runtime settings panels through the runtime asset-capable capability UI loader', async () => {
+    registryMock.loadCapabilityUIComponent.mockResolvedValue(LoadedRuntimePanel);
 
     const LazyPanel = createRuntimeSettingsExtensionComponent({
-      capabilityCode: 'ig',
-      componentCode: 'RuntimePanel',
-      title: 'Runtime Panel',
-      importPath: '@/app/capabilities/ig/components/RuntimePanel.tsx',
+      capabilityCode: 'youtube',
+      componentCode: 'YoutubeRuntimeSettingsPanel',
+      title: 'YouTube Data API',
+      description: 'Configure YouTube Data API key',
+      importPath: '@/app/capabilities/youtube/components/YoutubeRuntimeSettingsPanel.tsx',
       export: 'default',
     });
 
@@ -61,11 +57,73 @@ describe('RuntimeEnvironmentsSettings extension loader', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByTestId('loaded-runtime-panel')).toHaveTextContent('ig-browser');
+      expect(screen.getByTestId('loaded-runtime-panel')).toHaveTextContent('ig-browser:');
     });
-    expect(registryMock.loadRegisteredCapabilityComponentsContext).toHaveBeenCalledWith('ig');
-    expect(context).toHaveBeenCalledWith('./components/RuntimePanel.tsx');
-    expect(context).not.toHaveBeenCalledWith('./components/SourcesTab.collections.cases.tsx');
+    expect(registryMock.primeCapabilityUIComponentMetadata).toHaveBeenCalledWith(
+      'youtube',
+      [
+        expect.objectContaining({
+          code: 'YoutubeRuntimeSettingsPanel',
+          path: 'ui/components/YoutubeRuntimeSettingsPanel.tsx',
+          import_path: '@/app/capabilities/youtube/components/YoutubeRuntimeSettingsPanel.tsx',
+        }),
+      ],
+    );
+    expect(registryMock.loadCapabilityUIComponent).toHaveBeenCalledWith(
+      'youtube',
+      'YoutubeRuntimeSettingsPanel',
+      expect.any(String),
+    );
+  });
+
+  it('renders pack-installed global runtime settings panels inline on the settings page', async () => {
+    registryMock.loadCapabilityUIComponent.mockResolvedValue(LoadedRuntimePanel);
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes('/api/v1/runtime-environments')) {
+        return {
+          ok: true,
+          json: async () => ({ runtimes: [] }),
+        } as Response;
+      }
+      if (url.includes('/api/v1/settings/extensions?section=runtime-environments')) {
+        return {
+          ok: true,
+          json: async () => ([{
+            capability_code: 'youtube',
+            component_code: 'YoutubeRuntimeSettingsPanel',
+            section: 'runtime-environments',
+            title: 'YouTube Data API',
+            description: 'Configure the YouTube Data API key used by the YouTube refs workbench.',
+            display_mode: null,
+            requires_workspace_id: false,
+            show_when: { always: true },
+            props_schema: null,
+            import_path: '@/app/capabilities/youtube/components/YoutubeRuntimeSettingsPanel.tsx',
+            export: 'default',
+          }]),
+        } as Response;
+      }
+      if (url.includes('/api/v1/settings/extensions?section=workflow-engines')) {
+        return {
+          ok: true,
+          json: async () => ([]),
+        } as Response;
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<RuntimeEnvironmentsSettings />);
+
+    await waitFor(() => {
+      expect(screen.getByText('YouTube Data API')).toBeInTheDocument();
+      expect(screen.getByTestId('loaded-runtime-panel')).toHaveTextContent('global:');
+    });
+    expect(registryMock.loadCapabilityUIComponent).toHaveBeenCalledWith(
+      'youtube',
+      'YoutubeRuntimeSettingsPanel',
+      expect.any(String),
+    );
   });
 });
 

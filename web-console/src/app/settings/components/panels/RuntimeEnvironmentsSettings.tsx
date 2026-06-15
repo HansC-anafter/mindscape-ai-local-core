@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, Suspense, lazy } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import { t } from '../../../../lib/i18n';
 import { ToolCard } from '../ToolCard';
 import { ToolGrid } from '../ToolGrid';
@@ -10,9 +10,8 @@ import { AddRuntimeModal } from './AddRuntimeModal';
 import { HostResourcesPanel } from './HostResourcesPanel';
 import { showNotification } from '../../hooks/useSettingsNotification';
 import { BaseModal } from '../../../../components/BaseModal';
-import { convertImportPathToContextKey, normalizeCapabilityContextKey } from '../../../../lib/capability-path';
-import { loadRegisteredCapabilityComponentsContext } from '../../../../lib/capability-ui-context-registry';
 import { getApiBaseUrl } from '../../../../lib/api-url';
+import { createLazySettingsExtensionComponent } from '../../../../lib/settings-extension-component-loader';
 
 interface RuntimeEnvironment {
   id: string;
@@ -57,73 +56,23 @@ function EmptyRuntimeSettingsExtension() {
   return null;
 }
 
-function findRuntimeSettingsContextKey(
-  contextKey: string | null,
-  capabilityCode: string,
-  contextKeys: Set<string>,
-): string | null {
-  const normalizedKey = normalizeCapabilityContextKey(contextKey);
-  if (normalizedKey && contextKeys.has(normalizedKey)) {
-    return normalizedKey;
-  }
-
-  const variants = new Set([
-    capabilityCode,
-    capabilityCode.replace(/-/g, '_'),
-    capabilityCode.replace(/_/g, '-'),
-  ]);
-  for (const variant of variants) {
-    if (!normalizedKey) {
-      continue;
-    }
-    const strippedKey = normalizeCapabilityContextKey(
-      normalizedKey.replace(new RegExp(`^\\./${variant.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/`), './')
-    );
-    if (strippedKey && contextKeys.has(strippedKey)) {
-      return strippedKey;
-    }
-  }
-
-  return null;
-}
-
 export function createRuntimeSettingsExtensionComponent(
   panel: SettingsPanel
-): React.LazyExoticComponent<React.ComponentType<RuntimeSettingsExtensionProps>> {
-  const rawContextKey = convertImportPathToContextKey(panel.importPath);
-  const contextKey = normalizeCapabilityContextKey(rawContextKey);
+): React.ComponentType<RuntimeSettingsExtensionProps> {
+  if (!panel.capabilityCode || !panel.componentCode || !panel.importPath) {
+    return EmptyRuntimeSettingsExtension;
+  }
 
-  return lazy(async (): Promise<{ default: React.ComponentType<RuntimeSettingsExtensionProps> }> => {
-    const loaded = await loadRegisteredCapabilityComponentsContext(panel.capabilityCode);
-    if (!loaded) {
-      return { default: EmptyRuntimeSettingsExtension };
-    }
-
-    const contextKeys = new Set(
-      typeof loaded.context.keys === 'function'
-        ? loaded.context.keys()
-        : []
-    );
-    const resolvedKey = findRuntimeSettingsContextKey(
-      contextKey,
-      loaded.capabilityCode,
-      contextKeys,
-    );
-    if (!resolvedKey) {
-      return { default: EmptyRuntimeSettingsExtension };
-    }
-
-    try {
-      const moduleLoader = loaded.context(resolvedKey);
-      const loadedModule = typeof moduleLoader === 'function' ? await moduleLoader() : await moduleLoader;
-      return {
-        default: (loadedModule[panel.export || 'default'] || loadedModule.default || EmptyRuntimeSettingsExtension) as React.ComponentType<RuntimeSettingsExtensionProps>,
-      };
-    } catch (error) {
-      console.error('Failed to load runtime settings component:', panel.componentCode, 'from', resolvedKey, error);
-      return { default: EmptyRuntimeSettingsExtension };
-    }
-  });
+  return createLazySettingsExtensionComponent(
+    {
+      capability_code: panel.capabilityCode,
+      component_code: panel.componentCode,
+      description: panel.description,
+      export: panel.export || 'default',
+      import_path: panel.importPath,
+    },
+    getApiBaseUrl(),
+  ) as React.ComponentType<RuntimeSettingsExtensionProps>;
 }
 
 const slugifyRuntimeCode = (value: string | null | undefined): string | null => {
@@ -275,6 +224,7 @@ export function RuntimeEnvironmentsSettings() {
   const [loading, setLoading] = useState(true);
   const [settingsPanels, setSettingsPanels] = useState<SettingsPanel[]>([]);
   const [workflowPanels, setWorkflowPanels] = useState<SettingsPanel[]>([]);
+  const apiBaseUrl = getApiBaseUrl();
 
   useEffect(() => {
     loadRuntimes();
@@ -560,7 +510,7 @@ export function RuntimeEnvironmentsSettings() {
                           {t('loading' as any) || 'Loading'} {runtimeModalPanel.title}...
                         </div>
                       }>
-                        <RuntimePanelComponent runtimeId={selectedRuntime} runtime={runtime} />
+                        <RuntimePanelComponent runtimeId={selectedRuntime} runtime={runtime} apiUrl={apiBaseUrl} />
                       </Suspense>
                     </Section>
                   );
@@ -628,7 +578,7 @@ export function RuntimeEnvironmentsSettings() {
         }
 
         const ExtensionComponent = loadExtensionComponent(panel);
-        const props = { ...panel.propsSchema };
+        const props = { ...panel.propsSchema, apiUrl: apiBaseUrl };
 
         // Add workspaceId if required
         if (panel.requiresWorkspaceId) {
@@ -667,7 +617,7 @@ export function RuntimeEnvironmentsSettings() {
               return null;
             }
             const ExtensionComponent = loadExtensionComponent(panel);
-            const props = { ...panel.propsSchema };
+            const props = { ...panel.propsSchema, apiUrl: apiBaseUrl };
 
             return (
               <Section
