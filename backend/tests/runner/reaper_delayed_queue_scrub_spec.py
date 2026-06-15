@@ -65,6 +65,12 @@ class _UnreadableTasksStore(_FakeTasksStore):
         raise ValueError("'cancelled' is not a valid TaskStatus")
 
 
+class _RawStatusTask:
+    def __init__(self, status: str):
+        self.id = "task-1"
+        self.status = status
+
+
 async def _no_reaper_work(*_args, **_kwargs):
     return 0
 
@@ -118,6 +124,20 @@ async def test_delayed_queue_mover_scrubs_terminal_task_without_requeue(monkeypa
 
 
 @pytest.mark.asyncio
+async def test_delayed_queue_mover_scrubs_legacy_cancelled_string_without_requeue(monkeypatch):
+    _disable_follow_up_work(monkeypatch)
+    store = _FakeTasksStore(_RawStatusTask("cancelled"))
+    client = _FakeRedisClient(delayed_items=[b"task-1"])
+    queue = _FakeRedisQueue(client)
+
+    await reaper._reap_redis_queues(store, queue)
+
+    assert (queue.q_delayed, b"task-1") in client.zremoved
+    assert queue.enqueued == []
+    assert store.updated == []
+
+
+@pytest.mark.asyncio
 async def test_delayed_queue_mover_scrubs_unreadable_task_without_requeue(monkeypatch):
     _disable_follow_up_work(monkeypatch)
     store = _UnreadableTasksStore(None)
@@ -128,3 +148,22 @@ async def test_delayed_queue_mover_scrubs_unreadable_task_without_requeue(monkey
 
     assert (queue.q_delayed, b"legacy-cancelled") in client.zremoved
     assert queue.enqueued == []
+
+
+@pytest.mark.asyncio
+async def test_delayed_queue_mover_scrubs_invalid_route_projection_without_batch_failure(monkeypatch):
+    _disable_follow_up_work(monkeypatch)
+    store = _FakeTasksStore(_task(TaskStatus.PENDING))
+    client = _FakeRedisClient(delayed_items=[b"task-1"])
+    queue = _FakeRedisQueue(client)
+
+    def _raise_invalid_status(_task):
+        raise ValueError("'cancelled' is not a valid TaskStatus")
+
+    monkeypatch.setattr(reaper, "build_route_identity_projection", _raise_invalid_status)
+
+    await reaper._reap_redis_queues(store, queue)
+
+    assert (queue.q_delayed, b"task-1") in client.zremoved
+    assert queue.enqueued == []
+    assert store.updated == []

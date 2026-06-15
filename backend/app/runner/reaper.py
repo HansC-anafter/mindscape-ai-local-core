@@ -12,6 +12,9 @@ from sqlalchemy import text
 from backend.app.models.workspace import Task, TaskStatus
 from backend.app.services.mindscape_store import MindscapeStore
 from backend.app.services.stores.tasks_store import TasksStore
+from backend.app.services.stores.tasks_store._crud_helpers import (
+    normalize_task_status_value,
+)
 from backend.app.services.stores.redis.runner_queue_store import RedisRunnerQueueStore
 from backend.app.services.task_admission_service import (
     ADMISSION_DEFERRED_REASON,
@@ -1217,14 +1220,24 @@ async def _reap_redis_queues(
                         if task is None:
                             await client.zrem(redis_queue.q_delayed, task_id)
                             continue
-                        status = getattr(task, "status", None)
-                        status_raw = status.value if hasattr(status, "value") else str(status)
-                        if status_raw in TERMINAL_TASK_STATUSES or status_raw != TaskStatus.PENDING.value:
+                        status_raw = normalize_task_status_value(getattr(task, "status", None))
+                        if status_raw != TaskStatus.PENDING.value:
+                            await client.zrem(redis_queue.q_delayed, task_id)
+                            continue
+                        try:
+                            route_identity = build_route_identity_projection(task)
+                        except ValueError as task_status_error:
+                            logger.warning(
+                                "[Bridge] Dropping delayed queue item with invalid route projection task_id=%s shard=%s: %s",
+                                normalized_task_id,
+                                redis_queue.pack_id,
+                                task_status_error,
+                            )
                             await client.zrem(redis_queue.q_delayed, task_id)
                             continue
                         await redis_queue.enqueue_task(
                             normalized_task_id,
-                            route_identity=build_route_identity_projection(task),
+                            route_identity=route_identity,
                         )
                         await client.zrem(redis_queue.q_delayed, task_id)
                         moved_task_ids.append(normalized_task_id)
