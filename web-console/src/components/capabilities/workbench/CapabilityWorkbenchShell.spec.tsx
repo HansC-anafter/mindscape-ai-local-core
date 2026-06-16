@@ -1,10 +1,14 @@
 import React from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { AddressableObjectHostBridge } from '@/lib/addressable-object-layer';
 import type { WorkspaceToolDefinition } from '@/lib/workspace-tools/workspace-tool-registry';
 import { CapabilityWorkbenchShell } from './CapabilityWorkbenchShell';
+import {
+  CapabilityWorkbenchMobileFloatingControlsContext,
+  type CapabilityWorkbenchMobileFloatingControl,
+} from './useCapabilityWorkbenchMobileFloatingControls';
 
 vi.mock('@/lib/capability-ui-loader', async () => {
   const ReactModule = await import('react');
@@ -52,12 +56,87 @@ function createAolHost(): AddressableObjectHostBridge {
   };
 }
 
+function MobileFloatingControlsHarness({ children }: { children: React.ReactNode }) {
+  const [controlsByScope, setControlsByScope] = React.useState<Record<string, CapabilityWorkbenchMobileFloatingControl[]>>({});
+  const controls = Object.values(controlsByScope)
+    .flat()
+    .sort((left, right) => left.order - right.order || left.key.localeCompare(right.key));
+  const value = React.useMemo(() => ({
+    registerControls: (
+      scopeId: string,
+      nextControls: CapabilityWorkbenchMobileFloatingControl[],
+    ) => {
+      setControlsByScope((current) => ({
+        ...current,
+        [scopeId]: nextControls,
+      }));
+      return () => {
+        setControlsByScope((current) => {
+          const next = { ...current };
+          delete next[scopeId];
+          return next;
+        });
+      };
+    },
+  }), []);
+
+  return (
+    <CapabilityWorkbenchMobileFloatingControlsContext.Provider value={value}>
+      {children}
+      <div data-testid="mobile-floating-controls-harness">
+        {controls.map((control) => (
+          <div key={control.key}>{control.render()}</div>
+        ))}
+      </div>
+    </CapabilityWorkbenchMobileFloatingControlsContext.Provider>
+  );
+}
+
+function GlobalMobileFloatingControlsHarness({ children }: { children: React.ReactNode }) {
+  const [controlsByScope, setControlsByScope] = React.useState<Record<string, CapabilityWorkbenchMobileFloatingControl[]>>({});
+  const controls = Object.values(controlsByScope)
+    .flat()
+    .sort((left, right) => left.order - right.order || left.key.localeCompare(right.key));
+  const bridge = React.useMemo(() => ({
+    registerControls: (
+      scopeId: string,
+      nextControls: CapabilityWorkbenchMobileFloatingControl[],
+    ) => {
+      setControlsByScope((current) => ({
+        ...current,
+        [scopeId]: nextControls,
+      }));
+      return () => {
+        setControlsByScope((current) => {
+          const next = { ...current };
+          delete next[scopeId];
+          return next;
+        });
+      };
+    },
+  }), []);
+
+  window.__MindscapeCapabilityWorkbenchMobileFloatingControlsBridge = bridge;
+
+  return (
+    <>
+      {children}
+      <div data-testid="global-mobile-floating-controls-harness">
+        {controls.map((control) => (
+          <div key={control.key}>{control.render()}</div>
+        ))}
+      </div>
+    </>
+  );
+}
+
 describe('CapabilityWorkbenchShell', () => {
   beforeEach(() => {
     window.__MindscapePackScopeToolContributions = { ig: [feedLoadTool] };
   });
 
   afterEach(() => {
+    delete window.__MindscapeCapabilityWorkbenchMobileFloatingControlsBridge;
     vi.unstubAllGlobals();
   });
 
@@ -209,13 +288,72 @@ describe('CapabilityWorkbenchShell', () => {
       </CapabilityWorkbenchShell>,
     );
 
-    expect(screen.getByTestId('capability-workbench-shell')).toHaveAttribute('data-workbench-placement', 'mobile');
-    expect(screen.getByTestId('pack-scope-tool-rail')).toHaveAttribute('data-workbench-placement', 'mobile');
-    expect(screen.getByTestId('capability-workbench-navigation-slot')).toHaveAttribute('data-navigation-state', 'closed');
+    await waitFor(() => {
+      expect(screen.getByTestId('capability-workbench-shell')).toHaveAttribute('data-workbench-placement', 'mobile');
+      expect(screen.getByTestId('pack-scope-tool-rail')).toHaveAttribute('data-workbench-placement', 'mobile');
+      expect(screen.getByTestId('capability-workbench-navigation-slot')).toHaveAttribute('data-navigation-state', 'closed');
+    });
 
     fireEvent.click(screen.getByTestId('pack-scope-navigation-toggle'));
 
     expect(screen.getByTestId('capability-workbench-navigation-slot')).toHaveAttribute('data-navigation-state', 'open');
     expect(screen.getByTestId('capability-workbench-navigation-slot').className).toContain('max-h-[70dvh]');
+  });
+
+  it('moves the mobile navigation toggle into the floating controls stack when the provider is present', async () => {
+    vi.stubGlobal('matchMedia', vi.fn(() => ({
+      matches: true,
+      media: '(max-width: 767px)',
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })));
+
+    render(
+      <MobileFloatingControlsHarness>
+        <CapabilityWorkbenchShell
+          workspaceId="ws_test"
+          capabilityCode="ig"
+          apiUrl="http://api.test"
+          navigation={<aside data-testid="pack-navigation">Navigation</aside>}
+        >
+          <main data-testid="pack-main">Main</main>
+        </CapabilityWorkbenchShell>
+      </MobileFloatingControlsHarness>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('capability-workbench-mobile-nav-toggle')).toBeInTheDocument();
+      expect(screen.queryByTestId('pack-scope-navigation-toggle')).toBeNull();
+    });
+
+    fireEvent.click(screen.getByTestId('capability-workbench-mobile-nav-toggle'));
+    expect(screen.getByTestId('capability-workbench-navigation-slot')).toHaveAttribute('data-navigation-state', 'open');
+  });
+
+  it('moves the mobile navigation toggle through the global bridge when the runtime bundle does not share context', async () => {
+    vi.stubGlobal('matchMedia', vi.fn(() => ({
+      matches: true,
+      media: '(max-width: 767px)',
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })));
+
+    render(
+      <GlobalMobileFloatingControlsHarness>
+        <CapabilityWorkbenchShell
+          workspaceId="ws_test"
+          capabilityCode="ig"
+          apiUrl="http://api.test"
+          navigation={<aside data-testid="pack-navigation">Navigation</aside>}
+        >
+          <main data-testid="pack-main">Main</main>
+        </CapabilityWorkbenchShell>
+      </GlobalMobileFloatingControlsHarness>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('capability-workbench-mobile-nav-toggle')).toBeInTheDocument();
+      expect(screen.queryByTestId('pack-scope-navigation-toggle')).toBeNull();
+    });
   });
 });

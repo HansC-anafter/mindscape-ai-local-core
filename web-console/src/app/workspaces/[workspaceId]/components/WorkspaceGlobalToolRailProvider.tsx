@@ -21,6 +21,11 @@ import {
   WorkspaceGlobalToolRailContext,
   type WorkspaceGlobalToolContribution,
 } from './useWorkspaceGlobalToolRail';
+import {
+  CapabilityWorkbenchMobileFloatingControlsContext,
+  type CapabilityWorkbenchMobileFloatingControl,
+  useCapabilityWorkbenchMobileFloatingControlsBridgePublisher,
+} from '@/components/capabilities/workbench/useCapabilityWorkbenchMobileFloatingControls';
 
 const WorkspaceRunsPanel = React.lazy(() => import('../capability-ui-hosts/WorkspaceRunsPanel'));
 const WorkspaceSettingsToolPanel = React.lazy(() => import('../capability-ui-hosts/WorkspaceSettingsToolPanel'));
@@ -85,6 +90,20 @@ function resolveVisibleContributions(
   });
 }
 
+function resolveVisibleMobileFloatingControls(
+  registeredControls: Record<string, CapabilityWorkbenchMobileFloatingControl[]>,
+): CapabilityWorkbenchMobileFloatingControl[] {
+  const controlMap = new Map<string, CapabilityWorkbenchMobileFloatingControl>();
+  Object.values(registeredControls)
+    .flat()
+    .forEach((control) => {
+      controlMap.set(control.key, control);
+    });
+  return [...controlMap.values()].sort((left, right) => (
+    left.order - right.order || left.key.localeCompare(right.key)
+  ));
+}
+
 interface WorkspaceGlobalToolRailProviderProps {
   workspaceId: string;
   children: React.ReactNode;
@@ -102,6 +121,7 @@ export default function WorkspaceGlobalToolRailProvider({
   const [activeCapabilityCode, setActiveCapabilityCode] = React.useState<string | null>(null);
   const [mobileTrayOpen, setMobileTrayOpen] = React.useState(false);
   const [registeredScopeContributions, setRegisteredScopeContributions] = React.useState<Record<string, WorkspaceGlobalToolContribution[]>>({});
+  const [registeredMobileFloatingControls, setRegisteredMobileFloatingControls] = React.useState<Record<string, CapabilityWorkbenchMobileFloatingControl[]>>({});
   const deepLinkedToolHrefRef = React.useRef<string | null>(null);
   const mobileTrayAnchorRef = React.useRef<HTMLDivElement | null>(null);
   const mobilePanelRef = React.useRef<HTMLElement | null>(null);
@@ -120,6 +140,26 @@ export default function WorkspaceGlobalToolRailProvider({
     }));
     return () => {
       setRegisteredScopeContributions((current) => {
+        if (!Object.prototype.hasOwnProperty.call(current, scopeId)) {
+          return current;
+        }
+        const next = { ...current };
+        delete next[scopeId];
+        return next;
+      });
+    };
+  }, []);
+
+  const registerMobileFloatingControls = React.useCallback((
+    scopeId: string,
+    controls: CapabilityWorkbenchMobileFloatingControl[],
+  ) => {
+    setRegisteredMobileFloatingControls((current) => ({
+      ...current,
+      [scopeId]: controls,
+    }));
+    return () => {
+      setRegisteredMobileFloatingControls((current) => {
         if (!Object.prototype.hasOwnProperty.call(current, scopeId)) {
           return current;
         }
@@ -205,6 +245,7 @@ export default function WorkspaceGlobalToolRailProvider({
     () => visibleContributions.find((contribution) => contribution.key === activeToolKey) || null,
     [activeToolKey, visibleContributions],
   );
+  const visibleMobileFloatingControls = React.useMemo(() => resolveVisibleMobileFloatingControls(registeredMobileFloatingControls), [registeredMobileFloatingControls]);
 
   React.useEffect(() => {
     if (activeToolKey && (!activeContribution || !activeContribution.renderPanel)) {
@@ -334,6 +375,8 @@ export default function WorkspaceGlobalToolRailProvider({
     setActiveCapabilityCode,
     registerToolContributions,
   }), [activeCapabilityCode, activeToolKey, registerToolContributions]);
+  const mobileFloatingControlsContextValue = React.useMemo(() => ({ registerControls: registerMobileFloatingControls }), [registerMobileFloatingControls]);
+  useCapabilityWorkbenchMobileFloatingControlsBridgePublisher(mobileFloatingControlsContextValue);
 
   const workspaceToolRail = (
     <WorkspaceToolRail
@@ -343,12 +386,53 @@ export default function WorkspaceGlobalToolRailProvider({
       groups={groups}
     />
   );
+  const workspaceToolFloatingControl = React.useMemo<CapabilityWorkbenchMobileFloatingControl>(() => ({
+    key: 'workspace-global-tools',
+    order: 20,
+    render: () => (
+      <div
+        ref={mobileTrayAnchorRef}
+        className="flex flex-col items-start gap-2"
+        data-testid="workspace-global-tool-tray-anchor"
+      >
+        <button
+          type="button"
+          className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white/95 text-gray-700 shadow-lg backdrop-blur transition hover:bg-white dark:border-gray-800 dark:bg-gray-950/95 dark:text-gray-200"
+          aria-label={mobileTrayOpen ? 'Close workspace tools' : 'Open workspace tools'}
+          aria-pressed={mobileTrayOpen}
+          data-testid="workspace-global-tool-tray-toggle"
+          onClick={() => {
+            if (mobileTrayOpen) {
+              setMobileTrayOpen(false);
+              setActiveToolKey(null);
+              return;
+            }
+            setMobileTrayOpen(true);
+          }}
+        >
+          {mobileTrayOpen ? (
+            <X aria-hidden="true" className="h-4 w-4" />
+          ) : (
+            <PanelRight aria-hidden="true" className="h-4 w-4" />
+          )}
+        </button>
+        {mobileTrayOpen ? workspaceToolRail : null}
+      </div>
+    ),
+  }), [mobileTrayOpen, workspaceToolRail]);
+  const mobileFloatingControls = React.useMemo(() => (
+    isMobilePlacement
+      ? [workspaceToolFloatingControl, ...visibleMobileFloatingControls].sort((left, right) => (
+        left.order - right.order || left.key.localeCompare(right.key)
+      ))
+      : []
+  ), [isMobilePlacement, visibleMobileFloatingControls, workspaceToolFloatingControl]);
 
   const workspaceToolPanel = activeContribution?.renderPanel ? (
     <aside
       ref={mobilePanelRef}
       className={isMobilePlacement
-        ? 'absolute right-14 top-2 z-40 flex max-h-[min(78dvh,36rem)] w-[min(20rem,calc(100vw-4.75rem))] max-w-[calc(100vw-4.75rem)] flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl dark:border-gray-800 dark:bg-gray-950'
+        ? 'absolute left-14 top-[calc(0.5rem+env(safe-area-inset-top,0px))] z-40 flex max-h-[min(78dvh,36rem)] w-[min(20rem,calc(100vw-4.75rem))] max-w-[calc(100vw-4.75rem)] flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl dark:border-gray-800 dark:bg-gray-950'
         : `flex h-full ${WORKSPACE_RIGHT_REGION_PANEL_WIDTH_CLASS} shrink-0 flex-col border-l border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-950`}
       data-testid="workspace-global-tool-panel"
       data-active-tool-key={activeContribution.key}
@@ -377,58 +461,39 @@ export default function WorkspaceGlobalToolRailProvider({
 
   return (
     <WorkspaceGlobalToolRailContext.Provider value={contextValue}>
-      <div
-        className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden md:flex-row"
-        data-testid="workspace-global-tool-shell"
-        data-workbench-placement={placement}
-      >
-        <main className="order-1 flex h-full min-h-0 flex-1 overflow-hidden md:order-none">
-          {children}
-        </main>
-        {isMobilePlacement ? (
-          <>
-            {workspaceToolPanel}
-            <div
-              ref={mobileTrayAnchorRef}
-              className="absolute right-2 top-2 z-50"
-              data-testid="workspace-global-tool-tray-anchor"
-            >
-              {mobileTrayOpen ? (
-                <div className="flex flex-col items-end gap-2">
-                  <button
-                    type="button"
-                    className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 bg-white/95 text-gray-500 shadow-md backdrop-blur transition hover:bg-white hover:text-gray-900 dark:border-gray-800 dark:bg-gray-950/95 dark:text-gray-400 dark:hover:text-gray-100"
-                    aria-label="Close workspace tools"
-                    data-testid="workspace-global-tool-tray-close"
-                    onClick={() => {
-                      setMobileTrayOpen(false);
-                      setActiveToolKey(null);
-                    }}
-                  >
-                    <X aria-hidden="true" className="h-4 w-4" />
-                  </button>
-                  {workspaceToolRail}
-                </div>
-              ) : (
-                <button
-                  type="button"
-                  className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white/95 text-gray-700 shadow-lg backdrop-blur transition hover:bg-white dark:border-gray-800 dark:bg-gray-950/95 dark:text-gray-200"
-                  aria-label="Open workspace tools"
-                  data-testid="workspace-global-tool-tray-toggle"
-                  onClick={() => setMobileTrayOpen(true)}
+      <CapabilityWorkbenchMobileFloatingControlsContext.Provider value={mobileFloatingControlsContextValue}>
+        <div
+          className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden md:flex-row"
+          data-testid="workspace-global-tool-shell"
+          data-workbench-placement={placement}
+        >
+          <main className="order-1 flex h-full min-h-0 flex-1 overflow-hidden md:order-none">
+            {children}
+          </main>
+          {isMobilePlacement ? (
+            <>
+              {workspaceToolPanel}
+              {mobileFloatingControls.length > 0 ? (
+                <div
+                  className="absolute left-2 top-[calc(0.5rem+env(safe-area-inset-top,0px))] z-50 flex flex-col items-start gap-2"
+                  data-testid="workspace-mobile-floating-controls"
                 >
-                  <PanelRight aria-hidden="true" className="h-4 w-4" />
-                </button>
-              )}
-            </div>
-          </>
-        ) : (
-          <>
-            {workspaceToolPanel}
-            {workspaceToolRail}
-          </>
-        )}
-      </div>
+                  {mobileFloatingControls.map((control) => (
+                    <div key={control.key} className="shrink-0">
+                      {control.render()}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </>
+          ) : (
+            <>
+              {workspaceToolPanel}
+              {workspaceToolRail}
+            </>
+          )}
+        </div>
+      </CapabilityWorkbenchMobileFloatingControlsContext.Provider>
     </WorkspaceGlobalToolRailContext.Provider>
   );
 }

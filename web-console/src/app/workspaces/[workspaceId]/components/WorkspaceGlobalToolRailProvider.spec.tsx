@@ -71,6 +71,7 @@ describe('WorkspaceGlobalToolRailProvider', () => {
 
   afterEach(() => {
     vi.clearAllMocks();
+    delete window.__MindscapeCapabilityWorkbenchMobileFloatingControlsBridge;
     vi.unstubAllGlobals();
   });
 
@@ -182,7 +183,7 @@ describe('WorkspaceGlobalToolRailProvider', () => {
     });
   });
 
-  it('uses a top-right tray and overlay panel placement on mobile workbench frames', async () => {
+  it('publishes the mobile floating-controls bridge and uses a left floating tray on mobile workbench frames', async () => {
     vi.stubGlobal('matchMedia', vi.fn(() => ({
       matches: true,
       media: '(max-width: 767px)',
@@ -196,9 +197,13 @@ describe('WorkspaceGlobalToolRailProvider', () => {
       </WorkspaceGlobalToolRailProvider>,
     );
 
-    expect(screen.getByTestId('workspace-global-tool-shell')).toHaveAttribute('data-workbench-placement', 'mobile');
-    expect(screen.queryByTestId('workspace-global-tool-rail')).toBeNull();
-    expect(screen.getByTestId('workspace-global-tool-tray-toggle')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByTestId('workspace-global-tool-shell')).toHaveAttribute('data-workbench-placement', 'mobile');
+      expect(screen.getByTestId('workspace-mobile-floating-controls')).toBeInTheDocument();
+      expect(screen.queryByTestId('workspace-global-tool-rail')).toBeNull();
+      expect(screen.getByTestId('workspace-global-tool-tray-toggle')).toBeInTheDocument();
+      expect(window.__MindscapeCapabilityWorkbenchMobileFloatingControlsBridge).not.toBeNull();
+    });
 
     fireEvent.click(screen.getByTestId('workspace-global-tool-tray-toggle'));
     expect(screen.getByTestId('workspace-global-tool-rail')).toHaveAttribute('data-workspace-tool-rail-placement', 'tray');
@@ -206,6 +211,7 @@ describe('WorkspaceGlobalToolRailProvider', () => {
     fireEvent.click(screen.getByTestId('workspace-settings-tool'));
 
     expect(screen.getByTestId('workspace-global-tool-panel')).toHaveAttribute('data-workbench-placement', 'mobile');
+    expect(screen.getByTestId('workspace-global-tool-panel').className).toContain('left-14');
     await waitFor(() => {
       expect(screen.getByTestId('mock-settings-panel')).toBeInTheDocument();
     });

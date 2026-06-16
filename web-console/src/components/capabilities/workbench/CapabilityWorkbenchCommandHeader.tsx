@@ -4,6 +4,11 @@ import React from 'react';
 
 import type { CapabilityWorkbenchCommandHeaderProps } from '@/types/capability-workbench';
 import { useCapabilityWorkbenchPlacement } from './CapabilityWorkbenchResponsiveFrame';
+import {
+  useCapabilityWorkbenchMobileFloatingControlsRegistration,
+  useOptionalCapabilityWorkbenchMobileFloatingControls,
+  type CapabilityWorkbenchMobileFloatingControl,
+} from './useCapabilityWorkbenchMobileFloatingControls';
 
 function SlotFrame({
   children,
@@ -35,7 +40,29 @@ export function CapabilityWorkbenchCommandHeader({
   className = '',
 }: CapabilityWorkbenchCommandHeaderProps) {
   const placement = useCapabilityWorkbenchPlacement();
+  const mobileFloatingControls = useOptionalCapabilityWorkbenchMobileFloatingControls();
   const useCompactMobileLayout = mobileVariant === 'compact' && placement === 'mobile';
+  const externalizeUtilitySlot = useCompactMobileLayout && Boolean(utilitySlot) && Boolean(mobileFloatingControls);
+  const mobileUtilityControlScopeId = React.useId();
+  const mobileUtilityControls = React.useMemo<CapabilityWorkbenchMobileFloatingControl[]>(() => {
+    if (!externalizeUtilitySlot || !utilitySlot) {
+      return [];
+    }
+    return [{
+      key: 'capability-header-utility',
+      order: 30,
+      render: () => (
+        <div data-testid="capability-workbench-command-header-floating-utility">
+          {utilitySlot}
+        </div>
+      ),
+    }];
+  }, [externalizeUtilitySlot, utilitySlot]);
+
+  useCapabilityWorkbenchMobileFloatingControlsRegistration(
+    mobileUtilityControlScopeId,
+    mobileUtilityControls,
+  );
 
   if (useCompactMobileLayout) {
     const compactMetaSlots = [
@@ -73,7 +100,7 @@ export function CapabilityWorkbenchCommandHeader({
             className="shrink-0"
             testId="capability-workbench-command-header-utility"
           >
-            {utilitySlot}
+            {externalizeUtilitySlot ? null : utilitySlot}
           </SlotFrame>
         </div>
         <SlotFrame
