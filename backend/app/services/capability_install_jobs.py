@@ -21,8 +21,11 @@ from backend.app.routes.core.capability_install_core.paths import (
 )
 from backend.app.routes.core.capability_install_core.pipeline import run_install_pipeline
 from backend.app.routes.core.capability_install_core.restart_policy import (
-    apply_restart_decision_to_payload,
     refresh_restart_decision_after_execution,
+)
+from backend.app.services.capability_install_job_payloads import (
+    _pipeline_result_to_payload,
+    _status_url,
 )
 from backend.app.services.pack_activation_service import PackActivationService
 from backend.app.services.stores.capability_install_job_store import (
@@ -37,30 +40,6 @@ def _jobs_root() -> Path:
     if configured:
         return Path(configured)
     return _resolve_local_core_root() / "data" / "capability-install-jobs"
-
-
-def _status_url(install_id: str) -> str:
-    return f"/api/v1/capability-packs/install-jobs/{install_id}"
-
-
-def _pipeline_result_to_payload(result: Any) -> Dict[str, Any]:
-    payload = {
-        "success": bool(getattr(result, "success", False)),
-        "capability_code": getattr(result, "capability_code", None),
-        "version": getattr(result, "version", None),
-        "warnings": list(getattr(result, "warnings", []) or []),
-        "restart_required": bool(getattr(result, "restart_required", False)),
-        "restart_triggered": bool(getattr(result, "restart_triggered", False)),
-        "hot_reload": getattr(result, "hot_reload_result", None),
-        "webhook": getattr(result, "webhook_result", None),
-        "activation": getattr(result, "activation", None),
-        "validation": getattr(result, "validation", None),
-        "pack_metadata": getattr(result, "pack_metadata", {}) or {},
-    }
-    return apply_restart_decision_to_payload(
-        payload,
-        getattr(result, "restart_decision", {}) or {},
-    )
 
 
 class CapabilityInstallJobService:
