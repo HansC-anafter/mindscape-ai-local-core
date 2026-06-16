@@ -52,8 +52,10 @@ vi.mock('next/navigation', () => ({
 }));
 
 vi.mock('@/components/workspace/device-binding/capture-bridge/CaptureSourceBridgeProvider', () => ({
-  CaptureSourceBridgeProvider: ({ children }: { children: React.ReactNode }) => (
-    <div data-testid="capture-source-bridge-provider">{children}</div>
+  CaptureSourceBridgeProvider: ({ children }: { children: React.ReactNode }) => React.createElement(
+    'div',
+    { 'data-testid': 'capture-source-bridge-provider' },
+    children,
   ),
   useCaptureSourceBridge: () => ({
     sessions: mocks.sessions,
@@ -120,7 +122,11 @@ vi.mock('@/components/workspace/device-binding/PhoneSourcePreview', () => ({
       });
     }, [props]);
 
-    return <div data-testid="phone-source-preview">{props.session.session_id}:{props.liveMotionSessionId || 'idle'}</div>;
+    return React.createElement(
+      'div',
+      { 'data-testid': 'phone-source-preview' },
+      `${props.session.session_id}:${props.liveMotionSessionId || 'idle'}`,
+    );
   },
 }));
 
@@ -170,16 +176,14 @@ describe('MotionCoachWorkbenchHost', () => {
   it('reuses the workspace bridge instead of mounting a second provider', () => {
     mocks.existingBridge = { workspaceId: 'ws-motion' };
 
-    render(
-      <MotionCoachWorkbenchHost
-        workspaceId="ws-motion"
-        apiUrl="http://api.test"
-        capabilityCode="yogacoach"
-        Component={() => <div data-testid="runtime-component">Runtime</div>}
-        aolHost={{}}
-        surfacePath={['practice']}
-      />,
-    );
+    render(React.createElement(MotionCoachWorkbenchHost, {
+      workspaceId: 'ws-motion',
+      apiUrl: 'http://api.test',
+      capabilityCode: 'yogacoach',
+      Component: () => React.createElement('div', { 'data-testid': 'runtime-component' }, 'Runtime'),
+      aolHost: {},
+      surfacePath: ['practice'],
+    }));
 
     expect(screen.queryByTestId('capture-source-bridge-provider')).toBeNull();
     expect(screen.getByTestId('runtime-component')).toBeInTheDocument();
@@ -197,24 +201,22 @@ describe('MotionCoachWorkbenchHost', () => {
       hostCapturePreview?: React.ReactNode;
     }) {
       runtimeSnapshots.push(workbenchState);
-      return (
-        <div data-testid="runtime-component">
-          <div>{hostCapturePreview}</div>
-          {workbenchState.live_motion_session_ref.id}:{workbenchState.live_motion_session_ref.status}
-        </div>
+      return React.createElement(
+        'div',
+        { 'data-testid': 'runtime-component' },
+        React.createElement('div', null, hostCapturePreview),
+        `${workbenchState.live_motion_session_ref.id}:${workbenchState.live_motion_session_ref.status}`,
       );
     }
 
-    render(
-      <MotionCoachWorkbenchHost
-        workspaceId="ws-motion"
-        apiUrl="http://api.test"
-        capabilityCode="yogacoach"
-        Component={RuntimeComponent}
-        aolHost={{}}
-        surfacePath={['practice']}
-      />,
-    );
+    render(React.createElement(MotionCoachWorkbenchHost, {
+      workspaceId: 'ws-motion',
+      apiUrl: 'http://api.test',
+      capabilityCode: 'yogacoach',
+      Component: RuntimeComponent,
+      aolHost: {},
+      surfacePath: ['practice'],
+    }));
 
     expect(screen.getByTestId('motion-coach-workbench-host')).toBeInTheDocument();
     expect(screen.getByText('Connect a phone, OBS, or desktop camera from Motion source to open the learner stage.')).toBeInTheDocument();
@@ -227,24 +229,22 @@ describe('MotionCoachWorkbenchHost', () => {
 
     function RuntimeComponent(props: any) {
       runtimeSnapshots.push(props);
-      return (
-        <div>
-          <div>{props.hostCapturePreview}</div>
-          <pre data-testid="runtime-workbench-state">{JSON.stringify(props.workbenchState)}</pre>
-        </div>
+      return React.createElement(
+        'div',
+        null,
+        React.createElement('div', null, props.hostCapturePreview),
+        React.createElement('pre', { 'data-testid': 'runtime-workbench-state' }, JSON.stringify(props.workbenchState)),
       );
     }
 
-    render(
-      <MotionCoachWorkbenchHost
-        workspaceId="ws-motion"
-        apiUrl="http://api.test"
-        capabilityCode="yogacoach"
-        Component={RuntimeComponent}
-        aolHost={{}}
-        surfacePath={['practice']}
-      />,
-    );
+    render(React.createElement(MotionCoachWorkbenchHost, {
+      workspaceId: 'ws-motion',
+      apiUrl: 'http://api.test',
+      capabilityCode: 'yogacoach',
+      Component: RuntimeComponent,
+      aolHost: {},
+      surfacePath: ['practice'],
+    }));
 
     const firstProps = runtimeSnapshots[0];
     expect(firstProps.motionCoachControls.coachPackLock).toBe('yogacoach');
@@ -325,19 +325,17 @@ describe('MotionCoachWorkbenchHost', () => {
 
     function RuntimeComponent(props: any) {
       runtimeSnapshots.push(props);
-      return <div data-testid="runtime-component-handoff">handoff</div>;
+      return React.createElement('div', { 'data-testid': 'runtime-component-handoff' }, 'handoff');
     }
 
-    render(
-      <MotionCoachWorkbenchHost
-        workspaceId="ws-motion"
-        apiUrl="http://api.test"
-        capabilityCode="yogacoach"
-        Component={RuntimeComponent}
-        aolHost={{}}
-        surfacePath={['practice']}
-      />,
-    );
+    render(React.createElement(MotionCoachWorkbenchHost, {
+      workspaceId: 'ws-motion',
+      apiUrl: 'http://api.test',
+      capabilityCode: 'yogacoach',
+      Component: RuntimeComponent,
+      aolHost: {},
+      surfacePath: ['practice'],
+    }));
 
     const firstProps = runtimeSnapshots[0];
     expect(firstProps.motionCoachControls.initialInstructionSource).toMatchObject({
@@ -356,6 +354,143 @@ describe('MotionCoachWorkbenchHost', () => {
     });
   });
 
+  it('prefers shell graph selection over url payload when the route marker is present', () => {
+    navigationMocks.searchParams = new URLSearchParams({
+      motion_lesson_handoff: '1',
+      motion_lesson_target: 'yogacoach',
+      motion_lesson_kind: 'youtube_instruction_ref',
+      motion_lesson_value: 'https://www.youtube.com/watch?v=url-fallback',
+      motion_lesson_title: 'URL Fallback Lesson',
+      motion_lesson_provider: 'youtube',
+      motion_lesson_course_chapters: JSON.stringify([
+        {
+          chapter_id: 'url_ref_1',
+          title: 'URL fallback chapter',
+          start_ms: 0,
+          end_ms: 9000,
+        },
+      ]),
+    });
+    const runtimeSnapshots: any[] = [];
+
+    function RuntimeComponent(props: any) {
+      runtimeSnapshots.push(props);
+      return React.createElement('div', { 'data-testid': 'runtime-component-graph-handoff' }, 'graph-handoff');
+    }
+
+    render(React.createElement(MotionCoachWorkbenchHost, {
+      workspaceId: 'ws-motion',
+      apiUrl: 'http://api.test',
+      capabilityCode: 'yogacoach',
+      Component: RuntimeComponent,
+      aolHost: {
+        graphSelection: {
+          owner_pack: 'social_video_refs',
+          selection_kind: 'anchor',
+          anchors: [
+            {
+              uri: 'mindscape://social_video_refs/instruction_ref/ref_graph_001',
+              owner_pack: 'social_video_refs',
+              object_kind: 'instruction_ref',
+              object_id: 'ref_graph_001',
+              workspace_id: 'ws-motion',
+              selector: {
+                instruction_ref_id: 'ref_graph_001',
+                source_provider: 'youtube',
+                canonical_url: 'https://www.youtube.com/watch?v=graph-priority',
+                start_seconds: 12,
+                end_seconds: 24,
+              },
+              source_surface: 'social_video_refs.refs',
+              label: 'Graph Priority Flow',
+              role: 'source',
+            },
+          ],
+          lens_code: 'instruction_memory',
+          relation_scope: ['instruction_memory', 'metadata_only_reference'],
+          node_limit: 8,
+          relation_limit: 8,
+          snapshot_budget: {
+            max_nodes: 8,
+            max_edges: 8,
+            max_prompt_chars: 1200,
+          },
+          source_surface: 'social_video_refs.refs',
+          governance_tags: ['reference_only', 'provider_neutral', 'no_media_download'],
+          selection_hash: 'gsel_graph_priority',
+        },
+      },
+      surfacePath: ['practice'],
+    }));
+
+    const firstProps = runtimeSnapshots[0];
+    expect(firstProps.motionCoachControls.initialInstructionSource).toMatchObject({
+      value: 'https://www.youtube.com/watch?v=graph-priority',
+      kind: 'youtube_instruction_ref',
+    });
+    expect(firstProps.workbenchState.reference_lesson_state).toMatchObject({
+      title: 'Graph Priority Flow',
+      activeChapterId: 'ref_graph_001',
+    });
+  });
+
+  it('ignores shell graph selection without the route handoff marker', () => {
+    const runtimeSnapshots: any[] = [];
+
+    function RuntimeComponent(props: any) {
+      runtimeSnapshots.push(props);
+      return React.createElement('div', { 'data-testid': 'runtime-component-no-route-marker' }, 'no-route-marker');
+    }
+
+    render(React.createElement(MotionCoachWorkbenchHost, {
+      workspaceId: 'ws-motion',
+      apiUrl: 'http://api.test',
+      capabilityCode: 'yogacoach',
+      Component: RuntimeComponent,
+      aolHost: {
+        graphSelection: {
+          owner_pack: 'social_video_refs',
+          selection_kind: 'anchor',
+          anchors: [
+            {
+              uri: 'mindscape://social_video_refs/instruction_ref/ref_stale_001',
+              owner_pack: 'social_video_refs',
+              object_kind: 'instruction_ref',
+              object_id: 'ref_stale_001',
+              workspace_id: 'ws-motion',
+              selector: {
+                instruction_ref_id: 'ref_stale_001',
+                source_provider: 'youtube',
+                canonical_url: 'https://www.youtube.com/watch?v=stale-selection',
+                start_seconds: 1,
+                end_seconds: 3,
+              },
+              source_surface: 'social_video_refs.refs',
+              label: 'Stale Selection',
+              role: 'source',
+            },
+          ],
+          lens_code: 'instruction_memory',
+          relation_scope: ['instruction_memory', 'metadata_only_reference'],
+          node_limit: 8,
+          relation_limit: 8,
+          snapshot_budget: {
+            max_nodes: 8,
+            max_edges: 8,
+            max_prompt_chars: 1200,
+          },
+          source_surface: 'social_video_refs.refs',
+          governance_tags: ['reference_only', 'provider_neutral', 'no_media_download'],
+          selection_hash: 'gsel_stale',
+        },
+      },
+      surfacePath: ['practice'],
+    }));
+
+    const firstProps = runtimeSnapshots[0];
+    expect(firstProps.motionCoachControls.initialInstructionSource).toBeNull();
+  });
+
   it('maps Dance closure output into ready rollup and report-rendering state', async () => {
     const runtimeSnapshots: any[] = [];
     mocks.referenceLessonState = {
@@ -368,19 +503,17 @@ describe('MotionCoachWorkbenchHost', () => {
 
     function RuntimeComponent(props: any) {
       runtimeSnapshots.push(props);
-      return <pre data-testid="runtime-workbench-state-dance">{JSON.stringify(props.workbenchState)}</pre>;
+      return React.createElement('pre', { 'data-testid': 'runtime-workbench-state-dance' }, JSON.stringify(props.workbenchState));
     }
 
-    render(
-      <MotionCoachWorkbenchHost
-        workspaceId="ws-motion"
-        apiUrl="http://api.test"
-        capabilityCode="dance_motion_coach"
-        Component={RuntimeComponent}
-        aolHost={{}}
-        surfacePath={['practice']}
-      />,
-    );
+    render(React.createElement(MotionCoachWorkbenchHost, {
+      workspaceId: 'ws-motion',
+      apiUrl: 'http://api.test',
+      capabilityCode: 'dance_motion_coach',
+      Component: RuntimeComponent,
+      aolHost: {},
+      surfacePath: ['practice'],
+    }));
 
     const firstProps = runtimeSnapshots[0];
     await act(async () => {

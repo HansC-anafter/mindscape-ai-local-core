@@ -3,11 +3,11 @@
 import type {
   MotionPracticeInstructionSourceKind,
   MotionPracticeInstructionSourceState,
-} from './MotionPracticeInstructionSourcePanel';
+} from './motionPracticeInstructionSource';
 import {
   buildMotionPracticeInstructionRefs,
   parseMotionPracticeCourseChaptersInput,
-} from './MotionPracticeInstructionSourcePanel';
+} from './motionPracticeInstructionSource';
 
 export type MotionCoachCapabilityCode = 'yogacoach' | 'dance_motion_coach';
 
