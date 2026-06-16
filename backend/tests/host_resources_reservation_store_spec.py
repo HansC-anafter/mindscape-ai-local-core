@@ -46,12 +46,19 @@ def test_host_resource_ledger_migration_tracks_postgres_runtime_head():
 
 
 def test_startup_schedules_nonblocking_host_resource_projection_rehydrate():
-    lifecycle = (
+    lifecycle_startup_services = (
         Path(__file__).resolve().parents[1]
-        / "app/app_bootstrap/lifecycle.py"
+        / "app/app_bootstrap/lifecycle_startup_services.py"
+    ).read_text(encoding="utf-8")
+    lifecycle_post_ready = (
+        Path(__file__).resolve().parents[1]
+        / "app/app_bootstrap/lifecycle_post_ready.py"
     ).read_text(encoding="utf-8")
 
-    assert "_rehydrate_host_resource_projection_post_ready" in lifecycle
-    assert "asyncio.create_task" in lifecycle
-    assert "asyncio.to_thread" in lifecycle
-    assert "rehydrate_route_reservation_projection" in lifecycle
+    assert (
+        "_rehydrate_host_resource_projection_post_ready"
+        in lifecycle_startup_services
+    )
+    assert "asyncio.create_task" in lifecycle_startup_services
+    assert "asyncio.to_thread" in lifecycle_post_ready
+    assert "rehydrate_route_reservation_projection" in lifecycle_post_ready

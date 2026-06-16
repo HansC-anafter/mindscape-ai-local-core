@@ -5,6 +5,18 @@ MAIN_SOURCE = Path(__file__).resolve().parents[1] / "app" / "main.py"
 LIFECYCLE_SOURCE = (
     Path(__file__).resolve().parents[1] / "app" / "app_bootstrap" / "lifecycle.py"
 )
+COMMON_SOURCE = (
+    Path(__file__).resolve().parents[1]
+    / "app"
+    / "app_bootstrap"
+    / "lifecycle_common.py"
+)
+POST_READY_SOURCE = (
+    Path(__file__).resolve().parents[1]
+    / "app"
+    / "app_bootstrap"
+    / "lifecycle_post_ready.py"
+)
 
 
 def _healthz_source() -> str:
@@ -40,9 +52,10 @@ def test_healthz_route_is_registered_before_bulk_api_routes():
 
 
 def test_post_ready_warmups_wait_for_server_bind_grace():
-    source = LIFECYCLE_SOURCE.read_text()
+    source = POST_READY_SOURCE.read_text()
+    common_source = COMMON_SOURCE.read_text()
 
-    assert "MINDSCAPE_POST_READY_BIND_GRACE_SECONDS" in source
+    assert "MINDSCAPE_POST_READY_BIND_GRACE_SECONDS" in common_source
     assert "_run_post_ready_heavy_work" in source
     assert source.index("_wait_for_post_ready_bind_grace(\"tool-rag-post-ready-warmup\")") < source.index(
         "refresh_tool_rag_corpus("
