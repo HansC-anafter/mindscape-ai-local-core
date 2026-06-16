@@ -16,6 +16,7 @@ import {
   buildInstructionSourceStateFromLessonHandoff,
   parseMotionPracticeLessonHandoff,
 } from '@/components/workspace/device-binding/practice/motionPracticeLessonHandoff';
+import { buildMotionPracticeLessonHandoffFromGraphSelection } from '@/components/workspace/device-binding/practice/motionPracticeGraphSelection';
 import {
   buildDancePracticeWorkbenchState,
   buildYogaPracticeWorkbenchState,
@@ -52,9 +53,19 @@ function MotionCoachWorkbenchHostContent({
   const [launchInput, setLaunchInput] = useState<MotionPracticeLaunchInput | null>(null);
   const [motionWindowEvents, setMotionWindowEvents] = useState<MotionWindowAppendEvent[]>([]);
   const [closureResult, setClosureResult] = useState<MotionPracticeClosureResult | null>(null);
-  const lessonHandoff = useMemo(() => (
+  const urlLessonHandoff = useMemo(() => (
     parseMotionPracticeLessonHandoff(searchParams)
   ), [searchParams]);
+  const graphLessonHandoff = useMemo(() => {
+    if (!urlLessonHandoff) {
+      return null;
+    }
+    return buildMotionPracticeLessonHandoffFromGraphSelection({
+      capabilityCode,
+      graphSelection: aolHost?.graphSelection ?? null,
+    });
+  }, [aolHost, capabilityCode, urlLessonHandoff]);
+  const lessonHandoff = graphLessonHandoff || urlLessonHandoff;
   const initialInstructionSource = useMemo(() => (
     buildInstructionSourceStateFromLessonHandoff(lessonHandoff)
   ), [lessonHandoff]);
