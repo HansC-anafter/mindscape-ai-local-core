@@ -5,6 +5,7 @@ import { useCallback, useMemo, useRef, useState, type PointerEvent as ReactPoint
 import {
   attachAddressableObjectToMeeting,
   resolveAddressableSelection,
+  type AddressableGraphSelection,
   type AddressableObjectRole,
   type AddressableSelectionCandidate,
   type AddressableSelectionTarget,
@@ -109,8 +110,12 @@ export function useAOLRuntimeShellHostController(): AOLRuntimeShellHostControlle
     });
   }, []);
 
-  const captureSelection = useCallback(
-    async (surface: AOLRuntimeSurfaceContext, selection: AddressableSelectionTarget) => {
+  const captureSelectionWithGraph = useCallback(
+    async (
+      surface: AOLRuntimeSurfaceContext,
+      selection: AddressableSelectionTarget,
+      graphSelection: AddressableGraphSelection | null,
+    ) => {
       const requestEpoch = invalidateInflightRequests();
       const contextRole = selection.role ?? panelState.contextRole ?? 'source';
       const roleSelection = {
@@ -121,6 +126,7 @@ export function useAOLRuntimeShellHostController(): AOLRuntimeShellHostControlle
         mode: 'resolving',
         activeSurface: surface,
         selection: roleSelection,
+        graphSelection,
         contextRole,
         resolvedObject: null,
         candidateObjects: [],
@@ -149,6 +155,7 @@ export function useAOLRuntimeShellHostController(): AOLRuntimeShellHostControlle
             mode: 'disambiguating',
             activeSurface: surface,
             selection: roleSelection,
+            graphSelection,
             contextRole,
             resolvedObject: null,
             candidateObjects: response.candidate_objects,
@@ -165,6 +172,7 @@ export function useAOLRuntimeShellHostController(): AOLRuntimeShellHostControlle
             mode: 'error',
             activeSurface: surface,
             selection: roleSelection,
+            graphSelection,
             contextRole,
             resolvedObject: null,
             candidateObjects: response.candidate_objects,
@@ -184,6 +192,7 @@ export function useAOLRuntimeShellHostController(): AOLRuntimeShellHostControlle
           mode: 'selected',
           activeSurface: surface,
           selection: roleSelection,
+          graphSelection,
           contextRole,
           resolvedObject: response.resolved_objects[0],
           candidateObjects: [],
@@ -201,6 +210,7 @@ export function useAOLRuntimeShellHostController(): AOLRuntimeShellHostControlle
           mode: 'error',
           activeSurface: surface,
           selection: roleSelection,
+          graphSelection,
           contextRole,
           resolvedObject: null,
           candidateObjects: [],
@@ -215,6 +225,47 @@ export function useAOLRuntimeShellHostController(): AOLRuntimeShellHostControlle
       }
     },
     [invalidateInflightRequests, panelState.contextRole],
+  );
+
+  const captureSelection = useCallback(
+    async (surface: AOLRuntimeSurfaceContext, selection: AddressableSelectionTarget) => {
+      await captureSelectionWithGraph(surface, selection, null);
+    },
+    [captureSelectionWithGraph],
+  );
+
+  const captureGraphSelection = useCallback(
+    async (surface: AOLRuntimeSurfaceContext, graphSelection: AddressableGraphSelection) => {
+      const anchor = graphSelection.anchors[0];
+      if (!anchor) {
+        invalidateInflightRequests();
+        setPanelState({
+          mode: 'selected',
+          activeSurface: surface,
+          selection: null,
+          graphSelection,
+          contextRole: panelState.contextRole,
+          resolvedObject: null,
+          candidateObjects: [],
+          warnings: [],
+          attachResponse: null,
+          currentMeetingId: null,
+          error: null,
+        });
+        return;
+      }
+
+      await captureSelectionWithGraph(surface, {
+        ownerPack: anchor.owner_pack,
+        objectKind: anchor.object_kind,
+        objectId: anchor.object_id,
+        selector: anchor.selector ?? anchor.ref?.selector ?? undefined,
+        sourceSurface: anchor.source_surface ?? anchor.ref?.source_surface ?? graphSelection.source_surface,
+        label: anchor.label ?? undefined,
+        role: anchor.role ?? undefined,
+      }, graphSelection);
+    },
+    [captureSelectionWithGraph, invalidateInflightRequests, panelState.contextRole],
   );
 
   const changeContextRole = useCallback((role: AddressableObjectRole) => {
@@ -352,6 +403,7 @@ export function useAOLRuntimeShellHostController(): AOLRuntimeShellHostControlle
       openCurrentMeeting,
       closeCurrentMeeting,
       captureSelection,
+      captureGraphSelection,
       attachCurrentObject,
     }),
     [
@@ -364,6 +416,7 @@ export function useAOLRuntimeShellHostController(): AOLRuntimeShellHostControlle
       openCurrentMeeting,
       closeCurrentMeeting,
       captureSelection,
+      captureGraphSelection,
       attachCurrentObject,
     ],
   );

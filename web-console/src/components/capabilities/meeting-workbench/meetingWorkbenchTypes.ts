@@ -1,6 +1,7 @@
 import type {
   AddressableObjectRef,
   AddressableObjectSummary,
+  AddressableGraphSelection,
   AddressableSelectionTarget,
   ObjectMeetingAttachResponse,
 } from '@/lib/addressable-object-layer';
@@ -221,6 +222,7 @@ export interface AOLMeetingBottomShellProps {
   meetingId: string | null;
   summary: AddressableObjectSummary | null;
   selection: AddressableSelectionTarget | null;
+  graphSelection?: AddressableGraphSelection | null;
   attachResponse: ObjectMeetingAttachResponse | null;
   surfaceRoute: string;
   onSwitchObject: () => void;

@@ -27,7 +27,7 @@ vi.mock('@/components/capabilities/meeting-workbench/runs/useHostRuntimeRunSessi
     lastSeq: 0,
     graphContext: {
       context_contract_version: 'aol_graph_context_v1',
-      source: 'aol_graph_runtime_runs',
+      source: 'aol_domain_object_graph_runtime_runs',
       meeting_id: meetingId,
       selected_graph_anchor: selectedObjectRef
         ? {
@@ -63,6 +63,11 @@ vi.mock('@/components/capabilities/meeting-workbench/runs/useHostRuntimeRunSessi
         truncated: false,
         budget: { max_nodes: 16, max_edges: 32, max_prompt_chars: 4000 },
         provenance_refs: selectedObjectRef ? [`selected_graph_anchor:${selectedObjectRef.uri}`] : ['selected_graph_anchor:none'],
+      },
+      object_graph_aggregate_unit_ref: {
+        kind: 'ObjectGraphAggregateUnitRef',
+        unit_id: 'ogau_remote_test',
+        snapshot_hash: 'ogau_remote_test',
       },
       object_graph_aggregate_unit: {
         kind: 'ObjectGraphAggregateUnit',

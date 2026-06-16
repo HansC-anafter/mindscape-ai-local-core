@@ -27,13 +27,57 @@ export interface AddressableSelectionTarget {
   role?: AddressableObjectRole;
 }
 
+export type AddressableGraphSelectionKind =
+  | 'anchor'
+  | 'multi_anchor'
+  | 'path'
+  | 'subgraph'
+  | 'projection'
+  | 'weighted';
+
+export interface AddressableGraphSelectionBudget {
+  max_nodes: number;
+  max_edges: number;
+  max_prompt_chars: number;
+}
+
+export interface AddressableGraphSelectionAnchor {
+  ref?: AddressableObjectRef | null;
+  uri: string;
+  owner_pack: string;
+  object_kind: string;
+  object_id: string;
+  workspace_id?: string | null;
+  selector?: Record<string, unknown> | null;
+  source_surface?: string | null;
+  label?: string | null;
+  role?: AddressableObjectRole | null;
+}
+
+export interface AddressableGraphSelection {
+  owner_pack: string;
+  selection_kind: AddressableGraphSelectionKind;
+  anchors: AddressableGraphSelectionAnchor[];
+  lens_code: string;
+  relation_scope: string[];
+  node_limit: number;
+  relation_limit: number;
+  snapshot_budget: AddressableGraphSelectionBudget;
+  source_surface: string;
+  governance_tags: string[];
+  user_intent?: string | null;
+  selection_hash?: string | null;
+}
+
 export interface AddressableObjectHostBridge {
   mode: AddressableObjectHostMode;
   selection: AddressableSelectionTarget | null;
+  graphSelection?: AddressableGraphSelection | null;
   currentMeetingId: string | null;
   requestObjectTargeting: () => void;
   cancelObjectTargeting: () => void;
   onSelectObject: (selection: AddressableSelectionTarget) => void | Promise<void>;
+  onSelectGraph?: (selection: AddressableGraphSelection) => void | Promise<void>;
   clearCurrentObject: () => void;
   openCurrentMeeting: () => void;
 }

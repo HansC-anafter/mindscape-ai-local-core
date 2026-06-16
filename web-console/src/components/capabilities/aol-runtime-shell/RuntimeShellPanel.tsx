@@ -118,6 +118,7 @@ export function RuntimeShellPanel({
             meetingId={state.currentMeetingId}
             summary={summary}
             selection={state.selection}
+            graphSelection={state.graphSelection}
             attachResponse={state.attachResponse}
             surfaceRoute={state.activeSurface.route}
             onSwitchObject={onSwitchObject}

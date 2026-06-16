@@ -5,7 +5,12 @@ import { MeetingTaskCanvas } from './SemanticFlowCanvas';
 import { CommandLedgerStrip } from './CommandLedgerStrip';
 import { ObjectOutlinerPanel } from './ObjectOutlinerPanel';
 import { MeetingRunsWorkspaceSurface } from './runs/MeetingRunsWorkspaceSurface';
-import type { AddressableObjectRef, AddressableObjectSummary, ObjectMeetingAttachResponse } from '@/lib/addressable-object-layer';
+import type {
+  AddressableGraphSelection,
+  AddressableObjectRef,
+  AddressableObjectSummary,
+  ObjectMeetingAttachResponse,
+} from '@/lib/addressable-object-layer';
 import type { GraphViewMode, MeetingCommandImpact, MeetingGraphEdge, MeetingMentionItem, MeetingNode, MeetingTranslate } from './meetingWorkbenchTypes';
 import type { MeetingMissingContext } from './meetingWorkbenchStatus';
 
@@ -32,6 +37,7 @@ export function MeetingWorkbenchStage({
   selectedPackTool,
   mentionItems,
   selectedObjectRef,
+  graphSelection,
   onCommandEnvelope,
   inspectorSlot,
   showOutliner = true,
@@ -59,6 +65,7 @@ export function MeetingWorkbenchStage({
   selectedPackTool: string | null;
   mentionItems: MeetingMentionItem[];
   selectedObjectRef: AddressableObjectRef | null;
+  graphSelection?: AddressableGraphSelection | null;
   onCommandEnvelope: (envelope: CompositionGraphCommandEnvelopeDraft) => Promise<void>;
   inspectorSlot?: ReactNode;
   showOutliner?: boolean;
@@ -90,6 +97,7 @@ export function MeetingWorkbenchStage({
             workspaceId={workspaceId}
             meetingId={meetingId}
             selectedObjectRef={selectedObjectRef}
+            graphSelection={graphSelection}
           />
         ) : (
           <MeetingTaskCanvas

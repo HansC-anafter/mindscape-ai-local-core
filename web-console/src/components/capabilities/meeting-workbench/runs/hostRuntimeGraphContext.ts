@@ -1,4 +1,4 @@
-import type { AddressableObjectRef } from '@/lib/addressable-object-layer';
+import type { AddressableGraphSelection, AddressableObjectRef } from '@/lib/addressable-object-layer';
 
 const DEFAULT_GRAPH_CONTEXT_BUDGET = {
   max_nodes: 16,
@@ -21,6 +21,10 @@ export interface HostRuntimeGraphSelectionRef {
   anchor_uri: string | null;
   selected_ref_uris: string[];
   selection_hash: string;
+  selection_kind: AddressableGraphSelection['selection_kind'];
+  lens_code: string;
+  relation_scope: string[];
+  source_surface: string | null;
   selector_scope: 'anchored_object_neighborhood' | 'workspace_meeting';
   status: 'anchored' | 'empty_anchor';
 }
@@ -59,14 +63,19 @@ export interface HostRuntimeGraphSnapshotSummary {
   provenance_refs: string[];
 }
 
-export interface HostRuntimeGraphContext {
+export interface HostRuntimeGraphContext extends Record<string, unknown> {
   context_contract_version: 'aol_graph_context_v1';
-  source: 'aol_graph_runtime_runs';
+  source: 'aol_domain_object_graph_runtime_runs';
   meeting_id: string | null;
   selected_graph_anchor: HostRuntimeGraphAnchor | null;
   graph_selection_ref: HostRuntimeGraphSelectionRef;
   graph_context_ref: HostRuntimeGraphContextRef;
   graph_snapshot_summary: HostRuntimeGraphSnapshotSummary;
+  object_graph_aggregate_unit_ref: {
+    kind: 'ObjectGraphAggregateUnitRef';
+    unit_id: string;
+    snapshot_hash: string;
+  };
   object_graph_aggregate_unit: HostRuntimeObjectGraphAggregateUnit;
   selected_object_ref?: AddressableObjectRef | null;
 }
@@ -107,29 +116,51 @@ function buildGraphAnchor(selectedObjectRef: AddressableObjectRef | null): HostR
   };
 }
 
+function refFromGraphSelection(selection: AddressableGraphSelection): AddressableObjectRef | null {
+  const anchor = selection.anchors[0];
+  if (!anchor) {
+    return null;
+  }
+  return anchor.ref ?? {
+    uri: anchor.uri,
+    owner_pack: anchor.owner_pack,
+    object_kind: anchor.object_kind,
+    object_id: anchor.object_id,
+    workspace_id: anchor.workspace_id ?? null,
+    selector: anchor.selector ?? null,
+    source_surface: anchor.source_surface ?? selection.source_surface,
+  };
+}
+
 export function buildHostRuntimeGraphContext({
   workspaceId,
   meetingId,
   selectedObjectRef,
+  graphSelection,
 }: {
   workspaceId: string;
   meetingId: string | null;
   selectedObjectRef: AddressableObjectRef | null;
+  graphSelection?: AddressableGraphSelection | null;
 }): HostRuntimeGraphContext {
-  const selectedGraphAnchor = buildGraphAnchor(selectedObjectRef);
-  const selectedRefUris = selectedGraphAnchor ? [selectedGraphAnchor.anchor_uri] : [];
-  const selectionHash = `gsel_${compactHash({
+  const graphSelectionAnchorRef = graphSelection ? refFromGraphSelection(graphSelection) : null;
+  const selectedGraphAnchor = buildGraphAnchor(graphSelectionAnchorRef ?? selectedObjectRef);
+  const selectedRefUris = graphSelection?.anchors.length
+    ? graphSelection.anchors.map((anchor) => anchor.uri)
+    : selectedGraphAnchor ? [selectedGraphAnchor.anchor_uri] : [];
+  const selectionHash = graphSelection?.selection_hash || `gsel_${compactHash({
     workspaceId,
     meetingId,
     selectedRefUris,
-    source: 'aol_graph_runtime_runs',
+    source: 'aol_domain_object_graph_runtime_runs',
   })}`;
   const snapshotHash = `ogau_${compactHash({
     workspaceId,
     meetingId,
     selectionHash,
-    selectedObjectRef,
-    budget: DEFAULT_GRAPH_CONTEXT_BUDGET,
+    selectedObjectRef: graphSelectionAnchorRef ?? selectedObjectRef,
+    graphSelection,
+    budget: graphSelection?.snapshot_budget ?? DEFAULT_GRAPH_CONTEXT_BUDGET,
   })}`;
   const provenanceRefs = selectedGraphAnchor
     ? [`selected_graph_anchor:${selectedGraphAnchor.anchor_uri}`]
@@ -141,6 +172,10 @@ export function buildHostRuntimeGraphContext({
     anchor_uri: selectedGraphAnchor?.anchor_uri ?? null,
     selected_ref_uris: selectedRefUris,
     selection_hash: selectionHash,
+    selection_kind: graphSelection?.selection_kind ?? 'anchor',
+    lens_code: graphSelection?.lens_code ?? 'anchor_object_lens',
+    relation_scope: graphSelection?.relation_scope ?? [],
+    source_surface: graphSelection?.source_surface ?? selectedGraphAnchor?.ref.source_surface ?? null,
     selector_scope: selectedGraphAnchor ? 'anchored_object_neighborhood' : 'workspace_meeting',
     status: selectedGraphAnchor ? 'anchored' : 'empty_anchor',
   };
@@ -156,9 +191,9 @@ export function buildHostRuntimeGraphContext({
     unit_id: snapshotHash,
     owner_pack: selectedGraphAnchor?.owner_pack ?? null,
     anchor_uri: selectedGraphAnchor?.anchor_uri ?? null,
-    node_count: selectedGraphAnchor ? 1 : 0,
+    node_count: graphSelection ? selectedRefUris.length : selectedGraphAnchor ? 1 : 0,
     edge_count: 0,
-    budget: DEFAULT_GRAPH_CONTEXT_BUDGET,
+    budget: graphSelection?.snapshot_budget ?? DEFAULT_GRAPH_CONTEXT_BUDGET,
     truncation: {
       truncated: false,
       reason: null,
@@ -169,7 +204,7 @@ export function buildHostRuntimeGraphContext({
 
   return {
     context_contract_version: 'aol_graph_context_v1',
-    source: 'aol_graph_runtime_runs',
+    source: 'aol_domain_object_graph_runtime_runs',
     meeting_id: meetingId,
     selected_graph_anchor: selectedGraphAnchor,
     graph_selection_ref: graphSelectionRef,
@@ -183,7 +218,12 @@ export function buildHostRuntimeGraphContext({
       budget: objectGraphAggregateUnit.budget,
       provenance_refs: provenanceRefs,
     },
+    object_graph_aggregate_unit_ref: {
+      kind: 'ObjectGraphAggregateUnitRef',
+      unit_id: objectGraphAggregateUnit.unit_id,
+      snapshot_hash: objectGraphAggregateUnit.snapshot_hash,
+    },
     object_graph_aggregate_unit: objectGraphAggregateUnit,
-    selected_object_ref: selectedObjectRef,
+    selected_object_ref: graphSelectionAnchorRef ?? selectedObjectRef,
   };
 }

@@ -6,6 +6,7 @@ import type {
   AddressableObjectHostBridge,
   AddressableObjectHostMode,
   AddressableObjectRole,
+  AddressableGraphSelection,
   AddressableRuntimeError,
   AddressableSelectionCandidate,
   AddressableSelectionTarget,
@@ -29,6 +30,7 @@ export interface AOLRuntimeShellState {
   mode: AddressableObjectHostMode;
   activeSurface: AOLRuntimeSurfaceContext | null;
   selection: AddressableSelectionTarget | null;
+  graphSelection: AddressableGraphSelection | null;
   contextRole: AddressableObjectRole;
   resolvedObject: ResolvedAddressableObject | null;
   candidateObjects: AddressableSelectionCandidate[];
@@ -60,6 +62,10 @@ export interface AOLRuntimeShellController {
     surface: AOLRuntimeSurfaceContext,
     selection: AddressableSelectionTarget,
   ) => Promise<void>;
+  captureGraphSelection: (
+    surface: AOLRuntimeSurfaceContext,
+    selection: AddressableGraphSelection,
+  ) => Promise<void>;
   attachCurrentObject: () => Promise<void>;
 }
 
@@ -67,6 +73,7 @@ export const IDLE_RUNTIME_SHELL_STATE: AOLRuntimeShellState = {
   mode: 'idle',
   activeSurface: null,
   selection: null,
+  graphSelection: null,
   contextRole: 'source',
   resolvedObject: null,
   candidateObjects: [],

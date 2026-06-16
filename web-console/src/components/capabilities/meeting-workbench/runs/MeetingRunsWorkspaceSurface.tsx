@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 
-import type { AddressableObjectRef } from '@/lib/addressable-object-layer';
+import type { AddressableGraphSelection, AddressableObjectRef } from '@/lib/addressable-object-layer';
 
 import { AgentFreeformCanvas } from './AgentFreeformCanvas';
 import type { AgentFreeformLayoutIntent } from './agentFreeformLayoutModel';
@@ -18,12 +18,14 @@ export function MeetingRunsWorkspaceSurface({
   workspaceId,
   meetingId,
   selectedObjectRef,
+  graphSelection,
   compactLayout = false,
 }: {
   apiUrl: string;
   workspaceId: string;
   meetingId: string | null;
   selectedObjectRef: AddressableObjectRef | null;
+  graphSelection?: AddressableGraphSelection | null;
   compactLayout?: boolean;
 }) {
   const runtime = useHostRuntimeRunSession({
@@ -31,6 +33,7 @@ export function MeetingRunsWorkspaceSurface({
     workspaceId,
     meetingId,
     selectedObjectRef,
+    graphSelection,
   });
   const layout = useAgentFreeformLayoutRuntime();
   const appliedLayoutEventsRef = useRef<Set<string>>(new Set());

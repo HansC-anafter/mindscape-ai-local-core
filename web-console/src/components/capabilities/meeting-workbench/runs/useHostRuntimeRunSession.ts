@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import type { AddressableObjectRef } from '@/lib/addressable-object-layer';
+import type { AddressableGraphSelection, AddressableObjectRef } from '@/lib/addressable-object-layer';
 import {
   buildHostRuntimeStreamUrl,
   createHostRuntimeSession,
@@ -27,11 +27,13 @@ export function useHostRuntimeRunSession({
   workspaceId,
   meetingId,
   selectedObjectRef,
+  graphSelection,
 }: {
   apiUrl: string;
   workspaceId: string;
   meetingId: string | null;
   selectedObjectRef: AddressableObjectRef | null;
+  graphSelection?: AddressableGraphSelection | null;
 }) {
   const [state, setState] = useState<HostRuntimeRunSessionState>({
     status: null,
@@ -48,8 +50,9 @@ export function useHostRuntimeRunSession({
       workspaceId,
       meetingId,
       selectedObjectRef,
+      graphSelection,
     }),
-    [meetingId, selectedObjectRef, workspaceId],
+    [graphSelection, meetingId, selectedObjectRef, workspaceId],
   );
 
   useEffect(() => {
@@ -125,7 +128,9 @@ export function useHostRuntimeRunSession({
         selected_object_uri: selectedObjectUri,
         selected_graph_anchor_uri: graphContext.selected_graph_anchor?.anchor_uri ?? null,
         graph_selection_hash: graphContext.graph_selection_ref.selection_hash,
+        graph_selection_lens_code: graphContext.graph_selection_ref.lens_code,
         graph_context_id: graphContext.graph_context_ref.context_id,
+        object_graph_aggregate_unit_ref: graphContext.object_graph_aggregate_unit_ref,
         object_graph_aggregate_unit_id: graphContext.object_graph_aggregate_unit.unit_id,
       },
     });
