@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -15,6 +15,7 @@ import type {
 import type { KeyboardShortcutProfile } from '@/lib/keyboard-shortcuts';
 import type { WorkspaceToolDefinition } from '@/lib/workspace-tools/workspace-tool-registry';
 import { PackScopeToolRailHost } from './PackScopeToolRailHost';
+import { PACK_SCOPE_TOOL_OPEN_EVENT } from './packScopeToolEvents';
 
 vi.mock('@/lib/capability-ui-loader', async () => {
   const ReactModule = await import('react');
@@ -216,18 +217,20 @@ describe('PackScopeToolRailHost', () => {
     const toolButton = screen.getByTestId('pack-scope-tool-ig:feed_grid_card_load_limit');
     expect(toolButton).toHaveAttribute('title', 'Feed Load (F9)');
 
-    applyProfile({
-      schema_version: 1,
-      bindings: [
-        {
-          binding_id: 'workspace_tool:ig:feed_grid_card_load_limit:open',
-          command_id: 'pack.workspace_tool.open',
-          owner_type: 'pack',
-          owner_id: 'ig',
-          shortcut: 'F',
-          disabled: false,
-        },
-      ],
+    await act(async () => {
+      applyProfile({
+        schema_version: 1,
+        bindings: [
+          {
+            binding_id: 'workspace_tool:ig:feed_grid_card_load_limit:open',
+            command_id: 'pack.workspace_tool.open',
+            owner_type: 'pack',
+            owner_id: 'ig',
+            shortcut: 'F',
+            disabled: false,
+          },
+        ],
+      });
     });
 
     await waitFor(() => {
@@ -274,5 +277,37 @@ describe('PackScopeToolRailHost', () => {
       expect(screen.getByTestId('loaded-pack-tool-panel')).toBeInTheDocument();
     });
     expect(screen.getByTestId('pack-scope-tool-panel').getAttribute('style') || '').not.toContain('left');
+  });
+
+  it('opens a requested tool by tool id and can hide the navigation toggle when no navigation is present', async () => {
+    render(
+      <KeyboardShortcutProvider loadProfileOnMount={false}>
+        <PackScopeToolRailHost
+          workspaceId="ws_test"
+          capabilityCode="ig"
+          apiUrl="http://api.test"
+          tools={[feedLoadTool]}
+          navigationEnabled={false}
+          navigationCollapsed
+          aolHost={createAolHost(vi.fn())}
+          onNavigationCollapsedChange={vi.fn()}
+        />
+      </KeyboardShortcutProvider>,
+    );
+
+    expect(screen.queryByTestId('pack-scope-navigation-toggle')).toBeNull();
+
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent(PACK_SCOPE_TOOL_OPEN_EVENT, {
+        detail: {
+          capabilityCode: 'ig',
+          toolId: 'feed_grid_card_load_limit',
+        },
+      }));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('loaded-pack-tool-panel')).toBeInTheDocument();
+    });
   });
 });

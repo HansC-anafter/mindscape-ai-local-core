@@ -50,8 +50,10 @@ vi.mock('./PhoneSourcePreview', () => ({
 describe('MotionSourceRailPanel', () => {
   afterEach(() => {
     vi.clearAllMocks();
+    vi.restoreAllMocks();
     mocks.socketInput = null;
     vi.unstubAllGlobals();
+    window.history.replaceState({}, '', 'http://localhost:3000/');
   });
 
   it('starts one pairing flow on mount without interval polling', async () => {
@@ -141,6 +143,36 @@ describe('MotionSourceRailPanel', () => {
       'href',
       'https://192.168.0.104:8343/device-link/PAIR1234?workspaceId=ws_device&sourceMode=phone',
     );
+  });
+
+  it('blocks remote workbench origins from masquerading as phone capture links', async () => {
+    vi.spyOn(window, 'location', 'get').mockReturnValue(
+      new URL('https://remote-workbench.mindscapeai.app/workspaces/ws_device') as unknown as Location,
+    );
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        public_origin: null,
+      }),
+    })));
+
+    render(
+      createElement(MotionSourceRailPanel, {
+        apiUrl: 'http://api.test',
+        workspaceId: 'ws_device',
+      }),
+    );
+
+    await screen.findByText('PAIR1234');
+    expect(screen.getByTestId('phone-public-origin-input')).toHaveValue('');
+    expect(screen.getByTestId('phone-lan-readiness')).toHaveTextContent(
+      'Phone capture requires a configured HTTPS LAN origin.',
+    );
+    expect(screen.getByTestId('phone-source-link-blocked')).toHaveTextContent(
+      'Configure a trusted LAN HTTPS origin to generate the phone capture link.',
+    );
+    expect(screen.queryByRole('link', { name: 'Phone source link' })).toBeNull();
+    expect(screen.queryByTestId('phone-qr-code')).toBeNull();
   });
 
   it('subscribes over websocket and revokes active sessions', async () => {

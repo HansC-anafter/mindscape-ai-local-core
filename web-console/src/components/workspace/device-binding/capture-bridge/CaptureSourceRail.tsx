@@ -65,15 +65,24 @@ function CaptureSourceRailContent({
               <Smartphone className="h-3.5 w-3.5 text-sky-500" aria-hidden="true" />
               Phone
             </div>
-            <a
-              href={phoneDeviceLink}
-              target="_blank"
-              rel="noreferrer"
-              aria-label="Phone source link"
-              className="block break-all text-xs text-sky-700 hover:text-sky-800 dark:text-sky-300"
-            >
-              {phoneDeviceLink}
-            </a>
+            {phoneDeviceLink ? (
+              <a
+                href={phoneDeviceLink}
+                target="_blank"
+                rel="noreferrer"
+                aria-label="Phone source link"
+                className="block break-all text-xs text-sky-700 hover:text-sky-800 dark:text-sky-300"
+              >
+                {phoneDeviceLink}
+              </a>
+            ) : (
+              <div
+                className="block text-xs text-gray-500 dark:text-gray-400"
+                data-testid="phone-source-link-blocked"
+              >
+                Configure a trusted LAN HTTPS origin to generate the phone capture link.
+              </div>
+            )}
             <label className="mt-2 block">
               <span className="mb-1 block text-[10px] font-medium uppercase tracking-normal text-gray-500 dark:text-gray-400">
                 Phone HTTPS origin

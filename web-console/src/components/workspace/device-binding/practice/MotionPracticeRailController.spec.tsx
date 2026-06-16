@@ -141,6 +141,47 @@ describe('MotionPracticeRailController', () => {
     );
   });
 
+  it('hydrates the instruction source from an initial lesson handoff without extra polling', () => {
+    render(
+      <MotionPracticeRailController
+        apiUrl="http://api.test"
+        workspaceId="ws_device"
+        sessions={[sourceSession]}
+        result={null}
+        onResultChange={vi.fn()}
+        initialInstructionSource={{
+          kind: 'youtube_instruction_ref',
+          value: 'https://www.youtube.com/watch?v=summer-flow',
+          courseChapters: [
+            {
+              chapter_id: 'summer_flow_ref_1',
+              title: 'Standing warmup',
+              start_ms: 0,
+              end_ms: 42000,
+            },
+          ],
+          courseChaptersInput: JSON.stringify([
+            {
+              chapter_id: 'summer_flow_ref_1',
+              title: 'Standing warmup',
+              start_ms: 0,
+              end_ms: 42000,
+            },
+          ]),
+          courseChaptersError: null,
+        }}
+      />,
+    );
+
+    expect(screen.getByTestId('motion-practice-instruction-source-kind')).toHaveValue('youtube_instruction_ref');
+    expect(screen.getByTestId('motion-practice-instruction-source-value')).toHaveValue(
+      'https://www.youtube.com/watch?v=summer-flow',
+    );
+    expect(screen.getByTestId('motion-practice-instruction-source-status')).toHaveTextContent(
+      'YouTube ref ready · 1 materialized chapters',
+    );
+  });
+
   it('blocks non-ready Dance teacher assessment without submitting', () => {
     render(
       <MotionPracticeRailController

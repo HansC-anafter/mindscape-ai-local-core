@@ -70,6 +70,7 @@ x-runner-environment: &runner-environment
 x-runner-volumes: &runner-volumes
   - ./backend:/app/backend:rw
   - ./scripts:/app/scripts:rw
+  - ./schemas:/app/schemas:ro
   - ./config:/app/config:ro
   - "${LOCAL_CORE_DATA_HOST_DIR:-./data}:/app/data:rw"
   - "${LOCAL_CORE_SECRETS_HOST_DIR:-./data/secrets}:/root/.mindscape:rw"
@@ -232,6 +233,7 @@ services:
     volumes:
       - ./backend:/app/backend:rw
       - ./scripts:/app/scripts:rw
+      - ./schemas:/app/schemas:ro
       - ./config:/app/config:ro
       - "${LOCAL_CORE_DATA_HOST_DIR:-./data}:/app/data:rw"
       - "${LOCAL_CORE_SECRETS_HOST_DIR:-./data/secrets}:/root/.mindscape:rw"
@@ -379,6 +381,7 @@ services:
     volumes:
       - ./backend:/app/backend:rw
       - ./scripts:/app/scripts:rw
+      - ./schemas:/app/schemas:ro
       - ./config:/app/config:ro
       - "${LOCAL_CORE_DATA_HOST_DIR:-./data}:/app/data:rw"
       - "${LOCAL_CORE_SECRETS_HOST_DIR:-./data/secrets}:/root/.mindscape:rw"
@@ -454,6 +457,35 @@ services:
       LOCAL_CORE_RUNNER_ACCEPTED_PARTITIONS: ${LOCAL_CORE_RUNNER_VISION_ACCEPTED_PARTITIONS:-vision_local}
       LOCAL_CORE_RUNNER_ACCEPTED_RESOURCE_CLASSES: ${LOCAL_CORE_RUNNER_VISION_ACCEPTED_RESOURCE_CLASSES:-compute}
       LOCAL_CORE_RUNNER_MAX_INFLIGHT: ${LOCAL_CORE_RUNNER_VISION_MAX_INFLIGHT:-3}
+
+  runner-vision-mlx-dev:
+    <<: *runner-common
+    container_name: mindscape-ai-local-core-runner-vision-mlx-dev
+    environment:
+      <<: *runner-environment
+      DB_APPLICATION_NAME: ${LOCAL_CORE_RUNNER_VISION_MLX_DEV_DB_APPLICATION_NAME:-local-core-runner-vision-mlx-dev}
+      DB_POOL_SIZE: ${LOCAL_CORE_RUNNER_VISION_MLX_DEV_DB_POOL_SIZE:-2}
+      DB_MAX_OVERFLOW: ${LOCAL_CORE_RUNNER_VISION_MLX_DEV_DB_MAX_OVERFLOW:-0}
+      LOCAL_CORE_RUNNER_PROFILE: vision_mlx_dev
+      LOCAL_CORE_RUNNER_DISPLAY_NAME: ${LOCAL_CORE_RUNNER_VISION_MLX_DEV_DISPLAY_NAME:-Vision MLX Dev 9B Runner}
+      LOCAL_CORE_RUNNER_ACCEPTED_PARTITIONS: ${LOCAL_CORE_RUNNER_VISION_MLX_DEV_ACCEPTED_PARTITIONS:-vision_mlx_dev}
+      LOCAL_CORE_RUNNER_ACCEPTED_RESOURCE_CLASSES: ${LOCAL_CORE_RUNNER_VISION_MLX_DEV_ACCEPTED_RESOURCE_CLASSES:-compute}
+      LOCAL_CORE_RUNNER_ACCEPTED_CAPABILITY_CODES: ${LOCAL_CORE_RUNNER_VISION_MLX_DEV_ACCEPTED_CAPABILITY_CODES:-ig_analyze_pinned_reference}
+      LOCAL_CORE_RUNNER_MAX_INFLIGHT: ${LOCAL_CORE_RUNNER_VISION_MLX_DEV_MAX_INFLIGHT:-1}
+      LOCAL_CORE_RUNNER_STARTUP_RECONCILE_ENABLED: ${LOCAL_CORE_RUNNER_VISION_MLX_DEV_STARTUP_RECONCILE_ENABLED:-false}
+      LOCAL_CORE_RUNNER_RUNTIME_ID: ${LOCAL_CORE_RUNNER_VISION_MLX_DEV_RUNTIME_ID:-runtime-43ba9aad2f5b}
+      LOCAL_CORE_RUNTIME_ADAPTER_ID: ${LOCAL_CORE_RUNNER_VISION_MLX_DEV_RUNTIME_ADAPTER_ID:-apple_mlx_vlm}
+      LOCAL_CORE_RUNTIME_ENVIRONMENT_ID: ${LOCAL_CORE_RUNNER_VISION_MLX_DEV_RUNTIME_ENVIRONMENT_ID:-runtime-43ba9aad2f5b}
+      LOCAL_CORE_HOST_RESOURCE_LANE_ID: ${LOCAL_CORE_RUNNER_VISION_MLX_DEV_HOST_RESOURCE_LANE_ID:-runner:vision_mlx_dev}
+      LOCAL_CORE_RUNTIME_ENDPOINT: ${LOCAL_CORE_RUNNER_VISION_MLX_DEV_RUNTIME_ENDPOINT:-http://host.docker.internal:8212}
+      LOCAL_CORE_RUNTIME_MODEL: ${LOCAL_CORE_RUNNER_VISION_MLX_DEV_RUNTIME_MODEL:-mlx-community/Qwen3.5-9B-4bit}
+      LOCAL_CORE_RUNTIME_MAX_OUTPUT_TOKENS: ${LOCAL_CORE_RUNNER_VISION_MLX_DEV_MAX_OUTPUT_TOKENS:-12288}
+      LOCAL_CORE_RUNTIME_CONTEXT_BUDGET_TOKENS: ${LOCAL_CORE_RUNNER_VISION_MLX_DEV_CONTEXT_BUDGET_TOKENS:-12288}
+      MLX_BASE_URL: ${LOCAL_CORE_RUNNER_VISION_MLX_DEV_MLX_BASE_URL:-http://host.docker.internal:8212}
+      MLX_MODEL: ${LOCAL_CORE_RUNNER_VISION_MLX_DEV_MLX_MODEL:-mlx-community/Qwen3.5-9B-4bit}
+      MLX_PORT: ${LOCAL_CORE_RUNNER_VISION_MLX_DEV_MLX_PORT:-8212}
+      VLM_WATCHDOG_STATE_FILE: ${LOCAL_CORE_RUNNER_VISION_MLX_DEV_WATCHDOG_STATE_FILE:-/app/data/runtime/mlx-watchdog/runner_vision_mlx_dev.json}
+      VLM_PROCESS_LOCK_FILE: ${LOCAL_CORE_RUNNER_VISION_MLX_DEV_PROCESS_LOCK_FILE:-/app/data/runtime/mlx-watchdog/runner_vision_mlx_dev.lock}
 
   runner-spillover:
     <<: *runner-common

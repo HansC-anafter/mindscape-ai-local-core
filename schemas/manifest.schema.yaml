@@ -1308,6 +1308,12 @@ properties:
         group:
           type: string
           enum: [capability]
+        slot:
+          type: string
+          enum:
+            - workspace.right_rail.tool
+            - workbench.left_tool_rail
+            - aol.runtime.command_surface
         label:
           type: string
           minLength: 1
@@ -1319,6 +1325,40 @@ properties:
           pattern: "^[A-Za-z_][A-Za-z0-9_]*$"
         order:
           type: integer
+        shortcut:
+          type: string
+          minLength: 1
+        runtime_tool_code:
+          type: string
+          pattern: "^[a-z0-9_]+$"
+        aol:
+          type: object
+          required:
+            - object_kind
+            - object_uri
+            - role
+          properties:
+            object_kind:
+              type: string
+              pattern: "^[a-z0-9_]+$"
+            object_uri:
+              type: string
+              minLength: 1
+            role:
+              type: string
+              enum:
+                - source
+                - target
+                - character
+                - constraint
+                - output
+                - meeting
+                - session
+                - node
+          additionalProperties: false
+        state_schema:
+          type: object
+          additionalProperties: true
       additionalProperties: false
 
   composition_graph:

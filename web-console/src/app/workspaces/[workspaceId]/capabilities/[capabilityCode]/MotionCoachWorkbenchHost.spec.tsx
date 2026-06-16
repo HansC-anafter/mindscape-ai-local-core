@@ -1,10 +1,14 @@
 // @vitest-environment jsdom
 
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import MotionCoachWorkbenchHost from './MotionCoachWorkbenchHost';
+
+const navigationMocks = vi.hoisted(() => ({
+  searchParams: new URLSearchParams(),
+}));
 
 const mocks = vi.hoisted(() => ({
   existingBridge: null as Record<string, unknown> | null,
@@ -43,6 +47,10 @@ const mocks = vi.hoisted(() => ({
   },
 }));
 
+vi.mock('next/navigation', () => ({
+  useSearchParams: () => navigationMocks.searchParams,
+}));
+
 vi.mock('@/components/workspace/device-binding/capture-bridge/CaptureSourceBridgeProvider', () => ({
   CaptureSourceBridgeProvider: ({ children }: { children: React.ReactNode }) => (
     <div data-testid="capture-source-bridge-provider">{children}</div>
@@ -52,117 +60,6 @@ vi.mock('@/components/workspace/device-binding/capture-bridge/CaptureSourceBridg
     referenceLessonState: mocks.referenceLessonState,
   }),
   useOptionalCaptureSourceBridge: () => mocks.existingBridge,
-}));
-
-vi.mock('@/components/workspace/device-binding/capture-bridge/CaptureSourceRail', () => ({
-  CaptureSourceRail: ({ showPreview }: { showPreview?: boolean }) => (
-    <div data-testid="capture-source-rail">showPreview:{String(showPreview)}</div>
-  ),
-}));
-
-vi.mock('@/components/workspace/device-binding/practice/MotionPracticeRailController', () => ({
-  MotionPracticeRailController: (props: any) => {
-    const didPublish = React.useRef(false);
-
-    React.useEffect(() => {
-      if (didPublish.current) {
-        return;
-      }
-      didPublish.current = true;
-
-      const sourceSession = mocks.sessions[0];
-      if (!sourceSession) {
-        return;
-      }
-      props.onSelectedSessionChange?.(sourceSession.session_id);
-      props.onLaunchInputChange?.({
-        apiUrl: props.apiUrl,
-        workspaceId: props.workspaceId,
-        sourceSession,
-        coachPack: props.coachPackLock,
-        practiceMode: 'live_guidance',
-        expertLibraryRef: 'mindscape://teacher/reference/yoga-foundation',
-        instructionRefs: [
-          {
-            video_ref: 'file:///reference/yoga.mp4',
-            course_chapters: [
-              {
-                chapter_id: 'chapter_alignment',
-                title: 'Standing alignment',
-                start_ms: 10000,
-                end_ms: 22000,
-              },
-              {
-                chapter_id: 'chapter_balance',
-                title: 'Transition and balance',
-                start_ms: 22000,
-                end_ms: 36000,
-              },
-            ],
-          },
-        ],
-      });
-      props.onResultChange?.({
-        meetingId: 'meeting-1',
-        commandId: 'command-1',
-        liveSessionId: 'live-session-1',
-        sourceSessionId: sourceSession.session_id,
-        practiceSessionId: 'practice-1',
-        liveGuidanceEnabled: true,
-        coachPack: props.coachPackLock,
-        practiceMode: 'live_guidance',
-        status: 'started',
-      });
-
-      if (props.coachPackLock === 'dance_motion_coach') {
-        props.onClosureResultChange?.({
-          rollup: {
-            emitted: true,
-            live_session_id: 'live-session-1',
-            motion_rollup_ref: 'motion-rollup-1',
-            summary: {
-              window_count: 1,
-              top_findings: ['Arm accent lagging behind reference phrase.'],
-              motion_window_digests: [
-                {
-                  motion_window_ref: 'dance-window-1',
-                  phrase_id: 'phrase_intro',
-                  phase: 'groove',
-                  start_ms: 12000,
-                  end_ms: 18000,
-                  confidence: 0.87,
-                  dwpose_node_deltas: [
-                    {
-                      node_id: 'right_arm_accent',
-                      node_label: 'Right arm accent',
-                      delta_score: 0.24,
-                      confidence: 0.88,
-                      finding: 'Right arm accent lands lower than the reference.',
-                      guidance: 'Raise the elbow before the downbeat.',
-                    },
-                  ],
-                  sway_metrics: [],
-                  phase_metrics: [],
-                },
-              ],
-            },
-          },
-          command: {
-            commandId: 'closure-command-1',
-            dispatchResult: {
-              playbook: {
-                triggered_playbook: {
-                  execution_id: 'playbook-execution-1',
-                },
-              },
-            },
-          },
-        });
-      }
-    }, [props]);
-
-    return <div data-testid="motion-practice-rail-controller">{props.coachPackLock}</div>;
-  },
 }));
 
 vi.mock('@/components/workspace/device-binding/PhoneSourcePreview', () => ({
@@ -229,6 +126,7 @@ vi.mock('@/components/workspace/device-binding/PhoneSourcePreview', () => ({
 
 describe('MotionCoachWorkbenchHost', () => {
   beforeEach(() => {
+    navigationMocks.searchParams = new URLSearchParams();
     mocks.existingBridge = null;
     mocks.sessions = [
       {
@@ -348,8 +246,51 @@ describe('MotionCoachWorkbenchHost', () => {
       />,
     );
 
-    expect(screen.getByTestId('capture-source-rail')).toHaveTextContent('showPreview:false');
-    expect(screen.getByTestId('motion-practice-rail-controller')).toHaveTextContent('yogacoach');
+    const firstProps = runtimeSnapshots[0];
+    expect(firstProps.motionCoachControls.coachPackLock).toBe('yogacoach');
+    expect(firstProps.motionCoachControls.sessions).toHaveLength(2);
+
+    await act(async () => {
+      firstProps.motionCoachControls.onSelectedSessionChange('session-phone');
+      firstProps.motionCoachControls.onLaunchInputChange({
+        apiUrl: 'http://api.test',
+        workspaceId: 'ws-motion',
+        sourceSession: mocks.sessions[0],
+        coachPack: 'yogacoach',
+        practiceMode: 'live_guidance',
+        expertLibraryRef: 'mindscape://teacher/reference/yoga-foundation',
+        instructionRefs: [
+          {
+            video_ref: 'file:///reference/yoga.mp4',
+            course_chapters: [
+              {
+                chapter_id: 'chapter_alignment',
+                title: 'Standing alignment',
+                start_ms: 10000,
+                end_ms: 22000,
+              },
+              {
+                chapter_id: 'chapter_balance',
+                title: 'Transition and balance',
+                start_ms: 22000,
+                end_ms: 36000,
+              },
+            ],
+          },
+        ],
+      });
+      firstProps.motionCoachControls.onResultChange({
+        meetingId: 'meeting-1',
+        commandId: 'command-1',
+        liveSessionId: 'live-session-1',
+        sourceSessionId: 'session-phone',
+        practiceSessionId: 'practice-1',
+        liveGuidanceEnabled: true,
+        coachPack: 'yogacoach',
+        practiceMode: 'live_guidance',
+        status: 'started',
+      });
+    });
 
     await waitFor(() => {
       const latest = runtimeSnapshots[runtimeSnapshots.length - 1]?.workbenchState;
@@ -360,6 +301,58 @@ describe('MotionCoachWorkbenchHost', () => {
       expect(latest?.reference_lesson_state?.activeChapterId).toBe('chapter_alignment');
       expect(latest?.meeting_feedback_ref?.status).toBe('streaming');
       expect(latest?.html_report_artifact_ref?.status).toBe('missing');
+    });
+  });
+
+  it('hydrates Yoga lesson handoff search params into initial instruction source and workbench gate state', () => {
+    navigationMocks.searchParams = new URLSearchParams({
+      motion_lesson_handoff: '1',
+      motion_lesson_target: 'yogacoach',
+      motion_lesson_kind: 'youtube_instruction_ref',
+      motion_lesson_value: 'https://www.youtube.com/watch?v=summer-flow',
+      motion_lesson_title: 'Summer Flow With Katie',
+      motion_lesson_provider: 'youtube',
+      motion_lesson_course_chapters: JSON.stringify([
+        {
+          chapter_id: 'summer_flow_ref_1',
+          title: 'Standing warmup',
+          start_ms: 0,
+          end_ms: 42000,
+        },
+      ]),
+    });
+    const runtimeSnapshots: any[] = [];
+
+    function RuntimeComponent(props: any) {
+      runtimeSnapshots.push(props);
+      return <div data-testid="runtime-component-handoff">handoff</div>;
+    }
+
+    render(
+      <MotionCoachWorkbenchHost
+        workspaceId="ws-motion"
+        apiUrl="http://api.test"
+        capabilityCode="yogacoach"
+        Component={RuntimeComponent}
+        aolHost={{}}
+        surfacePath={['practice']}
+      />,
+    );
+
+    const firstProps = runtimeSnapshots[0];
+    expect(firstProps.motionCoachControls.initialInstructionSource).toMatchObject({
+      kind: 'youtube_instruction_ref',
+      value: 'https://www.youtube.com/watch?v=summer-flow',
+      courseChaptersError: null,
+    });
+    expect(firstProps.workbenchState.reference_lesson_import_ref).toMatchObject({
+      status: 'ready',
+      source_provider: 'youtube',
+      ready_chapter_count: 1,
+    });
+    expect(firstProps.workbenchState.reference_lesson_state).toMatchObject({
+      title: 'Summer Flow With Katie',
+      activeChapterId: 'summer_flow_ref_1',
     });
   });
 
@@ -388,6 +381,74 @@ describe('MotionCoachWorkbenchHost', () => {
         surfacePath={['practice']}
       />,
     );
+
+    const firstProps = runtimeSnapshots[0];
+    await act(async () => {
+      firstProps.motionCoachControls.onSelectedSessionChange('session-phone');
+      firstProps.motionCoachControls.onLaunchInputChange({
+        apiUrl: 'http://api.test',
+        workspaceId: 'ws-motion',
+        sourceSession: mocks.sessions[0],
+        coachPack: 'dance_motion_coach',
+        practiceMode: 'live_guidance',
+        expertLibraryRef: 'mindscape://teacher/reference/dance-groove',
+        instructionRefs: [],
+      });
+      firstProps.motionCoachControls.onResultChange({
+        meetingId: 'meeting-1',
+        commandId: 'command-1',
+        liveSessionId: 'live-session-1',
+        sourceSessionId: 'session-phone',
+        practiceSessionId: 'practice-1',
+        liveGuidanceEnabled: true,
+        coachPack: 'dance_motion_coach',
+        practiceMode: 'live_guidance',
+        status: 'started',
+      });
+      firstProps.motionCoachControls.onClosureResultChange({
+        rollup: {
+          emitted: true,
+          live_session_id: 'live-session-1',
+          motion_rollup_ref: 'motion-rollup-1',
+          summary: {
+            window_count: 1,
+            top_findings: ['Arm accent lagging behind reference phrase.'],
+            motion_window_digests: [
+              {
+                motion_window_ref: 'dance-window-1',
+                phrase_id: 'phrase_intro',
+                phase: 'groove',
+                start_ms: 12000,
+                end_ms: 18000,
+                confidence: 0.87,
+                dwpose_node_deltas: [
+                  {
+                    node_id: 'right_arm_accent',
+                    node_label: 'Right arm accent',
+                    delta_score: 0.24,
+                    confidence: 0.88,
+                    finding: 'Right arm accent lands lower than the reference.',
+                    guidance: 'Raise the elbow before the downbeat.',
+                  },
+                ],
+                sway_metrics: [],
+                phase_metrics: [],
+              },
+            ],
+          },
+        },
+        command: {
+          commandId: 'closure-command-1',
+          dispatchResult: {
+            playbook: {
+              triggered_playbook: {
+                execution_id: 'playbook-execution-1',
+              },
+            },
+          },
+        },
+      });
+    });
 
     await waitFor(() => {
       const latest = runtimeSnapshots[runtimeSnapshots.length - 1]?.workbenchState;

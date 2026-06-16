@@ -1,4 +1,5 @@
 import pytest
+import time
 
 from backend.app.runner import db_pool_pressure
 
@@ -87,3 +88,50 @@ async def test_redis_cache_prevents_duplicate_sampling(monkeypatch):
     assert second.paused is False
     assert calls["count"] == 1
     assert client.sample_locks == 1
+
+
+@pytest.mark.asyncio
+async def test_stale_open_cache_is_used_while_refresh_is_in_progress(monkeypatch):
+    monkeypatch.setenv("LOCAL_CORE_DB_PRESSURE_ENABLED", "true")
+    monkeypatch.setenv("LOCAL_CORE_DB_PRESSURE_STALE_SECONDS", "1")
+    monkeypatch.setenv("LOCAL_CORE_DB_PRESSURE_STALE_GRACE_SECONDS", "10")
+    client = _FakeRedis()
+    queue = _FakeQueue(client)
+    client.values[db_pool_pressure.PRESSURE_CACHE_KEY] = (
+        db_pool_pressure.DbPoolPressureDecision.open(
+            checked_at_epoch=time.time() - 2,
+        ).to_cache_payload()
+    )
+    client.values[db_pool_pressure.PRESSURE_SAMPLE_LOCK_KEY] = "runner-a"
+
+    decision = await db_pool_pressure.check_db_pool_pressure(
+        queue,
+        owner_id="runner-b",
+    )
+
+    assert decision.paused is False
+    assert decision.reason == "pgbouncer_pressure_open_refresh_in_progress"
+
+
+@pytest.mark.asyncio
+async def test_stale_paused_cache_stays_paused_while_refresh_is_in_progress(monkeypatch):
+    monkeypatch.setenv("LOCAL_CORE_DB_PRESSURE_ENABLED", "true")
+    monkeypatch.setenv("LOCAL_CORE_DB_PRESSURE_STALE_SECONDS", "1")
+    monkeypatch.setenv("LOCAL_CORE_DB_PRESSURE_STALE_GRACE_SECONDS", "10")
+    client = _FakeRedis()
+    queue = _FakeQueue(client)
+    client.values[db_pool_pressure.PRESSURE_CACHE_KEY] = (
+        db_pool_pressure.DbPoolPressureDecision.paused_for(
+            "pgbouncer_client_waiting",
+            checked_at_epoch=time.time() - 2,
+        ).to_cache_payload()
+    )
+    client.values[db_pool_pressure.PRESSURE_SAMPLE_LOCK_KEY] = "runner-a"
+
+    decision = await db_pool_pressure.check_db_pool_pressure(
+        queue,
+        owner_id="runner-b",
+    )
+
+    assert decision.paused is True
+    assert decision.reason == "pgbouncer_client_waiting_refresh_in_progress"

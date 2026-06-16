@@ -180,6 +180,34 @@ describe('mobile workbench gateway', () => {
     });
   });
 
+  it('parses camelCase workspaceId and capabilityCode query parameters in request context', () => {
+    expect(
+      extractMobileWorkbenchGatewayRequestContext(
+        '/api/v1/host/services/mobile-workbench-gateway/summary?workspaceId=ws-1&capabilityCode=yogacoach',
+      ),
+    ).toMatchObject({
+      path: '/api/v1/host/services/mobile-workbench-gateway/summary',
+      workspaceId: 'ws-1',
+      capabilityCode: 'yogacoach',
+    });
+  });
+
+  it('maps the remote gateway control page to the target capability context', () => {
+    expect(
+      extractMobileWorkbenchGatewayRequestContext(
+        '/workspaces/ws-1/capability-ui-hosts/mindscape_cloud_integration?component=MindscapeMobileWorkbenchGatewayPage&target_capability=yogacoach',
+      ),
+    ).toMatchObject({
+      path: '/workspaces/ws-1/capability-ui-hosts/mindscape_cloud_integration',
+      workspaceId: 'ws-1',
+      capabilityCode: 'yogacoach',
+      routeCapabilityCode: 'mindscape_cloud_integration',
+      targetCapabilityCode: 'yogacoach',
+      gatewayControlPlaneCarrier: true,
+      gatewayControlPlaneTargeted: true,
+    });
+  });
+
   it('allows bounded IG, YogaCoach, and Makeup Practice Coach support paths by default when enabled', () => {
     const config = resolveMobileWorkbenchGatewayConfig({
       MOBILE_WORKBENCH_GATEWAY_ENABLED: '1',
@@ -202,6 +230,7 @@ describe('mobile workbench gateway', () => {
     expect(isMobileWorkbenchGatewayPathAllowed('/api/v1/capability-packs/installed-capabilities/ig', config)).toBe(true);
     expect(isMobileWorkbenchGatewayPathAllowed('/api/v1/capability-packs/installed-capabilities/ig/ui-components', config)).toBe(true);
     expect(isMobileWorkbenchGatewayPathAllowed('/api/v1/capability-packs/installed-capabilities/ig/workspace-tools', config)).toBe(true);
+    expect(isMobileWorkbenchGatewayPathAllowed('/api/v1/capability-packs/installed-capabilities/ig/mobile-workbench-gateway-support', config)).toBe(true);
     expect(isMobileWorkbenchGatewayPathAllowed('/api/v1/capability-packs/installed-capabilities/ig/ui-assets/bundle.js', config)).toBe(true);
     expect(isMobileWorkbenchGatewayPathAllowed('/api/v1/workspaces/ws-1/executions?limit=50', config)).toBe(true);
     expect(isMobileWorkbenchGatewayPathAllowed('/api/v1/workspaces/ws-1/summary', config)).toBe(true);
@@ -257,6 +286,12 @@ describe('mobile workbench gateway', () => {
     expect(
       isMobileWorkbenchGatewayPathAllowed(
         '/api/v1/capability-packs/installed-capabilities/yogacoach/ui-components',
+        config,
+      ),
+    ).toBe(true);
+    expect(
+      isMobileWorkbenchGatewayPathAllowed(
+        '/api/v1/capability-packs/installed-capabilities/yogacoach/mobile-workbench-gateway-support',
         config,
       ),
     ).toBe(true);
@@ -1197,6 +1232,133 @@ describe('mobile workbench gateway', () => {
         workspaceId: 'ws-1',
         capabilityCode: 'makeup_practice_coach',
       },
+    });
+  });
+
+  it('allows the pack-embedded remote gateway control page when the target capability is allowed', async () => {
+    const config = resolveMobileWorkbenchGatewayConfig({
+      MOBILE_WORKBENCH_GATEWAY_ENABLED: '1',
+    });
+
+    const allowed = await isMobileWorkbenchGatewayRequestAllowedAsync(
+      '/workspaces/ws-1/capability-ui-hosts/mindscape_cloud_integration?component=MindscapeMobileWorkbenchGatewayPage&target_capability=yogacoach',
+      {},
+      config,
+      {
+        resolveWorkspaceCapabilityPolicy: async () => ({
+          capabilityAllowed: true,
+          supported: true,
+          allowedPathRules: [
+            {
+              type: 'regex',
+              value: /^\/workspaces\/[^/]+\/capability-ui-hosts\/yogacoach(?:\/.*)?$/,
+            },
+          ],
+        }),
+      },
+    );
+
+    expect(allowed).toMatchObject({
+      allowed: true,
+      context: {
+        workspaceId: 'ws-1',
+        capabilityCode: 'yogacoach',
+        routeCapabilityCode: 'mindscape_cloud_integration',
+        gatewayControlPlaneTargeted: true,
+      },
+    });
+  });
+
+  it('allows control-plane asset and observability requests when they inherit the target capability from the referer', async () => {
+    const config = resolveMobileWorkbenchGatewayConfig({
+      MOBILE_WORKBENCH_GATEWAY_ENABLED: '1',
+    });
+    const referer =
+      'https://remote-workbench.mindscapeai.app/workspaces/ws-1/capability-ui-hosts/mindscape_cloud_integration?component=MindscapeMobileWorkbenchGatewayPage&target_capability=yogacoach';
+
+    const assetRequest = await isMobileWorkbenchGatewayRequestAllowedAsync(
+      '/api/v1/capability-packs/installed-capabilities/mindscape_cloud_integration/ui-assets/1.0.0/components/MindscapeMobileWorkbenchGatewayPage.mjs',
+      { referer },
+      config,
+      {
+        resolveWorkspaceCapabilityPolicy: async () => ({
+          capabilityAllowed: true,
+          supported: true,
+          allowedPathRules: [
+            {
+              type: 'regex',
+              value: /^\/workspaces\/[^/]+\/capability-ui-hosts\/yogacoach(?:\/.*)?$/,
+            },
+          ],
+        }),
+      },
+    );
+
+    expect(assetRequest).toMatchObject({
+      allowed: true,
+      context: {
+        workspaceId: 'ws-1',
+        capabilityCode: 'yogacoach',
+        routeCapabilityCode: 'mindscape_cloud_integration',
+        gatewayControlPlaneTargeted: true,
+      },
+    });
+
+    const summaryRequest = await isMobileWorkbenchGatewayRequestAllowedAsync(
+      '/api/v1/host/services/mobile-workbench-gateway/summary?workspace_id=ws-1&capability_code=yogacoach',
+      { referer },
+      config,
+      {
+        resolveWorkspaceCapabilityPolicy: async () => ({
+          capabilityAllowed: true,
+          supported: true,
+          allowedPathRules: [
+            {
+              type: 'regex',
+              value: /^\/workspaces\/[^/]+\/capability-ui-hosts\/yogacoach(?:\/.*)?$/,
+            },
+          ],
+        }),
+      },
+    );
+
+    expect(summaryRequest).toMatchObject({
+      allowed: true,
+      context: {
+        workspaceId: 'ws-1',
+        capabilityCode: 'yogacoach',
+        gatewayControlPlaneTargeted: true,
+      },
+    });
+  });
+
+  it('keeps non-gateway cloud integration components outside the remote pack allowlist', async () => {
+    const config = resolveMobileWorkbenchGatewayConfig({
+      MOBILE_WORKBENCH_GATEWAY_ENABLED: '1',
+    });
+
+    const denied = await isMobileWorkbenchGatewayRequestAllowedAsync(
+      '/workspaces/ws-1/capability-ui-hosts/mindscape_cloud_integration?component=MindscapeCloudChannelBindingPanel&target_capability=yogacoach',
+      {},
+      config,
+      {
+        resolveWorkspaceCapabilityPolicy: async () => ({
+          capabilityAllowed: true,
+          supported: true,
+          allowedPathRules: [
+            {
+              type: 'regex',
+              value: /^\/workspaces\/[^/]+\/capability-ui-hosts\/yogacoach(?:\/.*)?$/,
+            },
+          ],
+        }),
+      },
+    );
+
+    expect(denied).toMatchObject({
+      allowed: false,
+      reason: 'mobile_workbench_gateway_path_not_allowed',
+      status_code: 404,
     });
   });
 });

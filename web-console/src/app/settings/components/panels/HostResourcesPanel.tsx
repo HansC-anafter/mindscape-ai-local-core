@@ -14,6 +14,7 @@ import { HostResourceSlotRegistryPanel } from './host-resources/HostResourceSlot
 import { HostResourcesObservabilityPanel } from './host-resources/HostResourcesObservabilityPanel';
 import { HostResourceRunnerControlPanel } from './host-resources/HostResourceRunnerControlPanel';
 import { HostResourceWorkspaceAllocationsPanel } from './host-resources/HostResourceWorkspaceAllocationsPanel';
+import { HostResourceRuntimeDispatchPanel } from './host-resources/HostResourceRuntimeDispatchPanel';
 
 interface HostResourcesPanelProps {
   activeSection?: string;
@@ -93,6 +94,7 @@ export function HostResourcesPanel({ activeSection, workspaceId }: HostResources
           lanes={lanes}
           onRefresh={loadRegistryState}
         />
+        <HostResourceRuntimeDispatchPanel workspaceId={workspaceId} />
         <Card className="p-4">
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>

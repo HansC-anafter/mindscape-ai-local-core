@@ -25,7 +25,7 @@ function createInstalledCapabilityMetadataRule(capabilityCode) {
   return {
     type: 'regex',
     value: new RegExp(
-      `^/api/v1/capability-packs/installed-capabilities/${escapedCapabilityCode}(?:/(?:ui-components|workspace-tools))?$`,
+      `^/api/v1/capability-packs/installed-capabilities/${escapedCapabilityCode}(?:/(?:ui-components|workspace-tools|mobile-workbench-gateway-support))?$`,
     ),
   };
 }

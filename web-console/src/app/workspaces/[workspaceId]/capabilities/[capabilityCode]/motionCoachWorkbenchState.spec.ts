@@ -252,4 +252,47 @@ describe('motionCoachWorkbenchState', () => {
       status: 'rendering',
     });
   });
+
+  it('materializes a Yoga lesson handoff into reference import state before practice launch', () => {
+    const state = buildYogaPracticeWorkbenchState({
+      capabilityCode: 'yogacoach',
+      selectedSession: sourceSession,
+      referenceLessonState: null,
+      pendingLessonHandoff: {
+        capabilityCode: 'yogacoach',
+        sourceKind: 'youtube_instruction_ref',
+        sourceValue: 'https://www.youtube.com/watch?v=summer-flow',
+        sourceTitle: 'Summer Flow With Katie',
+        sourceProvider: 'youtube',
+        courseChaptersInput: JSON.stringify([
+          {
+            chapter_id: 'summer_flow_ref_1',
+            title: 'Standing warmup',
+            start_ms: 0,
+            end_ms: 42000,
+          },
+        ]),
+      },
+      launchInput: null,
+      practiceResult: null,
+      motionWindowEvents: [],
+      closureResult: null,
+    }) as Record<string, any>;
+
+    expect(state.reference_lesson_import_ref).toMatchObject({
+      status: 'ready',
+      source_provider: 'youtube',
+      ready_chapter_count: 1,
+      human_patch_required: false,
+    });
+    expect(state.reference_lesson_state).toMatchObject({
+      lesson_id: 'https://www.youtube.com/watch?v=summer-flow',
+      title: 'Summer Flow With Katie',
+      activeChapterId: 'summer_flow_ref_1',
+    });
+    expect(state.reference_lesson_state.chapters[0]).toMatchObject({
+      id: 'summer_flow_ref_1',
+      title: 'Standing warmup',
+    });
+  });
 });

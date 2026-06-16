@@ -38,6 +38,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code explicitly instead of using COPY . .
 # .dockerignore excludes capability-installed runtime paths.
 COPY backend/ ./backend/
+COPY schemas/ ./schemas/
 
 # Create data and logs directories
 RUN mkdir -p /app/data /app/logs

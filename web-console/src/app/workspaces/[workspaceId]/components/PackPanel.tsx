@@ -2,12 +2,14 @@
 
 import React, { useState, useEffect } from 'react';
 import dynamic from 'next/dynamic';
+import ShieldCheck from 'lucide-react/dist/esm/icons/shield-check.js';
 import { useT } from '@/lib/i18n';
 import { buildCapabilityWorkbenchPath } from '@/lib/capability-static-hosts';
 import {
   getInstalledCapabilities,
   type InstalledCapability,
 } from '@/lib/capability-packs/installed-capabilities-cache';
+import { PackRemoteWorkbenchTab } from './PackRemoteWorkbenchTab';
 
 const ThinkingPanel = dynamic(
   () => import('@/components/workspace/ThinkingPanel').then((module) => module.ThinkingPanel),
@@ -21,6 +23,7 @@ interface PackPanelProps {
 }
 
 type PackSubTab = 'thinking' | 'capabilities' | 'apps';
+type ExtendedPackSubTab = PackSubTab | 'remote';
 const GATEWAY_CONTROL_CAPABILITY_CODE = 'mindscape_cloud_integration';
 
 function isMainPageComponent(component: NonNullable<InstalledCapability['ui_components']>[number]): boolean {
@@ -40,9 +43,10 @@ export function PackPanel({
   storyThreadId,
 }: PackPanelProps) {
   const t = useT();
-  const [activeSubTab, setActiveSubTab] = useState<PackSubTab>('apps');
+  const [activeSubTab, setActiveSubTab] = useState<ExtendedPackSubTab>('apps');
   const [installedCapabilities, setInstalledCapabilities] = useState<InstalledCapability[]>([]);
   const [loading, setLoading] = useState(true);
+  const [remoteTargetCapabilityCode, setRemoteTargetCapabilityCode] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -82,23 +86,24 @@ export function PackPanel({
   };
 
   const openGatewayControlUI = (targetCapabilityCode: string) => {
-    const url = buildCapabilityWorkbenchPath(
-      workspaceId,
-      GATEWAY_CONTROL_CAPABILITY_CODE,
-      {
-        searchParams: {
-          component: 'MindscapeMobileWorkbenchGatewayPage',
-          target_capability: targetCapabilityCode,
-        },
-      },
-    );
-    window.open(url, '_blank');
+    setRemoteTargetCapabilityCode(targetCapabilityCode);
+    setActiveSubTab('remote');
   };
 
   const hasGatewayControlPack = installedCapabilities.some((capability) => {
     const capabilityCode = String(capability.code || capability.id || '').trim();
     return capabilityCode === GATEWAY_CONTROL_CAPABILITY_CODE;
   });
+
+  const remoteTargetCapabilityLabel = remoteTargetCapabilityCode
+    ? (
+        installedCapabilities.find((capability) => {
+          const capabilityCode = String(capability.code || capability.id || '').trim();
+          return capabilityCode === remoteTargetCapabilityCode;
+        })?.display_name
+        || remoteTargetCapabilityCode
+      )
+    : null;
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -127,6 +132,23 @@ export function PackPanel({
               />
             </svg>
           </button>
+          {hasGatewayControlPack ? (
+            <button
+              type="button"
+              onClick={() => {
+                setRemoteTargetCapabilityCode(null);
+                setActiveSubTab('remote');
+              }}
+              className={`p-1.5 rounded transition-colors ${activeSubTab === 'remote'
+                ? 'bg-accent-10 dark:bg-blue-900/30 text-accent dark:text-blue-300'
+                : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-700 dark:hover:text-gray-300'
+                }`}
+              title="Remote access control"
+              data-testid="pack-panel-remote-tab"
+            >
+              <ShieldCheck className="h-4 w-4" />
+            </button>
+          ) : null}
           <button
             onClick={() => setActiveSubTab('thinking')}
             className={`p-1.5 rounded transition-colors ${activeSubTab === 'thinking'
@@ -256,6 +278,7 @@ export function PackPanel({
                                   e.stopPropagation();
                                   capabilityIdentifier && openGatewayControlUI(capabilityIdentifier);
                                 }}
+                                data-testid={`pack-remote-workbench-action-${capabilityIdentifier}`}
                                 className="px-2 py-1 text-[10px] rounded border border-amber-300 bg-amber-50 text-amber-800 hover:border-amber-400 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-200"
                               >
                                 Remote workbench
@@ -279,6 +302,20 @@ export function PackPanel({
               );
             })()}
           </div>
+        )}
+
+        {activeSubTab === 'remote' && (
+          hasGatewayControlPack ? (
+            <PackRemoteWorkbenchTab
+              workspaceId={workspaceId}
+              targetCapabilityCode={remoteTargetCapabilityCode}
+              targetCapabilityLabel={remoteTargetCapabilityLabel}
+            />
+          ) : (
+            <div className="p-3 text-xs text-tertiary dark:text-gray-500">
+              Remote workbench control pack is not installed.
+            </div>
+          )
         )}
 
         {activeSubTab === 'thinking' && (
@@ -360,6 +397,7 @@ export function PackPanel({
                               <button
                                 type="button"
                                 onClick={() => capabilityCode && openGatewayControlUI(capabilityCode)}
+                                data-testid={`pack-gateway-policy-action-${capabilityCode}`}
                                 className="px-2 py-1 text-[10px] rounded border border-amber-300 bg-amber-50 text-amber-800 hover:border-amber-400 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-200"
                               >
                                 Gateway policy

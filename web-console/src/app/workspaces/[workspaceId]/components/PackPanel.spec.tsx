@@ -4,6 +4,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import { getInstalledCapabilities } from '@/lib/capability-packs/installed-capabilities-cache';
 import { PackPanel } from './PackPanel';
+import { buildGatewayControlPath } from './PackRemoteWorkbenchTab';
 
 const mockWindowOpen = vi.fn();
 
@@ -93,7 +94,7 @@ describe('PackPanel capability workbench routing', () => {
     });
   });
 
-  it('opens the cloud integration gateway control page for the selected pack', async () => {
+  it('switches to the embedded remote workbench tab for the selected pack', async () => {
     render(
       <PackPanel
         workspaceId="ws-test"
@@ -102,13 +103,11 @@ describe('PackPanel capability workbench routing', () => {
     );
 
     await screen.findByText('Instagram Workbench');
-    fireEvent.click(screen.getByRole('button', { name: 'Remote workbench' }));
+    fireEvent.click(screen.getByTestId('pack-remote-workbench-action-ig'));
 
-    await waitFor(() => {
-      expect(mockWindowOpen).toHaveBeenCalledWith(
-        '/workspaces/ws-test/capability-ui-hosts/mindscape_cloud_integration?component=MindscapeMobileWorkbenchGatewayPage&target_capability=ig',
-        '_blank',
-      );
-    });
+    const iframe = await screen.findByTestId('pack-remote-workbench-iframe');
+    expect(screen.getByTestId('pack-panel-remote-tab')).toBeInTheDocument();
+    expect(iframe).toHaveAttribute('src', buildGatewayControlPath('ws-test', 'ig'));
+    expect(mockWindowOpen).not.toHaveBeenCalled();
   });
 });

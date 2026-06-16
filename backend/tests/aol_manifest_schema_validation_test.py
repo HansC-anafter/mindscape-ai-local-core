@@ -112,6 +112,53 @@ def test_validate_manifest_accepts_runtime_contract_fields(tmp_path):
     assert result.errors == []
 
 
+def test_validate_manifest_accepts_workspace_tool_slot_and_aol_fields(tmp_path):
+    manifest = {
+        **_base_manifest(),
+        "ui_components": [
+            {
+                "code": "FeedGridLoadToolPanel",
+                "name": "Feed Grid Load Tool Panel",
+                "path": "ui/FeedGridLoadToolPanel.tsx",
+                "export": "default",
+            }
+        ],
+        "workspace_tools": [
+            {
+                "id": "feed_grid_card_load_limit",
+                "group": "capability",
+                "slot": "workbench.left_tool_rail",
+                "label": "Feed Load",
+                "icon": "SlidersHorizontal",
+                "panel_component_code": "FeedGridLoadToolPanel",
+                "order": 10,
+                "shortcut": "F9",
+                "runtime_tool_code": "ig_query_references",
+                "aol": {
+                    "object_kind": "tool",
+                    "object_uri": "mindscape://ig/tool/feed_grid_card_load_limit",
+                    "role": "constraint",
+                },
+                "state_schema": {
+                    "load_limit": {
+                        "type": "integer",
+                        "min": 1,
+                        "max": 300,
+                        "default": 50,
+                    }
+                },
+            }
+        ],
+    }
+
+    result = _load_validate_manifest_module().validate_manifest(
+        _write_manifest(tmp_path, manifest)
+    )
+
+    assert result.valid is True
+    assert result.errors == []
+
+
 def test_validate_manifest_accepts_meeting_artifact_producers(tmp_path):
     manifest = {
         **_base_manifest(),
@@ -198,3 +245,8 @@ def test_local_and_cloud_manifest_schemas_expose_aol_contract_fields():
     for field in ("contract_exports", "contract_imports", "meeting_artifact_producers"):
         assert field in local_schema["properties"]
         assert field in cloud_schema["properties"]
+    workspace_tool_properties = local_schema["properties"]["workspace_tools"]["items"]["properties"]
+    cloud_workspace_tool_properties = cloud_schema["properties"]["workspace_tools"]["items"]["properties"]
+    for field in ("slot", "shortcut", "runtime_tool_code", "aol", "state_schema"):
+        assert field in workspace_tool_properties
+        assert field in cloud_workspace_tool_properties

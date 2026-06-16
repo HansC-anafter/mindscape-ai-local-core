@@ -57,6 +57,18 @@ from backend.app.runner.concurrency import _runner_id
 
 logger = logging.getLogger("backend.app.runner.worker")
 
+
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() not in {"0", "false", "no", "off"}
+
+
+def _runner_startup_reconcile_enabled() -> bool:
+    return _env_bool("LOCAL_CORE_RUNNER_STARTUP_RECONCILE_ENABLED", True)
+
+
 async def run_forever() -> None:
     poll_interval_ms = _env_int("LOCAL_CORE_RUNNER_POLL_INTERVAL_MS", 1000)
     max_inflight = _env_int("LOCAL_CORE_RUNNER_MAX_INFLIGHT", 1)
@@ -121,7 +133,13 @@ async def run_forever() -> None:
             redis_queue,
             owner_id=f"{runner_id}:startup",
         )
-    if claim_gate_paused:
+    startup_reconcile_enabled = _runner_startup_reconcile_enabled()
+    if not startup_reconcile_enabled:
+        logger.info(
+            "Runner startup reconciliation disabled by env profile=%s",
+            runner_profile.profile_code,
+        )
+    elif claim_gate_paused:
         logger.warning(
             "Runner startup reconciliation skipped while claim gate is paused "
             "profile=%s reason=%s source=%s",
@@ -137,7 +155,7 @@ async def run_forever() -> None:
             startup_db_pressure.reason,
             startup_db_pressure.wait_seconds,
         )
-    else:
+    elif not startup_db_pressure.paused:
         # Reset running tasks from dead runners.
         reset_task_ids = await _reset_orphaned_running_tasks(
             tasks_store, runner_id, runner_profile, redis_queue

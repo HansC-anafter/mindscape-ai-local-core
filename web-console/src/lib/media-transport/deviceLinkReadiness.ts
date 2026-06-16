@@ -25,6 +25,15 @@ export function isLoopbackDeviceLinkHost(hostname: string): boolean {
   return LOOPBACK_HOSTS.has(hostname.toLowerCase());
 }
 
+function isLoopbackOrigin(origin: string): boolean {
+  try {
+    const parsed = new URL(origin);
+    return isLoopbackDeviceLinkHost(parsed.hostname);
+  } catch {
+    return false;
+  }
+}
+
 export function assessDeviceLinkOriginReadiness(origin: string): DeviceLinkReadiness {
   const normalizedOrigin = normalizeOrigin(origin);
   if (!normalizedOrigin) {
@@ -73,9 +82,22 @@ export function assessDeviceLinkOriginReadiness(origin: string): DeviceLinkReadi
 export function resolveDeviceLinkPublicOrigin({
   overrideOrigin,
   fallbackOrigin,
+  allowFallbackLoopbackOnly = false,
 }: {
   overrideOrigin: string;
   fallbackOrigin: string;
+  allowFallbackLoopbackOnly?: boolean;
 }): string {
-  return normalizeOrigin(overrideOrigin) || normalizeOrigin(fallbackOrigin);
+  const normalizedOverrideOrigin = normalizeOrigin(overrideOrigin);
+  if (normalizedOverrideOrigin) {
+    return normalizedOverrideOrigin;
+  }
+  const normalizedFallbackOrigin = normalizeOrigin(fallbackOrigin);
+  if (!normalizedFallbackOrigin) {
+    return '';
+  }
+  if (allowFallbackLoopbackOnly && !isLoopbackOrigin(normalizedFallbackOrigin)) {
+    return '';
+  }
+  return normalizedFallbackOrigin;
 }

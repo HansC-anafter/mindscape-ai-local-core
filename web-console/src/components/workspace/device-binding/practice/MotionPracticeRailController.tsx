@@ -43,6 +43,7 @@ interface MotionPracticeRailControllerProps {
   onSelectedSessionChange?: (sessionId: string) => void;
   coachPackLock?: MotionPracticeCoachPack | null;
   defaultPracticeMode?: MotionPracticeMode;
+  initialInstructionSource?: MotionPracticeInstructionSourceState | null;
 }
 
 export function MotionPracticeRailController({
@@ -58,6 +59,7 @@ export function MotionPracticeRailController({
   onSelectedSessionChange,
   coachPackLock = null,
   defaultPracticeMode = 'record_summary',
+  initialInstructionSource = null,
 }: MotionPracticeRailControllerProps) {
   const [selectedSessionIdState, setSelectedSessionIdState] = useState<string>('');
   const [coachPack, setCoachPack] = useState<MotionPracticeCoachPack>(coachPackLock || 'yogacoach');
@@ -66,7 +68,7 @@ export function MotionPracticeRailController({
   const [userGoal, setUserGoal] = useState('');
   const [instructionSource, setInstructionSource] =
     useState<MotionPracticeInstructionSourceState>(
-      DEFAULT_MOTION_PRACTICE_INSTRUCTION_SOURCE,
+      initialInstructionSource || DEFAULT_MOTION_PRACTICE_INSTRUCTION_SOURCE,
     );
   const [launchState, setLaunchState] = useState<MotionPracticeLaunchState>('idle');
   const [launchError, setLaunchError] = useState<string | null>(null);
@@ -83,6 +85,17 @@ export function MotionPracticeRailController({
       setCoachPack(coachPackLock);
     }
   }, [coachPack, coachPackLock]);
+
+  useEffect(() => {
+    if (!initialInstructionSource) {
+      return;
+    }
+    setInstructionSource((current) => {
+      const currentIsEmpty = !current.value.trim()
+        && (!current.courseChaptersInput || !current.courseChaptersInput.trim());
+      return currentIsEmpty ? initialInstructionSource : current;
+    });
+  }, [initialInstructionSource]);
   const selectedSession = useMemo(() => (
     sessions.find((session) => session.session_id === selectedSessionId) || sessions[0] || null
   ), [selectedSessionId, sessions]);

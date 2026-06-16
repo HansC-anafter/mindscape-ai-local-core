@@ -17,9 +17,7 @@ export function getCapabilityWorkbenchPlacement(): CapabilityWorkbenchPlacement 
 }
 
 export function useCapabilityWorkbenchPlacement(): CapabilityWorkbenchPlacement {
-  const [placement, setPlacement] = React.useState<CapabilityWorkbenchPlacement>(() => (
-    getCapabilityWorkbenchPlacement()
-  ));
+  const [placement, setPlacement] = React.useState<CapabilityWorkbenchPlacement>('desktop');
 
   React.useEffect(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {

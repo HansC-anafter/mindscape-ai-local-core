@@ -13,7 +13,11 @@ from backend.app.services.resource_governance import (
 
 from .dynamic_lane_store import get_dynamic_lane, update_dynamic_lane
 from .host_bridge import HostBridgeError, call_host_resource_lane_workers_set
-from .manager import get_host_resource_snapshot, list_active_route_reservations
+from .manager import (
+    clear_host_resource_snapshot_cache,
+    get_host_resource_snapshot,
+    list_active_route_reservations,
+)
 from .summary import build_host_resource_summary
 from .workspace_allocations import workspace_allocation_decision
 from .worker_target_resolution import (
@@ -251,22 +255,31 @@ async def set_lane_worker_target(
 
     accepted = bool(result.get("accepted") or result.get("success"))
     persisted_lane = lane
+    lane_updated = False
     if desired > 0 and accepted:
-        persisted_lane = update_dynamic_lane(
+        updated_lane = update_dynamic_lane(
             lane_id,
             {
                 "desired_worker_count": desired,
                 "state": _lane_state_for_worker_result(desired=desired, result=result),
             },
-        ) or lane
+        )
+        if updated_lane:
+            persisted_lane = updated_lane
+            lane_updated = True
     elif desired <= 0:
-        persisted_lane = update_dynamic_lane(
+        updated_lane = update_dynamic_lane(
             lane_id,
             {
                 "desired_worker_count": desired,
                 "state": "offline" if accepted else "degraded",
             },
-        ) or lane
+        )
+        if updated_lane:
+            persisted_lane = updated_lane
+            lane_updated = True
+    if lane_updated:
+        clear_host_resource_snapshot_cache()
     return {
         "accepted": accepted,
         "lane_id": lane_id,

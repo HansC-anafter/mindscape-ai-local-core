@@ -163,6 +163,75 @@ async def test_worker_target_fallback_env_includes_lane_watchdog_settings(monkey
 
 
 @pytest.mark.asyncio
+async def test_worker_target_start_clears_snapshot_cache_after_lane_update(monkeypatch):
+    lane = {
+        "lane_id": "runner:vision_mlx_dev",
+        "queue_shard": "vision_mlx_dev",
+        "runner_profile": "vision_mlx_dev",
+        "resource_class": "compute",
+        "max_concurrency": 1,
+        "desired_worker_count": 0,
+        "resource_flavor": "local.mlx.vision",
+        "model_profile": {
+            "port": 8212,
+            "model": "mlx-community/Qwen3.5-9B-4bit",
+        },
+        "metadata": {},
+    }
+    update_calls = []
+    clear_calls = []
+
+    async def _resource_gate_allows_start():
+        return True, {"reason": "resource_gate_open"}
+
+    async def _call_host_resource_lane_workers_set(arguments):
+        return {"accepted": True, "reason": "worker_target_started"}
+
+    def _update_dynamic_lane(lane_id, payload):
+        update_calls.append((lane_id, payload))
+        return {**lane, **payload}
+
+    monkeypatch.setattr(worker_targets, "get_dynamic_lane", lambda lane_id: lane)
+    monkeypatch.setattr(
+        worker_targets,
+        "resolve_worker_target",
+        lambda resolved_lane, desired: {
+            "accepted": True,
+            "reason": "worker_target_resolved",
+            "worker_env": {"MLX_PORT": 8212},
+        },
+    )
+    monkeypatch.setattr(worker_targets, "_resource_gate_allows_start", _resource_gate_allows_start)
+    monkeypatch.setattr(
+        worker_targets,
+        "call_host_resource_lane_workers_set",
+        _call_host_resource_lane_workers_set,
+    )
+    monkeypatch.setattr(worker_targets, "update_dynamic_lane", _update_dynamic_lane)
+    monkeypatch.setattr(
+        worker_targets,
+        "clear_host_resource_snapshot_cache",
+        lambda: clear_calls.append(True),
+    )
+
+    result = await worker_targets.set_lane_worker_target("runner:vision_mlx_dev", 1)
+
+    assert result["accepted"] is True
+    assert result["lane"]["desired_worker_count"] == 1
+    assert result["lane"]["state"] == "starting"
+    assert update_calls == [
+        (
+            "runner:vision_mlx_dev",
+            {
+                "desired_worker_count": 1,
+                "state": "starting",
+            },
+        )
+    ]
+    assert clear_calls == [True]
+
+
+@pytest.mark.asyncio
 async def test_stop_worker_target_marks_degraded_when_host_stop_not_verified(monkeypatch):
     lane = {
         "lane_id": "runner:35b_synthesis",

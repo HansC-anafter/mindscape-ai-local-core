@@ -70,6 +70,7 @@ def test_restart_valid_service_runner(monkeypatch):
             "runner-default": {"sent": True, "service": "runner-default"},
             "runner-browser": {"sent": True, "service": "runner-browser"},
             "runner-vision": {"sent": True, "service": "runner-vision"},
+            "runner-vision-mlx-dev": {"sent": True, "service": "runner-vision-mlx-dev"},
         },
     )
     client, _system_control = _build_client(monkeypatch, webhook)
@@ -87,8 +88,9 @@ def test_restart_valid_service_runner(monkeypatch):
         "runner-default",
         "runner-browser",
         "runner-vision",
+        "runner-vision-mlx-dev",
     ]
-    assert len(webhook.calls) == 3
+    assert len(webhook.calls) == 4
     assert [call["service"] for call in webhook.calls] == data["targets"]
 
 
@@ -125,6 +127,11 @@ def test_restart_device_node_offline_fallback(monkeypatch):
                 "reason": "device_node_unreachable",
                 "service": "runner-vision",
             },
+            "runner-vision-mlx-dev": {
+                "sent": False,
+                "reason": "device_node_unreachable",
+                "service": "runner-vision-mlx-dev",
+            },
         },
     )
     client, system_control = _build_client(monkeypatch, webhook)
@@ -144,6 +151,7 @@ def test_restart_device_node_offline_fallback(monkeypatch):
         "runner-default",
         "runner-browser",
         "runner-vision",
+        "runner-vision-mlx-dev",
     ]
     assert sentinel_path.exists()
 

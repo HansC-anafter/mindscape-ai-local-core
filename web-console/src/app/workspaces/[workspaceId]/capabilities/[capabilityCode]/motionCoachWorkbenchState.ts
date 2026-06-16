@@ -5,6 +5,10 @@ import type { CaptureSourceReferenceLessonState } from '@/components/workspace/d
 import type { MotionPracticeLaunchInput, MotionPracticeLaunchResult } from '@/components/workspace/device-binding/motionPracticeLauncher';
 import type { MotionPracticeClosureResult } from '@/components/workspace/device-binding/motionPracticeClosure';
 import type { MotionWindowAppendEvent } from '@/components/workspace/device-binding/motionWindowAppendEvent';
+import {
+  buildInstructionRefsFromLessonHandoff,
+  type MotionPracticeLessonHandoff,
+} from '@/components/workspace/device-binding/practice/motionPracticeLessonHandoff';
 
 export type MotionCoachCapabilityCode = 'yogacoach' | 'dance_motion_coach';
 
@@ -12,6 +16,7 @@ export interface MotionCoachWorkbenchStateInput {
   capabilityCode: MotionCoachCapabilityCode;
   selectedSession: DeviceSessionEntry | null;
   referenceLessonState: CaptureSourceReferenceLessonState | null;
+  pendingLessonHandoff?: MotionPracticeLessonHandoff | null;
   launchInput: MotionPracticeLaunchInput | null;
   practiceResult: MotionPracticeLaunchResult | null;
   motionWindowEvents: MotionWindowAppendEvent[];
@@ -159,9 +164,9 @@ function mapCaptureStatus(session: DeviceSessionEntry | null): 'ready' | 'pairin
   return 'offline';
 }
 
-function extractCourseSegments(launchInput: MotionPracticeLaunchInput | null): TimelineSegment[] {
+function extractCourseSegments(instructionRefs: Record<string, unknown>[] | null | undefined): TimelineSegment[] {
   const segments: TimelineSegment[] = [];
-  for (const ref of launchInput?.instructionRefs || []) {
+  for (const ref of instructionRefs || []) {
     if (!isRecord(ref)) {
       continue;
     }
@@ -180,6 +185,24 @@ function extractCourseSegments(launchInput: MotionPracticeLaunchInput | null): T
     }
   }
   return segments.sort((left, right) => left.startMs - right.startMs);
+}
+
+function resolveInstructionRefs(input: MotionCoachWorkbenchStateInput): Record<string, unknown>[] {
+  if (input.launchInput?.instructionRefs?.length) {
+    return input.launchInput.instructionRefs.filter(isRecord);
+  }
+  return buildInstructionRefsFromLessonHandoff(input.pendingLessonHandoff);
+}
+
+function resolveLessonId(
+  launchInput: MotionPracticeLaunchInput | null,
+  referenceLessonState: CaptureSourceReferenceLessonState | null,
+  pendingLessonHandoff: MotionPracticeLessonHandoff | null | undefined,
+): string {
+  return launchInput?.expertLibraryRef?.trim()
+    || pendingLessonHandoff?.sourceValue?.trim()
+    || referenceLessonState?.lesson_id?.trim()
+    || 'lesson_pending';
 }
 
 function resolveSegmentForWindow(
@@ -201,7 +224,11 @@ function resolveLessonTitle(
   capabilityCode: MotionCoachCapabilityCode,
   referenceLessonState: CaptureSourceReferenceLessonState | null,
   segments: TimelineSegment[],
+  pendingLessonHandoff: MotionPracticeLessonHandoff | null | undefined,
 ): string {
+  if (pendingLessonHandoff?.sourceTitle?.trim()) {
+    return pendingLessonHandoff.sourceTitle.trim();
+  }
   if (referenceLessonState?.title?.trim()) {
     return referenceLessonState.title.trim();
   }
@@ -215,7 +242,34 @@ function resolveLessonTitle(
     : 'Yoga lesson pending';
 }
 
-function resolveLessonSourceLabel(launchInput: MotionPracticeLaunchInput | null): string {
+function resolveLessonSourceProvider(
+  launchInput: MotionPracticeLaunchInput | null,
+  pendingLessonHandoff: MotionPracticeLessonHandoff | null | undefined,
+): string {
+  const firstInstructionRef = launchInput?.instructionRefs?.find((item) => isRecord(item)) || null;
+  const provider = readString(firstInstructionRef?.source_provider)
+    || readString(firstInstructionRef?.provider)
+    || pendingLessonHandoff?.sourceProvider?.trim()
+    || '';
+  if (provider) {
+    return provider;
+  }
+  if (pendingLessonHandoff?.sourceKind === 'youtube_instruction_ref') {
+    return 'youtube';
+  }
+  if (pendingLessonHandoff?.sourceKind === 'local_video_smoke_ref') {
+    return 'local';
+  }
+  if (launchInput?.expertLibraryRef?.trim()) {
+    return 'manual';
+  }
+  return 'missing';
+}
+
+function resolveLessonSourceLabel(
+  launchInput: MotionPracticeLaunchInput | null,
+  pendingLessonHandoff: MotionPracticeLessonHandoff | null | undefined,
+): string {
   const teacherRef = launchInput?.expertLibraryRef?.trim();
   if (teacherRef) {
     return teacherRef;
@@ -228,7 +282,65 @@ function resolveLessonSourceLabel(launchInput: MotionPracticeLaunchInput | null)
       || readString(firstInstructionRef.ref_type)
       || 'Instruction ref';
   }
+  if (pendingLessonHandoff?.sourceProvider?.trim()) {
+    return pendingLessonHandoff.sourceProvider.trim();
+  }
+  if (pendingLessonHandoff?.sourceTitle?.trim()) {
+    return pendingLessonHandoff.sourceTitle.trim();
+  }
+  if (pendingLessonHandoff?.sourceValue?.trim()) {
+    return pendingLessonHandoff.sourceValue.trim();
+  }
   return 'Instruction source pending';
+}
+
+function buildYogaReferenceLessonImportRef(input: {
+  lessonId: string;
+  segments: TimelineSegment[];
+  sourceProvider: string;
+  hasSelectedLesson: boolean;
+}): Record<string, unknown> {
+  const importId = input.lessonId === 'lesson_pending'
+    ? 'reference-lesson-import-missing'
+    : `reference-lesson-import:${input.lessonId}`;
+  if (input.segments.length > 0) {
+    return {
+      id: importId,
+      status: 'ready',
+      artifact_ref: input.lessonId,
+      confidence: 0.84,
+      human_patch_required: false,
+      ready_chapter_count: input.segments.length,
+      contract_version: 'yogacoach.reference_lesson_import.v1',
+      artifact_schema_id: 'vcs_instruction_video_prepared_bundle.v1',
+      source_provider: input.sourceProvider,
+    };
+  }
+  if (input.hasSelectedLesson) {
+    return {
+      id: importId,
+      status: 'materializing',
+      artifact_ref: input.lessonId,
+      confidence: 0.32,
+      human_patch_required: true,
+      ready_chapter_count: 0,
+      blocked_reason: 'Reference lesson is selected, but bounded chapters are not attached yet.',
+      contract_version: 'yogacoach.reference_lesson_import.v1',
+      artifact_schema_id: 'vcs_instruction_video_prepared_bundle.v1',
+      source_provider: input.sourceProvider,
+    };
+  }
+  return {
+    id: importId,
+    status: 'missing',
+    confidence: 0,
+    human_patch_required: true,
+    ready_chapter_count: 0,
+    blocked_reason: 'Reference lesson import is not attached to this workbench state.',
+    contract_version: 'yogacoach.reference_lesson_import.v1',
+    artifact_schema_id: 'vcs_instruction_video_prepared_bundle.v1',
+    source_provider: 'missing',
+  };
 }
 
 function mapSeverity(value: unknown): 'green' | 'yellow' | 'red' | 'unknown' {
@@ -461,12 +573,34 @@ function buildLiveMotionSession(input: MotionCoachWorkbenchStateInput): Record<s
 export function buildYogaPracticeWorkbenchState(
   input: MotionCoachWorkbenchStateInput,
 ): Record<string, unknown> {
-  const segments = extractCourseSegments(input.launchInput);
-  const activeChapterId = readString(input.referenceLessonState?.chapter_ref)
+  const instructionRefs = resolveInstructionRefs(input);
+  const segments = extractCourseSegments(instructionRefs);
+  const handoffActiveChapterId = input.pendingLessonHandoff ? segments[0]?.id : '';
+  const activeChapterId = handoffActiveChapterId
+    || readString(input.referenceLessonState?.chapter_ref)
     || segments[0]?.id
     || 'live_chapter';
   const digests = buildYogaMotionDigests(input, segments, activeChapterId);
-  const lessonTitle = resolveLessonTitle('yogacoach', input.referenceLessonState, segments);
+  const lessonTitle = resolveLessonTitle(
+    'yogacoach',
+    input.referenceLessonState,
+    segments,
+    input.pendingLessonHandoff,
+  );
+  const lessonId = resolveLessonId(
+    input.launchInput,
+    input.referenceLessonState,
+    input.pendingLessonHandoff,
+  );
+  const sourceProvider = resolveLessonSourceProvider(
+    input.launchInput,
+    input.pendingLessonHandoff,
+  );
+  const sourceLabel = resolveLessonSourceLabel(
+    input.launchInput,
+    input.pendingLessonHandoff,
+  );
+  const hasSelectedLesson = lessonId !== 'lesson_pending';
   const chapters = segments.length
     ? segments.map((segment, index) => ({
         id: segment.id,
@@ -505,11 +639,17 @@ export function buildYogaPracticeWorkbenchState(
       motion_window_count: readNumber(input.closureResult?.rollup.summary?.window_count) || digests.length,
       digests,
     },
+    reference_lesson_import_ref: buildYogaReferenceLessonImportRef({
+      lessonId,
+      segments,
+      sourceProvider,
+      hasSelectedLesson,
+    }),
     reference_lesson_state: {
-      lesson_id: readString(input.launchInput?.expertLibraryRef) || 'lesson_pending',
+      lesson_id: lessonId,
       title: lessonTitle,
       teacherName: 'Reference Instructor',
-      sourceLabel: resolveLessonSourceLabel(input.launchInput),
+      sourceLabel,
       activeChapterId,
       chapters,
     },
@@ -521,12 +661,29 @@ export function buildYogaPracticeWorkbenchState(
 export function buildDancePracticeWorkbenchState(
   input: MotionCoachWorkbenchStateInput,
 ): Record<string, unknown> {
-  const segments = extractCourseSegments(input.launchInput);
-  const activePhraseId = readString(input.referenceLessonState?.chapter_ref)
+  const instructionRefs = resolveInstructionRefs(input);
+  const segments = extractCourseSegments(instructionRefs);
+  const handoffActivePhraseId = input.pendingLessonHandoff ? segments[0]?.id : '';
+  const activePhraseId = handoffActivePhraseId
+    || readString(input.referenceLessonState?.chapter_ref)
     || segments[0]?.id
     || 'live_phrase';
   const digests = buildDanceMotionDigests(input, segments, activePhraseId);
-  const lessonTitle = resolveLessonTitle('dance_motion_coach', input.referenceLessonState, segments);
+  const lessonTitle = resolveLessonTitle(
+    'dance_motion_coach',
+    input.referenceLessonState,
+    segments,
+    input.pendingLessonHandoff,
+  );
+  const lessonId = resolveLessonId(
+    input.launchInput,
+    input.referenceLessonState,
+    input.pendingLessonHandoff,
+  );
+  const sourceLabel = resolveLessonSourceLabel(
+    input.launchInput,
+    input.pendingLessonHandoff,
+  );
   const phrases = segments.length
     ? segments.map((segment, index) => ({
         id: segment.id,
@@ -566,10 +723,10 @@ export function buildDancePracticeWorkbenchState(
       digests,
     },
     reference_lesson_state: {
-      lesson_id: readString(input.launchInput?.expertLibraryRef) || 'lesson_pending',
+      lesson_id: lessonId,
       title: lessonTitle,
       instructorName: 'Reference Choreographer',
-      sourceLabel: resolveLessonSourceLabel(input.launchInput),
+      sourceLabel,
       activePhraseId,
       phrases,
     },

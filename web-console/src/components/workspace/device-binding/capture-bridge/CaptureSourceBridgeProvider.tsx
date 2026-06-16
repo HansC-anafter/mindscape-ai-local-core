@@ -70,7 +70,13 @@ function buildDeviceLink(
   pairing: DevicePairingCode | null,
   workspaceId: string,
   sourceMode: DeviceLinkSourceMode,
-  publicOrigin?: string,
+  {
+    publicOrigin,
+    fallbackToWindowOrigin = true,
+  }: {
+    publicOrigin?: string;
+    fallbackToWindowOrigin?: boolean;
+  } = {},
 ): string {
   if (!pairing) {
     return '';
@@ -79,12 +85,15 @@ function buildDeviceLink(
   if (typeof window === 'undefined') {
     return fallbackPath;
   }
-  const origin = publicOrigin?.trim() || window.location.origin;
+  const origin = publicOrigin?.trim() || (fallbackToWindowOrigin ? window.location.origin : '');
+  if (!origin) {
+    return '';
+  }
   let url: URL;
   try {
     url = new URL(pairing.device_link_path, origin);
   } catch {
-    return fallbackPath;
+    return fallbackToWindowOrigin ? fallbackPath : '';
   }
   url.searchParams.set('workspaceId', workspaceId);
   url.searchParams.set('sourceMode', sourceMode);
@@ -139,13 +148,17 @@ export function CaptureSourceBridgeProvider({
   const phoneOrigin = useMemo(() => resolveDeviceLinkPublicOrigin({
     overrideOrigin: phonePublicOrigin,
     fallbackOrigin: fallbackBrowserOrigin,
+    allowFallbackLoopbackOnly: true,
   }), [fallbackBrowserOrigin, phonePublicOrigin]);
   const phoneReadiness = useMemo(
     () => assessDeviceLinkOriginReadiness(phoneOrigin),
     [phoneOrigin],
   );
   const phoneDeviceLink = useMemo(() => (
-    buildDeviceLink(pairing, workspaceId, 'phone', phoneOrigin)
+    buildDeviceLink(pairing, workspaceId, 'phone', {
+      publicOrigin: phoneOrigin,
+      fallbackToWindowOrigin: false,
+    })
   ), [pairing, phoneOrigin, workspaceId]);
   const phoneQrCode = useMemo(() => {
     if (!phoneReadiness.qrReady || !phoneDeviceLink) {

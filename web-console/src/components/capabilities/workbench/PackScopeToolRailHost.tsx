@@ -3,6 +3,7 @@
 import React from 'react';
 import {
   Activity,
+  Camera,
   Box,
   ChevronDown,
   ChevronRight,
@@ -11,6 +12,7 @@ import {
   PanelLeftOpen,
   PanelRight,
   Pin,
+  Radio,
   Route,
   Settings,
   SlidersHorizontal,
@@ -36,6 +38,10 @@ import {
   getPackScopeToolRailClassName,
   type CapabilityWorkbenchPlacement,
 } from './CapabilityWorkbenchResponsiveFrame';
+import {
+  PACK_SCOPE_TOOL_OPEN_EVENT,
+  type PackScopeToolOpenDetail,
+} from './packScopeToolEvents';
 
 interface PackScopeToolRailHostProps {
   workspaceId: string;
@@ -43,6 +49,7 @@ interface PackScopeToolRailHostProps {
   apiUrl: string;
   tools: WorkspaceToolDefinition[];
   placement?: CapabilityWorkbenchPlacement;
+  navigationEnabled?: boolean;
   navigationCollapsed: boolean;
   aolHost?: AddressableObjectHostBridge;
   onNavigationCollapsedChange: (collapsed: boolean) => void;
@@ -51,10 +58,12 @@ interface PackScopeToolRailHostProps {
 
 const ICONS: Record<string, LucideIcon> = {
   Activity,
+  Camera,
   Box,
   Panel: PanelRight,
   PanelRight,
   Pin,
+  Radio,
   Route,
   Settings,
   SlidersHorizontal,
@@ -121,6 +130,7 @@ export function PackScopeToolRailHost({
   apiUrl,
   tools,
   placement = 'desktop',
+  navigationEnabled = true,
   navigationCollapsed,
   aolHost,
   onNavigationCollapsedChange,
@@ -244,6 +254,31 @@ export function PackScopeToolRailHost({
     return () => disposers.forEach((dispose) => dispose());
   }, [activateTool, capabilityCode, orderedTools, registerCommand, workspaceId]);
 
+  React.useEffect(() => {
+    if (typeof window === 'undefined') {
+      return undefined;
+    }
+    const handleOpenRequest = (event: Event) => {
+      const detail = (event as CustomEvent<PackScopeToolOpenDetail>).detail;
+      if (!detail) {
+        return;
+      }
+      if (detail.capabilityCode && detail.capabilityCode !== capabilityCode) {
+        return;
+      }
+      const requestedTool = detail.toolKey
+        ? orderedTools.find((tool) => tool.tool_key === detail.toolKey)
+        : orderedTools.find((tool) => tool.id === detail.toolId);
+      if (!requestedTool) {
+        return;
+      }
+      setPanelExpanded(false);
+      setActiveToolKey(requestedTool.tool_key);
+    };
+    window.addEventListener(PACK_SCOPE_TOOL_OPEN_EVENT, handleOpenRequest);
+    return () => window.removeEventListener(PACK_SCOPE_TOOL_OPEN_EVENT, handleOpenRequest);
+  }, [capabilityCode, orderedTools]);
+
   const handleDrop = React.useCallback((targetToolKey: string) => {
     if (!draggedToolKey || draggedToolKey === targetToolKey) {
       setDraggedToolKey(null);
@@ -265,23 +300,25 @@ export function PackScopeToolRailHost({
         data-testid="pack-scope-tool-rail"
         data-workbench-placement={placement}
       >
-        <div className="flex h-8 shrink-0 items-center justify-center border-b border-gray-200 dark:border-zinc-800">
-          <button
-            type="button"
-            aria-label={navigationCollapsed ? 'Expand navigation' : 'Collapse navigation'}
-            title={navigationCollapsed ? 'Expand navigation' : 'Collapse navigation'}
-            data-testid="pack-scope-navigation-toggle"
-            onClick={() => onNavigationCollapsedChange(!navigationCollapsed)}
-            onMouseEnter={placement === 'desktop' ? onNavigationToggleHover : undefined}
-            className="inline-flex h-7 w-7 items-center justify-center rounded-sm border border-transparent text-zinc-500 transition hover:border-zinc-300 hover:bg-white hover:text-zinc-950 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:text-zinc-400 dark:hover:border-zinc-700 dark:hover:bg-zinc-900 dark:hover:text-white"
-          >
-            {navigationCollapsed ? (
-              <PanelLeftOpen aria-hidden className="h-3.5 w-3.5" />
-            ) : (
-              <PanelLeftClose aria-hidden className="h-3.5 w-3.5" />
-            )}
-          </button>
-        </div>
+        {navigationEnabled ? (
+          <div className="flex h-8 shrink-0 items-center justify-center border-b border-gray-200 dark:border-zinc-800">
+            <button
+              type="button"
+              aria-label={navigationCollapsed ? 'Expand navigation' : 'Collapse navigation'}
+              title={navigationCollapsed ? 'Expand navigation' : 'Collapse navigation'}
+              data-testid="pack-scope-navigation-toggle"
+              onClick={() => onNavigationCollapsedChange(!navigationCollapsed)}
+              onMouseEnter={placement === 'desktop' ? onNavigationToggleHover : undefined}
+              className="inline-flex h-7 w-7 items-center justify-center rounded-sm border border-transparent text-zinc-500 transition hover:border-zinc-300 hover:bg-white hover:text-zinc-950 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:text-zinc-400 dark:hover:border-zinc-700 dark:hover:bg-zinc-900 dark:hover:text-white"
+            >
+              {navigationCollapsed ? (
+                <PanelLeftOpen aria-hidden className="h-3.5 w-3.5" />
+              ) : (
+                <PanelLeftClose aria-hidden className="h-3.5 w-3.5" />
+              )}
+            </button>
+          </div>
+        ) : null}
         <div className={getPackScopeToolListClassName(placement)}>
           <div className={getPackScopeToolListInnerClassName(placement)}>
             {orderedTools.map((tool) => {

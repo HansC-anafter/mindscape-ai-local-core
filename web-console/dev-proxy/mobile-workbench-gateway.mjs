@@ -46,6 +46,46 @@ const JWT_VERIFY_ALGORITHMS = {
   PS384: 'RSA-SHA384',
   PS512: 'RSA-SHA512',
 };
+const GATEWAY_CONTROL_CAPABILITY_CODE = 'mindscape_cloud_integration';
+const GATEWAY_CONTROL_COMPONENT_CODE = 'MindscapeMobileWorkbenchGatewayPage';
+const READ_ONLY_GATEWAY_METHODS = ['GET', 'HEAD', 'OPTIONS'];
+const CONTROL_PLANE_ALLOWED_PATH_RULES = [
+  {
+    type: 'regex',
+    value: /^\/workspaces\/[^/]+\/capability-ui-hosts\/mindscape_cloud_integration(?:\/.*)?$/,
+    methods: READ_ONLY_GATEWAY_METHODS,
+  },
+  {
+    type: 'regex',
+    value: /^\/api\/v1\/capability-packs\/installed-capabilities\/mindscape_cloud_integration(?:\/(?:ui-components|workspace-tools))?$/,
+    methods: READ_ONLY_GATEWAY_METHODS,
+  },
+  {
+    type: 'regex',
+    value: /^\/api\/v1\/capability-packs\/installed-capabilities\/mindscape_cloud_integration\/ui-assets\/.+$/,
+    methods: READ_ONLY_GATEWAY_METHODS,
+  },
+  {
+    type: 'regex',
+    value: /^\/api\/v1\/capabilities\/mindscape_cloud_integration\/mobile-workbench-gateway\/workspaces\/[^/]+\/policy$/,
+    methods: ['GET', 'HEAD', 'OPTIONS', 'PUT'],
+  },
+  {
+    type: 'regex',
+    value: /^\/api\/v1\/host\/services\/mobile-workbench-gateway\/health$/,
+    methods: READ_ONLY_GATEWAY_METHODS,
+  },
+  {
+    type: 'regex',
+    value: /^\/api\/v1\/host\/services\/mobile-workbench-gateway\/summary$/,
+    methods: READ_ONLY_GATEWAY_METHODS,
+  },
+  {
+    type: 'regex',
+    value: /^\/api\/v1\/host\/services\/mobile-workbench-gateway\/audit$/,
+    methods: READ_ONLY_GATEWAY_METHODS,
+  },
+];
 
 function toLowerTrimmed(value = '') {
   return String(value || '').trim().toLowerCase();
@@ -329,16 +369,49 @@ function decodeURIComponentSafe(value = '') {
   }
 }
 
+function isGatewayControlCapabilityCode(value = '') {
+  return toLowerTrimmed(value) === GATEWAY_CONTROL_CAPABILITY_CODE;
+}
+
+function isGatewayControlComponentCode(value = '') {
+  return String(value || '').trim() === GATEWAY_CONTROL_COMPONENT_CODE;
+}
+
+function isGatewayControlPolicyPath(pathname = '') {
+  return /^\/api\/v1\/capabilities\/mindscape_cloud_integration\/mobile-workbench-gateway\/workspaces\/[^/]+\/policy$/.test(pathname);
+}
+
+function isGatewayControlObservabilityPath(pathname = '') {
+  return /^\/api\/v1\/host\/services\/mobile-workbench-gateway\/(?:health|summary|audit)$/.test(pathname);
+}
+
 function extractRequestContextFromUrl(requestUrl = '/') {
   let pathname = '/';
   let workspaceId = null;
   let capabilityCode = null;
   let capabilityFromFallback = false;
+  let routeCapabilityCode = null;
+  let targetCapabilityCode = null;
+  let componentCode = null;
+  let gatewayControlPlaneCarrier = false;
+  let gatewayControlPlaneTargeted = false;
 
   try {
     const parsed = new URL(requestUrl, 'http://localhost');
     pathname = parsed.pathname || '/';
-    workspaceId = parsed.searchParams.get('workspace_id') || null;
+    workspaceId =
+      parsed.searchParams.get('workspace_id') ||
+      parsed.searchParams.get('workspaceId') ||
+      null;
+    capabilityCode =
+      parsed.searchParams.get('capability_code') ||
+      parsed.searchParams.get('capabilityCode') ||
+      null;
+    targetCapabilityCode =
+      parsed.searchParams.get('target_capability') ||
+      parsed.searchParams.get('targetCapability') ||
+      null;
+    componentCode = parsed.searchParams.get('component') || null;
   } catch {
     pathname = '/';
   }
@@ -346,29 +419,34 @@ function extractRequestContextFromUrl(requestUrl = '/') {
   const workspaceMatch = /^\/workspaces\/([^/]+)\/capability-ui-hosts\/([^/]+)(?:\/.*)?$/.exec(pathname);
   if (workspaceMatch) {
     workspaceId = normalizeClaimValue(decodeURIComponentSafe(workspaceMatch[1]));
-    capabilityCode = normalizeClaimValue(decodeURIComponentSafe(workspaceMatch[2]));
+    routeCapabilityCode = normalizeClaimValue(decodeURIComponentSafe(workspaceMatch[2]));
+    capabilityCode = routeCapabilityCode;
   }
 
   const igApiMatch = /^\/api\/v1\/ig(?:\/.*)?$/.exec(pathname);
   if (igApiMatch) {
+    routeCapabilityCode = 'ig';
     capabilityCode = 'ig';
   }
 
   const capabilityApiMatch = /^\/api\/v1\/capabilities\/([^/]+)(?:\/.*)?$/.exec(pathname);
   if (capabilityApiMatch) {
-    capabilityCode = normalizeClaimValue(decodeURIComponentSafe(capabilityApiMatch[1]));
+    routeCapabilityCode = normalizeClaimValue(decodeURIComponentSafe(capabilityApiMatch[1]));
+    capabilityCode = routeCapabilityCode;
   }
 
   const installedCapabilityMatch =
     /^\/api\/v1\/capability-packs\/installed-capabilities(?:\/([^/]+))?(?:\/.*)?$/.exec(pathname);
   if (installedCapabilityMatch) {
-    capabilityCode = normalizeClaimValue(decodeURIComponentSafe(installedCapabilityMatch[1])) || 'ig';
+    routeCapabilityCode = normalizeClaimValue(decodeURIComponentSafe(installedCapabilityMatch[1])) || null;
+    capabilityCode = routeCapabilityCode || 'ig';
     capabilityFromFallback = !installedCapabilityMatch[1];
   }
 
   const capabilityAssetsMatch = /^\/api\/v1\/capability-packs\/([^/]+)\/ui-assets\//.exec(pathname);
   if (capabilityAssetsMatch) {
-    capabilityCode = normalizeClaimValue(decodeURIComponentSafe(capabilityAssetsMatch[1]));
+    routeCapabilityCode = normalizeClaimValue(decodeURIComponentSafe(capabilityAssetsMatch[1]));
+    capabilityCode = routeCapabilityCode;
   }
 
   const workspaceExecutionsMatch = /^\/api\/v1\/workspaces\/([^/]+)\/executions(?:\/.*)?$/.exec(pathname);
@@ -411,11 +489,40 @@ function extractRequestContextFromUrl(requestUrl = '/') {
     capabilityFromFallback = capabilityCode === 'ig';
   }
 
+  gatewayControlPlaneCarrier =
+    (
+      isGatewayControlCapabilityCode(routeCapabilityCode)
+      && isGatewayControlComponentCode(componentCode)
+    )
+    || (
+      isGatewayControlCapabilityCode(routeCapabilityCode)
+      && /^\/api\/v1\/capability-packs\/installed-capabilities\/mindscape_cloud_integration\/ui-assets\/.+$/.test(pathname)
+    )
+    || isGatewayControlPolicyPath(pathname)
+    || isGatewayControlObservabilityPath(pathname);
+
+  if (
+    isGatewayControlCapabilityCode(routeCapabilityCode)
+    && isGatewayControlComponentCode(componentCode)
+    && targetCapabilityCode
+  ) {
+    capabilityCode = normalizeClaimValue(targetCapabilityCode);
+    gatewayControlPlaneTargeted = true;
+  } else if (isGatewayControlObservabilityPath(pathname) && capabilityCode) {
+    gatewayControlPlaneTargeted = true;
+    targetCapabilityCode = normalizeClaimValue(capabilityCode);
+  }
+
   return {
     path: pathname,
     workspaceId: workspaceId || null,
     capabilityCode: capabilityCode || null,
     capabilityFromFallback,
+    routeCapabilityCode: routeCapabilityCode || null,
+    targetCapabilityCode: normalizeClaimValue(targetCapabilityCode) || null,
+    componentCode: normalizeClaimValue(componentCode) || null,
+    gatewayControlPlaneCarrier,
+    gatewayControlPlaneTargeted,
   };
 }
 
@@ -427,23 +534,52 @@ function resolveRefererHeader(requestHeaders = {}) {
 function extractRequestContext(requestUrl = '/', requestHeaders = {}) {
   const primaryContext = extractRequestContextFromUrl(requestUrl);
   const referer = resolveRefererHeader(requestHeaders);
-  const canUseRefererCapability = !primaryContext.capabilityCode || primaryContext.capabilityFromFallback;
+  const canUseRefererCapability = Boolean(
+    !primaryContext.capabilityCode
+    || primaryContext.capabilityFromFallback
+    || primaryContext.gatewayControlPlaneCarrier
+  );
   if (!referer || (primaryContext.workspaceId && primaryContext.capabilityCode && !canUseRefererCapability)) {
     return primaryContext;
   }
   const refererContext = extractRequestContextFromUrl(referer);
+  const inheritGatewayTargetCapability = Boolean(
+    primaryContext.gatewayControlPlaneCarrier
+    && refererContext.gatewayControlPlaneTargeted
+    && refererContext.capabilityCode
+  );
   return {
     path: primaryContext.path,
     workspaceId: primaryContext.workspaceId || refererContext.workspaceId || null,
-    capabilityCode: canUseRefererCapability
+    capabilityCode: inheritGatewayTargetCapability
       ? (refererContext.capabilityCode || primaryContext.capabilityCode || null)
-      : (primaryContext.capabilityCode || refererContext.capabilityCode || null),
+      : (
+          canUseRefererCapability
+            ? (refererContext.capabilityCode || primaryContext.capabilityCode || null)
+            : (primaryContext.capabilityCode || refererContext.capabilityCode || null)
+        ),
+    routeCapabilityCode: primaryContext.routeCapabilityCode || refererContext.routeCapabilityCode || null,
+    targetCapabilityCode: primaryContext.targetCapabilityCode
+      || (inheritGatewayTargetCapability ? refererContext.targetCapabilityCode : null)
+      || null,
+    componentCode: primaryContext.componentCode || refererContext.componentCode || null,
+    gatewayControlPlaneCarrier: Boolean(
+      primaryContext.gatewayControlPlaneCarrier
+      || (inheritGatewayTargetCapability && refererContext.gatewayControlPlaneCarrier)
+    ),
+    gatewayControlPlaneTargeted: Boolean(
+      primaryContext.gatewayControlPlaneTargeted || inheritGatewayTargetCapability
+    ),
     referer_path: refererContext.path || null,
   };
 }
 
 export function extractMobileWorkbenchGatewayRequestContext(requestUrl = '/', requestHeaders = {}) {
   return extractRequestContext(requestUrl, requestHeaders);
+}
+
+function isMobileWorkbenchGatewayControlPlanePathAllowed(pathname = '/', requestMethod = 'GET') {
+  return CONTROL_PLANE_ALLOWED_PATH_RULES.some((rule) => matchesRule(pathname, rule, requestMethod));
 }
 
 function verifyJwtSignature(tokenHeader, tokenSignature, tokenSigningInput, publicKey, verifyEnabled) {
@@ -788,7 +924,12 @@ export async function isMobileWorkbenchGatewayRequestAllowedAsync(
     ? dynamicPolicy.allowedPathRules.some((rule) =>
         matchesRule(context.path, rule, requestMethod))
     : false;
-  if (!basePathAllowed && !dynamicPathAllowed) {
+  const controlPlanePathAllowed = Boolean(
+    dynamicPolicy?.capabilityAllowed
+    && context.gatewayControlPlaneTargeted
+    && isMobileWorkbenchGatewayControlPlanePathAllowed(context.path, requestMethod)
+  );
+  if (!basePathAllowed && !dynamicPathAllowed && !controlPlanePathAllowed) {
     return denyRequest('mobile_workbench_gateway_path_not_allowed', 404, requestUrl, {
       context,
       policy_error: dynamicPolicyError || undefined,

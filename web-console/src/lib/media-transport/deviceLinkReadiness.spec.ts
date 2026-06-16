@@ -39,4 +39,18 @@ describe('deviceLinkReadiness', () => {
       fallbackOrigin: 'http://localhost:8300',
     })).toBe('https://192.168.1.20:8343');
   });
+
+  it('refuses to reuse a remote workbench origin as the phone capture origin', () => {
+    expect(resolveDeviceLinkPublicOrigin({
+      overrideOrigin: '',
+      fallbackOrigin: 'https://remote-workbench.mindscapeai.app',
+      allowFallbackLoopbackOnly: true,
+    })).toBe('');
+
+    expect(resolveDeviceLinkPublicOrigin({
+      overrideOrigin: '',
+      fallbackOrigin: 'http://localhost:8300',
+      allowFallbackLoopbackOnly: true,
+    })).toBe('http://localhost:8300');
+  });
 });

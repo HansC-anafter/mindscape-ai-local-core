@@ -43,6 +43,14 @@ def pressure_stale_seconds() -> int:
     return max(1, _env_int("LOCAL_CORE_DB_PRESSURE_STALE_SECONDS", 10))
 
 
+def pressure_stale_grace_seconds() -> int:
+    return max(1, _env_int("LOCAL_CORE_DB_PRESSURE_STALE_GRACE_SECONDS", 5))
+
+
+def pressure_cache_ttl_seconds() -> int:
+    return pressure_stale_seconds() + pressure_stale_grace_seconds()
+
+
 def pressure_wait_seconds() -> int:
     return max(1, _env_int("LOCAL_CORE_DB_PRESSURE_WAIT_SECONDS", 2))
 
@@ -192,7 +200,11 @@ def sample_pgbouncer_pressure() -> DbPoolPressureDecision:
             conn.close()
 
 
-def _decode_cached_decision(raw_value: Any) -> DbPoolPressureDecision | None:
+def _decode_cached_decision(
+    raw_value: Any,
+    *,
+    max_age_seconds: int | None = None,
+) -> DbPoolPressureDecision | None:
     if raw_value is None:
         return None
     if isinstance(raw_value, bytes):
@@ -200,7 +212,8 @@ def _decode_cached_decision(raw_value: Any) -> DbPoolPressureDecision | None:
     try:
         payload = json.loads(str(raw_value))
         checked_at = float(payload.get("checked_at_epoch") or 0.0)
-        if time.time() - checked_at > pressure_stale_seconds():
+        max_age = pressure_stale_seconds() if max_age_seconds is None else max_age_seconds
+        if time.time() - checked_at > max_age:
             return None
         return DbPoolPressureDecision(
             state=str(payload.get("state") or "paused"),
@@ -211,6 +224,23 @@ def _decode_cached_decision(raw_value: Any) -> DbPoolPressureDecision | None:
         )
     except Exception:
         return None
+
+
+def _refresh_in_progress_decision(
+    decision: DbPoolPressureDecision,
+) -> DbPoolPressureDecision:
+    reason = f"{decision.reason}_refresh_in_progress"
+    if decision.paused:
+        return DbPoolPressureDecision.paused_for(
+            reason,
+            checked_at_epoch=decision.checked_at_epoch,
+            pools=decision.pools,
+        )
+    return DbPoolPressureDecision.open(
+        reason=reason,
+        checked_at_epoch=decision.checked_at_epoch,
+        pools=decision.pools,
+    )
 
 
 async def check_db_pool_pressure(
@@ -231,7 +261,8 @@ async def check_db_pool_pressure(
     if not client:
         return DbPoolPressureDecision.paused_for("pgbouncer_pressure_cache_unavailable")
 
-    cached = _decode_cached_decision(await client.get(PRESSURE_CACHE_KEY))
+    raw_cached = await client.get(PRESSURE_CACHE_KEY)
+    cached = _decode_cached_decision(raw_cached)
     if cached is not None:
         return cached
 
@@ -243,12 +274,18 @@ async def check_db_pool_pressure(
         ex=pressure_sample_interval_seconds(),
     )
     if not lock_acquired:
+        stale_cached = _decode_cached_decision(
+            raw_cached,
+            max_age_seconds=pressure_cache_ttl_seconds(),
+        )
+        if stale_cached is not None:
+            return _refresh_in_progress_decision(stale_cached)
         return DbPoolPressureDecision.paused_for("pgbouncer_pressure_cache_miss")
 
     decision = await asyncio.to_thread(sampler)
     await client.setex(
         PRESSURE_CACHE_KEY,
-        pressure_stale_seconds(),
+        pressure_cache_ttl_seconds(),
         decision.to_cache_payload(),
     )
     return decision

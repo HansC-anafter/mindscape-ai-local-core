@@ -25,6 +25,7 @@ RUNNER_POOL_SERVICES = (
     "runner-default",
     "runner-browser",
     "runner-vision",
+    "runner-vision-mlx-dev",
 )
 ALLOWED_SERVICES = {"backend", "runner", "all", *RUNNER_POOL_SERVICES}
 _LOCALHOST_ADDRS = {"127.0.0.1", "localhost", "::1", "unknown"}
@@ -75,6 +76,7 @@ async def restart_service(request: Request, body: RestartRequest = RestartReques
     - runner-default
     - runner-browser
     - runner-vision
+    - runner-vision-mlx-dev
     - all (backend + all runner pools)
     """
     try:
