@@ -23,6 +23,10 @@ from app.models.workspace import (
     PrimaryActionType,
     TaskStatus,
 )
+from app.services.artifact_lifecycle.summary_sidecar import (
+    build_summary_markdown,
+    should_write_eager_summary,
+)
 from app.services.stores.tasks_store import TasksStore
 from app.services.stores.postgres.artifact_manifest_store import ArtifactManifestStore
 from app.services.stores.postgres.artifacts_store import PostgresArtifactsStore
@@ -216,6 +220,7 @@ class TaskResultLandingService:
         result_json_path_str = ""
         summary_md_path_str = ""
         written_attachments: List[str] = []
+        landed_at = _utc_now()
 
         if storage_base_path:
             storage_base = pathlib.Path(storage_base_path).expanduser().resolve()
@@ -228,23 +233,20 @@ class TaskResultLandingService:
             with result_json_path.open("w", encoding="utf-8") as f:
                 json.dump(result_json, f, ensure_ascii=False, indent=2, default=str)
 
-            # Write summary.md
             summary_md_path = artifact_dir / "summary.md"
-            md_lines = [
-                f"# Execution {execution_id}",
-                "",
-                f"- Landed at: {_utc_now().isoformat()}",
-                f"- workspace_id: {workspace_id}",
-                f"- task_id: {task_id or '(none)'}",
-                f"- thread_id: {thread_id or '(none)'}",
-                f"- project_id: {project_id or '(none)'}",
-                "",
-                "## Summary",
-                "",
-                summary or "(no summary)",
-                "",
-            ]
-            summary_md_path.write_text("\n".join(md_lines), encoding="utf-8")
+            if should_write_eager_summary():
+                summary_md_path.write_text(
+                    build_summary_markdown(
+                        execution_id=execution_id,
+                        workspace_id=workspace_id,
+                        task_id=task_id,
+                        thread_id=thread_id,
+                        project_id=project_id,
+                        summary=summary,
+                        landed_at=landed_at,
+                    ),
+                    encoding="utf-8",
+                )
 
             # Write attachments
             for att in attachments_input:
@@ -306,7 +308,6 @@ class TaskResultLandingService:
 
         # --- DB: Create Artifact record (idempotent by execution_id) ---
         artifact_id = None
-        landed_at = _utc_now()
         landing_metadata = self._build_landing_metadata(
             artifact_dir=artifact_dir_str,
             result_json_path=result_json_path_str,

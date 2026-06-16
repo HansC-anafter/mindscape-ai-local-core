@@ -1,6 +1,8 @@
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from app.services.artifact_lifecycle.summary_sidecar import resolve_landing_metadata
+
 from .schemas import (
     ArtifactLandingDrilldownSummary,
     EvidenceCoverageSummary,
@@ -61,12 +63,13 @@ def _path_exists(path_value: Any) -> bool:
 def _build_artifact_landing_drilldown(
     metadata: Dict[str, Any],
 ) -> Optional[ArtifactLandingDrilldownSummary]:
-    artifact_dir = metadata.get("landing_artifact_dir")
-    result_json_path = metadata.get("landing_result_json_path")
-    summary_md_path = metadata.get("landing_summary_md_path")
-    attachments_count = metadata.get("landing_attachments_count")
-    attachments = metadata.get("landing_attachments")
-    landed_at = metadata.get("landing_landed_at")
+    landing = resolve_landing_metadata(metadata)
+    artifact_dir = landing.get("artifact_dir")
+    result_json_path = landing.get("result_json_path")
+    summary_md_path = landing.get("summary_md_path")
+    attachments_count = landing.get("attachments_count")
+    attachments = landing.get("attachments")
+    landed_at = landing.get("landed_at")
     if not any(
         [
             artifact_dir,
