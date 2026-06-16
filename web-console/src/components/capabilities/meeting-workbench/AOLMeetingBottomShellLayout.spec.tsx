@@ -147,6 +147,32 @@ describe('AOLMeetingBottomShell layout and runtime graph', () => {
     expect(screen.queryByTestId('meeting-inspector-panel')).toBeNull();
   });
 
+  it('defaults compact capability host routes into RUNS and keeps the mode switch available', async () => {
+    stubCompactViewport();
+
+    render(
+      <AOLMeetingBottomShell
+        workspaceId="ws-global"
+        apiUrl="http://api.test"
+        meetingId="mtg_global"
+        summary={summary}
+        selection={null}
+        attachResponse={attachResponse}
+        surfaceRoute="/workspaces/ws-global/capability-ui-hosts/ig?component=IGWorkbenchPage"
+        onSwitchObject={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId('meeting-graph-view-mode-compact')).toBeInTheDocument();
+    expect(await screen.findByTestId('meeting-runs-workspace-surface')).toBeInTheDocument();
+    expect(screen.getByTestId('meeting-graph-view-runs')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.queryByTestId('meeting-task-canvas')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('meeting-graph-view-work'));
+    expect(await screen.findByTestId('meeting-task-canvas')).toBeInTheDocument();
+    expect(screen.getByTestId('meeting-graph-view-work')).toHaveAttribute('aria-pressed', 'true');
+  });
+
   it('renders meeting-owned execution graph nodes from task closure proof', async () => {
     render(
       <AOLMeetingBottomShell

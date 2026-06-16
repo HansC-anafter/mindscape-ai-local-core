@@ -8,6 +8,7 @@ import {
   MIN_CANVAS_ZOOM,
   MIN_DISCRETE_WHEEL_ZOOM_DELTA,
 } from './meetingWorkbenchConstants';
+import { MeetingGraphViewModeSwitch } from './MeetingGraphViewModeSwitch';
 import type { CompositionGraphCommandEnvelopeDraft } from '@/lib/composition-graph';
 import type { AddressableObjectRef } from '@/lib/addressable-object-layer';
 import { DirectorGraphCanvas } from './director-graph/DirectorGraphCanvas';
@@ -69,6 +70,7 @@ export function MeetingHeaderToolbar({
   inspectorPanelActive = false,
   onToggleInspectorPanel,
   onGraphViewModeChange,
+  compactViewport = false,
   t,
 }: {
   activePanel: MeetingInfoPanel | null;
@@ -94,180 +96,183 @@ export function MeetingHeaderToolbar({
   inspectorPanelActive?: boolean;
   onToggleInspectorPanel?: () => void;
   onGraphViewModeChange: (mode: GraphViewMode) => void;
+  compactViewport?: boolean;
   t: MeetingTranslate;
 }) {
-  return (
-    <header
-      className="flex h-11 shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-white px-3 dark:border-slate-800 dark:bg-slate-950"
-      data-testid="meeting-header-toolbar"
+  const controls = (
+    <div className="flex min-w-0 items-center gap-2 overflow-x-auto pb-0.5">
+      <button
+        type="button"
+        onClick={() => onTogglePanel('object')}
+        className={`inline-flex h-8 max-w-[220px] items-center gap-2 rounded-md border px-2.5 text-xs font-semibold transition-colors ${
+          activePanel === 'object'
+            ? 'border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-700 dark:bg-blue-950/40 dark:text-blue-300'
+            : 'border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800'
+        }`}
+        data-testid="meeting-object-context-toggle"
+        aria-expanded={activePanel === 'object'}
+        aria-controls="meeting-object-context-panel"
+      >
+        <Box className="h-4 w-4 shrink-0" aria-hidden="true" />
+        <span className="truncate">{t('meetingWorkbenchObject')}</span>
+        <span className="hidden max-w-[110px] truncate text-[11px] font-medium opacity-70 md:inline">
+          {hasObjectContext ? objectTitle : t('meetingWorkbenchBrowser')}
+        </span>
+      </button>
+      <button
+        type="button"
+        onClick={() => onTogglePanel('sessions')}
+        className={`inline-flex h-8 items-center gap-2 rounded-md border px-2.5 text-xs font-semibold transition-colors ${
+          activePanel === 'sessions'
+            ? 'border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-700 dark:bg-blue-950/40 dark:text-blue-300'
+            : 'border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800'
+        }`}
+        data-testid="meeting-sessions-toggle"
+        aria-expanded={activePanel === 'sessions'}
+        aria-controls="meeting-sessions-popover"
+      >
+        <FileText className="h-4 w-4 shrink-0" aria-hidden="true" />
+        <span>{t('meetingWorkbenchSessions')}</span>
+        <span className="rounded bg-white px-1.5 py-0.5 text-[10px] tabular-nums text-slate-500 dark:bg-slate-950 dark:text-slate-400">
+          {sessionsLoading ? '...' : sessionsCount}
+        </span>
+      </button>
+      <button
+        type="button"
+        onClick={onStartBlankMeetingSession}
+        disabled={startingBlankMeetingSession}
+        className="inline-flex h-8 shrink-0 items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-2.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900 disabled:cursor-wait disabled:opacity-60 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+        data-testid="meeting-new-session-button"
+        aria-label={t('meetingWorkbenchNewSession')}
+        title={t('meetingWorkbenchNewSession')}
+      >
+        <PlusCircle className="h-4 w-4" aria-hidden="true" />
+        <span className="hidden sm:inline">{t('meetingWorkbenchNewSession')}</span>
+      </button>
+      {showInspectorToggle ? (
+        <button
+          type="button"
+          onClick={onToggleInspectorPanel}
+          className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border transition-colors ${
+            inspectorPanelActive
+              ? 'border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-700 dark:bg-blue-950/40 dark:text-blue-300'
+              : 'border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800'
+          }`}
+          data-testid="meeting-inspector-toggle"
+          aria-label={t('meetingWorkbenchInspectorLabel')}
+          aria-expanded={inspectorPanelActive}
+          aria-controls="meeting-inspector-panel"
+          title={t('meetingWorkbenchInspectorLabel')}
+        >
+          <SlidersHorizontal className="h-4 w-4" aria-hidden="true" />
+        </button>
+      ) : null}
+      {!compactViewport ? (
+        <MeetingGraphViewModeSwitch
+          graphViewMode={graphViewMode}
+          onGraphViewModeChange={onGraphViewModeChange}
+          t={t}
+        />
+      ) : null}
+    </div>
+  );
+
+  const contextBar = (
+    <div
+      className="hidden min-w-0 items-center gap-2 text-xs text-slate-500 dark:text-slate-400 sm:flex"
+      data-testid="meeting-work-context-bar"
     >
-      <div className="flex min-w-0 items-center gap-2">
-        <button
-          type="button"
-          onClick={() => onTogglePanel('object')}
-          className={`inline-flex h-8 max-w-[220px] items-center gap-2 rounded-md border px-2.5 text-xs font-semibold transition-colors ${
-            activePanel === 'object'
-              ? 'border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-700 dark:bg-blue-950/40 dark:text-blue-300'
-              : 'border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800'
-          }`}
-          data-testid="meeting-object-context-toggle"
-          aria-expanded={activePanel === 'object'}
-          aria-controls="meeting-object-context-panel"
-        >
-          <Box className="h-4 w-4 shrink-0" aria-hidden="true" />
-          <span className="truncate">{t('meetingWorkbenchObject')}</span>
-          <span className="hidden max-w-[110px] truncate text-[11px] font-medium opacity-70 md:inline">
-            {hasObjectContext ? objectTitle : t('meetingWorkbenchBrowser')}
+      {graphViewMode === 'work' ? (
+        <>
+          <span className="truncate rounded bg-slate-100 px-2 py-1 font-medium text-slate-700 dark:bg-slate-900 dark:text-slate-200">
+            {t('meetingWorkbenchFocusPrefix', {
+              value: hasObjectContext ? objectTitle : t('meetingWorkbenchNoFocusObject'),
+            })}
           </span>
-        </button>
-        <button
-          type="button"
-          onClick={() => onTogglePanel('sessions')}
-          className={`inline-flex h-8 items-center gap-2 rounded-md border px-2.5 text-xs font-semibold transition-colors ${
-            activePanel === 'sessions'
-              ? 'border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-700 dark:bg-blue-950/40 dark:text-blue-300'
-              : 'border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800'
-          }`}
-          data-testid="meeting-sessions-toggle"
-          aria-expanded={activePanel === 'sessions'}
-          aria-controls="meeting-sessions-popover"
-        >
-          <FileText className="h-4 w-4 shrink-0" aria-hidden="true" />
-          <span>{t('meetingWorkbenchSessions')}</span>
-          <span className="rounded bg-white px-1.5 py-0.5 text-[10px] tabular-nums text-slate-500 dark:bg-slate-950 dark:text-slate-400">
-            {sessionsLoading ? '...' : sessionsCount}
+          {focusRoleLabel ? (
+            <span
+              className="shrink-0 rounded bg-indigo-50 px-2 py-1 font-medium text-indigo-700 dark:bg-indigo-950/30 dark:text-indigo-300"
+              data-testid="meeting-work-role-chip"
+            >
+              {t('meetingWorkbenchRolePrefix', { value: focusRoleLabel })}
+            </span>
+          ) : null}
+          <span
+            className="shrink-0 rounded bg-emerald-50 px-2 py-1 font-semibold text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300"
+            data-testid="meeting-work-status-chip"
+          >
+            {workStatus}
           </span>
-        </button>
-        <button
-          type="button"
-          onClick={onStartBlankMeetingSession}
-          disabled={startingBlankMeetingSession}
-          className="inline-flex h-8 shrink-0 items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-2.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900 disabled:cursor-wait disabled:opacity-60 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100"
-          data-testid="meeting-new-session-button"
-          aria-label={t('meetingWorkbenchNewSession')}
-          title={t('meetingWorkbenchNewSession')}
-        >
-          <PlusCircle className="h-4 w-4" aria-hidden="true" />
-          <span className="hidden sm:inline">{t('meetingWorkbenchNewSession')}</span>
-        </button>
-        {showInspectorToggle ? (
+          <span className="max-w-[180px] truncate rounded bg-blue-50 px-2 py-1 font-medium text-blue-700 dark:bg-blue-950/30 dark:text-blue-300">
+            {runtimeLabel}
+          </span>
           <button
             type="button"
-            onClick={onToggleInspectorPanel}
-            className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border transition-colors ${
-              inspectorPanelActive
-                ? 'border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-700 dark:bg-blue-950/40 dark:text-blue-300'
-                : 'border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800'
-            }`}
-            data-testid="meeting-inspector-toggle"
-            aria-label={t('meetingWorkbenchInspectorLabel')}
-            aria-expanded={inspectorPanelActive}
-            aria-controls="meeting-inspector-panel"
-            title={t('meetingWorkbenchInspectorLabel')}
+            onClick={onSelectNextStep ?? undefined}
+            disabled={!onSelectNextStep}
+            className="max-w-[220px] truncate rounded bg-slate-100 px-2 py-1 text-left font-medium text-slate-600 transition-colors hover:bg-slate-200 disabled:cursor-default disabled:hover:bg-slate-100 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:disabled:hover:bg-slate-900"
+            data-testid="meeting-work-next-chip"
+            title={nextStepTitle}
           >
-            <SlidersHorizontal className="h-4 w-4" aria-hidden="true" />
+            {t('meetingWorkbenchNextPrefix', { value: nextStepTitle })}
           </button>
-        ) : null}
-        <div
-          className="hidden items-center overflow-hidden rounded-md border border-slate-200 bg-slate-50 p-0.5 dark:border-slate-800 dark:bg-slate-900 md:flex"
-          data-testid="meeting-graph-view-mode"
-          aria-label={t('meetingWorkbenchViewModeLabel')}
-        >
-          {(['work', 'director', 'runs', 'trace'] as GraphViewMode[]).map((mode) => {
-            const isActive = graphViewMode === mode;
-            const label = mode === 'work'
-              ? t('meetingWorkbenchWork')
-              : mode === 'director'
-                ? t('meetingWorkbenchDirectorGraph')
-                : mode;
-            return (
-              <button
-                key={mode}
-                type="button"
-                onClick={() => onGraphViewModeChange(mode)}
-                className={`h-7 rounded px-2 text-[11px] font-semibold uppercase tracking-[0.08em] transition-colors ${
-                  isActive
-                    ? 'bg-white text-blue-700 shadow-sm dark:bg-slate-950 dark:text-blue-300'
-                    : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100'
-                }`}
-                data-testid={`meeting-graph-view-${mode}`}
-                aria-pressed={isActive}
-              >
-                {label}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-      <div
-        className="hidden min-w-0 items-center gap-2 text-xs text-slate-500 dark:text-slate-400 sm:flex"
-        data-testid="meeting-work-context-bar"
-      >
-        {graphViewMode === 'work' ? (
-          <>
-            <span className="truncate rounded bg-slate-100 px-2 py-1 font-medium text-slate-700 dark:bg-slate-900 dark:text-slate-200">
-              {t('meetingWorkbenchFocusPrefix', {
-                value: hasObjectContext ? objectTitle : t('meetingWorkbenchNoFocusObject'),
-              })}
-            </span>
-            {focusRoleLabel ? (
-              <span
-                className="shrink-0 rounded bg-indigo-50 px-2 py-1 font-medium text-indigo-700 dark:bg-indigo-950/30 dark:text-indigo-300"
-                data-testid="meeting-work-role-chip"
-              >
-                {t('meetingWorkbenchRolePrefix', { value: focusRoleLabel })}
-              </span>
-            ) : null}
-            <span
-              className="shrink-0 rounded bg-emerald-50 px-2 py-1 font-semibold text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300"
-              data-testid="meeting-work-status-chip"
-            >
-              {workStatus}
-            </span>
-            <span className="max-w-[180px] truncate rounded bg-blue-50 px-2 py-1 font-medium text-blue-700 dark:bg-blue-950/30 dark:text-blue-300">
-              {runtimeLabel}
-            </span>
+          {missingContextLabel ? (
             <button
               type="button"
-              onClick={onSelectNextStep ?? undefined}
-              disabled={!onSelectNextStep}
-              className="max-w-[220px] truncate rounded bg-slate-100 px-2 py-1 text-left font-medium text-slate-600 transition-colors hover:bg-slate-200 disabled:cursor-default disabled:hover:bg-slate-100 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:disabled:hover:bg-slate-900"
-              data-testid="meeting-work-next-chip"
-              title={nextStepTitle}
+              onClick={onSelectMissingContext ?? undefined}
+              disabled={!onSelectMissingContext}
+              className="shrink-0 rounded bg-amber-50 px-2 py-1 text-left font-semibold text-amber-700 transition-colors hover:bg-amber-100 disabled:cursor-default disabled:hover:bg-amber-50 dark:bg-amber-950/30 dark:text-amber-300 dark:hover:bg-amber-950/50 dark:disabled:hover:bg-amber-950/30"
+              data-testid="meeting-work-missing-context-chip"
+              title={missingContextLabel}
             >
-              {t('meetingWorkbenchNextPrefix', { value: nextStepTitle })}
+              {t('meetingWorkbenchMissingContextPrefix', { value: missingContextLabel })}
             </button>
-            {missingContextLabel ? (
-              <button
-                type="button"
-                onClick={onSelectMissingContext ?? undefined}
-                disabled={!onSelectMissingContext}
-                className="shrink-0 rounded bg-amber-50 px-2 py-1 text-left font-semibold text-amber-700 transition-colors hover:bg-amber-100 disabled:cursor-default disabled:hover:bg-amber-50 dark:bg-amber-950/30 dark:text-amber-300 dark:hover:bg-amber-950/50 dark:disabled:hover:bg-amber-950/30"
-                data-testid="meeting-work-missing-context-chip"
-                title={missingContextLabel}
-              >
-                {t('meetingWorkbenchMissingContextPrefix', { value: missingContextLabel })}
-              </button>
-            ) : null}
-          </>
-        ) : graphViewMode === 'director' ? (
-          <>
-            <span className="truncate rounded bg-slate-100 px-2 py-1 font-medium text-slate-600 dark:bg-slate-900 dark:text-slate-300">
-              {t('directorGraphContextBar')}
-            </span>
-            <span className="shrink-0 font-semibold uppercase tracking-[0.12em]">{t('meetingWorkbenchActive')}</span>
-            <span className="truncate font-mono text-slate-700 dark:text-slate-200">{shortId(activeMeetingId)}</span>
-          </>
-        ) : (
-          <>
-            <span className="truncate rounded bg-slate-100 px-2 py-1 font-medium text-slate-600 dark:bg-slate-900 dark:text-slate-300">
-              {graphViewMode} - {primaryCount} nodes - {traceCount} trace events
-            </span>
-            <span className="shrink-0 font-semibold uppercase tracking-[0.12em]">{t('meetingWorkbenchActive')}</span>
-            <span className="truncate font-mono text-slate-700 dark:text-slate-200">{shortId(activeMeetingId)}</span>
-          </>
-        )}
-      </div>
+          ) : null}
+        </>
+      ) : graphViewMode === 'director' ? (
+        <>
+          <span className="truncate rounded bg-slate-100 px-2 py-1 font-medium text-slate-600 dark:bg-slate-900 dark:text-slate-300">
+            {t('directorGraphContextBar')}
+          </span>
+          <span className="shrink-0 font-semibold uppercase tracking-[0.12em]">{t('meetingWorkbenchActive')}</span>
+          <span className="truncate font-mono text-slate-700 dark:text-slate-200">{shortId(activeMeetingId)}</span>
+        </>
+      ) : (
+        <>
+          <span className="truncate rounded bg-slate-100 px-2 py-1 font-medium text-slate-600 dark:bg-slate-900 dark:text-slate-300">
+            {graphViewMode} - {primaryCount} nodes - {traceCount} trace events
+          </span>
+          <span className="shrink-0 font-semibold uppercase tracking-[0.12em]">{t('meetingWorkbenchActive')}</span>
+          <span className="truncate font-mono text-slate-700 dark:text-slate-200">{shortId(activeMeetingId)}</span>
+        </>
+      )}
+    </div>
+  );
+
+  return (
+    <header
+      className={`shrink-0 border-b border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950 ${
+        compactViewport ? 'px-3 py-2' : 'flex h-11 items-center justify-between gap-3 px-3'
+      }`}
+      data-testid="meeting-header-toolbar"
+    >
+      {compactViewport ? (
+        <div className="flex min-w-0 flex-col gap-2">
+          {controls}
+          <MeetingGraphViewModeSwitch
+            compact
+            graphViewMode={graphViewMode}
+            onGraphViewModeChange={onGraphViewModeChange}
+            t={t}
+          />
+          {contextBar}
+        </div>
+      ) : (
+        <>
+          {controls}
+          {contextBar}
+        </>
+      )}
     </header>
   );
 }

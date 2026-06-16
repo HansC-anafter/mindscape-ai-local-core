@@ -4,6 +4,7 @@ import type { CompositionGraphCommandEnvelopeDraft } from '@/lib/composition-gra
 import { MeetingTaskCanvas } from './SemanticFlowCanvas';
 import { CommandLedgerStrip } from './CommandLedgerStrip';
 import { ObjectOutlinerPanel } from './ObjectOutlinerPanel';
+import { MeetingRunsWorkspaceSurface } from './runs/MeetingRunsWorkspaceSurface';
 import type { AddressableObjectRef, AddressableObjectSummary, ObjectMeetingAttachResponse } from '@/lib/addressable-object-layer';
 import type { GraphViewMode, MeetingCommandImpact, MeetingGraphEdge, MeetingMentionItem, MeetingNode, MeetingTranslate } from './meetingWorkbenchTypes';
 import type { MeetingMissingContext } from './meetingWorkbenchStatus';
@@ -63,13 +64,14 @@ export function MeetingWorkbenchStage({
   showOutliner?: boolean;
   t: MeetingTranslate;
 }) {
+  const isRunsMode = graphViewMode === 'runs';
   return (
     <div
       className="flex min-h-0 flex-1 flex-col bg-slate-100 dark:bg-slate-950"
       data-testid="meeting-workbench-stage"
     >
       <div className="flex min-h-0 flex-1" data-testid="meeting-workbench-main-editors">
-        {showOutliner ? (
+        {showOutliner && !isRunsMode ? (
           <ObjectOutlinerPanel
             graphViewMode={graphViewMode}
             nodes={nodes}
@@ -82,28 +84,37 @@ export function MeetingWorkbenchStage({
             t={t}
           />
         ) : null}
-        <MeetingTaskCanvas
-          apiUrl={apiUrl}
-          workspaceId={workspaceId}
-          meetingId={meetingId}
-          nodes={nodes}
-          edges={edges}
-          selectedNodeId={selectedNodeId}
-          onSelectNode={onSelectNode}
-          zoom={zoom}
-          onZoomIn={onZoomIn}
-          onZoomOut={onZoomOut}
-          onResetView={onResetView}
-          onWheelZoom={onWheelZoom}
-          commandImpact={commandImpact}
-          graphViewMode={graphViewMode}
-          command={command}
-          selectedPackTool={selectedPackTool}
-          mentionItems={mentionItems}
-          selectedObjectRef={selectedObjectRef}
-          onCommandEnvelope={onCommandEnvelope}
-          t={t}
-        />
+        {isRunsMode ? (
+          <MeetingRunsWorkspaceSurface
+            apiUrl={apiUrl}
+            workspaceId={workspaceId}
+            meetingId={meetingId}
+            selectedObjectRef={selectedObjectRef}
+          />
+        ) : (
+          <MeetingTaskCanvas
+            apiUrl={apiUrl}
+            workspaceId={workspaceId}
+            meetingId={meetingId}
+            nodes={nodes}
+            edges={edges}
+            selectedNodeId={selectedNodeId}
+            onSelectNode={onSelectNode}
+            zoom={zoom}
+            onZoomIn={onZoomIn}
+            onZoomOut={onZoomOut}
+            onResetView={onResetView}
+            onWheelZoom={onWheelZoom}
+            commandImpact={commandImpact}
+            graphViewMode={graphViewMode}
+            command={command}
+            selectedPackTool={selectedPackTool}
+            mentionItems={mentionItems}
+            selectedObjectRef={selectedObjectRef}
+            onCommandEnvelope={onCommandEnvelope}
+            t={t}
+          />
+        )}
         {inspectorSlot}
       </div>
       <CommandLedgerStrip

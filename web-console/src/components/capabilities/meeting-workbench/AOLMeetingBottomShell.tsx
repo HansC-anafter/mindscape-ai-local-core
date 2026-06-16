@@ -1,78 +1,39 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useRef } from 'react';
 
-import type { AddressableObjectRole } from '@/lib/addressable-object-layer';
-import type { CompositionGraphCommandEnvelopeDraft } from '@/lib/composition-graph';
 import { useT } from '@/lib/i18n';
 import { CANVAS_ZOOM_STEP } from './meetingWorkbenchConstants';
-import { getMentionQuery } from './meetingMentions';
-import { buildCommandImpact, projectMeetingGraph } from './meetingGraphProjection';
-import { createMeetingCommandSubmitHandler, submitCompiledCompositionGraphCommand } from './meetingCommandSubmit';
-import { dispatchMeetingCommandLedgerUpdated } from './meetingCommandEvents';
+import { getMentionQuery, rememberAppliedMentionItem } from './meetingMentions';
+import { createMeetingWorkbenchCommandDispatchHandlers } from './meetingWorkbenchCommandDispatchHandlers';
 import { dispatchMeetingSessionNotification } from './meetingSessionNotifications';
 import { applyGuidanceCommandDraft } from './meetingGuidanceCommand';
-import { clampCanvasZoom, MeetingHeaderToolbar } from './SemanticFlowCanvas';
-import { MeetingWorkbenchResponsiveScaffold } from './MeetingWorkbenchResponsiveScaffold';
-import { MeetingWorkbenchSecondaryDrawer } from './MeetingWorkbenchSecondaryDrawer';
-import { MeetingWorkbenchStage } from './MeetingWorkbenchStage';
-import { MeetingCommandBar } from './CommandDock';
-import { ObjectOutlinerPanel } from './ObjectOutlinerPanel';
-import { MeetingConsoleDrawer, MeetingInspectorPanel, MeetingInspectorRail } from './PropertiesInspector';
-import { MeetingSessionNotification } from './MeetingSessionNotification';
-import { MeetingObjectContextPanel, MeetingSessionsPopover } from './MeetingContextPanels';
+import { clampCanvasZoom } from './SemanticFlowCanvas';
+import { MeetingConsoleDrawer } from './PropertiesInspector';
+import { MeetingWorkbenchInspectorDock } from './MeetingWorkbenchInspectorDock';
+import { MeetingWorkbenchStageLayout } from './MeetingWorkbenchStageLayout';
+import { createMeetingWorkbenchSecondarySurfaceSlots } from './MeetingWorkbenchSecondarySurfaceSlots';
 import { useMeetingWorkbenchData } from './useMeetingWorkbenchData';
+import { useMeetingWorkbenchGraphModel } from './useMeetingWorkbenchGraphModel';
 import { useMeetingMentionItems } from './useMeetingMentionItems';
 import { useMeetingSessionNotification } from './useMeetingSessionNotification';
-import {
-  getMeetingFocusRole,
-  getMeetingMissingContext,
-  getMeetingNextStepNodeId,
-  getMeetingNextStepTitle,
-  getMeetingRuntimeLabel,
-  getMeetingWorkStatus,
-  type MeetingMissingContext,
-} from './meetingWorkbenchStatus';
+import { useMeetingWorkbenchShellState } from './useMeetingWorkbenchShellState';
+import type { MeetingMissingContext } from './meetingWorkbenchStatus';
 import {
   isCompactMeetingWorkbenchViewport,
   resolveMeetingWorkbenchSecondarySurface,
   useMeetingWorkbenchViewportClass,
 } from './meetingWorkbenchPanelLayoutState';
+import { resolveCompactMeetingInspectorTab } from './meetingWorkbenchModeSurfaceRegistry';
+import { shouldPreferRunsOnCompactRemoteSurface } from './meetingWorkbenchRoutePolicy';
 import type {
   AOLMeetingBottomShellProps,
   GraphViewMode,
   InspectorTab,
   MeetingInfoPanel,
   MeetingMentionItem,
-  MeetingNode,
-  MeetingTranslate,
+  MeetingSessionSummary,
 } from './meetingWorkbenchTypes';
-
-function getMeetingRoleLabel(role: AddressableObjectRole | null, t: MeetingTranslate): string | null {
-  if (role === 'target') {
-    return t('meetingWorkbenchRoleTarget');
-  }
-  if (role === 'evidence') {
-    return t('meetingWorkbenchRoleEvidence');
-  }
-  if (role === 'constraint') {
-    return t('meetingWorkbenchRoleConstraint');
-  }
-  if (role === 'baseline') {
-    return t('meetingWorkbenchRoleBaseline');
-  }
-  if (role === 'source') {
-    return t('meetingWorkbenchRoleSource');
-  }
-  return null;
-}
-
-function getMissingContextLabel(context: MeetingMissingContext | null, t: MeetingTranslate): string | null {
-  if (context === 'target') {
-    return t('meetingWorkbenchRoleTarget');
-  }
-  return null;
-}
 
 export function AOLMeetingBottomShell({
   workspaceId,
@@ -88,20 +49,16 @@ export function AOLMeetingBottomShell({
   const t = useT();
   const viewportClass = useMeetingWorkbenchViewportClass();
   const compactViewport = isCompactMeetingWorkbenchViewport(viewportClass);
-  const [selectedNodeId, setSelectedNodeId] = useState('ready');
-  const [activeInspector, setActiveInspector] = useState<InspectorTab | null>(null);
-  const [activeInfoPanel, setActiveInfoPanel] = useState<MeetingInfoPanel | null>(null);
-  const [graphViewMode, setGraphViewMode] = useState<GraphViewMode>('work');
-  const [activeTraceFilter, setActiveTraceFilter] = useState<string | null>(null);
-  const [isConsoleOpen, setIsConsoleOpen] = useState(false);
-  const [command, setCommand] = useState('');
-  const [localTasks, setLocalTasks] = useState<MeetingNode[]>([]);
-  const [dispatchError, setDispatchError] = useState<string | null>(null);
-  const [canvasZoom, setCanvasZoom] = useState(1);
-  const [selectedPackToolId, setSelectedPackToolId] = useState('auto');
-  const [appliedMentionItems, setAppliedMentionItems] = useState<MeetingMentionItem[]>([]);
-  const [isDispatching, setIsDispatching] = useState(false);
-  const [activeMissingContext, setActiveMissingContext] = useState<MeetingMissingContext | null>(null);
+  const remoteRunsModeBootstrappedRef = useRef(false);
+  const {
+    selectedNodeId, setSelectedNodeId, activeInspector, setActiveInspector,
+    activeInfoPanel, setActiveInfoPanel, graphViewMode, setGraphViewMode,
+    activeTraceFilter, setActiveTraceFilter, isConsoleOpen, setIsConsoleOpen,
+    command, setCommand, localTasks, setLocalTasks, dispatchError, setDispatchError,
+    canvasZoom, setCanvasZoom, selectedPackToolId, setSelectedPackToolId,
+    appliedMentionItems, setAppliedMentionItems, isDispatching, setIsDispatching,
+    activeMissingContext, setActiveMissingContext,
+  } = useMeetingWorkbenchShellState();
   const activeMentionQuery = getMentionQuery(command);
   const {
     activeMeetingId,
@@ -161,68 +118,43 @@ export function AOLMeetingBottomShell({
     activeMeetingId,
   });
 
-  const graphProjection = useMemo(
-    () => projectMeetingGraph({
-      activeMeetingId,
-      objectKind,
-      objectTitle,
-      objectDetail: effectiveSummary?.summary_text || 'Owner-backed object context is attached.',
-      events: meetingEvents,
-      artifacts: meetingArtifacts,
-      localTasks,
-      objectGraphNodes,
-      artifactsLoading: meetingArtifactsLoading,
-      artifactsError: meetingArtifactsError,
-      eventsLoading: meetingEventsLoading,
-      eventsError: meetingEventsError,
-      executionGraphNodes,
-      executionGraphEdges,
-      executionGraphLoading,
-      executionGraphError,
-      mode: graphViewMode,
-    }),
-    [
-      activeMeetingId,
-      effectiveSummary?.summary_text,
-      executionGraphEdges,
-      executionGraphError,
-      executionGraphLoading,
-      executionGraphNodes,
-      graphViewMode,
-      localTasks,
-      meetingArtifacts,
-      meetingArtifactsError,
-      meetingArtifactsLoading,
-      meetingEvents,
-      meetingEventsError,
-      meetingEventsLoading,
-      objectGraphNodes,
-      objectKind,
-      objectTitle,
-    ],
-  );
-  const nodes = graphProjection.nodes;
-  const selectedNode = nodes.find((node) => node.id === selectedNodeId) ?? nodes[0] ?? null;
-  const activeWorkStatus = useMemo(() => getMeetingWorkStatus(nodes, command), [command, nodes]);
-  const nextStepTitle = useMemo(() => getMeetingNextStepTitle(nodes), [nodes]);
-  const nextStepNodeId = useMemo(() => getMeetingNextStepNodeId(nodes), [nodes]);
-  const runtimeLabel = useMemo(() => getMeetingRuntimeLabel(runtimeSnapshot), [runtimeSnapshot]);
-  const missingContext = useMemo(
-    () => hasObjectContext ? getMeetingMissingContext(nodes, effectiveAttachResponse) : null,
-    [effectiveAttachResponse, hasObjectContext, nodes],
-  );
-  const focusRoleLabel = useMemo(
-    () => getMeetingRoleLabel(getMeetingFocusRole(effectiveSummary, effectiveAttachResponse), t),
-    [effectiveAttachResponse, effectiveSummary, t],
-  );
-  const missingContextLabel = useMemo(
-    () => getMissingContextLabel(missingContext, t),
-    [missingContext, t],
-  );
-  const selectedCommandImpact = useMemo(
-    () => buildCommandImpact(selectedNode, nodes, graphProjection.edges, graphProjection.traceEvents),
-    [graphProjection.edges, graphProjection.traceEvents, nodes, selectedNode],
-  );
+  const {
+    graphProjection,
+    nodes,
+    selectedNode,
+    activeWorkStatus,
+    nextStepTitle,
+    nextStepNodeId,
+    runtimeLabel,
+    missingContext,
+    focusRoleLabel,
+    missingContextLabel,
+    selectedCommandImpact,
+  } = useMeetingWorkbenchGraphModel({
+    activeMeetingId,
+    objectKind,
+    objectTitle,
+    effectiveSummary,
+    effectiveAttachResponse,
+    hasObjectContext,
+    meetingEvents,
+    meetingArtifacts,
+    localTasks,
+    objectGraphNodes,
+    meetingArtifactsLoading,
+    meetingArtifactsError,
+    meetingEventsLoading,
+    meetingEventsError,
+    executionGraphNodes,
+    executionGraphEdges,
+    executionGraphLoading,
+    executionGraphError,
+    graphViewMode,
+    selectedNodeId,
+    runtimeSnapshot,
+    command,
+    t,
+  });
   const mentionItems = useMeetingMentionItems({
     activeMeetingId,
     appliedMentionItems,
@@ -232,6 +164,17 @@ export function AOLMeetingBottomShell({
     packTools,
     registryMentionItems,
   });
+
+  useEffect(() => {
+    if (remoteRunsModeBootstrappedRef.current) {
+      return;
+    }
+    if (!shouldPreferRunsOnCompactRemoteSurface({ viewportClass, surfaceRoute })) {
+      return;
+    }
+    remoteRunsModeBootstrappedRef.current = true;
+    setGraphViewMode((current) => current === 'work' ? 'runs' : current);
+  }, [setGraphViewMode, surfaceRoute, viewportClass]);
 
   function handleToggleInfoPanel(panel: MeetingInfoPanel) {
     setActiveInfoPanel((current) => {
@@ -271,20 +214,10 @@ export function AOLMeetingBottomShell({
   }
 
   function handleCanvasWheelZoom(deltaY: number) {
-    const delta = deltaY < 0 ? CANVAS_ZOOM_STEP : -CANVAS_ZOOM_STEP;
-    handleCanvasZoom(delta);
+    handleCanvasZoom(deltaY < 0 ? CANVAS_ZOOM_STEP : -CANVAS_ZOOM_STEP);
   }
-
   function handleApplyMention(item: MeetingMentionItem) {
-    if (!item.ref && !item.packToolId) {
-      return;
-    }
-
-    setAppliedMentionItems((current) => {
-      const next = current.filter((candidate) => candidate.token !== item.token);
-      next.push(item);
-      return next.slice(-24);
-    });
+    setAppliedMentionItems((current) => rememberAppliedMentionItem(current, item));
   }
 
   function handleToggleInspector(tab: InspectorTab) {
@@ -343,84 +276,7 @@ export function AOLMeetingBottomShell({
     }
   }
 
-  async function handleCompiledGraphEnvelope(envelope: CompositionGraphCommandEnvelopeDraft) {
-    if (!activeMeetingId) {
-      return;
-    }
-    const nextNodeId = `task-${localTasks.length + 1}`;
-    setLocalTasks((current) => [
-      ...current,
-      {
-        id: nextNodeId,
-        eyebrow: 'Composition Graph',
-        title: envelope.intent_text,
-        detail: t('directorGraphDispatching'),
-        status: 'running',
-        kind: 'run',
-        lane: 'runs',
-      },
-    ]);
-    setSelectedNodeId(nextNodeId);
-    setDispatchError(null);
-    setIsConsoleOpen(true);
-    setIsDispatching(true);
-    try {
-      const commandLedger = await submitCompiledCompositionGraphCommand({
-        apiUrl,
-        workspaceId,
-        meetingId: activeMeetingId,
-        envelope,
-      });
-      dispatchMeetingCommandLedgerUpdated({
-        workspaceId,
-        meetingId: activeMeetingId,
-        commandId: commandLedger.commandId,
-        status: commandLedger.status,
-      });
-      dispatchMeetingSessionNotification({
-        workspaceId,
-        meetingId: activeMeetingId,
-        commandId: commandLedger.commandId,
-        tone: commandLedger.status === 'failed' ? 'error' : 'info',
-        title: commandLedger.status === 'failed'
-          ? t('meetingWorkbenchNotificationCommandFailed')
-          : t('meetingWorkbenchNotificationCommandAccepted'),
-        message: t('meetingWorkbenchNotificationAwaitingRuntime'),
-      });
-      setLocalTasks((current) =>
-        current.map((node) =>
-          node.id === nextNodeId
-            ? {
-                ...node,
-                detail: t('meetingWorkbenchNotificationCommandAccepted'),
-                status: commandLedger.status === 'failed' ? 'error' : 'ready',
-                output: commandLedger.commandId,
-              }
-            : node,
-        ),
-      );
-      setCommand('');
-    } catch (cause) {
-      const errorMessage = cause instanceof Error ? cause.message : 'Failed to dispatch compiled composition graph.';
-      setDispatchError(errorMessage);
-      setLocalTasks((current) =>
-        current.map((node) =>
-          node.id === nextNodeId
-            ? {
-                ...node,
-                detail: errorMessage,
-                status: 'error',
-                output: errorMessage,
-              }
-            : node,
-        ),
-      );
-    } finally {
-      setIsDispatching(false);
-    }
-  }
-
-  const handleSubmitCommand = createMeetingCommandSubmitHandler({
+  const { handleCompiledGraphEnvelope, handleSubmitCommand } = createMeetingWorkbenchCommandDispatchHandlers({
     command,
     activeMeetingId,
     mentionItems,
@@ -430,7 +286,7 @@ export function AOLMeetingBottomShell({
     effectiveSelection,
     selectedNode,
     objectTitle,
-    activeCapabilityCode: capabilityCode,
+    capabilityCode,
     localTaskCount: localTasks.length,
     apiUrl,
     workspaceId,
@@ -449,8 +305,7 @@ export function AOLMeetingBottomShell({
     isConsoleOpen,
   });
 
-  const compactInspectorTab: InspectorTab = activeInspector
-    ?? (graphViewMode === 'trace' ? 'trace' : graphViewMode === 'runs' ? 'runtime' : 'object');
+  const compactInspectorTab = resolveCompactMeetingInspectorTab(activeInspector, graphViewMode);
 
   function handleToggleCompactInspectorPanel() {
     handleToggleInspector(compactInspectorTab);
@@ -467,316 +322,175 @@ export function AOLMeetingBottomShell({
     });
   }
 
-  const floatingPanel = !compactViewport ? (
-    <>
-      {activeInfoPanel === 'object' ? (
-        <div className="pointer-events-none absolute left-3 top-3 z-30 h-[calc(100%-1.5rem)] w-[min(340px,calc(100%-1.5rem))]">
-          <MeetingObjectContextPanel
-            summary={effectiveSummary}
-            selection={effectiveSelection}
-            attachResponse={effectiveAttachResponse}
-            meetingId={activeMeetingId}
-            surfaceRoute={surfaceRoute}
-            onSwitchObject={onSwitchObject}
-            onClose={() => setActiveInfoPanel(null)}
-          />
-        </div>
-      ) : null}
-      {activeInfoPanel === 'sessions' ? (
-        <div className="pointer-events-none absolute left-3 right-3 top-3 z-30 md:right-16">
-          <MeetingSessionsPopover
-            sessions={meetingSessions}
-            activeMeetingId={activeMeetingId}
-            loading={meetingSessionsLoading}
-            error={meetingSessionsError}
-            creating={startingBlankMeetingSession}
-            createError={startBlankMeetingSessionError}
-            onCreateSession={handleStartBlankMeetingSession}
-            onRetry={() => {
-              void refreshMeetingSessions();
-            }}
-            onSelectSession={(session) => {
-              setActiveMeetingId(session.id);
-              setSelectedNodeId('ready');
-              setIsConsoleOpen(false);
-              setActiveInfoPanel(null);
-            }}
-            onClose={() => setActiveInfoPanel(null)}
-          />
-        </div>
-      ) : null}
-    </>
-  ) : null;
+  function handleSelectMeetingSession(session: MeetingSessionSummary) {
+    setActiveMeetingId(session.id);
+    setSelectedNodeId('ready');
+    setIsConsoleOpen(false);
+    setActiveInfoPanel(null);
+  }
 
-  const compactSecondaryDrawer = compactViewport && activeSecondarySurface ? (
-    <MeetingWorkbenchSecondaryDrawer
-      label={activeSecondarySurface === 'inspector'
-        ? t('meetingWorkbenchInspectorLabel')
-        : activeSecondarySurface === 'console'
-          ? t(isConsoleOpen ? 'meetingWorkbenchCollapseConsole' : 'meetingWorkbenchOpenConsole')
-          : activeSecondarySurface === 'sessions'
-            ? t('meetingWorkbenchSessions')
-            : t('meetingWorkbenchObject')}
-      surface={activeSecondarySurface}
-      onClose={() => {
-        setActiveInfoPanel(null);
-        setActiveInspector(null);
-        setIsConsoleOpen(false);
-      }}
-    >
-      {activeSecondarySurface === 'object' ? (
-        <div className="flex h-full min-h-0 flex-col bg-white dark:bg-slate-950">
-          {graphViewMode === 'work' ? (
-            <div className="min-h-0 max-h-[45%] flex-none overflow-auto border-b border-slate-200 dark:border-slate-800">
-              <ObjectOutlinerPanel
-                graphViewMode={graphViewMode}
-                nodes={nodes}
-                summary={effectiveSummary}
-                attachResponse={effectiveAttachResponse}
-                selectedNodeId={selectedNodeId}
-                activeMissingContext={activeMissingContext}
-                onSelectNode={(nodeId) => {
-                  handleSelectNode(nodeId);
-                  setActiveInfoPanel(null);
-                }}
-                onSelectMissingContext={(context) => {
-                  handleSelectMissingContext(context);
-                  setActiveInfoPanel(null);
-                }}
-                presentation="drawer"
-                t={t}
-              />
-            </div>
-          ) : null}
-          <div className="min-h-0 flex-1 overflow-auto">
-            <MeetingObjectContextPanel
-              summary={effectiveSummary}
-              selection={effectiveSelection}
-              attachResponse={effectiveAttachResponse}
-              meetingId={activeMeetingId}
-              surfaceRoute={surfaceRoute}
-              onSwitchObject={onSwitchObject}
-              onClose={() => setActiveInfoPanel(null)}
-              presentation="drawer"
-            />
-          </div>
-        </div>
-      ) : null}
-      {activeSecondarySurface === 'sessions' ? (
-        <MeetingSessionsPopover
-          sessions={meetingSessions}
-          activeMeetingId={activeMeetingId}
-          loading={meetingSessionsLoading}
-          error={meetingSessionsError}
-          creating={startingBlankMeetingSession}
-          createError={startBlankMeetingSessionError}
-          onCreateSession={handleStartBlankMeetingSession}
-          onRetry={() => {
-            void refreshMeetingSessions();
-          }}
-          onSelectSession={(session) => {
-            setActiveMeetingId(session.id);
-            setSelectedNodeId('ready');
-            setIsConsoleOpen(false);
-            setActiveInfoPanel(null);
-          }}
-          onClose={() => setActiveInfoPanel(null)}
-          presentation="drawer"
-        />
-      ) : null}
-      {activeSecondarySurface === 'inspector' && activeInspector ? (
-        <div className="flex h-full min-h-0 bg-white dark:bg-slate-950">
-          <MeetingInspectorRail
-            activeInspector={activeInspector}
-            graphViewMode={graphViewMode}
-            onToggleInspector={handleToggleInspector}
-            placement="leading"
-            t={t}
-          />
-          <MeetingInspectorPanel
-            activeInspector={activeInspector}
-            graphViewMode={graphViewMode}
-            selectedNode={selectedNode}
-            runtimeSnapshot={runtimeSnapshot}
-            workspaceId={workspaceId}
-            apiUrl={apiUrl}
-            capabilityCode={capabilityCode}
-            meetingId={activeMeetingId}
-            summary={effectiveSummary}
-            attachResponse={effectiveAttachResponse}
-            surfaceRoute={surfaceRoute}
-            objectGraphProjections={objectGraphProjections}
-            objectGraphLoading={objectGraphLoading}
-            objectGraphError={objectGraphError}
-            commandImpact={selectedCommandImpact}
-            traceEvents={graphProjection.traceEvents}
-            eventCounts={graphProjection.eventCounts}
-            activeTraceFilter={activeTraceFilter}
-            onTraceFilterChange={setActiveTraceFilter}
-            onClose={() => setActiveInspector(null)}
-            presentation="drawer"
-            t={t}
-          />
-        </div>
-      ) : null}
-      {activeSecondarySurface === 'console' ? (
-        <MeetingConsoleDrawer
-          selectedNode={selectedNode}
-          onClose={() => {
-            setIsConsoleOpen(false);
-          }}
-          presentation="drawer"
-        />
-      ) : null}
-    </MeetingWorkbenchSecondaryDrawer>
-  ) : null;
+  function handleCloseSecondarySurface() {
+    setActiveInfoPanel(null);
+    setActiveInspector(null);
+    setIsConsoleOpen(false);
+  }
+
+  const inspectorDockProps = {
+    activeInspector,
+    graphViewMode,
+    selectedNode,
+    runtimeSnapshot,
+    workspaceId,
+    apiUrl,
+    capabilityCode,
+    meetingId: activeMeetingId,
+    summary: effectiveSummary,
+    attachResponse: effectiveAttachResponse,
+    surfaceRoute,
+    objectGraphProjections,
+    objectGraphLoading,
+    objectGraphError,
+    commandImpact: selectedCommandImpact,
+    traceEvents: graphProjection.traceEvents,
+    eventCounts: graphProjection.eventCounts,
+    activeTraceFilter,
+    onTraceFilterChange: setActiveTraceFilter,
+    onToggleInspector: handleToggleInspector,
+    onClose: () => setActiveInspector(null),
+    t,
+  };
+
+  const { floatingPanel, compactSecondaryDrawer } = createMeetingWorkbenchSecondarySurfaceSlots({
+    compactViewport,
+    activeInfoPanel,
+    activeSecondarySurface,
+    graphViewMode,
+    nodes,
+    summary: effectiveSummary,
+    selection: effectiveSelection,
+    attachResponse: effectiveAttachResponse,
+    activeMeetingId,
+    surfaceRoute,
+    onSwitchObject,
+    sessions: meetingSessions,
+    sessionsLoading: meetingSessionsLoading,
+    sessionsError: meetingSessionsError,
+    creatingSession: startingBlankMeetingSession,
+    createSessionError: startBlankMeetingSessionError,
+    selectedNodeId,
+    activeMissingContext,
+    selectedNode,
+    isConsoleOpen,
+    onCreateSession: handleStartBlankMeetingSession,
+    onRetrySessions: () => {
+      void refreshMeetingSessions();
+    },
+    onSelectSession: handleSelectMeetingSession,
+    onCloseInfoPanel: () => setActiveInfoPanel(null),
+    onCloseSecondary: handleCloseSecondarySurface,
+    onSelectNodeFromDrawer: (nodeId) => {
+      handleSelectNode(nodeId);
+      setActiveInfoPanel(null);
+    },
+    onSelectMissingContextFromDrawer: (context) => {
+      handleSelectMissingContext(context);
+      setActiveInfoPanel(null);
+    },
+    inspectorDockProps,
+    t,
+  });
 
   return (
     <div data-testid="aol-meeting-bottom-shell">
-      <MeetingWorkbenchResponsiveScaffold
+      <MeetingWorkbenchStageLayout
         viewportClass={viewportClass}
-        header={(
-          <MeetingHeaderToolbar
-            activePanel={activeInfoPanel}
-            activeMeetingId={activeMeetingId}
-            sessionsCount={meetingSessions.length}
-            sessionsLoading={meetingSessionsLoading}
-            objectTitle={objectTitle}
-            hasObjectContext={hasObjectContext}
-            graphViewMode={graphViewMode}
-            primaryCount={graphProjection.primaryCount}
-            traceCount={graphProjection.traceCount}
-            workStatus={activeWorkStatus}
-            nextStepTitle={nextStepTitle}
-            runtimeLabel={runtimeLabel}
-            focusRoleLabel={focusRoleLabel}
-            missingContextLabel={missingContextLabel}
-            startingBlankMeetingSession={startingBlankMeetingSession}
-            onStartBlankMeetingSession={handleStartBlankMeetingSession}
-            onSelectNextStep={nextStepNodeId ? handleSelectNextStep : null}
-            onSelectMissingContext={missingContext ? () => handleSelectMissingContext(missingContext) : null}
-            onTogglePanel={handleToggleInfoPanel}
-            showInspectorToggle={compactViewport}
-            inspectorPanelActive={Boolean(activeInspector)}
-            onToggleInspectorPanel={handleToggleCompactInspectorPanel}
-            onGraphViewModeChange={handleGraphViewModeChange}
-            t={t}
-          />
-        )}
+        headerProps={{
+          activePanel: activeInfoPanel,
+          activeMeetingId,
+          sessionsCount: meetingSessions.length,
+          sessionsLoading: meetingSessionsLoading,
+          objectTitle,
+          hasObjectContext,
+          graphViewMode,
+          primaryCount: graphProjection.primaryCount,
+          traceCount: graphProjection.traceCount,
+          workStatus: activeWorkStatus,
+          nextStepTitle,
+          runtimeLabel,
+          focusRoleLabel,
+          missingContextLabel,
+          startingBlankMeetingSession,
+          onStartBlankMeetingSession: handleStartBlankMeetingSession,
+          onSelectNextStep: nextStepNodeId ? handleSelectNextStep : null,
+          onSelectMissingContext: missingContext ? () => handleSelectMissingContext(missingContext) : null,
+          onTogglePanel: handleToggleInfoPanel,
+          showInspectorToggle: compactViewport,
+          inspectorPanelActive: Boolean(activeInspector),
+          onToggleInspectorPanel: handleToggleCompactInspectorPanel,
+          onGraphViewModeChange: handleGraphViewModeChange,
+          compactViewport,
+          t,
+        }}
         floatingPanel={floatingPanel}
-        stage={(
-          <MeetingWorkbenchStage
-            apiUrl={apiUrl}
-            workspaceId={workspaceId}
-            meetingId={activeMeetingId}
-            graphViewMode={graphViewMode}
-            nodes={nodes}
-            edges={graphProjection.edges}
-            summary={effectiveSummary}
-            attachResponse={effectiveAttachResponse}
-            selectedNodeId={selectedNodeId}
-            activeMissingContext={activeMissingContext}
-            onSelectNode={handleSelectNode}
-            onSelectMissingContext={handleSelectMissingContext}
-            zoom={canvasZoom}
-            onZoomIn={() => handleCanvasZoom(CANVAS_ZOOM_STEP)}
-            onZoomOut={() => handleCanvasZoom(-CANVAS_ZOOM_STEP)}
-            onResetView={() => {
-              setCanvasZoom(1);
-              setSelectedNodeId('ready');
-            }}
-            onWheelZoom={handleCanvasWheelZoom}
-            commandImpact={selectedCommandImpact}
-            command={command}
-            selectedPackTool={selectedPackToolId === 'auto' ? null : selectedPackToolId}
-            mentionItems={mentionItems}
-            selectedObjectRef={effectiveSummary?.ref || null}
-            onCommandEnvelope={handleCompiledGraphEnvelope}
-            showOutliner={!compactViewport}
-            t={t}
-            inspectorSlot={!compactViewport ? (
-              <>
-                <MeetingInspectorRail
-                  activeInspector={activeInspector}
-                  graphViewMode={graphViewMode}
-                  onToggleInspector={handleToggleInspector}
-                  t={t}
-                />
-                {activeInspector ? (
-                  <MeetingInspectorPanel
-                    activeInspector={activeInspector}
-                    graphViewMode={graphViewMode}
-                    selectedNode={selectedNode}
-                    runtimeSnapshot={runtimeSnapshot}
-                    workspaceId={workspaceId}
-                    apiUrl={apiUrl}
-                    capabilityCode={capabilityCode}
-                    meetingId={activeMeetingId}
-                    summary={effectiveSummary}
-                    attachResponse={effectiveAttachResponse}
-                    surfaceRoute={surfaceRoute}
-                    objectGraphProjections={objectGraphProjections}
-                    objectGraphLoading={objectGraphLoading}
-                    objectGraphError={objectGraphError}
-                    commandImpact={selectedCommandImpact}
-                    traceEvents={graphProjection.traceEvents}
-                    eventCounts={graphProjection.eventCounts}
-                    activeTraceFilter={activeTraceFilter}
-                    onTraceFilterChange={setActiveTraceFilter}
-                    onClose={() => setActiveInspector(null)}
-                    t={t}
-                  />
-                ) : null}
-              </>
-            ) : null}
-          />
-        )}
+        stageProps={{
+          apiUrl,
+          workspaceId,
+          meetingId: activeMeetingId,
+          graphViewMode,
+          nodes,
+          edges: graphProjection.edges,
+          summary: effectiveSummary,
+          attachResponse: effectiveAttachResponse,
+          selectedNodeId,
+          activeMissingContext,
+          onSelectNode: handleSelectNode,
+          onSelectMissingContext: handleSelectMissingContext,
+          zoom: canvasZoom,
+          onZoomIn: () => handleCanvasZoom(CANVAS_ZOOM_STEP),
+          onZoomOut: () => handleCanvasZoom(-CANVAS_ZOOM_STEP),
+          onResetView: () => {
+            setCanvasZoom(1);
+            setSelectedNodeId('ready');
+          },
+          onWheelZoom: handleCanvasWheelZoom,
+          commandImpact: selectedCommandImpact,
+          command,
+          selectedPackTool: selectedPackToolId === 'auto' ? null : selectedPackToolId,
+          mentionItems,
+          selectedObjectRef: effectiveSummary?.ref || null,
+          onCommandEnvelope: handleCompiledGraphEnvelope,
+          showOutliner: !compactViewport,
+          t,
+          inspectorSlot: !compactViewport ? <MeetingWorkbenchInspectorDock {...inspectorDockProps} /> : null,
+        }}
         secondaryDrawer={compactSecondaryDrawer}
-        inlineConsole={isConsoleOpen ? (
-          <MeetingConsoleDrawer
-            selectedNode={selectedNode}
-            onClose={() => {
-              setIsConsoleOpen(false);
-            }}
-          />
-        ) : null}
-        notification={sessionNotification ? (
-          <MeetingSessionNotification
-            notification={sessionNotification}
-            dismissLabel={t('meetingWorkbenchDismissNotification')}
-            onClose={clearSessionNotification}
-          />
-        ) : null}
-        commandBar={(
-          <MeetingCommandBar
-            command={command}
-            onCommandChange={setCommand}
-            onSubmitCommand={handleSubmitCommand}
-            isDispatching={isDispatching}
-            isConsoleOpen={isConsoleOpen}
-            onToggleConsole={handleToggleConsole}
-            packTools={packTools}
-            selectedPackToolId={selectedPackToolId}
-            onSelectedPackToolChange={setSelectedPackToolId}
-            packToolsLoading={packToolsLoading}
-            packToolsError={packToolsError}
-            hasActiveMeeting={Boolean(activeMeetingId)}
-            mentionItems={mentionItems}
-            mentionItemsLoading={packToolsLoading || registryMentionItemsLoading}
-            mentionItemsError={registryMentionItemsError}
-            onApplyMention={handleApplyMention}
-            missingContextLabel={missingContextLabel}
-            t={t}
-          />
-        )}
-        dispatchError={dispatchError ? (
-          <div
-            className="border-t border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-300"
-            data-testid="meeting-dispatch-error"
-          >
-            {dispatchError}
-          </div>
-        ) : null}
+        inlineConsole={isConsoleOpen ? <MeetingConsoleDrawer selectedNode={selectedNode} onClose={() => setIsConsoleOpen(false)} /> : null}
+        notificationProps={sessionNotification ? {
+            notification: sessionNotification,
+            dismissLabel: t('meetingWorkbenchDismissNotification'),
+            onClose: clearSessionNotification,
+          } : null}
+        commandBarProps={{
+          command,
+          onCommandChange: setCommand,
+          onSubmitCommand: handleSubmitCommand,
+          isDispatching,
+          isConsoleOpen,
+          onToggleConsole: handleToggleConsole,
+          packTools,
+          selectedPackToolId,
+          onSelectedPackToolChange: setSelectedPackToolId,
+          packToolsLoading,
+          packToolsError,
+          hasActiveMeeting: Boolean(activeMeetingId),
+          mentionItems,
+          mentionItemsLoading: packToolsLoading || registryMentionItemsLoading,
+          mentionItemsError: registryMentionItemsError,
+          onApplyMention: handleApplyMention,
+          missingContextLabel,
+          t,
+        }}
+        dispatchError={dispatchError}
       />
     </div>
   );

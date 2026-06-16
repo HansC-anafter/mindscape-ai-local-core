@@ -9,6 +9,9 @@ from typing import Any, Dict
 from fastapi import FastAPI
 
 from backend.app.services.pack_activation_service import PackActivationService
+from backend.app.services.capability_runtime_refresh import (
+    prepare_capability_for_reactivation,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +38,11 @@ def activate_installed_capability_routes(
         for descriptor in descriptors
         if descriptor.capability_code == capability_code
     ]
+    refresh = prepare_capability_for_reactivation(
+        app=app,
+        capability_code=capability_code,
+        descriptors=matching_descriptors,
+    )
     routers = activate_capability_api_code(
         app=app,
         capability_code=capability_code,
@@ -54,5 +62,7 @@ def activate_installed_capability_routes(
         "capability_code": capability_code,
         "descriptors": len(matching_descriptors),
         "routers_registered": len(routers),
+        "routes_removed": refresh["removed_routes"],
+        "modules_purged": refresh["purged_modules"],
         "duration_ms": duration_ms,
     }

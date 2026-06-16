@@ -27,6 +27,18 @@ export function getMentionQuery(command: string): string | null {
   return match[2].replace(/[.,;:)\]\}，。、；：）】}]+$/, '').toLowerCase();
 }
 
+export function rememberAppliedMentionItem(
+  current: MeetingMentionItem[],
+  item: MeetingMentionItem,
+): MeetingMentionItem[] {
+  if (!item.ref && !item.packToolId) {
+    return current;
+  }
+  const next = current.filter((candidate) => candidate.token !== item.token);
+  next.push(item);
+  return next.slice(-24);
+}
+
 export function applyMentionToken(command: string, token: string): string {
   return command.replace(/(^|\s)@([^\s@]*)$/, (_match, prefix: string) => `${prefix}${token} `);
 }

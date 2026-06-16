@@ -67,6 +67,7 @@ from backend.app.services.capability_api_loader import (
 from backend.app.app_bootstrap.startup_seeded_activation import (
     record_startup_seeded_activation_pending,
 )
+from backend.app.app_bootstrap.runtime_route_modules import register_runtime_route_modules
 from app.services.pack_activation_service import PackActivationService
 
 logger = logging.getLogger(__name__)
@@ -360,6 +361,8 @@ def register_core_routes(app: FastAPI) -> None:
         logger.info("Agent dispatch routes registered")
     except Exception as e:
         logger.debug(f"Agent dispatch routes not registered: {e}")
+
+    register_runtime_route_modules(app)
 
     # Device Node WebSocket + HTTP routes (host sidecar communication)
     try:
