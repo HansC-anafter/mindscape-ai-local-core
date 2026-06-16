@@ -31,7 +31,10 @@ describe('AgentFreeformCanvas', () => {
 
     expect(screen.getByTestId('agent-freeform-canvas')).toBeInTheDocument();
     expect(screen.getByTestId('agent-freeform-panel-composer')).toHaveAttribute('data-panel-type', 'composer');
+    expect(screen.getByTestId('agent-freeform-panel-object_context')).toHaveAttribute('data-panel-type', 'object_context');
+    expect(screen.getByTestId('agent-freeform-panel-tool_calls')).toHaveAttribute('data-panel-type', 'tool_calls');
     expect(screen.getByTestId('host-runtime-composer')).toBeInTheDocument();
+    expect(screen.getByTestId('host-runtime-object-context')).toHaveTextContent('Graph selection');
     expect(screen.getByTestId('host-runtime-resource-state')).toHaveTextContent('No session');
   });
 

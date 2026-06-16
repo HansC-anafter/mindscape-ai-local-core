@@ -15,6 +15,7 @@ import { HostRuntimePatchCard } from './HostRuntimePatchCard';
 import { HostRuntimeProvenanceCard } from './HostRuntimeProvenanceCard';
 import { HostRuntimeStatusBadge } from './HostRuntimeStatusBadge';
 import { HostRuntimeToolEventCard } from './HostRuntimeToolEventCard';
+import type { HostRuntimeGraphContext } from './hostRuntimeGraphContext';
 
 function zIndexForLayer(layer: AgentFreeformPanel['zLayer']): number {
   return layer === 'focus' ? 30 : layer === 'raised' ? 20 : 10;
@@ -27,6 +28,7 @@ function panelContent({
   session,
   meetingId,
   selectedObjectRef,
+  graphContext,
   isStarting,
   onSubmitPrompt,
 }: {
@@ -36,6 +38,7 @@ function panelContent({
   session: HostRuntimeSession | null;
   meetingId: string | null;
   selectedObjectRef: AddressableObjectRef | null;
+  graphContext?: HostRuntimeGraphContext | null;
   isStarting: boolean;
   onSubmitPrompt: (prompt: string) => void;
 }) {
@@ -52,7 +55,13 @@ function panelContent({
     case 'patch_files':
       return <HostRuntimePatchCard events={events} />;
     case 'object_context':
-      return <HostRuntimeObjectContextBar meetingId={meetingId} selectedObjectRef={selectedObjectRef} />;
+      return (
+        <HostRuntimeObjectContextBar
+          meetingId={meetingId}
+          selectedObjectRef={selectedObjectRef}
+          graphContext={graphContext}
+        />
+      );
     case 'artifact_preview':
       return <HostRuntimeProvenanceCard events={events} />;
     case 'trace_cards':
@@ -103,8 +112,10 @@ export function AgentFreeformCanvas({
   session,
   meetingId,
   selectedObjectRef,
+  graphContext,
   isStarting,
   error,
+  compactLayout = false,
   onSubmitPrompt,
   onSelectPanel,
   onResetLayout,
@@ -116,14 +127,17 @@ export function AgentFreeformCanvas({
   session: HostRuntimeSession | null;
   meetingId: string | null;
   selectedObjectRef: AddressableObjectRef | null;
+  graphContext?: HostRuntimeGraphContext | null;
   isStarting: boolean;
   error: string | null;
+  compactLayout?: boolean;
   onSubmitPrompt: (prompt: string) => void;
   onSelectPanel: (panelId: string) => void;
   onResetLayout: () => void;
   onToggleLocked: () => void;
 }) {
-  const compact = useCompactRunsCanvas();
+  const viewportCompact = useCompactRunsCanvas();
+  const compact = compactLayout || viewportCompact;
   const panels = mobilePanelOrder(layout.panels);
   return (
     <section
@@ -191,7 +205,7 @@ export function AgentFreeformCanvas({
               {panel.pinned ? <span className="text-[10px] font-semibold text-blue-600 dark:text-blue-300">PIN</span> : null}
             </header>
             <div className="min-h-0 flex-1 overflow-auto p-3">
-              {panelContent({ panel, apiUrl, events, session, meetingId, selectedObjectRef, isStarting, onSubmitPrompt })}
+              {panelContent({ panel, apiUrl, events, session, meetingId, selectedObjectRef, graphContext, isStarting, onSubmitPrompt })}
             </div>
           </article>
           ))}
@@ -210,7 +224,7 @@ export function AgentFreeformCanvas({
               {panel.title}
             </header>
             <div className="p-3">
-              {panelContent({ panel, apiUrl, events, session, meetingId, selectedObjectRef, isStarting, onSubmitPrompt })}
+              {panelContent({ panel, apiUrl, events, session, meetingId, selectedObjectRef, graphContext, isStarting, onSubmitPrompt })}
             </div>
           </article>
           ))}

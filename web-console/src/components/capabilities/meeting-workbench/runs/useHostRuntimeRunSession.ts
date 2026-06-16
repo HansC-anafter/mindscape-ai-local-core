@@ -11,6 +11,8 @@ import {
   startHostRuntimeTurn,
 } from '@/lib/host-runtime-sessions';
 
+import { buildHostRuntimeGraphContext } from './hostRuntimeGraphContext';
+
 export interface HostRuntimeRunSessionState {
   status: HostRuntimeStatus | null;
   session: HostRuntimeSession | null;
@@ -41,13 +43,13 @@ export function useHostRuntimeRunSession({
   });
   const socketRef = useRef<WebSocket | null>(null);
   const selectedObjectUri = selectedObjectRef?.uri || null;
-  const contextRef = useMemo(
-    () => ({
-      meeting_id: meetingId,
-      selected_object_ref: selectedObjectRef,
-      source: 'aol_graph_runtime_runs',
+  const graphContext = useMemo(
+    () => buildHostRuntimeGraphContext({
+      workspaceId,
+      meetingId,
+      selectedObjectRef,
     }),
-    [meetingId, selectedObjectRef],
+    [meetingId, selectedObjectRef, workspaceId],
   );
 
   useEffect(() => {
@@ -121,6 +123,10 @@ export function useHostRuntimeRunSession({
       metadata: {
         meeting_id: meetingId,
         selected_object_uri: selectedObjectUri,
+        selected_graph_anchor_uri: graphContext.selected_graph_anchor?.anchor_uri ?? null,
+        graph_selection_hash: graphContext.graph_selection_ref.selection_hash,
+        graph_context_id: graphContext.graph_context_ref.context_id,
+        object_graph_aggregate_unit_id: graphContext.object_graph_aggregate_unit.unit_id,
       },
     });
     setState((current) => ({
@@ -131,7 +137,7 @@ export function useHostRuntimeRunSession({
     }));
     attachStream(session, session.last_event_seq || 0);
     return session;
-  }, [apiUrl, attachStream, meetingId, selectedObjectUri, state.session, workspaceId]);
+  }, [apiUrl, attachStream, graphContext, meetingId, selectedObjectUri, state.session, workspaceId]);
 
   const submitPrompt = useCallback(async (prompt: string) => {
     const trimmed = prompt.trim();
@@ -146,7 +152,7 @@ export function useHostRuntimeRunSession({
         workspaceId,
         sessionId: session.id,
         prompt: trimmed,
-        contextRef,
+        contextRef: graphContext,
       });
       if (result.event) {
         setState((current) => ({
@@ -163,10 +169,11 @@ export function useHostRuntimeRunSession({
     } finally {
       setState((current) => ({ ...current, isStarting: false }));
     }
-  }, [apiUrl, contextRef, ensureSession, workspaceId]);
+  }, [apiUrl, ensureSession, graphContext, workspaceId]);
 
   return {
     ...state,
+    graphContext,
     submitPrompt,
   };
 }

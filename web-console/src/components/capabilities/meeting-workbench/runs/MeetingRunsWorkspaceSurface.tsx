@@ -18,11 +18,13 @@ export function MeetingRunsWorkspaceSurface({
   workspaceId,
   meetingId,
   selectedObjectRef,
+  compactLayout = false,
 }: {
   apiUrl: string;
   workspaceId: string;
   meetingId: string | null;
   selectedObjectRef: AddressableObjectRef | null;
+  compactLayout?: boolean;
 }) {
   const runtime = useHostRuntimeRunSession({
     apiUrl,
@@ -64,8 +66,10 @@ export function MeetingRunsWorkspaceSurface({
         session={runtime.session}
         meetingId={meetingId}
         selectedObjectRef={selectedObjectRef}
+        graphContext={runtime.graphContext}
         isStarting={runtime.isStarting}
         error={runtime.error}
+        compactLayout={compactLayout}
         onSubmitPrompt={runtime.submitPrompt}
         onSelectPanel={layout.selectPanel}
         onResetLayout={layout.resetLayout}

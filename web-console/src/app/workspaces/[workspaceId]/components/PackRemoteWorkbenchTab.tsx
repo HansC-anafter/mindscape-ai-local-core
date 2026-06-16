@@ -4,6 +4,8 @@ import React from 'react';
 
 import { buildCapabilityWorkbenchPath } from '@/lib/capability-static-hosts';
 
+import { RemoteWorkbenchRuntimeEntrySurface } from './RemoteWorkbenchRuntimeEntrySurface';
+
 interface PackRemoteWorkbenchTabProps {
   workspaceId: string;
   targetCapabilityCode: string | null;
@@ -65,15 +67,22 @@ export function PackRemoteWorkbenchTab({
           Open local console
         </button>
       </div>
-      <div className="min-h-0 flex-1 bg-[#f6f0e3]">
-        <iframe
-          key={remoteWorkbenchUrl}
-          title="Remote workbench control"
-          src={remoteWorkbenchUrl}
-          loading="lazy"
-          className="h-full w-full border-0 bg-[#f6f0e3]"
-          data-testid="pack-remote-workbench-iframe"
+      <div className="grid min-h-0 flex-1 grid-cols-1 bg-[#f6f0e3] lg:grid-cols-[minmax(26rem,0.95fr)_minmax(26rem,1.05fr)]">
+        <RemoteWorkbenchRuntimeEntrySurface
+          workspaceId={workspaceId}
+          targetCapabilityCode={targetCapabilityCode}
+          targetCapabilityLabel={targetCapabilityLabel}
         />
+        <div className="min-h-[30rem] bg-[#f6f0e3]">
+          <iframe
+            key={remoteWorkbenchUrl}
+            title="Remote workbench control"
+            src={remoteWorkbenchUrl}
+            loading="lazy"
+            className="h-full w-full border-0 bg-[#f6f0e3]"
+            data-testid="pack-remote-workbench-iframe"
+          />
+        </div>
       </div>
     </div>
   );

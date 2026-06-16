@@ -20,6 +20,15 @@ vi.mock('@/lib/capability-packs/installed-capabilities-cache', () => ({
   getInstalledCapabilities: vi.fn(),
 }));
 
+vi.mock('./RemoteWorkbenchRuntimeEntrySurface', async () => {
+  const ReactRuntime = await import('react');
+  return {
+    RemoteWorkbenchRuntimeEntrySurface: () => ReactRuntime.createElement('div', {
+      'data-testid': 'remote-workbench-runtime-entry',
+    }),
+  };
+});
+
 describe('PackPanel capability workbench routing', () => {
   beforeEach(() => {
     mockWindowOpen.mockReset();
@@ -107,6 +116,7 @@ describe('PackPanel capability workbench routing', () => {
 
     const iframe = await screen.findByTestId('pack-remote-workbench-iframe');
     expect(screen.getByTestId('pack-panel-remote-tab')).toBeInTheDocument();
+    expect(screen.getByTestId('remote-workbench-runtime-entry')).toBeInTheDocument();
     expect(iframe).toHaveAttribute('src', buildGatewayControlPath('ws-test', 'ig'));
     expect(mockWindowOpen).not.toHaveBeenCalled();
   });
