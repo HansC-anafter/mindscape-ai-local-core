@@ -1,20 +1,8 @@
 'use client';
 
 import React, { useMemo, useState } from 'react';
-import {
-  Background,
-  Controls,
-  Handle,
-  MiniMap,
-  Position,
-  ReactFlow,
-  type Connection,
-  type Edge,
-  type Node,
-  type NodeProps,
-} from '@xyflow/react';
+import { type Connection } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { Braces, Copy, Layers, Maximize2, Redo2, Save, SlidersHorizontal, Trash2, Undo2 } from 'lucide-react';
 
 import {
   fetchCompositionGraphNodeOptions,
@@ -27,15 +15,28 @@ import {
   type CompositionGraphNode,
   type CompositionGraphNodeOption,
   type CompositionGraphRun,
-  type CompositionGraphRunNodeStatus,
   type CompositionGraphRunStatus,
   type CompositionGraphNodeType,
-  type CompositionGraphViewport,
 } from '@/lib/composition-graph';
 import type { AddressableObjectRef } from '@/lib/addressable-object-layer';
 import { useMeetingWorkbenchViewportClass } from '../meetingWorkbenchPanelLayoutState';
 import type { MeetingMentionItem, MeetingTranslate } from '../meetingWorkbenchTypes';
-import { DirectorGraphCompileButton } from './DirectorGraphCompileButton';
+import {
+  INITIAL_VIEWPORT,
+  buildDefaultPayload,
+  dataTypesCompatible,
+  diagnosticText,
+  isRecord,
+  nodeTypePorts,
+  portablePayload,
+  toFlowEdges,
+  toFlowNodes,
+  toGraphEdges,
+  toGraphNodes,
+  type DirectorGraphFlowEdge,
+  type DirectorGraphFlowNode,
+} from './DirectorGraphCanvasModel';
+import { DirectorGraphCanvasShell } from './DirectorGraphCanvasShell';
 import {
   createDirectorGraphHistory,
   createDirectorGraphSnapshot,
@@ -45,215 +46,10 @@ import {
   type DirectorGraphHistoryState,
   undoDirectorGraphHistory,
 } from './DirectorGraphHistory';
-import { DirectorGraphImportExport } from './DirectorGraphImportExport';
-import { DirectorGraphInspector } from './DirectorGraphInspector';
-import { DirectorGraphPalette } from './DirectorGraphPalette';
-import { DirectorGraphResponsiveSurface, type DirectorGraphSecondarySurface } from './DirectorGraphResponsiveSurface';
+import type { DirectorGraphSecondarySurface } from './DirectorGraphResponsiveSurface';
 import { useCompositionGraphContracts } from './useCompositionGraphContracts';
 import { useCompositionGraphDraft } from './useCompositionGraphDraft';
 import { useCompositionGraphRunMonitor } from './useCompositionGraphRunMonitor';
-
-type DirectorGraphNodeData = {
-  graphNode: CompositionGraphNode;
-  nodeType: CompositionGraphNodeType;
-  runStatus?: CompositionGraphRunNodeStatus;
-};
-type DirectorGraphFlowNode = Node<DirectorGraphNodeData>;
-type DirectorGraphFlowEdge = Edge<{ graphEdge: CompositionGraphEdge }>;
-
-const INITIAL_VIEWPORT: CompositionGraphViewport = { x: 0, y: 0, zoom: 1 };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function getUnknownNodeType(id: string): CompositionGraphNodeType {
-  return {
-    id,
-    label: id,
-    source: 'pack',
-    input_ports: [{ id: 'input', direction: 'input', data_type: 'any' }],
-    output_ports: [{ id: 'output', direction: 'output', data_type: 'any' }],
-  };
-}
-
-function defaultValueForSchema(schema: unknown): unknown {
-  if (!isRecord(schema)) {
-    return '';
-  }
-  const type = schema.type;
-  if (type === 'object') {
-    const properties = isRecord(schema.properties) ? schema.properties : {};
-    const required = Array.isArray(schema.required) ? schema.required.filter((item): item is string => typeof item === 'string') : [];
-    return required.reduce<Record<string, unknown>>((payload, key) => {
-      payload[key] = defaultValueForSchema(properties[key]);
-      return payload;
-    }, {});
-  }
-  if (type === 'array') {
-    return [];
-  }
-  if (type === 'number' || type === 'integer') {
-    return 0;
-  }
-  if (type === 'boolean') {
-    return false;
-  }
-  return '';
-}
-
-function buildDefaultPayload(nodeType: CompositionGraphNodeType, nodeId: string, workspaceId: string): Record<string, unknown> {
-  if (nodeType.id === 'object_reference') {
-    return {
-      ref: {
-        uri: `mindscape://object/${nodeId}`,
-        owner_pack: 'workspace',
-        object_kind: 'object',
-        object_id: nodeId,
-        workspace_id: workspaceId,
-      },
-    };
-  }
-  const schemaPayload = defaultValueForSchema(nodeType.payload_schema);
-  return isRecord(schemaPayload) ? schemaPayload : {};
-}
-
-function nodeTypePorts(nodeType: CompositionGraphNodeType, direction: 'input' | 'output') {
-  const ports = direction === 'input' ? nodeType.input_ports || [] : nodeType.output_ports || [];
-  return ports.length > 0 ? ports : [{ id: direction, direction, data_type: 'any' }];
-}
-
-function dataTypesCompatible(sourceType: string, targetType: string): boolean {
-  return sourceType === targetType || sourceType === 'any' || targetType === 'any';
-}
-
-function DirectorGraphNodeView({ data, selected }: NodeProps<DirectorGraphFlowNode>) {
-  const inputPorts = nodeTypePorts(data.nodeType, 'input');
-  const outputPorts = nodeTypePorts(data.nodeType, 'output');
-  return (
-    <div
-      className={`min-h-24 w-56 rounded-md border bg-white px-3 py-2 shadow-sm dark:bg-slate-950 ${
-        selected ? 'border-blue-400 ring-2 ring-blue-100 dark:ring-blue-900/40' : 'border-slate-200 dark:border-slate-800'
-      }`}
-      data-testid={`director-graph-node-${data.graphNode.id}`}
-    >
-      {inputPorts.map((port, index) => (
-        <Handle
-          key={port.id}
-          id={port.id}
-          type="target"
-          position={Position.Left}
-          style={{ top: `${((index + 1) / (inputPorts.length + 1)) * 100}%` }}
-        />
-      ))}
-      <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500 dark:text-slate-400">
-        {data.nodeType.capability_code || data.nodeType.source}
-      </div>
-      <div className="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-100">{data.nodeType.label}</div>
-      <div className="mt-1 flex items-center justify-between gap-2">
-        <div className="truncate font-mono text-[11px] text-slate-500 dark:text-slate-400">{data.graphNode.id}</div>
-        {data.runStatus ? (
-          <span className="shrink-0 rounded-sm bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600 dark:bg-slate-900 dark:text-slate-300">
-            {data.runStatus}
-          </span>
-        ) : null}
-      </div>
-      {outputPorts.map((port, index) => (
-        <Handle
-          key={port.id}
-          id={port.id}
-          type="source"
-          position={Position.Right}
-          style={{ top: `${((index + 1) / (outputPorts.length + 1)) * 100}%` }}
-        />
-      ))}
-    </div>
-  );
-}
-
-const nodeTypes = { compositionGraphNode: DirectorGraphNodeView };
-
-function toFlowNodes(
-  graphNodes: CompositionGraphNode[],
-  nodeTypeById: Map<string, CompositionGraphNodeType>,
-  run?: CompositionGraphRun | null,
-): DirectorGraphFlowNode[] {
-  return graphNodes.map((graphNode) => {
-    const nodeType = nodeTypeById.get(graphNode.type) || getUnknownNodeType(graphNode.type);
-    const runStatus = run?.node_states?.[graphNode.id]?.status;
-    return {
-      id: graphNode.id,
-      type: 'compositionGraphNode',
-      position: graphNode.position,
-      data: { graphNode, nodeType, runStatus },
-    };
-  });
-}
-
-function toFlowEdges(graphEdges: CompositionGraphEdge[]): DirectorGraphFlowEdge[] {
-  return graphEdges.map((graphEdge) => ({
-    id: graphEdge.id,
-    source: graphEdge.source,
-    target: graphEdge.target,
-    sourceHandle: graphEdge.source_port,
-    targetHandle: graphEdge.target_port,
-    type: 'smoothstep',
-    data: { graphEdge },
-  }));
-}
-
-function toGraphNodes(nodes: DirectorGraphFlowNode[]): CompositionGraphNode[] {
-  return nodes.map((node) => ({
-    ...node.data.graphNode,
-    position: node.position,
-    payload: { ...node.data.graphNode.payload },
-    metadata: { ...(node.data.graphNode.metadata || {}) },
-  }));
-}
-
-function toGraphEdges(edges: DirectorGraphFlowEdge[]): CompositionGraphEdge[] {
-  return edges.map((edge) => ({
-    ...(edge.data?.graphEdge || {
-      id: edge.id,
-      source: edge.source,
-      target: edge.target,
-      source_port: edge.sourceHandle || 'output',
-      target_port: edge.targetHandle || 'input',
-      type: 'default',
-    }),
-    source: edge.source,
-    target: edge.target,
-    source_port: edge.sourceHandle || edge.data?.graphEdge.source_port || 'output',
-    target_port: edge.targetHandle || edge.data?.graphEdge.target_port || 'input',
-  }));
-}
-
-function portablePayload({
-  graphId,
-  selectedPrimaryPack,
-  nodes,
-  edges,
-}: {
-  graphId: string;
-  selectedPrimaryPack: string | null;
-  nodes: CompositionGraphNode[];
-  edges: CompositionGraphEdge[];
-}): CompositionGraphImportExportPayload {
-  return {
-    schema_version: 'composition_graph.v1',
-    graph_id: graphId,
-    title: 'Composition Graph',
-    selected_primary_pack: selectedPrimaryPack,
-    nodes,
-    edges,
-    viewport: INITIAL_VIEWPORT,
-    metadata: {},
-  };
-}
-
-function diagnosticText(diagnostics: CompositionGraphDiagnostic[]): string {
-  return diagnostics.map((diagnostic) => `${diagnostic.code}: ${diagnostic.message}`).join('\n');
-}
 
 export function DirectorGraphCanvas({
   apiUrl,
@@ -338,10 +134,7 @@ export function DirectorGraphCanvas({
     () => toGraphNodes(nodes).find((node) => node.id === selectedNodeId) || null,
     [nodes, selectedNodeId],
   );
-  const selectedNodeType = selectedNode ? nodeTypeById.get(selectedNode.type) || getUnknownNodeType(selectedNode.type) : null;
   const viewportClass = useMeetingWorkbenchViewportClass();
-  const compactViewport = viewportClass !== 'desktop';
-  const mobileViewport = viewportClass === 'mobile';
 
   React.useEffect(() => {
     if (!selectedPrimaryPack && contracts.length > 0) {
@@ -392,10 +185,10 @@ export function DirectorGraphCanvas({
   }, [activeRun, nodeTypeById]);
 
   React.useEffect(() => {
-    if (!compactViewport) {
+    if (viewportClass === 'desktop') {
       setCompactSurface(null);
     }
-  }, [compactViewport]);
+  }, [viewportClass]);
 
   React.useEffect(() => {
     if (
@@ -648,281 +441,55 @@ export function DirectorGraphCanvas({
     applySnapshot({ nodes: graphNodes, edges: toGraphEdges(edges) });
   }
 
-  const hasComfyLaneNode = nodes.some((node) => node.data.graphNode.type === 'comfyui_lane_adapter');
-  const missingComfyWorkflow = nodes.some((node) => {
-    if (node.data.graphNode.type !== 'comfyui_lane_adapter') {
-      return false;
-    }
-    const workflowRef = node.data.graphNode.payload.workflow_ref;
-    return typeof workflowRef !== 'string' || workflowRef.trim().length === 0;
-  });
-  const runBlockedDiagnostics =
-    hasComfyLaneNode && comfyLaneOptions.length === 0
-      ? comfyLaneDiagnostics
-      : missingComfyWorkflow
-        ? [
-            {
-              code: 'comfyui_ready_lane_not_found',
-              message: t('directorGraphNoReadyComfyLane'),
-              severity: 'error' as const,
-            },
-          ]
-        : [];
-
-  const toolbarButtonClass =
-    'inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-900 dark:disabled:text-slate-700';
-  const compactSurfaceButtonClass = (active: boolean) =>
-    `inline-flex h-8 w-8 items-center justify-center rounded-md border transition ${
-      active
-        ? 'border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-200'
-        : 'border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-900'
-    }`;
-  const statusText = contractsLoading
-    ? t('directorGraphLoadingContracts')
-    : contractsError || diagnosticText(diagnostics) || t('directorGraphReady');
-  const diagnosticsText =
-    operationError || saveError || diagnosticText(runBlockedDiagnostics) || diagnosticText(runDiagnostics);
-  const saveButtonLabel = saving ? t('directorGraphSaving') : t('directorGraphSave');
-  const runDisabled = !meetingId || runBlockedDiagnostics.length > 0;
-
-  const palettePanel = (
-    <DirectorGraphPalette
+  return (
+    <DirectorGraphCanvasShell
+      viewportClass={viewportClass}
       contracts={contracts}
-      nodeTypes={availableNodeTypes}
+      contractsLoading={contractsLoading}
+      contractsError={contractsError}
+      diagnostics={diagnostics}
+      availableNodeTypes={availableNodeTypes}
       selectedPrimaryPack={selectedPrimaryPack}
       onSelectPrimaryPack={setSelectedPrimaryPack}
-      onAddNode={addNode}
-      presentation={compactViewport ? 'drawer' : 'inline'}
-      t={t}
-    />
-  );
-
-  const inspectorPanel = (
-    <DirectorGraphInspector
-      node={selectedNode}
-      nodeType={selectedNodeType}
+      selectedNode={selectedNode}
       payloadText={payloadText}
-      error={payloadError}
+      payloadError={payloadError}
       comfyLaneOptions={comfyLaneOptions}
-      onPayloadTextChange={setPayloadText}
-      onApplyPayload={handleApplyPayload}
-      onPatchPayload={handlePatchSelectedNode}
-      presentation={compactViewport ? 'drawer' : 'inline'}
-      t={t}
-    />
-  );
-
-  const importExportPanel = (
-    <DirectorGraphImportExport
-      value={jsonText}
-      error={importError}
-      onChange={setJsonText}
-      onExport={handleExport}
-      onImport={handleImport}
-      onInvalidImport={setImportError}
-      presentation={compactViewport ? 'drawer' : 'inline'}
-      t={t}
-    />
-  );
-
-  const canvasSurface = (
-    <div
-      className="min-h-0 flex-1"
-      onDragOver={(event) => {
-        event.preventDefault();
-        event.dataTransfer.dropEffect = 'copy';
-      }}
-      onDrop={(event) => {
-        event.preventDefault();
-        const nodeTypeId = event.dataTransfer.getData('application/x-composition-graph-node-type');
-        const nodeType = nodeTypeById.get(nodeTypeId);
-        if (!nodeType) {
-          return;
-        }
-        const bounds = event.currentTarget.getBoundingClientRect();
-        addNode(nodeType, { x: event.clientX - bounds.left - 112, y: event.clientY - bounds.top - 48 });
-      }}
-    >
-      <ReactFlow
-        nodes={nodes}
-        edges={edges}
-        nodeTypes={nodeTypes}
-        onNodesChange={(changes) => {
-          setNodes((current) =>
-            changes.reduce((nextNodes, change) => {
-              if (change.type === 'position' && change.position) {
-                return nextNodes.map((node) =>
-                  node.id === change.id ? { ...node, position: change.position || node.position } : node,
-                );
-              }
-              if (change.type === 'select') {
-                setSelectedNodeId(change.selected ? change.id : selectedNodeId);
-              }
-              return nextNodes;
-            }, current),
-          );
-        }}
-        onEdgesChange={() => undefined}
-        onConnect={handleConnect}
-        onNodeClick={(_event, node) => setSelectedNodeId(node.id)}
-        fitView
-      >
-        <Background />
-        <MiniMap data-testid="director-graph-minimap" pannable zoomable />
-        <Controls />
-      </ReactFlow>
-    </div>
-  );
-
-  const desktopToolbar = (
-    <div className="flex items-center gap-1">
-      <button type="button" onClick={handleUndo} className={toolbarButtonClass} data-testid="director-graph-undo" title={t('directorGraphUndo')}>
-        <Undo2 className="h-4 w-4" aria-hidden="true" />
-      </button>
-      <button type="button" onClick={handleRedo} className={toolbarButtonClass} data-testid="director-graph-redo" title={t('directorGraphRedo')}>
-        <Redo2 className="h-4 w-4" aria-hidden="true" />
-      </button>
-      <button
-        type="button"
-        onClick={() => selectedNode && setClipboardNode(selectedNode)}
-        disabled={!selectedNode}
-        className={toolbarButtonClass}
-        data-testid="director-graph-copy"
-        title={t('directorGraphCopy')}
-      >
-        <Copy className="h-4 w-4" aria-hidden="true" />
-      </button>
-      <button type="button" onClick={handlePaste} disabled={!clipboardNode} className={toolbarButtonClass} data-testid="director-graph-paste" title={t('directorGraphPaste')}>
-        <Copy className="h-4 w-4 rotate-180" aria-hidden="true" />
-      </button>
-      <button type="button" onClick={handleDelete} disabled={!selectedNode} className={toolbarButtonClass} data-testid="director-graph-delete" title={t('directorGraphDelete')}>
-        <Trash2 className="h-4 w-4" aria-hidden="true" />
-      </button>
-      <button type="button" onClick={() => window.dispatchEvent(new Event('resize'))} className={toolbarButtonClass} data-testid="director-graph-fit" title={t('directorGraphFit')}>
-        <Maximize2 className="h-4 w-4" aria-hidden="true" />
-      </button>
-      <button
-        type="button"
-        onClick={handleSave}
-        disabled={!meetingId || saving}
-        className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-200 px-2.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300 dark:border-slate-800 dark:text-slate-200 dark:hover:bg-slate-900 dark:disabled:text-slate-700"
-        data-testid="director-graph-save"
-        title={t('directorGraphSave')}
-      >
-        <Save className="h-4 w-4" aria-hidden="true" />
-        <span>{saveButtonLabel}</span>
-      </button>
-      <DirectorGraphCompileButton disabled={runDisabled} status={runStatus} onCompile={handleRun} t={t} />
-    </div>
-  );
-
-  const compactPrimaryActions = (
-    <>
-      <button
-        type="button"
-        onClick={handleSave}
-        disabled={!meetingId || saving}
-        className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-200 px-2.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300 dark:border-slate-800 dark:text-slate-200 dark:hover:bg-slate-900 dark:disabled:text-slate-700"
-        data-testid="director-graph-save"
-        title={t('directorGraphSave')}
-      >
-        <Save className="h-4 w-4" aria-hidden="true" />
-        <span className={mobileViewport ? 'sr-only' : undefined}>{saveButtonLabel}</span>
-      </button>
-      <DirectorGraphCompileButton
-        disabled={runDisabled}
-        status={runStatus}
-        onCompile={handleRun}
-        showLabel={!mobileViewport}
-        t={t}
-      />
-    </>
-  );
-
-  const compactUtilityActions = (
-    <>
-      <button
-        type="button"
-        onClick={() => handleToggleCompactSurface('palette')}
-        className={compactSurfaceButtonClass(compactSurface === 'palette')}
-        data-testid="director-graph-toggle-palette"
-        title={t('directorGraphPalette')}
-        aria-pressed={compactSurface === 'palette'}
-      >
-        <Layers className="h-4 w-4" aria-hidden="true" />
-      </button>
-      <button
-        type="button"
-        onClick={() => handleToggleCompactSurface('inspector')}
-        className={compactSurfaceButtonClass(compactSurface === 'inspector')}
-        data-testid="director-graph-toggle-inspector"
-        title={t('directorGraphInspector')}
-        aria-pressed={compactSurface === 'inspector'}
-      >
-        <SlidersHorizontal className="h-4 w-4" aria-hidden="true" />
-      </button>
-      <button
-        type="button"
-        onClick={() => handleToggleCompactSurface('json')}
-        className={compactSurfaceButtonClass(compactSurface === 'json')}
-        data-testid="director-graph-toggle-json"
-        title={t('directorGraphJsonTitle')}
-        aria-pressed={compactSurface === 'json'}
-      >
-        <Braces className="h-4 w-4" aria-hidden="true" />
-      </button>
-      <button type="button" onClick={handleUndo} className={toolbarButtonClass} data-testid="director-graph-undo" title={t('directorGraphUndo')}>
-        <Undo2 className="h-4 w-4" aria-hidden="true" />
-      </button>
-      <button type="button" onClick={handleRedo} className={toolbarButtonClass} data-testid="director-graph-redo" title={t('directorGraphRedo')}>
-        <Redo2 className="h-4 w-4" aria-hidden="true" />
-      </button>
-      <button
-        type="button"
-        onClick={() => selectedNode && setClipboardNode(selectedNode)}
-        disabled={!selectedNode}
-        className={toolbarButtonClass}
-        data-testid="director-graph-copy"
-        title={t('directorGraphCopy')}
-      >
-        <Copy className="h-4 w-4" aria-hidden="true" />
-      </button>
-      <button type="button" onClick={handlePaste} disabled={!clipboardNode} className={toolbarButtonClass} data-testid="director-graph-paste" title={t('directorGraphPaste')}>
-        <Copy className="h-4 w-4 rotate-180" aria-hidden="true" />
-      </button>
-      <button type="button" onClick={handleDelete} disabled={!selectedNode} className={toolbarButtonClass} data-testid="director-graph-delete" title={t('directorGraphDelete')}>
-        <Trash2 className="h-4 w-4" aria-hidden="true" />
-      </button>
-      <button type="button" onClick={() => window.dispatchEvent(new Event('resize'))} className={toolbarButtonClass} data-testid="director-graph-fit" title={t('directorGraphFit')}>
-        <Maximize2 className="h-4 w-4" aria-hidden="true" />
-      </button>
-    </>
-  );
-
-  const diagnosticsNode = diagnosticsText ? (
-    <div
-      className="border-t border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-200"
-      data-testid="director-graph-diagnostics"
-    >
-      {diagnosticsText}
-    </div>
-  ) : null;
-
-  return (
-    <DirectorGraphResponsiveSurface
-      viewportClass={viewportClass}
-      title={t('meetingWorkbenchDirectorGraph')}
-      status={statusText}
-      palette={palettePanel}
-      canvas={canvasSurface}
-      inspector={inspectorPanel}
-      importExport={importExportPanel}
-      diagnostics={diagnosticsNode}
-      desktopToolbar={desktopToolbar}
-      compactPrimaryActions={compactPrimaryActions}
-      compactUtilityActions={compactUtilityActions}
+      jsonText={jsonText}
+      importError={importError}
+      nodes={nodes}
+      edges={edges}
+      nodeTypeById={nodeTypeById}
+      selectedNodeId={selectedNodeId}
+      setNodes={setNodes}
+      setSelectedNodeId={setSelectedNodeId}
       compactSurface={compactSurface}
-      onCloseCompactSurface={() => setCompactSurface(null)}
+      canPaste={Boolean(clipboardNode)}
+      meetingId={meetingId}
+      saving={saving}
+      runStatus={runStatus}
+      operationError={operationError}
+      saveError={saveError}
+      runDiagnostics={runDiagnostics}
+      comfyLaneDiagnostics={comfyLaneDiagnostics}
+      addNode={addNode}
+      handleConnect={handleConnect}
+      handleUndo={handleUndo}
+      handleRedo={handleRedo}
+      handleCopySelectedNode={() => selectedNode && setClipboardNode(selectedNode)}
+      handlePaste={handlePaste}
+      handleDelete={handleDelete}
+      handleSave={handleSave}
+      handleRun={handleRun}
+      handleToggleCompactSurface={handleToggleCompactSurface}
+      handleApplyPayload={handleApplyPayload}
+      handlePatchSelectedNode={handlePatchSelectedNode}
+      handleExport={handleExport}
+      handleImport={handleImport}
+      setPayloadText={setPayloadText}
+      setJsonText={setJsonText}
+      setImportError={setImportError}
+      closeCompactSurface={() => setCompactSurface(null)}
       t={t}
     />
   );
