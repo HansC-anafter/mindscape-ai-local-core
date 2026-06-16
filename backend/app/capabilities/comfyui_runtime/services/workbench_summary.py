@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import concurrent.futures
-import os
 from typing import Any, Dict, Optional
 
 from capabilities.comfyui_runtime.services.workbench_summary_profiles import (
@@ -21,6 +19,12 @@ from capabilities.comfyui_runtime.services.workbench_summary_profiles import (
     _models_storage_root,
     _profile_readiness_entries,
     _recommended_state,
+)
+from capabilities.comfyui_runtime.services.workbench_summary_preview_audit import (
+    build_preview_runtime_audit_payload,
+)
+from capabilities.comfyui_runtime.services.workbench_summary_regional import (
+    merge_regional_adapter_host_readiness,
 )
 from capabilities.comfyui_runtime.services.talking_head_runtime_plan import (
     build_talking_head_runtime_plan,
@@ -83,191 +87,17 @@ def _runtime_ref_for_health(runtime_ref: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _build_preview_runtime_audit_payload() -> Dict[str, Any]:
-    timeout_seconds = float(
-        os.getenv("COMFYUI_RUNTIME_HEALTH_AUDIT_TIMEOUT_SECONDS", "5")
-    )
-    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-    try:
-        future = executor.submit(sync_preview_runtime_audit)
-        sync_payload = future.result(timeout=max(timeout_seconds, 1.0))
-    except concurrent.futures.TimeoutError:
-        return {
-            "status": "failed",
-            "stderr": "preview_runtime_audit_timeout",
-            "returncode": 124,
-            "command": [],
-            "summary_text": "",
-            "audit_verdict": "audit_timeout",
-            "effective_runtime_config": {},
-            "dependency_conflicts": [],
-            "python_env": {},
-            "process_profiles": [],
-            "shared_venv_risk": {"state": "unknown"},
-            "kimodo_preflight": {"state": "unknown", "blocked_reasons": []},
-            "kimodo_isolated_runtime": {"runtime_state": "unknown"},
-            "recommended_transformers_strategy": "audit_timeout",
-        }
-    except Exception as exc:
-        return {
-            "status": "failed",
-            "stderr": str(exc),
-            "returncode": 1,
-            "command": [],
-            "summary_text": "",
-            "audit_verdict": "audit_unavailable",
-            "effective_runtime_config": {},
-            "dependency_conflicts": [],
-            "python_env": {},
-            "process_profiles": [],
-            "shared_venv_risk": {"state": "unknown"},
-            "kimodo_preflight": {"state": "unknown", "blocked_reasons": []},
-            "kimodo_isolated_runtime": {"runtime_state": "unknown"},
-            "recommended_transformers_strategy": "audit_unavailable",
-        }
-    finally:
-        executor.shutdown(wait=False, cancel_futures=True)
-
-    readiness = dict(sync_payload.get("readiness") or {})
-    return {
-        "status": str(sync_payload.get("status") or ""),
-        "stderr": str(sync_payload.get("stderr") or ""),
-        "returncode": int(sync_payload.get("returncode", 0) or 0),
-        "command": list(sync_payload.get("command") or []),
-        "summary_text": str(
-            readiness.get("summary_text") or sync_payload.get("stdout") or ""
-        ),
-        "audit_verdict": str(readiness.get("audit_verdict") or "audit_unavailable"),
-        "effective_runtime_config": dict(
-            readiness.get("effective_runtime_config") or {}
-        ),
-        "dependency_conflicts": list(readiness.get("dependency_conflicts") or []),
-        "python_env": dict(readiness.get("python_env") or {}),
-        "process_profiles": list(readiness.get("process_profiles") or []),
-        "shared_venv_risk": dict(readiness.get("shared_venv_risk") or {}),
-        "kimodo_preflight": dict(readiness.get("kimodo_preflight") or {}),
-        "kimodo_isolated_runtime": dict(
-            readiness.get("kimodo_isolated_runtime") or {}
-        ),
-        "recommended_transformers_strategy": str(
-            readiness.get("recommended_transformers_strategy") or "audit_unavailable"
-        ),
-    }
+    return build_preview_runtime_audit_payload(sync_preview_runtime_audit)
 
 
 def _merge_regional_adapter_host_readiness(
     *,
     plan: Dict[str, Any],
 ) -> Dict[str, Any]:
-    merged_plan = dict(plan)
-    try:
-        sync_payload = sync_regional_adapter_runtime()
-    except Exception as exc:
-        merged_plan["host_runtime_readiness"] = {
-            "status": "unavailable",
-            "stderr": str(exc),
-            "returncode": 1,
-            "readiness": {},
-        }
-        return merged_plan
-
-    readiness = dict(sync_payload.get("readiness") or {})
-    merged_plan["host_runtime_readiness"] = {
-        "status": str(sync_payload.get("status") or ""),
-        "stderr": str(sync_payload.get("stderr") or ""),
-        "returncode": int(sync_payload.get("returncode", 0) or 0),
-        "readiness": readiness,
-    }
-    if not readiness:
-        return merged_plan
-
-    required_file_results = dict(readiness.get("required_file_results") or {})
-    host_missing_model_files: list[str] = []
-    host_invalid_model_files: list[str] = []
-    host_model_file_health: Dict[str, Dict[str, Any]] = {}
-    for result in required_file_results.values():
-        model_name = str(result.get("path") or "").strip()
-        if not model_name:
-            continue
-        exists = bool(result.get("exists"))
-        valid = bool(result.get("valid", True))
-        resolved_path = str(result.get("resolved_path") or "")
-        host_model_file_health[model_name] = {
-            "path": resolved_path,
-            "exists": exists,
-            "valid": valid,
-        }
-        if not exists:
-            if model_name not in host_missing_model_files:
-                host_missing_model_files.append(model_name)
-        elif not valid:
-            if model_name not in host_invalid_model_files:
-                host_invalid_model_files.append(model_name)
-            if model_name not in host_missing_model_files:
-                host_missing_model_files.append(model_name)
-
-    merged_plan["model_file_health"] = {
-        **dict(merged_plan.get("model_file_health") or {}),
-        **host_model_file_health,
-    }
-    merged_plan["missing_model_files"] = list(
-        dict.fromkeys(
-            list(merged_plan.get("missing_model_files") or [])
-            + host_missing_model_files
-        )
+    return merge_regional_adapter_host_readiness(
+        plan=plan,
+        sync_regional_adapter_runtime_fn=sync_regional_adapter_runtime,
     )
-    merged_plan["invalid_model_files"] = list(
-        dict.fromkeys(
-            list(merged_plan.get("invalid_model_files") or [])
-            + host_invalid_model_files
-        )
-    )
-    merged_plan["model_bootstrap_required"] = bool(
-        merged_plan.get("missing_model_files")
-    )
-
-    if readiness.get("ready", True):
-        return merged_plan
-
-    if not merged_plan.get("missing_model_files") and not merged_plan.get(
-        "invalid_model_files"
-    ):
-        return merged_plan
-
-    required_specs = list(merged_plan.get("required_runtime_install_specs") or [])
-    install_blockers = list(merged_plan.get("install_blockers") or [])
-    selected_backend_family = str(merged_plan.get("selected_backend_family") or "")
-    supports_auto_install = bool(merged_plan.get("supports_auto_install"))
-    if selected_backend_family == "manual_existing_nodes":
-        merged_plan["manual_only_specs"] = required_specs
-        merged_plan["source_install_specs"] = []
-        merged_plan["readiness_state"] = "manual_only_required"
-        merged_plan["narrative_state"] = "manual_only_required"
-        merged_plan["install_action_state"] = "manual_only"
-    else:
-        merged_plan["missing_runtime_install_specs"] = required_specs
-        merged_plan["source_install_specs"] = required_specs
-        merged_plan["manual_only_specs"] = []
-        merged_plan["readiness_state"] = "source_install_required"
-        merged_plan["narrative_state"] = "source_install_required"
-        merged_plan["source_install_actionable"] = bool(required_specs) and not install_blockers
-        merged_plan["install_action_state"] = (
-            "actionable_source_install"
-            if merged_plan["source_install_actionable"]
-            else "blocked_configuration"
-        )
-        if not supports_auto_install and "preset_manual_only" not in install_blockers:
-            install_blockers.append("preset_manual_only")
-            merged_plan["install_blockers"] = install_blockers
-
-    host_summary = str(readiness.get("summary_text") or "").strip()
-    configuration_hints = list(merged_plan.get("configuration_hints") or [])
-    if host_summary:
-        configuration_hints.append(
-            "Host readiness check reports regional runtime is not ready:\n"
-            + host_summary
-        )
-    merged_plan["configuration_hints"] = configuration_hints
-    return merged_plan
 
 
 def _build_lane_entries(
