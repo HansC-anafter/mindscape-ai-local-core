@@ -165,6 +165,7 @@ describe('AOLMeetingBottomShell layout and runtime graph', () => {
 
     expect(screen.getByTestId('meeting-graph-view-mode-compact')).toBeInTheDocument();
     expect(await screen.findByTestId('meeting-runs-workspace-surface')).toBeInTheDocument();
+    expect(screen.getByTestId('meeting-runs-workspace-surface')).toHaveAttribute('data-layout-compact', 'true');
     expect(screen.getByTestId('meeting-graph-view-runs')).toHaveAttribute('aria-pressed', 'true');
     expect(screen.queryByTestId('meeting-task-canvas')).toBeNull();
 

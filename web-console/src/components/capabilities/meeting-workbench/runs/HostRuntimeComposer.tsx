@@ -41,13 +41,13 @@ export function HostRuntimeComposer({
         data-testid="host-runtime-prompt"
         disabled={disabled}
       />
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <HostRuntimeVoicePromptButton
           apiUrl={apiUrl}
           disabled={disabled}
           onTranscript={handleAppendTranscript}
         />
-        <div className="flex items-center gap-2">
+        <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
           <button
             type="button"
             className="inline-flex h-8 items-center gap-1 rounded-md border border-slate-200 px-2 text-xs font-semibold text-slate-500 dark:border-slate-800 dark:text-slate-300"

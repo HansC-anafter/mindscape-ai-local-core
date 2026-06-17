@@ -41,6 +41,7 @@ export function MeetingWorkbenchStage({
   onCommandEnvelope,
   inspectorSlot,
   showOutliner = true,
+  compactLayout = false,
   t,
 }: {
   apiUrl: string;
@@ -69,6 +70,7 @@ export function MeetingWorkbenchStage({
   onCommandEnvelope: (envelope: CompositionGraphCommandEnvelopeDraft) => Promise<void>;
   inspectorSlot?: ReactNode;
   showOutliner?: boolean;
+  compactLayout?: boolean;
   t: MeetingTranslate;
 }) {
   const isRunsMode = graphViewMode === 'runs';
@@ -98,6 +100,7 @@ export function MeetingWorkbenchStage({
             meetingId={meetingId}
             selectedObjectRef={selectedObjectRef}
             graphSelection={graphSelection}
+            compactLayout={compactLayout}
           />
         ) : (
           <MeetingTaskCanvas

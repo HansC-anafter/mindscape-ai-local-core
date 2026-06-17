@@ -74,4 +74,24 @@ describe('MeetingRunsWorkspaceSurface', () => {
 
     expect(submitPrompt).toHaveBeenCalledWith('Use the meeting engine');
   });
+
+  it('uses the surface as the compact mobile scroll owner', () => {
+    render(
+      <MeetingRunsWorkspaceSurface
+        apiUrl="http://api.test"
+        workspaceId="ws_test"
+        meetingId="mtg_1"
+        selectedObjectRef={null}
+        compactLayout
+      />,
+    );
+
+    const surface = screen.getByTestId('meeting-runs-workspace-surface');
+    const canvas = screen.getByTestId('agent-freeform-canvas');
+    expect(surface).toHaveAttribute('data-layout-compact', 'true');
+    expect(surface).toHaveClass('overflow-y-auto');
+    expect(canvas).toHaveAttribute('data-layout-compact', 'true');
+    expect(canvas).toHaveClass('overflow-visible');
+    expect(screen.getByTestId('agent-freeform-mobile-stack')).toBeInTheDocument();
+  });
 });

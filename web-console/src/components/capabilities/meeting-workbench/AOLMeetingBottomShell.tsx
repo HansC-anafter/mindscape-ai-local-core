@@ -462,6 +462,7 @@ export function AOLMeetingBottomShell({
           graphSelection,
           onCommandEnvelope: handleCompiledGraphEnvelope,
           showOutliner: !compactViewport,
+          compactLayout: compactViewport,
           t,
           inspectorSlot: !compactViewport ? <MeetingWorkbenchInspectorDock {...inspectorDockProps} /> : null,
         }}

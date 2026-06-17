@@ -139,13 +139,23 @@ export function AgentFreeformCanvas({
   const viewportCompact = useCompactRunsCanvas();
   const compact = compactLayout || viewportCompact;
   const panels = mobilePanelOrder(layout.panels);
+  const canvasClassName = compact
+    ? 'relative min-h-full overflow-visible bg-slate-100/90 p-3 pb-[calc(5rem+env(safe-area-inset-bottom,0px))] dark:bg-slate-950/90'
+    : 'relative h-full min-h-[34rem] overflow-auto bg-slate-100/90 p-3 dark:bg-slate-950/90';
+  const headerClassName = compact
+    ? 'sticky top-0 z-40 mb-3 flex flex-col items-stretch gap-2 rounded-md border border-slate-200 bg-white/95 px-3 py-2 shadow-sm dark:border-slate-800 dark:bg-slate-950/95'
+    : 'sticky top-0 z-40 mb-3 flex items-center justify-between gap-3 rounded-md border border-slate-200 bg-white/95 px-3 py-2 shadow-sm dark:border-slate-800 dark:bg-slate-950/95';
+  const headerActionsClassName = compact
+    ? 'flex min-w-0 items-center gap-2 overflow-x-auto overscroll-contain pb-1'
+    : 'flex shrink-0 items-center gap-2';
   return (
     <section
-      className="relative h-full min-h-[34rem] overflow-auto bg-slate-100/90 p-3 dark:bg-slate-950/90"
+      className={canvasClassName}
       data-testid="agent-freeform-canvas"
+      data-layout-compact={compact}
       data-layout-locked={layout.locked}
     >
-      <div className="sticky top-0 z-40 mb-3 flex items-center justify-between gap-3 rounded-md border border-slate-200 bg-white/95 px-3 py-2 shadow-sm dark:border-slate-800 dark:bg-slate-950/95">
+      <div className={headerClassName}>
         <div className="min-w-0">
           <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
             Host Runtime
@@ -154,7 +164,7 @@ export function AgentFreeformCanvas({
             Codex CLI run workspace
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
+        <div className={headerActionsClassName}>
           {error ? <HostRuntimeStatusBadge status={error} /> : <HostRuntimeStatusBadge status={session?.status || 'ready'} />}
           <button
             type="button"
@@ -213,7 +223,7 @@ export function AgentFreeformCanvas({
       ) : null}
 
       {compact ? (
-        <div className="space-y-3" data-testid="agent-freeform-mobile-stack">
+        <div className="space-y-3 pb-2" data-testid="agent-freeform-mobile-stack">
           {panels.map((panel) => panel.collapsed ? null : (
           <article
             key={panel.id}
