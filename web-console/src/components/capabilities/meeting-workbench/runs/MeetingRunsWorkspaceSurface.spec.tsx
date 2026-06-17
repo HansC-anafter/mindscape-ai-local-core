@@ -57,7 +57,7 @@ describe('MeetingRunsWorkspaceSurface', () => {
     expect(screen.queryByTestId('meeting-graph-lanes')).not.toBeInTheDocument();
     expect(screen.queryByTestId('host-runtime-governance-context')).toBeNull();
 
-    fireEvent.click(screen.getByTestId('agent-freeform-dock-button-trace_cards'));
+    fireEvent.click(screen.getByTestId('agent-freeform-inspector-tab-trace_cards'));
 
     expect(screen.getByTestId('host-runtime-governance-context')).toHaveTextContent('host-runtime:ws_test:abc');
   });

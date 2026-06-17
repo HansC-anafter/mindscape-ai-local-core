@@ -6,7 +6,7 @@ import { DEFAULT_AGENT_FREEFORM_PANELS } from './agentFreeformLayoutModel';
 import { AgentFreeformCanvas } from './AgentFreeformCanvas';
 
 describe('AgentFreeformCanvas', () => {
-  it('keeps the RUNS center as a mind-map canvas with only the composer dock', () => {
+  it('keeps composer and stream visible as floating canvas panels', () => {
     render(
       <AgentFreeformCanvas
         apiUrl="http://api.test"
@@ -32,13 +32,15 @@ describe('AgentFreeformCanvas', () => {
     expect(screen.getByTestId('agent-freeform-canvas')).toBeInTheDocument();
     expect(screen.getByTestId('agent-freeform-mind-map-canvas')).toBeInTheDocument();
     expect(screen.getByTestId('agent-freeform-composer-dock')).toHaveAttribute('data-panel-type', 'composer');
+    expect(screen.getByTestId('agent-freeform-stream-panel')).toHaveAttribute('data-panel-type', 'timeline');
     expect(screen.queryByTestId('agent-freeform-panel-object_context')).toBeNull();
     expect(screen.queryByTestId('agent-freeform-panel-tool_calls')).toBeNull();
-    expect(screen.getByTestId('agent-freeform-runtime-tool-rail')).toBeInTheDocument();
+    expect(screen.queryByTestId('agent-freeform-runtime-tool-rail')).toBeNull();
+    expect(screen.getByTestId('agent-freeform-runtime-inspector')).toBeInTheDocument();
     expect(screen.getByTestId('host-runtime-composer')).toBeInTheDocument();
   });
 
-  it('moves runtime data panels into the right-side tool rail', () => {
+  it('organizes runtime data panels inside a labeled right inspector', () => {
     render(
       <AgentFreeformCanvas
         apiUrl="http://api.test"
@@ -61,16 +63,54 @@ describe('AgentFreeformCanvas', () => {
       />,
     );
 
-    fireEvent.click(screen.getByTestId('agent-freeform-dock-button-object_context'));
+    expect(screen.getByTestId('agent-freeform-inspector-tabs')).toHaveTextContent('Runtime');
+    expect(screen.getByTestId('agent-freeform-inspector-tabs')).toHaveTextContent('Graph context');
+    expect(screen.queryByTestId('agent-freeform-dock-button-object_context')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('agent-freeform-inspector-tab-object_context'));
 
     expect(screen.getByTestId('agent-freeform-side-panel-object_context')).toHaveAttribute('data-panel-type', 'object_context');
     expect(screen.getByTestId('host-runtime-object-context')).toHaveTextContent('Graph selection');
-    expect(screen.queryByTestId('agent-freeform-side-panel-resource_state')).toBeNull();
 
-    fireEvent.click(screen.getByTestId('agent-freeform-dock-button-resource_state'));
+    fireEvent.click(screen.getByTestId('agent-freeform-inspector-tab-resource_state'));
 
     expect(screen.getByTestId('agent-freeform-side-panel-resource_state')).toHaveAttribute('data-panel-type', 'resource_state');
     expect(screen.getByTestId('host-runtime-resource-state')).toHaveTextContent('No session');
+  });
+
+  it('supports canvas zoom and quick floating panel positioning', () => {
+    render(
+      <AgentFreeformCanvas
+        apiUrl="http://api.test"
+        layout={{
+          panels: DEFAULT_AGENT_FREEFORM_PANELS,
+          locked: false,
+          selectedPanelId: 'composer',
+          decisions: [],
+        }}
+        events={[]}
+        session={null}
+        meetingId="mtg_1"
+        selectedObjectRef={null}
+        isStarting={false}
+        error={null}
+        onSubmitPrompt={vi.fn()}
+        onSelectPanel={vi.fn()}
+        onResetLayout={vi.fn()}
+        onToggleLocked={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId('agent-freeform-zoom-value')).toHaveTextContent('100%');
+    fireEvent.click(screen.getByTestId('agent-freeform-zoom-in'));
+    expect(screen.getByTestId('agent-freeform-zoom-value')).toHaveTextContent('110%');
+
+    fireEvent.click(screen.getByTestId('agent-freeform-call-composer'));
+    expect(screen.getByTestId('agent-freeform-composer-dock')).toHaveClass('left-1/2');
+    fireEvent.click(screen.getByTestId('agent-freeform-call-stream'));
+    expect(screen.getByTestId('agent-freeform-stream-panel')).toHaveClass('left-1/2');
+    fireEvent.click(screen.getByTestId('agent-freeform-pin-composer'));
+    expect(screen.getByTestId('agent-freeform-pin-composer')).toHaveAttribute('aria-pressed', 'false');
   });
 
   it('promotes bridge failures over session ready state', () => {
@@ -125,7 +165,7 @@ describe('AgentFreeformCanvas', () => {
 
     expect(screen.getByTestId('agent-freeform-canvas')).toHaveTextContent('bridge_unavailable');
 
-    fireEvent.click(screen.getByTestId('agent-freeform-dock-button-resource_state'));
+    fireEvent.click(screen.getByTestId('agent-freeform-inspector-tab-resource_state'));
 
     expect(screen.getByTestId('host-runtime-resource-state')).toHaveTextContent('bridge_unavailable');
   });
