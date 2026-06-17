@@ -193,6 +193,35 @@ describe('PackScopeToolRailHost', () => {
     });
   });
 
+  it('routes the AOL select shortcut through the workspace tool rail scope', () => {
+    const onSelectObject = vi.fn((selection: AddressableSelectionTarget) => {
+      void selection;
+    });
+    const aolHost = createAolHost(onSelectObject);
+
+    render(
+      <KeyboardShortcutProvider loadProfileOnMount={false}>
+        <input data-testid="aol-shortcut-input" />
+        <PackScopeToolRailHost
+          workspaceId="ws_test"
+          capabilityCode="ig"
+          apiUrl="http://api.test"
+          tools={[feedLoadTool]}
+          navigationCollapsed
+          aolHost={aolHost}
+          onNavigationCollapsedChange={vi.fn()}
+        />
+      </KeyboardShortcutProvider>,
+    );
+
+    fireEvent.keyDown(screen.getByTestId('aol-shortcut-input'), { key: 'v' });
+    expect(aolHost.requestObjectTargeting).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(window, { key: 'v' });
+    expect(aolHost.requestObjectTargeting).toHaveBeenCalledTimes(1);
+    expect(loadCapabilityUIComponent).not.toHaveBeenCalled();
+  });
+
   it('uses saved profile overrides for display and dispatch without reloading tools', async () => {
     let applyProfile: (profile: KeyboardShortcutProfile) => void = () => undefined;
     const onReady = vi.fn((setProfile: (profile: KeyboardShortcutProfile) => void) => {

@@ -111,6 +111,10 @@ function bindingIdForTool(tool: WorkspaceToolDefinition): string {
   return `workspace_tool:${tool.tool_key}:open`;
 }
 
+function aolSelectBindingId(capabilityCode: string): string {
+  return `workspace_tool:${capabilityCode}:aol_select`;
+}
+
 function toolWithEffectiveShortcut(
   tool: WorkspaceToolDefinition,
   effectiveShortcut: string | undefined,
@@ -253,6 +257,26 @@ export function PackScopeToolRailHost({
       }));
     return () => disposers.forEach((dispose) => dispose());
   }, [activateTool, capabilityCode, orderedTools, registerCommand, workspaceId]);
+
+  React.useEffect(() => {
+    const requestObjectTargeting = aolHost?.requestObjectTargeting;
+    if (!requestObjectTargeting) {
+      return undefined;
+    }
+    const scope = `workbench:${workspaceId}:${capabilityCode}`;
+    return registerCommand({
+      bindingId: aolSelectBindingId(capabilityCode),
+      commandId: 'pack.workspace_tool.aol_select',
+      label: 'AOL Select',
+      ownerType: 'pack',
+      ownerId: capabilityCode,
+      ownerLabel: capabilityCode,
+      defaultShortcut: 'V',
+      scope,
+      preventDefault: true,
+      action: () => requestObjectTargeting(),
+    });
+  }, [aolHost?.requestObjectTargeting, capabilityCode, registerCommand, workspaceId]);
 
   React.useEffect(() => {
     if (typeof window === 'undefined') {
