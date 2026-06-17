@@ -5,75 +5,31 @@
  */
 import axios, { AxiosInstance } from "axios";
 import { config } from "../config.js";
+import {
+  formatToolResult,
+  mapFilteredToolsResponse,
+  mapPack,
+  mapPlaybook,
+  mapTool,
+} from "./client_mappers.js";
+import type {
+  FilteredToolsResponse,
+  Pack,
+  Playbook,
+  PlaybookExecutionResult,
+  Tool,
+  ToolResult,
+} from "./client_types.js";
 
-// ============================================
-// Type Definitions
-// ============================================
-export interface Tool {
-  name: string;
-  description: string;
-  pack?: string;
-  danger_level?: "safe" | "moderate" | "high";
-  requires_governance?: boolean;
-  input_schema: Record<string, any>;
-}
-
-export interface Playbook {
-  playbook_code: string;
-  display_name: string;
-  description: string;
-  capability: string;
-  pack?: string;
-  input_schema?: Record<string, any>;
-}
-
-export interface Pack {
-  code: string;
-  display_name: string;
-  description: string;
-  version: string;
-}
-
-export interface PlaybookExecutionResult {
-  execution_id: string;
-  status: "completed" | "failed" | "running" | "pending";
-  outputs?: Record<string, any>;
-  error?: string;
-}
-
-export interface FilteredToolsMeta {
-  tool_count: number;
-  playbook_count: number;
-  rag_status: "hit" | "miss" | "error" | "skipped";
-  pack_codes: string[];
-  safe_default_used: boolean;
-}
-
-export interface FilteredToolsResponse {
-  tools: Tool[];
-  playbooks: Playbook[];
-  meta: FilteredToolsMeta;
-}
-
-export interface ToolResult {
-  status: "completed" | "failed" | "pending" | "confirmation_required";
-  inputs: Record<string, any>;
-  outputs: Record<string, any>;
-  error?: {
-    code: string;
-    message: string;
-    details?: any;
-  };
-  logs: Array<{
-    level: "info" | "warn" | "error";
-    message: string;
-    timestamp: string;
-  }>;
-  _metadata?: {
-    tool: string;
-    timestamp: string;
-  };
-}
+export type {
+  FilteredToolsMeta,
+  FilteredToolsResponse,
+  Pack,
+  Playbook,
+  PlaybookExecutionResult,
+  Tool,
+  ToolResult,
+} from "./client_types.js";
 
 // ============================================
 // MindscapeClient
@@ -110,14 +66,7 @@ export class MindscapeClient {
       }
     });
 
-    return (Array.isArray(data) ? data : []).map((t: any) => ({
-      name: t.tool_id,
-      description: t.description || "",
-      pack: this._inferPack(t.tool_id, t.provider),
-      danger_level: (t.danger_level || "safe") as "safe" | "moderate" | "high",
-      requires_governance: t.danger_level === "high",
-      input_schema: t.input_schema || {}
-    }));
+    return (Array.isArray(data) ? data : []).map(mapTool);
   }
 
   /**
@@ -139,35 +88,7 @@ export class MindscapeClient {
       recommended_pack_codes: params.recommended_pack_codes || [],
     });
 
-    const tools: Tool[] = (data.tools || []).map((t: any) => ({
-      name: t.tool_id,
-      description: t.description || "",
-      pack: this._inferPack(t.tool_id, t.provider),
-      danger_level: (t.danger_level || "safe") as "safe" | "moderate" | "high",
-      requires_governance: t.danger_level === "high",
-      input_schema: t.input_schema || {},
-    }));
-
-    const playbooks: Playbook[] = (data.playbooks || []).map((p: any) => ({
-      playbook_code: p.playbook_code,
-      display_name: p.display_name || p.playbook_code,
-      description: p.description || "",
-      capability: p.capability_code || p.capability || "",
-      pack: p.capability_code || p.capability,
-      input_schema: p.input_schema || {},
-    }));
-
-    return {
-      tools,
-      playbooks,
-      meta: data.meta || {
-        tool_count: tools.length,
-        playbook_count: playbooks.length,
-        rag_status: "skipped" as const,
-        pack_codes: [],
-        safe_default_used: false,
-      },
-    };
+    return mapFilteredToolsResponse(data);
   }
 
   async executeTool(toolName: string, args: Record<string, any>): Promise<ToolResult> {
@@ -182,7 +103,7 @@ export class MindscapeClient {
       }
     );
 
-    return this._formatToolResult(data, toolName);
+    return formatToolResult(data, toolName);
   }
 
   // ============================================
@@ -201,14 +122,7 @@ export class MindscapeClient {
       }
     });
 
-    return (Array.isArray(data) ? data : []).map((p: any) => ({
-      playbook_code: p.playbook_code,
-      display_name: p.display_name || p.playbook_code,
-      description: p.description || "",
-      capability: p.capability,
-      pack: p.capability,
-      input_schema: p.input_schema || {}
-    }));
+    return (Array.isArray(data) ? data : []).map(mapPlaybook);
   }
 
   async executePlaybook(
@@ -242,12 +156,7 @@ export class MindscapeClient {
   async listPacks(): Promise<Pack[]> {
     const { data } = await this.client.get("/api/v1/capability-packs/");
 
-    return (Array.isArray(data) ? data : []).map((p: any) => ({
-      code: p.id,
-      display_name: p.name,
-      description: p.description || "",
-      version: p.version || "1.0.0"
-    }));
+    return (Array.isArray(data) ? data : []).map(mapPack);
   }
 
   // ============================================
@@ -487,40 +396,5 @@ export class MindscapeClient {
   }): Promise<{ project_id?: string; created: boolean; reason?: string }> {
     const { data } = await this.client.post("/api/v1/mcp/project/detect", params);
     return data;
-  }
-
-  // ============================================
-  // Helper Methods
-  // ============================================
-  private _inferPack(toolId: string, provider: string): string | undefined {
-    if (toolId.includes(".")) {
-      return toolId.split(".")[0];
-    }
-    if (provider === "capability") {
-      const knownPacks = ["wordpress", "creative", "seo", "analytics", "system"];
-      for (const pack of knownPacks) {
-        if (toolId.startsWith(pack)) {
-          return pack;
-        }
-      }
-    }
-    return undefined;
-  }
-
-  private _formatToolResult(backendResult: any, toolName: string): ToolResult {
-    return {
-      status: backendResult.success ? "completed" : "failed",
-      inputs: {},
-      outputs: backendResult.result || {},
-      error: backendResult.error ? {
-        code: "EXECUTION_ERROR",
-        message: backendResult.error
-      } : undefined,
-      logs: [],
-      _metadata: {
-        tool: toolName,
-        timestamp: new Date().toISOString()
-      }
-    };
   }
 }
