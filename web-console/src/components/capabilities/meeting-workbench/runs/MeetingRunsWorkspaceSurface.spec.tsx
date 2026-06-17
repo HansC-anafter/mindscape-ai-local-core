@@ -53,7 +53,12 @@ describe('MeetingRunsWorkspaceSurface', () => {
 
     expect(screen.getByTestId('meeting-runs-workspace-surface')).toBeInTheDocument();
     expect(screen.getByTestId('agent-freeform-canvas')).toBeInTheDocument();
+    expect(screen.getByTestId('agent-freeform-mind-map-canvas')).toBeInTheDocument();
     expect(screen.queryByTestId('meeting-graph-lanes')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('host-runtime-governance-context')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('agent-freeform-dock-button-trace_cards'));
+
     expect(screen.getByTestId('host-runtime-governance-context')).toHaveTextContent('host-runtime:ws_test:abc');
   });
 

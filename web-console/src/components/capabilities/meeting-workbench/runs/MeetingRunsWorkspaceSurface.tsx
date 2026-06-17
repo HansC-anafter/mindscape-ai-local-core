@@ -72,6 +72,7 @@ export function MeetingRunsWorkspaceSurface({
         layout={layout.state}
         events={runtime.events}
         session={runtime.session}
+        runtimeStatus={runtime.status}
         meetingId={meetingId}
         selectedObjectRef={selectedObjectRef}
         graphContext={runtime.graphContext}
