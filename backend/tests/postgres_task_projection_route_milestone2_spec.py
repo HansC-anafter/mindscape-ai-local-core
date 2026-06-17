@@ -7,7 +7,7 @@ def _backend_root() -> Path:
 
 def test_workspace_tasks_route_uses_projection_store_only():
     route_source = (
-        _backend_root() / "app/routes/core/workspace/tasks.py"
+        _backend_root() / "app/routes/core/workspace/tasks_core/task_list_routes.py"
     ).read_text(encoding="utf-8")
     loader_source = route_source.split(
         "async def _load_workspace_tasks_payload",
@@ -23,12 +23,12 @@ def test_workspace_tasks_route_uses_projection_store_only():
 
 def test_workspace_executions_route_uses_projection_store_only():
     route_source = (
-        _backend_root() / "app/routes/core/workspace/tasks.py"
+        _backend_root() / "app/routes/core/workspace/tasks_core/execution_routes.py"
     ).read_text(encoding="utf-8")
     route_source = route_source.split(
         "async def get_workspace_executions",
         maxsplit=1,
-    )[1].split("def _load_execution_progress_snapshot_payload", maxsplit=1)[0]
+    )[1].split("@router.get", maxsplit=1)[0]
 
     assert "WorkspaceExecutionActivityStore()" in route_source
     assert "list_executions" in route_source

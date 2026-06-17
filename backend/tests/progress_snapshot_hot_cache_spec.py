@@ -11,9 +11,11 @@ class _FakeMindscapeStoreForImport:
 
 mindscape_store.MindscapeStore = _FakeMindscapeStoreForImport
 
-from backend.app.routes.core.workspace import tasks as tasks_route
 from backend.app.routes.core.workspace.tasks_core import (
     progress_snapshot as progress_snapshot_core,
+)
+from backend.app.routes.core.workspace.tasks_core import (
+    progress_snapshot_routes as progress_snapshot_route,
 )
 
 
@@ -24,10 +26,10 @@ async def _inline_ui_read(func, *args, **kwargs):
 @pytest.fixture(autouse=True)
 def _reset_progress_snapshot_cache(monkeypatch):
     store = InMemoryTtlSnapshotStore(now_epoch=100.0)
-    tasks_route._PROGRESS_SNAPSHOT_CACHE.clear()
-    tasks_route._PROGRESS_SNAPSHOT_INFLIGHT.clear()
-    monkeypatch.setattr(tasks_route, "_PROGRESS_SNAPSHOT_STORE", store)
-    monkeypatch.setattr(tasks_route, "run_ui_read", _inline_ui_read)
+    progress_snapshot_route._PROGRESS_SNAPSHOT_CACHE.clear()
+    progress_snapshot_route._PROGRESS_SNAPSHOT_INFLIGHT.clear()
+    monkeypatch.setattr(progress_snapshot_route, "_PROGRESS_SNAPSHOT_STORE", store)
+    monkeypatch.setattr(progress_snapshot_route, "run_ui_read", _inline_ui_read)
     return store
 
 
@@ -45,14 +47,14 @@ async def test_progress_snapshot_uses_hot_cache_after_process_cache_miss(monkeyp
         }
 
     monkeypatch.setattr(
-        tasks_route,
+        progress_snapshot_route,
         "_load_execution_progress_snapshot_payload",
         _loader,
     )
 
-    first = await tasks_route.get_execution_progress_snapshot("ws-1", "exec-1")
-    tasks_route._PROGRESS_SNAPSHOT_CACHE.clear()
-    second = await tasks_route.get_execution_progress_snapshot("ws-1", "exec-1")
+    first = await progress_snapshot_route.get_execution_progress_snapshot("ws-1", "exec-1")
+    progress_snapshot_route._PROGRESS_SNAPSHOT_CACHE.clear()
+    second = await progress_snapshot_route.get_execution_progress_snapshot("ws-1", "exec-1")
 
     assert first == second
     assert calls["count"] == 1
@@ -61,7 +63,7 @@ async def test_progress_snapshot_uses_hot_cache_after_process_cache_miss(monkeyp
 
 @pytest.mark.asyncio
 async def test_progress_snapshot_hot_cache_expires(monkeypatch):
-    store = tasks_route._PROGRESS_SNAPSHOT_STORE
+    store = progress_snapshot_route._PROGRESS_SNAPSHOT_STORE
     calls = {"count": 0}
 
     def _loader(_workspace_id, _execution_id):
@@ -69,15 +71,15 @@ async def test_progress_snapshot_hot_cache_expires(monkeypatch):
         return {"task_status": "running", "progress": {"step": calls["count"]}}
 
     monkeypatch.setattr(
-        tasks_route,
+        progress_snapshot_route,
         "_load_execution_progress_snapshot_payload",
         _loader,
     )
 
-    first = await tasks_route.get_execution_progress_snapshot("ws-1", "exec-1")
-    tasks_route._PROGRESS_SNAPSHOT_CACHE.clear()
+    first = await progress_snapshot_route.get_execution_progress_snapshot("ws-1", "exec-1")
+    progress_snapshot_route._PROGRESS_SNAPSHOT_CACHE.clear()
     store.advance(5)
-    second = await tasks_route.get_execution_progress_snapshot("ws-1", "exec-1")
+    second = await progress_snapshot_route.get_execution_progress_snapshot("ws-1", "exec-1")
 
     assert first["progress"] == {"step": 1}
     assert second["progress"] == {"step": 2}

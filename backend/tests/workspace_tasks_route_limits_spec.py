@@ -9,7 +9,12 @@ class _FakeMindscapeStoreForImport:
 
 mindscape_store.MindscapeStore = _FakeMindscapeStoreForImport
 
-from backend.app.routes.core.workspace import tasks as tasks_route
+from backend.app.routes.core.workspace.tasks_core import (
+    execution_routes as execution_route,
+)
+from backend.app.routes.core.workspace.tasks_core import (
+    task_list_routes as task_list_route,
+)
 
 
 class _FakeTasksProjectionStore:
@@ -93,18 +98,19 @@ async def _inline_ui_read(func, *args, **kwargs):
 def _patch_tasks_store(monkeypatch):
     _FakeTasksProjectionStore.calls = []
     _FakeWorkspaceExecutionActivityStore.calls = []
-    monkeypatch.setattr(tasks_route, "TasksProjectionStore", _FakeTasksProjectionStore)
+    monkeypatch.setattr(task_list_route, "TasksProjectionStore", _FakeTasksProjectionStore)
     monkeypatch.setattr(
-        tasks_route,
+        execution_route,
         "WorkspaceExecutionActivityStore",
         _FakeWorkspaceExecutionActivityStore,
     )
-    monkeypatch.setattr(tasks_route, "run_ui_read", _inline_ui_read)
+    monkeypatch.setattr(task_list_route, "run_ui_read", _inline_ui_read)
+    monkeypatch.setattr(execution_route, "run_ui_read", _inline_ui_read)
 
 
 @pytest.mark.asyncio
 async def test_workspace_tasks_uses_projection_store_with_limit():
-    payload = await tasks_route._load_workspace_tasks_payload(
+    payload = await task_list_route._load_workspace_tasks_payload(
         "workspace-1",
         limit=5,
         include_completed=False,
@@ -124,7 +130,7 @@ async def test_workspace_tasks_uses_projection_store_with_limit():
 
 @pytest.mark.asyncio
 async def test_workspace_tasks_passes_execution_filter_to_projection_store():
-    payload = await tasks_route._load_workspace_tasks_payload(
+    payload = await task_list_route._load_workspace_tasks_payload(
         "workspace-1",
         limit=100,
         include_completed=True,
@@ -144,7 +150,7 @@ async def test_workspace_tasks_passes_execution_filter_to_projection_store():
 
 @pytest.mark.asyncio
 async def test_workspace_executions_uses_projection_store_with_filters():
-    payload = await tasks_route.get_workspace_executions(
+    payload = await execution_route.get_workspace_executions(
         "workspace-1",
         limit=3,
         offset=0,
@@ -199,7 +205,7 @@ def test_workspace_execution_live_runner_state_overlay_updates_running_rows():
                 "heartbeat_at": "2026-05-29T21:28:45.733596+00:00",
             }
 
-    payload = tasks_route._attach_live_runner_state_to_execution(
+    payload = execution_route._attach_live_runner_state_to_execution(
         execution,
         live_state_store=_FakeLiveStateStore(),
     )

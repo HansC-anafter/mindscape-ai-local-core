@@ -29,7 +29,7 @@ def test_artifact_progress_parser_preserves_literal_backslash_u0000_text():
 def test_progress_snapshot_queries_do_not_cast_artifact_content_to_jsonb():
     source = (
         Path(__file__).resolve().parents[1]
-        / "app/routes/core/workspace/tasks.py"
+        / "app/routes/core/workspace/tasks_core/progress_snapshot.py"
     ).read_text(encoding="utf-8")
 
     assert "content::jsonb" not in source

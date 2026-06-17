@@ -1,31 +1,15 @@
-import ast
-from pathlib import Path
-
-from backend.tests.test_execution_order_clause import build_execution_order_clause
-
-
-REPO_ROOT = Path(__file__).resolve().parents[1]
-MODULE_PATH = REPO_ROOT / "app" / "routes" / "core" / "workspace" / "tasks.py"
+from backend.app.services.workspace_execution_activity import (
+    WorkspaceExecutionActivityStore,
+)
 
 
 def _load_workspace_execution_order_clause():
-    source = MODULE_PATH.read_text(encoding="utf-8")
-    parsed = ast.parse(source, filename=str(MODULE_PATH))
-    helper_node = next(
-        node
-        for node in parsed.body
-        if isinstance(node, ast.FunctionDef)
-        and node.name == "_build_workspace_execution_order_clause"
-    )
-    helper_module = ast.Module(body=[helper_node], type_ignores=[])
-    ast.fix_missing_locations(helper_module)
-    namespace = {}
-    exec(
-        compile(helper_module, str(MODULE_PATH), "exec"),
-        {"build_execution_order_clause": build_execution_order_clause},
-        namespace,
-    )
-    return namespace["_build_workspace_execution_order_clause"]
+    store = WorkspaceExecutionActivityStore()
+
+    def build_clause(order_by: str, order: str) -> str:
+        return store._order_clause(order_by=order_by, order=order)
+
+    return build_clause
 
 
 def test_workspace_execution_order_clause_uses_plain_column_sort_for_history_feed():
@@ -33,7 +17,7 @@ def test_workspace_execution_order_clause_uses_plain_column_sort_for_history_fee
 
     clause = build_clause("created_at", "desc")
 
-    assert clause == "ORDER BY created_at DESC"
+    assert clause == "ORDER BY created_at DESC NULLS LAST, task_id DESC"
     assert "CASE LOWER(status)" not in clause
 
 
@@ -42,7 +26,9 @@ def test_workspace_execution_order_clause_keeps_status_priority_when_requested()
 
     clause = build_clause("status", "asc")
 
-    assert clause == build_execution_order_clause("status", "asc")
+    assert "CASE LOWER(status)" in clause
+    assert "WHEN 'paused' THEN 2" in clause
+    assert "status ASC" in clause
 
 
 def test_workspace_execution_order_clause_falls_back_to_created_at_for_unknown_column():
@@ -50,4 +36,4 @@ def test_workspace_execution_order_clause_falls_back_to_created_at_for_unknown_c
 
     clause = build_clause("last_seen_at", "asc")
 
-    assert clause == "ORDER BY created_at ASC"
+    assert clause == "ORDER BY created_at ASC NULLS LAST, task_id DESC"
