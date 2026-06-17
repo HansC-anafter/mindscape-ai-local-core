@@ -192,6 +192,19 @@ describe('mobile workbench gateway', () => {
     });
   });
 
+  it('maps hyphenated capability API slugs back to underscore pack policy codes', () => {
+    expect(
+      extractMobileWorkbenchGatewayRequestContext(
+        '/api/v1/capabilities/social-video-refs/runtime-config?workspace_id=ws-1&provider=youtube',
+      ),
+    ).toMatchObject({
+      path: '/api/v1/capabilities/social-video-refs/runtime-config',
+      workspaceId: 'ws-1',
+      capabilityCode: 'social_video_refs',
+      routeCapabilityCode: 'social-video-refs',
+    });
+  });
+
   it('maps the remote gateway control page to the target capability context', () => {
     expect(
       extractMobileWorkbenchGatewayRequestContext(
@@ -1231,6 +1244,45 @@ describe('mobile workbench gateway', () => {
       context: {
         workspaceId: 'ws-1',
         capabilityCode: 'makeup_practice_coach',
+      },
+    });
+  });
+
+  it('allows social_video_refs API reads through the workspace pack policy', async () => {
+    const config = resolveMobileWorkbenchGatewayConfig({
+      MOBILE_WORKBENCH_GATEWAY_ENABLED: '1',
+    });
+
+    const allowed = await isMobileWorkbenchGatewayRequestAllowedAsync(
+      '/api/v1/capabilities/social-video-refs/hierarchy/instruction-refs?workspace_id=ws-1&limit=20',
+      {
+        referer: 'https://remote-workbench.mindscapeai.app/workspaces/ws-1/capability-ui-hosts/social_video_refs',
+      },
+      config,
+      {
+        resolveWorkspaceCapabilityPolicy: async ({ capabilityCode }) => ({
+          capabilityAllowed: capabilityCode === 'social_video_refs',
+          supported: true,
+          allowedPathRules: [
+            {
+              type: 'regex',
+              value: /^\/api\/v1\/capabilities\/social-video-refs(?:\/.*)?$/,
+            },
+            {
+              type: 'regex',
+              value: /^\/workspaces\/[^/]+\/capability-ui-hosts\/social_video_refs(?:\/.*)?$/,
+            },
+          ],
+        }),
+      },
+    );
+
+    expect(allowed).toMatchObject({
+      allowed: true,
+      context: {
+        workspaceId: 'ws-1',
+        capabilityCode: 'social_video_refs',
+        routeCapabilityCode: 'social-video-refs',
       },
     });
   });

@@ -223,6 +223,11 @@ function normalizeClaimValue(value) {
   return String(value).trim();
 }
 
+function normalizeCapabilityCodeFromApiSegment(value) {
+  const normalized = normalizeClaimValue(value);
+  return normalized ? normalized.replace(/-/g, '_') : null;
+}
+
 function parseAccessJwtToken(rawToken) {
   if (!rawToken || typeof rawToken !== 'string') {
     return { claims: null, error: 'missing_access_token', header: null, signature: null, signingInput: null };
@@ -432,7 +437,7 @@ function extractRequestContextFromUrl(requestUrl = '/') {
   const capabilityApiMatch = /^\/api\/v1\/capabilities\/([^/]+)(?:\/.*)?$/.exec(pathname);
   if (capabilityApiMatch) {
     routeCapabilityCode = normalizeClaimValue(decodeURIComponentSafe(capabilityApiMatch[1]));
-    capabilityCode = routeCapabilityCode;
+    capabilityCode = normalizeCapabilityCodeFromApiSegment(routeCapabilityCode);
   }
 
   const installedCapabilityMatch =
