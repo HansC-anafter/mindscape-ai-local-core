@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { AOLRuntimeShellBridge } from '@/components/capabilities/aol-runtime-shell/AOLRuntimeShellBridge';
 import { buildCapabilitySurfaceId } from '@/components/capabilities/aol-runtime-shell/runtimeShellState';
 import { getApiBaseUrl } from '@/lib/api-url';
+import { getTaskConfirmationBridge } from '@/lib/task-confirmation/task-confirmation-bridge';
 import MotionCoachWorkbenchHost from './MotionCoachWorkbenchHost';
 
 interface ComponentErrorBoundaryProps {
@@ -117,6 +118,7 @@ export default function CapabilityLoadedComponentsView({
   const router = useRouter();
   const searchParams = useSearchParams();
   const apiUrl = getApiBaseUrl();
+  const taskConfirmation = React.useMemo(() => getTaskConfirmationBridge(), []);
 
   const handleSelectComponent = (componentCode: string, defaultComponentCode: string) => {
     const nextParams = new URLSearchParams(searchParams?.toString() || '');
@@ -157,6 +159,7 @@ export default function CapabilityLoadedComponentsView({
             Component={Component}
             aolHost={aolHost}
             surfacePath={surfacePath}
+            taskConfirmation={taskConfirmation}
           />
         ) : (
           <Component
@@ -164,6 +167,7 @@ export default function CapabilityLoadedComponentsView({
             apiUrl={apiUrl}
             aolHost={aolHost}
             surfacePath={surfacePath}
+            taskConfirmation={taskConfirmation}
           />
         )}
       </Suspense>

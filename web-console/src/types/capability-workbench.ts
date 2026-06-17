@@ -1,5 +1,47 @@
 import type { ReactNode } from 'react';
 
+export const CAPABILITY_TASK_CONFIRMATION_EVENT = 'mindscape:task_confirmation' as const;
+export const CAPABILITY_TASK_CONFIRMATION_LEGACY_EVENT = 'mindscape:execution_started' as const;
+export const CAPABILITY_TASK_CONFIRMATION_EXECUTION_EVENT = 'execution-event' as const;
+
+export type CapabilityTaskConfirmationStatus =
+  | 'submitted'
+  | 'queued'
+  | 'running'
+  | 'existing'
+  | 'satisfied'
+  | 'confirmed';
+
+export interface CapabilityTaskConfirmationEnvelope {
+  schemaVersion: 'capability_task_confirmation.v1';
+  workspaceId: string;
+  executionId: string;
+  playbookCode: string;
+  taskType?: string;
+  status: CapabilityTaskConfirmationStatus;
+  submittedAt?: string;
+  confirmedAt?: string;
+  targetKey?: string;
+  targetKind?: string;
+  displayLabel?: string;
+  source?: string;
+  inputs?: Record<string, unknown>;
+  ttlMs?: number;
+}
+
+export interface CapabilityTaskConfirmationReceipt {
+  key: string;
+  emitted: boolean;
+  duplicate: boolean;
+  envelope: CapabilityTaskConfirmationEnvelope;
+}
+
+export interface CapabilityTaskConfirmationBridge {
+  confirmTaskSubmission: (
+    envelope: CapabilityTaskConfirmationEnvelope,
+  ) => CapabilityTaskConfirmationReceipt;
+}
+
 export type CapabilityWorkbenchStatusTone =
   | 'neutral'
   | 'active'
@@ -80,6 +122,8 @@ export interface CapabilityWorkbenchCommandHeaderProps {
   statusSlot?: ReactNode;
   utilitySlot?: ReactNode;
   mobileVariant?: 'default' | 'compact';
+  mobileCollapsible?: boolean;
+  mobileDefaultCollapsed?: boolean;
   className?: string;
 }
 

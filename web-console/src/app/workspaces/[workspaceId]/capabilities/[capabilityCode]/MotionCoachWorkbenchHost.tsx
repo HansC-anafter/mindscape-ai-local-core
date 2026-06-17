@@ -17,6 +17,7 @@ import {
   parseMotionPracticeLessonHandoff,
 } from '@/components/workspace/device-binding/practice/motionPracticeLessonHandoff';
 import { buildMotionPracticeLessonHandoffFromGraphSelection } from '@/components/workspace/device-binding/practice/motionPracticeGraphSelection';
+import type { CapabilityTaskConfirmationBridge } from '@/types/capability-workbench';
 import {
   buildDancePracticeWorkbenchState,
   buildYogaPracticeWorkbenchState,
@@ -30,6 +31,7 @@ interface MotionCoachWorkbenchHostProps {
   Component: React.ComponentType<any>;
   aolHost: any;
   surfacePath: readonly string[];
+  taskConfirmation?: CapabilityTaskConfirmationBridge;
 }
 
 const MAX_WINDOW_EVENTS = 60;
@@ -45,9 +47,11 @@ function MotionCoachWorkbenchHostContent({
   Component,
   aolHost,
   surfacePath,
+  taskConfirmation,
 }: MotionCoachWorkbenchHostProps) {
   const searchParams = useSearchParams();
-  const { sessions, referenceLessonState } = useCaptureSourceBridge();
+  const captureSourceBridge = useCaptureSourceBridge();
+  const { sessions, referenceLessonState } = captureSourceBridge;
   const [selectedSessionId, setSelectedSessionId] = useState('');
   const [practiceResult, setPracticeResult] = useState<MotionPracticeLaunchResult | null>(null);
   const [launchInput, setLaunchInput] = useState<MotionPracticeLaunchInput | null>(null);
@@ -153,6 +157,7 @@ function MotionCoachWorkbenchHostContent({
         apiUrl={apiUrl}
         aolHost={aolHost}
         surfacePath={surfacePath}
+        taskConfirmation={taskConfirmation}
         workbenchState={workbenchState}
         hostCapturePreview={hostCapturePreview}
         motionCoachControls={{
@@ -162,6 +167,7 @@ function MotionCoachWorkbenchHostContent({
           coachPackLock: resolveCoachPack(capabilityCode),
           sessions,
           selectedSessionId,
+          captureSourceBridge,
           initialInstructionSource,
           result: scopedPracticeResult,
           latestWindowAppend: scopedMotionWindowEvents[scopedMotionWindowEvents.length - 1] || null,
