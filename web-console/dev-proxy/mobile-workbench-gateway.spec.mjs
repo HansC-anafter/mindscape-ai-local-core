@@ -247,6 +247,28 @@ describe('mobile workbench gateway', () => {
     expect(isMobileWorkbenchGatewayPathAllowed('/api/v1/capability-packs/installed-capabilities/ig/ui-assets/bundle.js', config)).toBe(true);
     expect(isMobileWorkbenchGatewayPathAllowed('/api/v1/workspaces/ws-1/executions?limit=50', config)).toBe(true);
     expect(isMobileWorkbenchGatewayPathAllowed('/api/v1/workspaces/ws-1/summary', config)).toBe(true);
+    expect(isMobileWorkbenchGatewayPathAllowed('/api/v1/host-runtime/status', config)).toBe(true);
+    expect(isMobileWorkbenchGatewayPathAllowed(
+      '/api/v1/workspaces/ws-1/host-runtime/sessions',
+      config,
+      'POST',
+    )).toBe(true);
+    expect(isMobileWorkbenchGatewayPathAllowed(
+      '/api/v1/workspaces/ws-1/host-runtime/sessions/session-1/turns',
+      config,
+      'POST',
+    )).toBe(true);
+    expect(isMobileWorkbenchGatewayPathAllowed(
+      '/api/v1/workspaces/ws-1/host-runtime/sessions/session-1/events?limit=2000',
+      config,
+      'GET',
+    )).toBe(true);
+    expect(isMobileWorkbenchGatewayPathAllowed(
+      '/api/v1/workspaces/ws-1/host-runtime/sessions/session-1/stream?last_seq=0',
+      config,
+      'GET',
+    )).toBe(true);
+    expect(isMobileWorkbenchGatewayPathAllowed('/api/v1/host-runtime/bridge/bridge-1', config)).toBe(false);
     expect(isMobileWorkbenchGatewayPathAllowed('/api/v1/capability-packs/ig/ui-assets/bundle.js', config)).toBe(true);
     expect(
       isMobileWorkbenchGatewayPathAllowed(
@@ -316,6 +338,22 @@ describe('mobile workbench gateway', () => {
     ).toBe(true);
     expect(isMobileWorkbenchGatewayPathAllowed('/api/v1/other-service/route', config)).toBe(false);
     expect(isMobileWorkbenchGatewayPathAllowed('/workspaces/ws-1/capability-ui-hosts/performance_direction', config)).toBe(false);
+  });
+
+  it('extracts workspace and referer capability context from host-runtime session requests', () => {
+    expect(
+      extractMobileWorkbenchGatewayRequestContext(
+        '/api/v1/workspaces/ws-1/host-runtime/sessions/session-1/turns',
+        {
+          referer: 'https://remote-workbench.mindscapeai.app/workspaces/ws-1/capability-ui-hosts/ig?component=IGWorkbenchPage',
+        },
+      ),
+    ).toMatchObject({
+      path: '/api/v1/workspaces/ws-1/host-runtime/sessions/session-1/turns',
+      workspaceId: 'ws-1',
+      capabilityCode: 'ig',
+      referer_path: '/workspaces/ws-1/capability-ui-hosts/ig',
+    });
   });
 
   it('allows bounded workspace device-binding contracts and extracts workspace context', () => {

@@ -15,7 +15,16 @@ const CONTROL_PREFIXES = [
 ];
 
 const CONTROL_PATTERNS = [
+  /^\/api\/v1\/workspaces\/[^/]+\/device-bindings(?:\/|$)/,
   /^\/api\/v1\/workspaces\/[^/]+\/projects\/[^/]+\/deploy(?:\/|$)/,
+];
+
+const EXECUTION_EXACT_PATHS = new Set([
+  '/api/v1/host-runtime/status',
+]);
+
+const EXECUTION_PATTERNS = [
+  /^\/api\/v1\/workspaces\/[^/]+\/host-runtime(?:\/|$)/,
 ];
 
 export function resolveApiRoutePlane(requestUrl = '/') {
@@ -26,6 +35,16 @@ export function resolveApiRoutePlane(requestUrl = '/') {
       plane: 'media',
       serviceId: 'local_core.media_proxy',
       reason: 'media_proxy',
+    };
+  }
+  if (
+    EXECUTION_EXACT_PATHS.has(pathname) ||
+    EXECUTION_PATTERNS.some((pattern) => pattern.test(pathname))
+  ) {
+    return {
+      plane: 'execution',
+      serviceId: 'local_core.execution_api',
+      reason: 'host_runtime_session_gateway',
     };
   }
   if (

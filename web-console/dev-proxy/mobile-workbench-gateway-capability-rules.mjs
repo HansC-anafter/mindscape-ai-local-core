@@ -87,6 +87,31 @@ export function createDefaultGatewayWorkspaceSupportRules() {
     { type: 'regex', value: /^\/api\/v1\/workspaces\/[^/]+\/executions(?:\/.*)?$/ },
     {
       type: 'regex',
+      value: /^\/api\/v1\/host-runtime\/status$/,
+      methods: READ_ONLY_GATEWAY_METHODS,
+    },
+    {
+      type: 'regex',
+      value: /^\/api\/v1\/workspaces\/[^/]+\/host-runtime\/sessions$/,
+      methods: ['GET', 'HEAD', 'OPTIONS', 'POST'],
+    },
+    {
+      type: 'regex',
+      value: /^\/api\/v1\/workspaces\/[^/]+\/host-runtime\/sessions\/[^/]+(?:\/events|\/stream)?$/,
+      methods: READ_ONLY_GATEWAY_METHODS,
+    },
+    {
+      type: 'regex',
+      value: /^\/api\/v1\/workspaces\/[^/]+\/host-runtime\/sessions\/[^/]+\/(?:turns|interrupt)$/,
+      methods: ['OPTIONS', 'POST'],
+    },
+    {
+      type: 'regex',
+      value: /^\/api\/v1\/workspaces\/[^/]+\/host-runtime\/sessions\/[^/]+\/approvals\/[^/]+$/,
+      methods: ['OPTIONS', 'POST'],
+    },
+    {
+      type: 'regex',
       value: /^\/api\/v1\/workspaces\/[^/]+\/tasks(?:\/.*)?$/,
       methods: READ_ONLY_GATEWAY_METHODS,
     },

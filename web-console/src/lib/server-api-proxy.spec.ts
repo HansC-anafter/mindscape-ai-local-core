@@ -47,10 +47,33 @@ describe('server API proxy', () => {
     });
   });
 
+  it('routes host-runtime session gateway paths to the execution API', async () => {
+    process.env.WEB_CONSOLE_BACKEND_URL = 'http://backend-control:8210/';
+    process.env.WEB_CONSOLE_EXECUTION_BACKEND_URL = 'http://backend:8200/';
+
+    expect(resolveApiProxyUpstream('http://localhost:8300/api/v1/host-runtime/status')).toEqual({
+      baseUrl: 'http://backend:8200',
+      pathname: '/api/v1/host-runtime/status',
+      search: '',
+    });
+    expect(
+      resolveApiProxyUpstream(
+        'http://localhost:8300/api/v1/workspaces/ws-1/host-runtime/sessions/session-1/events?limit=20',
+      ),
+    ).toEqual({
+      baseUrl: 'http://backend:8200',
+      pathname: '/api/v1/workspaces/ws-1/host-runtime/sessions/session-1/events',
+      search: '?limit=20',
+    });
+  });
+
   it('uses the shared service endpoint seed when env overrides are absent', () => {
     delete process.env.WEB_CONSOLE_BACKEND_URL;
     delete process.env.BACKEND_URL;
     delete process.env.NEXT_PUBLIC_BACKEND_URL;
+    delete process.env.WEB_CONSOLE_EXECUTION_BACKEND_URL;
+    delete process.env.WEB_CONSOLE_BACKEND_EXECUTION_URL;
+    delete process.env.HOST_RUNTIME_BACKEND_URL;
     delete process.env.MEDIA_PROXY_URL;
 
     expect(resolveApiProxyUpstream('http://localhost:8300/api/v1/skills/')).toEqual({
@@ -61,6 +84,11 @@ describe('server API proxy', () => {
     expect(resolveApiProxyUpstream('http://localhost:8300/api/v1/media/files/a.png')).toEqual({
       baseUrl: 'http://media-proxy:8000',
       pathname: '/api/v1/media/files/a.png',
+      search: '',
+    });
+    expect(resolveApiProxyUpstream('http://localhost:8300/api/v1/host-runtime/status')).toEqual({
+      baseUrl: 'http://backend:8200',
+      pathname: '/api/v1/host-runtime/status',
       search: '',
     });
   });

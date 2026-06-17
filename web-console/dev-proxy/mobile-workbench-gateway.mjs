@@ -479,6 +479,11 @@ function extractRequestContextFromUrl(requestUrl = '/') {
     capabilityFromFallback = capabilityCode === 'ig';
   }
 
+  const workspaceHostRuntimeMatch = /^\/api\/v1\/workspaces\/([^/]+)\/host-runtime\/sessions(?:\/.*)?$/.exec(pathname);
+  if (workspaceHostRuntimeMatch) {
+    workspaceId = normalizeClaimValue(decodeURIComponentSafe(workspaceHostRuntimeMatch[1]));
+  }
+
   const workspaceEventsMatch = /^\/api\/v1\/workspaces\/([^/]+)\/events\/stream$/.exec(pathname);
   if (workspaceEventsMatch) {
     workspaceId = normalizeClaimValue(decodeURIComponentSafe(workspaceEventsMatch[1]));

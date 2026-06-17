@@ -40,6 +40,32 @@ export function normalizeBaseUrl(value: string | undefined, fallback: string): s
   return resolved.replace(/\/+$/, '');
 }
 
+function isHostRuntimeProxyPath(pathname: string): boolean {
+  return pathname === '/api/v1/host-runtime/status'
+    || /^\/api\/v1\/workspaces\/[^/]+\/host-runtime(?:\/|$)/.test(pathname);
+}
+
+function resolveExecutionApiBaseUrl(): string {
+  return normalizeBaseUrl(
+    process.env.WEB_CONSOLE_EXECUTION_BACKEND_URL ||
+      process.env.WEB_CONSOLE_BACKEND_EXECUTION_URL ||
+      process.env.HOST_RUNTIME_BACKEND_URL ||
+      getServiceEndpointUrl('local_core.execution_api', 'server_internal') ||
+      getServiceEndpointUrl('local_core.execution_api', 'container_internal'),
+    ''
+  );
+}
+
+function resolveControlApiBaseUrl(): string {
+  return normalizeBaseUrl(
+    process.env.WEB_CONSOLE_BACKEND_URL ||
+      process.env.BACKEND_URL ||
+      process.env.NEXT_PUBLIC_BACKEND_URL ||
+      getServiceEndpointUrl('local_core.control_api', 'server_internal'),
+    ''
+  );
+}
+
 export function resolveApiProxyUpstream(requestUrl: string): ProxyUpstreamResolution {
   const url = new URL(requestUrl);
   const isMediaProxyPath = url.pathname.startsWith('/api/v1/media/');
@@ -49,13 +75,9 @@ export function resolveApiProxyUpstream(requestUrl: string): ProxyUpstreamResolu
           getServiceEndpointUrl('local_core.media_proxy', 'container_internal'),
         ''
       )
-    : normalizeBaseUrl(
-        process.env.WEB_CONSOLE_BACKEND_URL ||
-          process.env.BACKEND_URL ||
-          process.env.NEXT_PUBLIC_BACKEND_URL ||
-          getServiceEndpointUrl('local_core.control_api', 'server_internal'),
-        ''
-      );
+    : isHostRuntimeProxyPath(url.pathname)
+      ? resolveExecutionApiBaseUrl()
+      : resolveControlApiBaseUrl();
 
   return {
     baseUrl,
@@ -70,13 +92,7 @@ export function resolveBackendPathProxyUpstream(
 ): ProxyUpstreamResolution {
   const url = new URL(requestUrl);
   return {
-    baseUrl: normalizeBaseUrl(
-      process.env.WEB_CONSOLE_BACKEND_URL ||
-        process.env.BACKEND_URL ||
-        process.env.NEXT_PUBLIC_BACKEND_URL ||
-        getServiceEndpointUrl('local_core.control_api', 'server_internal'),
-      ''
-    ),
+    baseUrl: resolveControlApiBaseUrl(),
     pathname: upstreamPathname,
     search: url.search,
   };
