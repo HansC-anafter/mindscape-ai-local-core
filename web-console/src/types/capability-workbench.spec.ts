@@ -88,6 +88,8 @@ describe('capability workbench contracts', () => {
       brandSlot: 'Performance Direction',
       modeSlot: 'Boards',
       utilitySlot: 'Load',
+      mobileCollapsible: true,
+      mobileDefaultCollapsed: true,
     };
     expect(validHeaderProps.brandSlot).toBe('Performance Direction');
 

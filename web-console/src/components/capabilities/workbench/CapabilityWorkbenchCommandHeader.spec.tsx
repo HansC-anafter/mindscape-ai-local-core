@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom/vitest';
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { CapabilityWorkbenchCommandHeader } from './CapabilityWorkbenchCommandHeader';
@@ -151,6 +151,37 @@ describe('CapabilityWorkbenchCommandHeader', () => {
       expect(screen.getByTestId('capability-workbench-command-header-context-toolbar')).toHaveTextContent('Grid / All');
       expect(screen.getByTestId('capability-workbench-command-header-status')).toHaveTextContent('Ready');
     });
+  });
+
+  it('can collapse compact mobile header details behind a shared header toggle', async () => {
+    vi.stubGlobal('matchMedia', vi.fn(() => ({
+      matches: true,
+      media: '(max-width: 767px)',
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })));
+
+    render(
+      <CapabilityWorkbenchCommandHeader
+        brandSlot={<span>Demo Desk</span>}
+        modeSlot={<button type="button">Generate</button>}
+        contextToolbarSlot={<span>Grid / All</span>}
+        statusSlot={<span>Ready</span>}
+        mobileVariant="compact"
+        mobileDefaultCollapsed
+      />,
+    );
+
+    const header = await screen.findByTestId('capability-workbench-command-header');
+    expect(header).toHaveAttribute('data-mobile-collapsible', 'true');
+    expect(header).toHaveAttribute('data-mobile-collapsed', 'true');
+    expect(screen.queryByTestId('capability-workbench-command-header-mode')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand workbench header' }));
+
+    expect(header).toHaveAttribute('data-mobile-collapsed', 'false');
+    expect(screen.getByTestId('capability-workbench-command-header-mode')).toHaveTextContent('Generate');
+    expect(screen.getByTestId('capability-workbench-command-header-status')).toHaveTextContent('Ready');
   });
 
   it('externalizes the compact mobile utility slot into the floating controls stack when the provider is present', async () => {

@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { ChevronDown, ChevronUp } from 'lucide-react';
 
 import type { CapabilityWorkbenchCommandHeaderProps } from '@/types/capability-workbench';
 import { useCapabilityWorkbenchPlacement } from './CapabilityWorkbenchResponsiveFrame';
@@ -37,11 +38,15 @@ export function CapabilityWorkbenchCommandHeader({
   statusSlot,
   utilitySlot,
   mobileVariant = 'default',
+  mobileCollapsible,
+  mobileDefaultCollapsed = false,
   className = '',
 }: CapabilityWorkbenchCommandHeaderProps) {
   const placement = useCapabilityWorkbenchPlacement();
   const mobileFloatingControls = useOptionalCapabilityWorkbenchMobileFloatingControls();
   const useCompactMobileLayout = mobileVariant === 'compact' && placement === 'mobile';
+  const compactMobileCollapsible = useCompactMobileLayout && (mobileCollapsible ?? true);
+  const [compactMobileCollapsed, setCompactMobileCollapsed] = React.useState(mobileDefaultCollapsed);
   const externalizeUtilitySlot = useCompactMobileLayout && Boolean(utilitySlot) && Boolean(mobileFloatingControls);
   const mobileUtilityControlScopeId = React.useId();
   const mobileUtilityControls = React.useMemo<CapabilityWorkbenchMobileFloatingControl[]>(() => {
@@ -64,7 +69,12 @@ export function CapabilityWorkbenchCommandHeader({
     mobileUtilityControls,
   );
 
+  React.useEffect(() => {
+    setCompactMobileCollapsed(compactMobileCollapsible ? mobileDefaultCollapsed : false);
+  }, [compactMobileCollapsible, mobileDefaultCollapsed]);
+
   if (useCompactMobileLayout) {
+    const showCompactMobileDetails = !compactMobileCollapsible || !compactMobileCollapsed;
     const compactMetaSlots = [
       {
         children: primaryToolbarSlot,
@@ -88,6 +98,8 @@ export function CapabilityWorkbenchCommandHeader({
         className={`grid shrink-0 grid-cols-1 gap-2 border-b border-stone-800 bg-stone-950 px-3 py-2 text-stone-100 ${className}`.trim()}
         data-testid="capability-workbench-command-header"
         data-mobile-variant="compact"
+        data-mobile-collapsible={compactMobileCollapsible ? 'true' : 'false'}
+        data-mobile-collapsed={compactMobileCollapsed ? 'true' : 'false'}
       >
         <div className="flex min-w-0 items-start gap-2">
           <SlotFrame
@@ -96,6 +108,22 @@ export function CapabilityWorkbenchCommandHeader({
           >
             {brandSlot}
           </SlotFrame>
+          {compactMobileCollapsible ? (
+            <button
+              type="button"
+              aria-label={compactMobileCollapsed ? 'Expand workbench header' : 'Collapse workbench header'}
+              aria-expanded={!compactMobileCollapsed}
+              onClick={() => setCompactMobileCollapsed((current) => !current)}
+              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-stone-700 bg-stone-900/80 text-stone-200 transition hover:border-stone-500 hover:bg-stone-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              data-testid="capability-workbench-command-header-mobile-collapse-toggle"
+            >
+              {compactMobileCollapsed ? (
+                <ChevronDown aria-hidden className="h-4 w-4" />
+              ) : (
+                <ChevronUp aria-hidden className="h-4 w-4" />
+              )}
+            </button>
+          ) : null}
           <SlotFrame
             className="shrink-0"
             testId="capability-workbench-command-header-utility"
@@ -103,28 +131,43 @@ export function CapabilityWorkbenchCommandHeader({
             {externalizeUtilitySlot ? null : utilitySlot}
           </SlotFrame>
         </div>
-        <SlotFrame
-          className="min-w-0 max-w-full"
-          testId="capability-workbench-command-header-mode"
-        >
-          {modeSlot}
-        </SlotFrame>
-        {compactMetaSlots.length > 0 ? (
-          <div
-            className="flex min-w-0 items-center gap-2 overflow-x-auto pb-0.5"
-            data-testid="capability-workbench-command-header-mobile-meta-strip"
-          >
-            {compactMetaSlots.map((slot) => (
-              <SlotFrame
-                key={slot.testId}
-                className={slot.className}
-                testId={slot.testId}
+        {showCompactMobileDetails ? (
+          <>
+            <SlotFrame
+              className="min-w-0 max-w-full"
+              testId="capability-workbench-command-header-mode"
+            >
+              {modeSlot}
+            </SlotFrame>
+            {compactMetaSlots.length > 0 ? (
+              <div
+                className="flex min-w-0 items-center gap-2 overflow-x-auto pb-0.5"
+                data-testid="capability-workbench-command-header-mobile-meta-strip"
               >
-                {slot.children}
-              </SlotFrame>
-            ))}
+                {compactMetaSlots.map((slot) => (
+                  <SlotFrame
+                    key={slot.testId}
+                    className={slot.className}
+                    testId={slot.testId}
+                  >
+                    {slot.children}
+                  </SlotFrame>
+                ))}
+              </div>
+            ) : null}
+          </>
+        ) : (
+          <div
+            aria-hidden="true"
+            className="hidden"
+            data-testid="capability-workbench-command-header-collapsed-content"
+          >
+            {modeSlot}
+            {primaryToolbarSlot}
+            {contextToolbarSlot}
+            {statusSlot}
           </div>
-        ) : null}
+        )}
       </header>
     );
   }
