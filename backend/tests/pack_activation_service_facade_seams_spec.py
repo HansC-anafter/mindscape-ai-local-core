@@ -8,6 +8,7 @@ from backend.app.services.pack_activation_service import (
     PackActivationService,
     _utc_now,
 )
+from backend.app.services.stores.pack_activation_state_store import PackActivationStateStore
 
 
 class _FakeActivationStore:
@@ -22,6 +23,7 @@ class _FakeActivationStore:
         return {pack_id: dict(value) for pack_id, value in self.state.items()}
 
     def upsert_state(self, **payload: Any) -> Dict[str, Any]:
+        payload.pop("allow_install_state_regression", None)
         self.state[payload["pack_id"]] = dict(payload)
         return dict(payload)
 
@@ -125,3 +127,36 @@ def test_runtime_transitions_preserve_state_with_fake_store() -> None:
     assert observed["embedding_state"] == "indexed"
     assert observed["embedding_error"] is None
     assert observed["embeddings_updated_at"] == latest
+
+
+def test_activation_state_store_blocks_same_manifest_validation_pending_regression() -> None:
+    assert (
+        PackActivationStateStore._resolve_install_state_for_upsert(
+            existing_install_state="installed",
+            existing_manifest_hash="same-hash",
+            incoming_install_state="validation_pending",
+            incoming_manifest_hash="same-hash",
+            allow_install_state_regression=False,
+        )
+        == "installed"
+    )
+    assert (
+        PackActivationStateStore._resolve_install_state_for_upsert(
+            existing_install_state="installed",
+            existing_manifest_hash="old-hash",
+            incoming_install_state="validation_pending",
+            incoming_manifest_hash="new-hash",
+            allow_install_state_regression=False,
+        )
+        == "validation_pending"
+    )
+    assert (
+        PackActivationStateStore._resolve_install_state_for_upsert(
+            existing_install_state="installed",
+            existing_manifest_hash="same-hash",
+            incoming_install_state="validation_pending",
+            incoming_manifest_hash="same-hash",
+            allow_install_state_regression=True,
+        )
+        == "validation_pending"
+    )

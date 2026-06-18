@@ -15,6 +15,8 @@ def _utc_now() -> datetime:
 class PackActivationStateStore(PostgresStoreBase):
     """Persist pack activation/install state independently from installed_packs."""
 
+    _NON_REGRESSING_INSTALL_STATES = {"installed", "validation_failed"}
+
     def __init__(self, db_role: str = "core"):
         super().__init__(db_role=db_role)
 
@@ -88,9 +90,28 @@ class PackActivationStateStore(PostgresStoreBase):
         registered_prefixes: Optional[List[str]] = None,
         last_error: Optional[str] = None,
         activated_at: Optional[datetime] = None,
+        allow_install_state_regression: bool = True,
     ) -> Dict[str, Any]:
         updated_at = _utc_now()
         with self.transaction() as conn:
+            existing_row = conn.execute(
+                text(
+                    """
+                    SELECT install_state, manifest_hash
+                    FROM pack_activation_state
+                    WHERE pack_id = :pack_id
+                    FOR UPDATE
+                    """
+                ),
+                {"pack_id": pack_id},
+            ).fetchone()
+            install_state = self._resolve_install_state_for_upsert(
+                existing_install_state=existing_row.install_state if existing_row else None,
+                existing_manifest_hash=existing_row.manifest_hash if existing_row else None,
+                incoming_install_state=install_state,
+                incoming_manifest_hash=manifest_hash,
+                allow_install_state_regression=allow_install_state_regression,
+            )
             conn.execute(
                 text(
                     """
@@ -147,3 +168,25 @@ class PackActivationStateStore(PostgresStoreBase):
         if state is None:
             raise RuntimeError(f"Failed to persist activation state for {pack_id}")
         return state
+
+    @classmethod
+    def _resolve_install_state_for_upsert(
+        cls,
+        *,
+        existing_install_state: Optional[str],
+        existing_manifest_hash: Optional[str],
+        incoming_install_state: str,
+        incoming_manifest_hash: Optional[str],
+        allow_install_state_regression: bool,
+    ) -> str:
+        if allow_install_state_regression:
+            return incoming_install_state
+        if incoming_install_state != "validation_pending":
+            return incoming_install_state
+        if existing_install_state not in cls._NON_REGRESSING_INSTALL_STATES:
+            return incoming_install_state
+        if not existing_manifest_hash or not incoming_manifest_hash:
+            return incoming_install_state
+        if existing_manifest_hash != incoming_manifest_hash:
+            return incoming_install_state
+        return existing_install_state

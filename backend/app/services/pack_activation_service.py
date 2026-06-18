@@ -129,7 +129,10 @@ class PackActivationService(PackActivationHelperMixin):
             last_error=None,
             activated_at=None,
         )
-        return self.store.upsert_state(**record.to_store_payload())
+        return self.store.upsert_state(
+            **record.to_store_payload(),
+            allow_install_state_regression=False,
+        )
 
     def record_activation_succeeded(
         self,
@@ -152,7 +155,10 @@ class PackActivationService(PackActivationHelperMixin):
             last_error=None,
             activated_at=_utc_now(),
         )
-        return self.store.upsert_state(**record.to_store_payload())
+        return self.store.upsert_state(
+            **record.to_store_payload(),
+            allow_install_state_regression=False,
+        )
 
     def record_activation_failed(
         self,
@@ -176,7 +182,10 @@ class PackActivationService(PackActivationHelperMixin):
             last_error=error,
             activated_at=None,
         )
-        return self.store.upsert_state(**record.to_store_payload())
+        return self.store.upsert_state(
+            **record.to_store_payload(),
+            allow_install_state_regression=False,
+        )
 
     def record_validation_pending(
         self,
