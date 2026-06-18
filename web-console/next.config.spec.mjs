@@ -9,6 +9,10 @@ describe('next config capability host routing', () => {
     const rewrites = await nextConfig.rewrites();
 
     expect(rewrites.beforeFiles).toContainEqual({
+      source: '/workspaces/:workspaceId/capability-ui-hosts/:capabilityCode',
+      destination: '/capability-ui-host-runtime/:workspaceId/:capabilityCode',
+    });
+    expect(rewrites.beforeFiles).toContainEqual({
       source: '/workspaces/:workspaceId/capability-ui-hosts/:capabilityCode/:surfacePath*',
       destination: '/capability-ui-host-runtime/:workspaceId/:capabilityCode/:surfacePath*',
     });

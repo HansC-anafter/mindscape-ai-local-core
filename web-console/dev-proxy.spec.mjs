@@ -163,9 +163,19 @@ describe('frontend dev proxy', () => {
 
       expect(response.status).toBe(200);
       expect(response.headers.get('content-type')).toContain('text/html');
-      expect(body).toContain('MindscapeRuntimeReact');
+      expect(body).toContain('<html lang="en" class="theme-warm">');
+      expect(body).toContain('__mindscape-capability-host/app-layout.css');
+      expect(body).toContain('__mindscape-capability-host/shell-runtime.browser.js');
+      expect(body).toContain('mindscape-capability-host-config');
       expect(body).toContain('"workspaceId":"ws-1"');
       expect(body).toContain('"capabilityCode":"ig"');
+
+      const runtimeResponse = await fetch(`http://127.0.0.1:${port}/__mindscape-capability-host/shell-runtime.browser.js`);
+      const runtimeBody = await runtimeResponse.text();
+      expect(runtimeResponse.status).toBe(200);
+      expect(runtimeResponse.headers.get('content-type')).toContain('application/javascript');
+      expect(runtimeBody).toContain('MindscapeRuntimeReact');
+      expect(runtimeBody).toContain('__mindscapeCapabilityHostMetadataCache');
     } finally {
       await new Promise((resolve) => server.close(resolve));
     }

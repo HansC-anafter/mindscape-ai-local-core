@@ -17,6 +17,7 @@ import {
 import {
   isCapabilityHostBootstrapRequest,
   isCapabilityHostRuntimeAssetRequest,
+  prepareCapabilityHostRuntimeAssets,
   writeCapabilityHostBootstrap,
   writeCapabilityHostRuntimeAsset,
 } from './dev-proxy/capability-host-bootstrap.mjs';
@@ -255,12 +256,7 @@ export function createFrontendProxyServer({
         return;
       }
       if (isCapabilityHostRuntimeAssetRequest(req.method, req.url)) {
-        writeCapabilityHostRuntimeAsset(res, req.url);
-        return;
-      }
-      if (isCapabilityHostBootstrapRequest(req.method, req.url)) {
-        recordForegroundActivity(Date.now());
-        writeCapabilityHostBootstrap(res, req.url);
+        await writeCapabilityHostRuntimeAsset(res, req.url);
         return;
       }
 
@@ -293,6 +289,16 @@ export function createFrontendProxyServer({
           requestResult,
           statusCode: rejection.statusCode,
           responseBytes: rejection.bodyBytes,
+        });
+        return;
+      }
+      if (isCapabilityHostBootstrapRequest(req.method, req.url)) {
+        const response = writeCapabilityHostBootstrap(res, req.url);
+        void remoteWorkbenchObservability.recordCompletedRequest(requestObservation, {
+          event: 'finish',
+          statusCode: response?.statusCode || 200,
+          responseBytes: response?.bodyBytes || 0,
+          upstreamKind: 'capability_host_bootstrap',
         });
         return;
       }
@@ -434,6 +440,7 @@ export function start() {
 
   server.listen(PUBLIC_PORT, PUBLIC_HOST, () => {
     console.log(`[frontend-proxy] listening on ${PUBLIC_HOST}:${PUBLIC_PORT}, proxying to ${NEXT_HOST}:${NEXT_PORT}`);
+    void prepareCapabilityHostRuntimeAssets();
     deviceLinkHttpsServer = startDeviceLinkHttpsProxy({
       targetHost: '127.0.0.1',
       targetPort: PUBLIC_PORT,
