@@ -7,6 +7,10 @@ from backend.tests.capability_packs_cache_support import (
     _reset_pack_yaml_cache,
     capability_packs,
 )
+from backend.app.routes.core.capability_packs_core import cache_state
+from backend.app.services.capability_pack_route_cache import (
+    clear_installed_capability_metadata_caches,
+)
 
 
 def test_pack_yaml_scan_cache_deduplicates_concurrent_default_scans(monkeypatch):
@@ -399,3 +403,34 @@ def test_runtime_ui_index_cache_deduplicates_component_lookup(monkeypatch, tmp_p
     assert calls == 1
     assert first["asset_url"] == "/one.js"
     assert second["asset_url"] == "/two.js"
+
+
+def test_clear_installed_capability_metadata_caches_invalidates_route_state():
+    _reset_pack_yaml_cache()
+    cache_state.set_cached_capability_route_payload(
+        "ui-components",
+        "demo_pack",
+        [{"code": "DemoPage"}],
+    )
+    cache_state.set_cached_runtime_ui_index(
+        "demo_pack",
+        {"components": [{"code": "DemoPage", "asset_url": "/old.js"}]},
+    )
+    cache_state.set_cached_installed_pack_ids({"demo_pack"})
+    cache_state.set_cached_pack_meta_by_code("demo_pack", {"id": "demo_pack"})
+
+    assert cache_state.get_cached_capability_route_payload("ui-components", "demo_pack")
+    assert cache_state.get_cached_runtime_ui_index("demo_pack")
+    assert cache_state.get_cached_installed_pack_ids() == {"demo_pack"}
+    assert cache_state.get_cached_pack_meta_by_code("demo_pack")
+
+    cleared = clear_installed_capability_metadata_caches(
+        capability_code="demo_pack",
+        reason="test",
+    )
+
+    assert cleared >= 1
+    assert cache_state.get_cached_capability_route_payload("ui-components", "demo_pack") is None
+    assert cache_state.get_cached_runtime_ui_index("demo_pack") is None
+    assert cache_state.get_cached_installed_pack_ids() is None
+    assert cache_state.get_cached_pack_meta_by_code("demo_pack") is None

@@ -13,6 +13,9 @@ from backend.app.database.write_readiness import (
     ensure_core_write_ready,
 )
 from app.services.pack_activation_service import PackActivationService
+from app.services.capability_pack_route_cache import (
+    clear_installed_capability_metadata_caches,
+)
 from app.services.stores.installed_packs_store import InstalledPacksStore
 from .paths import (
     OVERWRITE_CONFIRMATION_PHRASE,
@@ -437,6 +440,11 @@ async def run_install_pipeline(
         except Exception as exc:
             logger.warning(f"Failed to register pack in database: {exc}")
             result.add_warning(f"Failed to register pack in database: {exc}")
+
+        clear_installed_capability_metadata_caches(
+            capability_code=capability_code,
+            reason="install_pipeline_registered",
+        )
 
         try:
             pipeline.activation = await run_in_threadpool(

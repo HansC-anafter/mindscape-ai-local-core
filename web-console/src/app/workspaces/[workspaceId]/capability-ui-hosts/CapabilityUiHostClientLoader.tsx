@@ -22,10 +22,13 @@ interface CapabilityUiMetadata {
 }
 
 type CapabilityUiMetadataCacheEntry = {
-  promise: Promise<CapabilityUiMetadata>;
+  promise?: Promise<CapabilityUiMetadata>;
+  metadata?: CapabilityUiMetadata;
+  cachedAt?: number;
 };
 
 const CAPABILITY_UI_METADATA_TIMEOUT_MS = 30000;
+const CAPABILITY_UI_METADATA_CACHE_TTL_MS = 2000;
 const metadataCache = new Map<string, CapabilityUiMetadataCacheEntry>();
 const WorkspaceSurfaceShell = React.lazy(() => import('./WorkspaceSurfaceShell'));
 
@@ -43,6 +46,7 @@ async function fetchJsonWithTimeout<T>(url: string, timeoutMs: number): Promise<
   try {
     const response = await fetch(url, {
       credentials: 'same-origin',
+      cache: 'no-store',
       signal: controller.signal,
     });
     if (!response.ok) {
@@ -110,21 +114,64 @@ async function loadCapabilityUiMetadata(
   };
 }
 
+function capabilityUiMetadataCacheKey(apiUrl: string, capabilityCode: string): string {
+  return `capability-ui-metadata:${apiUrl}:${capabilityCode}`;
+}
+
+function isCapabilityUiMetadataFresh(entry: CapabilityUiMetadataCacheEntry | undefined): boolean {
+  return Boolean(
+    entry?.metadata
+    && typeof entry.cachedAt === 'number'
+    && Date.now() - entry.cachedAt <= CAPABILITY_UI_METADATA_CACHE_TTL_MS
+  );
+}
+
+function readCapabilityUiMetadataCache(
+  apiUrl: string,
+  capabilityCode: string,
+): CapabilityUiMetadataCacheEntry | undefined {
+  return metadataCache.get(capabilityUiMetadataCacheKey(apiUrl, capabilityCode));
+}
+
 function getCapabilityUiMetadata(
   apiUrl: string,
   capabilityCode: string,
+  options: { forceRefresh?: boolean } = {},
 ): Promise<CapabilityUiMetadata> {
-  const key = `capability-ui-metadata:${apiUrl}:${capabilityCode}`;
+  const key = capabilityUiMetadataCacheKey(apiUrl, capabilityCode);
   const cached = metadataCache.get(key);
-  if (cached) {
+  if (cached?.promise) {
     return cached.promise;
   }
-  const promise = loadCapabilityUiMetadata(apiUrl, capabilityCode)
+  if (!options.forceRefresh && isCapabilityUiMetadataFresh(cached)) {
+    return Promise.resolve(cached.metadata as CapabilityUiMetadata);
+  }
+
+  let promise: Promise<CapabilityUiMetadata>;
+  promise = loadCapabilityUiMetadata(apiUrl, capabilityCode)
+    .then((nextMetadata) => {
+      metadataCache.set(key, {
+        metadata: nextMetadata,
+        cachedAt: Date.now(),
+      });
+      return nextMetadata;
+    })
     .catch((error) => {
-      metadataCache.delete(key);
+      const latest = metadataCache.get(key);
+      if (latest?.promise === promise) {
+        if (latest.metadata) {
+          metadataCache.set(key, {
+            metadata: latest.metadata,
+            cachedAt: latest.cachedAt,
+          });
+        } else {
+          metadataCache.delete(key);
+        }
+      }
       throw error;
     });
   metadataCache.set(key, {
+    ...cached,
     promise,
   });
   return promise;
@@ -141,16 +188,20 @@ export default function CapabilityUiHostClientLoader({
 
   React.useEffect(() => {
     let cancelled = false;
+    const cached = readCapabilityUiMetadataCache(apiUrl, capabilityCode);
+    const cachedMetadata = cached?.metadata || null;
+    const forceRefresh = Boolean(cachedMetadata && !isCapabilityUiMetadataFresh(cached));
+
     setError(null);
-    setMetadata(null);
-    void getCapabilityUiMetadata(apiUrl, capabilityCode)
+    setMetadata(cachedMetadata);
+    void getCapabilityUiMetadata(apiUrl, capabilityCode, { forceRefresh })
       .then((nextMetadata) => {
         if (!cancelled) {
           setMetadata(nextMetadata);
         }
       })
       .catch((metadataError) => {
-        if (!cancelled) {
+        if (!cancelled && !cachedMetadata) {
           setError(describeCapabilityUiMetadataError(metadataError));
         }
       });

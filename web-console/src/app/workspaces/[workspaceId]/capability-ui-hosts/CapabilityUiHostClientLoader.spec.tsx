@@ -202,7 +202,9 @@ describe('CapabilityUiHostClientLoader', () => {
     );
   });
 
-  it('reuses loaded metadata after remount to avoid repeated pack asset metadata fetches', async () => {
+  it('reuses fresh metadata after remount to avoid repeated pack asset metadata fetches', async () => {
+    let now = 0;
+    vi.spyOn(Date, 'now').mockImplementation(() => now);
     let components = [{
       code: 'IGWorkbenchPage',
       asset_url: '/api/v1/capability-packs/installed-capabilities/ig_loader_refresh/ui-assets/IGWorkbenchPage.mjs',
@@ -233,6 +235,7 @@ describe('CapabilityUiHostClientLoader', () => {
     });
     firstRender.unmount();
 
+    now = 1000;
     components = [{
       code: 'IGWorkbenchPage',
       asset_url: '/api/v1/capability-packs/installed-capabilities/ig_loader_refresh/ui-assets/IGWorkbenchPage.mjs',
@@ -257,6 +260,66 @@ describe('CapabilityUiHostClientLoader', () => {
     expect(fetchMock.mock.calls.filter(([input]) => (
       String(input).endsWith('/api/v1/capability-packs/installed-capabilities/ig_loader_refresh/ui-components')
     ))).toHaveLength(1);
+  });
+
+  it('revalidates stale metadata after remount so updated pack assets are visible in the same session', async () => {
+    let now = 0;
+    vi.spyOn(Date, 'now').mockImplementation(() => now);
+    let components = [{
+      code: 'IGWorkbenchPage',
+      asset_url: '/api/v1/capability-packs/installed-capabilities/ig_loader_stale/ui-assets/IGWorkbenchPage.mjs',
+      runtime: 'mindscape-react-bridge-v1',
+      layout_hint: 'scrollable_full_bleed',
+    }];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/api/v1/capability-packs/installed-capabilities/ig_loader_stale')) {
+        return jsonResponse({ id: 'ig_loader_stale', code: 'ig_loader_stale' });
+      }
+      if (url.endsWith('/api/v1/capability-packs/installed-capabilities/ig_loader_stale/ui-components')) {
+        return jsonResponse(components);
+      }
+      return jsonResponse({ detail: 'not found' }, 404);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const firstRender = render(
+      <CapabilityUiHostClientLoader
+        workspaceId="ws_test"
+        capabilityCode="ig_loader_stale"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('loaded-capability-components')).toHaveAttribute('data-ui-components', '1');
+    });
+    firstRender.unmount();
+
+    now = 3000;
+    components = [{
+      code: 'IGWorkbenchPage',
+      asset_url: '/api/v1/capability-packs/installed-capabilities/ig_loader_stale/ui-assets/IGWorkbenchPage.mjs',
+      runtime: 'mindscape-react-bridge-v1',
+      layout_hint: 'scrollable_full_bleed',
+    }, {
+      code: 'IGRunsWorkspaceToolPanel',
+      asset_url: '/api/v1/capability-packs/installed-capabilities/ig_loader_stale/ui-assets/IGRunsWorkspaceToolPanel.mjs',
+      runtime: 'mindscape-react-bridge-v1',
+      layout_hint: 'default',
+    }];
+    render(
+      <CapabilityUiHostClientLoader
+        workspaceId="ws_test"
+        capabilityCode="ig_loader_stale"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('loaded-capability-components')).toHaveAttribute('data-ui-components', '2');
+    });
+    expect(fetchMock.mock.calls.filter(([input]) => (
+      String(input).endsWith('/api/v1/capability-packs/installed-capabilities/ig_loader_stale/ui-components')
+    ))).toHaveLength(2);
   });
 
   it('renders a recoverable error inside the workspace surface shell when metadata loading fails', async () => {

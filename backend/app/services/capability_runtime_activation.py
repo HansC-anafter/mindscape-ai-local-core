@@ -12,6 +12,9 @@ from backend.app.services.pack_activation_service import PackActivationService
 from backend.app.services.capability_runtime_refresh import (
     prepare_capability_for_reactivation,
 )
+from backend.app.services.capability_pack_route_cache import (
+    clear_installed_capability_metadata_caches,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +34,10 @@ def activate_installed_capability_routes(
         refresh_seeded_capability_descriptors,
     )
 
+    clear_installed_capability_metadata_caches(
+        capability_code=capability_code,
+        reason=f"explicit_runtime_activation:{reason}",
+    )
     load_capabilities(reset=True)
     descriptors = refresh_seeded_capability_descriptors(app)
     matching_descriptors = [
