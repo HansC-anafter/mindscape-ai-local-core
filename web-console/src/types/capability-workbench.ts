@@ -1,5 +1,16 @@
 import type { ReactNode } from 'react';
 
+export {
+  CAPABILITY_TASK_STATUS_EVENT,
+} from '../lib/capability-task-status/capability-task-status-types';
+export type {
+  CapabilityTaskStatusBridge,
+  CapabilityTaskStatusEnvelope,
+  CapabilityTaskStatusReceipt,
+  CapabilityTaskStatusTarget,
+  CapabilityTaskStatusValue,
+} from '../lib/capability-task-status/capability-task-status-types';
+
 export const CAPABILITY_TASK_CONFIRMATION_EVENT = 'mindscape:task_confirmation' as const;
 export const CAPABILITY_TASK_CONFIRMATION_LEGACY_EVENT = 'mindscape:execution_started' as const;
 export const CAPABILITY_TASK_CONFIRMATION_EXECUTION_EVENT = 'execution-event' as const;
@@ -40,6 +51,9 @@ export interface CapabilityTaskConfirmationBridge {
   confirmTaskSubmission: (
     envelope: CapabilityTaskConfirmationEnvelope,
   ) => CapabilityTaskConfirmationReceipt;
+  publishTaskStatus?: (
+    envelope: import('../lib/capability-task-status/capability-task-status-types').CapabilityTaskStatusEnvelope,
+  ) => import('../lib/capability-task-status/capability-task-status-types').CapabilityTaskStatusReceipt;
 }
 
 export type CapabilityWorkbenchStatusTone =

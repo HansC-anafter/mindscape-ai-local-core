@@ -5,7 +5,12 @@ import {
   type CapabilityTaskConfirmationBridge,
   type CapabilityTaskConfirmationEnvelope,
   type CapabilityTaskConfirmationReceipt,
+  type CapabilityTaskStatusEnvelope,
 } from '@/types/capability-workbench';
+import {
+  createTaskStatusBridge,
+  type CapabilityTaskStatusBridge,
+} from '@/lib/capability-task-status';
 
 const DEFAULT_CONFIRMATION_TTL_MS = 30_000;
 
@@ -17,6 +22,7 @@ interface ConfirmationRecord {
 declare global {
   interface Window {
     __MindscapeTaskConfirmationBridge?: CapabilityTaskConfirmationBridge | null;
+    __MindscapeTaskStatusBridge?: CapabilityTaskStatusBridge | null;
   }
 }
 
@@ -54,6 +60,33 @@ function buildConfirmationKey(envelope: CapabilityTaskConfirmationEnvelope): str
   return `${envelope.workspaceId}:${envelope.executionId}:${envelope.playbookCode}`;
 }
 
+function buildStatusEnvelope(
+  envelope: CapabilityTaskConfirmationEnvelope,
+): CapabilityTaskStatusEnvelope {
+  return {
+    schemaVersion: 'capability_task_status.v1',
+    workspaceId: envelope.workspaceId,
+    capabilityCode: readText(envelope.source) || 'unknown',
+    actionId: envelope.taskType || envelope.playbookCode,
+    status: envelope.status,
+    executionId: envelope.executionId,
+    executionIds: [envelope.executionId],
+    playbookCode: envelope.playbookCode,
+    target: envelope.targetKey
+      ? {
+          kind: envelope.targetKind || 'target',
+          key: envelope.targetKey,
+          label: envelope.displayLabel,
+        }
+      : undefined,
+    submittedAt: envelope.submittedAt,
+    updatedAt: envelope.confirmedAt,
+    source: envelope.source || 'compatibility_confirmation',
+    metadata: envelope.inputs,
+    ttlMs: envelope.ttlMs,
+  };
+}
+
 function dispatchWindowEvent(eventName: string, detail: unknown): void {
   if (typeof window === 'undefined') {
     return;
@@ -81,10 +114,15 @@ function emitConfirmationEvents(envelope: CapabilityTaskConfirmationEnvelope): v
   });
 }
 
-export function createTaskConfirmationBridge(): CapabilityTaskConfirmationBridge {
+export function createTaskConfirmationBridge(
+  taskStatusBridge: CapabilityTaskStatusBridge = createTaskStatusBridge(),
+): CapabilityTaskConfirmationBridge {
   const confirmations = new Map<string, ConfirmationRecord>();
 
   return {
+    publishTaskStatus(envelope) {
+      return taskStatusBridge.publishTaskStatus(envelope);
+    },
     confirmTaskSubmission(envelope): CapabilityTaskConfirmationReceipt {
       const normalizedEnvelope = normalizeEnvelope(envelope);
       const key = buildConfirmationKey(normalizedEnvelope);
@@ -96,6 +134,7 @@ export function createTaskConfirmationBridge(): CapabilityTaskConfirmationBridge
         envelope: normalizedEnvelope,
         recordedAt: now,
       });
+      taskStatusBridge.publishTaskStatus(buildStatusEnvelope(normalizedEnvelope));
       if (!duplicate) {
         emitConfirmationEvents(normalizedEnvelope);
       }
@@ -117,6 +156,11 @@ export function getTaskConfirmationBridge(): CapabilityTaskConfirmationBridge {
   }
   if (typeof window !== 'undefined') {
     window.__MindscapeTaskConfirmationBridge = browserBridge;
+    if (browserBridge.publishTaskStatus) {
+      window.__MindscapeTaskStatusBridge = {
+        publishTaskStatus: browserBridge.publishTaskStatus,
+      };
+    }
   }
   return browserBridge;
 }
