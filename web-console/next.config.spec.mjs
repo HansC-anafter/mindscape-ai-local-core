@@ -5,14 +5,14 @@ const require = createRequire(import.meta.url);
 const nextConfig = require('./next.config.js');
 
 describe('next config capability host routing', () => {
-  it('rewrites workspace capability hosts to the lightweight runtime route before app files', async () => {
+  it('keeps workspace capability hosts on the app route so workspace and pack rails stay mounted', async () => {
     const rewrites = await nextConfig.rewrites();
 
-    expect(rewrites.beforeFiles).toContainEqual({
+    expect(rewrites.beforeFiles).not.toContainEqual({
       source: '/workspaces/:workspaceId/capability-ui-hosts/:capabilityCode',
       destination: '/capability-ui-host-runtime/:workspaceId/:capabilityCode',
     });
-    expect(rewrites.beforeFiles).toContainEqual({
+    expect(rewrites.beforeFiles).not.toContainEqual({
       source: '/workspaces/:workspaceId/capability-ui-hosts/:capabilityCode/:surfacePath*',
       destination: '/capability-ui-host-runtime/:workspaceId/:capabilityCode/:surfacePath*',
     });

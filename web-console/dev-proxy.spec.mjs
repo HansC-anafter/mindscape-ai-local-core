@@ -141,7 +141,7 @@ describe('frontend dev proxy', () => {
     }
   });
 
-  it('serves capability host bootstrap without waiting for Next dev document compilation', async () => {
+  it('keeps capability host runtime assets on the proxy fast path without taking over the workspace shell route', async () => {
     expect(isCapabilityHostBootstrapRequest(
       'GET',
       '/workspaces/ws-1/capability-ui-hosts/ig?component=IGWorkbenchPage',
@@ -161,14 +161,8 @@ describe('frontend dev proxy', () => {
       const response = await fetch(`http://127.0.0.1:${port}/workspaces/ws-1/capability-ui-hosts/ig`);
       const body = await response.text();
 
-      expect(response.status).toBe(200);
-      expect(response.headers.get('content-type')).toContain('text/html');
-      expect(body).toContain('<html lang="en" class="theme-warm">');
-      expect(body).toContain('__mindscape-capability-host/app-layout.css');
-      expect(body).toContain('__mindscape-capability-host/shell-runtime.browser.js');
-      expect(body).toContain('mindscape-capability-host-config');
-      expect(body).toContain('"workspaceId":"ws-1"');
-      expect(body).toContain('"capabilityCode":"ig"');
+      expect(response.status).not.toBe(200);
+      expect(body).not.toContain('mindscape-capability-host-config');
 
       const runtimeResponse = await fetch(`http://127.0.0.1:${port}/__mindscape-capability-host/shell-runtime.browser.js`);
       const runtimeBody = await runtimeResponse.text();

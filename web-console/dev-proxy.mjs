@@ -15,10 +15,8 @@ import {
   writeFrontendDocumentHeadReadiness,
 } from './dev-proxy/head-readiness.mjs';
 import {
-  isCapabilityHostBootstrapRequest,
   isCapabilityHostRuntimeAssetRequest,
   prepareCapabilityHostRuntimeAssets,
-  writeCapabilityHostBootstrap,
   writeCapabilityHostRuntimeAsset,
 } from './dev-proxy/capability-host-bootstrap.mjs';
 import {
@@ -292,17 +290,6 @@ export function createFrontendProxyServer({
         });
         return;
       }
-      if (isCapabilityHostBootstrapRequest(req.method, req.url)) {
-        const response = writeCapabilityHostBootstrap(res, req.url);
-        void remoteWorkbenchObservability.recordCompletedRequest(requestObservation, {
-          event: 'finish',
-          statusCode: response?.statusCode || 200,
-          responseBytes: response?.bodyBytes || 0,
-          upstreamKind: 'capability_host_bootstrap',
-        });
-        return;
-      }
-
       proxyHttpRequest(req, res, {
         requestId,
         nextProxyTarget,
