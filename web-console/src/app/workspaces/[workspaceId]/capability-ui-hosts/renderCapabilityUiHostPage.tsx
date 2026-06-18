@@ -1,4 +1,4 @@
-import CapabilityUiHostRouteClient from './CapabilityUiHostRouteClient';
+import CapabilityUiHostRouteShell from './CapabilityUiHostRouteShell';
 
 interface RenderCapabilityUiHostPageOptions {
   workspaceId: string;
@@ -6,13 +6,13 @@ interface RenderCapabilityUiHostPageOptions {
   surfacePath?: readonly string[];
 }
 
-export async function renderCapabilityUiHostPage({
+export function renderCapabilityUiHostPage({
   workspaceId,
   capabilityCode,
   surfacePath = [],
 }: RenderCapabilityUiHostPageOptions) {
   return (
-    <CapabilityUiHostRouteClient
+    <CapabilityUiHostRouteShell
       workspaceId={workspaceId}
       capabilityCode={capabilityCode}
       surfacePath={surfacePath}

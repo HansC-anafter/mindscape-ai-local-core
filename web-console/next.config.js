@@ -81,7 +81,12 @@ const nextConfig = {
   },
   async rewrites() {
     return {
-      beforeFiles: [],
+      beforeFiles: [
+        {
+          source: '/workspaces/:workspaceId/capability-ui-hosts/:capabilityCode/:surfacePath*',
+          destination: '/capability-ui-host-runtime/:workspaceId/:capabilityCode/:surfacePath*',
+        },
+      ],
       afterFiles: [],
       fallback: [],
     };

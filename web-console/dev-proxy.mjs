@@ -15,6 +15,12 @@ import {
   writeFrontendDocumentHeadReadiness,
 } from './dev-proxy/head-readiness.mjs';
 import {
+  isCapabilityHostBootstrapRequest,
+  isCapabilityHostRuntimeAssetRequest,
+  writeCapabilityHostBootstrap,
+  writeCapabilityHostRuntimeAsset,
+} from './dev-proxy/capability-host-bootstrap.mjs';
+import {
   resolveDeviceLinkHttpsConfig,
   startDeviceLinkHttpsProxy,
 } from './dev-proxy/device-link-https.mjs';
@@ -86,6 +92,13 @@ export {
   writeFrontendDocumentHeadReadiness,
 } from './dev-proxy/head-readiness.mjs';
 export {
+  isCapabilityHostBootstrapRequest,
+  isCapabilityHostRuntimeAssetRequest,
+  parseCapabilityHostBootstrapRoute,
+  writeCapabilityHostBootstrap,
+  writeCapabilityHostRuntimeAsset,
+} from './dev-proxy/capability-host-bootstrap.mjs';
+export {
   isAllowedDeviceLinkHttpsPath,
   isDeviceLinkHttpsReadinessPath,
   resolveDeviceLinkHttpsConfig,
@@ -135,11 +148,50 @@ const NEXT_HOST = process.env.NEXT_DEV_HOST || '127.0.0.1';
 const NEXT_PORT = Number.parseInt(process.env.NEXT_DEV_PORT || '3001', 10);
 const PREWARM_ENABLED = process.env.FRONTEND_PREWARM_ENABLED === '1';
 const PREWARM_DELAY_MS = Number.parseInt(process.env.FRONTEND_PREWARM_DELAY_MS || '8000', 10);
+const PREWARM_IDLE_MS = Number.parseInt(process.env.FRONTEND_PREWARM_IDLE_MS || '45000', 10);
+const PREWARM_FOREGROUND_GRACE_MS = Number.parseInt(process.env.FRONTEND_PREWARM_FOREGROUND_GRACE_MS || '15000', 10);
 let requestSequence = 0;
 
 export function computeNextDevRestartDelayMs(restartCount) {
   const boundedCount = Math.max(0, Math.min(Number(restartCount) || 0, 5));
   return Math.min(30_000, 1_000 * (2 ** boundedCount));
+}
+
+export function resolvePrewarmIdleDelayMs(lastForegroundActivityAt, now = Date.now(), idleMs = PREWARM_IDLE_MS) {
+  const normalizedIdleMs = Math.max(0, Number(idleMs) || 0);
+  const normalizedLastActivityAt = Math.max(0, Number(lastForegroundActivityAt) || 0);
+  if (!normalizedIdleMs || !normalizedLastActivityAt) {
+    return 0;
+  }
+  const elapsedMs = Math.max(0, Number(now) - normalizedLastActivityAt);
+  return Math.max(0, normalizedIdleMs - elapsedMs);
+}
+
+export function isForegroundFrontendRequest(method = 'GET', requestUrl = '/', headers = {}) {
+  if (
+    headers?.['x-mindscape-frontend-prewarm'] ||
+    headers?.['x-mindscape-frontend-prewarm-metadata'] ||
+    headers?.['x-mindscape-frontend-prewarm-probe']
+  ) {
+    return false;
+  }
+  if (isFrontendLivenessPath(requestUrl)) {
+    return false;
+  }
+  if (isFrontendDocumentHeadReadinessRequest(method, requestUrl)) {
+    return false;
+  }
+  try {
+    const parsed = new URL(requestUrl, 'http://localhost');
+    if (parsed.pathname === '/_next/webpack-hmr') {
+      return false;
+    }
+  } catch {
+    if (requestUrl === '/_next/webpack-hmr') {
+      return false;
+    }
+  }
+  return isFrontendDocumentRequest(method, requestUrl) || isDevApiProxyPath(requestUrl);
 }
 
 export function createDeviceLinkIngressToken() {
@@ -154,6 +206,7 @@ export function createFrontendProxyServer({
   remoteWorkbenchObservability = createRemoteWorkbenchObservability({
     loadRunnerSnapshot: loadRemoteWorkbenchRunnerSnapshot,
   }),
+  recordForegroundActivity = () => {},
 } = {}) {
   const resolveWorkspaceCapabilityPolicy = createMobileWorkbenchGatewayPolicyResolver({
     buildInternalApiUrl,
@@ -200,6 +253,19 @@ export function createFrontendProxyServer({
       if (isFrontendDocumentHeadReadinessRequest(req.method, req.url)) {
         writeFrontendDocumentHeadReadiness(res, nextRunningRef.current);
         return;
+      }
+      if (isCapabilityHostRuntimeAssetRequest(req.method, req.url)) {
+        writeCapabilityHostRuntimeAsset(res, req.url);
+        return;
+      }
+      if (isCapabilityHostBootstrapRequest(req.method, req.url)) {
+        recordForegroundActivity(Date.now());
+        writeCapabilityHostBootstrap(res, req.url);
+        return;
+      }
+
+      if (isForegroundFrontendRequest(req.method, req.url, req.headers)) {
+        recordForegroundActivity(Date.now());
       }
 
       const requestId = ++requestSequence;
@@ -280,7 +346,43 @@ export function start() {
   let deviceLinkHttpsServer = null;
   let restartCount = 0;
   let shuttingDown = false;
-  const server = createFrontendProxyServer({ nextRunningRef, deviceLinkIngressToken });
+  let lastForegroundActivityAt = Date.now();
+  const recordForegroundActivity = (activityAt = Date.now()) => {
+    lastForegroundActivityAt = Math.max(lastForegroundActivityAt, Number(activityAt) || Date.now());
+  };
+  const hasRecentForegroundActivity = () => (
+    resolvePrewarmIdleDelayMs(lastForegroundActivityAt, Date.now(), PREWARM_FOREGROUND_GRACE_MS) > 0
+  );
+  const server = createFrontendProxyServer({
+    nextRunningRef,
+    deviceLinkIngressToken,
+    recordForegroundActivity,
+  });
+
+  const schedulePrewarm = (delayMs = PREWARM_DELAY_MS) => {
+    if (shuttingDown || !PREWARM_ENABLED) {
+      return;
+    }
+    if (prewarmTimer) {
+      clearTimeout(prewarmTimer);
+    }
+    prewarmTimer = setTimeout(() => {
+      prewarmTimer = null;
+      const idleDelayMs = resolvePrewarmIdleDelayMs(lastForegroundActivityAt, Date.now(), PREWARM_IDLE_MS);
+      if (idleDelayMs > 0) {
+        console.log(`[frontend-proxy] prewarm_deferred ${JSON.stringify({
+          reason: 'foreground_activity',
+          delay_ms: idleDelayMs,
+        })}`);
+        schedulePrewarm(idleDelayMs);
+        return;
+      }
+      void prewarmNextDevRoutes(undefined, {
+        shouldContinue: () => !hasRecentForegroundActivity(),
+        stopReason: 'foreground_activity',
+      });
+    }, Math.max(0, Number(delayMs) || 0));
+  };
 
   const launchNextDev = () => {
     if (shuttingDown) {
@@ -301,10 +403,8 @@ export function start() {
     nextProcess.on('spawn', () => {
       nextRunningRef.current = true;
       if (PREWARM_ENABLED) {
-        prewarmTimer = setTimeout(() => {
-          prewarmTimer = null;
-          void prewarmNextDevRoutes();
-        }, PREWARM_DELAY_MS);
+        lastForegroundActivityAt = Date.now();
+        schedulePrewarm(PREWARM_DELAY_MS);
       }
     });
 

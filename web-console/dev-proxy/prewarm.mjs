@@ -9,6 +9,7 @@ const NEXT_PORT = Number.parseInt(process.env.NEXT_DEV_PORT || '3001', 10);
 const PREWARM_WORKSPACE_ID = process.env.FRONTEND_PREWARM_WORKSPACE_ID || '__prewarm__';
 const PREWARM_TIMEOUT_MS = Number.parseInt(process.env.FRONTEND_PREWARM_TIMEOUT_MS || '360000', 10);
 const CAPABILITY_PREWARM_ENABLED = process.env.FRONTEND_CAPABILITY_PREWARM_ENABLED === '1';
+const CAPABILITY_HOST_PREWARM_ENABLED = process.env.FRONTEND_CAPABILITY_HOST_PREWARM_ENABLED === '1';
 const CORE_PREWARM_PATHS = [];
 const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
 const SERVICE_ENDPOINT_SEED_PATHS = [
@@ -103,8 +104,9 @@ export function buildCapabilityPrewarmPaths(
   capabilities,
   workspaceId = PREWARM_WORKSPACE_ID,
   capabilityPrewarmEnabled = CAPABILITY_PREWARM_ENABLED,
+  capabilityHostPrewarmEnabled = CAPABILITY_HOST_PREWARM_ENABLED,
 ) {
-  if (!capabilityPrewarmEnabled) {
+  if (!capabilityPrewarmEnabled || !capabilityHostPrewarmEnabled) {
     return [];
   }
   if (!Array.isArray(capabilities)) {
@@ -206,6 +208,7 @@ export async function resolveFrontendPrewarmPaths(
       capabilities,
       workspaceId,
       options.capabilityPrewarmEnabled ?? CAPABILITY_PREWARM_ENABLED,
+      options.capabilityHostPrewarmEnabled ?? CAPABILITY_HOST_PREWARM_ENABLED,
     ),
   ]);
 }
@@ -318,7 +321,11 @@ export function waitForNextDevReady(timeoutMs = PREWARM_TIMEOUT_MS) {
   });
 }
 
-export async function prewarmNextDevRoutes(pathsPromise = resolveFrontendPrewarmPaths()) {
+export async function prewarmNextDevRoutes(pathsPromise = resolveFrontendPrewarmPaths(), options = {}) {
+  const shouldContinue = typeof options.shouldContinue === 'function'
+    ? options.shouldContinue
+    : () => true;
+  const stopReason = String(options.stopReason || 'foreground_activity');
   let paths = [];
   try {
     paths = await pathsPromise;
@@ -332,13 +339,25 @@ export async function prewarmNextDevRoutes(pathsPromise = resolveFrontendPrewarm
     console.log('[frontend-proxy] prewarm_skipped {"reason":"no_paths"}');
     return;
   }
+  if (!shouldContinue()) {
+    console.log(`[frontend-proxy] prewarm_skipped ${JSON.stringify({ reason: stopReason })}`);
+    return;
+  }
   console.log(`[frontend-proxy] prewarm_start ${JSON.stringify({ paths })}`);
   const ready = await waitForNextDevReady();
   if (!ready) {
     console.log('[frontend-proxy] prewarm_skipped {"reason":"next_dev_unavailable"}');
     return;
   }
-  for (const pathValue of paths) {
+  for (const [index, pathValue] of paths.entries()) {
+    if (!shouldContinue()) {
+      console.log(`[frontend-proxy] prewarm_stopped ${JSON.stringify({
+        reason: stopReason,
+        completed: index,
+        remaining: paths.length - index,
+      })}`);
+      return;
+    }
     await prewarmNextDevPath(pathValue);
   }
   console.log(`[frontend-proxy] prewarm_done ${JSON.stringify({ count: paths.length })}`);

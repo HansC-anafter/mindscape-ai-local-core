@@ -8,7 +8,7 @@ interface CapabilityUiHostPageProps {
   };
 }
 
-export default async function CapabilityUiHostPage({
+export default function CapabilityUiHostPage({
   params,
 }: CapabilityUiHostPageProps) {
   return renderCapabilityUiHostPage({

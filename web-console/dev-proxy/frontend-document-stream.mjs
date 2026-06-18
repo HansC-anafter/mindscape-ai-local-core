@@ -71,10 +71,24 @@ function endFrontendDocumentSubscriber(subscriber) {
   }
 }
 
-function attachFrontendDocumentSubscriber(flight, subscriber) {
+function detachFrontendDocumentSubscriber(flight, key, subscriber) {
+  flight.subscribers.delete(subscriber);
+  if (
+    flight.subscribers.size === 0
+    && !flight.ended
+    && !flight.errorCode
+  ) {
+    frontendDocumentStreamInflight.delete(key);
+    if (flight.upstream && !flight.upstream.destroyed) {
+      flight.upstream.destroy(new Error('frontend_document_subscribers_closed'));
+    }
+  }
+}
+
+function attachFrontendDocumentSubscriber(flight, key, subscriber) {
   flight.subscribers.add(subscriber);
   const detach = () => {
-    flight.subscribers.delete(subscriber);
+    detachFrontendDocumentSubscriber(flight, key, subscriber);
   };
   subscriber.res.on('close', detach);
 
@@ -119,6 +133,7 @@ function startFrontendDocumentFlight(req, target, key) {
     statusCode: null,
     subscribers: new Set(),
     totalBytes: 0,
+    upstream: null,
   };
   frontendDocumentStreamInflight.set(key, flight);
 
@@ -165,6 +180,7 @@ function startFrontendDocumentFlight(req, target, key) {
       });
     },
   );
+  flight.upstream = upstream;
 
   upstream.on('error', (error) => {
     failFrontendDocumentFlight(flight, key, error?.code || error?.message || 'unknown');
@@ -184,7 +200,7 @@ export function tryProxySingleflightNextDocument(req, res, target, logCompletion
   if (!flight) {
     flight = startFrontendDocumentFlight(req, target, key);
   }
-  attachFrontendDocumentSubscriber(flight, {
+  attachFrontendDocumentSubscriber(flight, key, {
     logCompletion,
     markTerminalError,
     req,

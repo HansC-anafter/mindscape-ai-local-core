@@ -10,12 +10,16 @@ import {
   createFrontendProxyServer,
   isDevApiProxyPath,
   isFrontendLivenessPath,
+  isForegroundFrontendRequest,
+  isCapabilityHostBootstrapRequest,
+  isCapabilityHostRuntimeAssetRequest,
   normalizeProxyLogPath,
   resolveDevApiReadCacheTtlMs,
   resolveNextDevArgs,
   resolveFrontendPrewarmPaths,
   resolveDevApiProxyTarget,
   resolveApiRoutePlane,
+  resolvePrewarmIdleDelayMs,
   shouldWriteProxyTimingLog,
 } from './dev-proxy.mjs';
 import { createBackendServer } from './dev-proxy.test-helpers.mjs';
@@ -40,6 +44,21 @@ describe('frontend dev proxy', () => {
     expect(isFrontendLivenessPath('/api/healthz')).toBe(true);
     expect(isFrontendLivenessPath('/api/v1/cloud-sync/status')).toBe(false);
     expect(isFrontendLivenessPath('/workspaces/ws-1/capabilities/ai_roles')).toBe(false);
+  });
+
+  it('keeps frontend prewarm behind foreground activity', () => {
+    expect(resolvePrewarmIdleDelayMs(1_000, 10_000, 45_000)).toBe(36_000);
+    expect(resolvePrewarmIdleDelayMs(1_000, 60_000, 45_000)).toBe(0);
+    expect(resolvePrewarmIdleDelayMs(0, 10_000, 45_000)).toBe(0);
+
+    expect(isForegroundFrontendRequest('GET', '/workspaces/ws-1/capability-ui-hosts/ig')).toBe(true);
+    expect(isForegroundFrontendRequest('GET', '/api/v1/ig/references/?workspace_id=ws-1')).toBe(true);
+    expect(isForegroundFrontendRequest('GET', '/healthz')).toBe(false);
+    expect(isForegroundFrontendRequest('HEAD', '/workspaces/ws-1/capability-ui-hosts/ig')).toBe(false);
+    expect(isForegroundFrontendRequest('GET', '/_next/webpack-hmr')).toBe(false);
+    expect(isForegroundFrontendRequest('GET', '/workspaces/ws-1/capability-ui-hosts/ig', {
+      'x-mindscape-frontend-prewarm': '1',
+    })).toBe(false);
   });
 
   it('sends default same-origin API traffic to execution without involving Next dev', () => {
@@ -73,6 +92,12 @@ describe('frontend dev proxy', () => {
       path: '/api/v1/capability-packs/installed-capabilities/ig/ui-components',
       plane: 'control',
     });
+    expect(resolveDevApiProxyTarget('/api/v1/workspaces/ws-1/device-bindings/PAIR1234/control')).toMatchObject({
+      hostname: 'backend-control',
+      port: 8210,
+      path: '/api/v1/workspaces/ws-1/device-bindings/PAIR1234/control',
+      plane: 'control',
+    });
   });
 
   it('keeps media API traffic on the media proxy upstream', () => {
@@ -87,6 +112,7 @@ describe('frontend dev proxy', () => {
   it('classifies upstreams and strips query strings from timing log paths', () => {
     expect(classifyProxyUpstream('/api/v1/workspaces/ws-1/summary?fresh=1')).toBe('backend_execution_api');
     expect(classifyProxyUpstream('/api/v1/capability-packs/install-from-file')).toBe('backend_control_api');
+    expect(classifyProxyUpstream('/api/v1/workspaces/ws-1/device-bindings/PAIR1234/control')).toBe('backend_control_api');
     expect(classifyProxyUpstream('/api/v1/media/assets/demo.png?token=secret')).toBe('media_proxy');
     expect(classifyProxyUpstream('/workspaces/ws-1?tab=home')).toBe('next_dev');
     expect(normalizeProxyLogPath('/workspaces/ws-1?tab=home')).toBe('/workspaces/ws-1');
@@ -110,6 +136,36 @@ describe('frontend dev proxy', () => {
         service: 'frontend',
         next_dev: 'exited',
       });
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+    }
+  });
+
+  it('serves capability host bootstrap without waiting for Next dev document compilation', async () => {
+    expect(isCapabilityHostBootstrapRequest(
+      'GET',
+      '/workspaces/ws-1/capability-ui-hosts/ig?component=IGWorkbenchPage',
+    )).toBe(true);
+    expect(isCapabilityHostRuntimeAssetRequest(
+      'GET',
+      '/__mindscape-capability-host/react.production.min.js',
+    )).toBe(true);
+
+    const server = createFrontendProxyServer({ nextRunningRef: { current: false } });
+
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    const port = typeof address === 'object' && address ? address.port : null;
+
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/workspaces/ws-1/capability-ui-hosts/ig`);
+      const body = await response.text();
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get('content-type')).toContain('text/html');
+      expect(body).toContain('MindscapeRuntimeReact');
+      expect(body).toContain('"workspaceId":"ws-1"');
+      expect(body).toContain('"capabilityCode":"ig"');
     } finally {
       await new Promise((resolve) => server.close(resolve));
     }
@@ -145,6 +201,24 @@ describe('frontend dev proxy', () => {
 
     await expect(resolveFrontendPrewarmPaths('', 'ws/one', {
       capabilityPrewarmEnabled: true,
+      installedCapabilities: [{
+        code: 'ig',
+        ui_prewarm: {
+          enabled: true,
+          surfaces: [{ path: '' }],
+        },
+      }, {
+        code: 'performance_direction',
+        ui_prewarm: {
+          enabled: false,
+          surfaces: [{ path: '' }],
+        },
+      }],
+    })).resolves.toEqual([]);
+
+    await expect(resolveFrontendPrewarmPaths('', 'ws/one', {
+      capabilityPrewarmEnabled: true,
+      capabilityHostPrewarmEnabled: true,
       installedCapabilities: [{
         code: 'ig',
         ui_prewarm: {

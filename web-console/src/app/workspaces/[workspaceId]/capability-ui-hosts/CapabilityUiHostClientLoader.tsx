@@ -1,10 +1,10 @@
 'use client';
 
+import dynamic from 'next/dynamic';
 import React from 'react';
 
 import { buildCapabilityWorkbenchPath } from '@/lib/capability-static-hosts';
 import { getApiBaseUrl } from '@/lib/api-url';
-import CapabilityLoadedComponents from '../capabilities/[capabilityCode]/CapabilityLoadedComponents';
 import type {
   CapabilityInfo,
   UIComponentInfo,
@@ -30,7 +30,6 @@ type CapabilityUiMetadataCacheEntry = {
 const CAPABILITY_UI_METADATA_TIMEOUT_MS = 30000;
 const CAPABILITY_UI_METADATA_CACHE_TTL_MS = 2000;
 const metadataCache = new Map<string, CapabilityUiMetadataCacheEntry>();
-const WorkspaceSurfaceShell = React.lazy(() => import('./WorkspaceSurfaceShell'));
 
 function CapabilityUiLoadingState() {
   return (
@@ -39,6 +38,17 @@ function CapabilityUiLoadingState() {
     </div>
   );
 }
+
+const WorkspaceSurfaceShell = dynamic(() => import('./WorkspaceSurfaceShell'), {
+  ssr: false,
+  loading: CapabilityUiLoadingState,
+});
+const CapabilityLoadedComponents = dynamic(() => (
+  import('../capabilities/[capabilityCode]/CapabilityLoadedComponents')
+), {
+  ssr: false,
+  loading: CapabilityUiLoadingState,
+});
 
 async function fetchJsonWithTimeout<T>(url: string, timeoutMs: number): Promise<T> {
   const controller = new AbortController();
@@ -143,8 +153,8 @@ function getCapabilityUiMetadata(
   if (cached?.promise) {
     return cached.promise;
   }
-  if (!options.forceRefresh && isCapabilityUiMetadataFresh(cached)) {
-    return Promise.resolve(cached.metadata as CapabilityUiMetadata);
+  if (!options.forceRefresh && cached?.metadata && isCapabilityUiMetadataFresh(cached)) {
+    return Promise.resolve(cached.metadata);
   }
 
   let promise: Promise<CapabilityUiMetadata>;

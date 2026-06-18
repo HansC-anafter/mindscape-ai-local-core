@@ -88,7 +88,7 @@ describe('frontend document single-flight', () => {
     const proxyPort = typeof proxyAddress === 'object' && proxyAddress ? proxyAddress.port : null;
 
     try {
-      const target = `http://127.0.0.1:${proxyPort}/workspaces/ws-1/capability-ui-hosts/ig?component=assets`;
+      const target = `http://127.0.0.1:${proxyPort}/workspaces/ws-1?tab=assets`;
       const [first, second] = await Promise.all([fetch(target), fetch(target)]);
       const [firstBody, secondBody] = await Promise.all([first.text(), second.text()]);
 
@@ -98,6 +98,61 @@ describe('frontend document single-flight', () => {
       expect(second.status).not.toBe(429);
       expect(firstBody).toBe(secondBody);
       expect(nextRequestCount).toBe(1);
+    } finally {
+      clearFrontendDocumentSingleflightForTests();
+      await closeServer(proxy);
+      await closeServer(nextServer);
+    }
+  });
+
+  it('releases an in-flight document when every subscriber closes before Next responds', async () => {
+    let nextRequestCount = 0;
+    let firstRequestClosed = false;
+    const nextServer = await createTestServer((req, res) => {
+      nextRequestCount += 1;
+      if (nextRequestCount === 1) {
+        req.on('close', () => {
+          firstRequestClosed = true;
+        });
+        return;
+      }
+
+      const body = `<html><body>${req.url}:${nextRequestCount}</body></html>`;
+      res.writeHead(200, {
+        'content-type': 'text/html; charset=utf-8',
+        'cache-control': 'no-store',
+        'content-length': Buffer.byteLength(body),
+      });
+      res.end(body);
+    });
+    const nextAddress = nextServer.address();
+    const nextPort = typeof nextAddress === 'object' && nextAddress ? nextAddress.port : null;
+    clearFrontendDocumentSingleflightForTests();
+    const proxy = createFrontendProxyServer({
+      nextRunningRef: { current: true },
+      nextProxyTarget: { hostname: '127.0.0.1', port: nextPort },
+    });
+
+    await new Promise((resolve) => proxy.listen(0, '127.0.0.1', resolve));
+    const proxyAddress = proxy.address();
+    const proxyPort = typeof proxyAddress === 'object' && proxyAddress ? proxyAddress.port : null;
+
+    try {
+      const target = `http://127.0.0.1:${proxyPort}/workspaces/ws-1`;
+      const controller = new AbortController();
+      const firstRequest = fetch(target, { signal: controller.signal }).catch((error) => error);
+
+      await waitForCondition(() => nextRequestCount === 1);
+      controller.abort();
+      await firstRequest;
+      await waitForCondition(() => firstRequestClosed);
+
+      const second = await fetch(target);
+      const secondBody = await second.text();
+
+      expect(second.status).toBe(200);
+      expect(secondBody).toContain('/workspaces/ws-1:2');
+      expect(nextRequestCount).toBe(2);
     } finally {
       clearFrontendDocumentSingleflightForTests();
       await closeServer(proxy);
@@ -141,5 +196,23 @@ function closeServer(server) {
       }
       resolve();
     });
+  });
+}
+
+function waitForCondition(predicate, timeoutMs = 1000) {
+  const startedAt = Date.now();
+  return new Promise((resolve, reject) => {
+    const tick = () => {
+      if (predicate()) {
+        resolve();
+        return;
+      }
+      if (Date.now() - startedAt >= timeoutMs) {
+        reject(new Error('condition_not_met'));
+        return;
+      }
+      setTimeout(tick, 10);
+    };
+    tick();
   });
 }

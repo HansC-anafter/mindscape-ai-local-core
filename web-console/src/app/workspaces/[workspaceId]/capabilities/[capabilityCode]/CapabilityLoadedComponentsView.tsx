@@ -6,7 +6,8 @@ import { AOLRuntimeShellBridge } from '@/components/capabilities/aol-runtime-she
 import { buildCapabilitySurfaceId } from '@/components/capabilities/aol-runtime-shell/runtimeShellState';
 import { getApiBaseUrl } from '@/lib/api-url';
 import { getTaskConfirmationBridge } from '@/lib/task-confirmation/task-confirmation-bridge';
-import MotionCoachWorkbenchHost from './MotionCoachWorkbenchHost';
+
+const MotionCoachWorkbenchHost = React.lazy(() => import('./MotionCoachWorkbenchHost'));
 
 interface ComponentErrorBoundaryProps {
   children: React.ReactNode;
