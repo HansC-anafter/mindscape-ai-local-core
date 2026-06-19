@@ -42,6 +42,8 @@ function installSocketAndPeerMocks() {
 
   class RTCPeerConnectionMock {
     connectionState: RTCPeerConnectionState = 'new';
+    localDescription: RTCSessionDescriptionInit | null = null;
+    remoteDescription: RTCSessionDescriptionInit | null = null;
     onicecandidate: ((event: RTCPeerConnectionIceEvent) => void) | null = null;
     ontrack: ((event: RTCTrackEvent) => void) | null = null;
     onconnectionstatechange: (() => void) | null = null;
@@ -49,8 +51,12 @@ function installSocketAndPeerMocks() {
     addIceCandidate = vi.fn();
     close = vi.fn();
     createOffer = vi.fn(async () => ({ type: 'offer', sdp: 'offer_sdp' } as RTCSessionDescriptionInit));
-    setLocalDescription = vi.fn();
-    setRemoteDescription = vi.fn();
+    setLocalDescription = vi.fn(async (description: RTCSessionDescriptionInit) => {
+      this.localDescription = description;
+    });
+    setRemoteDescription = vi.fn(async (description: RTCSessionDescriptionInit) => {
+      this.remoteDescription = description;
+    });
     getStats = vi.fn(async () => new Map() as unknown as RTCStatsReport);
 
     constructor(public config: RTCConfiguration) {
@@ -150,7 +156,7 @@ describe('externalProviderBridgeClient', () => {
     expect(onState).toHaveBeenCalledWith('offer_sent');
   });
 
-  it('resends the provider offer when the workspace receiver joins after the bridge source', async () => {
+  it('does not duplicate the provider offer while the first offer is still unanswered', async () => {
     const { sockets } = installSocketAndPeerMocks();
     const { stream } = createStreamMock();
 
@@ -187,6 +193,63 @@ describe('externalProviderBridgeClient', () => {
       media_session_id: 'session_provider',
       sender: 'workspace',
       created_at_epoch: 2,
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const offers = sockets[1].sent
+      .map((payload) => JSON.parse(payload))
+      .filter((message) => message.type === 'offer');
+    expect(offers).toHaveLength(1);
+  });
+
+  it('resends the provider offer when a workspace receiver rejoins after an answered offer', async () => {
+    const { sockets } = installSocketAndPeerMocks();
+    const { stream } = createStreamMock();
+
+    startExternalProviderBridgeSession({
+      apiBase: 'http://api.test',
+      workspaceId: 'ws_device',
+      pairingCode: 'PAIR1234',
+      stream,
+      heartbeatIntervalMs: 0,
+    });
+
+    sockets[0].onopen?.();
+    emitSocketEvent(sockets[0], {
+      type: 'session_paired',
+      workspace_id: 'ws_device',
+      session_id: 'session_provider',
+      active_sessions: [],
+    });
+    sockets[1].onopen?.();
+    emitSocketEvent(sockets[1], {
+      type: 'participant_joined',
+      workspace_id: 'ws_device',
+      device_session_id: 'session_provider',
+      media_session_id: 'session_provider',
+      sender: 'source',
+      created_at_epoch: 1,
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    emitSocketEvent(sockets[1], {
+      type: 'answer',
+      workspace_id: 'ws_device',
+      device_session_id: 'session_provider',
+      media_session_id: 'session_provider',
+      sender: 'workspace',
+      sdp: 'answer_sdp',
+      created_at_epoch: 2,
+    });
+    await Promise.resolve();
+    emitSocketEvent(sockets[1], {
+      type: 'participant_joined',
+      workspace_id: 'ws_device',
+      device_session_id: 'session_provider',
+      media_session_id: 'session_provider',
+      sender: 'workspace',
+      created_at_epoch: 3,
     });
     await Promise.resolve();
     await Promise.resolve();

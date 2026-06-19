@@ -113,6 +113,15 @@ export function startExternalProviderBridgeSession(
     input.onState?.('offer_sent');
   };
 
+  const resendOfferIfNeeded = async () => {
+    const hasUnansweredOffer = peerConnection?.localDescription?.type === 'offer'
+      && !peerConnection.remoteDescription;
+    if (hasUnansweredOffer) {
+      return;
+    }
+    await sendOffer();
+  };
+
   const startMediaSession = (sessionId: string) => {
     if (signalSocket || stopped) {
       return;
@@ -136,7 +145,7 @@ export function startExternalProviderBridgeSession(
           return;
         }
         if (event.type === 'participant_joined' && event.sender === 'workspace') {
-          await sendOffer();
+          await resendOfferIfNeeded();
           return;
         }
         if (event.type === 'answer' && event.sdp) {

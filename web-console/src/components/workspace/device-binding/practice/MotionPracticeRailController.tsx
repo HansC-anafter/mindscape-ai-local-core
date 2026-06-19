@@ -46,6 +46,14 @@ interface MotionPracticeRailControllerProps {
   initialInstructionSource?: MotionPracticeInstructionSourceState | null;
 }
 
+function formatMotionSourceSessionLabel(session: DeviceSessionEntry): string {
+  const sourceTypes = Array.isArray(session.source_types)
+    ? session.source_types.filter(Boolean)
+    : [];
+  const sourceLabel = sourceTypes.length ? sourceTypes.join(', ') : session.state;
+  return `${session.display_name || session.device_id} - ${sourceLabel}`;
+}
+
 export function MotionPracticeRailController({
   apiUrl,
   workspaceId,
@@ -191,7 +199,7 @@ export function MotionPracticeRailController({
           >
             {sessions.map((session) => (
               <option key={session.session_id} value={session.session_id}>
-                {session.display_name || session.device_id} - {session.source_types.join(', ') || session.state}
+                {formatMotionSourceSessionLabel(session)}
               </option>
             ))}
           </select>
