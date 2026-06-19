@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -6,6 +7,9 @@ from backend.app.services.host_resources import queue_utilization
 from backend.app.services.host_resources.queue_utilization import (
     build_live_queue_utilization,
     write_queue_utilization_snapshot_if_leader,
+)
+from backend.app.services.host_resources.queue_utilization_snapshot_store import (
+    QueueUtilizationSnapshotStore,
 )
 from backend.app.services.host_resources.route_identity_projection import (
     serialize_route_identity_projection,
@@ -72,6 +76,35 @@ class _FakeSnapshotStore:
     def delete_old_snapshots(self):
         self.deleted = True
         return 0
+
+
+class _FakeResult:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def fetchall(self):
+        return self.rows
+
+
+class _FakeConnection:
+    def __init__(self, rows):
+        self.rows = rows
+        self.statements = []
+
+    def execute(self, statement, *args, **kwargs):
+        self.statements.append(str(statement))
+        return _FakeResult(self.rows)
+
+
+class _FakeConnectionContext:
+    def __init__(self, connection):
+        self.connection = connection
+
+    def __enter__(self):
+        return self.connection
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
 
 
 def _projection(task_id, pack_id, concurrency_key):
@@ -181,6 +214,10 @@ async def test_live_queue_utilization_uses_bounded_redis_data(monkeypatch):
     )
 
     assert snapshot["source"] == "live_redis_bounded"
+    assert snapshot["captured_at"] == "1970-01-01T00:16:40+00:00"
+    assert snapshot["captured_at_by_queue_shard"] == {
+        "browser_local": "1970-01-01T00:16:40+00:00",
+    }
     assert snapshot["queue_depths"]["browser_local"] == {
         "pending": 5,
         "processing": 2,
@@ -196,6 +233,61 @@ async def test_live_queue_utilization_uses_bounded_redis_data(monkeypatch):
         "max_inflight_total"
     ] == 3
     assert snapshot["utilization_ratio_by_queue_shard"]["browser_local"] == 2 / 3
+
+
+def test_latest_snapshot_reads_one_latest_batch(monkeypatch):
+    captured_at = datetime(2026, 6, 20, 4, 40, tzinfo=timezone.utc)
+    rows = [
+        {
+            "captured_at": captured_at,
+            "queue_shard": "browser_local",
+            "pending_depth": 0,
+            "processing_depth": 3,
+            "delayed_depth": 0,
+            "deadletter_depth": 4,
+            "visible_lane_count": 0,
+            "visible_lanes_json": [],
+            "active_runner_count": 2,
+            "max_inflight_total": 6,
+            "inflight_total": 3,
+            "available_slots_total": 3,
+        },
+        {
+            "captured_at": captured_at,
+            "queue_shard": "vision_local",
+            "pending_depth": 62,
+            "processing_depth": 1,
+            "delayed_depth": 0,
+            "deadletter_depth": 0,
+            "visible_lane_count": 1,
+            "visible_lanes_json": [],
+            "active_runner_count": 1,
+            "max_inflight_total": 3,
+            "inflight_total": 0,
+            "available_slots_total": 3,
+        },
+    ]
+    connection = _FakeConnection(rows)
+    store = object.__new__(QueueUtilizationSnapshotStore)
+    monkeypatch.setattr(
+        store,
+        "get_connection",
+        lambda: _FakeConnectionContext(connection),
+    )
+
+    snapshot = store.latest_snapshot()
+
+    statement = connection.statements[0]
+    assert "latest_batch" in statement
+    assert "MAX(captured_at)" in statement
+    assert "DISTINCT ON" not in statement
+    assert snapshot is not None
+    assert snapshot["captured_at"] == captured_at.isoformat()
+    assert snapshot["captured_at_by_queue_shard"] == {
+        "browser_local": captured_at.isoformat(),
+        "vision_local": captured_at.isoformat(),
+    }
+    assert list(snapshot["queue_depths"].keys()) == ["browser_local", "vision_local"]
 
 
 @pytest.mark.asyncio

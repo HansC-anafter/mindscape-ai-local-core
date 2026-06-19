@@ -288,10 +288,14 @@ async def build_live_queue_utilization(
         queue_name: capacity.get("utilization_ratio")
         for queue_name, capacity in capacity_by_queue.items()
     }
+    captured_at = _iso_from_epoch(captured_epoch)
 
     return {
         "source": "live_redis_bounded",
-        "captured_at": _iso_from_epoch(captured_epoch),
+        "captured_at": captured_at,
+        "captured_at_by_queue_shard": {
+            queue_name: captured_at for queue_name in queue_depths_by_name.keys()
+        },
         "captured_at_epoch": captured_epoch,
         "scan_limit": clamped_limit,
         "queue_depths": queue_depths_by_name,

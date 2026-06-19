@@ -129,21 +129,28 @@ class QueueUtilizationSnapshotStore(PostgresStoreBase):
             rows = conn.execute(
                 text(
                     """
-                    SELECT DISTINCT ON (queue_shard)
-                        captured_at,
-                        queue_shard,
-                        pending_depth,
-                        processing_depth,
-                        delayed_depth,
-                        deadletter_depth,
-                        visible_lane_count,
-                        visible_lanes_json,
-                        active_runner_count,
-                        max_inflight_total,
-                        inflight_total,
-                        available_slots_total
-                    FROM runner_queue_capacity_snapshots
-                    ORDER BY queue_shard, captured_at DESC
+                    WITH latest_batch AS (
+                        SELECT MAX(captured_at) AS captured_at
+                        FROM runner_queue_capacity_snapshots
+                    )
+                    SELECT
+                        snapshots.captured_at,
+                        snapshots.queue_shard,
+                        snapshots.pending_depth,
+                        snapshots.processing_depth,
+                        snapshots.delayed_depth,
+                        snapshots.deadletter_depth,
+                        snapshots.visible_lane_count,
+                        snapshots.visible_lanes_json,
+                        snapshots.active_runner_count,
+                        snapshots.max_inflight_total,
+                        snapshots.inflight_total,
+                        snapshots.available_slots_total
+                    FROM runner_queue_capacity_snapshots snapshots
+                    JOIN latest_batch
+                      ON snapshots.captured_at = latest_batch.captured_at
+                    WHERE latest_batch.captured_at IS NOT NULL
+                    ORDER BY snapshots.queue_shard
                     """
                 )
             ).fetchall()
@@ -164,6 +171,7 @@ def snapshot_rows_to_response(rows: list[Any]) -> dict[str, Any]:
     visible_lanes: dict[str, list[dict[str, Any]]] = {}
     visible_lane_count: dict[str, int] = {}
     captured_at_values: list[str] = []
+    captured_at_by_queue_shard: dict[str, str] = {}
 
     for row in rows:
         data = row_mapping(row)
@@ -172,7 +180,9 @@ def snapshot_rows_to_response(rows: list[Any]) -> dict[str, Any]:
             continue
         captured_at = data.get("captured_at")
         if hasattr(captured_at, "isoformat"):
-            captured_at_values.append(captured_at.isoformat())
+            captured_at_iso = captured_at.isoformat()
+            captured_at_values.append(captured_at_iso)
+            captured_at_by_queue_shard[queue_shard] = captured_at_iso
         queue_depths[queue_shard] = {
             "pending": _to_int(data.get("pending_depth")),
             "processing": _to_int(data.get("processing_depth")),
@@ -211,6 +221,7 @@ def snapshot_rows_to_response(rows: list[Any]) -> dict[str, Any]:
             if captured_at_values
             else _utc_now().isoformat()
         ),
+        "captured_at_by_queue_shard": captured_at_by_queue_shard,
         "queue_depths": queue_depths,
         "capacity_by_queue_shard": capacity_by_queue,
         "visible_lanes": visible_lanes,
@@ -236,6 +247,7 @@ def get_latest_queue_utilization_snapshot(
         return {
             "source": "postgres_snapshot",
             "captured_at": _utc_now().isoformat(),
+            "captured_at_by_queue_shard": {},
             "queue_depths": {},
             "capacity_by_queue_shard": {},
             "visible_lanes": {},
@@ -249,6 +261,7 @@ def get_latest_queue_utilization_snapshot(
     return {
         "source": "postgres_snapshot",
         "captured_at": _utc_now().isoformat(),
+        "captured_at_by_queue_shard": {},
         "queue_depths": {},
         "capacity_by_queue_shard": {},
         "visible_lanes": {},
