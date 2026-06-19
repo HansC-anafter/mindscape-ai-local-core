@@ -5,13 +5,13 @@
 #
 # Config knobs (environment variables):
 #   MLX_MODEL   - HuggingFace model repo (default: mlx-community/Qwen3.5-9B-4bit)
-#   MLX_PORT    - listen port             (default: 8210)
+#   MLX_PORT    - listen port             (default: 8212)
 #   MLX_HOST    - bind address            (default: 0.0.0.0)
 # ---------------------------------------------------------
 set -euo pipefail
 
 MODEL="${MLX_MODEL:-mlx-community/Qwen3.5-9B-4bit}"
-PORT="${MLX_PORT:-8210}"
+PORT="${MLX_PORT:-8212}"
 HOST="${MLX_HOST:-0.0.0.0}"
 PYTHON="/opt/miniconda3/bin/python"
 

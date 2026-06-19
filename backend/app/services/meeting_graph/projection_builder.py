@@ -28,6 +28,9 @@ from backend.app.services.meeting_graph.projection_utils import (
     _safe_id,
     _short_id,
 )
+from backend.app.services.meeting_graph.host_runtime_ledger_projection import (
+    project_host_runtime_ledger_graph,
+)
 from backend.app.services.meeting_graph.task_projection import build_task_graph_nodes
 
 
@@ -39,6 +42,8 @@ def build_meeting_execution_graph(
     tasks: Iterable[Task],
     artifacts: Iterable[Any] = (),
     relations: Iterable[Any] = (),
+    host_runtime_sessions: Iterable[Any] = (),
+    host_runtime_events_by_session: Dict[str, Iterable[Any]] | None = None,
 ) -> MeetingExecutionGraphResponse:
     nodes: List[MeetingExecutionGraphNode] = []
     edges: List[MeetingExecutionGraphEdge] = []
@@ -70,6 +75,15 @@ def build_meeting_execution_graph(
     action_plan_ids.update(command_projection.action_plan_ids)
     for command_node in command_projection.nodes:
         add_node(MeetingExecutionGraphNode.model_validate(command_node))
+
+    host_runtime_projection = project_host_runtime_ledger_graph(
+        sessions=host_runtime_sessions,
+        events_by_session=host_runtime_events_by_session or {},
+    )
+    for host_runtime_node in host_runtime_projection.nodes:
+        add_node(host_runtime_node)
+    for host_runtime_edge in host_runtime_projection.edges:
+        add_edge(host_runtime_edge)
 
     for task in tasks:
         task_nodes, task_edges = build_task_graph_nodes(task)

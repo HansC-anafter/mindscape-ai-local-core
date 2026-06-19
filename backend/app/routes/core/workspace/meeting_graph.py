@@ -27,6 +27,9 @@ from backend.app.services.stores.object_relation_registry_store import (
     ObjectRelationRegistryStore,
 )
 from backend.app.services.stores.tasks_store import TasksStore
+from backend.app.services.host_runtime_sessions.session_store import (
+    HostRuntimeSessionStore,
+)
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -57,6 +60,45 @@ async def _bounded_graph_lookup(
         return list(fallback or [])
 
 
+async def _bounded_host_runtime_ledger_lookup(
+    *,
+    store: HostRuntimeSessionStore,
+    workspace_id: str,
+    meeting_id: str,
+    session_limit: int = 8,
+    event_limit: int = 80,
+) -> tuple[List[Any], dict[str, List[Any]]]:
+    sessions = await _bounded_graph_lookup(
+        "host_runtime_sessions",
+        lambda: store.list_sessions_by_meeting(
+            workspace_id=workspace_id,
+            meeting_id=meeting_id,
+            limit=session_limit,
+        ),
+        timeout=2.0,
+    )
+    event_lookups = [
+        _bounded_graph_lookup(
+            f"host_runtime_events:{session.id}",
+            lambda session_id=session.id: store.list_events(
+                workspace_id=workspace_id,
+                session_id=session_id,
+                limit=event_limit,
+            ),
+            timeout=2.0,
+        )
+        for session in sessions
+        if getattr(session, "id", None)
+    ]
+    event_results = await asyncio.gather(*event_lookups) if event_lookups else []
+    events_by_session: dict[str, List[Any]] = {}
+    for session, events in zip(sessions, event_results):
+        session_id = str(getattr(session, "id", "") or "")
+        if session_id:
+            events_by_session[session_id] = list(events or [])
+    return sessions, events_by_session
+
+
 @router.get(
     "/{workspace_id}/meetings/{meeting_id}/execution-graph",
     response_model=MeetingExecutionGraphResponse,
@@ -73,6 +115,7 @@ async def get_meeting_execution_graph(
     tasks_store = TasksStore()
     relations_store = ObjectRelationRegistryStore()
     event_store = MindscapeStore()
+    host_runtime_store = HostRuntimeSessionStore()
 
     events_lookup = _bounded_graph_lookup(
         "events",
@@ -119,13 +162,27 @@ async def get_meeting_execution_graph(
         ),
         timeout=2.0,
     )
-    events, commands, tasks, artifacts, relations = await asyncio.gather(
+    host_runtime_ledger_lookup = _bounded_host_runtime_ledger_lookup(
+        store=host_runtime_store,
+        workspace_id=workspace_id,
+        meeting_id=meeting_id,
+    )
+    (
+        events,
+        commands,
+        tasks,
+        artifacts,
+        relations,
+        host_runtime_ledger,
+    ) = await asyncio.gather(
         events_lookup,
         commands_lookup,
         tasks_lookup,
         artifacts_lookup,
         relations_lookup,
+        host_runtime_ledger_lookup,
     )
+    host_runtime_sessions, host_runtime_events_by_session = host_runtime_ledger
     response = build_meeting_execution_graph(
         workspace_id=workspace_id,
         meeting_id=meeting_id,
@@ -133,5 +190,7 @@ async def get_meeting_execution_graph(
         tasks=tasks,
         artifacts=artifacts,
         relations=relations,
+        host_runtime_sessions=host_runtime_sessions,
+        host_runtime_events_by_session=host_runtime_events_by_session,
     )
     return merge_meeting_event_runtime_projection(response, events)

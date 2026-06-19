@@ -80,6 +80,7 @@ CREATE TABLE IF NOT EXISTS host_runtime_events (
 
 INDEX_DDL = [
     "CREATE INDEX IF NOT EXISTS idx_host_runtime_sessions_workspace_updated ON host_runtime_sessions(workspace_id, updated_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_host_runtime_sessions_workspace_meeting_updated ON host_runtime_sessions(workspace_id, ((metadata->>'meeting_id')), updated_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_host_runtime_turns_workspace_session_started ON host_runtime_turns(workspace_id, session_id, started_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_host_runtime_events_workspace_session_seq ON host_runtime_events(workspace_id, session_id, seq)",
     "CREATE INDEX IF NOT EXISTS idx_host_runtime_turns_governance_trace ON host_runtime_turns(workspace_id, governance_trace_ref)",
@@ -157,6 +158,32 @@ class HostRuntimeSessionStore(PostgresStoreBase):
                     """
                 ),
                 {"workspace_id": workspace_id, "limit": limit},
+            ).fetchall()
+        return [self._row_to_session(row) for row in rows]
+
+    def list_sessions_by_meeting(
+        self,
+        *,
+        workspace_id: str,
+        meeting_id: str,
+        limit: int = 10,
+    ) -> list[HostRuntimeSession]:
+        with self.get_connection() as conn:
+            rows = conn.execute(
+                text(
+                    """
+                    SELECT * FROM host_runtime_sessions
+                    WHERE workspace_id = :workspace_id
+                      AND metadata->>'meeting_id' = :meeting_id
+                    ORDER BY updated_at DESC
+                    LIMIT :limit
+                    """
+                ),
+                {
+                    "workspace_id": workspace_id,
+                    "meeting_id": meeting_id,
+                    "limit": limit,
+                },
             ).fetchall()
         return [self._row_to_session(row) for row in rows]
 

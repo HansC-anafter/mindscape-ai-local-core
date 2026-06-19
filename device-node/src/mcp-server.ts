@@ -18,6 +18,8 @@ import { shellExecute } from "./capabilities/shell.js";
 import { hostResourceProbe } from "./capabilities/host-resource-probe.js";
 import { hostResourceLaneWorkersSet } from "./capabilities/host-resource-lane-workers.js";
 import { hostResourceRunnerSpilloverControl } from "./capabilities/host-resource-runner-spillover.js";
+import { cliBridgeServiceControl } from "./capabilities/cli-bridge-service-control.js";
+import { hostOpenDocument } from "./capabilities/host-open-document.js";
 import * as http from "http";
 
 export interface MCPServerConfig {
@@ -237,6 +239,42 @@ export class MCPServer {
                 },
             },
             handler: hostResourceRunnerSpilloverControl,
+            trustLevel: TrustLevel.EXECUTE,
+        });
+
+        this.registerTool({
+            name: "cli_bridge_service_control",
+            description: "Read or start the fixed Mindscape CLI bridge LaunchAgent",
+            inputSchema: {
+                type: "object",
+                properties: {
+                    action: {
+                        type: "string",
+                        enum: ["status", "start", "restart"],
+                        description: "LaunchAgent action",
+                    },
+                },
+            },
+            handler: cliBridgeServiceControl,
+            trustLevel: TrustLevel.EXECUTE,
+        });
+
+        this.registerTool({
+            name: "host_open_document",
+            description: "Open a governed host document in a native desktop app",
+            inputSchema: {
+                type: "object",
+                properties: {
+                    path: { type: "string", description: "Absolute host document path" },
+                    app_name: { type: "string", description: "Native app name" },
+                    timeout_ms: {
+                        type: "number",
+                        description: "Open command timeout in milliseconds",
+                    },
+                },
+                required: ["path"],
+            },
+            handler: hostOpenDocument,
             trustLevel: TrustLevel.EXECUTE,
         });
     }

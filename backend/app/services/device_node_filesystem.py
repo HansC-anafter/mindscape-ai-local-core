@@ -223,6 +223,32 @@ class DeviceNodeFilesystemService:
             return content_list[0].get("text", "")
         return ""
 
+    async def open_document(
+        self,
+        path: str,
+        *,
+        app_name: str = "Blender",
+        timeout_ms: int = 30000,
+    ) -> Dict[str, Any]:
+        """Open a governed host document via Device Node."""
+        result = await self._call_tool(
+            "host_open_document",
+            {
+                "path": path,
+                "app_name": app_name,
+                "timeout_ms": timeout_ms,
+            },
+        )
+        content_list = result.get("content", [])
+        if not content_list:
+            return {}
+        text = content_list[0].get("text", "")
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError:
+            return {"launched": False, "raw": text}
+        return payload if isinstance(payload, dict) else {}
+
     async def stat_paths(self, paths: List[str]) -> Dict[str, Dict[str, Any]]:
         """
         Inspect one or more host filesystem paths in a single Device Node call.

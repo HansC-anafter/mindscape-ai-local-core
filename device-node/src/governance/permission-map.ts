@@ -107,6 +107,14 @@ export class PermissionMap {
                     trust_level: "EXECUTE",
                     confirm_required: false,
                 },
+                cli_bridge_service_control: {
+                    trust_level: "EXECUTE",
+                    confirm_required: false,
+                },
+                host_open_document: {
+                    trust_level: "EXECUTE",
+                    confirm_required: false,
+                },
             },
         };
     }

@@ -91,6 +91,14 @@ capabilities:
     trust_level: execute
     confirm_required: false
 
+  cli_bridge_service_control:
+    trust_level: execute
+    confirm_required: false
+
+  host_open_document:
+    trust_level: execute
+    confirm_required: false
+
   # Admin-level operations for infrastructure management
   docker_admin:
     trust_level: admin

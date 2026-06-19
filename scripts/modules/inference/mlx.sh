@@ -48,7 +48,7 @@ ensure_mlx_vlm() {
 # Start MLX server
 start_mlx_server() {
   local model="${MLX_MODEL:-mlx-community/Qwen3.5-9B-4bit}"
-  local port="${MLX_PORT:-8210}"
+  local port="${MLX_PORT:-8212}"
   local host="${MLX_HOST:-0.0.0.0}"
   local python_bin
   python_bin="$(_find_mlx_python)"
