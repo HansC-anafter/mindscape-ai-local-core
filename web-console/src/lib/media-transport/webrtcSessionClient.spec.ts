@@ -183,7 +183,7 @@ describe('webrtcSessionClient', () => {
     });
   });
 
-  it('resends the source offer when the workspace receiver joins after the source', async () => {
+  it('does not duplicate the source offer while the first offer is still unanswered', async () => {
     const getUserMedia = vi.fn(async () => ({
       getTracks: () => [{ kind: 'video', readyState: 'live', stop: vi.fn() }],
     }));
@@ -204,11 +204,18 @@ describe('webrtcSessionClient', () => {
       close = vi.fn();
     }
     class RTCPeerConnectionMock {
+      localDescription: RTCSessionDescriptionInit | null = null;
+      remoteDescription: RTCSessionDescriptionInit | null = null;
       addTrack = vi.fn();
       createOffer = vi.fn()
         .mockResolvedValueOnce({ type: 'offer', sdp: 'offer_before_workspace' })
         .mockResolvedValueOnce({ type: 'offer', sdp: 'offer_after_workspace' });
-      setLocalDescription = vi.fn();
+      setLocalDescription = vi.fn(async (description: RTCSessionDescriptionInit) => {
+        this.localDescription = description;
+      });
+      setRemoteDescription = vi.fn(async (description: RTCSessionDescriptionInit) => {
+        this.remoteDescription = description;
+      });
       close = vi.fn();
       getStats = vi.fn(async () => new Map() as unknown as RTCStatsReport);
     }
@@ -255,7 +262,102 @@ describe('webrtcSessionClient', () => {
 
     const sentMessages = sockets[0].send.mock.calls.map(([payload]) => JSON.parse(String(payload)));
     expect(sentMessages).toContainEqual({ type: 'offer', sdp: 'offer_before_workspace' });
-    expect(sentMessages).toContainEqual({ type: 'offer', sdp: 'offer_after_workspace' });
+    expect(sentMessages).not.toContainEqual({ type: 'offer', sdp: 'offer_after_workspace' });
+  });
+
+  it('resends the source offer when a workspace receiver rejoins after an answered offer', async () => {
+    const getUserMedia = vi.fn(async () => ({
+      getTracks: () => [{ kind: 'video', readyState: 'live', stop: vi.fn() }],
+    }));
+    const sockets: WebSocketMock[] = [];
+    class WebSocketMock {
+      static OPEN = 1;
+      readyState = WebSocketMock.OPEN;
+      onopen: (() => void) | null = null;
+      onmessage: ((message: { data: string }) => void) | null = null;
+      onerror: (() => void) | null = null;
+      onclose: (() => void) | null = null;
+
+      constructor(public url: string) {
+        sockets.push(this);
+      }
+
+      send = vi.fn();
+      close = vi.fn();
+    }
+    class RTCPeerConnectionMock {
+      localDescription: RTCSessionDescriptionInit | null = null;
+      remoteDescription: RTCSessionDescriptionInit | null = null;
+      addTrack = vi.fn();
+      createOffer = vi.fn()
+        .mockResolvedValueOnce({ type: 'offer', sdp: 'offer_before_answer' })
+        .mockResolvedValueOnce({ type: 'offer', sdp: 'offer_after_rejoin' });
+      setLocalDescription = vi.fn(async (description: RTCSessionDescriptionInit) => {
+        this.localDescription = description;
+      });
+      setRemoteDescription = vi.fn(async (description: RTCSessionDescriptionInit) => {
+        this.remoteDescription = description;
+      });
+      close = vi.fn();
+      getStats = vi.fn(async () => new Map() as unknown as RTCStatsReport);
+    }
+    vi.stubGlobal('WebSocket', WebSocketMock);
+    vi.stubGlobal('RTCPeerConnection', RTCPeerConnectionMock);
+    Object.defineProperty(globalThis.navigator, 'mediaDevices', {
+      configurable: true,
+      value: { getUserMedia },
+    });
+
+    await startPhoneBrowserSourceSession({
+      apiBase: 'http://api.test',
+      workspaceId: 'ws_device',
+      deviceSessionId: 'session_1',
+      mediaSessionId: 'session_1',
+      facingMode: 'environment',
+    });
+
+    sockets[0].onmessage?.({
+      data: JSON.stringify({
+        type: 'participant_joined',
+        sender: 'source',
+        workspace_id: 'ws_device',
+        device_session_id: 'session_1',
+        media_session_id: 'session_1',
+        created_at_epoch: 1,
+      }),
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    sockets[0].onmessage?.({
+      data: JSON.stringify({
+        type: 'answer',
+        sender: 'workspace',
+        workspace_id: 'ws_device',
+        device_session_id: 'session_1',
+        media_session_id: 'session_1',
+        sdp: 'answer_before_rejoin',
+        created_at_epoch: 2,
+      }),
+    });
+    await Promise.resolve();
+
+    sockets[0].onmessage?.({
+      data: JSON.stringify({
+        type: 'participant_joined',
+        sender: 'workspace',
+        workspace_id: 'ws_device',
+        device_session_id: 'session_1',
+        media_session_id: 'session_1',
+        created_at_epoch: 3,
+      }),
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const sentMessages = sockets[0].send.mock.calls.map(([payload]) => JSON.parse(String(payload)));
+    expect(sentMessages).toContainEqual({ type: 'offer', sdp: 'offer_before_answer' });
+    expect(sentMessages).toContainEqual({ type: 'offer', sdp: 'offer_after_rejoin' });
   });
 
   it('replaces phone camera video track without closing the media session', async () => {
