@@ -54,7 +54,7 @@ async def signal_device_media_session(
     try:
         first_message = await _receive_signal_message(websocket)
         participant = _participant_from_join(first_message)
-        joined_event, pending_events = signaling_registry.attach_participant(
+        joined_event, pending_events, peer_websocket = signaling_registry.attach_participant(
             workspace_id=workspace_id,
             device_session_id=device_session_id,
             media_session_id=media_session_id,
@@ -65,6 +65,8 @@ async def signal_device_media_session(
         await _send_event(websocket, joined_event)
         for pending_event in pending_events:
             await _send_event(websocket, pending_event)
+        if peer_websocket is not None:
+            await _send_event(peer_websocket, joined_event)
 
         while True:
             message = await _receive_signal_message(websocket)

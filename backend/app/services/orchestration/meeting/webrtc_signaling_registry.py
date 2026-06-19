@@ -97,7 +97,7 @@ class WebRTCSignalingRegistry:
         participant: MediaSignalParticipant,
         websocket: Any,
         device_binding_registry: DeviceBindingRegistry,
-    ) -> tuple[MediaSignalEvent, list[MediaSignalEvent]]:
+    ) -> tuple[MediaSignalEvent, list[MediaSignalEvent], Any | None]:
         self._require_active_device_session(
             workspace_id=workspace_id,
             device_session_id=device_session_id,
@@ -137,6 +137,8 @@ class WebRTCSignalingRegistry:
             )
 
         session.set_websocket(participant, websocket)
+        peer: MediaSignalParticipant = "source" if participant == "workspace" else "workspace"
+        peer_websocket = session.websocket_for(peer)
         pending = list(session.pending_for(participant))
         session.pending_for(participant).clear()
         return (
@@ -148,6 +150,7 @@ class WebRTCSignalingRegistry:
                 sender=participant,
             ),
             pending,
+            peer_websocket,
         )
 
     def detach_participant(

@@ -32,10 +32,10 @@ function StatusIcon({ state }: { state: DeviceLinkCaptureSession['state'] }) {
 
 export function MobileCaptureCockpit({ session }: MobileCaptureCockpitProps) {
   return (
-    <main className="min-h-screen bg-gray-950 text-white">
+    <main className="min-h-[100svh] bg-gray-950 text-white">
       <section
         ref={session.captureRootRef}
-        className="relative flex min-h-screen flex-col overflow-hidden bg-black"
+        className="relative flex h-[100dvh] min-h-[100svh] flex-col overflow-hidden bg-black"
         data-testid="mobile-capture-cockpit"
       >
         <div className="absolute inset-0">
@@ -68,7 +68,7 @@ export function MobileCaptureCockpit({ session }: MobileCaptureCockpitProps) {
           />
         </div>
 
-        <div className="relative z-10 flex min-h-screen flex-col justify-between bg-gradient-to-b from-black/75 via-transparent to-black/85 p-4">
+        <div className="relative z-10 flex h-full min-h-0 flex-col justify-between bg-gradient-to-b from-black/75 via-transparent to-black/85 p-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
           <div className="flex items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-3 rounded-md border border-white/10 bg-black/35 px-3 py-2 backdrop-blur">
               <div className="flex h-9 w-9 items-center justify-center rounded-md bg-white/10">
@@ -87,7 +87,7 @@ export function MobileCaptureCockpit({ session }: MobileCaptureCockpitProps) {
           </div>
 
           <div
-            className="mx-auto w-full max-w-lg pb-[calc(0.35rem+env(safe-area-inset-bottom))]"
+            className="mx-auto w-full max-w-lg"
             data-testid="device-link-capture-control-panel"
           >
             <div className="rounded-2xl border border-white/10 bg-black/58 p-3 shadow-2xl backdrop-blur">

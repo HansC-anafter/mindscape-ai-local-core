@@ -95,6 +95,9 @@ def test_media_signaling_ws_forwards_buffered_offer_to_workspace_peer() -> None:
             with client.websocket_connect(media_url) as workspace_media:
                 workspace_media.send_json({"type": "workspace_join"})
                 assert _receive(workspace_media)["type"] == "participant_joined"
+                source_peer_joined = _receive(source_media)
+                assert source_peer_joined["type"] == "participant_joined"
+                assert source_peer_joined["sender"] == "workspace"
                 offer = _receive(workspace_media)
                 assert offer["type"] == "offer"
                 assert offer["sdp"] == "v=0"

@@ -52,7 +52,7 @@ def test_signaling_registry_queues_offer_until_peer_joins() -> None:
     source_ws = object()
     workspace_ws = object()
 
-    joined, pending = registry.attach_participant(
+    joined, pending, first_peer = registry.attach_participant(
         workspace_id="ws_device",
         device_session_id=device_session_id,
         media_session_id=device_session_id,
@@ -67,7 +67,7 @@ def test_signaling_registry_queues_offer_until_peer_joins() -> None:
         sender="source",
         message=MediaSignalMessage(type="offer", sdp="v=0"),
     )
-    workspace_joined, workspace_pending = registry.attach_participant(
+    workspace_joined, workspace_pending, workspace_peer = registry.attach_participant(
         workspace_id="ws_device",
         device_session_id=device_session_id,
         media_session_id=device_session_id,
@@ -78,9 +78,11 @@ def test_signaling_registry_queues_offer_until_peer_joins() -> None:
 
     assert joined.type == "participant_joined"
     assert pending == []
+    assert first_peer is None
     assert peer is None
     assert offer.type == "offer"
     assert workspace_joined.sender == "workspace"
+    assert workspace_peer is source_ws
     assert [event.type for event in workspace_pending] == ["offer"]
 
 
@@ -133,7 +135,7 @@ def test_signaling_registry_bounds_pending_signal_events() -> None:
             ),
         )
 
-    _, pending = registry.attach_participant(
+    _, pending, peer = registry.attach_participant(
         workspace_id="ws_device",
         device_session_id=device_session_id,
         media_session_id=device_session_id,
@@ -144,3 +146,4 @@ def test_signaling_registry_bounds_pending_signal_events() -> None:
 
     assert len(pending) == MAX_PENDING_WEBRTC_SIGNAL_EVENTS_PER_PEER
     assert pending[0].candidate == {"candidate": "candidate:3"}
+    assert peer is not None

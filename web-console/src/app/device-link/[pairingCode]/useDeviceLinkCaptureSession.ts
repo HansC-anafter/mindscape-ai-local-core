@@ -318,7 +318,9 @@ export function useDeviceLinkCaptureSession({
       try {
         const nextStream = await currentMedia.replaceVideoTrack(
           buildPhoneVideoConstraints(nextFacingMode),
-          { orientation: desiredCaptureOrientationRef.current },
+          desiredCaptureOrientationRef.current === 'landscape'
+            ? { orientation: desiredCaptureOrientationRef.current }
+            : undefined,
         );
         streamRef.current = nextStream;
         setLocalStream(nextStream);

@@ -159,6 +159,14 @@ function getCanvasOutputSize(orientation: CaptureOrientation): { width: number; 
     : { width: 1280, height: 720 };
 }
 
+function shouldAvoidCanvasPresentationStream(): boolean {
+  if (typeof navigator === 'undefined') {
+    return false;
+  }
+  const userAgent = navigator.userAgent || '';
+  return /\b(iPad|iPhone|iPod)\b/.test(userAgent) && /WebKit/i.test(userAgent);
+}
+
 async function createPresentationStream({
   rawStream,
   orientation,
@@ -169,6 +177,9 @@ async function createPresentationStream({
   const [rawVideoTrack] = getStreamVideoTracks(rawStream);
   const fallback = { stream: rawStream, cleanup: () => undefined, transformed: false };
   if (!rawVideoTrack || !orientation || typeof document === 'undefined') {
+    return fallback;
+  }
+  if (shouldAvoidCanvasPresentationStream()) {
     return fallback;
   }
   const canvas = document.createElement('canvas');
@@ -210,7 +221,11 @@ async function createPresentationStream({
     const drawX = (width - drawWidth) / 2;
     const drawY = (height - drawHeight) / 2;
     context.clearRect(0, 0, width, height);
-    context.drawImage(video, drawX, drawY, drawWidth, drawHeight);
+    try {
+      context.drawImage(video, drawX, drawY, drawWidth, drawHeight);
+    } catch {
+      // Video metadata can briefly be unavailable on mobile browsers.
+    }
     frameId = window.requestAnimationFrame(draw);
   };
   draw();
@@ -377,6 +392,15 @@ export async function startBrowserMediaSourceSession(
     input.onState?.('offer_sent');
   };
 
+  const resendOfferIfNeeded = async () => {
+    const hasUnansweredOffer = peerConnection?.localDescription?.type === 'offer'
+      && !peerConnection.remoteDescription;
+    if (hasUnansweredOffer) {
+      return;
+    }
+    await sendOffer();
+  };
+
   const stop = () => {
     if (stopped) {
       return;
@@ -420,6 +444,10 @@ export async function startBrowserMediaSourceSession(
       rawStream,
       orientation,
     });
+    if (!nextPresentation.transformed) {
+      nextPresentation.cleanup();
+      throw new Error('capture_orientation_transform_unavailable');
+    }
     await replacePeerVideoTrack(nextPresentation.stream);
     presentation.cleanup();
     presentation = nextPresentation;
@@ -467,6 +495,10 @@ export async function startBrowserMediaSourceSession(
         rawStream: nextRawStream,
         orientation: videoOrientation,
       });
+      if (videoOrientation && !nextPresentation.transformed) {
+        nextPresentation.cleanup();
+        throw new Error('capture_orientation_transform_unavailable');
+      }
       await replacePeerVideoTrack(nextPresentation.stream);
 
       if (!releasedOldCamera) {
@@ -508,7 +540,7 @@ export async function startBrowserMediaSourceSession(
         return;
       }
       if (event.type === 'participant_joined' && event.sender === 'workspace') {
-        await sendOffer();
+        await resendOfferIfNeeded();
         return;
       }
       if (event.type === 'answer' && event.sdp) {
@@ -549,7 +581,7 @@ export async function startPhoneBrowserSourceSession(
     ...input,
     sourceKind: 'phone_camera',
     video: buildPhoneVideoConstraints(input.facingMode),
-    videoOrientation: input.videoOrientation,
+    videoOrientation: input.videoOrientation === 'landscape' ? input.videoOrientation : undefined,
   });
 }
 

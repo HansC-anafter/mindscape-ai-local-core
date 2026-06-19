@@ -356,7 +356,6 @@ describe('webrtcSessionClient', () => {
   it('switches phone capture orientation by replacing the outgoing presentation track', async () => {
     const rawVideoTrack = { kind: 'video', readyState: 'live', stop: vi.fn() };
     const audioTrack = { kind: 'audio', readyState: 'live', stop: vi.fn() };
-    const portraitVideoTrack = { kind: 'video', readyState: 'live', stop: vi.fn() };
     const landscapeVideoTrack = { kind: 'video', readyState: 'live', stop: vi.fn() };
     class MediaStreamMock {
       constructor(private tracks: any[]) {}
@@ -368,7 +367,7 @@ describe('webrtcSessionClient', () => {
     const initialStream = new MediaStreamMock([rawVideoTrack, audioTrack]);
     const getUserMedia = vi.fn().mockResolvedValue(initialStream);
     const canvasInstances: any[] = [];
-    const transformedTracks = [portraitVideoTrack, landscapeVideoTrack];
+    const transformedTracks = [landscapeVideoTrack];
     const createElement = vi.spyOn(document, 'createElement').mockImplementation((tagName: string) => {
       if (tagName === 'canvas') {
         const canvas = {
@@ -424,7 +423,7 @@ describe('webrtcSessionClient', () => {
       addTrack = vi.fn();
       createOffer = vi.fn(async () => ({ sdp: 'offer' }));
       setLocalDescription = vi.fn();
-      getSenders = vi.fn(() => [{ track: portraitVideoTrack, replaceTrack }]);
+      getSenders = vi.fn(() => [{ track: rawVideoTrack, replaceTrack }]);
       getStats = vi.fn(async () => new Map() as unknown as RTCStatsReport);
       close = vi.fn();
     }
@@ -458,10 +457,9 @@ describe('webrtcSessionClient', () => {
 
     const nextStream = await handle.setVideoOrientation?.('landscape');
 
-    expect(canvasInstances[0]).toMatchObject({ width: 720, height: 1280 });
-    expect(canvasInstances[1]).toMatchObject({ width: 1280, height: 720 });
+    expect(canvasInstances).toHaveLength(1);
+    expect(canvasInstances[0]).toMatchObject({ width: 1280, height: 720 });
     expect(replaceTrack).toHaveBeenCalledWith(landscapeVideoTrack);
-    expect(portraitVideoTrack.stop).toHaveBeenCalled();
     expect(nextStream?.getVideoTracks()).toEqual([landscapeVideoTrack]);
     expect(sockets[0].close).not.toHaveBeenCalled();
 
