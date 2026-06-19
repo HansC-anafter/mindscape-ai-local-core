@@ -26,11 +26,13 @@ vi.mock('@/lib/capability-ui-loader', async () => {
       apiUrl,
       tool,
       panelCollapsed,
+      onPanelCollapsedChange,
     }: {
       workspaceId: string;
       apiUrl: string;
       tool: WorkspaceToolDefinition;
       panelCollapsed?: boolean;
+      onPanelCollapsedChange?: (collapsed: boolean) => void;
     }) {
       return ReactModule.createElement(
         'div',
@@ -39,7 +41,16 @@ vi.mock('@/lib/capability-ui-loader', async () => {
           'data-panel-collapsed': String(Boolean(panelCollapsed)),
           'data-tool-shortcut': tool.shortcut || '',
         },
-        `${tool.id}:${workspaceId}:${apiUrl}`,
+        ReactModule.createElement('span', null, `${tool.id}:${workspaceId}:${apiUrl}`),
+        ReactModule.createElement(
+          'button',
+          {
+            type: 'button',
+            'data-testid': 'loaded-pack-tool-collapse',
+            onClick: () => onPanelCollapsedChange?.(true),
+          },
+          'collapse panel',
+        ),
       );
     }),
   };
@@ -193,6 +204,41 @@ describe('PackScopeToolRailHost', () => {
     });
   });
 
+  it('toggles the active tool panel collapsed state with the tilde shortcut', async () => {
+    render(
+      <KeyboardShortcutProvider loadProfileOnMount={false}>
+        <input data-testid="tilde-shortcut-input" />
+        <PackScopeToolRailHost
+          workspaceId="ws_test"
+          capabilityCode="ig"
+          apiUrl="http://api.test"
+          tools={[feedLoadTool]}
+          navigationCollapsed
+          aolHost={createAolHost(vi.fn())}
+          onNavigationCollapsedChange={vi.fn()}
+        />
+      </KeyboardShortcutProvider>,
+    );
+
+    fireEvent.click(screen.getByTestId('pack-scope-tool-ig:feed_grid_card_load_limit'));
+    await waitFor(() => {
+      expect(screen.getByTestId('loaded-pack-tool-panel')).toHaveAttribute('data-panel-collapsed', 'true');
+    });
+
+    fireEvent.keyDown(screen.getByTestId('tilde-shortcut-input'), { key: '`' });
+    expect(screen.getByTestId('loaded-pack-tool-panel')).toHaveAttribute('data-panel-collapsed', 'true');
+
+    fireEvent.keyDown(window, { key: '`', code: 'Backquote' });
+    await waitFor(() => {
+      expect(screen.getByTestId('loaded-pack-tool-panel')).toHaveAttribute('data-panel-collapsed', 'false');
+    });
+
+    fireEvent.keyDown(window, { key: '~', code: 'Backquote', shiftKey: true });
+    await waitFor(() => {
+      expect(screen.getByTestId('loaded-pack-tool-panel')).toHaveAttribute('data-panel-collapsed', 'true');
+    });
+  });
+
   it('routes the AOL select shortcut through the workspace tool rail scope', () => {
     const onSelectObject = vi.fn((selection: AddressableSelectionTarget) => {
       void selection;
@@ -305,7 +351,42 @@ describe('PackScopeToolRailHost', () => {
       expect(screen.getByTestId('pack-scope-tool-panel')).toHaveAttribute('data-workbench-placement', 'mobile');
       expect(screen.getByTestId('loaded-pack-tool-panel')).toBeInTheDocument();
     });
+    expect(screen.getByTestId('pack-scope-tool-panel')).toHaveAttribute('data-panel-expanded', 'true');
+    expect(screen.getByTestId('loaded-pack-tool-panel')).toHaveAttribute('data-panel-collapsed', 'false');
     expect(screen.getByTestId('pack-scope-tool-panel').getAttribute('style') || '').not.toContain('left');
+    expect(screen.getByTestId('pack-scope-tool-panel').className).toContain('top-[');
+    expect(screen.getByTestId('pack-scope-tool-panel').className).toContain('bottom-[');
+    expect(screen.getByTestId('pack-scope-tool-panel').className).toContain('max-h-none');
+    expect(screen.getByTestId('pack-scope-tool-panel').className).not.toContain('max-h-[70dvh]');
+  });
+
+  it('closes a mobile pack tool panel instead of leaving a collapsed black shell', async () => {
+    render(
+      <KeyboardShortcutProvider loadProfileOnMount={false}>
+        <PackScopeToolRailHost
+          workspaceId="ws_test"
+          capabilityCode="ig"
+          apiUrl="http://api.test"
+          tools={[feedLoadTool]}
+          placement="mobile"
+          navigationCollapsed
+          aolHost={createAolHost(vi.fn())}
+          onNavigationCollapsedChange={vi.fn()}
+        />
+      </KeyboardShortcutProvider>,
+    );
+
+    fireEvent.click(screen.getByTestId('pack-scope-tool-ig:feed_grid_card_load_limit'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('loaded-pack-tool-panel')).toHaveAttribute('data-panel-collapsed', 'false');
+    });
+
+    fireEvent.click(screen.getByTestId('loaded-pack-tool-collapse'));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('pack-scope-tool-panel')).not.toBeInTheDocument();
+    });
   });
 
   it('opens a requested tool by tool id and can hide the navigation toggle when no navigation is present', async () => {

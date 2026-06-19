@@ -42,6 +42,7 @@ import {
   PACK_SCOPE_TOOL_OPEN_EVENT,
   type PackScopeToolOpenDetail,
 } from './packScopeToolEvents';
+import { useToolRailPanelToggleShortcut } from './useToolRailPanelToggleShortcut';
 
 interface PackScopeToolRailHostProps {
   workspaceId: string;
@@ -115,6 +116,10 @@ function aolSelectBindingId(capabilityCode: string): string {
   return `workspace_tool:${capabilityCode}:aol_select`;
 }
 
+function activePanelToggleBindingId(capabilityCode: string): string {
+  return `tool_rail:workbench:${capabilityCode}:active_panel:toggle`;
+}
+
 function toolWithEffectiveShortcut(
   tool: WorkspaceToolDefinition,
   effectiveShortcut: string | undefined,
@@ -155,6 +160,7 @@ export function PackScopeToolRailHost({
   const [panelExpanded, setPanelExpanded] = React.useState(false);
   const [floatingPosition, setFloatingPosition] = React.useState({ left: 48, bottom: 16 });
   const orderedTools = React.useMemo(() => orderTools(tools, orderedKeys), [orderedKeys, tools]);
+  const shortcutScope = `workbench:${workspaceId}:${capabilityCode}`;
   const activeTool = React.useMemo(
     () => orderedTools.find((tool) => tool.tool_key === activeToolKey) || null,
     [activeToolKey, orderedTools],
@@ -166,6 +172,7 @@ export function PackScopeToolRailHost({
     () => (activeTool ? toolWithEffectiveShortcut(activeTool, activeToolEffectiveShortcut) : null),
     [activeTool, activeToolEffectiveShortcut],
   );
+  const effectivePanelExpanded = placement === 'mobile' ? true : panelExpanded;
 
   React.useEffect(() => {
     setOrderedKeys(readStoredOrder(storageKey));
@@ -228,19 +235,40 @@ export function PackScopeToolRailHost({
     setActiveToolKey((current) => {
       const next = current === tool.tool_key ? null : tool.tool_key;
       if (next) {
-        setPanelExpanded(false);
+        setPanelExpanded(placement === 'mobile');
       }
       return next;
     });
-  }, []);
+  }, [placement]);
+
+  const toggleActiveToolPanel = React.useCallback(() => {
+    if (!activeTool) {
+      return;
+    }
+    if (placement === 'mobile') {
+      setActiveToolKey(null);
+      setPanelExpanded(false);
+      return;
+    }
+    setPanelExpanded((current) => !current);
+  }, [activeTool, placement]);
+
+  const handlePanelCollapsedChange = React.useCallback((collapsed: boolean) => {
+    if (placement === 'mobile') {
+      if (collapsed) {
+        setActiveToolKey(null);
+        setPanelExpanded(false);
+      }
+      return;
+    }
+    setPanelExpanded(!collapsed);
+  }, [placement]);
 
   React.useEffect(() => {
-    const scope = `workbench:${workspaceId}:${capabilityCode}`;
-    return activateScope(scope);
-  }, [activateScope, capabilityCode, workspaceId]);
+    return activateScope(shortcutScope);
+  }, [activateScope, shortcutScope]);
 
   React.useEffect(() => {
-    const scope = `workbench:${workspaceId}:${capabilityCode}`;
     const disposers = orderedTools
       .filter((tool) => Boolean(tool.shortcut))
       .map((tool) => registerCommand({
@@ -251,19 +279,18 @@ export function PackScopeToolRailHost({
         ownerId: tool.capability_code,
         ownerLabel: tool.capability_code,
         defaultShortcut: tool.shortcut,
-        scope,
+        scope: shortcutScope,
         preventDefault: true,
         action: () => activateTool(tool),
       }));
     return () => disposers.forEach((dispose) => dispose());
-  }, [activateTool, capabilityCode, orderedTools, registerCommand, workspaceId]);
+  }, [activateTool, orderedTools, registerCommand, shortcutScope]);
 
   React.useEffect(() => {
     const requestObjectTargeting = aolHost?.requestObjectTargeting;
     if (!requestObjectTargeting) {
       return undefined;
     }
-    const scope = `workbench:${workspaceId}:${capabilityCode}`;
     return registerCommand({
       bindingId: aolSelectBindingId(capabilityCode),
       commandId: 'pack.workspace_tool.aol_select',
@@ -272,11 +299,22 @@ export function PackScopeToolRailHost({
       ownerId: capabilityCode,
       ownerLabel: capabilityCode,
       defaultShortcut: 'V',
-      scope,
+      scope: shortcutScope,
       preventDefault: true,
       action: () => requestObjectTargeting(),
     });
-  }, [aolHost?.requestObjectTargeting, capabilityCode, registerCommand, workspaceId]);
+  }, [aolHost?.requestObjectTargeting, capabilityCode, registerCommand, shortcutScope]);
+
+  useToolRailPanelToggleShortcut({
+    bindingId: activePanelToggleBindingId(capabilityCode),
+    scope: shortcutScope,
+    label: 'Toggle active tool panel',
+    ownerType: 'pack',
+    ownerId: capabilityCode,
+    ownerLabel: capabilityCode,
+    enabled: Boolean(activeTool),
+    onToggle: toggleActiveToolPanel,
+  });
 
   React.useEffect(() => {
     if (typeof window === 'undefined') {
@@ -296,12 +334,12 @@ export function PackScopeToolRailHost({
       if (!requestedTool) {
         return;
       }
-      setPanelExpanded(false);
+      setPanelExpanded(placement === 'mobile');
       setActiveToolKey(requestedTool.tool_key);
     };
     window.addEventListener(PACK_SCOPE_TOOL_OPEN_EVENT, handleOpenRequest);
     return () => window.removeEventListener(PACK_SCOPE_TOOL_OPEN_EVENT, handleOpenRequest);
-  }, [capabilityCode, orderedTools]);
+  }, [capabilityCode, orderedTools, placement]);
 
   const handleDrop = React.useCallback((targetToolKey: string) => {
     if (!draggedToolKey || draggedToolKey === targetToolKey) {
@@ -386,10 +424,10 @@ export function PackScopeToolRailHost({
       </aside>
       {effectiveActiveTool ? (
         <section
-          className={getPackScopeToolPanelClassName(placement, panelExpanded)}
+          className={getPackScopeToolPanelClassName(placement, effectivePanelExpanded)}
           data-testid="pack-scope-tool-panel"
           data-active-tool-key={effectiveActiveTool.tool_key}
-          data-panel-expanded={panelExpanded ? 'true' : 'false'}
+          data-panel-expanded={effectivePanelExpanded ? 'true' : 'false'}
           data-workbench-placement={placement}
           style={placement === 'desktop' ? {
             left: floatingPosition.left,
@@ -402,8 +440,8 @@ export function PackScopeToolRailHost({
               apiUrl={apiUrl}
               tool={effectiveActiveTool}
               aolHost={aolHost}
-              panelCollapsed={!panelExpanded}
-              onPanelCollapsedChange={(collapsed: boolean) => setPanelExpanded(!collapsed)}
+              panelCollapsed={!effectivePanelExpanded}
+              onPanelCollapsedChange={handlePanelCollapsedChange}
               onPanelClose={() => setActiveToolKey(null)}
             />
           ) : (
@@ -412,7 +450,7 @@ export function PackScopeToolRailHost({
               className="flex h-8 max-w-[320px] items-center gap-2 px-2.5 text-left text-xs text-zinc-300"
               onClick={() => setPanelExpanded(true)}
             >
-              {panelExpanded ? (
+              {effectivePanelExpanded ? (
                 <ChevronDown aria-hidden className="h-3.5 w-3.5 shrink-0 text-zinc-500" />
               ) : (
                 <ChevronRight aria-hidden className="h-3.5 w-3.5 shrink-0 text-zinc-500" />
