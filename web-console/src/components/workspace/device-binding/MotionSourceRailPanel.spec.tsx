@@ -24,6 +24,21 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@/lib/device-binding/deviceBindingClient', () => ({
+  buildDeviceControlWebSocketUrl: vi.fn(({
+    apiBase,
+    pairingCode,
+    workspaceId,
+  }: {
+    apiBase: string;
+    pairingCode: string;
+    workspaceId: string;
+  }) => {
+    const wsBase = apiBase
+      .replace(/\/+$/, '')
+      .replace(/^http:/, 'ws:')
+      .replace(/^https:/, 'wss:');
+    return `${wsBase}/api/v1/workspaces/${workspaceId}/device-bindings/${pairingCode}/control`;
+  }),
   buildDeviceLinkHttpsHealthUrl: vi.fn(({ apiBase }: { apiBase: string }) => (
     `${apiBase.replace(/\/+$/, '')}/api/v1/host/services/device-link-https/health`
   )),
@@ -82,7 +97,7 @@ describe('MotionSourceRailPanel', () => {
     );
 
     expect(setIntervalSpy).not.toHaveBeenCalled();
-    await screen.findByText('PAIR1234');
+    await screen.findByTestId('external-provider-pairing-code');
     expect(createDevicePairingCode).toHaveBeenCalledWith({
       apiBase: 'http://api.test',
       workspaceId: 'ws_device',
@@ -114,15 +129,31 @@ describe('MotionSourceRailPanel', () => {
     expect(screen.getByText('Computer / OBS camera')).toBeInTheDocument();
     expect(screen.getByText('External device provider')).toBeInTheDocument();
     expect(screen.getByText('Bridge required')).toBeInTheDocument();
-    expect(screen.getByTestId('external-provider-connection-guide')).toHaveTextContent(
-      'External provider connection guide',
+    expect(screen.getByTestId('external-provider-bridge-card')).toHaveTextContent(
+      'External bridge',
     );
-    expect(screen.getByTestId('external-provider-connection-guide')).toHaveTextContent(
-      'run a neutral host/mobile bridge for DJI Ronin, RS, Osmo',
+    expect(screen.getByTestId('external-provider-pairing-code')).toHaveTextContent('PAIR1234');
+    expect(screen.getByTestId('external-provider-bridge-payload')).toHaveTextContent(
+      '"transport": "device_binding_control_ws"',
     );
-    expect(screen.getByTestId('external-provider-connection-guide')).toHaveTextContent(
-      'Do not use the Phone owned camera link for DJI provider control',
+    expect(screen.getByTestId('external-provider-bridge-payload')).toHaveTextContent(
+      '"api_base": "http://api.test"',
     );
+    expect(screen.getByTestId('external-provider-bridge-payload')).toHaveTextContent(
+      '"pairing_code": "PAIR1234"',
+    );
+    expect(screen.getByTestId('external-provider-bridge-payload')).toHaveTextContent(
+      '"control_ws_url": "ws://api.test/api/v1/workspaces/ws_device/device-bindings/PAIR1234/control"',
+    );
+    expect(screen.getByTestId('external-provider-bridge-payload')).toHaveTextContent(
+      '"source_types": [',
+    );
+    expect(screen.getByTestId('external-provider-bridge-payload')).toHaveTextContent(
+      '"external_provider_camera"',
+    );
+    expect(screen.getByRole('button', { name: 'Copy code' })).toBeEnabled();
+    expect(screen.getByTestId('external-provider-copy-payload')).toBeEnabled();
+    expect(screen.queryByTestId('external-provider-connection-guide')).toBeNull();
   });
 
   it('renders a scannable phone QR only for HTTPS LAN origins', async () => {
@@ -133,7 +164,7 @@ describe('MotionSourceRailPanel', () => {
       }),
     );
 
-    await screen.findByText('PAIR1234');
+    await screen.findByTestId('external-provider-pairing-code');
 
     expect(screen.queryByTestId('phone-qr-code')).toBeNull();
 
@@ -171,7 +202,7 @@ describe('MotionSourceRailPanel', () => {
       }),
     );
 
-    await screen.findByText('PAIR1234');
+    await screen.findByTestId('external-provider-pairing-code');
     expect(await screen.findByTestId('phone-qr-code')).toBeInTheDocument();
     expect(fetch).toHaveBeenCalledWith(
       'http://api.test/api/v1/host/services/device-link-https/health',
@@ -206,7 +237,7 @@ describe('MotionSourceRailPanel', () => {
       }),
     );
 
-    await screen.findByText('PAIR1234');
+    await screen.findByTestId('external-provider-pairing-code');
     expect(screen.getByTestId('phone-public-origin-input')).toHaveValue('');
     expect(screen.getByTestId('phone-lan-readiness')).toHaveTextContent(
       'Ready for remote phone capture over HTTPS.',
@@ -231,7 +262,7 @@ describe('MotionSourceRailPanel', () => {
       }),
     );
 
-    await screen.findByText('PAIR1234');
+    await screen.findByTestId('external-provider-pairing-code');
 
     act(() => {
       mocks.socketInput.onOpen();
@@ -300,12 +331,12 @@ describe('MotionSourceRailPanel', () => {
         {
           apiUrl: 'http://api.test',
           workspaceId: 'ws_device',
+          children: createElement(ReferenceLessonHarness),
         },
-        createElement(ReferenceLessonHarness),
       ),
     );
 
-    await screen.findByText('PAIR1234');
+    await screen.findByTestId('external-provider-pairing-code');
 
     act(() => {
       mocks.socketInput.onOpen();
@@ -358,7 +389,7 @@ describe('MotionSourceRailPanel', () => {
       }),
     );
 
-    await screen.findByText('PAIR1234');
+    await screen.findByTestId('external-provider-pairing-code');
     act(() => {
       mocks.socketInput.onEvent({
         type: 'session_paired',

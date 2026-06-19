@@ -9,6 +9,7 @@ import {
   type CaptureSourceBridgeContextValue,
 } from './CaptureSourceBridgeProvider';
 import { CaptureSourceList } from './CaptureSourceList';
+import { buildDeviceControlWebSocketUrl } from '@/lib/device-binding/deviceBindingClient';
 
 const MAX_ACTIVE_SOURCE_SLOTS = 3;
 
@@ -42,40 +43,67 @@ const PROVIDER_RAIL_ITEMS: ProviderRailItem[] = [
   {
     label: 'External device provider',
     status: 'Bridge required',
-    description: 'Use a neutral host/mobile bridge for DJI Ronin, RS, Osmo, or future provider devices.',
+    description: 'Connect a provider bridge with the pairing code below.',
     readiness: 'bridge_required',
   },
 ];
 
-function ExternalProviderConnectionGuide() {
-  return (
-    <div
-      className="mt-2 rounded border border-sky-200 bg-sky-50/70 px-2 py-2 text-[11px] text-sky-900 dark:border-sky-900/70 dark:bg-sky-950/30 dark:text-sky-100"
-      data-testid="external-provider-connection-guide"
-    >
-      <div className="font-semibold text-sky-950 dark:text-sky-50">
-        External provider connection guide
-      </div>
-      <ol className="mt-1 space-y-1">
-        <li>
-          <span className="font-semibold">1. Start bridge:</span> run a neutral host/mobile bridge for DJI Ronin, RS, Osmo, or future provider devices.
-        </li>
-        <li>
-          <span className="font-semibold">2. Pair source:</span> connect the bridge into the same device-link session; it consumes one of the 3 source slots.
-        </li>
-        <li>
-          <span className="font-semibold">3. Monitor here:</span> once active, the provider feed appears in the active source list below.
-        </li>
-      </ol>
-      <div className="mt-2 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-amber-900 dark:border-amber-900/70 dark:bg-amber-950/30 dark:text-amber-100">
-        Do not use the Phone owned camera link for DJI provider control; that link only captures this phone camera.
-      </div>
-    </div>
-  );
+function buildExternalProviderBridgePayload({
+  apiBase,
+  pairingCode,
+  workspaceId,
+}: {
+  apiBase: string;
+  pairingCode: string;
+  workspaceId: string;
+}): string {
+  return JSON.stringify({
+    transport: 'device_binding_control_ws',
+    api_base: apiBase,
+    workspace_id: workspaceId,
+    pairing_code: pairingCode,
+    control_ws_url: buildDeviceControlWebSocketUrl({ apiBase, workspaceId, pairingCode }),
+    source_join: {
+      type: 'source_join',
+      display_name: 'External provider bridge',
+      source_types: ['external_provider_camera'],
+      metadata: {
+        capture_surface: 'external_provider_bridge',
+      },
+    },
+  }, null, 2);
 }
 
-function ProviderReadinessBlock({ activeSlotCount }: { activeSlotCount: number }) {
+function ProviderReadinessBlock({
+  activeSlotCount,
+  apiBase,
+  externalProviderActive,
+  pairingCode,
+  workspaceId,
+}: {
+  activeSlotCount: number;
+  apiBase: string;
+  externalProviderActive: boolean;
+  pairingCode?: string;
+  workspaceId: string;
+}) {
   const boundedActiveSlotCount = Math.min(activeSlotCount, MAX_ACTIVE_SOURCE_SLOTS);
+  const [copyState, setCopyState] = React.useState<'idle' | 'copied' | 'failed'>('idle');
+  const bridgePayload = pairingCode
+    ? buildExternalProviderBridgePayload({ apiBase, pairingCode, workspaceId })
+    : '';
+  async function copyValue(value: string) {
+    if (!value) {
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopyState('copied');
+      window.setTimeout(() => setCopyState('idle'), 1600);
+    } catch {
+      setCopyState('failed');
+    }
+  }
 
   return (
     <div
@@ -115,7 +143,9 @@ function ProviderReadinessBlock({ activeSlotCount }: { activeSlotCount: number }
                     : 'shrink-0 rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-950/40 dark:text-amber-200'
                 }
               >
-                {provider.status}
+                {provider.label === 'External device provider' && externalProviderActive
+                  ? 'Connected'
+                  : provider.status}
               </span>
             </div>
             <div className="mt-1 text-[11px] leading-4 text-gray-500 dark:text-gray-400">
@@ -124,7 +154,73 @@ function ProviderReadinessBlock({ activeSlotCount }: { activeSlotCount: number }
           </div>
         ))}
       </div>
-      <ExternalProviderConnectionGuide />
+      <div
+        className="mt-2 rounded border border-gray-200 bg-gray-50 p-2 dark:border-gray-800 dark:bg-gray-900"
+        data-testid="external-provider-bridge-card"
+      >
+        <div className="flex items-center justify-between gap-2">
+          <div className="font-semibold text-gray-900 dark:text-gray-100">
+            External bridge
+          </div>
+          <span
+            className={
+              externalProviderActive
+                ? 'rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-200'
+                : 'rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-950/40 dark:text-amber-200'
+            }
+          >
+            {externalProviderActive ? 'Connected' : 'Waiting'}
+          </span>
+        </div>
+        <div className="mt-2 grid grid-cols-[auto_1fr] gap-x-2 gap-y-1 text-[11px]">
+          <span className="text-gray-500 dark:text-gray-400">Pairing</span>
+          <span
+            className="font-mono text-gray-900 dark:text-gray-100"
+            data-testid="external-provider-pairing-code"
+          >
+            {pairingCode || 'creating...'}
+          </span>
+          <span className="text-gray-500 dark:text-gray-400">Source</span>
+          <span className="font-mono text-gray-900 dark:text-gray-100">
+            external_provider_camera
+          </span>
+        </div>
+        <div className="mt-2 grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            disabled={!pairingCode}
+            onClick={() => void copyValue(pairingCode || '')}
+            className="rounded border border-gray-300 px-2 py-1 text-[11px] font-semibold text-gray-700 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:text-gray-400 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-950"
+          >
+            Copy code
+          </button>
+          <button
+            type="button"
+            disabled={!bridgePayload}
+            onClick={() => void copyValue(bridgePayload)}
+            className="rounded border border-gray-300 px-2 py-1 text-[11px] font-semibold text-gray-700 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:text-gray-400 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-950"
+            data-testid="external-provider-copy-payload"
+          >
+            Copy payload
+          </button>
+        </div>
+        <pre
+          className="mt-2 max-h-28 overflow-auto rounded bg-gray-950 p-2 text-[10px] leading-4 text-gray-100"
+          data-testid="external-provider-bridge-payload"
+        >
+          {bridgePayload || 'waiting for pairing code'}
+        </pre>
+        {copyState === 'copied' ? (
+          <div className="mt-1 text-[11px] font-semibold text-emerald-700 dark:text-emerald-200">
+            Copied.
+          </div>
+        ) : null}
+        {copyState === 'failed' ? (
+          <div className="mt-1 text-[11px] font-semibold text-amber-700 dark:text-amber-200">
+            Copy failed.
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -144,7 +240,9 @@ function CaptureSourceRailContent({
   }
 
   const {
+    apiUrl,
     disabled,
+    workspaceId,
     state,
     pairing,
     sessions,
@@ -176,7 +274,15 @@ function CaptureSourceRailContent({
         </div>
       </div>
 
-      <ProviderReadinessBlock activeSlotCount={sessions.length} />
+      <ProviderReadinessBlock
+        activeSlotCount={sessions.length}
+        apiBase={apiUrl}
+        externalProviderActive={sessions.some((session) => (
+          session.source_types.includes('external_provider_camera')
+        ))}
+        pairingCode={pairing?.pairing_code}
+        workspaceId={workspaceId}
+      />
 
       {pairing ? (
         <div className="space-y-2 rounded-md border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-gray-950">
