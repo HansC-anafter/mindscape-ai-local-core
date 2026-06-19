@@ -152,8 +152,22 @@ describe('MotionSourceRailPanel', () => {
       '"external_provider_camera"',
     );
     expect(screen.getByRole('button', { name: 'Copy code' })).toBeEnabled();
+    expect(screen.getByTestId('external-provider-connection-guide')).toHaveTextContent(
+      'External provider connection guide',
+    );
+    expect(screen.getByTestId('external-provider-connection-guide')).toHaveTextContent(
+      'USB webcam source',
+    );
+    expect(screen.getByTestId('external-provider-connection-guide')).toHaveTextContent(
+      'Network stream relay',
+    );
+    expect(screen.getByTestId('external-provider-connection-guide')).toHaveTextContent(
+      'Gimbal-mounted camera',
+    );
+    expect(screen.getByTestId('external-provider-advanced-payload')).toHaveTextContent(
+      'Advanced bridge payload',
+    );
     expect(screen.getByTestId('external-provider-copy-payload')).toBeEnabled();
-    expect(screen.queryByTestId('external-provider-connection-guide')).toBeNull();
   });
 
   it('renders a scannable phone QR only for HTTPS LAN origins', async () => {

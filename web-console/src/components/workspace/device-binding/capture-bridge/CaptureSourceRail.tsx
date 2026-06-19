@@ -9,6 +9,7 @@ import {
   type CaptureSourceBridgeContextValue,
 } from './CaptureSourceBridgeProvider';
 import { CaptureSourceList } from './CaptureSourceList';
+import { ExternalProviderConnectionGuide } from './ExternalProviderConnectionGuide';
 import { buildDeviceControlWebSocketUrl } from '@/lib/device-binding/deviceBindingClient';
 
 const MAX_ACTIVE_SOURCE_SLOTS = 3;
@@ -154,6 +155,7 @@ function ProviderReadinessBlock({
           </div>
         ))}
       </div>
+      <ExternalProviderConnectionGuide />
       <div
         className="mt-2 rounded border border-gray-200 bg-gray-50 p-2 dark:border-gray-800 dark:bg-gray-900"
         data-testid="external-provider-bridge-card"
@@ -185,7 +187,7 @@ function ProviderReadinessBlock({
             external_provider_camera
           </span>
         </div>
-        <div className="mt-2 grid grid-cols-2 gap-2">
+        <div className="mt-2 grid grid-cols-1 gap-2">
           <button
             type="button"
             disabled={!pairingCode}
@@ -194,22 +196,30 @@ function ProviderReadinessBlock({
           >
             Copy code
           </button>
+        </div>
+        <details
+          className="mt-2 rounded border border-gray-200 bg-white p-2 dark:border-gray-800 dark:bg-gray-950"
+          data-testid="external-provider-advanced-payload"
+        >
+          <summary className="cursor-pointer text-[11px] font-semibold text-gray-700 dark:text-gray-200">
+            Advanced bridge payload
+          </summary>
           <button
             type="button"
             disabled={!bridgePayload}
             onClick={() => void copyValue(bridgePayload)}
-            className="rounded border border-gray-300 px-2 py-1 text-[11px] font-semibold text-gray-700 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:text-gray-400 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-950"
+            className="mt-2 rounded border border-gray-300 px-2 py-1 text-[11px] font-semibold text-gray-700 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:text-gray-400 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-950"
             data-testid="external-provider-copy-payload"
           >
             Copy payload
           </button>
-        </div>
-        <pre
-          className="mt-2 max-h-28 overflow-auto rounded bg-gray-950 p-2 text-[10px] leading-4 text-gray-100"
-          data-testid="external-provider-bridge-payload"
-        >
-          {bridgePayload || 'waiting for pairing code'}
-        </pre>
+          <pre
+            className="mt-2 max-h-28 overflow-auto rounded bg-gray-950 p-2 text-[10px] leading-4 text-gray-100"
+            data-testid="external-provider-bridge-payload"
+          >
+            {bridgePayload || 'waiting for pairing code'}
+          </pre>
+        </details>
         {copyState === 'copied' ? (
           <div className="mt-1 text-[11px] font-semibold text-emerald-700 dark:text-emerald-200">
             Copied.
