@@ -8,7 +8,10 @@ import logging
 import re
 from typing import Dict, Any, Optional
 
-from ....shared.llm_utils import build_prompt, call_llm, extract_json_from_text
+try:
+    from shared.llm_utils import build_prompt, call_llm, extract_json_from_text
+except ImportError:  # pragma: no cover - backend package import path fallback
+    from ....shared.llm_utils import build_prompt, call_llm, extract_json_from_text
 
 logger = logging.getLogger(__name__)
 
@@ -128,7 +131,10 @@ Please output the extraction result in JSON format."""
             user_prompt=user_prompt
         )
 
-        from ....shared.llm_provider_helper import get_model_name_from_chat_model
+        try:
+            from shared.llm_provider_helper import get_model_name_from_chat_model
+        except ImportError:  # pragma: no cover - backend package import path fallback
+            from ....shared.llm_provider_helper import get_model_name_from_chat_model
 
         model_to_use = get_model_name_from_chat_model()
 
