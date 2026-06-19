@@ -123,6 +123,49 @@ def test_device_binding_control_ws_pairs_source_and_notifies_workspace() -> None
             assert workspace_event["active_sessions"][0]["device_id"] == "phone_1"
 
 
+def test_device_binding_control_ws_pairs_external_provider_bridge_source() -> None:
+    module = _load_device_bindings_module()
+    registry = DeviceBindingRegistry()
+    client = TestClient(_build_app(module, registry=registry))
+    pairing = client.post(
+        "/api/v1/workspaces/ws_device/device-bindings/pairing-codes",
+        json={},
+    ).json()
+    control_url = (
+        "/api/v1/workspaces/ws_device/device-bindings/"
+        f"{pairing['pairing_code']}/control"
+    )
+
+    with client.websocket_connect(control_url) as workspace_ws:
+        workspace_ws.send_json({"type": "workspace_subscribe"})
+        assert _receive(workspace_ws)["type"] == "pairing_ready"
+
+        with client.websocket_connect(control_url) as source_ws:
+            source_ws.send_json(
+                {
+                    "type": "source_join",
+                    "device_id": "provider_bridge_1",
+                    "display_name": "External provider bridge",
+                    "source_types": ["external_provider_camera"],
+                    "metadata": {
+                        "capture_surface": "external_provider_bridge",
+                        "provider_family": "dji_ground_imaging",
+                        "provider_backend": "dji_mobile_companion",
+                    },
+                }
+            )
+            source_event = _receive(source_ws)
+            workspace_event = _receive(workspace_ws)
+
+            assert source_event["type"] == "session_paired"
+            assert source_event["source_types"] == ["external_provider_camera"]
+            assert workspace_event["active_sessions"][0]["metadata"] == {
+                "capture_surface": "external_provider_bridge",
+                "provider_family": "dji_ground_imaging",
+                "provider_backend": "dji_mobile_companion",
+            }
+
+
 def test_device_binding_control_ws_rejects_duplicate_pairing_code() -> None:
     module = _load_device_bindings_module()
     registry = DeviceBindingRegistry()

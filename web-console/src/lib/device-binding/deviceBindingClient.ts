@@ -3,6 +3,7 @@ export type DeviceSourceType =
   | 'desktop_camera'
   | 'usb_camera'
   | 'virtual_camera'
+  | 'external_provider_camera'
   | 'microphone';
 
 export type DeviceBindingSessionState =
@@ -139,6 +140,14 @@ export function buildDevicePairingCodeUrl({
   return `${resolveHttpBase(apiBase)}/api/v1/workspaces/${encodeURIComponent(workspaceId)}/device-bindings/pairing-codes`;
 }
 
+export function buildDeviceLinkHttpsHealthUrl({
+  apiBase,
+}: {
+  apiBase: string;
+}): string {
+  return `${resolveHttpBase(apiBase)}/api/v1/host/services/device-link-https/health`;
+}
+
 export function buildDeviceRevokeUrl({
   apiBase,
   workspaceId,
@@ -186,14 +195,16 @@ export function buildWorkspaceDeviceControlWebSocketUrl({
 export async function createDevicePairingCode({
   apiBase,
   workspaceId,
+  expiresInSeconds,
 }: {
   apiBase: string;
   workspaceId: string;
+  expiresInSeconds?: number;
 }): Promise<DevicePairingCode> {
   const response = await fetch(buildDevicePairingCodeUrl({ apiBase, workspaceId }), {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({}),
+    body: JSON.stringify(expiresInSeconds ? { expires_in_seconds: expiresInSeconds } : {}),
   });
   if (!response.ok) {
     throw new Error('device_pairing_code_create_failed');

@@ -54,7 +54,8 @@ export function PhoneSourcePreview({
     sourceType === 'phone_camera' ||
     sourceType === 'desktop_camera' ||
     sourceType === 'usb_camera' ||
-    sourceType === 'virtual_camera'
+    sourceType === 'virtual_camera' ||
+    sourceType === 'external_provider_camera'
   ));
 
   const stopMotionAnalysis = useCallback(() => {

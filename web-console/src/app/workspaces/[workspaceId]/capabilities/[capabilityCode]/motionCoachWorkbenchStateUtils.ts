@@ -44,6 +44,26 @@ export function readRecordArray(value: unknown): Record<string, unknown>[] {
   return value.filter((item): item is Record<string, unknown> => isRecord(item));
 }
 
+export function readThumbnailUrl(value: unknown): string {
+  if (!isRecord(value)) {
+    return '';
+  }
+  const direct = readString(value.thumbnail_url)
+    || readString(value.thumbnailUrl)
+    || readString(value.preview_url)
+    || readString(value.previewUrl)
+    || readString(value.thumbnail_ref)
+    || readString(value.thumbnailRef);
+  if (direct) {
+    return direct;
+  }
+  const thumbnail = value.thumbnail;
+  if (isRecord(thumbnail)) {
+    return readString(thumbnail.url);
+  }
+  return '';
+}
+
 export function clamp01(value: number): number {
   if (!Number.isFinite(value)) {
     return 0;
@@ -59,6 +79,36 @@ function capitalize(value: string): string {
   return normalized.charAt(0).toUpperCase() + normalized.slice(1);
 }
 
+function decodeDisplayText(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+export function formatLessonDisplayTitle(value: string): string {
+  const decoded = decodeDisplayText(value).trim();
+  if (!decoded) {
+    return '';
+  }
+  const slugLike = /[_-]{2,}|_/.test(decoded);
+  if (!slugLike) {
+    return decoded;
+  }
+  return decoded
+    .replace(/[_-]+/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) => {
+      if (/^\d+$/.test(part)) {
+        return part;
+      }
+      return capitalize(part);
+    })
+    .join(' ');
+}
+
 export function titleFromToken(value: string, fallback: string): string {
   const normalized = value.trim();
   if (!normalized) {
@@ -69,6 +119,51 @@ export function titleFromToken(value: string, fallback: string): string {
     .filter(Boolean)
     .map((part) => capitalize(part))
     .join(' ');
+}
+
+function formatSourceProviderLabel(value: string): string {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'youtube') {
+    return 'YouTube';
+  }
+  return titleFromToken(value, value);
+}
+
+function extractYouTubeVideoId(value: string): string {
+  const normalized = value.trim();
+  if (!normalized) {
+    return '';
+  }
+  try {
+    const url = new URL(normalized);
+    const host = url.hostname.toLowerCase();
+    if (host === 'youtu.be' || host.endsWith('.youtu.be')) {
+      return url.pathname.split('/').filter(Boolean)[0] || '';
+    }
+    if (host.includes('youtube.com') || host.includes('youtube-nocookie.com')) {
+      const watchId = url.searchParams.get('v')?.trim();
+      if (watchId) {
+        return watchId;
+      }
+      const parts = url.pathname.split('/').filter(Boolean);
+      const markerIndex = parts.findIndex((part) => ['embed', 'shorts', 'live'].includes(part));
+      if (markerIndex >= 0 && parts[markerIndex + 1]) {
+        return parts[markerIndex + 1];
+      }
+    }
+  } catch {
+    // Fall through to regex parsing for non-URL handoff values.
+  }
+  const matched = normalized.match(/(?:v=|youtu\.be\/|embed\/|shorts\/|live\/)([A-Za-z0-9_-]{6,})/);
+  if (matched?.[1]) {
+    return matched[1];
+  }
+  return /^[A-Za-z0-9_-]{8,}$/.test(normalized) ? normalized : '';
+}
+
+export function resolveYouTubeThumbnailUrl(value: string): string {
+  const videoId = extractYouTubeVideoId(value);
+  return videoId ? `https://i.ytimg.com/vi/${encodeURIComponent(videoId)}/hqdefault.jpg` : '';
 }
 
 function formatTimeLabel(totalMs: number): string {
@@ -99,9 +194,12 @@ export function dedupeStrings(values: string[], maxItems = 4): string[] {
   return next;
 }
 
-export function mapCaptureSourceType(session: DeviceSessionEntry | null): 'phone' | 'pad' | 'desktop_camera' | 'obs' | 'file' | 'unknown' {
+export function mapCaptureSourceType(session: DeviceSessionEntry | null): 'phone' | 'pad' | 'desktop_camera' | 'external_provider' | 'obs' | 'file' | 'unknown' {
   if (!session) {
     return 'unknown';
+  }
+  if (session.source_types.includes('external_provider_camera')) {
+    return 'external_provider';
   }
   if (session.source_types.includes('virtual_camera')) {
     return 'obs';
@@ -126,7 +224,8 @@ export function mapCaptureTransport(session: DeviceSessionEntry | null): 'webrtc
   if (
     session.source_types.includes('desktop_camera') ||
     session.source_types.includes('usb_camera') ||
-    session.source_types.includes('virtual_camera')
+    session.source_types.includes('virtual_camera') ||
+    session.source_types.includes('external_provider_camera')
   ) {
     return 'webrtc';
   }
@@ -165,6 +264,7 @@ export function extractCourseSegments(
         title,
         startMs: readNumber(chapter.start_ms),
         endMs: readNumber(chapter.end_ms),
+        thumbnailUrl: readThumbnailUrl(chapter) || undefined,
       });
     }
   }
@@ -221,10 +321,10 @@ export function resolveLessonTitle(
   pendingLessonHandoff: MotionPracticeLessonHandoff | null | undefined,
 ): string {
   if (pendingLessonHandoff?.sourceTitle?.trim()) {
-    return pendingLessonHandoff.sourceTitle.trim();
+    return formatLessonDisplayTitle(pendingLessonHandoff.sourceTitle);
   }
   if (referenceLessonState?.title?.trim()) {
-    return referenceLessonState.title.trim();
+    return formatLessonDisplayTitle(referenceLessonState.title);
   }
   if (segments.length) {
     return capabilityCode === 'dance_motion_coach'
@@ -276,16 +376,60 @@ export function resolveLessonSourceLabel(
       || readString(firstInstructionRef.ref_type)
       || 'Instruction ref';
   }
-  if (pendingLessonHandoff?.sourceProvider?.trim()) {
-    return pendingLessonHandoff.sourceProvider.trim();
+  const handoffProvider = pendingLessonHandoff?.sourceProvider?.trim();
+  const handoffValue = pendingLessonHandoff?.sourceValue?.trim();
+  if (handoffProvider && handoffValue) {
+    return `${formatSourceProviderLabel(handoffProvider)} · ${handoffValue}`;
+  }
+  if (handoffProvider) {
+    return formatSourceProviderLabel(handoffProvider);
   }
   if (pendingLessonHandoff?.sourceTitle?.trim()) {
-    return pendingLessonHandoff.sourceTitle.trim();
+    return formatLessonDisplayTitle(pendingLessonHandoff.sourceTitle);
   }
-  if (pendingLessonHandoff?.sourceValue?.trim()) {
-    return pendingLessonHandoff.sourceValue.trim();
+  if (handoffValue) {
+    return handoffValue;
   }
   return 'Instruction source pending';
+}
+
+export function resolveLessonThumbnailUrl(input: {
+  instructionRefs: Record<string, unknown>[];
+  segments: TimelineSegment[];
+  pendingLessonHandoff: MotionPracticeLessonHandoff | null | undefined;
+}): string {
+  const handoffThumbnail = input.pendingLessonHandoff?.thumbnailUrl?.trim();
+  if (handoffThumbnail) {
+    return handoffThumbnail;
+  }
+  for (const segment of input.segments) {
+    if (segment.thumbnailUrl) {
+      return segment.thumbnailUrl;
+    }
+  }
+  for (const ref of input.instructionRefs) {
+    const thumbnail = readThumbnailUrl(ref);
+    if (thumbnail) {
+      return thumbnail;
+    }
+    const provider = readString(ref.source_provider) || readString(ref.provider);
+    if (provider.toLowerCase() === 'youtube') {
+      const youtubeThumbnail = resolveYouTubeThumbnailUrl(
+        readString(ref.video_ref)
+        || readString(ref.canonical_url)
+        || readString(ref.provider_video_id),
+      );
+      if (youtubeThumbnail) {
+        return youtubeThumbnail;
+      }
+    }
+  }
+  const handoff = input.pendingLessonHandoff;
+  const handoffProvider = handoff?.sourceProvider?.trim().toLowerCase() || '';
+  if (handoff?.sourceKind === 'youtube_instruction_ref' || handoffProvider === 'youtube') {
+    return resolveYouTubeThumbnailUrl(handoff.sourceValue);
+  }
+  return '';
 }
 
 export function buildYogaReferenceLessonImportRef(input: {

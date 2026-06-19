@@ -23,4 +23,5 @@ export type TimelineSegment = {
   title: string;
   startMs: number;
   endMs: number;
+  thumbnailUrl?: string;
 };

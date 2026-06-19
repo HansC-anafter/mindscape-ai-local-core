@@ -281,4 +281,37 @@ describe('PhoneSourcePreview', () => {
       }),
     );
   });
+
+  it('starts the same workspace receiver for external provider camera sessions', () => {
+    render(
+      <PhoneSourcePreview
+        apiUrl="http://api.test"
+        workspaceId="ws_device"
+        session={{
+          session_id: 'session_provider',
+          workspace_id: 'ws_device',
+          pairing_code: 'PAIR1234',
+          device_id: 'provider_bridge_1',
+          display_name: 'External provider bridge',
+          source_types: ['external_provider_camera'],
+          metadata: {
+            capture_surface: 'external_provider_bridge',
+            provider_family: 'dji_ground_imaging',
+          },
+          state: 'paired',
+          created_at_epoch: 1,
+          updated_at_epoch: 1,
+          expires_at_epoch: 61,
+        }}
+      />,
+    );
+
+    expect(screen.getByTestId('phone-source-preview-session_provider')).toBeTruthy();
+    expect(startWorkspaceReceiverSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        deviceSessionId: 'session_provider',
+        mediaSessionId: 'session_provider',
+      }),
+    );
+  });
 });

@@ -12,6 +12,7 @@ import React, {
 } from 'react';
 
 import {
+  buildDeviceLinkHttpsHealthUrl,
   createDevicePairingCode,
   openWorkspaceDeviceControlSocket,
   revokeDeviceSession,
@@ -40,7 +41,7 @@ export interface CaptureSourceBridgeProviderProps {
   children: ReactNode;
 }
 
-interface CaptureSourceBridgeContextValue {
+export interface CaptureSourceBridgeContextValue {
   apiUrl: string;
   workspaceId: string;
   disabled: boolean;
@@ -56,6 +57,7 @@ interface CaptureSourceBridgeContextValue {
   phoneQrCode: QrCodeSvgPath | null;
   desktopDeviceLink: string;
   setPhonePublicOrigin: (origin: string) => void;
+  publishReferenceLessonState: (state: CaptureSourceReferenceLessonState | null) => void;
   startPairing: () => Promise<void>;
   revokeSession: (sessionId: string) => Promise<void>;
 }
@@ -114,16 +116,21 @@ export function CaptureSourceBridgeProvider({
     useState<CaptureSourceReferenceLessonState | null>(null);
   const [phonePublicOrigin, setPhonePublicOrigin] = useState('');
   const socketRef = useRef<DeviceControlSocket | null>(null);
+  const referenceLessonStateRef = useRef<CaptureSourceReferenceLessonState | null>(null);
   const phonePublicOriginTouchedRef = useRef(false);
 
   useEffect(() => () => socketRef.current?.close(), []);
+
+  useEffect(() => {
+    referenceLessonStateRef.current = referenceLessonState;
+  }, [referenceLessonState]);
 
   useEffect(() => {
     if (typeof window === 'undefined' || typeof fetch !== 'function') {
       return;
     }
     const controller = new AbortController();
-    void fetch('/api/v1/host/services/device-link-https/health', {
+    void fetch(buildDeviceLinkHttpsHealthUrl({ apiBase: apiUrl }), {
       cache: 'no-store',
       signal: controller.signal,
     })
@@ -138,17 +145,22 @@ export function CaptureSourceBridgeProvider({
         if (!publicOrigin || phonePublicOriginTouchedRef.current) {
           return;
         }
+        const browserOrigin = typeof window === 'undefined' ? '' : window.location.origin;
+        if (assessDeviceLinkOriginReadiness(browserOrigin).state === 'ready') {
+          return;
+        }
         setPhonePublicOrigin((current) => current || publicOrigin);
       })
       .catch(() => undefined);
     return () => controller.abort();
-  }, []);
+  }, [apiUrl]);
 
   const fallbackBrowserOrigin = typeof window === 'undefined' ? '' : window.location.origin;
   const phoneOrigin = useMemo(() => resolveDeviceLinkPublicOrigin({
     overrideOrigin: phonePublicOrigin,
     fallbackOrigin: fallbackBrowserOrigin,
     allowFallbackLoopbackOnly: true,
+    allowFallbackHttpsOrigin: true,
   }), [fallbackBrowserOrigin, phonePublicOrigin]);
   const phoneReadiness = useMemo(
     () => assessDeviceLinkOriginReadiness(phoneOrigin),
@@ -174,9 +186,18 @@ export function CaptureSourceBridgeProvider({
     buildDeviceLink(pairing, workspaceId, 'camera')
   ), [pairing, workspaceId]);
 
+  const sendReferenceLessonState = useCallback((nextState: CaptureSourceReferenceLessonState | null) => {
+    socketRef.current?.send({
+      type: 'reference_lesson_state',
+      reference_lesson_state: nextState || {},
+    });
+  }, []);
+
   const applyEvent = useCallback((event: DeviceControlEvent) => {
     if (event.type === 'reference_lesson_state') {
-      setReferenceLessonState(event.reference_lesson_state || null);
+      const nextState = event.reference_lesson_state || null;
+      referenceLessonStateRef.current = nextState;
+      setReferenceLessonState(nextState);
       return;
     }
     if (event.type === 'pairing_ready') {
@@ -190,9 +211,6 @@ export function CaptureSourceBridgeProvider({
     }
     if (event.type === 'session_revoked' || event.type === 'session_closed' || event.type === 'session_expired') {
       setState(event.active_sessions?.length ? 'connected' : 'pairing');
-      if (!event.active_sessions?.length) {
-        setReferenceLessonState(null);
-      }
     }
     if (event.type === 'session_error' || event.type === 'session_rejected') {
       setState('error');
@@ -201,7 +219,14 @@ export function CaptureSourceBridgeProvider({
     if (event.active_sessions) {
       setSessions(sortSessions(event.active_sessions));
     }
-  }, []);
+    if (
+      (event.type === 'session_paired' || event.type === 'session_active')
+      && event.active_sessions?.length
+      && referenceLessonStateRef.current
+    ) {
+      sendReferenceLessonState(referenceLessonStateRef.current);
+    }
+  }, [sendReferenceLessonState]);
 
   const startPairing = useCallback(async () => {
     if (disabled || state === 'creating') {
@@ -210,18 +235,23 @@ export function CaptureSourceBridgeProvider({
     setState('creating');
     setError(null);
     setSessions([]);
-    setReferenceLessonState(null);
     socketRef.current?.close();
     try {
       const nextPairing = await createDevicePairingCode({
         apiBase: apiUrl,
         workspaceId,
+        expiresInSeconds: 600,
       });
       setPairing(nextPairing);
       const socket = openWorkspaceDeviceControlSocket({
         apiBase: apiUrl,
         workspaceId,
-        onOpen: () => socket.send({ type: 'workspace_subscribe' }),
+        onOpen: () => {
+          socket.send({ type: 'workspace_subscribe' });
+          if (referenceLessonStateRef.current) {
+            sendReferenceLessonState(referenceLessonStateRef.current);
+          }
+        },
         onEvent: applyEvent,
         onError: (nextError) => {
           setError(nextError.message);
@@ -253,6 +283,12 @@ export function CaptureSourceBridgeProvider({
     setPhonePublicOrigin(origin);
   }, []);
 
+  const publishReferenceLessonState = useCallback((nextState: CaptureSourceReferenceLessonState | null) => {
+    referenceLessonStateRef.current = nextState;
+    setReferenceLessonState(nextState);
+    sendReferenceLessonState(nextState);
+  }, [sendReferenceLessonState]);
+
   const value = useMemo<CaptureSourceBridgeContextValue>(() => ({
     apiUrl,
     workspaceId,
@@ -269,6 +305,7 @@ export function CaptureSourceBridgeProvider({
     phoneQrCode,
     desktopDeviceLink,
     setPhonePublicOrigin: setPhonePublicOriginValue,
+    publishReferenceLessonState,
     startPairing,
     revokeSession,
   }), [
@@ -282,6 +319,7 @@ export function CaptureSourceBridgeProvider({
     phonePublicOrigin,
     phoneQrCode,
     phoneReadiness,
+    publishReferenceLessonState,
     referenceLessonState,
     revokeSession,
     sessions,

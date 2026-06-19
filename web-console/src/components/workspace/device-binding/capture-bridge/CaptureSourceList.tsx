@@ -4,21 +4,33 @@ import React from 'react';
 import { Unplug } from 'lucide-react';
 
 import { CaptureSourcePreview } from './CaptureSourcePreview';
-import { useCaptureSourceBridge } from './CaptureSourceBridgeProvider';
+import {
+  useOptionalCaptureSourceBridge,
+  type CaptureSourceBridgeContextValue,
+} from './CaptureSourceBridgeProvider';
 
 interface CaptureSourceListProps {
+  bridge?: CaptureSourceBridgeContextValue | null;
   showPreview?: boolean;
 }
 
 export function CaptureSourceList({
+  bridge: controlledBridge = null,
   showPreview = true,
 }: CaptureSourceListProps = {}) {
+  const contextBridge = useOptionalCaptureSourceBridge();
+  const bridge = controlledBridge || contextBridge;
+
+  if (!bridge) {
+    throw new Error('CaptureSourceList requires a CaptureSourceBridgeProvider or controlled bridge.');
+  }
+
   const {
     apiUrl,
     workspaceId,
     sessions,
     revokeSession,
-  } = useCaptureSourceBridge();
+  } = bridge;
 
   if (!sessions.length) {
     return (

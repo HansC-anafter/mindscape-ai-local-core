@@ -264,12 +264,14 @@ describe('motionCoachWorkbenchState', () => {
         sourceValue: 'https://www.youtube.com/watch?v=summer-flow',
         sourceTitle: 'Summer Flow With Katie',
         sourceProvider: 'youtube',
+        thumbnailUrl: 'https://i.ytimg.com/vi/summer-flow/hqdefault.jpg',
         courseChaptersInput: JSON.stringify([
           {
             chapter_id: 'summer_flow_ref_1',
             title: 'Standing warmup',
             start_ms: 0,
             end_ms: 42000,
+            thumbnail_url: 'https://i.ytimg.com/vi/summer-flow/chapter-1.jpg',
           },
         ]),
       },
@@ -288,11 +290,75 @@ describe('motionCoachWorkbenchState', () => {
     expect(state.reference_lesson_state).toMatchObject({
       lesson_id: 'https://www.youtube.com/watch?v=summer-flow',
       title: 'Summer Flow With Katie',
+      thumbnailUrl: 'https://i.ytimg.com/vi/summer-flow/hqdefault.jpg',
       activeChapterId: 'summer_flow_ref_1',
     });
     expect(state.reference_lesson_state.chapters[0]).toMatchObject({
       id: 'summer_flow_ref_1',
       title: 'Standing warmup',
+      thumbnailUrl: 'https://i.ytimg.com/vi/summer-flow/chapter-1.jpg',
+    });
+  });
+
+  it('derives a readable Yoga lesson preview from a YouTube handoff without explicit thumbnails', () => {
+    const state = buildYogaPracticeWorkbenchState({
+      capabilityCode: 'yogacoach',
+      selectedSession: null,
+      referenceLessonState: null,
+      pendingLessonHandoff: {
+        capabilityCode: 'yogacoach',
+        sourceKind: 'youtube_instruction_ref',
+        sourceValue: 'https://www.youtube.com/watch?v=-41wUpC70y8',
+        sourceTitle: 'stage_02_breath_balance_nervous_system__flow_with_katie',
+        sourceProvider: 'youtube',
+      },
+      launchInput: null,
+      practiceResult: null,
+      motionWindowEvents: [],
+      closureResult: null,
+    }) as Record<string, any>;
+
+    expect(state.reference_lesson_import_ref).toMatchObject({
+      status: 'materializing',
+      source_provider: 'youtube',
+      ready_chapter_count: 0,
+    });
+    expect(state.reference_lesson_state).toMatchObject({
+      title: 'Stage 02 Breath Balance Nervous System Flow With Katie',
+      sourceLabel: 'YouTube · https://www.youtube.com/watch?v=-41wUpC70y8',
+      thumbnailUrl: 'https://i.ytimg.com/vi/-41wUpC70y8/hqdefault.jpg',
+    });
+    expect(state.reference_lesson_state.chapters[0]).toMatchObject({
+      thumbnailUrl: 'https://i.ytimg.com/vi/-41wUpC70y8/hqdefault.jpg',
+    });
+  });
+
+  it('maps external provider bridge sources into the connected capture source state', () => {
+    const state = buildYogaPracticeWorkbenchState({
+      capabilityCode: 'yogacoach',
+      selectedSession: {
+        ...sourceSession,
+        device_id: 'provider_bridge_1',
+        display_name: 'External provider bridge',
+        source_types: ['external_provider_camera'],
+        metadata: {
+          capture_surface: 'external_provider_bridge',
+          provider_family: 'dji_ground_imaging',
+        },
+      },
+      referenceLessonState: null,
+      launchInput: null,
+      practiceResult: null,
+      motionWindowEvents: [],
+      closureResult: null,
+    }) as Record<string, any>;
+
+    expect(state.connected_capture_source_ref).toMatchObject({
+      id: 'session_1',
+      label: 'External provider bridge',
+      type: 'external_provider',
+      status: 'ready',
+      transport: 'webrtc',
     });
   });
 });

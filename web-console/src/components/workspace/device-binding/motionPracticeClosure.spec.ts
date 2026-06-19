@@ -345,4 +345,37 @@ describe('motionPracticeClosure', () => {
     });
     expectNoRawPayload(parameters);
   });
+
+  it('keeps external provider bridge evidence in physical device metadata', () => {
+    const parameters = buildMotionPracticeClosureCommandParameters({
+      input: {
+        ...baseInput,
+        sourceSession: {
+          ...sourceSession,
+          device_id: 'provider_bridge_1',
+          display_name: 'External provider bridge',
+          source_types: ['external_provider_camera'],
+          metadata: {
+            capture_surface: 'external_provider_bridge',
+            provider_family: 'dji_ground_imaging',
+            secure_context: true,
+            source_origin_scheme: 'https',
+          },
+        },
+      },
+      result: launchResult,
+      rollup: rollupResponse,
+    });
+
+    const rollup = parameters.live_practice_rollup as Record<string, any>;
+    expect(rollup.metadata.physical_device_evidence).toMatchObject({
+      source_session_id: 'session_1',
+      source_types: ['external_provider_camera'],
+      device_kind: 'external_provider_camera',
+      transport: 'webrtc',
+      capture_surface: 'external_provider_bridge',
+      secure_context: true,
+      source_origin_scheme: 'https',
+    });
+  });
 });

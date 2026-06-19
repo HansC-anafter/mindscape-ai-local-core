@@ -12,6 +12,7 @@ DeviceSourceType = Literal[
     "desktop_camera",
     "usb_camera",
     "virtual_camera",
+    "external_provider_camera",
     "microphone",
 ]
 

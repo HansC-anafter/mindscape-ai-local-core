@@ -4,7 +4,8 @@ export type MediaSourceKind =
   | 'phone_camera'
   | 'desktop_camera'
   | 'usb_camera'
-  | 'virtual_camera';
+  | 'virtual_camera'
+  | 'external_provider_camera';
 
 export type MediaSignalMessage =
   | { type: 'workspace_join' }

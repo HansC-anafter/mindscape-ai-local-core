@@ -1,8 +1,13 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createElement } from 'react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createElement, useEffect } from 'react';
 
 import { MotionSourceRailPanel } from './MotionSourceRailPanel';
+import {
+  CaptureSourceBridgeProvider,
+  useCaptureSourceBridge,
+} from './capture-bridge/CaptureSourceBridgeProvider';
+import { CaptureSourceRailFromBridge } from './capture-bridge/CaptureSourceRail';
 import {
   createDevicePairingCode,
   openWorkspaceDeviceControlSocket,
@@ -19,6 +24,9 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@/lib/device-binding/deviceBindingClient', () => ({
+  buildDeviceLinkHttpsHealthUrl: vi.fn(({ apiBase }: { apiBase: string }) => (
+    `${apiBase.replace(/\/+$/, '')}/api/v1/host/services/device-link-https/health`
+  )),
   createDevicePairingCode: vi.fn(async () => ({
     workspace_id: 'ws_device',
     pairing_code: 'PAIR1234',
@@ -48,6 +56,13 @@ vi.mock('./PhoneSourcePreview', () => ({
 }));
 
 describe('MotionSourceRailPanel', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: false,
+      json: async () => ({}),
+    })));
+  });
+
   afterEach(() => {
     vi.clearAllMocks();
     vi.restoreAllMocks();
@@ -71,6 +86,7 @@ describe('MotionSourceRailPanel', () => {
     expect(createDevicePairingCode).toHaveBeenCalledWith({
       apiBase: 'http://api.test',
       workspaceId: 'ws_device',
+      expiresInSeconds: 600,
     });
     expect(openWorkspaceDeviceControlSocket).toHaveBeenCalledTimes(1);
     expect(openWorkspaceDeviceControlSocket).toHaveBeenCalledWith(
@@ -92,6 +108,21 @@ describe('MotionSourceRailPanel', () => {
       'href',
       '/settings?tab=runtime&section=device-link-readiness&workspace_id=ws_device',
     );
+    expect(screen.getByText('Provider backends')).toBeInTheDocument();
+    expect(screen.getByTestId('capture-provider-source-slot-count')).toHaveTextContent('0 / 3 active');
+    expect(screen.getByText('Phone owned camera')).toBeInTheDocument();
+    expect(screen.getByText('Computer / OBS camera')).toBeInTheDocument();
+    expect(screen.getByText('External device provider')).toBeInTheDocument();
+    expect(screen.getByText('Bridge required')).toBeInTheDocument();
+    expect(screen.getByTestId('external-provider-connection-guide')).toHaveTextContent(
+      'External provider connection guide',
+    );
+    expect(screen.getByTestId('external-provider-connection-guide')).toHaveTextContent(
+      'run a neutral host/mobile bridge for DJI Ronin, RS, Osmo',
+    );
+    expect(screen.getByTestId('external-provider-connection-guide')).toHaveTextContent(
+      'Do not use the Phone owned camera link for DJI provider control',
+    );
   });
 
   it('renders a scannable phone QR only for HTTPS LAN origins', async () => {
@@ -110,8 +141,12 @@ describe('MotionSourceRailPanel', () => {
       target: { value: 'https://192.168.1.20:8343' },
     });
 
-    expect(screen.getByTestId('phone-qr-readiness')).toHaveTextContent('QR-ready link');
+    expect(screen.getByTestId('phone-qr-readiness')).toHaveTextContent('QR-ready');
     expect(screen.getByRole('link', { name: 'Phone source link' })).toHaveAttribute(
+      'href',
+      'https://192.168.1.20:8343/device-link/PAIR1234?workspaceId=ws_device&sourceMode=phone',
+    );
+    expect(screen.getByRole('link', { name: 'Open phone camera' })).toHaveAttribute(
       'href',
       'https://192.168.1.20:8343/device-link/PAIR1234?workspaceId=ws_device&sourceMode=phone',
     );
@@ -138,21 +173,29 @@ describe('MotionSourceRailPanel', () => {
 
     await screen.findByText('PAIR1234');
     expect(await screen.findByTestId('phone-qr-code')).toBeInTheDocument();
+    expect(fetch).toHaveBeenCalledWith(
+      'http://api.test/api/v1/host/services/device-link-https/health',
+      expect.objectContaining({ cache: 'no-store' }),
+    );
     expect(screen.getByTestId('phone-public-origin-input')).toHaveValue('https://192.168.0.104:8343');
     expect(screen.getByRole('link', { name: 'Phone source link' })).toHaveAttribute(
       'href',
       'https://192.168.0.104:8343/device-link/PAIR1234?workspaceId=ws_device&sourceMode=phone',
     );
+    expect(screen.getByRole('link', { name: 'Open phone camera' })).toHaveAttribute(
+      'href',
+      'https://192.168.0.104:8343/device-link/PAIR1234?workspaceId=ws_device&sourceMode=phone',
+    );
   });
 
-  it('blocks remote workbench origins from masquerading as phone capture links', async () => {
+  it('uses the remote workbench HTTPS origin for phone capture links', async () => {
     vi.spyOn(window, 'location', 'get').mockReturnValue(
       new URL('https://remote-workbench.mindscapeai.app/workspaces/ws_device') as unknown as Location,
     );
     vi.stubGlobal('fetch', vi.fn(async () => ({
       ok: true,
       json: async () => ({
-        public_origin: null,
+        public_origin: 'https://192.168.0.104:8343',
       }),
     })));
 
@@ -166,13 +209,18 @@ describe('MotionSourceRailPanel', () => {
     await screen.findByText('PAIR1234');
     expect(screen.getByTestId('phone-public-origin-input')).toHaveValue('');
     expect(screen.getByTestId('phone-lan-readiness')).toHaveTextContent(
-      'Phone capture requires a configured HTTPS LAN origin.',
+      'Ready for remote phone capture over HTTPS.',
     );
-    expect(screen.getByTestId('phone-source-link-blocked')).toHaveTextContent(
-      'Configure a trusted LAN HTTPS origin to generate the phone capture link.',
+    expect(screen.getByRole('link', { name: 'Phone source link' })).toHaveAttribute(
+      'href',
+      'https://remote-workbench.mindscapeai.app/device-link/PAIR1234?workspaceId=ws_device&sourceMode=phone',
     );
-    expect(screen.queryByRole('link', { name: 'Phone source link' })).toBeNull();
-    expect(screen.queryByTestId('phone-qr-code')).toBeNull();
+    expect(screen.getByRole('link', { name: 'Open phone camera' })).toHaveAttribute(
+      'href',
+      'https://remote-workbench.mindscapeai.app/device-link/PAIR1234?workspaceId=ws_device&sourceMode=phone',
+    );
+    expect(screen.queryByTestId('phone-source-link-blocked')).toBeNull();
+    expect(screen.getByTestId('phone-qr-code')).toBeInTheDocument();
   });
 
   it('subscribes over websocket and revokes active sessions', async () => {
@@ -213,6 +261,7 @@ describe('MotionSourceRailPanel', () => {
     });
 
     expect(screen.getByText('phone_camera')).toBeTruthy();
+    expect(screen.getByTestId('capture-provider-source-slot-count')).toHaveTextContent('1 / 3 active');
 
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Revoke Phone' }));
@@ -222,6 +271,82 @@ describe('MotionSourceRailPanel', () => {
       apiBase: 'http://api.test',
       workspaceId: 'ws_device',
       sessionId: 'session_1',
+    });
+  });
+
+  it('replays the selected reference lesson when the source companion joins later', async () => {
+    function ReferenceLessonHarness() {
+      const bridge = useCaptureSourceBridge();
+
+      useEffect(() => {
+        bridge.publishReferenceLessonState({
+          chapter_ref: 'chapter_alignment',
+          title: 'Alignment practice',
+          timestamp_ms: 12000,
+          poster_ref: 'https://example.test/thumb.jpg',
+          focus_cue: 'Keep the body centered.',
+        });
+      }, [bridge.publishReferenceLessonState]);
+
+      return createElement(CaptureSourceRailFromBridge, {
+        bridge,
+        showPreview: false,
+      });
+    }
+
+    render(
+      createElement(
+        CaptureSourceBridgeProvider,
+        {
+          apiUrl: 'http://api.test',
+          workspaceId: 'ws_device',
+        },
+        createElement(ReferenceLessonHarness),
+      ),
+    );
+
+    await screen.findByText('PAIR1234');
+
+    act(() => {
+      mocks.socketInput.onOpen();
+    });
+
+    expect(mocks.socket.send).toHaveBeenCalledWith({ type: 'workspace_subscribe' });
+    expect(mocks.socket.send).toHaveBeenCalledWith({
+      type: 'reference_lesson_state',
+      reference_lesson_state: expect.objectContaining({
+        chapter_ref: 'chapter_alignment',
+        title: 'Alignment practice',
+      }),
+    });
+
+    act(() => {
+      mocks.socketInput.onEvent({
+        type: 'session_active',
+        workspace_id: 'ws_device',
+        active_sessions: [
+          {
+            session_id: 'session_1',
+            workspace_id: 'ws_device',
+            pairing_code: 'PAIR1234',
+            device_id: 'phone_1',
+            display_name: 'Phone',
+            source_types: ['phone_camera'],
+            state: 'active',
+            created_at_epoch: 1,
+            updated_at_epoch: 1,
+            expires_at_epoch: 61,
+          },
+        ],
+      });
+    });
+
+    expect(mocks.socket.send).toHaveBeenLastCalledWith({
+      type: 'reference_lesson_state',
+      reference_lesson_state: expect.objectContaining({
+        chapter_ref: 'chapter_alignment',
+        focus_cue: 'Keep the body centered.',
+      }),
     });
   });
 

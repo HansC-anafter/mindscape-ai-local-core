@@ -234,13 +234,15 @@ function buildPhysicalDeviceEvidence({
   const sourceTypes = input.sourceSession.source_types;
   const deviceKind = sourceTypes.includes('phone_camera')
     ? 'phone'
-    : sourceTypes.includes('virtual_camera')
-      ? 'virtual_camera'
-      : sourceTypes.includes('usb_camera')
-        ? 'usb_camera'
-        : sourceTypes.includes('desktop_camera')
-          ? 'desktop_camera'
-          : 'unknown';
+    : sourceTypes.includes('external_provider_camera')
+      ? 'external_provider_camera'
+      : sourceTypes.includes('virtual_camera')
+        ? 'virtual_camera'
+        : sourceTypes.includes('usb_camera')
+          ? 'usb_camera'
+          : sourceTypes.includes('desktop_camera')
+            ? 'desktop_camera'
+            : 'unknown';
   return {
     source_session_id: sourceSessionId,
     source_types: sourceTypes,
