@@ -161,7 +161,7 @@ describe('PackScopeToolRailHost', () => {
       expect(screen.getByTestId('loaded-pack-tool-panel')).toHaveTextContent(
         'feed_grid_card_load_limit:ws_test:http://api.test',
       );
-      expect(screen.getByTestId('loaded-pack-tool-panel')).toHaveAttribute('data-panel-collapsed', 'true');
+      expect(screen.getByTestId('loaded-pack-tool-panel')).toHaveAttribute('data-panel-collapsed', 'false');
     });
 
     fireEvent.click(screen.getByTestId('pack-scope-navigation-toggle'));
@@ -222,20 +222,20 @@ describe('PackScopeToolRailHost', () => {
 
     fireEvent.click(screen.getByTestId('pack-scope-tool-ig:feed_grid_card_load_limit'));
     await waitFor(() => {
-      expect(screen.getByTestId('loaded-pack-tool-panel')).toHaveAttribute('data-panel-collapsed', 'true');
+      expect(screen.getByTestId('loaded-pack-tool-panel')).toHaveAttribute('data-panel-collapsed', 'false');
     });
 
     fireEvent.keyDown(screen.getByTestId('tilde-shortcut-input'), { key: '`' });
-    expect(screen.getByTestId('loaded-pack-tool-panel')).toHaveAttribute('data-panel-collapsed', 'true');
+    expect(screen.getByTestId('loaded-pack-tool-panel')).toHaveAttribute('data-panel-collapsed', 'false');
 
     fireEvent.keyDown(window, { key: '`', code: 'Backquote' });
     await waitFor(() => {
-      expect(screen.getByTestId('loaded-pack-tool-panel')).toHaveAttribute('data-panel-collapsed', 'false');
+      expect(screen.getByTestId('loaded-pack-tool-panel')).toHaveAttribute('data-panel-collapsed', 'true');
     });
 
     fireEvent.keyDown(window, { key: '~', code: 'Backquote', shiftKey: true });
     await waitFor(() => {
-      expect(screen.getByTestId('loaded-pack-tool-panel')).toHaveAttribute('data-panel-collapsed', 'true');
+      expect(screen.getByTestId('loaded-pack-tool-panel')).toHaveAttribute('data-panel-collapsed', 'false');
     });
   });
 

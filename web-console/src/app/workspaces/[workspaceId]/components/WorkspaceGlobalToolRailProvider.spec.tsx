@@ -2,6 +2,7 @@ import React from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { KeyboardShortcutProvider } from '@/lib/keyboard-shortcuts';
 import WorkspaceGlobalToolRailProvider from './WorkspaceGlobalToolRailProvider';
 import WorkspaceThreadBundleToolRegistration from './WorkspaceThreadBundleToolRegistration';
 
@@ -86,6 +87,17 @@ describe('WorkspaceGlobalToolRailProvider', () => {
     expect(screen.getByTestId('workspace-global-tool-rail')).toBeInTheDocument();
     expect(screen.queryByTestId('workspace-global-tool-panel')).toBeNull();
     expect(screen.getByTestId('workspace-runs-tool')).toHaveTextContent('1');
+    expect(screen.getByTestId('workspace-runs-tool')).toHaveAttribute('title', 'Runs (R)');
+    expect(screen.getByTestId('workspace-settings-tool')).toHaveAttribute('title', 'Settings (S)');
+    expect(screen.getByTestId('workspace-pack-tool')).toHaveAttribute('title', 'Pack (A)');
+    expect(screen.getByTestId('workspace-motion-source-tool')).toHaveAttribute('title', 'Motion Source (C)');
+    expect(screen.getByTestId('workspace-graph-tool')).toHaveAttribute('title', 'Graph (G)');
+    expect(screen.getByTestId('workspace-global-tool-group-graph')).toContainElement(
+      screen.getByTestId('workspace-graph-tool'),
+    );
+    expect(screen.getByTestId('workspace-global-tool-group-workspace')).not.toContainElement(
+      screen.getByTestId('workspace-graph-tool'),
+    );
 
     fireEvent.click(screen.getByTestId('workspace-pack-tool'));
     expect(screen.getByTestId('workspace-global-tool-panel')).toHaveAttribute('data-active-tool-key', 'core:pack');
@@ -102,6 +114,81 @@ describe('WorkspaceGlobalToolRailProvider', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Close Settings' }));
     expect(screen.queryByTestId('workspace-global-tool-panel')).toBeNull();
+  });
+
+  it('toggles core workspace rail tools from left-hand default shortcuts', async () => {
+    render(
+      <KeyboardShortcutProvider loadProfileOnMount={false}>
+        <WorkspaceGlobalToolRailProvider workspaceId="ws_shortcuts">
+          <input data-testid="workspace-shortcut-input" />
+        </WorkspaceGlobalToolRailProvider>
+      </KeyboardShortcutProvider>,
+    );
+
+    fireEvent.keyDown(screen.getByTestId('workspace-shortcut-input'), { key: 's' });
+    expect(screen.queryByTestId('workspace-global-tool-panel')).toBeNull();
+
+    fireEvent.keyDown(window, { key: 's' });
+    await waitFor(() => {
+      expect(screen.getByTestId('workspace-global-tool-panel')).toHaveAttribute('data-active-tool-key', 'core:settings');
+    });
+
+    fireEvent.keyDown(window, { key: 's' });
+    await waitFor(() => {
+      expect(screen.queryByTestId('workspace-global-tool-panel')).toBeNull();
+    });
+
+    fireEvent.keyDown(window, { key: 'a' });
+    await waitFor(() => {
+      expect(screen.getByTestId('workspace-global-tool-panel')).toHaveAttribute('data-active-tool-key', 'core:pack');
+    });
+
+    fireEvent.keyDown(window, { key: 'c' });
+    await waitFor(() => {
+      expect(screen.getByTestId('workspace-global-tool-panel')).toHaveAttribute('data-active-tool-key', 'core:motion_source');
+    });
+
+    fireEvent.keyDown(window, { key: 'r' });
+    await waitFor(() => {
+      expect(screen.getByTestId('workspace-global-tool-panel')).toHaveAttribute('data-active-tool-key', 'core:runs_panel');
+    });
+
+    fireEvent.keyDown(window, { key: 'g' });
+    expect(windowOpenMock).toHaveBeenCalledWith(
+      '/mindscape/canvas?workspaceId=ws_shortcuts',
+      '_blank',
+      'noopener,noreferrer',
+    );
+    expect(screen.queryByTestId('workspace-global-tool-panel')).toBeNull();
+  });
+
+  it('toggles the active workspace tool panel with the tilde shortcut', async () => {
+    render(
+      <KeyboardShortcutProvider loadProfileOnMount={false}>
+        <WorkspaceGlobalToolRailProvider workspaceId="ws_test">
+          <input data-testid="workspace-tilde-input" />
+        </WorkspaceGlobalToolRailProvider>
+      </KeyboardShortcutProvider>,
+    );
+
+    fireEvent.click(screen.getByTestId('workspace-pack-tool'));
+    await waitFor(() => {
+      expect(screen.getByTestId('workspace-global-tool-panel')).toHaveAttribute('data-active-tool-key', 'core:pack');
+      expect(screen.getByTestId('mock-pack-panel')).toBeInTheDocument();
+    });
+
+    fireEvent.keyDown(screen.getByTestId('workspace-tilde-input'), { key: '`' });
+    expect(screen.getByTestId('workspace-global-tool-panel')).toHaveAttribute('data-active-tool-key', 'core:pack');
+
+    fireEvent.keyDown(window, { key: '`', code: 'Backquote' });
+    await waitFor(() => {
+      expect(screen.queryByTestId('workspace-global-tool-panel')).toBeNull();
+    });
+
+    fireEvent.keyDown(window, { key: '~', code: 'Backquote', shiftKey: true });
+    await waitFor(() => {
+      expect(screen.getByTestId('workspace-global-tool-panel')).toHaveAttribute('data-active-tool-key', 'core:pack');
+    });
   });
 
   it('routes graph without mounting a panel', () => {
@@ -183,7 +270,7 @@ describe('WorkspaceGlobalToolRailProvider', () => {
     });
   });
 
-  it('publishes the mobile floating-controls bridge and uses a left floating tray on mobile workbench frames', async () => {
+  it('publishes the mobile floating-controls bridge and uses a right-side host rail on mobile workbench frames', async () => {
     vi.stubGlobal('matchMedia', vi.fn(() => ({
       matches: true,
       media: '(max-width: 767px)',
@@ -199,7 +286,9 @@ describe('WorkspaceGlobalToolRailProvider', () => {
 
     await waitFor(() => {
       expect(screen.getByTestId('workspace-global-tool-shell')).toHaveAttribute('data-workbench-placement', 'mobile');
-      expect(screen.getByTestId('workspace-mobile-floating-controls')).toBeInTheDocument();
+      expect(screen.getByTestId('workspace-mobile-host-rail-controls')).toBeInTheDocument();
+      expect(screen.getByTestId('workspace-mobile-host-rail-controls').className).toContain('right-2');
+      expect(screen.queryByTestId('workspace-mobile-floating-controls')).toBeNull();
       expect(screen.queryByTestId('workspace-global-tool-rail')).toBeNull();
       expect(screen.getByTestId('workspace-global-tool-tray-toggle')).toBeInTheDocument();
       expect(window.__MindscapeCapabilityWorkbenchMobileFloatingControlsBridge).not.toBeNull();
@@ -211,7 +300,9 @@ describe('WorkspaceGlobalToolRailProvider', () => {
     fireEvent.click(screen.getByTestId('workspace-settings-tool'));
 
     expect(screen.getByTestId('workspace-global-tool-panel')).toHaveAttribute('data-workbench-placement', 'mobile');
-    expect(screen.getByTestId('workspace-global-tool-panel').className).toContain('left-14');
+    expect(screen.getByTestId('workspace-global-tool-panel').className).toContain('right-14');
+    expect(screen.getByTestId('workspace-global-tool-panel').className).toContain('bottom-[');
+    expect(screen.getByTestId('workspace-global-tool-panel').className).toContain('max-h-none');
     await waitFor(() => {
       expect(screen.getByTestId('mock-settings-panel')).toBeInTheDocument();
     });

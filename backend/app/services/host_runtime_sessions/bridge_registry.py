@@ -87,6 +87,7 @@ class HostRuntimeBridgeRegistry:
     ) -> HostRuntimeBridgeConnection | None:
         async with self._lock:
             candidates = list(self._bridges.values())
+        matching: list[HostRuntimeBridgeConnection] = []
         for connection in candidates:
             if connection.runtime_surface != runtime_surface:
                 continue
@@ -94,8 +95,19 @@ class HostRuntimeBridgeRegistry:
                 continue
             if connection.workspace_ids and workspace_id not in connection.workspace_ids:
                 continue
-            return connection
-        return None
+            matching.append(connection)
+        if not matching:
+            return None
+
+        def priority(connection: HostRuntimeBridgeConnection) -> tuple[int, float, float]:
+            workspace_specific = 1 if workspace_id in connection.workspace_ids else 0
+            return (
+                workspace_specific,
+                connection.last_heartbeat_at.timestamp(),
+                connection.connected_at.timestamp(),
+            )
+
+        return max(matching, key=priority)
 
     async def dispatch_turn(
         self,

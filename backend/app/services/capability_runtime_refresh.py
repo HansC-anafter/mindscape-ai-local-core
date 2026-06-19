@@ -35,6 +35,7 @@ def _capability_module_prefixes(capability_code: str) -> list[str]:
         clean_code,
         f"capabilities.{clean_code}",
         f"app.capabilities.{clean_code}",
+        f"backend.app.capabilities.{clean_code}",
     ]
 
 

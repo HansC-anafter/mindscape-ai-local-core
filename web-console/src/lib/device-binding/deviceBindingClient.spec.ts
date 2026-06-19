@@ -5,6 +5,7 @@ import {
   buildDevicePairingCodeUrl,
   buildDeviceRevokeUrl,
   buildWorkspaceDeviceControlWebSocketUrl,
+  createDevicePairingCode,
   openDeviceControlSocket,
 } from './deviceBindingClient';
 
@@ -76,6 +77,34 @@ describe('deviceBindingClient', () => {
     );
     expect(instances[0].send).toHaveBeenCalledWith(
       JSON.stringify({ type: 'workspace_subscribe' }),
+    );
+  });
+
+  it('can request a bounded pairing code TTL', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        workspace_id: 'ws_test',
+        pairing_code: 'PAIR1234',
+        expires_at_epoch: 1000,
+        expires_in_seconds: 600,
+        device_link_path: '/device-link/PAIR1234',
+      }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await createDevicePairingCode({
+      apiBase: 'http://api.test',
+      workspaceId: 'ws_test',
+      expiresInSeconds: 600,
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://api.test/api/v1/workspaces/ws_test/device-bindings/pairing-codes',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ expires_in_seconds: 600 }),
+      }),
     );
   });
 });

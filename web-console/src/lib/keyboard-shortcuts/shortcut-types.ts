@@ -40,6 +40,7 @@ export interface KeyboardShortcutCommand {
   preventDefault?: boolean;
   allowEditableTargets?: boolean;
   enabled?: boolean;
+  shortcutPriority?: number;
   action?: (event: KeyboardEvent) => void;
 }
 

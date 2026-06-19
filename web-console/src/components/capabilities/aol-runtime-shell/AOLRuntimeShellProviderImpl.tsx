@@ -66,23 +66,27 @@ function AOLRuntimeShellProviderInner({
   } = useAOLRuntimeShellHostController();
   const shouldRenderMeetingPane = panelState.mode === 'meeting_opened' && Boolean(panelState.activeSurface);
   const objectLabel = panelState.mode === 'selecting'
-    ? t('aolRuntimeShellCancelObjectSelection')
-    : t('aolRuntimeShellSelectObject');
+    ? t('aolRuntimeShellCancelObjectSelection') || 'Cancel object selection'
+    : t('aolRuntimeShellSelectObject') || 'Select object';
   const objectHelper = panelState.mode === 'meeting_opened'
-    ? t('aolRuntimeShellSelectAnotherObject')
+    ? t('aolRuntimeShellSelectAnotherObject') || 'Select another object'
     : objectLabel;
   const flowLabel = panelState.mode === 'meeting_opened'
-    ? t('aolRuntimeShellFlowOpen')
+    ? t('aolRuntimeShellFlowOpen') || 'Runtime Flow is open'
     : canOpenFlow
-      ? t('aolRuntimeShellOpenFlow')
-      : t('aolRuntimeShellFlowUnavailable');
+      ? t('aolRuntimeShellOpenFlow') || 'Open Runtime Flow'
+      : t('aolRuntimeShellFlowUnavailable') || 'No active surface for Runtime Flow';
   const aolToolContributions = useMemo<WorkspaceGlobalToolContribution[]>(() => [{
     key: 'aol:object',
     id: 'object',
     label: objectLabel,
     group: 'runtime',
     order: 10,
+    defaultShortcut: 'B',
     testId: 'aol-object-tool',
+    onSelect: panelState.mode === 'selecting'
+      ? cancelObjectTargeting
+      : requestObjectTargeting,
     renderRailButton: () => (
       <RuntimeObjectSelectionAnchor
         state={panelState}
@@ -99,19 +103,24 @@ function AOLRuntimeShellProviderInner({
     label: flowLabel,
     group: 'runtime',
     order: 20,
+    defaultShortcut: 'F',
     testId: 'aol-runtime-flow-tool',
+    onSelect: panelState.mode === 'meeting_opened'
+      ? closeCurrentMeeting
+      : openRuntimeFlowFromRail,
     renderRailButton: () => (
       <RuntimeFlowAnchor
         state={panelState}
         canOpenFlow={canOpenFlow}
         label={flowLabel}
-        onOpenFlow={openRuntimeFlowFromRail}
+        onOpenFlow={panelState.mode === 'meeting_opened' ? closeCurrentMeeting : openRuntimeFlowFromRail}
         tone="light"
       />
     ),
   }], [
     canOpenFlow,
     cancelObjectTargeting,
+    closeCurrentMeeting,
     flowLabel,
     objectHelper,
     objectLabel,

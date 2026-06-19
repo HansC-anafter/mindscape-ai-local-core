@@ -89,9 +89,11 @@ export function getPackScopeToolPanelClassName(
   panelExpanded: boolean,
 ): string {
   if (placement === 'mobile') {
-    return 'fixed inset-x-2 bottom-[calc(3.75rem+env(safe-area-inset-bottom))] z-40 max-h-[70dvh] overflow-hidden rounded-t-lg border border-zinc-800 bg-zinc-950/95 text-zinc-100 shadow-xl shadow-black/25 backdrop-blur-sm';
+    return panelExpanded
+      ? 'fixed inset-x-2 top-[calc(0.75rem+env(safe-area-inset-top,0px))] bottom-[calc(3.75rem+env(safe-area-inset-bottom,0px))] z-40 max-h-none overflow-hidden rounded-lg border border-zinc-800 bg-zinc-950/95 text-zinc-100 shadow-xl shadow-black/25 backdrop-blur-sm'
+      : 'fixed inset-x-3 bottom-[calc(3.75rem+env(safe-area-inset-bottom,0px))] z-40 max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-lg border border-zinc-800 bg-zinc-950/95 text-zinc-100 shadow-xl shadow-black/25 backdrop-blur-sm';
   }
-  return `fixed z-40 overflow-hidden rounded-md border border-zinc-800 bg-zinc-950/95 text-zinc-100 shadow-xl shadow-black/25 backdrop-blur-sm ${
-    panelExpanded ? 'w-[280px]' : 'max-w-[340px]'
+  return `fixed z-40 max-h-[calc(100dvh-2rem)] overflow-hidden rounded-md border border-zinc-800 bg-zinc-950/95 text-zinc-100 shadow-xl shadow-black/25 backdrop-blur-sm ${
+    panelExpanded ? 'h-[min(760px,calc(100dvh-2rem))] w-[380px] max-w-[calc(100vw-5rem)]' : 'max-w-[340px]'
   }`;
 }

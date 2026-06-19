@@ -21,8 +21,12 @@ const MODIFIER_ALIASES: Record<string, string> = {
 };
 
 const KEY_ALIASES: Record<string, string> = {
+  '`': 'Backquote',
+  '~': 'Backquote',
+  backquote: 'Backquote',
   esc: 'Escape',
   escape: 'Escape',
+  grave: 'Backquote',
   return: 'Enter',
   enter: 'Enter',
   space: 'Space',
@@ -35,6 +39,7 @@ const KEY_ALIASES: Record<string, string> = {
   down: 'ArrowDown',
   left: 'ArrowLeft',
   right: 'ArrowRight',
+  tilde: 'Backquote',
 };
 
 const VALID_NAMED_KEY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
@@ -81,6 +86,17 @@ function normalizeKeyToken(token: string): string | null {
   return null;
 }
 
+function formatKeyForDisplay(key: string): string {
+  return key === 'Backquote' ? '~' : key;
+}
+
+function keyFromKeyboardEvent(event: KeyboardEvent): string {
+  if (event.code === 'Backquote') {
+    return 'Backquote';
+  }
+  return normalizeKeyToken(event.key === ' ' ? 'Space' : event.key) || '';
+}
+
 export function normalizeShortcut(
   shortcut: string | undefined | null,
   platform: ShortcutPlatform = getShortcutPlatform(),
@@ -107,12 +123,17 @@ export function normalizeShortcut(
     return null;
   }
 
+  if (key === 'Backquote') {
+    modifiers.delete('Shift');
+  }
+
   const orderedModifiers = MODIFIER_ORDER.filter((modifier) => modifiers.has(modifier));
-  const tokens = [...orderedModifiers, key];
+  const canonicalTokens = [...orderedModifiers, key];
+  const displayTokens = [...orderedModifiers, formatKeyForDisplay(key)];
   return {
-    canonical: tokens.join('+'),
-    display: tokens.join('+'),
-    aria: tokens.join('+'),
+    canonical: canonicalTokens.join('+'),
+    display: displayTokens.join('+'),
+    aria: displayTokens.join('+'),
     modifiers: orderedModifiers,
     key,
   };
@@ -122,14 +143,14 @@ export function eventToShortcut(
   event: KeyboardEvent,
   platform: ShortcutPlatform = getShortcutPlatform(),
 ): NormalizedShortcut | null {
-  const key = normalizeKeyToken(event.key === ' ' ? 'Space' : event.key);
+  const key = keyFromKeyboardEvent(event);
   if (!key || MODIFIER_KEY_NAMES.has(key)) {
     return null;
   }
   const tokens = [
     event.ctrlKey ? 'Control' : '',
     event.altKey ? 'Alt' : '',
-    event.shiftKey ? 'Shift' : '',
+    event.shiftKey && key !== 'Backquote' ? 'Shift' : '',
     event.metaKey ? 'Meta' : '',
     key,
   ].filter(Boolean);

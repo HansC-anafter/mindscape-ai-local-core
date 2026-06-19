@@ -44,7 +44,7 @@ export function useMeetingWorkbenchShellState(): MeetingWorkbenchShellState {
   const [selectedNodeId, setSelectedNodeId] = useState('ready');
   const [activeInspector, setActiveInspector] = useState<InspectorTab | null>(null);
   const [activeInfoPanel, setActiveInfoPanel] = useState<MeetingInfoPanel | null>(null);
-  const [graphViewMode, setGraphViewMode] = useState<GraphViewMode>('work');
+  const [graphViewMode, setGraphViewMode] = useState<GraphViewMode>('runs');
   const [activeTraceFilter, setActiveTraceFilter] = useState<string | null>(null);
   const [isConsoleOpen, setIsConsoleOpen] = useState(false);
   const [command, setCommand] = useState('');

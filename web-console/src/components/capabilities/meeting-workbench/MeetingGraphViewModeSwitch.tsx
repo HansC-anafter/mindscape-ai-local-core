@@ -1,4 +1,12 @@
 import type { GraphViewMode, MeetingTranslate } from './meetingWorkbenchTypes';
+import { MeetingRuntimePlaneSwitch } from './MeetingRuntimePlaneSwitch';
+import {
+  resolveLegacyModeFromRuntimePlaneState,
+  resolveRuntimePlaneStateFromLegacyMode,
+  type RuntimePlane,
+  type WorkbenchPreset,
+} from './meetingWorkbenchRuntimePlaneModel';
+import { WorkbenchPresetSelector } from './WorkbenchPresetSelector';
 
 export function MeetingGraphViewModeSwitch({
   graphViewMode,
@@ -11,40 +19,38 @@ export function MeetingGraphViewModeSwitch({
   t: MeetingTranslate;
   compact?: boolean;
 }) {
+  const runtimePlaneState = resolveRuntimePlaneStateFromLegacyMode(graphViewMode);
+  const handleRuntimePlaneChange = (runtimePlane: RuntimePlane) => {
+    onGraphViewModeChange(resolveLegacyModeFromRuntimePlaneState({
+      runtimePlane,
+      workbenchPreset: runtimePlane === 'runs' ? runtimePlaneState.workbenchPreset : 'blank_run_canvas',
+    }));
+  };
+  const handlePresetChange = (workbenchPreset: WorkbenchPreset) => {
+    onGraphViewModeChange(resolveLegacyModeFromRuntimePlaneState({
+      runtimePlane: 'runs',
+      workbenchPreset,
+    }));
+  };
+
   return (
     <div
-      className={`items-center overflow-x-auto rounded-md border border-slate-200 bg-slate-50 p-0.5 dark:border-slate-800 dark:bg-slate-900 ${
+      className={`items-center gap-1 overflow-x-auto rounded-md border border-slate-200 bg-slate-50 p-0.5 dark:border-slate-800 dark:bg-slate-900 ${
         compact ? 'flex w-full' : 'flex'
       }`}
       data-testid={compact ? 'meeting-graph-view-mode-compact' : 'meeting-graph-view-mode'}
       aria-label={t('meetingWorkbenchViewModeLabel')}
     >
-      {(['work', 'director', 'runs', 'trace'] as GraphViewMode[]).map((mode) => {
-        const isActive = graphViewMode === mode;
-        const label = mode === 'work'
-          ? t('meetingWorkbenchWork')
-          : mode === 'director'
-            ? t('meetingWorkbenchDirectorGraph')
-            : mode;
-        return (
-          <button
-            key={mode}
-            type="button"
-            onClick={() => onGraphViewModeChange(mode)}
-            className={`h-7 shrink-0 rounded px-2 text-[11px] font-semibold uppercase tracking-[0.08em] transition-colors ${
-              compact ? 'flex-1 whitespace-nowrap' : ''
-            } ${
-              isActive
-                ? 'bg-white text-blue-700 shadow-sm dark:bg-slate-950 dark:text-blue-300'
-                : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100'
-            }`}
-            data-testid={`meeting-graph-view-${mode}`}
-            aria-pressed={isActive}
-          >
-            {label}
-          </button>
-        );
-      })}
+      <MeetingRuntimePlaneSwitch
+        runtimePlane={runtimePlaneState.runtimePlane}
+        onRuntimePlaneChange={handleRuntimePlaneChange}
+        compact={compact}
+      />
+      <WorkbenchPresetSelector
+        value={runtimePlaneState.workbenchPreset}
+        onChange={handlePresetChange}
+        disabled={runtimePlaneState.runtimePlane === 'trace'}
+      />
     </div>
   );
 }

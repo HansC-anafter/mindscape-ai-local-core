@@ -22,11 +22,84 @@ from .bridge_protocol import (
     elapsed_seconds,
     monotonic_started_at,
 )
+from .runtime_recovery_policy import (
+    DIRECT_CODEX_RUNTIME_ID,
+    build_direct_codex_auth_bundle,
+    build_direct_codex_excluded_bundle,
+)
 
 logger = logging.getLogger("host_runtime_session_bridge")
 
 EmitMessage = Callable[[dict[str, Any]], Awaitable[None]]
 ExecutorFactory = Callable[[Callable[[str, int, str], Awaitable[None]]], Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]]
+
+
+def build_host_runtime_progress_payload(
+    *,
+    percent: int,
+    detail: str,
+    runtime_surface: str,
+    runtime_id: str,
+) -> dict[str, Any]:
+    message = str(detail or "").strip()
+    normalized = message.lower().replace("_", " ")
+    bounded_percent = max(0, min(100, int(percent)))
+
+    phase = "waiting_for_output"
+    title = "Runtime is working"
+    readable_detail = message or "Waiting for runtime output."
+
+    if "checking codex cli login" in normalized:
+        phase = "preflight"
+        title = "Checking Codex CLI login"
+        readable_detail = "Verifying the local Codex CLI session before dispatch."
+    elif "preparing" in normalized or "refreshing" in normalized or "deleting" in normalized:
+        phase = "preflight"
+        title = "Preparing runtime"
+    elif "retrying" in normalized:
+        phase = "recovery"
+        title = "Retrying runtime"
+    elif (
+        "subprocess started" in normalized
+        or "calling codex" in normalized
+        or "starting subprocess" in normalized
+        or "calling" in normalized
+    ):
+        phase = "cli_started"
+        title = "Starting Codex CLI"
+        readable_detail = "Launching the local Codex CLI runtime for this turn."
+        if "subprocess started" in normalized:
+            title = "Codex CLI subprocess started"
+            readable_detail = "The local Codex CLI subprocess is running."
+    elif "waiting for codex cli output" in normalized or "executing task" in normalized:
+        phase = "waiting_for_output"
+        title = "Codex CLI is working"
+        readable_detail = message if message else "Waiting for Codex CLI output. The turn is still running."
+    elif "collecting codex cli output" in normalized or "reading codex cli result" in normalized:
+        phase = "collecting_output"
+        title = "Reading runtime output"
+        readable_detail = "Collecting the Codex CLI result for this turn."
+    elif "finalizing" in normalized:
+        phase = "finalizing"
+        title = "Finalizing runtime output"
+        readable_detail = "Preparing the final runtime event and output summary."
+
+    if runtime_surface and runtime_surface != "codex_cli" and "Codex CLI" in title:
+        title = title.replace("Codex CLI", runtime_surface)
+        readable_detail = readable_detail.replace("Codex CLI", runtime_surface)
+
+    return {
+        "percent": bounded_percent,
+        "message": message,
+        "phase": phase,
+        "title": title,
+        "detail": readable_detail,
+        "status": "running",
+        "source": "host_runtime_bridge",
+        "runtime_surface": runtime_surface,
+        "runtime_id": runtime_id,
+        "raw_event_type": "runtime.progress",
+    }
 
 
 class HostRuntimeDirectCodexTaskExecutor(HostBridgeTaskExecutor):
@@ -45,11 +118,10 @@ class HostRuntimeDirectCodexTaskExecutor(HostBridgeTaskExecutor):
         *,
         excluded_runtime_ids: set[str] | None = None,
     ) -> dict[str, Any]:
-        return {
-            "env": {},
-            "selected_runtime_id": "host_runtime_direct_codex_cli",
-            "effective_workspace_id": getattr(ctx, "workspace_id", "") or "",
-        }
+        workspace_id = getattr(ctx, "workspace_id", "") or ""
+        if DIRECT_CODEX_RUNTIME_ID in set(excluded_runtime_ids or set()):
+            return build_direct_codex_excluded_bundle(workspace_id)
+        return build_direct_codex_auth_bundle(workspace_id)
 
     async def _report_runtime_quota_exhausted(self, *args: Any, **kwargs: Any) -> None:
         return None
@@ -105,12 +177,13 @@ class HostRuntimeTurnRunner:
             await self._emit_message(
                 build_bridge_event_message(
                     context,
-                    "tool.output.delta",
-                    {
-                        "percent": int(percent),
-                        "message": str(detail or ""),
-                        "source": "host_runtime_bridge",
-                    },
+                    "runtime.progress",
+                    build_host_runtime_progress_payload(
+                        percent=percent,
+                        detail=detail,
+                        runtime_surface=context.runtime_surface,
+                        runtime_id=context.runtime_id,
+                    ),
                     item_id=f"progress_{context.turn_id}",
                 )
             )

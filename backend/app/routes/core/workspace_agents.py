@@ -4,9 +4,13 @@ Workspace-scoped Agent Availability API compatibility entrypoint.
 
 from typing import Optional
 
+from backend.app.services.external_agents.core.registry import get_runtime_registry
+
 from .workspace_agents_core import account_home_routes as _account_home_routes
 from .workspace_agents_core import auth_routes as _auth_routes
+from .workspace_agents_core import bridge_service_routes as _bridge_service_routes
 from .workspace_agents_core import listing_routes as _listing_routes
+from .workspace_agents_core import runtime_control as _runtime_control
 from .workspace_agents_core.account_home_paths import (
     _account_home_env,
     _default_codex_account_home_root,
@@ -30,9 +34,7 @@ from .workspace_agents_core.account_home_targets import (
 from .workspace_agents_core.router import router
 from .workspace_agents_core.runtime_control import (
     _classify_codex_status,
-    _execute_agent_control,
     _raise_agent_control_failure,
-    _resolve_agent_availability,
 )
 from .workspace_agents_core.schemas import (
     CodexAccountHomeCreateRequest,
@@ -47,6 +49,7 @@ from .workspace_agents_core.schemas import (
 
 
 def _sync_listing_route_helpers() -> None:
+    _listing_routes.get_runtime_registry = get_runtime_registry
     _listing_routes._resolve_agent_availability = _resolve_agent_availability
     _listing_routes._execute_agent_control = _execute_agent_control
     _listing_routes._classify_codex_status = _classify_codex_status
@@ -97,6 +100,21 @@ def _sync_auth_route_helpers() -> None:
     _auth_routes._resolve_agent_availability = _resolve_agent_availability
 
 
+async def _resolve_agent_availability(workspace_id: str, agent_id: str):
+    _runtime_control.get_runtime_registry = get_runtime_registry
+    return await _runtime_control._resolve_agent_availability(workspace_id, agent_id)
+
+
+async def _execute_agent_control(workspace, agent_id: str, control_action: str, inputs=None):
+    _runtime_control.get_runtime_registry = get_runtime_registry
+    return await _runtime_control._execute_agent_control(
+        workspace,
+        agent_id,
+        control_action,
+        inputs,
+    )
+
+
 async def list_workspace_agents(*args, **kwargs):
     _sync_listing_route_helpers()
     return await _listing_routes.list_workspace_agents(*args, **kwargs)
@@ -105,6 +123,27 @@ async def list_workspace_agents(*args, **kwargs):
 async def get_workspace_agent_auth_status(*args, **kwargs):
     _sync_listing_route_helpers()
     return await _listing_routes.get_workspace_agent_auth_status(*args, **kwargs)
+
+
+async def get_workspace_agent_bridge_service(*args, **kwargs):
+    return await _bridge_service_routes.get_workspace_agent_bridge_service(
+        *args,
+        **kwargs,
+    )
+
+
+async def start_workspace_agent_bridge_service(*args, **kwargs):
+    return await _bridge_service_routes.start_workspace_agent_bridge_service(
+        *args,
+        **kwargs,
+    )
+
+
+async def restart_workspace_agent_bridge_service(*args, **kwargs):
+    return await _bridge_service_routes.restart_workspace_agent_bridge_service(
+        *args,
+        **kwargs,
+    )
 
 
 async def list_workspace_agent_account_homes(*args, **kwargs):
@@ -199,6 +238,9 @@ __all__ = [
     "_classify_codex_status",
     "list_workspace_agents",
     "get_workspace_agent_auth_status",
+    "get_workspace_agent_bridge_service",
+    "start_workspace_agent_bridge_service",
+    "restart_workspace_agent_bridge_service",
     "list_workspace_agent_account_homes",
     "create_workspace_agent_account_home",
     "delete_workspace_agent_account_home",

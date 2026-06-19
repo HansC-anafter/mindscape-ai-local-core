@@ -109,7 +109,17 @@ function stubOkFetch(overrides?: {
   const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
     const url = String(input);
     let body: Record<string, unknown> = { status: 'ok' };
-    if (url.includes('/agents')) {
+    if (url.includes('/agents/bridge-service')) {
+      body = {
+        service: 'cli_bridge',
+        state: 'ready',
+        running: true,
+        installed: true,
+        supported: true,
+        auto_recovery: true,
+        message: 'CLI bridge LaunchAgent is running.',
+      };
+    } else if (url.includes('/agents')) {
       body = overrides?.agentsBody || {
         bridge_script_path: '/project/scripts/start_cli_bridge.sh',
         agents: [
@@ -269,6 +279,8 @@ describe('WorkspaceSettingsToolPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'How to connect CLI bridge' }));
 
     expect(screen.getByRole('dialog', { name: 'Workspace CLI Bridge' })).toBeInTheDocument();
+    await flushAsyncEffects();
+    expect(screen.getByText('CLI bridge LaunchAgent is running.')).toBeInTheDocument();
     expect(screen.getByText('/project/scripts/start_cli_bridge.sh --all')).toBeInTheDocument();
     expect(screen.getByText('/project/scripts/start_cli_bridge.sh --workspace-id ws_test')).toBeInTheDocument();
     expect(screen.getByText((text) => text.includes('start_cli_bridge.ps1 -All'))).toBeInTheDocument();

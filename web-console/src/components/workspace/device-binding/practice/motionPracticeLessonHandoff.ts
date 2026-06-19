@@ -17,6 +17,7 @@ export type MotionPracticeLessonHandoff = {
   sourceValue: string;
   sourceTitle?: string;
   sourceProvider?: string;
+  thumbnailUrl?: string;
   courseChaptersInput?: string;
 };
 
@@ -27,6 +28,7 @@ const PARAM_KEYS = {
   sourceValue: 'motion_lesson_value',
   sourceTitle: 'motion_lesson_title',
   sourceProvider: 'motion_lesson_provider',
+  thumbnailUrl: 'motion_lesson_thumbnail',
   courseChapters: 'motion_lesson_course_chapters',
   handoffTarget: 'handoff_target',
   returnTo: 'return_to',
@@ -91,6 +93,7 @@ export function buildMotionCoachLessonHandoffHref(input: {
   sourceValue: string;
   sourceTitle?: string;
   sourceProvider?: string;
+  thumbnailUrl?: string;
   courseChaptersInput?: string;
 }): string {
   const url = buildUrlWithBase(input.returnTo);
@@ -104,6 +107,9 @@ export function buildMotionCoachLessonHandoffHref(input: {
   }
   if (asString(input.sourceProvider)) {
     url.searchParams.set(PARAM_KEYS.sourceProvider, input.sourceProvider!.trim());
+  }
+  if (asString(input.thumbnailUrl)) {
+    url.searchParams.set(PARAM_KEYS.thumbnailUrl, input.thumbnailUrl!.trim());
   }
   if (asString(input.courseChaptersInput)) {
     url.searchParams.set(PARAM_KEYS.courseChapters, input.courseChaptersInput!.trim());
@@ -126,6 +132,7 @@ export function parseMotionPracticeLessonHandoff(
   }
   const sourceTitle = asString(searchParams.get(PARAM_KEYS.sourceTitle));
   const sourceProvider = asString(searchParams.get(PARAM_KEYS.sourceProvider));
+  const thumbnailUrl = asString(searchParams.get(PARAM_KEYS.thumbnailUrl));
   const courseChaptersInput = asString(searchParams.get(PARAM_KEYS.courseChapters));
   return {
     capabilityCode,
@@ -133,6 +140,7 @@ export function parseMotionPracticeLessonHandoff(
     sourceValue,
     sourceTitle: sourceTitle || undefined,
     sourceProvider: sourceProvider || undefined,
+    thumbnailUrl: thumbnailUrl || undefined,
     courseChaptersInput: courseChaptersInput || undefined,
   };
 }

@@ -22,7 +22,9 @@ vi.mock('@/components/capabilities/meeting-workbench/runs/useHostRuntimeRunSessi
       last_event_seq: 0,
     },
     events: [],
+    bridgeService: null,
     isStarting: false,
+    isStartingBridge: false,
     error: null,
     lastSeq: 0,
     graphContext: {
@@ -83,6 +85,7 @@ vi.mock('@/components/capabilities/meeting-workbench/runs/useHostRuntimeRunSessi
       },
       selected_object_ref: selectedObjectRef,
     },
+    startBridge: () => undefined,
     submitPrompt: () => undefined,
   }),
 }));

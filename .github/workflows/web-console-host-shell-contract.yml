@@ -9,6 +9,8 @@ on:
       - 'web-console/src/app/workspaces/[workspaceId]/capability-ui-hosts/**'
       - 'web-console/src/app/workspaces/[workspaceId]/capabilities/[capabilityCode]/page.aol-host.spec.tsx'
       - 'web-console/src/components/capabilities/aol-runtime-shell/**'
+      - 'web-console/src/components/capabilities/workbench/packScopeToolControllerRegistry.ts'
+      - 'web-console/src/components/capabilities/workbench/packScopeToolControllerRegistry.spec.tsx'
       - 'web-console/package.json'
       - 'web-console/package-lock.json'
       - 'web-console/vitest.config.ts'
@@ -22,6 +24,8 @@ on:
       - 'web-console/src/app/workspaces/[workspaceId]/capability-ui-hosts/**'
       - 'web-console/src/app/workspaces/[workspaceId]/capabilities/[capabilityCode]/page.aol-host.spec.tsx'
       - 'web-console/src/components/capabilities/aol-runtime-shell/**'
+      - 'web-console/src/components/capabilities/workbench/packScopeToolControllerRegistry.ts'
+      - 'web-console/src/components/capabilities/workbench/packScopeToolControllerRegistry.spec.tsx'
       - 'web-console/package.json'
       - 'web-console/package-lock.json'
       - 'web-console/vitest.config.ts'
@@ -50,6 +54,7 @@ jobs:
           ./node_modules/.bin/vitest run \
             dev-proxy/api-route-plane.spec.mjs \
             dev-proxy.spec.mjs \
+            'src/components/capabilities/workbench/packScopeToolControllerRegistry.spec.tsx' \
             'src/app/workspaces/[workspaceId]/capability-ui-hosts/CapabilityUiHostRouteClient.spec.tsx' \
             'src/app/workspaces/[workspaceId]/capability-ui-hosts/CapabilityUiHostClientLoader.spec.tsx' \
             'src/app/workspaces/[workspaceId]/capability-ui-hosts/WorkspaceSurfaceShell.spec.tsx' \

@@ -176,7 +176,8 @@ describe('mobile workbench gateway', () => {
       { deviceLinkIngressToken: ingressToken },
     )).toMatchObject({
       allowed: false,
-      reason: 'mobile_workbench_gateway_path_not_allowed',
+      reason: 'mobile_workbench_gateway_access_denied',
+      reason_code: 'missing_access_token',
     });
   });
 
@@ -268,6 +269,21 @@ describe('mobile workbench gateway', () => {
       config,
       'GET',
     )).toBe(true);
+    expect(isMobileWorkbenchGatewayPathAllowed(
+      '/api/v1/workspaces/ws-1/agents/bridge-service',
+      config,
+      'GET',
+    )).toBe(true);
+    expect(isMobileWorkbenchGatewayPathAllowed(
+      '/api/v1/workspaces/ws-1/agents/bridge-service/start',
+      config,
+      'POST',
+    )).toBe(true);
+    expect(isMobileWorkbenchGatewayPathAllowed(
+      '/api/v1/workspaces/ws-1/agents/bridge-service/start',
+      config,
+      'GET',
+    )).toBe(false);
     expect(isMobileWorkbenchGatewayPathAllowed('/api/v1/host-runtime/bridge/bridge-1', config)).toBe(false);
     expect(isMobileWorkbenchGatewayPathAllowed('/api/v1/capability-packs/ig/ui-assets/bundle.js', config)).toBe(true);
     expect(
@@ -336,6 +352,13 @@ describe('mobile workbench gateway', () => {
         config,
       ),
     ).toBe(true);
+    expect(
+      isMobileWorkbenchGatewayPathAllowed(
+        '/device-link/PAIR1234?workspaceId=ws-1&sourceMode=phone',
+        config,
+      ),
+    ).toBe(true);
+    expect(isMobileWorkbenchGatewayPathAllowed('/device-link/health', config)).toBe(false);
     expect(isMobileWorkbenchGatewayPathAllowed('/api/v1/other-service/route', config)).toBe(false);
     expect(isMobileWorkbenchGatewayPathAllowed('/workspaces/ws-1/capability-ui-hosts/performance_direction', config)).toBe(false);
   });
@@ -389,6 +412,16 @@ describe('mobile workbench gateway', () => {
       '/api/v1/workspaces/ws-1/device-bindings/session-1/arbitrary',
       config,
     )).toBe(false);
+    expect(isMobileWorkbenchGatewayRequestAllowed(
+      '/device-link/PAIR1234?workspaceId=ws-1&sourceMode=phone',
+      headers,
+      config,
+    )).toMatchObject({
+      allowed: true,
+      context: {
+        workspaceId: 'ws-1',
+      },
+    });
   });
 
   it('supports extra allowlist prefixes and regex tokens', () => {

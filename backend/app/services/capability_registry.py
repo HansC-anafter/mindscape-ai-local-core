@@ -31,6 +31,17 @@ def _ensure_capability_import_paths(sys_path: list[str], capability_dir: Path) -
     )
 
 
+def _normalize_backend_module_path(module_path: str) -> str:
+    """Map manifest backend module IDs to the runtime package identity."""
+    if module_path.startswith("backend."):
+        return module_path
+    if module_path.startswith("app."):
+        return f"backend.{module_path}"
+    if module_path.startswith("capabilities."):
+        return f"backend.app.{module_path}"
+    return module_path
+
+
 class CapabilityRegistry:
     """Capability pack registry"""
 
@@ -247,9 +258,7 @@ def call_tool(capability: str, tool: str, **kwargs) -> Any:
     # Format 2: 'module.path:Class.method' - class method
     module_path, target = backend_path.rsplit(':', 1)
 
-    # Normalize module path: if it starts with 'app.', prepend 'backend.'
-    if module_path.startswith('app.'):
-        module_path = 'backend.' + module_path
+    module_path = _normalize_backend_module_path(module_path)
 
     try:
         # Try importing as module first
@@ -352,9 +361,7 @@ async def call_tool_async(capability: str, tool: str, **kwargs) -> Any:
     # Format 2: 'module.path:Class.method' - Class method
     module_path, target = backend_path.rsplit(':', 1)
 
-    # Normalize module path: if it starts with 'app.', prepend 'backend.'
-    if module_path.startswith('app.'):
-        module_path = 'backend.' + module_path
+    module_path = _normalize_backend_module_path(module_path)
 
     try:
         # Try importing as module first

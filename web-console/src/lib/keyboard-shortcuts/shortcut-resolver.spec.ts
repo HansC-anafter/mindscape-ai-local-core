@@ -64,6 +64,40 @@ describe('keyboard shortcut resolver', () => {
     expect(result).toMatchObject({ status: 'blocked', reason: 'conflict' });
   });
 
+  it('prefers explicit active-panel priority over static scope priority', () => {
+    const event = new KeyboardEvent('keydown', { key: '`', code: 'Backquote' });
+    const workspacePanelCommand: KeyboardShortcutCommand = {
+      bindingId: 'tool_rail:workspace:active_panel:toggle',
+      commandId: 'tool_rail.active_panel.toggle',
+      label: 'Toggle active workspace tool panel',
+      ownerType: 'core',
+      defaultShortcut: '~',
+      scope: 'workspace:ws',
+      shortcutPriority: 350,
+    };
+    const packPanelCommand: KeyboardShortcutCommand = {
+      bindingId: 'tool_rail:workbench:ig:active_panel:toggle',
+      commandId: 'tool_rail.active_panel.toggle',
+      label: 'Toggle active tool panel',
+      ownerType: 'pack',
+      ownerId: 'ig',
+      defaultShortcut: '~',
+      scope: 'workbench:ws:ig',
+    };
+
+    const result = resolveKeyboardShortcut({
+      commands: [workspacePanelCommand, packPanelCommand],
+      profile: emptyProfile,
+      activeScopes: new Set(['global', 'workspace:ws', 'workbench:ws:ig']),
+      event,
+    });
+
+    expect(result.status).toBe('matched');
+    if (result.status === 'matched') {
+      expect(result.command.bindingId).toBe('tool_rail:workspace:active_panel:toggle');
+    }
+  });
+
   it('honors persisted disables', () => {
     const event = new KeyboardEvent('keydown', { key: 'F9' });
     const result = resolveKeyboardShortcut({

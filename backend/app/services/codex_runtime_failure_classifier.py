@@ -116,6 +116,8 @@ def classify_codex_cli_runtime_failure(message: str) -> dict[str, str]:
         return {"fault_kind": "runtime", "error_code": "probe_transport_error"}
     if "attempted to create a null object" in lowered:
         return {"fault_kind": "runtime", "error_code": "codex_cli_panic"}
+    if "unknown variant" in lowered and "model_reasoning_effort" in lowered:
+        return {"fault_kind": "runtime", "error_code": "codex_cli_config_invalid"}
     if "no such file or directory (os error 2)" in lowered:
         return {"fault_kind": "runtime", "error_code": "runtime_not_found"}
     return {"fault_kind": "runtime", "error_code": "runtime_error"}

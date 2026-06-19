@@ -22,6 +22,12 @@ function stubCompactViewport() {
   })));
 }
 
+function switchToContextWorkbenchPreset() {
+  fireEvent.change(screen.getByTestId('meeting-workbench-preset-select'), {
+    target: { value: 'context_workbench' },
+  });
+}
+
 describe('AOLMeetingBottomShell layout and runtime graph', () => {
   installAOLMeetingBottomShellTestHarness();
 
@@ -29,7 +35,7 @@ describe('AOLMeetingBottomShell layout and runtime graph', () => {
     vi.unstubAllGlobals();
   });
 
-  it('opens as a graph-first bottom shell with collapsed inspector and console', async () => {
+  it('opens as a runs-first bottom shell and keeps workbench presets behind a selector', async () => {
     render(
       <AOLMeetingBottomShell
         workspaceId="ws-global"
@@ -45,12 +51,22 @@ describe('AOLMeetingBottomShell layout and runtime graph', () => {
 
     expect(screen.getByTestId('aol-meeting-bottom-shell')).toBeInTheDocument();
     expect(screen.getByTestId('meeting-header-toolbar')).toBeInTheDocument();
+    expect(screen.getByTestId('meeting-graph-view-runs')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.queryByTestId('meeting-graph-view-work')).toBeNull();
+    expect(screen.queryByTestId('meeting-graph-view-director')).toBeNull();
+    expect(screen.getByTestId('meeting-runs-workspace-surface')).toBeInTheDocument();
+    expect(screen.getByTestId('agent-freeform-composer-dock')).toBeVisible();
+    expect(screen.getByTestId('agent-freeform-stream-panel')).toBeVisible();
+    expect(screen.queryByTestId('agent-freeform-runtime-inspector')).toBeNull();
+
+    switchToContextWorkbenchPreset();
+
     expect(screen.getByTestId('meeting-work-context-bar')).toHaveTextContent('Global Reference');
     expect(screen.getByTestId('meeting-work-role-chip')).toHaveTextContent(/Role: Source|\u89d2\u8272\uff1a\u4f86\u6e90/);
     expect(screen.getByTestId('meeting-work-status-chip')).toHaveTextContent('Outcome ready');
     expect(screen.getByTestId('meeting-work-next-chip')).toHaveTextContent('Ready for instruction');
     await waitFor(() => expect(screen.queryByTestId('meeting-work-missing-context-chip')).toBeNull());
-    expect(screen.getByTestId('meeting-graph-view-work')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('meeting-graph-view-runs')).toHaveAttribute('aria-pressed', 'true');
     expect(screen.queryByText(/nodes - .* trace events/)).toBeNull();
     const stage = screen.getByTestId('meeting-workbench-stage');
     const mainEditors = screen.getByTestId('meeting-workbench-main-editors');
@@ -122,6 +138,8 @@ describe('AOLMeetingBottomShell layout and runtime graph', () => {
       />,
     );
 
+    switchToContextWorkbenchPreset();
+
     expect(screen.queryByTestId('meeting-inspector-rail')).toBeNull();
     expect(screen.queryByTestId('meeting-object-outliner')).toBeNull();
 
@@ -147,7 +165,7 @@ describe('AOLMeetingBottomShell layout and runtime graph', () => {
     expect(screen.queryByTestId('meeting-inspector-panel')).toBeNull();
   });
 
-  it('defaults compact capability host routes into RUNS and keeps the mode switch available', async () => {
+  it('defaults compact workbench routes into RUNS and keeps presets available', async () => {
     stubCompactViewport();
 
     render(
@@ -169,9 +187,9 @@ describe('AOLMeetingBottomShell layout and runtime graph', () => {
     expect(screen.getByTestId('meeting-graph-view-runs')).toHaveAttribute('aria-pressed', 'true');
     expect(screen.queryByTestId('meeting-task-canvas')).toBeNull();
 
-    fireEvent.click(screen.getByTestId('meeting-graph-view-work'));
+    switchToContextWorkbenchPreset();
     expect(await screen.findByTestId('meeting-task-canvas')).toBeInTheDocument();
-    expect(screen.getByTestId('meeting-graph-view-work')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('meeting-graph-view-runs')).toHaveAttribute('aria-pressed', 'true');
   });
 
   it('renders meeting-owned execution graph nodes from task closure proof', async () => {
@@ -187,6 +205,8 @@ describe('AOLMeetingBottomShell layout and runtime graph', () => {
         onSwitchObject={vi.fn()}
       />,
     );
+
+    switchToContextWorkbenchPreset();
 
     expect(await screen.findByTestId('meeting-graph-node-command-oap-global')).toHaveTextContent(
       'Produce generic asset',
@@ -278,6 +298,8 @@ describe('AOLMeetingBottomShell layout and runtime graph', () => {
         onSwitchObject={vi.fn()}
       />,
     );
+
+    switchToContextWorkbenchPreset();
 
     const guidanceStep = await screen.findByTestId('meeting-work-step-guidance');
     expect(guidanceStep).toBeInTheDocument();
@@ -382,6 +404,8 @@ describe('AOLMeetingBottomShell layout and runtime graph', () => {
       />,
     );
 
+    switchToContextWorkbenchPreset();
+
     expect(await screen.findByTestId('meeting-work-subgraph')).toBeInTheDocument();
     expect(screen.getByTestId('meeting-work-step-focus')).toBeInTheDocument();
     expect(screen.getByTestId('meeting-work-step-command')).toBeInTheDocument();
@@ -419,6 +443,8 @@ describe('AOLMeetingBottomShell layout and runtime graph', () => {
         onSwitchObject={vi.fn()}
       />,
     );
+
+    switchToContextWorkbenchPreset();
 
     await waitFor(() => {
       expect(screen.getByTestId('meeting-graph-node-root')).toHaveTextContent('mtg_global');
@@ -467,6 +493,8 @@ describe('AOLMeetingBottomShell layout and runtime graph', () => {
       />,
     );
 
+    switchToContextWorkbenchPreset();
+
     expect(await screen.findByRole('option', { name: 'ig / Visual Audit' })).toBeInTheDocument();
     expect(screen.getByText('100%')).toBeInTheDocument();
     fireEvent.click(screen.getByTestId('meeting-canvas-zoom-in'));
@@ -507,6 +535,8 @@ describe('AOLMeetingBottomShell layout and runtime graph', () => {
         onSwitchObject={vi.fn()}
       />,
     );
+
+    switchToContextWorkbenchPreset();
 
     expect(await screen.findByRole('option', { name: 'ig / Visual Audit' })).toBeInTheDocument();
     const canvas = screen.getByTestId('meeting-task-canvas');

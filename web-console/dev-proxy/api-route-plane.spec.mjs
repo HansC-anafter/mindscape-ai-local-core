@@ -64,6 +64,14 @@ describe('API route plane', () => {
   });
 
   it('keeps workspace device-binding state on the control plane', () => {
+    expect(resolveApiRoutePlane('/api/v1/workspaces/ws-1/agents/bridge-service')).toMatchObject({
+      plane: 'control',
+      serviceId: 'local_core.control_api',
+    });
+    expect(resolveApiRoutePlane('/api/v1/workspaces/ws-1/agents/bridge-service/start')).toMatchObject({
+      plane: 'control',
+      serviceId: 'local_core.control_api',
+    });
     expect(resolveApiRoutePlane('/api/v1/workspaces/ws-1/device-bindings/pairing-codes')).toMatchObject({
       plane: 'control',
       serviceId: 'local_core.control_api',

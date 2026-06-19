@@ -219,7 +219,9 @@ def _emit_run_state_changed_for_task(
 ) -> None:
     """Emit the workspace lifecycle event when reaper owns a terminal transition."""
     try:
-        from backend.app.services.playbook_runner import _build_run_state_changed_event
+        from backend.app.services.playbook_runner_core.run_state import (
+            build_run_state_changed_event,
+        )
 
         ctx = task.execution_context if isinstance(task.execution_context, dict) else {}
         inputs = None
@@ -236,7 +238,7 @@ def _emit_run_state_changed_for_task(
             or task.pack_id
             or ""
         )
-        event = _build_run_state_changed_event(
+        event = build_run_state_changed_event(
             profile_id=(
                 getattr(task, "profile_id", None)
                 or (ctx.get("profile_id") if isinstance(ctx, dict) else None)

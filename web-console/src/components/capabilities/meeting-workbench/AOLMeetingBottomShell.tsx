@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect } from 'react';
 
 import { useT } from '@/lib/i18n';
 import { CANVAS_ZOOM_STEP } from './meetingWorkbenchConstants';
@@ -25,7 +25,6 @@ import {
   useMeetingWorkbenchViewportClass,
 } from './meetingWorkbenchPanelLayoutState';
 import { resolveCompactMeetingInspectorTab } from './meetingWorkbenchModeSurfaceRegistry';
-import { shouldPreferRunsOnCompactRemoteSurface } from './meetingWorkbenchRoutePolicy';
 import type {
   AOLMeetingBottomShellProps,
   GraphViewMode,
@@ -50,7 +49,6 @@ export function AOLMeetingBottomShell({
   const t = useT();
   const viewportClass = useMeetingWorkbenchViewportClass();
   const compactViewport = isCompactMeetingWorkbenchViewport(viewportClass);
-  const remoteRunsModeBootstrappedRef = useRef(false);
   const {
     selectedNodeId, setSelectedNodeId, activeInspector, setActiveInspector,
     activeInfoPanel, setActiveInfoPanel, graphViewMode, setGraphViewMode,
@@ -165,17 +163,6 @@ export function AOLMeetingBottomShell({
     packTools,
     registryMentionItems,
   });
-
-  useEffect(() => {
-    if (remoteRunsModeBootstrappedRef.current) {
-      return;
-    }
-    if (!shouldPreferRunsOnCompactRemoteSurface({ viewportClass, surfaceRoute })) {
-      return;
-    }
-    remoteRunsModeBootstrappedRef.current = true;
-    setGraphViewMode((current) => current === 'work' ? 'runs' : current);
-  }, [setGraphViewMode, surfaceRoute, viewportClass]);
 
   function handleToggleInfoPanel(panel: MeetingInfoPanel) {
     setActiveInfoPanel((current) => {

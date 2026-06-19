@@ -100,7 +100,12 @@ export function StatusSection({
         <StatusMetric label="Issues" value={String(systemStatus?.critical_issues_count ?? 0)} />
         <StatusMetric label="Updated" value={snapshot?.updatedAt || '-'} />
       </div>
-      <WorkspaceAgentsStatusCard workspaceId={workspaceId} agentsSnapshot={snapshot?.agents || null} />
+      <WorkspaceAgentsStatusCard
+        workspaceId={workspaceId}
+        apiUrl={apiUrl}
+        agentsSnapshot={snapshot?.agents || null}
+        onBridgeServiceChanged={() => void loadSnapshot(false)}
+      />
       <div className="rounded border border-gray-200 p-2 text-xs dark:border-gray-800">
         <div className="flex justify-between gap-2 py-1">
           <span className="text-gray-500 dark:text-gray-400">XTTS</span>

@@ -13,6 +13,7 @@ export function HostRuntimeComposer({
   onSubmit: (prompt: string) => void;
 }) {
   const [prompt, setPrompt] = useState('');
+  const [pinnedPrompt, setPinnedPrompt] = useState('');
 
   function handleAppendTranscript(transcript: string) {
     setPrompt((current) => {
@@ -29,10 +30,20 @@ export function HostRuntimeComposer({
         event.preventDefault();
         const value = prompt.trim();
         if (!value || disabled) return;
+        setPinnedPrompt(value);
         onSubmit(value);
         setPrompt('');
       }}
     >
+      {pinnedPrompt ? (
+        <div
+          className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-200"
+          data-testid="host-runtime-pinned-prompt"
+        >
+          <div className="font-semibold uppercase tracking-[0.08em]">Pinned instruction</div>
+          <div className="mt-1 whitespace-pre-wrap text-sm leading-5">{pinnedPrompt}</div>
+        </div>
+      ) : null}
       <textarea
         value={prompt}
         onChange={(event) => setPrompt(event.target.value)}

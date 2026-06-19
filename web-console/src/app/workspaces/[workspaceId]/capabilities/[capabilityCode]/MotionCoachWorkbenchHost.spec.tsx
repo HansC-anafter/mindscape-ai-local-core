@@ -12,6 +12,7 @@ const navigationMocks = vi.hoisted(() => ({
 
 const mocks = vi.hoisted(() => ({
   existingBridge: null as Record<string, unknown> | null,
+  publishReferenceLessonState: vi.fn(),
   sessions: [
     {
       session_id: 'session-phone',
@@ -60,6 +61,7 @@ vi.mock('@/components/workspace/device-binding/capture-bridge/CaptureSourceBridg
   useCaptureSourceBridge: () => ({
     sessions: mocks.sessions,
     referenceLessonState: mocks.referenceLessonState,
+    publishReferenceLessonState: mocks.publishReferenceLessonState,
   }),
   useOptionalCaptureSourceBridge: () => mocks.existingBridge,
 }));
@@ -134,6 +136,7 @@ describe('MotionCoachWorkbenchHost', () => {
   beforeEach(() => {
     navigationMocks.searchParams = new URLSearchParams();
     mocks.existingBridge = null;
+    mocks.publishReferenceLessonState = vi.fn();
     mocks.sessions = [
       {
         session_id: 'session-phone',
@@ -312,12 +315,14 @@ describe('MotionCoachWorkbenchHost', () => {
       motion_lesson_value: 'https://www.youtube.com/watch?v=summer-flow',
       motion_lesson_title: 'Summer Flow With Katie',
       motion_lesson_provider: 'youtube',
+      motion_lesson_thumbnail: 'https://i.ytimg.com/vi/summer-flow/hqdefault.jpg',
       motion_lesson_course_chapters: JSON.stringify([
         {
           chapter_id: 'summer_flow_ref_1',
           title: 'Standing warmup',
           start_ms: 0,
           end_ms: 42000,
+          thumbnail_url: 'https://i.ytimg.com/vi/summer-flow/chapter-1.jpg',
         },
       ]),
     });
@@ -350,7 +355,11 @@ describe('MotionCoachWorkbenchHost', () => {
     });
     expect(firstProps.workbenchState.reference_lesson_state).toMatchObject({
       title: 'Summer Flow With Katie',
+      thumbnailUrl: 'https://i.ytimg.com/vi/summer-flow/hqdefault.jpg',
       activeChapterId: 'summer_flow_ref_1',
+    });
+    expect(firstProps.workbenchState.reference_lesson_state.chapters[0]).toMatchObject({
+      thumbnailUrl: 'https://i.ytimg.com/vi/summer-flow/chapter-1.jpg',
     });
   });
 
@@ -431,6 +440,10 @@ describe('MotionCoachWorkbenchHost', () => {
     expect(firstProps.workbenchState.reference_lesson_state).toMatchObject({
       title: 'Graph Priority Flow',
       activeChapterId: 'ref_graph_001',
+      thumbnailUrl: 'https://i.ytimg.com/vi/graph-priority/hqdefault.jpg',
+    });
+    expect(firstProps.workbenchState.reference_lesson_state.chapters[0]).toMatchObject({
+      thumbnailUrl: 'https://i.ytimg.com/vi/graph-priority/hqdefault.jpg',
     });
   });
 

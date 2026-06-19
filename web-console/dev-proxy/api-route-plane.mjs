@@ -15,6 +15,7 @@ const CONTROL_PREFIXES = [
 ];
 
 const CONTROL_PATTERNS = [
+  /^\/api\/v1\/workspaces\/[^/]+\/agents\/bridge-service(?:\/|$)/,
   /^\/api\/v1\/workspaces\/[^/]+\/device-bindings(?:\/|$)/,
   /^\/api\/v1\/workspaces\/[^/]+\/projects\/[^/]+\/deploy(?:\/|$)/,
 ];

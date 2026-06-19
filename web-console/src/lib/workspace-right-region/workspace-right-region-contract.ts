@@ -14,6 +14,7 @@ export type WorkspaceRightRegionGroup =
   | 'workspace'
   | 'execution'
   | 'meeting'
+  | 'graph'
   | 'capability'
   | 'runtime'
   | 'tool_runtime'

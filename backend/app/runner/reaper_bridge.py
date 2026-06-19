@@ -24,6 +24,88 @@ from backend.app.runner.reaper_context import (
 )
 from backend.app.runner.utils import _env_int, _utc_now
 
+_PIPELINE_BATCH = 100
+
+
+async def _refill_ready_frontier_from_db(
+    tasks_store: TasksStore,
+    redis_queue: RedisRunnerQueueStore,
+    *,
+    client,
+    ready_depth: int,
+    ready_target: int,
+    all_queues: Optional[list[RedisRunnerQueueStore]],
+    mark_frontier_ready: Callable[..., Awaitable[None]],
+    build_route_identity_projection_func: Callable[..., dict],
+) -> int:
+    """Refill Redis from already-runnable DB frontier before releasing parked work."""
+
+    refill_limit = max(0, ready_target - ready_depth)
+    if refill_limit <= 0:
+        return 0
+
+    queue_family = all_queues or [redis_queue]
+    all_queued = set()
+    for queue_store in queue_family:
+        queue_client = client if queue_store is redis_queue else await queue_store._get_client()
+        if not queue_client:
+            continue
+        pending_members = await queue_client.lrange(queue_store.q_pending, 0, -1)
+        temp_members = await queue_client.lrange(queue_store.q_temp, 0, -1)
+        processing_members = await queue_client.zrange(
+            queue_store.q_processing, 0, -1
+        )
+        delayed_members = await queue_client.zrange(
+            queue_store.q_delayed, 0, -1
+        )
+        all_queued.update(_normalize_task_id(task_id) for task_id in pending_members)
+        all_queued.update(_normalize_task_id(task_id) for task_id in temp_members)
+        all_queued.update(
+            _normalize_task_id(task_id) for task_id in processing_members
+        )
+        all_queued.update(_normalize_task_id(task_id) for task_id in delayed_members)
+
+    pending_tasks = await asyncio.to_thread(
+        tasks_store.list_runnable_playbook_execution_tasks,
+        None,
+        max(refill_limit * 4, refill_limit),
+        redis_queue.pack_id,
+    )
+
+    missing_tasks = []
+    for task in pending_tasks:
+        if str(task.id) not in all_queued:
+            missing_tasks.append(task)
+        if len(missing_tasks) >= refill_limit:
+            break
+
+    if not missing_tasks:
+        return 0
+
+    for i in range(0, len(missing_tasks), _PIPELINE_BATCH):
+        batch = missing_tasks[i:i + _PIPELINE_BATCH]
+        for task in batch:
+            await redis_queue.enqueue_task(
+                str(task.id),
+                route_identity=build_route_identity_projection_func(task),
+            )
+        if i + _PIPELINE_BATCH < len(missing_tasks):
+            await asyncio.sleep(0)
+    await mark_frontier_ready(
+        tasks_store,
+        [str(task.id) for task in missing_tasks],
+        queue_shard=redis_queue.pack_id,
+    )
+    logger.warning(
+        "[Bridge] Refilled ready frontier with %d task(s) "
+        "(ready_depth=%s, ready_target=%s).",
+        len(missing_tasks),
+        ready_depth,
+        ready_target,
+    )
+    return len(missing_tasks)
+
+
 async def _reap_redis_queues(
     tasks_store: TasksStore,
     redis_queue: RedisRunnerQueueStore,
@@ -56,7 +138,6 @@ async def _reap_redis_queues(
         
         # 1. Delayed Queue Mover — move in small pipeline batches to avoid
         #    blocking Redis single-threaded processing (SLOWLOG showed 17ms for 688-item pipeline).
-        _PIPELINE_BATCH = 100
         delayed_items = await client.zrangebyscore(
             redis_queue.q_delayed, "-inf", now_ts, start=0, num=delayed_move_limit
         )
@@ -169,6 +250,22 @@ async def _reap_redis_queues(
                 logger.error(f"Failed to recycle visibility task {task_id}: {e}")
 
         ready_depth = await client.llen(redis_queue.q_pending)
+        try:
+            ready_refilled_count = await _refill_ready_frontier_from_db(
+                tasks_store,
+                redis_queue,
+                client=client,
+                ready_depth=ready_depth,
+                ready_target=ready_target,
+                all_queues=all_queues,
+                mark_frontier_ready=mark_frontier_ready,
+                build_route_identity_projection_func=build_route_identity_projection_func,
+            )
+            if ready_refilled_count:
+                return
+        except Exception as e:
+            logger.error(f"[Bridge] DB ready frontier refill failed: {e}")
+
         release_limit = _blocked_release_limit(ready_target, ready_depth)
         concurrency_released_count = await release_concurrency_locked_tasks(
             tasks_store,
@@ -228,63 +325,16 @@ async def _reap_redis_queues(
         #    Keep only a bounded ready frontier in Redis. Do not materialize
         #    the full runnable backlog into the hot queue.
         try:
-            refill_limit = max(0, ready_target - ready_depth)
-            if refill_limit <= 0:
-                return
-
-            queue_family = all_queues or [redis_queue]
-            all_queued = set()
-            for queue_store in queue_family:
-                queue_client = client if queue_store is redis_queue else await queue_store._get_client()
-                if not queue_client:
-                    continue
-                pending_members = await queue_client.lrange(queue_store.q_pending, 0, -1)
-                temp_members = await queue_client.lrange(queue_store.q_temp, 0, -1)
-                processing_members = await queue_client.zrange(
-                    queue_store.q_processing, 0, -1
-                )
-                delayed_members = await queue_client.zrange(
-                    queue_store.q_delayed, 0, -1
-                )
-                all_queued.update(_normalize_task_id(task_id) for task_id in pending_members)
-                all_queued.update(_normalize_task_id(task_id) for task_id in temp_members)
-                all_queued.update(
-                    _normalize_task_id(task_id) for task_id in processing_members
-                )
-                all_queued.update(_normalize_task_id(task_id) for task_id in delayed_members)
-
-            pending_tasks = await asyncio.to_thread(
-                tasks_store.list_runnable_playbook_execution_tasks,
-                None,
-                max(refill_limit * 4, refill_limit),
-                redis_queue.pack_id,
+            await _refill_ready_frontier_from_db(
+                tasks_store,
+                redis_queue,
+                client=client,
+                ready_depth=ready_depth,
+                ready_target=ready_target,
+                all_queues=all_queues,
+                mark_frontier_ready=mark_frontier_ready,
+                build_route_identity_projection_func=build_route_identity_projection_func,
             )
-
-            missing_tasks = []
-            for t in pending_tasks:
-                if t.id not in all_queued:
-                    missing_tasks.append(t)
-                if len(missing_tasks) >= refill_limit:
-                    break
-
-            if missing_tasks:
-                for i in range(0, len(missing_tasks), _PIPELINE_BATCH):
-                    batch = missing_tasks[i:i + _PIPELINE_BATCH]
-                    for task in batch:
-                        await redis_queue.enqueue_task(
-                            str(task.id),
-                            route_identity=build_route_identity_projection_func(task),
-                        )
-                    if i + _PIPELINE_BATCH < len(missing_tasks):
-                        await asyncio.sleep(0)
-                await mark_frontier_ready(
-                    tasks_store,
-                    [str(task.id) for task in missing_tasks],
-                    queue_shard=redis_queue.pack_id,
-                )
-                logger.warning(
-                    f"[Bridge] Refilled ready frontier with {len(missing_tasks)} task(s) (ready_depth={ready_depth}, ready_target={ready_target})."
-                )
                 
         except Exception as e:
             logger.error(f"[Bridge] DB Bridge sync failed: {e}")

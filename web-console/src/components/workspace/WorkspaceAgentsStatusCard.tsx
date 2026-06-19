@@ -20,7 +20,9 @@ export interface WorkspaceAgentsStatusSnapshot {
 
 interface WorkspaceAgentsStatusCardProps {
   workspaceId: string;
+  apiUrl: string;
   agentsSnapshot: WorkspaceAgentsStatusSnapshot | null;
+  onBridgeServiceChanged?: () => void;
 }
 
 function getAgentLabel(agent: WorkspaceStatusAgentInfo): string {
@@ -48,7 +50,9 @@ function getAgentDotClass(agent: WorkspaceStatusAgentInfo): string {
 
 export function WorkspaceAgentsStatusCard({
   workspaceId,
+  apiUrl,
   agentsSnapshot,
+  onBridgeServiceChanged,
 }: WorkspaceAgentsStatusCardProps) {
   const [bridgeGuideOpen, setBridgeGuideOpen] = useState(false);
   const agents = useMemo(() => agentsSnapshot?.agents || [], [agentsSnapshot?.agents]);
@@ -95,7 +99,9 @@ export function WorkspaceAgentsStatusCard({
       <WorkspaceBridgeGuideFloatingPanel
         open={bridgeGuideOpen}
         workspaceId={workspaceId}
+        apiUrl={apiUrl}
         bridgeScriptPath={agentsSnapshot?.bridge_script_path || null}
+        onBridgeServiceChanged={onBridgeServiceChanged}
         onClose={() => setBridgeGuideOpen(false)}
       />
     </div>

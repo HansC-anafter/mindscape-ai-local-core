@@ -112,6 +112,26 @@ export function createDefaultGatewayWorkspaceSupportRules() {
     },
     {
       type: 'regex',
+      value: /^\/api\/v1\/workspaces\/[^/]+\/host-runtime\/bridge-service$/,
+      methods: READ_ONLY_GATEWAY_METHODS,
+    },
+    {
+      type: 'regex',
+      value: /^\/api\/v1\/workspaces\/[^/]+\/host-runtime\/bridge-service\/(?:start|restart)$/,
+      methods: ['OPTIONS', 'POST'],
+    },
+    {
+      type: 'regex',
+      value: /^\/api\/v1\/workspaces\/[^/]+\/agents\/bridge-service$/,
+      methods: READ_ONLY_GATEWAY_METHODS,
+    },
+    {
+      type: 'regex',
+      value: /^\/api\/v1\/workspaces\/[^/]+\/agents\/bridge-service\/(?:start|restart)$/,
+      methods: ['OPTIONS', 'POST'],
+    },
+    {
+      type: 'regex',
       value: /^\/api\/v1\/workspaces\/[^/]+\/tasks(?:\/.*)?$/,
       methods: READ_ONLY_GATEWAY_METHODS,
     },
@@ -123,6 +143,11 @@ export function createDefaultGatewayWorkspaceSupportRules() {
     {
       type: 'regex',
       value: /^\/api\/v1\/workspaces\/[^/]+\/device-bindings\/(?:pairing-codes|control|[^/]+\/(?:control|revoke|media-sessions\/[^/]+\/signal))$/,
+    },
+    {
+      type: 'regex',
+      value: /^\/device-link\/(?!health$|__test__$)[^/]+$/,
+      methods: READ_ONLY_GATEWAY_METHODS,
     },
     {
       type: 'regex',

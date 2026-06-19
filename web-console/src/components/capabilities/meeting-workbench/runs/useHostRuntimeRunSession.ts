@@ -4,10 +4,13 @@ import type { AddressableGraphSelection, AddressableObjectRef } from '@/lib/addr
 import {
   buildHostRuntimeStreamUrl,
   createHostRuntimeSession,
+  fetchSharedCliBridgeServiceStatus,
   fetchHostRuntimeStatus,
   type HostRuntimeEvent,
+  type SharedCliBridgeServiceStatus,
   type HostRuntimeSession,
   type HostRuntimeStatus,
+  startSharedCliBridgeService,
   startHostRuntimeTurn,
 } from '@/lib/host-runtime-sessions';
 
@@ -17,7 +20,9 @@ export interface HostRuntimeRunSessionState {
   status: HostRuntimeStatus | null;
   session: HostRuntimeSession | null;
   events: HostRuntimeEvent[];
+  bridgeService: SharedCliBridgeServiceStatus | null;
   isStarting: boolean;
+  isStartingBridge: boolean;
   error: string | null;
   lastSeq: number;
 }
@@ -39,7 +44,9 @@ export function useHostRuntimeRunSession({
     status: null,
     session: null,
     events: [],
+    bridgeService: null,
     isStarting: false,
+    isStartingBridge: false,
     error: null,
     lastSeq: 0,
   });
@@ -75,6 +82,24 @@ export function useHostRuntimeRunSession({
       cancelled = true;
     };
   }, [apiUrl]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchSharedCliBridgeServiceStatus({ apiUrl, workspaceId })
+      .then((bridgeService) => {
+        if (!cancelled) {
+          setState((current) => ({ ...current, bridgeService }));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setState((current) => ({ ...current, bridgeService: null }));
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [apiUrl, workspaceId]);
 
   const attachStream = useCallback((session: HostRuntimeSession, lastSeq: number) => {
     if (typeof WebSocket === 'undefined') {
@@ -176,9 +201,31 @@ export function useHostRuntimeRunSession({
     }
   }, [apiUrl, ensureSession, graphContext, workspaceId]);
 
+  const startBridge = useCallback(async () => {
+    setState((current) => ({ ...current, isStartingBridge: true, error: null }));
+    try {
+      const bridgeService = await startSharedCliBridgeService({ apiUrl, workspaceId });
+      const status = await fetchHostRuntimeStatus(apiUrl);
+      setState((current) => ({
+        ...current,
+        bridgeService,
+        status,
+        error: bridgeService.running ? null : (bridgeService.message || 'CLI bridge did not report ready.'),
+      }));
+    } catch (error) {
+      setState((current) => ({
+        ...current,
+        error: error instanceof Error ? error.message : 'Failed to start CLI bridge.',
+      }));
+    } finally {
+      setState((current) => ({ ...current, isStartingBridge: false }));
+    }
+  }, [apiUrl, workspaceId]);
+
   return {
     ...state,
     graphContext,
+    startBridge,
     submitPrompt,
   };
 }

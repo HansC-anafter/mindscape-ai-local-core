@@ -9,8 +9,10 @@ import {
   type WorkspaceToolRailGroup,
 } from '@/components/workspace/WorkspaceToolRail';
 import { useCapabilityWorkbenchPlacement } from '@/components/capabilities/workbench/CapabilityWorkbenchResponsiveFrame';
+import { useToolRailPanelToggleShortcut } from '@/components/capabilities/workbench/useToolRailPanelToggleShortcut';
 import { useWorkspaceDataOptional } from '@/contexts/WorkspaceDataContext';
 import { getApiBaseUrl } from '@/lib/api-url';
+import { useKeyboardShortcuts } from '@/lib/keyboard-shortcuts';
 import { openAppRouteInNewWindow } from '@/lib/navigation/openAppRouteInNewWindow';
 import {
   WORKSPACE_RIGHT_REGION_PANEL_BODY_CLASS,
@@ -32,10 +34,13 @@ const WorkspaceSettingsToolPanel = React.lazy(() => import('../capability-ui-hos
 const WorkspacePackToolPanel = React.lazy(() => import('../capability-ui-hosts/WorkspacePackToolPanel'));
 const MotionSourceRailPanel = React.lazy(() => import('@/components/workspace/device-binding/MotionSourceRailPanel'));
 
+const WORKSPACE_ACTIVE_PANEL_TOGGLE_BINDING_ID = 'tool_rail:workspace:active_panel:toggle';
+
 const GROUP_LABELS: Record<WorkspaceRightRegionGroup, string> = {
   execution: 'Runs',
   workspace: 'Workspace',
   meeting: 'Meeting',
+  graph: 'Graph',
   capability: 'Pack',
   runtime: 'Runtime',
   tool_runtime: 'Tool Runtime',
@@ -45,12 +50,15 @@ const GROUP_LABELS: Record<WorkspaceRightRegionGroup, string> = {
 const GROUP_ORDER: Record<WorkspaceRightRegionGroup, number> = {
   execution: 10,
   workspace: 20,
-  meeting: 30,
-  capability: 40,
-  runtime: 50,
-  tool_runtime: 60,
-  data: 70,
+  graph: 30,
+  meeting: 40,
+  capability: 50,
+  runtime: 60,
+  tool_runtime: 70,
+  data: 80,
 };
+
+const WORKSPACE_TOOL_RAIL_COMMAND_ID = 'workspace.tool_rail.toggle';
 
 function isActiveExecutionStatus(status: unknown): boolean {
   const normalized = String(status || '').toLowerCase();
@@ -104,6 +112,31 @@ function resolveVisibleMobileFloatingControls(
   ));
 }
 
+function bindingIdForContribution(contribution: WorkspaceGlobalToolContribution): string {
+  return `workspace_tool:${contribution.key}:open`;
+}
+
+function shortcutOwnerForContribution(contribution: WorkspaceGlobalToolContribution) {
+  if (
+    contribution.key.startsWith('core:')
+    || contribution.key.startsWith('aol:')
+    || contribution.key.startsWith('workspace-surface:')
+  ) {
+    return {
+      ownerType: 'core' as const,
+      ownerId: contribution.key.startsWith('aol:') ? 'runtime' : 'workspace',
+      ownerLabel: contribution.key.startsWith('aol:') ? 'Runtime' : 'Workspace',
+    };
+  }
+
+  const ownerId = contribution.key.split(':')[0] || 'pack';
+  return {
+    ownerType: 'pack' as const,
+    ownerId,
+    ownerLabel: ownerId,
+  };
+}
+
 interface WorkspaceGlobalToolRailProviderProps {
   workspaceId: string;
   children: React.ReactNode;
@@ -115,10 +148,18 @@ export default function WorkspaceGlobalToolRailProvider({
 }: WorkspaceGlobalToolRailProviderProps) {
   const apiUrl = getApiBaseUrl();
   const workspaceData = useWorkspaceDataOptional();
+  const {
+    activateScope,
+    getCommandAriaShortcut,
+    getCommandShortcut,
+    registerCommand,
+  } = useKeyboardShortcuts();
   const placement = useCapabilityWorkbenchPlacement();
+  const shortcutScope = `workspace:${workspaceId}`;
   const railPlacement = placement === 'mobile' ? 'tray' : 'side';
   const [activeToolKey, setActiveToolKey] = React.useState<string | null>(null);
   const [activeCapabilityCode, setActiveCapabilityCode] = React.useState<string | null>(null);
+  const [lastPanelToolKey, setLastPanelToolKey] = React.useState<string | null>(null);
   const [mobileTrayOpen, setMobileTrayOpen] = React.useState(false);
   const [registeredScopeContributions, setRegisteredScopeContributions] = React.useState<Record<string, WorkspaceGlobalToolContribution[]>>({});
   const [registeredMobileFloatingControls, setRegisteredMobileFloatingControls] = React.useState<Record<string, CapabilityWorkbenchMobileFloatingControl[]>>({});
@@ -178,6 +219,7 @@ export default function WorkspaceGlobalToolRailProvider({
       icon: <Activity aria-hidden="true" className="h-4 w-4" />,
       group: 'execution',
       order: 10,
+      defaultShortcut: 'R',
       badge: activeExecutionCount || null,
       testId: 'workspace-runs-tool',
       renderPanel: () => (
@@ -194,6 +236,7 @@ export default function WorkspaceGlobalToolRailProvider({
       icon: <SettingsIcon aria-hidden="true" className="h-4 w-4" />,
       group: 'workspace',
       order: 20,
+      defaultShortcut: 'S',
       testId: 'workspace-settings-tool',
       renderPanel: () => (
         <WorkspaceSettingsToolPanel workspaceId={workspaceId} apiUrl={apiUrl} />
@@ -206,6 +249,7 @@ export default function WorkspaceGlobalToolRailProvider({
       icon: <Package aria-hidden="true" className="h-4 w-4" />,
       group: 'capability',
       order: 30,
+      defaultShortcut: 'A',
       testId: 'workspace-pack-tool',
       renderPanel: () => (
         <WorkspacePackToolPanel workspaceId={workspaceId} apiUrl={apiUrl} />
@@ -218,6 +262,7 @@ export default function WorkspaceGlobalToolRailProvider({
       icon: <Smartphone aria-hidden="true" className="h-4 w-4" />,
       group: 'runtime',
       order: 30,
+      defaultShortcut: 'C',
       testId: 'workspace-motion-source-tool',
       renderPanel: () => (
         <MotionSourceRailPanel workspaceId={workspaceId} apiUrl={apiUrl} />
@@ -228,8 +273,9 @@ export default function WorkspaceGlobalToolRailProvider({
       id: 'graph',
       label: 'Graph',
       icon: <GitGraph aria-hidden="true" className="h-4 w-4" />,
-      group: 'workspace',
+      group: 'graph',
       order: 40,
+      defaultShortcut: 'G',
       testId: 'workspace-graph-tool',
       onSelect: () => {
         openAppRouteInNewWindow(`/mindscape/canvas?workspaceId=${encodeURIComponent(workspaceId)}`);
@@ -252,6 +298,16 @@ export default function WorkspaceGlobalToolRailProvider({
       setActiveToolKey(null);
     }
   }, [activeContribution, activeToolKey]);
+
+  React.useEffect(() => {
+    return activateScope(shortcutScope);
+  }, [activateScope, shortcutScope]);
+
+  React.useEffect(() => {
+    if (activeContribution?.renderPanel) {
+      setLastPanelToolKey(activeContribution.key);
+    }
+  }, [activeContribution]);
 
   React.useEffect(() => {
     if (!isMobilePlacement) {
@@ -293,7 +349,10 @@ export default function WorkspaceGlobalToolRailProvider({
     function dismissMobileTray(event?: Event) {
       const target = event?.target;
       if (target instanceof Node) {
-        if (mobileTrayAnchorRef.current?.contains(target) || mobilePanelRef.current?.contains(target)) {
+        if (
+          mobileTrayAnchorRef.current?.contains(target)
+          || mobilePanelRef.current?.contains(target)
+        ) {
           return;
         }
       }
@@ -316,7 +375,7 @@ export default function WorkspaceGlobalToolRailProvider({
     };
   }, [isMobilePlacement, mobileTrayOpen]);
 
-  const handleContributionClick = React.useCallback((contribution: WorkspaceGlobalToolContribution) => {
+  const activateContribution = React.useCallback((contribution: WorkspaceGlobalToolContribution) => {
     if (contribution.disabled) {
       return;
     }
@@ -331,6 +390,58 @@ export default function WorkspaceGlobalToolRailProvider({
       setActiveToolKey((current) => (current === contribution.key ? null : contribution.key));
     }
   }, []);
+  const handleContributionClick = activateContribution;
+
+  React.useEffect(() => {
+    const disposers = visibleContributions
+      .filter((contribution) => Boolean(contribution.defaultShortcut))
+      .map((contribution) => {
+        const owner = shortcutOwnerForContribution(contribution);
+        return registerCommand({
+          bindingId: bindingIdForContribution(contribution),
+          commandId: WORKSPACE_TOOL_RAIL_COMMAND_ID,
+          label: contribution.label,
+          ownerType: owner.ownerType,
+          ownerId: owner.ownerId,
+          ownerLabel: owner.ownerLabel,
+          defaultShortcut: contribution.defaultShortcut,
+          scope: shortcutScope,
+          preventDefault: true,
+          enabled: contribution.disabled !== true,
+          action: () => activateContribution(contribution),
+        });
+      });
+    return () => disposers.forEach((dispose) => dispose());
+  }, [activateContribution, registerCommand, shortcutScope, visibleContributions]);
+
+  const toggleActiveWorkspacePanel = React.useCallback(() => {
+    if (activeContribution?.renderPanel) {
+      setActiveToolKey(null);
+      return;
+    }
+    const lastContribution = visibleContributions.find((contribution) => (
+      contribution.key === lastPanelToolKey
+      && contribution.disabled !== true
+      && Boolean(contribution.renderPanel)
+    ));
+    if (!lastContribution) {
+      return;
+    }
+    setMobileTrayOpen(true);
+    setActiveToolKey(lastContribution.key);
+  }, [activeContribution, lastPanelToolKey, visibleContributions]);
+
+  useToolRailPanelToggleShortcut({
+    bindingId: WORKSPACE_ACTIVE_PANEL_TOGGLE_BINDING_ID,
+    scope: shortcutScope,
+    label: 'Toggle active workspace tool panel',
+    ownerType: 'core',
+    ownerId: 'workspace',
+    ownerLabel: 'Workspace',
+    enabled: Boolean(activeContribution?.renderPanel || lastPanelToolKey),
+    shortcutPriority: activeContribution?.renderPanel ? 350 : undefined,
+    onToggle: toggleActiveWorkspacePanel,
+  });
 
   const groups = React.useMemo<WorkspaceToolRailGroup[]>(() => {
     const grouped = new Map<WorkspaceRightRegionGroup, WorkspaceGlobalToolContribution[]>();
@@ -348,25 +459,32 @@ export default function WorkspaceGlobalToolRailProvider({
         testId: `workspace-global-tool-group-${group}`,
         children: (
           <>
-            {contributions.sort(sortContributions).map((contribution) => (
-              <React.Fragment key={contribution.key}>
-                {contribution.renderRailButton ? contribution.renderRailButton() : (
-                  <WorkspaceToolRailButton
-                    label={contribution.label}
-                    icon={contribution.icon}
-                    active={activeToolKey === contribution.key}
-                    disabled={contribution.disabled}
-                    badge={contribution.badge}
-                    testId={contribution.testId}
-                    onClick={() => handleContributionClick(contribution)}
-                  />
-                )}
-              </React.Fragment>
-            ))}
+            {contributions.sort(sortContributions).map((contribution) => {
+              const bindingId = bindingIdForContribution(contribution);
+              const currentShortcut = getCommandShortcut(bindingId, contribution.defaultShortcut);
+              const ariaShortcut = getCommandAriaShortcut(bindingId, contribution.defaultShortcut);
+              return (
+                <React.Fragment key={contribution.key}>
+                  {contribution.renderRailButton ? contribution.renderRailButton() : (
+                    <WorkspaceToolRailButton
+                      label={contribution.label}
+                      icon={contribution.icon}
+                      shortcut={currentShortcut}
+                      ariaKeyShortcuts={ariaShortcut}
+                      active={activeToolKey === contribution.key}
+                      disabled={contribution.disabled}
+                      badge={contribution.badge}
+                      testId={contribution.testId}
+                      onClick={() => handleContributionClick(contribution)}
+                    />
+                  )}
+                </React.Fragment>
+              );
+            })}
           </>
         ),
       }));
-  }, [activeToolKey, handleContributionClick, visibleContributions]);
+  }, [activeToolKey, getCommandAriaShortcut, getCommandShortcut, handleContributionClick, visibleContributions]);
 
   const contextValue = React.useMemo(() => ({
     activeToolKey,
@@ -392,7 +510,7 @@ export default function WorkspaceGlobalToolRailProvider({
     render: () => (
       <div
         ref={mobileTrayAnchorRef}
-        className="flex flex-col items-start gap-2"
+        className="flex flex-col items-end gap-2"
         data-testid="workspace-global-tool-tray-anchor"
       >
         <button
@@ -422,17 +540,17 @@ export default function WorkspaceGlobalToolRailProvider({
   }), [mobileTrayOpen, workspaceToolRail]);
   const mobileFloatingControls = React.useMemo(() => (
     isMobilePlacement
-      ? [workspaceToolFloatingControl, ...visibleMobileFloatingControls].sort((left, right) => (
+      ? [...visibleMobileFloatingControls].sort((left, right) => (
         left.order - right.order || left.key.localeCompare(right.key)
       ))
       : []
-  ), [isMobilePlacement, visibleMobileFloatingControls, workspaceToolFloatingControl]);
+  ), [isMobilePlacement, visibleMobileFloatingControls]);
 
   const workspaceToolPanel = activeContribution?.renderPanel ? (
     <aside
       ref={mobilePanelRef}
       className={isMobilePlacement
-        ? 'absolute left-14 top-[calc(0.5rem+env(safe-area-inset-top,0px))] z-40 flex max-h-[min(78dvh,36rem)] w-[min(20rem,calc(100vw-4.75rem))] max-w-[calc(100vw-4.75rem)] flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl dark:border-gray-800 dark:bg-gray-950'
+        ? 'absolute right-14 top-[calc(0.5rem+env(safe-area-inset-top,0px))] bottom-[calc(4.75rem+env(safe-area-inset-bottom,0px))] z-40 flex max-h-none w-[min(20rem,calc(100vw-4.75rem))] max-w-[calc(100vw-4.75rem)] flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl dark:border-gray-800 dark:bg-gray-950'
         : `flex h-full ${WORKSPACE_RIGHT_REGION_PANEL_WIDTH_CLASS} shrink-0 flex-col border-l border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-950`}
       data-testid="workspace-global-tool-panel"
       data-active-tool-key={activeContribution.key}
@@ -446,7 +564,9 @@ export default function WorkspaceGlobalToolRailProvider({
           type="button"
           aria-label={`Close ${activeContribution.label}`}
           className="inline-flex h-7 w-7 items-center justify-center rounded text-gray-500 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-900 dark:hover:text-gray-100"
-          onClick={() => setActiveToolKey(null)}
+          onClick={() => {
+            setActiveToolKey(null);
+          }}
         >
           <X aria-hidden="true" className="h-4 w-4" />
         </button>
@@ -473,6 +593,12 @@ export default function WorkspaceGlobalToolRailProvider({
           {isMobilePlacement ? (
             <>
               {workspaceToolPanel}
+              <div
+                className="absolute right-2 top-[calc(0.5rem+env(safe-area-inset-top,0px))] z-50 flex flex-col items-end gap-2"
+                data-testid="workspace-mobile-host-rail-controls"
+              >
+                {workspaceToolFloatingControl.render()}
+              </div>
               {mobileFloatingControls.length > 0 ? (
                 <div
                   className="absolute left-2 top-[calc(0.5rem+env(safe-area-inset-top,0px))] z-50 flex flex-col items-start gap-2"

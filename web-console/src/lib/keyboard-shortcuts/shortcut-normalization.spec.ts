@@ -25,4 +25,13 @@ describe('keyboard shortcut normalization', () => {
     });
     expect(eventToShortcut(event)?.canonical).toBe('Shift+S');
   });
+
+  it('normalizes the tilde key as a backquote shortcut', () => {
+    expect(normalizeShortcut('~')?.canonical).toBe('Backquote');
+    expect(normalizeShortcut('`')?.canonical).toBe('Backquote');
+    expect(normalizeShortcut('~')?.display).toBe('~');
+    expect(eventToShortcut(new KeyboardEvent('keydown', { key: '`' }))?.canonical).toBe('Backquote');
+    expect(eventToShortcut(new KeyboardEvent('keydown', { key: '~', shiftKey: true }))?.canonical).toBe('Backquote');
+    expect(eventToShortcut(new KeyboardEvent('keydown', { key: 'Dead', code: 'Backquote' }))?.canonical).toBe('Backquote');
+  });
 });

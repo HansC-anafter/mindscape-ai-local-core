@@ -610,6 +610,11 @@ export function WorkspaceDataProvider({
         return;
       }
 
+      if (isCapabilityHostProfile) {
+        setIsLoadingWorkspace(false);
+        return;
+      }
+
       // Reset flags to ensure fresh start
       loadingWorkspaceRef.current = false;
       loadingWorkspaceDetailsRef.current = false;

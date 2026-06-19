@@ -171,6 +171,8 @@ async def get_workspace_agent_auth_status(
 
 from .account_home_routes import router as account_home_router
 from .auth_routes import router as auth_router
+from .bridge_service_routes import router as bridge_service_router
 
+router.include_router(bridge_service_router)
 router.include_router(account_home_router)
 router.include_router(auth_router)

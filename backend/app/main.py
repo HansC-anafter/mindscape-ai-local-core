@@ -25,6 +25,7 @@ from backend.app.app_bootstrap.cors import get_cors_origins, get_cors_origin_reg
 from backend.app.app_bootstrap.routes import register_all_routes
 from backend.app.app_bootstrap.lifecycle import lifespan
 from backend.app.app_bootstrap.error_handlers import register_error_handlers
+from backend.app.services.host_service_health_registry import HOST_SERVICE_HEALTH_URLS
 
 # Configure logging
 logging.basicConfig(
@@ -312,20 +313,6 @@ async def health_check():
 
 
 # Service URLs reachable from inside Docker (backend proxies these for the frontend)
-_HOST_SERVICE_URLS: dict = {
-    "stt": os.getenv("WHISPER_SERVICE_URL", "http://whisper-service:8006")
-    + "/health",
-    "xtts": os.getenv("XTTS_SERVICE_URL", "http://xtts-service:8020") + "/health",
-    "mcp-gateway": os.getenv(
-        "MCP_GATEWAY_HEALTH_URL", "http://host.docker.internal:8180/health"
-    ),
-    "mobile-workbench-gateway": os.getenv(
-        "MOBILE_WORKBENCH_GATEWAY_HEALTH_URL",
-        "http://frontend:3000/api/v1/host/services/mobile-workbench-gateway/health",
-    ),
-}
-
-
 @app.get("/api/v1/host/services/{service}/health")
 async def host_service_health(service: str):
     """
@@ -336,10 +323,11 @@ async def host_service_health(service: str):
       - xtts         → xtts-service:8020/health  (Docker sidecar)
       - mcp-gateway  → host.docker.internal:8180/health (Node process on host)
       - mobile-workbench-gateway -> frontend:3000/api/v1/host/services/mobile-workbench-gateway/health
+      - device-link-https -> frontend:3000/api/v1/host/services/device-link-https/health
     """
     import httpx as _httpx
 
-    url = _HOST_SERVICE_URLS.get(service)
+    url = HOST_SERVICE_HEALTH_URLS.get(service)
     if not url:
         raise HTTPException(status_code=404, detail=f"Unknown service: {service}")
 

@@ -16,11 +16,27 @@ function readFiniteNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
+function readThumbnailUrl(selector: Record<string, unknown>): string {
+  const direct = readString(selector.thumbnail_url)
+    || readString(selector.thumbnailUrl)
+    || readString(selector.thumbnail_ref)
+    || readString(selector.thumbnailRef);
+  if (direct) {
+    return direct;
+  }
+  const thumbnail = selector.thumbnail;
+  if (thumbnail && typeof thumbnail === 'object' && !Array.isArray(thumbnail)) {
+    return readString((thumbnail as Record<string, unknown>).url);
+  }
+  return '';
+}
+
 function buildCourseChaptersInput(input: {
   instructionRefId: string;
   title: string;
   startSeconds: number | null;
   endSeconds: number | null;
+  thumbnailUrl?: string;
 }): string | undefined {
   if (input.startSeconds == null || input.endSeconds == null || input.endSeconds <= input.startSeconds) {
     return undefined;
@@ -31,6 +47,7 @@ function buildCourseChaptersInput(input: {
       title: input.title,
       start_ms: Math.round(input.startSeconds * 1000),
       end_ms: Math.round(input.endSeconds * 1000),
+      ...(input.thumbnailUrl ? { thumbnail_url: input.thumbnailUrl } : {}),
     },
   ]);
 }
@@ -58,17 +75,20 @@ export function buildMotionPracticeLessonHandoffFromGraphSelection(input: {
   const sourceProvider = readString(selector.source_provider);
   const instructionRefId = readString(selector.instruction_ref_id) || anchor.object_id;
   const sourceTitle = readString(anchor.label) || readString(selector.provider_video_id) || instructionRefId;
+  const thumbnailUrl = readThumbnailUrl(selector);
   return {
     capabilityCode: input.capabilityCode,
     sourceKind: resolveInstructionSourceKindForProvider(sourceProvider),
     sourceValue,
     sourceTitle: sourceTitle || undefined,
     sourceProvider: sourceProvider || undefined,
+    thumbnailUrl: thumbnailUrl || undefined,
     courseChaptersInput: buildCourseChaptersInput({
       instructionRefId,
       title: sourceTitle || 'Selected reference lesson',
       startSeconds: readFiniteNumber(selector.start_seconds),
       endSeconds: readFiniteNumber(selector.end_seconds),
+      thumbnailUrl: thumbnailUrl || undefined,
     }),
   };
 }

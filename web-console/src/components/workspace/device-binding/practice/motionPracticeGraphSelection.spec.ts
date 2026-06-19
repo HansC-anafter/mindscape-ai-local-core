@@ -20,6 +20,9 @@ describe('motionPracticeGraphSelection', () => {
               instruction_ref_id: 'ref_hook_001',
               source_provider: 'youtube',
               canonical_url: 'https://www.youtube.com/watch?v=hook-flow',
+              thumbnail: {
+                url: 'https://i.ytimg.com/vi/hook-flow/hqdefault.jpg',
+              },
               start_seconds: 5,
               end_seconds: 17,
             },
@@ -50,8 +53,10 @@ describe('motionPracticeGraphSelection', () => {
       sourceValue: 'https://www.youtube.com/watch?v=hook-flow',
       sourceTitle: 'Hook Flow',
       sourceProvider: 'youtube',
+      thumbnailUrl: 'https://i.ytimg.com/vi/hook-flow/hqdefault.jpg',
     });
     expect(handoff?.courseChaptersInput).toContain('"chapter_id":"ref_hook_001"');
+    expect(handoff?.courseChaptersInput).toContain('"thumbnail_url":"https://i.ytimg.com/vi/hook-flow/hqdefault.jpg"');
     expect(handoff?.courseChaptersInput).toContain('"start_ms":5000');
     expect(handoff?.courseChaptersInput).toContain('"end_ms":17000');
   });

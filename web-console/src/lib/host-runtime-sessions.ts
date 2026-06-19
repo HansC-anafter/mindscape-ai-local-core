@@ -41,6 +41,23 @@ export interface HostRuntimeStatus {
   bridges: Array<Record<string, unknown>>;
 }
 
+export interface SharedCliBridgeServiceStatus {
+  service: string;
+  workspace_id: string;
+  action?: string;
+  supported?: boolean;
+  installed?: boolean;
+  loaded?: boolean;
+  running?: boolean;
+  state?: string;
+  label?: string;
+  launchd_state?: string | null;
+  auto_recovery?: boolean;
+  plist_path?: string;
+  message?: string;
+  reason?: string | null;
+}
+
 function normalizeApiUrl(apiUrl: string): string {
   return apiUrl.replace(/\/$/, '');
 }
@@ -64,6 +81,34 @@ async function parseJsonResponse<T>(response: Response): Promise<T> {
 export async function fetchHostRuntimeStatus(apiUrl: string): Promise<HostRuntimeStatus> {
   const response = await fetch(`${normalizeApiUrl(apiUrl)}/api/v1/host-runtime/status`);
   return parseJsonResponse<HostRuntimeStatus>(response);
+}
+
+export async function fetchSharedCliBridgeServiceStatus({
+  apiUrl,
+  workspaceId,
+}: {
+  apiUrl: string;
+  workspaceId: string;
+}): Promise<SharedCliBridgeServiceStatus> {
+  const response = await fetch(
+    `${normalizeApiUrl(apiUrl)}/api/v1/workspaces/${encodeURIComponent(workspaceId)}/agents/bridge-service`,
+    { cache: 'no-store' },
+  );
+  return parseJsonResponse<SharedCliBridgeServiceStatus>(response);
+}
+
+export async function startSharedCliBridgeService({
+  apiUrl,
+  workspaceId,
+}: {
+  apiUrl: string;
+  workspaceId: string;
+}): Promise<SharedCliBridgeServiceStatus> {
+  const response = await fetch(
+    `${normalizeApiUrl(apiUrl)}/api/v1/workspaces/${encodeURIComponent(workspaceId)}/agents/bridge-service/start`,
+    { method: 'POST', cache: 'no-store' },
+  );
+  return parseJsonResponse<SharedCliBridgeServiceStatus>(response);
 }
 
 export async function createHostRuntimeSession({

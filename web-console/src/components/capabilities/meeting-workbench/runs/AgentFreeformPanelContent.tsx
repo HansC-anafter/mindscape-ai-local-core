@@ -10,6 +10,7 @@ import { HostRuntimeObjectContextBar } from './HostRuntimeObjectContextBar';
 import { HostRuntimePatchCard } from './HostRuntimePatchCard';
 import { HostRuntimeProvenanceCard } from './HostRuntimeProvenanceCard';
 import { HostRuntimeStatusBadge } from './HostRuntimeStatusBadge';
+import { HostRuntimeSettlementCards } from './HostRuntimeSettlementCards';
 import { HostRuntimeToolEventCard } from './HostRuntimeToolEventCard';
 import type { HostRuntimeGraphContext } from './hostRuntimeGraphContext';
 
@@ -61,6 +62,7 @@ export function AgentFreeformPanelContent({
     case 'trace_cards':
       return (
         <div className="space-y-3">
+          <HostRuntimeSettlementCards apiUrl={apiUrl} workspaceId={session?.workspace_id || ''} />
           <HostRuntimeGovernanceContextBar events={events} />
           <HostRuntimeProvenanceCard events={events} />
         </div>

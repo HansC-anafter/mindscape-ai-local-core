@@ -32,7 +32,7 @@ export function DeviceLinkCaptureSessionController({
     workspaceId,
     initialSourceMode,
   });
-  const [wideLayout, setWideLayout] = useState(readWideLayout);
+  const [wideLayout, setWideLayout] = useState(false);
 
   useEffect(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {

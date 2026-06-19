@@ -32,6 +32,10 @@ function scopePriority(scope: string): number {
   return 0;
 }
 
+function commandPriority(command: KeyboardShortcutCommand): number {
+  return command.shortcutPriority ?? scopePriority(command.scope);
+}
+
 function isScopeActive(scope: string, activeScopes: Set<string>): boolean {
   return scope === 'global' || activeScopes.has(scope);
 }
@@ -92,8 +96,8 @@ export function resolveKeyboardShortcut({
     };
   }
 
-  const highestPriority = Math.max(...matches.map((command) => scopePriority(command.scope)));
-  const priorityMatches = matches.filter((command) => scopePriority(command.scope) === highestPriority);
+  const highestPriority = Math.max(...matches.map(commandPriority));
+  const priorityMatches = matches.filter((command) => commandPriority(command) === highestPriority);
   if (priorityMatches.length !== 1) {
     return {
       status: 'blocked',

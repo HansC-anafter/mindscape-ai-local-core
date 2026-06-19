@@ -25,7 +25,8 @@ describe('AOLMeetingBottomShell facade', () => {
 
     expect(screen.getByTestId('aol-meeting-bottom-shell')).toBeInTheDocument();
     expect(screen.getByTestId('meeting-header-toolbar')).toBeInTheDocument();
-    expect(screen.getByTestId('meeting-task-canvas')).toBeInTheDocument();
+    expect(screen.getByTestId('meeting-runs-workspace-surface')).toBeInTheDocument();
+    expect(screen.getByTestId('agent-freeform-canvas')).toBeInTheDocument();
     expect(await screen.findByRole('option', { name: 'ig / Visual Audit' }, { timeout: 5000 })).toBeInTheDocument();
     await waitFor(() => {
       expect(
@@ -36,7 +37,7 @@ describe('AOLMeetingBottomShell facade', () => {
     });
   });
 
-  it('switches from Work mode into Director Graph mode', async () => {
+  it('opens Director Graph through the preset selector instead of a top-level mode', async () => {
     render(
       <AOLMeetingBottomShell
         workspaceId="ws-global"
@@ -50,12 +51,14 @@ describe('AOLMeetingBottomShell facade', () => {
       />,
     );
 
-    fireEvent.click(screen.getByTestId('meeting-graph-view-director'));
+    fireEvent.change(screen.getByTestId('meeting-workbench-preset-select'), {
+      target: { value: 'director_graph' },
+    });
     expect(await screen.findByTestId('director-graph-canvas')).toBeInTheDocument();
     expect(screen.getByTestId('director-graph-palette')).toBeInTheDocument();
   });
 
-  it('switches from Work mode into the RUNS host runtime workspace', async () => {
+  it('cold starts in the RUNS host runtime workspace', async () => {
     render(
       <AOLMeetingBottomShell
         workspaceId="ws-global"
@@ -69,10 +72,10 @@ describe('AOLMeetingBottomShell facade', () => {
       />,
     );
 
-    fireEvent.click(screen.getByTestId('meeting-graph-view-runs'));
-
     expect(await screen.findByTestId('meeting-runs-workspace-surface')).toBeInTheDocument();
     expect(screen.getByTestId('agent-freeform-canvas')).toBeInTheDocument();
     expect(screen.queryByTestId('meeting-graph-lanes')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('meeting-graph-view-work')).toBeNull();
+    expect(screen.queryByTestId('meeting-graph-view-director')).toBeNull();
   });
 });

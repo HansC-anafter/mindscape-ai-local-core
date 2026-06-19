@@ -1,10 +1,11 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 
 import {
   CaptureSourceBridgeProvider,
+  type CaptureSourceReferenceLessonState,
   useCaptureSourceBridge,
   useOptionalCaptureSourceBridge,
 } from '@/components/workspace/device-binding/capture-bridge/CaptureSourceBridgeProvider';
@@ -40,6 +41,53 @@ function resolveCoachPack(capabilityCode: MotionCoachCapabilityCode): MotionPrac
   return capabilityCode === 'dance_motion_coach' ? 'dance_motion_coach' : 'yogacoach';
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function readString(value: unknown): string {
+  return typeof value === 'string' && value.trim() ? value.trim() : '';
+}
+
+function readNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function readRecordArray(value: unknown): Record<string, unknown>[] {
+  return Array.isArray(value) ? value.filter(isRecord) : [];
+}
+
+function buildReferenceLessonDeviceState(
+  workbenchState: Record<string, unknown>,
+): CaptureSourceReferenceLessonState | null {
+  const lessonState = isRecord(workbenchState.reference_lesson_state)
+    ? workbenchState.reference_lesson_state
+    : null;
+  if (!lessonState) {
+    return null;
+  }
+  const lessonId = readString(lessonState.lesson_id);
+  if (!lessonId || lessonId === 'lesson_pending') {
+    return null;
+  }
+  const activeId = readString(lessonState.activeChapterId) || readString(lessonState.activePhraseId);
+  const entries = readRecordArray(lessonState.chapters).length
+    ? readRecordArray(lessonState.chapters)
+    : readRecordArray(lessonState.phrases);
+  const activeEntry = entries.find((entry) => readString(entry.id) === activeId) || entries[0] || null;
+  const focusCue = readString(activeEntry?.focus)
+    || readString(activeEntry?.teacherCue)
+    || readString(activeEntry?.rhythmFocus)
+    || readString(activeEntry?.styleCue);
+  return {
+    chapter_ref: activeId || readString(activeEntry?.id),
+    title: readString(activeEntry?.title) || readString(lessonState.title),
+    timestamp_ms: readNumber(activeEntry?.startMs),
+    poster_ref: readString(activeEntry?.thumbnailUrl) || readString(lessonState.thumbnailUrl),
+    focus_cue: focusCue,
+  };
+}
+
 function MotionCoachWorkbenchHostContent({
   workspaceId,
   apiUrl,
@@ -57,6 +105,7 @@ function MotionCoachWorkbenchHostContent({
   const [launchInput, setLaunchInput] = useState<MotionPracticeLaunchInput | null>(null);
   const [motionWindowEvents, setMotionWindowEvents] = useState<MotionWindowAppendEvent[]>([]);
   const [closureResult, setClosureResult] = useState<MotionPracticeClosureResult | null>(null);
+  const publishedReferenceLessonKeyRef = useRef('');
   const urlLessonHandoff = useMemo(() => (
     parseMotionPracticeLessonHandoff(searchParams)
   ), [searchParams]);
@@ -125,6 +174,20 @@ function MotionCoachWorkbenchHostContent({
     scopedPracticeResult,
     selectedSession,
   ]);
+
+  const referenceLessonDeviceState = useMemo(
+    () => buildReferenceLessonDeviceState(workbenchState),
+    [workbenchState],
+  );
+
+  useEffect(() => {
+    const nextKey = JSON.stringify(referenceLessonDeviceState || null);
+    if (publishedReferenceLessonKeyRef.current === nextKey) {
+      return;
+    }
+    publishedReferenceLessonKeyRef.current = nextKey;
+    captureSourceBridge.publishReferenceLessonState(referenceLessonDeviceState);
+  }, [captureSourceBridge, referenceLessonDeviceState]);
 
   const liveMotionSessionId = scopedPracticeResult
     && scopedPracticeResult.sourceSessionId === selectedSession?.session_id

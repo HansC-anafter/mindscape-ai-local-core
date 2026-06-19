@@ -9,6 +9,7 @@ export interface UIComponentInfo {
   asset_url?: string;
   integrity?: string;
   runtime?: string;
+  legacy_context?: boolean;
   bytes?: number;
   asset_path?: string;
 }

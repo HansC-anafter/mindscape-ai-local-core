@@ -1,5 +1,9 @@
 from .base import *
 from .schemas import ExecutionContext, ExecutionResult
+from backend.app.services.host_runtime_sessions.runtime_recovery_policy import (
+    build_direct_codex_failure_metadata,
+    is_direct_codex_auth_bundle,
+)
 
 
 class CodexExecutionMixin:
@@ -142,6 +146,7 @@ class CodexExecutionMixin:
                     if bundle_attempt_capacity > max_attempts:
                         max_attempts = bundle_attempt_capacity
                 extra_env = auth_bundle.get("env") if isinstance(auth_bundle, dict) else {}
+                direct_codex_runtime = is_direct_codex_auth_bundle(auth_bundle)
                 effective_workspace_id = (
                     str(auth_bundle.get("effective_workspace_id") or "").strip()
                     if isinstance(auth_bundle, dict)
@@ -158,6 +163,19 @@ class CodexExecutionMixin:
                     and not selected_runtime_id
                 ):
                     pool_error = str(auth_bundle.get("error") or "").strip()
+                    if direct_codex_runtime:
+                        return ExecutionResult(
+                            status="failed",
+                            output="",
+                            error=pool_error,
+                            metadata=build_direct_codex_failure_metadata(
+                                selected_runtime_id=None,
+                                workspace_id=ctx.workspace_id,
+                                effective_workspace_id=effective_workspace_id,
+                                error_text=pool_error,
+                                stage="runtime_selection",
+                            ),
+                        )
                     error_text = (
                         f"{last_quota_error} (pool failover unavailable: {pool_error})"
                         if last_quota_error and attempt > 1
@@ -201,6 +219,22 @@ class CodexExecutionMixin:
                         ),
                     )
                 if selected_runtime_id and selected_runtime_id in attempted_runtime_ids:
+                    if direct_codex_runtime:
+                        error_text = last_quota_error or (
+                            f"Direct Codex runtime was already attempted: {selected_runtime_id}"
+                        )
+                        return ExecutionResult(
+                            status="failed",
+                            output="",
+                            error=error_text,
+                            metadata=build_direct_codex_failure_metadata(
+                                selected_runtime_id=selected_runtime_id,
+                                workspace_id=ctx.workspace_id,
+                                effective_workspace_id=effective_workspace_id,
+                                error_text=error_text,
+                                stage="runtime_selection",
+                            ),
+                        )
                     logger.warning(
                         "[TaskExecutor] Codex pool returned previously attempted runtime %s for %s; stopping failover loop",
                         selected_runtime_id,
@@ -227,6 +261,22 @@ class CodexExecutionMixin:
                 if attempt > 1:
                     progress_message = f"Retrying Codex CLI via pool failover ({attempt}/{max_attempts})"
                 await self._report_progress(ctx.execution_id, 15, progress_message)
+                if direct_codex_runtime:
+                    await self._report_progress(
+                        ctx.execution_id,
+                        18,
+                        "Checking Codex CLI login status",
+                    )
+                    preflight_result = await self._preflight_direct_codex_cli(
+                        binary=binary,
+                        cwd=cwd,
+                        extra_env=extra_env if isinstance(extra_env, dict) else None,
+                        ctx=ctx,
+                        selected_runtime_id=selected_runtime_id,
+                        effective_workspace_id=effective_workspace_id,
+                    )
+                    if preflight_result is not None:
+                        return preflight_result
 
                 result = await asyncio.wait_for(
                     self._run_cli_agent_subprocess(
@@ -246,6 +296,18 @@ class CodexExecutionMixin:
                     timeout=timeout,
                 )
                 if result.status == "completed":
+                    return result
+                if direct_codex_runtime:
+                    result.metadata = {
+                        **(result.metadata or {}),
+                        **build_direct_codex_failure_metadata(
+                            selected_runtime_id=selected_runtime_id,
+                            workspace_id=ctx.workspace_id,
+                            effective_workspace_id=effective_workspace_id,
+                            error_text=str((result.error or "") or (result.output or "")),
+                            stage="execution",
+                        ),
+                    }
                     return result
 
                 if not self._should_retry_codex_runtime_fault(result):
@@ -292,6 +354,109 @@ class CodexExecutionMixin:
                 os.unlink(last_message_path)
             except OSError:
                 pass
+
+    async def _preflight_direct_codex_cli(
+        self,
+        *,
+        binary: str,
+        cwd: str,
+        extra_env: Optional[Dict[str, str]],
+        ctx: ExecutionContext,
+        selected_runtime_id: str,
+        effective_workspace_id: str,
+    ) -> Optional[ExecutionResult]:
+        timeout_seconds = min(
+            30.0,
+            self._parse_env_float(
+                "MINDSCAPE_DIRECT_CODEX_PREFLIGHT_TIMEOUT_SECONDS",
+                12.0,
+                minimum=2.0,
+            ),
+        )
+        env = os.environ.copy()
+        env["MINDSCAPE_AGENT_RUNTIME"] = "codex_cli"
+        env["MINDSCAPE_AGENT_EXECUTION_ID"] = ctx.execution_id
+        env["MINDSCAPE_AGENT_WORKSPACE_ID"] = ctx.workspace_id
+        if extra_env:
+            env.update(
+                {
+                    str(key): str(value)
+                    for key, value in extra_env.items()
+                    if value is not None and str(value) != ""
+                }
+            )
+        cmd = [
+            binary,
+            "-c",
+            'model_reasoning_effort="high"',
+            "login",
+            "status",
+        ]
+        proc = None
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                cwd=cwd,
+                env=env,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout_bytes, stderr_bytes = await asyncio.wait_for(
+                proc.communicate(),
+                timeout=timeout_seconds,
+            )
+        except asyncio.TimeoutError:
+            if proc is not None and proc.returncode is None:
+                proc.terminate()
+                try:
+                    await asyncio.wait_for(proc.wait(), timeout=2.0)
+                except (asyncio.TimeoutError, ProcessLookupError):
+                    if proc.returncode is None:
+                        proc.kill()
+                    try:
+                        await asyncio.wait_for(proc.wait(), timeout=2.0)
+                    except (asyncio.TimeoutError, ProcessLookupError):
+                        pass
+            return ExecutionResult(
+                status="failed",
+                output="",
+                error=f"Codex CLI preflight timed out after {int(timeout_seconds)}s",
+                metadata=build_direct_codex_failure_metadata(
+                    selected_runtime_id=selected_runtime_id,
+                    workspace_id=ctx.workspace_id,
+                    effective_workspace_id=effective_workspace_id,
+                    error_text="Codex CLI preflight timed out",
+                    stage="preflight",
+                ),
+            )
+        stdout = clip_cli_stream(
+            stdout_bytes.decode("utf-8", errors="replace"),
+            max_size=MAX_OUTPUT_SIZE,
+        ).strip()
+        stderr = clip_cli_stream(
+            stderr_bytes.decode("utf-8", errors="replace"),
+            max_size=MAX_OUTPUT_SIZE,
+        ).strip()
+        if proc.returncode == 0:
+            return None
+        stderr_tail = tail_cli_stream(stderr, max_size=500) if stderr else ""
+        stdout_tail = tail_cli_stream(stdout, max_size=500) if stdout else ""
+        detail = stderr_tail or stdout_tail or "no Codex CLI preflight output"
+        return ExecutionResult(
+            status="failed",
+            output=stdout,
+            error=f"Codex CLI preflight failed with exit code {proc.returncode}: {detail}",
+            metadata=build_direct_codex_failure_metadata(
+                selected_runtime_id=selected_runtime_id,
+                workspace_id=ctx.workspace_id,
+                effective_workspace_id=effective_workspace_id,
+                error_text=stderr or stdout or detail,
+                stage="preflight",
+                exit_code=proc.returncode,
+                stdout_tail=stdout_tail,
+                stderr_tail=stderr_tail,
+            ),
+        )
 
     @staticmethod
     def _codex_pool_failure_metadata(

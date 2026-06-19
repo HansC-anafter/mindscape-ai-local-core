@@ -33,9 +33,12 @@ vi.mock('./useHostRuntimeRunSession', () => ({
         created_at: '2026-06-16T00:00:00Z',
       },
     ],
+    bridgeService: null,
     isStarting: false,
+    isStartingBridge: false,
     error: null,
     lastSeq: 1,
+    startBridge: vi.fn(),
     submitPrompt,
   }),
 }));
@@ -57,6 +60,7 @@ describe('MeetingRunsWorkspaceSurface', () => {
     expect(screen.queryByTestId('meeting-graph-lanes')).not.toBeInTheDocument();
     expect(screen.queryByTestId('host-runtime-governance-context')).toBeNull();
 
+    fireEvent.click(screen.getByTestId('agent-freeform-inspector-open'));
     fireEvent.click(screen.getByTestId('agent-freeform-inspector-tab-trace_cards'));
 
     expect(screen.getByTestId('host-runtime-governance-context')).toHaveTextContent('host-runtime:ws_test:abc');

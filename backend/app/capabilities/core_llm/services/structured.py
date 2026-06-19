@@ -5,11 +5,61 @@ Extract structured JSON from long text based on schema/description.
 
 import json
 import logging
+import re
 from typing import Dict, Any, Optional
 
 from ....shared.llm_utils import build_prompt, call_llm, extract_json_from_text
 
 logger = logging.getLogger(__name__)
+
+
+def _infer_outer_array_key(schema_description: str) -> Optional[str]:
+    """Infer the wrapper key expected when a model returns a bare array."""
+    if not schema_description:
+        return None
+
+    patterns = [
+        r"with an? ['\"]([A-Za-z_][\w-]*)['\"] property",
+        r"['\"]([A-Za-z_][\w-]*)['\"]\s+property",
+        r"['\"]([A-Za-z_][\w-]*)['\"]\s*:\s*array",
+        r"([A-Za-z_][\w-]*)\s*:\s*array",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, schema_description, flags=re.IGNORECASE)
+        if match:
+            return match.group(1)
+    return None
+
+
+def _normalize_extracted_data(
+    extracted_data: Any,
+    schema_description: str,
+) -> Dict[str, Any]:
+    """Normalize model JSON into the tool's object-shaped output contract."""
+    if isinstance(extracted_data, dict):
+        return extracted_data
+
+    if isinstance(extracted_data, list):
+        outer_key = _infer_outer_array_key(schema_description)
+        if outer_key:
+            logger.warning(
+                "Structured extraction returned a bare list; wrapping it with schema key '%s'",
+                outer_key,
+            )
+            return {outer_key: extracted_data}
+        logger.warning(
+            "Structured extraction returned a bare list without an inferred schema key; using 'items'"
+        )
+        return {"items": extracted_data}
+
+    if extracted_data is None:
+        return {}
+
+    logger.warning(
+        "Structured extraction returned unsupported JSON type %s; storing it under 'value'",
+        type(extracted_data).__name__,
+    )
+    return {"value": extracted_data}
 
 
 async def extract(
@@ -99,7 +149,8 @@ Please output the extraction result in JSON format."""
         # Extract JSON from response
         response_text = result.get('text', '')
         logger.debug(f"Structured extract LLM response (first 500 chars): {response_text[:500]}")
-        extracted_data = extract_json_from_text(response_text)
+        raw_extracted_data = extract_json_from_text(response_text)
+        extracted_data = _normalize_extracted_data(raw_extracted_data, schema_description)
 
         if not extracted_data:
             logger.warning(f"Failed to extract JSON from LLM response. Response text: {response_text[:200]}")

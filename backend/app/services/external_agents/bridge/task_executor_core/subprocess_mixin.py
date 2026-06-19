@@ -78,7 +78,7 @@ class SubprocessMixin:
 
         # Report progress while waiting
         progress_task = asyncio.create_task(
-            self._progress_ticker(ctx.execution_id, proc)
+            self._progress_ticker(ctx.execution_id, proc, runtime_name="subprocess")
         )
 
         stdout_bytes, stderr_bytes = await proc.communicate()
@@ -108,14 +108,23 @@ class SubprocessMixin:
         self,
         execution_id: str,
         proc: asyncio.subprocess.Process,
+        *,
+        runtime_name: str = "runtime",
     ) -> None:
         """Send periodic progress updates while the subprocess runs."""
         pct = 15
+        elapsed = 0
         while pct < 90:
             await asyncio.sleep(5.0)
+            elapsed += 5
             if proc.returncode is not None:
                 break
-            await self._report_progress(execution_id, pct, "Executing task")
+            readable_runtime = "Codex CLI" if runtime_name == "codex_cli" else runtime_name
+            await self._report_progress(
+                execution_id,
+                pct,
+                f"Waiting for {readable_runtime} output ({elapsed}s elapsed)",
+            )
             pct = min(pct + 10, 90)
 
     async def _report_progress(

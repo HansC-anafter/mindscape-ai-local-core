@@ -235,11 +235,11 @@ export function PackScopeToolRailHost({
     setActiveToolKey((current) => {
       const next = current === tool.tool_key ? null : tool.tool_key;
       if (next) {
-        setPanelExpanded(placement === 'mobile');
+        setPanelExpanded(true);
       }
       return next;
     });
-  }, [placement]);
+  }, []);
 
   const toggleActiveToolPanel = React.useCallback(() => {
     if (!activeTool) {
@@ -334,12 +334,12 @@ export function PackScopeToolRailHost({
       if (!requestedTool) {
         return;
       }
-      setPanelExpanded(placement === 'mobile');
+      setPanelExpanded(true);
       setActiveToolKey(requestedTool.tool_key);
     };
     window.addEventListener(PACK_SCOPE_TOOL_OPEN_EVENT, handleOpenRequest);
     return () => window.removeEventListener(PACK_SCOPE_TOOL_OPEN_EVENT, handleOpenRequest);
-  }, [capabilityCode, orderedTools, placement]);
+  }, [capabilityCode, orderedTools]);
 
   const handleDrop = React.useCallback((targetToolKey: string) => {
     if (!draggedToolKey || draggedToolKey === targetToolKey) {

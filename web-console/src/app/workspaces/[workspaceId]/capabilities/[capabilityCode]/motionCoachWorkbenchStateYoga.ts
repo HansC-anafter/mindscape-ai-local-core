@@ -16,6 +16,7 @@ import {
   resolveLessonId,
   resolveLessonSourceLabel,
   resolveLessonSourceProvider,
+  resolveLessonThumbnailUrl,
   resolveLessonTitle,
 } from './motionCoachWorkbenchStateUtils';
 
@@ -49,12 +50,18 @@ export function buildYogaPracticeWorkbenchState(
     input.launchInput,
     input.pendingLessonHandoff,
   );
+  const lessonThumbnailUrl = resolveLessonThumbnailUrl({
+    instructionRefs,
+    segments,
+    pendingLessonHandoff: input.pendingLessonHandoff,
+  });
   const hasSelectedLesson = lessonId !== 'lesson_pending';
   const chapters = segments.length
     ? segments.map((segment, index) => ({
         id: segment.id,
         title: segment.title,
         timeRangeLabel: formatTimeRangeLabel(segment.startMs, segment.endMs),
+        thumbnailUrl: segment.thumbnailUrl || lessonThumbnailUrl || undefined,
         focus: segment.id === activeChapterId
           ? readString(input.referenceLessonState?.focus_cue) || 'Follow the active reference cue while staying centered in frame.'
           : 'Reference chapter queued for practice.',
@@ -72,6 +79,7 @@ export function buildYogaPracticeWorkbenchState(
               readNumber(input.referenceLessonState?.timestamp_ms) + 1000,
             )
           : '--',
+        thumbnailUrl: lessonThumbnailUrl || undefined,
         focus: readString(input.referenceLessonState?.focus_cue) || 'Reference cue pending from the teacher lesson stream.',
         teacherCue: readString(input.referenceLessonState?.focus_cue) || 'Reference cue pending from the teacher lesson stream.',
         status: 'active',
@@ -99,6 +107,7 @@ export function buildYogaPracticeWorkbenchState(
       title: lessonTitle,
       teacherName: 'Reference Instructor',
       sourceLabel,
+      thumbnailUrl: lessonThumbnailUrl || undefined,
       activeChapterId,
       chapters,
     },

@@ -33,6 +33,15 @@ describe('deviceLinkReadiness', () => {
     });
   });
 
+  it('marks remote HTTPS origins as phone and QR ready', () => {
+    expect(assessDeviceLinkOriginReadiness('https://remote-workbench.mindscapeai.app')).toEqual({
+      state: 'ready',
+      origin: 'https://remote-workbench.mindscapeai.app',
+      message: 'Ready for remote phone capture over HTTPS.',
+      qrReady: true,
+    });
+  });
+
   it('prefers an operator supplied public origin over the browser fallback', () => {
     expect(resolveDeviceLinkPublicOrigin({
       overrideOrigin: 'https://192.168.1.20:8343/device-link/PAIR',
@@ -40,7 +49,7 @@ describe('deviceLinkReadiness', () => {
     })).toBe('https://192.168.1.20:8343');
   });
 
-  it('refuses to reuse a remote workbench origin as the phone capture origin', () => {
+  it('keeps remote workbench fallback opt-in', () => {
     expect(resolveDeviceLinkPublicOrigin({
       overrideOrigin: '',
       fallbackOrigin: 'https://remote-workbench.mindscapeai.app',
@@ -52,5 +61,21 @@ describe('deviceLinkReadiness', () => {
       fallbackOrigin: 'http://localhost:8300',
       allowFallbackLoopbackOnly: true,
     })).toBe('http://localhost:8300');
+  });
+
+  it('allows remote HTTPS fallback when enabled by the source rail', () => {
+    expect(resolveDeviceLinkPublicOrigin({
+      overrideOrigin: '',
+      fallbackOrigin: 'https://remote-workbench.mindscapeai.app/workspaces/ws_device',
+      allowFallbackLoopbackOnly: true,
+      allowFallbackHttpsOrigin: true,
+    })).toBe('https://remote-workbench.mindscapeai.app');
+
+    expect(resolveDeviceLinkPublicOrigin({
+      overrideOrigin: '',
+      fallbackOrigin: 'http://remote-workbench.mindscapeai.app',
+      allowFallbackLoopbackOnly: true,
+      allowFallbackHttpsOrigin: true,
+    })).toBe('');
   });
 });

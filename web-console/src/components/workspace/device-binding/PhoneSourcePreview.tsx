@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Activity, Video, VideoOff } from 'lucide-react';
+import { Activity, RefreshCw, Video, VideoOff } from 'lucide-react';
 
 import type { DeviceSessionEntry } from '@/lib/device-binding/deviceBindingClient';
 import {
@@ -46,6 +46,9 @@ export function PhoneSourcePreview({
   const startMotionAnalysisRef = useRef<() => void>(() => undefined);
   const [state, setState] = useState<WebRTCSessionState | 'idle' | 'error'>('idle');
   const [error, setError] = useState<string | null>(null);
+  const [receiverAttempt, setReceiverAttempt] = useState(0);
+  const [receiverNotice, setReceiverNotice] = useState<string | null>(null);
+  const [hasRemoteStream, setHasRemoteStream] = useState(false);
   const [motionStatus, setMotionStatus] = useState<LivePoseWindowControllerStatus>({
     state: 'idle',
     appendedWindowCount: 0,
@@ -127,6 +130,8 @@ export function PhoneSourcePreview({
     stopMotionAnalysis();
     streamRef.current = null;
     setError(null);
+    setReceiverNotice(null);
+    setHasRemoteStream(false);
     const handle = startWorkspaceReceiverSession({
       apiBase: apiUrl,
       workspaceId,
@@ -134,6 +139,9 @@ export function PhoneSourcePreview({
       mediaSessionId: session.session_id,
       onRemoteStream: (stream) => {
         streamRef.current = stream;
+        setHasRemoteStream(true);
+        setReceiverNotice(null);
+        setError(null);
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
         }
@@ -142,6 +150,7 @@ export function PhoneSourcePreview({
       onState: setState,
       onError: (nextError) => {
         setError(nextError.message);
+        setReceiverNotice(null);
         setState('error');
       },
     });
@@ -154,12 +163,29 @@ export function PhoneSourcePreview({
         handleRef.current = null;
       }
     };
-  }, [apiUrl, session.session_id, stopMotionAnalysis, supportsCamera, workspaceId]);
+  }, [apiUrl, receiverAttempt, session.session_id, stopMotionAnalysis, supportsCamera, workspaceId]);
+
+  useEffect(() => {
+    if (
+      !supportsCamera ||
+      hasRemoteStream ||
+      state === 'idle' ||
+      state === 'closed' ||
+      state === 'error'
+    ) {
+      return undefined;
+    }
+    const timer = window.setTimeout(() => {
+      setReceiverNotice('Receiver connected; waiting for the phone video track.');
+    }, 8000);
+    return () => window.clearTimeout(timer);
+  }, [hasRemoteStream, receiverAttempt, state, supportsCamera]);
 
   if (!supportsCamera) {
     return null;
   }
 
+  const receiverLabel = error || receiverNotice || state;
   const motionLabel = liveMotionSessionId
     ? `${motionStatus.state}${motionStatus.reason ? `: ${motionStatus.reason}` : ''} · windows ${motionStatus.appendedWindowCount}`
     : 'practice_required';
@@ -186,8 +212,21 @@ export function PhoneSourcePreview({
           ) : (
             <VideoOff className="h-3 w-3 shrink-0" aria-hidden="true" />
           )}
-          <span className="truncate">{error || state}</span>
+          <span className="truncate">{receiverLabel}</span>
         </div>
+        {!hasRemoteStream && (receiverNotice || error) ? (
+          <div className="absolute inset-x-3 top-1/2 -translate-y-1/2 rounded-md bg-black/75 px-3 py-2 text-center text-xs font-medium text-white">
+            <div>{receiverLabel}</div>
+            <button
+              type="button"
+              className="mt-2 inline-flex items-center gap-1 rounded border border-white/30 px-2 py-1 text-[11px] font-semibold text-white hover:bg-white/10"
+              onClick={() => setReceiverAttempt((current) => current + 1)}
+            >
+              <RefreshCw className="h-3 w-3" aria-hidden="true" />
+              Reconnect receiver
+            </button>
+          </div>
+        ) : null}
         <div
           className="absolute bottom-2 left-2 inline-flex max-w-[calc(100%-1rem)] items-center gap-1 rounded bg-black/70 px-2 py-1 text-[11px] font-medium text-white"
           data-testid={`phone-source-motion-status-${session.session_id}`}

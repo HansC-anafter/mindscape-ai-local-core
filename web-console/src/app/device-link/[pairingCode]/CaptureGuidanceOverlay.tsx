@@ -103,7 +103,7 @@ export function CaptureGuidanceOverlay(props: CaptureGuidanceOverlayProps) {
           {props.captureOrientation}
         </span>
       </div>
-      <div className="absolute inset-x-4 bottom-4">
+      <div className="absolute inset-x-4 bottom-[calc(13rem+env(safe-area-inset-bottom,0px))] sm:bottom-4">
         <div className={`flex items-start gap-3 rounded-md border px-3 py-2 shadow-lg backdrop-blur ${toneClass}`}>
           <Icon className="mt-0.5 h-4 w-4 flex-none" aria-hidden="true" />
           <div>

@@ -150,6 +150,53 @@ describe('externalProviderBridgeClient', () => {
     expect(onState).toHaveBeenCalledWith('offer_sent');
   });
 
+  it('resends the provider offer when the workspace receiver joins after the bridge source', async () => {
+    const { sockets } = installSocketAndPeerMocks();
+    const { stream } = createStreamMock();
+
+    startExternalProviderBridgeSession({
+      apiBase: 'http://api.test',
+      workspaceId: 'ws_device',
+      pairingCode: 'PAIR1234',
+      stream,
+      heartbeatIntervalMs: 0,
+    });
+
+    sockets[0].onopen?.();
+    emitSocketEvent(sockets[0], {
+      type: 'session_paired',
+      workspace_id: 'ws_device',
+      session_id: 'session_provider',
+      active_sessions: [],
+    });
+    sockets[1].onopen?.();
+    emitSocketEvent(sockets[1], {
+      type: 'participant_joined',
+      workspace_id: 'ws_device',
+      device_session_id: 'session_provider',
+      media_session_id: 'session_provider',
+      sender: 'source',
+      created_at_epoch: 1,
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    emitSocketEvent(sockets[1], {
+      type: 'participant_joined',
+      workspace_id: 'ws_device',
+      device_session_id: 'session_provider',
+      media_session_id: 'session_provider',
+      sender: 'workspace',
+      created_at_epoch: 2,
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const offers = sockets[1].sent
+      .map((payload) => JSON.parse(payload))
+      .filter((message) => message.type === 'offer');
+    expect(offers).toHaveLength(2);
+  });
+
   it('sends bounded heartbeats and leaves bridge-owned stream tracks alive by default on stop', () => {
     vi.useFakeTimers();
     const { sockets, peers } = installSocketAndPeerMocks();

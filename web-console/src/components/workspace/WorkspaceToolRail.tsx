@@ -23,6 +23,8 @@ interface WorkspaceToolRailProps {
 interface WorkspaceToolRailButtonProps {
   label: string;
   icon: React.ReactNode;
+  shortcut?: string;
+  ariaKeyShortcuts?: string;
   active?: boolean;
   disabled?: boolean;
   badge?: number | string | null;
@@ -122,6 +124,8 @@ export function WorkspaceToolRail({
 export function WorkspaceToolRailButton({
   label,
   icon,
+  shortcut,
+  ariaKeyShortcuts,
   active = false,
   disabled = false,
   badge = null,
@@ -134,8 +138,9 @@ export function WorkspaceToolRailButton({
       type="button"
       aria-label={label}
       aria-pressed={active}
+      aria-keyshortcuts={ariaKeyShortcuts}
       disabled={disabled}
-      title={label}
+      title={shortcut ? `${label} (${shortcut})` : label}
       data-testid={testId}
       onClick={onClick}
       className={`relative inline-flex h-8 w-8 items-center justify-center rounded border text-gray-600 transition focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-50 dark:text-gray-300 ${

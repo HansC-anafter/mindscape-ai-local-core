@@ -135,6 +135,10 @@ export function startExternalProviderBridgeSession(
           await sendOffer();
           return;
         }
+        if (event.type === 'participant_joined' && event.sender === 'workspace') {
+          await sendOffer();
+          return;
+        }
         if (event.type === 'answer' && event.sdp) {
           const peer = ensurePeerConnection();
           await peer.setRemoteDescription({ type: 'answer', sdp: event.sdp });

@@ -126,8 +126,13 @@ class CliPathsMixin:
             ctx.execution_id,
         )
         self._active[ctx.execution_id] = proc
+        await self._report_progress(
+            ctx.execution_id,
+            25,
+            f"{runtime_name} subprocess started",
+        )
         progress_task = asyncio.create_task(
-            self._progress_ticker(ctx.execution_id, proc)
+            self._progress_ticker(ctx.execution_id, proc, runtime_name=runtime_name)
         )
 
         try:
@@ -164,6 +169,11 @@ class CliPathsMixin:
         except asyncio.CancelledError:
             pass
 
+        await self._report_progress(
+            ctx.execution_id,
+            90,
+            f"Collecting {runtime_name} output",
+        )
         after_files = (
             self._snapshot_files(resolved_snapshot_root, only_paths=snapshot_paths)
             if resolved_snapshot_root
@@ -215,7 +225,12 @@ class CliPathsMixin:
                 "[TaskExecutor] %s subprocess pid=%s finished with code 0 for %s",
                 runtime_name,
                 proc.pid,
+                    ctx.execution_id,
+            )
+            await self._report_progress(
                 ctx.execution_id,
+                95,
+                "Finalizing runtime output",
             )
             return ExecutionResult(
                 status="completed",

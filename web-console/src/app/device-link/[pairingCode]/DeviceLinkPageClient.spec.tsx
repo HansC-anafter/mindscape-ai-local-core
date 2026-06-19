@@ -160,6 +160,22 @@ describe('DeviceLinkPageClient', () => {
     expect(openDeviceControlSocket).not.toHaveBeenCalled();
   });
 
+  it('renders the mobile camera controls as a bounded product control panel', () => {
+    render(
+      createElement(DeviceLinkPageClient, {
+        pairingCode: 'PAIR1234',
+        workspaceId: 'ws_device',
+      }),
+    );
+
+    expect(screen.getByTestId('device-link-capture-control-panel')).toBeInTheDocument();
+    expect(screen.getByText('Capture controls')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Use front camera' })).toHaveTextContent('Flip');
+    expect(screen.getByRole('button', { name: 'Use front camera' })).toHaveTextContent('Rear');
+    expect(screen.getByRole('button', { name: 'Use landscape capture' })).toHaveTextContent('Rotate');
+    expect(screen.getByRole('button', { name: 'Connect' })).toHaveClass('w-full');
+  });
+
   it('starts phone media transport after the device binding session pairs', async () => {
     render(
       createElement(DeviceLinkPageClient, {
@@ -516,7 +532,7 @@ describe('DeviceLinkPageClient', () => {
     );
 
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Camera' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Computer camera' }));
     });
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Select OBS Virtual Camera' }));
@@ -592,7 +608,7 @@ describe('DeviceLinkPageClient', () => {
       }),
     );
 
-    expect(screen.getByTestId('pad-capture-companion')).toBeTruthy();
+    await waitFor(() => expect(screen.getByTestId('pad-capture-companion')).toBeTruthy());
     expect(screen.getByText('Reference lesson')).toBeTruthy();
 
     await act(async () => {

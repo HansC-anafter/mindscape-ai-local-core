@@ -54,6 +54,7 @@ CANONICAL_EVENT_TYPES = {
     "governance.snapshot.recorded",
     "patch.proposed",
     "artifact.provenance.recorded",
+    "runtime.progress",
     "file.changed",
     "layout.intent",
     "layout.accepted",

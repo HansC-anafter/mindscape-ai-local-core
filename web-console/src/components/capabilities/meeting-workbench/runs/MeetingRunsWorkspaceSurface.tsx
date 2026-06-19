@@ -73,13 +73,16 @@ export function MeetingRunsWorkspaceSurface({
         events={runtime.events}
         session={runtime.session}
         runtimeStatus={runtime.status}
+        bridgeService={runtime.bridgeService}
         meetingId={meetingId}
         selectedObjectRef={selectedObjectRef}
         graphContext={runtime.graphContext}
         isStarting={runtime.isStarting}
+        isStartingBridge={runtime.isStartingBridge}
         error={runtime.error}
         compactLayout={compactLayout}
         onSubmitPrompt={runtime.submitPrompt}
+        onStartBridge={runtime.startBridge}
         onSelectPanel={layout.selectPanel}
         onResetLayout={layout.resetLayout}
         onToggleLocked={layout.toggleLocked}

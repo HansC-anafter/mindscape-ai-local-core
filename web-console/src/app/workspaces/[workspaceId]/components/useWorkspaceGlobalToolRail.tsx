@@ -15,6 +15,7 @@ export interface WorkspaceGlobalToolContribution {
   icon?: React.ReactNode;
   group: WorkspaceRightRegionGroup;
   order: number;
+  defaultShortcut?: string;
   testId?: string;
   badge?: number | string | null;
   visible?: boolean;

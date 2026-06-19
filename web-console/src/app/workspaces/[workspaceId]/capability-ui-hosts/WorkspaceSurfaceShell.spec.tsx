@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { loadCapabilityUIComponent } from '@/lib/capability-ui-loader';
+import { KeyboardShortcutProvider } from '@/lib/keyboard-shortcuts';
 import { fetchWorkspaceToolDefinitions } from '@/lib/workspace-tools/workspace-tool-registry';
 import { useRunObservationsSummary } from '@/lib/workspace-runs/useRunObservationsSummary';
 import {
@@ -217,6 +218,7 @@ describe('WorkspaceSurfaceShell', () => {
     await waitFor(() => {
       expect(screen.getByTestId('workspace-info-tool')).toBeDisabled();
     });
+    expect(screen.getByTestId('workspace-info-tool')).toHaveAttribute('title', 'Info (Q)');
     expect(screen.getByTestId('workspace-settings-tool')).toBeInTheDocument();
     expect(screen.getByTestId('workspace-pack-tool')).toBeInTheDocument();
     expect(screen.getByTestId('aol-global-anchor')).toBeInTheDocument();
@@ -226,6 +228,74 @@ describe('WorkspaceSurfaceShell', () => {
       'idle',
     );
     expect(screen.queryByTestId('workspace-global-tool-panel')).not.toBeInTheDocument();
+  });
+
+  it('keeps manifest shortcuts on workspace right-rail tools', async () => {
+    vi.mocked(fetchWorkspaceToolDefinitions).mockResolvedValue([
+      {
+        tool_key: 'shortcut_capability:inspector',
+        capability_code: 'shortcut_capability',
+        id: 'inspector',
+        group: 'capability',
+        slot: 'workspace.right_rail.tool',
+        label: 'Inspector',
+        icon: 'PanelRight',
+        order: 30,
+        shortcut: 'E',
+        panel_component_code: 'IGInspectorWorkspaceToolPanel',
+        panel_component: {
+          code: 'IGInspectorWorkspaceToolPanel',
+          path: 'ui/IGInspectorWorkspaceToolPanel.tsx',
+          description: 'Inspector panel',
+          export: 'default',
+          artifact_types: [],
+          playbook_codes: [],
+          import_path: '@/app/capabilities/ig/components/IGInspectorWorkspaceToolPanel',
+          layout_hint: 'default',
+        },
+      },
+    ]);
+
+    render(
+      <WorkspaceSurfaceShell
+        workspaceId="ws_shortcut_capability"
+        activeCapabilityCode="shortcut_capability"
+        surfacePath={[]}
+      >
+        <div data-testid="surface-content">IG workbench</div>
+      </WorkspaceSurfaceShell>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('workspace-tool-shortcut_capability:inspector')).toHaveAttribute('title', 'Inspector (E)');
+    }, { timeout: 4000 });
+  });
+
+  it('toggles AOL object selection from the runtime rail shortcut', async () => {
+    render(
+      <KeyboardShortcutProvider loadProfileOnMount={false}>
+        <WorkspaceSurfaceShell
+          workspaceId="ws_test"
+          activeCapabilityCode="demo_capability"
+          surfacePath={[]}
+        >
+          <input data-testid="aol-shortcut-input" />
+        </WorkspaceSurfaceShell>
+      </KeyboardShortcutProvider>,
+    );
+
+    fireEvent.keyDown(screen.getByTestId('aol-shortcut-input'), { key: 'b' });
+    expect(screen.getByTestId('aol-workspace-region')).toHaveAttribute('data-aol-mode', 'idle');
+
+    fireEvent.keyDown(window, { key: 'b' });
+    await waitFor(() => {
+      expect(screen.getByTestId('aol-workspace-region')).toHaveAttribute('data-aol-mode', 'selecting');
+    });
+
+    fireEvent.keyDown(window, { key: 'b' });
+    await waitFor(() => {
+      expect(screen.getByTestId('aol-workspace-region')).toHaveAttribute('data-aol-mode', 'idle');
+    });
   });
 
   it('opens the shared workbench info panel when the capability registers metadata', async () => {

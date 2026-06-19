@@ -2,8 +2,10 @@
 
 import argparse
 import asyncio
+import json
 import os
 import signal
+import sys
 from collections import OrderedDict
 from typing import Any, Callable, Coroutine, Dict, Optional, Set
 
@@ -215,6 +217,20 @@ class HostBridgeWSClient(
         self._ws_forbidden_count = 0
 
 
+def _host_runtime_session_bridge_enabled(surface: str) -> bool:
+    return surface == "codex_cli" and _env_flag(
+        "MINDSCAPE_ENABLE_HOST_RUNTIME_SESSION_BRIDGE",
+        True,
+    )
+
+
+def _host_runtime_session_bridge_id(client: HostBridgeWSClient) -> str:
+    explicit_bridge_id = os.environ.get("HOST_RUNTIME_BRIDGE_ID", "").strip()
+    if explicit_bridge_id:
+        return explicit_bridge_id
+    return f"hostrt-shared-{_safe_path_component(client.client_id or client.workspace_id)}"
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Host-side WebSocket client for shared CLI surfaces"
@@ -342,6 +358,24 @@ def main():
         task_handler=executor,
     )
 
+    host_runtime_client = None
+    if _host_runtime_session_bridge_enabled(args.surface):
+        from backend.app.services.host_runtime_sessions.bridge_client import (
+            HostRuntimeSessionBridgeClient,
+        )
+
+        runtime_model = os.environ.get("HOST_RUNTIME_MODEL", "").strip() or None
+        host_runtime_client = HostRuntimeSessionBridgeClient(
+            host=args.host,
+            bridge_id=_host_runtime_session_bridge_id(client),
+            workspace_ids=[args.workspace_id],
+            runtime_surface=args.surface,
+            runtime_id=args.surface,
+            workspace_root=args.workspace_root,
+            max_duration=max(1, _env_int("HOST_RUNTIME_MAX_DURATION", 600)),
+            model=runtime_model,
+        )
+
     # Handle graceful shutdown
     loop = asyncio.new_event_loop()
 
@@ -362,6 +396,8 @@ def main():
             runtime_identity.get("xpc_service_name") or "-",
             client._active_tasks,
         )
+        if host_runtime_client is not None:
+            loop.create_task(host_runtime_client.stop())
         loop.create_task(client.stop())
 
     try:
@@ -371,8 +407,30 @@ def main():
         # Windows: add_signal_handler is not supported, use signal.signal fallback
         signal.signal(signal.SIGINT, lambda s, f: shutdown(signal.SIGINT))
 
+    async def run_bridge_clients():
+        host_runtime_task: Optional[asyncio.Task] = None
+        if host_runtime_client is not None:
+            logger.info(
+                (
+                    "Starting Host Runtime Session registration through shared "
+                    "CLI bridge (workspace=%s surface=%s bridge_id=%s)"
+                ),
+                client.workspace_id,
+                client.surface,
+                host_runtime_client.bridge_id,
+            )
+            host_runtime_task = asyncio.create_task(host_runtime_client.run())
+        try:
+            await client.run()
+        finally:
+            if host_runtime_client is not None:
+                await host_runtime_client.stop()
+            if host_runtime_task is not None:
+                host_runtime_task.cancel()
+                await asyncio.gather(host_runtime_task, return_exceptions=True)
+
     try:
-        loop.run_until_complete(client.run())
+        loop.run_until_complete(run_bridge_clients())
     finally:
         loop.close()
 

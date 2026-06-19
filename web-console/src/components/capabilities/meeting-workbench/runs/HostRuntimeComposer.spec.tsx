@@ -39,5 +39,7 @@ describe('HostRuntimeComposer', () => {
 
     fireEvent.click(screen.getByTestId('host-runtime-submit'));
     expect(onSubmit).toHaveBeenCalledWith('voice prompt');
+    expect(screen.getByTestId('host-runtime-pinned-prompt')).toHaveTextContent('voice prompt');
+    expect(screen.getByTestId('host-runtime-prompt')).toHaveValue('');
   });
 });

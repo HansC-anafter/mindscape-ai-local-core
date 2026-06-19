@@ -51,6 +51,7 @@ function WorkspaceWorkbenchInfoToolRegistration({
       icon: <Info aria-hidden="true" className="h-4 w-4" />,
       group: 'workspace',
       order: 5,
+      defaultShortcut: 'Q',
       testId: 'workspace-info-tool',
       disabled: !metadata,
       renderPanel: () => (
@@ -117,6 +118,10 @@ function WorkspaceSurfaceShellContent({
     () => normalizeWorkspaceToolContributions(extensionTools),
     [extensionTools],
   );
+  const extensionShortcutByKey = React.useMemo(
+    () => new Map(extensionTools.map((tool) => [tool.tool_key, tool.shortcut])),
+    [extensionTools],
+  );
   const globalToolContributions = React.useMemo<WorkspaceGlobalToolContribution[]>(() => extensionContributions.map((tool) => ({
     key: tool.key,
     id: tool.id,
@@ -124,6 +129,7 @@ function WorkspaceSurfaceShellContent({
     icon: <PanelRight aria-hidden="true" className="h-4 w-4" />,
     group: tool.group,
     order: tool.order,
+    defaultShortcut: extensionShortcutByKey.get(tool.key),
     testId: tool.accessibility.test_id,
     renderPanel: () => (
       <WorkspaceToolExtensionSlot
@@ -132,7 +138,7 @@ function WorkspaceSurfaceShellContent({
         tools={extensionTools}
       />
     ),
-  })), [extensionContributions, extensionTools, workspaceId]);
+  })), [extensionContributions, extensionShortcutByKey, extensionTools, workspaceId]);
 
   useWorkspaceGlobalToolContributions(
     `workspace-surface:${activeCapabilityCode}`,

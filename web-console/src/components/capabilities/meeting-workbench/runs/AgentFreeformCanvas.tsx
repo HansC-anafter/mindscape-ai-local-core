@@ -1,8 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Lock, RotateCcw, Unlock } from 'lucide-react';
+import { Lock, PlayCircle, RotateCcw, Unlock } from 'lucide-react';
 
 import type { AddressableObjectRef } from '@/lib/addressable-object-layer';
-import type { HostRuntimeEvent, HostRuntimeSession, HostRuntimeStatus } from '@/lib/host-runtime-sessions';
+import type {
+  HostRuntimeEvent,
+  HostRuntimeSession,
+  HostRuntimeStatus,
+  SharedCliBridgeServiceStatus,
+} from '@/lib/host-runtime-sessions';
 
 import type { AgentFreeformLayoutState } from './agentFreeformLayoutModel';
 import { mobilePanelOrder } from './agentFreeformLayoutValidator';
@@ -99,13 +104,16 @@ export function AgentFreeformCanvas({
   events,
   session,
   runtimeStatus = null,
+  bridgeService = null,
   meetingId,
   selectedObjectRef,
   graphContext,
   isStarting,
   error,
+  isStartingBridge = false,
   compactLayout = false,
   onSubmitPrompt,
+  onStartBridge,
   onSelectPanel,
   onResetLayout,
   onToggleLocked,
@@ -115,13 +123,16 @@ export function AgentFreeformCanvas({
   events: HostRuntimeEvent[];
   session: HostRuntimeSession | null;
   runtimeStatus?: HostRuntimeStatus | null;
+  bridgeService?: SharedCliBridgeServiceStatus | null;
   meetingId: string | null;
   selectedObjectRef: AddressableObjectRef | null;
   graphContext?: HostRuntimeGraphContext | null;
   isStarting: boolean;
+  isStartingBridge?: boolean;
   error: string | null;
   compactLayout?: boolean;
   onSubmitPrompt: (prompt: string) => void;
+  onStartBridge?: () => void;
   onSelectPanel: (panelId: string) => void;
   onResetLayout: () => void;
   onToggleLocked: () => void;
@@ -158,6 +169,7 @@ export function AgentFreeformCanvas({
   const headerActionsClassName = compact
     ? 'flex min-w-0 items-center gap-2 overflow-x-auto overscroll-contain pb-1'
     : 'flex shrink-0 items-center gap-2';
+  const bridgeStartVisible = effectiveStatus === 'bridge_unavailable' || bridgeService?.state === 'stopped';
 
   return (
     <section
@@ -177,6 +189,18 @@ export function AgentFreeformCanvas({
         </div>
         <div className={headerActionsClassName}>
           <HostRuntimeStatusBadge status={effectiveStatus} />
+          {bridgeStartVisible && onStartBridge ? (
+            <button
+              type="button"
+              onClick={onStartBridge}
+              disabled={isStartingBridge}
+              className="inline-flex h-8 items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 text-xs font-semibold text-emerald-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300"
+              data-testid="host-runtime-start-bridge"
+            >
+              <PlayCircle className="h-3.5 w-3.5" aria-hidden="true" />
+              {isStartingBridge ? 'Starting' : 'Start Bridge'}
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={onToggleLocked}

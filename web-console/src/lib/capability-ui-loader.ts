@@ -150,6 +150,10 @@ async function loadContextComponent(
   }
 }
 
+function canUseLegacyContextComponent(component: UIComponentInfo): boolean {
+  return component.legacy_context === true || component.runtime === 'legacy_context';
+}
+
 /**
  * Load UI component for a capability.
  *
@@ -196,6 +200,13 @@ export async function loadCapabilityUIComponent(
         );
         return null;
       }
+    }
+
+    if (!canUseLegacyContextComponent(component)) {
+      console.warn(
+        `[loadCapabilityUIComponent] Runtime UI metadata for ${capabilityCode}/${componentCode} is missing asset_url and is not marked legacy_context.`
+      );
+      return null;
     }
 
     return loadContextComponent(capabilityCode, componentCode, component, cacheKey);
