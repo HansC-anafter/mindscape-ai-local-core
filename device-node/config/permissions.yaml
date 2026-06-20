@@ -83,6 +83,10 @@ capabilities:
     trust_level: read
     confirm_required: false
 
+  capture_relay_control:
+    trust_level: execute
+    confirm_required: false
+
   host_resource_lane_workers_set:
     trust_level: execute
     confirm_required: false

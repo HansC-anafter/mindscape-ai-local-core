@@ -9,6 +9,7 @@ import {
   type CaptureSourceBridgeContextValue,
 } from './CaptureSourceBridgeProvider';
 import { CaptureSourceList } from './CaptureSourceList';
+import { CaptureRelayLauncherCard } from './CaptureRelayLauncherCard';
 import { ExternalProviderConnectionGuide } from './ExternalProviderConnectionGuide';
 import { buildDeviceControlWebSocketUrl } from '@/lib/device-binding/deviceBindingClient';
 
@@ -80,11 +81,13 @@ function ProviderReadinessBlock({
   apiBase,
   externalProviderActive,
   pairingCode,
+  desktopDeviceLink,
   workspaceId,
 }: {
   activeSlotCount: number;
   apiBase: string;
   externalProviderActive: boolean;
+  desktopDeviceLink: string;
   pairingCode?: string;
   workspaceId: string;
 }) {
@@ -156,6 +159,11 @@ function ProviderReadinessBlock({
         ))}
       </div>
       <ExternalProviderConnectionGuide />
+      <CaptureRelayLauncherCard
+        apiBase={apiBase}
+        desktopDeviceLink={desktopDeviceLink}
+        pairingCode={pairingCode}
+      />
       <div
         className="mt-2 rounded border border-gray-200 bg-gray-50 p-2 dark:border-gray-800 dark:bg-gray-900"
         data-testid="external-provider-bridge-card"
@@ -290,6 +298,7 @@ function CaptureSourceRailContent({
         externalProviderActive={sessions.some((session) => (
           session.source_types.includes('external_provider_camera')
         ))}
+        desktopDeviceLink={desktopDeviceLink}
         pairingCode={pairing?.pairing_code}
         workspaceId={workspaceId}
       />

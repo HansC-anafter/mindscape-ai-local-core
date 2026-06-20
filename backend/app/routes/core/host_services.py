@@ -16,6 +16,11 @@ from backend.app.services.host_services.whisper_proxy import (
     WhisperTranscriptionUnavailable,
     transcribe_whisper_audio,
 )
+from backend.app.services.host_services.capture_relay_proxy import (
+    CaptureRelayRequest,
+    CaptureRelayUnavailable,
+    call_capture_relay_control,
+)
 
 
 router = APIRouter(prefix="/api/v1/host/services", tags=["host-services"])
@@ -44,6 +49,24 @@ async def post_stt_transcribe(payload: WhisperTranscriptionRequest):
         "language": result.language,
         "duration": result.duration,
     }
+
+
+@router.get("/capture-relay/status")
+async def get_capture_relay_status(stream_name: str = "external-camera"):
+    try:
+        return await call_capture_relay_control(
+            CaptureRelayRequest(action="status", stream_name=stream_name)
+        )
+    except CaptureRelayUnavailable as exc:
+        raise HTTPException(status_code=503, detail=exc.to_detail()) from exc
+
+
+@router.post("/capture-relay")
+async def post_capture_relay(payload: CaptureRelayRequest):
+    try:
+        return await call_capture_relay_control(payload)
+    except CaptureRelayUnavailable as exc:
+        raise HTTPException(status_code=503, detail=exc.to_detail()) from exc
 
 
 __all__ = ["router"]

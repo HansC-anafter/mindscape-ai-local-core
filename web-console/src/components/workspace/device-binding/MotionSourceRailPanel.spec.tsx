@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createElement, useEffect } from 'react';
 
@@ -164,6 +164,14 @@ describe('MotionSourceRailPanel', () => {
     expect(screen.getByTestId('external-provider-connection-guide')).toHaveTextContent(
       'Gimbal-mounted camera',
     );
+    expect(screen.getByTestId('capture-relay-launcher-card')).toHaveTextContent(
+      'RTMP to OBS Virtual Camera',
+    );
+    expect(screen.getByRole('button', { name: 'Start RTMP relay' })).toBeEnabled();
+    expect(screen.getByRole('link', { name: 'Open OBS Virtual Camera source' })).toHaveAttribute(
+      'href',
+      'http://localhost:3000/device-link/PAIR1234?workspaceId=ws_device&sourceMode=camera',
+    );
     expect(screen.getByTestId('external-provider-advanced-payload')).toHaveTextContent(
       'Advanced bridge payload',
     );
@@ -230,6 +238,64 @@ describe('MotionSourceRailPanel', () => {
     expect(screen.getByRole('link', { name: 'Open phone camera' })).toHaveAttribute(
       'href',
       'https://192.168.0.104:8343/device-link/PAIR1234?workspaceId=ws_device&sourceMode=phone',
+    );
+  });
+
+  it('starts the capture relay helper through the backend host-services proxy', async () => {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (String(url).includes('/api/v1/host/services/capture-relay')) {
+        return {
+          ok: true,
+          json: async () => ({
+            schema_version: 'capture_relay_control.v1',
+            action: 'start',
+            status: 'blocked',
+            reason: 'relay_binary_missing',
+            urls: {
+              stream_name: 'external-camera',
+              publish_url: 'rtmp://192.168.0.10/external-camera',
+              read_url: 'rtsp://127.0.0.1:8554/external-camera',
+            },
+          }),
+        };
+      }
+      return {
+        ok: false,
+        json: async () => ({}),
+      };
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(
+      createElement(MotionSourceRailPanel, {
+        apiUrl: 'http://api.test',
+        workspaceId: 'ws_device',
+      }),
+    );
+
+    await screen.findByTestId('external-provider-pairing-code');
+    fireEvent.click(screen.getByRole('button', { name: 'Start RTMP relay' }));
+
+    await screen.findByText('rtmp://192.168.0.10/external-camera');
+    await waitFor(() => {
+      const captureCall = fetchMock.mock.calls.find(([url]) => (
+        String(url).includes('/api/v1/host/services/capture-relay')
+      ));
+      expect(captureCall).toBeTruthy();
+      expect(captureCall?.[0]).toBe('http://api.test/api/v1/host/services/capture-relay');
+      expect(captureCall?.[1]).toEqual(expect.objectContaining({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      }));
+      expect(JSON.parse(String(captureCall?.[1]?.body))).toEqual({
+        action: 'start',
+        stream_name: 'external-camera',
+        open_obs: false,
+        timeout_ms: 5000,
+      });
+    });
+    expect(screen.getByTestId('capture-relay-launcher-card')).toHaveTextContent(
+      'Relay binary missing',
     );
   });
 

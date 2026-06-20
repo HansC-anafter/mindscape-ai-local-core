@@ -15,6 +15,7 @@ import { PermissionMap, TrustLevel } from "./governance/permission-map.js";
 import { LocalCoreBridge } from "./bridge/local-core-client.js";
 import { filesystemRead, filesystemWrite, filesystemList } from "./capabilities/filesystem.js";
 import { shellExecute } from "./capabilities/shell.js";
+import { captureRelayControl } from "./capabilities/capture-relay-control.js";
 import { hostResourceProbe } from "./capabilities/host-resource-probe.js";
 import { hostResourceLaneWorkersSet } from "./capabilities/host-resource-lane-workers.js";
 import { hostResourceRunnerSpilloverControl } from "./capabilities/host-resource-runner-spillover.js";
@@ -148,6 +149,43 @@ export class MCPServer {
             },
             handler: hostResourceProbe,
             trustLevel: TrustLevel.READ,
+        });
+
+        this.registerTool({
+            name: "capture_relay_control",
+            description: "Control the local RTMP relay helper for external camera capture",
+            inputSchema: {
+                type: "object",
+                properties: {
+                    action: {
+                        type: "string",
+                        enum: ["status", "start", "stop", "open_obs"],
+                        description: "Relay helper action",
+                    },
+                    stream_name: {
+                        type: "string",
+                        description: "Neutral stream path name",
+                    },
+                    rtmp_port: {
+                        type: "number",
+                        description: "RTMP publish port",
+                    },
+                    rtsp_port: {
+                        type: "number",
+                        description: "RTSP read port",
+                    },
+                    open_obs: {
+                        type: "boolean",
+                        description: "Open OBS after starting the relay",
+                    },
+                    timeout_ms: {
+                        type: "number",
+                        description: "Bounded relay readiness wait",
+                    },
+                },
+            },
+            handler: captureRelayControl,
+            trustLevel: TrustLevel.EXECUTE,
         });
 
         this.registerTool({
