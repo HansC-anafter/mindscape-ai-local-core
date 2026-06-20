@@ -4,12 +4,17 @@ Provides semantic search across pgvector tables
 """
 
 import logging
-import os
 from typing import List, Dict, Any, Optional
 import psycopg2
-from psycopg2.extras import RealDictCursor
 
 from backend.app.database.config import get_vector_postgres_config
+from backend.app.services.vector_search_db import (
+    save_external_doc,
+    search_external_docs_records,
+    search_vectors,
+    update_last_used_at_records,
+)
+from backend.app.services.vector_search_embeddings import VectorEmbeddingGenerator
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +24,7 @@ class VectorSearchService:
 
     def __init__(self, postgres_config=None):
         self.postgres_config = postgres_config or self._get_postgres_config()
+        self.embedding_generator = VectorEmbeddingGenerator()
 
     def _get_postgres_config(self):
         """Get PostgreSQL config from environment"""
@@ -48,13 +54,7 @@ class VectorSearchService:
         1. Ollama (local) - preferred for local development
         2. OpenAI - fallback if Ollama unavailable
         """
-        # Try Ollama first (local, no API key needed)
-        ollama_embedding = await self._generate_ollama_embedding(text)
-        if ollama_embedding:
-            return ollama_embedding
-
-        # Fallback to OpenAI
-        return await self._generate_openai_embedding(text)
+        return await self.embedding_generator.generate_embedding(text)
 
     async def _generate_embedding_with_model(
         self, text: str, *, is_query: bool = True
@@ -71,59 +71,9 @@ class VectorSearchService:
         Returns:
             Tuple of (embedding, model_name) or (None, None) if failed
         """
-        # Determine preferred Ollama embed model.
-        # Priority: env var → bge-m3 (if available) → nomic-embed-text → OpenAI
-        preferred = os.getenv("OLLAMA_EMBED_MODEL", "").strip()
-        if not preferred:
-            # Auto-detect: prefer bge-m3 if Ollama reports it
-            try:
-                import httpx
-
-                ollama_url = self._get_ollama_url()
-                if ollama_url:
-                    async with httpx.AsyncClient(timeout=3.0) as client:
-                        resp = await client.get(f"{ollama_url}/api/tags")
-                        if resp.status_code == 200:
-                            names = [
-                                m["name"].split(":")[0]
-                                for m in resp.json().get("models", [])
-                            ]
-                            if "bge-m3" in names:
-                                preferred = "bge-m3"
-                            elif "nomic-embed-text" in names:
-                                preferred = "nomic-embed-text"
-            except Exception:
-                pass
-        if not preferred:
-            preferred = "nomic-embed-text"  # last-resort default
-
-        # Try Ollama with the chosen model
-        ollama_embedding = await self._generate_ollama_embedding(
-            text, model=preferred, is_query=is_query
+        return await self.embedding_generator.generate_embedding_with_model(
+            text, is_query=is_query
         )
-        if ollama_embedding:
-            return ollama_embedding, preferred
-
-        # Fallback to OpenAI
-        openai_embedding = await self._generate_openai_embedding(text)
-        if openai_embedding:
-            try:
-                from backend.app.services.system_settings_store import (
-                    SystemSettingsStore,
-                )
-
-                settings_store = SystemSettingsStore()
-                embedding_setting = settings_store.get_setting("embedding_model")
-                openai_model = (
-                    str(embedding_setting.value)
-                    if embedding_setting
-                    else "text-embedding-3-small"
-                )
-            except Exception:
-                openai_model = "text-embedding-3-small"
-            return openai_embedding, openai_model
-
-        return None, None
 
     def _get_ollama_url(self) -> Optional[str]:
         """Return a reachable Ollama base URL, or None.
@@ -131,28 +81,7 @@ class VectorSearchService:
         Tries the env-var first, then common Docker hostnames in order.
         Uses a synchronous check so it can be called from sync context.
         """
-        import requests as _req
-
-        candidates = []
-        env_host = os.getenv("OLLAMA_HOST", "").strip()
-        if env_host:
-            candidates.append(env_host)
-        # host.docker.internal works on Docker Desktop (Mac/Win) and bind-mounted Linux
-        candidates += [
-            "http://host.docker.internal:11434",
-            "http://ollama:11434",
-        ]
-        for url in candidates:
-            try:
-                resp = _req.get(f"{url}/api/tags", timeout=2)
-                if resp.status_code == 200:
-                    return url
-            except Exception:
-                continue
-        return None
-
-    # Models requiring task prefix (per huggingface.co/nomic-ai/nomic-embed-text-v1.5)
-    _NOMIC_MODELS = {"nomic-embed-text", "nomic-embed-text-v1.5"}
+        return self.embedding_generator.get_ollama_url()
 
     async def _generate_ollama_embedding(
         self, text: str, model: Optional[str] = None, *, is_query: bool = True
@@ -166,109 +95,13 @@ class VectorSearchService:
             is_query: True for search queries, False for indexing documents.
                       Controls nomic task prefix (search_query: / search_document:).
         """
-        try:
-            import httpx
-
-            # Resolve Ollama URL – try host.docker.internal first (Docker Desktop),
-            # then the docker-compose service name.
-            ollama_url = os.getenv("OLLAMA_HOST", "").strip()
-            if not ollama_url:
-                ollama_url = "http://host.docker.internal:11434"
-
-            embed_model = model or os.getenv("OLLAMA_EMBED_MODEL", "bge-m3")
-
-            # Nomic task prefix for optimal retrieval quality
-            prompt_text = text
-            base_model = embed_model.split(":")[0].lower()
-            if base_model in self._NOMIC_MODELS:
-                prefix = "search_query" if is_query else "search_document"
-                prompt_text = f"{prefix}: {text}"
-
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.post(
-                    f"{ollama_url}/api/embeddings",
-                    json={"model": embed_model, "prompt": prompt_text},
-                )
-
-                if response.status_code == 200:
-                    data = response.json()
-                    embedding = data.get("embedding")
-                    if embedding:
-                        logger.debug(
-                            "Generated Ollama embedding model=%s dim=%d",
-                            embed_model,
-                            len(embedding),
-                        )
-                        return embedding
-                else:
-                    logger.warning(
-                        "Ollama embedding failed status=%d: %s",
-                        response.status_code,
-                        response.text[:200],
-                    )
-
-                # If host.docker.internal failed, try ollama service name as fallback
-                if ollama_url == "http://host.docker.internal:11434":
-                    response2 = await client.post(
-                        "http://ollama:11434/api/embeddings",
-                        json={"model": embed_model, "prompt": prompt_text},
-                    )
-                    if response2.status_code == 200:
-                        embedding2 = response2.json().get("embedding")
-                        if embedding2:
-                            return embedding2
-
-        except Exception as e:
-            logger.warning("Ollama embedding unavailable: %s", e)
-
-        return None
+        return await self.embedding_generator.generate_ollama_embedding(
+            text, model=model, is_query=is_query
+        )
 
     async def _generate_openai_embedding(self, text: str) -> Optional[List[float]]:
         """Generate embedding using OpenAI API (fallback)"""
-        try:
-            from backend.app.services.system_settings_store import SystemSettingsStore
-            from backend.app.services.config_store import ConfigStore
-
-            # Get embedding model from system settings
-            settings_store = SystemSettingsStore()
-            embedding_setting = settings_store.get_setting("embedding_model")
-
-            if not embedding_setting:
-                logger.warning(
-                    "No embedding model configured, using default: text-embedding-3-small"
-                )
-                model_name = "text-embedding-3-small"
-            else:
-                model_name = str(embedding_setting.value)
-
-            # Get API key
-            config_store = ConfigStore()
-            
-            # Ensure background processes don't crash on foreign key violations during startup
-            from backend.app.services.mindscape_store import MindscapeStore
-            MindscapeStore().ensure_default_profile()
-            
-            config = config_store.get_or_create_config("default-user")
-            api_key = config.agent_backend.openai_api_key or os.getenv("OPENAI_API_KEY")
-
-            if not api_key:
-                logger.warning("OpenAI API key not configured for embedding generation")
-                return None
-
-            import openai
-
-            client = openai.OpenAI(api_key=api_key)
-            response = client.embeddings.create(model=model_name, input=text)
-
-            embedding = response.data[0].embedding
-            logger.debug(
-                f"Generated OpenAI embedding using model: {model_name} (dimension: {len(embedding)})"
-            )
-            return embedding
-
-        except Exception as e:
-            logger.error(f"Failed to generate OpenAI embedding: {e}")
-            return None
+        return await self.embedding_generator.generate_openai_embedding(text)
 
     async def vector_search(
         self,
@@ -291,64 +124,14 @@ class VectorSearchService:
         Returns:
             List of matching records with similarity scores
         """
-        conn = self._get_connection()
-        try:
-            cursor = conn.cursor(cursor_factory=RealDictCursor)
-
-            # Get current embedding model for filtering
-            current_model_name = None
-            if require_model_match and table in (
-                "mindscape_personal",
-                "memory_embeddings",
-            ):
-                from backend.app.services.system_settings_store import (
-                    SystemSettingsStore,
-                )
-
-                settings_store = SystemSettingsStore()
-                embedding_setting = settings_store.get_setting("embedding_model")
-                if embedding_setting:
-                    current_model_name = str(embedding_setting.value)
-
-            # Build WHERE clause from filters
-            where_clauses = []
-            params = []
-
-            if filters:
-                for key, value in filters.items():
-                    where_clauses.append(f"{key} = %s")
-                    params.append(value)
-
-            # Add model matching filter if required
-            if (
-                require_model_match
-                and current_model_name
-                and table in ("mindscape_personal", "memory_embeddings")
-            ):
-                where_clauses.append("metadata->>'embedding_model' = %s")
-                params.append(current_model_name)
-
-            where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
-
-            # Execute vector similarity search
-            query = f"""
-                SELECT
-                    *,
-                    1 - (embedding <=> %s::vector) as similarity
-                FROM {table}
-                {where_sql}
-                ORDER BY embedding <=> %s::vector
-                LIMIT %s
-            """
-
-            params = [str(query_embedding)] + params + [str(query_embedding), top_k]
-            cursor.execute(query, params)
-
-            results = cursor.fetchall()
-            return [dict(row) for row in results]
-
-        finally:
-            conn.close()
+        return await search_vectors(
+            get_connection=self._get_connection,
+            table=table,
+            query_embedding=query_embedding,
+            filters=filters,
+            top_k=top_k,
+            require_model_match=require_model_match,
+        )
 
     async def search_playbook_sop(
         self, playbook_code: str, query: str, top_k: int = 5
@@ -515,42 +298,15 @@ class VectorSearchService:
         if not query_embedding:
             return []
 
-        conn = self._get_connection()
-        try:
-            cursor = conn.cursor(cursor_factory=RealDictCursor)
-
-            where_clauses = ["user_id = %s"]
-            params = [user_id]
-
-            if source_apps:
-                where_clauses.append("source_app = ANY(%s)")
-                params.append(source_apps)
-
-            # Filter by embedding model to ensure compatible embeddings
-            if require_model_match and model_name:
-                where_clauses.append("metadata->>'embedding_model' = %s")
-                params.append(model_name)
-
-            where_sql = f"WHERE {' AND '.join(where_clauses)}"
-
-            query_sql = f"""
-                SELECT
-                    *,
-                    1 - (embedding <=> %s::vector) as similarity
-                FROM external_docs
-                {where_sql}
-                ORDER BY embedding <=> %s::vector
-                LIMIT %s
-            """
-
-            params = [str(query_embedding)] + params + [str(query_embedding), top_k]
-            cursor.execute(query_sql, params)
-
-            results = cursor.fetchall()
-            return [dict(row) for row in results]
-
-        finally:
-            conn.close()
+        return await search_external_docs_records(
+            get_connection=self._get_connection,
+            query_embedding=query_embedding,
+            model_name=model_name,
+            source_apps=source_apps,
+            user_id=user_id,
+            top_k=top_k,
+            require_model_match=require_model_match,
+        )
 
     async def multi_scope_search(
         self,
@@ -697,30 +453,11 @@ class VectorSearchService:
             record_ids: List of record IDs to update
             table: Table name
         """
-        if not record_ids:
-            return
-
-        conn = self._get_connection()
-        try:
-            cursor = conn.cursor()
-
-            # Update last_used_at for all matching IDs
-            placeholders = ",".join(["%s"] * len(record_ids))
-            query = f"""
-                UPDATE {table}
-                SET last_used_at = NOW()
-                WHERE id::text = ANY(ARRAY[{placeholders}])
-            """
-
-            cursor.execute(query, record_ids)
-            conn.commit()
-
-            logger.debug(
-                f"Updated last_used_at for {len(record_ids)} records in {table}"
-            )
-
-        finally:
-            conn.close()
+        await update_last_used_at_records(
+            get_connection=self._get_connection,
+            record_ids=record_ids,
+            table=table,
+        )
 
     async def save_to_external_docs(self, doc: Dict[str, Any]) -> bool:
         """
@@ -738,73 +475,4 @@ class VectorSearchService:
         Returns:
             True if successful, False otherwise
         """
-        conn = self._get_connection()
-        try:
-            cursor = conn.cursor()
-
-            user_id = doc.get("user_id", "default_user")
-            source_app = doc.get("source_app", "unknown")
-            title = doc.get("title", "Untitled")
-            content = doc.get("content", "")
-            embedding = doc.get("embedding")
-            metadata = doc.get("metadata", {})
-            # Use title as source_id for local_folder content (unique per chunk)
-            source_id = doc.get("source_id", title)
-
-            if not embedding:
-                logger.warning("No embedding provided for document")
-                return False
-
-            query = """
-                INSERT INTO external_docs (
-                    user_id,
-                    source_app,
-                    source_id,
-                    title,
-                    content,
-                    embedding,
-                    metadata,
-                    created_at,
-                    updated_at
-                ) VALUES (
-                    %s, %s, %s, %s, %s, %s::vector, %s, NOW(), NOW()
-                )
-                ON CONFLICT (user_id, source_app, source_id)
-                DO UPDATE SET
-                    title = EXCLUDED.title,
-                    content = EXCLUDED.content,
-                    embedding = EXCLUDED.embedding,
-                    metadata = EXCLUDED.metadata,
-                    updated_at = NOW()
-                RETURNING id
-            """
-
-            import json
-
-            cursor.execute(
-                query,
-                (
-                    user_id,
-                    source_app,
-                    source_id,
-                    title,
-                    content,
-                    str(embedding),
-                    json.dumps(metadata),
-                ),
-            )
-
-            result = cursor.fetchone()
-            conn.commit()
-
-            logger.debug(
-                f"Saved document to external_docs: {title} (id: {result[0] if result else 'unknown'})"
-            )
-            return True
-
-        except Exception as e:
-            logger.error(f"Failed to save document to external_docs: {e}")
-            conn.rollback()
-            return False
-        finally:
-            conn.close()
+        return await save_external_doc(get_connection=self._get_connection, doc=doc)
