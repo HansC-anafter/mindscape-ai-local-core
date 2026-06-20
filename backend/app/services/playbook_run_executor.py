@@ -1,19 +1,7 @@
-"""
-Playbook Run Executor
-Unified executor for playbook.run = playbook.md + playbook.json
-
-Automatically selects execution mode based on available components:
-- If playbook.json exists: use WorkflowOrchestrator (structured workflow)
-- If only playbook.md exists: use PlaybookRunner (LLM conversation)
-
-DEPRECATED: Legacy playbook execution, scheduled for removal after P2.
-Do not add new dependencies. Use PlaybookService.execute_playbook() instead.
-This class is only used internally by PlaybookService for backward compatibility.
-"""
+"""Compatibility facade for playbook.run execution."""
 
 import logging
 import os
-from copy import deepcopy
 from typing import Dict, Any, Optional
 
 from backend.app.models.playbook import (
@@ -34,6 +22,20 @@ from backend.app.services.playbook_run_executor_core.invocation_modes import (
     execute_conversation_invocation as executor_execute_conversation_invocation,
     merge_plan_node_inputs as executor_merge_plan_node_inputs,
 )
+from backend.app.services.playbook_run_executor_core.input_contract import (
+    apply_playbook_input_contract as executor_apply_playbook_input_contract,
+)
+from backend.app.services.playbook_run_executor_core.remote_execution import (
+    maybe_dispatch_remote_execution as executor_maybe_dispatch_remote_execution,
+    normalize_execution_backend_hint as _normalize_execution_backend_hint,
+)
+from backend.app.services.playbook_run_executor_core.result_status import (
+    runtime_result_has_errors as _runtime_result_has_errors,
+    workflow_result_has_errors as _workflow_result_has_errors,
+)
+from backend.app.services.playbook_run_executor_core.runtime_provider_loading import (
+    load_runtime_providers as executor_load_runtime_providers,
+)
 from backend.app.services.playbook_run_executor_core.runtime_workflow import (
     execute_runtime_workflow as executor_execute_runtime_workflow,
 )
@@ -43,101 +45,9 @@ from backend.app.services.runtime.simple_runtime import SimpleRuntime
 logger = logging.getLogger(__name__)
 
 
-def _is_terminal_failure_status(value: Any) -> bool:
-    return str(value or "").strip().lower() in {"error", "failed"}
-
-
-def _workflow_outputs_has_errors(outputs: Any) -> bool:
-    if not isinstance(outputs, dict):
-        return False
-    if _is_terminal_failure_status(outputs.get("status")):
-        return True
-    return str(outputs.get("analysis_status") or "").strip().lower() == "failed"
-
-
 def _is_runner_process() -> bool:
     val = (os.getenv("LOCAL_CORE_RUNNER_PROCESS", "") or "").strip().lower()
     return val in {"1", "true", "yes"}
-
-
-def _is_missing_playbook_input(value: Any) -> bool:
-    return value is None or (isinstance(value, str) and not value.strip())
-
-
-def _definition_value(definition: Any, key: str, default: Any = None) -> Any:
-    if isinstance(definition, dict):
-        return definition.get(key, default)
-    return getattr(definition, key, default)
-
-
-def _workflow_result_has_errors(result: Dict[str, Any]) -> bool:
-    """Detect terminal workflow errors even when the wrapper status is completed."""
-    if not isinstance(result, dict):
-        return False
-
-    if _is_terminal_failure_status(result.get("status")):
-        return True
-
-    if _workflow_outputs_has_errors(result.get("outputs")):
-        return True
-
-    steps = result.get("steps")
-    if isinstance(steps, dict):
-        for step_result in steps.values():
-            if _workflow_result_has_errors(step_result):
-                return True
-
-    context = result.get("context")
-    if isinstance(context, dict):
-        for context_result in context.values():
-            if _workflow_result_has_errors(context_result):
-                return True
-    return False
-
-
-def _normalize_execution_backend_hint(
-    inputs: Optional[Dict[str, Any]],
-) -> Optional[str]:
-    if not isinstance(inputs, dict):
-        return None
-    value = inputs.get("execution_backend")
-    if not isinstance(value, str):
-        return None
-    normalized = value.strip().lower()
-    if normalized in {"auto", "runner", "in_process", "remote"}:
-        return normalized
-    return None
-
-
-def _runtime_result_has_errors(runtime_result: Any, raw_result: Optional[Dict[str, Any]] = None) -> bool:
-    """Detect step-level runtime failures from either raw workflow payload or runtime metadata."""
-    if _workflow_result_has_errors(raw_result):
-        return True
-
-    if runtime_result is None:
-        return False
-
-    if getattr(runtime_result, "status", None) == "failed":
-        return True
-
-    metadata = getattr(runtime_result, "metadata", None)
-    if not isinstance(metadata, dict):
-        return False
-
-    if _workflow_outputs_has_errors(metadata.get("outputs")):
-        return True
-
-    steps = metadata.get("steps")
-    if isinstance(steps, dict):
-        for step_result in steps.values():
-            if _workflow_result_has_errors(step_result):
-                return True
-
-    workflow_result = metadata.get("workflow_result")
-    if isinstance(workflow_result, dict) and _workflow_result_has_errors(workflow_result):
-        return True
-
-    return False
 
 
 class PlaybookRunExecutor:
@@ -192,30 +102,11 @@ class PlaybookRunExecutor:
         playbook_run: PlaybookRun,
         inputs: Optional[Dict[str, Any]],
     ) -> Dict[str, Any]:
-        normalized_inputs = dict(inputs or {})
-        playbook_json = getattr(playbook_run, "playbook_json", None)
-        input_definitions = getattr(playbook_json, "inputs", None)
-        if not isinstance(input_definitions, dict):
-            return normalized_inputs
-
-        missing_required = []
-        for input_name, definition in input_definitions.items():
-            if not _is_missing_playbook_input(normalized_inputs.get(input_name)):
-                continue
-            default_value = _definition_value(definition, "default")
-            if default_value is not None:
-                normalized_inputs[input_name] = deepcopy(default_value)
-                continue
-            if bool(_definition_value(definition, "required", True)):
-                missing_required.append(input_name)
-
-        if missing_required:
-            missing = ", ".join(sorted(missing_required))
-            raise ValueError(
-                f"Missing required playbook inputs for {playbook_code}: {missing}"
-            )
-
-        return normalized_inputs
+        return executor_apply_playbook_input_contract(
+            playbook_code,
+            playbook_run,
+            inputs or {},
+        )
 
     async def execute_playbook_run(
         self,
@@ -385,63 +276,14 @@ class PlaybookRunExecutor:
         workspace_id: Optional[str],
         project_id: Optional[str],
     ) -> Optional[Dict[str, Any]]:
-        requested_backend = _normalize_execution_backend_hint(normalized_inputs)
-        if requested_backend != "remote":
-            return None
-
-        (
-            dispatch_remote_execution,
-            resolve_and_acquire_backend,
-            release_backend,
-        ) = self._get_execution_dispatch_helpers()
-
-        final_backend, pool_acquired_backend = resolve_and_acquire_backend(
-            requested_backend
+        return await executor_maybe_dispatch_remote_execution(
+            playbook_code=playbook_code,
+            profile_id=profile_id,
+            normalized_inputs=normalized_inputs,
+            workspace_id=workspace_id,
+            project_id=project_id,
+            execution_dispatch_helpers_fn=self._get_execution_dispatch_helpers,
         )
-        try:
-            if final_backend != "remote":
-                normalized_inputs["execution_backend"] = final_backend
-                return None
-
-            remote_job_type = normalized_inputs.get("remote_job_type")
-            if remote_job_type not in {"playbook", "tool", "chain"}:
-                remote_job_type = "playbook"
-
-            remote_request_payload = normalized_inputs.get("remote_request_payload")
-            if not isinstance(remote_request_payload, dict):
-                remote_request_payload = None
-
-            remote_capability_code = normalized_inputs.get("remote_capability_code")
-            if not isinstance(remote_capability_code, str) or not remote_capability_code:
-                remote_capability_code = None
-
-            tenant_id = normalized_inputs.get("tenant_id")
-            if not isinstance(tenant_id, str) or not tenant_id:
-                tenant_id = None
-
-            execution_id = normalized_inputs.get("execution_id")
-            if not isinstance(execution_id, str) or not execution_id:
-                execution_id = None
-
-            trace_id = normalized_inputs.get("trace_id")
-            if not isinstance(trace_id, str) or not trace_id:
-                trace_id = None
-
-            return await dispatch_remote_execution(
-                playbook_code=playbook_code,
-                inputs=normalized_inputs,
-                workspace_id=workspace_id,
-                profile_id=profile_id,
-                project_id=project_id,
-                tenant_id=tenant_id,
-                execution_id=execution_id,
-                trace_id=trace_id,
-                remote_job_type=remote_job_type,
-                remote_request_payload=remote_request_payload,
-                capability_code=remote_capability_code,
-            )
-        finally:
-            release_backend(pool_acquired_backend)
 
     def _get_execution_dispatch_helpers(self):
         from backend.app.routes.core.execution_dispatch import (
@@ -652,24 +494,4 @@ class PlaybookRunExecutor:
         Scans installed capability packs for runtime providers (type: system_runtime)
         and registers them with the RuntimeFactory.
         """
-        try:
-            from backend.app.services.runtime.capability_runtime_loader import (
-                CapabilityRuntimeLoader,
-            )
-
-            loader = CapabilityRuntimeLoader()
-            loaded_runtimes = loader.load_all_runtime_providers()
-
-            for runtime in loaded_runtimes:
-                self.runtime_factory.register_runtime(runtime)
-                logger.info(f"Registered runtime provider: {runtime.name}")
-
-            if loaded_runtimes:
-                logger.info(
-                    f"Loaded {len(loaded_runtimes)} runtime provider(s) from capability packs"
-                )
-            else:
-                logger.debug("No runtime providers found in capability packs")
-
-        except Exception as e:
-            logger.warning(f"Failed to load runtime providers: {e}", exc_info=True)
+        executor_load_runtime_providers(self.runtime_factory)
