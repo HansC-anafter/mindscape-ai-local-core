@@ -1,195 +1,102 @@
-"""
-Tool Embedding Service
+"""Tool embedding service facade.
+
 Indexes and searches tool embeddings in pgvector for RAG-based tool discovery.
-
-Uses VectorSearchService for embedding generation (Ollama-first, OpenAI-fallback)
-and stores embeddings in the vector DB (mindscape_vectors).
+The resource-touching implementation lives in helper modules so this facade
+remains the single caller-facing path.
 """
 
-import logging
-import json
+from __future__ import annotations
+
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from backend.app.database.config import get_vector_postgres_config
+from backend.app.services.tool_embedding_generation import (
+    generate_embedding as _generate_embedding,
+    generate_embedding_for_model as _generate_embedding_for_model,
+)
+from backend.app.services.tool_embedding_indexing import (
+    collect_indexable_entries as _collect_indexable_entries,
+    ensure_indexed as _ensure_indexed,
+    index_all_tools as _index_all_tools,
+    index_all_tools_for_model as _index_all_tools_for_model,
+    index_all_tools_multimodel as _index_all_tools_multimodel,
+    index_tool as _index_tool,
+    reindex_all as _reindex_all,
+)
+from backend.app.services.tool_embedding_schema import (
+    ensure_table as _ensure_table,
+    get_capability_embedding_status as _get_capability_embedding_status,
+    has_existing_index as _has_existing_index,
+    remove_tool as _remove_tool,
+    remove_tools_by_capability as _remove_tools_by_capability,
+)
+from backend.app.services.tool_embedding_search import (
+    get_indexed_models as _get_indexed_models,
+    search as _search,
+    search_bm25 as _search_bm25,
+    search_by_affordance as _search_by_affordance,
+    search_rrf as _search_rrf,
+    search_single_model as _search_single_model,
+)
 from backend.app.services.tool_embedding_service_core import (
-    CREATE_TABLE_SQL,
     IndexableEntry,
-    MultiModelIndexingError,
-    NOMIC_MODELS,
     RAG_ERROR,
     RAG_HIT,
     RAG_MISS,
     ToolMatch,
-    build_embed_text,
-    discover_embed_models,
-    filter_mapping_rows_by_score,
-    fuse_ranked_tool_matches,
     get_capability_manifest_context,
     get_current_embedding_model,
-    tuple_row_to_tool_match,
-    vector_to_pg_literal,
 )
 
-logger = logging.getLogger(__name__)
+__all__ = [
+    "IndexableEntry",
+    "RAG_ERROR",
+    "RAG_HIT",
+    "RAG_MISS",
+    "ToolEmbeddingService",
+    "ToolMatch",
+]
 
 
 class ToolEmbeddingService:
-    """Index and search tool embeddings in pgvector (vector DB)"""
+    """Index and search tool embeddings in pgvector."""
+
+    _manifest_cache: dict[str, Optional[str]] = {}
 
     def __init__(self, postgres_config: Optional[Dict[str, Any]] = None):
         self.postgres_config = postgres_config or get_vector_postgres_config()
 
     def _get_connection(self):
-        """Get PostgreSQL connection to vector DB"""
+        """Get PostgreSQL connection to vector DB."""
         import psycopg2
 
         return psycopg2.connect(**self.postgres_config)
 
     def _get_current_model(self) -> str:
-        """Get current embedding model name, matching what _generate_embedding() will use.
-
-        Priority: frontend ollama_embed_model setting → OLLAMA_EMBED_MODEL env var
-                  → bge-m3 (if Ollama has it) → nomic-embed-text → OpenAI model.
-        """
+        """Get current embedding model name."""
         return get_current_embedding_model()
 
     async def _generate_embedding(
         self, text: str, *, is_query: bool = True
     ) -> Tuple[Optional[List[float]], Optional[str]]:
-        """Generate embedding using VectorSearchService infrastructure.
-
-        Args:
-            text: Text to embed.
-            is_query: True for search queries, False for indexing.
-
-        Returns:
-            Tuple of (embedding_vector, model_name) or (None, None) on failure
-        """
-        try:
-            from backend.app.services.vector_search import VectorSearchService
-
-            vs = VectorSearchService(postgres_config=self.postgres_config)
-            embedding, model_name = await vs._generate_embedding_with_model(
-                text, is_query=is_query
-            )
-            return embedding, model_name
-        except Exception as e:
-            logger.warning(f"Embedding generation failed: {e}")
-            return None, None
+        """Generate an embedding using the existing VectorSearchService path."""
+        return await _generate_embedding(self, text, is_query=is_query)
 
     async def _generate_embedding_for_model(
         self, text: str, model_name: str, *, is_query: bool = True
     ) -> Tuple[Optional[List[float]], Optional[str]]:
-        """Generate embedding using a specific Ollama model.
-
-        Used by RRF multi-model indexing and search to obtain embeddings in
-        different vector spaces without altering the primary model preference.
-
-        Args:
-            text: Text to embed.
-            model_name: Ollama model name.
-            is_query: True for search, False for indexing (controls nomic prefix).
-
-        Returns:
-            Tuple of (embedding_vector, model_name) or (None, None) on failure.
-        """
-        import os
-
-        # Nomic task prefix (independent httpx path, same logic as VectorSearchService)
-        prompt_text = text
-        base_model = model_name.split(":")[0].lower()
-        if base_model in NOMIC_MODELS:
-            prefix = "search_query" if is_query else "search_document"
-            prompt_text = f"{prefix}: {text}"
-
-        try:
-            import httpx
-
-            ollama_url = (
-                os.getenv("OLLAMA_HOST", "").strip()
-                or "http://host.docker.internal:11434"
-            )
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                resp = await client.post(
-                    f"{ollama_url}/api/embeddings",
-                    json={"model": model_name, "prompt": prompt_text},
-                )
-                if resp.status_code == 200:
-                    emb = resp.json().get("embedding")
-                    if emb:
-                        return emb, model_name
-                # Fallback: try ollama service name
-                if ollama_url == "http://host.docker.internal:11434":
-                    resp2 = await client.post(
-                        "http://ollama:11434/api/embeddings",
-                        json={"model": model_name, "prompt": prompt_text},
-                    )
-                    if resp2.status_code == 200:
-                        emb2 = resp2.json().get("embedding")
-                        if emb2:
-                            return emb2, model_name
-        except Exception as e:
-            logger.debug(f"_generate_embedding_for_model({model_name}) failed: {e}")
-        return None, None
-
-    # ------------------------------------------------------------------ #
-    #  Write path
-    # ------------------------------------------------------------------ #
+        """Generate an embedding using a specific Ollama model."""
+        return await _generate_embedding_for_model(
+            self, text, model_name, is_query=is_query
+        )
 
     async def ensure_table(self) -> None:
-        """Create tool_embeddings table if not exists"""
-        try:
-            conn = self._get_connection()
-            try:
-                with conn.cursor() as cur:
-                    cur.execute(CREATE_TABLE_SQL)
-                    # BM25 migration: add tsvector column + GIN index for lexical search
-                    cur.execute(
-                        """
-                        DO $$
-                        BEGIN
-                            IF NOT EXISTS (
-                                SELECT 1 FROM information_schema.columns
-                                WHERE table_name = 'tool_embeddings'
-                                  AND column_name = 'text_vector'
-                            ) THEN
-                                ALTER TABLE tool_embeddings
-                                  ADD COLUMN text_vector tsvector
-                                    GENERATED ALWAYS AS (
-                                      to_tsvector('simple',
-                                        coalesce(display_name, '') || ' ' || description
-                                      )
-                                    ) STORED;
-                                CREATE INDEX IF NOT EXISTS idx_tool_embeddings_text
-                                  ON tool_embeddings USING gin(text_vector);
-                            END IF;
-                        END $$;
-                    """
-                    )
-                    # Add affordance column migration
-                    cur.execute(
-                        """
-                        ALTER TABLE tool_embeddings ADD COLUMN IF NOT EXISTS affordance JSONB DEFAULT '{}';
-                        """
-                    )
-                conn.commit()
-                logger.info("tool_embeddings table ensured (with BM25 tsvector)")
-            finally:
-                conn.close()
-        except Exception as e:
-            logger.error(f"Failed to create tool_embeddings table: {e}")
-            raise
-
-    # Process-level cache for capability manifest metadata
-    _manifest_cache: dict[str, Optional[str]] = {}
+        """Create the tool_embeddings table if needed."""
+        await _ensure_table(self)
 
     def _get_capability_manifest_context(self, capability_code: str) -> Optional[str]:
-        """Read multilingual metadata from a capability's manifest.yaml.
-
-        Returns a string with display_name_zh + Chinese description (if present)
-        for embedding enrichment.  Results are cached per-process.
-        """
+        """Read cached capability manifest metadata for embedding enrichment."""
         return get_capability_manifest_context(
             cache=self._manifest_cache,
             capability_code=capability_code,
@@ -205,359 +112,50 @@ class ToolEmbeddingService:
         capability_code: Optional[str] = None,
         affordance: Optional[Dict[str, Any]] = None,
     ) -> bool:
-        """Embed and upsert a single tool.
-
-        Returns True on success, False on failure.
-        """
-        embed_text = build_embed_text(display_name, description)
-        # Enrich with capability-level metadata for cross-lingual RAG recall.
-        # Reads display_name_zh / description from the capability's manifest.yaml
-        # so that Chinese queries can match English tool descriptions.
-        if capability_code:
-            try:
-                cap_meta = self._get_capability_manifest_context(capability_code)
-                if cap_meta:
-                    embed_text = build_embed_text(
-                        display_name,
-                        description,
-                        capability_context=cap_meta,
-                    )
-            except Exception:
-                pass  # non-fatal: proceed with English-only embed_text
-
-        embedding, model_name = await self._generate_embedding(
-            embed_text, is_query=False
+        """Embed and upsert a single tool."""
+        return await _index_tool(
+            self,
+            tool_id=tool_id,
+            display_name=display_name,
+            description=description,
+            category=category,
+            capability_code=capability_code,
+            affordance=affordance,
         )
-        if embedding is None or model_name is None:
-            logger.warning(f"Skipping tool {tool_id}: embedding failed")
-            return False
-
-        embedding_dim = len(embedding)
-        embedding_str = vector_to_pg_literal(embedding)
-
-        try:
-            conn = self._get_connection()
-            try:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        """
-                        INSERT INTO tool_embeddings
-                            (tool_id, display_name, description, category,
-                             capability_code, embedding, embedding_model,
-                             embedding_dim, affordance, updated_at)
-                        VALUES (%s, %s, %s, %s, %s, %s::vector, %s, %s, %s, now())
-                        ON CONFLICT (tool_id, embedding_model)
-                        DO UPDATE SET
-                            display_name = EXCLUDED.display_name,
-                            description = EXCLUDED.description,
-                            category = EXCLUDED.category,
-                            capability_code = EXCLUDED.capability_code,
-                            embedding = EXCLUDED.embedding,
-                            embedding_dim = EXCLUDED.embedding_dim,
-                            affordance = EXCLUDED.affordance,
-                            updated_at = now()
-                        """,
-                        (
-                            tool_id,
-                            display_name,
-                            description,
-                            category,
-                            capability_code,
-                            embedding_str,
-                            model_name,
-                            embedding_dim,
-                            json.dumps(affordance) if affordance else "{}",
-                        ),
-                    )
-                conn.commit()
-                return True
-            finally:
-                conn.close()
-        except Exception as e:
-            logger.error(f"Failed to index tool {tool_id}: {e}")
-            return False
 
     async def _collect_indexable_entries(
         self, *, include_playbooks: bool = True
     ) -> List[IndexableEntry]:
         """Return the shared tool/playbook corpus used for embedding indexing."""
-        entries: List[IndexableEntry] = []
-
-        try:
-            from backend.app.services.tool_list_service import ToolListService
-
-            all_tools = ToolListService().get_all_tools()
-        except Exception as e:
-            logger.error(f"Failed to get tool list: {e}")
-            all_tools = []
-
-        for tool in all_tools:
-            cap_code = None
-            if tool.source == "capability" and "." in tool.tool_id:
-                cap_code = tool.tool_id.split(".")[0]
-            entries.append(
-                {
-                    "tool_id": tool.tool_id,
-                    "display_name": tool.name,
-                    "description": tool.description,
-                    "category": tool.category,
-                    "capability_code": cap_code,
-                    "affordance": None,
-                }
-            )
-
-        if not include_playbooks:
-            return entries
-
-        try:
-            from backend.app.services.manifest_utils import resolve_playbook_affordance
-            from backend.app.services.playbook_service import PlaybookService
-            from backend.app.services.playbook_registry import get_playbook_registry
-
-            pb_svc = PlaybookService()
-            pb_svc.registry = get_playbook_registry()
-            all_playbooks = await pb_svc.list_playbooks()
-            seen_codes: set = set()
-            for pb in all_playbooks:
-                if pb.playbook_code in seen_codes:
-                    continue
-                seen_codes.add(pb.playbook_code)
-                affordance_dict = {}
-                if pb.playbook_code:
-                    affordance_dict = resolve_playbook_affordance(pb.playbook_code)
-                entries.append(
-                    {
-                        "tool_id": pb.playbook_code,
-                        "display_name": pb.name,
-                        "description": pb.description or pb.name,
-                        "category": "playbook",
-                        "capability_code": getattr(pb, "capability_code", None),
-                        "affordance": affordance_dict if affordance_dict else None,
-                    }
-                )
-        except Exception as exc:
-            logger.warning("Playbook indexing corpus build failed (non-fatal): %s", exc)
-
-        return entries
+        return await _collect_indexable_entries(
+            self, include_playbooks=include_playbooks
+        )
 
     async def index_all_tools(self, *, include_playbooks: bool = True) -> int:
-        """Index all tools from ToolListService. Idempotent (upsert).
-
-        Returns number of successfully indexed tools.
-        """
-        entries = await self._collect_indexable_entries(
-            include_playbooks=include_playbooks
-        )
-        count = 0
-        tool_entries = 0
-        playbook_entries = 0
-        for entry in entries:
-            ok = await self.index_tool(
-                tool_id=entry["tool_id"],
-                display_name=entry["display_name"],
-                description=entry["description"],
-                category=entry["category"],
-                capability_code=entry["capability_code"],
-                affordance=entry.get("affordance"),
-            )
-            if ok:
-                count += 1
-            if entry["category"] == "playbook":
-                playbook_entries += 1
-            else:
-                tool_entries += 1
-
-        logger.info(
-            "Indexed %d/%d entries (%d tools, %d playbooks)",
-            count,
-            len(entries),
-            tool_entries,
-            playbook_entries,
-        )
-        return count
+        """Index all tools from ToolListService."""
+        return await _index_all_tools(self, include_playbooks=include_playbooks)
 
     async def ensure_indexed(self, *, include_playbooks: bool = True) -> int:
-        """Startup hook: index all tools for every available embed model.
-
-        On cold start this discovers all Ollama embed models, checks whether
-        each one has a complete set of tool rows, and re-indexes any that are
-        stale or missing.  Single-model environments behave identically to
-        before (index_all_tools fallback).
-
-        Returns total number of newly indexed (tool, model) rows; 0 if already
-        up to date.
-        """
-        primary = self._get_current_model()
-        ollama_models = discover_embed_models() or [primary]
-
-        # Fallback: at least use the primary model
-        if not ollama_models:
-            ollama_models = [primary]
-
-        # --- Get expected corpus size (tools + playbooks) ---
-        expected = len(
-            await self._collect_indexable_entries(include_playbooks=include_playbooks)
-        )
-
-        if expected == 0:
-            logger.warning("ensure_indexed: no indexable entries found, skipping")
-            return 0
-
-        # --- Check which models need indexing ---
-        stale_models: List[str] = []
-        try:
-            conn = self._get_connection()
-            try:
-                with conn.cursor() as cur:
-                    for model in ollama_models:
-                        cur.execute(
-                            "SELECT count(*) FROM tool_embeddings WHERE embedding_model = %s",
-                            (model,),
-                        )
-                        row_count = cur.fetchone()[0]
-                        if row_count < expected:
-                            logger.info(
-                                f"ensure_indexed: model {model} stale "
-                                f"({row_count}/{expected}), will re-index"
-                            )
-                            stale_models.append(model)
-                        else:
-                            logger.info(
-                                f"ensure_indexed: model {model} up to date "
-                                f"({row_count} rows)"
-                            )
-            finally:
-                conn.close()
-        except Exception as e:
-            logger.warning(
-                f"ensure_indexed: DB check failed ({e}), forcing full re-index"
-            )
-            stale_models = ollama_models
-
-        if not stale_models:
-            return 0
-
-        # --- Index only stale models ---
-        total = 0
-        for model in stale_models:
-            count = await self._index_all_tools_for_model(
-                model, include_playbooks=include_playbooks
-            )
-            logger.info(f"ensure_indexed: [{model}] indexed {count} tools")
-            total += count
-
-        # If we had stale models and expected tools, but indexed 0, it means
-        # the Ollama embedding path completely failed (e.g., Ollama is unavailable).
-        # We raise here so callers can gracefully fallback to base index_all_tools().
-        if stale_models and expected > 0 and total == 0:
-            raise MultiModelIndexingError("Ollama multi-model indexing failed completely")
-
-        return total
+        """Startup hook: index stale embedding models."""
+        return await _ensure_indexed(self, include_playbooks=include_playbooks)
 
     async def remove_tool(self, tool_id: str) -> bool:
-        """Remove a tool's embeddings (all models).
-
-        Returns True on success.
-        """
-        try:
-            conn = self._get_connection()
-            try:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        "DELETE FROM tool_embeddings WHERE tool_id = %s",
-                        (tool_id,),
-                    )
-                    deleted = cur.rowcount
-                conn.commit()
-                logger.info(f"Removed {deleted} embedding(s) for tool {tool_id}")
-                return True
-            finally:
-                conn.close()
-        except Exception as e:
-            logger.error(f"Failed to remove tool {tool_id}: {e}")
-            return False
+        """Remove a tool's embeddings across all models."""
+        return await _remove_tool(self, tool_id)
 
     async def remove_tools_by_capability(self, capability_code: str) -> int:
-        """Remove all tool embeddings for a capability pack.
-
-        Returns number of deleted rows.
-        """
-        try:
-            conn = self._get_connection()
-            try:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        "DELETE FROM tool_embeddings WHERE capability_code = %s",
-                        (capability_code,),
-                    )
-                    deleted = cur.rowcount
-                conn.commit()
-                logger.info(
-                    f"Removed {deleted} embedding(s) for capability {capability_code}"
-                )
-                return deleted
-            finally:
-                conn.close()
-        except Exception as e:
-            logger.error(
-                f"Failed to remove embeddings for capability {capability_code}: {e}"
-            )
-            return 0
+        """Remove all tool embeddings for a capability pack."""
+        return await _remove_tools_by_capability(self, capability_code)
 
     async def has_existing_index(self, *, min_rows: int = 1) -> bool:
         """Return whether the embedding table already has a usable corpus."""
-        try:
-            conn = self._get_connection()
-            try:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        "SELECT 1 FROM tool_embeddings LIMIT %s",
-                        (max(1, min_rows),),
-                    )
-                    rows = cur.fetchall()
-            finally:
-                conn.close()
-        except Exception as e:
-            logger.warning("Failed to read tool embedding row count: %s", e)
-            return False
-
-        return len(rows) >= min_rows
+        return await _has_existing_index(self, min_rows=min_rows)
 
     async def get_capability_embedding_status(
         self, capability_code: str
     ) -> Dict[str, Any]:
         """Return current embedding coverage for one capability code."""
-        try:
-            conn = self._get_connection()
-            try:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        """
-                        SELECT count(*) AS row_count, max(updated_at) AS latest_updated_at
-                        FROM tool_embeddings
-                        WHERE capability_code = %s
-                        """,
-                        (capability_code,),
-                    )
-                    row = cur.fetchone()
-            finally:
-                conn.close()
-        except Exception as e:
-            logger.warning(
-                "Failed to read embedding status for capability %s: %s",
-                capability_code,
-                e,
-            )
-            return {"row_count": 0, "latest_updated_at": None}
-
-        return {
-            "row_count": int(row[0] or 0),
-            "latest_updated_at": row[1],
-        }
-
-    # ------------------------------------------------------------------ #
-    #  Read path
-    # ------------------------------------------------------------------ #
+        return await _get_capability_embedding_status(self, capability_code)
 
     async def search(
         self,
@@ -565,78 +163,12 @@ class ToolEmbeddingService:
         top_k: int = 15,
         min_score: float = 0.3,
     ) -> Tuple[List[ToolMatch], str]:
-        """Search tool embeddings by cosine similarity.
-
-        Returns:
-            (matches, rag_status) where rag_status is one of:
-            - "hit":   found >= 1 match above min_score
-            - "miss":  search succeeded but 0 matches above min_score
-            - "error": embedding generation or DB query failed
-        """
-        # Generate query embedding
-        query_embedding, model_name = await self._generate_embedding(query)
-        if query_embedding is None or model_name is None:
-            return [], RAG_ERROR
-
-        embedding_str = vector_to_pg_literal(query_embedding)
-
-        try:
-            conn = self._get_connection()
-            try:
-                from psycopg2.extras import RealDictCursor
-
-                with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                    cur.execute(
-                        """
-                        SELECT
-                            tool_id,
-                            display_name,
-                            description,
-                            category,
-                            capability_code,
-                            1 - (embedding <=> %s::vector) AS similarity
-                        FROM tool_embeddings
-                        WHERE embedding_model = %s
-                        ORDER BY embedding <=> %s::vector
-                        LIMIT %s
-                        """,
-                        (embedding_str, model_name, embedding_str, top_k),
-                    )
-                    rows = cur.fetchall()
-            finally:
-                conn.close()
-        except Exception as e:
-            logger.error(f"Tool embedding search failed: {e}")
-            return [], RAG_ERROR
-
-        # Filter by min_score
-        matches = filter_mapping_rows_by_score(rows, min_score=min_score)
-
-        if matches:
-            logger.info(
-                f"Tool RAG: {len(matches)} matches for query "
-                f"(top: {matches[0].tool_id} @ {matches[0].similarity:.3f})"
-            )
-            return matches, RAG_HIT
-        else:
-            logger.info("Tool RAG: 0 matches above threshold")
-            return [], RAG_MISS
+        """Search tool embeddings by cosine similarity."""
+        return await _search(self, query, top_k=top_k, min_score=min_score)
 
     async def get_indexed_models(self) -> List[str]:
-        """Return all distinct embedding_model values that have rows in tool_embeddings."""
-        try:
-            conn = self._get_connection()
-            try:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        "SELECT DISTINCT embedding_model FROM tool_embeddings ORDER BY embedding_model"
-                    )
-                    return [row[0] for row in cur.fetchall()]
-            finally:
-                conn.close()
-        except Exception as e:
-            logger.warning(f"get_indexed_models failed: {e}")
-            return []
+        """Return all distinct indexed embedding models."""
+        return await _get_indexed_models(self)
 
     async def _search_single_model(
         self,
@@ -645,73 +177,22 @@ class ToolEmbeddingService:
         top_k: int,
         min_score: float = 0.0,
     ) -> List[ToolMatch]:
-        """Vector search restricted to one embedding_model. Returns raw results (no threshold filter)."""
-        embedding_str = vector_to_pg_literal(query_embedding)
-        try:
-            conn = self._get_connection()
-            try:
-                from psycopg2.extras import RealDictCursor
-
-                with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                    cur.execute(
-                        """
-                        SELECT
-                            tool_id,
-                            display_name,
-                            description,
-                            category,
-                            capability_code,
-                            1 - (embedding <=> %s::vector) AS similarity
-                        FROM tool_embeddings
-                        WHERE embedding_model = %s
-                        ORDER BY embedding <=> %s::vector
-                        LIMIT %s
-                        """,
-                        (embedding_str, model_name, embedding_str, top_k),
-                    )
-                    rows = cur.fetchall()
-            finally:
-                conn.close()
-        except Exception as e:
-            logger.warning(f"_search_single_model({model_name}) failed: {e}")
-            return []
-
-        return filter_mapping_rows_by_score(rows, min_score=min_score)
+        """Vector search restricted to one embedding model."""
+        return await _search_single_model(
+            self,
+            query_embedding,
+            model_name,
+            top_k,
+            min_score=min_score,
+        )
 
     async def search_bm25(
         self,
         query: str,
         top_k: int = 15,
     ) -> List[ToolMatch]:
-        """BM25 lexical search using PostgreSQL tsvector.
-
-        Returns ranked ToolMatch list (no threshold filter — caller does fusion).
-        Uses 'simple' config for brand names / abbreviations that vector search misses.
-        """
-        try:
-            conn = self._get_connection()
-            try:
-                with conn.cursor() as cur:
-                    # plainto_tsquery handles multi-word queries safely
-                    cur.execute(
-                        """
-                        SELECT tool_id, display_name, description, category,
-                               capability_code,
-                               ts_rank(text_vector, plainto_tsquery('simple', %s)) AS rank
-                        FROM tool_embeddings
-                        WHERE text_vector @@ plainto_tsquery('simple', %s)
-                        ORDER BY rank DESC
-                        LIMIT %s
-                        """,
-                        (query, query, top_k),
-                    )
-                    rows = cur.fetchall()
-                    return [tuple_row_to_tool_match(row) for row in rows]
-            finally:
-                conn.close()
-        except Exception as exc:
-            logger.debug("BM25 search failed (non-fatal): %s", exc)
-            return []
+        """BM25 lexical search using PostgreSQL tsvector."""
+        return await _search_bm25(self, query, top_k=top_k)
 
     async def search_rrf(
         self,
@@ -720,279 +201,38 @@ class ToolEmbeddingService:
         min_score: float = 0.3,
         rrf_k: int = 60,
     ) -> Tuple[List[ToolMatch], str]:
-        """Multi-model Reciprocal Rank Fusion search.
-
-        Queries every model that has indexed rows in tool_embeddings in parallel,
-        fuses their ranked lists with RRF (score = Σ 1/(k + rank_i), k default 60),
-        and returns the top-K tools sorted by fused score.
-
-        Falls back to single-model search() when:
-        - Only one model is indexed (no fusion benefit)
-        - Embedding generation fails
-
-        Returns:
-            (matches, rag_status)  — same contract as search()
-        """
-        import asyncio
-
-        # 1. Generate query embedding with the primary model
-        query_embedding, model_name = await self._generate_embedding(query)
-        if query_embedding is None or model_name is None:
-            return [], RAG_ERROR
-
-        # 2. Identify which models have indexed data
-        indexed_models = await self.get_indexed_models()
-
-        # If only one model (or none), fall back to single-model search
-        if len(indexed_models) <= 1:
-            return await self.search(query, top_k=top_k, min_score=min_score)
-
-        # 3. For each indexed model, we need a compatible embedding
-        #    - For the primary model we already have the embedding
-        #    - For others we must re-embed (different model = different vector space)
-        #    NOTE: We attempt per-model embedding via VectorSearchService if the model
-        #    differs; on failure we skip that model gracefully.
-        async def _embed_for_model(m: str) -> Tuple[str, Optional[List[float]]]:
-            if m == model_name:
-                return m, query_embedding
-            emb, _ = await self._generate_embedding_for_model(query, m)
-            return m, emb
-
-        embed_tasks = [_embed_for_model(m) for m in indexed_models]
-        embed_results = await asyncio.gather(*embed_tasks)
-
-        # 4. Parallel per-model similarity search
-        search_tasks = []
-        search_model_names = []
-        for m, emb in embed_results:
-            if emb is not None:
-                search_tasks.append(self._search_single_model(emb, m, top_k * 2))
-                search_model_names.append(m)
-
-        if not search_tasks:
-            return [], RAG_ERROR
-
-        per_model_results: List[List[ToolMatch]] = list(
-            await asyncio.gather(*search_tasks)
-        )
-
-        # 4b. BM25 lexical search (third path — catches abbreviations/brand names)
-        bm25_results: List[ToolMatch] = []
-        try:
-            bm25_results = await self.search_bm25(query, top_k=top_k * 2)
-        except Exception as exc:
-            logger.debug("BM25 path skipped in RRF: %s", exc)
-
-        # 5. Reciprocal Rank Fusion (vector models + BM25)
-        matches = fuse_ranked_tool_matches(
-            per_model_results=per_model_results,
-            bm25_results=bm25_results,
+        """Multi-model Reciprocal Rank Fusion search."""
+        return await _search_rrf(
+            self,
+            query,
             top_k=top_k,
             min_score=min_score,
             rrf_k=rrf_k,
         )
 
-        n_paths = len(search_model_names) + (1 if bm25_results else 0)
-        if matches:
-            logger.info(
-                "Tool RRF (%d paths, %d vector + %d bm25): %d matches (top: %s @ rrf=%.4f)",
-                n_paths,
-                len(search_model_names),
-                len(bm25_results),
-                len(matches),
-                matches[0].tool_id,
-                matches[0].similarity,
-            )
-            return matches, RAG_HIT
-        else:
-            logger.info("Tool RRF: 0 matches above threshold")
-            return [], RAG_MISS
-
     async def search_by_affordance(
         self,
         consumes_types: List[str],
     ) -> List[ToolMatch]:
-        """Search for playbooks that consume ANY of the specified asset types.
-
-        Queries the JSONB affordance column to match 'consumes' declarations.
-        """
-        if not consumes_types:
-            return []
-
-        try:
-            import json
-
-            conn = self._get_connection()
-            try:
-                with conn.cursor() as cur:
-                    query_parts = []
-                    params = []
-                    for t in consumes_types:
-                        query_parts.append("affordance->'consumes' @> %s::jsonb")
-                        params.append(json.dumps([t]))
-
-                    where_clause = " OR ".join(query_parts)
-
-                    cur.execute(
-                        f"""
-                        SELECT DISTINCT tool_id, display_name, description, category, capability_code
-                        FROM tool_embeddings
-                        WHERE category = 'playbook'
-                          AND ({where_clause})
-                        """,
-                        tuple(params),
-                    )
-                    rows = cur.fetchall()
-                    matches = [tuple_row_to_tool_match(row, similarity=1.0) for row in rows]
-                    logger.info(
-                        "Structured search found %d playbooks for consumes_types=%s",
-                        len(matches),
-                        consumes_types,
-                    )
-                    return matches
-            finally:
-                conn.close()
-        except Exception as exc:
-            logger.error("Failed to search_by_affordance: %s", exc)
-            return []
-
-    # ------------------------------------------------------------------ #
-    #  Multi-model index path
-    # ------------------------------------------------------------------ #
+        """Search playbooks that consume any of the specified asset types."""
+        return await _search_by_affordance(self, consumes_types)
 
     async def index_all_tools_multimodel(
         self, *, include_playbooks: bool = True
     ) -> int:
-        """Re-index all tools for every Ollama embed model currently available.
-
-        Each (tool_id, model) pair is upserted independently (UNIQUE constraint).
-        Returns the total number of (tool, model) rows successfully indexed.
-        """
-        embed_models = discover_embed_models()
-        if not embed_models:
-            logger.info(
-                "index_all_tools_multimodel: no Ollama embed models found, using single-model path"
-            )
-            return await self.index_all_tools(include_playbooks=include_playbooks)
-
-        logger.info(f"index_all_tools_multimodel: indexing for models {embed_models}")
-
-        total = 0
-        for model in embed_models:
-            # Temporarily override the effective model for this indexing run
-            # by using a lightweight helper that forces the model in VectorSearchService
-            count = await self._index_all_tools_for_model(
-                model, include_playbooks=include_playbooks
-            )
-            logger.info(f"  [{model}] indexed {count} tools")
-            total += count
-
-        return total
+        """Re-index all tools for every available Ollama embed model."""
+        return await _index_all_tools_multimodel(
+            self, include_playbooks=include_playbooks
+        )
 
     async def _index_all_tools_for_model(
         self, model_name: str, *, include_playbooks: bool = True
     ) -> int:
         """Index all tools and playbooks using a specific embedding model."""
-        entries = await self._collect_indexable_entries(
-            include_playbooks=include_playbooks
+        return await _index_all_tools_for_model(
+            self, model_name, include_playbooks=include_playbooks
         )
-        count = 0
-        for entry in entries:
-            embed_text = build_embed_text(entry["display_name"], entry["description"])
-            if entry["capability_code"]:
-                try:
-                    cap_meta = self._get_capability_manifest_context(
-                        entry["capability_code"]
-                    )
-                    if cap_meta:
-                        embed_text = build_embed_text(
-                            entry["display_name"],
-                            entry["description"],
-                            capability_context=cap_meta,
-                        )
-                except Exception:
-                    pass
-            emb, used_model = await self._generate_embedding_for_model(
-                embed_text, model_name, is_query=False
-            )
-            if emb is None:
-                logger.warning(
-                    f"  Embed failed for {entry['tool_id']} ({model_name})"
-                )
-                continue
-
-            embedding_str = vector_to_pg_literal(emb)
-            embedding_dim = len(emb)
-            try:
-                conn = self._get_connection()
-                try:
-                    with conn.cursor() as cur:
-                        cur.execute(
-                            """
-                            INSERT INTO tool_embeddings
-                                (tool_id, display_name, description, category,
-                                 capability_code, embedding, embedding_model,
-                                 embedding_dim, affordance, updated_at)
-                            VALUES (%s, %s, %s, %s, %s, %s::vector, %s, %s, %s, now())
-                            ON CONFLICT (tool_id, embedding_model)
-                            DO UPDATE SET
-                                display_name = EXCLUDED.display_name,
-                                description = EXCLUDED.description,
-                                category = EXCLUDED.category,
-                                capability_code = EXCLUDED.capability_code,
-                                embedding = EXCLUDED.embedding,
-                                embedding_dim = EXCLUDED.embedding_dim,
-                                affordance = EXCLUDED.affordance,
-                                updated_at = now()
-                            """,
-                            (
-                                entry["tool_id"],
-                                entry["display_name"],
-                                entry["description"],
-                                entry["category"],
-                                entry["capability_code"],
-                                embedding_str,
-                                used_model,
-                                embedding_dim,
-                                json.dumps(entry.get("affordance") or {}),
-                            ),
-                        )
-                    conn.commit()
-                    count += 1
-                finally:
-                    conn.close()
-            except Exception as e:
-                logger.error(
-                    f"  DB write failed for {entry['tool_id']} ({model_name}): {e}"
-                )
-
-        return count
-
-    # ------------------------------------------------------------------ #
-    #  Migration
-    # ------------------------------------------------------------------ #
 
     async def reindex_all(self) -> int:
-        """Re-embed all tools with current model. Drops old model rows.
-
-        Returns number of indexed tools.
-        """
-        current_model = self._get_current_model()
-
-        # Delete all rows for current model (will be re-created)
-        try:
-            conn = self._get_connection()
-            try:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        "DELETE FROM tool_embeddings WHERE embedding_model = %s",
-                        (current_model,),
-                    )
-                conn.commit()
-            finally:
-                conn.close()
-        except Exception as e:
-            logger.error(f"Failed to clear embeddings for reindex: {e}")
-            return 0
-
-        return await self.index_all_tools()
+        """Re-embed all tools with the current model."""
+        return await _reindex_all(self)
