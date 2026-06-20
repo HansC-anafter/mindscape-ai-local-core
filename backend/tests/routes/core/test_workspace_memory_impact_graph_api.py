@@ -1,26 +1,20 @@
-from pathlib import Path
 import asyncio
-import importlib.util
+import importlib
 
 import httpx
 from fastapi import APIRouter, FastAPI
 
 
 def _load_workspace_governance_module():
-    module_path = (
-        Path(__file__).resolve().parents[3]
-        / "app"
-        / "routes"
-        / "core"
-        / "workspace_governance.py"
+    return importlib.import_module(
+        "backend.app.routes.core.workspace_governance"
     )
-    spec = importlib.util.spec_from_file_location(
-        "workspace_governance_impact_graph_test_module", module_path
+
+
+def _load_memory_routes_module():
+    return importlib.import_module(
+        "backend.app.routes.core.workspace_governance_core.memory_routes"
     )
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
 
 
 class ASGIAsyncTestClient:
@@ -115,8 +109,9 @@ class StubMemoryImpactGraphReadModel:
 
 def test_workspace_memory_impact_graph_api_returns_route_payload(monkeypatch):
     module = _load_workspace_governance_module()
+    memory_routes = _load_memory_routes_module()
     read_model = StubMemoryImpactGraphReadModel()
-    monkeypatch.setattr(module, "_get_memory_impact_graph_read_model", lambda: read_model)
+    monkeypatch.setattr(memory_routes, "_get_memory_impact_graph_read_model", lambda: read_model)
 
     app = FastAPI()
     workspace_router = APIRouter(prefix="/api/v1/workspaces")
@@ -147,13 +142,14 @@ def test_workspace_memory_impact_graph_api_returns_route_payload(monkeypatch):
 
 def test_workspace_memory_impact_graph_api_returns_404_when_session_missing(monkeypatch):
     module = _load_workspace_governance_module()
+    memory_routes = _load_memory_routes_module()
 
     class MissingReadModel:
         def build_for_workspace(self, workspace_id, **kwargs):
             raise LookupError("Memory impact graph session not found")
 
     monkeypatch.setattr(
-        module,
+        memory_routes,
         "_get_memory_impact_graph_read_model",
         lambda: MissingReadModel(),
     )
