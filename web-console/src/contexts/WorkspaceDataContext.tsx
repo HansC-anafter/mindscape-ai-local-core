@@ -1,195 +1,64 @@
 'use client';
 
 import React, {
-  createContext,
-  useContext,
   useState,
   useEffect,
   useCallback,
-  useRef,
-  ReactNode
+  useRef
 } from 'react';
 
-// Get API URL - for 'use client' components, always use browser-accessible URL
-// In browser, NEXT_PUBLIC_API_URL points to host's localhost
-import { getApiBaseUrl } from '../lib/api-url';
 import { isDocumentHidden, onDocumentVisible } from '../lib/page-visibility';
-import { sharedGetFetch } from '../lib/resilient-fetch';
 import {
   WORKSPACE_READINESS_BACKGROUND_POLL_MS,
   WORKSPACE_READINESS_CACHE_MS,
   markWorkspaceReadinessAttempt,
   shouldRequestWorkspaceReadiness,
 } from '../lib/workspace-readiness-policy';
+import {
+  fetchWorkspaceDetails,
+  fetchWorkspaceExecutions,
+  fetchWorkspaceHealth,
+  fetchWorkspaceSummary,
+  fetchWorkspaceTasks,
+  updateWorkspaceRequest,
+} from './workspace-data-context/api';
+import {
+  WorkspaceDataContext,
+  useWorkspaceData,
+  useWorkspaceDataOptional,
+} from './workspace-data-context/context';
+import type {
+  ExecutionSession,
+  SystemStatus,
+  Task,
+  Workspace,
+  WorkspaceDataContextType,
+  WorkspaceDataProviderProps,
+} from './workspace-data-context/types';
+import { useDebounce } from './workspace-data-context/useDebounce';
 
-// This is evaluated at runtime, not module load time
-// Use synchronous version for immediate use, but prefer async version when possible
-const getApiUrl = () => {
-  return getApiBaseUrl();
-};
-
-// Workspace data types
-interface Workspace {
-  id: string;
-  title: string;
-  description?: string;
-  workspace_type?: 'personal' | 'brand' | 'team';
-  primary_project_id?: string;
-  default_playbook_id?: string;
-  default_locale?: string;
-  mode?: string | null;
-  execution_mode?: 'qa' | 'execution' | 'hybrid' | 'meeting' | null;
-  expected_artifacts?: string[];
-  execution_priority?: 'low' | 'medium' | 'high' | null;
-  data_sources?: any;
-  associated_intent?: any;
-  storage_base_path?: string;
-  artifacts_dir?: string;
-  uploads_dir?: string;
-  storage_config?: any;
-  metadata?: Record<string, any>;
-  playbook_storage_config?: Record<string, any>;
-  playbook_auto_execution_config?: Record<string, any>;
-  workspace_blueprint?: {
-    instruction?: {
-      persona?: string;
-      goals?: string[];
-      anti_goals?: string[];
-      style_rules?: string[];
-      domain_context?: string;
-      version?: number;
-    };
-    brief?: string;
-    [key: string]: any;
-  };
-}
-
-interface Task {
-  id: string;
-  workspace_id: string;
-  pack_id?: string;
-  playbook_id?: string;
-  task_type?: string;
-  status: string;
-  title?: string;
-  summary?: string;
-  message_id?: string;
-  created_at: string;
-  updated_at?: string;
-  data?: any;
-  params?: any;
-  result?: any;
-}
-
-interface ExecutionSession {
-  execution_id: string;
-  workspace_id: string;
-  status: string;
-  playbook_code?: string;
-  trigger_source?: string;
-  current_step_index: number;
-  total_steps: number;
-  paused_at?: string;
-  origin_intent_label?: string;
-  created_at?: string;
-  started_at?: string;
-  completed_at?: string;
-  steps?: any[];
-  [key: string]: any;
-}
-
-interface SystemStatus {
-  llm_configured: boolean;
-  llm_provider?: string;
-  vector_db_connected: boolean;
-  tools: Record<string, any>;
-  critical_issues_count: number;
-  has_issues: boolean;
-}
+export type { WorkspaceDataInitialLoadProfile } from './workspace-data-context/types';
+export { useWorkspaceData, useWorkspaceDataOptional };
 
 const SYSTEM_STATUS_CACHE_MS = WORKSPACE_READINESS_CACHE_MS;
-
-interface WorkspaceDataContextType {
-  // Data
-  workspace: Workspace | null;
-  tasks: Task[];
-  executions: ExecutionSession[];
-  systemStatus: SystemStatus | null;
-
-  // Loading states
-  isLoading: boolean;
-  isLoadingWorkspace: boolean;
-  isLoadingWorkspaceDetails: boolean;
-  isLoadingTasks: boolean;
-  isLoadingExecutions: boolean;
-
-  // Error state
-  error: string | null;
-
-  // Actions
-  refreshWorkspace: () => Promise<void>;
-  refreshWorkspaceDetails: () => Promise<void>;
-  refreshTasks: () => Promise<void>;
-  refreshExecutions: () => Promise<void>;
-  refreshSystemStatus: (options?: { force?: boolean }) => Promise<void>;
-  refreshAll: () => Promise<void>;
-  updateWorkspace: (updates: Partial<Workspace>) => Promise<Workspace | null>;
-}
-
-const WorkspaceDataContext = createContext<WorkspaceDataContextType | null>(null);
-
-// Debounce helper
-function useDebounce<T extends (...args: any[]) => any>(
-  callback: T,
-  delay: number
-): T {
-  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const callbackRef = useRef(callback);
-  callbackRef.current = callback;
-
-  const debounced = useCallback(
-    (...args: Parameters<T>) => {
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-      }
-      timeoutRef.current = setTimeout(() => {
-        callbackRef.current(...args);
-      }, delay);
-    },
-    [delay]
-  );
-  return debounced as T;
-}
-
-export type WorkspaceDataInitialLoadProfile = 'full' | 'capability-host';
-
-interface WorkspaceDataProviderProps {
-  workspaceId: string;
-  initialLoadProfile?: WorkspaceDataInitialLoadProfile;
-  children: ReactNode;
-}
 
 export function WorkspaceDataProvider({
   workspaceId,
   initialLoadProfile = 'full',
   children
 }: WorkspaceDataProviderProps) {
-  // Data states
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [executions, setExecutions] = useState<ExecutionSession[]>([]);
   const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
 
-  // Loading states
   const [isLoadingWorkspace, setIsLoadingWorkspace] = useState(true);
   const [isLoadingWorkspaceDetails, setIsLoadingWorkspaceDetails] = useState(false);
   const [isLoadingTasks, setIsLoadingTasks] = useState(false);
   const [isLoadingExecutions, setIsLoadingExecutions] = useState(false);
 
-  // Error state
   const [error, setError] = useState<string | null>(null);
 
-  // Refs to prevent duplicate requests
   const loadingWorkspaceRef = useRef(false);
   const loadingWorkspaceDetailsRef = useRef(false);
   const loadingTasksRef = useRef(false);
@@ -200,11 +69,9 @@ export function WorkspaceDataProvider({
   const abortControllerRef = useRef<AbortController | null>(null);
   const isCapabilityHostProfile = initialLoadProfile === 'capability-host';
 
-  // Load workspace data with timeout
   const loadWorkspace = useCallback(async () => {
     const tabId = `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
-    // Skip loading for 'new' workspace (wizard mode)
     if (workspaceId === 'new') {
       setIsLoadingWorkspace(false);
       return;
@@ -220,14 +87,12 @@ export function WorkspaceDataProvider({
 
     loadingWorkspaceRef.current = true;
     setIsLoadingWorkspace(true);
-    setError(null); // Clear previous errors
+    setError(null);
 
-    // Abort any existing requests first
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
 
-    // Create new abort controller for this request
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
@@ -236,46 +101,8 @@ export function WorkspaceDataProvider({
     }, 15000);
 
     try {
-      const apiUrl = getApiBaseUrl();
-      const url = `${apiUrl}/api/v1/workspaces/${workspaceId}/summary`;
-
-      let response: Response;
-      try {
-        // Configure request timeout protection
-        // Use a shorter timeout to fail fast if there's a network issue
-        // Fetch with minimal config to avoid CORS preflight
-        // Use same-origin mode since frontend and backend are on different ports
-        const fetchPromise = sharedGetFetch(url, {
-          method: 'GET',
-          signal: controller.signal,
-          // Configure fetch for same-origin requests
-          cache: 'no-store',
-          headers: {
-            'Accept': 'application/json',
-            'Content-Type': 'application/json',
-          },
-        });
-
-        // Execute fetch request
-        response = await fetchPromise;
-      } catch (fetchErr: any) {
-        // If it's a timeout or abort, provide clearer error message
-        if (fetchErr.name === 'AbortError' || fetchErr.message?.includes('timeout')) {
-          throw new Error('Request timeout - backend may be unreachable or slow to respond');
-        }
-        throw fetchErr;
-      }
-
+      const data = await fetchWorkspaceSummary(workspaceId, controller.signal);
       clearTimeout(timeoutId);
-
-      if (!response.ok) {
-        const errorText = response.status === 404
-          ? 'Workspace not found'
-          : `Failed to load workspace: ${response.status}`;
-        throw new Error(errorText);
-      }
-
-      const data = await response.json();
 
       if (mountedRef.current) {
         if (!data || !data.id) {
@@ -292,7 +119,6 @@ export function WorkspaceDataProvider({
       console.error(`[WorkspaceDataContext:${tabId}] Error loading workspace:`, err);
 
       if (mountedRef.current) {
-        // Handle abort/timeout error
         if (err.name === 'AbortError') {
           console.error(`[WorkspaceDataContext:${tabId}] Request timeout loading workspace`);
           setError('Request timeout - please check if the backend is running');
@@ -324,25 +150,9 @@ export function WorkspaceDataProvider({
     const timeoutId = setTimeout(() => controller.abort(), 30000);
 
     try {
-      const response = await sharedGetFetch(
-        `${getApiBaseUrl()}/api/v1/workspaces/${workspaceId}`,
-        {
-          method: 'GET',
-          signal: controller.signal,
-          cache: 'no-store',
-          headers: {
-            'Accept': 'application/json',
-          },
-        }
-      );
-
+      const data = await fetchWorkspaceDetails(workspaceId, controller.signal);
       clearTimeout(timeoutId);
 
-      if (!response.ok) {
-        throw new Error(`Failed to load workspace details: ${response.status}`);
-      }
-
-      const data = await response.json();
       if (mountedRef.current && data?.id) {
         setWorkspace(prev => (prev?.id === data.id ? { ...prev, ...data } : data));
       }
@@ -359,7 +169,6 @@ export function WorkspaceDataProvider({
     }
   }, [workspaceId]);
 
-  // Load tasks with timeout
   const loadTasks = useCallback(async () => {
     if (loadingTasksRef.current || !mountedRef.current) return;
     if (isDocumentHidden()) return;
@@ -371,28 +180,14 @@ export function WorkspaceDataProvider({
     setIsLoadingTasks(true);
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
 
     try {
-      const response = await sharedGetFetch(
-        `${getApiUrl()}/api/v1/workspaces/${workspaceId}/tasks?limit=20&include_completed=true`,
-        { method: 'GET', signal: controller.signal }
-      );
-
+      const nextTasks = await fetchWorkspaceTasks(workspaceId, controller.signal);
       clearTimeout(timeoutId);
 
-      if (!response.ok) {
-        if (response.status === 429) {
-          console.warn('[WorkspaceDataContext] Rate limited, will retry later');
-          return;
-        }
-        throw new Error(`Failed to load tasks: ${response.status}`);
-      }
-
-      const data = await response.json();
-      if (mountedRef.current) {
-        const tasks = data.tasks || [];
-        setTasks(tasks);
+      if (mountedRef.current && nextTasks !== null) {
+        setTasks(nextTasks);
       }
     } catch (err: any) {
       clearTimeout(timeoutId);
@@ -407,7 +202,6 @@ export function WorkspaceDataProvider({
     }
   }, [workspaceId]);
 
-  // Load executions with steps (batch API) with timeout
   const loadExecutions = useCallback(async () => {
     if (loadingExecutionsRef.current || !mountedRef.current) return;
     if (isDocumentHidden()) return;
@@ -416,40 +210,16 @@ export function WorkspaceDataProvider({
     setIsLoadingExecutions(true);
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
 
     try {
-      // Optimization: use /tasks endpoint (which we patched to strip heavy results)
-      // instead of /executions-with-steps (which returns huge payloads).
-      // This prevents the "Infinite Loading" issue.
-      const response = await sharedGetFetch(
-        `${getApiUrl()}/api/v1/workspaces/${workspaceId}/tasks?limit=100&include_completed=true&task_type=execution`,
-        { method: 'GET', signal: controller.signal }
+      const mappedExecutions = await fetchWorkspaceExecutions(
+        workspaceId,
+        controller.signal
       );
-
       clearTimeout(timeoutId);
 
-      if (!response.ok) {
-        throw new Error(`Failed to load executions: ${response.status}`);
-      }
-
-      const data = await response.json();
       if (mountedRef.current) {
-        // Map Task to ExecutionSession
-        const mappedExecutions = (data.tasks || []).map((t: any) => ({
-          execution_id: t.id,
-          status: t.status,
-          workspace_id: t.workspace_id,
-          project_id: t.project_id,
-          playbook_code: t.pack_id, // Map pack_id to playbook_code
-          created_at: t.created_at,
-          started_at: t.started_at,
-          completed_at: t.completed_at,
-          current_step_index: 0,
-          total_steps: 0,
-          task: t,
-          steps: []
-        }));
         setExecutions(mappedExecutions);
       }
     } catch (err: any) {
@@ -465,7 +235,6 @@ export function WorkspaceDataProvider({
     }
   }, [workspaceId]);
 
-  // Load system status (from health endpoint) with timeout
   const loadSystemStatus = useCallback(async (options?: { force?: boolean }) => {
     if (!mountedRef.current) return;
     if (loadingSystemStatusRef.current) return;
@@ -488,29 +257,15 @@ export function WorkspaceDataProvider({
     loadingSystemStatusRef.current = true;
     markWorkspaceReadinessAttempt(workspaceId);
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
 
     try {
-      const response = await sharedGetFetch(
-        `${getApiUrl()}/api/v1/workspaces/${workspaceId}/health`,
-        { method: 'GET', signal: controller.signal },
-        { dedupKey: `workspace-health:${workspaceId}` }
-      );
-
+      const nextStatus = await fetchWorkspaceHealth(workspaceId, controller.signal);
       clearTimeout(timeoutId);
 
-      if (!response.ok) return;
+      if (!nextStatus) return;
 
-      const data = await response.json();
       if (mountedRef.current) {
-        const nextStatus = {
-          llm_configured: data.llm_configured,
-          llm_provider: data.llm_provider,
-          vector_db_connected: data.vector_db_connected,
-          tools: data.tools || {},
-          critical_issues_count: data.issues?.filter((i: any) => i.severity === 'error')?.length || 0,
-          has_issues: (data.issues?.length || 0) > 0
-        };
         systemStatusCacheRef.current = {
           data: nextStatus,
           timestamp: Date.now(),
@@ -527,7 +282,6 @@ export function WorkspaceDataProvider({
     }
   }, [workspaceId]);
 
-  // Refresh all data
   const refreshAll = useCallback(async () => {
     await Promise.all([
       loadWorkspace(),
@@ -537,7 +291,6 @@ export function WorkspaceDataProvider({
     ]);
   }, [loadWorkspace, loadTasks, loadExecutions, loadSystemStatus]);
 
-  // Debounced refresh for event handlers (2 second debounce)
   const debouncedRefresh = useDebounce(async () => {
     if (!mountedRef.current) return;
     await Promise.all([loadTasks(), loadExecutions()]);
@@ -546,25 +299,11 @@ export function WorkspaceDataProvider({
     }, 750);
   }, 2000);
 
-  // Update workspace
   const updateWorkspace = useCallback(async (updates: Partial<Workspace>): Promise<Workspace | null> => {
     if (!workspace) return null;
 
     try {
-      const response = await fetch(
-        `${getApiUrl()}/api/v1/workspaces/${workspaceId}`,
-        {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(updates)
-        }
-      );
-
-      if (!response.ok) {
-        throw new Error(`Failed to update workspace: ${response.status}`);
-      }
-
-      const updated = await response.json();
+      const updated = await updateWorkspaceRequest(workspaceId, updates);
       if (mountedRef.current) {
         setWorkspace(updated);
       }
@@ -575,9 +314,7 @@ export function WorkspaceDataProvider({
     }
   }, [workspace, workspaceId]);
 
-  // Initial load
   useEffect(() => {
-    // Reset all loading flags when workspaceId changes
     mountedRef.current = true;
     loadingWorkspaceRef.current = false;
     loadingWorkspaceDetailsRef.current = false;
@@ -586,25 +323,19 @@ export function WorkspaceDataProvider({
     loadingSystemStatusRef.current = false;
     systemStatusCacheRef.current = null;
 
-    // Track loading state to prevent duplicate loads during hot reload
     let isCancelled = false;
 
-    // Delay to ensure cleanup completion
     const loadData = async () => {
-      // Wait a bit to ensure any previous loads are cleared
       await new Promise(resolve => setTimeout(resolve, 100));
 
-      // Double-check we're still mounted and not already loading
       if (!mountedRef.current || isCancelled) {
         return;
       }
 
-      // Check if already loading to prevent duplicate loads during hot reload
       if (loadingWorkspaceRef.current) {
         return;
       }
 
-      // Skip loading for 'new' workspace (wizard mode)
       if (workspaceId === 'new') {
         setIsLoadingWorkspace(false);
         return;
@@ -615,14 +346,12 @@ export function WorkspaceDataProvider({
         return;
       }
 
-      // Reset flags to ensure fresh start
       loadingWorkspaceRef.current = false;
       loadingWorkspaceDetailsRef.current = false;
       loadingTasksRef.current = false;
       loadingExecutionsRef.current = false;
       loadingSystemStatusRef.current = false;
 
-      // Load workspace first (most important) - with retry logic
       if (mountedRef.current) {
         let retries = 3;
         let success = false;
@@ -642,9 +371,6 @@ export function WorkspaceDataProvider({
         }
       }
 
-      // Load non-first-viewport workspace data after the route has had a
-      // chance to paint. System health is kept, but staggered so it does not
-      // compete with route-critical PD/capability API calls.
       let auxiliaryLoadTimeoutId: ReturnType<typeof setTimeout> | null = null;
       let healthLoadTimeoutId: ReturnType<typeof setTimeout> | null = null;
       if (!isCapabilityHostProfile && mountedRef.current && workspaceId && workspaceId !== 'new') {
@@ -679,12 +405,10 @@ export function WorkspaceDataProvider({
       isCancelled = true;
       mountedRef.current = false;
       cleanupScheduledLoads?.();
-      // Abort any pending requests
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
         abortControllerRef.current = null;
       }
-      // Clear loading flags on unmount
       loadingWorkspaceRef.current = false;
       loadingWorkspaceDetailsRef.current = false;
       loadingTasksRef.current = false;
@@ -698,14 +422,12 @@ export function WorkspaceDataProvider({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspaceId, isCapabilityHostProfile]);
 
-  // Listen for workspace events (unified event handling)
   useEffect(() => {
     if (isCapabilityHostProfile) return;
     const handleWorkspaceUpdate = (event?: Event) => {
       debouncedRefresh();
     };
 
-    // Listen to all workspace-related events with single handler
     window.addEventListener('workspace-chat-updated', handleWorkspaceUpdate);
     window.addEventListener('workspace-task-updated', handleWorkspaceUpdate);
 
@@ -715,7 +437,6 @@ export function WorkspaceDataProvider({
     };
   }, [debouncedRefresh, isCapabilityHostProfile]);
 
-  // Poll system status every 60s for live monitoring
   useEffect(() => {
     if (isCapabilityHostProfile) return;
     if (!workspaceId || workspaceId === 'new') return;
@@ -766,18 +487,4 @@ export function WorkspaceDataProvider({
       {children}
     </WorkspaceDataContext.Provider>
   );
-}
-
-// Hook to use workspace data
-export function useWorkspaceData(): WorkspaceDataContextType {
-  const context = useContext(WorkspaceDataContext);
-  if (!context) {
-    throw new Error('useWorkspaceData must be used within a WorkspaceDataProvider');
-  }
-  return context;
-}
-
-// Optional hook that returns null if not in provider (for components that may or may not be in workspace context)
-export function useWorkspaceDataOptional(): WorkspaceDataContextType | null {
-  return useContext(WorkspaceDataContext);
 }
