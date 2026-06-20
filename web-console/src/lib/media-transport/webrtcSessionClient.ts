@@ -1,258 +1,45 @@
-export type MediaSignalParticipant = 'workspace' | 'source';
+import {
+  createPresentationStream,
+  getStreamAudioTracks,
+  getStreamVideoTracks,
+} from './webrtcPresentationStream';
+import {
+  createLanPeerConnection,
+  openWebRTCSignalSocket,
+} from './webrtcSignalClient';
+import type {
+  BrowserMediaSourceSessionInput,
+  CameraFacingMode,
+  CaptureOrientation,
+  DesktopBrowserSourceSessionInput,
+  PhoneBrowserSourceSessionInput,
+  WebRTCSessionHandle,
+  WebRTCSignalSocket,
+  WorkspaceReceiverSessionInput,
+} from './webrtcSessionTypes';
 
-export type MediaSourceKind =
-  | 'phone_camera'
-  | 'desktop_camera'
-  | 'usb_camera'
-  | 'virtual_camera'
-  | 'external_provider_camera';
-
-export type MediaSignalMessage =
-  | { type: 'workspace_join' }
-  | { type: 'source_join' }
-  | { type: 'ready' }
-  | { type: 'offer'; sdp: string }
-  | { type: 'answer'; sdp: string }
-  | { type: 'ice_candidate'; candidate: RTCIceCandidateInit }
-  | { type: 'close'; reason?: string };
-
-export type MediaSignalEvent = {
-  type:
-    | 'participant_joined'
-    | 'participant_left'
-    | 'ready'
-    | 'offer'
-    | 'answer'
-    | 'ice_candidate'
-    | 'close'
-    | 'session_error';
-  workspace_id: string;
-  device_session_id: string;
-  media_session_id: string;
-  sender?: MediaSignalParticipant;
-  sdp?: string;
-  candidate?: RTCIceCandidateInit;
-  reason?: string;
-  message?: string;
-  recoverable?: boolean;
-  ice_servers?: RTCIceServer[];
-  created_at_epoch: number;
-};
-
-export type MediaStreamRef = {
-  workspace_id: string;
-  device_session_id: string;
-  media_session_id: string;
-  source_kind: MediaSourceKind;
-  stream_id: string;
-  track_kinds: string[];
-  started_at_epoch: number;
-};
-
-export type CameraFacingMode = 'user' | 'environment';
-export type CaptureOrientation = 'portrait' | 'landscape';
-
-export type WebRTCSignalSocket = {
-  raw: WebSocket;
-  send: (message: MediaSignalMessage) => void;
-  close: () => void;
-};
-
-export type OpenWebRTCSignalSocketInput = {
-  apiBase: string;
-  workspaceId: string;
-  deviceSessionId: string;
-  mediaSessionId: string;
-  onOpen?: () => void;
-  onEvent?: (event: MediaSignalEvent) => void | Promise<void>;
-  onError?: (error: Error) => void;
-  onClose?: () => void;
-};
-
-export type WebRTCSessionState =
-  | 'local_stream_ready'
-  | 'signal_open'
-  | 'signal_joined'
-  | 'offer_sent'
-  | 'answer_sent'
-  | 'answer_received'
-  | 'connected'
-  | 'closed';
-
-export type WebRTCSessionHandle = {
-  stop: () => void;
-  peerConnection: RTCPeerConnection | null;
-  localStream?: MediaStream;
-  replaceVideoTrack?: (
-    video: MediaTrackConstraints,
-    options?: { orientation?: CaptureOrientation },
-  ) => Promise<MediaStream>;
-  setVideoOrientation?: (orientation: CaptureOrientation) => Promise<MediaStream>;
-};
-
-export type PhoneBrowserSourceSessionInput = {
-  apiBase: string;
-  workspaceId: string;
-  deviceSessionId: string;
-  mediaSessionId: string;
-  audio?: boolean;
-  facingMode?: CameraFacingMode;
-  videoOrientation?: CaptureOrientation;
-  onLocalStream?: (stream: MediaStream) => void;
-  onState?: (state: WebRTCSessionState) => void;
-  onError?: (error: Error) => void;
-};
-
-export type BrowserMediaSourceSessionInput = PhoneBrowserSourceSessionInput & {
-  sourceKind: MediaSourceKind;
-  video: MediaTrackConstraints;
-};
-
-export type DesktopBrowserSourceSessionInput = {
-  apiBase: string;
-  workspaceId: string;
-  deviceSessionId: string;
-  mediaSessionId: string;
-  sourceKind: Extract<MediaSourceKind, 'desktop_camera' | 'usb_camera' | 'virtual_camera'>;
-  deviceId?: string;
-  onLocalStream?: (stream: MediaStream) => void;
-  onState?: (state: WebRTCSessionState) => void;
-  onError?: (error: Error) => void;
-};
-
-export type WorkspaceReceiverSessionInput = {
-  apiBase: string;
-  workspaceId: string;
-  deviceSessionId: string;
-  mediaSessionId: string;
-  onRemoteStream?: (stream: MediaStream) => void;
-  onState?: (state: WebRTCSessionState) => void;
-  onError?: (error: Error) => void;
-};
-
-function trimTrailingSlash(value: string): string {
-  return value.replace(/\/+$/, '');
-}
-
-function getBrowserOrigin(): string {
-  if (typeof window === 'undefined') {
-    return 'http://localhost:8300';
-  }
-  return window.location.origin;
-}
-
-function getStreamAudioTracks(stream: MediaStream): MediaStreamTrack[] {
-  return typeof stream.getAudioTracks === 'function'
-    ? stream.getAudioTracks().filter((track) => track.readyState !== 'ended')
-    : stream.getTracks().filter((track) => track.kind === 'audio' && track.readyState !== 'ended');
-}
-
-function getStreamVideoTracks(stream: MediaStream): MediaStreamTrack[] {
-  return typeof stream.getVideoTracks === 'function'
-    ? stream.getVideoTracks().filter((track) => track.readyState !== 'ended')
-    : stream.getTracks().filter((track) => track.kind === 'video' && track.readyState !== 'ended');
-}
-
-function getCanvasOutputSize(orientation: CaptureOrientation): { width: number; height: number } {
-  return orientation === 'portrait'
-    ? { width: 720, height: 1280 }
-    : { width: 1280, height: 720 };
-}
-
-function shouldAvoidCanvasPresentationStream(): boolean {
-  if (typeof navigator === 'undefined') {
-    return false;
-  }
-  const userAgent = navigator.userAgent || '';
-  return /\b(iPad|iPhone|iPod)\b/.test(userAgent) && /WebKit/i.test(userAgent);
-}
-
-async function createPresentationStream({
-  rawStream,
-  orientation,
-}: {
-  rawStream: MediaStream;
-  orientation?: CaptureOrientation;
-}): Promise<{ stream: MediaStream; cleanup: () => void; transformed: boolean }> {
-  const [rawVideoTrack] = getStreamVideoTracks(rawStream);
-  const fallback = { stream: rawStream, cleanup: () => undefined, transformed: false };
-  if (!rawVideoTrack || !orientation || typeof document === 'undefined') {
-    return fallback;
-  }
-  if (shouldAvoidCanvasPresentationStream()) {
-    return fallback;
-  }
-  const canvas = document.createElement('canvas');
-  if (typeof canvas.captureStream !== 'function') {
-    return fallback;
-  }
-  const video = document.createElement('video');
-  const sourceVideoStream = new MediaStream([rawVideoTrack]);
-  const { width, height } = getCanvasOutputSize(orientation);
-  canvas.width = width;
-  canvas.height = height;
-  video.muted = true;
-  video.playsInline = true;
-  video.srcObject = sourceVideoStream;
-  try {
-    await video.play();
-  } catch {
-    video.srcObject = null;
-    return fallback;
-  }
-  const context = canvas.getContext('2d');
-  if (!context) {
-    video.pause();
-    video.srcObject = null;
-    return fallback;
-  }
-
-  let frameId = 0;
-  let active = true;
-  const draw = () => {
-    if (!active) {
-      return;
-    }
-    const sourceWidth = video.videoWidth || width;
-    const sourceHeight = video.videoHeight || height;
-    const scale = Math.max(width / sourceWidth, height / sourceHeight);
-    const drawWidth = sourceWidth * scale;
-    const drawHeight = sourceHeight * scale;
-    const drawX = (width - drawWidth) / 2;
-    const drawY = (height - drawHeight) / 2;
-    context.clearRect(0, 0, width, height);
-    try {
-      context.drawImage(video, drawX, drawY, drawWidth, drawHeight);
-    } catch {
-      // Video metadata can briefly be unavailable on mobile browsers.
-    }
-    frameId = window.requestAnimationFrame(draw);
-  };
-  draw();
-
-  const transformedVideoStream = canvas.captureStream(30);
-  const [transformedVideoTrack] = transformedVideoStream.getVideoTracks();
-  if (!transformedVideoTrack) {
-    active = false;
-    window.cancelAnimationFrame(frameId);
-    video.pause();
-    video.srcObject = null;
-    return fallback;
-  }
-  const stream = new MediaStream([...getStreamAudioTracks(rawStream), transformedVideoTrack]);
-  const cleanup = () => {
-    active = false;
-    window.cancelAnimationFrame(frameId);
-    transformedVideoTrack.stop();
-    video.pause();
-    video.srcObject = null;
-  };
-  return { stream, cleanup, transformed: true };
-}
-
-function resolveHttpBase(apiBase: string): string {
-  return trimTrailingSlash(apiBase || getBrowserOrigin()) || getBrowserOrigin();
-}
+export {
+  buildWebRTCSignalWebSocketUrl,
+  createLanPeerConnection,
+  openWebRTCSignalSocket,
+} from './webrtcSignalClient';
+export type {
+  BrowserMediaSourceSessionInput,
+  CameraFacingMode,
+  CaptureOrientation,
+  DesktopBrowserSourceSessionInput,
+  MediaSignalEvent,
+  MediaSignalMessage,
+  MediaSignalParticipant,
+  MediaSourceKind,
+  MediaStreamRef,
+  OpenWebRTCSignalSocketInput,
+  PhoneBrowserSourceSessionInput,
+  WebRTCSessionHandle,
+  WebRTCSessionState,
+  WebRTCSignalSocket,
+  WorkspaceReceiverSessionInput,
+} from './webrtcSessionTypes';
 
 export function buildPhoneVideoConstraints(facingMode?: CameraFacingMode): MediaTrackConstraints {
   return {
@@ -261,85 +48,6 @@ export function buildPhoneVideoConstraints(facingMode?: CameraFacingMode): Media
     height: { ideal: 720 },
     frameRate: { max: 30 },
   };
-}
-
-export function buildWebRTCSignalWebSocketUrl({
-  apiBase,
-  workspaceId,
-  deviceSessionId,
-  mediaSessionId,
-}: {
-  apiBase: string;
-  workspaceId: string;
-  deviceSessionId: string;
-  mediaSessionId: string;
-}): string {
-  const base = resolveHttpBase(apiBase);
-  const url = new URL(base, getBrowserOrigin());
-  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
-  url.pathname = `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/device-bindings/${encodeURIComponent(deviceSessionId)}/media-sessions/${encodeURIComponent(mediaSessionId)}/signal`;
-  url.search = '';
-  return url.toString();
-}
-
-export function openWebRTCSignalSocket(
-  input: OpenWebRTCSignalSocketInput,
-): WebRTCSignalSocket {
-  const socket = new WebSocket(buildWebRTCSignalWebSocketUrl(input));
-  socket.onopen = () => input.onOpen?.();
-  socket.onmessage = (message) => {
-    try {
-      void input.onEvent?.(JSON.parse(String(message.data)) as MediaSignalEvent);
-    } catch (error) {
-      input.onError?.(error instanceof Error ? error : new Error('invalid_media_signal_event'));
-    }
-  };
-  socket.onerror = () => input.onError?.(new Error('media_signal_socket_error'));
-  socket.onclose = () => input.onClose?.();
-  return {
-    raw: socket,
-    send: (message) => {
-      if (socket.readyState === WebSocket.OPEN) {
-        socket.send(JSON.stringify(message));
-      }
-    },
-    close: () => socket.close(),
-  };
-}
-
-export function createLanPeerConnection({
-  onIceCandidate,
-  onRemoteStream,
-  onConnectionStateChange,
-  onStats,
-}: {
-  onIceCandidate?: (candidate: RTCIceCandidateInit) => void;
-  onRemoteStream?: (stream: MediaStream) => void;
-  onConnectionStateChange?: (state: RTCPeerConnectionState) => void;
-  onStats?: (state: RTCPeerConnectionState, report: RTCStatsReport) => void;
-} = {}): RTCPeerConnection {
-  const peerConnection = new RTCPeerConnection({ iceServers: [] });
-  peerConnection.onicecandidate = (event) => {
-    if (event.candidate) {
-      onIceCandidate?.(event.candidate.toJSON());
-    }
-  };
-  peerConnection.ontrack = (event) => {
-    const [stream] = event.streams;
-    if (stream) {
-      onRemoteStream?.(stream);
-    }
-  };
-  peerConnection.onconnectionstatechange = () => {
-    const state = peerConnection.connectionState;
-    onConnectionStateChange?.(state);
-    if (state === 'connected' || state === 'failed' || state === 'disconnected' || state === 'closed') {
-      void peerConnection.getStats()
-        .then((report) => onStats?.(state, report))
-        .catch(() => undefined);
-    }
-  };
-  return peerConnection;
 }
 
 export async function startBrowserMediaSourceSession(
