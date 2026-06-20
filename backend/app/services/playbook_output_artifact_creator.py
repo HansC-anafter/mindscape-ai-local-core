@@ -6,7 +6,6 @@ Supports template variable resolution and metadata extraction.
 """
 
 import logging
-import re
 import uuid
 from pathlib import Path
 from typing import Dict, Any, Optional, List
@@ -19,159 +18,20 @@ def _utc_now():
 
 
 from backend.app.models.workspace import Artifact, ArtifactType, PrimaryActionType
+from backend.app.services.playbook_output_artifacts.file_writer import (
+    get_or_register_filesystem_tool_for_creator,
+    resolve_storage_path_for_creator,
+    write_artifact_to_file_for_creator,
+)
+from backend.app.services.playbook_output_artifacts.templates import (
+    _resolve_context_path,
+    _serialize_artifact_file_content,
+    get_nested_value,
+    resolve_template,
+)
 from backend.app.services.stores.artifacts_store import ArtifactsStore
 
 logger = logging.getLogger(__name__)
-
-
-def resolve_template(template: str, context: Dict[str, Any]) -> str:
-    """
-    Resolve template variables in string
-
-    Supports variables in format: {{variable.path}}
-    - {{step.step_id.output_key}} - Step outputs
-    - {{input.input_key}} - Input parameters
-    - {{execution_id}} - Execution ID
-    - {{workspace_id}} - Workspace ID
-    - {{intent_id}} - Intent ID
-    - {{artifact.title}} - Artifact title
-    - {{artifact.id}} - Artifact ID
-    - {{artifact.type}} - Artifact type
-    - {{title}} - Shortcut for {{artifact.title}}
-
-    Args:
-        template: Template string with variables
-        context: Context dictionary with step, input, execution_id, etc.
-
-    Returns:
-        Resolved string
-    """
-    if not template:
-        return ""
-
-    def replace_var(match):
-        var_path = match.group(1).strip()
-        parts = var_path.split(".")
-
-        # Handle special variables
-        if parts[0] == "execution_id":
-            return str(context.get("execution_id", ""))
-        elif parts[0] == "workspace_id":
-            return str(context.get("workspace_id", ""))
-        elif parts[0] == "intent_id":
-            return str(context.get("intent_id", ""))
-        elif parts[0] == "step":
-            # {{step.step_id.output_key}}
-            if len(parts) >= 3:
-                step_id = parts[1]
-                output_key = ".".join(parts[2:])
-                step_outputs = context.get("step", {})
-                if step_id in step_outputs:
-                    value = get_nested_value(step_outputs[step_id], output_key)
-                    return str(value) if value is not None else ""
-        elif parts[0] == "input":
-            # {{input.input_key}}
-            if len(parts) >= 2:
-                input_key = ".".join(parts[1:])
-                inputs = context.get("input", {})
-                value = get_nested_value(inputs, input_key)
-                if value is None or value == "":
-                    # Provide default values for common empty inputs
-                    if input_key == "source_content":
-                        return "specified_content"  # Default for empty source_content
-                    return ""
-                return str(value)
-        elif parts[0] == "artifact":
-            # {{artifact.title}}, {{artifact.id}}, {{artifact.type}}
-            if len(parts) >= 2:
-                artifact_key = parts[1]
-                artifact_info = context.get("artifact", {})
-                value = artifact_info.get(artifact_key)
-                return str(value) if value is not None else ""
-        elif len(parts) == 1:
-            # Handle shortcuts like {{title}} -> {{artifact.title}} or direct context.title
-            if parts[0] == "title":
-                # First try direct context.title (shortcut), then artifact.title
-                value = context.get("title")
-                if value is None:
-                    artifact_info = context.get("artifact", {})
-                    value = artifact_info.get("title")
-                return str(value) if value is not None else ""
-
-        value = get_nested_value(context, var_path)
-        if value is not None:
-            return str(value)
-        if parts and parts[0] in context:
-            return ""
-
-        return match.group(0)  # Return original if not found
-
-    # Match {{variable.path}} pattern
-    pattern = r"\{\{([^}]+)\}\}"
-    result = re.sub(pattern, replace_var, template)
-    return result
-
-
-def get_nested_value(data: Any, path: str) -> Any:
-    """
-    Get nested value from dictionary using dot notation
-
-    Args:
-        data: Dictionary or nested structure
-        path: Dot-separated path (e.g., "step_id.output_key.sub_key")
-
-    Returns:
-        Value at path or None if not found
-    """
-    if not path or not data:
-        return None
-
-    parts = path.split(".")
-    current = data
-
-    for part in parts:
-        if isinstance(current, dict):
-            current = current.get(part)
-        elif isinstance(current, list):
-            try:
-                index = int(part)
-                if 0 <= index < len(current):
-                    current = current[index]
-                else:
-                    return None
-            except (ValueError, TypeError):
-                return None
-        else:
-            return None
-
-        if current is None:
-            return None
-
-    return current
-
-
-def _resolve_context_path(context: Dict[str, Any], path: str) -> Any:
-    normalized_path = str(path or "").strip()
-    if not normalized_path:
-        return None
-    return get_nested_value(context, normalized_path)
-
-
-def _serialize_artifact_file_content(source_data: Any) -> str:
-    if isinstance(source_data, dict):
-        data_to_write = source_data.get("content") if "content" in source_data else source_data
-    else:
-        data_to_write = source_data
-
-    if isinstance(data_to_write, str):
-        return data_to_write
-    if isinstance(data_to_write, bytes):
-        return data_to_write.decode("utf-8")
-    if isinstance(data_to_write, (dict, list)):
-        import json
-
-        return json.dumps(data_to_write, ensure_ascii=False, indent=2)
-    return str(data_to_write)
 
 
 class PlaybookOutputArtifactCreator:
@@ -527,256 +387,15 @@ class PlaybookOutputArtifactCreator:
         execution_context: Optional[Dict[str, Any]] = None,
         playbook_metadata: Optional[Dict[str, Any]] = None,
     ) -> None:
-        """
-        Write artifact content to file system using three-layer architecture
-
-        Architecture:
-        1. Data Source: File system itself (workspace storage_base_path or shared storage)
-        2. Shared Logical Resource: Playbook template artifacts (based on playbook scope)
-        3. Workspace Overlay: Workspace-specific path overrides
-
-        Args:
-            artifact: Created artifact
-            artifact_def: Artifact definition from output_artifacts
-            context: Template resolution context
-            workspace_id: Workspace ID
-            playbook_metadata: Playbook metadata (contains scope information)
-        """
-        file_write_config = artifact_def.get("file_write", {})
-        # playbook_metadata parameter is optional, create empty dict if not provided
-        if playbook_metadata is None:
-            playbook_metadata = {}
-
-        # Determine playbook scope
-        playbook_scope_config = playbook_metadata.get("scope", {})
-        if isinstance(playbook_scope_config, dict):
-            playbook_scope = playbook_scope_config.get("visibility", "workspace")
-        else:
-            playbook_scope = "workspace"
-
-        # Add artifact information to context for template resolution (e.g., {{title}})
-        enhanced_context = context.copy()
-        enhanced_context["artifact"] = {
-            "title": artifact.title,
-            "id": artifact.id,
-            "type": artifact.artifact_type.value if artifact.artifact_type else "other",
-        }
-        # Add title as shortcut for {{title}} -> {{artifact.title}}
-        enhanced_context["title"] = artifact.title
-
-        # Resolve storage path based on three-layer architecture
-        # Get file_name_template from file_write_config, not artifact_def directly
-        file_name_template = file_write_config.get(
-            "file_name_template", "{{title}}.tsx"
-        )
-        logger.info(
-            f"_write_artifact_to_file: artifact.id={artifact.id}, "
-            f"file_name_template='{file_name_template}', "
-            f"artifact.title='{artifact.title}', "
-            f"enhanced_context.artifact.title='{enhanced_context['artifact']['title']}', "
-            f"enhanced_context.title='{enhanced_context.get('title')}'"
-        )
-        storage_info = await self._resolve_storage_path(
-            playbook_code=playbook_metadata.get("playbook_code", ""),
-            playbook_scope=playbook_scope,
-            execution_id=context.get("execution_id", ""),
-            artifact_file_name=file_name_template,
+        await write_artifact_to_file_for_creator(
+            self,
+            artifact=artifact,
+            artifact_def=artifact_def,
+            context=context,
             workspace_id=workspace_id,
-            context=enhanced_context,
+            execution_context=execution_context,
+            playbook_metadata=playbook_metadata,
         )
-
-        if not storage_info:
-            logger.warning(
-                f"Failed to resolve storage path for artifact {artifact.id}, skipping file write"
-            )
-            return
-
-        base_directory = storage_info["base_directory"]
-        relative_file_path = storage_info["relative_path"]
-
-        # Build file content
-        content_template = file_write_config.get("content_template")
-        if content_template:
-            file_content = resolve_template(content_template, enhanced_context)
-        else:
-            file_content = _serialize_artifact_file_content(artifact.content)
-
-        # Get encoding
-        encoding = file_write_config.get("encoding", "utf-8")
-
-        # Check if sandbox_id exists - if so, write to sandbox instead of artifacts directory
-        sandbox_id = execution_context.get("sandbox_id") if execution_context else None
-        logger.debug(
-            f"_write_artifact_to_file: sandbox_id={sandbox_id}, execution_context={execution_context}, artifact.id={artifact.id}"
-        )
-        if sandbox_id:
-            logger.debug(
-                f"_write_artifact_to_file: Attempting to write to sandbox {sandbox_id}"
-            )
-            try:
-                from backend.app.services.sandbox.sandbox_manager import SandboxManager
-                from backend.app.services.mindscape_store import MindscapeStore
-
-                store = MindscapeStore()
-                sandbox_manager = SandboxManager(store)
-                sandbox = await sandbox_manager.get_sandbox(sandbox_id, workspace_id)
-
-                if sandbox:
-                    # Write to sandbox using relative file path
-                    logger.info(
-                        f"Writing file to sandbox {sandbox_id}: {relative_file_path}"
-                    )
-                    success = await sandbox.write_file(relative_file_path, file_content)
-                    logger.info(f"sandbox.write_file result: success={success}")
-                    if success:
-                        # Get sandbox base path for actual_file_path
-                        # Sandbox files are stored in storage.base_path / "current" / relative_file_path
-                        # Note: sandbox.storage.base_path already includes the sandbox_id directory
-                        from pathlib import Path
-
-                        if hasattr(sandbox, "storage") and hasattr(
-                            sandbox.storage, "base_path"
-                        ):
-                            # sandbox.storage.base_path already points to the sandbox directory
-                            # e.g., /app/data/sandboxes/{workspace_id}/project_repo/{sandbox_id}
-                            sandbox_base_path = sandbox.storage.base_path / "current"
-                            actual_file_path = sandbox_base_path / relative_file_path
-                        else:
-                            # Fallback: construct path from sandbox_id
-                            # Try to get storage path from sandbox manager
-                            try:
-                                sandbox_info = await sandbox_manager.get_sandbox(
-                                    sandbox_id, workspace_id
-                                )
-                                if sandbox_info and hasattr(sandbox_info, "storage"):
-                                    # sandbox_info.storage.base_path already includes sandbox_id
-                                    sandbox_base_path = (
-                                        sandbox_info.storage.base_path / "current"
-                                    )
-                                else:
-                                    # Use default sandbox storage path
-                                    from backend.app.services.mindscape_store import (
-                                        MindscapeStore,
-                                    )
-
-                                    store = MindscapeStore()
-                                    workspace = await store.get_workspace(workspace_id)
-                                    if (
-                                        workspace
-                                        and hasattr(workspace, "storage_base_path")
-                                        and workspace.storage_base_path
-                                    ):
-                                        sandbox_base_path = (
-                                            Path(workspace.storage_base_path)
-                                            / "sandboxes"
-                                            / workspace_id
-                                            / "project_repo"
-                                            / sandbox_id
-                                            / "current"
-                                        )
-                                    else:
-                                        # Final fallback: use default path
-                                        sandbox_base_path = (
-                                            Path("/app/data/sandboxes")
-                                            / workspace_id
-                                            / "project_repo"
-                                            / sandbox_id
-                                            / "current"
-                                        )
-                                actual_file_path = (
-                                    sandbox_base_path / relative_file_path
-                                )
-                            except Exception as e:
-                                logger.warning(
-                                    f"Failed to get sandbox base path: {e}, using relative path"
-                                )
-                                # Use relative path as fallback
-                                actual_file_path = Path(relative_file_path)
-
-                        # Update artifact metadata with actual file path
-                        artifact.metadata["actual_file_path"] = str(actual_file_path)
-                        artifact.metadata["storage_scope"] = playbook_scope
-                        artifact.storage_ref = str(actual_file_path)
-                        self.artifacts_store.update_artifact(
-                            artifact.id,
-                            metadata=artifact.metadata,
-                            storage_ref=str(actual_file_path),
-                        )
-                        logger.info(
-                            f"Successfully wrote artifact {artifact.id} to sandbox {sandbox_id}: {relative_file_path} "
-                            f"(size: {len(file_content)} bytes)"
-                        )
-                        return
-                    else:
-                        logger.warning(
-                            f"Failed to write file to sandbox {sandbox_id}, falling back to filesystem"
-                        )
-                else:
-                    logger.warning(
-                        f"Sandbox {sandbox_id} not found, falling back to filesystem"
-                    )
-            except Exception as e:
-                logger.error(f"Failed to write file to sandbox: {e}", exc_info=True)
-                # Fall through to filesystem write
-
-        # Register filesystem tool instance for this base_directory if not already registered
-        # This follows the three-layer architecture: different scopes get different tool instances
-        try:
-            tool_id = self._get_or_register_filesystem_tool(
-                base_directory, playbook_scope, workspace_id
-            )
-
-            if not tool_id:
-                logger.warning(
-                    f"Failed to register filesystem tool for {base_directory}, writing directly"
-                )
-                # Fallback: write directly
-                full_file_path = base_directory / relative_file_path
-                full_file_path.parent.mkdir(parents=True, exist_ok=True)
-                with open(full_file_path, "w", encoding=encoding) as f:
-                    f.write(file_content)
-                result = {"success": True, "file_path": str(full_file_path)}
-
-                # Update artifact metadata with actual file path (CRITICAL: must update even in fallback)
-                artifact.metadata["actual_file_path"] = str(full_file_path)
-                artifact.metadata["storage_scope"] = playbook_scope
-                artifact.storage_ref = str(full_file_path)
-                self.artifacts_store.update_artifact(
-                    artifact.id,
-                    metadata=artifact.metadata,
-                    storage_ref=str(full_file_path),
-                )
-                logger.info(
-                    f"Successfully wrote artifact {artifact.id} to file (fallback): {full_file_path} "
-                    f"(size: {len(file_content)} bytes, scope: {playbook_scope})"
-                )
-            else:
-                # Use registered tool instance
-                from backend.app.shared.tool_executor import execute_tool
-
-                result = await execute_tool(
-                    tool_id,
-                    file_path=relative_file_path,
-                    content=file_content,
-                    encoding=encoding,
-                )
-
-                logger.info(
-                    f"Successfully wrote artifact {artifact.id} to file: {base_directory}/{relative_file_path} "
-                    f"(size: {len(file_content)} bytes, scope: {playbook_scope})"
-                )
-
-                # Update artifact metadata with actual file path
-                full_path = base_directory / relative_file_path
-                artifact.metadata["actual_file_path"] = str(full_path)
-                artifact.metadata["storage_scope"] = playbook_scope
-                artifact.storage_ref = str(full_path)
-                self.artifacts_store.update_artifact(
-                    artifact.id, metadata=artifact.metadata, storage_ref=str(full_path)
-                )
-        except Exception as e:
-            logger.error(f"Failed to write artifact file: {e}", exc_info=True)
-            raise
 
     async def _resolve_storage_path(
         self,
@@ -787,166 +406,23 @@ class PlaybookOutputArtifactCreator:
         workspace_id: str,
         context: Dict[str, Any],
     ) -> Optional[Dict[str, Any]]:
-        """
-        Resolve artifact storage path based on three-layer architecture
-
-        Returns:
-            Dict with "base_directory" and "relative_path", or None if resolution fails
-        """
-        from backend.app.services.mindscape_store import MindscapeStore
-        from pathlib import Path
-        import os
-
-        store = MindscapeStore()
-        workspace = await store.get_workspace(workspace_id)
-
-        if not workspace:
-            logger.warning(f"Workspace {workspace_id} not found")
-            return None
-
-        # Resolve file name template
-        resolved_file_name = resolve_template(artifact_file_name, context)
-        logger.info(
-            f"_resolve_storage_path: artifact_file_name='{artifact_file_name}', "
-            f"resolved_file_name='{resolved_file_name}', "
-            f"context.artifact.title='{context.get('artifact', {}).get('title')}', "
-            f"context.title='{context.get('title')}'"
+        return await resolve_storage_path_for_creator(
+            playbook_code=playbook_code,
+            playbook_scope=playbook_scope,
+            execution_id=execution_id,
+            artifact_file_name=artifact_file_name,
+            workspace_id=workspace_id,
+            context=context,
         )
-
-        if playbook_scope == "workspace":
-            # Workspace-scoped: use workspace storage
-            if not workspace.storage_base_path:
-                logger.warning(
-                    f"Workspace {workspace_id} does not have storage_base_path configured"
-                )
-                return None
-
-            base_directory = Path(workspace.storage_base_path)
-            artifacts_dir = workspace.artifacts_dir or "artifacts"
-            relative_path = (
-                f"{artifacts_dir}/{playbook_code}/{execution_id}/{resolved_file_name}"
-            )
-
-        elif playbook_scope in ("system", "tenant", "profile"):
-            # Shared resource: use shared storage
-            # Shared resources use a configurable storage base path.
-            shared_storage_base = os.getenv(
-                "SHARED_STORAGE_BASE_PATH",
-                "/app/data/shared",  # Default shared storage path
-            )
-
-            # Determine scope path
-            if playbook_scope == "system":
-                scope_path = "system"
-            elif playbook_scope == "tenant":
-                tenant_id = (
-                    context.get("tenant_id") or workspace.owner_user_id
-                )  # Fallback
-                scope_path = f"tenant-{tenant_id}" if tenant_id else "system"
-            elif playbook_scope == "profile":
-                profile_id = (
-                    context.get("profile_id") or workspace.owner_user_id
-                )  # Fallback
-                scope_path = f"profile-{profile_id}" if profile_id else "system"
-            else:
-                scope_path = "system"
-
-            base_directory = (
-                Path(shared_storage_base)
-                / scope_path
-                / "playbooks"
-                / playbook_code
-                / "artifacts"
-            )
-            relative_path = f"{execution_id}/{resolved_file_name}"
-
-        else:
-            # Fallback to workspace storage for unknown scope
-            logger.warning(
-                f"Unknown playbook scope: {playbook_scope}, falling back to workspace storage"
-            )
-            if not workspace.storage_base_path:
-                return None
-
-            base_directory = Path(workspace.storage_base_path)
-            artifacts_dir = workspace.artifacts_dir or "artifacts"
-            relative_path = (
-                f"{artifacts_dir}/{playbook_code}/{execution_id}/{resolved_file_name}"
-            )
-
-        # Ensure base directory exists
-        base_directory.mkdir(parents=True, exist_ok=True)
-
-        return {"base_directory": base_directory, "relative_path": relative_path}
 
     def _get_or_register_filesystem_tool(
         self, base_directory: Path, playbook_scope: str, workspace_id: str
     ) -> Optional[str]:
-        """
-        Get or register filesystem_write_file tool instance for the given base_directory
-
-        This implements scheme 3: register different tool instances for different scopes
-
-        Args:
-            base_directory: Base directory path for the tool
-            playbook_scope: Playbook scope (system/tenant/profile/workspace)
-            workspace_id: Workspace ID (for workspace-scoped tools)
-
-        Returns:
-            Tool ID for the registered tool instance, or None if registration fails
-        """
-        from backend.app.services.tools.local_filesystem.filesystem_tools import (
-            FilesystemWriteFileTool,
+        return get_or_register_filesystem_tool_for_creator(
+            base_directory,
+            playbook_scope,
+            workspace_id,
         )
-        from backend.app.services.tools.registry import register_mindscape_tool
-
-        # Generate tool ID based on scope and base directory
-        # Format: filesystem_write_{scope}_{identifier}
-        if playbook_scope == "workspace":
-            identifier = f"workspace_{workspace_id}"
-        elif playbook_scope == "system":
-            identifier = "system"
-        elif playbook_scope == "tenant":
-            # Extract tenant ID from base_directory path if possible
-            identifier = (
-                base_directory.parts[-3] if len(base_directory.parts) >= 3 else "tenant"
-            )
-        elif playbook_scope == "profile":
-            # Extract profile ID from base_directory path if possible
-            identifier = (
-                base_directory.parts[-3]
-                if len(base_directory.parts) >= 3
-                else "profile"
-            )
-        else:
-            identifier = "default"
-
-        tool_id = f"filesystem_write_{identifier}"
-
-        # Check if tool is already registered
-        try:
-            from backend.app.services.tools.registry import get_mindscape_tool
-
-            existing_tool = get_mindscape_tool(tool_id)
-            if existing_tool:
-                logger.debug(f"Filesystem tool {tool_id} already registered")
-                return tool_id
-        except Exception:
-            pass
-
-        # Register new tool instance
-        try:
-            tool_instance = FilesystemWriteFileTool(base_directory=str(base_directory))
-            register_mindscape_tool(tool_id, tool_instance)
-            logger.info(
-                f"Registered filesystem tool {tool_id} for base_directory: {base_directory}"
-            )
-            return tool_id
-        except Exception as e:
-            logger.error(
-                f"Failed to register filesystem tool {tool_id}: {e}", exc_info=True
-            )
-            return None
 
     def _resolve_metadata_recursive(self, value: Any, context: Dict[str, Any]) -> Any:
         """
