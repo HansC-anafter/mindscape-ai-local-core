@@ -33,6 +33,29 @@ export interface CaptureRelayResponse {
     opened?: boolean;
     reason?: string;
   };
+  install_guidance?: {
+    dependency?: string;
+    status?: string;
+    binary_path?: string | null;
+    official_release_url?: string;
+    detected_platform?: string;
+    detected_arch?: string;
+    recommended_asset_pattern?: string;
+    host_tools?: {
+      brew_available?: boolean;
+      brew_path?: string | null;
+    };
+    options?: Array<{
+      id?: string;
+      label?: string;
+      available?: boolean;
+      command?: string;
+      release_url?: string;
+      asset_pattern?: string;
+      install_target?: string;
+      after_install?: string;
+    }>;
+  };
   urls?: {
     stream_name?: string;
     publish_url?: string;

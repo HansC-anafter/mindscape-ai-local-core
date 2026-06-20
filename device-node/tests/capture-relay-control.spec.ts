@@ -52,5 +52,10 @@ test("captureRelayControl status returns a neutral relay payload", async () => {
     assert.equal((result.urls as Record<string, string>).stream_name, "external-camera");
     assert.match((result.urls as Record<string, string>).publish_url, /^rtmp:\/\//);
     assert.match((result.urls as Record<string, string>).read_url, /^rtsp:\/\/127\.0\.0\.1:/);
+    assert.equal((result.install_guidance as Record<string, string>).dependency, "mediamtx");
+    assert.equal(
+        (result.install_guidance as Record<string, string>).official_release_url,
+        "https://github.com/bluenviron/mediamtx/releases/latest",
+    );
     assert.ok(Array.isArray(result.next_steps));
 });

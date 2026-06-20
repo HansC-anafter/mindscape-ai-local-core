@@ -16,6 +16,8 @@ interface CaptureRelayLauncherCardProps {
   pairingCode?: string;
 }
 
+const DEFAULT_RELEASE_URL = 'https://github.com/bluenviron/mediamtx/releases/latest';
+
 function statusLabel(result: CaptureRelayResponse | null): string {
   if (!result) {
     return 'Not checked';
@@ -69,6 +71,80 @@ function FieldRow({
         >
           <Clipboard className="h-3.5 w-3.5" aria-hidden="true" />
         </button>
+      </div>
+    </div>
+  );
+}
+
+function InstallGuidanceBlock({
+  result,
+  onCopy,
+}: {
+  result: CaptureRelayResponse;
+  onCopy: (value: string) => void;
+}) {
+  if (result.reason !== 'relay_binary_missing') {
+    return null;
+  }
+
+  const guidance = result.install_guidance;
+  const releaseUrl = guidance?.official_release_url || DEFAULT_RELEASE_URL;
+  const homebrewOption = guidance?.options?.find((option) => option.id === 'homebrew');
+  const releaseOption = guidance?.options?.find((option) => option.id === 'official_release');
+  const brewCommand = homebrewOption?.command || 'brew install mediamtx';
+  const brewAvailable = guidance?.host_tools?.brew_available === true;
+
+  return (
+    <div
+      className="mt-2 rounded border border-amber-200 bg-amber-50 p-2 text-[11px] leading-4 text-amber-950 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100"
+      data-testid="capture-relay-install-guidance"
+    >
+      <div className="font-semibold">Install MediaMTX before starting this relay</div>
+      <div className="mt-1">
+        This helper will not install host software by itself. Install MediaMTX, then click Check
+        relay again.
+      </div>
+      <div className="mt-2 rounded border border-amber-200 bg-white p-2 dark:border-amber-900 dark:bg-gray-950">
+        <div className="font-semibold">
+          Option 1: Homebrew {brewAvailable ? 'detected' : 'not detected on this host'}
+        </div>
+        <div className="mt-1 flex items-start gap-2">
+          <code className="min-w-0 flex-1 break-all">{brewCommand}</code>
+          <button
+            type="button"
+            onClick={() => onCopy(brewCommand)}
+            className="shrink-0 rounded border border-amber-300 px-1.5 py-0.5 font-semibold hover:bg-amber-100 dark:border-amber-800 dark:hover:bg-amber-950"
+          >
+            Copy
+          </button>
+        </div>
+      </div>
+      <div className="mt-2 rounded border border-amber-200 bg-white p-2 dark:border-amber-900 dark:bg-gray-950">
+        <div className="font-semibold">Option 2: Official release archive</div>
+        <a
+          href={releaseUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="mt-1 inline-flex items-center gap-1 font-semibold text-sky-700 hover:underline dark:text-sky-200"
+        >
+          Open MediaMTX releases
+          <ExternalLink className="h-3 w-3" aria-hidden="true" />
+        </a>
+        <div className="mt-1">
+          Download asset pattern:{' '}
+          <code>
+            {releaseOption?.asset_pattern
+              || guidance?.recommended_asset_pattern
+              || 'mediamtx_*_darwin_arm64.tar.gz'}
+          </code>
+        </div>
+        <div>
+          Put executable at:{' '}
+          <code>
+            {releaseOption?.install_target
+              || '/opt/homebrew/bin/mediamtx or /usr/local/bin/mediamtx'}
+          </code>
+        </div>
       </div>
     </div>
   );
@@ -163,6 +239,8 @@ export function CaptureRelayLauncherCard({
         <FieldRow label="OBS Media Source URL" value={readUrl} onCopy={copyValue} />
       </div>
 
+      {result ? <InstallGuidanceBlock result={result} onCopy={copyValue} /> : null}
+
       <div className="mt-2 grid grid-cols-2 gap-2">
         <button
           type="button"
@@ -202,7 +280,7 @@ export function CaptureRelayLauncherCard({
       </div>
 
       <ol className="mt-2 space-y-1 text-[11px] leading-4 text-gray-600 dark:text-gray-300">
-        <li>1. Click Start RTMP relay; if blocked, install or expose the relay binary on host.</li>
+        <li>1. Click Start RTMP relay; if blocked, follow the MediaMTX install guidance above.</li>
         <li>2. Put the RTMP URL into the external camera app streaming field.</li>
         <li>3. In OBS, add Media Source and paste the OBS Media Source URL.</li>
         <li>4. Start OBS Virtual Camera, then open the computer source link and select it.</li>

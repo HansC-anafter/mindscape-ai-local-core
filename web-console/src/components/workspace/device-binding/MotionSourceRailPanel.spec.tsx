@@ -256,6 +256,31 @@ describe('MotionSourceRailPanel', () => {
               publish_url: 'rtmp://192.168.0.10/external-camera',
               read_url: 'rtsp://127.0.0.1:8554/external-camera',
             },
+            install_guidance: {
+              dependency: 'mediamtx',
+              status: 'missing',
+              official_release_url: 'https://github.com/bluenviron/mediamtx/releases/latest',
+              detected_platform: 'darwin',
+              detected_arch: 'arm64',
+              recommended_asset_pattern: 'mediamtx_*_darwin_arm64.tar.gz',
+              host_tools: {
+                brew_available: false,
+                brew_path: null,
+              },
+              options: [
+                {
+                  id: 'homebrew',
+                  command: 'brew install mediamtx',
+                  available: false,
+                },
+                {
+                  id: 'official_release',
+                  release_url: 'https://github.com/bluenviron/mediamtx/releases/latest',
+                  asset_pattern: 'mediamtx_*_darwin_arm64.tar.gz',
+                  install_target: '/opt/homebrew/bin/mediamtx or /usr/local/bin/mediamtx',
+                },
+              ],
+            },
           }),
         };
       }
@@ -296,6 +321,13 @@ describe('MotionSourceRailPanel', () => {
     });
     expect(screen.getByTestId('capture-relay-launcher-card')).toHaveTextContent(
       'Relay binary missing',
+    );
+    expect(screen.getByTestId('capture-relay-install-guidance')).toHaveTextContent(
+      'Install MediaMTX before starting this relay',
+    );
+    expect(screen.getByRole('link', { name: /Open MediaMTX releases/i })).toHaveAttribute(
+      'href',
+      'https://github.com/bluenviron/mediamtx/releases/latest',
     );
   });
 

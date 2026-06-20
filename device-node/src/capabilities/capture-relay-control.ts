@@ -44,10 +44,15 @@ const DEFAULT_RTSP_PORT = 8554;
 const DEFAULT_OBS_WEBSOCKET_PORT = 4455;
 const DEFAULT_STREAM_NAME = "external-camera";
 const OBS_APP_PATH = "/Applications/OBS.app";
+const MEDIAMTX_RELEASES_URL = "https://github.com/bluenviron/mediamtx/releases/latest";
 const COMMON_MEDIAMTX_PATHS = [
     "/opt/homebrew/bin/mediamtx",
     "/usr/local/bin/mediamtx",
     "/usr/bin/mediamtx",
+];
+const COMMON_BREW_PATHS = [
+    "/opt/homebrew/bin/brew",
+    "/usr/local/bin/brew",
 ];
 
 let managedRelay: ManagedRelayProcess | null = null;
@@ -82,6 +87,63 @@ export function resolveRelayBinary(input: RelayBinaryLookupInput = {}): string |
         }
     }
     return null;
+}
+
+function resolveHostCommand(commandName: string, commonPaths: string[]): string | null {
+    const candidates = [
+        ...(process.env.PATH || "")
+            .split(path.delimiter)
+            .filter(Boolean)
+            .map((directory) => path.join(directory, commandName)),
+        ...commonPaths,
+    ];
+    for (const candidate of candidates) {
+        if (isExecutable(candidate)) {
+            return candidate;
+        }
+    }
+    return null;
+}
+
+function mediamtxAssetPattern(): string {
+    const platform = process.platform === "darwin" ? "darwin" : process.platform;
+    const arch = process.arch === "x64" ? "amd64" : process.arch;
+    return `mediamtx_*_${platform}_${arch}.tar.gz`;
+}
+
+function buildInstallGuidance(binaryPath: string | null): Record<string, unknown> {
+    const brewPath = resolveHostCommand("brew", COMMON_BREW_PATHS);
+    return {
+        dependency: "mediamtx",
+        status: binaryPath ? "installed" : "missing",
+        binary_path: binaryPath,
+        official_release_url: MEDIAMTX_RELEASES_URL,
+        detected_platform: process.platform,
+        detected_arch: process.arch,
+        recommended_asset_pattern: mediamtxAssetPattern(),
+        host_tools: {
+            brew_available: Boolean(brewPath),
+            brew_path: brewPath,
+        },
+        options: [
+            {
+                id: "homebrew",
+                label: "Homebrew",
+                available: Boolean(brewPath),
+                command: "brew install mediamtx",
+                after_install: "Click Check relay again after Homebrew links mediamtx into PATH.",
+            },
+            {
+                id: "official_release",
+                label: "Official release archive",
+                available: true,
+                release_url: MEDIAMTX_RELEASES_URL,
+                asset_pattern: mediamtxAssetPattern(),
+                install_target: "/opt/homebrew/bin/mediamtx or /usr/local/bin/mediamtx",
+                after_install: "Restart Device Node if the binary was added outside the current launchd PATH, then click Check relay.",
+            },
+        ],
+    };
 }
 
 export function normalizeStreamName(value: unknown): string {
@@ -254,6 +316,7 @@ async function buildStatus(
             websocket_reachable: obsWebsocketReachable,
         },
         urls,
+        install_guidance: buildInstallGuidance(binaryPath),
         next_steps: [
             "Start the RTMP relay.",
             "Set the external camera app RTMP destination to the publish_url.",
