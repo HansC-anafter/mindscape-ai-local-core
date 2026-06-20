@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import logging
-from typing import Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from backend.app.models.playbook import Playbook, PlaybookMetadata
+from backend.app.services.playbook_loaders import PlaybookFileLoader
 
 
 def lookup_local_playbook(
@@ -215,6 +216,140 @@ def resolve_playbook_lookup_request(
                 )
 
     return requested_playbook_code, playbook_code, capability_code, resolved_capability
+
+
+async def resolve_registry_playbook(
+    registry: Any,
+    *,
+    playbook_code: str,
+    locale: str,
+    workspace_id: Optional[str],
+    capability_code: Optional[str],
+    logger: logging.Logger,
+) -> Optional[Playbook]:
+    """Resolve one playbook through the canonical PlaybookRegistry facade state."""
+    (
+        requested_playbook_code,
+        playbook_code,
+        capability_code,
+        resolved_capability,
+    ) = resolve_playbook_lookup_request(
+        playbook_code=playbook_code,
+        capability_code=capability_code,
+        capability_playbooks=registry.capability_playbooks,
+        logger=logger,
+    )
+
+    if workspace_id:
+        await registry._ensure_user_playbooks_loaded()
+
+    if resolved_capability:
+        cached = registry._get_cached_capability_playbook(
+            resolved_capability, playbook_code, locale
+        )
+        if cached:
+            return cached
+
+        direct_capability_dir = registry._get_capabilities_dir() / resolved_capability
+        if direct_capability_dir.is_dir():
+            direct_playbook = registry._load_direct_capability_playbook(
+                direct_capability_dir, playbook_code, locale
+            )
+            if direct_playbook:
+                return direct_playbook
+    else:
+        direct_capability_dir = registry._find_capability_dir_for_playbook(
+            playbook_code, locale
+        )
+        if direct_capability_dir is not None:
+            direct_playbook = registry._load_direct_capability_playbook(
+                direct_capability_dir, playbook_code, locale
+            )
+            if direct_playbook:
+                return direct_playbook
+
+        direct_system_playbook = registry._load_direct_system_playbook(
+            playbook_code, locale
+        )
+        if direct_system_playbook:
+            return direct_system_playbook
+
+    if resolved_capability:
+        await registry._ensure_capability_loaded(resolved_capability)
+    else:
+        await registry._ensure_loaded()
+
+    logger.debug(
+        "PlaybookRegistry.get_playbook: code=%s, locale=%s, workspace_id=%s, capability_code=%s",
+        playbook_code,
+        locale,
+        workspace_id,
+        capability_code,
+    )
+    logger.debug("Available system locales: %s", list(registry.system_playbooks.keys()))
+    logger.debug(
+        "Available capability packs: %s",
+        list(registry.capability_playbooks.keys()),
+    )
+    logger.debug("Available user workspaces: %s", list(registry.user_playbooks.keys()))
+
+    local_playbook = lookup_local_playbook(
+        system_playbooks=registry.system_playbooks,
+        capability_playbooks=registry.capability_playbooks,
+        user_playbooks=registry.user_playbooks,
+        playbook_code=playbook_code,
+        locale=locale,
+        workspace_id=workspace_id,
+        capability_code=capability_code,
+        logger=logger,
+    )
+    if local_playbook:
+        return local_playbook
+
+    if capability_code and registry.cloud_extension_manager:
+        try:
+            playbook_data = (
+                await registry.cloud_extension_manager.get_playbook_from_any_provider(
+                    capability_code, playbook_code, locale
+                )
+            )
+            if playbook_data:
+                content = playbook_data.get("content")
+                if content:
+                    playbook = PlaybookFileLoader.load_playbook_from_content(
+                        content, playbook_code=playbook_code, locale=locale
+                    )
+                    if playbook:
+                        playbook.metadata.capability_code = capability_code
+                        provider_id = playbook_data.get("provider_id", "unknown")
+                        cache_key = (
+                            f"{provider_id}:{capability_code}:{playbook_code}:{locale}"
+                        )
+                        registry.cloud_playbooks[cache_key] = playbook
+                        logger.info(
+                            "Loaded cloud playbook: %s.%s (%s) from %s",
+                            capability_code,
+                            playbook_code,
+                            locale,
+                            provider_id,
+                        )
+                        return playbook
+        except Exception as exc:
+            logger.warning(
+                "Failed to load cloud playbook %s.%s: %s",
+                capability_code,
+                playbook_code,
+                exc,
+            )
+
+    logger.warning(
+        "Playbook %s not found (locale=%s, workspace_id=%s, capability_code=%s)",
+        requested_playbook_code,
+        locale,
+        workspace_id,
+        capability_code,
+    )
+    return None
 
 
 def collect_playbook_metadata(
