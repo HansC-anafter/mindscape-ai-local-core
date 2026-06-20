@@ -4,13 +4,24 @@ Runtime Authentication Service
 Handles encryption/decryption of runtime credentials and OAuth2 token management.
 """
 
-import json
 import logging
 from typing import Optional, Dict, Any
 from cryptography.fernet import Fernet
 import os
 from app.models.runtime_environment import RuntimeEnvironment
 from app.services.runtime_route_registration import sync_runtime_registration_metadata
+from app.services.runtime_auth_service_core.credential_codec import (
+    decrypt_credentials as decrypt_credentials_payload,
+    decrypt_token_blob as decrypt_token_blob_payload,
+    encrypt_credentials as encrypt_credentials_payload,
+    encrypt_token_blob as encrypt_token_blob_payload,
+    is_token_expired,
+    validate_auth_config as validate_auth_config_payload,
+)
+from app.services.runtime_auth_service_core.key_resolution import (
+    resolve_encryption_key,
+)
+from app.services.runtime_auth_service_core.token_refresh import refresh_oauth_token
 
 logger = logging.getLogger(__name__)
 
@@ -62,53 +73,7 @@ class RuntimeAuthService:
     @classmethod
     def _resolve_encryption_key(cls) -> str:
         """Resolve encryption key using layered strategy."""
-        # Layer 1: environment variable
-        key = os.getenv("RUNTIME_ENCRYPTION_KEY")
-        if key:
-            return key
-
-        # Layer 2: persistent file
-        key_path = cls._KEY_FILE
-        try:
-            if os.path.isfile(key_path):
-                with open(key_path, "r") as f:
-                    key = f.read().strip()
-                if key:
-                    logger.info("Encryption key loaded from persistent file")
-                    return key
-        except OSError as e:
-            logger.warning(f"Failed to read encryption key file: {e}")
-
-        # Layer 3: environment-dependent fallback
-        is_production = os.getenv("ENVIRONMENT", "development").lower() in (
-            "production",
-            "staging",
-        )
-        if is_production:
-            raise RuntimeError(
-                "RUNTIME_ENCRYPTION_KEY is not set and no persistent key file found. "
-                "Generate one with: python -c "
-                "'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())' "
-                "and add it to your .env file."
-            )
-
-        # Development: auto-generate and persist
-        new_key = Fernet.generate_key().decode()
-        try:
-            os.makedirs(os.path.dirname(key_path), exist_ok=True)
-            with open(key_path, "w") as f:
-                f.write(new_key)
-            os.chmod(key_path, 0o600)
-            logger.warning(
-                f"Auto-generated encryption key persisted to {key_path}. "
-                f"Set RUNTIME_ENCRYPTION_KEY env var for production."
-            )
-        except OSError as e:
-            logger.warning(
-                f"Could not persist encryption key to {key_path}: {e}. "
-                f"Key will be lost on restart."
-            )
-        return new_key
+        return resolve_encryption_key(cls._KEY_FILE)
 
     def encrypt_credentials(self, auth_config: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -120,29 +85,7 @@ class RuntimeAuthService:
         Returns:
             Dictionary with encrypted sensitive fields
         """
-        encrypted = auth_config.copy()
-
-        # Encrypt API key if present
-        if "api_key" in encrypted and encrypted["api_key"]:
-            try:
-                encrypted["api_key"] = self.cipher.encrypt(
-                    encrypted["api_key"].encode()
-                ).decode()
-            except Exception as e:
-                logger.error(f"Failed to encrypt API key: {e}")
-                raise
-
-        # Encrypt client secret if present
-        if "client_secret" in encrypted and encrypted["client_secret"]:
-            try:
-                encrypted["client_secret"] = self.cipher.encrypt(
-                    encrypted["client_secret"].encode()
-                ).decode()
-            except Exception as e:
-                logger.error(f"Failed to encrypt client secret: {e}")
-                raise
-
-        return encrypted
+        return encrypt_credentials_payload(self.cipher, auth_config)
 
     def decrypt_credentials(self, auth_config: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -154,29 +97,7 @@ class RuntimeAuthService:
         Returns:
             Dictionary with decrypted sensitive fields
         """
-        decrypted = auth_config.copy()
-
-        # Decrypt API key if present
-        if "api_key" in decrypted and decrypted["api_key"]:
-            try:
-                decrypted["api_key"] = self.cipher.decrypt(
-                    decrypted["api_key"].encode()
-                ).decode()
-            except Exception as e:
-                logger.error(f"Failed to decrypt API key: {e}")
-                raise
-
-        # Decrypt client secret if present
-        if "client_secret" in decrypted and decrypted["client_secret"]:
-            try:
-                decrypted["client_secret"] = self.cipher.decrypt(
-                    decrypted["client_secret"].encode()
-                ).decode()
-            except Exception as e:
-                logger.error(f"Failed to decrypt client secret: {e}")
-                raise
-
-        return decrypted
+        return decrypt_credentials_payload(self.cipher, auth_config)
 
     async def get_auth_headers(
         self,
@@ -252,7 +173,7 @@ class RuntimeAuthService:
                                             runtime.id,
                                         )
                         else:
-                            # Refresh failed — mark runtime as expired
+                            # Refresh failed; mark runtime as expired
                             logger.warning(
                                 f"OAuth token expired and refresh failed for runtime {runtime.id}. "
                                 f"Marking auth_status as 'expired'."
@@ -268,7 +189,7 @@ class RuntimeAuthService:
                                         runtime.id,
                                     )
                     else:
-                        # Expired but no refresh_token — cannot recover
+                        # Expired but no refresh_token; cannot recover
                         logger.warning(
                             f"OAuth token expired for runtime {runtime.id} and no refresh_token available. "
                             f"User must re-authenticate."
@@ -289,7 +210,7 @@ class RuntimeAuthService:
                 else:
                     logger.warning(
                         f"No valid OAuth2 token for runtime {runtime.id}. "
-                        f"Auth headers will be empty — expect 401."
+                        f"Auth headers will be empty - expect 401."
                     )
             except Exception as e:
                 logger.error(
@@ -308,13 +229,7 @@ class RuntimeAuthService:
         Returns:
             Dictionary with 'token_blob' key containing encrypted JSON
         """
-        blob_json = json.dumps(token_data)
-        encrypted_blob = self.cipher.encrypt(blob_json.encode()).decode()
-        # Preserve non-sensitive fields for display
-        result = {"token_blob": encrypted_blob}
-        if "identity" in token_data:
-            result["identity"] = token_data["identity"]
-        return result
+        return encrypt_token_blob_payload(self.cipher, token_data)
 
     def decrypt_token_blob(self, auth_config: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -326,17 +241,11 @@ class RuntimeAuthService:
         Returns:
             Decrypted token data dictionary
         """
-        token_blob = auth_config.get("token_blob")
-        if not token_blob:
-            # Fallback: try legacy field-level decryption
-            return self.decrypt_credentials(auth_config)
-
-        try:
-            decrypted_json = self.cipher.decrypt(token_blob.encode()).decode()
-            return json.loads(decrypted_json)
-        except Exception as e:
-            logger.error(f"Failed to decrypt token blob: {e}")
-            raise
+        return decrypt_token_blob_payload(
+            self.cipher,
+            auth_config,
+            legacy_decrypt=self.decrypt_credentials,
+        )
 
     @staticmethod
     def _is_token_expired(token_data: Dict[str, Any]) -> bool:
@@ -344,24 +253,7 @@ class RuntimeAuthService:
 
         Checks both standard 'expiry' and GCA-style 'idp_token_expiry' fields.
         """
-        import time
-
-        # Check standard expiry first, then idp_token_expiry
-        expiry = token_data.get("expiry") or token_data.get("idp_token_expiry")
-        if not expiry:
-            return False
-        try:
-            exp_val = float(expiry)
-            # Treat expiry=0 as "not set" (legacy data)
-            if exp_val == 0:
-                # If there's an idp_token_expiry, use that instead
-                idp_expiry = token_data.get("idp_token_expiry")
-                if idp_expiry:
-                    return float(idp_expiry) < time.time()
-                return False
-            return exp_val < time.time()
-        except (ValueError, TypeError):
-            return False
+        return is_token_expired(token_data)
 
     async def _refresh_oauth_token(
         self,
@@ -384,132 +276,13 @@ class RuntimeAuthService:
         Returns:
             New access token string, or None on failure
         """
-        import httpx
-        import time
-
-        refresh_token = token_data.get("refresh_token")
-        if not refresh_token:
-            return None
-
-        token_source = token_data.get("token_source", "google")
-
-        if token_source in ("oidc", "site-hub"):
-            # Refresh against cloud provider OIDC token endpoint
-            # Priority: runtime config_url > env vars
-            provider_base = None
-            if runtime and runtime.config_url:
-                from urllib.parse import urlparse
-
-                parsed = urlparse(runtime.config_url)
-                provider_base = f"{parsed.scheme}://{parsed.netloc}"
-            if not provider_base:
-                provider_base = os.getenv(
-                    "CLOUD_PROVIDER_BASE_URL",
-                    os.getenv("CLOUD_PROVIDER_API_URL", ""),
-                )
-
-            if not provider_base:
-                logger.error(
-                    f"Cannot refresh OIDC token for runtime {runtime.id}: "
-                    f"no config_url or CLOUD_PROVIDER_BASE_URL set"
-                )
-                return None
-
-            try:
-                async with httpx.AsyncClient(timeout=10.0) as client:
-                    resp = await client.post(
-                        f"{provider_base}/api/v1/oidc/token",
-                        data={
-                            "grant_type": "refresh_token",
-                            "refresh_token": refresh_token,
-                            "client_id": "runtime-oauth",
-                        },
-                    )
-                    resp.raise_for_status()
-                    new_tokens = resp.json()
-
-                token_data["access_token"] = new_tokens["access_token"]
-                if "refresh_token" in new_tokens:
-                    token_data["refresh_token"] = new_tokens["refresh_token"]
-                token_data["expiry"] = time.time() + new_tokens.get("expires_in", 900)
-
-                runtime.auth_config = self.encrypt_token_blob(token_data)
-
-                if db:
-                    try:
-                        _commit_runtime_registration(db, runtime)
-                        logger.info(
-                            f"OIDC token refreshed and persisted for runtime {runtime.id}"
-                        )
-                    except Exception as commit_err:
-                        logger.error(f"Failed to persist refreshed token: {commit_err}")
-                        db.rollback()
-                else:
-                    logger.warning(
-                        f"OIDC token refreshed for runtime {runtime.id} but no db "
-                        f"session provided — changes are in-memory only"
-                    )
-
-                return new_tokens["access_token"]
-
-            except Exception as e:
-                logger.error(f"OIDC token refresh failed for runtime {runtime.id}: {e}")
-                return None
-
-        # Legacy: Refresh against Google's token endpoint
-        # Use Gemini CLI's public OAuth credentials (installed app, safe to embed)
-        from app.routes.core.gca_constants import (
-            get_gca_client_id,
-            get_gca_client_secret,
+        return await refresh_oauth_token(
+            runtime,
+            token_data,
+            db=db,
+            encrypt_token_blob=self.encrypt_token_blob,
+            commit_runtime_registration=_commit_runtime_registration,
         )
-
-        client_id = get_gca_client_id()
-        client_secret = get_gca_client_secret()
-
-        try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                resp = await client.post(
-                    "https://oauth2.googleapis.com/token",
-                    data={
-                        "grant_type": "refresh_token",
-                        "refresh_token": refresh_token,
-                        "client_id": client_id,
-                        "client_secret": client_secret,
-                    },
-                )
-                resp.raise_for_status()
-                new_tokens = resp.json()
-
-            # Merge new tokens into existing data
-            token_data["access_token"] = new_tokens["access_token"]
-            if "refresh_token" in new_tokens:
-                token_data["refresh_token"] = new_tokens["refresh_token"]
-            token_data["expiry"] = time.time() + new_tokens.get("expires_in", 3600)
-
-            # Re-encrypt and update runtime
-            runtime.auth_config = self.encrypt_token_blob(token_data)
-
-            # Persist to database if session available
-            if db:
-                try:
-                    _commit_runtime_registration(db, runtime)
-                    logger.info(
-                        f"OAuth token refreshed and persisted for runtime {runtime.id}"
-                    )
-                except Exception as commit_err:
-                    logger.error(f"Failed to persist refreshed token: {commit_err}")
-                    db.rollback()
-            else:
-                logger.warning(
-                    f"OAuth token refreshed for runtime {runtime.id} but no db session "
-                    f"provided — changes are in-memory only"
-                )
-
-            return new_tokens["access_token"]
-
-        except Exception as e:
-            logger.error(f"Failed to refresh OAuth token for runtime {runtime.id}: {e}")
-            return None
 
     def validate_auth_config(
         self, auth_type: str, auth_config: Optional[Dict[str, Any]]
@@ -524,21 +297,4 @@ class RuntimeAuthService:
         Returns:
             True if valid, False otherwise
         """
-        if auth_type == "none":
-            return True
-
-        if not auth_config:
-            return False
-
-        if auth_type == "api_key":
-            return bool("api_key" in auth_config and auth_config["api_key"])
-
-        if auth_type == "oauth2":
-            has_client_creds = (
-                "client_id" in auth_config and "client_secret" in auth_config
-            )
-            has_token = "access_token" in auth_config
-            has_blob = "token_blob" in auth_config
-            return has_client_creds or has_token or has_blob
-
-        return False
+        return validate_auth_config_payload(auth_type, auth_config)
