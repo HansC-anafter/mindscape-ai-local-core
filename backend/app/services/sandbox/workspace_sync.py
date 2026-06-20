@@ -11,49 +11,25 @@ If sandbox is missing or corrupted, it can be rebuilt from workspace.
 """
 
 import logging
-import os
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 
 from backend.app.services.sandbox.sandbox_manager import SandboxManager
 from backend.app.services.mindscape_store import MindscapeStore
+from backend.app.services.sandbox.workspace_sync_core.file_operations import (
+    get_workspace_sandbox_diff,
+    sync_sandbox_files_to_workspace,
+    sync_workspace_files_to_sandbox,
+)
+from backend.app.services.sandbox.workspace_sync_core.filters import (
+    DEFAULT_SYNC_DIRECTORIES,
+    PROTECTED_PATTERNS,
+    get_sync_directories,
+    is_protected,
+    should_sync_file,
+)
 
 logger = logging.getLogger(__name__)
-
-
-# Protected patterns that should NEVER be synced (framework/system files)
-PROTECTED_PATTERNS = [
-    "package.json",      # Framework config
-    "package-lock.json", # Lock files
-    "yarn.lock",
-    "pnpm-lock.yaml",
-    "node_modules/",     # Dependencies
-    ".git/",             # Version control
-    ".gitignore",
-    ".env",              # Environment
-    ".env.*",
-    "tsconfig.json",     # TypeScript config
-    "next.config.*",     # Next.js config
-    "vite.config.*",     # Vite config
-    "tailwind.config.*", # Tailwind config
-    "postcss.config.*",  # PostCSS config
-    ".next/",            # Build output
-    "dist/",
-    "build/",
-    "out/",
-    "__pycache__/",
-    "*.pyc",
-    ".DS_Store",
-]
-
-# Default sync directories per sandbox type
-# Each sandbox type can override this in its class
-DEFAULT_SYNC_DIRECTORIES = {
-    "web_page": ["spec", "hero", "sections", "pages", "components", "styles", "public"],
-    "threejs_hero": ["components", "scenes", "assets"],
-    "writing_project": ["chapters", "drafts", "notes", "outline"],
-    "project_repo": None,  # None = sync all non-protected files
-}
 
 
 class WorkspaceSandboxSync:
@@ -164,7 +140,7 @@ class WorkspaceSandboxSync:
         Returns:
             List of directories to sync, or None to sync all non-protected files
         """
-        return DEFAULT_SYNC_DIRECTORIES.get(sandbox_type)
+        return get_sync_directories(sandbox_type)
 
     def _should_sync_file(self, file_path: str, sync_dirs: Optional[List[str]]) -> bool:
         """
@@ -177,23 +153,7 @@ class WorkspaceSandboxSync:
         Returns:
             True if file should be synced
         """
-        # Always skip protected patterns
-        if self._is_protected(file_path):
-            return False
-
-        # If no whitelist, sync all non-protected files
-        if sync_dirs is None:
-            return True
-
-        # Check if file is in whitelisted directory
-        for dir_name in sync_dirs:
-            if file_path.startswith(dir_name + "/") or file_path.startswith(dir_name + "\\"):
-                return True
-            # Also allow files directly named with directory prefix
-            if file_path == dir_name or file_path.startswith(dir_name):
-                return True
-
-        return False
+        return should_sync_file(file_path, sync_dirs)
 
     async def sync_workspace_to_sandbox(
         self,
@@ -227,51 +187,11 @@ class WorkspaceSandboxSync:
             # Get sync directories from sandbox type or override
             sync_dirs = directories or self._get_sync_directories(sandbox.sandbox_type)
 
-            if sync_dirs:
-                # Sync specific directories
-                for dir_name in sync_dirs:
-                    source_dir = workspace_path / dir_name
-                    if not source_dir.exists():
-                        continue
-
-                    for root, _, files in os.walk(source_dir):
-                        for filename in files:
-                            source_file = Path(root) / filename
-                            relative_path = source_file.relative_to(workspace_path)
-
-                            if not self._should_sync_file(str(relative_path), sync_dirs):
-                                continue
-
-                            try:
-                                content = source_file.read_text(encoding="utf-8")
-                                await sandbox.write_file(str(relative_path), content)
-                                synced_files.append(str(relative_path))
-                                logger.debug(f"Synced: {relative_path}")
-                            except Exception as e:
-                                logger.warning(f"Failed to sync {relative_path}: {e}")
-            else:
-                # Sync all non-protected files
-                if workspace_path.exists():
-                    for root, _, files in os.walk(workspace_path):
-                        for filename in files:
-                            source_file = Path(root) / filename
-                            relative_path = source_file.relative_to(workspace_path)
-
-                            if not self._should_sync_file(str(relative_path), None):
-                                continue
-
-                            try:
-                                content = source_file.read_text(encoding="utf-8")
-                                await sandbox.write_file(str(relative_path), content)
-                                synced_files.append(str(relative_path))
-                                logger.debug(f"Synced: {relative_path}")
-                            except Exception as e:
-                                logger.warning(f"Failed to sync {relative_path}: {e}")
-
-            # Post-sync hooks for specific sandbox types
-            if sandbox.sandbox_type == "web_page":
-                if hasattr(sandbox, "sync_pages_to_app"):
-                    await sandbox.sync_pages_to_app()
+            synced_files = await sync_workspace_files_to_sandbox(
+                workspace_path,
+                sandbox,
+                sync_dirs,
+            )
 
             logger.info(f"Synced {len(synced_files)} files to sandbox {sandbox_id}")
             return synced_files
@@ -348,51 +268,21 @@ class WorkspaceSandboxSync:
                 return {"synced_files": [], "backed_up_files": [], "status": "error", "error": "Sandbox not found"}
 
             workspace_path = self.get_workspace_path(workspace_id)
-            workspace_path.mkdir(parents=True, exist_ok=True)
 
             # Get sync directories from sandbox type or override
             sync_dirs = directories or self._get_sync_directories(sandbox.sandbox_type)
 
-            # Get all files in sandbox
-            sandbox_files = await sandbox.list_files()
-
-            for file_info in sandbox_files:
-                file_path = file_info["path"]
-
-                # Check if file should be synced
-                if not self._should_sync_file(file_path, sync_dirs):
-                    logger.debug(f"Skipping file (not in sync dirs or protected): {file_path}")
-                    continue
-
-                try:
-                    content = await sandbox.read_file(file_path)
-                    target_path = workspace_path / file_path
-
-                    # Create backup if file exists and backup is enabled
-                    if create_backup and target_path.exists():
-                        backup_path = target_path.with_suffix(target_path.suffix + ".backup")
-                        import shutil
-                        shutil.copy2(target_path, backup_path)
-                        backed_up_files.append(str(file_path))
-                        logger.debug(f"Backed up: {file_path}")
-
-                    # Ensure parent directory exists
-                    target_path.parent.mkdir(parents=True, exist_ok=True)
-
-                    # Write file
-                    target_path.write_text(content, encoding="utf-8")
-                    synced_files.append(file_path)
-                    logger.debug(f"Synced to workspace: {file_path}")
-
-                except Exception as e:
-                    logger.warning(f"Failed to sync {file_path} to workspace: {e}")
+            result = await sync_sandbox_files_to_workspace(
+                workspace_path,
+                sandbox,
+                sync_dirs,
+                create_backup=create_backup,
+            )
+            synced_files = result["synced_files"]
+            backed_up_files = result["backed_up_files"]
 
             logger.info(f"Synced {len(synced_files)} files from sandbox to workspace")
-            return {
-                "synced_files": synced_files,
-                "backed_up_files": backed_up_files,
-                "status": "success"
-            }
+            return result
 
         except Exception as e:
             logger.error(f"Sync to workspace failed: {e}")
@@ -405,11 +295,7 @@ class WorkspaceSandboxSync:
 
     def _is_protected(self, file_path: str) -> bool:
         """Check if file matches protected patterns"""
-        import fnmatch
-        for pattern in PROTECTED_PATTERNS:
-            if fnmatch.fnmatch(file_path, pattern) or pattern in file_path:
-                return True
-        return False
+        return is_protected(file_path)
 
     async def get_sync_diff(
         self,
@@ -440,56 +326,11 @@ class WorkspaceSandboxSync:
             # Get sync directories from sandbox type or override
             sync_dirs = directories or self._get_sync_directories(sandbox.sandbox_type)
 
-            # Get sandbox files (filtered by sync dirs)
-            sandbox_files = await sandbox.list_files()
-            sandbox_paths = {
-                f["path"] for f in sandbox_files
-                if self._should_sync_file(f["path"], sync_dirs)
-            }
-
-            # Get workspace files
-            workspace_paths = set()
-            if sync_dirs:
-                for dir_name in sync_dirs:
-                    dir_path = workspace_path / dir_name
-                    if dir_path.exists():
-                        for root, _, files in os.walk(dir_path):
-                            for f in files:
-                                rel_path = str(Path(root).relative_to(workspace_path) / f)
-                                if self._should_sync_file(rel_path, sync_dirs):
-                                    workspace_paths.add(rel_path)
-            else:
-                # All non-protected files
-                if workspace_path.exists():
-                    for root, _, files in os.walk(workspace_path):
-                        for f in files:
-                            rel_path = str(Path(root).relative_to(workspace_path) / f)
-                            if self._should_sync_file(rel_path, None):
-                                workspace_paths.add(rel_path)
-
-            added = sandbox_paths - workspace_paths
-            deleted = workspace_paths - sandbox_paths
-            common = sandbox_paths & workspace_paths
-
-            # Check for modifications
-            modified = []
-            for path in common:
-                try:
-                    sandbox_content = await sandbox.read_file(path)
-                    workspace_content = (workspace_path / path).read_text(encoding="utf-8")
-                    if sandbox_content != workspace_content:
-                        modified.append(path)
-                except Exception:
-                    pass
-
-            return {
-                "added": list(added),
-                "modified": modified,
-                "deleted": list(deleted),
-                "unchanged": list(common - set(modified)),
-                "sandbox_type": sandbox.sandbox_type,
-                "sync_directories": sync_dirs
-            }
+            return await get_workspace_sandbox_diff(
+                workspace_path,
+                sandbox,
+                sync_dirs,
+            )
 
         except Exception as e:
             logger.error(f"Failed to get sync diff: {e}")
@@ -571,4 +412,3 @@ def get_workspace_sync_service(store: Optional[MindscapeStore] = None) -> Worksp
         _sync_service = WorkspaceSandboxSync(store)
 
     return _sync_service
-
