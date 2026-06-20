@@ -27,6 +27,7 @@ from .paths import (
     _utc_now,
 )
 from .pipeline_followup import run_post_install_followups
+from .pipeline_registry_reload import reload_capability_registry_modules
 from .registry_sync import (
     _defer_restart_webhook_if_blocked,
     _sync_install_time_registries,
@@ -40,23 +41,6 @@ from .schemas import InstallPipelineResult
 logger = logging.getLogger(__name__)
 installed_packs_store = InstalledPacksStore()
 pack_activation_service = PackActivationService()
-
-
-async def _reload_capability_registry_modules() -> None:
-    """Reload both supported capability registry module identities."""
-    from app.services.capability_registry import load_capabilities as load_app_capabilities
-
-    await run_in_threadpool(load_app_capabilities, reset=True)
-
-    try:
-        from backend.app.services.capability_registry import (
-            load_capabilities as load_backend_capabilities,
-        )
-    except Exception:
-        return
-
-    if load_backend_capabilities is not load_app_capabilities:
-        await run_in_threadpool(load_backend_capabilities, reset=True)
 
 
 async def run_install_pipeline(
@@ -305,7 +289,9 @@ async def run_install_pipeline(
                 registry._tools_cache.clear()
 
             if contract_lane_changed:
-                await _reload_capability_registry_modules()
+                await reload_capability_registry_modules(
+                    run_in_threadpool_func=run_in_threadpool,
+                )
                 result.add_warning(
                     "Contract import paths changed; skipping in-process hot reload and requiring a backend restart."
                 )
@@ -322,14 +308,18 @@ async def run_install_pipeline(
                 hot_reload_performed = True
                 logger.info(f"Hot reload completed for {capability_code}")
             else:
-                await _reload_capability_registry_modules()
+                await reload_capability_registry_modules(
+                    run_in_threadpool_func=run_in_threadpool,
+                )
                 logger.info(f"Reloaded capability registry for {capability_code}")
         except Exception as exc:
             activation_error = f"Failed to reload capability registry/routes: {exc}"
             logger.warning(f"Failed to reload capability registry/routes: {exc}")
             result.add_warning(activation_error)
             try:
-                await _reload_capability_registry_modules()
+                await reload_capability_registry_modules(
+                    run_in_threadpool_func=run_in_threadpool,
+                )
             except Exception:
                 pass
 
