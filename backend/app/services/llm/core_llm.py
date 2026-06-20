@@ -30,6 +30,14 @@ from .governed_stage_router import (
     append_stage_route_decision,
     resolve_governed_stage_route,
 )
+from .core_llm_codex_cli import (
+    build_codex_cli_command,
+    codex_pool_wait_attempt_count,
+    codex_error_text_from_result,
+    merge_codex_env,
+    parse_codex_success_output,
+    resolve_codex_stall_timeout,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -61,29 +69,6 @@ def _resolve_workspace_runtime(workspace: Optional[Any]) -> Optional[str]:
     if workspace is None:
         return None
     return getattr(workspace, "resolved_executor_runtime", None)
-
-
-def _codex_model_hint(model: Optional[str]) -> Optional[str]:
-    candidate = str(model or "").strip()
-    if not candidate:
-        return None
-    lowered = candidate.lower()
-    if lowered.startswith(("gpt-", "o", "codex")):
-        return candidate
-    return None
-
-
-def _merge_codex_env(extra_env: Optional[dict[str, Any]]) -> dict[str, str]:
-    env = os.environ.copy()
-    if extra_env:
-        env.update(
-            {
-                str(key): str(value)
-                for key, value in extra_env.items()
-                if value is not None and str(value) != ""
-            }
-        )
-    return env
 
 
 def _runtime_failure_retryable(error: Any) -> bool:
@@ -118,14 +103,6 @@ def _codex_runtime_failure_retryable(error: Any) -> bool:
 def _runtime_retry_delay(attempt_index: int) -> float:
     delays = (2.0, 4.0, 8.0, 16.0, 30.0)
     return delays[min(attempt_index, len(delays) - 1)]
-
-
-def _codex_pool_wait_attempt_count() -> int:
-    raw = os.environ.get("MINDSCAPE_CODEX_POOL_WAIT_ATTEMPTS", "6").strip()
-    try:
-        return max(1, min(12, int(raw)))
-    except ValueError:
-        return 6
 
 
 async def _resolve_codex_pool_bundle(
@@ -199,7 +176,7 @@ async def _call_via_direct_codex_runtime(
     excluded_runtime_ids: set[str] = set()
     max_attempts = 1
     attempt = 1
-    pool_wait_attempts = _codex_pool_wait_attempt_count()
+    pool_wait_attempts = codex_pool_wait_attempt_count()
     pool_wait_index = 0
     last_runtime_error = ""
 
@@ -256,42 +233,32 @@ async def _call_via_direct_codex_runtime(
         ) as tmp:
             last_message_path = tmp.name
 
-        cmd = [
-            binary,
-            "-c",
-            'model_reasoning_effort="high"',
-            "exec",
-            "--skip-git-repo-check",
-            "--sandbox",
-            "workspace-write",
-            "--output-last-message",
-            last_message_path,
-        ]
-        model_hint = _codex_model_hint(model)
-        if model_hint:
-            cmd.extend(["--model", model_hint])
-        cmd.append(
-            _build_runtime_task(
-                system_prompt=system_prompt,
-                user_message=user_message,
-                response_format=response_format,
-            )
+        task = _build_runtime_task(
+            system_prompt=system_prompt,
+            user_message=user_message,
+            response_format=response_format,
+        )
+        cmd = build_codex_cli_command(
+            binary=binary,
+            last_message_path=last_message_path,
+            task=task,
+            model=model,
         )
 
         stall_timeout_raw = os.environ.get(
             "MINDSCAPE_CLI_STALL_TIMEOUT_SECONDS",
             str(DEFAULT_CLI_STALL_TIMEOUT_SECONDS),
         ).strip()
-        try:
-            stall_timeout = max(5.0, float(stall_timeout_raw))
-        except ValueError:
-            stall_timeout = DEFAULT_CLI_STALL_TIMEOUT_SECONDS
+        stall_timeout = resolve_codex_stall_timeout(
+            raw_value=stall_timeout_raw,
+            default_timeout=DEFAULT_CLI_STALL_TIMEOUT_SECONDS,
+        )
 
         try:
             result = await run_codex_cli_subprocess(
                 cmd=cmd,
                 cwd=cwd,
-                env=_merge_codex_env(bundle.get("env")),
+                env=merge_codex_env(bundle.get("env")),
                 last_message_path=last_message_path,
                 execution_id=f"core-llm-{uuid.uuid4()}",
                 timeout=300.0,
@@ -307,22 +274,13 @@ async def _call_via_direct_codex_runtime(
                 pass
 
         if result is not None and result.returncode == 0 and result.output_text:
-            text = str(result.output_text or "").strip()
-            if response_format == "json":
-                parsed = extract_json_from_text(text)
-                if parsed is None:
-                    raise ValueError("codex_cli did not return valid JSON for core_llm_call")
-                return parsed
-            return text
+            return parse_codex_success_output(
+                output_text=result.output_text,
+                response_format=response_format,
+            )
 
         if result is not None:
-            error_text = (
-                result.synthesized_error
-                or result.combined_output
-                or result.stderr_text
-                or result.output_text
-                or "unknown error"
-            ).strip()
+            error_text = codex_error_text_from_result(result)
         runtime_fault = classify_codex_cli_runtime_failure(error_text)
         fault_kind = str(runtime_fault.get("fault_kind") or "runtime").strip()
         error_code = str(runtime_fault.get("error_code") or "runtime_error").strip()
