@@ -1,16 +1,5 @@
-"""
-Tool Registry Service.
+"""Generic DB-backed tool registry service."""
 
-Generic tool registration service supporting multiple tool types discovery and management.
-
-Design Principles:
-- Platform neutral: not bound to any specific tool type
-- Plugin-based: extend via ToolDiscoveryProvider
-- Open-closed: extend functionality without modifying Core code
-- PostgreSQL storage with JSON fallback for migration safety
-"""
-
-import json
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone
@@ -27,9 +16,8 @@ from sqlalchemy import text
 
 from backend.app.models.tool_registry import RegisteredTool, ToolConnectionModel
 from backend.app.services.tool_registry_core.discovery import (
-    build_dynamic_tool_connection,
-    build_registered_tool,
-    upsert_discovery_connection,
+    discover_tool_capabilities_for_service,
+    discover_wordpress_capabilities_for_service,
 )
 from backend.app.services.tool_registry_core.persistence import (
     load_registry_from_database,
@@ -40,8 +28,9 @@ from backend.app.services.tool_registry_core.persistence import (
 from backend.app.services.tools.discovery_provider import (
     ToolDiscoveryProvider,
     ToolConfig,
-    DiscoveredTool,
-    GenericHTTPToolProvider,
+)
+from backend.app.services.tool_registry_core.providers import (
+    register_default_providers as register_default_tool_providers,
 )
 from backend.app.services.tool_registry_core.connections import (
     create_connection as create_tool_connection,
@@ -86,14 +75,7 @@ logger = logging.getLogger(__name__)
 
 
 class ToolRegistryService(PostgresStoreBase):
-    """
-    Generic Tool Registration Service
-
-    Features:
-    - Tool type agnostic
-    - Extend discovery logic via ToolDiscoveryProvider
-    - Responsible for registration, querying, and management only
-    """
+    """DB-backed tool registry facade."""
 
     # Class-level flags to prevent repeated heavy init across instances
     _schema_ensured = False
@@ -171,7 +153,7 @@ class ToolRegistryService(PostgresStoreBase):
         self._tables_ready = True
 
     def _load_registry(self):
-        """Load tool registry from PostgreSQL database"""
+        """Load the registry from PostgreSQL."""
         try:
             load_registry_from_database(
                 factory=self.factory,
@@ -191,7 +173,7 @@ class ToolRegistryService(PostgresStoreBase):
             self._load_registry_from_json()
 
     def _load_registry_from_json(self):
-        """Load tool registry from JSON files (migration fallback)"""
+        """Load the registry from JSON fallback files."""
         load_registry_from_json(
             registry_file=self.registry_file,
             connections_file=self.connections_file,
@@ -201,7 +183,7 @@ class ToolRegistryService(PostgresStoreBase):
         )
 
     def _save_registry(self):
-        """Save tool registry to PostgreSQL database"""
+        """Persist the registry to PostgreSQL."""
         try:
             save_registry_to_database(
                 transaction=self.transaction,
@@ -214,7 +196,7 @@ class ToolRegistryService(PostgresStoreBase):
             self._save_registry_to_json()
 
     def _save_registry_to_json(self):
-        """Save tool registry to JSON files (migration fallback)"""
+        """Persist the registry to JSON fallback files."""
         save_registry_to_json(
             registry_file=self.registry_file,
             connections_file=self.connections_file,
@@ -224,21 +206,7 @@ class ToolRegistryService(PostgresStoreBase):
         )
 
     def register_discovery_provider(self, provider: ToolDiscoveryProvider):
-        """
-        Register a tool discovery provider
-
-        Purpose: Allow extensions or users to add custom tool types
-
-        Args:
-            provider: Tool discovery provider instance
-
-        Example:
-            # External extension registers WordPress provider
-            registry.register_discovery_provider(WordPressToolProvider())
-
-            # User custom provider
-            registry.register_discovery_provider(MyCustomToolProvider())
-        """
+        """Register a tool discovery provider."""
         provider_name = provider.provider_name
 
         if provider_name in self._discovery_providers:
@@ -250,153 +218,11 @@ class ToolRegistryService(PostgresStoreBase):
         logger.debug(f"Registered discovery provider: {provider_name}")
 
     def _register_default_providers(self):
-        """Register default providers (generic, platform-agnostic)"""
-        # Register generic HTTP Provider (Core built-in)
-        self.register_discovery_provider(GenericHTTPToolProvider())
-
-        # Register local filesystem Provider (Core built-in)
-        try:
-            from backend.app.services.tools.providers.local_filesystem_provider import (
-                LocalFilesystemDiscoveryProvider,
-            )
-
-            self.register_discovery_provider(LocalFilesystemDiscoveryProvider())
-        except ImportError:
-            logger.warning("Local filesystem provider not available")
-
-        # Register Obsidian Provider (Core built-in)
-        try:
-            from backend.app.services.tools.providers.obsidian_provider import (
-                ObsidianDiscoveryProvider,
-            )
-
-            self.register_discovery_provider(ObsidianDiscoveryProvider())
-        except ImportError:
-            logger.warning("Obsidian provider not available")
-
-        # Register Notion Provider (Core built-in)
-        try:
-            from backend.app.services.tools.providers.notion_provider import (
-                NotionDiscoveryProvider,
-            )
-
-            self.register_discovery_provider(NotionDiscoveryProvider())
-        except ImportError:
-            logger.warning("Notion provider not available")
-
-        # Register Google Drive Provider (Core built-in)
-        try:
-            from backend.app.services.tools.providers.google_drive_provider import (
-                GoogleDriveDiscoveryProvider,
-            )
-
-            self.register_discovery_provider(GoogleDriveDiscoveryProvider())
-        except ImportError:
-            logger.warning("Google Drive provider not available")
-
-        # Canva Provider moved to capability pack
-        # Removed: Canva is now installed as a capability pack
-        # If needed, discovery provider will be loaded from the installed capability pack
-
-        # Register Slack Provider (Core built-in)
-        try:
-            from backend.app.services.tools.providers.slack_provider import (
-                SlackDiscoveryProvider,
-            )
-
-            self.register_discovery_provider(SlackDiscoveryProvider())
-        except ImportError:
-            logger.warning("Slack provider not available")
-
-        # Register Airtable Provider (Core built-in)
-        try:
-            from backend.app.services.tools.providers.airtable_provider import (
-                AirtableDiscoveryProvider,
-            )
-
-            self.register_discovery_provider(AirtableDiscoveryProvider())
-        except ImportError:
-            logger.warning("Airtable provider not available")
-
-        # Register Google Sheets Provider (Core built-in)
-        try:
-            from backend.app.services.tools.providers.google_sheets_provider import (
-                GoogleSheetsDiscoveryProvider,
-            )
-
-            self.register_discovery_provider(GoogleSheetsDiscoveryProvider())
-        except ImportError:
-            logger.warning("Google Sheets provider not available")
-
-        # Register GitHub Provider (Core built-in)
-        try:
-            from backend.app.services.tools.providers.github_provider import (
-                GitHubDiscoveryProvider,
-            )
-
-            self.register_discovery_provider(GitHubDiscoveryProvider())
-        except ImportError:
-            logger.warning("GitHub provider not available")
-
-        # Register Twitter Provider (Core built-in)
-        try:
-            from backend.app.services.tools.providers.twitter_provider import (
-                TwitterDiscoveryProvider,
-            )
-
-            self.register_discovery_provider(TwitterDiscoveryProvider())
-        except ImportError:
-            logger.warning("Twitter provider not available")
-
-        # Register Facebook Provider (Core built-in)
-        try:
-            from backend.app.services.tools.providers.facebook_provider import (
-                FacebookDiscoveryProvider,
-            )
-
-            self.register_discovery_provider(FacebookDiscoveryProvider())
-        except ImportError:
-            logger.warning("Facebook provider not available")
-
-        # Register Instagram Provider (Core built-in)
-        try:
-            from backend.app.services.tools.providers.instagram_provider import (
-                InstagramDiscoveryProvider,
-            )
-
-            self.register_discovery_provider(InstagramDiscoveryProvider())
-        except ImportError:
-            logger.warning("Instagram provider not available")
-
-        # Register LinkedIn Provider (Core built-in)
-        try:
-            from backend.app.services.tools.providers.linkedin_provider import (
-                LinkedInDiscoveryProvider,
-            )
-
-            self.register_discovery_provider(LinkedInDiscoveryProvider())
-        except ImportError:
-            logger.warning("LinkedIn provider not available")
-
-        # Register YouTube Provider (Core built-in)
-        try:
-            from backend.app.services.tools.providers.youtube_provider import (
-                YouTubeDiscoveryProvider,
-            )
-
-            self.register_discovery_provider(YouTubeDiscoveryProvider())
-        except ImportError:
-            logger.warning("YouTube provider not available")
-
-        # Register Line Provider (Core built-in)
-        try:
-            from backend.app.services.tools.providers.line_provider import (
-                LineDiscoveryProvider,
-            )
-
-            self.register_discovery_provider(LineDiscoveryProvider())
-        except ImportError:
-            logger.warning("Line provider not available")
+        """Register default platform-agnostic providers."""
+        register_default_tool_providers(
+            self.register_discovery_provider,
+            logger=logger,
+        )
 
     async def discover_tool_capabilities(
         self,
@@ -405,182 +231,20 @@ class ToolRegistryService(PostgresStoreBase):
         connection_id: Optional[str] = None,
         profile_id: str = "default-user",
     ) -> Dict[str, Any]:
-        """
-        Discover tool capabilities using specified provider
-
-        Args:
-            provider_name: Provider name (e.g., 'wordpress', 'notion')
-            config: Tool configuration
-            connection_id: Optional connection ID (for association)
-
-        Returns:
-            {
-                "provider": "wordpress",
-                "connection_id": "wp-site-1",
-                "discovered_tools": [...],
-                "discovery_metadata": {...}
-            }
-
-        Raises:
-            ValueError: Unknown provider or invalid configuration
-
-        Example:
-            # Discover tools using WordPress provider
-            result = await registry.discover_tool_capabilities(
-                provider_name="wordpress",
-                config=ToolConfig(
-                    tool_type="wordpress",
-                    connection_type="http_api",
-                    base_url="https://mysite.com",
-                    api_key="username",
-                    api_secret="password"
-                ),
-                connection_id="my-wp-site"
-            )
-        """
-        # Get provider
-        provider = self._discovery_providers.get(provider_name)
-        if not provider:
-            available = list(self._discovery_providers.keys())
-            raise ValueError(
-                f"Unknown discovery provider: '{provider_name}'. "
-                f"Available providers: {available}"
-            )
-
-        # Validate configuration
-        logger.info(f"Validating config for provider '{provider_name}'...")
-        is_valid = await provider.validate(config)
-        if not is_valid:
-            raise ValueError(f"Invalid configuration for provider '{provider_name}'")
-
-        # Discover tools
-        logger.info(f"Discovering tools using provider '{provider_name}'...")
-        discovered_tools = await provider.discover(config)
-
-        # Generate connection ID if not provided
-        if not connection_id:
-            connection_id = f"{provider_name}-{datetime.now().strftime('%Y%m%d%H%M%S')}"
-
-        # Remove old tools for this connection before registering new ones
-        # This prevents tool accumulation when connection is updated
-        tool_ids_to_remove = [
-            tool_id
-            for tool_id, tool in self._tools.items()
-            if tool.site_id == connection_id and tool.provider == provider_name
-        ]
-        for tool_id in tool_ids_to_remove:
-            del self._tools[tool_id]
-            try:
-                from backend.app.shared.tool_executor import unregister_dynamic_tool
-
-                unregister_dynamic_tool(tool_id)
-            except Exception as e:
-                logger.warning(f"Failed to unregister dynamic tool {tool_id}: {e}")
-
-        if tool_ids_to_remove:
-            logger.info(
-                f"Removed {len(tool_ids_to_remove)} old tools for connection {connection_id}"
-            )
-
-        # Register to local registry
-        registered_tools = []
-        for discovered_tool in discovered_tools:
-            tool_id = f"{connection_id}.{discovered_tool.tool_id}"
-
-            # Determine side_effect_level based on provider and danger_level
-            side_effect_level = self._infer_side_effect_level(
-                provider_name=provider_name,
-                danger_level=discovered_tool.danger_level,
-                tool_id=discovered_tool.tool_id,
-                methods=discovered_tool.methods,
-            )
-
-            # Convert to RegisteredTool
-            # Determine scope from connection (data_source_type indicates it's a data source)
-            connection_model = self.get_connection(connection_id, profile_id=profile_id)
-            tool_scope = "profile"  # Default scope
-            tool_tenant_id = None
-            tool_owner_profile_id = profile_id  # Default to profile_id
-
-            if connection_model:
-                # If connection has data_source_type, use its scope
-                # Note: ToolConnectionModel doesn't have data_source_type, but we can check via DataSourceService
-                # For now, use profile scope by default
-                tool_scope = "profile"
-                tool_owner_profile_id = connection_model.profile_id
-
-                # TODO: When DataSource is fully integrated, check data_source_type
-                # and set scope accordingly (tenant vs profile)
-
-            registered_tool = build_registered_tool(
-                tool_id=tool_id,
-                connection_id=connection_id,
-                provider_name=provider_name,
-                discovered_tool=discovered_tool,
-                side_effect_level=side_effect_level,
-                tool_scope=tool_scope,
-                tool_tenant_id=tool_tenant_id,
-                tool_owner_profile_id=tool_owner_profile_id,
-            )
-            self._tools[tool_id] = registered_tool
-
-            # Register in dynamic tool registry
-            tool_connection = build_dynamic_tool_connection(
-                connection_id=connection_id,
-                config=config,
-                display_name=discovered_tool.display_name,
-            )
-            register_dynamic_tool(tool_id, tool_connection)
-
-            registered_tools.append(registered_tool.model_dump())
-
-        upsert_discovery_connection(
-            self._connections,
-            profile_id=profile_id,
-            connection_id=connection_id,
+        """Discover tool capabilities using the canonical provider registry."""
+        return await discover_tool_capabilities_for_service(
+            self,
             provider_name=provider_name,
             config=config,
-            utc_now=_utc_now,
+            connection_id=connection_id,
+            profile_id=profile_id,
+            register_dynamic_tool_fn=register_dynamic_tool,
+            utc_now_fn=_utc_now,
+            logger=logger,
         )
-
-        # Save to disk
-        self._save_registry()
-
-        logger.info(
-            f"Successfully discovered {len(registered_tools)} tools "
-            f"using provider '{provider_name}'"
-        )
-
-        return {
-            "provider": provider_name,
-            "connection_id": connection_id,
-            "discovered_tools": registered_tools,
-            "discovery_metadata": provider.get_discovery_metadata(),
-        }
 
     def get_available_providers(self) -> List[Dict[str, Any]]:
-        """
-        Get all available tool discovery providers
-
-        Returns:
-            List of providers (for UI display)
-
-        Example:
-            providers = registry.get_available_providers()
-            # [
-            #     {
-            #         "provider": "generic_http",
-            #         "description": "Generic HTTP API tool",
-            #         "supported_connection_types": ["http_api"],
-            #         ...
-            #     },
-            #     {
-            #         "provider": "wordpress",
-            #         "description": "WordPress site capability discovery",
-            #         ...
-            #     }
-            # ]
-        """
+        """Return available discovery provider metadata."""
         return get_available_provider_metadata(self._discovery_providers)
 
     def get_tools(
@@ -593,21 +257,7 @@ class ToolRegistryService(PostgresStoreBase):
         profile_id: Optional[str] = None,
         workspace_id: Optional[str] = None,
     ) -> List[RegisteredTool]:
-        """
-        Get registered tools with filters
-
-        Args:
-            site_id: Filter by site/connection ID
-            category: Filter by category
-            enabled_only: Return only enabled tools
-            scope: Filter by scope (system, tenant, profile, workspace)
-            tenant_id: Filter by tenant ID (for tenant-scoped tools)
-            profile_id: Filter by profile ID (for profile-scoped tools)
-            workspace_id: Workspace ID (for applying overlay)
-
-        Returns:
-            List of RegisteredTool objects (with overlay applied if workspace_id provided)
-        """
+        """Return registered tools with optional filters."""
         return get_registered_tools(
             self._tools,
             site_id=site_id,
@@ -620,7 +270,7 @@ class ToolRegistryService(PostgresStoreBase):
         )
 
     def get_tool(self, tool_id: str) -> Optional[RegisteredTool]:
-        """Get a specific tool by ID"""
+        """Return one registered tool by ID."""
         return get_registered_tool(self._tools, tool_id)
 
     def update_tool(
@@ -630,7 +280,7 @@ class ToolRegistryService(PostgresStoreBase):
         read_only: Optional[bool] = None,
         allowed_agent_roles: Optional[List[str]] = None,
     ) -> Optional[RegisteredTool]:
-        """Update tool settings"""
+        """Update registered tool settings."""
         return update_registered_tool(
             self._tools,
             save_registry=self._save_registry,
@@ -643,30 +293,13 @@ class ToolRegistryService(PostgresStoreBase):
     def get_connections(
         self, profile_id: Optional[str] = None
     ) -> List[ToolConnectionModel]:
-        """
-        Get all tool connections
-
-        Args:
-            profile_id: Optional profile ID to filter connections. If None, returns all connections.
-
-        Returns:
-            List of tool connections
-        """
+        """Return all tool connections, optionally filtered by profile."""
         return get_all_tool_connections(self._connections, profile_id=profile_id)
 
     def get_connection(
         self, connection_id: Optional[str] = None, profile_id: Optional[str] = None
     ) -> Any:
-        """
-        Get a specific connection
-
-        Args:
-            connection_id: Connection ID. If None, returns the underlying Postgres connection.
-            profile_id: Optional profile ID. If None, searches across all profiles (backward compatibility).
-
-        Returns:
-            Tool connection if found, DB connection context manager if None, None otherwise
-        """
+        """Return a tool connection or the underlying DB connection manager."""
         return get_tool_connection(
             self._connections,
             connection_id=connection_id,
@@ -678,15 +311,7 @@ class ToolRegistryService(PostgresStoreBase):
         self,
         connection: ToolConnectionModel,
     ) -> ToolConnectionModel:
-        """
-        Create a new tool connection
-
-        Args:
-            connection: ToolConnectionModel instance with all required fields
-
-        Returns:
-            Created connection
-        """
+        """Create a tool connection."""
         return create_tool_connection(
             self._connections,
             connection=connection,
@@ -703,20 +328,7 @@ class ToolRegistryService(PostgresStoreBase):
         wp_application_password: str,
         profile_id: str = "default-user",
     ) -> ToolConnectionModel:
-        """
-        Create a new WordPress connection (legacy method for backward compatibility)
-
-        Args:
-            connection_id: Connection ID
-            name: Connection name
-            wp_url: WordPress site URL
-            wp_username: WordPress username
-            wp_application_password: WordPress application password
-            profile_id: Profile ID (defaults to "default-user")
-
-        Returns:
-            Created connection
-        """
+        """Create a legacy WordPress connection."""
         return create_tool_connection_legacy(
             create_connection_fn=self.create_connection,
             connection_id=connection_id,
@@ -730,16 +342,7 @@ class ToolRegistryService(PostgresStoreBase):
     def delete_connection(
         self, connection_id: str, profile_id: Optional[str] = None
     ) -> bool:
-        """
-        Delete a connection and all its tools
-
-        Args:
-            connection_id: Connection ID
-            profile_id: Optional profile ID. If None, deletes from all profiles (backward compatibility).
-
-        Returns:
-            True if deleted, False if not found
-        """
+        """Delete a connection and its registered tools."""
         return delete_tool_connection(
             self._connections,
             self._tools,
@@ -752,16 +355,7 @@ class ToolRegistryService(PostgresStoreBase):
     def get_connections_by_profile(
         self, profile_id: str, active_only: bool = True
     ) -> List[ToolConnectionModel]:
-        """
-        Get all tool connections for a profile
-
-        Args:
-            profile_id: Profile ID
-            active_only: If True, return only active connections
-
-        Returns:
-            List of tool connections
-        """
+        """Return tool connections for a profile."""
         return get_tool_connections_by_profile(
             self._connections,
             profile_id=profile_id,
@@ -771,16 +365,7 @@ class ToolRegistryService(PostgresStoreBase):
     def get_connections_by_tool_type(
         self, profile_id: str, tool_type: str
     ) -> List[ToolConnectionModel]:
-        """
-        Get all connections for a specific tool type
-
-        Args:
-            profile_id: Profile ID
-            tool_type: Tool type (e.g., "wordpress", "notion")
-
-        Returns:
-            List of tool connections
-        """
+        """Return profile connections for a tool type."""
         return get_tool_connections_by_type(
             self._connections,
             profile_id=profile_id,
@@ -790,16 +375,7 @@ class ToolRegistryService(PostgresStoreBase):
     def get_connections_by_role(
         self, profile_id: str, role_id: str
     ) -> List[ToolConnectionModel]:
-        """
-        Get all connections associated with a specific AI role
-
-        Args:
-            profile_id: Profile ID
-            role_id: AI role ID
-
-        Returns:
-            List of tool connections
-        """
+        """Return profile connections associated with a role."""
         return get_tool_connections_by_role(
             get_connections_by_profile_fn=self.get_connections_by_profile,
             profile_id=profile_id,
@@ -807,15 +383,7 @@ class ToolRegistryService(PostgresStoreBase):
         )
 
     def update_connection(self, connection: ToolConnectionModel) -> ToolConnectionModel:
-        """
-        Update a tool connection
-
-        Args:
-            connection: Updated connection model
-
-        Returns:
-            Updated connection
-        """
+        """Update a tool connection."""
         return update_tool_connection(
             self._connections,
             connection=connection,
@@ -824,13 +392,7 @@ class ToolRegistryService(PostgresStoreBase):
         )
 
     def record_connection_usage(self, connection_id: str, profile_id: str):
-        """
-        Record that a connection was used
-
-        Args:
-            connection_id: Connection ID
-            profile_id: Profile ID
-        """
+        """Record connection usage."""
         record_tool_connection_usage(
             self._connections,
             connection_id=connection_id,
@@ -846,15 +408,7 @@ class ToolRegistryService(PostgresStoreBase):
         is_valid: bool,
         error_message: Optional[str] = None,
     ):
-        """
-        Update validation status of a connection
-
-        Args:
-            connection_id: Connection ID
-            profile_id: Profile ID
-            is_valid: Whether connection is valid
-            error_message: Optional error message
-        """
+        """Update connection validation status."""
         update_tool_connection_validation_status(
             self._connections,
             connection_id=connection_id,
@@ -866,15 +420,7 @@ class ToolRegistryService(PostgresStoreBase):
         )
 
     def export_as_templates(self, profile_id: str) -> List[Dict[str, Any]]:
-        """
-        Export connections as templates (without sensitive data)
-
-        Args:
-            profile_id: Profile ID
-
-        Returns:
-            List of connection templates
-        """
+        """Export profile connections as templates without secrets."""
         return export_connection_templates(
             get_connections_by_profile_fn=self.get_connections_by_profile,
             profile_id=profile_id,
@@ -887,18 +433,7 @@ class ToolRegistryService(PostgresStoreBase):
         tenant_id: Optional[str] = None,
         workspace_id: Optional[str] = None,
     ) -> List[RegisteredTool]:
-        """
-        Get tools available for a specific agent role
-
-        Args:
-            agent_role: Agent role name
-            profile_id: Profile ID (for scope filtering)
-            tenant_id: Tenant ID (for scope filtering)
-            workspace_id: Workspace ID (for applying overlay)
-
-        Returns:
-            List of tools available for the agent role (with overlay applied if workspace_id provided)
-        """
+        """Return tools available for an agent role."""
         return get_registered_tools_for_agent_role(
             get_tools_fn=self.get_tools,
             agent_role=agent_role,
@@ -910,25 +445,7 @@ class ToolRegistryService(PostgresStoreBase):
     def _infer_side_effect_level(
         self, provider_name: str, danger_level: str, tool_id: str, methods: List[str]
     ) -> str:
-        """
-        Infer side_effect_level for a tool based on provider and characteristics
-
-        Mapping rules:
-        1. GET-only methods = readonly (reading from external is safe)
-        2. External providers with write operations = external_write
-        3. Local filesystem write = external_write
-        4. High danger_level = external_write (conservative)
-        5. Default = soft_write (conservative)
-
-        Args:
-            provider_name: Provider name (wordpress, notion, google_drive, etc.)
-            danger_level: Tool danger level (low, medium, high)
-            tool_id: Tool identifier (for pattern matching)
-            methods: HTTP methods supported by tool
-
-        Returns:
-            side_effect_level: "readonly", "soft_write", or "external_write"
-        """
+        """Infer the side-effect level for a discovered tool."""
         return infer_side_effect_level(provider_name, danger_level, tool_id, methods)
 
     async def discover_wordpress_capabilities(
@@ -938,46 +455,12 @@ class ToolRegistryService(PostgresStoreBase):
         wp_username: str,
         wp_password: str,
     ) -> Dict[str, Any]:
-        """
-        Discover WordPress capabilities (backward compatibility method)
-
-        This method is kept for backward compatibility with legacy endpoints.
-        New code should use discover_tool_capabilities() with provider="wordpress".
-
-        Args:
-            connection_id: Connection identifier
-            wp_url: WordPress site URL
-            wp_username: WordPress username
-            wp_password: WordPress application password
-
-        Returns:
-            Discovery result dictionary
-        """
-        from backend.app.services.tools.discovery_provider import ToolConfig
-
-        # Check if WordPress provider is registered
-        if "wordpress" not in self._discovery_providers:
-            # Try to register WordPress provider from external extension
-            try:
-                from backend.app.extensions.console_kit import (
-                    register_console_kit_tools,
-                )
-
-                register_console_kit_tools(self)
-            except ImportError:
-                logger.warning(
-                    "WordPress provider not available (external extension not installed)"
-                )
-
-        # Use generic discovery method
-        config = ToolConfig(
-            tool_type="wordpress",
-            connection_type="http_api",
-            base_url=wp_url,
-            api_key=wp_username,
-            api_secret=wp_password,
-        )
-
-        return await self.discover_tool_capabilities(
-            provider_name="wordpress", config=config, connection_id=connection_id
+        """Discover WordPress capabilities through the legacy compatibility wrapper."""
+        return await discover_wordpress_capabilities_for_service(
+            self,
+            connection_id=connection_id,
+            wp_url=wp_url,
+            wp_username=wp_username,
+            wp_password=wp_password,
+            logger=logger,
         )

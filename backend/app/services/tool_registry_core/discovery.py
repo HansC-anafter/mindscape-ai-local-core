@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Dict, Tuple
+from datetime import datetime
+from typing import Any, Dict, Optional, Tuple
 
 from backend.app.models.tool_registry import RegisteredTool, ToolConnectionModel
 from backend.app.services.tools.base import ToolConnection
@@ -109,4 +110,156 @@ def upsert_discovery_connection(
         config=config.custom_config.copy() if config.custom_config else {},
         last_discovery=utc_now(),
         discovery_method=provider_name,
+    )
+
+
+async def discover_tool_capabilities_for_service(
+    service: Any,
+    *,
+    provider_name: str,
+    config: ToolConfig,
+    connection_id: Optional[str],
+    profile_id: str,
+    register_dynamic_tool_fn,
+    utc_now_fn,
+    logger,
+) -> Dict[str, Any]:
+    """Run discovery through the canonical ToolRegistryService facade state."""
+    provider = service._discovery_providers.get(provider_name)
+    if not provider:
+        available = list(service._discovery_providers.keys())
+        raise ValueError(
+            f"Unknown discovery provider: '{provider_name}'. "
+            f"Available providers: {available}"
+        )
+
+    logger.info("Validating config for provider '%s'...", provider_name)
+    is_valid = await provider.validate(config)
+    if not is_valid:
+        raise ValueError(f"Invalid configuration for provider '{provider_name}'")
+
+    logger.info("Discovering tools using provider '%s'...", provider_name)
+    discovered_tools = await provider.discover(config)
+
+    if not connection_id:
+        connection_id = f"{provider_name}-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+
+    tool_ids_to_remove = [
+        tool_id
+        for tool_id, tool in service._tools.items()
+        if tool.site_id == connection_id and tool.provider == provider_name
+    ]
+    for tool_id in tool_ids_to_remove:
+        del service._tools[tool_id]
+        try:
+            from backend.app.shared.tool_executor import unregister_dynamic_tool
+
+            unregister_dynamic_tool(tool_id)
+        except Exception as exc:
+            logger.warning("Failed to unregister dynamic tool %s: %s", tool_id, exc)
+
+    if tool_ids_to_remove:
+        logger.info(
+            "Removed %s old tools for connection %s",
+            len(tool_ids_to_remove),
+            connection_id,
+        )
+
+    registered_tools = []
+    for discovered_tool in discovered_tools:
+        tool_id = f"{connection_id}.{discovered_tool.tool_id}"
+        side_effect_level = service._infer_side_effect_level(
+            provider_name=provider_name,
+            danger_level=discovered_tool.danger_level,
+            tool_id=discovered_tool.tool_id,
+            methods=discovered_tool.methods,
+        )
+
+        connection_model = service.get_connection(
+            connection_id, profile_id=profile_id
+        )
+        tool_scope = "profile"
+        tool_tenant_id = None
+        tool_owner_profile_id = profile_id
+        if connection_model:
+            tool_owner_profile_id = connection_model.profile_id
+
+        registered_tool = build_registered_tool(
+            tool_id=tool_id,
+            connection_id=connection_id,
+            provider_name=provider_name,
+            discovered_tool=discovered_tool,
+            side_effect_level=side_effect_level,
+            tool_scope=tool_scope,
+            tool_tenant_id=tool_tenant_id,
+            tool_owner_profile_id=tool_owner_profile_id,
+        )
+        service._tools[tool_id] = registered_tool
+
+        tool_connection = build_dynamic_tool_connection(
+            connection_id=connection_id,
+            config=config,
+            display_name=discovered_tool.display_name,
+        )
+        register_dynamic_tool_fn(tool_id, tool_connection)
+        registered_tools.append(registered_tool.model_dump())
+
+    upsert_discovery_connection(
+        service._connections,
+        profile_id=profile_id,
+        connection_id=connection_id,
+        provider_name=provider_name,
+        config=config,
+        utc_now=utc_now_fn,
+    )
+
+    service._save_registry()
+    logger.info(
+        "Successfully discovered %s tools using provider '%s'",
+        len(registered_tools),
+        provider_name,
+    )
+
+    return {
+        "provider": provider_name,
+        "connection_id": connection_id,
+        "discovered_tools": registered_tools,
+        "discovery_metadata": provider.get_discovery_metadata(),
+    }
+
+
+async def discover_wordpress_capabilities_for_service(
+    service: Any,
+    *,
+    connection_id: str,
+    wp_url: str,
+    wp_username: str,
+    wp_password: str,
+    logger,
+) -> Dict[str, Any]:
+    """Legacy WordPress discovery wrapper."""
+    from backend.app.services.tools.discovery_provider import ToolConfig
+
+    if "wordpress" not in service._discovery_providers:
+        try:
+            from backend.app.extensions.console_kit import register_console_kit_tools
+
+            register_console_kit_tools(service)
+        except ImportError:
+            logger.warning(
+                "WordPress provider not available (external extension not installed)"
+            )
+
+    config = ToolConfig(
+        tool_type="wordpress",
+        connection_type="http_api",
+        base_url=wp_url,
+        api_key=wp_username,
+        api_secret=wp_password,
+    )
+
+    return await service.discover_tool_capabilities(
+        provider_name="wordpress",
+        config=config,
+        connection_id=connection_id,
     )
