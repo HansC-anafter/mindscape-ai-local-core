@@ -19,16 +19,23 @@ from backend.app.services.memory.writeback.legacy_governance_projection_adapter 
 from backend.app.services.memory.writeback.legacy_metadata_memory_projection_adapter import (
     LegacyMetadataMemoryProjectionAdapter,
 )
-from backend.app.services.memory.writeback.evidence_collectors import (
-    EvidenceCollectorRegistry,
-    ExecutionTraceEvidenceCollector,
-    GovernanceDecisionEvidenceCollector,
-    IntentLogEvidenceCollector,
-    LensPatchEvidenceCollector,
-    StageResultEvidenceCollector,
-)
 from backend.app.services.memory.writeback.evidence_collectors.base import (
     merge_collection_summaries,
+)
+from backend.app.services.memory.writeback.meeting_memory_writeback.collectors import (
+    build_phase2_collector_registry,
+)
+from backend.app.services.memory.writeback.meeting_memory_writeback.evidence_links import (
+    attach_artifact_result_evidence,
+    attach_lens_receipt_evidence,
+    attach_meeting_decision_evidence,
+    attach_reasoning_trace_evidence,
+    attach_task_execution_evidence,
+    attach_writeback_receipt_evidence,
+)
+from backend.app.services.memory.writeback.meeting_memory_writeback.projections import (
+    dispatch_legacy_projection,
+    dispatch_metadata_projection,
 )
 from backend.app.services.stores.postgres.memory_evidence_link_store import (
     MemoryEvidenceLinkStore,
@@ -111,37 +118,19 @@ class MeetingMemoryWritebackOrchestrator:
         self.metadata_projection_adapter = (
             metadata_projection_adapter or LegacyMetadataMemoryProjectionAdapter()
         )
-        self.phase2_collector_registry = EvidenceCollectorRegistry(
-            [
-                stage_result_collector
-                or StageResultEvidenceCollector(
-                    evidence_link_store=self.evidence_link_store,
-                    meeting_session_store=self.meeting_session_store,
-                    stage_results_store=self.stage_results_store,
-                ),
-                execution_trace_collector
-                or ExecutionTraceEvidenceCollector(
-                    evidence_link_store=self.evidence_link_store,
-                    meeting_session_store=self.meeting_session_store,
-                    task_store=self.task_store,
-                ),
-                intent_log_collector
-                or IntentLogEvidenceCollector(
-                    evidence_link_store=self.evidence_link_store,
-                    intent_log_store=self.intent_log_store,
-                ),
-                governance_decision_collector
-                or GovernanceDecisionEvidenceCollector(
-                    evidence_link_store=self.evidence_link_store,
-                    meeting_session_store=self.meeting_session_store,
-                    governance_store=self.governance_store,
-                ),
-                lens_patch_collector
-                or LensPatchEvidenceCollector(
-                    evidence_link_store=self.evidence_link_store,
-                    lens_patch_store=self.lens_patch_store,
-                ),
-            ]
+        self.phase2_collector_registry = build_phase2_collector_registry(
+            evidence_link_store=self.evidence_link_store,
+            meeting_session_store=self.meeting_session_store,
+            stage_results_store=self.stage_results_store,
+            task_store=self.task_store,
+            intent_log_store=self.intent_log_store,
+            governance_store=self.governance_store,
+            lens_patch_store=self.lens_patch_store,
+            stage_result_collector=stage_result_collector,
+            execution_trace_collector=execution_trace_collector,
+            intent_log_collector=intent_log_collector,
+            governance_decision_collector=governance_decision_collector,
+            lens_patch_collector=lens_patch_collector,
         )
 
     def run_for_closed_session(
@@ -390,21 +379,13 @@ class MeetingMemoryWritebackOrchestrator:
         source_memory_item_id: str,
         source_writeback_run_id: str,
     ) -> tuple[bool, Optional[str]]:
-        try:
-            self.legacy_projection_adapter.dispatch_digest_projection(
-                digest,
-                session_id,
-                source_memory_item_id=source_memory_item_id,
-                source_writeback_run_id=source_writeback_run_id,
-            )
-            return True, None
-        except Exception as exc:
-            logger.warning(
-                "Legacy extraction dispatch failed for %s: %s",
-                session_id,
-                exc,
-            )
-            return False, str(exc)
+        return dispatch_legacy_projection(
+            legacy_projection_adapter=self.legacy_projection_adapter,
+            digest=digest,
+            session_id=session_id,
+            source_memory_item_id=source_memory_item_id,
+            source_writeback_run_id=source_writeback_run_id,
+        )
 
     def _collect_phase2_evidence(
         self,
@@ -424,29 +405,12 @@ class MeetingMemoryWritebackOrchestrator:
         memory_item_id: str,
         session_id: str,
     ) -> tuple[int, int, Optional[str]]:
-        try:
-            traces = self.reasoning_trace_store.get_by_session(session_id)
-            created_count = 0
-            for trace in traces:
-                if self.evidence_link_store.exists(
-                    memory_item_id=memory_item_id,
-                    evidence_type="reasoning_trace",
-                    evidence_id=trace.id,
-                    link_role="supports",
-                ):
-                    continue
-                self.evidence_link_store.create(
-                    MemoryEvidenceLink.from_reasoning_trace(memory_item_id, trace)
-                )
-                created_count += 1
-            return len(traces), created_count, None
-        except Exception as exc:
-            logger.warning(
-                "Reasoning trace evidence attachment failed for %s: %s",
-                session_id,
-                exc,
-            )
-            return 0, 0, str(exc)
+        return attach_reasoning_trace_evidence(
+            evidence_link_store=self.evidence_link_store,
+            reasoning_trace_store=self.reasoning_trace_store,
+            memory_item_id=memory_item_id,
+            session_id=session_id,
+        )
 
     def _safe_attach_lens_receipt_evidence(
         self,
@@ -454,74 +418,24 @@ class MeetingMemoryWritebackOrchestrator:
         memory_item_id: str,
         session_id: str,
     ) -> tuple[int, int, Optional[str]]:
-        try:
-            traces = self.reasoning_trace_store.get_by_session(session_id)
-            receipts = []
-            seen_receipt_ids = set()
-            for trace in traces:
-                if not trace.execution_id:
-                    continue
-                receipt = self.lens_receipt_store.get_by_execution_id(trace.execution_id)
-                if receipt is None or receipt.id in seen_receipt_ids:
-                    continue
-                seen_receipt_ids.add(receipt.id)
-                receipts.append(receipt)
-
-            created_count = 0
-            for receipt in receipts:
-                if self.evidence_link_store.exists(
-                    memory_item_id=memory_item_id,
-                    evidence_type="lens_receipt",
-                    evidence_id=receipt.id,
-                    link_role="supports",
-                ):
-                    continue
-                self.evidence_link_store.create(
-                    MemoryEvidenceLink.from_lens_receipt(memory_item_id, receipt)
-                )
-                created_count += 1
-            return len(receipts), created_count, None
-        except Exception as exc:
-            logger.warning(
-                "Lens receipt evidence attachment failed for %s: %s",
-                session_id,
-                exc,
-            )
-            return 0, 0, str(exc)
+        return attach_lens_receipt_evidence(
+            evidence_link_store=self.evidence_link_store,
+            reasoning_trace_store=self.reasoning_trace_store,
+            lens_receipt_store=self.lens_receipt_store,
+            memory_item_id=memory_item_id,
+            session_id=session_id,
+        )
 
     def _safe_attach_writeback_receipt_evidence(
         self,
         *,
         memory_item_id: str,
     ) -> tuple[int, int, Optional[str]]:
-        try:
-            receipts = self.writeback_receipt_store.list_by_canonical_memory_item(
-                memory_item_id
-            )
-            created_count = 0
-            for receipt in receipts:
-                if self.evidence_link_store.exists(
-                    memory_item_id=memory_item_id,
-                    evidence_type="writeback_receipt",
-                    evidence_id=receipt.id,
-                    link_role="derived_from",
-                ):
-                    continue
-                self.evidence_link_store.create(
-                    MemoryEvidenceLink.from_writeback_receipt(
-                        memory_item_id,
-                        receipt,
-                    )
-                )
-                created_count += 1
-            return len(receipts), created_count, None
-        except Exception as exc:
-            logger.warning(
-                "Writeback receipt evidence attachment failed for %s: %s",
-                memory_item_id,
-                exc,
-            )
-            return 0, 0, str(exc)
+        return attach_writeback_receipt_evidence(
+            evidence_link_store=self.evidence_link_store,
+            writeback_receipt_store=self.writeback_receipt_store,
+            memory_item_id=memory_item_id,
+        )
 
     def _safe_attach_task_execution_evidence(
         self,
@@ -529,48 +443,13 @@ class MeetingMemoryWritebackOrchestrator:
         memory_item_id: str,
         session_id: str,
     ) -> tuple[int, int, Optional[str]]:
-        try:
-            decisions = self.meeting_session_store.list_decisions_by_session(session_id)
-            execution_ids = []
-            seen_execution_ids = set()
-            for decision in decisions:
-                source_action_item = decision.source_action_item or {}
-                execution_id = source_action_item.get("execution_id")
-                if not isinstance(execution_id, str) or not execution_id.strip():
-                    continue
-                execution_id = execution_id.strip()
-                if execution_id in seen_execution_ids:
-                    continue
-                seen_execution_ids.add(execution_id)
-                execution_ids.append(execution_id)
-
-            found_count = 0
-            created_count = 0
-            for execution_id in execution_ids:
-                task = self.task_store.get_task_by_execution_id(execution_id)
-                if task is None:
-                    continue
-                found_count += 1
-                evidence_id = task.execution_id or task.id
-                if self.evidence_link_store.exists(
-                    memory_item_id=memory_item_id,
-                    evidence_type="task_execution",
-                    evidence_id=evidence_id,
-                    link_role="supports",
-                ):
-                    continue
-                self.evidence_link_store.create(
-                    MemoryEvidenceLink.from_task_execution(memory_item_id, task)
-                )
-                created_count += 1
-            return found_count, created_count, None
-        except Exception as exc:
-            logger.warning(
-                "Task execution evidence attachment failed for %s: %s",
-                session_id,
-                exc,
-            )
-            return 0, 0, str(exc)
+        return attach_task_execution_evidence(
+            evidence_link_store=self.evidence_link_store,
+            meeting_session_store=self.meeting_session_store,
+            task_store=self.task_store,
+            memory_item_id=memory_item_id,
+            session_id=session_id,
+        )
 
     def _safe_attach_artifact_result_evidence(
         self,
@@ -578,47 +457,13 @@ class MeetingMemoryWritebackOrchestrator:
         memory_item_id: str,
         session_id: str,
     ) -> tuple[int, int, Optional[str]]:
-        try:
-            decisions = self.meeting_session_store.list_decisions_by_session(session_id)
-            execution_ids = []
-            seen_execution_ids = set()
-            for decision in decisions:
-                source_action_item = decision.source_action_item or {}
-                execution_id = source_action_item.get("execution_id")
-                if not isinstance(execution_id, str) or not execution_id.strip():
-                    continue
-                execution_id = execution_id.strip()
-                if execution_id in seen_execution_ids:
-                    continue
-                seen_execution_ids.add(execution_id)
-                execution_ids.append(execution_id)
-
-            found_count = 0
-            created_count = 0
-            for execution_id in execution_ids:
-                artifact = self.artifact_store.get_by_execution_id(execution_id)
-                if artifact is None:
-                    continue
-                found_count += 1
-                if self.evidence_link_store.exists(
-                    memory_item_id=memory_item_id,
-                    evidence_type="artifact_result",
-                    evidence_id=artifact.id,
-                    link_role="supports",
-                ):
-                    continue
-                self.evidence_link_store.create(
-                    MemoryEvidenceLink.from_artifact_result(memory_item_id, artifact)
-                )
-                created_count += 1
-            return found_count, created_count, None
-        except Exception as exc:
-            logger.warning(
-                "Artifact result evidence attachment failed for %s: %s",
-                session_id,
-                exc,
-            )
-            return 0, 0, str(exc)
+        return attach_artifact_result_evidence(
+            evidence_link_store=self.evidence_link_store,
+            meeting_session_store=self.meeting_session_store,
+            artifact_store=self.artifact_store,
+            memory_item_id=memory_item_id,
+            session_id=session_id,
+        )
 
     def _safe_attach_meeting_decision_evidence(
         self,
@@ -626,29 +471,12 @@ class MeetingMemoryWritebackOrchestrator:
         memory_item_id: str,
         session_id: str,
     ) -> tuple[int, int, Optional[str]]:
-        try:
-            decisions = self.meeting_session_store.list_decisions_by_session(session_id)
-            created_count = 0
-            for decision in decisions:
-                if self.evidence_link_store.exists(
-                    memory_item_id=memory_item_id,
-                    evidence_type="meeting_decision",
-                    evidence_id=decision.id,
-                    link_role="supports",
-                ):
-                    continue
-                self.evidence_link_store.create(
-                    MemoryEvidenceLink.from_meeting_decision(memory_item_id, decision)
-                )
-                created_count += 1
-            return len(decisions), created_count, None
-        except Exception as exc:
-            logger.warning(
-                "Meeting decision evidence attachment failed for %s: %s",
-                session_id,
-                exc,
-            )
-            return 0, 0, str(exc)
+        return attach_meeting_decision_evidence(
+            evidence_link_store=self.evidence_link_store,
+            meeting_session_store=self.meeting_session_store,
+            memory_item_id=memory_item_id,
+            session_id=session_id,
+        )
 
     def _safe_dispatch_metadata_projection(
         self,
@@ -658,17 +486,10 @@ class MeetingMemoryWritebackOrchestrator:
         source_memory_item_id: str,
         source_writeback_run_id: str,
     ) -> tuple[bool, Optional[str]]:
-        try:
-            self.metadata_projection_adapter.dispatch_digest_projection(
-                digest,
-                source_memory_item_id=source_memory_item_id,
-                source_writeback_run_id=source_writeback_run_id,
-            )
-            return True, None
-        except Exception as exc:
-            logger.warning(
-                "Legacy metadata projection failed for %s: %s",
-                session_id,
-                exc,
-            )
-            return False, str(exc)
+        return dispatch_metadata_projection(
+            metadata_projection_adapter=self.metadata_projection_adapter,
+            digest=digest,
+            session_id=session_id,
+            source_memory_item_id=source_memory_item_id,
+            source_writeback_run_id=source_writeback_run_id,
+        )
