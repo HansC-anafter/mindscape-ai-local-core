@@ -64,6 +64,7 @@ class ToolSourceType(str, Enum):
     """Tool source type"""
 
     BUILTIN = "builtin"  # Built-in tools (WordPress, Notion, etc.)
+    LOCAL = "builtin"  # Legacy alias used by older local tool implementations
     LANGCHAIN = "langchain"  # LangChain community tools
     MCP = "mcp"  # MCP protocol tools
     CUSTOM = "custom"  # Custom tools
@@ -75,9 +76,11 @@ class ToolCategory(str, Enum):
 
     CONTENT = "content"  # Content creation/management
     DATA = "data"  # Data query/search
+    COMMERCE = "commerce"  # Commerce operations
     AUTOMATION = "automation"  # Automation/scripting
     COMMUNICATION = "communication"  # Communication/notification
     ANALYSIS = "analysis"  # Analysis/computation
+    INTEGRATION = "automation"  # Legacy alias for integration tools
     AI = "analysis"  # Legacy alias; older tools still reference ToolCategory.AI
     SEARCH = "data"  # Legacy alias used by older adapters
     WRITE = "automation"  # Legacy alias used by older graph tools
@@ -87,8 +90,11 @@ class ToolDangerLevel(str, Enum):
     """Tool danger level"""
 
     LOW = "low"  # Read-only operations
+    SAFE = "low"  # Legacy alias used by older tools
     MEDIUM = "medium"  # Write operations
+    MODERATE = "medium"  # Legacy alias used by older tools
     HIGH = "high"  # Modify/delete operations
+    DANGER = "high"  # Legacy alias used by older tools
     CRITICAL = "critical"  # Execution/system operations
 
 
@@ -246,7 +252,7 @@ class ToolExecutionResult(BaseModel):
 def create_simple_tool_metadata(
     name: str,
     description: str,
-    parameters: Dict[str, Dict[str, Any]],
+    parameters: Optional[Dict[str, Dict[str, Any]]] = None,
     required: List[str] = None,
     source_type: ToolSourceType = ToolSourceType.BUILTIN,
     **kwargs
@@ -278,6 +284,11 @@ def create_simple_tool_metadata(
             danger_level=ToolDangerLevel.MEDIUM
         )
     """
+    if parameters is None:
+        parameters = kwargs.pop("properties", {})
+    else:
+        kwargs.pop("properties", None)
+
     input_schema = ToolInputSchema(
         type="object", properties=parameters, required=required or []
     )
