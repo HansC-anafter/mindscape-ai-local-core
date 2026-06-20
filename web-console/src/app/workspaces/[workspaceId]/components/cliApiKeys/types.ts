@@ -124,6 +124,11 @@ export interface CodexAccountHomeTargetsResponse {
   targets: CodexAccountHomeTarget[];
 }
 
+export type CodexTargetActionMessage = {
+  kind: 'success' | 'error' | 'info';
+  text: string;
+};
+
 export type AgentTab = 'gemini' | 'claude' | 'codex';
 export type AgentMode = 'api' | 'gca' | 'host_session' | 'host_token';
 
