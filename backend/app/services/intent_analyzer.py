@@ -17,22 +17,13 @@ This file has been refactored. Most classes are now in the intent/ package:
 IntentPipeline remains here as the main orchestrator.
 """
 
-import re
 import logging
 from datetime import datetime
 from typing import Dict, List, Optional, Any
 
-from backend.app.models.mindscape import MindscapeProfile, IntentCard, IntentLog
-from backend.app.models.playbook import (
-    HandoffPlan,
-    WorkflowStep,
-    PlaybookKind,
-    InteractionMode,
-)
-from backend.app.shared.llm_utils import call_llm, build_prompt
+from backend.app.models.mindscape import MindscapeProfile, IntentCard
 from backend.app.services.mindscape_store import MindscapeStore
 
-# Import from refactored modules
 from backend.app.services.intent.models import (
     InteractionType,
     TaskDomain,
@@ -43,6 +34,16 @@ from backend.app.services.intent.rule_matcher import RuleBasedIntentMatcher
 from backend.app.services.intent.llm_matcher import LLMBasedIntentMatcher
 from backend.app.services.intent.playbook_selector import PlaybookSelector
 from backend.app.services.intent.coordinator import IntentDecisionCoordinator
+from backend.app.services.intent.execution_status_query import (
+    build_current_tasks_snapshot,
+    check_execution_status_query,
+)
+from backend.app.services.intent.log_records import (
+    evaluate_intent_logs,
+    log_intent_decision,
+    replay_intent_log,
+)
+from backend.app.services.intent.workflow_detection import detect_multi_step_workflow
 
 # Re-export for backward compatibility
 __all__ = [
@@ -340,116 +341,13 @@ class IntentPipeline:
         Returns:
             Dict with workflow_steps and step_dependencies, or None if single step
         """
-        if not self.llm_matcher.llm_provider:
-            return None
-
-        # Use PlaybookService to get available playbooks
-        available_playbooks_metadata = (
-            await self.playbook_selector.playbook_service.list_playbooks()
+        return await detect_multi_step_workflow(
+            user_input=user_input,
+            initial_playbook_code=initial_playbook_code,
+            context=context,
+            llm_provider=self.llm_matcher.llm_provider,
+            playbook_service=self.playbook_selector.playbook_service,
         )
-        available_playbooks = available_playbooks_metadata
-        # Handle both PlaybookMetadata and Playbook objects
-        playbook_list = []
-        for p in available_playbooks:
-            if hasattr(p, "playbook_code"):
-                # PlaybookMetadata
-                playbook_code = p.playbook_code
-                name = p.name
-                description = p.description if hasattr(p, "description") else None
-                tags = p.tags if hasattr(p, "tags") else []
-            elif hasattr(p, "metadata"):
-                # Playbook object
-                playbook_code = p.metadata.playbook_code
-                name = p.metadata.name
-                description = (
-                    p.metadata.description
-                    if hasattr(p.metadata, "description")
-                    else None
-                )
-                tags = p.metadata.tags if hasattr(p.metadata, "tags") else []
-            else:
-                continue
-
-            playbook_info = f"- {playbook_code}: {name}"
-            if description:
-                playbook_info += f" ({description[:300]})"
-            if tags:
-                playbook_info += f" [tags: {', '.join(tags)}]"
-            playbook_list.append(playbook_info)
-
-        prompt = f"""Analyze the following user request to determine if it requires multiple playbooks:
-
-User input: "{user_input}"
-Initial playbook: {initial_playbook_code}
-
-Available playbooks:
-{chr(10).join(playbook_list[:20])}
-
-Determine if this request requires multiple steps. Look for:
-- Multiple distinct tasks (e.g., "OCR PDF then generate posts")
-- Sequential operations (e.g., "process file then save to book")
-- Multiple outputs (e.g., "generate IG posts and YT script")
-
-If single step, return null.
-If multi-step, return JSON with workflow_steps array (simplified WorkflowStep with only playbook_code and inputs):
-
-{{
-    "is_multi_step": true,
-    "workflow_steps": [
-        {{
-            "playbook_code": "pdf_ocr_processing",
-            "inputs": {{
-                "pdf_files": ["$context.uploaded_files"]
-            }}
-        }},
-        {{
-            "playbook_code": "ig_post_generation",
-            "inputs": {{
-                "source_content": "$previous.pdf_ocr_processing.outputs.ocr_text",
-                "post_count": 5
-            }}
-        }}
-    ],
-    "step_dependencies": {{
-        "ig_post_generation": ["pdf_ocr_processing"]
-    }}
-}}
-
-Return only valid JSON or null.
-"""
-
-        try:
-            if not self.llm_matcher.llm_provider:
-                logger.warning("Multi-step detection: llm_provider not available")
-                return None
-
-            messages = build_prompt(user_prompt=prompt)
-            if not messages:
-                logger.warning(
-                    "Multi-step detection: build_prompt returned empty messages"
-                )
-                return None
-            response_dict = await call_llm(
-                messages=messages,
-                llm_provider=self.llm_matcher.llm_provider,
-                model=None,
-            )
-
-            response_text = response_dict.get("text", "")
-            if not response_text:
-                return None
-
-            result = parse_json_from_response(response_text)
-            if result and result.get("is_multi_step"):
-                logger.info(
-                    f"Detected multi-step workflow with {len(result.get('workflow_steps', []))} steps"
-                )
-                return result
-            return None
-
-        except Exception as e:
-            logger.warning(f"Multi-step detection failed: {e}", exc_info=True)
-            return None
 
     async def _check_execution_status_query(
         self,
@@ -463,157 +361,16 @@ Return only valid JSON or null.
         Returns:
             Dict with handoff_plan and response_suggestion if detected, None otherwise
         """
-        from backend.app.services.stores.tasks_store import TasksStore
-
-        tasks_store = TasksStore()
-
-        pending_tasks = tasks_store.list_pending_tasks(workspace_id)
-        running_tasks = tasks_store.list_running_tasks(workspace_id)
-        has_active_tasks = len(pending_tasks) > 0 or len(running_tasks) > 0
-
-        progress_keywords = [
-            "進度",
-            "狀態",
-            "執行到哪裡",
-            "完成了嗎",
-            "卡住了嗎",
-            "progress",
-            "status",
-            "how far",
-            "completed",
-            "stuck",
-            "剛剛那個",
-            "出檔那個",
-            "SEO 那幾個",
-        ]
-
-        message_lower = user_input.lower()
-        has_progress_keyword = any(kw in message_lower for kw in progress_keywords)
-
-        if not has_progress_keyword:
-            return None
-
-        if not has_active_tasks:
-            if not self.llm_matcher.llm_provider:
-                return None
-
-            current_tasks_snapshot = "目前沒有執行中的任務"
-            llm_prompt = f"""
-判斷用戶是否在詢問任務進度或執行狀態。
-
-用戶訊息：{user_input}
-當前任務快照：{current_tasks_snapshot}
-
-請判斷：用戶是否在詢問某個任務的進度？
-如果用戶在問「產品狀態」「發展狀態」等非執行任務的狀態，應該返回 false。
-"""
-
-            try:
-                full_prompt = (
-                    llm_prompt + '\n\nReturn JSON: {"is_progress_query": true/false}'
-                )
-                messages = build_prompt(full_prompt)
-                response_dict = await call_llm(
-                    messages=messages,
-                    llm_provider=self.llm_matcher.llm_provider,
-                    model=None,
-                )
-
-                response_text = response_dict.get("text", "")
-                result = parse_json_from_response(response_text)
-                if result and result.get("is_progress_query"):
-                    available_playbooks = "筆記組織、IG 貼文生成、PDF OCR 處理等"
-                    return {
-                        "confidence": 0.9,
-                        "response_suggestion": (
-                            f"目前這個工作區沒有正在執行的任務。\n"
-                            f"你可以先讓我幫你啟動某個 Playbook，例如：{available_playbooks}"
-                        ),
-                        "handoff_plan": None,
-                    }
-            except Exception as e:
-                logger.warning(
-                    f"Failed to check execution status query (no active tasks): {e}",
-                    exc_info=True,
-                )
-
-        if has_active_tasks:
-            current_tasks_snapshot = self._build_current_tasks_snapshot(
-                pending_tasks, running_tasks
-            )
-
-            if not self.llm_matcher.llm_provider:
-                return None
-
-            llm_prompt = f"""
-判斷用戶是否在詢問任務進度或執行狀態。
-
-用戶訊息：{user_input}
-當前任務快照：
-{current_tasks_snapshot}
-
-請判斷：
-1. 用戶是否在詢問某個任務的進度？
-2. 是否有明確的任務可以對應？
-
-如果用戶在問「產品狀態」「發展狀態」等非執行任務的狀態，應該返回 false。
-"""
-
-            try:
-                full_prompt = (
-                    llm_prompt
-                    + '\n\nReturn JSON: {"is_progress_query": true/false, "confidence": 0.0-1.0}'
-                )
-                messages = build_prompt(full_prompt)
-                response_dict = await call_llm(
-                    messages=messages,
-                    llm_provider=self.llm_matcher.llm_provider,
-                    model=None,
-                )
-
-                response_text = response_dict.get("text", "")
-                result = parse_json_from_response(response_text)
-                if result and result.get("is_progress_query"):
-                    confidence = float(result.get("confidence", 0.8))
-
-                    workflow_step = WorkflowStep(
-                        playbook_code="execution_status_query",
-                        kind=PlaybookKind.QUERY,
-                        inputs={
-                            "user_message": user_input,
-                            "workspace_id": workspace_id,
-                            "conversation_context": "",
-                        },
-                        interaction_mode=InteractionMode.AUTOMATED,
-                    )
-
-                    handoff_plan = HandoffPlan(
-                        steps=[workflow_step],
-                        context={
-                            "user_message": user_input,
-                            "workspace_id": workspace_id,
-                        },
-                    )
-
-                    return {
-                        "confidence": confidence,
-                        "handoff_plan": handoff_plan,
-                        "response_suggestion": None,
-                    }
-            except Exception as e:
-                logger.warning(f"Failed to check execution status query: {e}")
-
-        return None
+        return await check_execution_status_query(
+            user_input=user_input,
+            workspace_id=workspace_id,
+            llm_provider=self.llm_matcher.llm_provider,
+            profile=profile,
+        )
 
     def _build_current_tasks_snapshot(self, pending_tasks, running_tasks) -> str:
         """Build current tasks snapshot for LLM judgment"""
-        snapshot = []
-        for task in (running_tasks + pending_tasks)[:10]:
-            snapshot.append(
-                f"- {task.pack_id} ({task.status.value}): "
-                f"created at {task.created_at}"
-            )
-        return "\n".join(snapshot) if snapshot else "目前沒有執行中的任務"
+        return build_current_tasks_snapshot(pending_tasks, running_tasks)
 
     def _log_intent_decision(self, result: IntentAnalysisResult):
         """
@@ -622,39 +379,11 @@ Return only valid JSON or null.
         Args:
             result: IntentAnalysisResult to log
         """
-        import uuid
-
-        intent_log = IntentLog(
-            id=str(uuid.uuid4()),
-            timestamp=result.timestamp,
-            raw_input=result.raw_input,
-            channel=result.channel,
-            profile_id=result.profile_id,
-            project_id=result.project_id,
-            workspace_id=result.workspace_id,
-            pipeline_steps=result.pipeline_steps,
-            final_decision={
-                "interaction_type": (
-                    result.interaction_type.value if result.interaction_type else None
-                ),
-                "interaction_confidence": result.interaction_confidence,
-                "task_domain": result.task_domain.value if result.task_domain else None,
-                "task_domain_confidence": result.task_domain_confidence,
-                "selected_playbook_code": result.selected_playbook_code,
-                "playbook_confidence": result.playbook_confidence,
-                "playbook_context": result.playbook_context,
-            },
-            user_override=None,
-            metadata={
-                "llm_provider": (
-                    self.llm_matcher.llm_provider.__class__.__name__
-                    if self.llm_matcher.llm_provider
-                    else None
-                )
-            },
+        log_intent_decision(
+            store=self.store,
+            llm_provider=self.llm_matcher.llm_provider,
+            result=result,
         )
-
-        self.store.create_intent_log(intent_log)
 
     async def replay_intent_log(
         self,
@@ -675,28 +404,14 @@ Return only valid JSON or null.
         Returns:
             New IntentAnalysisResult from replay
         """
-        # Get original log
-        original_log = self.store.get_intent_log(log_id)
-        if not original_log:
-            raise ValueError(f"Intent log not found: {log_id}")
-
-        # Create temporary pipeline with new settings
-        temp_pipeline = IntentPipeline(
+        return await replay_intent_log(
+            store=self.store,
+            pipeline_factory=IntentPipeline,
+            log_id=log_id,
             llm_provider=llm_provider or self.llm_matcher.llm_provider,
             use_llm=use_llm,
             rule_priority=rule_priority,
-            store=None,  # Don't log replay
-            enable_logging=False,
         )
-
-        # Replay analysis
-        result = await temp_pipeline.analyze(
-            user_input=original_log.raw_input,
-            profile_id=original_log.profile_id,
-            channel=original_log.channel,
-        )
-
-        return result
 
     def evaluate_intent_logs(
         self,
@@ -715,103 +430,9 @@ Return only valid JSON or null.
         Returns:
             Evaluation metrics dictionary
         """
-        # Get logs with user overrides (annotated logs)
-        annotated_logs = self.store.list_intent_logs(
+        return evaluate_intent_logs(
+            store=self.store,
             profile_id=profile_id,
             start_time=start_time,
             end_time=end_time,
-            has_override=True,
-            limit=1000,
         )
-
-        if not annotated_logs:
-            return {
-                "total_logs": 0,
-                "annotated_logs": 0,
-                "accuracy": None,
-                "layer1_accuracy": None,
-                "layer2_accuracy": None,
-                "layer3_accuracy": None,
-                "confusion_matrix": {},
-            }
-
-        # Calculate metrics
-        total = len(annotated_logs)
-        correct_layer1 = 0
-        correct_layer2 = 0
-        correct_layer3 = 0
-        correct_overall = 0
-
-        confusion_matrix = {"interaction_type": {}, "task_domain": {}, "playbook": {}}
-
-        for log in annotated_logs:
-            final = log.final_decision
-            override = log.user_override
-
-            # Layer 1 accuracy
-            if override.get("correct_interaction_type"):
-                expected = override["correct_interaction_type"]
-                actual = final.get("interaction_type")
-                if expected == actual:
-                    correct_layer1 += 1
-                # Update confusion matrix
-                key = f"{actual}->{expected}"
-                confusion_matrix["interaction_type"][key] = (
-                    confusion_matrix["interaction_type"].get(key, 0) + 1
-                )
-
-            # Layer 2 accuracy
-            if override.get("correct_task_domain"):
-                expected = override["correct_task_domain"]
-                actual = final.get("task_domain")
-                if expected == actual:
-                    correct_layer2 += 1
-                key = f"{actual}->{expected}"
-                confusion_matrix["task_domain"][key] = (
-                    confusion_matrix["task_domain"].get(key, 0) + 1
-                )
-
-            # Layer 3 accuracy
-            if override.get("correct_playbook_code"):
-                expected = override["correct_playbook_code"]
-                actual = final.get("selected_playbook_code")
-                if expected == actual:
-                    correct_layer3 += 1
-                key = f"{actual}->{expected}"
-                confusion_matrix["playbook"][key] = (
-                    confusion_matrix["playbook"].get(key, 0) + 1
-                )
-
-            # Overall accuracy (all layers correct)
-            if (
-                override.get("correct_interaction_type")
-                == final.get("interaction_type")
-                and override.get("correct_task_domain") == final.get("task_domain")
-                and override.get("correct_playbook_code")
-                == final.get("selected_playbook_code")
-            ):
-                correct_overall += 1
-
-        # Get total logs count
-        all_logs = self.store.list_intent_logs(
-            profile_id=profile_id,
-            start_time=start_time,
-            end_time=end_time,
-            has_override=None,
-            limit=10000,
-        )
-
-        return {
-            "total_logs": len(all_logs),
-            "annotated_logs": total,
-            "accuracy": correct_overall / total if total > 0 else None,
-            "layer1_accuracy": correct_layer1 / total if total > 0 else None,
-            "layer2_accuracy": correct_layer2 / total if total > 0 else None,
-            "layer3_accuracy": correct_layer3 / total if total > 0 else None,
-            "confusion_matrix": confusion_matrix,
-            "error_breakdown": {
-                "layer1_errors": total - correct_layer1,
-                "layer2_errors": total - correct_layer2,
-                "layer3_errors": total - correct_layer3,
-            },
-        }
