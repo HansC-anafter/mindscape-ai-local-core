@@ -10,19 +10,28 @@ import asyncio
 import json
 import logging
 import os
-import uuid
 from typing import Optional, Dict, Any
-from datetime import datetime, timedelta, timezone
 
 import httpx
 import websockets
 from websockets.client import WebSocketClientProtocol
 from websockets.exceptions import ConnectionClosed, WebSocketException
 
+from .connector_auth import (
+    get_device_token as resolve_device_token,
+    get_runtime_oauth_token,
+)
+from .connector_config import (
+    get_or_create_device_id,
+    resolve_cloud_base_url,
+    resolve_execution_control_base_url,
+    resolve_ws_url,
+)
 from .transport import TransportHandler
 from .heartbeat import HeartbeatMonitor
 from .messaging_handler import MessagingHandler
 from .activity_relay import ActivityRelay
+from .remote_execution_client import RemoteExecutionControlClient
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +74,7 @@ class CloudConnector:
         self.transport_handler: Optional[TransportHandler] = None
         self.heartbeat_monitor: Optional[HeartbeatMonitor] = None
         self.messaging_handler: Optional[MessagingHandler] = None
+        self._remote_execution_client: Optional[RemoteExecutionControlClient] = None
 
         self._reconnect_attempts = 0
         self._max_reconnect_attempts = 10
@@ -76,94 +86,17 @@ class CloudConnector:
 
     @staticmethod
     def _resolve_cloud_base_url() -> Optional[str]:
-        """
-        Read execution-control base URL from RuntimeEnvironment DB (config_url field).
-
-        Falls back to explicit environment overrides. Returns None if not configured.
-        """
-        try:
-            from app.database import get_db_postgres
-            from app.models.runtime_environment import RuntimeEnvironment
-
-            db = next(get_db_postgres())
-            try:
-                runtime = (
-                    db.query(RuntimeEnvironment)
-                    .filter(
-                        RuntimeEnvironment.id == "site-hub",
-                        RuntimeEnvironment.supports_dispatch.is_(True),
-                        RuntimeEnvironment.config_url.isnot(None),
-                        RuntimeEnvironment.config_url != "",
-                    )
-                    .order_by(RuntimeEnvironment.updated_at.desc())
-                    .first()
-                )
-                if not runtime:
-                    runtime = (
-                        db.query(RuntimeEnvironment)
-                        .filter(
-                            RuntimeEnvironment.supports_dispatch.is_(True),
-                            RuntimeEnvironment.config_url.isnot(None),
-                            RuntimeEnvironment.config_url != "",
-                            RuntimeEnvironment.auth_type == "oauth2",
-                        )
-                        .order_by(
-                            RuntimeEnvironment.recommended_for_dispatch.desc(),
-                            RuntimeEnvironment.is_default.desc(),
-                            RuntimeEnvironment.updated_at.desc(),
-                        )
-                        .first()
-                    )
-                if runtime and runtime.config_url:
-                    logger.debug(
-                        "Cloud base URL from DB runtime %s: %s",
-                        runtime.id,
-                        runtime.config_url,
-                    )
-                    return runtime.config_url.rstrip("/")
-            finally:
-                db.close()
-        except Exception as e:
-            logger.debug("Could not read cloud URL from DB: %s", e)
-
-        return None
+        """Read execution-control base URL from RuntimeEnvironment DB."""
+        return resolve_cloud_base_url()
 
     @staticmethod
     def _resolve_execution_control_base_url() -> Optional[str]:
         """Resolve execution-control base URL from env or RuntimeEnvironment."""
-        return (
-            os.getenv("EXECUTION_CONTROL_API_URL")
-            or os.getenv("SITE_HUB_API_URL")
-            or os.getenv("CLOUD_API_URL")
-            or CloudConnector._resolve_cloud_base_url()
-        )
+        return resolve_execution_control_base_url()
 
     def _resolve_ws_url(self) -> str:
-        """
-        Resolve WebSocket URL: explicit env → derived base URL → warning.
-
-        Derives WSS URL from the execution-control base URL stored in the runtime DB.
-        """
-        env_ws = (
-            os.getenv("EXECUTION_CONTROL_WS_URL")
-            or os.getenv("SITE_HUB_WS_URL")
-            or os.getenv("CLOUD_WS_URL")
-        )
-        if env_ws:
-            return env_ws
-
-        base = self._resolve_execution_control_base_url()
-        if base:
-            scheme = "wss" if base.startswith("https") else "ws"
-            host = base.split("://", 1)[-1]
-            return f"{scheme}://{host}/api/v1/executor/ws"
-
-        logger.warning(
-            "Execution-control WS URL not configured. "
-            "Set Runtime Environments config_url or "
-            "EXECUTION_CONTROL_WS_URL / SITE_HUB_WS_URL / CLOUD_WS_URL."
-        )
-        return ""
+        """Resolve WebSocket URL from the canonical config helper."""
+        return resolve_ws_url()
 
     def _get_or_create_device_id(self) -> str:
         """
@@ -172,17 +105,7 @@ class CloudConnector:
         Returns:
             Device identifier
         """
-        device_id_file = os.path.expanduser("~/.mindscape/device_id")
-        os.makedirs(os.path.dirname(device_id_file), exist_ok=True)
-
-        if os.path.exists(device_id_file):
-            with open(device_id_file, "r") as f:
-                return f.read().strip()
-
-        device_id = f"device_{uuid.uuid4().hex[:16]}"
-        with open(device_id_file, "w") as f:
-            f.write(device_id)
-        return device_id
+        return get_or_create_device_id()
 
     async def get_device_token(self) -> str:
         """
@@ -196,27 +119,7 @@ class CloudConnector:
         Returns:
             Access token for WebSocket authentication
         """
-        # Priority 1: explicit env var
-        user_token = os.getenv("CLOUD_PROVIDER_TOKEN") or os.getenv("CLOUD_API_TOKEN")
-
-        # Priority 2: OAuth token from cloud provider runtime in DB
-        if not user_token:
-            user_token = await self._get_runtime_oauth_token()
-
-        if not user_token:
-            logger.error(
-                "No auth token available for CloudConnector. "
-                "Set CLOUD_PROVIDER_TOKEN / CLOUD_API_TOKEN env var, "
-                "or connect an OAuth runtime in the database."
-            )
-            raise ValueError(
-                "CloudConnector requires authentication. "
-                "No OAuth token available (env vars not set, "
-                "runtime OAuth token not found)."
-            )
-
-        logger.info("Using OAuth token for CloudConnector WebSocket authentication")
-        return user_token
+        return await resolve_device_token()
 
     async def _get_runtime_oauth_token(self) -> str | None:
         """
@@ -228,53 +131,7 @@ class CloudConnector:
         Returns:
             Access token string, or None if unavailable.
         """
-        try:
-            from app.database import get_db_postgres
-            from app.models.runtime_environment import RuntimeEnvironment
-            from app.services.runtime_auth_service import RuntimeAuthService
-
-            db = next(get_db_postgres())
-            try:
-                runtimes = (
-                    db.query(RuntimeEnvironment)
-                    .filter(
-                        RuntimeEnvironment.auth_type == "oauth2",
-                        RuntimeEnvironment.auth_status.in_(["connected", "expired"]),
-                    )
-                    .all()
-                )
-                if not runtimes:
-                    logger.debug("No connected OAuth runtimes found in DB")
-                    return None
-
-                svc = RuntimeAuthService()
-
-                for runtime in runtimes:
-                    if not runtime.auth_config:
-                        continue
-                    try:
-                        headers = await svc.get_auth_headers(runtime, db)
-                        auth_header = headers.get("Authorization", "")
-                        if auth_header.startswith("Bearer "):
-                            access_token = auth_header[7:]
-                            logger.info(
-                                "Retrieved OAuth token (with auto-refresh) from runtime %s",
-                                runtime.id,
-                            )
-                            return access_token
-                    except Exception as e:
-                        logger.warning(
-                            "Failed to get valid token from runtime %s: %s",
-                            runtime.id,
-                            e,
-                        )
-                logger.debug("All connected runtimes have empty access_token")
-                return None
-            finally:
-                db.close()
-        except Exception as e:
-            logger.warning(f"Failed to read runtime OAuth token: {e}")
-            return None
+        return await get_runtime_oauth_token()
 
     async def connect(self) -> None:
         """
@@ -487,30 +344,18 @@ class CloudConnector:
     # HTTP dispatch API  (used by execution_dispatch.py:dispatch_remote_execution)
     # ------------------------------------------------------------------
 
+    def _get_remote_execution_client(self) -> RemoteExecutionControlClient:
+        """Resolve the HTTP remote execution client behind the connector facade."""
+        if self._remote_execution_client is None:
+            self._remote_execution_client = RemoteExecutionControlClient(
+                device_id=self._device_id,
+                resolve_base_url=self._resolve_execution_control_base_url,
+            )
+        return self._remote_execution_client
+
     def _get_http_client(self) -> httpx.AsyncClient:
         """Lazy-init an httpx client pointed at the execution-control REST API."""
-        if not getattr(self, "_http_client", None):
-            control_plane_api_url = self._resolve_execution_control_base_url()
-            if not control_plane_api_url:
-                raise ConnectionError(
-                    "Execution control API URL not configured. "
-                    "Set Runtime Environments config_url or "
-                    "EXECUTION_CONTROL_API_URL / SITE_HUB_API_URL / CLOUD_API_URL."
-            )
-            api_key = os.getenv("CLOUD_API_KEY", "") or os.getenv(
-                "CLOUD_PROVIDER_TOKEN", ""
-            )
-            headers = {
-                "X-Device-Id": self._device_id,
-            }
-            if isinstance(api_key, str) and api_key.strip():
-                headers["Authorization"] = f"Bearer {api_key.strip()}"
-            self._http_client: Optional[httpx.AsyncClient] = httpx.AsyncClient(
-                base_url=control_plane_api_url,
-                headers=headers,
-                timeout=30.0,
-            )
-        return self._http_client
+        return self._get_remote_execution_client().get_http_client()
 
     async def start_remote_execution(
         self,
@@ -544,34 +389,19 @@ class CloudConnector:
             ConnectionError: If HTTP client cannot be initialised
             httpx.HTTPStatusError: On API failure
         """
-        client = self._get_http_client()
-        governance = (
-            request_payload.get("_governance", {})
-            if isinstance(request_payload, dict)
-            and isinstance(request_payload.get("_governance"), dict)
-            else {}
+        return await self._get_remote_execution_client().start_remote_execution(
+            tenant_id=tenant_id,
+            playbook_code=playbook_code,
+            request_payload=request_payload,
+            workspace_id=workspace_id,
+            capability_code=capability_code,
+            execution_id=execution_id,
+            trace_id=trace_id,
+            job_type=job_type,
+            callback_payload=callback_payload,
+            target_device_id=target_device_id,
+            site_key=site_key,
         )
-        resolved_site_key = site_key or governance.get("site_key") or os.getenv(
-            "SITE_KEY"
-        ) or tenant_id
-        response = await client.post(
-            "/api/v1/executions",
-            json={
-                "tenant_id": tenant_id,
-                "execution_id": execution_id,
-                "trace_id": trace_id,
-                "job_type": job_type,
-                "playbook_code": playbook_code,
-                "request_payload": request_payload,
-                "workspace_id": workspace_id,
-                "capability_code": capability_code,
-                "device_id": target_device_id,
-                "site_key": resolved_site_key,
-                "callback_payload": callback_payload,
-            },
-        )
-        response.raise_for_status()
-        return response.json()
 
     async def get_runtime_availability(
         self,
@@ -580,17 +410,10 @@ class CloudConnector:
         target_device_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Probe control-plane runtime availability for a site/device request."""
-        client = self._get_http_client()
-        params: Dict[str, Any] = {"site_key": site_key}
-        if isinstance(target_device_id, str) and target_device_id.strip():
-            params["device_id"] = target_device_id.strip()
-
-        response = await client.get(
-            "/api/v1/executions/availability",
-            params=params,
+        return await self._get_remote_execution_client().get_runtime_availability(
+            site_key=site_key,
+            target_device_id=target_device_id,
         )
-        response.raise_for_status()
-        return response.json()
 
     async def get_remote_execution(
         self,
@@ -599,11 +422,10 @@ class CloudConnector:
         tenant_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Fetch remote execution status from the execution control plane."""
-        client = self._get_http_client()
-        params = {"tenant_id": tenant_id} if tenant_id else None
-        response = await client.get(f"/api/v1/executions/{execution_id}", params=params)
-        response.raise_for_status()
-        return response.json()
+        return await self._get_remote_execution_client().get_remote_execution(
+            execution_id,
+            tenant_id=tenant_id,
+        )
 
     async def get_remote_execution_result(
         self,
@@ -612,14 +434,10 @@ class CloudConnector:
         tenant_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Fetch remote execution terminal payload from the execution control plane."""
-        client = self._get_http_client()
-        params = {"tenant_id": tenant_id} if tenant_id else None
-        response = await client.get(
-            f"/api/v1/executions/{execution_id}/result",
-            params=params,
+        return await self._get_remote_execution_client().get_remote_execution_result(
+            execution_id,
+            tenant_id=tenant_id,
         )
-        response.raise_for_status()
-        return response.json()
 
     async def wait_for_remote_execution_terminal_result(
         self,
@@ -630,40 +448,9 @@ class CloudConnector:
         poll_interval_seconds: float = 2.0,
     ) -> Dict[str, Any]:
         """Poll the execution control plane until a remote execution is terminal."""
-        terminal_states = {"completed", "failed", "cancelled", "timeout"}
-        started_at = datetime.now(timezone.utc)
-
-        while True:
-            execution = await self.get_remote_execution(
-                execution_id,
-                tenant_id=tenant_id,
-            )
-            state = str(execution.get("state") or "").strip().lower()
-            if state in terminal_states:
-                result = await self.get_remote_execution_result(
-                    execution_id,
-                    tenant_id=tenant_id,
-                )
-                return {
-                    "status": state,
-                    "execution": execution,
-                    "result_payload": result.get("result_payload"),
-                    "error_message": result.get("error_message"),
-                    "completed_at": result.get("completed_at"),
-                    "callback_delivered_at": (
-                        result.get("callback_delivered_at")
-                        or execution.get("callback_delivered_at")
-                    ),
-                    "callback_error": (
-                        result.get("callback_error") or execution.get("callback_error")
-                    ),
-                }
-
-            elapsed_seconds = (datetime.now(timezone.utc) - started_at).total_seconds()
-            if elapsed_seconds >= max(1.0, float(timeout_seconds)):
-                raise TimeoutError(
-                    f"Timed out waiting for remote execution {execution_id} "
-                    f"after {timeout_seconds:.1f}s"
-                )
-
-            await asyncio.sleep(max(0.1, float(poll_interval_seconds)))
+        return await self._get_remote_execution_client().wait_for_terminal_result(
+            execution_id,
+            tenant_id=tenant_id,
+            timeout_seconds=timeout_seconds,
+            poll_interval_seconds=poll_interval_seconds,
+        )
