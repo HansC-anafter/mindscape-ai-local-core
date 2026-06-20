@@ -1,237 +1,52 @@
-"""Runtime dispatch helpers for Meeting Workbench command-ledger rows."""
+"""Runtime dispatch facade for Meeting Workbench command-ledger rows."""
 
 from __future__ import annotations
 
-import asyncio
-import logging
-import os
 from typing import Any
-
-from fastapi import BackgroundTasks
 
 from backend.app.models.meeting_command import (
     MeetingCommandEnvelope,
     MeetingCommandRecord,
-    MeetingCommandStatus,
 )
-from backend.app.models.object_runtime import (
-    ObjectActionInvokeRequest,
-    ObjectActionPlanRequest,
-)
-from backend.app.models.workspace import Workspace, WorkspaceChatRequest
+from backend.app.models.workspace import Workspace
 from backend.app.services.conversation_orchestrator import ConversationOrchestrator
-
-logger = logging.getLogger(__name__)
-
-
-def meeting_orchestration_timeout_seconds(
-    canonical: MeetingCommandEnvelope | None = None,
-) -> float:
-    metadata = canonical.metadata if canonical is not None else {}
-    raw_value = (
-        metadata.get("meeting_orchestration_timeout_seconds")
-        or metadata.get("orchestration_timeout_seconds")
-        or os.environ.get("MEETING_COMMAND_ORCHESTRATION_TIMEOUT_SECONDS", "120")
-    )
-    raw_cap = os.environ.get("MEETING_COMMAND_ORCHESTRATION_MAX_TIMEOUT_SECONDS", "3600")
-    try:
-        timeout_cap = max(5.0, float(raw_cap))
-    except (TypeError, ValueError):
-        timeout_cap = 3600.0
-    try:
-        return min(timeout_cap, max(5.0, float(raw_value)))
-    except (TypeError, ValueError):
-        return 120.0
-
-
-def command_instruction(canonical: MeetingCommandEnvelope) -> str:
-    if isinstance(canonical.intent_text, str) and canonical.intent_text.strip():
-        return canonical.intent_text.strip()
-    raw_intent = canonical.metadata.get("raw_intent_text")
-    if isinstance(raw_intent, str) and raw_intent.strip():
-        return raw_intent.strip()
-    return canonical.intent_text
-
-
-def requested_affordance_verb(canonical: MeetingCommandEnvelope) -> str | None:
-    requested = canonical.requested_action
-    if requested is None:
-        return None
-    if requested.affordance_verb:
-        return requested.affordance_verb
-    if requested.verb and requested.verb not in {"execute_playbook", "command"}:
-        return requested.verb
-    return None
-
-
-def explicit_direct_override(canonical: MeetingCommandEnvelope) -> bool:
-    return canonical.metadata.get("explicit_override") is True
-
-
-def _truthy_flag(value: Any) -> bool:
-    if value is True:
-        return True
-    if isinstance(value, str):
-        return value.strip().lower() in {"1", "true", "yes", "on"}
-    return False
-
-
-def _metadata_action_value(canonical: MeetingCommandEnvelope, key: str) -> Any:
-    metadata = canonical.metadata or {}
-    action_parameters = metadata.get("action_parameters")
-    if not isinstance(action_parameters, dict):
-        action_parameters = {}
-    if key in metadata:
-        return metadata.get(key)
-    return action_parameters.get(key)
-
-
-def _command_active_capability_code(canonical: MeetingCommandEnvelope) -> str | None:
-    metadata = canonical.metadata or {}
-    action_parameters = metadata.get("action_parameters")
-    if not isinstance(action_parameters, dict):
-        action_parameters = {}
-    for value in (
-        metadata.get("active_capability_code"),
-        metadata.get("active_pack_code"),
-        action_parameters.get("active_capability_code"),
-        action_parameters.get("active_pack_code"),
-    ):
-        normalized = str(value or "").strip()
-        if normalized:
-            return normalized
-    return None
-
-
-def _has_selected_guidance(canonical: MeetingCommandEnvelope) -> bool:
-    metadata = canonical.metadata or {}
-    action_parameters = metadata.get("action_parameters")
-    if not isinstance(action_parameters, dict):
-        action_parameters = {}
-    return any(
-        value not in (None, "", [], {})
-        for value in (
-            metadata.get("selected_guidance_id"),
-            metadata.get("selected_guidance_ids"),
-            metadata.get("selected_guidance_metadata"),
-            metadata.get("selected_guidance_cards"),
-            action_parameters.get("selected_guidance_id"),
-            action_parameters.get("selected_guidance_ids"),
-            action_parameters.get("selected_guidance_metadata"),
-            action_parameters.get("selected_guidance_cards"),
-        )
-    )
-
-
-def _has_action_entries(canonical: MeetingCommandEnvelope) -> bool:
-    action_parameters = metadata_action_parameters(canonical)
-    entries = action_parameters.get("object_action_entries")
-    return isinstance(entries, list) and bool(entries)
-
-
-def _is_explicit_playbook_route(canonical: MeetingCommandEnvelope) -> bool:
-    return (
-        canonical.metadata.get("dispatch_mode") == "route_playbook"
-        and explicit_direct_override(canonical)
-        and canonical.requested_action is not None
-        and bool(canonical.requested_action.playbook_code)
-    )
-
-
-def _is_motion_practice_playbook_command(canonical: MeetingCommandEnvelope) -> bool:
-    return _is_explicit_playbook_route(canonical) and (
-        _truthy_flag(_metadata_action_value(canonical, "motion_practice_launch"))
-        or _truthy_flag(_metadata_action_value(canonical, "motion_practice_command"))
-    )
-
-
-def should_route_meeting_orchestration(canonical: MeetingCommandEnvelope) -> bool:
-    dispatch_mode = canonical.metadata.get("dispatch_mode")
-    if _is_motion_practice_playbook_command(canonical):
-        return False
-    if _truthy_flag(_metadata_action_value(canonical, "force_meeting_orchestration")):
-        return True
-    if _truthy_flag(_metadata_action_value(canonical, "forceMeetingOrchestration")):
-        return True
-    if dispatch_mode == "route_meeting_orchestration":
-        return True
-    if dispatch_mode in {"route_object_action", "route_playbook"} and explicit_direct_override(canonical):
-        return False
-    if canonical.context_objects:
-        return True
-    if canonical.meeting_mentions:
-        return True
-    if canonical.requested_action and canonical.requested_action.playbook_code:
-        return True
-    if canonical.metadata.get("selected_pack_tool_id"):
-        return True
-    if _has_selected_guidance(canonical):
-        return True
-    if _has_action_entries(canonical):
-        return True
-    return False
-
-
-def should_route_object_action(canonical: MeetingCommandEnvelope) -> bool:
-    return (
-        canonical.metadata.get("dispatch_mode") == "route_object_action"
-        and explicit_direct_override(canonical)
-        and len(canonical.context_objects) >= 2
-        and not (canonical.requested_action and canonical.requested_action.playbook_code)
-    )
-
-
-def should_route_playbook(canonical: MeetingCommandEnvelope) -> bool:
-    return _is_explicit_playbook_route(canonical)
-
-
-def should_route_chat(canonical: MeetingCommandEnvelope) -> bool:
-    return (
-        canonical.metadata.get("dispatch_mode") == "route_chat"
-        and not should_route_meeting_orchestration(canonical)
-        and not (canonical.requested_action and canonical.requested_action.playbook_code)
-    )
-
-
-def _request_contract_aol_metadata(session: Any) -> dict:
-    metadata = getattr(session, "metadata", None) or {}
-    request_contract = metadata.get("request_contract")
-    if not isinstance(request_contract, dict):
-        return {}
-    aol_metadata = request_contract.get("addressable_object_layer")
-    return dict(aol_metadata) if isinstance(aol_metadata, dict) else {}
-
-
-def _meeting_orchestration_timeout_result(
-    *,
-    session: Any,
-    command: MeetingCommandRecord,
-    timeout_seconds: float,
-) -> dict:
-    return {
-        "status": "failed",
-        "session_id": getattr(session, "id", command.meeting_id),
-        "task_ir_id": None,
-        "event_ids": [],
-        "minutes_md": "",
-        "completion_status": "failed",
-        "dispatch_result": None,
-        "task_ir_artifacts": [],
-        "artifact_ids": [],
-        "artifact_file_paths": [],
-        "artifact_db_ids": [],
-        "artifact_db_errors": [],
-        "artifact_landing_status": "pending",
-        "late_result_possible": True,
-        "timeout_seconds": timeout_seconds,
-        "request_contract_aol_metadata": _request_contract_aol_metadata(session),
-        "request_contract_aol_metadata_persisted": False,
-        "error_code": "meeting_orchestration_timeout",
-        "error": (
-            "MeetingEngine orchestration timed out after "
-            f"{timeout_seconds:.0f} seconds."
-        ),
-    }
+from backend.app.services.meeting_command_dispatch_actions import (
+    dispatch_object_action_for_command,
+    dispatch_playbook_for_command,
+)
+from backend.app.services.meeting_command_dispatch_chat import (
+    _run_chat_dispatch_and_sync_command,
+    dispatch_chat_for_command,
+)
+from backend.app.services.meeting_command_dispatch_orchestration import (
+    _meeting_orchestration_timeout_result,
+    _request_contract_aol_metadata,
+)
+from backend.app.services.meeting_command_dispatch_orchestration import (
+    _run_meeting_orchestration_in_background as _run_meeting_orchestration_impl,
+)
+from backend.app.services.meeting_command_dispatch_orchestration import (
+    dispatch_meeting_orchestration_for_command as _dispatch_meeting_orchestration_impl,
+)
+from backend.app.services.meeting_command_dispatch_routing import (
+    _command_active_capability_code,
+    _has_action_entries,
+    _has_selected_guidance,
+    _is_explicit_playbook_route,
+    _is_motion_practice_playbook_command,
+    _metadata_action_value,
+    _truthy_flag,
+    command_context_objects,
+    command_instruction,
+    explicit_direct_override,
+    meeting_orchestration_timeout_seconds,
+    metadata_action_parameters,
+    requested_affordance_verb,
+    should_route_chat,
+    should_route_meeting_orchestration,
+    should_route_object_action,
+    should_route_playbook,
+)
 
 
 async def _run_meeting_orchestration_in_background(
@@ -245,41 +60,17 @@ async def _run_meeting_orchestration_in_background(
     command_store: Any,
     workspace_id: str,
 ) -> None:
-    """Run meeting orchestration in background and persist late command updates."""
-
-    from backend.app.services.stores.meeting_command_store import MeetingCommandStore
-
-    command_store = command_store or MeetingCommandStore()
-    command = command_store.get(command_id)
-    if command is None:
-        return
-
-    try:
-        command, _ = await dispatch_meeting_orchestration_for_command(
-            command=command,
-            canonical=canonical,
-            session=session,
-            workspace=workspace,
-            store=store,
-            session_store=session_store,
-            workspace_id=workspace_id,
-        )
-    except Exception as exc:
-        logger.exception(
-            "Meeting orchestration background task failed for command %s",
-            command_id,
-        )
-        command = command.model_copy(
-            update={
-                "status": MeetingCommandStatus.FAILED,
-                "metadata": {
-                    **command.metadata,
-                    "dispatch_status": "failed",
-                    "dispatch_error": str(exc),
-                },
-            }
-        )
-    command_store.save(command)
+    await _run_meeting_orchestration_impl(
+        command_id=command_id,
+        canonical=canonical,
+        session=session,
+        workspace=workspace,
+        store=store,
+        session_store=session_store,
+        command_store=command_store,
+        workspace_id=workspace_id,
+        dispatch_handler=dispatch_meeting_orchestration_for_command,
+    )
 
 
 async def dispatch_meeting_orchestration_for_command(
@@ -292,376 +83,42 @@ async def dispatch_meeting_orchestration_for_command(
     session_store: Any,
     workspace_id: str,
 ) -> tuple[MeetingCommandRecord, dict]:
-    from backend.app.services.object_runtime.aol_meeting_orchestration_bridge import (
-        AOLMeetingOrchestrationBridge,
-    )
-    from backend.app.services.orchestration.meeting.meeting_engine_runner import (
-        MeetingEngineRunner,
-    )
-
-    command.status = MeetingCommandStatus.RUNNING
-    command.metadata = {
-        **command.metadata,
-        "dispatch_status": "running",
-        "dispatch_mode": "route_meeting_orchestration",
-    }
-    active_capability_code = _command_active_capability_code(canonical)
-    if active_capability_code:
-        session.metadata = {
-            **(getattr(session, "metadata", None) or {}),
-            "active_capability_code": active_capability_code,
-            "active_pack_code": active_capability_code,
-        }
-    bridge = AOLMeetingOrchestrationBridge()
-    handoff_in = await bridge.build_handoff_in(
+    return await _dispatch_meeting_orchestration_impl(
         command=command,
         canonical=canonical,
         session=session,
+        workspace=workspace,
+        store=store,
+        session_store=session_store,
         workspace_id=workspace_id,
+        timeout_seconds_resolver=meeting_orchestration_timeout_seconds,
     )
-    runner = MeetingEngineRunner(store=store, session_store=session_store)
-    timeout_seconds = meeting_orchestration_timeout_seconds(canonical)
-    try:
-        runner_result = await asyncio.wait_for(
-            runner.run_meeting_orchestration(
-                session=session,
-                workspace=workspace,
-                message=command_instruction(canonical),
-                handoff_in=handoff_in,
-                command=command,
-            ),
-            timeout=timeout_seconds,
-        )
-    except TimeoutError:
-        logger.warning(
-            "Meeting command orchestration timed out for %s after %.0fs",
-            command.command_id,
-            timeout_seconds,
-        )
-        runner_result = _meeting_orchestration_timeout_result(
-            session=session,
-            command=command,
-            timeout_seconds=timeout_seconds,
-        )
-    command.accepted_task_id = runner_result.get("task_ir_id")
-    command.status = (
-        MeetingCommandStatus.COMPLETED
-        if runner_result.get("status") == "completed"
-        else MeetingCommandStatus.FAILED
-    )
-    command.metadata = {
-        **command.metadata,
-        "dispatch_status": runner_result.get("status", "failed"),
-        "meeting_orchestration": runner_result,
-    }
-    return command, {"meeting_orchestration": runner_result}
 
 
-async def dispatch_object_action_for_command(
-    *,
-    command: MeetingCommandRecord,
-    canonical: MeetingCommandEnvelope,
-    workspace_id: str,
-    meeting_id: str,
-) -> tuple[MeetingCommandRecord, dict]:
-    from backend.app.routes.core.workspace import object_runtime
-
-    instruction = command_instruction(canonical)
-    request_context = {
-        "command_id": command.command_id,
-        "origin_surface": canonical.origin_surface,
-        "source_surface": canonical.origin_surface,
-        "dispatch_source": "meeting_command_route",
-    }
-    command.status = MeetingCommandStatus.RUNNING
-    command.metadata = {
-        **command.metadata,
-        "dispatch_status": "running",
-        "dispatch_mode": "route_object_action",
-    }
-    plan = await object_runtime.plan_workspace_object_action(
-        ObjectActionPlanRequest(
-            instruction=instruction,
-            entries=canonical.context_objects,
-            affordance_verb=requested_affordance_verb(canonical),
-            write_mode=canonical.write_mode,
-            meeting_id=meeting_id,
-            request_context=request_context,
-        ),
-        workspace_id=workspace_id,
-    )
-    plan_payload = plan.model_dump(exclude_none=True)
-    command.metadata = {
-        **command.metadata,
-        "object_action_plan": plan_payload,
-    }
-    if plan.status != "planned":
-        command.status = MeetingCommandStatus.ACCEPTED
-        command.metadata = {
-            **command.metadata,
-            "dispatch_status": "object_action_not_planned",
-        }
-        return command, {"object_action_plan": plan_payload}
-
-    invoke = await object_runtime.invoke_workspace_object_action(
-        ObjectActionInvokeRequest(
-            instruction=instruction,
-            object_action_plan=plan_payload,
-            entries=canonical.context_objects,
-            meeting_id=meeting_id,
-            thread_id=canonical.thread_id or command.thread_id or meeting_id,
-            request_context=request_context,
-        ),
-        workspace_id=workspace_id,
-    )
-    invoke_payload = invoke.model_dump(exclude_none=True)
-    command.accepted_task_id = invoke.task_id
-    command.status = (
-        MeetingCommandStatus.FAILED
-        if invoke.status == "failed"
-        else MeetingCommandStatus.COMPLETED
-    )
-    command.metadata = {
-        **command.metadata,
-        "dispatch_status": "failed" if invoke.status == "failed" else "completed",
-        "object_action": invoke_payload,
-    }
-    return command, {
-        "object_action_plan": plan_payload,
-        "object_action": invoke_payload,
-    }
-
-
-def command_context_objects(canonical: MeetingCommandEnvelope) -> list[dict]:
-    return [entry.model_dump(exclude_none=True) for entry in canonical.context_objects]
-
-
-async def dispatch_playbook_for_command(
-    *,
-    command: MeetingCommandRecord,
-    canonical: MeetingCommandEnvelope,
-    workspace: Workspace,
-    orchestrator: ConversationOrchestrator,
-    meeting_id: str,
-) -> tuple[MeetingCommandRecord, dict]:
-    requested = canonical.requested_action
-    playbook_code = requested.playbook_code if requested else None
-    if not playbook_code:
-        raise ValueError("playbook_code is required for route_playbook dispatch")
-
-    instruction = command_instruction(canonical)
-    thread_id = canonical.thread_id or command.thread_id or meeting_id
-    motion_practice_command = _is_motion_practice_playbook_command(canonical)
-    action_params = {
-        **(requested.parameters if requested else {}),
-        "playbook_code": playbook_code,
-        "pack_code": requested.pack_code if requested else None,
-        "instruction": instruction,
-        "message": instruction,
-        "command_id": command.command_id,
-        "meeting_command_id": command.command_id,
-        "command_ledger_status": command.status.value,
-        "meeting_id": meeting_id,
-        "meeting_session_id": meeting_id,
-        "thread_id": thread_id,
-        "meeting_command": instruction,
-        "motion_practice_command": motion_practice_command,
-        "meeting_mentions": canonical.meeting_mentions,
-        "object_action_entries": command_context_objects(canonical),
-        "source_surface": canonical.origin_surface,
-        "request_context": {
-            "command_id": command.command_id,
-            "meeting_command_id": command.command_id,
-            "origin_surface": canonical.origin_surface,
-            "source_surface": canonical.origin_surface,
-            "dispatch_source": "meeting_command_route",
-            "dispatch_mode": "route_playbook",
-            "motion_practice_command": motion_practice_command,
-        },
-    }
-    command.status = MeetingCommandStatus.RUNNING
-    command.metadata = {
-        **command.metadata,
-        "dispatch_status": "running",
-        "dispatch_mode": "route_playbook",
-    }
-
-    result = await orchestrator.handle_suggestion_action(
-        workspace_id=command.workspace_id,
-        profile_id=workspace.owner_user_id,
-        action="execute_playbook",
-        action_params=action_params,
-        project_id=workspace.primary_project_id,
-        message_id=command.command_id,
-    )
-    task_id = (
-        result.get("task_id")
-        or (result.get("triggered_playbook") or {}).get("execution_id")
-        if isinstance(result, dict)
-        else None
-    )
-    command.accepted_task_id = task_id
-    dispatch_failed = not isinstance(result, dict) or not result.get("triggered_playbook")
-    command.status = (
-        MeetingCommandStatus.FAILED if dispatch_failed else MeetingCommandStatus.ACCEPTED
-    )
-    command.metadata = {
-        **command.metadata,
-        "dispatch_status": "failed" if dispatch_failed else "accepted",
-        "playbook_dispatch": result if isinstance(result, dict) else {"result": result},
-    }
-    return command, {"playbook": result if isinstance(result, dict) else {"result": result}}
-
-
-def metadata_action_parameters(canonical: MeetingCommandEnvelope) -> dict:
-    action_parameters = canonical.metadata.get("action_parameters")
-    return action_parameters if isinstance(action_parameters, dict) else {}
-
-
-async def _run_chat_dispatch_and_sync_command(
-    *,
-    service,
-    command_id: str,
-    request: WorkspaceChatRequest,
-    workspace: Workspace,
-    workspace_id: str,
-    profile_id: str,
-    user_event_id: str,
-) -> None:
-    from backend.app.services.stores.meeting_command_store import MeetingCommandStore
-
-    error = None
-    try:
-        await service.run_background_chat(
-            request=request,
-            workspace=workspace,
-            workspace_id=workspace_id,
-            profile_id=profile_id,
-            user_event_id=user_event_id,
-        )
-        status = MeetingCommandStatus.COMPLETED
-        dispatch_status = "completed"
-    except Exception as exc:
-        error = str(exc)
-        status = MeetingCommandStatus.FAILED
-        dispatch_status = "failed"
-
-    store = MeetingCommandStore()
-    command = store.get(command_id)
-    if command is None:
-        return
-    chat_dispatch = dict(command.metadata.get("chat_dispatch") or {})
-    chat_dispatch.update(
-        {
-            "status": dispatch_status,
-            "task_id": user_event_id,
-            "event_id": user_event_id,
-            "thread_id": request.thread_id,
-        }
-    )
-    if error:
-        chat_dispatch["error"] = error
-    command.status = status
-    command.metadata = {
-        **command.metadata,
-        "dispatch_status": dispatch_status,
-        "chat_dispatch": chat_dispatch,
-    }
-    store.save(command)
-
-
-async def dispatch_chat_for_command(
-    *,
-    command: MeetingCommandRecord,
-    canonical: MeetingCommandEnvelope,
-    workspace: Workspace,
-    orchestrator: ConversationOrchestrator,
-    meeting_id: str,
-    background_tasks: BackgroundTasks | None,
-) -> tuple[MeetingCommandRecord, dict]:
-    from backend.app.services.chat_orchestrator_service import ChatOrchestratorService
-
-    instruction = command_instruction(canonical)
-    thread_id = canonical.thread_id or command.thread_id or meeting_id
-    action_params = {
-        **metadata_action_parameters(canonical),
-        "command_id": command.command_id,
-        "command_ledger_status": command.status.value,
-        "meeting_id": meeting_id,
-        "meeting_session_id": meeting_id,
-        "thread_id": thread_id,
-        "meeting_command": instruction,
-        "meeting_mentions": canonical.meeting_mentions,
-        "object_action_entries": command_context_objects(canonical),
-        "source_surface": canonical.origin_surface,
-        "request_context": {
-            "command_id": command.command_id,
-            "origin_surface": canonical.origin_surface,
-            "source_surface": canonical.origin_surface,
-            "dispatch_source": "meeting_command_route",
-            "dispatch_mode": "route_chat",
-        },
-    }
-    request = WorkspaceChatRequest(
-        message=f"Meeting graph command for attached object context: {instruction}",
-        files=[],
-        mode="auto",
-        stream=True,
-        project_id=workspace.primary_project_id,
-        thread_id=thread_id,
-        action_params=action_params,
-    )
-    service = ChatOrchestratorService(orchestrator)
-    command.status = MeetingCommandStatus.RUNNING
-    command.metadata = {
-        **command.metadata,
-        "dispatch_status": "running",
-        "dispatch_mode": "route_chat",
-    }
-    event_id = command.command_id
-    if background_tasks is not None:
-        background_tasks.add_task(
-            _run_chat_dispatch_and_sync_command,
-            service=service,
-            command_id=command.command_id,
-            request=request,
-            workspace=workspace,
-            workspace_id=command.workspace_id,
-            profile_id=workspace.owner_user_id,
-            user_event_id=event_id,
-        )
-        dispatch_status = "accepted"
-    else:
-        await _run_chat_dispatch_and_sync_command(
-            service=service,
-            command_id=command.command_id,
-            request=request,
-            workspace=workspace,
-            workspace_id=command.workspace_id,
-            profile_id=workspace.owner_user_id,
-            user_event_id=event_id,
-        )
-        command.status = MeetingCommandStatus.COMPLETED
-        dispatch_status = "completed"
-
-    command.accepted_task_id = event_id
-    if dispatch_status == "accepted":
-        command.status = MeetingCommandStatus.ACCEPTED
-    command.metadata = {
-        **command.metadata,
-        "dispatch_status": dispatch_status,
-        "chat_dispatch": {
-            "status": dispatch_status,
-            "task_id": event_id,
-            "event_id": event_id,
-            "thread_id": thread_id,
-        },
-    }
-    return command, {
-        "chat": {
-            "status": dispatch_status,
-            "task_id": event_id,
-            "event_id": event_id,
-            "thread_id": thread_id,
-        }
-    }
+__all__ = [
+    "_command_active_capability_code",
+    "_has_action_entries",
+    "_has_selected_guidance",
+    "_is_explicit_playbook_route",
+    "_is_motion_practice_playbook_command",
+    "_meeting_orchestration_timeout_result",
+    "_metadata_action_value",
+    "_request_contract_aol_metadata",
+    "_run_chat_dispatch_and_sync_command",
+    "_run_meeting_orchestration_in_background",
+    "_truthy_flag",
+    "command_context_objects",
+    "command_instruction",
+    "dispatch_chat_for_command",
+    "dispatch_meeting_orchestration_for_command",
+    "dispatch_object_action_for_command",
+    "dispatch_playbook_for_command",
+    "explicit_direct_override",
+    "meeting_orchestration_timeout_seconds",
+    "metadata_action_parameters",
+    "requested_affordance_verb",
+    "should_route_chat",
+    "should_route_meeting_orchestration",
+    "should_route_object_action",
+    "should_route_playbook",
+]
