@@ -24,6 +24,12 @@ from backend.app.services.stores.tasks_store import TasksStore
 from backend.app.services.multi_ai_collaboration import MultiAICollaborationService
 from backend.app.services.i18n_service import get_i18n_service
 from backend.app.shared.i18n_loader import get_locale_from_context
+from backend.app.services.file_analysis_service_core import (
+    calculate_file_hash_for_analysis,
+    resolve_file_path_by_id,
+    store_uploaded_file,
+    write_analysis_sidecar,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -88,66 +94,18 @@ class FileAnalysisService:
         if not file_data or not file_data.startswith("data:"):
             raise ValueError("Invalid file_data format, expected base64 data URL")
 
-        import base64
-        import os
-        from pathlib import Path
+        upload_result = store_uploaded_file(
+            workspace_id=workspace_id,
+            file_data=file_data,
+            file_name=file_name,
+            file_type=file_type,
+            file_size=file_size,
+        )
 
-        header, encoded = file_data.split(",", 1)
-        file_content = base64.b64decode(encoded)
-
-        import hashlib
-
-        file_hash = hashlib.sha256(file_content).hexdigest()
-
-        file_id = str(uuid.uuid4())
-
-        uploads_dir = os.getenv("UPLOADS_DIR", "data/uploads")
-        workspace_uploads_dir = Path(uploads_dir) / workspace_id
-        workspace_uploads_dir.mkdir(parents=True, exist_ok=True)
-
-        file_ext = Path(file_name).suffix if file_name else ""
-        if not file_ext:
-            if file_type:
-                mime_to_ext = {
-                    "image/jpeg": ".jpg",
-                    "image/png": ".png",
-                    "image/gif": ".gif",
-                    "application/pdf": ".pdf",
-                    "text/plain": ".txt",
-                    "application/json": ".json",
-                }
-                file_ext = mime_to_ext.get(file_type, "")
-
-        file_path = workspace_uploads_dir / f"{file_id}{file_ext}"
-        with open(file_path, "wb") as f:
-            f.write(file_content)
-
-        # Save metadata sidecar for later retrieval (original filename etc.)
-        meta_path = workspace_uploads_dir / f"{file_id}.meta.json"
-        import json as _json
-
-        with open(meta_path, "w") as mf:
-            _json.dump(
-                {
-                    "file_id": file_id,
-                    "original_name": file_name,
-                    "file_type": file_type,
-                    "file_size": file_size or len(file_content),
-                    "file_hash": file_hash,
-                },
-                mf,
-            )
-
-        logger.info(f"Uploaded file: {file_name} -> {file_path} (file_id: {file_id})")
-
-        return {
-            "file_id": file_id,
-            "file_path": str(file_path),
-            "file_name": file_name,
-            "file_type": file_type,
-            "file_size": file_size or len(file_content),
-            "file_hash": file_hash,
-        }
+        logger.info(
+            f"Uploaded file: {file_name} -> {upload_result['file_path']} (file_id: {upload_result['file_id']})"
+        )
+        return upload_result
 
     async def analyze_file(
         self,
@@ -184,29 +142,7 @@ class FileAnalysisService:
             raise ValueError("Either file_id or file_data is required")
 
         if not file_path and file_id:
-            try:
-                from backend.app.capabilities.core_files.services.upload import (
-                    get_file_path_by_id,
-                )
-
-                file_path = get_file_path_by_id(file_id)
-            except (ImportError, AttributeError):
-                from pathlib import Path
-                import os
-
-                uploads_dir = os.getenv("UPLOADS_DIR", "data/uploads")
-                uploads_path = Path(uploads_dir)
-                if uploads_path.exists():
-                    for uploaded_file in uploads_path.rglob(f"{file_id}.*"):
-                        file_path = str(uploaded_file)
-                        logger.info(
-                            f"Found file_path for file_id {file_id}: {file_path}"
-                        )
-                        break
-                    if not file_path:
-                        logger.warning(
-                            f"Could not find file_path for file_id {file_id} in {uploads_path}"
-                        )
+            file_path = resolve_file_path_by_id(file_id, log=logger)
 
         logger.info(f"Calling collaboration_service.analyze_file for {file_name}")
         try:
@@ -227,68 +163,16 @@ class FileAnalysisService:
             )
             raise
 
-        file_hash = None
-        if file_path:
-            from pathlib import Path
-
-            if Path(file_path).exists():
-                import hashlib
-
-                try:
-                    with open(file_path, "rb") as f:
-                        file_content = f.read()
-                        file_hash = hashlib.sha256(file_content).hexdigest()
-                        logger.info(
-                            f"Calculated file_hash for {file_name} from file_path: {file_hash[:16]}..."
-                        )
-                except Exception as e:
-                    logger.warning(
-                        f"Failed to calculate file_hash from file_path {file_path}: {e}"
-                    )
-            else:
-                logger.warning(f"File path does not exist: {file_path}")
-        elif file_data:
-            import hashlib
-            import base64
-
-            try:
-                header, encoded = file_data.split(",", 1)
-                file_content = base64.b64decode(encoded)
-                file_hash = hashlib.sha256(file_content).hexdigest()
-                logger.info(
-                    f"Calculated file_hash for {file_name} from file_data: {file_hash[:16]}..."
-                )
-            except Exception as e:
-                logger.warning(f"Failed to calculate file_hash from file_data: {e}")
-        elif file_id:
-            import hashlib
-            from pathlib import Path
-            import os
-
-            uploads_dir = os.getenv("UPLOADS_DIR", "data/uploads")
-            uploads_path = (
-                Path(uploads_dir) / workspace_id if workspace_id else Path(uploads_dir)
-            )
-            if uploads_path.exists():
-                for uploaded_file in uploads_path.rglob(f"{file_id}.*"):
-                    try:
-                        with open(uploaded_file, "rb") as f:
-                            file_content = f.read()
-                            file_hash = hashlib.sha256(file_content).hexdigest()
-                            logger.info(
-                                f"Calculated file_hash for {file_name} from file_id {file_id}: {file_hash[:16]}..."
-                            )
-                            file_path = str(uploaded_file)
-                            break
-                    except Exception as e:
-                        logger.warning(
-                            f"Failed to calculate file_hash from file {uploaded_file}: {e}"
-                        )
-                        continue
-                if not file_hash:
-                    logger.warning(
-                        f"Could not find file for file_id {file_id} in {uploads_path}"
-                    )
+        hash_result = calculate_file_hash_for_analysis(
+            file_path=file_path,
+            file_data=file_data,
+            file_id=file_id,
+            workspace_id=workspace_id,
+            file_name=file_name,
+            log=logger,
+        )
+        file_hash = hash_result.file_hash
+        file_path = hash_result.file_path
 
         file_event = MindEvent(
             id=str(uuid.uuid4()),
@@ -321,21 +205,14 @@ class FileAnalysisService:
 
             # Write .analysis.json sidecar for downstream dispatch enrichment
             try:
-                from pathlib import Path as _Path
-                import json as _json
-
-                sidecar_path = _Path(file_path).with_suffix(".analysis.json")
-                sidecar_data = {
-                    "file_info": analysis_result.get("file_info", {}),
-                    "event_id": file_event.id,
-                    "file_hash": file_hash,
-                    "file_name": file_name,
-                    "file_type": file_type,
-                    "workspace_id": workspace_id,
-                }
-                sidecar_path.write_text(
-                    _json.dumps(sidecar_data, ensure_ascii=False, default=str),
-                    encoding="utf-8",
+                sidecar_path = write_analysis_sidecar(
+                    file_path=file_path,
+                    analysis_result=analysis_result,
+                    event_id=file_event.id,
+                    file_hash=file_hash,
+                    file_name=file_name,
+                    file_type=file_type,
+                    workspace_id=workspace_id,
                 )
                 logger.info(f"Wrote analysis sidecar: {sidecar_path}")
             except Exception as e:
