@@ -20,14 +20,25 @@ from typing import List, Optional, Dict, Any
 from pathlib import Path
 
 from backend.app.models.workspace import Workspace
-from backend.app.models.playbook import Playbook, PlaybookMetadata
+from backend.app.models.playbook import Playbook
 from backend.app.models.workspace_resource_binding import ResourceType
 from backend.app.services.mindscape_store import MindscapeStore
+from backend.app.services.playbook_resource_overlay_core import (
+    build_overlay_resource_path,
+    build_shared_resource_path,
+    build_workspace_resource_path,
+    get_binding_resource_overlay,
+    iter_binding_resource_overlays,
+    merge_resource_with_overlay,
+    sort_resources_by_created_at,
+    utc_now,
+)
 from backend.app.services.stores.workspace_resource_binding_store import (
     WorkspaceResourceBindingStore,
 )
 
 logger = logging.getLogger(__name__)
+PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
 
 
 class PlaybookResourceOverlayService:
@@ -62,71 +73,12 @@ class PlaybookResourceOverlayService:
         Returns:
             Path to shared resources directory, or None if workspace-scoped
         """
-        scope_level = playbook.metadata.get_scope_level()
-
-        # Workspace-scoped playbooks don't have shared resources
-        if scope_level == "workspace":
-            return None
-
-        # System scope: use system playbook directory
-        if scope_level == "system":
-            # System playbooks are typically in backend/i18n/playbooks or NPM packages
-            # For resources, we'll use a shared system directory
-            base_dir = Path(__file__).parent.parent.parent.parent
-            shared_path = (
-                base_dir
-                / "data"
-                / "shared"
-                / "playbooks"
-                / playbook.metadata.playbook_code
-                / "resources"
-                / resource_type
-            )
-            return shared_path
-
-        # Tenant scope: use tenant shared directory
-        if scope_level == "tenant" and workspace:
-            tenant_id = (
-                workspace.tenant_id
-                if hasattr(workspace, "tenant_id") and workspace.tenant_id
-                else None
-            )
-            if tenant_id:
-                base_dir = Path(__file__).parent.parent.parent.parent
-                shared_path = (
-                    base_dir
-                    / "data"
-                    / "tenants"
-                    / tenant_id
-                    / "playbooks"
-                    / playbook.metadata.playbook_code
-                    / "resources"
-                    / resource_type
-                )
-                return shared_path
-
-        # Profile scope: use profile shared directory
-        if scope_level == "profile" and workspace:
-            profile_id = (
-                workspace.profile_id
-                if hasattr(workspace, "profile_id") and workspace.profile_id
-                else None
-            )
-            if profile_id:
-                base_dir = Path(__file__).parent.parent.parent.parent
-                shared_path = (
-                    base_dir
-                    / "data"
-                    / "profiles"
-                    / profile_id
-                    / "playbooks"
-                    / playbook.metadata.playbook_code
-                    / "resources"
-                    / resource_type
-                )
-                return shared_path
-
-        return None
+        return build_shared_resource_path(
+            PROJECT_ROOT,
+            playbook,
+            resource_type,
+            workspace,
+        )
 
     def _get_workspace_resource_path(
         self, workspace: Workspace, playbook_code: str, resource_type: str
@@ -142,17 +94,7 @@ class PlaybookResourceOverlayService:
         Returns:
             Path to workspace resources directory
         """
-        if workspace.storage_base_path:
-            base_path = Path(workspace.storage_base_path)
-        else:
-            import os
-
-            base_path = Path(os.path.expanduser("~/Documents/Mindscape"))
-
-        resource_path = (
-            base_path / "playbooks" / playbook_code / "resources" / resource_type
-        )
-        return resource_path
+        return build_workspace_resource_path(workspace, playbook_code, resource_type)
 
     def _get_overlay_path(
         self, workspace: Workspace, playbook_code: str, resource_type: str
@@ -168,22 +110,7 @@ class PlaybookResourceOverlayService:
         Returns:
             Path to workspace overlay directory
         """
-        if workspace.storage_base_path:
-            base_path = Path(workspace.storage_base_path)
-        else:
-            import os
-
-            base_path = Path(os.path.expanduser("~/Documents/Mindscape"))
-
-        overlay_path = (
-            base_path
-            / "workspace_overlays"
-            / "playbooks"
-            / playbook_code
-            / "resources"
-            / resource_type
-        )
-        return overlay_path
+        return build_overlay_resource_path(workspace, playbook_code, resource_type)
 
     def _merge_resource_with_overlay(
         self, base_resource: Dict[str, Any], overlay: Dict[str, Any]
@@ -198,18 +125,7 @@ class PlaybookResourceOverlayService:
         Returns:
             Merged resource data
         """
-        # Deep merge: overlay takes precedence
-        merged = base_resource.copy()
-
-        # Apply overlay fields
-        for key, value in overlay.items():
-            if isinstance(value, dict) and isinstance(merged.get(key), dict):
-                # Recursive merge for nested dicts
-                merged[key] = self._merge_resource_with_overlay(merged[key], value)
-            else:
-                merged[key] = value
-
-        return merged
+        return merge_resource_with_overlay(base_resource, overlay)
 
     async def get_resource(
         self,
@@ -282,11 +198,8 @@ class PlaybookResourceOverlayService:
                     )
 
                     if binding and binding.overrides:
-                        # Check if there's a resource-specific overlay
-                        resource_overlay = (
-                            binding.overrides.get("resources", {})
-                            .get(resource_type, {})
-                            .get(resource_id, {})
+                        resource_overlay = get_binding_resource_overlay(
+                            binding, resource_type, resource_id
                         )
                         if resource_overlay:
                             shared_data = self._merge_resource_with_overlay(
@@ -406,20 +319,16 @@ class PlaybookResourceOverlayService:
         )
 
         if binding and binding.overrides:
-            resource_overlays = binding.overrides.get("resources", {}).get(
-                resource_type, {}
-            )
-            for resource_id, overlay in resource_overlays.items():
+            for resource_id, overlay in iter_binding_resource_overlays(
+                binding, resource_type
+            ):
                 if resource_id in resources:
                     resources[resource_id] = self._merge_resource_with_overlay(
                         resources[resource_id], overlay
                     )
 
         # Convert to list and sort
-        resource_list = list(resources.values())
-        return sorted(
-            resource_list, key=lambda x: x.get("created_at", ""), reverse=True
-        )
+        return sort_resources_by_created_at(resources.values())
 
     async def save_resource(
         self,
@@ -469,10 +378,7 @@ class PlaybookResourceOverlayService:
             except:
                 pass
 
-        # Update updated_at
-        from datetime import datetime, timezone
-
-        resource["updated_at"] = _utc_now().isoformat()
+        resource["updated_at"] = utc_now().isoformat()
 
         # Write to overlay path
         with open(overlay_file, "w", encoding="utf-8") as f:
