@@ -1,0 +1,303 @@
+version: 1
+registry_id: mindscape.product-semantic-surfaces.local-core
+updated_at: "2026-06-21"
+owner_review_handle: "@team-leads"
+
+declaration:
+  allowed_values:
+    - none
+    - approved
+  required_marker: product-semantic-change
+  approval_fields:
+    - semantic-decision-record
+    - breaking-product-semantics-approved-by
+
+surfaces:
+  - id: psc.local-core.capability-install-control-plane.v1
+    tier: P0
+    owner: "@team-leads"
+    contract_doc: mindscape-ai-cloud/docs/internal/local-core/product-semantics/capability-install-control-plane-contract-2026-06-21.zh-TW.md
+    requires_product_semantic_declaration: true
+    semantics:
+      - Capability install uses the backend-control durable job path and preserves restart/registry sync semantics.
+      - Local Core install code must not become cloud provider control-plane logic or direct pack source mutation.
+    path_globs:
+      - backend/app/routes/core/capability_install.py
+      - backend/app/routes/core/capability_installation.py
+      - backend/app/routes/core/capability_install_core/**
+      - backend/app/routes/core/capability_packs.py
+      - backend/app/routes/core/capability_packs_core/**
+      - web-console/src/app/settings/components/panels/capability*/**
+      - web-console/src/lib/capability-packs/**
+    content_assertions:
+      - path: backend/app/routes/core/capability_install_core/routes.py
+        required_text:
+          - token: _require_control_plane_install("install-from-file")
+            message: File install intake must remain backend-control only.
+          - token: create_file_upload_job
+            message: File install intake must create a durable install job.
+          - token: accepted
+            message: Install intake response must preserve accepted-only semantics.
+          - token: install_id
+            message: Install intake response must expose durable install id.
+          - token: status_url
+            message: Install intake response must expose job polling URL.
+          - token: _raise_db_not_ready
+            message: DB recovery must surface as explicit Retry-After readiness failure.
+      - path: backend/app/routes/core/capability_install_core/pipeline.py
+        required_text:
+          - token: ensure_core_write_ready
+            message: Install pipeline must preserve DB write-readiness gate.
+          - token: overwrite_review_confirmation
+            message: Dirty installed-copy overwrite must preserve explicit review confirmation.
+          - token: RuntimeAssetsInstaller
+            message: Install pipeline must preserve runtime asset install lane.
+
+  - id: psc.local-core.runtime-ui-asset-lane.v1
+    tier: P0
+    owner: "@team-leads"
+    contract_doc: mindscape-ai-cloud/docs/internal/local-core/product-semantics/runtime-ui-asset-lane-contract-2026-06-21.zh-TW.md
+    requires_product_semantic_declaration: true
+    semantics:
+      - Runtime UI assets are served through explicit Local Core host/static lanes and dev-proxy shell contracts.
+      - Pack UI runtime assets must not be treated as cloud source files or copied into tracked generated payloads.
+    path_globs:
+      - backend/app/capabilities/**
+      - backend/packs/**
+      - web-console/dev-proxy/capability-host-shell/**
+      - web-console/src/lib/capability-runtime-asset-url.ts
+      - web-console/src/lib/capability-runtime-asset-url.spec.ts
+      - web-console/src/lib/capability-static-hosts.ts
+      - web-console/src/lib/capability-static-hosts.spec.ts
+      - web-console/src/lib/capability-ui-loader*
+      - web-console/src/lib/capability-ui-runtime-assets.ts
+    content_assertions:
+      - path: backend/app/routes/core/capability_packs_core/installed_routes.py
+        required_text:
+          - token: asset_url
+            message: Runtime UI metadata must expose asset_url.
+          - token: integrity
+            message: Runtime UI metadata must expose integrity.
+          - token: bytes
+            message: Runtime UI metadata must expose bytes.
+          - token: runtime
+            message: Runtime UI metadata must expose runtime.
+          - token: ui_runtime_assets.json
+            message: Runtime UI metadata must read the installed runtime asset sidecar.
+      - path: web-console/src/lib/capability-ui-loader.ts
+        required_text:
+          - token: component.asset_url
+            message: Frontend loader must prefer runtime UI asset metadata.
+          - token: loadRuntimeESMComponent
+            message: Frontend loader must use the runtime ESM asset loader.
+      - path: web-console/src/lib/capability-runtime-asset-url.ts
+        required_text:
+          - token: integrity
+            message: Runtime asset fetch URL must preserve integrity-based cache identity.
+
+  - id: psc.local-core.resource-console-queue-snapshot.v1
+    tier: P0
+    owner: "@team-leads"
+    contract_doc: mindscape-ai-cloud/docs/internal/local-core/product-semantics/resource-console-queue-snapshot-contract-2026-06-21.zh-TW.md
+    requires_product_semantic_declaration: true
+    semantics:
+      - Resource Console default queue utilization preserves last-known per-shard snapshot visibility.
+      - Freshness fixes expose per-shard timestamps and separated resource lanes instead of narrowing queue visibility.
+      - visible_lanes remains pending task route-lane identity; resource/runner lanes remain separate product fields.
+    path_globs:
+      - backend/app/routes/core/host_resources.py
+      - backend/app/services/host_resources/**
+      - backend/tests/routes/core/*host_resource*
+      - backend/tests/routes/core/*queue*
+      - web-console/src/app/settings/components/panels/host-resources/**
+    content_assertions:
+      - path: backend/app/services/host_resources/queue_utilization_snapshot_store.py
+        forbidden_text:
+          - token: latest_batch
+            message: Default queue snapshot reader must not use latest_batch; Resource Console is per-shard last-known state.
+          - token: MAX(captured_at)
+            message: Default queue snapshot reader must not select a global latest timestamp without approved batch semantics.
+        required_text:
+          - token: DISTINCT ON (queue_shard)
+            message: Default queue snapshot reader must preserve each queue shard's latest known row.
+          - token: captured_at_by_queue_shard
+            message: Queue snapshot responses must expose per-shard freshness.
+      - path: backend/app/services/host_resources/queue_utilization_live.py
+        required_text:
+          - token: visible_lane_identity
+            message: visible_lanes must continue to derive lane identity from pending task route projections.
+          - token: read_route_identity_projections_func
+            message: visible_lanes must continue to read route identity projections for pending task IDs.
+          - token: lanes = visible_lanes(task_ids=task_ids, projections=projections)
+            message: visible_lanes must continue to be built from pending task projections, not resource lane data.
+      - path: backend/app/services/host_resources/queue_utilization.py
+        required_text:
+          - token: resource_lanes
+            message: Resource/runner lane visibility must remain a separate product field from visible_lanes.
+          - token: freshness_by_queue
+            message: Snapshot/live merge must expose freshness state per queue shard.
+
+  - id: psc.local-core.aol-runs-graph-selection-context.v1
+    tier: P1
+    owner: "@team-leads"
+    contract_doc: mindscape-ai-cloud/docs/internal/local-core/product-semantics/product-semantic-contract-index-2026-06-21.zh-TW.md#psclocal-coreaol-runs-graph-selection-contextv1
+    requires_product_semantic_declaration: true
+    semantics:
+      - Addressable Object Layer, composition graph, and run selection context preserve object identity and graph-selection meanings across backend and web-console surfaces.
+    path_globs:
+      - backend/app/models/object_runtime/**
+      - backend/app/services/object_runtime/**
+      - backend/tests/object_runtime/**
+      - backend/tests/*object*runtime*
+      - web-console/src/lib/addressable-object-layer.ts
+      - web-console/src/components/capabilities/aol-runtime-shell/**
+      - web-console/src/components/workspace/device-binding/practice/motionPracticeGraphSelection*
+
+  - id: psc.local-core.external-agent-run-harness-bridge.v1
+    tier: P1
+    owner: "@team-leads"
+    contract_doc: mindscape-ai-cloud/docs/internal/local-core/product-semantics/product-semantic-contract-index-2026-06-21.zh-TW.md#psclocal-coreexternal-agent-run-harness-bridgev1
+    requires_product_semantic_declaration: true
+    semantics:
+      - External agent bridge, host runtime sessions, and run harness preserve dispatch, episode ledger, workspace boundary, and result submission meanings.
+    path_globs:
+      - backend/app/services/external_agents/bridge/**
+      - backend/app/services/run_harness/**
+      - backend/tests/run_harness/**
+      - backend/tests/runtime_dispatch/**
+      - web-console/src/lib/host-runtime-sessions.ts
+
+  - id: psc.local-core.capture-relay-device-binding.v1
+    tier: P1
+    owner: "@team-leads"
+    contract_doc: mindscape-ai-cloud/docs/internal/local-core/product-semantics/product-semantic-contract-index-2026-06-21.zh-TW.md#psclocal-corecapture-relay-device-bindingv1
+    requires_product_semantic_declaration: true
+    semantics:
+      - Capture relay and device binding preserve source identity, pairing, media transport readiness, and device capability control meanings across device-node and web-console.
+    path_globs:
+      - backend/app/models/device_binding.py
+      - backend/app/services/media_transport/**
+      - device-node/src/**
+      - web-console/src/components/workspace/device-binding/**
+      - web-console/src/lib/media-transport/**
+
+  - id: psc.local-core.semantic-governance-tooling.v1
+    tier: P0
+    owner: "@team-leads"
+    contract_doc: mindscape-ai-cloud/docs/internal/local-core/product-semantics/semantic-governance-tooling-contract-2026-06-21.zh-TW.md
+    requires_product_semantic_declaration: true
+    semantics:
+      - Local Core product semantic governance changes must be traceable through registry, validator, PR declaration, CI, and owner review.
+    path_globs:
+      - ci/product_semantic_surfaces.yaml
+      - scripts/ci/validate_product_semantics.py
+      - scripts/ci/product_semantic_traceability.py
+      - scripts/ci/validate_product_semantic_helper_parity.py
+      - backend/tests/ci/product_semantic_helper_parity_spec.py
+      - backend/tests/ci/validate_product_semantics_guard_spec.py
+      - backend/tests/ci/product_semantic_validator_fixtures.py
+      - backend/tests/ci/product_semantic_contract_source_spec.py
+      - .github/workflows/architecture-guardrails.yml
+      - .github/CODEOWNERS
+      - .github/pull_request_template.md
+    content_assertions:
+      - path: scripts/ci/validate_product_semantics.py
+        required_text:
+          - token: DEFAULT_REGISTRY
+            message: Product semantic validator must remain registry-driven.
+          - token: yaml.safe_load
+            message: Product semantic validator must load the registry as structured YAML.
+          - token: content_assertions
+            message: Product semantic validator must enforce registry content assertions.
+          - token: _validate_workflow_path_coverage
+            message: Product semantic validator must verify registry path_globs are covered by workflow path filters.
+          - token: yaml.BaseLoader
+            message: Product semantic validator must parse GitHub workflow YAML without losing the on key.
+          - token: product_semantic_traceability
+            message: Product semantic validator must call the shared traceability helper.
+          - token: validate_preflight_declaration
+            message: Product semantic validator must enforce Product Semantic Panoramic Preflight through the traceability helper.
+          - token: validate_contract_traceability
+            message: Product semantic validator must verify registry contract_doc traceability.
+          - token: "--contract-root"
+            message: Product semantic validator must accept an explicit cloud contract source.
+          - token: surface_ids
+            message: Product semantic validator must pass registry surface hits to preflight traceability checks.
+      - path: scripts/ci/product_semantic_traceability.py
+        required_text:
+          - token: PREFLIGHT_DECISION_RE
+            message: Product semantic traceability helper must validate panoramic preflight semantic-decision values.
+          - token: CONTRACT_INDEX_RELATIVE_PATH
+            message: Product semantic traceability helper must verify registry entries against the contract index.
+          - token: validate_contract_traceability
+            message: Product semantic traceability helper must verify registry contract_doc traceability.
+          - token: contract_root
+            message: Product semantic traceability helper must prefer explicit contract source roots.
+          - token: validate_impacted_psc_declaration
+            message: Product semantic traceability helper must compare PR impacted-psc declarations with registry surface hits.
+          - token: IMPACTED_PSC_RE
+            message: Product semantic traceability helper must parse PR impacted-psc declarations.
+      - path: scripts/ci/validate_product_semantic_helper_parity.py
+        required_text:
+          - token: DEFAULT_CANONICAL_HELPER
+            message: Product semantic helper parity validator must know the cloud canonical helper path.
+          - token: DEFAULT_LOCAL_HELPER
+            message: Product semantic helper parity validator must know the local mirrored helper path.
+          - token: difflib.unified_diff
+            message: Product semantic helper parity validator must report drift with a unified diff.
+          - token: validate_helper_parity
+            message: Product semantic helper parity validator must expose a testable parity function.
+      - path: backend/tests/ci/product_semantic_helper_parity_spec.py
+        required_text:
+          - token: test_helper_parity_accepts_identical_sources
+            message: Product semantic helper parity tests must accept synced helpers.
+          - token: test_helper_parity_rejects_local_drift
+            message: Product semantic helper parity tests must reject local helper drift.
+      - path: backend/tests/ci/validate_product_semantics_guard_spec.py
+        required_text:
+          - token: product_semantic_validator_fixtures
+            message: Product semantic validator tests must use the shared fixture helper.
+          - token: _init_repo
+            message: Product semantic validator tests must keep scenario setup routed through the fixture helper.
+      - path: backend/tests/ci/product_semantic_validator_fixtures.py
+        required_text:
+          - token: REGISTRY
+            message: Product semantic validator fixture helper must own registry fixtures.
+          - token: CONTRACT_INDEX
+            message: Product semantic validator fixture helper must own contract-index fixtures.
+          - token: preflight_none
+            message: Product semantic validator fixture helper must own preserved preflight body generation.
+          - token: init_repo
+            message: Product semantic validator fixture helper must own temp repo setup.
+          - token: run_validator
+            message: Product semantic validator fixture helper must own validator subprocess execution.
+      - path: .github/pull_request_template.md
+        required_text:
+          - token: "product-semantic-change: none"
+            message: PR template must preserve product semantic declaration markers.
+          - token: semantic-decision-record
+            message: PR template must require decision records for approved semantic changes.
+          - token: breaking-product-semantics-approved-by
+            message: PR template must require owner approval for approved semantic changes.
+          - token: Product Semantic Panoramic Preflight
+            message: PR template must require panoramic preflight before protected semantic changes.
+          - token: scope-class
+            message: PR template must require the product semantic preflight scope class.
+          - token: verification-mapping
+            message: PR template must require validation mapping for protected semantic changes.
+      - path: .github/workflows/architecture-guardrails.yml
+        required_text:
+          - token: device-node/**
+            message: Guardrail workflow must run when registered device-node semantic surfaces change.
+          - token: Validate product semantics (pull request)
+            message: Guardrail workflow must keep the pull-request product semantic validator step.
+          - token: Validate product semantics (push)
+            message: Guardrail workflow must keep the push product semantic validator step.
+          - token: Checkout product semantic contract source
+            message: Guardrail workflow must explicitly provision the cloud product semantic contract source.
+          - token: Validate product semantic helper parity
+            message: Guardrail workflow must validate local helper parity with the cloud canonical helper.
+          - token: validate_product_semantic_helper_parity.py
+            message: Guardrail workflow must run the helper parity validator.
+          - token: "--contract-root .contract-sources/mindscape-ai-cloud"
+            message: Guardrail workflow must pass the explicit cloud contract root to product semantic validation.

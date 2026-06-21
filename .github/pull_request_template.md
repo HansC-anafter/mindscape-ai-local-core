@@ -52,6 +52,43 @@ Why no new boundary:
 
 Why future refactor cost does not increase:
 
+## Product Semantic Gate
+
+Registered surface check:
+
+- [ ] I checked `ci/product_semantic_surfaces.yaml` for touched product semantic surfaces.
+- [ ] If this is an approved semantic change, the decision record names every impacted `psc.*` surface id.
+
+Impacted product semantic surfaces:
+
+Product Semantic Panoramic Preflight:
+
+- `scope-class: <leaf-repair|normal-repair|boundary-crossing-repair>`
+- `protected-behavior: <what product behavior or basecode semantics must remain stable>`
+- `source-of-truth: <design doc, contract, skill, registry, or owner source read before editing>`
+- `registry-scan: <registry paths checked and result>`
+- `impacted-psc: <none|psc.* ids>`
+- `contract-index-read: <contract index/docs read or why not applicable>`
+- `adjacent-surface-scan: <nearby API/module/harness/UI surfaces checked>`
+- `semantic-decision: <preserve|restore|approved-change|not-product-semantic>`
+- `verification-mapping: <tests/checks mapped to protected behavior>`
+
+Declare one of these exactly:
+
+`product-semantic-change: none`
+
+`product-semantic-change: approved`
+
+If approved, include both:
+
+`semantic-decision-record: <path-to-adr-or-plan>`
+
+`breaking-product-semantics-approved-by: <owner>`
+
+- [ ] User-facing product semantics are preserved unless explicitly approved above.
+- [ ] Observability surfaces keep last-known resource visibility; freshness fixes add timestamps/stale states instead of hiding resources.
+- [ ] Snapshot or cache consistency changes do not narrow product-visible scope without a formal semantic decision record.
+
 ## Validation
 
 List the commands, checks, or manual validation performed for this change.

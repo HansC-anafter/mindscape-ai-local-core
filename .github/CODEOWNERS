@@ -5,11 +5,26 @@
 /.github/pull_request_template.md @team-leads
 /.github/CODEOWNERS @team-leads
 /ci/modular_entry_guardrails.yaml @team-leads
+/ci/product_semantic_surfaces.yaml @team-leads
 /scripts/ci/validate_modular_entrypoints.py @team-leads
+/scripts/ci/validate_product_semantics.py @team-leads
 /backend/app/services/tool_registry.py @team-leads
 /backend/app/routes/core/artifacts.py @team-leads
 /backend/app/services/orchestration/meeting/engine.py @team-leads
 /backend/app/services/external_agents/bridge/task_executor.py @team-leads
+/backend/app/services/host_resources/ @team-leads
+/backend/app/routes/core/host_resources.py @team-leads
+/backend/app/routes/core/capability_install.py @team-leads
+/backend/app/routes/core/capability_installation.py @team-leads
+/backend/app/routes/core/capability_install_core/ @team-leads
+/backend/app/routes/core/capability_packs.py @team-leads
+/backend/app/routes/core/capability_packs_core/ @team-leads
+/web-console/dev-proxy/capability-host-shell/ @team-leads
+/web-console/src/lib/capability-runtime-asset-url.ts @team-leads
+/web-console/src/lib/capability-static-hosts.ts @team-leads
+/web-console/src/lib/capability-ui-loader.ts @team-leads
+/web-console/src/lib/capability-ui-runtime-assets.ts @team-leads
+/device-node/src/ @team-leads
 
 # These paths require owner review.
 /web-console/src/app/capabilities/ @team-leads
