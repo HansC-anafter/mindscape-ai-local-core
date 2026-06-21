@@ -12,6 +12,16 @@ from backend.app.services.cache.redis_cache import get_cache_service
 
 from .host_bridge import HostBridgeError, call_host_resource_probe
 from .lane_registry import load_lane_registry
+from .manager_core import (
+    clamped_reservation_limit as _clamped_reservation_limit,
+    normalize_runner_claim_gate as _normalize_runner_claim_gate,
+    normalized_route_request as _normalized_route_request,
+    parse_datetime as _parse_datetime,
+    reservation_is_active as _reservation_is_active,
+    reservation_matches_state_filter as _reservation_matches_state_filter,
+    reservation_sort_key as _reservation_sort_key,
+    ttl_seconds_from_payload as _core_ttl_seconds_from_payload,
+)
 from .samplers import degraded_snapshot, snapshot_from_probe
 
 
@@ -39,22 +49,6 @@ def _utc_now() -> datetime:
 
 def _utc_now_iso() -> str:
     return _utc_now().isoformat()
-
-
-def _parse_datetime(value: Any) -> datetime | None:
-    if isinstance(value, datetime):
-        if value.tzinfo is None:
-            return value.replace(tzinfo=timezone.utc)
-        return value.astimezone(timezone.utc)
-    if not isinstance(value, str) or not value.strip():
-        return None
-    try:
-        parsed = datetime.fromisoformat(value)
-    except ValueError:
-        return None
-    if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc)
 
 
 def _route_reservation_store_enabled() -> bool:
@@ -127,12 +121,10 @@ def _delete_json_value(key: str) -> bool:
 
 
 def _ttl_seconds_from_payload(payload: dict[str, Any]) -> int:
-    raw = payload.get("ttl_seconds") if isinstance(payload, dict) else None
-    try:
-        ttl_seconds = int(raw or STATE_TTL_SECONDS)
-    except Exception:
-        ttl_seconds = STATE_TTL_SECONDS
-    return max(60, ttl_seconds)
+    return _core_ttl_seconds_from_payload(
+        payload,
+        default_ttl=STATE_TTL_SECONDS,
+    )
 
 
 def _route_projection_map() -> dict[str, dict[str, Any]]:
@@ -155,41 +147,6 @@ def _write_route_projection(reservation: dict[str, Any]) -> None:
     persisted = _read_json_map(ROUTE_RESERVATIONS_KEY)
     persisted[reservation_id] = reservation
     _write_json_map(ROUTE_RESERVATIONS_KEY, persisted)
-
-
-def _reservation_is_active(reservation: dict[str, Any], *, now: datetime | None = None) -> bool:
-    if reservation.get("state") not in {"reserved_waiting", "permitted"}:
-        return False
-    expires_at = _parse_datetime(reservation.get("expires_at"))
-    if expires_at and expires_at <= (now or _utc_now()):
-        return False
-    return True
-
-
-def _reservation_matches_state_filter(
-    reservation: dict[str, Any],
-    state_filter: str | None,
-) -> bool:
-    normalized = str(state_filter or "").strip().lower()
-    if not normalized or normalized in {"all", "any"}:
-        return True
-    if normalized == "active":
-        return _reservation_is_active(reservation)
-    if normalized in {"history", "inactive", "closed"}:
-        return not _reservation_is_active(reservation)
-    return str(reservation.get("state") or "").strip().lower() == normalized
-
-
-def _clamped_reservation_limit(limit: int | None, *, default: int = 100) -> int:
-    try:
-        parsed = int(limit or default)
-    except Exception:
-        parsed = default
-    return max(1, min(parsed, 200))
-
-
-def _reservation_sort_key(reservation: dict[str, Any]) -> datetime:
-    return _parse_datetime(reservation.get("created_at")) or datetime.min.replace(tzinfo=timezone.utc)
 
 
 def _list_projection_reservations() -> list[dict[str, Any]]:
@@ -330,17 +287,6 @@ def is_lane_paused(lane_id: str | None) -> bool:
     return bool(lane_id and lane_id in _current_paused_lanes())
 
 
-def _normalized_route_request(payload: dict[str, Any]) -> dict[str, Any]:
-    if not isinstance(payload, dict):
-        return {}
-    raw_route_request = payload.get("route_request")
-    route_request = dict(raw_route_request) if isinstance(raw_route_request, dict) else dict(payload)
-    lane_id = route_request.get("target_lane") or route_request.get("lane_id")
-    if lane_id:
-        route_request["target_lane"] = str(lane_id)
-    return route_request
-
-
 def create_route_reservation(payload: dict[str, Any]) -> dict[str, Any]:
     from .route_reservation_service import create_route_reservation as create
 
@@ -458,7 +404,12 @@ def list_active_route_reservations() -> list[dict[str, Any]]:
     ]
 
 
-def update_notification(notification_id: str, state: str, *, snooze_seconds: int | None = None) -> dict[str, Any]:
+def update_notification(
+    notification_id: str,
+    state: str,
+    *,
+    snooze_seconds: int | None = None,
+) -> dict[str, Any]:
     updated = {
         "notification_id": notification_id,
         "state": state,
@@ -471,24 +422,6 @@ def update_notification(notification_id: str, state: str, *, snooze_seconds: int
     persisted[notification_id] = updated
     _write_json_map(NOTIFICATIONS_KEY, persisted)
     return updated
-
-
-def _normalize_runner_claim_gate(raw: Any, *, source: str) -> dict[str, Any]:
-    if not isinstance(raw, dict):
-        return {
-            "state": "open",
-            "reason": None,
-            "source": "default",
-            "persisted": False,
-        }
-    state = str(raw.get("state") or "open").strip().lower()
-    if state != "paused":
-        state = "open"
-    gate = dict(raw)
-    gate["state"] = state
-    gate["source"] = source
-    gate["persisted"] = source == "redis"
-    return gate
 
 
 def get_runner_claim_gate() -> dict[str, Any]:
