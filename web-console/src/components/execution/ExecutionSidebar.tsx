@@ -4,36 +4,11 @@ import React, { useState, useEffect } from 'react';
 import { useT } from '@/lib/i18n';
 import { getPlaybookMetadata } from '@/lib/i18n/locales/playbooks';
 import { toTimestampMs, parseServerTimestamp } from '@/lib/time';
-
-interface ExecutionSummary {
-  executionId: string;
-  runNumber: number;
-  status: 'queued' | 'running' | 'paused' | 'completed' | 'failed';
-  startedAt: string;
-  currentStep?: {
-    index: number;
-    name: string;
-    status: 'running' | 'waiting_confirmation';
-  };
-  totalSteps: number;
-  playbookCode: string;
-  playbookName: string;
-}
-
-interface PlaybookGroup {
-  playbookCode: string;
-  playbookName: string;
-  executions: ExecutionSummary[];
-  stats: {
-    running: number;
-    paused: number;
-    queued: number;
-    completed: number;
-    failed: number;
-  };
-  projectId?: string;
-  projectName?: string;
-}
+import {
+  loadExecutionSidebarData,
+  type ExecutionSummary,
+  type PlaybookGroup,
+} from './executionSidebarData';
 
 interface ExecutionSidebarProps {
   projectId: string;
@@ -62,176 +37,12 @@ export default function ExecutionSidebar({
     const loadData = async () => {
       setLoading(true);
       try {
-        if (projectId && projectId.trim() !== '') {
-          const [projectResponse, executionTreeResponse] = await Promise.all([
-            fetch(`${apiUrl}/api/v1/workspaces/${workspaceId}/projects/${projectId}`).catch(() => null),
-            fetch(`${apiUrl}/api/v1/workspaces/${workspaceId}/projects/${projectId}/execution-tree`).catch(() => null)
-          ]);
-
-          if (projectResponse?.ok) {
-            const projectData = await projectResponse.json();
-            setProjectName(projectData.name || projectData.title || 'Project');
-          }
-
-          if (executionTreeResponse?.ok) {
-            const treeData = await executionTreeResponse.json();
-            if (treeData.detail) {
-              return;
-            } else if (treeData.playbookGroups && Array.isArray(treeData.playbookGroups) && treeData.playbookGroups.length > 0) {
-              const allExecutions: Array<{ exec: any; group: any }> = [];
-              treeData.playbookGroups.forEach((group: any) => {
-                if (group.executions && group.executions.length > 0) {
-                  group.executions.forEach((exec: any) => {
-                    allExecutions.push({ exec, group });
-                  });
-                }
-              });
-
-              allExecutions.sort((a, b) => {
-                const timeA = toTimestampMs(a.exec.started_at || a.exec.created_at) ?? 0;
-                const timeB = toTimestampMs(b.exec.started_at || b.exec.created_at) ?? 0;
-                return timeA - timeB;
-              });
-
-              allExecutions.forEach((item, index) => {
-                item.exec.runNumber = index + 1;
-              });
-
-              const processedGroups = treeData.playbookGroups.map((group: any) => {
-                let groupProjectId: string | undefined;
-                let groupProjectName: string | undefined;
-
-                const executionSummaries: ExecutionSummary[] = [];
-                if (group.executions && group.executions.length > 0) {
-                  const firstExec = group.executions[0];
-                  groupProjectId = firstExec.project_id || firstExec.execution_context?.project_id;
-                  groupProjectName = firstExec.project_name || firstExec.execution_context?.project_name;
-
-                  group.executions.forEach((exec: any) => {
-                    const status = exec.status?.toLowerCase() || 'queued';
-                    const currentStepIndex = exec.current_step_index;
-                    const currentStepName = exec.current_step_name;
-                    const currentStep = (currentStepIndex !== null && currentStepIndex !== undefined) ? {
-                      index: currentStepIndex + 1,
-                      name: currentStepName || 'Step',
-                      status: exec.status === 'paused' ? 'waiting_confirmation' as const : 'running' as const
-                    } : undefined;
-
-                    executionSummaries.push({
-                      executionId: exec.execution_id,
-                      runNumber: exec.runNumber || exec.run_number || 0,
-                      status: status as any,
-                      startedAt: exec.started_at || exec.created_at || new Date().toISOString(),
-                      currentStep,
-                      totalSteps: exec.total_steps || 1,
-                      playbookCode: exec.playbook_code || group.playbookCode || 'unknown',
-                      playbookName: exec.playbook_title || group.playbookName || exec.playbook_code || 'unknown'
-                    });
-                  });
-
-                  executionSummaries.sort((a, b) => {
-                    return (toTimestampMs(a.startedAt) ?? 0) - (toTimestampMs(b.startedAt) ?? 0);
-                  });
-                }
-
-                if (group.project_id) {
-                  groupProjectId = group.project_id;
-                }
-                if (group.project_name) {
-                  groupProjectName = group.project_name;
-                }
-
-                return {
-                  playbookCode: group.playbookCode || 'unknown',
-                  playbookName: group.playbookName || group.playbookCode || 'unknown',
-                  executions: executionSummaries,
-                  stats: group.stats || { running: 0, paused: 0, queued: 0, completed: 0, failed: 0 },
-                  projectId: groupProjectId,
-                  projectName: groupProjectName
-                };
-              });
-
-              setPlaybookGroups(processedGroups);
-            }
-          } else if (executionTreeResponse && !executionTreeResponse.ok) {
-          }
-        } else {
-          try {
-            const execResponse = await fetch(
-              `${apiUrl}/api/v1/workspaces/${workspaceId}/tasks?limit=50&task_type=execution&include_completed=true`
-            );
-            if (execResponse.ok) {
-              const execData = await execResponse.json();
-              const executions = execData.tasks || [];
-
-              const allExecutionsWithData = executions.map((exec: any) => ({
-                exec,
-                playbookCode: exec.playbook_code || exec.pack_id || 'unknown',
-                startedAt: exec.started_at || exec.created_at || new Date().toISOString()
-              }));
-
-              allExecutionsWithData.sort((a: { exec: any; playbookCode: string; startedAt: string }, b: { exec: any; playbookCode: string; startedAt: string }) => {
-                return (toTimestampMs(a.startedAt) ?? 0) - (toTimestampMs(b.startedAt) ?? 0);
-              });
-
-              allExecutionsWithData.forEach((item: { exec: any; playbookCode: string; startedAt: string }, index: number) => {
-                item.exec._globalRunNumber = index + 1;
-              });
-
-              const groupMap = new Map<string, PlaybookGroup>();
-              allExecutionsWithData.forEach(({ exec }: { exec: any }) => {
-                const playbookCode = exec.playbook_code || exec.pack_id || 'unknown';
-                if (!groupMap.has(playbookCode)) {
-                  const execProjectId = exec.project_id || exec.execution_context?.project_id;
-                  const execProjectName = exec.project_name || exec.execution_context?.project_name;
-
-                  groupMap.set(playbookCode, {
-                    playbookCode,
-                    playbookName: exec.playbook_title || playbookCode,
-                    executions: [],
-                    stats: { running: 0, paused: 0, queued: 0, completed: 0, failed: 0 },
-                    projectId: execProjectId,
-                    projectName: execProjectName
-                  });
-                }
-                const group = groupMap.get(playbookCode)!;
-                const status = exec.status?.toLowerCase() || 'queued';
-                const currentStepIndex = exec.current_step_index;
-                const currentStepName = exec.current_step_name;
-                const currentStep = (currentStepIndex !== null && currentStepIndex !== undefined) ? {
-                  index: currentStepIndex + 1,
-                  name: currentStepName || 'Step',
-                  status: exec.status === 'paused' ? 'waiting_confirmation' as const : 'running' as const
-                } : undefined;
-
-                group.executions.push({
-                  executionId: exec.execution_id,
-                  runNumber: exec._globalRunNumber,
-                  status: status as any,
-                  startedAt: exec.started_at || exec.created_at || new Date().toISOString(),
-                  currentStep,
-                  totalSteps: exec.total_steps || 1,
-                  playbookCode,
-                  playbookName: exec.playbook_title || playbookCode
-                });
-                if (status === 'running') group.stats.running++;
-                else if (status === 'paused') group.stats.paused++;
-                else if (status === 'queued') group.stats.queued++;
-                else if (status === 'completed' || status === 'succeeded') group.stats.completed++;
-                else if (status === 'failed') group.stats.failed++;
-              });
-
-              groupMap.forEach((group) => {
-                group.executions.sort((a, b) => {
-                  return (toTimestampMs(a.startedAt) ?? 0) - (toTimestampMs(b.startedAt) ?? 0);
-                });
-              });
-
-              setPlaybookGroups(Array.from(groupMap.values()));
-              setProjectName('All Executions');
-            }
-          } catch {
-          }
+        const result = await loadExecutionSidebarData({ apiUrl, projectId, workspaceId });
+        if (result.projectName !== undefined) {
+          setProjectName(result.projectName);
+        }
+        if (result.playbookGroups !== undefined) {
+          setPlaybookGroups(result.playbookGroups);
         }
       } catch {
       } finally {
@@ -452,7 +263,7 @@ interface ExecutionItemProps {
 }
 
 function ExecutionItem({ execution, isSelected, onClick }: ExecutionItemProps) {
-  const statusIcons = {
+  const statusIcons: Record<string, string> = {
     queued: 'QUE',
     running: 'RUN',
     paused: 'WAIT',
