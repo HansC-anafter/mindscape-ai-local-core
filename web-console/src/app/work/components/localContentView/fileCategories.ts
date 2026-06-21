@@ -1,0 +1,88 @@
+import type { FileCategory } from './types';
+
+export const FILE_CATEGORIES: FileCategory[] = [
+    {
+        id: 'code',
+        label: '程式碼',
+        icon: '💻',
+        kind: 'allowed',
+        extensions: ['.py', '.js', '.ts', '.jsx', '.tsx', '.vue', '.svelte', '.rs', '.go', '.java', '.rb', '.php', '.swift', '.kt', '.c', '.cpp', '.h', '.hpp', '.cs'],
+    },
+    {
+        id: 'text',
+        label: '文件文字',
+        icon: '📄',
+        kind: 'allowed',
+        extensions: ['.txt', '.md', '.rst', '.org', '.rtf', '.log'],
+    },
+    {
+        id: 'config',
+        label: '設定檔',
+        icon: '⚙️',
+        kind: 'allowed',
+        extensions: ['.json', '.yaml', '.yml', '.toml', '.cfg', '.ini', '.env', '.editorconfig', '.gitignore', '.dockerignore'],
+    },
+    {
+        id: 'web',
+        label: '網頁前端',
+        icon: '🌐',
+        kind: 'allowed',
+        extensions: ['.html', '.css', '.scss', '.less', '.svg'],
+    },
+    {
+        id: 'data',
+        label: '資料格式',
+        icon: '📊',
+        kind: 'allowed',
+        extensions: ['.csv', '.tsv', '.xml', '.sql'],
+    },
+    {
+        id: 'shell-config',
+        label: 'Shell 設定',
+        icon: '🐚',
+        kind: 'allowed',
+        extensions: ['.zshrc', '.bashrc', '.bash_profile'],
+    },
+    {
+        id: 'executables',
+        label: '可執行檔',
+        icon: '🚫',
+        kind: 'blocked',
+        extensions: ['.exe', '.app', '.com', '.scr'],
+    },
+    {
+        id: 'scripts',
+        label: '腳本檔案',
+        icon: '⚠️',
+        kind: 'blocked',
+        extensions: ['.sh', '.bat', '.cmd', '.vbs', '.ps1', '.wsf'],
+    },
+    {
+        id: 'installers',
+        label: '安裝封裝',
+        icon: '📦',
+        kind: 'blocked',
+        extensions: ['.msi', '.dmg', '.pkg', '.deb', '.rpm', '.snap'],
+    },
+    {
+        id: 'binaries',
+        label: '二進位程式庫',
+        icon: '🔩',
+        kind: 'blocked',
+        extensions: ['.dll', '.so', '.dylib', '.bin', '.o', '.a'],
+    },
+    {
+        id: 'disk-images',
+        label: '磁碟映像',
+        icon: '💿',
+        kind: 'blocked',
+        extensions: ['.iso', '.img'],
+    },
+    {
+        id: 'jar-war',
+        label: 'Java 封裝',
+        icon: '☕',
+        kind: 'blocked',
+        extensions: ['.jar', '.war'],
+    },
+];
