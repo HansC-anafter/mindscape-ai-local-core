@@ -10,14 +10,17 @@ Provides generic document processing capabilities:
 These are generic utilities that can be used by any capability.
 """
 
-from typing import Dict, Any, List, Optional
 import logging
-from datetime import datetime, timezone
+from typing import Dict, Any, List
 
+from backend.app.services.document_processor_core import (
+    calculate_content_hash,
+    get_document_version_history,
+    get_latest_document_version,
+    sanitize_document_id as _sanitize_document_id,
+    track_document_version,
+)
 
-def _utc_now():
-    """Return timezone-aware UTC now."""
-    return datetime.now(timezone.utc)
 
 logger = logging.getLogger(__name__)
 
@@ -360,20 +363,6 @@ def extract_changed_sections(
     return changed_sections
 
 
-def calculate_content_hash(content: str) -> str:
-    """
-    Calculate hash of document content for version tracking.
-
-    Args:
-        content: Document content
-
-    Returns:
-        SHA256 hash string
-    """
-    import hashlib
-    return hashlib.sha256(content.encode('utf-8')).hexdigest()
-
-
 def detect_document_changes(
     old_content: str,
     new_content: str
@@ -427,153 +416,3 @@ def detect_document_changes(
         "similarity": similarity,
         "change_type": "modified" if similarity > 0.5 else "major_change"
     }
-
-
-def track_document_version(
-    document_id: str,
-    content: str,
-    metadata: Optional[Dict[str, Any]] = None,
-    persist: bool = True,
-    storage_dir: Optional[str] = None
-) -> Dict[str, Any]:
-    """
-    Track document version.
-
-    This is a generic utility. For brand-specific version tracking,
-    use brand_identity capability's version tracking.
-
-    Args:
-        document_id: Document identifier
-        content: Document content
-        metadata: Optional metadata
-        persist: Whether to persist to storage (default: True)
-        storage_dir: Storage directory (default: /tmp/document_versions or env var)
-
-    Returns:
-        Version tracking info
-    """
-    import os
-    import json
-    from pathlib import Path
-
-    content_hash = calculate_content_hash(content)
-    version_info = {
-        "document_id": document_id,
-        "content_hash": content_hash,
-        "content_length": len(content),
-        "version_timestamp": _utc_now().isoformat(),
-        "metadata": metadata or {}
-    }
-
-    if persist:
-        storage_path = storage_dir or os.getenv("DOCUMENT_VERSION_STORAGE", "/tmp/document_versions")
-        storage_dir_path = Path(storage_path)
-        storage_dir_path.mkdir(parents=True, exist_ok=True)
-
-        # Sanitize document_id for filesystem
-        safe_document_id = _sanitize_document_id(document_id)
-        history_file = storage_dir_path / f"{safe_document_id}.json"
-        history_file.parent.mkdir(parents=True, exist_ok=True)
-
-        try:
-            if history_file.exists():
-                with open(history_file, 'r', encoding='utf-8') as f:
-                    history = json.load(f)
-            else:
-                history = {"document_id": document_id, "versions": []}
-
-            history["versions"].append(version_info)
-            history["last_updated"] = _utc_now().isoformat()
-
-            if len(history["versions"]) > 50:
-                history["versions"] = history["versions"][-50:]
-
-            with open(history_file, 'w', encoding='utf-8') as f:
-                json.dump(history, f, indent=2, ensure_ascii=False)
-
-            logger.debug(f"Saved version for document {document_id}")
-        except Exception as e:
-            logger.error(f"Failed to save version for {document_id}: {e}", exc_info=True)
-
-    logger.info(f"Tracked version for document {document_id}: hash={content_hash[:8]}...")
-    return version_info
-
-
-def _sanitize_document_id(document_id: str) -> str:
-    """
-    Sanitize document_id for use as filename.
-
-    Args:
-        document_id: Original document identifier (may contain /, :, etc.)
-
-    Returns:
-        Sanitized identifier safe for filesystem
-    """
-    import hashlib
-    import re
-
-    if '/' in document_id or '\\' in document_id or ':' in document_id:
-        safe_hash = hashlib.sha256(document_id.encode('utf-8')).hexdigest()[:16]
-        safe_prefix = re.sub(r'[^a-zA-Z0-9_-]', '_', document_id[:20])
-        return f"{safe_prefix}_{safe_hash}"
-    else:
-        return re.sub(r'[^a-zA-Z0-9._-]', '_', document_id)
-
-
-def get_document_version_history(
-    document_id: str,
-    storage_dir: Optional[str] = None
-) -> List[Dict[str, Any]]:
-    """
-    Get document version history.
-
-    Args:
-        document_id: Document identifier (may contain path separators)
-        storage_dir: Storage directory (default: /tmp/document_versions or env var)
-
-    Returns:
-        List of version history entries
-    """
-    import os
-    import json
-    from pathlib import Path
-
-    storage_path = storage_dir or os.getenv("DOCUMENT_VERSION_STORAGE", "/tmp/document_versions")
-    storage_dir_path = Path(storage_path)
-    storage_dir_path.mkdir(parents=True, exist_ok=True)
-
-    safe_document_id = _sanitize_document_id(document_id)
-    history_file = storage_dir_path / f"{safe_document_id}.json"
-
-    if not history_file.exists():
-        logger.debug(f"No version history found for document {document_id}")
-        return []
-
-    try:
-        with open(history_file, 'r', encoding='utf-8') as f:
-            history = json.load(f)
-        return history.get("versions", [])
-    except Exception as e:
-        logger.error(f"Failed to load version history for {document_id}: {e}", exc_info=True)
-        return []
-
-
-def get_latest_document_version(
-    document_id: str,
-    storage_dir: Optional[str] = None
-) -> Optional[Dict[str, Any]]:
-    """
-    Get the latest version of a document.
-
-    Args:
-        document_id: Document identifier
-        storage_dir: Storage directory (default: /tmp/document_versions or env var)
-
-    Returns:
-        Latest version info or None
-    """
-    history = get_document_version_history(document_id, storage_dir)
-    if not history:
-        return None
-
-    return history[-1]
