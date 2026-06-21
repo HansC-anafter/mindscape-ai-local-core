@@ -240,11 +240,14 @@ describe('workspace settings component seams', () => {
 
   it('does not introduce a live WorkspaceSettings caller', () => {
     const providerSource = readWebConsoleFile('src/app/workspaces/[workspaceId]/components/WorkspaceGlobalToolRailProvider.tsx');
+    const providerCoreSource = readWebConsoleFile('src/app/workspaces/[workspaceId]/components/workspaceGlobalToolRailCoreContributions.tsx');
     const runtimeFrameSource = readWebConsoleFile('src/app/workspaces/[workspaceId]/capability-ui-hosts/CapabilityHostRuntimeFrame.tsx');
 
-    expect(providerSource).toContain("import('../capability-ui-hosts/WorkspaceSettingsToolPanel')");
+    expect(providerSource).toContain("from './workspaceGlobalToolRailCoreContributions'");
+    expect(providerCoreSource).toContain("import('../capability-ui-hosts/WorkspaceSettingsToolPanel')");
     expect(runtimeFrameSource).toContain("import('./WorkspaceSettingsToolPanel')");
     expect(providerSource).not.toContain("import('./WorkspaceSettings')");
+    expect(providerCoreSource).not.toContain("import('./WorkspaceSettings')");
     expect(runtimeFrameSource).not.toContain('components/WorkspaceSettings');
   });
 

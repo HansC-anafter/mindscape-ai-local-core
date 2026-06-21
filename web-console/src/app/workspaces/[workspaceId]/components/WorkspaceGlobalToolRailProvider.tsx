@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { Activity, GitGraph, Package, PanelRight, Settings as SettingsIcon, Smartphone, X } from 'lucide-react';
+import { PanelRight, X } from 'lucide-react';
 
 import {
   WorkspaceToolRail,
@@ -13,7 +13,6 @@ import { useToolRailPanelToggleShortcut } from '@/components/capabilities/workbe
 import { useWorkspaceDataOptional } from '@/contexts/WorkspaceDataContext';
 import { getApiBaseUrl } from '@/lib/api-url';
 import { useKeyboardShortcuts } from '@/lib/keyboard-shortcuts';
-import { openAppRouteInNewWindow } from '@/lib/navigation/openAppRouteInNewWindow';
 import {
   WORKSPACE_RIGHT_REGION_PANEL_BODY_CLASS,
   WORKSPACE_RIGHT_REGION_PANEL_WIDTH_CLASS,
@@ -24,118 +23,26 @@ import {
   type WorkspaceGlobalToolContribution,
 } from './useWorkspaceGlobalToolRail';
 import {
+  useWorkspaceCoreToolContributions,
+  WorkspaceToolPanelLoadingState,
+} from './workspaceGlobalToolRailCoreContributions';
+import {
+  bindingIdForContribution,
+  GROUP_LABELS,
+  GROUP_ORDER,
+  isActiveExecutionStatus,
+  resolveVisibleContributions,
+  resolveVisibleMobileFloatingControls,
+  shortcutOwnerForContribution,
+  sortContributions,
+  WORKSPACE_ACTIVE_PANEL_TOGGLE_BINDING_ID,
+  WORKSPACE_TOOL_RAIL_COMMAND_ID,
+} from './workspaceGlobalToolRailModel';
+import {
   CapabilityWorkbenchMobileFloatingControlsContext,
   type CapabilityWorkbenchMobileFloatingControl,
   useCapabilityWorkbenchMobileFloatingControlsBridgePublisher,
 } from '@/components/capabilities/workbench/useCapabilityWorkbenchMobileFloatingControls';
-
-const WorkspaceRunsPanel = React.lazy(() => import('../capability-ui-hosts/WorkspaceRunsPanel'));
-const WorkspaceSettingsToolPanel = React.lazy(() => import('../capability-ui-hosts/WorkspaceSettingsToolPanel'));
-const WorkspacePackToolPanel = React.lazy(() => import('../capability-ui-hosts/WorkspacePackToolPanel'));
-const MotionSourceRailPanel = React.lazy(() => import('@/components/workspace/device-binding/MotionSourceRailPanel'));
-
-const WORKSPACE_ACTIVE_PANEL_TOGGLE_BINDING_ID = 'tool_rail:workspace:active_panel:toggle';
-
-const GROUP_LABELS: Record<WorkspaceRightRegionGroup, string> = {
-  execution: 'Runs',
-  workspace: 'Workspace',
-  meeting: 'Meeting',
-  graph: 'Graph',
-  capability: 'Pack',
-  runtime: 'Runtime',
-  tool_runtime: 'Tool Runtime',
-  data: 'Data',
-};
-
-const GROUP_ORDER: Record<WorkspaceRightRegionGroup, number> = {
-  execution: 10,
-  workspace: 20,
-  graph: 30,
-  meeting: 40,
-  capability: 50,
-  runtime: 60,
-  tool_runtime: 70,
-  data: 80,
-};
-
-const WORKSPACE_TOOL_RAIL_COMMAND_ID = 'workspace.tool_rail.toggle';
-
-function isActiveExecutionStatus(status: unknown): boolean {
-  const normalized = String(status || '').toLowerCase();
-  return normalized === 'running' || normalized === 'queued' || normalized === 'pending' || normalized === 'paused';
-}
-
-function WorkspaceToolPanelLoadingState({ label }: { label: string }) {
-  return (
-    <div className="flex h-full items-center justify-center p-3 text-xs text-gray-500 dark:text-gray-400">
-      Loading {label}...
-    </div>
-  );
-}
-
-function sortContributions(
-  left: WorkspaceGlobalToolContribution,
-  right: WorkspaceGlobalToolContribution,
-): number {
-  return left.order - right.order || left.key.localeCompare(right.key);
-}
-
-function resolveVisibleContributions(
-  coreContributions: WorkspaceGlobalToolContribution[],
-  registeredScopeContributions: Record<string, WorkspaceGlobalToolContribution[]>,
-): WorkspaceGlobalToolContribution[] {
-  const contributionMap = new Map<string, WorkspaceGlobalToolContribution>();
-  [...coreContributions, ...Object.values(registeredScopeContributions).flat()]
-    .filter((contribution) => contribution.visible !== false)
-    .forEach((contribution) => {
-      if (!contributionMap.has(contribution.key)) {
-        contributionMap.set(contribution.key, contribution);
-      }
-    });
-  return [...contributionMap.values()].sort((left, right) => {
-    const groupCompare = GROUP_ORDER[left.group] - GROUP_ORDER[right.group];
-    return groupCompare || sortContributions(left, right);
-  });
-}
-
-function resolveVisibleMobileFloatingControls(
-  registeredControls: Record<string, CapabilityWorkbenchMobileFloatingControl[]>,
-): CapabilityWorkbenchMobileFloatingControl[] {
-  const controlMap = new Map<string, CapabilityWorkbenchMobileFloatingControl>();
-  Object.values(registeredControls)
-    .flat()
-    .forEach((control) => {
-      controlMap.set(control.key, control);
-    });
-  return [...controlMap.values()].sort((left, right) => (
-    left.order - right.order || left.key.localeCompare(right.key)
-  ));
-}
-
-function bindingIdForContribution(contribution: WorkspaceGlobalToolContribution): string {
-  return `workspace_tool:${contribution.key}:open`;
-}
-
-function shortcutOwnerForContribution(contribution: WorkspaceGlobalToolContribution) {
-  if (
-    contribution.key.startsWith('core:')
-    || contribution.key.startsWith('aol:')
-    || contribution.key.startsWith('workspace-surface:')
-  ) {
-    return {
-      ownerType: 'core' as const,
-      ownerId: contribution.key.startsWith('aol:') ? 'runtime' : 'workspace',
-      ownerLabel: contribution.key.startsWith('aol:') ? 'Runtime' : 'Workspace',
-    };
-  }
-
-  const ownerId = contribution.key.split(':')[0] || 'pack';
-  return {
-    ownerType: 'pack' as const,
-    ownerId,
-    ownerLabel: ownerId,
-  };
-}
 
 interface WorkspaceGlobalToolRailProviderProps {
   workspaceId: string;
@@ -211,77 +118,12 @@ export default function WorkspaceGlobalToolRailProvider({
     };
   }, []);
 
-  const coreContributions = React.useMemo<WorkspaceGlobalToolContribution[]>(() => [
-    {
-      key: 'core:runs_panel',
-      id: 'runs_panel',
-      label: 'Runs',
-      icon: <Activity aria-hidden="true" className="h-4 w-4" />,
-      group: 'execution',
-      order: 10,
-      defaultShortcut: 'R',
-      badge: activeExecutionCount || null,
-      testId: 'workspace-runs-tool',
-      renderPanel: () => (
-        <WorkspaceRunsPanel
-          workspaceId={workspaceId}
-          activeCapabilityCode={activeCapabilityCode}
-        />
-      ),
-    },
-    {
-      key: 'core:settings',
-      id: 'settings',
-      label: 'Settings',
-      icon: <SettingsIcon aria-hidden="true" className="h-4 w-4" />,
-      group: 'workspace',
-      order: 20,
-      defaultShortcut: 'S',
-      testId: 'workspace-settings-tool',
-      renderPanel: () => (
-        <WorkspaceSettingsToolPanel workspaceId={workspaceId} apiUrl={apiUrl} />
-      ),
-    },
-    {
-      key: 'core:pack',
-      id: 'pack',
-      label: 'Pack',
-      icon: <Package aria-hidden="true" className="h-4 w-4" />,
-      group: 'capability',
-      order: 30,
-      defaultShortcut: 'A',
-      testId: 'workspace-pack-tool',
-      renderPanel: () => (
-        <WorkspacePackToolPanel workspaceId={workspaceId} apiUrl={apiUrl} />
-      ),
-    },
-    {
-      key: 'core:motion_source',
-      id: 'motion_source',
-      label: 'Motion Source',
-      icon: <Smartphone aria-hidden="true" className="h-4 w-4" />,
-      group: 'runtime',
-      order: 30,
-      defaultShortcut: 'C',
-      testId: 'workspace-motion-source-tool',
-      renderPanel: () => (
-        <MotionSourceRailPanel workspaceId={workspaceId} apiUrl={apiUrl} />
-      ),
-    },
-    {
-      key: 'core:graph',
-      id: 'graph',
-      label: 'Graph',
-      icon: <GitGraph aria-hidden="true" className="h-4 w-4" />,
-      group: 'graph',
-      order: 40,
-      defaultShortcut: 'G',
-      testId: 'workspace-graph-tool',
-      onSelect: () => {
-        openAppRouteInNewWindow(`/mindscape/canvas?workspaceId=${encodeURIComponent(workspaceId)}`);
-      },
-    },
-  ], [activeCapabilityCode, activeExecutionCount, apiUrl, workspaceId]);
+  const coreContributions = useWorkspaceCoreToolContributions({
+    activeCapabilityCode,
+    activeExecutionCount,
+    apiUrl,
+    workspaceId,
+  });
 
   const visibleContributions = React.useMemo(
     () => resolveVisibleContributions(coreContributions, registeredScopeContributions),
