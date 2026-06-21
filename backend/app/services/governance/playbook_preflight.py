@@ -7,6 +7,13 @@ Implements preflight checks for playbook execution: required inputs, credentials
 import logging
 from typing import Optional, Dict, Any, List, Tuple
 
+from backend.app.services.governance.playbook_preflight_core import (
+    assess_task_risk as _assess_task_risk,
+    check_agent_availability as _check_agent_availability,
+    check_external_agent_execution as _check_external_agent_execution,
+    check_sandbox_config as _check_sandbox_config,
+    get_bound_runtime_ids as _get_bound_runtime_ids,
+)
 from backend.app.services.governance.stubs import (
     PlaybookPreflightResult,
     PreflightStatus,
@@ -364,92 +371,13 @@ class PlaybookPreflight:
         Returns:
             PlaybookPreflightResult with approval status
         """
-        playbook_code = f"agent:{agent_id}"
-        context = context or {}
-
-        try:
-            # Check governance mode
-            governance_mode = self.settings_store.get("governance.mode", "strict")
-            is_strict_mode = governance_mode == "strict"
-
-            # 1. Check agent availability
-            workspace_id = str(getattr(workspace, "id", "") or "").strip() or None
-            agent_available, agent_error = await self._check_agent_availability(
-                agent_id,
-                workspace_id=workspace_id,
-            )
-            if not agent_available:
-                return PlaybookPreflightResult(
-                    playbook_code=playbook_code,
-                    status=PreflightStatus.REJECT,
-                    accepted=False,
-                    rejection_reason=agent_error
-                    or f"Agent {agent_id} is not available",
-                )
-
-            # 2. Check sandbox configuration
-            sandbox_approved, sandbox_issues = self._check_sandbox_config(
-                agent_id, task, workspace, context
-            )
-            if not sandbox_approved and is_strict_mode:
-                return PlaybookPreflightResult(
-                    playbook_code=playbook_code,
-                    status=PreflightStatus.REJECT,
-                    accepted=False,
-                    rejection_reason=f"Sandbox config issue: {sandbox_issues}",
-                )
-            elif not sandbox_approved:
-                logger.warning(
-                    f"[WARNING MODE] Sandbox issue: {sandbox_issues}, allowing execution"
-                )
-
-            # Meeting agent turns are planning prompts, not direct side effects.
-            # Risk gates should apply to the downstream dispatched actions instead
-            # of raw meeting context, which can contain historical "delete" text.
-            if task.startswith("[Meeting Agent Turn]"):
-                risk_level, risk_reasons = "low", []
-            else:
-                risk_level, risk_reasons = self._assess_task_risk(
-                    task, workspace, context
-                )
-
-            if risk_level == "high":
-                # High risk requires user confirmation
-                return PlaybookPreflightResult(
-                    playbook_code=playbook_code,
-                    status=PreflightStatus.NEED_CLARIFICATION,
-                    accepted=False,
-                    clarification_questions=[
-                        f"This task has HIGH risk level. Reason: {'; '.join(risk_reasons)}. Proceed?",
-                    ],
-                )
-            elif risk_level == "critical":
-                # Critical risk is rejected
-                return PlaybookPreflightResult(
-                    playbook_code=playbook_code,
-                    status=PreflightStatus.REJECT,
-                    accepted=False,
-                    rejection_reason=f"Task has CRITICAL risk level: {'; '.join(risk_reasons)}",
-                )
-
-            # All checks passed
-            logger.info(
-                f"External agent preflight passed: agent={agent_id}, risk={risk_level}"
-            )
-            return PlaybookPreflightResult(
-                playbook_code=playbook_code,
-                status=PreflightStatus.ACCEPT,
-                accepted=True,
-            )
-
-        except Exception as e:
-            logger.error(f"External agent preflight failed: {e}", exc_info=True)
-            return PlaybookPreflightResult(
-                playbook_code=playbook_code,
-                status=PreflightStatus.REJECT,
-                accepted=False,
-                rejection_reason=f"Preflight error: {str(e)}",
-            )
+        return await _check_external_agent_execution(
+            self,
+            agent_id=agent_id,
+            task=task,
+            workspace=workspace,
+            context=context,
+        )
 
     async def _check_agent_availability(
         self,
@@ -465,94 +393,14 @@ class PlaybookPreflight:
         Returns:
             Tuple of (available, error_message)
         """
-        try:
-            from backend.app.services.external_agents.core.registry import (
-                get_runtime_registry,
-            )
-
-            registry = get_runtime_registry()
-
-            # Check if agent is registered
-            if agent_id not in registry.list_agents():
-                return False, f"Agent '{agent_id}' is not registered"
-
-            # Get adapter and check availability
-            adapter = registry.get_adapter(agent_id)
-            if not adapter:
-                return False, f"Agent '{agent_id}' adapter not found"
-
-            # Check if agent CLI is available
-            availability_detail: Dict[str, Any] = {}
-            if hasattr(adapter, "get_availability_detail"):
-                try:
-                    availability_detail = adapter.get_availability_detail(
-                        workspace_id=workspace_id,
-                    )
-                except TypeError:
-                    availability_detail = adapter.get_availability_detail()
-            if availability_detail:
-                is_available = bool(availability_detail.get("available"))
-            else:
-                is_available = await adapter.is_available(workspace_id=workspace_id)
-            if not is_available:
-                reason = str(availability_detail.get("reason") or "").strip()
-                if reason == "no_ws_client":
-                    return (
-                        False,
-                        "No WebSocket client connected. "
-                        f"Run scripts/start_cli_bridge.sh --surface {agent_id} "
-                        "to connect the host bridge.",
-                    )
-                if reason:
-                    return (
-                        False,
-                        f"Agent '{agent_id}' is not available for workspace "
-                        f"{workspace_id or 'global'}: {reason}",
-                    )
-                return (
-                    False,
-                    f"Agent '{agent_id}' CLI is not available (not installed or not in PATH)",
-                )
-
-            return True, None
-
-        except ImportError as e:
-            logger.warning(f"Agent registry not available: {e}")
-            return False, "External agent system not available"
-        except Exception as e:
-            logger.error(f"Error checking agent availability: {e}")
-            return False, str(e)
+        return await _check_agent_availability(
+            agent_id=agent_id,
+            workspace_id=workspace_id,
+        )
 
     def _get_bound_runtime_ids(self, workspace: Any) -> List[str]:
         """Return workspace-bound runtime IDs from model-routing-registry policy."""
-        from backend.app.services.executor_routing_policy_service import (
-            ExecutorRoutingPolicyService,
-        )
-
-        runtime_ids: List[str] = []
-        snapshot = ExecutorRoutingPolicyService.extract_workspace_policy_snapshot(
-            workspace
-        )
-        primary_runtime = snapshot.get("primary_executor_runtime")
-        if isinstance(primary_runtime, str) and primary_runtime.strip():
-            runtime_ids.append(primary_runtime.strip())
-
-        surfaces = snapshot.get("surfaces")
-        if isinstance(surfaces, dict):
-            for surface, entry in surfaces.items():
-                if not isinstance(entry, dict):
-                    continue
-                if entry.get("enabled") and surface not in runtime_ids:
-                    runtime_ids.append(surface)
-                preferred_runtime_id = entry.get("preferred_runtime_id")
-                if (
-                    isinstance(preferred_runtime_id, str)
-                    and preferred_runtime_id.strip()
-                    and preferred_runtime_id.strip() not in runtime_ids
-                ):
-                    runtime_ids.append(preferred_runtime_id.strip())
-
-        return runtime_ids
+        return _get_bound_runtime_ids(workspace)
 
     def _check_sandbox_config(
         self,
@@ -573,50 +421,12 @@ class PlaybookPreflight:
         Returns:
             Tuple of (approved, issue_description)
         """
-        # P2: allow only runtimes bound by model-routing-registry policy.
-        bound_runtimes = self._get_bound_runtime_ids(workspace)
-        if bound_runtimes and agent_id not in bound_runtimes:
-            return (
-                False,
-                f"Agent '{agent_id}' not in model-route-registry workspace executor route: {bound_runtimes}",
-            )
-
-        # Get sandbox config
-        sandbox_config = getattr(workspace, "sandbox_config", None) or {}
-
-        # Check tool acquire policy
-        tool_acquire_policy = sandbox_config.get("tool_acquire_policy", "free")
-        if tool_acquire_policy == "blocked":
-            # Check if task might involve tool acquisition
-            tool_keywords = ["install", "npm", "pip", "download", "clone", "fetch"]
-            task_lower = task.lower()
-            for keyword in tool_keywords:
-                if keyword in task_lower:
-                    return (
-                        False,
-                        f"Tool acquisition is blocked (matched keyword: {keyword})",
-                    )
-
-        # Check network allowlist if task involves network
-        network_keywords = [
-            "fetch",
-            "download",
-            "api",
-            "request",
-            "http",
-            "curl",
-            "wget",
-        ]
-        task_lower = task.lower()
-        involves_network = any(kw in task_lower for kw in network_keywords)
-
-        if involves_network:
-            network_allowlist = sandbox_config.get("network_allowlist", [])
-            if not network_allowlist:
-                logger.debug("Task may involve network, but no allowlist configured")
-            # Note: detailed URL validation would happen at execution time
-
-        return True, None
+        return _check_sandbox_config(
+            agent_id=agent_id,
+            task=task,
+            workspace=workspace,
+            context=context,
+        )
 
     def _assess_task_risk(
         self,
@@ -635,75 +445,8 @@ class PlaybookPreflight:
         Returns:
             Tuple of (risk_level: "low"|"medium"|"high"|"critical", reasons)
         """
-        reasons = []
-        task_lower = task.lower()
-
-        # Critical risk patterns (always blocked)
-        critical_patterns = [
-            ("rm -rf /", "Destructive filesystem operation"),
-            ("sudo", "Requires elevated privileges"),
-            ("chmod 777", "Insecure permission change"),
-            (":(){:|:&};:", "Fork bomb detected"),
-            ("mkfs", "Disk formatting detected"),
-        ]
-        for pattern, reason in critical_patterns:
-            if pattern in task_lower:
-                reasons.append(reason)
-                return "critical", reasons
-
-        # High risk patterns (require confirmation)
-        high_risk_patterns = [
-            ("delete", "Deletion operation"),
-            ("remove", "Removal operation"),
-            ("drop table", "Database drop"),
-            ("truncate", "Data truncation"),
-            ("overwrite", "Overwrite operation"),
-            ("force push", "Force push to repository"),
-            ("--force", "Force flag detected"),
-            ("secrets", "Secrets access"),
-            ("password", "Password handling"),
-            ("credentials", "Credentials handling"),
-            ("api_key", "API key handling"),
-            ("token", "Token handling"),
-            # Chinese patterns
-            ("刪除", "刪除操作"),
-            ("移除", "移除操作"),
-            ("清除", "清除操作"),
-            ("密碼", "密碼操作"),
-            ("密鑰", "密鑰操作"),
-            ("憑證", "憑證操作"),
-        ]
-        for pattern, reason in high_risk_patterns:
-            if pattern in task_lower:
-                reasons.append(reason)
-
-        if reasons:
-            return "high", reasons
-
-        # Medium risk patterns
-        medium_risk_patterns = [
-            ("write", "Write operation"),
-            ("modify", "Modify operation"),
-            ("update", "Update operation"),
-            ("change", "Change operation"),
-            ("deploy", "Deployment operation"),
-            ("publish", "Publishing operation"),
-            # Chinese patterns
-            ("寫", "寫入操作"),
-            ("修改", "修改操作"),
-            ("更新", "更新操作"),
-            ("建立", "建立操作"),
-            ("創建", "創建操作"),
-            ("部署", "部署操作"),
-            ("發布", "發布操作"),
-            ("執行", "執行操作"),
-            ("安裝", "安裝操作"),
-        ]
-        for pattern, reason in medium_risk_patterns:
-            if pattern in task_lower:
-                reasons.append(reason)
-
-        if reasons:
-            return "medium", reasons
-
-        return "low", []
+        return _assess_task_risk(
+            task=task,
+            workspace=workspace,
+            context=context,
+        )

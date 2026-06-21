@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import pytest
 
 from backend.app.services.governance.playbook_preflight import PlaybookPreflight
+from backend.app.services.governance.stubs import PreflightStatus
 
 
 class _FakeRegistry:
@@ -41,10 +42,27 @@ class _FakeDetailAdapter:
 
 
 class _Settings:
+    def __init__(self, mode="permissive"):
+        self.mode = mode
+
     def get(self, key, default=None):
         if key == "governance.mode":
-            return "permissive"
+            return self.mode
         return default
+
+
+def _workspace_with_primary_runtime(runtime_id="codex_cli"):
+    return SimpleNamespace(
+        id="ws-target",
+        sandbox_config={},
+        metadata={
+            "model_routing_registry": {
+                "executor_route_policy": {
+                    "primary_executor_runtime": runtime_id,
+                },
+            },
+        },
+    )
 
 
 @pytest.mark.asyncio
@@ -90,3 +108,75 @@ async def test_agent_availability_preserves_no_ws_client_retry_reason(monkeypatc
     assert "No WebSocket client connected" in str(error)
     assert "--surface codex_cli" in str(error)
     assert adapter.workspace_ids == ["ws-target"]
+
+
+@pytest.mark.asyncio
+async def test_external_agent_preflight_rejects_unbound_workspace_runtime(monkeypatch):
+    adapter = _FakeDetailAdapter({"available": True})
+    registry = _FakeRegistry(adapter)
+
+    monkeypatch.setitem(
+        sys.modules,
+        "backend.app.services.external_agents.core.registry",
+        SimpleNamespace(get_runtime_registry=lambda: registry),
+    )
+
+    preflight = PlaybookPreflight(settings_store=_Settings(mode="strict"))
+    result = await preflight.check_external_agent_execution(
+        "codex_cli",
+        "write a summary",
+        _workspace_with_primary_runtime("gemini_cli"),
+    )
+
+    assert result.accepted is False
+    assert result.status == PreflightStatus.REJECT
+    assert "not in model-route-registry" in str(result.rejection_reason)
+    assert adapter.workspace_ids == ["ws-target"]
+
+
+@pytest.mark.asyncio
+async def test_external_agent_preflight_requires_confirmation_for_high_risk_task(
+    monkeypatch,
+):
+    adapter = _FakeDetailAdapter({"available": True})
+    registry = _FakeRegistry(adapter)
+
+    monkeypatch.setitem(
+        sys.modules,
+        "backend.app.services.external_agents.core.registry",
+        SimpleNamespace(get_runtime_registry=lambda: registry),
+    )
+
+    preflight = PlaybookPreflight(settings_store=_Settings(mode="strict"))
+    result = await preflight.check_external_agent_execution(
+        "codex_cli",
+        "delete generated files",
+        _workspace_with_primary_runtime("codex_cli"),
+    )
+
+    assert result.accepted is False
+    assert result.status == PreflightStatus.NEED_CLARIFICATION
+    assert result.clarification_questions
+    assert "HIGH risk level" in result.clarification_questions[0]
+
+
+@pytest.mark.asyncio
+async def test_meeting_agent_turn_preserves_risk_bypass(monkeypatch):
+    adapter = _FakeDetailAdapter({"available": True})
+    registry = _FakeRegistry(adapter)
+
+    monkeypatch.setitem(
+        sys.modules,
+        "backend.app.services.external_agents.core.registry",
+        SimpleNamespace(get_runtime_registry=lambda: registry),
+    )
+
+    preflight = PlaybookPreflight(settings_store=_Settings(mode="strict"))
+    result = await preflight.check_external_agent_execution(
+        "codex_cli",
+        "[Meeting Agent Turn] delete historical context note",
+        _workspace_with_primary_runtime("codex_cli"),
+    )
+
+    assert result.accepted is True
+    assert result.status == PreflightStatus.ACCEPT
