@@ -1,17 +1,30 @@
-"""
-Tool registry public facade.
+"""Private implementation seams for the public tools registry facade."""
 
-The implementation is split under registry_core while this module remains the
-canonical import path for existing callers.
-"""
-
-from backend.app.services.tools.registry_core import (
-    CORE_TOOLS,
-    REMOTE_TOOLS_AVAILABLE,
-    STATIC_TOOL_REGISTRY,
-    THIRD_PARTY_TOOLS,
-    _dynamic_tools,
-    _mindscape_tools,
+from backend.app.services.tools.registry_core.builtin import (
+    register_content_vault_tools,
+    register_external_agent_tools,
+    register_filesystem_tools,
+    register_ig_post_tools,
+    register_meeting_planner_tools,
+    register_mindscape_graph_tools,
+    register_reporting_tools,
+    register_unsplash_tools,
+    register_workspace_tools,
+)
+from backend.app.services.tools.registry_core.dynamic import (
+    get_all_mindscape_tools,
+    get_available_tools,
+    get_dynamic_tools_for_site,
+    get_mindscape_tool,
+    get_tool,
+    get_tool_by_registered_id,
+    get_tool_metadata,
+    is_core_tool,
+    register_dynamic_tool,
+    register_mindscape_tool,
+    unregister_dynamic_tool,
+)
+from backend.app.services.tools.registry_core.providers import (
     create_airtable_tools,
     create_github_tools,
     create_google_sheets_tools,
@@ -19,37 +32,25 @@ from backend.app.services.tools.registry_core import (
     create_slack_tools,
     create_wordpress_tools,
     get_airtable_tool_by_name,
-    get_all_mindscape_tools,
-    get_available_tools,
-    get_dynamic_tools_for_site,
     get_github_tool_by_name,
     get_google_sheets_tool_by_name,
-    get_mindscape_tool,
     get_slack_tool_by_name,
-    get_tool,
-    get_tool_by_registered_id,
-    get_tool_metadata,
     get_wordpress_tool_by_name,
-    is_core_tool,
     register_airtable_tools,
-    register_content_vault_tools,
-    register_dynamic_tool,
-    register_external_agent_tools,
-    register_filesystem_tools,
     register_github_tools,
     register_google_sheets_tools,
-    register_ig_post_tools,
-    register_meeting_planner_tools,
-    register_mindscape_graph_tools,
-    register_mindscape_tool,
-    register_reporting_tools,
     register_sandbox_tools,
     register_slack_tools,
-    register_unsplash_tools,
     register_wordpress_v2_tools,
-    register_workspace_tools,
-    unregister_dynamic_tool,
     validate_wp_connection,
+)
+from backend.app.services.tools.registry_core.state import (
+    CORE_TOOLS,
+    REMOTE_TOOLS_AVAILABLE,
+    STATIC_TOOL_REGISTRY,
+    THIRD_PARTY_TOOLS,
+    _dynamic_tools,
+    _mindscape_tools,
 )
 
 __all__ = [
