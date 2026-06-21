@@ -5,26 +5,23 @@ import { useRouter } from 'next/navigation';
 import { t } from '../../../lib/i18n';
 import { useSettingsContext, type SettingsContext } from '../hooks/useSettingsContext';
 import type { SettingsTab } from '../types';
-
-import { getApiBaseUrl } from '../../../lib/api-url';
+import {
+  isSettingsAssistantUnavailableError,
+  sendSettingsAssistantChat,
+  type SettingsAssistantAction,
+} from './settingsConfigAssistantApi';
 
 // Ref handle interface for external components
 export interface SettingsConfigAssistantHandle {
   sendMessage: (message: string) => void;
 }
 
-const API_URL = getApiBaseUrl();
-
 interface Message {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   timestamp: Date;
-  actions?: Array<{
-    label: string;
-    action: string;
-    params?: Record<string, any>;
-  }>;
+  actions?: SettingsAssistantAction[];
 }
 
 interface SettingsConfigAssistantProps {
@@ -72,9 +69,9 @@ export const SettingsConfigAssistant = forwardRef<SettingsConfigAssistantHandle,
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     };
 
-    const generateWelcomeMessage = useCallback((ctx: SettingsContext | null, tab: SettingsTab): { content: string; actions?: Array<{ label: string; action: string; params?: Record<string, any> }> } => {
+    const generateWelcomeMessage = useCallback((ctx: SettingsContext | null, tab: SettingsTab): { content: string; actions?: SettingsAssistantAction[] } => {
       const issues: string[] = [];
-      const actions: Array<{ label: string; action: string; params?: Record<string, any> }> = [];
+      const actions: SettingsAssistantAction[] = [];
       let content = '';
       let suggestions: string[] = [];
       const currentTab = ctx?.currentTab || tab;
@@ -307,34 +304,24 @@ Be concise, helpful, and action-oriented.`;
       try {
         const systemPrompt = buildSystemPrompt(context);
 
-        const response = await fetch(`${API_URL}/api/v1/system-settings/assistant/chat`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            message: userMessage.content,
-            context: {
-              current_tab: currentTab,
-              current_section: currentSection,
-              config_snapshot: context?.configSnapshot,
-            },
-            system_prompt: systemPrompt,
-          })
+        const data = await sendSettingsAssistantChat({
+          message: userMessage.content,
+          currentTab,
+          currentSection,
+          configSnapshot: context?.configSnapshot,
+          systemPrompt,
         });
 
-        if (response.ok) {
-          const data = await response.json();
-          const assistantMessage: Message = {
-            id: (Date.now() + 1).toString(),
-            role: 'assistant',
-            content: data.response || data.message || t('configAssistantError' as any) || 'Sorry, I could not process your request.',
-            timestamp: new Date(),
-            actions: data.actions || []
-          };
-          setMessages(prev => [...prev, assistantMessage]);
-        } else if (response.status === 404 || response.status === 501) {
-          // Backend API not implemented yet, provide fallback response
+        const assistantMessage: Message = {
+          id: (Date.now() + 1).toString(),
+          role: 'assistant',
+          content: data.response || data.message || t('configAssistantError' as any) || 'Sorry, I could not process your request.',
+          timestamp: new Date(),
+          actions: data.actions || []
+        };
+        setMessages(prev => [...prev, assistantMessage]);
+      } catch (err) {
+        if (isSettingsAssistantUnavailableError(err)) {
           const fallbackMessage: Message = {
             id: (Date.now() + 1).toString(),
             role: 'assistant',
@@ -354,10 +341,8 @@ Be concise, helpful, and action-oriented.`;
             ]
           };
           setMessages(prev => [...prev, fallbackMessage]);
-        } else {
-          throw new Error('Failed to get response');
+          return;
         }
-      } catch (err) {
         const errorMessage: Message = {
           id: (Date.now() + 1).toString(),
           role: 'assistant',
@@ -394,35 +379,22 @@ Be concise, helpful, and action-oriented.`;
       try {
         const systemPrompt = buildSystemPrompt(context);
 
-        const response = await fetch(`${API_URL}/api/v1/system-settings/assistant/chat`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            message: userMessage.content,
-            context: {
-              current_tab: currentTab,
-              current_section: currentSection,
-              config_snapshot: context?.configSnapshot,
-            },
-            system_prompt: systemPrompt,
-          })
+        const data = await sendSettingsAssistantChat({
+          message: userMessage.content,
+          currentTab,
+          currentSection,
+          configSnapshot: context?.configSnapshot,
+          systemPrompt,
         });
 
-        if (response.ok) {
-          const data = await response.json();
-          const assistantMessage: Message = {
-            id: (Date.now() + 1).toString(),
-            role: 'assistant',
-            content: data.response || data.message || 'Sorry, I could not process your request.',
-            timestamp: new Date(),
-            actions: data.actions || []
-          };
-          setMessages(prev => [...prev, assistantMessage]);
-        } else {
-          throw new Error('API request failed');
-        }
+        const assistantMessage: Message = {
+          id: (Date.now() + 1).toString(),
+          role: 'assistant',
+          content: data.response || data.message || 'Sorry, I could not process your request.',
+          timestamp: new Date(),
+          actions: data.actions || []
+        };
+        setMessages(prev => [...prev, assistantMessage]);
       } catch (err) {
         const errorMessage: Message = {
           id: (Date.now() + 1).toString(),
