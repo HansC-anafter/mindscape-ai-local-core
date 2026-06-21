@@ -1,128 +1,42 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import type { MouseEvent } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { Project } from '@/types/project';
-import { parseServerTimestamp } from '@/lib/time';
 import { isDocumentHidden, onDocumentVisible } from '@/lib/page-visibility';
-import { sharedGetFetch } from '@/lib/resilient-fetch';
 import { subscribeEventStream, UnifiedEvent } from '@/components/workspace/eventProjector';
-import { WorkflowEvidenceSummary } from '@/components/workspace/meeting/WorkflowEvidenceSummary';
-
-interface ProjectCardData {
-  projectId: string;
-  projectName: string;
-  storyThreadId?: string;
-  mindLensId?: string;
-  mindLensName?: string;
-  status: 'active' | 'paused' | 'completed' | 'archived';
-  lastActivity: string;
-  stats: {
-    totalPlaybooks: number;
-    runningExecutions: number;
-    pendingConfirmations: number;
-    completedExecutions: number;
-    artifactCount: number;
-  };
-  progress: {
-    current: number;
-    label: string;
-  };
-  recentEvents: Array<{
-    id: string;
-    type: 'playbook_started' | 'step_completed' | 'artifact_created' | 'confirmation_needed';
-    playbookCode: string;
-    playbookName: string;
-    executionId: string;
-    stepIndex?: number;
-    stepName?: string;
-    timestamp: string;
-    metadata?: Record<string, any>;
-    projectId?: string;
-    projectName?: string;
-  }>;
-  playbooks?: Array<{
-    code: string;
-    name: string;
-    description: string;
-  }>;
-  meeting?: {
-    enabled: boolean;
-    active: boolean;
-    session_id?: string | null;
-    status?: string | null;
-    round_count?: number;
-    max_rounds?: number;
-    action_item_count?: number;
-    last_activity?: string | null;
-    minutes_preview?: string;
-  };
-}
-
-interface ProjectCardProps {
-  project: Project;
-  workspaceId?: string;
-  isExpanded?: boolean;
-  isFocused?: boolean;
-  defaultExpanded?: boolean;
-  onToggleExpand?: () => void;
-  onFocus?: () => void;
-  onOpenExecution?: (executionId: string) => void;
-  apiUrl?: string;
-}
-
-function formatRelativeTime(timestamp: string): string {
-  const date = parseServerTimestamp(timestamp);
-  if (!date) return timestamp;
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffMins = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMs / 3600000);
-  const diffDays = Math.floor(diffMs / 86400000);
-
-  if (diffMins < 1) return 'just now';
-  if (diffMins < 60) return `${diffMins} min ago`;
-  if (diffHours < 24) return `${diffHours} hr ago`;
-  if (diffDays < 7) return `${diffDays} day${diffDays === 1 ? '' : 's'} ago`;
-  return date.toLocaleDateString('en-US');
-}
-
-function EventItem({
-  event,
-  onClick
-}: {
-  event: ProjectCardData['recentEvents'][0];
-  onClick: () => void;
-}) {
-  const icons: Record<string, string> = {
-    playbook_started: 'START',
-    step_completed: 'DONE',
-    artifact_created: 'ART',
-    confirmation_needed: 'WAIT'
-  };
-
-  return (
-    <div
-      className="event-item flex items-center gap-2 p-2 hover:bg-surface-secondary dark:hover:bg-gray-800 rounded cursor-pointer transition-colors"
-      onClick={onClick}
-    >
-      <span className="event-icon text-xs flex-shrink-0">{icons[event.type] || '-'}</span>
-      <div className="event-content flex-1 min-w-0">
-        <div className="playbook-name text-[10px] font-medium text-primary dark:text-gray-100 truncate">
-          {event.playbookName}
-        </div>
-        {event.stepName && (
-          <div className="step-info text-[9px] text-secondary dark:text-gray-400">
-            Step {event.stepIndex}: {event.stepName}
-          </div>
-        )}
-      </div>
-      <span className="event-time text-[9px] text-tertiary dark:text-gray-500 flex-shrink-0">
-        {formatRelativeTime(event.timestamp)}
-      </span>
-    </div>
-  );
-}
+import ProjectCardView from './ProjectCardView';
+import {
+  fetchActiveMeetingSession,
+  fetchProjectCard,
+  loadMeetingSession,
+  loadProjectCardWithSharedFetch,
+  postMeetingChatMessage,
+  startMeetingSession,
+  updateProjectMeetingFlag,
+} from './projectCardApi';
+import {
+  EMPTY_WORKFLOW_EVIDENCE,
+  buildExecutionTimelineRoute,
+  buildMeetingMessage,
+  buildMeetingRoute,
+  buildMeetingScenePatchRoute,
+  calculateProjectProgress,
+  filterEventsForProject,
+  firstExecutionId,
+  isMeetingActive,
+  isMeetingEnabled,
+  meetingDataForToggle,
+  workflowEvidenceFromEventPayload,
+  workflowEvidenceFromSession,
+} from './projectCardState';
+import type {
+  ProjectCardApiContext,
+  ProjectCardData,
+  ProjectCardProps,
+  WorkflowEvidenceValues,
+} from './projectCardTypes';
 
 export default function ProjectCard({
   project,
@@ -139,23 +53,22 @@ export default function ProjectCard({
   const params = useParams();
   const effectiveWorkspaceId = workspaceId || (params?.workspaceId as string);
 
-
   const [internalExpanded, setInternalExpanded] = useState(defaultExpanded);
   const [cardData, setCardData] = useState<ProjectCardData | null>(null);
   const [loading, setLoading] = useState(false);
   const [visibilityLoadTick, setVisibilityLoadTick] = useState(0);
   const [meetingUpdating, setMeetingUpdating] = useState(false);
   const [isHighlighted, setIsHighlighted] = useState(false);
-  const [workflowEvidenceProfile, setWorkflowEvidenceProfile] = useState<string | null>(null);
-  const [workflowEvidenceScope, setWorkflowEvidenceScope] = useState<string | null>(null);
-  const [workflowEvidenceSelectedLines, setWorkflowEvidenceSelectedLines] = useState<number | null>(null);
-  const [workflowEvidenceTotalBudget, setWorkflowEvidenceTotalBudget] = useState<number | null>(null);
-  const [workflowEvidenceTotalCandidates, setWorkflowEvidenceTotalCandidates] = useState<number | null>(null);
-  const [workflowEvidenceTotalDropped, setWorkflowEvidenceTotalDropped] = useState<number | null>(null);
-  const [workflowEvidenceRenderedSections, setWorkflowEvidenceRenderedSections] = useState<number | null>(null);
-  const [workflowEvidenceUtilizationRatio, setWorkflowEvidenceUtilizationRatio] = useState<number | null>(null);
+  const [workflowEvidence, setWorkflowEvidence] = useState<WorkflowEvidenceValues>(EMPTY_WORKFLOW_EVIDENCE);
   const loadingRef = useRef(false);
   const highlightTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const projectApiContext = useMemo<ProjectCardApiContext | null>(
+    () => effectiveWorkspaceId
+      ? { apiUrl, workspaceId: effectiveWorkspaceId, projectId: project.id }
+      : null,
+    [apiUrl, effectiveWorkspaceId, project.id],
+  );
 
   const isExpanded = controlledExpanded !== undefined ? controlledExpanded : internalExpanded;
   const handleToggleExpand = useCallback(() => {
@@ -201,13 +114,12 @@ export default function ProjectCard({
   }, [project.id, isExpanded, handleToggleExpand]);
 
   useEffect(() => {
-    if (!isExpanded || cardData || loadingRef.current || apiUrl == null || !effectiveWorkspaceId || isDocumentHidden()) {
+    if (!isExpanded || cardData || loadingRef.current || apiUrl == null || !projectApiContext || isDocumentHidden()) {
       return;
     }
 
     loadingRef.current = true;
     setLoading(true);
-    const url = `${apiUrl}/api/v1/workspaces/${effectiveWorkspaceId}/projects/${project.id}/card`;
 
     let isMounted = true;
     const controller = new AbortController();
@@ -216,24 +128,9 @@ export default function ProjectCard({
       console.error('[ProjectCard] Request timeout after 30 seconds');
     }, 30000);
 
-    sharedGetFetch(url, {
-      method: 'GET',
-      headers: {
-        'Accept': 'application/json',
-      },
-      signal: controller.signal,
-      credentials: 'include'
-    }, { dedupKey: `workspace-project-card:${effectiveWorkspaceId}:${project.id}` })
-      .then(res => {
-        clearTimeout(timeoutId);
-        if (!res.ok) {
-          return res.text().then(text => {
-            throw new Error(`HTTP ${res.status}: ${res.statusText} - ${text}`);
-          });
-        }
-        return res.json();
-      })
+    loadProjectCardWithSharedFetch(projectApiContext, controller.signal)
       .then(data => {
+        clearTimeout(timeoutId);
         if (!isMounted) return;
         setCardData(data);
         loadingRef.current = false;
@@ -257,18 +154,16 @@ export default function ProjectCard({
       controller.abort();
       loadingRef.current = false;
     };
-  }, [cardData, apiUrl, project.id, effectiveWorkspaceId, isExpanded, visibilityLoadTick]);
+  }, [cardData, apiUrl, project.id, projectApiContext, isExpanded, visibilityLoadTick]);
 
   useEffect(() => onDocumentVisible(() => {
     setVisibilityLoadTick((tick) => tick + 1);
   }), []);
 
-  useEffect(() => {
-    const meetingOn = Boolean(
-      cardData?.meeting?.enabled ?? project.metadata?.meeting_enabled
-    );
-    if (!meetingOn || apiUrl == null || !effectiveWorkspaceId) return;
+  const meetingOnForSubscription = isMeetingEnabled(cardData, project);
 
+  useEffect(() => {
+    if (!meetingOnForSubscription || apiUrl == null || !effectiveWorkspaceId || !projectApiContext) return;
 
     const unsubscribe = subscribeEventStream(effectiveWorkspaceId, {
       apiUrl,
@@ -276,49 +171,21 @@ export default function ProjectCard({
       projectId: project.id,
       onEvent: (event: UnifiedEvent) => {
         if (event.type === 'meeting_start') {
-          setWorkflowEvidenceProfile(event.payload.workflow_evidence_profile || null);
-          setWorkflowEvidenceScope(event.payload.workflow_evidence_scope || null);
-          setWorkflowEvidenceSelectedLines(
-            event.payload.workflow_evidence_selected_line_count ?? null
-          );
-          setWorkflowEvidenceTotalBudget(
-            event.payload.workflow_evidence_total_line_budget ?? null
-          );
-          setWorkflowEvidenceTotalCandidates(
-            event.payload.workflow_evidence_total_candidate_count ?? null
-          );
-          setWorkflowEvidenceTotalDropped(
-            event.payload.workflow_evidence_total_dropped_count ?? null
-          );
-          setWorkflowEvidenceRenderedSections(
-            event.payload.workflow_evidence_rendered_section_count ?? null
-          );
-          setWorkflowEvidenceUtilizationRatio(
-            event.payload.workflow_evidence_budget_utilization_ratio ?? null
-          );
+          setWorkflowEvidence(workflowEvidenceFromEventPayload(event.payload));
         }
-        const url = `${apiUrl}/api/v1/workspaces/${effectiveWorkspaceId}/projects/${project.id}/card`;
-        fetch(url, { method: 'GET', headers: { 'Accept': 'application/json' }, credentials: 'include' })
-          .then(res => res.ok ? res.json() : null)
+        fetchProjectCard(projectApiContext)
           .then(data => { if (data) setCardData(data); })
           .catch(() => { });
       },
     });
 
     return unsubscribe;
-  }, [cardData?.meeting?.enabled, project.metadata?.meeting_enabled, apiUrl, effectiveWorkspaceId, project.id]);
+  }, [meetingOnForSubscription, projectApiContext, apiUrl, effectiveWorkspaceId, project.id]);
 
   useEffect(() => {
     const sessionId = cardData?.meeting?.session_id;
     if (!sessionId || apiUrl == null || !effectiveWorkspaceId) {
-      setWorkflowEvidenceProfile(null);
-      setWorkflowEvidenceScope(null);
-      setWorkflowEvidenceSelectedLines(null);
-      setWorkflowEvidenceTotalBudget(null);
-      setWorkflowEvidenceTotalCandidates(null);
-      setWorkflowEvidenceTotalDropped(null);
-      setWorkflowEvidenceRenderedSections(null);
-      setWorkflowEvidenceUtilizationRatio(null);
+      setWorkflowEvidence(EMPTY_WORKFLOW_EVIDENCE);
       return;
     }
 
@@ -326,43 +193,15 @@ export default function ProjectCard({
 
     const loadMeetingDiagnostics = async () => {
       try {
-        const response = await fetch(
-          `${apiUrl}/api/v1/workspaces/${effectiveWorkspaceId}/meeting-sessions/${sessionId}`,
-          {
-            method: 'GET',
-            headers: { Accept: 'application/json' },
-            credentials: 'include',
-          }
-        );
-        if (!response.ok) {
-          throw new Error(`Failed to load meeting session: ${response.status}`);
-        }
-        const session = await response.json();
-        const diagnostics = session?.metadata?.workflow_evidence_diagnostics || {};
+        const session = await loadMeetingSession(apiUrl, effectiveWorkspaceId, sessionId);
         if (cancelled) {
           return;
         }
-        setWorkflowEvidenceProfile(diagnostics.profile || null);
-        setWorkflowEvidenceScope(diagnostics.scope || null);
-        setWorkflowEvidenceSelectedLines(diagnostics.selected_line_count ?? null);
-        setWorkflowEvidenceTotalBudget(diagnostics.total_line_budget ?? null);
-        setWorkflowEvidenceTotalCandidates(diagnostics.total_candidate_count ?? null);
-        setWorkflowEvidenceTotalDropped(diagnostics.total_dropped_count ?? null);
-        setWorkflowEvidenceRenderedSections(diagnostics.rendered_section_count ?? null);
-        setWorkflowEvidenceUtilizationRatio(
-          diagnostics.budget_utilization_ratio ?? null
-        );
+        setWorkflowEvidence(workflowEvidenceFromSession(session));
       } catch (err) {
         console.error('[ProjectCard] Failed to load meeting diagnostics:', err);
         if (!cancelled) {
-          setWorkflowEvidenceProfile(null);
-          setWorkflowEvidenceScope(null);
-          setWorkflowEvidenceSelectedLines(null);
-          setWorkflowEvidenceTotalBudget(null);
-          setWorkflowEvidenceTotalCandidates(null);
-          setWorkflowEvidenceTotalDropped(null);
-          setWorkflowEvidenceRenderedSections(null);
-          setWorkflowEvidenceUtilizationRatio(null);
+          setWorkflowEvidence(EMPTY_WORKFLOW_EVIDENCE);
         }
       }
     };
@@ -374,52 +213,26 @@ export default function ProjectCard({
     };
   }, [apiUrl, cardData?.meeting?.session_id, effectiveWorkspaceId]);
 
-  const meetingEnabled = Boolean(
-    cardData?.meeting?.enabled ?? project.metadata?.meeting_enabled
-  );
-  const meetingActive = Boolean(cardData?.meeting?.active);
+  const meetingEnabled = isMeetingEnabled(cardData, project);
+  const meetingActive = isMeetingActive(cardData);
 
   const handleToggleMeeting = async (enabled: boolean) => {
-    if (apiUrl == null || !effectiveWorkspaceId || meetingUpdating) return;
+    if (apiUrl == null || !effectiveWorkspaceId || meetingUpdating || !projectApiContext) return;
     setMeetingUpdating(true);
     try {
-      const response = await fetch(
-        `${apiUrl}/api/v1/workspaces/${effectiveWorkspaceId}/projects/${project.id}`,
-        {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ meeting_enabled: enabled }),
-        }
-      );
-      if (!response.ok) {
-        throw new Error(`Failed to update meeting flag: ${response.status}`);
-      }
+      await updateProjectMeetingFlag(projectApiContext, enabled);
       setCardData((prev) => {
         if (!prev) return prev;
         return {
           ...prev,
-          meeting: {
-            enabled,
-            active: enabled ? true : false,
-            session_id: prev.meeting?.session_id ?? null,
-            status: enabled ? 'active' : null,
-            round_count: prev.meeting?.round_count ?? 0,
-            max_rounds: prev.meeting?.max_rounds ?? 5,
-            action_item_count: prev.meeting?.action_item_count ?? 0,
-            last_activity: prev.meeting?.last_activity ?? null,
-            minutes_preview: prev.meeting?.minutes_preview ?? '',
-          },
+          meeting: meetingDataForToggle(prev.meeting, enabled),
         };
       });
       if (enabled) {
         setTimeout(async () => {
           try {
-            const res = await fetch(
-              `${apiUrl}/api/v1/workspaces/${effectiveWorkspaceId}/projects/${project.id}/card`,
-              { headers: { 'Accept': 'application/json' }, credentials: 'include' }
-            );
-            if (res.ok) {
-              const data = await res.json();
+            const data = await fetchProjectCard(projectApiContext);
+            if (data) {
               setCardData(data);
             }
           } catch {
@@ -430,41 +243,24 @@ export default function ProjectCard({
         try {
           let sessionId = cardData?.meeting?.session_id || '';
           if (!sessionId) {
-            const activeResp = await fetch(
-              `${apiUrl}/api/v1/workspaces/${effectiveWorkspaceId}/meeting-sessions/active?project_id=${project.id}`,
-              { method: 'GET' }
-            );
-            if (activeResp.ok) {
-              const active = await activeResp.json();
+            const active = await fetchActiveMeetingSession(projectApiContext);
+            if (active.id) {
               sessionId = active.id;
-            } else if (activeResp.status === 404) {
-              const startResp = await fetch(
-                `${apiUrl}/api/v1/workspaces/${effectiveWorkspaceId}/meeting-sessions/start`,
-                {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    project_id: project.id,
-                    thread_id: cardData?.storyThreadId || null,
-                  }),
-                }
-              );
-              if (startResp.ok) {
-                const started = await startResp.json();
+            } else if (active.status === 404) {
+              const started = await startMeetingSession(apiUrl, effectiveWorkspaceId, {
+                project_id: project.id,
+                thread_id: cardData?.storyThreadId || null,
+              });
+              if (started?.id) {
                 sessionId = started.id;
               }
             }
           }
 
-          const meetingMessage = `[Meeting Started] Start project meeting for "${project.title}" (${project.type})`;
-          await fetch(`${apiUrl}/api/v1/workspaces/${effectiveWorkspaceId}/chat`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              message: meetingMessage,
-              project_id: project.id,
-              thread_id: sessionId || undefined,
-            }),
+          await postMeetingChatMessage(apiUrl, effectiveWorkspaceId, {
+            message: buildMeetingMessage(project.title, String(project.type)),
+            project_id: project.id,
+            thread_id: sessionId || undefined,
           });
           window.dispatchEvent(new Event('workspace-chat-updated'));
         } catch (kickoffErr) {
@@ -484,7 +280,7 @@ export default function ProjectCard({
       console.warn('[ProjectCard] No effectiveWorkspaceId, cannot open meeting');
       return;
     }
-    router.push(`/workspaces/${effectiveWorkspaceId}/meetings?project_id=${project.id}`);
+    router.push(buildMeetingRoute(effectiveWorkspaceId, project.id));
   };
 
   const handleOpenMeetingScenePatch = () => {
@@ -492,11 +288,7 @@ export default function ProjectCard({
       console.warn('[ProjectCard] No effectiveWorkspaceId, cannot open meeting scene patch');
       return;
     }
-    const params = new URLSearchParams({ project_id: project.id, open_patch: '1' });
-    if (cardData?.meeting?.session_id) {
-      params.set('session_id', cardData.meeting.session_id);
-    }
-    router.push(`/workspaces/${effectiveWorkspaceId}/meetings?${params.toString()}`);
+    router.push(buildMeetingScenePatchRoute(effectiveWorkspaceId, project.id, cardData?.meeting?.session_id));
   };
 
   const handleOpenExecution = (executionId: string) => {
@@ -505,336 +297,53 @@ export default function ProjectCard({
     }
   };
 
-  const handleCardClick = (e: React.MouseEvent) => {
+  const handleCardClick = (e: MouseEvent<HTMLDivElement>) => {
     const target = e.target as HTMLElement;
     if (target.closest('.card-header') || target.closest('.progress-bar-container') || target.closest('.card-content')) {
       return;
     }
 
-    if (cardData && cardData.stats.runningExecutions > 0 && onOpenExecution) {
-      if (cardData.recentEvents && cardData.recentEvents.length > 0) {
-        const firstEvent = cardData.recentEvents[0];
-        if (firstEvent.executionId) {
-          onOpenExecution(firstEvent.executionId);
-          return;
-        }
-      }
+    const executionId = firstExecutionId(cardData);
+    if (executionId && onOpenExecution) {
+      onOpenExecution(executionId);
+      return;
     }
     if (onFocus) {
       onFocus();
     }
   };
 
-  const progressPercentage = cardData
-    ? Math.max(cardData.progress.current, 1)
-    : 1;
-
-  const totalPlaybooks = cardData?.stats.totalPlaybooks || 0;
-  const nextTaskProgress = totalPlaybooks > 0
-    ? Math.min(progressPercentage + (100 / totalPlaybooks), 100)
-    : progressPercentage;
-  const nextNextTaskProgress = totalPlaybooks > 0
-    ? Math.min(progressPercentage + (200 / totalPlaybooks), 100)
-    : progressPercentage;
-  const scanRangeStart = progressPercentage;
-  const scanRangeEnd = nextNextTaskProgress;
-  const scanRangeWidth = scanRangeEnd - scanRangeStart;
+  const handleViewProject = () => {
+    if (effectiveWorkspaceId) {
+      router.push(buildExecutionTimelineRoute(effectiveWorkspaceId, project.id));
+    } else if (onFocus) {
+      onFocus();
+    }
+  };
 
   return (
-    <div
-      data-project-card-id={project.id}
-      className={`project-card bg-surface-secondary dark:bg-gray-800 border rounded-lg overflow-hidden transition-all cursor-pointer ${isHighlighted
-        ? 'ring-2 ring-accent dark:ring-blue-400 border-accent dark:border-blue-500 shadow-lg'
-        : 'border-default dark:border-gray-700'
-        } ${isFocused ? 'ring-2 ring-accent dark:ring-blue-400' : ''
-        }`}
-      onClick={handleCardClick}
-    >
-      <div
-        className={`cursor-pointer hover:bg-surface-secondary dark:hover:bg-gray-700 transition-colors ${meetingActive ? 'meeting-laser-border' : ''}`}
-        onClick={(e) => {
-          e.stopPropagation();
-          handleToggleExpand();
-        }}
-      >
-        <div className="flex items-center justify-between p-3 pb-1.5">
-          <div className="left flex items-center gap-2 flex-1 min-w-0">
-            <span className="chevron text-xs text-tertiary dark:text-gray-500 flex-shrink-0">
-              {isExpanded ? '[-]' : '[+]'}
-            </span>
-            <span className="project-name text-sm font-medium text-primary dark:text-gray-100 truncate">
-              {project.title}
-            </span>
-            {cardData?.mindLensName && (
-              <span className="mind-lens-tag text-[10px] px-1.5 py-0.5 bg-accent-10 dark:bg-blue-900/30 text-accent dark:text-blue-300 rounded">
-                @{cardData.mindLensName}
-              </span>
-            )}
-          </div>
-          <div className="right flex items-center gap-2 flex-shrink-0">
-            {cardData && (
-              <span
-                className={`badge running text-[10px] px-1.5 py-0.5 rounded ${cardData.stats.runningExecutions > 0
-                  ? 'bg-accent-10 dark:bg-blue-900/30 text-accent dark:text-blue-300'
-                  : 'bg-surface-secondary dark:bg-gray-700 text-tertiary dark:text-gray-500'
-                  }`}
-                title={`${cardData.stats.runningExecutions} running executions`}
-              >
-                RUN {cardData.stats.runningExecutions}
-              </span>
-            )}
-            {cardData && (
-              <span
-                className={`badge artifact text-[10px] px-1.5 py-0.5 rounded ${cardData.stats.artifactCount > 0
-                  ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300'
-                  : 'bg-surface-secondary dark:bg-gray-700 text-tertiary dark:text-gray-500'
-                  }`}
-                title={`${cardData.stats.artifactCount} artifacts`}
-              >
-                ART {cardData.stats.artifactCount}
-              </span>
-            )}
-            {cardData && (
-              <span
-                className={`badge completed text-[10px] px-1.5 py-0.5 rounded ${cardData.stats.completedExecutions > 0
-                  ? 'bg-surface-secondary dark:bg-gray-700 text-primary dark:text-gray-300'
-                  : 'bg-surface-secondary dark:bg-gray-700 text-tertiary dark:text-gray-500'
-                  }`}
-                title={`${cardData.stats.completedExecutions} completed executions`}
-              >
-                DONE {cardData.stats.completedExecutions}
-              </span>
-            )}
-            {cardData && cardData.stats.pendingConfirmations > 0 && (
-              <span
-                className="badge pending text-[10px] px-1.5 py-0.5 bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300 rounded"
-                title={`${cardData.stats.pendingConfirmations} pending confirmations`}
-              >
-                WAIT {cardData.stats.pendingConfirmations}
-              </span>
-            )}
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                handleToggleMeeting(!meetingEnabled).catch(() => undefined);
-              }}
-              disabled={meetingUpdating}
-              className={`text-[10px] px-1.5 py-0.5 rounded border transition-colors ${meetingEnabled
-                ? 'bg-sky-100 dark:bg-sky-900/30 text-sky-700 dark:text-sky-300 border-sky-200 dark:border-sky-700'
-                : 'bg-surface-secondary dark:bg-gray-700 text-tertiary dark:text-gray-400 border-default dark:border-gray-600'
-                } ${meetingUpdating ? 'opacity-60 cursor-not-allowed' : 'hover:opacity-85'}`}
-              title={meetingEnabled ? 'Disable persistent meeting' : 'Enable persistent meeting'}
-            >
-              Meeting {meetingEnabled ? (meetingActive ? 'ON*' : 'ON') : 'OFF'}
-            </button>
-          </div>
-        </div>
-        <div className="block px-3 pb-2 pt-0.5 text-[10px] text-secondary dark:text-gray-400">
-          <div className="flex items-center gap-3">
-            {(project.human_owner_user_id || project.initiator_user_id) && (
-              <span>Owner: {project.human_owner_user_id || project.initiator_user_id}</span>
-            )}
-            {project.created_at && (
-              <span>
-                {parseServerTimestamp(project.created_at)?.toLocaleDateString('en-US', {
-                  year: 'numeric',
-                  month: 'short',
-                  day: 'numeric'
-                }) ?? ''}
-              </span>
-            )}
-          </div>
-        </div>
-      </div>
-
-      <div className="progress-bar-container relative w-full h-1 bg-surface-secondary dark:bg-gray-700 overflow-hidden">
-        <div
-          className="progress-fill h-full bg-accent dark:bg-blue-400 rounded-full transition-all relative overflow-hidden"
-          style={{ width: `${progressPercentage}%` }}
-        >
-          <div className="laser-effect absolute inset-0 bg-gradient-to-r from-transparent via-white/50 via-white/80 via-white/50 to-transparent animate-shimmer" style={{ width: '40%' }} />
-        </div>
-        {cardData && scanRangeWidth > 0 && scanRangeEnd <= 100 && (
-          <div
-            className="progress-scan absolute top-0 h-full bg-gradient-to-r from-transparent via-blue-300/15 to-transparent animate-shimmer"
-            style={{
-              left: `${scanRangeStart}%`,
-              width: `${scanRangeWidth}%`
-            }}
-          />
-        )}
-      </div>
-
-      {isExpanded && (
-        <div className="card-content p-3">
-          {loading ? (
-            <div className="text-xs text-secondary dark:text-gray-400 text-center py-4">
-              Loading...
-            </div>
-          ) : cardData ? (
-            <div className="events-column w-full space-y-4">
-              <div className="p-2 rounded border border-sky-200/60 dark:border-sky-800/60 bg-sky-50/60 dark:bg-sky-900/10">
-                <div className="flex items-center justify-between gap-2 mb-1">
-                  <div className="text-[10px] font-semibold text-sky-800 dark:text-sky-300">
-                    Persistent Meeting
-                  </div>
-                  <div className="text-[10px] text-sky-700 dark:text-sky-400">
-                    {meetingEnabled ? (meetingActive ? 'Active' : 'Idle') : 'Disabled'}
-                  </div>
-                </div>
-                {meetingEnabled ? (
-                  <div className="space-y-1">
-                    <div className="text-[10px] text-secondary dark:text-gray-400">
-                      Round {cardData.meeting?.round_count || 0}/{cardData.meeting?.max_rounds || 5} - Action Items {cardData.meeting?.action_item_count || 0}
-                    </div>
-                    {workflowEvidenceProfile && (
-                      <WorkflowEvidenceSummary
-                        label="Workflow Evidence"
-                        profile={workflowEvidenceProfile}
-                        scope={workflowEvidenceScope}
-                        selectedLineCount={workflowEvidenceSelectedLines}
-                        totalLineBudget={workflowEvidenceTotalBudget}
-                        totalCandidateCount={workflowEvidenceTotalCandidates}
-                        totalDroppedCount={workflowEvidenceTotalDropped}
-                        renderedSectionCount={workflowEvidenceRenderedSections}
-                        budgetUtilizationRatio={workflowEvidenceUtilizationRatio}
-                        href={`/workspaces/${effectiveWorkspaceId}/meetings?${new URLSearchParams(
-                          cardData.meeting?.session_id
-                            ? { project_id: project.id, session_id: cardData.meeting.session_id }
-                            : { project_id: project.id }
-                        ).toString()}`}
-                        compact
-                        className="mt-1"
-                      />
-                    )}
-                    <div className="text-[10px] text-secondary dark:text-gray-400 line-clamp-2">
-                      {cardData.meeting?.minutes_preview?.trim() || 'No meeting summary yet'}
-                    </div>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleOpenMeeting();
-                      }}
-                      className="mt-1 text-[10px] px-2 py-1 rounded bg-sky-100 dark:bg-sky-900/30 text-sky-800 dark:text-sky-300 hover:opacity-85"
-                    >
-                      Enter Meeting
-                    </button>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleOpenMeetingScenePatch();
-                      }}
-                      className="mt-1 ml-2 text-[10px] px-2 py-1 rounded border border-sky-200 dark:border-sky-700 text-sky-700 dark:text-sky-300 hover:bg-sky-50 dark:hover:bg-sky-900/20"
-                    >
-                      Scene Patch
-                    </button>
-                  </div>
-                ) : (
-                  <div className="text-[10px] text-tertiary dark:text-gray-500">
-                    Enable to maintain meeting context and accumulate decisions and action items.
-                  </div>
-                )}
-              </div>
-
-              {cardData.playbooks && cardData.playbooks.length > 0 && (
-                <div className="mb-4">
-                  <div className="events-header text-[10px] font-semibold text-primary dark:text-gray-300 mb-2">
-                    Playbook Tasks ({cardData.playbooks.length})
-                  </div>
-                  <div className="space-y-1">
-                    {cardData.playbooks.map((playbook, index) => (
-                      <div
-                        key={playbook.code}
-                        className="flex items-center gap-2 p-2 hover:bg-surface-secondary dark:hover:bg-gray-800 rounded"
-                      >
-                        <span className="text-xs text-secondary dark:text-gray-400">
-                          {index + 1}.
-                        </span>
-                        <div className="flex-1 min-w-0">
-                          <div className="text-xs font-medium text-primary dark:text-gray-100">
-                            {playbook.name}
-                          </div>
-                          {playbook.description && (
-                            <div className="text-[10px] text-secondary dark:text-gray-400">
-                              {playbook.description}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              <div>
-                <div className="events-header text-[10px] font-semibold text-primary dark:text-gray-300 mb-2">
-                  Live Activity
-                </div>
-                <div className="events-list space-y-1 max-h-48 overflow-y-auto">
-                  {(() => {
-                    const filteredEvents = cardData.recentEvents.filter(event => {
-                      if (event.projectId) {
-                        return event.projectId === project.id;
-                      }
-                      return true;
-                    });
-
-                    return filteredEvents.length > 0 ? (
-                      filteredEvents.slice(0, 1).map(event => (
-                        <EventItem
-                          key={event.id}
-                          event={event}
-                          onClick={() => handleOpenExecution(event.executionId)}
-                        />
-                      ))
-                    ) : (
-                      <div className="text-[10px] text-tertiary dark:text-gray-500 text-center py-4">
-                        No activity yet
-                      </div>
-                    );
-                  })()}
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="text-xs text-secondary dark:text-gray-400 text-center py-4">
-              Unable to load data
-            </div>
-          )}
-        </div>
-      )}
-
-      <div className="px-3 pb-2 pt-1.5 border-t border-default dark:border-gray-700 grid grid-cols-2 gap-2">
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-
-            if (effectiveWorkspaceId) {
-              router.push(`/workspaces/${effectiveWorkspaceId}/executions/timeline?project_id=${project.id}`);
-            } else if (onFocus) {
-              onFocus();
-            }
-          }}
-          className="w-full text-xs text-accent dark:text-blue-400 hover:opacity-80 dark:hover:text-blue-300 font-medium py-1.5 px-2 rounded hover:bg-accent-10 dark:hover:bg-blue-900/20 transition-colors cursor-pointer"
-        >
-          View
-        </button>
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            handleOpenMeeting();
-          }}
-          className={`w-full text-xs font-medium py-1.5 px-2 rounded transition-colors ${meetingEnabled
-            ? 'text-sky-700 dark:text-sky-300 hover:bg-sky-50 dark:hover:bg-sky-900/20'
-            : 'text-tertiary dark:text-gray-500 hover:bg-surface-secondary dark:hover:bg-gray-800'
-            }`}
-        >
-          Meeting
-        </button>
-      </div>
-    </div>
+    <ProjectCardView
+      project={project}
+      effectiveWorkspaceId={effectiveWorkspaceId}
+      cardData={cardData}
+      loading={loading}
+      isExpanded={isExpanded}
+      isFocused={isFocused}
+      isHighlighted={isHighlighted}
+      meetingEnabled={meetingEnabled}
+      meetingActive={meetingActive}
+      meetingUpdating={meetingUpdating}
+      workflowEvidence={workflowEvidence}
+      progress={calculateProjectProgress(cardData)}
+      filteredEvents={filterEventsForProject(cardData?.recentEvents || [], project.id)}
+      meetingHref={buildMeetingRoute(effectiveWorkspaceId, project.id, cardData?.meeting?.session_id)}
+      onCardClick={handleCardClick}
+      onToggleExpand={handleToggleExpand}
+      onToggleMeeting={handleToggleMeeting}
+      onOpenMeeting={handleOpenMeeting}
+      onOpenMeetingScenePatch={handleOpenMeetingScenePatch}
+      onOpenExecution={handleOpenExecution}
+      onViewProject={handleViewProject}
+    />
   );
 }
