@@ -158,6 +158,9 @@ describe('CapabilityWorkbenchShell', () => {
     expect(screen.getByTestId('pack-main')).toBeInTheDocument();
     expect(screen.getByTestId('pack-scope-tool-ig:feed_grid_card_load_limit')).toBeInTheDocument();
     expect(screen.getByTestId('capability-workbench-content-slot')).toHaveClass('flex');
+    expect(screen.getByTestId('capability-workbench-navigation-region').className).toContain('md:h-full');
+    expect(screen.getByTestId('capability-workbench-navigation-slot').className).toContain('md:h-full');
+    expect(screen.getByTestId('capability-workbench-navigation-slot').className).toContain('md:max-h-none');
 
     fireEvent.click(screen.getByTestId('pack-scope-navigation-toggle'));
     expect(screen.getByTestId('capability-workbench-navigation-slot')).toHaveAttribute('data-navigation-state', 'closed');
