@@ -10,6 +10,9 @@ from typing import Dict, List, Optional, Any
 from backend.app.models.playbook import Playbook
 from backend.app.models.mindscape import MindscapeProfile
 from .conversation_manager_core import (
+    build_base_prompt_parts,
+    build_tool_access_sections,
+    build_tool_result_message,
     normalize_tool_call_json,
     normalize_tool_name,
     parse_python_style_tool_call,
@@ -63,71 +66,20 @@ class PlaybookConversationManager:
 
     async def build_system_prompt(self) -> str:
         """Build system prompt for Playbook execution"""
-        prompt_parts = []
-
-        # Playbook role and instructions
-        prompt_parts.append(f"[PLAYBOOK: {self.playbook.metadata.name}]")
-        prompt_parts.append(self.playbook.sop_content)
-        prompt_parts.append("[/PLAYBOOK]")
-
-        # Add variant customizations if present
-        if self.variant:
-            if self.skip_steps:
-                prompt_parts.append(f"\n[SKIP_STEPS]")
-                prompt_parts.append(
-                    f"Skip the following steps: {', '.join(map(str, self.skip_steps))}"
-                )
-                prompt_parts.append("[/SKIP_STEPS]")
-
-            if self.custom_checklist:
-                prompt_parts.append(f"\n[CUSTOM_CHECKLIST]")
-                prompt_parts.append("Additional checklist items:")
-                for item in self.custom_checklist:
-                    prompt_parts.append(f"- {item}")
-                prompt_parts.append("[/CUSTOM_CHECKLIST]")
-
-        # User context
-        if self.profile and self.profile.self_description:
-            prompt_parts.append("\n[USER_CONTEXT]")
-            desc = self.profile.self_description
-            prompt_parts.append(f"Identity: {desc.get('identity', 'N/A')}")
-            prompt_parts.append(f"Current Goal: {desc.get('solving', 'N/A')}")
-            prompt_parts.append(f"Challenges: {desc.get('thinking', 'N/A')}")
-            prompt_parts.append("[/USER_CONTEXT]")
-
-        prompt_parts.append("\n[LANGUAGE_INSTRUCTION]")
-        prompt_parts.append(f"Always respond in {self.target_language}.")
-        prompt_parts.append(
-            f"Use terminology appropriate for {self.target_language} locale."
+        prompt_parts = build_base_prompt_parts(
+            playbook_name=self.playbook.metadata.name,
+            sop_content=self.playbook.sop_content,
+            user_context=(
+                self.profile.self_description
+                if self.profile and self.profile.self_description
+                else None
+            ),
+            target_language=self.target_language,
+            variant=self.variant,
+            skip_steps=self.skip_steps,
+            custom_checklist=self.custom_checklist,
+            auto_execute=self.auto_execute,
         )
-        prompt_parts.append(
-            f"Maintain a conversational, friendly tone in {self.target_language}."
-        )
-        prompt_parts.append("[/LANGUAGE_INSTRUCTION]")
-
-        # Execution instructions
-        prompt_parts.append("\n[EXECUTION_INSTRUCTIONS]")
-        prompt_parts.append("Follow the SOP steps exactly as described.")
-        prompt_parts.append(
-            "At the end, output structured JSON with the key 'STRUCTURED_OUTPUT'."
-        )
-
-        # Auto-execute mode: skip confirmations and execute tools directly
-        if self.auto_execute:
-            prompt_parts.append("\n⚡ **AUTO-EXECUTE MODE ENABLED**:")
-            prompt_parts.append(
-                "- Do NOT ask for user confirmation before executing tools"
-            )
-            prompt_parts.append("- Execute all tool calls immediately and directly")
-            prompt_parts.append("- Skip any 'needs_review' or 'confirmation' steps")
-            prompt_parts.append(
-                "- Complete all SOP phases in a single response if possible"
-            )
-            prompt_parts.append(
-                "- Generate all required output files without waiting for user input"
-            )
-
-        prompt_parts.append("[/EXECUTION_INSTRUCTIONS]")
 
         # Collect tool slot information (if available)
         slot_info_str = ""
@@ -185,96 +137,21 @@ class PlaybookConversationManager:
                 f"Failed to collect tool slot information: {e}", exc_info=True
             )
 
-        # Tool call format instructions (enhanced with slot support)
-        tool_format_instructions = [
-            "\n## Tool Call Format (Must Follow Strictly)",
-            "\nWhen you need to use tools, you **must** use one of the following JSON formats:",
-        ]
-
-        # Add slot format if slots are available
-        if slot_info_str:
-            tool_format_instructions.extend(
-                [
-                    "\n### Format A (Use Tool Slot, Recommended):",
-                    "```json",
-                    "{",
-                    '  "tool_call": {',
-                    '    "tool_slot": "cms.footer.apply_style",',
-                    '    "parameters": {',
-                    '      "footer_content": "..."',
-                    "    }",
-                    "  }",
-                    "}",
-                    "```",
-                    "\nUsing tool_slot allows more flexible tool binding, recommend using this format first.",
-                ]
-            )
-
-        tool_format_instructions.extend(
-            [
-                "\n### Format B (Use Concrete Tool ID, Backward Compatible):",
-                "```json",
-                "{",
-                '  "tool_call": {',
-                '    "tool_name": "filesystem_list_files",',
-                '    "parameters": {',
-                '      "path": "./",',
-                '      "recursive": true',
-                "    }",
-                "  }",
-                "}",
-                "```",
-                "\n### Format C (Simplified Format):",
-                "```json",
-                "{",
-                '  "tool_name": "filesystem_write_file",',
-                '  "parameters": {',
-                '    "file_path": "pages/index.tsx",',
-                '    "content": "// file content here"',
-                "  }",
-                "}",
-                "```",
-                "\n### Invalid Formats (System Cannot Parse):",
-                "- Field names like `tool_code`, `tool_command`, etc.",
-                "- Python syntax like `tool_name(arg=value)`",
-                "- Function call syntax like `print(filesystem_list_files(...))`",
-                "\nAfter tool calls, the system will automatically execute and return results to you.",
-            ]
-        )
-
-        # Inject tool slot information (if available)
-        if slot_info_str:
-            prompt_parts.append(slot_info_str)
-            prompt_parts.append("\n**How to Use Tools:**")
-            prompt_parts.extend(tool_format_instructions)
-
-        # Inject traditional tool list (as fallback/backward compatibility)
         if self.cached_tools_str:
             logger.debug(
                 f"PlaybookConversationManager: Using cached tools string (length={len(self.cached_tools_str)})"
             )
-            if not slot_info_str:  # Only show if no slot info
-                prompt_parts.append("\n[AVAILABLE_TOOLS]")
-                prompt_parts.append(self.cached_tools_str)
-                prompt_parts.append("\n\n**How to Use Tools:**")
-                prompt_parts.extend(tool_format_instructions)
-                prompt_parts.append("[/AVAILABLE_TOOLS]")
-            else:
-                # Show as fallback option
-                prompt_parts.append("\n[AVAILABLE_TOOLS]")
-                prompt_parts.append(
-                    "If no suitable slot is available, you can also directly use the following tools:"
-                )
-                prompt_parts.append(self.cached_tools_str)
-                prompt_parts.append("[/AVAILABLE_TOOLS]")
-        else:
-            if not slot_info_str:  # Only show format instructions if no slot info
-                logger.warning(
-                    f"PlaybookConversationManager: No cached tools string available for playbook {self.playbook.metadata.playbook_code if self.playbook else 'unknown'}"
-                )
-                prompt_parts.append("\n[AVAILABLE_TOOLS]")
-                prompt_parts.extend(tool_format_instructions)
-                prompt_parts.append("[/AVAILABLE_TOOLS]")
+        elif not slot_info_str:
+            logger.warning(
+                f"PlaybookConversationManager: No cached tools string available for playbook {self.playbook.metadata.playbook_code if self.playbook else 'unknown'}"
+            )
+
+        prompt_parts.extend(
+            build_tool_access_sections(
+                slot_info_str=slot_info_str,
+                cached_tools_str=self.cached_tools_str,
+            )
+        )
 
         system_prompt = "\n".join(prompt_parts)
 
@@ -440,70 +317,30 @@ class PlaybookConversationManager:
         if not tool_results:
             return
 
-        results_text = "**Tool Call Results:**\n\n"
-        for i, result in enumerate(tool_results, 1):
+        tool_schemas: Dict[str, Optional[Dict[str, Any]]] = {}
+        for result in tool_results:
             tool_name = result.get("tool_name", "unknown")
             success = result.get("success", False)
-
             if success:
-                result_value = result.get("result", "Execution successful")
-                results_text += f"{i}. **{tool_name}**: Execution successful\n"
-                # Format result for LLM understanding
-                if isinstance(result_value, (dict, list)):
-                    result_str = json.dumps(result_value, ensure_ascii=False, indent=2)
-                    results_text += f"   Result:\n```json\n{result_str}\n```\n\n"
-                else:
-                    result_str = str(result_value)[:500]  # Limit length
-                    results_text += f"   Result: {result_str}\n\n"
+                continue
+
+            error_msg = result.get("error", "Execution failed")
+            logger.debug(
+                f"Attempting to get tool schema for {tool_name} with error: {error_msg[:100]}"
+            )
+            tool_schema = self._get_tool_schema_for_error(tool_name, error_msg)
+            logger.debug(f"Tool schema result for {tool_name}: {tool_schema is not None}")
+            if tool_schema:
+                logger.info(f"Found tool schema for {tool_name}, adding to error message")
             else:
-                error_msg = result.get("error", "Execution failed")
-                results_text += f"{i}. **{tool_name}**: Execution failed\n"
-                results_text += f"   Error: {error_msg}\n\n"
+                logger.debug(f"Could not get tool schema for {tool_name}")
+            tool_schemas[tool_name] = tool_schema
 
-                # Try to get tool definition to help LLM correct the call
-                logger.debug(
-                    f"Attempting to get tool schema for {tool_name} with error: {error_msg[:100]}"
-                )
-                tool_schema = self._get_tool_schema_for_error(tool_name, error_msg)
-                logger.debug(
-                    f"Tool schema result for {tool_name}: {tool_schema is not None}"
-                )
-                if tool_schema:
-                    logger.info(
-                        f"Found tool schema for {tool_name}, adding to error message"
-                    )
-                    results_text += f"   **Tool Definition:**\n"
-                    results_text += (
-                        f"   - Tool Name: `{tool_schema.get('name', tool_name)}`\n"
-                    )
-                    results_text += (
-                        f"   - Description: {tool_schema.get('description', 'N/A')}\n"
-                    )
-                    if tool_schema.get("input_schema"):
-                        params = tool_schema["input_schema"].get("properties", {})
-                        if params:
-                            results_text += f"   - **Correct Parameters:**\n"
-                            for param_name, param_def in params.items():
-                                param_type = param_def.get("type", "unknown")
-                                param_desc = param_def.get("description", "")
-                                required = param_name in tool_schema[
-                                    "input_schema"
-                                ].get("required", [])
-                                req_marker = " (required)" if required else ""
-                                results_text += f"     - `{param_name}` ({param_type}){req_marker}: {param_desc}\n"
-                    results_text += "\n"
-                else:
-                    logger.debug(f"Could not get tool schema for {tool_name}")
-
-        # In auto_execute mode, add stronger prompt to continue
-        if self.auto_execute:
-            results_text += "\n**⚡ AUTO-EXECUTE MODE: You MUST continue executing the next steps in the SOP immediately.**\n"
-            results_text += "- Review the tool results above\n"
-            results_text += "- Immediately call the next required tool from the SOP\n"
-            results_text += "- Do NOT stop or ask for confirmation\n"
-            results_text += "- Continue until all SOP phases are complete\n"
-        else:
-            results_text += "Please continue processing based on the above tool call results. If tool calls failed, please retry with the correct parameters from the tool definition.\n"
+        results_text = build_tool_result_message(
+            tool_results=tool_results,
+            tool_schemas=tool_schemas,
+            auto_execute=self.auto_execute,
+        )
 
         self.conversation_history.append({"role": "system", "content": results_text})
 
