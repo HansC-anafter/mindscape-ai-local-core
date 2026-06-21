@@ -1,14 +1,14 @@
 """
-Task Decomposer — LLM-driven task decomposition for complex requests.
+Task Decomposer - LLM-driven task decomposition for complex requests.
 
 Breaks a meeting decision + high-level action items into a detailed
 PhaseIR DAG suitable for DispatchOrchestrator. Runs AFTER meeting
 concludes, BEFORE DispatchOrchestrator.execute().
 
-Architecture ref:
-  - 缺失層 A (Task Decomposer) in task_orchestration_architecture.md §二
+Architecture refs:
+  - Missing layer A in task_orchestration_architecture.md
   - G2 in orchestration_implementation_plan.md
-  - YogoCookie E2E scenario in scenario_stress_test.md §場景C
+  - YogoCookie E2E scenario in scenario_stress_test.md
 
 LLM adapter contract:
   The llm_adapter must implement:
@@ -25,17 +25,16 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 from backend.app.models.task_ir import PhaseIR, PhaseStatus
+from backend.app.services.orchestration.task_decomposer_core import (
+    DECOMPOSE_SYSTEM_PROMPT,
+    EXTEND_SYSTEM_PROMPT,
+)
 
 logger = logging.getLogger(__name__)
 
 
-# ──────────────────────────────────────────────────────────────────────
-# P3-B: DecompositionPolicy — controls decomposition behavior per scale
-# ──────────────────────────────────────────────────────────────────────
-
-
 class DecompositionPolicy(BaseModel):
-    """Large-program decomposition strategy — replaces naive param tuning.
+    """Large-program decomposition strategy - replaces naive param tuning.
 
     Drives batching, wave budgets, and recursive depth. Use
     ``from_scale`` factory to get sensible defaults per scale tier.
@@ -90,94 +89,21 @@ class DecompositionPolicy(BaseModel):
         return cls(scale_tier=scale)  # standard defaults
 
 
-# ──────────────────────────────────────────────────────────────────────
-# System prompt for task decomposition
-# ──────────────────────────────────────────────────────────────────────
-
-_DECOMPOSE_SYSTEM_PROMPT = """\
-You are a Task Decomposer for Mindscape AI. Your job is to break down a \
-high-level meeting decision and its action items into a detailed, executable \
-phase list (DAG).
-
-## Rules
-
-1. Each phase MUST map to exactly one available playbook or tool. Do NOT \
-   invent playbook codes — only use codes from the Available Playbooks and \
-   Available Tools lists below.
-2. Phases that can run in parallel SHOULD have the same (or empty) depends_on.
-3. Phases that need upstream output MUST declare depends_on with the IDs of \
-   their upstream phases.
-4. Use stable phase IDs: "phase_0", "phase_1", etc.
-5. Keep the total number of phases ≤ {max_phases}.
-6. If a single action item implies batch work (e.g., "generate 90 posts"), \
-   create ONE phase with a clear description mentioning the batch size — \
-   the batch processor playbook will handle fan-out.
-7. Output ONLY a JSON array. No markdown, no commentary.
-
-## Output Schema
-
-```json
-[
-  {{
-    "id": "phase_0",
-    "name": "short descriptive name",
-    "description": "what this phase does and what artifact it produces",
-    "preferred_engine": "playbook:<code>" or "tool:<code>",
-    "depends_on": [],
-    "tool_name": null or "<tool_code>",
-    "input_params": {{}},
-    "target_workspace_id": null
-  }}
-]
-```
-
-## Available Playbooks
-
-{playbooks}
-
-## Available Tools
-
-{tools}
-"""
-
-_EXTEND_SYSTEM_PROMPT = """\
-You are a Task Decomposer performing ITERATIVE EXPANSION. A previous wave of \
-phases has completed. Based on their results, determine if additional phases \
-are needed.
-
-## Rules
-
-1. Only add phases that are NECESSARY based on the completed wave results.
-2. New phases MUST depend on already-completed phases (use their IDs in depends_on).
-3. Each new phase MUST map to an available playbook or tool.
-4. If no expansion is needed, return an empty JSON array: []
-5. Output ONLY a JSON array. No markdown, no commentary.
-
-## Completed Phase Results
-
-{wave_results}
-
-## Existing Phases (already planned)
-
-{existing_phase_ids}
-
-## Available Playbooks
-
-{playbooks}
-"""
+_DECOMPOSE_SYSTEM_PROMPT = DECOMPOSE_SYSTEM_PROMPT
+_EXTEND_SYSTEM_PROMPT = EXTEND_SYSTEM_PROMPT
 
 
 class TaskDecomposer:
     """Decompose high-level action items into executable phases.
 
     Two modes:
-    - passthrough: ≤ threshold items, return as-is (no LLM call)
+    - passthrough: <= threshold items, return as-is (no LLM call)
     - decompose: > threshold items or explicitly flagged, call LLM
 
     The decomposer sits between the Meeting Engine's executor output
     and the IR compiler / DispatchOrchestrator:
 
-        Meeting → ActionIntents (≤3) → Decomposer → PhaseIR[] (N) → DAG
+        Meeting -> ActionIntents (<=3) -> Decomposer -> PhaseIR[] (N) -> DAG
     """
 
     def __init__(
@@ -220,14 +146,14 @@ class TaskDecomposer:
         """
         if not force and len(action_items) <= self._threshold:
             logger.info(
-                "Passthrough: %d items ≤ threshold %d",
+                "Passthrough: %d items <= threshold %d",
                 len(action_items),
                 self._threshold,
             )
             return self._passthrough(action_items)
 
         if not self._llm:
-            logger.warning("No LLM adapter — falling back to passthrough")
+            logger.warning("No LLM adapter - falling back to passthrough")
             return self._passthrough(action_items)
 
         return await self._llm_decompose(
@@ -241,7 +167,7 @@ class TaskDecomposer:
         decision: str,
         available_playbooks: str = "",
     ) -> Optional[List[PhaseIR]]:
-        """Iterative decomposition — extend phases based on wave results.
+        """Iterative decomposition - extend phases based on wave results.
 
         Called by the Runtime Supervisor (G3) when a completed wave
         reveals that additional sub-tasks are needed.
@@ -297,9 +223,6 @@ class TaskDecomposer:
         return phases
 
     # ------------------------------------------------------------------
-    # LLM decomposition (Phase 2b)
-    # ------------------------------------------------------------------
-
     async def _llm_decompose(
         self,
         decision: str,
@@ -356,7 +279,7 @@ class TaskDecomposer:
             phases_data = self._extract_json_array(raw_output)
             if not phases_data:
                 logger.warning(
-                    "LLM decomposition returned no phases — "
+                    "LLM decomposition returned no phases - "
                     "falling back to passthrough"
                 )
                 return self._passthrough(action_items)
@@ -371,7 +294,7 @@ class TaskDecomposer:
 
         except Exception as exc:
             logger.warning(
-                "LLM decomposition failed — falling back to passthrough: %s",
+                "LLM decomposition failed - falling back to passthrough: %s",
                 exc,
             )
             return self._passthrough(action_items)
