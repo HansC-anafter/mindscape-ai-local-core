@@ -5,13 +5,21 @@ Generates context-aware suggestions based on installed capability packs, playboo
 
 import logging
 from typing import Dict, Any, List, Optional
-from datetime import datetime
 
 from backend.app.services.capability_registry import get_registry
 from backend.app.services.playbook_service import PlaybookService
 from backend.app.services.conversation.plan_builder import PlanBuilder
 from backend.app.services.mindscape_store import MindscapeStore
 from backend.app.services.stores.installed_packs_store import InstalledPacksStore
+from backend.app.services.suggestion_generator_core import (
+    build_content_summary,
+    check_playbook_tools_available,
+    generate_fallback_suggestions,
+    generate_file_suggestions,
+    generate_intent_suggestions,
+    generate_pack_suggestions,
+    priority_score,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -83,13 +91,13 @@ class SuggestionGenerator:
             context['workspace_id'] = workspace_id
 
             if has_recent_file:
-                file_suggestions = self._generate_file_suggestions(
+                file_suggestions = generate_file_suggestions(
                     context, installed_packs, available_playbooks
                 )
                 suggestions.extend(file_suggestions)
 
-            intent_suggestions = self._generate_intent_suggestions(
-                context, installed_packs, available_playbooks, has_intents
+            intent_suggestions = generate_intent_suggestions(
+                context, installed_packs, has_intents, self.i18n
             )
             suggestions.extend(intent_suggestions)
 
@@ -98,20 +106,20 @@ class SuggestionGenerator:
             )
             suggestions.extend(playbook_suggestions)
 
-            pack_suggestions = self._generate_pack_suggestions(
+            pack_suggestions = generate_pack_suggestions(
                 context, installed_packs
             )
             suggestions.extend(pack_suggestions)
 
             if len(suggestions) == 0:
-                suggestions.extend(self._generate_fallback_suggestions())
+                suggestions.extend(generate_fallback_suggestions(self.i18n))
 
-            suggestions.sort(key=lambda s: self._priority_score(s.get("priority", "low")))
+            suggestions.sort(key=lambda s: priority_score(s.get("priority", "low")))
             return suggestions[:3]
 
         except Exception as e:
             logger.error(f"Failed to generate suggestions: {e}", exc_info=True)
-            return self._generate_fallback_suggestions()
+            return generate_fallback_suggestions(self.i18n)
 
     def _get_installed_packs(self) -> List[Dict[str, Any]]:
         """Get list of installed capability packs with metadata"""
@@ -154,8 +162,6 @@ class SuggestionGenerator:
     async def _get_available_playbooks(self, locale: Optional[str] = None) -> List[Dict[str, Any]]:
         """Get list of available playbooks, filtered by locale if specified"""
         try:
-            import asyncio
-
             # Use PlaybookService to get playbooks
             target_locale = locale or self.default_locale
             playbook_metadata_list = await self.playbook_service.list_playbooks(
@@ -180,117 +186,6 @@ class SuggestionGenerator:
         except Exception as e:
             logger.warning(f"Failed to get available playbooks: {e}")
             return []
-
-    def _generate_file_suggestions(
-        self,
-        context: Dict[str, Any],
-        installed_packs: List[Dict[str, Any]],
-        available_playbooks: List[Dict[str, Any]]
-    ) -> List[Dict[str, Any]]:
-        """Generate suggestions based on recent file"""
-        suggestions = []
-
-        recent_file = context.get("recent_file", {})
-        file_name = recent_file.get("name", "")
-
-        if any("grant" in pb['playbook_code'].lower() or "government" in pb['playbook_code'].lower()
-               for pb in available_playbooks):
-            grant_playbook = next(
-                (pb for pb in available_playbooks
-                 if "grant" in pb['playbook_code'].lower() or "government" in pb['playbook_code'].lower()),
-                None
-            )
-            if grant_playbook:
-                suggestions.append({
-                    'title': f"Process {file_name}",
-                    'description': f"Use {grant_playbook['name']} to process this document",
-                    'action': 'execute_playbook',
-                    'params': {
-                        'playbook_code': grant_playbook['playbook_code'],
-                        'file_name': file_name
-                    },
-                    'cta_label': 'Process Document',
-                    'priority': 'high',
-                    'side_effect_level': 'readonly'
-                })
-
-        if any("proposal" in pb['playbook_code'].lower() or "major" in pb['playbook_code'].lower()
-               for pb in available_playbooks):
-            proposal_playbook = next(
-                (pb for pb in available_playbooks
-                 if "proposal" in pb['playbook_code'].lower() or "major" in pb['playbook_code'].lower()),
-                None
-            )
-            if proposal_playbook and file_name.lower().endswith(('.pdf', '.docx', '.doc')):
-                suggestions.append({
-                    'title': f"Analyze {file_name}",
-                    'description': f"Extract structure and create proposal from {file_name}",
-                    'action': 'execute_playbook',
-                    'params': {
-                        'playbook_code': proposal_playbook['playbook_code'],
-                        'file_name': file_name
-                    },
-                    'cta_label': 'Create Proposal',
-                    'priority': 'high',
-                    'side_effect_level': 'soft_write'
-                })
-
-        if file_name.lower().endswith(('.pdf', '.png', '.jpg', '.jpeg')):
-            suggestions.append({
-                'title': f"Extract text from {file_name}",
-                'description': 'Use OCR to extract text from scanned document',
-                'action': 'use_tool',
-                'params': {
-                    'tool': 'core_files.extract_text',
-                    'file_path': file_name
-                },
-                'cta_label': 'Extract Text',
-                'priority': 'medium',
-                'side_effect_level': 'readonly'
-            })
-
-        return suggestions
-
-    def _generate_intent_suggestions(
-        self,
-        context: Dict[str, Any],
-        installed_packs: List[Dict[str, Any]],
-        available_playbooks: List[Dict[str, Any]],
-        has_intents: bool
-    ) -> List[Dict[str, Any]]:
-        """Generate suggestions based on intents"""
-        suggestions = []
-
-        if not has_intents:
-            suggestions.append({
-                'title': self.i18n.t("conversation_orchestrator", "suggestion.create_intent_card_title"),
-                'description': self.i18n.t("conversation_orchestrator", "suggestion.create_intent_card_description"),
-                'action': 'create_intent',
-                'params': {},
-                'cta_label': self.i18n.t("conversation_orchestrator", "suggestion.create_intent_card_cta"),
-                'priority': 'medium',
-                'side_effect_level': 'soft_write'
-            })
-        else:
-            daily_planning_pack = next(
-                (p for p in installed_packs if p['pack_id'] == 'daily_planning'),
-                None
-            )
-            if daily_planning_pack and daily_planning_pack.get('tools_configured'):
-                suggestions.append({
-                    'title': self.i18n.t("conversation_orchestrator", "suggestion.organize_tasks_title"),
-                    'description': self.i18n.t("conversation_orchestrator", "suggestion.organize_tasks_description"),
-                    'action': 'use_tool',
-                    'params': {
-                        'tool': 'daily_planning.extract_tasks',
-                        'workspace_id': context.get('workspace_id')
-                    },
-                    'cta_label': self.i18n.t("conversation_orchestrator", "suggestion.organize_tasks_cta"),
-                    'priority': 'high',
-                    'side_effect_level': 'soft_write'
-                })
-
-        return suggestions
 
     async def _generate_playbook_suggestions(
         self,
@@ -348,7 +243,11 @@ class SuggestionGenerator:
 
                 # Find matching playbook
                 playbook = next((p for p in available_playbooks if p['playbook_code'] == playbook_code), None)
-                if playbook and self._check_playbook_tools_available(playbook, installed_packs):
+                if playbook and check_playbook_tools_available(
+                    playbook,
+                    installed_packs,
+                    self.registry,
+                ):
                     playbook_name = playbook.get('name', playbook['playbook_code'])
                     suggestions.append({
                         'title': f"{self.i18n.t('conversation_orchestrator', 'suggestion.run_playbook_cta')} {playbook_name}",
@@ -383,36 +282,6 @@ class SuggestionGenerator:
 
         return suggestions
 
-
-    def _check_playbook_tools_available(
-        self,
-        playbook: Dict[str, Any],
-        installed_packs: List[Dict[str, Any]]
-    ) -> bool:
-        """Check if all required tools for a playbook are available"""
-        tool_deps = playbook.get('tool_dependencies', [])
-        if not tool_deps:
-            return True  # No dependencies, assume available
-
-        for tool_dep in tool_deps:
-            tool_name = tool_dep.split('.')[-1] if '.' in tool_dep else tool_dep
-            capability_code = tool_dep.split('.')[0] if '.' in tool_dep else None
-
-            tool_available = any(
-                any(t.get('name') == tool_name for t in pack.get('tools', []))
-                for pack in installed_packs
-                if not capability_code or pack['pack_id'] == capability_code
-            )
-
-            if not tool_available:
-                registry_tool = self.registry.get_tool(tool_dep)
-                tool_available = registry_tool is not None
-
-            if not tool_available:
-                return False
-
-        return True
-
     async def _llm_analyze_and_suggest_playbooks(
         self,
         timeline_items: List[Dict[str, Any]],
@@ -436,10 +305,6 @@ class SuggestionGenerator:
         """
         try:
             from backend.app.capabilities.core_llm.services.structured import extract
-            from backend.app.services.agent_runner import LLMProviderManager
-            import os
-            import json
-
             # Get LLM API keys from user config
             from backend.app.shared.llm_provider_helper import create_llm_provider_manager
             config = self.config_store.get_or_create_config(profile_id)
@@ -471,7 +336,7 @@ class SuggestionGenerator:
                 raise ValueError(error_msg)
 
             # Build content summary for analysis
-            content_summary = self._build_content_summary(
+            content_summary = build_content_summary(
                 timeline_items,
                 assistant_messages,
                 workspace_focus
@@ -557,128 +422,3 @@ Important: Use semantic understanding, not keyword matching. Understand what the
             logger.error(f"Failed to analyze content with LLM: {e}", exc_info=True)
             # Return empty dict (not empty list) to match new return format
             return {"suggested_playbooks": [], "content_tags": [], "analysis_summary": ""}
-
-    def _build_content_summary(
-        self,
-        timeline_items: List[Dict[str, Any]],
-        assistant_messages: List[Dict[str, Any]],
-        workspace_focus: str
-    ) -> str:
-        """Build a summary of content for LLM analysis"""
-        parts = []
-
-        if workspace_focus:
-            parts.append(f"Workspace Focus: {workspace_focus[:200]}")
-
-        if timeline_items:
-            parts.append(f"\nTimeline Items ({len(timeline_items)}):")
-            for item in timeline_items[:5]:  # Limit to 5 most recent
-                item_type = item.get("type", "unknown")
-                title = item.get("title", "")[:100] if item.get("title") else "No title"
-                summary = item.get("summary", "")[:150] if item.get("summary") else ""
-                parts.append(f"  - {item_type}: {title}")
-                if summary:
-                    parts.append(f"    Summary: {summary}")
-
-        if assistant_messages:
-            parts.append(f"\nRecent Assistant Messages ({len(assistant_messages)}):")
-            for msg in assistant_messages[:3]:  # Limit to 3 most recent
-                message_text = msg.get("message", "")[:300]  # Limit length
-                if message_text:
-                    parts.append(f"  - {message_text}")
-
-        return "\n".join(parts) if parts else "No content available"
-
-
-    def _generate_pack_suggestions(
-        self,
-        context: Dict[str, Any],
-        installed_packs: List[Dict[str, Any]]
-    ) -> List[Dict[str, Any]]:
-        """Generate suggestions based on installed capability packs"""
-        suggestions = []
-
-        workspace_focus = context.get('workspace_focus')
-
-        for pack in installed_packs:
-            if not pack.get('tools_configured'):
-                continue
-
-            pack_id = pack['pack_id']
-            display_name = pack.get('display_name', pack_id)
-            description = pack.get('description', '')
-
-            if pack_id == 'content_drafting':
-                if workspace_focus:
-                    suggestions.append({
-                        'title': 'Draft Content',
-                        'description': f'Create content draft for: {workspace_focus[:50]}',
-                        'action': 'use_tool',
-                        'params': {
-                            'tool': 'content_drafting.generate',
-                            'topic': workspace_focus
-                        },
-                        'cta_label': 'Draft Content',
-                        'priority': 'medium',
-                        'side_effect_level': pack.get('side_effect_level', 'readonly')
-                    })
-
-            elif pack_id == 'research':
-                if workspace_focus:
-                    suggestions.append({
-                        'title': 'Research Topic',
-                        'description': f"Research: {workspace_focus[:50]}",
-                        'action': 'use_tool',
-                        'params': {
-                            'tool': 'research.search',
-                            'query': workspace_focus
-                        },
-                        'cta_label': 'Research',
-                        'priority': 'medium',
-                        'side_effect_level': 'readonly'
-                    })
-
-            elif pack_id == 'semantic_seeds':
-                if workspace_focus or context.get('recent_file'):
-                    suggestions.append({
-                        'title': 'Extract Intent Seeds',
-                        'description': 'Extract themes and intents from your content',
-                        'action': 'use_tool',
-                        'params': {
-                            'tool': 'semantic_seeds.extract_seeds',
-                            'workspace_id': context.get('workspace_id')
-                        },
-                        'cta_label': 'Extract Seeds',
-                        'priority': 'medium',
-                        'side_effect_level': 'readonly'
-                    })
-
-        return suggestions
-
-    def _generate_fallback_suggestions(self) -> List[Dict[str, Any]]:
-        """Generate fallback suggestions when no specific suggestions available"""
-        return [
-            {
-                'title': self.i18n.t("conversation_orchestrator", "suggestion.start_conversation_title"),
-                'description': self.i18n.t("conversation_orchestrator", "suggestion.start_conversation_description"),
-                'action': 'start_chat',
-                'params': {},
-                'cta_label': self.i18n.t("conversation_orchestrator", "suggestion.start_conversation_cta"),
-                'priority': 'low',
-                'side_effect_level': 'readonly'
-            },
-            {
-                'title': self.i18n.t("conversation_orchestrator", "suggestion.upload_file_title"),
-                'description': self.i18n.t("conversation_orchestrator", "suggestion.upload_file_description"),
-                'action': 'upload_file',
-                'params': {},
-                'cta_label': self.i18n.t("conversation_orchestrator", "suggestion.upload_file_cta"),
-                'priority': 'low',
-                'side_effect_level': 'readonly'
-            }
-        ]
-
-    def _priority_score(self, priority: str) -> int:
-        """Convert priority to numeric score for sorting"""
-        scores = {'high': 3, 'medium': 2, 'low': 1}
-        return scores.get(priority, 0)
