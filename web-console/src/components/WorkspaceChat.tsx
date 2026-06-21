@@ -6,8 +6,6 @@ import type { Suggestion } from './workspace/SuggestionChip';
 import { useChatEvents, ChatMessage } from '@/hooks/useChatEvents';
 import { useSendMessage } from '@/hooks/useSendMessage';
 import { UploadedFile } from '@/hooks/useFileUpload';
-import { CurrentExecutionBar } from './workspace/CurrentExecutionBar';
-import { DataPromptCard } from './workspace/DataPromptCard';
 import { WorkspaceChatProvider } from '@/contexts/WorkspaceChatContext';
 import { useUIState } from '@/contexts/UIStateContext';
 import { useScrollState } from '@/contexts/ScrollStateContext';
@@ -22,9 +20,7 @@ import { useChatModel } from '@/hooks/useChatModel';
 import { useMessageHandling } from '@/hooks/useMessageHandling';
 import { useWorkspaceData } from '@/hooks/useWorkspaceData';
 import { useTextareaAutoResize } from '@/hooks/useTextareaAutoResize';
-import { LLMNotConfiguredOverlay } from './workspace/LLMNotConfiguredOverlay';
-import { MessagesContainer } from './workspace/MessagesContainer';
-import { InputArea } from './workspace/InputArea';
+import { WorkspaceChatContentView } from './workspaceChat/WorkspaceChatContentView';
 import { formatExecutionSummary, createPlaybookErrorMessage, createAgentModeMessage, createExecutionModeMessage } from '@/utils/messageUtils';
 
 type ExecutionMode = 'qa' | 'execution' | 'hybrid' | 'meeting' | null;
@@ -62,32 +58,16 @@ function WorkspaceChatContent({
     input,
     setInput,
     llmConfigured,
-    setLlmConfigured,
-    isStreaming,
-    setIsStreaming,
-    copiedAll,
-    setCopiedAll,
     dataPrompt,
     setDataPrompt,
     analyzingFile,
-    setAnalyzingFile,
   } = useUIState();
 
-  const {
-    workspaceTitle,
-    setWorkspaceTitle,
-    contextTokenCount,
-    setContextTokenCount,
-    currentChatModel,
-    setCurrentChatModel,
-    availableChatModels,
-    setAvailableChatModels,
-  } = useWorkspaceMetadata();
+  useWorkspaceMetadata();
 
-  const { messagesScrollRef, textareaRef, fileInputRef, messagesEndRef, messagesContainerRef } = useWorkspaceRefs();
+  const { textareaRef, fileInputRef, messagesContainerRef } = useWorkspaceRefs();
 
   const {
-    messages,
     setMessages,
     messagesLoading,
     messagesError,
@@ -98,19 +78,14 @@ function WorkspaceChatContent({
     loadingMore,
     loadMore,
     reloadMessages,
-    executionState,
-    pipelineStage,
-    executionTree,
     currentExecution,
     handleViewDetail,
     handlePause,
     handleCancel,
   } = useMessages();
 
-  const selectedMessageRef = useRef<string | null>(null);
   const prevMessagesLoadingRef = useRef<boolean>(true);
 
-  // Use new Hooks for LLM configuration and chat model
   useLLMConfiguration(apiUrl, {
     workspaceId,
     enabled: true,
@@ -121,7 +96,6 @@ function WorkspaceChatContent({
     enabled: true,
   });
 
-  // Use new Hooks for message handling, workspace data, and textarea auto-resize
   const messageHandling = useMessageHandling(workspaceId, apiUrl, {
     projectId,
     threadId,
@@ -135,7 +109,6 @@ function WorkspaceChatContent({
     error: messageHandlingError,
   } = messageHandling;
 
-  // Get sendMessage from useSendMessage for suggestion execution
   const { sendMessage } = useSendMessage(workspaceId, apiUrl, projectId, threadId);
 
   const handleExecuteSuggestion = async (suggestion: Suggestion) => {
@@ -176,11 +149,9 @@ function WorkspaceChatContent({
     lineHeight: 20,
   });
 
-  // Use new Hooks
-  const { scrollToBottom, showScrollToBottom } = useScrollManagement();
+  const { scrollToBottom } = useScrollManagement();
   const { setIsInitialLoad } = useScrollState();
 
-  // File state from InputArea (single source of truth via onFilesChanged callback)
   const [uploadedFiles, setUploadedFilesState] = useState<UploadedFile[]>([]);
   const [analyzingFiles, setAnalyzingFiles] = useState<Set<string>>(new Set());
   const handleAnalyzeFileRef = useRef<(file: UploadedFile) => Promise<any>>(
@@ -205,8 +176,6 @@ function WorkspaceChatContent({
   const showInlineQuickStartSuggestions =
     quickStartSuggestions.length > 0 && layoutVariant !== 'meeting_pane';
 
-
-  // Use useWindowEvents to replace old event listeners
   useWindowEvents(
     {
       onContinueConversation: (data: any) => {
@@ -271,20 +240,12 @@ function WorkspaceChatContent({
       enabled: true,
     }
   );
-
-
-  // Note: availableChatModels is managed by useChatModel hook internally
-
-
-  // Cleanup file preview URLs and toast timeout on unmount
   useEffect(() => {
     return () => {
       // Cleanup is handled by InputArea's useFileHandling instance
     };
   }, []);
 
-
-  // Wrapper for handleAnalyzeFile to add error message handling
   const handleAnalyzeFileWithError = async (file: UploadedFile) => {
     try {
       const result = await handleAnalyzeFileRef.current(file);
@@ -342,15 +303,10 @@ function WorkspaceChatContent({
       }
     } catch (err: any) {
       console.error('Failed to send message:', err);
-
-      // Extract user-friendly error message, preserving URLs
       let errorMessage = err.message || t('workspaceSendMessageFailed' as any);
 
-      // Handle specific error types with user-friendly messages, but preserve original message with URLs
       if (errorMessage.includes('429') || errorMessage.includes('quota') || errorMessage.includes('insufficient_quota')) {
-        // Keep original message if it contains helpful URLs, otherwise use simplified message
         if (errorMessage.includes('http') || errorMessage.includes('docs')) {
-          // Preserve original message with URLs
           errorMessage = errorMessage;
         } else {
           errorMessage = 'API quota exceeded. Please check your plan and billing details.';
@@ -370,7 +326,6 @@ function WorkspaceChatContent({
       };
       setMessages((prev: ChatMessage[]) => [...prev, errorChatMessage]);
 
-      // Scroll to show error message
       setTimeout(() => {
         scrollToBottom();
       }, 100);
@@ -383,20 +338,11 @@ function WorkspaceChatContent({
     await handleSendMessage(e, uploadedFiles, analyzingFiles, handleAnalyzeFileWithError);
     clearFilesRef.current();
   };
-
-
-  // Reset initial load flag when workspace changes
   useEffect(() => {
     setIsInitialLoad(true);
     prevMessagesLoadingRef.current = true;
   }, [workspaceId, setIsInitialLoad]);
 
-  // Auto-resize textarea based on content
-
-
-  // Copy all messages
-
-  // Use useKeyboardShortcuts to replace old keyboard event listener
   useKeyboardShortcuts(
     {
       onCopyAll: handleCopyAllMessages,
@@ -408,165 +354,76 @@ function WorkspaceChatContent({
       enabled: true,
     }
   );
+  const handleDataPromptDismiss = useCallback(() => {
+    setDataPrompt(null);
+  }, [setDataPrompt]);
 
-  const handleMessageCopy = (content: string) => {
-    // Optional: Show toast notification
-    if (process.env.NODE_ENV === 'development') {
-      console.log('Message copied:', content.substring(0, 50) + '...');
+  const handleDataPromptFileUpload = useCallback(() => {
+    if (fileInputRef.current) {
+      fileInputRef.current.click();
     }
-  };
+  }, [fileInputRef]);
 
+  const handleDataPromptContinueWithText = useCallback((text: string) => {
+    setInput(text);
+    if (text.trim()) {
+      setTimeout(() => {
+        const form = document.querySelector('form[onSubmit]') as HTMLFormElement;
+        if (form) {
+          const event = new Event('submit', { bubbles: true, cancelable: true });
+          form.dispatchEvent(event);
+        }
+      }, 100);
+    }
+    setDataPrompt(null);
+  }, [setDataPrompt, setInput]);
+
+  const handleQuickStartSuggestionSelect = useCallback((suggestion: string) => {
+    setInput(suggestion);
+    setTimeout(() => {
+      const textarea = document.querySelector('textarea[name="workspace-chat-input"]') as HTMLTextAreaElement;
+      if (textarea) {
+        textarea.focus();
+      }
+    }, 100);
+  }, [setInput]);
 
   return (
-    <div className="flex flex-col h-full bg-surface-secondary dark:bg-gray-900 relative">
-      <LLMNotConfiguredOverlay visible={llmConfigured === false} />
-
-
-      {/* Messages */}
-      <div
-        ref={messagesContainerRef}
-        className="flex-1 overflow-hidden relative px-4 pt-4"
-        style={{ minWidth: 0, maxWidth: '100%' }}
-      >
-
-        {analyzingFile && (
-          <div className="flex justify-start">
-            <div className="bg-surface-secondary dark:bg-gray-800 rounded-lg px-6 py-4">
-              <div className="flex items-center gap-3">
-                <div className="flex space-x-1">
-                  <div className="w-2 h-2 bg-gray-400 dark:bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '0s' }} />
-                  <div className="w-2 h-2 bg-gray-400 dark:bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }} />
-                  <div className="w-2 h-2 bg-gray-400 dark:bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '0.4s' }} />
-                </div>
-                <span className="text-sm text-secondary dark:text-gray-300">{t('thinking' as any)}</span>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Debug: Log when fileAnalysisResult exists but no collaboration_results */}
-        {fileAnalysisResult && !fileAnalysisResult.collaboration_results && (() => {
-          console.log('fileAnalysisResult exists but no collaboration_results:', fileAnalysisResult);
-          return null;
-        })()}
-
-        {/* Debug: Show raw result if no collaboration results */}
-        {fileAnalysisResult && !fileAnalysisResult.collaboration_results && (
-          <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-700 rounded-lg p-4 mb-4">
-            <p className="text-sm text-yellow-800 dark:text-yellow-300">
-              {t('workspaceAnalysisNoResults' as any)}
-            </p>
-            <details className="mt-2">
-              <summary className="text-xs text-yellow-600 dark:text-yellow-400 cursor-pointer">{t('viewOriginalResponse' as any) || 'View original response'}</summary>
-              <pre className="text-xs mt-2 overflow-auto text-primary dark:text-gray-100">{JSON.stringify(fileAnalysisResult, null, 2)}</pre>
-            </details>
-          </div>
-        )}
-
-        <MessagesContainer
-          workspaceId={workspaceId}
-          apiUrl={apiUrl}
-          executionMode={executionMode || undefined}
-          expectedArtifacts={expectedArtifacts}
-          onExecuteSuggestion={handleExecuteSuggestion}
-          onRetry={handleRetry}
-          currentExecution={currentExecution}
-          onViewDetail={currentExecution ? () => handleViewDetail(currentExecution.executionId) : undefined}
-        />
-      </div>
-
-      {/* Error message */}
-      {error && (
-        <div className="px-4 py-2 bg-red-50 border-t border-red-200">
-          <p className="text-sm text-red-700">{error}</p>
-        </div>
-      )}
-
-      {/* Current Execution Bar - Above input box */}
-      <CurrentExecutionBar
-        execution={currentExecution}
-        onViewDetail={currentExecution ? () => handleViewDetail(currentExecution.executionId) : () => { }}
-        onPause={currentExecution ? () => handlePause(currentExecution.executionId) : () => { }}
-        onCancel={currentExecution ? () => handleCancel(currentExecution.executionId) : () => { }}
-      />
-
-      {/* Data Prompt Card - Show when task requires additional data */}
-      {dataPrompt && (
-        <div className="px-3 pt-2">
-          <DataPromptCard
-            taskTitle={dataPrompt.taskTitle}
-            description={dataPrompt.description}
-            dataType={dataPrompt.dataType}
-            prompt={dataPrompt.prompt}
-            taskId={dataPrompt.taskId}
-            onDismiss={() => setDataPrompt(null)}
-            onFileUpload={() => {
-              // Trigger file upload input
-              if (fileInputRef.current) {
-                fileInputRef.current.click();
-                // Note: After file upload, the file upload handler will process it
-                // We keep the prompt visible until user dismisses it or file is successfully uploaded
-              }
-            }}
-            onContinueWithText={(text) => {
-              // Send the text as a message
-              setInput(text);
-              // Auto submit if there's text
-              if (text.trim()) {
-                setTimeout(() => {
-                  const form = document.querySelector('form[onSubmit]') as HTMLFormElement;
-                  if (form) {
-                    // Trigger form submit
-                    const event = new Event('submit', { bubbles: true, cancelable: true });
-                    form.dispatchEvent(event);
-                  }
-                }, 100);
-              }
-              setDataPrompt(null);
-            }}
-          />
-        </div>
-      )}
-
-      {/* Quick Start Suggestions - Above input box */}
-      {showInlineQuickStartSuggestions && (
-        <div className="px-3 pt-2 pb-1 border-t border-default dark:border-gray-700 bg-surface dark:bg-gray-800/60">
-          <div className="flex flex-wrap gap-2">
-            {quickStartSuggestions.map((suggestion, idx) => (
-              <button
-                key={idx}
-                onClick={() => {
-                  setInput(suggestion);
-                  // Auto focus on input after setting
-                  setTimeout(() => {
-                    const textarea = document.querySelector('textarea[name="workspace-chat-input"]') as HTMLTextAreaElement;
-                    if (textarea) {
-                      textarea.focus();
-                    }
-                  }, 100);
-                }}
-                className="px-2.5 py-1 text-xs bg-surface-accent dark:bg-gray-800 border border-accent dark:border-gray-600 text-accent dark:text-gray-100 rounded-md hover:bg-accent-10 dark:hover:bg-gray-700 hover:border-accent dark:hover:border-gray-500 transition-colors"
-              >
-                {suggestion.startsWith('suggestion.') || suggestion.startsWith('suggestions.') ? t(suggestion as any) || suggestion : suggestion}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <InputArea
-        workspaceId={workspaceId}
-        apiUrl={apiUrl}
-        meetingId={meetingId || (layoutVariant === 'meeting_pane' ? threadId : null)}
-        onSend={handleSend}
-        onFileAnalyzed={onFileAnalyzed}
-        onCopyAll={handleCopyAllMessages}
-        isLoading={isLoading}
-        canSend={(!input.trim() && uploadedFiles.length === 0) ? false : true}
-        layoutVariant={layoutVariant}
-        onFilesChanged={handleFilesChanged}
-      />
-    </div>
+    <WorkspaceChatContentView
+      analyzingFile={analyzingFile}
+      apiUrl={apiUrl}
+      canSend={(!input.trim() && uploadedFiles.length === 0) ? false : true}
+      currentExecution={currentExecution}
+      dataPrompt={dataPrompt}
+      error={error}
+      executionMode={executionMode}
+      expectedArtifacts={expectedArtifacts}
+      fileAnalysisResult={fileAnalysisResult}
+      input={input}
+      isLoading={isLoading}
+      layoutVariant={layoutVariant}
+      llmConfigured={llmConfigured}
+      meetingId={meetingId}
+      messagesContainerRef={messagesContainerRef}
+      onCancelExecution={handleCancel}
+      onCopyAllMessages={handleCopyAllMessages}
+      onDataPromptContinueWithText={handleDataPromptContinueWithText}
+      onDataPromptDismiss={handleDataPromptDismiss}
+      onDataPromptFileUpload={handleDataPromptFileUpload}
+      onExecuteSuggestion={handleExecuteSuggestion}
+      onFileAnalyzed={onFileAnalyzed}
+      onFilesChanged={handleFilesChanged}
+      onPauseExecution={handlePause}
+      onQuickStartSuggestionSelect={handleQuickStartSuggestionSelect}
+      onRetry={handleRetry}
+      onSend={handleSend}
+      onViewExecutionDetail={handleViewDetail}
+      quickStartSuggestions={quickStartSuggestions}
+      showInlineQuickStartSuggestions={showInlineQuickStartSuggestions}
+      threadId={threadId}
+      uploadedFiles={uploadedFiles}
+      workspaceId={workspaceId}
+    />
   );
 }
 
