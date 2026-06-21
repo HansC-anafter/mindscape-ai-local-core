@@ -7,34 +7,14 @@ for injection into LLM prompts in Conversation mode.
 
 import logging
 from typing import Dict, Optional, List, Any
-from dataclasses import dataclass
 
 from backend.app.models.playbook import ToolPolicy
+from backend.app.services.playbook.tool_slot_info_core import (
+    ToolSlotInfo,
+    format_slot_info_for_prompt,
+)
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class ToolSlotInfo:
-    """
-    Tool slot information for LLM prompt injection
-    """
-
-    slot: str  # e.g., "cms.footer.apply_style"
-    description: Optional[str] = (
-        None  # From playbook.json step metadata.description or mapping metadata.description
-    )
-    policy: Optional[ToolPolicy] = None  # Policy constraints
-    mapped_tool_id: Optional[str] = None  # Current mapped tool_id (if configured)
-    mapped_tool_description: Optional[str] = None  # Tool description (optional)
-    source: str = "unknown"  # "playbook" or "workspace" or "project"
-    relevance_score: Optional[float] = (
-        None  # Relevance score from intent analysis (0.0-1.0)
-    )
-    tags: Optional[List[str]] = None  # Tags for LLM context (from metadata.tags)
-    priority: int = (
-        0  # Priority (0-100) for sorting: playbook_defined > recently_used > workspace_common > generic
-    )
 
 
 class ToolSlotInfoCollector:
@@ -490,153 +470,13 @@ class ToolSlotInfoCollector:
         include_mapped_tool: bool = True,
         include_relevance_score: bool = False,
     ) -> str:
-        """
-        Format slot information for LLM prompt injection
-
-        Args:
-            slot_info_map: Slot info map
-            include_policy: Whether to include policy information
-            include_mapped_tool: Whether to include mapped tool_id
-
-        Returns:
-            Formatted string for prompt injection
-        """
-        if not slot_info_map:
-            return ""
-
-        lines = ["[AVAILABLE_TOOL_SLOTS]"]
-        lines.append(
-            "The following tool slots are available for this Playbook. Use slot names instead of concrete tool_id."
+        """Format slot information for prompt injection."""
+        return format_slot_info_for_prompt(
+            slot_info_map=slot_info_map,
+            include_policy=include_policy,
+            include_mapped_tool=include_mapped_tool,
+            include_relevance_score=include_relevance_score,
         )
-        lines.append("")
-
-        # Group by source
-        playbook_slots = {
-            s: i for s, i in slot_info_map.items() if i.source == "playbook"
-        }
-        workspace_slots = {
-            s: i for s, i in slot_info_map.items() if i.source == "workspace"
-        }
-        project_slots = {
-            s: i for s, i in slot_info_map.items() if i.source == "project"
-        }
-        capability_slots = {
-            s: i for s, i in slot_info_map.items() if i.source == "capability"
-        }
-
-        # Sort by priority first, then relevance score (design requirement: priority > relevance)
-        def sort_key(item):
-            slot, info = item
-            # Primary sort: priority (descending, higher priority first)
-            priority_score = info.priority
-            # Secondary sort: relevance_score (descending, higher relevance first)
-            relevance_score = (
-                info.relevance_score
-                if (include_relevance_score and info.relevance_score is not None)
-                else 0.0
-            )
-            # Return tuple for multi-level sort: (priority, relevance_score) both descending
-            return (-priority_score, -relevance_score)
-
-        # Playbook-defined slots (priority)
-        if playbook_slots:
-            lines.append("## Priority Use (From Playbook Definition):")
-            sorted_playbook = sorted(playbook_slots.items(), key=sort_key)
-            for slot, info in sorted_playbook:
-                lines.extend(
-                    self._format_slot_info(
-                        slot,
-                        info,
-                        include_policy,
-                        include_mapped_tool,
-                        include_relevance_score,
-                    )
-                )
-            lines.append("")
-
-        # Project-level slots
-        if project_slots:
-            lines.append("## Project Level Mapping:")
-            sorted_project = sorted(project_slots.items(), key=sort_key)
-            for slot, info in sorted_project:
-                lines.extend(
-                    self._format_slot_info(
-                        slot,
-                        info,
-                        include_policy,
-                        include_mapped_tool,
-                        include_relevance_score,
-                    )
-                )
-            lines.append("")
-
-        # Workspace-level slots
-        if workspace_slots:
-            lines.append("## Workspace Level Mapping:")
-            sorted_workspace = sorted(workspace_slots.items(), key=sort_key)
-            for slot, info in sorted_workspace:
-                lines.extend(
-                    self._format_slot_info(
-                        slot,
-                        info,
-                        include_policy,
-                        include_mapped_tool,
-                        include_relevance_score,
-                    )
-                )
-            lines.append("")
-
-        # Capability-injected slots (lowest priority, auto-discovered)
-        if capability_slots:
-            lines.append("## Installed Capabilities:")
-            sorted_cap = sorted(capability_slots.items(), key=sort_key)
-            for slot, info in sorted_cap:
-                lines.extend(
-                    self._format_slot_info(
-                        slot,
-                        info,
-                        include_policy,
-                        include_mapped_tool,
-                        include_relevance_score,
-                    )
-                )
-            lines.append("")
-
-        lines.append("[/AVAILABLE_TOOL_SLOTS]")
-        return "\n".join(lines)
-
-    def _format_slot_info(
-        self,
-        slot: str,
-        info: ToolSlotInfo,
-        include_policy: bool,
-        include_mapped_tool: bool,
-        include_relevance_score: bool = False,
-    ) -> List[str]:
-        """Format a single slot info for prompt"""
-        lines = []
-        lines.append(f"- **{slot}**")
-
-        # Show relevance score if available
-        if include_relevance_score and info.relevance_score is not None:
-            score_str = f"{info.relevance_score:.2f}"
-            lines.append(f"  - Relevance: {score_str}")
-
-        if info.description:
-            lines.append(f"  - Description: {info.description}")
-
-        if include_policy and info.policy:
-            policy_parts = []
-            policy_parts.append(f"risk={info.policy.risk_level}")
-            policy_parts.append(f"env={info.policy.env}")
-            if info.policy.requires_preview:
-                policy_parts.append("requires_preview=true")
-            lines.append(f"  - Policy: {', '.join(policy_parts)}")
-
-        if include_mapped_tool and info.mapped_tool_id:
-            lines.append(f"  - Mapped to: {info.mapped_tool_id}")
-
-        return lines
 
 
 # Global instance
