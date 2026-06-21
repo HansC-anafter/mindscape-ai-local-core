@@ -1,45 +1,33 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Header from '../../components/Header';
 import OnboardingBanner from '../../components/OnboardingBanner';
 import SelfIntroDialog from '../../components/SelfIntroDialog';
-import TaskCard from '../../components/TaskCard';
 import HabitSuggestionToast from '../../components/HabitSuggestionToast';
 import { MindProfileCard } from '../../components/mindscape/MindProfileCard';
 import { t } from '../../lib/i18n';
-
 import { getApiBaseUrl } from '../../lib/api-url';
-import { formatLocalDateTime } from '@/lib/time';
+import {
+  DAILY_PLANNING_INTENT_PAYLOAD,
+  buildContentDraftingIntentPayload,
+  completeSelfIntro,
+  createMindscapeIntent,
+  fetchCurrentMode,
+  fetchFirstWorkspace,
+  fetchMindscapeIntents,
+  fetchMindscapeProfile,
+  fetchOnboardingStatus,
+  fetchPendingSuggestions,
+  reviewSuggestion,
+} from './mindscapePageApi';
+import { MindscapeEpisodePanel } from './MindscapeEpisodePanel';
+import { MindscapeOnboardingTasks } from './MindscapeOnboardingTasks';
+import { MindscapeOverviewPanels } from './MindscapeOverviewPanels';
+import type { CurrentMode, MindscapeIntent, MindscapeProfile, MindscapeSuggestion, OnboardingState, SelfIntroPayload } from './mindscapePageTypes';
 
 const API_URL = getApiBaseUrl();
-
-interface OnboardingState {
-  task1_completed: boolean;
-  task2_completed: boolean;
-  task3_completed: boolean;
-  task1_completed_at?: string;
-  task2_completed_at?: string;
-  task3_completed_at?: string;
-  is_onboarding?: boolean;
-  has_state?: boolean;
-}
-
-interface MindscapeSuggestion {
-  id: string;
-  type: 'project' | 'principle' | 'preference' | 'intent';
-  title: string;
-  description: string;
-  source: string;
-  confidence: number;
-}
-
-interface CurrentMode {
-  mainMode: string;
-  weeklyFocus: string[];
-  aiAssistants: string[];
-}
 
 export default function MindscapePage() {
   const router = useRouter();
@@ -48,8 +36,8 @@ export default function MindscapePage() {
   const [showCongrats, setShowCongrats] = useState(false);
   const [currentMode, setCurrentMode] = useState<CurrentMode | null>(null);
   const [suggestions, setSuggestions] = useState<MindscapeSuggestion[]>([]);
-  const [profile, setProfile] = useState<any>(null);
-  const [intents, setIntents] = useState<any[]>([]);
+  const [profile, setProfile] = useState<MindscapeProfile | null>(null);
+  const [intents, setIntents] = useState<MindscapeIntent[]>([]);
   const [loading, setLoading] = useState(true);
 
   const profileId = 'default-user';
@@ -64,7 +52,7 @@ export default function MindscapePage() {
       setLoading(true);
       await Promise.all([
         loadOnboardingStatus(),
-        loadMindscapeData()
+        loadMindscapeData(),
       ]);
     } catch (err) {
       console.error('Failed to load data:', err);
@@ -75,14 +63,12 @@ export default function MindscapePage() {
 
   const loadOnboardingStatus = async () => {
     try {
-      const response = await fetch(`${apiUrl}/api/v1/mindscape/onboarding/status?user_id=${profileId}`);
-      if (response.ok) {
-        const data = await response.json();
-        console.log('Onboarding status data:', data); // Debug log
-        console.log('onboarding_state keys:', Object.keys(data.onboarding_state || {})); // Debug: check keys
+      const data = await fetchOnboardingStatus(apiUrl, profileId);
+      if (data) {
+        console.log('Onboarding status data:', data);
+        console.log('onboarding_state keys:', Object.keys(data.onboarding_state || {}));
         setOnboardingState(data.onboarding_state);
 
-        // Check if just completed all tasks
         const completedCount = [
           data.onboarding_state.task1_completed,
           data.onboarding_state.task2_completed,
@@ -101,62 +87,42 @@ export default function MindscapePage() {
 
   const loadMindscapeData = async () => {
     try {
-      // Load profile
       try {
-        const profileRes = await fetch(`${apiUrl}/api/v1/mindscape/profiles/${profileId}`);
-        if (profileRes.ok) {
-          const profileData = await profileRes.json();
+        const profileData = await fetchMindscapeProfile(apiUrl, profileId);
+        if (profileData) {
           setProfile(profileData);
         }
       } catch (err) {
         console.log('Profile not found, will use defaults');
       }
 
-      // Load intents
       try {
-        const intentsRes = await fetch(`${apiUrl}/api/v1/mindscape/profiles/${profileId}/intents`);
-        if (intentsRes.ok) {
-          const intentsData = await intentsRes.json();
+        const intentsData = await fetchMindscapeIntents(apiUrl, profileId);
+        if (intentsData) {
           setIntents(intentsData);
         }
       } catch (err) {
         console.log('Intents not found');
       }
 
-      // Load current mode
       try {
-        const modeRes = await fetch(`${apiUrl}/api/v1/mindscape/profiles/${profileId}/current-mode`);
-        if (modeRes.ok) {
-          const modeData = await modeRes.json();
-          setCurrentMode({
-            mainMode: modeData.main_mode || '未設定',
-            weeklyFocus: modeData.weekly_focus || [],
-            aiAssistants: modeData.ai_assistants || []
-          });
+        const modeData = await fetchCurrentMode(apiUrl, profileId);
+        if (modeData) {
+          setCurrentMode(modeData);
         }
       } catch (err) {
         console.log('Failed to load current mode');
         setCurrentMode({
           mainMode: '未設定',
           weeklyFocus: [],
-          aiAssistants: []
+          aiAssistants: [],
         });
       }
 
-      // Load suggestions
       try {
-        const suggestionsRes = await fetch(`${apiUrl}/api/v1/mindscape/suggestions?profile_id=${profileId}&status=pending`);
-        if (suggestionsRes.ok) {
-          const suggestionsData = await suggestionsRes.json();
-          const formattedSuggestions = suggestionsData.suggestions.map((s: any) => ({
-            id: s.id,
-            type: s.suggestion_type,
-            title: s.title,
-            description: s.description,
-            source: s.source_summary || '最近使用記錄',
-            confidence: s.confidence || 0.5
-          }));
-          setSuggestions(formattedSuggestions);
+        const suggestionsData = await fetchPendingSuggestions(apiUrl, profileId);
+        if (suggestionsData) {
+          setSuggestions(suggestionsData);
         }
       } catch (err) {
         console.log('Failed to load suggestions');
@@ -166,21 +132,11 @@ export default function MindscapePage() {
     }
   };
 
-  // Handle Task 1: Self Introduction
-  const handleCompleteSelfIntro = async (data: { identity: string; solving: string; thinking: string }) => {
+  const handleCompleteSelfIntro = async (data: SelfIntroPayload) => {
     try {
-      const response = await fetch(`${apiUrl}/api/v1/mindscape/onboarding/self-intro?profile_id=${profileId}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
-      });
-
-      if (response.ok) {
-        await loadAllData();
-        alert(t('setupCompleteAlert' as any));
-      } else {
-        throw new Error('Failed to complete self intro');
-      }
+      await completeSelfIntro(apiUrl, profileId, data);
+      await loadAllData();
+      alert(t('setupCompleteAlert' as any));
     } catch (err: any) {
       console.error('Failed to complete self intro:', err);
       throw err;
@@ -189,18 +145,10 @@ export default function MindscapePage() {
 
   const handleAcceptSuggestion = async (suggestion: MindscapeSuggestion) => {
     try {
-      const response = await fetch(`${apiUrl}/api/v1/mindscape/suggestions/${suggestion.id}/review?action=accept`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
-      });
-
-      if (response.ok) {
-        setSuggestions(suggestions.filter(s => s.id !== suggestion.id));
-        alert(`已接受建議：${suggestion.title}`);
-        loadMindscapeData();
-      } else {
-        throw new Error('Failed to accept suggestion');
-      }
+      await reviewSuggestion(apiUrl, suggestion.id, 'accept');
+      setSuggestions(suggestions.filter(s => s.id !== suggestion.id));
+      alert(`已接受建議：${suggestion.title}`);
+      loadMindscapeData();
     } catch (err: any) {
       alert(`接受建議失敗：${err.message}`);
     }
@@ -208,18 +156,82 @@ export default function MindscapePage() {
 
   const handleDismissSuggestion = async (suggestion: MindscapeSuggestion) => {
     try {
-      const response = await fetch(`${apiUrl}/api/v1/mindscape/suggestions/${suggestion.id}/review?action=dismiss`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
-      });
-
-      if (response.ok) {
-        setSuggestions(suggestions.filter(s => s.id !== suggestion.id));
-      } else {
-        throw new Error('Failed to dismiss suggestion');
-      }
+      await reviewSuggestion(apiUrl, suggestion.id, 'dismiss');
+      setSuggestions(suggestions.filter(s => s.id !== suggestion.id));
     } catch (err: any) {
       alert(`略過建議失敗：${err.message}`);
+    }
+  };
+
+  const handleStartDailyPlanning = async () => {
+    try {
+      const workspace = await fetchFirstWorkspace(apiUrl, profileId);
+      if (workspace.workspaceId) {
+        const intentCreated = await createMindscapeIntent(apiUrl, profileId, DAILY_PLANNING_INTENT_PAYLOAD);
+        if (intentCreated) {
+          router.push(`/workspaces/${workspace.workspaceId}?playbook=daily_planning`);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to start daily planning:', err);
+    }
+  };
+
+  const handleStartContentDrafting = async () => {
+    try {
+      const workspace = await fetchFirstWorkspace(apiUrl, profileId);
+      if (workspace.workspaceId) {
+        const contentType = prompt('這次要寫什麼？（例如：募資頁、IG 貼文、課程介紹）');
+        if (contentType) {
+          const intentCreated = await createMindscapeIntent(
+            apiUrl,
+            profileId,
+            buildContentDraftingIntentPayload(contentType)
+          );
+          if (intentCreated) {
+            router.push(`/workspaces/${workspace.workspaceId}?playbook=content_drafting`);
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Failed to start content drafting:', err);
+    }
+  };
+
+  const handleStartSystemCheck = async () => {
+    try {
+      const workspace = await fetchFirstWorkspace(apiUrl, profileId);
+      if (workspace.workspaceId) {
+        router.push(`/workspaces/${workspace.workspaceId}?mode=system_check`);
+      }
+    } catch (err) {
+      console.error('Failed to start system check:', err);
+    }
+  };
+
+  const handleContinueIntent = async (intent: MindscapeIntent) => {
+    try {
+      const workspace = await fetchFirstWorkspace(apiUrl, profileId);
+      if (workspace.workspaceId) {
+        router.push(`/workspaces/${workspace.workspaceId}?intent=${intent.id}`);
+      }
+    } catch (err) {
+      console.error('Failed to continue intent:', err);
+    }
+  };
+
+  const handleDirectEntry = async () => {
+    try {
+      const workspace = await fetchFirstWorkspace(apiUrl, profileId);
+      if (workspace.ok) {
+        if (workspace.workspaceId) {
+          router.push(`/workspaces/${workspace.workspaceId}`);
+        } else {
+          router.push('/workspaces');
+        }
+      }
+    } catch (err) {
+      router.push('/workspaces');
     }
   };
 
@@ -232,8 +244,6 @@ export default function MindscapePage() {
     ].filter(Boolean).length;
   };
 
-  // Determine mode: onboarding is only when NO state exists
-  // Debug: log state for troubleshooting
   console.log('Onboarding state:', onboardingState);
   const isOnboarding = onboardingState?.is_onboarding === true && !onboardingState?.has_state;
   const hasState = onboardingState?.has_state === true;
@@ -256,7 +266,6 @@ export default function MindscapePage() {
     <div className="min-h-screen bg-gray-50">
       <Header />
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Page Title */}
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">{t('navMindscape' as any)}</h1>
           <div className="text-gray-600">
@@ -264,7 +273,6 @@ export default function MindscapePage() {
           </div>
         </div>
 
-        {/* Onboarding Banner (only show in true onboarding mode) */}
         {isOnboarding && (
           <OnboardingBanner
             completedCount={getCompletionCount()}
@@ -277,516 +285,75 @@ export default function MindscapePage() {
           />
         )}
 
-        {/* Self Intro Dialog */}
         <SelfIntroDialog
           isOpen={showSelfIntroDialog}
           onClose={() => setShowSelfIntroDialog(false)}
           onSubmit={handleCompleteSelfIntro}
         />
 
-        {/* Mind Profile Card (only show after onboarding complete) */}
         {hasState && !isOnboarding && (
           <div className="mb-8">
             <MindProfileCard profileId={profileId} />
           </div>
         )}
 
-        {/* Episode Selection Screen (when user has state) */}
         {hasState && !isOnboarding && (
-          <div className="mb-8">
-            <div className="bg-gradient-to-r from-gray-50 to-blue-50 border-2 border-gray-200 rounded-lg p-8 mb-6">
-              <h2 className="text-2xl font-bold text-gray-900 mb-2">歡迎回到你的 Mindscape AI 工作站</h2>
-              <div className="text-gray-600 mb-6">先選一個今天要啟動的模式，AI 團隊就會照這個方向配合你工作。</div>
-
-              {/* Three Entry Buttons */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-                {/* Daily Planning Entry */}
-                <button
-                  onClick={async () => {
-                    try {
-                      // Get first workspace
-                      const workspacesRes = await fetch(`${apiUrl}/api/v1/workspaces/summary?owner_user_id=${profileId}&limit=1`);
-                      if (workspacesRes.ok) {
-                        const workspaces = await workspacesRes.json();
-                        if (workspaces.length > 0) {
-                          const workspaceId = workspaces[0].id;
-                          // Create intent for daily planning
-                          const intentRes = await fetch(`${apiUrl}/api/v1/mindscape/profiles/${profileId}/intents`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                              title: '今日工作規劃',
-                              description: '今天的行程與優先順序',
-                              tags: ['work', 'planning'],
-                              status: 'active',
-                              priority: 'medium'
-                            })
-                          });
-                          if (intentRes.ok) {
-                            // Navigate to workspace with daily_planning playbook
-                            router.push(`/workspaces/${workspaceId}?playbook=daily_planning`);
-                          }
-                        }
-                      }
-                    } catch (err) {
-                      console.error('Failed to start daily planning:', err);
-                    }
-                  }}
-                  className="p-6 bg-white rounded-lg border-2 border-blue-200 hover:border-blue-400 hover:shadow-lg transition-all text-left"
-                >
-                  <div className="text-3xl mb-3">🗓</div>
-                  <h3 className="text-lg font-semibold text-gray-900 mb-2">今天先把事情排好</h3>
-                  <p className="text-sm text-gray-600">收集任務 → 排優先順序 → 形成今日 checklist</p>
-                </button>
-
-                {/* Content Drafting Entry */}
-                <button
-                  onClick={async () => {
-                    try {
-                      const workspacesRes = await fetch(`${apiUrl}/api/v1/workspaces/summary?owner_user_id=${profileId}&limit=1`);
-                      if (workspacesRes.ok) {
-                        const workspaces = await workspacesRes.json();
-                        if (workspaces.length > 0) {
-                          const workspaceId = workspaces[0].id;
-                          const contentType = prompt('這次要寫什麼？（例如：募資頁、IG 貼文、課程介紹）');
-                          if (contentType) {
-                            const intentRes = await fetch(`${apiUrl}/api/v1/mindscape/profiles/${profileId}/intents`, {
-                              method: 'POST',
-                              headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({
-                                title: `撰寫：${contentType}`,
-                                description: `創作 ${contentType} 的內容`,
-                                tags: ['content', 'writing'],
-                                status: 'active',
-                                priority: 'medium'
-                              })
-                            });
-                            if (intentRes.ok) {
-                              router.push(`/workspaces/${workspaceId}?playbook=content_drafting`);
-                            }
-                          }
-                        }
-                      }
-                    } catch (err) {
-                      console.error('Failed to start content drafting:', err);
-                    }
-                  }}
-                  className="p-6 bg-white rounded-lg border-2 border-green-200 hover:border-green-400 hover:shadow-lg transition-all text-left"
-                >
-                  <div className="text-3xl mb-3">✍️</div>
-                  <h3 className="text-lg font-semibold text-gray-900 mb-2">我想寫一份內容</h3>
-                  <p className="text-sm text-gray-600">理解需求 → 設計結構 → 出草稿</p>
-                </button>
-
-                {/* System Check Entry */}
-                <button
-                  onClick={async () => {
-                    try {
-                      const workspacesRes = await fetch(`${apiUrl}/api/v1/workspaces/summary?owner_user_id=${profileId}&limit=1`);
-                      if (workspacesRes.ok) {
-                        const workspaces = await workspacesRes.json();
-                        if (workspaces.length > 0) {
-                          const workspaceId = workspaces[0].id;
-                          // Navigate to workspace with system check
-                          router.push(`/workspaces/${workspaceId}?mode=system_check`);
-                        }
-                      }
-                    } catch (err) {
-                      console.error('Failed to start system check:', err);
-                    }
-                  }}
-                  className="p-6 bg-white rounded-lg border-2 border-yellow-200 hover:border-yellow-400 hover:shadow-lg transition-all text-left"
-                >
-                  <div className="text-3xl mb-3">🔧</div>
-                  <h3 className="text-lg font-semibold text-gray-900 mb-2">先讓默默 AI 幫我檢查系統</h3>
-                  <p className="text-sm text-gray-600">檢查設定、工具連接、系統健康狀態</p>
-                </button>
-              </div>
-
-              {/* Continue Last Intent Option */}
-              {intents.length > 0 && (
-                <div className="mb-4 p-4 bg-white rounded-lg border border-gray-200">
-                  <h3 className="text-sm font-semibold text-gray-700 mb-2">繼續上次主線</h3>
-                  <div className="space-y-2">
-                    {intents.slice(0, 2).map((intent) => (
-                      <button
-                        key={intent.id}
-                        onClick={async () => {
-                          try {
-                            const workspacesRes = await fetch(`${apiUrl}/api/v1/workspaces/summary?owner_user_id=${profileId}&limit=1`);
-                            if (workspacesRes.ok) {
-                              const workspaces = await workspacesRes.json();
-                              if (workspaces.length > 0) {
-                                router.push(`/workspaces/${workspaces[0].id}?intent=${intent.id}`);
-                              }
-                            }
-                          } catch (err) {
-                            console.error('Failed to continue intent:', err);
-                          }
-                        }}
-                        className="w-full text-left p-3 bg-gray-50 hover:bg-gray-100 rounded border border-gray-200 transition-colors"
-                      >
-                        <div className="font-medium text-gray-900">{intent.title}</div>
-                        <div className="text-xs text-gray-500 mt-1">上次更新：{formatLocalDateTime(intent.updated_at)}</div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Direct Entry Link */}
-              <div className="text-right">
-                <button
-                  onClick={async () => {
-                    try {
-                      const workspacesRes = await fetch(`${apiUrl}/api/v1/workspaces/summary?owner_user_id=${profileId}&limit=1`);
-                      if (workspacesRes.ok) {
-                        const workspaces = await workspacesRes.json();
-                        if (workspaces.length > 0) {
-                          router.push(`/workspaces/${workspaces[0].id}`);
-                        } else {
-                          router.push('/workspaces');
-                        }
-                      }
-                    } catch (err) {
-                      router.push('/workspaces');
-                    }
-                  }}
-                  className="text-sm text-blue-600 hover:text-blue-800 underline"
-                >
-                  直接進工作站 →
-                </button>
-              </div>
-            </div>
-          </div>
+          <MindscapeEpisodePanel
+            intents={intents}
+            onStartDailyPlanning={handleStartDailyPlanning}
+            onStartContentDrafting={handleStartContentDrafting}
+            onStartSystemCheck={handleStartSystemCheck}
+            onContinueIntent={handleContinueIntent}
+            onDirectEntry={handleDirectEntry}
+          />
         )}
 
-        {/* Onboarding Task Cards (only show in true onboarding mode) */}
         {isOnboarding && (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-            {/* Task 1: Self Intro */}
-            <TaskCard
-              taskNumber={1}
-              title={t('roleCardTitle' as any)}
-              subtitle={t('onboardingTask1Subtitle')}
-              isCompleted={onboardingState?.task1_completed || false}
-              footerText={t('onboardingTask1Footer')}
-              completedContent={
-                profile?.self_description ? (
-                  <div className="text-sm text-gray-700 space-y-2">
-                    <p>{t('aiWillUseThisPerspective' as any)}</p>
-                    <ul className="list-disc list-inside space-y-1">
-                      <li><strong>{t('currentlyDoing' as any)}</strong>{profile.self_description.identity}</li>
-                      <li><strong>{t('tryingToSolve' as any)}</strong>{profile.self_description.solving}</li>
-                      <li><strong>{t('thinking' as any)}</strong>{profile.self_description.thinking}</li>
-                    </ul>
-                  </div>
-                ) : null
+          <MindscapeOnboardingTasks
+            onboardingState={onboardingState}
+            profile={profile}
+            intents={intents}
+            onTask1Click={() => {
+              if (onboardingState?.task1_completed) {
+                setShowSelfIntroDialog(true);
+              } else {
+                router.push('/intro');
               }
-              uncompletedContent={
-                <ul className="text-sm text-gray-700 space-y-1 list-disc list-inside">
-                  <li>{t('whatAreYouMainlyDoing' as any)}</li>
-                  <li>{t('whatDoYouWantToSolve' as any)}</li>
-                  <li>{t('whatAreYouThinking' as any)}</li>
-                </ul>
+            }}
+            onTask2Click={() => {
+              if (onboardingState?.task2_completed) {
+                window.location.href = '/playbooks?tags=project';
+              } else {
+                window.location.href = '/playbooks/project_breakdown_onboarding?onboarding=task2';
               }
-              buttonText={onboardingState?.task1_completed ? t('editButton' as any) : t('quickSetup' as any)}
-              onButtonClick={() => {
-                if (onboardingState?.task1_completed) {
-                  setShowSelfIntroDialog(true);
-                } else {
-                  router.push('/intro');
-                }
-              }}
-            />
-
-            {/* Task 2: First Project */}
-            <TaskCard
-              taskNumber={2}
-              title={t('firstLongTermTask' as any)}
-              subtitle={t('onboardingTask2Subtitle')}
-              isCompleted={onboardingState?.task2_completed || false}
-              isBlocked={!onboardingState?.task1_completed}
-              blockMessage={t('taskBlockMessage' as any)}
-              footerText={t('onboardingTask2Footer')}
-              completedContent={
-                intents.length > 0 ? (
-                  <div className="text-sm text-gray-700 space-y-2">
-                    <p className="mb-2">{t('aiWillUpdateProjectStatus' as any)}</p>
-                    {intents.slice(0, 2).map((intent) => (
-                      <div key={intent.id} className="flex items-start">
-                        <span className="mr-2">📋</span>
-                        <div>
-                          <p className="font-medium">{intent.title}</p>
-                          <p className="text-xs text-gray-500">{t('lastUpdated' as any)}{formatLocalDateTime(intent.updated_at)}</p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : null
+            }}
+            onTask3Click={() => {
+              if (onboardingState?.task3_completed) {
+                window.location.href = '/playbooks?tags=planning';
+              } else {
+                window.location.href = '/playbooks/weekly_review_onboarding?onboarding=task3';
               }
-              uncompletedContent={
-                <ul className="text-sm text-gray-700 space-y-1 list-disc list-inside">
-                  <li>{t('tellUsOneThingYouWantToPush' as any)}</li>
-                  <li>{t('aiWillBreakItDown' as any)}</li>
-                  <li>{t('autoCreateFirstIntent' as any)}</li>
-                </ul>
-              }
-              buttonText={onboardingState?.task2_completed ? t('onboardingTask2ButtonCompleted') : t('onboardingTask2ButtonUncompleted')}
-              onButtonClick={() => {
-                if (onboardingState?.task2_completed) {
-                  // Navigate to playbooks filtered by project tag
-                  window.location.href = '/playbooks?tags=project';
-                } else {
-                  // Navigate to playbook detail page for onboarding
-                  window.location.href = '/playbooks/project_breakdown_onboarding?onboarding=task2';
-                }
-              }}
-            />
-
-            {/* Task 3: Work Rhythm */}
-            <TaskCard
-              taskNumber={3}
-              title={t('onboardingTask3Title')}
-              subtitle={t('onboardingTask3Subtitle')}
-              isCompleted={onboardingState?.task3_completed || false}
-              isBlocked={!onboardingState?.task1_completed}
-              blockMessage={t('taskBlockMessage' as any)}
-              footerText={t('onboardingTask3Footer')}
-              completedContent={
-                <div className="text-sm text-gray-700 space-y-2">
-                  <p>{t('aiWillUseThesePreferences' as any)}</p>
-                  <p><strong>{t('preferredRhythm' as any)}</strong>{t('morningFocusImportantTasks' as any)}</p>
-                  <p><strong>{t('commonTools' as any)}</strong>{t('toolsWordPressNotion' as any)}</p>
-                </div>
-              }
-              uncompletedContent={
-                <div>
-                  <ul className="text-sm text-gray-700 space-y-1 list-disc list-inside">
-                    <li>{t('whatThreeThingsThisWeek' as any)}</li>
-                    <li>{t('whatToolsDoYouUse' as any)}</li>
-                    <li>{t('whatWorkRhythmDoYouLike' as any)}</li>
-                  </ul>
-                  <div className="mt-3 p-2 bg-blue-50 rounded text-xs text-blue-800">
-                    {t('onboardingTask3WordPressHint')}
-                  </div>
-                </div>
-              }
-              buttonText={onboardingState?.task3_completed ? t('onboardingTask3ButtonCompleted') : t('onboardingTask3ButtonUncompleted')}
-              onButtonClick={() => {
-                if (onboardingState?.task3_completed) {
-                  // Navigate to playbooks filtered by planning tag
-                  window.location.href = '/playbooks?tags=planning';
-                } else {
-                  // Navigate to playbook detail page for onboarding
-                  window.location.href = '/playbooks/weekly_review_onboarding?onboarding=task3';
-                }
-              }}
-            />
-          </div>
+            }}
+          />
         )}
 
-        {/* Current Mode Overview (only show after onboarding complete, but hide when showing episode selection) */}
-        {!isOnboarding && !hasState && currentMode && (
-          <div className="bg-gradient-to-r from-gray-50 to-blue-50 border-2 border-gray-200 rounded-lg p-6 mb-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">{t('mindscapeCurrentState' as any)}</h2>
-            <div className="space-y-2">
-              <div>
-                <span className="text-sm font-medium text-gray-700">{t('currentMainMode' as any)}</span>
-                <span className="ml-2 text-sm text-gray-900 font-semibold">{currentMode.mainMode}</span>
-              </div>
-              <div>
-                <span className="text-sm font-medium text-gray-700">本週聚焦：</span>
-                <div className="ml-2 inline-flex flex-wrap gap-2">
-                  {currentMode.weeklyFocus.map((focus, idx) => (
-                    <span key={idx} className="px-2 py-1 bg-white rounded text-sm text-gray-700">
-                      {focus}
-                    </span>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <span className="text-sm font-medium text-gray-700">AI 會優先協助：</span>
-                <div className="ml-2 inline-flex flex-wrap gap-2">
-                  {currentMode.aiAssistants.map((assistant, idx) => (
-                    <span key={idx} className="px-2 py-1 bg-white rounded text-sm text-gray-700">
-                      {assistant}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            </div>
-            <button className="mt-4 px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 text-sm">
-              調整模式
-            </button>
-          </div>
-        )}
-
-        {/* AI Suggestions */}
-        {suggestions.length > 0 && (
-          <div className="bg-yellow-50 border-2 border-yellow-200 rounded-lg p-6 mb-6 min-w-0">
-            <div className="flex items-center mb-4 min-w-0">
-              <span className="text-2xl mr-2 flex-shrink-0">🔍</span>
-              <h2 className="text-lg font-semibold text-gray-900 min-w-0 break-words">
-                {t('mindscapeSuggestions', { count: suggestions.length.toString() })}
-              </h2>
-            </div>
-            <div className="space-y-3">
-              {suggestions.map((suggestion) => (
-                <div key={suggestion.id} className="bg-white rounded-lg p-4 border border-yellow-300 min-w-0">
-                  <div className="flex items-start justify-between gap-4 min-w-0">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center mb-2 flex-wrap gap-2">
-                        <span className="text-xs px-2 py-1 bg-yellow-100 text-yellow-800 rounded flex-shrink-0">
-                          {suggestion.type === 'project' ? t('longTermProject' as any) :
-                            suggestion.type === 'principle' ? t('designPrinciple' as any) :
-                              suggestion.type === 'preference' ? t('preferences' as any) : t('intents' as any)}
-                        </span>
-                        <span className="text-xs text-gray-500 flex-shrink-0">{suggestion.source}</span>
-                        <span className="text-xs text-gray-400 flex-shrink-0">
-                          {t('confidence' as any)}{Math.round(suggestion.confidence * 100)}%
-                        </span>
-                      </div>
-                      <h3 className="font-medium text-gray-900 mb-1 break-words">
-                        {(() => {
-                          const title = suggestion.title;
-                          if (!title) return title;
-                          if (title.startsWith('suggestion.') || title.startsWith('suggestions.')) {
-                            const keyMatch = title.match(/^(suggestion\.|suggestions\.)(\S+)\s+(.+)$/);
-                            if (keyMatch) {
-                              const fullKey = keyMatch[1] + keyMatch[2];
-                              const restText = keyMatch[3];
-                              const translated = t(fullKey as any);
-                              return translated !== fullKey ? `${translated} ${restText}` : title;
-                            }
-                            return t(title as any) || title;
-                          }
-                          return title;
-                        })()}
-                      </h3>
-                      <p className="text-sm text-gray-600 break-words">
-                        {(() => {
-                          const desc = suggestion.description;
-                          if (!desc) return desc;
-                          if (desc.startsWith('suggestion.') || desc.startsWith('suggestions.')) {
-                            return t(desc as any) || desc;
-                          }
-                          return desc;
-                        })()}
-                      </p>
-                    </div>
-                    <div className="ml-4 flex space-x-2 flex-shrink-0">
-                      <button
-                        onClick={() => handleAcceptSuggestion(suggestion)}
-                        className="px-3 py-1 bg-green-600 text-white rounded text-sm hover:bg-green-700 whitespace-nowrap"
-                      >
-                        {t('accept' as any)}
-                      </button>
-                      <button
-                        onClick={() => handleDismissSuggestion(suggestion)}
-                        className="px-3 py-1 bg-gray-300 text-gray-700 rounded text-sm hover:bg-gray-400 whitespace-nowrap"
-                      >
-                        {t('skip' as any)}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Established Mindscape Cards (only show after onboarding, but hide when showing episode selection) */}
-        {!isOnboarding && !hasState && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {/* Self Settings Card */}
-            <div className="bg-white shadow rounded-lg p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">開局角色卡</h3>
-              <p className="text-sm text-gray-600 mb-4">
-                {profile?.self_description ? (
-                  <>
-                    <div className="mb-2">
-                      <span className="font-medium">現在在做：</span>
-                      <span className="ml-2">{profile.self_description.identity}</span>
-                    </div>
-                    <div className="mb-2">
-                      <span className="font-medium">想搞定的：</span>
-                      <span className="ml-2">{profile.self_description.solving}</span>
-                    </div>
-                    <div className="mb-2">
-                      <span className="font-medium">在思考的：</span>
-                      <span className="ml-2">{profile.self_description.thinking}</span>
-                    </div>
-                  </>
-                ) : (
-                  <span className="text-gray-400">尚未設定</span>
-                )}
-              </p>
-              <button
-                onClick={() => setShowSelfIntroDialog(true)}
-                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm"
-              >
-                編輯
-              </button>
-            </div>
-
-            {/* Intent Cards */}
-            <div className="bg-white shadow rounded-lg p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">長線任務追蹤</h3>
-              <p className="text-sm text-gray-600 mb-4">
-                {intents.length > 0 ? (
-                  <>
-                    <div className="mb-2">
-                      <span className="font-medium">{t('inProgress' as any)}</span>
-                      <span className="ml-2">{intents.filter(i => i.status === 'active').length} {t('items' as any)}</span>
-                    </div>
-                    <div className="mb-2">
-                      <span className="font-medium">{t('completed' as any)}</span>
-                      <span className="ml-2">{intents.filter(i => i.status === 'completed').length} {t('items' as any)}</span>
-                    </div>
-                  </>
-                ) : (
-                  <span className="text-gray-400">{t('noLongTermTasks' as any)}</span>
-                )}
-              </p>
-              <button className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm">
-                {t('viewAll' as any)}
-              </button>
-            </div>
-
-            {/* Work Mode */}
-            <div className="bg-white shadow rounded-lg p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">{t('workRhythmSettings' as any)}</h3>
-              <p className="text-sm text-gray-600 mb-4">
-                <div className="mb-2">
-                  <span className="font-medium">{t('preferredRhythm' as any)}</span>
-                  <span className="ml-2 text-gray-400">{t('extractingSuggestions' as any)}</span>
-                </div>
-                <div className="mb-2">
-                  <span className="font-medium">{t('commonTools' as any)}</span>
-                  <span className="ml-2 text-gray-400">{t('toolsWordPressNotion' as any)}</span>
-                </div>
-              </p>
-              <button className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm">
-                {t('viewDetails' as any)}
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Footer Note */}
-        <div className="mt-8 bg-blue-50 border border-blue-200 rounded-lg p-4">
-          <p className="text-sm text-blue-800">
-            <strong>{t('mindscapeNote' as any).split('：')[0]}：</strong> {t('mindscapeNote' as any).split('：').slice(1).join('：')}
-          </p>
-        </div>
+        <MindscapeOverviewPanels
+          isOnboarding={isOnboarding}
+          hasState={hasState}
+          currentMode={currentMode}
+          suggestions={suggestions}
+          profile={profile}
+          intents={intents}
+          onEditSelfIntro={() => setShowSelfIntroDialog(true)}
+          onAcceptSuggestion={handleAcceptSuggestion}
+          onDismissSuggestion={handleDismissSuggestion}
+        />
       </main>
 
-      {/* Habit Suggestion Toast */}
       <HabitSuggestionToast
         profileId={profileId}
         autoShow={true}
-        checkInterval={30000} // 30 秒檢查一次
+        checkInterval={30000}
       />
     </div>
   );
