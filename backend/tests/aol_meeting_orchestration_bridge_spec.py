@@ -1,3 +1,4 @@
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -18,6 +19,9 @@ from backend.app.services.object_runtime import aol_meeting_orchestration_bridge
 from backend.app.services.object_runtime.aol_meeting_orchestration_bridge import (
     AOLMeetingOrchestrationBridge,
 )
+
+BACKEND_ROOT = Path(__file__).resolve().parents[1]
+OBJECT_RUNTIME_DIR = BACKEND_ROOT / "app" / "services" / "object_runtime"
 
 
 def _ref(owner_pack: str, object_kind: str, object_id: str) -> ObjectRef:
@@ -414,3 +418,41 @@ async def test_bridge_adds_resource_lane_request_overlay(monkeypatch):
         handoff.playbook_input_defaults[0]["input_params"]["addressable_object_layer"]["resource_lane_request"]
         == request
     )
+
+
+def test_bridge_seam_keeps_line_gate_and_resource_ownership():
+    bridge_path = OBJECT_RUNTIME_DIR / "aol_meeting_orchestration_bridge.py"
+    helper_path = OBJECT_RUNTIME_DIR / "aol_meeting_orchestration_helpers.py"
+    spec_path = Path(__file__).resolve()
+    dispatch_path = BACKEND_ROOT / "app" / "services" / "meeting_command_dispatch_orchestration.py"
+
+    for path in (bridge_path, helper_path, spec_path):
+        line_count = len(path.read_text(encoding="utf-8").splitlines())
+        assert line_count <= 500, path.name
+
+    bridge_source = bridge_path.read_text(encoding="utf-8")
+    helper_source = helper_path.read_text(encoding="utf-8")
+    dispatch_source = dispatch_path.read_text(encoding="utf-8")
+
+    for forbidden in (
+        "project_object_graph",
+        "ObjectMeetingAttachmentService",
+        "build_resource_lane_request",
+        "HandoffIn",
+        "MeetingEngineRunner",
+        "asyncio",
+        "httpx",
+        "import requests",
+        "pgbouncer",
+        "worker",
+        "queue",
+        "poll_interval",
+    ):
+        assert forbidden not in helper_source
+
+    assert "project_object_graph(" in bridge_source
+    assert "ObjectMeetingAttachmentService" in bridge_source
+    assert "build_resource_lane_request(" in bridge_source
+    assert "class AOLMeetingOrchestrationBridge" in bridge_source
+    assert "AOLMeetingOrchestrationBridge" in dispatch_source
+    assert "handoff_in = await bridge.build_handoff_in" in dispatch_source
