@@ -41,6 +41,9 @@ from .core_llm_codex_cli import (
 
 logger = logging.getLogger(__name__)
 
+# Legacy quota/discovery helpers still import the pre-split private name.
+_merge_codex_env = merge_codex_env
+
 
 def _build_runtime_task(
     *,
