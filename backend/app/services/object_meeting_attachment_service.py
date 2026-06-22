@@ -8,6 +8,9 @@ from typing import Any, Dict, List, Optional, Sequence
 
 from backend.app.models.handoff import HandoffIn
 from backend.app.models.object_runtime import ObjectRef, ObjectSummary
+from backend.app.services.object_runtime.evidence_chain import (
+    build_object_attachment_evidence_chain,
+)
 
 
 @dataclass
@@ -66,6 +69,10 @@ class ObjectMeetingAttachmentService:
             role_object_uris.setdefault(record.role, [])
             if record.ref.uri not in role_object_uris[record.role]:
                 role_object_uris[record.role].append(record.ref.uri)
+        evidence_chain = build_object_attachment_evidence_chain(
+            context_attachments=context_attachments,
+            role_object_uris=role_object_uris,
+        )
 
         handoff_in = HandoffIn(
             handoff_id=f"obj_attach_{uuid.uuid4().hex}",
@@ -89,6 +96,7 @@ class ObjectMeetingAttachmentService:
                     "source_object_uris": role_object_uris.get("source", []),
                     "target_ref_uri": target_refs[0].uri if len(target_refs) == 1 else None,
                     "target_ref_uris": [target_ref.uri for target_ref in target_refs],
+                    "evidence_chain": evidence_chain,
                 }
             },
         )

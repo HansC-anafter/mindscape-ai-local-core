@@ -55,6 +55,7 @@ class ObjectInstanceSyncRequest(BaseModel):
 
     owner_pack: Optional[str] = None
     object_kind: Optional[str] = None
+    object_ids: List[str] = Field(default_factory=list)
     limit: int = Field(default=100, ge=1, le=500)
     force: bool = False
     reason: Optional[str] = None

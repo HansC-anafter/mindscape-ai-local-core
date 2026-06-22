@@ -225,6 +225,8 @@ def test_object_meeting_attach_creates_session_and_bounded_attachments(
     assert metadata["review_routes"] == [
         "/api/v1/capabilities/performance_direction/sessions/ds_demo_001/storyboard/proposals/da_storyboard_proposal_001/review"
     ]
+    assert metadata["evidence_chain"]["status"] == "linked"
+    assert metadata["evidence_chain"]["object_uri_count"] == 3
     assert metadata["handoff_in"]["workspace_id"] == "ws_demo"
     attachments = metadata["context_attachments"]
     assert len(attachments) == 3

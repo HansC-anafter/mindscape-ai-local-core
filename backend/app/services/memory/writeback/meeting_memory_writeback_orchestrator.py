@@ -37,6 +37,7 @@ from backend.app.services.memory.writeback.meeting_memory_writeback.projections 
     dispatch_legacy_projection,
     dispatch_metadata_projection,
 )
+from backend.app.services.memory.writeback.evidence_completeness import summarize_writeback_evidence_completeness
 from backend.app.services.stores.postgres.memory_evidence_link_store import (
     MemoryEvidenceLinkStore,
 )
@@ -268,6 +269,7 @@ class MeetingMemoryWritebackOrchestrator:
                 memory_item_id=item.id,
                 session=session,
             )
+            evidence_completeness = summarize_writeback_evidence_completeness(locals())
 
             self.run_store.mark_stage(
                 run.id,
@@ -291,6 +293,7 @@ class MeetingMemoryWritebackOrchestrator:
                     "artifact_result_count": artifact_result_count,
                     "artifact_result_links_created": artifact_result_links_created,
                     "artifact_result_error": artifact_result_error,
+                    "evidence_completeness": evidence_completeness,
                     **phase2_evidence_summary,
                 },
             )
@@ -342,6 +345,7 @@ class MeetingMemoryWritebackOrchestrator:
                     "writeback_receipt_count": writeback_receipt_count,
                     "writeback_receipt_links_created": writeback_receipt_links_created,
                     "writeback_receipt_error": writeback_receipt_error,
+                    "evidence_completeness": evidence_completeness,
                     **phase2_evidence_summary,
                 },
                 update_mode_summary={MemoryUpdateMode.APPEND.value: 1},

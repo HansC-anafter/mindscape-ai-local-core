@@ -99,6 +99,7 @@ def _build_session_attachment_metadata(
         if materialization_result is not None
         else None
     )
+    handoff_aol = (safe_handoff_payload.get("metadata") or {}).get("addressable_object_layer") or {}
     return {
         "meeting_type": request.meeting_type,
         "intent_summary": request.intent_summary,
@@ -121,6 +122,7 @@ def _build_session_attachment_metadata(
         "materialization_result": safe_materialization_result,
         "handoff_in": safe_handoff_payload,
         "context_attachments": safe_handoff_payload.get("context_attachments") or [],
+        "evidence_chain": handoff_aol.get("evidence_chain"),
         "updated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
     }
 
