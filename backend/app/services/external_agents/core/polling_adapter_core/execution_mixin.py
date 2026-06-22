@@ -1,5 +1,8 @@
 from .base import *
 from .payload import build_dispatch_payload
+from backend.app.services.external_agents.bridge.polling_budget_metadata import (
+    build_polling_budget_metadata,
+)
 
 
 class PollingExecutionMixin:
@@ -177,5 +180,10 @@ class PollingExecutionMixin:
                 "transport": "polling",
                 "execution_id": execution_id,
                 "status": "timeout",
+                "recovery_reason": "db_recovery_no_terminal_row",
+                "polling_budget": build_polling_budget_metadata(
+                    reason="timeout_without_terminal_result",
+                    wait_slice_seconds=getattr(self, "WAIT_SLICE_SECONDS", None),
+                ),
             },
         )

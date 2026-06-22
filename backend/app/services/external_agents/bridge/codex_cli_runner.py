@@ -19,6 +19,9 @@ from backend.app.services.codex_runtime_failure_classifier import (
     looks_like_codex_version_incompatible,
     should_retry_codex_runtime_fault,
 )
+from backend.app.services.external_agents.bridge.cli_stream_activity import (
+    wait_for_streaming_subprocess_activity,
+)
 
 
 MAX_CLI_OUTPUT_SIZE = 100_000
@@ -352,51 +355,18 @@ async def wait_for_cli_subprocess_activity(
     snapshot_paths: Optional[List[str]],
     stall_timeout: Optional[float],
 ) -> Tuple[bytes, bytes]:
-    communicate_task = asyncio.create_task(proc.communicate())
-    try:
-        if not stall_timeout or stall_timeout <= 0:
-            return await communicate_task
-
-        poll_interval = min(5.0, max(0.5, stall_timeout / 6.0))
-        last_activity_at = asyncio.get_running_loop().time()
-        last_activity = cli_activity_signature(
+    return await wait_for_streaming_subprocess_activity(
+        proc=proc,
+        runtime_name=runtime_name,
+        execution_id=execution_id,
+        stall_timeout=stall_timeout,
+        activity_probe=lambda: cli_activity_signature(
             last_message_path=last_message_path,
             snapshot_root=snapshot_root,
             snapshot_paths=snapshot_paths,
-        )
-
-        while True:
-            done, _ = await asyncio.wait({communicate_task}, timeout=poll_interval)
-            if communicate_task in done:
-                return await communicate_task
-
-            current_activity = cli_activity_signature(
-                last_message_path=last_message_path,
-                snapshot_root=snapshot_root,
-                snapshot_paths=snapshot_paths,
-            )
-            if current_activity != last_activity:
-                last_activity = current_activity
-                last_activity_at = asyncio.get_running_loop().time()
-                continue
-
-            if asyncio.get_running_loop().time() - last_activity_at < stall_timeout:
-                continue
-
-            await _terminate_cli_process(
-                proc=proc,
-                communicate_task=communicate_task,
-                wait_timeout=poll_interval,
-            )
-            raise asyncio.TimeoutError(
-                f"{runtime_name} subprocess stalled after {int(stall_timeout)}s without file or message activity ({execution_id})"
-            )
-    except asyncio.CancelledError:
-        await _terminate_cli_process(
-            proc=proc,
-            communicate_task=communicate_task,
-        )
-        raise
+        ),
+        terminate_process=_terminate_cli_process,
+    )
 
 
 async def run_codex_cli_subprocess(
@@ -416,6 +386,7 @@ async def run_codex_cli_subprocess(
         *cmd,
         cwd=cwd,
         env=env,
+        stdin=asyncio.subprocess.DEVNULL,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )

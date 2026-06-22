@@ -1,4 +1,7 @@
 from .base import *
+from backend.app.services.external_agents.bridge.polling_budget_metadata import (
+    attach_polling_budget_metadata,
+)
 
 
 class HostBridgePollingMixin:
@@ -172,13 +175,19 @@ class HostBridgePollingMixin:
         if cached_result is not None:
             cached_result["lease_id"] = lease_id
             cached_result["client_id"] = self.client_id
-            cached_result.setdefault("metadata", {})
-            cached_result["metadata"].update(
+            cached_result["metadata"] = attach_polling_budget_metadata(
                 {
+                    **(
+                        cached_result.get("metadata")
+                        if isinstance(cached_result.get("metadata"), dict)
+                        else {}
+                    ),
                     "transport": "polling",
                     "client_id": self.client_id,
                     "surface_type": self.surface,
-                }
+                },
+                reason="cached_result_redelivery",
+                client=self,
             )
             await self._submit_result_via_rest(cached_result)
             logger.warning(
@@ -209,17 +218,21 @@ class HostBridgePollingMixin:
                 "error": result.get("error"),
                 "lease_id": lease_id,
                 "client_id": self.client_id,
-                "metadata": {
-                    **(
-                        result.get("metadata")
-                        if isinstance(result.get("metadata"), dict)
-                        else {}
-                    ),
-                    "transport": "polling",
-                    "runtime_id": result.get("runtime_id"),
-                    "client_id": self.client_id,
-                    "surface_type": self.surface,
-                },
+                "metadata": attach_polling_budget_metadata(
+                    {
+                        **(
+                            result.get("metadata")
+                            if isinstance(result.get("metadata"), dict)
+                            else {}
+                        ),
+                        "transport": "polling",
+                        "runtime_id": result.get("runtime_id"),
+                        "client_id": self.client_id,
+                        "surface_type": self.surface,
+                    },
+                    reason="task_result",
+                    client=self,
+                ),
                 "governance": {
                     "output_hash": hashlib.sha256(
                         result.get("output", "").encode()
@@ -247,11 +260,15 @@ class HostBridgePollingMixin:
                 "error": str(exc),
                 "lease_id": lease_id,
                 "client_id": self.client_id,
-                "metadata": {
-                    "transport": "polling",
-                    "client_id": self.client_id,
-                    "surface_type": self.surface,
-                },
+                "metadata": attach_polling_budget_metadata(
+                    {
+                        "transport": "polling",
+                        "client_id": self.client_id,
+                        "surface_type": self.surface,
+                    },
+                    reason="task_failed",
+                    client=self,
+                ),
             }
             self._remember_result(execution_id, result_message)
             await self._submit_result_via_rest(result_message)

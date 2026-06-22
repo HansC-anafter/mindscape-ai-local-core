@@ -1,5 +1,8 @@
 from .base import *
 from .payload import build_dispatch_payload
+from backend.app.services.external_agents.bridge.polling_budget_metadata import (
+    build_polling_budget_metadata,
+)
 
 
 class PollingResponseMixin:
@@ -19,9 +22,17 @@ class PollingResponseMixin:
             "transport": "polling",
             "execution_id": execution_id,
             "status": status,
+            "polling_budget": build_polling_budget_metadata(
+                reason="future_result",
+                wait_slice_seconds=getattr(self, "WAIT_SLICE_SECONDS", None),
+            ),
         }
         if recovered_from_db:
             agent_metadata["recovered_from_db"] = True
+            agent_metadata["polling_budget"] = build_polling_budget_metadata(
+                reason="db_recovery_terminal",
+                wait_slice_seconds=getattr(self, "WAIT_SLICE_SECONDS", None),
+            )
 
         return RuntimeExecResponse(
             success=(status == "completed"),
@@ -71,6 +82,14 @@ class PollingResponseMixin:
                         "execution_id": execution_id,
                         "status": "failed",
                         "recovered_from_db": True,
+                        "polling_budget": build_polling_budget_metadata(
+                            reason="db_recovery_terminal_failed",
+                            wait_slice_seconds=getattr(
+                                self,
+                                "WAIT_SLICE_SECONDS",
+                                None,
+                            ),
+                        ),
                     },
                 )
         except Exception as db_err:

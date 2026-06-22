@@ -18,8 +18,33 @@ from .capability_api_loader_state import (
     seed_capability_api_descriptors,
 )
 from .capability_api_loader_types import CapabilityAPIDescriptor
+from .tools.tool_availability_explanation import (
+    build_capability_api_activation_explanation,
+)
 
 logger = logging.getLogger(__name__)
+
+
+def _record_activation_explanation(
+    state: dict[str, Any],
+    *,
+    descriptor: CapabilityAPIDescriptor,
+    status: str,
+    reason: str,
+    expected_routes: set[tuple[str, str]] | None = None,
+    conflicts: list[tuple[str, str]] | None = None,
+) -> None:
+    entries = list(state.get("capability_api_activation_explanations") or [])
+    entries.append(
+        build_capability_api_activation_explanation(
+            capability_code=descriptor.capability_code,
+            status=status,
+            reason=reason,
+            expected_routes=expected_routes,
+            conflicts=conflicts,
+        )
+    )
+    state["capability_api_activation_explanations"] = entries[-100:]
 
 
 def activate_seeded_capability_apis(
@@ -76,6 +101,13 @@ def activate_seeded_capability_apis(
             existing_routes = set(loader.registered_routes)
             if descriptor_marked_registered:
                 if expected_routes and expected_routes.issubset(existing_routes):
+                    _record_activation_explanation(
+                        state,
+                        descriptor=descriptor,
+                        status="skipped",
+                        reason="descriptor_routes_already_registered",
+                        expected_routes=expected_routes,
+                    )
                     logger.debug(
                         "Skipping capability API router for %s; descriptor routes are already registered",
                         descriptor.capability_code,
@@ -88,6 +120,13 @@ def activate_seeded_capability_apis(
                 )
             if expected_routes and expected_routes.issubset(existing_routes):
                 registered_descriptor_keys.add(descriptor_key)
+                _record_activation_explanation(
+                    state,
+                    descriptor=descriptor,
+                    status="skipped",
+                    reason="all_descriptor_routes_already_registered",
+                    expected_routes=expected_routes,
+                )
                 logger.debug(
                     "Skipping capability API router for %s; all descriptor routes already registered",
                     descriptor.capability_code,
@@ -113,6 +152,14 @@ def activate_seeded_capability_apis(
                     existing_routes = set(loader.registered_routes)
                     conflicts = sorted(expected_routes & existing_routes)
             if conflicts:
+                _record_activation_explanation(
+                    state,
+                    descriptor=descriptor,
+                    status="failed",
+                    reason="route_conflict",
+                    expected_routes=expected_routes,
+                    conflicts=conflicts,
+                )
                 conflict_details = ", ".join(
                     f"{method} {path}" for method, path in conflicts
                 )
@@ -155,6 +202,13 @@ def activate_seeded_capability_apis(
                         descriptor, router
                     ),
                 )
+            _record_activation_explanation(
+                state,
+                descriptor=descriptor,
+                status="activated",
+                reason="routes_registered",
+                expected_routes=expected_routes,
+            )
             routers.append(router)
             registered_descriptor_keys.add(descriptor_key)
         except Exception as exc:
