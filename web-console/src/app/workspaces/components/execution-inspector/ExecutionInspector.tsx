@@ -310,6 +310,8 @@ export default function ExecutionInspector({
                 {/* Execution Summary Bar */}
                 <SummaryBar
                   playbookCode={executionCore.execution?.playbook_code}
+                  executionStatus={executionCore.execution?.status}
+                  lifecycleSummary={executionCore.execution?.lifecycle_summary}
                   aiSummary={
                     executionCore.execution?.status === 'failed' && executionCore.execution.failure_reason
                       ? t('thisExecutionFailed', { reason: executionCore.execution.failure_reason })

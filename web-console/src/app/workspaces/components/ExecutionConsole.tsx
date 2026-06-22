@@ -185,6 +185,7 @@ export default function ExecutionConsole({
     workspaceId,
     apiUrl,
     onUpdate: handleExecutionEvent,
+    executionStatus: execution?.status,
     enableSSE: true,
     enablePollingFallback: false,
   });

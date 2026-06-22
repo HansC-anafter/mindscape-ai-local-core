@@ -2,9 +2,12 @@
 
 import React from 'react';
 import ExecutionSummaryBar from '../ExecutionSummaryBar';
+import type { LifecycleSummary } from '../execution-status/lifecycleStatusPresenter';
 
 export interface SummaryBarProps {
   playbookCode?: string;
+  executionStatus?: string;
+  lifecycleSummary?: LifecycleSummary | null;
   aiSummary?: string;
   outputCount: number;
   onOpenInsights?: () => void;
@@ -14,6 +17,8 @@ export interface SummaryBarProps {
 
 export default function SummaryBar({
   playbookCode,
+  executionStatus,
+  lifecycleSummary,
   aiSummary,
   outputCount,
   onOpenInsights,
@@ -23,6 +28,8 @@ export default function SummaryBar({
   return (
     <ExecutionSummaryBar
       playbookCode={playbookCode}
+      executionStatus={executionStatus}
+      lifecycleSummary={lifecycleSummary}
       revisionPatches={[]}
       aiSummary={aiSummary}
       outputCount={outputCount}

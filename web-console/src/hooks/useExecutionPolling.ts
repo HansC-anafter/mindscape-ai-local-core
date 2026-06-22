@@ -6,6 +6,21 @@ import { useExecutionStream, streamManager } from './useExecutionStream';
 let inflightCount = 0;
 const MAX_INFLIGHT = 3;
 const waitQueue: (() => void)[] = [];
+const HIDDEN_POLLING_MULTIPLIER = 3;
+const MIN_HIDDEN_POLLING_INTERVAL_MS = 30_000;
+const TERMINAL_EXECUTION_STATUSES = new Set([
+    'aborted',
+    'cancelled',
+    'cancelled_by_user',
+    'canceled',
+    'completed',
+    'done',
+    'error',
+    'failed',
+    'succeeded',
+    'success',
+    'timeout',
+]);
 
 async function throttledFetch(url: string, init?: RequestInit): Promise<Response> {
     while (inflightCount >= MAX_INFLIGHT) {
@@ -25,16 +40,47 @@ export interface UseExecutionPollingOptions {
     workspaceId: string;
     apiUrl: string;
     onUpdate: (data: any) => void;
+    executionStatus?: string | null;
     pollIntervalMs?: number;
     enableSSE?: boolean;
     enablePollingFallback?: boolean;
     sseDebounceMs?: number;
     pollFn?: () => Promise<void> | void;
+    abortablePollFn?: (signal: AbortSignal) => Promise<void> | void;
 }
 
 export interface UseExecutionPollingReturn {
     sseConnected: boolean;
     refresh: () => void;
+}
+
+export function isTerminalExecutionStatus(status: unknown): boolean {
+    if (typeof status !== 'string') return false;
+    return TERMINAL_EXECUTION_STATUSES.has(status.trim().toLowerCase());
+}
+
+export function extractExecutionStatusFromUpdate(data: any): string | null {
+    if (!data || typeof data !== 'object') return null;
+    const candidates = [
+        data.execution?.lifecycle_summary?.status,
+        data.execution?.status,
+        data.lifecycle_summary?.status,
+        data.status,
+        data.type === 'execution_completed' ? 'completed' : null,
+        data.type === 'execution_complete' ? 'completed' : null,
+        data.type === 'execution_error' ? 'failed' : null,
+    ];
+    const match = candidates.find(value => typeof value === 'string' && value.trim());
+    return typeof match === 'string' ? match : null;
+}
+
+export function resolveExecutionPollingIntervalMs(
+    baseIntervalMs: number,
+    hidden: boolean,
+): number {
+    const safeBase = Math.max(500, Number.isFinite(baseIntervalMs) ? baseIntervalMs : 10_000);
+    if (!hidden) return safeBase;
+    return Math.max(safeBase * HIDDEN_POLLING_MULTIPLIER, MIN_HIDDEN_POLLING_INTERVAL_MS);
 }
 
 export function useExecutionPolling(options: UseExecutionPollingOptions): UseExecutionPollingReturn {
@@ -43,19 +89,32 @@ export function useExecutionPolling(options: UseExecutionPollingOptions): UseExe
         workspaceId,
         apiUrl,
         onUpdate,
+        executionStatus,
         pollIntervalMs = 10_000,
         enableSSE = true,
         enablePollingFallback = false,
         sseDebounceMs = 1_200,
         pollFn,
+        abortablePollFn,
     } = options;
 
     const [sseConnected, setSseConnected] = useState(false);
 
     const onUpdateRef = useRef(onUpdate);
     const pollFnRef = useRef(pollFn);
+    const abortablePollFnRef = useRef(abortablePollFn);
+    const terminalRef = useRef(isTerminalExecutionStatus(executionStatus));
+    const pollingInFlightRef = useRef(false);
+    const abortControllerRef = useRef<AbortController | null>(null);
     useEffect(() => { onUpdateRef.current = onUpdate; }, [onUpdate]);
     useEffect(() => { pollFnRef.current = pollFn; }, [pollFn]);
+    useEffect(() => { abortablePollFnRef.current = abortablePollFn; }, [abortablePollFn]);
+    useEffect(() => {
+        terminalRef.current = isTerminalExecutionStatus(executionStatus);
+        if (terminalRef.current) {
+            abortControllerRef.current?.abort();
+        }
+    }, [executionId, executionStatus]);
 
     const sseRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const lastSseRefreshAtRef = useRef<number>(0);
@@ -66,20 +125,60 @@ export function useExecutionPolling(options: UseExecutionPollingOptions): UseExe
                 clearTimeout(sseRefreshTimerRef.current);
                 sseRefreshTimerRef.current = null;
             }
+            abortControllerRef.current?.abort();
+            abortControllerRef.current = null;
         };
     }, []);
 
+    const runPoll = useCallback(async () => {
+        if (
+            terminalRef.current ||
+            pollingInFlightRef.current ||
+            (!pollFnRef.current && !abortablePollFnRef.current)
+        ) {
+            return;
+        }
+
+        const controller = new AbortController();
+        abortControllerRef.current = controller;
+        pollingInFlightRef.current = true;
+        try {
+            if (abortablePollFnRef.current) {
+                await abortablePollFnRef.current(controller.signal);
+            } else {
+                await pollFnRef.current?.();
+            }
+        } finally {
+            if (abortControllerRef.current === controller) {
+                abortControllerRef.current = null;
+            }
+            pollingInFlightRef.current = false;
+        }
+    }, []);
+
+    const runPollSafely = useCallback(() => {
+        runPoll().catch(error => {
+            console.warn('[useExecutionPolling] polling fallback failed:', error);
+        });
+    }, [runPoll]);
+
     const handleSSEEvent = useCallback((data: any) => {
         onUpdateRef.current?.(data);
+        const status = extractExecutionStatusFromUpdate(data);
+        if (isTerminalExecutionStatus(status)) {
+            terminalRef.current = true;
+            abortControllerRef.current?.abort();
+            return;
+        }
 
-        if (!pollFnRef.current) return;
+        if (!pollFnRef.current && !abortablePollFnRef.current) return;
 
         const now = Date.now();
         const elapsed = now - lastSseRefreshAtRef.current;
 
         if (elapsed >= sseDebounceMs) {
             lastSseRefreshAtRef.current = now;
-            pollFnRef.current();
+            runPollSafely();
             return;
         }
 
@@ -88,9 +187,9 @@ export function useExecutionPolling(options: UseExecutionPollingOptions): UseExe
         sseRefreshTimerRef.current = setTimeout(() => {
             sseRefreshTimerRef.current = null;
             lastSseRefreshAtRef.current = Date.now();
-            pollFnRef.current?.();
+            runPollSafely();
         }, delay);
-    }, [sseDebounceMs]);
+    }, [runPollSafely, sseDebounceMs]);
 
     useExecutionStream(
         enableSSE ? executionId : null,
@@ -115,24 +214,51 @@ export function useExecutionPolling(options: UseExecutionPollingOptions): UseExe
     }, [executionId, enableSSE]);
 
     const refresh = useCallback(() => {
-        pollFnRef.current?.();
-    }, []);
+        runPollSafely();
+    }, [runPollSafely]);
 
     useEffect(() => {
         if (!executionId) return;
         if (!enablePollingFallback) return;
         if (sseConnected && enableSSE) return;
+        if (terminalRef.current) return;
 
-        if (!pollFnRef.current) return;
+        if (!pollFnRef.current && !abortablePollFnRef.current) return;
 
-        pollFnRef.current();
+        let cancelled = false;
+        let timer: ReturnType<typeof setTimeout> | null = null;
 
-        const t = setInterval(() => {
-            pollFnRef.current?.();
-        }, pollIntervalMs);
+        const scheduleNext = () => {
+            if (cancelled || terminalRef.current) return;
+            const hidden = typeof document !== 'undefined' && document.visibilityState === 'hidden';
+            const interval = resolveExecutionPollingIntervalMs(pollIntervalMs, hidden);
+            timer = setTimeout(async () => {
+                try {
+                    await runPoll();
+                } catch (error) {
+                    console.warn('[useExecutionPolling] polling fallback failed:', error);
+                }
+                scheduleNext();
+            }, interval);
+        };
 
-        return () => clearInterval(t);
-    }, [executionId, sseConnected, enableSSE, enablePollingFallback, pollIntervalMs]);
+        runPollSafely();
+        scheduleNext();
+
+        return () => {
+            cancelled = true;
+            if (timer) clearTimeout(timer);
+            abortControllerRef.current?.abort();
+        };
+    }, [
+        executionId,
+        sseConnected,
+        enableSSE,
+        enablePollingFallback,
+        pollIntervalMs,
+        runPoll,
+        runPollSafely,
+    ]);
 
     return { sseConnected, refresh };
 }

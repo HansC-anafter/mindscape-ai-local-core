@@ -159,6 +159,7 @@ export default function RunningTimelineItem({
     workspaceId,
     apiUrl,
     onUpdate: handleSSEEvent,
+    executionStatus: currentExecution.status,
     enableSSE: true,
     enablePollingFallback: false,
   });

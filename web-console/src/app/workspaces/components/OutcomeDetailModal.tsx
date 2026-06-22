@@ -7,7 +7,7 @@ import { useToast } from '@/components/Toast';
 import { formatLocalDateTime } from '@/lib/time';
 import { OutcomeContent } from './outcomeDetailModal/contentRenderers';
 import { mergeArtifactDetail } from './outcomeDetailModal/detail';
-import type { OutcomeDetailModalProps } from './outcomeDetailModal/types';
+import type { Artifact, OutcomeDetailModalProps } from './outcomeDetailModal/types';
 
 export default function OutcomeDetailModal({
   artifact,

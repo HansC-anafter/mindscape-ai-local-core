@@ -128,6 +128,8 @@ export function ExecutionInspectorView({
             <div className="execution-main grid grid-rows-[auto,minmax(0,1fr)] gap-0 h-full flex-1 overflow-hidden">
               <SummaryBar
                 playbookCode={executionCore.execution?.playbook_code}
+                executionStatus={executionCore.execution?.status}
+                lifecycleSummary={executionCore.execution?.lifecycle_summary}
                 aiSummary={
                   executionCore.execution?.status === 'failed' && executionCore.execution.failure_reason
                     ? t('thisExecutionFailed', { reason: executionCore.execution.failure_reason })
