@@ -6,6 +6,9 @@ import logging
 from typing import Any, Dict
 
 from backend.app.models.task_ir import PhaseIR
+from backend.app.services.orchestration.dispatch_orchestrator_core.attempt_reason_projection import (
+    attach_attempt_reason_projection,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +36,16 @@ async def dispatch_phase(
                 phase.id,
                 attempt.idempotency_key,
             )
-            return {"status": "skipped", "reason": "idempotency_conflict"}
+            return attach_attempt_reason_projection(
+                {"status": "skipped", "reason": "idempotency_conflict"},
+                phase=phase,
+                action_item=action_item,
+                attempt=attempt,
+                engine=None,
+                target_workspace_id=None,
+                status="skipped",
+                reason="idempotency_conflict",
+            )
         if registered is None:
             logger.warning(
                 "Dispatch for %s proceeding without idempotency registry (key=%s)",
@@ -53,7 +65,16 @@ async def dispatch_phase(
     landing_status = action_item.get("landing_status", "")
     if landing_status in ("policy_blocked", "dispatch_error", "boundary_violation"):
         attempt.mark_skipped(f"pre_blocked:{landing_status}")
-        return {"status": "skipped", "reason": landing_status}
+        return attach_attempt_reason_projection(
+            {"status": "skipped", "reason": landing_status},
+            phase=phase,
+            action_item=action_item,
+            attempt=attempt,
+            engine=None,
+            target_workspace_id=None,
+            status="skipped",
+            reason=landing_status,
+        )
 
     target_ws = (
         phase.target_workspace_id
@@ -140,7 +161,18 @@ async def dispatch_phase(
                     ),
                 },
             )
-            return {"status": "completed", "workspace_id": target_ws, "result": result}
+            return attach_attempt_reason_projection(
+                {"status": "completed", "workspace_id": target_ws, "result": result},
+                phase=phase,
+                action_item=action_item,
+                attempt=attempt,
+                engine=engine,
+                target_workspace_id=target_ws,
+                status="completed",
+                reason="playbook_launched",
+                playbook_code=playbook_code,
+                result=result,
+            )
         if engine.startswith("agent:"):
             result = await orchestrator._dispatch_agent(
                 phase=phase,
@@ -163,7 +195,17 @@ async def dispatch_phase(
                     "execution_id": result.get("execution_id"),
                 },
             )
-            return {"status": "completed", "workspace_id": target_ws, "result": result}
+            return attach_attempt_reason_projection(
+                {"status": "completed", "workspace_id": target_ws, "result": result},
+                phase=phase,
+                action_item=action_item,
+                attempt=attempt,
+                engine=engine,
+                target_workspace_id=target_ws,
+                status="completed",
+                reason="agent_dispatched",
+                result=result,
+            )
         if phase.tool_name:
             result = await orchestrator._dispatch_tool(
                 phase=phase,
@@ -184,7 +226,17 @@ async def dispatch_phase(
                     "workspace_id": target_ws,
                 },
             )
-            return {"status": "completed", "workspace_id": target_ws, "result": result}
+            return attach_attempt_reason_projection(
+                {"status": "completed", "workspace_id": target_ws, "result": result},
+                phase=phase,
+                action_item=action_item,
+                attempt=attempt,
+                engine=engine,
+                target_workspace_id=target_ws,
+                status="completed",
+                reason="tool_task_created",
+                result=result,
+            )
 
         result = orchestrator._project_to_task(
             phase=phase,
@@ -203,7 +255,17 @@ async def dispatch_phase(
                 "workspace_id": target_ws,
             },
         )
-        return {"status": "completed", "workspace_id": target_ws, "result": result}
+        return attach_attempt_reason_projection(
+            {"status": "completed", "workspace_id": target_ws, "result": result},
+            phase=phase,
+            action_item=action_item,
+            attempt=attempt,
+            engine=engine,
+            target_workspace_id=target_ws,
+            status="completed",
+            reason="task_projected",
+            result=result,
+        )
     except Exception as exc:
         error_msg = str(exc)
         attempt.mark_failed(error_msg)
@@ -218,4 +280,13 @@ async def dispatch_phase(
             },
         )
         logger.warning("Phase %s dispatch failed: %s", phase.id, exc)
-        return {"status": "failed", "error": error_msg}
+        return attach_attempt_reason_projection(
+            {"status": "failed", "error": error_msg},
+            phase=phase,
+            action_item=action_item,
+            attempt=attempt,
+            engine=engine,
+            target_workspace_id=target_ws,
+            status="failed",
+            error=error_msg,
+        )

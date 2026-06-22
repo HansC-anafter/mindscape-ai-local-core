@@ -9,6 +9,9 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi import Path as PathParam
 
 from backend.app.routes.core.read_executor import run_ui_read
+from backend.app.services.workspace_execution.lifecycle_summary import (
+    attach_lifecycle_summaries_to_tasks,
+)
 from backend.app.services.stores.postgres.task_projection_store import (
     TasksProjectionStore,
 )
@@ -50,7 +53,7 @@ async def _load_workspace_tasks_payload(
         include_completed,
         task_type,
     )
-    return {"tasks": tasks}
+    return attach_lifecycle_summaries_to_tasks({"tasks": tasks})
 
 
 @router.get("/{workspace_id}/tasks")

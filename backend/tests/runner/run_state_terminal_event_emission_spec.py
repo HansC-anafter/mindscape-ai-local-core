@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from backend.app.models.mindscape import EventType
 from backend.app.models.workspace import Task, TaskStatus
 from backend.app.runner import reaper_context, task_executor_events
@@ -119,3 +121,19 @@ def test_reaper_stale_failed_event_uses_public_builder(monkeypatch):
         new_state="FAILED",
         reason="stale_task_reaped",
     )
+
+
+def test_lifecycle_cancel_route_uses_public_builder():
+    repo_root = Path(__file__).resolve().parents[2]
+    source = (
+        repo_root
+        / "app"
+        / "routes"
+        / "core"
+        / "playbook_execution_core"
+        / "lifecycle_routes.py"
+    ).read_text(encoding="utf-8")
+
+    assert "playbook_runner import _build_run_state_changed_event" not in source
+    assert "backend.app.services.playbook_runner_core.run_state" in source
+    assert "build_run_state_changed_event" in source

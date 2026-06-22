@@ -18,6 +18,12 @@ async def stage_decompose_and_dispatch(
     """S6: Dispatch gate → TaskDecomposer → IR compile → DispatchOrchestrator."""
     await meeting._emit_meeting_stage("dispatch", "準備派遣任務…")
 
+    from backend.app.services.orchestration.meeting.dispatch_visibility import (
+        build_gate_visibility,
+        build_ir_compile_visibility,
+        record_dispatch_visibility,
+    )
+
     from backend.app.models.supervision_signals import SupervisionSignals
     from backend.app.services.orchestration.meeting.dispatch_gate import DispatchGate
     from backend.app.services.orchestration.supervision_signals_emitter import (
@@ -92,6 +98,14 @@ async def stage_decompose_and_dispatch(
     dispatchable_intents = [
         intent for intent in action_intents if intent.intent_id in dispatch_intent_ids
     ]
+    record_dispatch_visibility(
+        meeting.session,
+        build_gate_visibility(
+            gate_result,
+            dispatchable_count=len(dispatchable_intents),
+            forced_dispatch_intent_ids=forced_dispatch_intent_ids,
+        ),
+    )
     plan_only_no_actuator = bool(action_items) and all(
         str(item.get("engine") or "").strip()
         and not item.get("tool_name")
@@ -300,6 +314,15 @@ async def stage_decompose_and_dispatch(
         except Exception as exc:
             logger.warning("Planner contract binding failed (non-fatal): %s", exc)
 
+    record_dispatch_visibility(
+        meeting.session,
+        build_ir_compile_visibility(
+            compiled_ir,
+            decomposed_phases=decomposed_phases,
+            plan_only_no_actuator=plan_only_no_actuator,
+        ),
+    )
+
     if plan_only_no_actuator:
         for item in action_items:
             item["landing_status"] = "planned"
@@ -368,6 +391,18 @@ def stage_finalize(
         action_items=action_items,
         converged=converged,
     )
+    try:
+        from backend.app.services.orchestration.meeting.dispatch_visibility import (
+            build_dispatch_result_visibility,
+            record_dispatch_visibility,
+        )
+
+        record_dispatch_visibility(
+            meeting.session,
+            build_dispatch_result_visibility(dispatch_result),
+        )
+    except Exception:
+        pass
     meeting._close_session(
         minutes_md=minutes_md,
         action_items=action_items,

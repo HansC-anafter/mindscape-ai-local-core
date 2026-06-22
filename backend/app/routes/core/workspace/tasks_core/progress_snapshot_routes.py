@@ -17,6 +17,9 @@ from backend.app.services.runner_resources import (
     get_ttl_snapshot,
     set_ttl_snapshot,
 )
+from backend.app.services.workspace_execution.lifecycle_summary import (
+    attach_lifecycle_summary_to_progress_snapshot,
+)
 from backend.app.services.stores.redis.runner_queue_store import RedisRunnerQueueStore
 
 from .progress_snapshot import load_execution_progress_snapshot_payload
@@ -36,7 +39,8 @@ def _load_execution_progress_snapshot_payload(
     workspace_id: str,
     execution_id: str,
 ) -> Dict[str, Any]:
-    return load_execution_progress_snapshot_payload(workspace_id, execution_id)
+    payload = load_execution_progress_snapshot_payload(workspace_id, execution_id)
+    return attach_lifecycle_summary_to_progress_snapshot(payload)
 
 
 async def _read_progress_snapshot_hot_cache(

@@ -189,7 +189,9 @@ async def cancel_playbook_execution(
         )
 
         try:
-            from backend.app.services.playbook_runner import _build_run_state_changed_event
+            from backend.app.services.playbook_runner_core.run_state import (
+                build_run_state_changed_event,
+            )
 
             cancel_inputs = (
                 task.params if isinstance(task.params, dict) else {}
@@ -199,7 +201,7 @@ async def cancel_playbook_execution(
             previous_state = (
                 getattr(task.status, "value", task.status) or "running"
             )
-            cancelled_event = _build_run_state_changed_event(
+            cancelled_event = build_run_state_changed_event(
                 profile_id=task.profile_id,
                 project_id=task.project_id,
                 workspace_id=task.workspace_id,
