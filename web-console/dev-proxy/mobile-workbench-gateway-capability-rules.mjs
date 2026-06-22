@@ -159,6 +159,11 @@ export function createDefaultGatewayWorkspaceSupportRules() {
       value: /^\/api\/v1\/host-resources\/lanes$/,
       methods: READ_ONLY_GATEWAY_METHODS,
     },
+    {
+      type: 'regex',
+      value: /^\/api\/v1\/host-resources\/queue-utilization$/,
+      methods: READ_ONLY_GATEWAY_METHODS,
+    },
     { type: 'regex', value: /^\/api\/v1\/capability-packs\/[^/]+\/ui-assets\// },
   ];
 }

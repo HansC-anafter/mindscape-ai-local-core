@@ -113,7 +113,8 @@ function extractRequestContextFromUrl(requestUrl = '/') {
 
   if (
     /^\/api\/v1\/system-settings\/keyboard-shortcuts$/.test(pathname) ||
-    /^\/api\/v1\/host-resources\/lanes$/.test(pathname)
+    /^\/api\/v1\/host-resources\/lanes$/.test(pathname) ||
+    /^\/api\/v1\/host-resources\/queue-utilization$/.test(pathname)
   ) {
     capabilityCode = capabilityCode || 'ig';
     capabilityFromFallback = capabilityCode === 'ig';
