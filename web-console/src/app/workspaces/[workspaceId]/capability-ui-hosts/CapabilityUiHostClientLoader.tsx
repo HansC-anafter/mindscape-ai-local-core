@@ -33,7 +33,7 @@ const metadataCache = new Map<string, CapabilityUiMetadataCacheEntry>();
 
 function CapabilityUiLoadingState() {
   return (
-    <div className="flex h-full items-center justify-center">
+    <div className="flex h-full w-full min-w-0 items-center justify-center">
       <div className="text-sm text-gray-500 dark:text-gray-400">Loading capability UI...</div>
     </div>
   );
@@ -223,7 +223,7 @@ export default function CapabilityUiHostClientLoader({
   let content: React.ReactNode;
   if (error) {
     content = (
-      <div className="flex h-full items-center justify-center p-4">
+      <div className="flex h-full w-full min-w-0 items-center justify-center p-4">
         <div className="max-w-md text-center">
           <h2 className="mb-2 text-lg font-semibold text-gray-900 dark:text-gray-100">
             Capability UI failed to load

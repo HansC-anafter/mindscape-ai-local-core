@@ -2,25 +2,13 @@
 
 import React from 'react';
 import {
-  Activity,
-  Camera,
-  Box,
   ChevronDown,
   ChevronRight,
   GripVertical,
   PanelLeftClose,
   PanelLeftOpen,
-  PanelRight,
-  Pin,
-  Radio,
-  Route,
-  Settings,
-  SlidersHorizontal,
-  UserPlus,
-  Wrench,
   X,
 } from 'lucide-react';
-import type { LucideIcon } from 'lucide-react';
 
 import type {
   AddressableObjectHostBridge,
@@ -39,9 +27,23 @@ import {
   type CapabilityWorkbenchPlacement,
 } from './CapabilityWorkbenchResponsiveFrame';
 import {
+  PACK_SCOPE_TOOL_CLOSE_EVENT,
   PACK_SCOPE_TOOL_OPEN_EVENT,
+  type PackScopeToolCloseDetail,
   type PackScopeToolOpenDetail,
 } from './packScopeToolEvents';
+import {
+  activePanelToggleBindingId,
+  aolSelectBindingId,
+  bindingIdForTool,
+  getPackScopeToolPanelInnerClassName,
+  getPackScopeToolPanelStyle,
+  iconForTool,
+  orderTools,
+  persistOrder,
+  readStoredOrder,
+  toolWithEffectiveShortcut,
+} from './packScopeToolRailModel';
 import { useToolRailPanelToggleShortcut } from './useToolRailPanelToggleShortcut';
 
 interface PackScopeToolRailHostProps {
@@ -55,82 +57,6 @@ interface PackScopeToolRailHostProps {
   aolHost?: AddressableObjectHostBridge;
   onNavigationCollapsedChange: (collapsed: boolean) => void;
   onNavigationToggleHover?: () => void;
-}
-
-const ICONS: Record<string, LucideIcon> = {
-  Activity,
-  Camera,
-  Box,
-  Panel: PanelRight,
-  PanelRight,
-  Pin,
-  Radio,
-  Route,
-  Settings,
-  SlidersHorizontal,
-  UserPlus,
-  Wrench,
-};
-
-function readStoredOrder(storageKey: string): string[] {
-  if (typeof window === 'undefined') {
-    return [];
-  }
-  try {
-    const parsed = JSON.parse(window.localStorage.getItem(storageKey) || '[]');
-    return Array.isArray(parsed)
-      ? parsed.map((item) => String(item || '').trim()).filter(Boolean)
-      : [];
-  } catch {
-    return [];
-  }
-}
-
-function persistOrder(storageKey: string, keys: string[]) {
-  if (typeof window !== 'undefined') {
-    window.localStorage.setItem(storageKey, JSON.stringify(keys));
-  }
-}
-
-function orderTools(tools: WorkspaceToolDefinition[], orderedKeys: string[]): WorkspaceToolDefinition[] {
-  const byKey = new Map(tools.map((tool) => [tool.tool_key, tool]));
-  const ordered = orderedKeys
-    .map((key) => byKey.get(key))
-    .filter((tool): tool is WorkspaceToolDefinition => Boolean(tool));
-  const remaining = tools
-    .filter((tool) => !orderedKeys.includes(tool.tool_key))
-    .sort((left, right) => left.order - right.order || left.tool_key.localeCompare(right.tool_key));
-  return [...ordered, ...remaining];
-}
-
-function iconForTool(tool: WorkspaceToolDefinition) {
-  const Icon = ICONS[tool.icon] || Wrench;
-  return <Icon aria-hidden className="h-3.5 w-3.5" strokeWidth={1.8} />;
-}
-
-function bindingIdForTool(tool: WorkspaceToolDefinition): string {
-  return `workspace_tool:${tool.tool_key}:open`;
-}
-
-function aolSelectBindingId(capabilityCode: string): string {
-  return `workspace_tool:${capabilityCode}:aol_select`;
-}
-
-function activePanelToggleBindingId(capabilityCode: string): string {
-  return `tool_rail:workbench:${capabilityCode}:active_panel:toggle`;
-}
-
-function toolWithEffectiveShortcut(
-  tool: WorkspaceToolDefinition,
-  effectiveShortcut: string | undefined,
-): WorkspaceToolDefinition {
-  if (tool.shortcut === effectiveShortcut) {
-    return tool;
-  }
-  return {
-    ...tool,
-    shortcut: effectiveShortcut,
-  };
 }
 
 export function PackScopeToolRailHost({
@@ -173,6 +99,17 @@ export function PackScopeToolRailHost({
     [activeTool, activeToolEffectiveShortcut],
   );
   const effectivePanelExpanded = placement === 'mobile' ? true : panelExpanded;
+  const effectivePanelSize = effectiveActiveTool?.panel_component.layout_hint === 'scrollable_full_bleed'
+    ? 'full_bleed'
+    : 'content';
+  const panelInnerClassName = getPackScopeToolPanelInnerClassName(effectivePanelSize);
+  const panelStyle = React.useMemo<React.CSSProperties | undefined>(() => {
+    return getPackScopeToolPanelStyle({
+      placement,
+      panelSize: effectivePanelSize,
+      floatingPosition,
+    });
+  }, [effectivePanelSize, floatingPosition.bottom, floatingPosition.left, placement]);
 
   React.useEffect(() => {
     setOrderedKeys(readStoredOrder(storageKey));
@@ -341,6 +278,37 @@ export function PackScopeToolRailHost({
     return () => window.removeEventListener(PACK_SCOPE_TOOL_OPEN_EVENT, handleOpenRequest);
   }, [capabilityCode, orderedTools]);
 
+  React.useEffect(() => {
+    if (typeof window === 'undefined') {
+      return undefined;
+    }
+    const handleCloseRequest = (event: Event) => {
+      const detail = (event as CustomEvent<PackScopeToolCloseDetail>).detail;
+      if (!detail) {
+        return;
+      }
+      if (detail.capabilityCode && detail.capabilityCode !== capabilityCode) {
+        return;
+      }
+      const shouldClose = !detail.toolKey && !detail.toolId
+        ? Boolean(activeTool)
+        : Boolean(
+          activeTool
+          && (
+            activeTool.tool_key === detail.toolKey
+            || activeTool.id === detail.toolId
+          ),
+        );
+      if (!shouldClose) {
+        return;
+      }
+      setActiveToolKey(null);
+      setPanelExpanded(false);
+    };
+    window.addEventListener(PACK_SCOPE_TOOL_CLOSE_EVENT, handleCloseRequest);
+    return () => window.removeEventListener(PACK_SCOPE_TOOL_CLOSE_EVENT, handleCloseRequest);
+  }, [activeTool, capabilityCode]);
+
   const handleDrop = React.useCallback((targetToolKey: string) => {
     if (!draggedToolKey || draggedToolKey === targetToolKey) {
       setDraggedToolKey(null);
@@ -424,48 +392,56 @@ export function PackScopeToolRailHost({
       </aside>
       {effectiveActiveTool ? (
         <section
-          className={getPackScopeToolPanelClassName(placement, effectivePanelExpanded)}
+          className={getPackScopeToolPanelClassName(
+            placement,
+            effectivePanelExpanded,
+            effectiveActiveTool.panel_component.layout_hint,
+          )}
           data-testid="pack-scope-tool-panel"
           data-active-tool-key={effectiveActiveTool.tool_key}
+          data-panel-layout-hint={effectiveActiveTool.panel_component.layout_hint}
+          data-panel-size={effectivePanelSize}
           data-panel-expanded={effectivePanelExpanded ? 'true' : 'false'}
           data-workbench-placement={placement}
-          style={placement === 'desktop' ? {
-            left: floatingPosition.left,
-            bottom: floatingPosition.bottom,
-          } : undefined}
+          style={panelStyle}
         >
-          {LoadedPanel ? (
-            <LoadedPanel
-              workspaceId={workspaceId}
-              apiUrl={apiUrl}
-              tool={effectiveActiveTool}
-              aolHost={aolHost}
-              panelCollapsed={!effectivePanelExpanded}
-              onPanelCollapsedChange={handlePanelCollapsedChange}
-              onPanelClose={() => setActiveToolKey(null)}
-            />
-          ) : (
-            <button
-              type="button"
-              className="flex h-8 max-w-[320px] items-center gap-2 px-2.5 text-left text-xs text-zinc-300"
-              onClick={() => setPanelExpanded(true)}
-            >
-              {effectivePanelExpanded ? (
-                <ChevronDown aria-hidden className="h-3.5 w-3.5 shrink-0 text-zinc-500" />
-              ) : (
-                <ChevronRight aria-hidden className="h-3.5 w-3.5 shrink-0 text-zinc-500" />
-              )}
-              <span className="min-w-0 truncate">{effectiveActiveTool.label}</span>
-              <X
-                aria-hidden
-                className="ml-auto h-3.5 w-3.5 shrink-0 text-zinc-500"
-                onClick={(event: React.MouseEvent<SVGSVGElement>) => {
-                  event.stopPropagation();
-                  setActiveToolKey(null);
-                }}
+          <div
+            className={panelInnerClassName}
+            data-testid="pack-scope-tool-panel-inner"
+          >
+            {LoadedPanel ? (
+              <LoadedPanel
+                workspaceId={workspaceId}
+                apiUrl={apiUrl}
+                tool={effectiveActiveTool}
+                aolHost={aolHost}
+                panelCollapsed={!effectivePanelExpanded}
+                onPanelCollapsedChange={handlePanelCollapsedChange}
+                onPanelClose={() => setActiveToolKey(null)}
               />
-            </button>
-          )}
+            ) : (
+              <button
+                type="button"
+                className="flex h-8 max-w-[320px] items-center gap-2 px-2.5 text-left text-xs text-zinc-300"
+                onClick={() => setPanelExpanded(true)}
+              >
+                {effectivePanelExpanded ? (
+                  <ChevronDown aria-hidden className="h-3.5 w-3.5 shrink-0 text-zinc-500" />
+                ) : (
+                  <ChevronRight aria-hidden className="h-3.5 w-3.5 shrink-0 text-zinc-500" />
+                )}
+                <span className="min-w-0 truncate">{effectiveActiveTool.label}</span>
+                <X
+                  aria-hidden
+                  className="ml-auto h-3.5 w-3.5 shrink-0 text-zinc-500"
+                  onClick={(event: React.MouseEvent<SVGSVGElement>) => {
+                    event.stopPropagation();
+                    setActiveToolKey(null);
+                  }}
+                />
+              </button>
+            )}
+          </div>
         </section>
       ) : null}
     </>

@@ -20,12 +20,12 @@ import {
   normalizeWorkspaceToolContributions,
 } from '@/lib/workspace-right-region/workspace-right-region-contract';
 import type { WorkspaceToolDefinition } from '@/lib/workspace-tools/workspace-tool-registry';
-import WorkspaceRuntimeFrame from '../components/WorkspaceRuntimeFrame';
 import {
   useOptionalWorkspaceGlobalToolRail,
   useWorkspaceGlobalToolContributions,
   type WorkspaceGlobalToolContribution,
 } from '../components/useWorkspaceGlobalToolRail';
+import CapabilityHostRuntimeFrame from './CapabilityHostRuntimeFrame';
 import { useWorkspaceToolDefinitions } from './useWorkspaceToolDefinitions';
 
 const WorkspaceToolExtensionSlot = React.lazy(() => import('./WorkspaceToolExtensionSlot'));
@@ -81,7 +81,7 @@ export default function WorkspaceSurfaceShell({
   children,
 }: WorkspaceSurfaceShellProps) {
   return (
-    <WorkspaceRuntimeFrame workspaceId={workspaceId} initialLoadProfile="capability-host">
+    <CapabilityHostRuntimeFrame workspaceId={workspaceId} initialLoadProfile="capability-host">
       <WorkspaceSurfaceShellContent
         workspaceId={workspaceId}
         activeCapabilityCode={activeCapabilityCode}
@@ -89,7 +89,7 @@ export default function WorkspaceSurfaceShell({
       >
         {children}
       </WorkspaceSurfaceShellContent>
-    </WorkspaceRuntimeFrame>
+    </CapabilityHostRuntimeFrame>
   );
 }
 

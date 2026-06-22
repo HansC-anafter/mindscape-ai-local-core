@@ -242,13 +242,16 @@ describe('workspace settings component seams', () => {
     const providerSource = readWebConsoleFile('src/app/workspaces/[workspaceId]/components/WorkspaceGlobalToolRailProvider.tsx');
     const providerCoreSource = readWebConsoleFile('src/app/workspaces/[workspaceId]/components/workspaceGlobalToolRailCoreContributions.tsx');
     const runtimeFrameSource = readWebConsoleFile('src/app/workspaces/[workspaceId]/capability-ui-hosts/CapabilityHostRuntimeFrame.tsx');
+    const runtimeFrameContributionSource = readWebConsoleFile('src/app/workspaces/[workspaceId]/capability-ui-hosts/capabilityHostRuntimeFrame/workspaceToolContributions.tsx');
 
     expect(providerSource).toContain("from './workspaceGlobalToolRailCoreContributions'");
     expect(providerCoreSource).toContain("import('../capability-ui-hosts/WorkspaceSettingsToolPanel')");
-    expect(runtimeFrameSource).toContain("import('./WorkspaceSettingsToolPanel')");
+    expect(runtimeFrameSource).toContain("from './capabilityHostRuntimeFrame/workspaceToolContributions'");
+    expect(runtimeFrameContributionSource).toContain("import('../WorkspaceSettingsToolPanel')");
     expect(providerSource).not.toContain("import('./WorkspaceSettings')");
     expect(providerCoreSource).not.toContain("import('./WorkspaceSettings')");
     expect(runtimeFrameSource).not.toContain('components/WorkspaceSettings');
+    expect(runtimeFrameContributionSource).not.toContain('components/WorkspaceSettings');
   });
 
   it('keeps touched source files ascii only', () => {

@@ -11,7 +11,7 @@ interface CapabilityUiHostRouteShellProps {
 
 function CapabilityUiHostRouteShellLoadingState() {
   return (
-    <div className="flex h-full items-center justify-center">
+    <div className="flex h-full w-full min-w-0 items-center justify-center">
       <div className="text-sm text-gray-500 dark:text-gray-400">Loading capability UI...</div>
     </div>
   );

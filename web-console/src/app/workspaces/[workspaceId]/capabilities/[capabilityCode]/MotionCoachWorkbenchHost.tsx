@@ -19,6 +19,7 @@ import {
 } from '@/components/workspace/device-binding/practice/motionPracticeLessonHandoff';
 import { buildMotionPracticeLessonHandoffFromGraphSelection } from '@/components/workspace/device-binding/practice/motionPracticeGraphSelection';
 import type { CapabilityTaskConfirmationBridge } from '@/types/capability-workbench';
+import { requestPackScopeToolClose } from '@/components/capabilities/workbench/packScopeToolEvents';
 import {
   buildDancePracticeWorkbenchState,
   buildYogaPracticeWorkbenchState,
@@ -106,6 +107,7 @@ function MotionCoachWorkbenchHostContent({
   const [motionWindowEvents, setMotionWindowEvents] = useState<MotionWindowAppendEvent[]>([]);
   const [closureResult, setClosureResult] = useState<MotionPracticeClosureResult | null>(null);
   const publishedReferenceLessonKeyRef = useRef('');
+  const previousSessionCountRef = useRef(sessions.length);
   const urlLessonHandoff = useMemo(() => (
     parseMotionPracticeLessonHandoff(searchParams)
   ), [searchParams]);
@@ -122,6 +124,17 @@ function MotionCoachWorkbenchHostContent({
   const initialInstructionSource = useMemo(() => (
     buildInstructionSourceStateFromLessonHandoff(lessonHandoff)
   ), [lessonHandoff]);
+
+  useEffect(() => {
+    const previousSessionCount = previousSessionCountRef.current;
+    previousSessionCountRef.current = sessions.length;
+    if (previousSessionCount === 0 && sessions.length > 0) {
+      requestPackScopeToolClose({
+        capabilityCode,
+        toolId: 'motion_source',
+      });
+    }
+  }, [capabilityCode, sessions.length]);
 
   useEffect(() => {
     if (!sessions.length) {
@@ -205,10 +218,13 @@ function MotionCoachWorkbenchHostContent({
           [...current, event].slice(-MAX_WINDOW_EVENTS)
         ));
       }}
-      className="mt-0 border-stone-900 shadow-sm"
+      className="mt-0 h-full min-h-0 w-full border-stone-900 shadow-sm"
     />
   ) : (
-    <div className="flex aspect-video items-center justify-center rounded-lg border border-dashed border-stone-300 bg-stone-100 px-6 text-center text-sm text-stone-500">
+    <div
+      className="flex h-full min-h-[320px] w-full items-center justify-center rounded-lg border border-dashed border-stone-300 bg-stone-100 px-6 text-center text-sm text-stone-500"
+      data-testid="motion-coach-host-capture-placeholder"
+    >
       Connect a phone, OBS, or desktop camera from Motion source to open the learner stage.
     </div>
   );

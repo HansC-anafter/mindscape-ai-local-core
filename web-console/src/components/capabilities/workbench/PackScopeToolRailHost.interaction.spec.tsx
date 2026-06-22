@@ -7,15 +7,15 @@ import {
   primeCapabilityUIComponentMetadata,
 } from '@/lib/capability-ui-loader';
 import { KeyboardShortcutProvider } from '@/lib/keyboard-shortcuts';
-import { useKeyboardShortcuts } from '@/lib/keyboard-shortcuts';
-import type {
-  AddressableObjectHostBridge,
-  AddressableSelectionTarget,
-} from '@/lib/addressable-object-layer';
-import type { KeyboardShortcutProfile } from '@/lib/keyboard-shortcuts';
 import type { WorkspaceToolDefinition } from '@/lib/workspace-tools/workspace-tool-registry';
 import { PackScopeToolRailHost } from './PackScopeToolRailHost';
-import { PACK_SCOPE_TOOL_OPEN_EVENT } from './packScopeToolEvents';
+import {
+  createAolHost,
+  feedLoadTool,
+  fullBleedTool,
+  noopSelectObject,
+  ShortcutProfileController,
+} from './PackScopeToolRailHost.test-support';
 
 vi.mock('@/lib/capability-ui-loader', async () => {
   const ReactModule = await import('react');
@@ -56,69 +56,6 @@ vi.mock('@/lib/capability-ui-loader', async () => {
   };
 });
 
-const feedLoadTool: WorkspaceToolDefinition = {
-  tool_key: 'ig:feed_grid_card_load_limit',
-  capability_code: 'ig',
-  id: 'feed_grid_card_load_limit',
-  group: 'capability',
-  slot: 'workbench.left_tool_rail',
-  label: 'Feed Load',
-  icon: 'SlidersHorizontal',
-  order: 10,
-  shortcut: 'F9',
-  panel_component_code: 'FeedGridLoadToolPanel',
-  runtime_tool_code: 'ig_query_references',
-  aol: {
-    object_kind: 'tool',
-    object_uri: 'mindscape://ig/tool/feed_grid_card_load_limit',
-    role: 'constraint',
-  },
-  state_schema: {
-    load_limit: {
-      type: 'integer',
-      min: 1,
-      max: 300,
-    },
-  },
-  panel_component: {
-    code: 'FeedGridLoadToolPanel',
-    path: 'ui/workbench/feedGridTool/FeedGridLoadToolPanel.tsx',
-    description: 'Feed load panel',
-    export: 'FeedGridLoadToolPanel',
-    artifact_types: [],
-    playbook_codes: [],
-    import_path: '@/app/capabilities/ig/components/workbench/feedGridTool/FeedGridLoadToolPanel',
-    layout_hint: 'default',
-  },
-};
-
-function createAolHost(
-  onSelectObject: AddressableObjectHostBridge['onSelectObject'],
-): AddressableObjectHostBridge {
-  return {
-    mode: 'idle',
-    selection: null,
-    currentMeetingId: null,
-    requestObjectTargeting: vi.fn(),
-    cancelObjectTargeting: vi.fn(),
-    onSelectObject,
-    clearCurrentObject: vi.fn(),
-    openCurrentMeeting: vi.fn(),
-  };
-}
-
-function ShortcutProfileController({
-  onReady,
-}: {
-  onReady: (setProfile: (profile: KeyboardShortcutProfile) => void) => void;
-}) {
-  const { setProfile } = useKeyboardShortcuts();
-  React.useEffect(() => {
-    onReady(setProfile);
-  }, [onReady, setProfile]);
-  return null;
-}
-
 describe('PackScopeToolRailHost', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -126,9 +63,7 @@ describe('PackScopeToolRailHost', () => {
   });
 
   it('loads a manifest panel lazily without entering AOL object selection', async () => {
-    const onSelectObject = vi.fn((selection: AddressableSelectionTarget) => {
-      void selection;
-    });
+    const onSelectObject = vi.fn(noopSelectObject);
     const onNavigationCollapsedChange = vi.fn();
 
     render(
@@ -163,15 +98,59 @@ describe('PackScopeToolRailHost', () => {
       );
       expect(screen.getByTestId('loaded-pack-tool-panel')).toHaveAttribute('data-panel-collapsed', 'false');
     });
+    expect(screen.getByTestId('pack-scope-tool-panel').className).toContain('w-fit');
+    expect(screen.getByTestId('pack-scope-tool-panel').className).toContain('h-auto');
+    expect(screen.getByTestId('pack-scope-tool-panel').className).toContain('max-h-[min(70dvh,560px)]');
+    expect(screen.getByTestId('pack-scope-tool-panel').className).not.toContain('h-[min(760px');
+    expect(screen.getByTestId('pack-scope-tool-panel').className).not.toContain('bg-zinc-950');
+    expect(screen.getByTestId('pack-scope-tool-panel-inner').className).toContain('bg-zinc-950/95');
+    expect(screen.getByTestId('pack-scope-tool-panel-inner').className).toContain('inline-block');
+    expect(screen.getByTestId('pack-scope-tool-panel-inner').className).toContain('max-h-full');
+    expect(screen.getByTestId('pack-scope-tool-panel')).toHaveAttribute('data-panel-layout-hint', 'default');
+    expect(screen.getByTestId('pack-scope-tool-panel')).toHaveAttribute('data-panel-size', 'content');
+    expect(screen.getByTestId('pack-scope-tool-panel')).toHaveStyle({
+      height: 'auto',
+      maxHeight: 'min(70dvh, 560px)',
+      minHeight: '0',
+      width: 'fit-content',
+    });
 
     fireEvent.click(screen.getByTestId('pack-scope-navigation-toggle'));
     expect(onNavigationCollapsedChange).toHaveBeenCalledWith(true);
   });
 
-  it('opens the panel from the manifest shortcut without hitting editable targets', async () => {
-    const onSelectObject = vi.fn((selection: AddressableSelectionTarget) => {
-      void selection;
+  it('keeps only full-bleed desktop tool panels on the large fixed surface', async () => {
+    render(
+      <KeyboardShortcutProvider loadProfileOnMount={false}>
+        <PackScopeToolRailHost
+          workspaceId="ws_test"
+          capabilityCode="ig"
+          apiUrl="http://api.test"
+          tools={[fullBleedTool]}
+          navigationCollapsed
+          aolHost={createAolHost(vi.fn())}
+          onNavigationCollapsedChange={vi.fn()}
+        />
+      </KeyboardShortcutProvider>,
+    );
+
+    fireEvent.click(screen.getByTestId('pack-scope-tool-ig:full_bleed_panel'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('loaded-pack-tool-panel')).toBeInTheDocument();
     });
+    expect(screen.getByTestId('pack-scope-tool-panel').className).toContain('h-[min(760px');
+    expect(screen.getByTestId('pack-scope-tool-panel').className).toContain('w-[380px]');
+    expect(screen.getByTestId('pack-scope-tool-panel')).toHaveAttribute('data-panel-layout-hint', 'scrollable_full_bleed');
+    expect(screen.getByTestId('pack-scope-tool-panel')).toHaveAttribute('data-panel-size', 'full_bleed');
+    expect(screen.getByTestId('pack-scope-tool-panel').className).toContain('bg-zinc-950/95');
+    expect(screen.getByTestId('pack-scope-tool-panel-inner').className).toContain('h-full');
+    expect(screen.getByTestId('pack-scope-tool-panel-inner').className).not.toContain('inline-block');
+    expect(screen.getByTestId('pack-scope-tool-panel').getAttribute('style') || '').not.toContain('height: auto');
+  });
+
+  it('opens the panel from the manifest shortcut without hitting editable targets', async () => {
+    const onSelectObject = vi.fn(noopSelectObject);
 
     render(
       <KeyboardShortcutProvider loadProfileOnMount={false}>
@@ -240,9 +219,7 @@ describe('PackScopeToolRailHost', () => {
   });
 
   it('routes the AOL select shortcut through the workspace tool rail scope', () => {
-    const onSelectObject = vi.fn((selection: AddressableSelectionTarget) => {
-      void selection;
-    });
+    const onSelectObject = vi.fn(noopSelectObject);
     const aolHost = createAolHost(onSelectObject);
 
     render(
@@ -352,8 +329,39 @@ describe('PackScopeToolRailHost', () => {
       expect(screen.getByTestId('loaded-pack-tool-panel')).toBeInTheDocument();
     });
     expect(screen.getByTestId('pack-scope-tool-panel')).toHaveAttribute('data-panel-expanded', 'true');
+    expect(screen.getByTestId('pack-scope-tool-panel')).toHaveAttribute('data-panel-size', 'content');
     expect(screen.getByTestId('loaded-pack-tool-panel')).toHaveAttribute('data-panel-collapsed', 'false');
     expect(screen.getByTestId('pack-scope-tool-panel').getAttribute('style') || '').not.toContain('left');
+    expect(screen.getByTestId('pack-scope-tool-panel').className).toContain('bottom-[');
+    expect(screen.getByTestId('pack-scope-tool-panel').className).toContain('max-h-[70dvh]');
+    expect(screen.getByTestId('pack-scope-tool-panel').className).not.toContain('bg-zinc-950');
+    expect(screen.getByTestId('pack-scope-tool-panel-inner').className).toContain('bg-zinc-950/95');
+    expect(screen.getByTestId('pack-scope-tool-panel').className).not.toContain('top-[');
+    expect(screen.getByTestId('pack-scope-tool-panel').className).not.toContain('max-h-none');
+  });
+
+  it('uses full-screen mobile placement only for full-bleed tool panels', async () => {
+    render(
+      <KeyboardShortcutProvider loadProfileOnMount={false}>
+        <PackScopeToolRailHost
+          workspaceId="ws_test"
+          capabilityCode="ig"
+          apiUrl="http://api.test"
+          tools={[fullBleedTool]}
+          placement="mobile"
+          navigationCollapsed
+          aolHost={createAolHost(vi.fn())}
+          onNavigationCollapsedChange={vi.fn()}
+        />
+      </KeyboardShortcutProvider>,
+    );
+
+    fireEvent.click(screen.getByTestId('pack-scope-tool-ig:full_bleed_panel'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('pack-scope-tool-panel')).toHaveAttribute('data-workbench-placement', 'mobile');
+      expect(screen.getByTestId('loaded-pack-tool-panel')).toBeInTheDocument();
+    });
     expect(screen.getByTestId('pack-scope-tool-panel').className).toContain('top-[');
     expect(screen.getByTestId('pack-scope-tool-panel').className).toContain('bottom-[');
     expect(screen.getByTestId('pack-scope-tool-panel').className).toContain('max-h-none');
@@ -389,35 +397,4 @@ describe('PackScopeToolRailHost', () => {
     });
   });
 
-  it('opens a requested tool by tool id and can hide the navigation toggle when no navigation is present', async () => {
-    render(
-      <KeyboardShortcutProvider loadProfileOnMount={false}>
-        <PackScopeToolRailHost
-          workspaceId="ws_test"
-          capabilityCode="ig"
-          apiUrl="http://api.test"
-          tools={[feedLoadTool]}
-          navigationEnabled={false}
-          navigationCollapsed
-          aolHost={createAolHost(vi.fn())}
-          onNavigationCollapsedChange={vi.fn()}
-        />
-      </KeyboardShortcutProvider>,
-    );
-
-    expect(screen.queryByTestId('pack-scope-navigation-toggle')).toBeNull();
-
-    await act(async () => {
-      window.dispatchEvent(new CustomEvent(PACK_SCOPE_TOOL_OPEN_EVENT, {
-        detail: {
-          capabilityCode: 'ig',
-          toolId: 'feed_grid_card_load_limit',
-        },
-      }));
-    });
-
-    await waitFor(() => {
-      expect(screen.getByTestId('loaded-pack-tool-panel')).toBeInTheDocument();
-    });
-  });
 });
