@@ -15,6 +15,13 @@ import { PermissionMap } from "./governance/permission-map.js";
 import { LocalCoreBridge } from "./bridge/local-core-client.js";
 import { createBuiltinTools } from "./mcp-server/builtin-tools.js";
 import type { ToolDefinition } from "./mcp-server/tool-definition.js";
+import {
+    attachHttpServerErrorHandlers,
+    isRequestAbortedError,
+    readRequestBody,
+    writeJsonResponse,
+    writeJsonRpcError,
+} from "./http/mcp-http-error-boundary.js";
 import * as http from "http";
 
 export interface MCPServerConfig {
@@ -162,17 +169,12 @@ export class MCPServer {
             }
 
             if (req.method !== "POST" || req.url !== "/mcp") {
-                res.writeHead(404, { "Content-Type": "application/json" });
-                res.end(JSON.stringify({ error: "Not found" }));
+                writeJsonResponse(res, 404, { error: "Not found" });
                 return;
             }
 
-            let body = "";
-            for await (const chunk of req) {
-                body += chunk;
-            }
-
             try {
+                const body = await readRequestBody(req);
                 const request = JSON.parse(body);
                 const { method, params, id } = request;
 
@@ -216,24 +218,20 @@ export class MCPServer {
                     throw new Error(`Unknown method: ${method}`);
                 }
 
-                res.writeHead(200, { "Content-Type": "application/json" });
-                res.end(JSON.stringify({
+                writeJsonResponse(res, 200, {
                     jsonrpc: "2.0",
                     id,
                     result,
-                }));
+                });
             } catch (error) {
-                res.writeHead(200, { "Content-Type": "application/json" });
-                res.end(JSON.stringify({
-                    jsonrpc: "2.0",
-                    id: null,
-                    error: {
-                        code: -32000,
-                        message: error instanceof Error ? error.message : String(error),
-                    },
-                }));
+                if (isRequestAbortedError(error)) {
+                    return;
+                }
+                writeJsonRpcError(res, error instanceof Error ? error.message : String(error));
             }
         });
+
+        attachHttpServerErrorHandlers(this.httpServer);
 
         await new Promise<void>((resolve) => {
             this.httpServer!.listen(port, "0.0.0.0", () => {

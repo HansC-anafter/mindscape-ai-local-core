@@ -25,12 +25,23 @@ class CaptureRelayUnavailable(Exception):
 class CaptureRelayRequest(BaseModel):
     """Request model for the host capture relay helper."""
 
-    action: Literal["status", "start", "stop", "open_obs"] = "status"
+    action: Literal[
+        "status",
+        "install_mediamtx",
+        "start",
+        "stop",
+        "open_obs",
+        "configure_obs",
+    ] = "status"
     stream_name: str = Field(default="external-camera", max_length=128)
+    scene_name: str = Field(default="Mindscape External Camera", max_length=128)
+    source_name: str = Field(default="Mindscape RTSP Source", max_length=128)
     rtmp_port: int = Field(default=1935, ge=1, le=65535)
     rtsp_port: int = Field(default=8554, ge=1, le=65535)
     open_obs: bool = False
-    timeout_ms: int = Field(default=5000, ge=1000, le=15000)
+    start_virtual_camera: bool = True
+    install_method: Literal["homebrew"] = "homebrew"
+    timeout_ms: int = Field(default=5000, ge=1000, le=120000)
 
 
 def _device_node_url() -> str:

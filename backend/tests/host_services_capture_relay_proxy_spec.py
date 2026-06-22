@@ -47,10 +47,121 @@ async def test_call_capture_relay_control_parses_device_node_text_payload(monkey
     assert captured["arguments"] == {
         "action": "start",
         "stream_name": "external camera",
+        "scene_name": "Mindscape External Camera",
+        "source_name": "Mindscape RTSP Source",
         "rtmp_port": 1935,
         "rtsp_port": 8554,
         "open_obs": True,
+        "start_virtual_camera": True,
+        "install_method": "homebrew",
         "timeout_ms": 5000,
+    }
+
+
+@pytest.mark.asyncio
+async def test_call_capture_relay_control_accepts_mediamtx_install_action(monkeypatch):
+    captured: dict[str, object] = {}
+
+    async def fake_post_device_node_mcp(*, arguments, timeout_seconds):
+        captured["arguments"] = arguments
+        captured["timeout_seconds"] = timeout_seconds
+        return {
+            "content": [
+                {
+                    "type": "text",
+                    "text": (
+                        '{"schema_version":"capture_relay_control.v1",'
+                        '"action":"install_mediamtx","install_result":"installed"}'
+                    ),
+                }
+            ]
+        }
+
+    monkeypatch.setattr(
+        capture_relay_proxy,
+        "_post_device_node_mcp",
+        fake_post_device_node_mcp,
+    )
+
+    result = await call_capture_relay_control(
+        CaptureRelayRequest(
+            action="install_mediamtx",
+            stream_name="external camera",
+            install_method="homebrew",
+            timeout_ms=120000,
+        )
+    )
+
+    assert result == {
+        "schema_version": "capture_relay_control.v1",
+        "action": "install_mediamtx",
+        "install_result": "installed",
+    }
+    assert captured["arguments"] == {
+        "action": "install_mediamtx",
+        "stream_name": "external camera",
+        "scene_name": "Mindscape External Camera",
+        "source_name": "Mindscape RTSP Source",
+        "rtmp_port": 1935,
+        "rtsp_port": 8554,
+        "open_obs": False,
+        "start_virtual_camera": True,
+        "install_method": "homebrew",
+        "timeout_ms": 120000,
+    }
+
+
+@pytest.mark.asyncio
+async def test_call_capture_relay_control_accepts_obs_configure_action(monkeypatch):
+    captured: dict[str, object] = {}
+
+    async def fake_post_device_node_mcp(*, arguments, timeout_seconds):
+        captured["arguments"] = arguments
+        captured["timeout_seconds"] = timeout_seconds
+        return {
+            "content": [
+                {
+                    "type": "text",
+                    "text": (
+                        '{"schema_version":"capture_relay_control.v1",'
+                        '"action":"configure_obs","configure_result":"configured"}'
+                    ),
+                }
+            ]
+        }
+
+    monkeypatch.setattr(
+        capture_relay_proxy,
+        "_post_device_node_mcp",
+        fake_post_device_node_mcp,
+    )
+
+    result = await call_capture_relay_control(
+        CaptureRelayRequest(
+            action="configure_obs",
+            stream_name="external camera",
+            scene_name="Mindscape External Camera",
+            source_name="Mindscape RTSP Source",
+            timeout_ms=12000,
+        )
+    )
+
+    assert result == {
+        "schema_version": "capture_relay_control.v1",
+        "action": "configure_obs",
+        "configure_result": "configured",
+    }
+    assert captured["arguments"] == {
+        "action": "configure_obs",
+        "stream_name": "external camera",
+        "scene_name": "Mindscape External Camera",
+        "source_name": "Mindscape RTSP Source",
+        "rtmp_port": 1935,
+        "rtsp_port": 8554,
+        "open_obs": False,
+        "start_virtual_camera": True,
+        "install_method": "homebrew",
+        "timeout_ms": 12000,
     }
 
 

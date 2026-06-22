@@ -223,12 +223,36 @@ class HostRuntimeTurnRunner:
             }
 
         duration = elapsed_seconds(started_at)
-        for event_message in build_completion_event_messages(
-            context,
-            result if isinstance(result, dict) else {"status": "failed", "error": str(result)},
-            duration_seconds=duration,
-        ):
-            await self._emit_message(event_message)
+        completion_result = result if isinstance(result, dict) else {"status": "failed", "error": str(result)}
+        try:
+            for event_message in build_completion_event_messages(
+                context,
+                completion_result,
+                duration_seconds=duration,
+            ):
+                await self._emit_message(event_message)
+        except Exception as exc:
+            logger.exception("Host runtime turn failed while emitting completion events")
+            fallback_payload = {
+                "status": "failed",
+                "reason": "completion_event_emit_failed",
+                "error": str(exc),
+                "duration_seconds": duration,
+                "metadata": {
+                    "recovery_action": "terminal_failure_emitted_by_bridge_client",
+                    "original_status": str(completion_result.get("status") or ""),
+                },
+            }
+            try:
+                await self._emit_message(
+                    build_bridge_event_message(
+                        context,
+                        "turn.failed",
+                        fallback_payload,
+                    )
+                )
+            except Exception:
+                logger.exception("Host runtime turn failed while emitting fallback terminal event")
 
 
 class HostRuntimeSessionBridgeClient:

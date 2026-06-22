@@ -99,10 +99,12 @@ class HostRuntimeBridgeRegistry:
         if not matching:
             return None
 
-        def priority(connection: HostRuntimeBridgeConnection) -> tuple[int, float, float]:
+        def priority(connection: HostRuntimeBridgeConnection) -> tuple[int, int, float, float]:
             workspace_specific = 1 if workspace_id in connection.workspace_ids else 0
+            dedicated_workspace_bridge = 0 if connection.bridge_id.startswith("hostrt-shared-") else 1
             return (
                 workspace_specific,
+                dedicated_workspace_bridge,
                 connection.last_heartbeat_at.timestamp(),
                 connection.connected_at.timestamp(),
             )
