@@ -1,102 +1,66 @@
 """
-GovernanceTuner（治理調參器）
+Governance tuner.
 
-職責：產生可執行的建議（strictness 升級、toolset 收斂、scope 鎖定等）
-並回寫成 DecisionRecord（決策紀錄）
-這是 EGB 的第六個元件，負責產生治理處方並執行。
+Produces executable governance recommendations such as strictness upgrades,
+toolset narrowing, and scope locking, then records decisions.
 """
 
 import logging
-from typing import Optional, List, Dict, Any
-from datetime import datetime, timedelta, timezone
-
-
-def _utc_now():
-    """Return timezone-aware UTC now."""
-    return datetime.now(timezone.utc)
-from dataclasses import dataclass
+from datetime import timedelta
+from typing import List, Optional
 import uuid
 
-from backend.app.egb.schemas.drift_report import (
-    RunDriftReport,
-    DriftExplanation,
-    DriftType,
-    DriftLevel,
-)
-from backend.app.egb.schemas.governance_prescription import (
-    GovernancePrescription,
-    TunerRecommendation,
-    GovernanceAction,
-    ExpectedOutcome,
-    RiskAssessment,
-    KnobType,
-    ActionType,
+from backend.app.egb.components.governance_tuner_support import (
+    ApplyResult,
+    GovernanceSettings,
+    _utc_now,
 )
 from backend.app.egb.schemas.decision_record import (
     DecisionRecord,
-    DecisionType,
     DecisionSource,
+    DecisionType,
+)
+from backend.app.egb.schemas.drift_report import (
+    DriftExplanation,
+    DriftLevel,
+    DriftType,
+    RunDriftReport,
+)
+from backend.app.egb.schemas.governance_prescription import (
+    ActionType,
+    ExpectedOutcome,
+    GovernanceAction,
+    GovernancePrescription,
+    KnobType,
+    RiskAssessment,
+    TunerRecommendation,
 )
 
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class GovernanceSettings:
-    """當前治理設定"""
-    strictness_level: int = 0
-    allowed_tools: List[str] = None
-    denied_tools: List[str] = None
-    scope_locked: bool = False
-    verifier_enabled: bool = False
-    consistency_mode: bool = False
-    cost_limit_usd: float = 0.0
-
-    def __post_init__(self):
-        if self.allowed_tools is None:
-            self.allowed_tools = []
-        if self.denied_tools is None:
-            self.denied_tools = []
-
-
-@dataclass
-class ApplyResult:
-    """套用處方的結果"""
-    success: bool
-    applied_actions: List[str]
-    failed_actions: List[str]
-    decision_record: Optional[DecisionRecord] = None
-    error: Optional[str] = None
-
-
 class GovernanceTuner:
     """
-    治理調參器
+    Generate governance prescriptions and record decisions.
 
-    負責：
-    1. 根據漂移報告生成治理處方
-    2. 提供一鍵套用功能
-    3. 記錄決策到 DecisionRecord
-
-    設計原則：
-    - 主要使用規則生成建議
-    - 複雜場景可選擇性使用 LLM
-    - 所有決策都要記錄
+    Responsibilities:
+    1. Generate prescriptions from drift reports.
+    2. Provide one-step apply behavior.
+    3. Record all decisions as DecisionRecord entries.
     """
 
-    # 嚴謹度升級閾值
     STRICTNESS_UPGRADE_THRESHOLD = {
-        DriftLevel.MILD: 0,       # 輕微漂移不升級
-        DriftLevel.MODERATE: 1,   # 中度漂移升級 1 級
-        DriftLevel.HIGH: 2,       # 高度漂移升級 2 級
+        DriftLevel.MILD: 0,
+        DriftLevel.MODERATE: 1,
+        DriftLevel.HIGH: 2,
     }
 
     def __init__(self, settings_store=None):
         """
-        初始化 GovernanceTuner
+        Initialize the governance tuner.
 
         Args:
-            settings_store: 治理設定存儲（可選）
+            settings_store: Optional governance settings store.
         """
         self.settings_store = settings_store
 
@@ -104,18 +68,18 @@ class GovernanceTuner:
         self,
         drift_report: RunDriftReport,
         attribution: List[DriftExplanation],
-        current_settings: GovernanceSettings
+        current_settings: GovernanceSettings,
     ) -> GovernancePrescription:
         """
-        生成治理處方
+        Generate a governance prescription from drift evidence.
 
         Args:
-            drift_report: 漂移報告
-            attribution: 漂移歸因列表
-            current_settings: 當前治理設定
+            drift_report: Drift report to evaluate.
+            attribution: Drift attribution explanations.
+            current_settings: Current governance settings.
 
         Returns:
-            GovernancePrescription: 治理處方
+            Governance prescription.
         """
         prescription = GovernancePrescription(
             prescription_id=str(uuid.uuid4()),
@@ -126,15 +90,13 @@ class GovernanceTuner:
             expires_at=_utc_now() + timedelta(hours=24),
         )
 
-        # 根據漂移類型生成建議
         recommendations = []
         actions = []
-        expected_outcomes = []
 
-        # 處理整體漂移等級
         if drift_report.drift_level in [DriftLevel.MODERATE, DriftLevel.HIGH]:
             strictness_rec = self._generate_strictness_recommendation(
-                drift_report, current_settings
+                drift_report,
+                current_settings,
             )
             if strictness_rec:
                 recommendations.append(strictness_rec)
@@ -142,26 +104,24 @@ class GovernanceTuner:
                     self._create_strictness_actions(strictness_rec, current_settings)
                 )
 
-        # 處理各類漂移
         for explanation in attribution:
             rec = self._generate_recommendation_for_drift(
-                explanation, current_settings
+                explanation,
+                current_settings,
             )
             if rec:
                 recommendations.append(rec)
 
-        # 生成預期效果
-        expected_outcomes = self._generate_expected_outcomes(
-            recommendations, drift_report
-        )
-
-        # 生成風險評估
-        risk_assessment = self._assess_risk(recommendations, drift_report)
-
         prescription.recommendations = recommendations
         prescription.applicable_actions = actions
-        prescription.expected_outcomes = expected_outcomes
-        prescription.risk_assessment = risk_assessment
+        prescription.expected_outcomes = self._generate_expected_outcomes(
+            recommendations,
+            drift_report,
+        )
+        prescription.risk_assessment = self._assess_risk(
+            recommendations,
+            drift_report,
+        )
         prescription.confidence = self._calculate_confidence(recommendations)
 
         logger.info(
@@ -175,18 +135,18 @@ class GovernanceTuner:
         self,
         prescription: GovernancePrescription,
         workspace_id: str,
-        user_id: str = "system"
+        user_id: str = "system",
     ) -> ApplyResult:
         """
-        套用治理處方（一鍵調整）
+        Apply a governance prescription.
 
         Args:
-            prescription: 治理處方
-            workspace_id: 工作空間 ID
-            user_id: 執行者 ID
+            prescription: Governance prescription to apply.
+            workspace_id: Workspace identifier.
+            user_id: Actor identifier.
 
         Returns:
-            ApplyResult: 套用結果
+            Apply result.
         """
         applied_actions = []
         failed_actions = []
@@ -195,13 +155,11 @@ class GovernanceTuner:
             try:
                 await self._apply_action(action, workspace_id)
                 applied_actions.append(action.action_id)
-            except Exception as e:
-                logger.error(f"Failed to apply action {action.action_id}: {e}")
+            except Exception as exc:
+                logger.error(f"Failed to apply action {action.action_id}: {exc}")
                 failed_actions.append(action.action_id)
 
         success = len(failed_actions) == 0
-
-        # 記錄決策
         decision_record = await self.record_decision(
             prescription=prescription,
             applied=success,
@@ -210,7 +168,6 @@ class GovernanceTuner:
             failed_actions=failed_actions,
         )
 
-        # 更新處方狀態
         prescription.status = "applied" if success else "partially_applied"
         prescription.applied_at = _utc_now()
         prescription.applied_by = user_id
@@ -231,17 +188,17 @@ class GovernanceTuner:
         failed_actions: List[str] = None,
     ) -> DecisionRecord:
         """
-        記錄決策
+        Record a governance decision.
 
         Args:
-            prescription: 治理處方
-            applied: 是否已套用
-            user_id: 決策者 ID
-            applied_actions: 已套用的動作
-            failed_actions: 失敗的動作
+            prescription: Governance prescription.
+            applied: Whether the prescription was applied.
+            user_id: Decision actor identifier.
+            applied_actions: Applied action identifiers.
+            failed_actions: Failed action identifiers.
 
         Returns:
-            DecisionRecord: 決策記錄
+            Decision record.
         """
         record = DecisionRecord(
             record_id=str(uuid.uuid4()),
@@ -267,11 +224,10 @@ class GovernanceTuner:
             status="executed" if applied else "failed",
         )
 
-        # 添加證據連結
         record.add_evidence(
             evidence_type="prescription",
             evidence_id=prescription.prescription_id,
-            description="治理處方"
+            description="治理處方",
         )
 
         logger.info(
@@ -284,11 +240,12 @@ class GovernanceTuner:
     def _generate_strictness_recommendation(
         self,
         drift_report: RunDriftReport,
-        current_settings: GovernanceSettings
+        current_settings: GovernanceSettings,
     ) -> Optional[TunerRecommendation]:
-        """生成嚴謹度調整建議"""
+        """Generate a strictness adjustment recommendation."""
         upgrade_amount = self.STRICTNESS_UPGRADE_THRESHOLD.get(
-            drift_report.drift_level, 0
+            drift_report.drift_level,
+            0,
         )
 
         if upgrade_amount == 0:
@@ -307,17 +264,18 @@ class GovernanceTuner:
             rationale=f"漂移等級為 {drift_report.drift_level.value}，建議提高嚴謹度以增加穩定性",
             expected_impact="執行更加穩定，但可能增加延遲和成本",
             priority="high" if upgrade_amount >= 2 else "medium",
-            risk_if_ignored="high" if drift_report.drift_level == DriftLevel.HIGH else "medium",
+            risk_if_ignored=(
+                "high" if drift_report.drift_level == DriftLevel.HIGH else "medium"
+            ),
         )
 
     def _generate_recommendation_for_drift(
         self,
         explanation: DriftExplanation,
-        current_settings: GovernanceSettings
+        current_settings: GovernanceSettings,
     ) -> Optional[TunerRecommendation]:
-        """根據漂移類型生成建議"""
+        """Generate a recommendation for a specific drift type."""
         if explanation.drift_type == DriftType.EVIDENCE:
-            # 建議鎖定資料範圍
             if not current_settings.scope_locked:
                 return TunerRecommendation(
                     knob_type=KnobType.SCOPE,
@@ -330,7 +288,6 @@ class GovernanceTuner:
                 )
 
         elif explanation.drift_type == DriftType.PATH:
-            # 建議啟用一致性模式
             if not current_settings.consistency_mode:
                 return TunerRecommendation(
                     knob_type=KnobType.CONSISTENCY_MODE,
@@ -343,7 +300,6 @@ class GovernanceTuner:
                 )
 
         elif explanation.drift_type == DriftType.SEMANTIC:
-            # 建議啟用驗證器
             if not current_settings.verifier_enabled:
                 return TunerRecommendation(
                     knob_type=KnobType.VERIFIER,
@@ -360,76 +316,85 @@ class GovernanceTuner:
     def _create_strictness_actions(
         self,
         recommendation: TunerRecommendation,
-        current_settings: GovernanceSettings
+        current_settings: GovernanceSettings,
     ) -> List[GovernanceAction]:
-        """創建嚴謹度調整的動作"""
+        """Create actions for strictness adjustment."""
         actions = []
-
         new_level = recommendation.suggested_value
 
-        actions.append(GovernanceAction(
-            action_type=ActionType.SET,
-            target_knob=KnobType.STRICTNESS,
-            target_value=new_level,
-            label=f"提高嚴謹度到 Level {new_level}",
-            description=f"將嚴謹度從 {current_settings.strictness_level} 調整到 {new_level}",
-            requires_confirmation=new_level >= 2,
-            confirmation_message=(
-                f"確定要將嚴謹度提高到 Level {new_level}？這可能會增加執行時間和成本。"
-                if new_level >= 2 else None
-            ),
-        ))
+        actions.append(
+            GovernanceAction(
+                action_type=ActionType.SET,
+                target_knob=KnobType.STRICTNESS,
+                target_value=new_level,
+                label=f"提高嚴謹度到 Level {new_level}",
+                description=f"將嚴謹度從 {current_settings.strictness_level} 調整到 {new_level}",
+                requires_confirmation=new_level >= 2,
+                confirmation_message=(
+                    f"確定要將嚴謹度提高到 Level {new_level}？這可能會增加執行時間和成本。"
+                    if new_level >= 2
+                    else None
+                ),
+            )
+        )
 
         return actions
 
     def _generate_expected_outcomes(
         self,
         recommendations: List[TunerRecommendation],
-        drift_report: RunDriftReport
+        drift_report: RunDriftReport,
     ) -> List[ExpectedOutcome]:
-        """生成預期效果"""
+        """Generate expected outcomes for the prescription."""
         outcomes = []
 
-        # 穩定性改善
         if recommendations:
-            outcomes.append(ExpectedOutcome(
-                outcome_type="stability",
-                direction="improve",
-                magnitude="moderate" if len(recommendations) > 1 else "slight",
-                description="執行結果的一致性將提高",
-            ))
+            outcomes.append(
+                ExpectedOutcome(
+                    outcome_type="stability",
+                    direction="improve",
+                    magnitude="moderate" if len(recommendations) > 1 else "slight",
+                    description="執行結果的一致性將提高",
+                )
+            )
 
-        # 成本影響
         strictness_recs = [
-            r for r in recommendations if r.knob_type == KnobType.STRICTNESS
+            rec for rec in recommendations if rec.knob_type == KnobType.STRICTNESS
         ]
         if strictness_recs:
-            outcomes.append(ExpectedOutcome(
-                outcome_type="cost",
-                direction="increase" if strictness_recs[0].suggested_value > strictness_recs[0].current_value else "neutral",
-                magnitude="slight",
-                description="可能略微增加執行成本和時間",
-            ))
+            outcomes.append(
+                ExpectedOutcome(
+                    outcome_type="cost",
+                    direction=(
+                        "increase"
+                        if strictness_recs[0].suggested_value
+                        > strictness_recs[0].current_value
+                        else "neutral"
+                    ),
+                    magnitude="slight",
+                    description="可能略微增加執行成本和時間",
+                )
+            )
 
         return outcomes
 
     def _assess_risk(
         self,
         recommendations: List[TunerRecommendation],
-        drift_report: RunDriftReport
+        drift_report: RunDriftReport,
     ) -> RiskAssessment:
-        """評估風險"""
+        """Assess risks introduced by recommendations."""
         risk_factors = []
         mitigations = []
 
-        # 評估各建議的風險
         for rec in recommendations:
             if rec.risk_if_applied == "high":
                 risk_factors.append(f"{rec.knob_name} 調整可能帶來副作用")
                 mitigations.append(f"建議先在測試環境驗證 {rec.knob_name} 的調整")
 
-        # 整體風險
-        high_risk_count = sum(1 for r in recommendations if r.risk_if_applied == "high")
+        high_risk_count = sum(
+            1 for rec in recommendations if rec.risk_if_applied == "high"
+        )
 
         if high_risk_count >= 2:
             overall_risk = "high"
@@ -441,7 +406,11 @@ class GovernanceTuner:
         return RiskAssessment(
             overall_risk=overall_risk,
             stability_risk="low",
-            cost_risk="medium" if any(r.knob_type == KnobType.STRICTNESS for r in recommendations) else "low",
+            cost_risk=(
+                "medium"
+                if any(rec.knob_type == KnobType.STRICTNESS for rec in recommendations)
+                else "low"
+            ),
             quality_risk="low",
             risk_factors=risk_factors,
             mitigations=mitigations,
@@ -449,22 +418,18 @@ class GovernanceTuner:
 
     def _calculate_confidence(
         self,
-        recommendations: List[TunerRecommendation]
+        recommendations: List[TunerRecommendation],
     ) -> float:
-        """計算處方信心度"""
+        """Calculate prescription confidence."""
         if not recommendations:
             return 0.5
 
-        # 基礎信心度
         confidence = 0.7
-
-        # 高優先級建議增加信心
         high_priority_count = sum(
-            1 for r in recommendations if r.priority in ["high", "critical"]
+            1 for rec in recommendations if rec.priority in ["high", "critical"]
         )
         confidence += high_priority_count * 0.05
 
-        # 建議過多降低信心
         if len(recommendations) > 3:
             confidence -= (len(recommendations) - 3) * 0.05
 
@@ -473,11 +438,9 @@ class GovernanceTuner:
     async def _apply_action(
         self,
         action: GovernanceAction,
-        workspace_id: str
+        workspace_id: str,
     ) -> None:
-        """套用單個動作"""
-        # 這裡是佔位實現
-        # 實際應該調用對應的設定服務
+        """Apply a single governance action."""
         logger.info(
             f"GovernanceTuner: Applying action {action.action_id} "
             f"({action.action_type.value} {action.target_knob.value} = {action.target_value}) "
@@ -487,26 +450,24 @@ class GovernanceTuner:
     def _generate_decision_summary(
         self,
         prescription: GovernancePrescription,
-        applied: bool
+        applied: bool,
     ) -> str:
-        """生成決策摘要"""
+        """Generate the decision summary."""
         if not prescription.recommendations:
             return "無需調整"
 
         primary = prescription.primary_recommendation
         if applied:
             return f"已套用治理處方：{primary.knob_name} 調整為 {primary.suggested_value}"
-        else:
-            return f"治理處方套用失敗：{primary.knob_name} 調整"
+        return f"治理處方套用失敗：{primary.knob_name} 調整"
 
     def _generate_rationale(
         self,
-        prescription: GovernancePrescription
+        prescription: GovernancePrescription,
     ) -> str:
-        """生成決策原因"""
+        """Generate the decision rationale."""
         if not prescription.recommendations:
             return "目前執行穩定，無需調整"
 
-        reasons = [r.rationale for r in prescription.recommendations[:2]]
+        reasons = [rec.rationale for rec in prescription.recommendations[:2]]
         return "；".join(reasons)
-
