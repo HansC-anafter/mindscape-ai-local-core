@@ -16,7 +16,7 @@ DEFAULT_CONTAINERS = [
     "mindscape-ai-local-core-backend",
     "mindscape-ai-local-core-postgres",
     "mindscape-ai-local-core-pgbouncer",
-    "mindscape-ai-local-core-runner-default",
+    "mindscape-ai-local-core-runner-default-local-browser",
     "mindscape-ai-local-core-runner-browser",
     "mindscape-ai-local-core-runner-vision",
 ]

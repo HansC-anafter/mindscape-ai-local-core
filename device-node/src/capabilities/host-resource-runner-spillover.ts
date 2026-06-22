@@ -3,7 +3,11 @@ import { existsSync } from "fs";
 import * as path from "path";
 
 type SpilloverAction = "status" | "start" | "stop";
-type SpilloverProfile = "default_local" | "browser_local" | "vision_local";
+type SpilloverProfile =
+    | "default_local_browser"
+    | "default_local"
+    | "browser_local"
+    | "vision_local";
 
 interface SpilloverArgs {
     action?: unknown;
@@ -36,6 +40,11 @@ const DOCKER_COMMAND_CANDIDATES = [
 ];
 const ALLOWED_ACTIONS = new Set<SpilloverAction>(["status", "start", "stop"]);
 const PROFILE_DEFAULTS: Record<SpilloverProfile, ProfileDefaults> = {
+    default_local_browser: {
+        partitions: "default_local_browser",
+        resourceClasses: "browser",
+        defaultMaxInflight: 1,
+    },
     default_local: {
         partitions: "default_local",
         resourceClasses: "compute,api",

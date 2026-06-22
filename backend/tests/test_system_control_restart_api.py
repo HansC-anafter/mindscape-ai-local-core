@@ -67,7 +67,10 @@ def test_restart_valid_service_runner(monkeypatch):
     webhook = StubRestartWebhook(
         configured=True,
         responses={
-            "runner-default": {"sent": True, "service": "runner-default"},
+            "runner-default-local-browser": {
+                "sent": True,
+                "service": "runner-default-local-browser",
+            },
             "runner-browser": {"sent": True, "service": "runner-browser"},
             "runner-vision": {"sent": True, "service": "runner-vision"},
             "runner-vision-mlx-dev": {"sent": True, "service": "runner-vision-mlx-dev"},
@@ -85,7 +88,7 @@ def test_restart_valid_service_runner(monkeypatch):
     assert data["success"] is True
     assert data["method"] == "device_node"
     assert data["targets"] == [
-        "runner-default",
+        "runner-default-local-browser",
         "runner-browser",
         "runner-vision",
         "runner-vision-mlx-dev",
@@ -112,10 +115,10 @@ def test_restart_device_node_offline_fallback(monkeypatch):
     webhook = StubRestartWebhook(
         configured=True,
         responses={
-            "runner-default": {
+            "runner-default-local-browser": {
                 "sent": False,
                 "reason": "device_node_unreachable",
-                "service": "runner-default",
+                "service": "runner-default-local-browser",
             },
             "runner-browser": {
                 "sent": False,
@@ -148,7 +151,7 @@ def test_restart_device_node_offline_fallback(monkeypatch):
     assert data["success"] is True
     assert data["method"] == "runner_sentinel"
     assert data["targets"] == [
-        "runner-default",
+        "runner-default-local-browser",
         "runner-browser",
         "runner-vision",
         "runner-vision-mlx-dev",
@@ -180,6 +183,33 @@ def test_restart_specific_runner_pool_offline_falls_back_to_manual(monkeypatch):
     assert data["method"] == "manual"
     assert data["targets"] == ["runner-browser"]
     assert data["instruction"] == "docker compose restart runner-browser"
+
+
+def test_restart_legacy_runner_default_alias_canonicalizes(monkeypatch):
+    webhook = StubRestartWebhook(
+        configured=True,
+        responses={
+            "runner-default-local-browser": {
+                "sent": True,
+                "service": "runner-default-local-browser",
+            }
+        },
+    )
+    client, _system_control = _build_client(monkeypatch, webhook)
+
+    response = client.post(
+        "/api/v1/system-settings/restart",
+        json={"service": "runner-default"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+    assert data["targets"] == ["runner-default-local-browser"]
+    assert data["results"]["runner-default-local-browser"]["sent"] is True
+    assert [call["service"] for call in webhook.calls] == [
+        "runner-default-local-browser"
+    ]
 
 
 def test_queue_metrics_includes_active_runner_heartbeats(monkeypatch):

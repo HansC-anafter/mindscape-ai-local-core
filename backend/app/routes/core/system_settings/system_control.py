@@ -22,12 +22,15 @@ _RUNNER_SENTINEL_PATH = Path("/app/data/.restart_runner")
 _RUNNER_SENTINEL_TTL_SECONDS = 300
 
 RUNNER_POOL_SERVICES = (
-    "runner-default",
+    "runner-default-local-browser",
     "runner-browser",
     "runner-vision",
     "runner-vision-mlx-dev",
 )
-ALLOWED_SERVICES = {"backend", "runner", "all", *RUNNER_POOL_SERVICES}
+SERVICE_ALIASES = {
+    "runner-default": "runner-default-local-browser",
+}
+ALLOWED_SERVICES = {"backend", "runner", "all", *RUNNER_POOL_SERVICES, *SERVICE_ALIASES}
 _LOCALHOST_ADDRS = {"127.0.0.1", "localhost", "::1", "unknown"}
 
 
@@ -45,6 +48,10 @@ def _expand_service_targets(service: str) -> list[str]:
     if service == "runner":
         return list(RUNNER_POOL_SERVICES)
     return [service]
+
+
+def _canonical_service(service: str) -> str:
+    return SERVICE_ALIASES.get(service, service)
 
 
 def _is_localhost(request: Request) -> bool:
@@ -73,7 +80,8 @@ async def restart_service(request: Request, body: RestartRequest = RestartReques
     Supported services:
     - backend
     - runner (all runner pools)
-    - runner-default
+    - runner-default-local-browser
+    - runner-default (compatibility alias for runner-default-local-browser)
     - runner-browser
     - runner-vision
     - runner-vision-mlx-dev
@@ -93,6 +101,7 @@ async def restart_service(request: Request, body: RestartRequest = RestartReques
                 status_code=400,
                 detail=f"Invalid service: {service}. Allowed: {sorted(ALLOWED_SERVICES)}",
             )
+        service = _canonical_service(service)
 
         targets = _expand_service_targets(service)
         instruction = _build_manual_instruction(targets)
