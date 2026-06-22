@@ -1,4 +1,5 @@
 import pytest
+from fastapi import HTTPException
 
 from backend.app.database.write_readiness import (
     DatabaseWriteNotReadyError,
@@ -11,6 +12,7 @@ from backend.app.services.capability_install_jobs import CapabilityInstallJobSer
 class _FakeStore:
     def __init__(self):
         self.waiting = None
+        self.failed = None
 
     def claim_next_job(self):
         return {
@@ -31,6 +33,15 @@ class _FakeStore:
             "retry_after_seconds": retry_after_seconds,
         }
         return self.waiting
+
+    def mark_failed(self, install_id, *, error, result_payload=None):
+        self.failed = {
+            "install_id": install_id,
+            "state": "failed",
+            "error": error,
+            "result_payload": result_payload or {},
+        }
+        return self.failed
 
 
 class _PendingActivationStore:
@@ -90,6 +101,38 @@ async def test_install_job_enters_waiting_db_before_filesystem_promotion(monkeyp
         "retry_after_seconds": 17,
     }
     assert store.waiting == result
+
+
+@pytest.mark.asyncio
+async def test_install_job_persists_http_exception_detail(monkeypatch):
+    def ready(**_kwargs):
+        return None
+
+    async def fail_pipeline(**_kwargs):
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "manifest_validation_failed", "field": "workspace_tools"},
+        )
+
+    monkeypatch.setattr(
+        capability_install_jobs,
+        "wait_for_core_write_readiness",
+        ready,
+    )
+    monkeypatch.setattr(
+        capability_install_jobs,
+        "run_install_pipeline",
+        fail_pipeline,
+    )
+    store = _FakeStore()
+    service = CapabilityInstallJobService(store=store)
+
+    result = await service.run_next_job(fastapi_app=object())
+
+    assert result["state"] == "failed"
+    assert "manifest_validation_failed" in result["error"]
+    assert "workspace_tools" in result["error"]
+    assert store.failed == result
 
 
 def test_get_job_reconciles_pending_activation_when_runtime_pack_is_active():

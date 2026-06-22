@@ -27,6 +27,9 @@ from backend.app.services.capability_install_job_payloads import (
     _pipeline_result_to_payload,
     _status_url,
 )
+from backend.app.services.capability_install_jobs_core.errors import (
+    install_job_exception_message,
+)
 from backend.app.services.pack_activation_service import PackActivationService
 from backend.app.services.stores.capability_install_job_store import (
     CapabilityInstallJobStore,
@@ -238,7 +241,10 @@ class CapabilityInstallJobService:
                 exc,
                 exc_info=True,
             )
-            return self.store.mark_failed(install_id, error=str(exc))
+            return self.store.mark_failed(
+                install_id,
+                error=install_job_exception_message(exc),
+            )
 
     async def _execute_job(self, job: Dict[str, Any], *, fastapi_app: Any):
         payload = job.get("source_payload") or {}
