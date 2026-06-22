@@ -149,8 +149,17 @@ async def _retrieve_from_service(
                 diversified.append(r)
         results = diversified
 
+        from backend.app.services.tools.tool_availability_explanation import (
+            attach_tool_availability_explanations,
+        )
+
         if not workspace_id:
-            return results
+            return attach_tool_availability_explanations(
+                results,
+                workspace_id=workspace_id,
+                source="tool_rag",
+                reason="semantic_retrieval_match",
+            )
 
         # Filter by explicit TOOL binding allowlist when workspace_id is available
         try:
@@ -171,11 +180,22 @@ async def _retrieve_from_service(
                     len(results),
                     len(filtered),
                 )
-                return filtered
+                return attach_tool_availability_explanations(
+                    filtered,
+                    workspace_id=workspace_id,
+                    source="tool_rag",
+                    reason="workspace_binding_allowed",
+                    workspace_binding_applied=True,
+                )
         except Exception as exc:
             logger.debug("Allowlist filter failed (returning unfiltered): %s", exc)
 
-        return results
+        return attach_tool_availability_explanations(
+            results,
+            workspace_id=workspace_id,
+            source="tool_rag",
+            reason="semantic_retrieval_match",
+        )
 
     except Exception as exc:
         logger.debug("retrieve_relevant_tools failed: %s", exc)

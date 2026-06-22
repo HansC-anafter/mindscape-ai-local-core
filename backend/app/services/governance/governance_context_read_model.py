@@ -14,8 +14,14 @@ from backend.app.models.memory_contract import (
 from backend.app.services.governance.lens_policy_memory_selector import (
     LensPolicyMemorySelector,
 )
+from backend.app.services.governance.context_selection_explanation import (
+    build_context_selection_explanation,
+)
 from backend.app.services.governance.memory_packet_compiler import (
     MemoryPacketCompiler,
+)
+from backend.app.services.governance.spatial_schedule_context import (
+    merge_spatial_schedule_contexts,
 )
 from backend.app.services.memory.member_profile_memory import (
     MemberProfileMemoryService,
@@ -128,25 +134,36 @@ class GovernanceContextReadModel:
             workspace_mode=getattr(workspace_ref, "mode", None),
         )
 
-        return {
-            "governance_context": {
-                "workspace_id": resolved_workspace_id,
-                "profile_id": resolved_profile_id,
-                "project_id": resolved_project_id,
-                "mode": getattr(workspace_ref, "mode", None),
-                "execution_mode": getattr(workspace_ref, "execution_mode", None),
-                "lens": lens_context,
-                "policy": policy_context,
-                "sources": {
-                    "canonical_item_count": len(canonical_items),
-                    "personal_knowledge_count": len(personal_knowledge),
-                    "goal_count": len(goal_entries),
-                    "has_project_memory": project_memory is not None,
-                    "has_member_memory": member_memory is not None,
-                    "has_spatial_schedule": spatial_schedule_context is not None,
-                },
-                "spatial_schedule_context": spatial_schedule_context,
+        governance_context = {
+            "workspace_id": resolved_workspace_id,
+            "profile_id": resolved_profile_id,
+            "project_id": resolved_project_id,
+            "mode": getattr(workspace_ref, "mode", None),
+            "execution_mode": getattr(workspace_ref, "execution_mode", None),
+            "lens": lens_context,
+            "policy": policy_context,
+            "sources": {
+                "canonical_item_count": len(canonical_items),
+                "personal_knowledge_count": len(personal_knowledge),
+                "goal_count": len(goal_entries),
+                "has_project_memory": project_memory is not None,
+                "has_member_memory": member_memory is not None,
+                "has_spatial_schedule": spatial_schedule_context is not None,
             },
+            "spatial_schedule_context": spatial_schedule_context,
+        }
+        explanation = build_context_selection_explanation(
+            governance_context=governance_context,
+            memory_packet=memory_packet,
+        )
+        governance_context["selection_explanation"] = explanation
+        if isinstance(memory_packet, dict):
+            selection = dict(memory_packet.get("selection") or {})
+            selection["explanation"] = explanation
+            memory_packet = {**memory_packet, "selection": selection}
+
+        return {
+            "governance_context": governance_context,
             "memory_packet": memory_packet,
         }
 
@@ -321,11 +338,7 @@ class GovernanceContextReadModel:
             workspace_id=workspace_id or getattr(workspace, "id", None),
             session_id=session_id,
         )
-        if session_context is None:
-            return workspace_context
-        if workspace_context is None:
-            return session_context
-        return {**workspace_context, **session_context}
+        return merge_spatial_schedule_contexts(workspace_context, session_context)
 
     def _safe_get_session_spatial_schedule_context(
         self,

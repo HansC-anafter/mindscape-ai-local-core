@@ -235,6 +235,10 @@ async def test_governance_context_read_model_compiles_selected_packet():
     assert len(packet["memory_packet"]["layers"]["goals"]["pending"]) == 1
     assert len(packet["memory_packet"]["layers"]["episodic"]) == 2
     assert packet["memory_packet"]["layers"]["project"]["project_id"] == "proj-1"
+    explanation = packet["governance_context"]["selection_explanation"]
+    assert explanation["source"] == "governance_context_read_model"
+    assert "canonical_memory" in explanation["included_sources"]
+    assert packet["memory_packet"]["selection"]["explanation"] == explanation
 
     formatted = read_model.format_memory_packet_for_context(packet)
     assert "Guiding knowledge:" in formatted
