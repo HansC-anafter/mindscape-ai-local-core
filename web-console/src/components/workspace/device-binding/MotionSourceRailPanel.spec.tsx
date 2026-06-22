@@ -1,7 +1,13 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createElement, useEffect } from 'react';
 
+import {
+  mocks,
+  openProviderSetup,
+  resetMotionSourceRailPanelTestState,
+  waitForPairingFlow,
+} from './motionSourceRailPanelTestHarness';
 import { MotionSourceRailPanel } from './MotionSourceRailPanel';
 import {
   CaptureSourceBridgeProvider,
@@ -9,66 +15,9 @@ import {
 } from './capture-bridge/CaptureSourceBridgeProvider';
 import { CaptureSourceRailFromBridge } from './capture-bridge/CaptureSourceRail';
 import {
-  createDevicePairingCode,
   openWorkspaceDeviceControlSocket,
   revokeDeviceSession,
 } from '@/lib/device-binding/deviceBindingClient';
-
-const mocks = vi.hoisted(() => ({
-  socket: {
-    send: vi.fn(),
-    close: vi.fn(),
-    raw: {},
-  },
-  socketInput: null as any,
-}));
-
-vi.mock('@/lib/device-binding/deviceBindingClient', () => ({
-  buildDeviceControlWebSocketUrl: vi.fn(({
-    apiBase,
-    pairingCode,
-    workspaceId,
-  }: {
-    apiBase: string;
-    pairingCode: string;
-    workspaceId: string;
-  }) => {
-    const wsBase = apiBase
-      .replace(/\/+$/, '')
-      .replace(/^http:/, 'ws:')
-      .replace(/^https:/, 'wss:');
-    return `${wsBase}/api/v1/workspaces/${workspaceId}/device-bindings/${pairingCode}/control`;
-  }),
-  buildDeviceLinkHttpsHealthUrl: vi.fn(({ apiBase }: { apiBase: string }) => (
-    `${apiBase.replace(/\/+$/, '')}/api/v1/host/services/device-link-https/health`
-  )),
-  createDevicePairingCode: vi.fn(async () => ({
-    workspace_id: 'ws_device',
-    pairing_code: 'PAIR1234',
-    expires_at_epoch: 1000,
-    expires_in_seconds: 120,
-    device_link_path: '/device-link/PAIR1234',
-  })),
-  openWorkspaceDeviceControlSocket: vi.fn((input) => {
-    mocks.socketInput = input;
-    return mocks.socket;
-  }),
-  revokeDeviceSession: vi.fn(async () => ({
-    type: 'session_revoked',
-    workspace_id: 'ws_device',
-    active_sessions: [],
-  })),
-}));
-
-vi.mock('./PhoneSourcePreview', () => ({
-  PhoneSourcePreview: (props: { session: { session_id: string }; liveMotionSessionId?: string }) => {
-    const { session, liveMotionSessionId } = props;
-    return createElement('div', {
-      'data-testid': `mock-phone-source-preview-${session.session_id}`,
-      'data-live-motion-session-id': liveMotionSessionId || '',
-    });
-  },
-}));
 
 describe('MotionSourceRailPanel', () => {
   beforeEach(() => {
@@ -79,11 +28,7 @@ describe('MotionSourceRailPanel', () => {
   });
 
   afterEach(() => {
-    vi.clearAllMocks();
-    vi.restoreAllMocks();
-    mocks.socketInput = null;
-    vi.unstubAllGlobals();
-    window.history.replaceState({}, '', 'http://localhost:3000/');
+    resetMotionSourceRailPanelTestState();
   });
 
   it('starts one pairing flow on mount without interval polling', async () => {
@@ -97,26 +42,13 @@ describe('MotionSourceRailPanel', () => {
     );
 
     expect(setIntervalSpy).not.toHaveBeenCalled();
-    await screen.findByTestId('external-provider-pairing-code');
-    expect(createDevicePairingCode).toHaveBeenCalledWith({
-      apiBase: 'http://api.test',
-      workspaceId: 'ws_device',
-      expiresInSeconds: 600,
-    });
+    await waitForPairingFlow();
     expect(openWorkspaceDeviceControlSocket).toHaveBeenCalledTimes(1);
     expect(openWorkspaceDeviceControlSocket).toHaveBeenCalledWith(
       expect.objectContaining({
         apiBase: 'http://api.test',
         workspaceId: 'ws_device',
       }),
-    );
-    expect(screen.getByRole('link', { name: 'Phone source link' })).toHaveAttribute(
-      'href',
-      'http://localhost:3000/device-link/PAIR1234?workspaceId=ws_device&sourceMode=phone',
-    );
-    expect(screen.getByRole('link', { name: 'Desktop camera source link' })).toHaveAttribute(
-      'href',
-      'http://localhost:3000/device-link/PAIR1234?workspaceId=ws_device&sourceMode=camera',
     );
     expect(screen.getByText('Local-core device link')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Open Device Link settings' })).toHaveAttribute(
@@ -129,6 +61,30 @@ describe('MotionSourceRailPanel', () => {
     expect(screen.getByText('Computer / OBS camera')).toBeInTheDocument();
     expect(screen.getByText('External device provider')).toBeInTheDocument();
     expect(screen.getByText('Bridge required')).toBeInTheDocument();
+    expect(screen.getByTestId('capture-provider-tool-phone')).toBeEnabled();
+    expect(screen.getByTestId('capture-provider-tool-desktop')).toBeEnabled();
+    expect(screen.getByTestId('capture-provider-tool-external')).toBeEnabled();
+    expect(screen.queryByRole('link', { name: 'Phone source link' })).toBeNull();
+    expect(screen.queryByRole('link', { name: 'Desktop camera source link' })).toBeNull();
+    expect(screen.queryByTestId('external-provider-bridge-card')).toBeNull();
+    expect(screen.queryByTestId('external-provider-connection-guide')).toBeNull();
+    expect(screen.queryByTestId('capture-relay-launcher-card')).toBeNull();
+
+    openProviderSetup('phone');
+    expect(screen.getByRole('link', { name: 'Phone source link' })).toHaveAttribute(
+      'href',
+      'http://localhost:3000/device-link/PAIR1234?workspaceId=ws_device&sourceMode=phone',
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Close provider setup' }));
+
+    openProviderSetup('desktop');
+    expect(screen.getByRole('link', { name: 'Desktop camera source link' })).toHaveAttribute(
+      'href',
+      'http://localhost:3000/device-link/PAIR1234?workspaceId=ws_device&sourceMode=camera',
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Close provider setup' }));
+
+    openProviderSetup('external');
     expect(screen.getByTestId('external-provider-bridge-card')).toHaveTextContent(
       'External bridge',
     );
@@ -159,7 +115,7 @@ describe('MotionSourceRailPanel', () => {
       'USB webcam source',
     );
     expect(screen.getByTestId('external-provider-connection-guide')).toHaveTextContent(
-      'Network stream relay',
+      'Public RTMP push-stream',
     );
     expect(screen.getByTestId('external-provider-connection-guide')).toHaveTextContent(
       'Gimbal-mounted camera',
@@ -167,7 +123,15 @@ describe('MotionSourceRailPanel', () => {
     expect(screen.getByTestId('capture-relay-launcher-card')).toHaveTextContent(
       'RTMP to OBS Virtual Camera',
     );
-    expect(screen.getByRole('button', { name: 'Start RTMP relay' })).toBeEnabled();
+    expect(screen.getByTestId('public-rtmp-ingest-panel')).toHaveTextContent(
+      'rtmp://34.80.219.221:1935/external-camera',
+    );
+    expect(screen.getByTestId('public-rtmp-origin-input')).toHaveValue(
+      'rtmp://34.80.219.221:1935',
+    );
+    expect(screen.getByTestId('local-rtmp-relay-fallback')).toHaveTextContent(
+      'Local host relay fallback',
+    );
     expect(screen.getByRole('link', { name: 'Open OBS Virtual Camera source' })).toHaveAttribute(
       'href',
       'http://localhost:3000/device-link/PAIR1234?workspaceId=ws_device&sourceMode=camera',
@@ -186,7 +150,8 @@ describe('MotionSourceRailPanel', () => {
       }),
     );
 
-    await screen.findByTestId('external-provider-pairing-code');
+    await waitForPairingFlow();
+    openProviderSetup('phone');
 
     expect(screen.queryByTestId('phone-qr-code')).toBeNull();
 
@@ -224,7 +189,8 @@ describe('MotionSourceRailPanel', () => {
       }),
     );
 
-    await screen.findByTestId('external-provider-pairing-code');
+    await waitForPairingFlow();
+    openProviderSetup('phone');
     expect(await screen.findByTestId('phone-qr-code')).toBeInTheDocument();
     expect(fetch).toHaveBeenCalledWith(
       'http://api.test/api/v1/host/services/device-link-https/health',
@@ -238,96 +204,6 @@ describe('MotionSourceRailPanel', () => {
     expect(screen.getByRole('link', { name: 'Open phone camera' })).toHaveAttribute(
       'href',
       'https://192.168.0.104:8343/device-link/PAIR1234?workspaceId=ws_device&sourceMode=phone',
-    );
-  });
-
-  it('starts the capture relay helper through the backend host-services proxy', async () => {
-    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
-      if (String(url).includes('/api/v1/host/services/capture-relay')) {
-        return {
-          ok: true,
-          json: async () => ({
-            schema_version: 'capture_relay_control.v1',
-            action: 'start',
-            status: 'blocked',
-            reason: 'relay_binary_missing',
-            urls: {
-              stream_name: 'external-camera',
-              publish_url: 'rtmp://192.168.0.10/external-camera',
-              read_url: 'rtsp://127.0.0.1:8554/external-camera',
-            },
-            install_guidance: {
-              dependency: 'mediamtx',
-              status: 'missing',
-              official_release_url: 'https://github.com/bluenviron/mediamtx/releases/latest',
-              detected_platform: 'darwin',
-              detected_arch: 'arm64',
-              recommended_asset_pattern: 'mediamtx_*_darwin_arm64.tar.gz',
-              host_tools: {
-                brew_available: false,
-                brew_path: null,
-              },
-              options: [
-                {
-                  id: 'homebrew',
-                  command: 'brew install mediamtx',
-                  available: false,
-                },
-                {
-                  id: 'official_release',
-                  release_url: 'https://github.com/bluenviron/mediamtx/releases/latest',
-                  asset_pattern: 'mediamtx_*_darwin_arm64.tar.gz',
-                  install_target: '/opt/homebrew/bin/mediamtx or /usr/local/bin/mediamtx',
-                },
-              ],
-            },
-          }),
-        };
-      }
-      return {
-        ok: false,
-        json: async () => ({}),
-      };
-    });
-    vi.stubGlobal('fetch', fetchMock);
-
-    render(
-      createElement(MotionSourceRailPanel, {
-        apiUrl: 'http://api.test',
-        workspaceId: 'ws_device',
-      }),
-    );
-
-    await screen.findByTestId('external-provider-pairing-code');
-    fireEvent.click(screen.getByRole('button', { name: 'Start RTMP relay' }));
-
-    await screen.findByText('rtmp://192.168.0.10/external-camera');
-    await waitFor(() => {
-      const captureCall = fetchMock.mock.calls.find(([url]) => (
-        String(url).includes('/api/v1/host/services/capture-relay')
-      ));
-      expect(captureCall).toBeTruthy();
-      expect(captureCall?.[0]).toBe('http://api.test/api/v1/host/services/capture-relay');
-      expect(captureCall?.[1]).toEqual(expect.objectContaining({
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      }));
-      expect(JSON.parse(String(captureCall?.[1]?.body))).toEqual({
-        action: 'start',
-        stream_name: 'external-camera',
-        open_obs: false,
-        timeout_ms: 5000,
-      });
-    });
-    expect(screen.getByTestId('capture-relay-launcher-card')).toHaveTextContent(
-      'Relay binary missing',
-    );
-    expect(screen.getByTestId('capture-relay-install-guidance')).toHaveTextContent(
-      'Install MediaMTX before starting this relay',
-    );
-    expect(screen.getByRole('link', { name: /Open MediaMTX releases/i })).toHaveAttribute(
-      'href',
-      'https://github.com/bluenviron/mediamtx/releases/latest',
     );
   });
 
@@ -349,7 +225,8 @@ describe('MotionSourceRailPanel', () => {
       }),
     );
 
-    await screen.findByTestId('external-provider-pairing-code');
+    await waitForPairingFlow();
+    openProviderSetup('phone');
     expect(screen.getByTestId('phone-public-origin-input')).toHaveValue('');
     expect(screen.getByTestId('phone-lan-readiness')).toHaveTextContent(
       'Ready for remote phone capture over HTTPS.',
@@ -374,7 +251,7 @@ describe('MotionSourceRailPanel', () => {
       }),
     );
 
-    await screen.findByTestId('external-provider-pairing-code');
+    await waitForPairingFlow();
 
     act(() => {
       mocks.socketInput.onOpen();
@@ -448,7 +325,7 @@ describe('MotionSourceRailPanel', () => {
       ),
     );
 
-    await screen.findByTestId('external-provider-pairing-code');
+    await waitForPairingFlow();
 
     act(() => {
       mocks.socketInput.onOpen();
@@ -501,7 +378,7 @@ describe('MotionSourceRailPanel', () => {
       }),
     );
 
-    await screen.findByTestId('external-provider-pairing-code');
+    await waitForPairingFlow();
     act(() => {
       mocks.socketInput.onEvent({
         type: 'session_paired',
