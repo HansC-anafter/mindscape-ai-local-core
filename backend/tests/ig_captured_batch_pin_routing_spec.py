@@ -6,7 +6,7 @@ from capabilities.ig.tools.ig_batch_pin_tool import (
 )
 
 
-def test_captured_batch_pin_routes_to_api_queue_without_profile_aliases():
+def test_captured_batch_pin_routes_to_default_local_browser_without_profile_aliases():
     ctx = _build_visit_batch_pin_execution_context(
         execution_id="exec-1",
         workspace_id="workspace-1",
@@ -17,8 +17,8 @@ def test_captured_batch_pin_routes_to_api_queue_without_profile_aliases():
         source_handle="seed",
     )
 
-    assert ctx["resource_class"] == "api"
-    assert ctx["queue_shard"] == "default_local"
+    assert ctx["resource_class"] == "browser"
+    assert ctx["queue_shard"] == "default_local_browser"
     assert ctx["concurrency"]["lock_scope"] == "playbook"
     assert ctx["concurrency"]["max_parallel"] == 1
     assert ctx["concurrency"]["lock_aliases"] == []
