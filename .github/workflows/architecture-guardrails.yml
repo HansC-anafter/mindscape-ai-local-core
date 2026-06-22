@@ -10,6 +10,11 @@ on:
       - 'web-console/**'
       - 'scripts/ci/**'
       - 'ci/**'
+      - 'docker-compose.yml'
+      - 'docker/**'
+      - 'Dockerfile.backend'
+      - 'Dockerfile.frontend'
+      - 'config/service-endpoints.seed.json'
       - '.github/workflows/**'
       - '.github/CODEOWNERS'
       - '.github/pull_request_template.md'
@@ -23,6 +28,11 @@ on:
       - 'web-console/**'
       - 'scripts/ci/**'
       - 'ci/**'
+      - 'docker-compose.yml'
+      - 'docker/**'
+      - 'Dockerfile.backend'
+      - 'Dockerfile.frontend'
+      - 'config/service-endpoints.seed.json'
       - '.github/workflows/**'
       - '.github/CODEOWNERS'
       - '.github/pull_request_template.md'
@@ -55,6 +65,10 @@ jobs:
       - name: Validate product semantic helper parity
         run: |
           python scripts/ci/validate_product_semantic_helper_parity.py
+
+      - name: Validate Compose topology
+        run: |
+          python scripts/ci/validate_compose_topology.py --repo-root .
 
       - name: Compute diff range
         id: diff

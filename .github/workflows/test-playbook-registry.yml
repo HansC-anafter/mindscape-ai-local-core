@@ -7,6 +7,13 @@ on:
       - 'backend/app/services/playbook_loaders/**'
       - 'backend/tests/test_playbook_registry_smoke.py'
       - 'backend/app/capabilities/**'
+      - 'backend/tests/compose_topology_matrix_spec.py'
+      - 'scripts/ci/validate_compose_topology.py'
+      - 'scripts/ci/compose_topology/**'
+      - 'docker-compose.yml'
+      - 'docker/**'
+      - 'Dockerfile.backend'
+      - 'config/service-endpoints.seed.json'
   push:
     branches:
       - master
@@ -15,6 +22,13 @@ on:
       - 'backend/app/services/playbook_loaders/**'
       - 'backend/tests/test_playbook_registry_smoke.py'
       - 'backend/app/capabilities/**'
+      - 'backend/tests/compose_topology_matrix_spec.py'
+      - 'scripts/ci/validate_compose_topology.py'
+      - 'scripts/ci/compose_topology/**'
+      - 'docker-compose.yml'
+      - 'docker/**'
+      - 'Dockerfile.backend'
+      - 'config/service-endpoints.seed.json'
 
 jobs:
   test:
@@ -25,11 +39,15 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
 
+      - name: Validate Compose topology
+        run: |
+          python scripts/ci/validate_compose_topology.py --repo-root .
+
       - name: Start Docker Compose services
         run: |
           docker compose up -d backend
           # Wait for backend to be ready
-          timeout 60 bash -c 'until docker compose exec -T backend curl -f http://localhost:8000/health 2>/dev/null; do sleep 2; done' || true
+          timeout 180 bash -c 'until docker compose exec -T backend python -c "import urllib.request; urllib.request.urlopen(\"http://localhost:8200/healthz\", timeout=3)" 2>/dev/null; do sleep 2; done'
 
       - name: Run smoke tests
         run: |
@@ -38,7 +56,7 @@ jobs:
       - name: Cleanup
         if: always()
         run: |
-          docker compose down
+          docker compose down --remove-orphans
 
   check-loader-changes:
     runs-on: ubuntu-latest
@@ -99,8 +117,6 @@ jobs:
                 console.log(`PR has required decision label: ${labels.filter(l => requiredLabels.includes(l)).join(', ')}`);
               }
             }
-
-
 
 
 
