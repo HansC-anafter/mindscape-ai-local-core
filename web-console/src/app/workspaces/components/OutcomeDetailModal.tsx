@@ -1,72 +1,13 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import Image from 'next/image';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 import { useConflictHandler } from '@/hooks/useConflictHandler';
 import ConflictDialog from '@/components/ConflictDialog';
 import { useToast } from '@/components/Toast';
 import { formatLocalDateTime } from '@/lib/time';
-
-interface Artifact {
-  id: string;
-  workspace_id: string;
-  intent_id?: string;
-  task_id?: string;
-  execution_id?: string;
-  playbook_code: string;
-  artifact_type: string;
-  title: string;
-  summary: string;
-  content: any;
-  storage_ref?: string;
-  sync_state?: string;
-  primary_action_type: string;
-  metadata: any;
-  created_at: string;
-  updated_at: string;
-}
-
-interface OutcomeDetailModalProps {
-  artifact: Artifact | null;
-  isOpen: boolean;
-  onClose: () => void;
-  workspaceId: string;
-  apiUrl: string;
-}
-
-const markdownComponents = {
-  p: ({ children }: any) => <p className="mb-2 last:mb-0">{children}</p>,
-  ul: ({ children }: any) => <ul className="list-disc list-inside mb-2 space-y-1">{children}</ul>,
-  ol: ({ children }: any) => <ol className="list-decimal list-inside mb-2 space-y-1">{children}</ol>,
-  li: ({ children }: any) => <li className="ml-2">{children}</li>,
-  strong: ({ children }: any) => <strong className="font-semibold">{children}</strong>,
-  em: ({ children }: any) => <em className="italic">{children}</em>,
-  code: ({ children, className }: any) => {
-    const isInline = !className;
-    return isInline ? (
-      <code className="bg-gray-200 dark:bg-gray-700 px-1 py-0.5 rounded text-xs font-mono">{children}</code>
-    ) : (
-      <code className="block bg-gray-100 dark:bg-gray-800 p-2 rounded text-xs font-mono overflow-x-auto">{children}</code>
-    );
-  },
-  pre: ({ children }: any) => <pre className="bg-gray-100 dark:bg-gray-800 p-2 rounded text-xs font-mono overflow-x-auto mb-2">{children}</pre>,
-  h1: ({ children }: any) => <h1 className="text-xl font-bold mb-3">{children}</h1>,
-  h2: ({ children }: any) => <h2 className="text-lg font-bold mb-2">{children}</h2>,
-  h3: ({ children }: any) => <h3 className="text-base font-bold mb-1">{children}</h3>,
-  blockquote: ({ children }: any) => <blockquote className="border-l-4 border-gray-300 dark:border-gray-600 pl-2 italic mb-2">{children}</blockquote>,
-};
-
-const mergeArtifactDetail = (base: Artifact, detail: any): Artifact => ({
-  ...base,
-  ...detail,
-  summary: detail.summary ?? detail.description ?? base.summary,
-  storage_ref: detail.storage_ref ?? detail.file_path ?? base.storage_ref,
-  primary_action_type: detail.primary_action_type ?? base.primary_action_type,
-  metadata: detail.metadata ?? base.metadata ?? {},
-  content: detail.content ?? base.content,
-});
+import { OutcomeContent } from './outcomeDetailModal/contentRenderers';
+import { mergeArtifactDetail } from './outcomeDetailModal/detail';
+import type { OutcomeDetailModalProps } from './outcomeDetailModal/types';
 
 export default function OutcomeDetailModal({
   artifact,
@@ -219,145 +160,6 @@ export default function OutcomeDetailModal({
     }
   };
 
-  const renderDraftContent = () => {
-    const content = activeArtifact.content?.content || activeArtifact.summary || '';
-    return (
-      <div className="prose prose-sm max-w-none">
-        <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-          {content}
-        </ReactMarkdown>
-      </div>
-    );
-  };
-
-  const renderChecklistContent = () => {
-    const tasks = activeArtifact.content?.tasks || [];
-    return (
-      <div className="space-y-2">
-        <h3 className="text-lg font-semibold mb-4 dark:text-gray-100">Task List</h3>
-        {tasks.length === 0 ? (
-          <p className="text-gray-500 dark:text-gray-400">No tasks yet</p>
-        ) : (
-          <div className="space-y-2">
-            {tasks.map((task: any, index: number) => (
-              <div key={task.id || index} className="flex items-start gap-2 p-2 border border-gray-200 dark:border-gray-700 rounded bg-white dark:bg-gray-800">
-                <input
-                  type="checkbox"
-                  checked={task.completed || false}
-                  readOnly
-                  className="mt-1"
-                />
-                <div className="flex-1">
-                  <div className="font-medium dark:text-gray-100">{task.title}</div>
-                  {task.description && (
-                    <div className="text-sm text-gray-600 dark:text-gray-400 mt-1">{task.description}</div>
-                  )}
-                  {task.priority && (
-                    <span className="inline-block mt-1 px-2 py-0.5 text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded">
-                      {task.priority}
-                    </span>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    );
-  };
-
-  const renderConfigContent = () => {
-    return (
-      <div className="space-y-2">
-        <pre className="bg-gray-100 dark:bg-gray-800 p-4 rounded overflow-x-auto text-xs text-gray-900 dark:text-gray-100">
-          {JSON.stringify(activeArtifact.content, null, 2)}
-        </pre>
-      </div>
-    );
-  };
-
-  const renderCanvaContent = () => {
-    const canvaUrl = activeArtifact.content?.canva_url || activeArtifact.storage_ref;
-    const thumbnailUrl = activeArtifact.content?.thumbnail_url;
-    return (
-      <div className="space-y-4">
-        {thumbnailUrl && (
-          <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
-            <Image
-              src={thumbnailUrl}
-              alt={activeArtifact.title}
-              width={960}
-              height={540}
-              className="w-full h-auto"
-              unoptimized
-            />
-          </div>
-        )}
-        {canvaUrl && (
-          <button
-            onClick={handleOpenExternal}
-            className="px-4 py-2 bg-green-600 dark:bg-green-700 text-white rounded hover:bg-green-700 dark:hover:bg-green-600 transition-colors"
-          >
-            Open in Canva
-          </button>
-        )}
-      </div>
-    );
-  };
-
-  const renderAudioContent = () => {
-    const audioPath = activeArtifact.content?.audio_file_path || activeArtifact.storage_ref;
-    const transcript = activeArtifact.content?.transcript;
-    return (
-      <div className="space-y-4">
-        {audioPath && (
-          <div>
-            <audio controls className="w-full">
-              <source src={audioPath} type="audio/mpeg" />
-              <source src={audioPath} type="audio/wav" />
-              Your browser does not support audio playback.
-            </audio>
-          </div>
-        )}
-        {transcript && (
-          <div className="mt-4">
-            <h3 className="text-lg font-semibold mb-2 dark:text-gray-100">Transcript</h3>
-            <div className="bg-gray-50 dark:bg-gray-800 p-4 rounded border border-gray-200 dark:border-gray-700">
-              <p className="whitespace-pre-wrap text-sm dark:text-gray-300">{transcript}</p>
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  };
-
-  const renderContent = () => {
-    if (detailLoading && !activeArtifact.content) {
-      return <div className="text-sm text-gray-500 dark:text-gray-400">Loading outcome content...</div>;
-    }
-
-    switch (activeArtifact.artifact_type) {
-      case 'draft':
-        return renderDraftContent();
-      case 'checklist':
-        return renderChecklistContent();
-      case 'config':
-        return renderConfigContent();
-      case 'canva':
-        return renderCanvaContent();
-      case 'audio':
-        return renderAudioContent();
-      default:
-        return (
-          <div className="space-y-2">
-            <pre className="bg-gray-100 dark:bg-gray-800 p-4 rounded overflow-x-auto text-xs text-gray-900 dark:text-gray-100">
-              {JSON.stringify(activeArtifact.content, null, 2)}
-            </pre>
-          </div>
-        );
-    }
-  };
-
   return (
     <>
       {/* Toast Container */}
@@ -430,7 +232,11 @@ export default function OutcomeDetailModal({
 
           {/* Main Content */}
           <div className="flex-1 overflow-y-auto px-6 py-4 min-h-0">
-            {renderContent()}
+            <OutcomeContent
+              activeArtifact={activeArtifact}
+              detailLoading={detailLoading}
+              onOpenExternal={handleOpenExternal}
+            />
           </div>
 
           <div className="border-t dark:border-gray-700 px-6 py-3 bg-gray-50 dark:bg-gray-800 shrink-0">
