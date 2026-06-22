@@ -273,7 +273,12 @@ def _validate_catalog_object_ref(
 async def _invoke_backend_callable(backend_path: str, **kwargs: Any) -> Any:
     module_path, attr_name = backend_path.rsplit(":", 1)
     module = importlib.import_module(module_path)
-    target = getattr(module, attr_name)
+    try:
+        target = getattr(module, attr_name)
+    except AttributeError:
+        importlib.invalidate_caches()
+        module = importlib.reload(module)
+        target = getattr(module, attr_name)
     signature = inspect.signature(target)
     if any(
         parameter.kind == inspect.Parameter.VAR_KEYWORD

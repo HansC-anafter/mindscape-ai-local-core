@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import copy
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -69,7 +70,7 @@ class ObjectCatalogRegistry:
 
     def read_registry(self) -> Dict[str, Any]:
         """Return the persisted runtime object catalog payload."""
-        return self._load_registry()
+        return self._with_core_entries(self._load_registry())
 
     def list_entries(
         self,
@@ -79,7 +80,7 @@ class ObjectCatalogRegistry:
         supports: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """List normalized catalog entries with optional filters."""
-        entries = list(self._load_registry().get("objects", []))
+        entries = list(self.read_registry().get("objects", []))
 
         if owner_pack:
             entries = [
@@ -98,7 +99,7 @@ class ObjectCatalogRegistry:
 
     def get_entry(self, owner_pack: str, object_kind: str) -> Optional[Dict[str, Any]]:
         """Return one normalized catalog entry for the given pack/object kind."""
-        for entry in self._load_registry().get("objects", []):
+        for entry in self.read_registry().get("objects", []):
             if (
                 entry.get("owner_pack") == owner_pack
                 and entry.get("object_kind") == object_kind
@@ -127,6 +128,35 @@ class ObjectCatalogRegistry:
                 exc,
             )
             return {"version": 1, "objects": []}
+
+    def _with_core_entries(self, registry: Dict[str, Any]) -> Dict[str, Any]:
+        payload = copy.deepcopy(registry if isinstance(registry, dict) else {})
+        objects = [
+            entry
+            for entry in list(payload.get("objects") or [])
+            if not (
+                isinstance(entry, dict)
+                and entry.get("owner_pack") == "local_core"
+            )
+        ]
+        try:
+            from backend.app.services.object_runtime.core_host_resource_objects import (
+                list_core_object_catalog_entries,
+            )
+
+            objects.extend(list_core_object_catalog_entries())
+        except Exception as exc:  # pragma: no cover - defensive startup guard
+            logger.warning("Failed to load core object catalog entries: %s", exc)
+        payload["version"] = payload.get("version") or 1
+        payload["objects"] = sorted(
+            objects,
+            key=lambda entry: (
+                str(entry.get("owner_pack", "")) if isinstance(entry, dict) else "",
+                str(entry.get("object_kind", "")) if isinstance(entry, dict) else "",
+                str(entry.get("display_name", "")) if isinstance(entry, dict) else "",
+            ),
+        )
+        return payload
 
     def _normalize_object_exports(
         self,
