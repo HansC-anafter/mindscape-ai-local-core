@@ -1,4 +1,7 @@
 import {
+  isCapabilityStorageMediaPath,
+} from '../mobile-workbench-gateway-capability-rules.mjs';
+import {
   decodeURIComponentSafe,
   normalizeCapabilityCodeFromApiSegment,
   normalizeClaimValue,
@@ -58,6 +61,9 @@ function extractRequestContextFromUrl(requestUrl = '/') {
   if (capabilityApiMatch) {
     routeCapabilityCode = normalizeClaimValue(decodeURIComponentSafe(capabilityApiMatch[1]));
     capabilityCode = normalizeCapabilityCodeFromApiSegment(routeCapabilityCode);
+    if (isCapabilityStorageMediaPath(pathname)) {
+      capabilityFromFallback = true;
+    }
   }
 
   const installedCapabilityMatch =

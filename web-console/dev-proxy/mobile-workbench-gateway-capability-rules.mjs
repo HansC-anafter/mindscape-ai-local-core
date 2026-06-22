@@ -1,4 +1,6 @@
 const READ_ONLY_GATEWAY_METHODS = ['GET', 'HEAD', 'OPTIONS'];
+const CAPABILITY_STORAGE_MEDIA_PATH_PATTERN =
+  /^\/api\/v1\/capabilities\/[^/]+\/storage\/[^/]+\/.+\.(?:apng|avif|gif|jpe?g|m4v|mov|mp4|png|webm|webp)$/i;
 
 function escapeRegexLiteral(value = '') {
   return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -17,6 +19,18 @@ function createCapabilityApiRule(apiPrefix) {
   return {
     type: 'regex',
     value: new RegExp(`^${escapedApiPrefix}(?:/.*)?$`),
+  };
+}
+
+export function isCapabilityStorageMediaPath(pathname = '') {
+  return CAPABILITY_STORAGE_MEDIA_PATH_PATTERN.test(String(pathname || ''));
+}
+
+function createCapabilityStorageMediaRule() {
+  return {
+    type: 'regex',
+    value: CAPABILITY_STORAGE_MEDIA_PATH_PATTERN,
+    methods: READ_ONLY_GATEWAY_METHODS,
   };
 }
 
@@ -164,6 +178,7 @@ export function createDefaultGatewayWorkspaceSupportRules() {
       value: /^\/api\/v1\/host-resources\/queue-utilization$/,
       methods: READ_ONLY_GATEWAY_METHODS,
     },
+    createCapabilityStorageMediaRule(),
     { type: 'regex', value: /^\/api\/v1\/capability-packs\/[^/]+\/ui-assets\// },
   ];
 }
