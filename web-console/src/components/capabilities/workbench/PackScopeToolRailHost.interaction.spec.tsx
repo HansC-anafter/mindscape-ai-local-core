@@ -7,6 +7,7 @@ import {
   primeCapabilityUIComponentMetadata,
 } from '@/lib/capability-ui-loader';
 import { KeyboardShortcutProvider } from '@/lib/keyboard-shortcuts';
+import type { KeyboardShortcutProfile } from '@/lib/keyboard-shortcuts';
 import type { WorkspaceToolDefinition } from '@/lib/workspace-tools/workspace-tool-registry';
 import { PackScopeToolRailHost } from './PackScopeToolRailHost';
 import {

@@ -426,7 +426,7 @@ export function resolveLessonThumbnailUrl(input: {
   }
   const handoff = input.pendingLessonHandoff;
   const handoffProvider = handoff?.sourceProvider?.trim().toLowerCase() || '';
-  if (handoff?.sourceKind === 'youtube_instruction_ref' || handoffProvider === 'youtube') {
+  if (handoff && (handoff.sourceKind === 'youtube_instruction_ref' || handoffProvider === 'youtube')) {
     return resolveYouTubeThumbnailUrl(handoff.sourceValue);
   }
   return '';

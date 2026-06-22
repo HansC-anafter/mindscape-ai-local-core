@@ -32,12 +32,22 @@ describe('BaseModal', () => {
     );
 
     const dialog = screen.getByRole('dialog');
-    expect(dialog).toHaveClass('fixed', 'z-50');
+    expect(dialog).toHaveClass('fixed', 'z-[70]');
 
     const shell = dialog.firstElementChild;
     expect(shell).toHaveClass('mx-4', 'max-h-[90vh]', 'overflow-hidden', 'flex', 'flex-col');
     expect(shell).toHaveStyle({ maxHeight: '90vh' });
     expect(screen.getByText('Legacy modal').closest('div')).toHaveClass('flex-shrink-0');
     expect(screen.getByText('Scrollable modal body').parentElement).toHaveClass('p-6', 'overflow-y-auto', 'flex-1', 'min-h-0');
+  });
+
+  it('renders above capability host rails', () => {
+    render(
+      <BaseModal isOpen onClose={vi.fn()} title="Rail-safe modal">
+        <div>Modal body</div>
+      </BaseModal>,
+    );
+
+    expect(screen.getByRole('dialog')).toHaveClass('z-[70]');
   });
 });

@@ -1,6 +1,8 @@
 import React from 'react';
 import { vi } from 'vitest';
 
+import MotionCoachWorkbenchHost from './MotionCoachWorkbenchHost';
+
 const navigationMocksState = vi.hoisted(() => ({
   searchParams: new URLSearchParams(),
 }));
