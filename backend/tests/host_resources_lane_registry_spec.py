@@ -97,7 +97,8 @@ def test_default_registry_keeps_pack_specific_lanes_out_of_core(monkeypatch, tmp
 
     lanes = lane_registry.load_lane_registry()
 
-    assert "runner:default_local" in lanes
+    assert "runner:default_local_browser" in lanes
+    assert "runner:default_local" not in lanes
     assert "comfyui_runtime:flux2_klein_true_v2_q6_local" not in lanes
     assert "mlx:qwen9b_4bit_vision" not in lanes
 

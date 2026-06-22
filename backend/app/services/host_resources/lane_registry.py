@@ -23,15 +23,15 @@ DEFAULT_LANES: dict[str, dict[str, Any]] = {
             "exclusive_groups": ["browser_local"],
         },
     },
-    "runner:default_local": {
-        "lane_id": "runner:default_local",
-        "label": "Default Runner",
+    "runner:default_local_browser": {
+        "lane_id": "runner:default_local_browser",
+        "label": "Default Local Browser Runner",
         "kind": "runner",
         "requirements": {
             "memory_mb": 0,
             "memory_source": "not_applicable",
             "cpu_weight": 1,
-            "exclusive_groups": ["default_local"],
+            "exclusive_groups": ["default_local_browser"],
         },
     },
     "runner:vision_local": {

@@ -11,128 +11,21 @@ from backend.app.services.host_resources.queue_utilization import (
 from backend.app.services.host_resources.queue_utilization_snapshot_store import (
     QueueUtilizationSnapshotStore,
 )
-from backend.app.services.host_resources.route_identity_projection import (
-    serialize_route_identity_projection,
+from host_resources_queue_utilization_test_support import (
+    FakeConnection,
+    FakeConnectionContext,
+    FakeQueue,
+    FakeSnapshotStore,
+    projection,
 )
-
-
-class _FakeRedisClient:
-    def __init__(self, pending_ids):
-        self.pending_ids = list(pending_ids)
-        self.projections = {}
-        self.llen_values = {}
-        self.zcard_values = {}
-        self.lrange_calls = []
-        self.lease_available = True
-        self.set_calls = []
-
-    async def lrange(self, key, start, end):
-        self.lrange_calls.append((key, start, end))
-        return self.pending_ids[start : end + 1]
-
-    async def mget(self, keys):
-        return [self.projections.get(key) for key in keys]
-
-    async def llen(self, key):
-        return self.llen_values.get(key, 0)
-
-    async def zcard(self, key):
-        return self.zcard_values.get(key, 0)
-
-    async def set(self, key, value, nx=False, ex=None):
-        self.set_calls.append((key, value, nx, ex))
-        if not self.lease_available:
-            return False
-        self.lease_available = False
-        return True
-
-
-class _FakeQueue:
-    def __init__(self, pack_id, pending_ids):
-        self.pack_id = pack_id
-        self.q_pending = f"pending:{pack_id}"
-        self.q_processing = f"processing:{pack_id}"
-        self.q_delayed = f"delayed:{pack_id}"
-        self.q_deadletter = f"deadletter:{pack_id}"
-        self.client = _FakeRedisClient(pending_ids)
-        self.client.llen_values[self.q_pending] = len(pending_ids)
-        self.client.llen_values[self.q_deadletter] = 0
-        self.client.zcard_values[self.q_processing] = 2
-        self.client.zcard_values[self.q_delayed] = 1
-
-    async def _get_client(self):
-        return self.client
-
-
-class _FakeSnapshotStore:
-    def __init__(self):
-        self.saved = []
-        self.deleted = False
-
-    def save_snapshot_batch(self, snapshot):
-        self.saved.append(snapshot)
-        return len(snapshot["queue_depths"])
-
-    def delete_old_snapshots(self):
-        self.deleted = True
-        return 0
-
-
-class _FakeResult:
-    def __init__(self, rows):
-        self.rows = rows
-
-    def fetchall(self):
-        return self.rows
-
-
-class _FakeConnection:
-    def __init__(self, rows):
-        self.rows = rows
-        self.statements = []
-
-    def execute(self, statement, *args, **kwargs):
-        self.statements.append(str(statement))
-        return _FakeResult(self.rows)
-
-
-class _FakeConnectionContext:
-    def __init__(self, connection):
-        self.connection = connection
-
-    def __enter__(self):
-        return self.connection
-
-    def __exit__(self, exc_type, exc, tb):
-        return False
-
-
-def _projection(task_id, pack_id, concurrency_key):
-    return serialize_route_identity_projection(
-        task_id,
-        {
-            "task_id": task_id,
-            "pack_id": pack_id,
-            "playbook_code": pack_id,
-            "queue_shard": "browser_local",
-            "concurrency_key": concurrency_key,
-            "route_identity": {
-                "lane_id": "runner:browser_local",
-                "resource_groups": ["browser_local"],
-                "priority_class": "default",
-                "pack_id": pack_id,
-                "playbook_code": pack_id,
-            },
-        },
-    )
 
 
 @pytest.mark.asyncio
 async def test_live_queue_utilization_excludes_drain_runner_available_slots(monkeypatch):
-    queue = _FakeQueue("browser_local", ["task-a"])
+    queue = FakeQueue("browser_local", ["task-a"])
     queue.client.projections[
         "mindscape:host_resources:route_identity:task-a"
-    ] = _projection("task-a", "ig_pin_post_detail", "ig_profile:a")
+    ] = projection("task-a", "ig_pin_post_detail", "ig_profile:a")
 
     async def _heartbeats(_queue_store):
         return [
@@ -174,8 +67,78 @@ async def test_live_queue_utilization_excludes_drain_runner_available_slots(monk
 
 
 @pytest.mark.asyncio
+async def test_live_queue_utilization_marks_resource_admission_cooldown_unclaimable(
+    monkeypatch,
+):
+    queue = FakeQueue("default_local_browser", ["task-a"])
+    queue.client.projections[
+        "mindscape:host_resources:route_identity:task-a"
+    ] = projection(
+        "task-a",
+        "ig_batch_pin_references",
+        "concurrency:playbook:ig_batch_pin_references:/app/data/ig...",
+    )
+
+    async def _heartbeats(_queue_store):
+        return [
+            {
+                "runner_id": "runner-browser-1",
+                "profile_code": "default_local_browser",
+                "queue_shards": ["default_local_browser"],
+                "capacity": {
+                    "max_inflight": 3,
+                    "inflight": 1,
+                    "available_slots": 2,
+                },
+                "claim_control": {
+                    "mode": "active",
+                    "claim_enabled": True,
+                },
+                "resource_snapshot": {
+                    "admission": {
+                        "state": "cooldown",
+                        "should_defer": True,
+                        "reasons": [],
+                        "cooldown_until_epoch": 1234.0,
+                    },
+                },
+            }
+        ]
+
+    monkeypatch.setattr(
+        queue_utilization,
+        "list_active_runner_resource_heartbeats",
+        _heartbeats,
+    )
+
+    snapshot = await build_live_queue_utilization(
+        queue_stores=[queue],
+        scan_limit=1,
+        now_epoch=1000,
+    )
+
+    capacity = snapshot["capacity_by_queue_shard"]["default_local_browser"]
+    assert capacity["active_runner_count"] == 1
+    assert capacity["claimable_runner_count"] == 0
+    assert capacity["claim_blocked_runner_count"] == 1
+    assert capacity["max_inflight_total"] == 3
+    assert capacity["inflight_total"] == 1
+    assert capacity["available_slots_total"] == 2
+    assert capacity["claimable_available_slots_total"] == 0
+    assert capacity["claim_blocked_reasons"] == ["resource_admission:cooldown"]
+    assert capacity["resource_admission"] == [
+        {
+            "runner_id": "runner-browser-1",
+            "state": "cooldown",
+            "reasons": [],
+            "cooldown_until_epoch": 1234.0,
+        }
+    ]
+
+
+@pytest.mark.asyncio
 async def test_live_queue_utilization_uses_bounded_redis_data(monkeypatch):
-    queue = _FakeQueue(
+    queue = FakeQueue(
         "browser_local",
         ["task-a", "task-b", "task-c", "task-d", "task-e"],
     )
@@ -186,7 +149,7 @@ async def test_live_queue_utilization_uses_bounded_redis_data(monkeypatch):
     }.items():
         queue.client.projections[
             f"mindscape:host_resources:route_identity:{task_id}"
-        ] = _projection(task_id, "ig_pin_post_detail", lock_key)
+        ] = projection(task_id, "ig_pin_post_detail", lock_key)
 
     async def _heartbeats(_queue_store):
         return [
@@ -235,11 +198,12 @@ async def test_live_queue_utilization_uses_bounded_redis_data(monkeypatch):
     assert snapshot["utilization_ratio_by_queue_shard"]["browser_local"] == 2 / 3
 
 
-def test_latest_snapshot_reads_one_latest_batch(monkeypatch):
-    captured_at = datetime(2026, 6, 20, 4, 40, tzinfo=timezone.utc)
+def test_latest_snapshot_preserves_last_known_state_per_queue_shard(monkeypatch):
+    browser_captured_at = datetime(2026, 6, 20, 4, 40, tzinfo=timezone.utc)
+    vision_captured_at = datetime(2026, 6, 20, 4, 37, tzinfo=timezone.utc)
     rows = [
         {
-            "captured_at": captured_at,
+            "captured_at": browser_captured_at,
             "queue_shard": "browser_local",
             "pending_depth": 0,
             "processing_depth": 3,
@@ -253,7 +217,7 @@ def test_latest_snapshot_reads_one_latest_batch(monkeypatch):
             "available_slots_total": 3,
         },
         {
-            "captured_at": captured_at,
+            "captured_at": vision_captured_at,
             "queue_shard": "vision_local",
             "pending_depth": 62,
             "processing_depth": 1,
@@ -267,36 +231,128 @@ def test_latest_snapshot_reads_one_latest_batch(monkeypatch):
             "available_slots_total": 3,
         },
     ]
-    connection = _FakeConnection(rows)
+    connection = FakeConnection(rows)
     store = object.__new__(QueueUtilizationSnapshotStore)
     monkeypatch.setattr(
         store,
         "get_connection",
-        lambda: _FakeConnectionContext(connection),
+        lambda: FakeConnectionContext(connection),
     )
 
     snapshot = store.latest_snapshot()
 
     statement = connection.statements[0]
-    assert "latest_batch" in statement
-    assert "MAX(captured_at)" in statement
-    assert "DISTINCT ON" not in statement
+    assert "DISTINCT ON (queue_shard)" in statement
+    assert "ORDER BY queue_shard, captured_at DESC" in statement
+    assert "latest_batch" not in statement
+    assert "MAX(captured_at)" not in statement
     assert snapshot is not None
-    assert snapshot["captured_at"] == captured_at.isoformat()
+    assert snapshot["captured_at"] == browser_captured_at.isoformat()
     assert snapshot["captured_at_by_queue_shard"] == {
-        "browser_local": captured_at.isoformat(),
-        "vision_local": captured_at.isoformat(),
+        "browser_local": browser_captured_at.isoformat(),
+        "vision_local": vision_captured_at.isoformat(),
     }
     assert list(snapshot["queue_depths"].keys()) == ["browser_local", "vision_local"]
 
 
 @pytest.mark.asyncio
+async def test_resource_console_marks_snapshot_capacity_unclaimable(monkeypatch):
+    snapshot_captured_at = "2026-06-07T14:29:52.072188+00:00"
+
+    def _snapshot(*, store=None):
+        return {
+            "source": "postgres_snapshot",
+            "captured_at": snapshot_captured_at,
+            "captured_at_by_queue_shard": {
+                "default_local": snapshot_captured_at,
+            },
+            "queue_depths": {
+                "default_local": {
+                    "pending": 63,
+                    "processing": 1,
+                    "delayed": 0,
+                    "deadletter": 0,
+                },
+            },
+            "capacity_by_queue_shard": {
+                "default_local": {
+                    "active_runner_count": 1,
+                    "max_inflight_total": 8,
+                    "inflight_total": 0,
+                    "available_slots_total": 8,
+                    "utilization_ratio": 0.0,
+                    "runner_ids": [],
+                },
+            },
+            "visible_lanes": {"default_local": []},
+            "visible_lane_count": {"default_local": 0},
+            "degraded": False,
+            "errors": [],
+        }
+
+    async def _live_utilization():
+        return {
+            "source": "live_redis_bounded",
+            "captured_at": "2026-06-21T04:26:52.640048+00:00",
+            "captured_at_by_queue_shard": {},
+            "queue_depths": {},
+            "capacity_by_queue_shard": {},
+            "visible_lanes": {},
+            "visible_lane_count": {},
+            "resource_lanes": {},
+            "resource_lane_count": {},
+            "utilization_ratio_by_queue_shard": {},
+            "scan_limit": 128,
+            "degraded": False,
+            "errors": [],
+        }
+
+    def _backlog(**kwargs):
+        return {
+            "known_queue_shards": [],
+            "backlog_summary_by_queue_shard": {},
+            "backlog_by_queue_shard": {},
+            "active_route_lanes": {},
+            "active_route_lane_count": {},
+            "errors": [],
+        }
+
+    monkeypatch.setattr(queue_utilization, "get_latest_queue_utilization_snapshot", _snapshot)
+    monkeypatch.setattr(queue_utilization, "build_live_queue_utilization", _live_utilization)
+    monkeypatch.setattr(queue_utilization, "get_queue_backlog_aggregates", _backlog)
+
+    merged = await queue_utilization.get_latest_queue_utilization_snapshot_with_resource_lanes()
+
+    capacity = merged["capacity_by_queue_shard"]["default_local"]
+    assert capacity["active_runner_count"] == 0
+    assert capacity["max_inflight_total"] == 0
+    assert capacity["available_slots_total"] == 0
+    assert capacity["claimable_available_slots_total"] == 0
+    assert merged["freshness_by_queue_shard"]["default_local"] == {
+        "queue_depths_source": "postgres_snapshot",
+        "capacity_source": "postgres_snapshot",
+        "visible_lanes_source": "postgres_snapshot",
+        "resource_lanes_source": "none",
+        "backlog_source": "none",
+        "live_captured_at": "2026-06-21T04:26:52.640048+00:00",
+        "snapshot_captured_at": snapshot_captured_at,
+        "stale": True,
+    }
+    assert (
+        merged["snapshot_fallback_by_queue_shard"]["default_local"]["capacity"][
+            "max_inflight_total"
+        ]
+        == 8
+    )
+
+
+@pytest.mark.asyncio
 async def test_snapshot_writer_uses_single_redis_lease(monkeypatch):
-    queue = _FakeQueue("browser_local", ["task-a"])
+    queue = FakeQueue("browser_local", ["task-a"])
     queue.client.projections[
         "mindscape:host_resources:route_identity:task-a"
-    ] = _projection("task-a", "ig_pin_post_detail", "ig_profile:a")
-    store = _FakeSnapshotStore()
+    ] = projection("task-a", "ig_pin_post_detail", "ig_profile:a")
+    store = FakeSnapshotStore()
 
     async def _heartbeats(_queue_store):
         return []
@@ -351,6 +407,7 @@ def test_default_queue_stores_include_dynamic_lanes(monkeypatch):
     assert [store.pack_id for store in stores] == [
         "vision_local",
         "browser_local",
+        "default_local_browser",
         "default_local",
         "vision_mlx_high",
     ]

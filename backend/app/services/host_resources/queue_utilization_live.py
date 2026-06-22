@@ -130,6 +130,79 @@ def visible_lanes(
     )
 
 
+def resource_lanes_by_queue(
+    *,
+    queue_names: list[str],
+    heartbeats: list[dict[str, Any]],
+    dynamic_lanes: list[dict[str, Any]],
+) -> dict[str, list[dict[str, Any]]]:
+    lanes_by_queue: dict[str, dict[str, dict[str, Any]]] = {
+        queue_name: {} for queue_name in queue_names
+    }
+
+    for lane in dynamic_lanes:
+        if not isinstance(lane, dict):
+            continue
+        queue_shard = str(lane.get("queue_shard") or "").strip()
+        if not queue_shard:
+            continue
+        lanes_by_queue.setdefault(queue_shard, {})
+        lane_id = str(lane.get("lane_id") or queue_shard).strip()
+        label = str(lane.get("label") or lane_id).strip()
+        max_concurrency = _to_int(lane.get("max_concurrency"), 1)
+        lanes_by_queue[queue_shard][f"host_lane:{lane_id}"] = {
+            "lane_key": f"host_lane:{lane_id}",
+            "lane_type": "host_lane",
+            "lane_value": label,
+            "count": max(1, max_concurrency),
+            "first_queue_position": 0,
+            "pack_ids": [],
+            "example_task_ids": [lane_id],
+        }
+
+    for heartbeat in heartbeats:
+        if not isinstance(heartbeat, dict):
+            continue
+        profile_code = str(heartbeat.get("profile_code") or "").strip()
+        runner_id = str(heartbeat.get("runner_id") or "").strip()
+        queue_shards = [
+            str(item).strip()
+            for item in heartbeat.get("queue_shards") or []
+            if str(item).strip()
+        ]
+        for queue_shard in queue_shards:
+            lanes_by_queue.setdefault(queue_shard, {})
+            lane_profile = profile_code or queue_shard
+            lane_key = f"runner_profile:{lane_profile}"
+            lane = lanes_by_queue[queue_shard].setdefault(
+                lane_key,
+                {
+                    "lane_key": lane_key,
+                    "lane_type": "runner_profile",
+                    "lane_value": lane_profile,
+                    "count": 0,
+                    "first_queue_position": 0,
+                    "pack_ids": [lane_profile] if lane_profile else [],
+                    "example_task_ids": [],
+                },
+            )
+            lane["count"] = _to_int(lane.get("count")) + 1
+            examples = lane.setdefault("example_task_ids", [])
+            if runner_id and runner_id not in examples and len(examples) < 3:
+                examples.append(runner_id)
+
+    return {
+        queue_name: sorted(
+            lanes.values(),
+            key=lambda lane: (
+                str(lane.get("lane_type") or ""),
+                str(lane.get("lane_key") or ""),
+            ),
+        )
+        for queue_name, lanes in lanes_by_queue.items()
+    }
+
+
 async def active_heartbeats(
     queue_stores: list[Any],
     *,
@@ -152,11 +225,13 @@ def capacity_by_queue_shard(
     queue_names: list[str],
     heartbeats: list[dict[str, Any]],
 ) -> dict[str, dict[str, Any]]:
-    capacity_by_queue = {
-        queue_name: {
+    def _empty_capacity_row() -> dict[str, Any]:
+        return {
             "active_runner_count": 0,
             "claimable_runner_count": 0,
             "claim_blocked_runner_count": 0,
+            "claim_blocked_reasons": [],
+            "resource_admission": [],
             "max_inflight_total": 0,
             "inflight_total": 0,
             "available_slots_total": 0,
@@ -164,6 +239,23 @@ def capacity_by_queue_shard(
             "utilization_ratio": None,
             "runner_ids": [],
         }
+
+    def _resource_admission(heartbeat: dict[str, Any]) -> dict[str, Any]:
+        snapshot = heartbeat.get("resource_snapshot")
+        if not isinstance(snapshot, dict):
+            return {}
+        admission = snapshot.get("admission")
+        return admission if isinstance(admission, dict) else {}
+
+    def _resource_admission_deferred(admission: dict[str, Any]) -> bool:
+        return bool(admission.get("should_defer"))
+
+    def _append_unique(values: list[Any], value: Any) -> None:
+        if value not in values:
+            values.append(value)
+
+    capacity_by_queue = {
+        queue_name: _empty_capacity_row()
         for queue_name in queue_names
     }
 
@@ -183,22 +275,15 @@ def capacity_by_queue_shard(
         claim_enabled = (
             claim_mode == "active" and claim_control.get("claim_enabled") is not False
         )
+        admission = _resource_admission(heartbeat)
+        resource_deferred = _resource_admission_deferred(admission)
+        effective_claim_enabled = claim_enabled and not resource_deferred
         for queue_shard in queue_shards:
             if queue_shard not in capacity_by_queue:
-                capacity_by_queue[queue_shard] = {
-                    "active_runner_count": 0,
-                    "claimable_runner_count": 0,
-                    "claim_blocked_runner_count": 0,
-                    "max_inflight_total": 0,
-                    "inflight_total": 0,
-                    "available_slots_total": 0,
-                    "claimable_available_slots_total": 0,
-                    "utilization_ratio": None,
-                    "runner_ids": [],
-                }
+                capacity_by_queue[queue_shard] = _empty_capacity_row()
             row = capacity_by_queue[queue_shard]
             row["active_runner_count"] += 1
-            if claim_enabled:
+            if effective_claim_enabled:
                 row["claimable_runner_count"] = (
                     _to_int(row.get("claimable_runner_count")) + 1
                 )
@@ -206,11 +291,29 @@ def capacity_by_queue_shard(
                 row["claim_blocked_runner_count"] = (
                     _to_int(row.get("claim_blocked_runner_count")) + 1
                 )
+                blocked_reasons = row.setdefault("claim_blocked_reasons", [])
+                if resource_deferred:
+                    state = str(admission.get("state") or "resource_admission").strip()
+                    _append_unique(blocked_reasons, f"resource_admission:{state}")
+                    row.setdefault("resource_admission", []).append(
+                        {
+                            "runner_id": str(heartbeat.get("runner_id") or "").strip()
+                            or None,
+                            "state": admission.get("state"),
+                            "reasons": admission.get("reasons") or [],
+                            "cooldown_until_epoch": admission.get(
+                                "cooldown_until_epoch"
+                            ),
+                        }
+                    )
+                if not claim_enabled:
+                    _append_unique(blocked_reasons, f"claim_control:{claim_mode}")
             row["max_inflight_total"] += _to_int(capacity.get("max_inflight"))
             row["inflight_total"] += _to_int(capacity.get("inflight"))
             available_slots = _to_int(capacity.get("available_slots"))
             if claim_enabled:
                 row["available_slots_total"] += available_slots
+            if effective_claim_enabled:
                 row["claimable_available_slots_total"] = (
                     _to_int(row.get("claimable_available_slots_total"))
                     + available_slots
@@ -235,6 +338,7 @@ async def build_live_queue_utilization(
     read_route_identity_projections_func: Callable[
         [Any, list[str]], Awaitable[dict[str, dict[str, Any]]]
     ],
+    list_dynamic_lanes_func: Callable[[], list[dict[str, Any]]],
     list_active_runner_resource_heartbeats_func: Callable[
         [Any], Awaitable[list[dict[str, Any]]]
     ],
@@ -280,6 +384,16 @@ async def build_live_queue_utilization(
             list_active_runner_resource_heartbeats_func
         ),
     )
+    try:
+        dynamic_lanes = list_dynamic_lanes_func()
+    except Exception as exc:
+        dynamic_lanes = []
+        errors.append({"queue_shard": "*", "error": str(exc)})
+    resource_lanes = resource_lanes_by_queue(
+        queue_names=queue_names,
+        heartbeats=heartbeats,
+        dynamic_lanes=dynamic_lanes,
+    )
     capacity_by_queue = capacity_by_queue_shard(
         queue_names=queue_names,
         heartbeats=heartbeats,
@@ -302,6 +416,10 @@ async def build_live_queue_utilization(
         "capacity_by_queue_shard": capacity_by_queue,
         "visible_lanes": visible_lanes_by_queue,
         "visible_lane_count": visible_lane_count,
+        "resource_lanes": resource_lanes,
+        "resource_lane_count": {
+            queue_name: len(lanes) for queue_name, lanes in resource_lanes.items()
+        },
         "utilization_ratio_by_queue_shard": utilization_ratio_by_queue,
         "degraded": bool(errors),
         "errors": errors,

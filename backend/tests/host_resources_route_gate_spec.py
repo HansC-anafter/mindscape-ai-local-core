@@ -68,8 +68,8 @@ def test_route_gate_rejects_unmatched_candidate(monkeypatch):
         _task(
             "task-2",
             {
-                "target_lane": "runner:default_local",
-                "resource_groups": ["default_local"],
+                "target_lane": "runner:default_local_browser",
+                "resource_groups": ["default_local_browser"],
             },
         )
     )
@@ -93,8 +93,8 @@ def test_route_gate_detects_drain_after_current_controls():
             "reservation_id": "res-2",
             "state": "reserved_waiting",
             "route_request": {
-                "target_lane": "runner:default_local",
-                "resource_groups": ["default_local"],
+                "target_lane": "runner:default_local_browser",
+                "resource_groups": ["default_local_browser"],
                 "drain_policy": "prefer_only",
             },
         },
@@ -106,6 +106,100 @@ def test_route_gate_detects_drain_after_current_controls():
 
     assert route_gate.has_drain_after_current_controls(active_reservations) is True
     assert [reservation["reservation_id"] for reservation in drain_reservations] == ["res-1"]
+
+
+def test_route_gate_drain_after_current_ignores_unrelated_candidates():
+    selection = route_gate.select_candidate_policy(
+        [
+            {
+                "task_id": "task-browser",
+                "pack_id": "browser_batch_collect",
+                "route_identity": {
+                    "lane_id": "runner:default_local_browser",
+                    "resource_groups": ["runner:default_local_browser"],
+                    "priority_class": "default",
+                },
+            }
+        ],
+        active_reservations=[
+            {
+                "reservation_id": "res-mps",
+                "state": "reserved_waiting",
+                "route_request": {
+                    "target_lane": "comfyui_runtime:flux2_klein_true_v2_q6_local",
+                    "resource_groups": ["mps_generation", "comfyui_runtime"],
+                    "resource_flavor": "local.mps.comfyui",
+                    "drain_policy": "drain_after_current",
+                },
+            }
+        ],
+    )
+
+    assert selection["selected"] is None
+    assert selection["reason"] == "fifo_fallback"
+    assert selection["drain_wait"] is False
+
+
+def test_route_gate_drain_after_current_ignores_empty_route_identity():
+    selection = route_gate.select_candidate_policy(
+        [
+            {
+                "task_id": "task-browser",
+                "pack_id": "browser_batch_collect",
+                "route_identity": {},
+            }
+        ],
+        active_reservations=[
+            {
+                "reservation_id": "res-mps",
+                "state": "reserved_waiting",
+                "route_request": {
+                    "target_lane": "comfyui_runtime:flux2_klein_true_v2_q6_local",
+                    "resource_groups": ["mps_generation", "comfyui_runtime"],
+                    "resource_flavor": "local.mps.comfyui",
+                    "drain_policy": "drain_after_current",
+                },
+            }
+        ],
+    )
+
+    assert selection["selected"] is None
+    assert selection["reason"] == "fifo_fallback"
+    assert selection["drain_wait"] is False
+
+
+def test_route_gate_drain_after_current_selects_matching_candidates():
+    selection = route_gate.select_candidate_policy(
+        [
+            {
+                "task_id": "task-comfy",
+                "pack_id": "comfyui_runtime",
+                "route_identity": {
+                    "lane_id": "comfyui_runtime:flux2_klein_true_v2_q6_local",
+                    "resource_groups": ["mps_generation"],
+                    "priority_class": "default",
+                    "resource_flavor": "local.mps.comfyui",
+                },
+            }
+        ],
+        active_reservations=[
+            {
+                "reservation_id": "res-mps",
+                "state": "reserved_waiting",
+                "route_request": {
+                    "target_lane": "comfyui_runtime:flux2_klein_true_v2_q6_local",
+                    "resource_groups": ["mps_generation", "comfyui_runtime"],
+                    "resource_flavor": "local.mps.comfyui",
+                    "drain_policy": "drain_after_current",
+                },
+            }
+        ],
+    )
+
+    assert selection["selected"]["task_id"] == "task-comfy"
+    assert selection["reason"] == "route_reservation"
+    assert selection["drain_wait"] is False
+    assert selection["decision"].reservation_id == "res-mps"
 
 
 def test_worker_reads_runner_claim_gate(monkeypatch):
@@ -153,8 +247,8 @@ async def test_worker_maintenance_cycle_skips_when_claim_gate_paused(monkeypatch
         tasks_store=object(),
         runner_id="runner-1",
         redis_queue=object(),
-        ready_queues={"default_local": object()},
-        ready_targets={"default_local": 1},
+        ready_queues={"default_local_browser": object()},
+        ready_targets={"default_local_browser": 1},
         queue_cycle=[],
     )
 
@@ -227,8 +321,8 @@ async def test_worker_route_candidate_scan_promotes_permitted_task(monkeypatch):
     queue = _Queue()
     for task_id, route_request in {
         "low-task": {
-            "target_lane": "runner:default_local",
-            "resource_groups": ["default_local"],
+            "target_lane": "runner:default_local_browser",
+            "resource_groups": ["default_local_browser"],
         },
         "high-task": {
             "target_lane": "comfyui_runtime:flux2_klein_true_v2_q6_local",

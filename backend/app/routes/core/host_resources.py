@@ -30,9 +30,8 @@ from backend.app.services.host_resources.dynamic_lane_store import (
     create_dynamic_lane,
     update_dynamic_lane,
 )
-from backend.app.services.host_resources.queue_utilization import (
-    build_live_queue_utilization,
-    get_latest_queue_utilization_snapshot,
+from backend.app.services.host_resources.queue_utilization_response import (
+    build_queue_utilization_response,
 )
 from backend.app.services.host_resources.runner_claim_modes import (
     attach_runner_claim_controls,
@@ -99,10 +98,20 @@ async def get_schema_readiness() -> dict[str, Any]:
 
 
 @router.get("/queue-utilization")
-async def get_queue_utilization(live: bool = Query(False)) -> dict[str, Any]:
-    if live:
-        return await build_live_queue_utilization()
-    return get_latest_queue_utilization_snapshot()
+async def get_queue_utilization(
+    live: bool = Query(False),
+    view: Optional[str] = Query(None),
+    queue_shard: Optional[str] = Query(None),
+) -> dict[str, Any]:
+    try:
+        return await build_queue_utilization_response(
+            live=live,
+            view=view,
+            queue_shard=queue_shard,
+        )
+    except ValueError as exc:
+        status_code = 404 if str(exc) == "queue_shard_not_found" else 422
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
 
 
 @router.get("/adapter-catalog")

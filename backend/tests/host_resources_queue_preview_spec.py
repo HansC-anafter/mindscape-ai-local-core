@@ -33,8 +33,8 @@ async def test_route_reservation_candidate_preview_selects_matching_pending_task
     queue = _Queue()
     for task_id, route_request in {
         "low-task": {
-            "target_lane": "runner:default_local",
-            "resource_groups": ["default_local"],
+            "target_lane": "runner:default_local_browser",
+            "resource_groups": ["default_local_browser"],
         },
         "high-task": {
             "target_lane": "comfyui_runtime:flux2_klein_true_v2_q6_local",

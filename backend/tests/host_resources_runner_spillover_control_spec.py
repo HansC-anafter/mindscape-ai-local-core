@@ -68,6 +68,93 @@ async def test_spillover_action_normalizes_payload_and_calls_fixed_tool(monkeypa
 
 
 @pytest.mark.asyncio
+async def test_spillover_defaults_to_default_local_maintenance_capacity(monkeypatch):
+    received = {}
+
+    async def _list_device_node_tools(**_kwargs):
+        return ["host_resource_runner_spillover_control"]
+
+    async def _call_host_resource_runner_spillover_control(arguments):
+        received.update(arguments)
+        return {
+            "accepted": True,
+            "action": arguments["action"],
+            "profile_code": arguments["profile_code"],
+            "max_inflight": arguments["max_inflight"],
+        }
+
+    monkeypatch.setattr(
+        runner_spillover_control,
+        "list_device_node_tools",
+        _list_device_node_tools,
+    )
+    monkeypatch.setattr(
+        runner_spillover_control,
+        "call_host_resource_runner_spillover_control",
+        _call_host_resource_runner_spillover_control,
+    )
+
+    result = await runner_spillover_control.runner_spillover_action(
+        {
+            "action": "start",
+        }
+    )
+
+    assert result["accepted"] is True
+    assert result["profile_code"] == "default_local"
+    assert result["max_inflight"] == 1
+    assert received == {
+        "action": "start",
+        "profile_code": "default_local",
+        "max_inflight": 1,
+    }
+
+
+@pytest.mark.asyncio
+async def test_default_local_browser_spillover_override_stays_temporary(monkeypatch):
+    received = {}
+
+    async def _list_device_node_tools(**_kwargs):
+        return ["host_resource_runner_spillover_control"]
+
+    async def _call_host_resource_runner_spillover_control(arguments):
+        received.update(arguments)
+        return {
+            "accepted": True,
+            "action": arguments["action"],
+            "profile_code": arguments["profile_code"],
+            "max_inflight": arguments["max_inflight"],
+        }
+
+    monkeypatch.setattr(
+        runner_spillover_control,
+        "list_device_node_tools",
+        _list_device_node_tools,
+    )
+    monkeypatch.setattr(
+        runner_spillover_control,
+        "call_host_resource_runner_spillover_control",
+        _call_host_resource_runner_spillover_control,
+    )
+
+    result = await runner_spillover_control.runner_spillover_action(
+        {
+            "action": "start",
+            "profile_code": "default_local_browser",
+        }
+    )
+
+    assert result["accepted"] is True
+    assert result["profile_code"] == "default_local_browser"
+    assert result["max_inflight"] == 1
+    assert received == {
+        "action": "start",
+        "profile_code": "default_local_browser",
+        "max_inflight": 1,
+    }
+
+
+@pytest.mark.asyncio
 async def test_spillover_action_rejects_unsupported_profile():
     with pytest.raises(ValueError, match="unsupported_spillover_profile"):
         await runner_spillover_control.runner_spillover_action(

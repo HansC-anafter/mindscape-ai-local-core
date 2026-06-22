@@ -141,7 +141,7 @@ def test_route_reservation_list_reads_durable_history_without_hot_active_path(mo
                     "reservation_id": "durable-1",
                     "state": "cancelled",
                     "created_at": "2026-05-14T00:00:00+00:00",
-                    "route_request": {"target_lane": "runner:default_local"},
+                    "route_request": {"target_lane": "runner:default_local_browser"},
                 }
             ]
 
@@ -167,14 +167,14 @@ def test_route_reservation_list_can_filter_active_projection_without_db(monkeypa
             "state": "reserved_waiting",
             "created_at": "2026-05-14T00:00:02+00:00",
             "expires_at": "2999-01-01T00:00:00+00:00",
-            "route_request": {"target_lane": "runner:default_local"},
+            "route_request": {"target_lane": "runner:default_local_browser"},
         },
         "hot-history": {
             "reservation_id": "hot-history",
             "state": "cancelled",
             "created_at": "2026-05-14T00:00:01+00:00",
             "cancelled_at": "2026-05-14T00:01:00+00:00",
-            "route_request": {"target_lane": "runner:default_local"},
+            "route_request": {"target_lane": "runner:default_local_browser"},
         },
     }
     monkeypatch.setattr(manager, "get_cache_service", lambda: cache)
@@ -205,20 +205,20 @@ def test_route_reservation_list_can_filter_history_and_limit(monkeypatch):
                     "reservation_id": "history-new",
                     "state": "cancelled",
                     "created_at": "2026-05-14T00:00:03+00:00",
-                    "route_request": {"target_lane": "runner:default_local"},
+                    "route_request": {"target_lane": "runner:default_local_browser"},
                 },
                 {
                     "reservation_id": "active-1",
                     "state": "reserved_waiting",
                     "created_at": "2026-05-14T00:00:02+00:00",
                     "expires_at": "2999-01-01T00:00:00+00:00",
-                    "route_request": {"target_lane": "runner:default_local"},
+                    "route_request": {"target_lane": "runner:default_local_browser"},
                 },
                 {
                     "reservation_id": "history-old",
                     "state": "expired",
                     "created_at": "2026-05-14T00:00:01+00:00",
-                    "route_request": {"target_lane": "runner:default_local"},
+                    "route_request": {"target_lane": "runner:default_local_browser"},
                 },
             ]
 
@@ -244,7 +244,7 @@ def test_active_route_reservations_use_hot_projection_not_db(monkeypatch):
             "state": "reserved_waiting",
             "created_at": "2026-05-14T00:00:00+00:00",
             "expires_at": "2999-01-01T00:00:00+00:00",
-            "route_request": {"target_lane": "runner:default_local"},
+            "route_request": {"target_lane": "runner:default_local_browser"},
         }
     }
     monkeypatch.setattr(manager, "get_cache_service", lambda: cache)
@@ -296,7 +296,7 @@ def test_rehydrate_route_reservation_projection_restores_active_rows(monkeypatch
                     "state": "reserved_waiting",
                     "created_at": "2026-05-14T00:00:00+00:00",
                     "expires_at": "2999-01-01T00:00:00+00:00",
-                    "route_request": {"target_lane": "runner:default_local"},
+                    "route_request": {"target_lane": "runner:default_local_browser"},
                 }
             ]
 

@@ -157,6 +157,51 @@ def has_drain_after_current_controls(
     return bool(drain_after_current_reservations(active_reservations))
 
 
+def _route_request_from_reservation(reservation: dict[str, Any]) -> dict[str, Any]:
+    route_request = reservation.get("route_request")
+    if isinstance(route_request, dict):
+        return route_request
+    return {}
+
+
+def route_identity_matches_reservation_scope(
+    identity: dict[str, Any],
+    reservation: dict[str, Any],
+) -> bool:
+    if not isinstance(identity, dict) or not isinstance(reservation, dict):
+        return False
+
+    route_request = _route_request_from_reservation(reservation)
+    lane_id = str(identity.get("lane_id") or identity.get("target_lane") or "").strip()
+    groups = set(_string_list(identity.get("resource_groups")))
+    resource_flavor = str(identity.get("resource_flavor") or "").strip()
+    target_lane = str(route_request.get("target_lane") or "").strip()
+    reservation_groups = set(_string_list(route_request.get("resource_groups")))
+    reservation_flavor = str(route_request.get("resource_flavor") or "").strip()
+
+    lane_matches = bool(target_lane and lane_id == target_lane)
+    group_matches = bool(groups and reservation_groups and groups.intersection(reservation_groups))
+    flavor_matches = bool(resource_flavor and reservation_flavor and resource_flavor == reservation_flavor)
+    if reservation_flavor and resource_flavor and not flavor_matches:
+        return False
+    return lane_matches or group_matches or flavor_matches
+
+
+def drain_after_current_reservations_for_candidates(
+    candidates: list[dict[str, Any]],
+    active_reservations: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    drain_reservations = drain_after_current_reservations(active_reservations)
+    scoped: list[dict[str, Any]] = []
+    for reservation in drain_reservations:
+        for candidate in candidates:
+            identity = candidate.get("route_identity") if isinstance(candidate, dict) else None
+            if isinstance(identity, dict) and route_identity_matches_reservation_scope(identity, reservation):
+                scoped.append(reservation)
+                break
+    return scoped
+
+
 def evaluate_route_candidate(
     task: Any,
     *,
@@ -193,9 +238,9 @@ def evaluate_route_identity_candidate(
         payload={"route_identity": identity},
     )
     for reservation in reservations:
-        route_request = reservation.get("route_request") if isinstance(reservation, dict) else {}
-        if not isinstance(route_request, dict):
+        if not isinstance(reservation, dict):
             continue
+        route_request = _route_request_from_reservation(reservation)
         target_lane = str(route_request.get("target_lane") or "").strip()
         reservation_groups = set(_string_list(route_request.get("resource_groups")))
         reservation_flavor = str(route_request.get("resource_flavor") or "").strip()
@@ -261,12 +306,17 @@ def select_candidate_policy(
             "drain_wait": False,
         }
 
-    if has_drain_after_current_controls(reservations):
+    scoped_drain_reservations = drain_after_current_reservations_for_candidates(
+        candidates,
+        reservations,
+    )
+    if scoped_drain_reservations:
         return {
             "selected": None,
             "reason": "drain_after_current_wait",
             "decision": None,
             "drain_wait": True,
+            "reservations": scoped_drain_reservations,
         }
 
     preferred = {str(pack_id) for pack_id in (reserved_share_pack_ids or []) if str(pack_id).strip()}

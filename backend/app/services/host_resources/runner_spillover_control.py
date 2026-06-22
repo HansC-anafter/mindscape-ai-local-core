@@ -13,7 +13,12 @@ from .host_bridge import (
 
 TOOL_NAME = "host_resource_runner_spillover_control"
 ALLOWED_ACTIONS = {"status", "start", "stop"}
-ALLOWED_PROFILES = {"default_local", "browser_local", "vision_local"}
+ALLOWED_PROFILES = {
+    "default_local_browser",
+    "default_local",
+    "browser_local",
+    "vision_local",
+}
 CUSTOM_PROFILE_REQUIRED_FIELDS = (
     "accepted_partitions",
     "accepted_resource_classes",
@@ -59,11 +64,15 @@ def _clean_required_custom_field(body: dict[str, Any], field_name: str) -> str:
     return value
 
 
-def _clean_max_inflight(value: Any) -> int:
+def _default_max_inflight(profile: str) -> int:
+    return 1
+
+
+def _clean_max_inflight(value: Any, *, default: int = 1) -> int:
     try:
-        parsed = int(value or 1)
+        parsed = int(value or default)
     except (TypeError, ValueError):
-        parsed = 1
+        parsed = default
     return min(max(parsed, 1), 4)
 
 
@@ -80,7 +89,10 @@ async def runner_spillover_action(payload: dict[str, Any] | None) -> dict[str, A
         if uses_custom_profile
         else _clean_profile(body.get("profile_code"))
     )
-    max_inflight = _clean_max_inflight(body.get("max_inflight"))
+    max_inflight = _clean_max_inflight(
+        body.get("max_inflight"),
+        default=1 if uses_custom_profile else _default_max_inflight(profile),
+    )
     custom_payload: dict[str, Any] = {}
     if uses_custom_profile:
         for field_name in CUSTOM_PROFILE_REQUIRED_FIELDS:

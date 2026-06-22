@@ -129,28 +129,21 @@ class QueueUtilizationSnapshotStore(PostgresStoreBase):
             rows = conn.execute(
                 text(
                     """
-                    WITH latest_batch AS (
-                        SELECT MAX(captured_at) AS captured_at
-                        FROM runner_queue_capacity_snapshots
-                    )
-                    SELECT
-                        snapshots.captured_at,
-                        snapshots.queue_shard,
-                        snapshots.pending_depth,
-                        snapshots.processing_depth,
-                        snapshots.delayed_depth,
-                        snapshots.deadletter_depth,
-                        snapshots.visible_lane_count,
-                        snapshots.visible_lanes_json,
-                        snapshots.active_runner_count,
-                        snapshots.max_inflight_total,
-                        snapshots.inflight_total,
-                        snapshots.available_slots_total
-                    FROM runner_queue_capacity_snapshots snapshots
-                    JOIN latest_batch
-                      ON snapshots.captured_at = latest_batch.captured_at
-                    WHERE latest_batch.captured_at IS NOT NULL
-                    ORDER BY snapshots.queue_shard
+                    SELECT DISTINCT ON (queue_shard)
+                        captured_at,
+                        queue_shard,
+                        pending_depth,
+                        processing_depth,
+                        delayed_depth,
+                        deadletter_depth,
+                        visible_lane_count,
+                        visible_lanes_json,
+                        active_runner_count,
+                        max_inflight_total,
+                        inflight_total,
+                        available_slots_total
+                    FROM runner_queue_capacity_snapshots
+                    ORDER BY queue_shard, captured_at DESC
                     """
                 )
             ).fetchall()
@@ -194,9 +187,14 @@ def snapshot_rows_to_response(rows: list[Any]) -> dict[str, Any]:
         utilization_ratio = inflight / max_inflight if max_inflight > 0 else None
         capacity_by_queue[queue_shard] = {
             "active_runner_count": _to_int(data.get("active_runner_count")),
+            "claimable_runner_count": 0,
+            "claim_blocked_runner_count": 0,
+            "claim_blocked_reasons": [],
+            "resource_admission": [],
             "max_inflight_total": max_inflight,
             "inflight_total": inflight,
             "available_slots_total": _to_int(data.get("available_slots_total")),
+            "claimable_available_slots_total": 0,
             "utilization_ratio": utilization_ratio,
             "runner_ids": [],
         }

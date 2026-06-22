@@ -11,7 +11,7 @@ def _task(**overrides):
     payload = {
         "id": "task-1",
         "workspace_id": "ws-1",
-        "queue_shard": "browser_local",
+        "queue_shard": "default_local_browser",
         "pack_id": "ig_pin_post_detail",
         "task_type": "ig_pin_post_detail",
         "execution_context": {"playbook_code": "ig_pin_post_detail"},
@@ -42,11 +42,11 @@ def _allocation(**overrides):
     payload = {
         "allocation_id": "alloc-1",
         "workspace_id": "ws-1",
-        "queue_shard": "browser_local",
-        "task_family": "ig_browser_capture",
+        "queue_shard": "default_local_browser",
+        "task_family": "browser_batch",
         "state": "enabled",
         "max_parallel_task_claims": 3,
-        "metadata": {"task_selectors": ["ig_pin_post_detail", "ig_analyze_following"]},
+        "metadata": {"task_selectors": ["ig_batch_pin_references", "ig_pin_post_detail"]},
     }
     payload.update(overrides)
     return payload

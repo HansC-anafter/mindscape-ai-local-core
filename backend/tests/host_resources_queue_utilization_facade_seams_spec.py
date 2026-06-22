@@ -41,6 +41,7 @@ def test_default_queue_stores_uses_facade_dynamic_lane_hook(monkeypatch):
     assert [store.pack_id for store in stores] == [
         "vision_local",
         "browser_local",
+        "default_local_browser",
         "default_local",
         "extra_lane",
     ]
