@@ -78,6 +78,8 @@ _backups/
 /web-console/public/device-link/rootCA.cer
 /web-console/public/device-link/rootCA.crt
 /web-console/public/device-link/rootCA.mobileconfig
+/device-node/auto.crt
+/device-node/auto.key
 
 # Test files
 test_data/
