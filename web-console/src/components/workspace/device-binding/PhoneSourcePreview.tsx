@@ -49,6 +49,7 @@ export function PhoneSourcePreview({
   const [receiverAttempt, setReceiverAttempt] = useState(0);
   const [receiverNotice, setReceiverNotice] = useState<string | null>(null);
   const [hasRemoteStream, setHasRemoteStream] = useState(false);
+  const [videoFrameReady, setVideoFrameReady] = useState(false);
   const [motionStatus, setMotionStatus] = useState<LivePoseWindowControllerStatus>({
     state: 'idle',
     appendedWindowCount: 0,
@@ -132,6 +133,7 @@ export function PhoneSourcePreview({
     setError(null);
     setReceiverNotice(null);
     setHasRemoteStream(false);
+    setVideoFrameReady(false);
     const handle = startWorkspaceReceiverSession({
       apiBase: apiUrl,
       workspaceId,
@@ -140,10 +142,21 @@ export function PhoneSourcePreview({
       onRemoteStream: (stream) => {
         streamRef.current = stream;
         setHasRemoteStream(true);
+        setVideoFrameReady(false);
         setReceiverNotice(null);
         setError(null);
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
+          try {
+            const playResult = videoRef.current.play?.();
+            if (playResult && typeof playResult.catch === 'function') {
+              playResult.catch(() => {
+                setReceiverNotice('Video track connected; tap reconnect if frames do not appear.');
+              });
+            }
+          } catch {
+            setReceiverNotice('Video track connected; tap reconnect if frames do not appear.');
+          }
         }
         startMotionAnalysisRef.current();
       },
@@ -181,14 +194,28 @@ export function PhoneSourcePreview({
     return () => window.clearTimeout(timer);
   }, [hasRemoteStream, receiverAttempt, state, supportsCamera]);
 
+  useEffect(() => {
+    if (!supportsCamera || !hasRemoteStream || videoFrameReady || error) {
+      return undefined;
+    }
+    const timer = window.setTimeout(() => {
+      setReceiverNotice('Video track connected; waiting for camera frames.');
+    }, 3500);
+    return () => window.clearTimeout(timer);
+  }, [error, hasRemoteStream, supportsCamera, videoFrameReady]);
+
   if (!supportsCamera) {
     return null;
   }
 
-  const receiverLabel = error || receiverNotice || state;
+  const waitingForFrames = hasRemoteStream && !videoFrameReady && !error;
+  const receiverLabel = error
+    || receiverNotice
+    || (waitingForFrames ? 'video_track_waiting_for_frames' : state);
   const motionLabel = liveMotionSessionId
     ? `${motionStatus.state}${motionStatus.reason ? `: ${motionStatus.reason}` : ''} · windows ${motionStatus.appendedWindowCount}`
     : 'practice_required';
+  const fillAvailableHeight = className?.split(/\s+/).includes('h-full') ?? false;
 
   return (
     <div
@@ -197,13 +224,16 @@ export function PhoneSourcePreview({
         className,
       )}
     >
-      <div className="relative aspect-video w-full">
+      <div className={cn('relative w-full', fillAvailableHeight ? 'h-full min-h-0' : 'aspect-video')}>
         <video
           ref={videoRef}
           className="h-full w-full bg-black object-cover"
           autoPlay
           playsInline
           muted
+          onLoadedData={() => setVideoFrameReady(true)}
+          onCanPlay={() => setVideoFrameReady(true)}
+          onPlaying={() => setVideoFrameReady(true)}
           data-testid={`phone-source-preview-${session.session_id}`}
         />
         <div className="absolute left-2 top-2 inline-flex max-w-[calc(100%-1rem)] items-center gap-1 rounded bg-black/70 px-2 py-1 text-[11px] font-medium text-white">
@@ -214,7 +244,7 @@ export function PhoneSourcePreview({
           )}
           <span className="truncate">{receiverLabel}</span>
         </div>
-        {!hasRemoteStream && (receiverNotice || error) ? (
+        {(!hasRemoteStream && (receiverNotice || error)) || waitingForFrames ? (
           <div className="absolute inset-x-3 top-1/2 -translate-y-1/2 rounded-md bg-black/75 px-3 py-2 text-center text-xs font-medium text-white">
             <div>{receiverLabel}</div>
             <button

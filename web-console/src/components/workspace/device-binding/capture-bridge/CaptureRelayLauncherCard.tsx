@@ -8,6 +8,7 @@ import {
   type CaptureRelayAction,
   type CaptureRelayResponse,
 } from './captureRelayClient';
+import { PublicRtmpIngestPanel } from './PublicRtmpIngestPanel';
 
 interface CaptureRelayLauncherCardProps {
   apiBase: string;
@@ -76,6 +77,109 @@ function FieldRow({
   );
 }
 
+function ReadinessPill({
+  label,
+  ok,
+  detail,
+}: {
+  label: string;
+  ok: boolean;
+  detail: string;
+}) {
+  return (
+    <div className="rounded border border-gray-200 bg-white px-2 py-1 dark:border-gray-800 dark:bg-gray-950">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[10px] font-semibold uppercase tracking-normal text-gray-500 dark:text-gray-400">
+          {label}
+        </span>
+        <span className={ok ? 'text-[10px] font-semibold text-emerald-700 dark:text-emerald-200' : 'text-[10px] font-semibold text-amber-700 dark:text-amber-200'}>
+          {ok ? 'Ready' : 'Blocked'}
+        </span>
+      </div>
+      <div className="mt-0.5 break-all text-[11px] leading-4 text-gray-600 dark:text-gray-300">
+        {detail}
+      </div>
+    </div>
+  );
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function inferPublisherReadiness(result: CaptureRelayResponse): {
+  ok: boolean;
+  detail: string;
+} {
+  const relayReady = result.relay?.running === true;
+  const streamName = result.stream?.stream_name || result.urls?.stream_name || 'external-camera';
+  if (!relayReady) {
+    return {
+      ok: false,
+      detail: 'Start the relay before checking the external camera publisher.',
+    };
+  }
+  if (result.stream?.has_publisher === true) {
+    return {
+      ok: true,
+      detail: result.stream?.detail || `External publisher is streaming to ${streamName}.`,
+    };
+  }
+
+  const recentOutput = result.relay?.recent_output || [];
+  const escapedStreamName = escapeRegExp(streamName);
+  const publishingPattern = new RegExp(`publishing to path ['"]?${escapedStreamName}['"]?`, 'i');
+  const missingPathPattern = new RegExp(`path ['"]?${escapedStreamName}['"]? is not configured`, 'i');
+  if (recentOutput.some((line) => publishingPattern.test(line))) {
+    return {
+      ok: true,
+      detail: `External publisher is streaming to ${streamName}.`,
+    };
+  }
+
+  const baseDetail = result.stream?.detail
+    || (recentOutput.some((line) => missingPathPattern.test(line))
+      ? 'OBS requested the stream, but no external RTMP publisher is connected to this path.'
+      : 'No external RTMP publisher has been detected yet.');
+  return {
+    ok: false,
+    detail: `${baseDetail} Put the External camera RTMP URL into the camera livestream app, then start streaming.`,
+  };
+}
+
+function HostReadinessBlock({ result }: { result: CaptureRelayResponse }) {
+  const relayReady = result.relay?.running === true;
+  const obsReady = result.obs?.app_present === true;
+  const websocketReady = result.obs?.websocket_reachable === true;
+  const obsPath = result.obs?.app_path || '/Applications/OBS.app';
+  const publisherReadiness = inferPublisherReadiness(result);
+
+  return (
+    <div className="mt-2 grid gap-1.5" data-testid="capture-relay-host-readiness">
+      <ReadinessPill
+        label="Relay"
+        ok={relayReady}
+        detail={relayReady ? 'MediaMTX is listening for RTMP.' : 'Start local relay before pairing an external provider.'}
+      />
+      <ReadinessPill
+        label="OBS app"
+        ok={obsReady}
+        detail={obsReady ? `Found ${obsPath}.` : `Install OBS at ${obsPath}; mounted DMG apps are not a stable provider backend.`}
+      />
+      <ReadinessPill
+        label="OBS websocket"
+        ok={websocketReady}
+        detail={websocketReady ? 'OBS control port is reachable.' : 'Open OBS and enable its WebSocket server before automated source setup.'}
+      />
+      <ReadinessPill
+        label="External publisher"
+        ok={publisherReadiness.ok}
+        detail={publisherReadiness.detail}
+      />
+    </div>
+  );
+}
+
 function InstallGuidanceBlock({
   result,
   onCopy,
@@ -101,8 +205,7 @@ function InstallGuidanceBlock({
     >
       <div className="font-semibold">Install MediaMTX before starting this relay</div>
       <div className="mt-1">
-        This helper will not install host software by itself. Install MediaMTX, then click Check
-        relay again.
+        Install MediaMTX from this wizard, or install it manually and click Check local relay again.
       </div>
       <div className="mt-2 rounded border border-amber-200 bg-white p-2 dark:border-amber-900 dark:bg-gray-950">
         <div className="font-semibold">
@@ -174,8 +277,12 @@ export function CaptureRelayLauncherCard({
         request: {
           action,
           stream_name: streamName,
+          scene_name: action === 'configure_obs' ? 'Mindscape External Camera' : undefined,
+          source_name: action === 'configure_obs' ? 'Mindscape RTSP Source' : undefined,
+          install_method: action === 'install_mediamtx' ? 'homebrew' : undefined,
           open_obs: openObs,
-          timeout_ms: 5000,
+          start_virtual_camera: action === 'configure_obs' ? true : undefined,
+          timeout_ms: action === 'install_mediamtx' ? 120000 : action === 'configure_obs' ? 12000 : 5000,
         },
       });
       setResult(nextResult);
@@ -199,7 +306,11 @@ export function CaptureRelayLauncherCard({
   const publishUrl = result?.urls?.publish_url;
   const readUrl = result?.urls?.read_url;
   const relayRunning = result?.relay?.running === true;
+  const obsWebsocketReady = result?.obs?.websocket_reachable === true;
   const actionDisabled = disabled || pendingAction !== null;
+  const installBlocked = !result || result.reason === 'relay_binary_missing' || result.install_guidance?.status === 'missing';
+  const obsMissing = result?.obs?.app_present === false;
+  const canConfigureObs = relayRunning && obsWebsocketReady;
 
   return (
     <div
@@ -213,8 +324,8 @@ export function CaptureRelayLauncherCard({
             RTMP to OBS Virtual Camera
           </div>
           <div className="mt-1 text-[11px] leading-4 text-gray-500 dark:text-gray-400">
-            Start a neutral host relay, send the external camera app to RTMP, read it in OBS,
-            then select OBS Virtual Camera in this computer source.
+            Use public RTMP push-stream first. Keep the local host relay helper as a fallback
+            when the camera app cannot reach the public relay.
           </div>
         </div>
         <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${statusClassName(result)}`}>
@@ -234,57 +345,91 @@ export function CaptureRelayLauncherCard({
         />
       </label>
 
-      <div className="mt-2 grid gap-2">
-        <FieldRow label="External camera RTMP URL" value={publishUrl} onCopy={copyValue} />
-        <FieldRow label="OBS Media Source URL" value={readUrl} onCopy={copyValue} />
-      </div>
+      <PublicRtmpIngestPanel streamName={streamName} onCopy={copyValue} />
 
-      {result ? <InstallGuidanceBlock result={result} onCopy={copyValue} /> : null}
+      <details
+        className="mt-2 rounded border border-gray-200 bg-white p-2 dark:border-gray-800 dark:bg-gray-950"
+        data-testid="local-rtmp-relay-fallback"
+      >
+        <summary className="cursor-pointer text-[11px] font-semibold text-gray-800 dark:text-gray-100">
+          Local host relay fallback
+        </summary>
+        <div className="mt-2 text-[11px] leading-4 text-gray-500 dark:text-gray-400">
+          Use this only when the camera app must push to this computer instead of the public RTMP relay.
+          It can install/check/start a local MediaMTX relay through the existing host-services proxy.
+        </div>
+        <div className="mt-2 grid gap-2">
+          <FieldRow label="Local camera RTMP URL" value={publishUrl} onCopy={copyValue} />
+          <FieldRow label="Local OBS Media Source URL" value={readUrl} onCopy={copyValue} />
+        </div>
 
-      <div className="mt-2 grid grid-cols-2 gap-2">
-        <button
-          type="button"
-          onClick={() => void runAction('status')}
-          disabled={actionDisabled}
-          className="inline-flex items-center justify-center gap-1 rounded border border-gray-300 px-2 py-1 text-[11px] font-semibold text-gray-700 hover:bg-white disabled:cursor-not-allowed disabled:text-gray-400 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-950"
-        >
-          {pendingAction === 'status' ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : null}
-          Check relay
-        </button>
-        <button
-          type="button"
-          onClick={() => void runAction('start')}
-          disabled={actionDisabled}
-          className="inline-flex items-center justify-center gap-1 rounded bg-sky-600 px-2 py-1 text-[11px] font-semibold text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:bg-gray-300 dark:disabled:bg-gray-800"
-        >
-          {pendingAction === 'start' ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : null}
-          Start RTMP relay
-        </button>
-        <button
-          type="button"
-          onClick={() => void runAction('open_obs')}
-          disabled={actionDisabled}
-          className="inline-flex items-center justify-center gap-1 rounded border border-gray-300 px-2 py-1 text-[11px] font-semibold text-gray-700 hover:bg-white disabled:cursor-not-allowed disabled:text-gray-400 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-950"
-        >
-          <MonitorUp className="h-3.5 w-3.5" aria-hidden="true" />
-          Open OBS
-        </button>
-        <button
-          type="button"
-          onClick={() => void runAction('stop')}
-          disabled={actionDisabled || !relayRunning}
-          className="inline-flex items-center justify-center gap-1 rounded border border-gray-300 px-2 py-1 text-[11px] font-semibold text-gray-700 hover:bg-white disabled:cursor-not-allowed disabled:text-gray-400 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-950"
-        >
-          Stop managed relay
-        </button>
-      </div>
+        {result ? <HostReadinessBlock result={result} /> : null}
+        {result?.configure_result ? (
+          <div className="mt-2 rounded border border-sky-200 bg-sky-50 px-2 py-1 text-[11px] leading-4 text-sky-900 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-100">
+            OBS setup: <span className="font-semibold">{result.configure_result}</span>
+            {result.obs_setup?.virtual_camera?.active === false ? ' · Virtual Camera is not active.' : null}
+          </div>
+        ) : null}
+        {result ? <InstallGuidanceBlock result={result} onCopy={copyValue} /> : null}
 
-      <ol className="mt-2 space-y-1 text-[11px] leading-4 text-gray-600 dark:text-gray-300">
-        <li>1. Click Start RTMP relay; if blocked, follow the MediaMTX install guidance above.</li>
-        <li>2. Put the RTMP URL into the external camera app streaming field.</li>
-        <li>3. In OBS, add Media Source and paste the OBS Media Source URL.</li>
-        <li>4. Start OBS Virtual Camera, then open the computer source link and select it.</li>
-      </ol>
+        <div className="mt-2 grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => void runAction('install_mediamtx')}
+            disabled={actionDisabled || !installBlocked}
+            className="inline-flex items-center justify-center gap-1 rounded border border-amber-300 bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-900 hover:bg-amber-100 disabled:cursor-not-allowed disabled:border-gray-300 disabled:bg-gray-100 disabled:text-gray-400 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100 dark:hover:bg-amber-950 dark:disabled:border-gray-700 dark:disabled:bg-gray-900 dark:disabled:text-gray-500"
+            data-testid="capture-relay-install-button"
+          >
+            {pendingAction === 'install_mediamtx' ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : null}
+            Install MediaMTX
+          </button>
+          <button
+            type="button"
+            onClick={() => void runAction('status')}
+            disabled={actionDisabled}
+            className="inline-flex items-center justify-center gap-1 rounded border border-gray-300 px-2 py-1 text-[11px] font-semibold text-gray-700 hover:bg-white disabled:cursor-not-allowed disabled:text-gray-400 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-950"
+          >
+            {pendingAction === 'status' ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : null}
+            Check local relay
+          </button>
+          <button
+            type="button"
+            onClick={() => void runAction('start')}
+            disabled={actionDisabled}
+            className="inline-flex items-center justify-center gap-1 rounded bg-sky-600 px-2 py-1 text-[11px] font-semibold text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:bg-gray-300 dark:disabled:bg-gray-800"
+          >
+            {pendingAction === 'start' ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : null}
+            Start local relay
+          </button>
+          <button
+            type="button"
+            onClick={() => void runAction('open_obs')}
+            disabled={actionDisabled || obsMissing}
+            className="inline-flex items-center justify-center gap-1 rounded border border-gray-300 px-2 py-1 text-[11px] font-semibold text-gray-700 hover:bg-white disabled:cursor-not-allowed disabled:text-gray-400 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-950"
+          >
+            <MonitorUp className="h-3.5 w-3.5" aria-hidden="true" />
+            Open OBS
+          </button>
+          <button
+            type="button"
+            onClick={() => void runAction('configure_obs')}
+            disabled={actionDisabled || !canConfigureObs}
+            className="inline-flex items-center justify-center gap-1 rounded border border-sky-300 bg-sky-50 px-2 py-1 text-[11px] font-semibold text-sky-800 hover:bg-sky-100 disabled:cursor-not-allowed disabled:border-gray-300 disabled:bg-gray-100 disabled:text-gray-400 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-100 dark:hover:bg-sky-950 dark:disabled:border-gray-700 dark:disabled:bg-gray-900 dark:disabled:text-gray-500"
+            data-testid="capture-relay-configure-obs-button"
+          >
+            {pendingAction === 'configure_obs' ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : null}
+            Configure OBS source
+          </button>
+          <button
+            type="button"
+            onClick={() => void runAction('stop')}
+            disabled={actionDisabled || !relayRunning}
+            className="inline-flex items-center justify-center gap-1 rounded border border-gray-300 px-2 py-1 text-[11px] font-semibold text-gray-700 hover:bg-white disabled:cursor-not-allowed disabled:text-gray-400 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-950"
+          >
+            Stop managed relay
+          </button>
+        </div>
+      </details>
 
       <a
         href={desktopDeviceLink}

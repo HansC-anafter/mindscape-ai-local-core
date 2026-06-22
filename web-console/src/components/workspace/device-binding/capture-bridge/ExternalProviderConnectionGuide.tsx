@@ -6,8 +6,8 @@ const PROVIDER_CONNECTION_STEPS = [
     body: 'Use a camera that appears in the browser device list, then select Computer / OBS camera below.',
   },
   {
-    title: 'Network stream relay',
-    body: 'Start a host relay such as MediaMTX, add the relay stream to OBS as a Media Source, then expose OBS Virtual Camera.',
+    title: 'Public RTMP push-stream',
+    body: 'Send the camera livestream app to the public RTMP URL, add the same URL to OBS as a Media Source, then expose OBS Virtual Camera.',
   },
   {
     title: 'Gimbal-mounted camera',

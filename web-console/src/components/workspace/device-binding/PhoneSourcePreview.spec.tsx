@@ -1,5 +1,5 @@
-import { act, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { act, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { PhoneSourcePreview } from './PhoneSourcePreview';
 import { startWorkspaceReceiverSession } from '@/lib/media-transport/webrtcSessionClient';
@@ -48,6 +48,13 @@ vi.mock('@/lib/motion-analysis/motionWindowClient', () => ({
 }));
 
 describe('PhoneSourcePreview', () => {
+  beforeEach(() => {
+    Object.defineProperty(window.HTMLMediaElement.prototype, 'play', {
+      configurable: true,
+      value: vi.fn(async () => undefined),
+    });
+  });
+
   afterEach(() => {
     vi.clearAllMocks();
     mocks.receiverInput = null;
@@ -88,6 +95,32 @@ describe('PhoneSourcePreview', () => {
     expect(setIntervalSpy).not.toHaveBeenCalled();
   });
 
+  it('lets host-controlled previews fill a resizable container instead of forcing aspect-video', () => {
+    render(
+      <PhoneSourcePreview
+        apiUrl="http://api.test"
+        workspaceId="ws_device"
+        className="h-full min-h-0 w-full"
+        session={{
+          session_id: 'session_resizable',
+          workspace_id: 'ws_device',
+          pairing_code: 'PAIR1234',
+          device_id: 'phone_1',
+          display_name: 'Phone',
+          source_types: ['phone_camera'],
+          state: 'paired',
+          created_at_epoch: 1,
+          updated_at_epoch: 1,
+          expires_at_epoch: 61,
+        }}
+      />,
+    );
+
+    const videoFrame = screen.getByTestId('phone-source-preview-session_resizable').parentElement;
+    expect(videoFrame?.className).toContain('h-full');
+    expect(videoFrame?.className).not.toContain('aspect-video');
+  });
+
   it('does not start motion analysis before a live motion session exists', () => {
     render(
       <PhoneSourcePreview
@@ -108,12 +141,45 @@ describe('PhoneSourcePreview', () => {
       />,
     );
 
-    mocks.receiverInput.onRemoteStream({} as MediaStream);
+    act(() => {
+      mocks.receiverInput.onRemoteStream({} as MediaStream);
+    });
 
     expect(createLivePoseWindowController).not.toHaveBeenCalled();
     expect(screen.getByTestId('phone-source-motion-status-session_1')).toHaveTextContent(
       'practice_required',
     );
+  });
+
+  it('shows when a stream arrived but video frames have not rendered yet', () => {
+    render(
+      <PhoneSourcePreview
+        apiUrl="http://api.test"
+        workspaceId="ws_device"
+        session={{
+          session_id: 'session_1',
+          workspace_id: 'ws_device',
+          pairing_code: 'PAIR1234',
+          device_id: 'phone_1',
+          display_name: 'Phone',
+          source_types: ['phone_camera'],
+          state: 'paired',
+          created_at_epoch: 1,
+          updated_at_epoch: 1,
+          expires_at_epoch: 61,
+        }}
+      />,
+    );
+
+    act(() => {
+      mocks.receiverInput.onRemoteStream({} as MediaStream);
+    });
+
+    expect(screen.getAllByText('video_track_waiting_for_frames')).toHaveLength(2);
+
+    fireEvent.canPlay(screen.getByTestId('phone-source-preview-session_1'));
+
+    expect(screen.queryAllByText('video_track_waiting_for_frames')).toHaveLength(0);
   });
 
   it('starts motion analysis from the received stream when a live motion session exists', async () => {
@@ -139,7 +205,9 @@ describe('PhoneSourcePreview', () => {
       />,
     );
 
-    mocks.receiverInput.onRemoteStream({} as MediaStream);
+    act(() => {
+      mocks.receiverInput.onRemoteStream({} as MediaStream);
+    });
 
     expect(createLivePoseWindowController).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -239,7 +307,9 @@ describe('PhoneSourcePreview', () => {
       />,
     );
 
-    mocks.receiverInput.onRemoteStream({} as MediaStream);
+    act(() => {
+      mocks.receiverInput.onRemoteStream({} as MediaStream);
+    });
     act(() => {
       mocks.motionControllerInput.onStatus({
         state: 'active',

@@ -69,7 +69,7 @@ describe('localVideoMotionSmokeSession', () => {
 
   it('registers one motion_runtime live session without polling or retries', async () => {
     const setIntervalSpy = vi.spyOn(globalThis, 'setInterval');
-    const fetchMock = vi.fn(async () => Response.json({
+    const fetchMock = vi.fn(async (..._args: Parameters<typeof fetch>) => Response.json({
       live_session: {
         live_session_id: 'lms_local_video',
       },
