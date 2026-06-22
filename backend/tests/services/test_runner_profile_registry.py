@@ -53,3 +53,15 @@ def test_resolve_runner_profile_accepts_capability_filter_env(monkeypatch):
 
     assert profile.profile_code == "custom_gpu"
     assert profile.accepted_capability_codes == ("character_training",)
+
+
+def test_resolve_default_local_browser_profile_from_env(monkeypatch):
+    monkeypatch.setenv("LOCAL_CORE_RUNNER_PROFILE", "default_local_browser")
+    monkeypatch.delenv("LOCAL_CORE_RUNNER_ACCEPTED_PARTITIONS", raising=False)
+    monkeypatch.delenv("LOCAL_CORE_RUNNER_ACCEPTED_RESOURCE_CLASSES", raising=False)
+
+    profile = resolve_runner_profile_from_env(default_max_inflight=3)
+
+    assert profile.profile_code == "default_local_browser"
+    assert profile.accepted_queue_partitions == ("default_local_browser",)
+    assert profile.accepted_resource_classes == (RESOURCE_CLASS_BROWSER,)

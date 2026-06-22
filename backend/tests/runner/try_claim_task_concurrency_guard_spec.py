@@ -63,6 +63,7 @@ def test_update_task_heartbeat_only_reads_abort_state():
         status=TaskStatus.RUNNING.value,
         pack_id="ig_pin_post_detail",
         execution_context={"status": "running"},
+        queue_shard="default_local_browser",
         concurrency_key="profile:nagomi_art",
         blocked_reason="concurrency_locked",
     )

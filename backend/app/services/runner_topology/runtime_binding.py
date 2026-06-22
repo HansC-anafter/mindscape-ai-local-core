@@ -226,7 +226,8 @@ def resolve_runtime_dispatch_target(
     runtime_id = binding.runtime_id
 
     dispatch_mode = binding.dispatch_mode
-    if runtime_id and dispatch_mode == "docker_local":
+    should_hydrate_local_runtime = bool(runtime_id and dispatch_mode == "docker_local")
+    if should_hydrate_local_runtime:
         dispatch_mode = ""
 
     runtime_url = binding.runtime_url
@@ -269,6 +270,8 @@ def resolve_runtime_dispatch_target(
             if not binding_scope and runtime_meta.get("binding_scope"):
                 binding_scope = runtime_meta["binding_scope"]
                 hydrated = True
+        elif should_hydrate_local_runtime:
+            runtime_id = None
 
     if runtime_id and not dispatch_mode:
         dispatch_mode = "external_runtime"

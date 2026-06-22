@@ -41,12 +41,18 @@ _WORKSPACE_QUOTA_RELEASE_REASONS = frozenset(
     }
 )
 _BROWSER_LOCAL_QUEUE_SHARD = "browser_local"
-_BROWSER_PEER_FRONTIER_LANES = frozenset(
-    {
-        "ig_batch_pin_references",
-        "ig_pin_post_detail",
-    }
-)
+_DEFAULT_LOCAL_BROWSER_QUEUE_SHARD = "default_local_browser"
+
+
+def _browser_peer_frontier_lanes() -> frozenset[str]:
+    try:
+        from backend.app.services.runner_topology.task_family_registry import (
+            managed_browser_batch_peer_frontier_lanes,
+        )
+
+        return managed_browser_batch_peer_frontier_lanes()
+    except Exception:
+        return frozenset()
 
 def _task_runner_id(task: Task, ctx: dict[str, Any]) -> Optional[str]:
     runner_id = getattr(task, "runner_id", None)

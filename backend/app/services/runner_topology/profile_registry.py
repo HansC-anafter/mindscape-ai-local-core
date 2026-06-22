@@ -8,6 +8,7 @@ from typing import Iterable, Optional
 
 from .partitions import (
     BROWSER_LOCAL_QUEUE_PARTITION,
+    DEFAULT_LOCAL_BROWSER_QUEUE_PARTITION,
     DEFAULT_LOCAL_QUEUE_PARTITION,
     RUNNER_READY_QUEUE_ORDER,
     VISION_LOCAL_QUEUE_PARTITION,
@@ -134,14 +135,18 @@ def get_builtin_runner_profiles(
             accepted_resource_classes=_ALL_RESOURCE_CLASSES,
             max_inflight=max_inflight,
         ),
+        "default_local_browser": _build_profile(
+            profile_code="default_local_browser",
+            display_name="Default Local Browser Runner",
+            accepted_queue_partitions=(DEFAULT_LOCAL_BROWSER_QUEUE_PARTITION,),
+            accepted_resource_classes=(RESOURCE_CLASS_BROWSER,),
+            max_inflight=max_inflight,
+        ),
         "default_local": _build_profile(
             profile_code="default_local",
             display_name="Default Local Runner",
             accepted_queue_partitions=(DEFAULT_LOCAL_QUEUE_PARTITION,),
-            accepted_resource_classes=(
-                RESOURCE_CLASS_COMPUTE,
-                RESOURCE_CLASS_API,
-            ),
+            accepted_resource_classes=(RESOURCE_CLASS_COMPUTE, RESOURCE_CLASS_API),
             max_inflight=max_inflight,
         ),
         "browser_local": _build_profile(

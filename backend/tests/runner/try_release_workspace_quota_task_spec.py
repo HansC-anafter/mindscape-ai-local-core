@@ -8,7 +8,9 @@ def test_try_release_workspace_quota_task_moves_cold_task_to_ready():
     store = _SqliteClaimStore()
     store.insert_allocation(
         max_parallel_task_claims=4,
-        selectors=["ig_analyze_following", "ig_pin_post_detail"],
+        queue_shard="browser_local",
+        task_family="ig_browser_capture",
+        selectors=["ig_analyze_following"],
     )
     store.insert_task(
         task_id="quota-cold-1",
@@ -27,7 +29,7 @@ def test_try_release_workspace_quota_task_moves_cold_task_to_ready():
         "quota-cold-1",
         workspace_id="ws-1",
         queue_shard="browser_local",
-        selectors=["ig_analyze_following", "ig_pin_post_detail"],
+        selectors=["ig_analyze_following"],
         task_selector="ig_analyze_following",
         allocation_key="alloc-browser",
         max_parallel_task_claims=4,
@@ -48,7 +50,9 @@ def test_try_release_workspace_quota_task_blocks_same_selector_when_reserved_ful
     store = _SqliteClaimStore()
     store.insert_allocation(
         max_parallel_task_claims=4,
-        selectors=["ig_analyze_following", "ig_pin_post_detail"],
+        queue_shard="browser_local",
+        task_family="ig_browser_capture",
+        selectors=["ig_analyze_following"],
     )
     for index in range(4):
         store.insert_task(
@@ -73,7 +77,7 @@ def test_try_release_workspace_quota_task_blocks_same_selector_when_reserved_ful
         "quota-cold-1",
         workspace_id="ws-1",
         queue_shard="browser_local",
-        selectors=["ig_analyze_following", "ig_pin_post_detail"],
+        selectors=["ig_analyze_following"],
         task_selector="ig_analyze_following",
         allocation_key="alloc-browser",
         max_parallel_task_claims=4,
@@ -88,7 +92,9 @@ def test_try_release_workspace_quota_task_allows_one_missing_selector_candidate(
     store = _SqliteClaimStore()
     store.insert_allocation(
         max_parallel_task_claims=4,
-        selectors=["ig_analyze_following", "ig_pin_post_detail"],
+        queue_shard="browser_local",
+        task_family="ig_browser_capture",
+        selectors=["ig_analyze_following"],
     )
     for index in range(4):
         store.insert_task(
@@ -96,6 +102,7 @@ def test_try_release_workspace_quota_task_allows_one_missing_selector_candidate(
             status=TaskStatus.PENDING.value,
             pack_id="ig_pin_post_detail",
             execution_context={"playbook_code": "ig_pin_post_detail"},
+            queue_shard="default_local_browser",
             concurrency_key=None,
             frontier_state="ready",
         )
@@ -113,7 +120,7 @@ def test_try_release_workspace_quota_task_allows_one_missing_selector_candidate(
         "quota-cold-following",
         workspace_id="ws-1",
         queue_shard="browser_local",
-        selectors=["ig_analyze_following", "ig_pin_post_detail"],
+        selectors=["ig_analyze_following"],
         task_selector="ig_analyze_following",
         allocation_key="alloc-browser",
         max_parallel_task_claims=4,

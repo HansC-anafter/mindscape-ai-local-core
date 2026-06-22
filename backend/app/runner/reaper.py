@@ -19,7 +19,7 @@ from backend.app.services.host_resources.workspace_quota_admission import (
 from backend.app.runner.reaper_bridge import _reap_redis_queues as _reap_redis_queues_impl
 from backend.app.runner.reaper_context import (
     _BROWSER_LOCAL_QUEUE_SHARD,
-    _BROWSER_PEER_FRONTIER_LANES,
+    _browser_peer_frontier_lanes,
     _CONCURRENCY_LOCKED_REASON,
     _DEPENDENCY_HOLD_REASON,
     _RESOURCE_WAIT_REASON,

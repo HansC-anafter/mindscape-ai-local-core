@@ -15,6 +15,9 @@ _EXECUTION_PROFILE_KEYS = (
     "resource_class",
     "queue_partition",
     "queue_shard",
+    "task_family",
+    "managed_runner_role",
+    "fairness_lane_key",
     "runner_profile_hint",
     "runtime_affinity",
     "runner_timeout_seconds",
@@ -121,6 +124,42 @@ def resolve_installed_playbook_runner_metadata(playbook_code: str) -> Dict[str, 
             exc,
         )
     return {}
+
+
+@lru_cache(maxsize=1)
+def iter_installed_playbook_runner_metadata() -> tuple[tuple[str, Dict[str, Any]], ...]:
+    """Return runner metadata for every installed playbook spec."""
+    rows: list[tuple[str, Dict[str, Any]]] = []
+    try:
+        registry = _capability_registry()
+        for capability_code in registry.list_capabilities():
+            capability = registry.get_capability(capability_code) or {}
+            manifest = capability.get("manifest") or {}
+            directory = capability.get("directory")
+            if not isinstance(directory, Path):
+                directory = Path(directory) if directory else None
+
+            for raw_entry in manifest.get("playbooks", []) or []:
+                entry = _normalize_playbook_entry(raw_entry)
+                playbook_code = str((entry or {}).get("code") or "").strip()
+                if not entry or not playbook_code:
+                    continue
+
+                metadata: Dict[str, Any] = {"capability_code": capability_code}
+                spec_rel = str(entry.get("spec_path") or "").strip()
+                if spec_rel and directory is not None:
+                    spec = _read_spec_json((directory / spec_rel).resolve())
+                    if spec:
+                        metadata = _extract_runner_metadata_from_spec(
+                            spec,
+                            capability_code=capability_code,
+                        )
+                metadata.setdefault("capability_code", capability_code)
+                metadata.setdefault("playbook_code", playbook_code)
+                rows.append((playbook_code, metadata))
+    except Exception as exc:
+        logger.debug("Failed to iterate installed playbook runner metadata: %s", exc)
+    return tuple(rows)
 
 
 def merge_runner_metadata_into_context(

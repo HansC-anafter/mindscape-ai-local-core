@@ -165,12 +165,15 @@ class _SqliteClaimStore(TasksStoreQueryMixin, TasksStoreRunnerMixin):
         allocation_id: str = "alloc-browser",
         workspace_id: str = "ws-1",
         queue_shard: str = "browser_local",
-        task_family: str = "ig_browser_capture",
+        task_family: str = "browser_batch",
         max_parallel_task_claims: int = 4,
         state: str = "enabled",
         selectors: list[str] | None = None,
     ) -> dict:
-        metadata = {"task_selectors": selectors or ["ig_analyze_following"]}
+        metadata = {
+            "task_selectors": selectors
+            or ["ig_batch_pin_references", "ig_pin_post_detail"]
+        }
         with self._engine.begin() as conn:
             conn.execute(
                 text(

@@ -12,6 +12,8 @@ from backend.app.services.runner_topology import (
     canonical_queue_partition_for_pack,
     merge_runner_metadata_into_context,
     normalize_queue_partition,
+    resolve_managed_batch_binding,
+    resolve_default_local_browser_queue_override,
     resolve_installed_playbook_runner_metadata,
 )
 
@@ -95,6 +97,14 @@ def _clean_queue_shard(value: Any) -> Optional[str]:
 def _resolve_queue_shard(
     pack_id: str, execution_context: Optional[Dict[str, Any]] = None
 ) -> str:
+    binding = resolve_managed_batch_binding(pack_id, execution_context)
+    queue_override = binding.queue_shard if binding else resolve_default_local_browser_queue_override(
+        pack_id,
+        execution_context,
+    )
+    if queue_override:
+        return queue_override
+
     explicit_queue_shard = None
     if isinstance(execution_context, dict):
         explicit_queue_shard = _normalize_queue_shard(
@@ -125,6 +135,14 @@ def _resolve_queue_shard(
 def _resolve_hydrated_queue_shard(
     pack_id: str, execution_context: Optional[Dict[str, Any]] = None
 ) -> str:
+    binding = resolve_managed_batch_binding(pack_id, execution_context)
+    queue_override = binding.queue_shard if binding else resolve_default_local_browser_queue_override(
+        pack_id,
+        execution_context,
+    )
+    if queue_override:
+        return queue_override
+
     if isinstance(execution_context, dict):
         resource_class = str(execution_context.get("resource_class") or "").strip().lower()
         if resource_class == "browser":
@@ -210,9 +228,12 @@ def _derive_scheduler_fields(task: Task) -> Dict[str, Any]:
     if blocked_payload is None:
         blocked_payload = _derive_blocked_payload(ctx)
 
-    queue_shard = (
+    binding = resolve_managed_batch_binding(task.pack_id, ctx)
+    facade_queue_shard = binding.queue_shard if binding else resolve_default_local_browser_queue_override(task.pack_id, ctx)
+    explicit_queue_shard = (
         task.queue_shard if "queue_shard" in explicit_fields and task.queue_shard else None
-    ) or _resolve_queue_shard(task.pack_id, ctx)
+    )
+    queue_shard = facade_queue_shard or explicit_queue_shard or _resolve_queue_shard(task.pack_id, ctx)
     concurrency_key = (
         task.concurrency_key
         if "concurrency_key" in explicit_fields and task.concurrency_key

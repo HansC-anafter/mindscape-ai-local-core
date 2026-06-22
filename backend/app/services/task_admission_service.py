@@ -18,6 +18,11 @@ from backend.app.services.runner_topology import (
 from backend.app.services.task_admission_single_flight import (
     evaluate_single_flight_admission,
 )
+from backend.app.services.task_admission_pressure_scope import (
+    DEFAULT_ADMISSION_PRESSURE_SCOPE,
+    AdmissionPressureScope,
+    resolve_admission_pressure_scope,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +91,7 @@ class AdmissionPressure:
     pending_total: int
     running_total: int
     oldest_pending_at: Optional[datetime]
+    scope_name: str = "queue_shard"
 
     @property
     def oldest_pending_age_seconds(self) -> int:
@@ -170,7 +176,15 @@ class TaskAdmissionService:
                 next_eligible_at=single_flight.next_eligible_at,
             )
 
-        pressure = self._load_queue_pressure(tasks_store, queue_shard)
+        pressure_scope = resolve_admission_pressure_scope(
+            task,
+            queue_shard=queue_shard,
+        )
+        pressure = self._load_queue_pressure(
+            tasks_store,
+            queue_shard,
+            pressure_scope=pressure_scope,
+        )
         limits = self._resolve_limits(queue_shard, policy["visibility"])
 
         should_defer = False
@@ -205,6 +219,7 @@ class TaskAdmissionService:
             "evaluated_at": _utc_now().isoformat(),
             "defer_until": defer_until.isoformat(),
             "pressure": {
+                "scope": pressure.scope_name,
                 "pending_total": pressure.pending_total,
                 "running_total": pressure.running_total,
                 "oldest_pending_age_seconds": pressure.oldest_pending_age_seconds,
@@ -301,7 +316,13 @@ class TaskAdmissionService:
             defer_seconds=max(1, defer_seconds),
         )
 
-    def _load_queue_pressure(self, tasks_store: Any, queue_shard: str) -> AdmissionPressure:
+    def _load_queue_pressure(
+        self,
+        tasks_store: Any,
+        queue_shard: str,
+        *,
+        pressure_scope: AdmissionPressureScope = DEFAULT_ADMISSION_PRESSURE_SCOPE,
+    ) -> AdmissionPressure:
         queue_clause, queue_params = build_queue_partition_filter_clause(
             "queue_shard",
             queue_shard,
@@ -319,6 +340,7 @@ class TaskAdmissionService:
               AND next_eligible_at <= :now
               AND frontier_state = :ready_frontier_state
               AND {queue_clause}
+              {pressure_scope.sql_clause}
             """
         )
         running_query = text(
@@ -328,6 +350,7 @@ class TaskAdmissionService:
             WHERE task_type IN (:task_type_pb, :task_type_tool)
               AND status = :running_status
               AND {queue_clause}
+              {pressure_scope.sql_clause}
             """
         )
         params = {
@@ -341,14 +364,16 @@ class TaskAdmissionService:
             "unblocked_reason": "",
         }
         params.update(queue_params)
+        params.update(dict(pressure_scope.params))
         try:
             with tasks_store.get_connection() as conn:
                 pending_row = conn.execute(pending_query, params).fetchone()
                 running_row = conn.execute(running_query, params).fetchone()
         except Exception as exc:
             logger.warning(
-                "Task admission pressure query failed for shard=%s: %s",
+                "Task admission pressure query failed for shard=%s scope=%s: %s",
                 queue_shard,
+                pressure_scope.scope_name,
                 exc,
             )
             return AdmissionPressure(
@@ -356,6 +381,7 @@ class TaskAdmissionService:
                 pending_total=0,
                 running_total=0,
                 oldest_pending_at=None,
+                scope_name=pressure_scope.scope_name,
             )
 
         return AdmissionPressure(
@@ -365,6 +391,7 @@ class TaskAdmissionService:
             oldest_pending_at=_coerce_datetime(
                 _row_value(pending_row, "oldest_pending_at")
             ),
+            scope_name=pressure_scope.scope_name,
         )
 
     def _resolve_partition_env_limit(

@@ -23,8 +23,8 @@ from backend.app.runner.redis_transport_repair import (
     task_is_runnable_pending,
 )
 from backend.app.runner.reaper_context import (
-    _BROWSER_LOCAL_QUEUE_SHARD,
-    _BROWSER_PEER_FRONTIER_LANES,
+    _DEFAULT_LOCAL_BROWSER_QUEUE_SHARD,
+    _browser_peer_frontier_lanes,
     _browser_peer_frontier_refill_limit,
     _effective_task_heartbeat_at,
     _normalize_task_id,
@@ -118,7 +118,7 @@ async def _queued_browser_peer_lanes(
                 projection.get("pack_id"),
                 projection.get("playbook_code"),
             )
-            if lane_key in _BROWSER_PEER_FRONTIER_LANES:
+            if lane_key in _browser_peer_frontier_lanes():
                 lanes.add(lane_key)
         return lanes
     except Exception:
@@ -131,7 +131,7 @@ async def _refill_browser_peer_frontier(
     all_queues: Optional[list[RedisRunnerQueueStore]] = None,
 ) -> int:
     """Keep browser peer playbooks visible even when the hot queue is full."""
-    if redis_queue.pack_id != _BROWSER_LOCAL_QUEUE_SHARD:
+    if redis_queue.pack_id != _DEFAULT_LOCAL_BROWSER_QUEUE_SHARD:
         return 0
 
     refill_limit = _browser_peer_frontier_refill_limit()
@@ -146,7 +146,8 @@ async def _refill_browser_peer_frontier(
     queued_task_ids = await _queued_transport_task_ids(queue_family)
     queued_task_id_set = set(queued_task_ids)
     queued_lanes = await _queued_browser_peer_lanes(client, queued_task_ids)
-    if _BROWSER_PEER_FRONTIER_LANES.issubset(queued_lanes):
+    peer_lanes = _browser_peer_frontier_lanes()
+    if peer_lanes and peer_lanes.issubset(queued_lanes):
         return 0
 
     candidate_limit = max(refill_limit * 8, refill_limit)
@@ -164,7 +165,7 @@ async def _refill_browser_peer_frontier(
         if not task_id or task_id in queued_task_id_set:
             continue
         lane_key = _browser_lane_key_from_task(task)
-        if lane_key not in _BROWSER_PEER_FRONTIER_LANES:
+        if lane_key not in peer_lanes:
             continue
         if lane_key in queued_lanes or lane_key in selected_lanes:
             continue

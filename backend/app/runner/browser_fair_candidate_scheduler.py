@@ -5,10 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Optional
 
-
-IG_BATCH_PIN_LANE = "ig_batch_pin_references"
-IG_ANALYZE_FOLLOWING_LANE = "ig_analyze_following"
-IG_PIN_POST_DETAIL_LANE = "ig_pin_post_detail"
+from backend.app.services.runner_topology.task_family_registry import (
+    resolve_browser_fairness_lane_key,
+)
 
 
 @dataclass(frozen=True)
@@ -49,17 +48,7 @@ def normalize_browser_lane_key(
 
     pack_token = _normalize_token(pack_id)
     playbook_token = _normalize_token(playbook_code)
-    primary = playbook_token or pack_token
-    if not primary:
-        return None
-
-    if primary == IG_BATCH_PIN_LANE or pack_token == IG_BATCH_PIN_LANE:
-        return IG_BATCH_PIN_LANE
-    if primary == IG_ANALYZE_FOLLOWING_LANE or pack_token == IG_ANALYZE_FOLLOWING_LANE:
-        return IG_ANALYZE_FOLLOWING_LANE
-    if primary == IG_PIN_POST_DETAIL_LANE or pack_token == IG_PIN_POST_DETAIL_LANE:
-        return IG_PIN_POST_DETAIL_LANE
-    return pack_token or primary
+    return resolve_browser_fairness_lane_key(pack_token, playbook_token)
 
 
 def _candidate_from_any(candidate: Any, position: int) -> Optional[BrowserCandidate]:

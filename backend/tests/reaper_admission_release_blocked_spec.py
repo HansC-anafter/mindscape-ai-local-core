@@ -16,7 +16,7 @@ from backend.tests.reaper_admission_release_support import (
 @pytest.mark.asyncio
 async def test_releases_due_concurrency_locked_task_to_ready_queue():
     store = _FakeTasksStore([_build_concurrency_locked_task()])
-    queue = _FakeRedisQueue("browser_local")
+    queue = _FakeRedisQueue("default_local_browser")
 
     released = await reaper._release_concurrency_locked_tasks(
         store,
@@ -33,7 +33,7 @@ async def test_releases_due_concurrency_locked_task_to_ready_queue():
     assert update["blocked_reason"] is None
     assert update["blocked_payload"] is None
     assert update["frontier_state"] == "ready"
-    assert update["queue_shard"] == "browser_local"
+    assert update["queue_shard"] == "default_local_browser"
     assert update["frontier_enqueued_at"] is not None
     assert "runner_skip_reason" not in update["execution_context"]
     assert "runner_skip_lock_key" not in update["execution_context"]
@@ -137,7 +137,7 @@ async def test_releasing_dependency_hold_candidate_without_loaded_context_preser
 @pytest.mark.asyncio
 async def test_releases_due_resource_wait_task_to_ready_queue():
     store = _FakeTasksStore([_build_resource_wait_task()])
-    queue = _FakeRedisQueue("browser_local")
+    queue = _FakeRedisQueue("default_local_browser")
 
     released = await reaper._release_resource_wait_tasks(
         store,
@@ -153,7 +153,7 @@ async def test_releases_due_resource_wait_task_to_ready_queue():
     assert update["blocked_reason"] is None
     assert update["blocked_payload"] is None
     assert update["frontier_state"] == "ready"
-    assert update["queue_shard"] == "browser_local"
+    assert update["queue_shard"] == "default_local_browser"
     assert "resource_admission" not in update["execution_context"]
     assert "runner_resource_leases" not in update["execution_context"]
     assert "resume_after" not in update["execution_context"]

@@ -10,6 +10,8 @@ from backend.app.services.runner_topology import (
     RUNNER_READY_QUEUE_ORDER,
     canonical_queue_partition_for_pack,
     normalize_queue_partition,
+    resolve_managed_batch_binding,
+    resolve_default_local_browser_queue_override,
     resolve_installed_playbook_runner_metadata,
 )
 from backend.app.services.stores.redis.runner_queue_store import RedisRunnerQueueStore
@@ -25,6 +27,11 @@ logger = logging.getLogger("backend.app.runner.worker")
 def _resolve_task_queue_shard(
     pack_id: str, task_ctx: Optional[dict] = None
 ) -> str:
+    binding = resolve_managed_batch_binding(pack_id, task_ctx)
+    queue_override = binding.queue_shard if binding else resolve_default_local_browser_queue_override(pack_id, task_ctx)
+    if queue_override:
+        return queue_override
+
     if isinstance(task_ctx, dict):
         explicit_queue_shard = normalize_queue_partition(
             task_ctx.get("queue_partition"),
@@ -136,10 +143,22 @@ async def _repair_misqueued_task_if_needed(
     *,
     queue_store_factory=RedisRunnerQueueStore,
 ) -> bool:
-    expected_shard = normalize_queue_partition(
-        getattr(task_data, "queue_shard", None),
-        fallback=DEFAULT_LOCAL_QUEUE_PARTITION,
+    task_ctx = getattr(task_data, "execution_context", None)
+    if not isinstance(task_ctx, dict):
+        task_ctx = {}
+    else:
+        task_ctx = dict(task_ctx)
+    if getattr(task_data, "queue_shard", None) is not None and not (
+        task_ctx.get("queue_partition") or task_ctx.get("queue_shard")
+    ):
+        task_ctx["queue_shard"] = getattr(task_data, "queue_shard", None)
+    pack_id = (
+        getattr(task_data, "pack_id", None)
+        or task_ctx.get("playbook_code")
+        or task_ctx.get("pack_id")
+        or ""
     )
+    expected_shard = _resolve_task_queue_shard(str(pack_id), task_ctx)
     current_shard = normalize_queue_partition(
         getattr(task_queue, "pack_id", None),
         fallback=DEFAULT_LOCAL_QUEUE_PARTITION,

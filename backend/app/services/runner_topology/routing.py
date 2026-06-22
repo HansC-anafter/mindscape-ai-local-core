@@ -7,15 +7,18 @@ from typing import Any, Optional
 
 from .partitions import (
     BROWSER_LOCAL_QUEUE_PARTITION,
+    DEFAULT_LOCAL_BROWSER_QUEUE_PARTITION,
     DEFAULT_LOCAL_QUEUE_PARTITION,
     VISION_LOCAL_QUEUE_PARTITION,
     normalize_queue_partition,
 )
+from .default_local_browser import resolve_default_local_browser_queue_override
 from .profile_registry import (
     RESOURCE_CLASS_BROWSER,
     RESOURCE_CLASS_COMPUTE,
     RunnerProfile,
 )
+from .task_family_registry import resolve_managed_batch_binding
 
 
 @dataclass(frozen=True)
@@ -25,6 +28,7 @@ class TaskRoutingTarget:
     capability_code: Optional[str]
     runner_profile_hint: Optional[str]
     pack_id: Optional[str]
+    playbook_code: Optional[str] = None
 
 
 def _normalized_string(value: Any) -> Optional[str]:
@@ -36,9 +40,25 @@ def _normalized_string(value: Any) -> Optional[str]:
 
 def _default_resource_class_for_queue_partition(queue_partition: Optional[str]) -> str:
     normalized_partition = normalize_queue_partition(queue_partition, fallback=None)
-    if normalized_partition == BROWSER_LOCAL_QUEUE_PARTITION:
+    if normalized_partition in {
+        BROWSER_LOCAL_QUEUE_PARTITION,
+        DEFAULT_LOCAL_BROWSER_QUEUE_PARTITION,
+    }:
         return RESOURCE_CLASS_BROWSER
     return RESOURCE_CLASS_COMPUTE
+
+
+def _context_with_queue_hint(ctx: dict[str, Any], queue_hint: Any) -> dict[str, Any]:
+    merged = dict(ctx)
+    if queue_hint is not None and not (
+        merged.get("queue_partition") or merged.get("queue_shard")
+    ):
+        merged["queue_shard"] = queue_hint
+    return merged
+
+
+def _context_playbook_code(ctx: dict[str, Any], pack_id: Optional[str]) -> Optional[str]:
+    return _normalized_string(ctx.get("playbook_code")) or pack_id
 
 
 def resolve_task_routing_target(task: Any) -> TaskRoutingTarget:
@@ -54,8 +74,15 @@ def resolve_task_routing_target(task: Any) -> TaskRoutingTarget:
             or ctx.get("queue_partition")
             or ctx.get("queue_shard")
         )
+        route_ctx = _context_with_queue_hint(ctx, queue_hint)
+        binding = resolve_managed_batch_binding(pack_id, route_ctx)
+        queue_override = (
+            binding.queue_shard
+            if binding is not None
+            else resolve_default_local_browser_queue_override(pack_id, route_ctx)
+        )
         queue_partition = normalize_queue_partition(
-            queue_hint,
+            queue_override or queue_hint,
             fallback=DEFAULT_LOCAL_QUEUE_PARTITION,
         )
         resource_class = (
@@ -66,11 +93,14 @@ def resolve_task_routing_target(task: Any) -> TaskRoutingTarget:
         capability_code = (
             _normalized_string(task.get("capability_code"))
             or _normalized_string(ctx.get("capability_code"))
+            or (binding.capability_code if binding is not None else None)
         )
         runner_profile_hint = (
             _normalized_string(task.get("runner_profile_hint"))
             or _normalized_string(ctx.get("runner_profile_hint"))
+            or (binding.runner_profile_hint if binding is not None else None)
         )
+        playbook_code = _context_playbook_code(route_ctx, pack_id)
     else:
         ctx = getattr(task, "execution_context", None)
         if not isinstance(ctx, dict):
@@ -81,16 +111,28 @@ def resolve_task_routing_target(task: Any) -> TaskRoutingTarget:
             or ctx.get("queue_shard")
             or getattr(task, "queue_shard", None)
         )
+        route_ctx = _context_with_queue_hint(ctx, queue_hint)
+        binding = resolve_managed_batch_binding(pack_id, route_ctx)
+        queue_override = (
+            binding.queue_shard
+            if binding is not None
+            else resolve_default_local_browser_queue_override(pack_id, route_ctx)
+        )
         queue_partition = normalize_queue_partition(
-            queue_hint,
+            queue_override or queue_hint,
             fallback=DEFAULT_LOCAL_QUEUE_PARTITION,
         )
         resource_class = (
             _normalized_string(ctx.get("resource_class"))
             or _default_resource_class_for_queue_partition(queue_partition)
         )
-        capability_code = _normalized_string(ctx.get("capability_code"))
-        runner_profile_hint = _normalized_string(ctx.get("runner_profile_hint"))
+        capability_code = _normalized_string(ctx.get("capability_code")) or (
+            binding.capability_code if binding is not None else None
+        )
+        runner_profile_hint = _normalized_string(ctx.get("runner_profile_hint")) or (
+            binding.runner_profile_hint if binding is not None else None
+        )
+        playbook_code = _context_playbook_code(route_ctx, pack_id)
 
     return TaskRoutingTarget(
         queue_partition=queue_partition,
@@ -98,6 +140,7 @@ def resolve_task_routing_target(task: Any) -> TaskRoutingTarget:
         capability_code=capability_code,
         runner_profile_hint=runner_profile_hint,
         pack_id=pack_id,
+        playbook_code=playbook_code,
     )
 
 
@@ -107,6 +150,8 @@ def resolve_target_runner_profile(task: Any) -> str:
         return target.runner_profile_hint
     if target.queue_partition == BROWSER_LOCAL_QUEUE_PARTITION:
         return "browser_local"
+    if target.queue_partition == DEFAULT_LOCAL_BROWSER_QUEUE_PARTITION:
+        return "default_local_browser"
     if target.queue_partition == VISION_LOCAL_QUEUE_PARTITION:
         return "vision_local"
     return "default_local"
@@ -117,9 +162,17 @@ def runner_profile_can_claim_task(profile: RunnerProfile, task: Any) -> bool:
         return False
 
     target = resolve_task_routing_target(task)
+    accepted_queue_partitions = {
+        partition
+        for partition in (
+            normalize_queue_partition(partition, fallback=None)
+            for partition in profile.accepted_queue_partitions
+        )
+        if partition
+    }
     if (
-        profile.accepted_queue_partitions
-        and target.queue_partition not in profile.accepted_queue_partitions
+        accepted_queue_partitions
+        and target.queue_partition not in accepted_queue_partitions
     ):
         return False
 
@@ -138,7 +191,7 @@ def runner_profile_can_claim_task(profile: RunnerProfile, task: Any) -> bool:
     if profile.accepted_capability_codes:
         capability_tokens = {
             token
-            for token in (target.capability_code, target.pack_id)
+            for token in (target.capability_code, target.pack_id, target.playbook_code)
             if isinstance(token, str) and token.strip()
         }
         if not capability_tokens.intersection(profile.accepted_capability_codes):

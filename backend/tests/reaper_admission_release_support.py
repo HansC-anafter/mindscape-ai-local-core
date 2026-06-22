@@ -162,7 +162,7 @@ class _FakeWorkspaceQuotaDecision:
             "allocation_id": "alloc-browser",
             "task_family": "ig_browser_capture",
             "metadata": {
-                "task_selectors": ["ig_pin_post_detail", "ig_analyze_following"]
+                "task_selectors": ["ig_analyze_following"]
             },
         }
 
@@ -222,7 +222,7 @@ def _build_concurrency_locked_task(
         pack_id="ig_batch_pin_references",
         task_type="playbook_execution",
         status=TaskStatus.PENDING,
-        queue_shard="browser_local",
+        queue_shard="default_local_browser",
         concurrency_key=concurrency_key,
         created_at=now - timedelta(minutes=5),
         next_eligible_at=now - timedelta(minutes=1),
@@ -280,7 +280,7 @@ def _build_resource_wait_task(
         pack_id="ig_batch_pin_references",
         task_type="playbook_execution",
         status=TaskStatus.PENDING,
-        queue_shard="browser_local",
+        queue_shard="default_local_browser",
         created_at=now - timedelta(minutes=5),
         next_eligible_at=now - timedelta(minutes=1),
         blocked_reason="resource_wait",
@@ -356,7 +356,7 @@ def _build_stale_queued_running_task_without_owner() -> Task:
         pack_id="ig_batch_pin_references",
         task_type="playbook_execution",
         status=TaskStatus.PENDING,
-        queue_shard="browser_local",
+        queue_shard="default_local_browser",
         created_at=now - timedelta(hours=2),
         started_at=now - timedelta(hours=2),
         next_eligible_at=now - timedelta(hours=2),
