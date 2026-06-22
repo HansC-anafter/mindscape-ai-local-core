@@ -61,24 +61,24 @@ Dispatch can also apply workspace routing, upstream result injection, lens conte
 
 Cross-boundary handoff intake can compile verified handoff material into local TaskIR. The intake path resolves local workspace context and persists TaskIR only through Local Core host contracts.
 
-This is a cross-boundary intake surface. It should be documented as a local compile path, not as ownership of any external control plane.
+This is a cross-boundary intake surface. Public docs describe it as a local compile path into TaskIR.
 
 ## Persistence and Replay
 
 TaskIR can be persisted through the PostgreSQL TaskIR store after meeting compilation. Handoff handling and execution paths can load TaskIR, update phases, create bounded updates, and continue execution across local playbooks, tools, handoff intake, and planned tasks.
 
-Public documentation should describe the stable TaskIR shape and dispatch responsibility. It should not publish private assembly formats, private provider payloads, or low-level adapter implementation plans.
+Public documentation describes the stable TaskIR shape and dispatch responsibility. Assembly formats, adapter payloads, and low-level adapter plans stay with their owners.
 
 ## Public Boundary
 
 Local Core owns TaskIR, PhaseIR, dispatch orchestration, phase attempts, local task projection, handoff intake compilation, and local artifact references.
 
-Local Core does not publicly own:
+Related owners keep:
 
 - external executor internals
-- provider-specific payload schemas
-- external tenant or billing workflow state
-- private adapter transport details
+- adapter payload schemas
+- managed service workflow state
+- adapter transport details
 - installed capability implementation internals
 
-Public TaskIR documentation should describe the local execution contract and dispatch boundaries without exposing private operational payloads.
+Public TaskIR documentation describes the local execution contract and dispatch boundaries through stable Local Core records.

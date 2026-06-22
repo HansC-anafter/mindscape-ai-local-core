@@ -4,7 +4,7 @@ This guide describes the supported installation paths for Mindscape AI Local Cor
 
 ## Recommended Installation
 
-Use Docker Compose unless you are actively developing the backend or web console as local processes.
+Use Docker Compose for normal setup. Use local backend or web console processes when actively developing those services.
 
 ```bash
 git clone https://github.com/HansC-anafter/mindscape-ai-local-core.git
@@ -22,7 +22,7 @@ See [Docker Deployment Guide](./docker.md) for service details, profiles, ports,
 
 ## Environment File
 
-The system can start without provider API keys, but AI features that require external LLM providers need configuration.
+The system can start with provider API keys unset. AI features that require external LLM providers become available after configuration.
 
 Create `.env` from the example when needed:
 
@@ -50,7 +50,7 @@ Backend requirements:
 - Python 3.11 recommended
 - `backend/requirements.txt`
 - PostgreSQL reachable through `DATABASE_URL_CORE` and `DATABASE_URL_VECTOR`
-- Redis reachable through `REDIS_HOST` and `REDIS_PORT`, unless Redis is disabled intentionally
+- Redis reachable through `REDIS_HOST` and `REDIS_PORT`, or intentionally disabled in local configuration
 - `PYTHONPATH` that includes the repository root and `backend`
 
 Example backend command from the repository root:
@@ -94,4 +94,4 @@ The standalone frontend development server defaults to port `3000`. The Docker s
 
 ## What Not To Install Manually
 
-Do not copy capability internals, generated runtime bundles, local data, credentials, or ignored implementation paths into public setup flows. Installed capabilities and generated artifacts are runtime material, not Local Core source installation steps.
+Keep capability internals, generated runtime bundles, local data, credentials, and ignored implementation paths in their runtime or owner-managed locations. Installed capabilities and generated artifacts are runtime material outside the Local Core source installation steps.

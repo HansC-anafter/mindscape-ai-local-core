@@ -2,13 +2,13 @@
 
 Mindscape AI Local Core exposes local API surfaces for workspace state, governance, runtime configuration, meeting orchestration, tools, playbooks, objects, dispatch, and optional connectors.
 
-This page describes the public API boundary for the current repository. It is not an endpoint reference.
+This page describes the public API boundary for the current repository as a host-contract guide.
 
 ## Registration Model
 
 The FastAPI application delegates route registration to the application bootstrap layer. The bootstrap layer registers core routes, core primitives, feature-package routes, and optional connector routes.
 
-The public boundary is the registration pattern and route families, not every private handler. Optional routers may be absent when dependencies, installed capabilities, or connector modules are unavailable.
+The public boundary is the registration pattern and route families. Handler-level details belong to the route owner and become public when a stable endpoint contract is released.
 
 ## Core Local Route Families
 
@@ -21,7 +21,7 @@ Local Core route families include host surfaces for:
 - vector-backed retrieval and review
 - capability hosting and activation
 
-These route families are Local Core host surfaces. Their public documentation should focus on stable contracts and boundaries, not provider payloads or capability implementation details.
+These route families are Local Core host surfaces. Their public documentation focuses on stable contracts, route ownership, and host boundaries.
 
 ## Workspace Runtime Routes
 
@@ -29,7 +29,7 @@ Workspace-scoped routes aggregate local workspace lifecycle, workbench state, ta
 
 Workspace routes are the main local runtime surface. Public documentation may describe workspace-scoped state, object runtime behavior, meeting graph access, governance review surfaces, and runtime configuration boundaries.
 
-Public documentation must not expose local user data, workspace seed data, runtime logs, ignored backups, uploads, or private environment files.
+Public documentation describes route behavior through sanitized contracts, repository-backed landmarks, and bounded examples.
 
 ## Object, Runtime, and Settings Routes
 
@@ -37,7 +37,7 @@ Object runtime routes are workspace-scoped. They expose bounded object discovery
 
 Runtime environment routes and workspace runtime configuration routes describe local runtime choices and workspace-level runtime configuration. Settings extension routes expose host-owned configuration sections.
 
-These routes are safe to document as host contracts. Capability-owned object schemas, resolver internals, materializer internals, and provider credentials remain outside the public Local Core scope.
+These routes are public host contracts. Capability-owned object schemas, resolver internals, materializer internals, and credentials stay with their owners.
 
 ## Governance, Lens, and Memory Routes
 
@@ -45,7 +45,7 @@ Workspace governance routes expose governed memory review, health, impact, decis
 
 Lens routes expose local lens definition, runtime resolution, review, and evidence surfaces.
 
-Vector routes support semantic retrieval and vector database configuration. Public documentation may describe these as governed retrieval and review surfaces. It must not present raw provider payload dumps, private receipt internals, or unrestricted memory export as stable public APIs.
+Vector routes support semantic retrieval and vector database configuration. Public documentation describes these as governed retrieval and review surfaces tied to stable Local Core memory behavior.
 
 ## Playbook and Tool Routes
 
@@ -53,45 +53,42 @@ Playbook routes aggregate playbook discovery, intent support, tool binding, reso
 
 Tool routes aggregate tool availability, connection state, execution coordination, retrieval, filtered selection, registry behavior, and adapter boundaries.
 
-Public documentation may describe playbooks and tools as local execution interfaces. It must not document capability-owned playbook specs, provider-native credentials, or per-provider private payloads as Local Core architecture.
+Public documentation describes playbooks and tools as local execution interfaces. Capability-owned playbook specs, credentials, and adapter payloads stay in owner documentation.
 
 ## Meeting, Dispatch, and Handoff Routes
 
 Meeting session routes are workspace-scoped. Agent dispatch routes provide bounded task dispatch surfaces. Handoff bundle routes support host-mediated handoff intake and review.
 
-MCP bridge and device-node routes are optional integration surfaces. They let Local Core accept or expose local work through sidecar and connector processes, but they do not make those connectors Local Core ownership.
+MCP bridge and device-node routes are optional integration surfaces. They let Local Core accept or expose local work through sidecar and connector processes while connector implementation stays with the connector owner.
 
 ## Capability API Loading
 
-Capability API routes can be activated or loaded through host mechanisms. This is a Local Core host boundary, not a per-capability API release or router authoring guide.
+Capability API routes can be activated or loaded through host mechanisms. This is the Local Core host boundary for activation and loading behavior.
 
-Public Local Core docs may describe the host loader, activation policy, and boundary rules. They must not document individual capability routers, services, UI paths, provider payloads, or generated runtime artifacts as Local Core public APIs.
+Public Local Core docs describe the host loader, activation policy, and boundary rules. Individual capability routers, services, UI paths, adapter payloads, and generated runtime artifacts stay in owner-managed material.
 
-## Withheld API Material
+## API Release Path
 
-The following API material remains withheld by default:
+API material becomes public after its route family has been checked against the current repository and rewritten as a stable external contract. Candidate material includes:
 
-- unreleased endpoint references
+- draft endpoint references
 - route examples that depend on capability internals
-- provider-native payload schemas
-- external-only business features
-- private connector callback payloads
+- adapter payload schemas
+- connector callback payloads
 - ignored runtime data, backups, uploads, logs, and environment files
-- internal reports, debug notes, implementation histories, and testing logs
-
-An API page can move into public docs only after its route family has been checked against the current repository and rewritten as a stable external contract.
+- operational reports, debug notes, implementation histories, and testing logs
 
 ## Public Boundary
 
 Local Core owns local API route registration, route family organization, workspace-scoped host contracts, governance review surfaces, runtime configuration surfaces, playbook and tool host interfaces, object runtime host contracts, dispatch and handoff intake surfaces, and optional connector adapters.
 
-Local Core does not publicly own:
+Related owners keep:
 
 - individual capability service implementations
 - capability-owned schemas or storage internals
-- provider-specific credentials or payloads
-- external account, billing, or tenant lifecycle
-- private assembly or handler internals
+- credentials or adapter payloads
+- account administration and managed service operations
+- assembly details and handler internals
 - ignored or CI-protected implementation paths
 
-Public API documentation should stay at the host-contract level unless a specific endpoint reference has been separately verified, stabilized, and cleared for external release.
+Public API documentation stays at the host-contract level. Specific endpoint references move into public docs after separate verification, stabilization, and external release review.

@@ -6,7 +6,7 @@ This page describes the released public architecture scope for the current repos
 
 ## Context Carriers
 
-Execution context is not a single global object. It is a set of scoped carriers used at different runtime boundaries.
+Execution context is a set of scoped carriers used at different runtime boundaries.
 
 The main carriers are:
 
@@ -17,29 +17,29 @@ The main carriers are:
 - executor selection context for workspace executor selection and binding state
 - compatibility shims for callers that need adapter metadata
 
-This split keeps Local Core from pretending that every caller uses the same context shape. Each boundary carries only the context it needs.
+This split lets each boundary carry the context it needs.
 
 ## Meeting Execution Context
 
 A meeting execution context is assembled at meeting start from workspace, runtime profile, local routing decisions, runtime environment, and runtime observability sources.
 
-The meeting engine treats this context as a read-only runtime snapshot. It is used for budget headroom, retry posture, execution profile, local access readiness, and executor runtime awareness. It does not replace TaskIR, meeting session metadata, governance context, or capability-owned state.
+The meeting engine treats this context as a read-only runtime snapshot. It is used for budget headroom, retry posture, execution profile, local access readiness, and executor runtime awareness. TaskIR, meeting session metadata, governance context, and capability-owned state keep their separate responsibilities.
 
 ## Task Execution Context
 
 Task execution context is stored as structured task metadata. It is built from playbook context, execution results, local domain context, and tags. The task context tracks the selected playbook, trigger source, current step, total steps, origin intent metadata, initiating actor, failure diagnostics, and default execution cluster.
 
-This context is operational state for local task execution. It should not be documented as a public user profile model or as an external account contract.
+This context is operational state for local task execution.
 
 ## Parameter Adaptation
 
-Parameter adaptation uses an execution context data structure to map runtime fields into tool and workflow parameters. Stable local fields stay explicit, while adapter-specific metadata can remain in additional context without being promoted into core models.
+Parameter adaptation uses an execution context data structure to map runtime fields into tool and workflow parameters. Stable local fields stay explicit, while adapter metadata can remain in additional context.
 
-Validation and parameter transformation remain separate concerns. The context object is a carrier, not a policy engine.
+Validation and parameter transformation remain separate concerns. The context object is a carrier for execution inputs.
 
 ## Prompt Assembly
 
-Prompt assembly in Local Core is runtime composition, not a public prompt template specification. The current implementation has two major assembly paths:
+Prompt assembly in Local Core is runtime composition. The current implementation has two major assembly paths:
 
 - workspace QA and planning context built by the conversation context builder
 - meeting execution assembly text built by the meeting engine
@@ -70,7 +70,7 @@ The meeting assembly path can assemble:
 - workflow evidence
 - workspace context as reference material
 
-These sections are context inputs. They do not publish private role directives, provider payloads, or private assembly text as a stable public contract.
+These sections are context inputs. Role directives, adapter payloads, and assembly wording stay in owner-managed records until released as stable contracts.
 
 ## Tool Context
 
@@ -80,7 +80,7 @@ Tool context is discovered before assembly when possible. Meeting orchestration 
 - RAG-discovered tools when no explicit bindings exist
 - installed manifest fallback as a last resort
 
-Workspace QA context uses the same tool retrieval helper and can add explicitly bound workspace tools that were not found by semantic retrieval.
+Workspace QA context uses the same tool retrieval helper and can add explicitly bound workspace tools when semantic retrieval misses them.
 
 Tool context is advisory input for planning and action extraction. Policy gates, dispatch gates, and executor availability still decide what can run.
 
@@ -88,19 +88,19 @@ Tool context is advisory input for planning and action extraction. Policy gates,
 
 Context assembly prefers a governance-selected memory packet when available. If no governance packet is available, the QA path can fall back to layered workspace, project, and member memory. Semantic memory search can still contribute additional long-term memory hits.
 
-This keeps memory context tied to governance and lens selection instead of treating prompt assembly as unrestricted retrieval.
+This keeps memory context tied to governance and lens selection.
 
 ## Public Boundary
 
 Local Core owns local context carriers, meeting execution snapshots, task execution context metadata, parameter adapter context, executor selection context, execution context assembly, tool context discovery, and governance-aware memory injection.
 
-Local Core does not publicly own:
+Related owners keep:
 
-- private assembly text or role instructions
-- provider-native request payloads
+- assembly text or role instructions
+- adapter request payloads
 - external account lifecycle
 - unrestricted raw memory export
 - installed capability implementation internals
 - old design-stage assembly compiler specifications
 
-Public documentation should describe stable context boundaries and assembly responsibilities. Private assembly wording, migration notes, experimental compiler layers, and provider-specific payloads remain withheld.
+Public documentation describes stable context boundaries and assembly responsibilities. Assembly wording, migration notes, experimental compiler layers, and adapter payloads stay in owner-managed records.

@@ -2,7 +2,7 @@
 
 This section contains the currently released public architecture notes for Mindscape AI Local Core.
 
-Only documents that have been checked against the current repository are listed here. Unreleased API references, private validation material, legacy implementation notes, and private authoring guides remain withheld until they are rewritten for public use.
+The listed pages have been checked against the current repository. Public architecture pages describe stable Local Core behavior first, then point to source landmarks or owner boundaries where useful.
 
 ## Recommended Reading Order
 
@@ -11,13 +11,14 @@ Start with the boundary documents, then read the runtime and execution documents
 ### Overview and Boundaries
 
 - [System Overview](./system-overview.md)
-- [Local and Cloud Boundary](./local-cloud-boundary.md)
+- [Local Boundary and External Interfaces](./local-boundary-and-external-interfaces.md)
 - [Capability Hosting Boundary](./capability-hosting-boundary.md)
 - [API Surface Boundaries](./api-surface-boundaries.md)
 
 ### Runtime and Execution
 
 - [Runtime Environments and AOL Runtime](./runtime-environments.md)
+- [Host Runtime, Resource Control, and Workspace UI Hosting](./host-runtime-resource-control.md)
 - [Addressable Object Layer](./addressable-object-layer.md)
 - [Execution Context and Prompt Assembly](./execution-context-and-prompt-assembly.md)
 - [Meeting Orchestration](./meeting-orchestration.md)
@@ -33,13 +34,13 @@ Start with the boundary documents, then read the runtime and execution documents
 - [Tool Retrieval and Resource Bindings](./tool-retrieval-and-resource-bindings.md)
 - [Implementation Landmarks](./implementation-landmarks.md)
 
-## Release Rules
+## Release Standards
 
-Public architecture pages in this section must:
+Public architecture pages in this section use these standards:
 
-- describe stable architecture boundaries, not private task history
-- avoid work logs, open task markers, phase checklists, and dated closure claims
-- avoid provider-specific payload details unless they are part of a stable public contract
-- document capability hosting boundaries, not individual capability service implementations
-- treat ignored, Docker-ignored, and CI-protected implementation paths as withheld by default
-- match the current repository structure before release
+- Lead with the user-visible or operator-visible Local Core behavior.
+- Attach technical names after the behavior they support.
+- Describe stable host contracts, adapter contracts, and repository landmarks.
+- Summarize owner-specific capability or connector material by boundary responsibility.
+- Include payload examples only when they are part of a released Local Core contract.
+- Match the current repository structure before release.

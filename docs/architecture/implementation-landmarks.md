@@ -1,8 +1,8 @@
 # Implementation Landmarks
 
-This page lists public source landmarks for the released Local Core architecture documents. It is a code navigation aid, not an exhaustive API reference.
+This page lists public source landmarks for the released Local Core architecture documents. It is a code navigation aid for the stable host contracts described in this documentation set.
 
-The list intentionally focuses on Local Core host contracts and shared runtime surfaces. It excludes ignored paths, generated runtime artifacts, capability-owned service internals, internal reports, work logs, and private validation material.
+The list focuses on Local Core host contracts and shared runtime surfaces. Owner-managed capability code, generated runtime artifacts, and operational records stay in their owning documentation sets.
 
 ## Route Registration
 
@@ -30,8 +30,30 @@ Runtime environment and runtime mediation landmarks:
 - `backend/app/services/runtime_auth_service.py`
 - `backend/app/services/runtime_contract_registry.py`
 - `backend/app/services/runtime_route_registration.py`
+- `backend/app/routes/host_runtime_sessions/rest_endpoints.py`
+- `backend/app/routes/host_runtime_sessions/ws_endpoints.py`
+- `backend/app/services/host_runtime_sessions/bridge_registry.py`
+- `backend/app/services/host_runtime_sessions/session_store.py`
 
-These files cover local runtime registry behavior, runtime access mediation, workspace runtime configuration, settings extension discovery, and host-surface registration.
+These files cover local runtime registry behavior, runtime access mediation, workspace runtime configuration, host runtime sessions, bridge registration, settings extension discovery, and host-surface registration.
+
+## Host Resource and Queue Control
+
+Host resource and local capacity landmarks:
+
+- `backend/app/routes/core/host_resources.py`
+- `backend/app/services/host_resources/lane_registry.py`
+- `backend/app/services/host_resources/queue_utilization.py`
+- `backend/app/services/host_resources/queue_utilization_response.py`
+- `backend/app/services/host_resources/queue_backlog_aggregates.py`
+- `backend/app/services/host_resources/workspace_allocations.py`
+- `backend/app/services/host_resources/route_reservation_service.py`
+- `backend/app/services/host_resources/runner_claim_modes.py`
+- `backend/app/services/host_resources/runner_spillover_control.py`
+- `backend/app/services/runner_topology/routing.py`
+- `backend/app/services/runner_topology/default_local_browser.py`
+
+These files cover host resource lanes, queue utilization projections, workspace allocation decisions, route intent preview, route reservations, runner claim gates, spillover control, and task-to-runner routing.
 
 ## Addressable Object Layer
 
@@ -51,10 +73,12 @@ AOL host contract landmarks:
 - `backend/app/services/stores/object_instance_registry_store.py`
 - `backend/app/services/stores/object_relation_registry_store.py`
 - `web-console/src/lib/addressable-object-layer.ts`
+- `web-console/src/lib/object-reference-client.ts`
 - `web-console/src/components/capabilities/AddressableObjectHostShell.tsx`
 - `web-console/src/components/capabilities/meeting-workbench/AOLMeetingBottomShell.tsx`
+- `web-console/src/components/object-references/InlineAolObjectRef.tsx`
 
-These files cover object identity transport, workspace object host surfaces, catalog discovery, index sync, meeting attachment, relation storage, and frontend host-shell integration.
+These files cover object identity transport, workspace object host surfaces, catalog discovery, index sync, inline object preview, meeting attachment, relation storage, and frontend host-shell integration.
 
 ## Memory Fabric
 
@@ -133,9 +157,25 @@ Capability host landmarks:
 - `backend/app/services/pack_capability_index.py`
 - `backend/app/services/manifest_validator.py`
 - `backend/app/services/install_integrity.py`
+- `web-console/src/app/workspaces/[workspaceId]/capability-ui-hosts/renderCapabilityUiHostPage.tsx`
+- `web-console/src/app/workspaces/[workspaceId]/capability-ui-hosts/CapabilityHostRuntimeFrame.tsx`
+- `web-console/src/app/workspaces/[workspaceId]/capability-ui-hosts/WorkspaceSurfaceShell.tsx`
+- `web-console/src/components/capabilities/workbench/CapabilityWorkbenchResponsiveFrame.tsx`
+- `web-console/src/components/capabilities/workbench/PackScopeToolRailHost.tsx`
 
-These files are host-boundary landmarks only. Public Local Core documentation must still avoid per-capability backend service code, frontend UI implementation details, capability-specific schemas, migrations, private assembly material, and generated runtime artifacts.
+These files are host-boundary landmarks. They cover capability package hosting, runtime UI host shells, workspace-scoped capability surfaces, shared tool rails, and responsive workbench framing. Per-capability backend service code, frontend UI implementation details, capability-specific schemas, migrations, assembly material, and generated runtime artifacts stay with the capability owner.
+
+## Host Sidecar Services
+
+Host sidecar service landmarks:
+
+- `backend/app/routes/core/host_services.py`
+- `backend/app/services/host_services/capture_relay_proxy.py`
+- `device-node/src/mcp-server.ts`
+- `device-node/src/capabilities/capture-relay-control.ts`
+
+These files cover mediated access to selected host-side services. Public docs describe Local Core mediation and structured unavailable states. Device-specific setup and sidecar implementation internals stay with their owners.
 
 ## Reading Rule
 
-Use these landmarks to verify public architecture boundaries against the repository. If a candidate document depends on capability-owned internals, ignored paths, generated artifacts, private validation material, or working-tree files that are not part of the released repository state, keep that material out of public docs.
+Use these landmarks to verify public architecture boundaries against the repository. Candidate public documents should reference released repository files, stable host contracts, and owner boundaries that can be checked from the current source tree.

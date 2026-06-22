@@ -13,11 +13,11 @@ Local Core contains several memory layers that serve different continuity needs:
 - semantic memory and retrieval support through pgvector-backed services
 - world memory packets for bounded world-state continuity
 
-These layers are related but not interchangeable. Public docs should not flatten them into a single ungoverned memory bucket.
+These layers are related and distinct. Public docs preserve their separate roles so memory remains reviewable.
 
 ## Canonical Memory Contract
 
-The canonical memory contract includes memory items, versions, evidence links, memory edges, and writeback runs. Memory items carry reviewable claim, lifecycle, evidence, and source metadata without exposing pipeline-private fields as public API.
+The canonical memory contract includes memory items, versions, evidence links, memory edges, and writeback runs. Memory items carry reviewable claim, lifecycle, evidence, and source metadata through stable public fields.
 
 Memory versions preserve claim snapshots. Evidence links connect memory items to source artifacts such as session digests, reasoning traces, lens receipts, meeting decisions, task executions, artifact results, and writeback receipts.
 
@@ -27,7 +27,7 @@ The public contract is evidence-oriented: memory should be traceable to the run 
 
 Meeting close writeback creates a reviewable canonical memory trail from meeting outputs and evidence. It records durable memory, versions it, links it to evidence, and updates compatibility projections for existing workspace, project, and member memory consumers.
 
-The writeback path can attach additional execution and governance evidence when available. This lets Local Core connect deliberation, execution, artifacts, and governance into one reviewable memory chain without publishing writeback internals as stable public API.
+The writeback path can attach additional execution and governance evidence when available. This lets Local Core connect deliberation, execution, artifacts, and governance into one reviewable memory chain through stable memory records.
 
 ## Governance Memory Packets
 
@@ -35,7 +35,7 @@ Governance services select and compile compact memory packets for execution cont
 
 The packet compiler turns the selected packet into ordered context sections. Semantic memory can contribute when enabled, but route planning details remain internal.
 
-Workspace governance surfaces provide review, lifecycle, health, and impact views for governed memory. They are not unrestricted write endpoints.
+Workspace governance surfaces provide review, lifecycle, health, and impact views for governed memory.
 
 ## Semantic Memory and Retrieval
 
@@ -46,7 +46,7 @@ The repository includes pgvector-backed semantic support:
 - semantic search services for memory embeddings, playbook knowledge, personal context, and external documents
 - tool and playbook embedding support for retrieval
 
-The semantic service layer and pgvector-backed retrieval path are present in the repository. Public documentation should describe semantic memory as implemented service support and avoid treating every vector helper as a stable public route.
+The semantic service layer and pgvector-backed retrieval path are present in the repository. Public documentation describes semantic memory as implemented service support. Individual vector helpers become public routes when released as stable contracts.
 
 ## World Memory
 
@@ -54,18 +54,18 @@ World memory is implemented separately from semantic vector search. The world me
 
 World memory normalizes governed context into bounded packets. The projection compiler turns those packets into concise world cards for bounded context injection.
 
-World memory should be described as bounded world-state continuity. It is not a replacement for canonical memory, semantic retrieval, or raw provider payload storage.
+World memory is bounded world-state continuity. Canonical memory, semantic retrieval, and adapter payload handling keep their own responsibilities.
 
 ## Public Boundary
 
 Local Core owns governed memory contracts, writeback orchestration, evidence linking, memory selection, semantic retrieval services, and world memory projection utilities.
 
-Local Core does not publicly own:
+Related owners keep:
 
-- provider-native payload dumps as canonical memory
+- adapter payload dumps
 - unreviewed promotion of transient context into durable memory
-- private receipt internals as public APIs
-- external account or tenant memory as Local Core ownership
-- capability-specific memory schemas unless promoted into a stable Local Core contract
+- receipt internals
+- account-level memory maintained by surrounding systems
+- capability-specific memory schemas during owner-specific lifecycle
 
-Public memory documentation should preserve the distinction between canonical memory, semantic retrieval, and world memory. It should not publish internal task logs, migration checklists, private validation material, or unreleased data dumps.
+Public memory documentation preserves the distinction between canonical memory, semantic retrieval, and world memory. Task logs, migration checklists, verification captures, and draft data dumps stay in owner-managed records.

@@ -8,7 +8,7 @@ This page describes the released public architecture scope for the current repos
 
 AOL uses `ObjectRef` as the stable transport identity for an addressable object. An object reference carries enough owner, kind, identity, workspace, version, selector, and source metadata for Local Core to route host-level object operations.
 
-Selectors describe the user-facing target behind an object reference. Public documentation should treat selector support as typed bounded targeting, not as an exhaustive list of owner-specific selector payloads.
+Selectors describe the user-facing target behind an object reference. Public documentation treats selector support as typed bounded targeting. Owner-specific selector payloads stay with the owner.
 
 Object identity is transport-level identity. Owner systems still own their canonical schemas, storage, business rules, and object-specific resolver behavior.
 
@@ -16,13 +16,13 @@ Object identity is transport-level identity. Owner systems still own their canon
 
 Installed object providers can declare object exports. Local Core normalizes those declarations into a runtime object catalog that summarizes host-visible identity, display, search, selection, meeting, action, materialization, and graph support.
 
-The catalog is a local runtime read model over installed object providers. It is not a public authoring guide for provider internals and it does not transfer ownership of provider state to Local Core.
+The catalog is a local runtime read model over installed object providers. Provider internals and provider state stay with the provider owner.
 
 ## Object Index and Mentions
 
 Local Core maintains workspace-scoped object instance records for concrete addressable objects. Records carry bounded summaries, search and mention metadata, affordance hints, and freshness metadata for host surfaces.
 
-Object instance indexing updates the local object instance registry from owner-managed sources. Public documentation should describe the read model and search behavior, not the private indexing schedule or owner-specific invocation details.
+Object instance indexing updates the local object instance registry from owner-managed sources. Public documentation describes the read model and search behavior. Indexing schedules and owner-specific invocation details stay with the owner.
 
 The same read model backs object search and mention completion for workspace surfaces.
 
@@ -33,6 +33,12 @@ The web console exposes an AOL runtime shell for object-aware pages. A supported
 Selection resolution returns a status of resolved, ambiguous, or unresolved. A resolved object includes an `ObjectRef`, bounded summary, and contextual actions such as attach-to-meeting or opening the owner surface when supported.
 
 Ambiguous selections remain bounded: the host shell can present candidates, but the selected object still has to resolve to a stable object reference before meeting attachment or action invocation.
+
+## Inline References and Preview
+
+Workspace review surfaces can render object references inline. The inline reference surface reads a bounded object summary from the local object runtime and can request a targeted sync before retrying when indexing is still pending.
+
+This keeps object references usable in human review while owner-managed object state stays with the object owner. The preview is a workspace convenience over stable object identity.
 
 ## Meeting Attachment
 
@@ -52,19 +58,19 @@ Materialization is owner-managed. Local Core coordinates host request context an
 
 AOL supports bounded object graph projection for selected objects. Projection can come from an owner graph surface when declared or from Local Core relation read models.
 
-Graph projections provide bounded object summaries and relation context for inspection. They are not unrestricted graph database access.
+Graph projections provide bounded object summaries and relation context for inspection.
 
 ## Public Boundary
 
-Local Core owns object identity transport, object catalog normalization, workspace object instance and relation read models, object search and mention completion, selection resolution, host-shell coordination, meeting attachment, object action orchestration, materialization coordination, and bounded graph projection.
+Local Core owns object identity transport, object catalog normalization, workspace object instance and relation read models, object search and mention completion, inline object previews, selection resolution, host-shell coordination, meeting attachment, object action orchestration, materialization coordination, and bounded graph projection.
 
-Local Core does not publicly own:
+Related owners keep:
 
 - capability-owned canonical object schemas
 - capability business rules or storage internals
 - unrestricted raw owner-managed state export
-- provider-native runtime payloads
-- private rollout plans or validation material
+- adapter runtime payloads
+- rollout and verification records
 - capability authoring tutorials
 
-Public AOL documentation should describe the stable local runtime contract and ownership boundary. Unreleased API references, rollout history, private validation captures, and implementation plans remain withheld until they are rewritten as stable public contracts.
+Public AOL documentation describes the stable local runtime contract and ownership boundary. Draft API references, rollout history, validation captures, and implementation plans become public only after they are rewritten as stable public contracts.

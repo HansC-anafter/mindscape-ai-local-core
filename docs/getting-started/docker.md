@@ -9,7 +9,7 @@ Docker Compose is the supported startup path for Mindscape AI Local Core.
 - At least 8 GB of memory available to Docker for the default service set
 - Enough disk space for container images, PostgreSQL data, model caches, and generated local data
 
-LLM provider keys are optional for startup. Without them, the system can start, but AI features that need external LLM providers will be unavailable until configured.
+LLM provider keys are optional for startup. The system can start with those keys unset, and AI features that need external LLM providers become available after configuration.
 
 ## Start
 
@@ -55,7 +55,7 @@ The Windows helper checks Docker, prepares Windows host companions when availabl
 .\scripts\start.ps1
 ```
 
-Use direct Compose for a container-only smoke test. Use a helper when you need the local host companions that are part of this repository's startup flow. Do not add capability internals, generated runtime bundles, ignored paths, local data, or credentials to public setup steps.
+Use direct Compose for a container-only smoke test. Use a helper when you need the local host companions that are part of this repository's startup flow. Keep capability internals, generated runtime bundles, ignored paths, local data, and credentials in their runtime or owner-managed locations.
 
 ## Access
 
@@ -112,11 +112,11 @@ Useful settings include:
 - `MOBILE_WORKBENCH_GATEWAY_EXTRA_PATH_RULES` for additional allowed paths (comma separated), e.g. `"/api/v1/admin/preview,regex:^/custom-gateway/.+"`
 - `MOBILE_WORKBENCH_GATEWAY_ALLOWLIST_EMAILS`, `MOBILE_WORKBENCH_GATEWAY_ALLOWLIST_GROUPS` for identity allowlist
 - `MOBILE_WORKBENCH_GATEWAY_WORKSPACE_ALLOWLIST` for operator workspace brakes; pack capability ingress is managed per workspace from the Gateway policy workbench
-- `MOBILE_WORKBENCH_GATEWAY_JWT_AUDIENCE`, `MOBILE_WORKBENCH_GATEWAY_JWT_ISSUER` for Cloudflare Access claim constraints
+- `MOBILE_WORKBENCH_GATEWAY_JWT_AUDIENCE`, `MOBILE_WORKBENCH_GATEWAY_JWT_ISSUER` for gateway JWT claim constraints
 - `MOBILE_WORKBENCH_GATEWAY_JWT_PUBLIC_KEY` or `MOBILE_WORKBENCH_GATEWAY_JWT_PUBLIC_KEY_FILE` and `MOBILE_WORKBENCH_GATEWAY_REQUIRE_SIGNATURE_VERIFICATION=1` for optional signature verification
 - `MOBILE_WORKBENCH_GATEWAY_HEALTH_URL` if you need to override the settings-panel health surface target
 
-Do not commit `.env`, local data, logs, backups, credentials, or generated runtime artifacts.
+Keep `.env`, local data, logs, backups, credentials, and generated runtime artifacts out of commits.
 
 ## Common Commands
 

@@ -1,17 +1,18 @@
 # Capability Hosting Boundary
 
-Mindscape AI Local Core can host installed capabilities, but capability internals are not Local Core architecture.
+Mindscape AI Local Core hosts installed capabilities through stable local host contracts.
 
 This page defines the public documentation boundary for capability-related material in the current repository.
 
 ## Boundary Statement
 
-Local Core owns the host boundary around capabilities. It does not own each capability's internal service implementation.
+Local Core owns the host boundary around capabilities. Capability owners keep their internal service implementation, schemas, UI pages, and execution details.
 
 Local Core owns:
 
 - capability discovery and activation state needed by the local runtime
 - capability runtime shells exposed through the local workspace
+- workspace-scoped capability UI host shells and shared workspace tool rails
 - settings extension discovery for already installed local surfaces
 - tool, playbook, object, and artifact host interfaces that are promoted into stable Local Core contracts
 - policy, dispatch, and executor gates that decide whether a requested action can run
@@ -21,12 +22,12 @@ Capability-owned material includes:
 
 - per-capability backend service code
 - per-capability frontend UI implementation
-- provider-specific schemas, payloads, adapters, and credentials
-- capability-specific playbook specs and private assembly material
+- adapter schemas, payloads, and credentials
+- capability-specific playbook specs and assembly material
 - capability-specific storage models and migrations
 - capability-specific business rules, validation rules, and execution details
 
-Public Local Core documentation may describe the host interface, but it must not present capability-owned implementation details as Local Core architecture.
+Public Local Core documentation describes the host interface and links capability material through ownership boundaries.
 
 ## Repository Guardrails
 
@@ -38,7 +39,7 @@ The Docker build ignore rules exclude capability installation locations, externa
 
 The CI guardrails protect capability boundaries, external component leakage, remote-function leakage, route conflicts, manifest validity, import path validity, router prefix validity, and root-level script boundaries.
 
-Anything blocked by these guardrails is not eligible for public Local Core documentation by default. It must remain internal unless it is deliberately promoted into a stable Local Core contract and no longer depends on ignored or CI-protected implementation material.
+Guardrail-protected material stays in owner-managed records until it is promoted into a stable Local Core contract and released through source-backed documentation.
 
 ## Documentation Rule
 
@@ -46,26 +47,34 @@ Public Local Core docs may document:
 
 - capability hosting contracts
 - runtime shell behavior
+- workspace capability UI host behavior
+- shared workspace and pack-scope tool rail behavior
 - stable host registry, object, tool, and playbook interfaces
 - dispatch and policy boundaries
 - host-level activation state and guardrail behavior
 
-Public Local Core docs must not document:
+Owner-managed capability material includes:
 
 - individual capability service implementations
 - ignored runtime artifacts or generated bundles
 - ignored local data, uploads, logs, backups, or environment files
-- internal reports, work plans, debug notes, implementation histories, and testing logs
-- provider-native credentials, request payloads, or private account setup
-- external business features as if they were Local Core ownership
+- operational reports, work plans, debug notes, implementation histories, and testing logs
+- credentials, request payloads, or account setup
+- external business features owned by surrounding systems
 - capability-specific UI, playbook, schema, migration, or storage internals
 
-If a candidate public page depends on ignored, Docker-ignored, or CI-protected paths, the page stays withheld. The public version can only describe the stable host boundary that is already represented by Local Core contracts.
+## Workspace UI Host Boundary
+
+Local Core owns the workspace shell that hosts capability UI. The shell supplies workspace context, common tool rails, responsive framing, object-aware host services, runtime panels, and shared navigation behavior.
+
+The capability owns the UI implementation inside that shell. Public Local Core docs describe the host shell, shared controls, and workspace contracts.
+
+Candidate public pages describe the stable host boundary represented by Local Core contracts. Owner-managed implementation material stays with the capability package.
 
 ## Public Boundary
 
-Local Core owns capability hosting boundaries, not capability internals.
+Local Core owns capability hosting boundaries and shared host behavior.
 
-This means Local Core can document how installed capabilities are discovered, surfaced, gated, and invoked through stable host contracts. It must not document the inside of each capability as part of the Local Core public architecture.
+This means Local Core can document how installed capabilities are discovered, surfaced, hosted, gated, and invoked through stable host contracts.
 
-The safe default is to withhold. A capability detail is only public when it has been promoted into a stable Local Core contract and verified against the current repository.
+A capability detail becomes public Local Core architecture when it has been promoted into a stable Local Core contract and verified against the current repository.

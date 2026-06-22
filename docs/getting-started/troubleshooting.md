@@ -51,7 +51,7 @@ Check:
 docker ps -a --filter "name=mindscape-ai-local-core"
 ```
 
-Remove the old project containers only when you are sure you do not need them:
+Remove the old project containers after confirming they are no longer needed:
 
 ```bash
 docker compose down
@@ -134,11 +134,11 @@ The default data mount is:
 ${LOCAL_CORE_POSTGRES_HOST_DIR:-./data/postgres}
 ```
 
-Do not delete this directory unless you have a verified backup.
+Delete this directory only after creating and verifying a backup.
 
 ## Provider Keys Missing
 
-The stack can start without `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`. Features that need those providers will be unavailable until keys are configured.
+The stack can start with `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` unset. Features that need those providers become available after keys are configured.
 
 Create `.env` from the example when needed:
 

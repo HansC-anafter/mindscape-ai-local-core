@@ -13,10 +13,11 @@ This repository documents the Local Core boundary only:
 - Meeting orchestration and TaskIR dispatch.
 - Governed memory, including canonical memory, semantic retrieval, and world-memory surfaces.
 - Addressable Object Layer runtime ownership and resource identity.
+- Host runtime sessions, local resource lanes, queue visibility, and workspace capacity controls.
 - Tool retrieval, resource binding, and API surface boundaries.
-- Local-to-cloud boundaries at the contract level.
+- External integration boundaries at the contract level.
 
-The public documentation does not publish cloud product internals, private service payloads, ignored or CI-protected implementation paths, capability service internals, provider-specific payloads, operational work logs, private validation material, or unreleased endpoint references.
+The public documentation focuses on stable Local Core contracts: local runtime behavior, repository-backed architecture landmarks, host interfaces, integration boundaries, and setup paths. Owner-specific service material, generated runtime evidence, protected implementation paths, and operational records stay with their owning project records until they become stable public Local Core contracts.
 
 ## Start Locally
 
@@ -39,8 +40,9 @@ The local web console is served by the Compose stack. For setup details and plat
 The released public architecture set is intentionally small and checked against the current repository shape:
 
 - [System Overview](docs/architecture/system-overview.md)
-- [Local and Cloud Boundary](docs/architecture/local-cloud-boundary.md)
+- [Local Boundary and External Interfaces](docs/architecture/local-boundary-and-external-interfaces.md)
 - [Runtime Environments](docs/architecture/runtime-environments.md)
+- [Host Runtime, Resource Control, and Workspace UI Hosting](docs/architecture/host-runtime-resource-control.md)
 - [Addressable Object Layer](docs/architecture/addressable-object-layer.md)
 - [Governed Memory Fabric](docs/architecture/governed-memory-fabric.md)
 - [Governance Context and Lens](docs/architecture/governance-context-and-lens.md)
@@ -55,9 +57,9 @@ The public documentation entry is [docs/README.md](docs/README.md).
 
 ## Boundary Summary
 
-Local Core owns the local runtime host, local workspace state, governed context assembly, memory serving surfaces, meeting-to-dispatch handoff, local tool retrieval, object/resource identity, and public boundary contracts.
+Local Core owns the local runtime host, local workspace state, governed context assembly, memory serving surfaces, meeting-to-dispatch handoff, local tool retrieval, object/resource identity, host runtime session state, local resource capacity control, workspace-hosted capability shells, and public boundary contracts.
 
-Local Core does not own cloud tenant orchestration, billing, provider control planes, managed remote execution services, capability-internal services, private release playbooks, or generated operational evidence.
+Related systems own account administration, managed service operations, capability implementation details, release operations, and generated operational evidence. Local Core integrates with those systems through explicit host and adapter contracts.
 
 ## License
 

@@ -17,7 +17,7 @@ The public pipeline can be described as:
 - TaskIR compilation and bounded dispatch
 - final minutes, session close, inspection metadata, and writeback hooks
 
-This makes meeting orchestration a control layer around execution, not a chat transcript renderer.
+This makes meeting orchestration the control layer that turns discussion into governed execution state.
 
 ## Meeting Session Lifecycle
 
@@ -37,36 +37,36 @@ The meeting engine assembles context from:
 - available playbooks and tools
 - uploaded files and conversation state
 
-Private assembly paths are one consumer of this context. The same context also feeds policy, action extraction, TaskIR compilation, dispatch, memory writeback, and inspection surfaces.
+Assembly paths are one consumer of this context. The same context also feeds policy, action extraction, TaskIR compilation, dispatch, memory writeback, and inspection surfaces.
 
 ## Policy Gate and Dispatch Gate
 
 Meeting action items pass through a policy gate before dispatch. The policy gate can block, warn, normalize, or preserve action item metadata before TaskIR compilation.
 
-After policy gating, the dispatch gate evaluates action intents with supervision signals. It can dispatch now, ask for clarification, defer, or shrink scope. Policy-blocked items are not re-evaluated by the dispatch gate.
+After policy gating, the dispatch gate evaluates action intents with supervision signals. It can dispatch now, ask for clarification, defer, or shrink scope. Policy-blocked items stay recorded with their gate result.
 
 ## Task Decomposition
 
 For dispatchable work, the meeting pipeline can run task decomposition between action intents and TaskIR execution. Decomposition produces bounded PhaseIR structure grounded in available local execution surfaces and may extend a plan when downstream results require it.
 
-Decomposition is a local orchestration detail. Public documentation should describe the boundary, not private decomposition heuristics or routing rules.
+Decomposition is a local orchestration detail. Public documentation describes the boundary and released TaskIR behavior.
 
 ## Finalization and Writeback
 
 Finalization renders meeting minutes, closes the session, emits user-visible meeting output, and records inspection metadata. The session close path can trigger memory writeback through the meeting writeback orchestrator described in the governed memory fabric.
 
-Public documentation should treat meeting orchestration as a governed execution convergence layer. It should not expose private assembly text, private role instructions, private validation transcripts, or provider-specific execution payloads.
+Public documentation treats meeting orchestration as a governed execution convergence layer. Assembly text, role instructions, validation transcripts, and adapter payloads stay in owner-managed records.
 
 ## Public Boundary
 
 Local Core owns meeting sessions, meeting orchestration, agenda decomposition, request contract compilation, policy-gated action extraction, TaskIR compilation, dispatch coordination, minutes, session metadata, and writeback hooks.
 
-Local Core does not publicly own:
+Related owners keep:
 
-- provider-native conversation formats
-- private deliberation assembly text
+- adapter conversation formats
+- deliberation assembly text
 - external runtime implementation details
-- external scheduling or billing workflows
+- managed scheduling workflows
 - installed capability internals invoked by a meeting result
 
-Public meeting documentation should describe stable local orchestration behavior and leave private assembly, provider, and capability implementation details withheld.
+Public meeting documentation describes stable local orchestration behavior, gate outcomes, TaskIR compilation, dispatch coordination, and writeback hooks.

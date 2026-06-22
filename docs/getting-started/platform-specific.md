@@ -26,7 +26,7 @@ Or run the startup helper with an execution-policy bypass:
 powershell -ExecutionPolicy Bypass -File .\scripts\start.ps1
 ```
 
-Avoid cloning the repository into `C:\Windows\System32`, `Program Files`, or other protected system directories. Use a user-owned path such as:
+Clone the repository into a user-owned path such as:
 
 ```powershell
 C:\Users\<you>\Documents\mindscape-ai-local-core
@@ -88,7 +88,7 @@ On Linux, the helper starts Compose with the `control-plane` profile after the h
 
 The Docker configuration points Ollama URLs at `http://host.docker.internal:11434` by default. Install and run Ollama on the host only when you want local Ollama-backed models.
 
-If your Docker engine does not provide `host.docker.internal`, set `OLLAMA_HOST` and `OLLAMA_BASE_URL` in `.env` to a reachable host address.
+If your Docker engine lacks `host.docker.internal`, set `OLLAMA_HOST` and `OLLAMA_BASE_URL` in `.env` to a reachable host address.
 
 ## Platform-Neutral Checks
 
