@@ -69,6 +69,11 @@ def test_pgbouncer_waiting_clients_do_not_change_primary_status(monkeypatch):
     assert report["pgbouncer_core_waiting"] == 4
     assert report["pgbouncer_vector_waiting"] == 0
     assert report["pgbouncer"]["core_pool_present"] is True
+    assert report["resource_pool_readiness"]["status"] == "paused"
+    assert (
+        "pgbouncer_client_waiting"
+        in report["resource_pool_readiness"]["reasons"]
+    )
 
 
 def test_missing_readonly_replica_reports_disabled_state(monkeypatch):
@@ -141,3 +146,4 @@ def test_readonly_probe_requires_standby_and_readonly_transaction(monkeypatch):
     assert report["replica_available"] is True
     assert report["replica_replay_lag_bytes"] == 0
     assert report["pgbouncer"]["readonly_core_pool_present"] is True
+    assert report["resource_pool_readiness"]["status"] == "open"

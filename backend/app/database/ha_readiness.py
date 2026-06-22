@@ -14,6 +14,9 @@ from app.database.config import (
     get_postgres_url_core_readonly,
 )
 from app.database.engine_factory import create_transient_transaction_engine
+from app.database.resource_pool_readiness import (
+    build_resource_pool_readiness_summary,
+)
 
 
 SCHEMA_VERSION = 1
@@ -373,11 +376,17 @@ def build_ha_readiness_report(
                 error=str(exc),
             )
 
+    resource_pool_readiness = build_resource_pool_readiness_summary(
+        primary=primary,
+        pgbouncer=pgbouncer,
+    )
+
     return {
         "schema_version": SCHEMA_VERSION,
         "checked_at": _utc_now(),
         "primary": primary,
         "pgbouncer": pgbouncer,
+        "resource_pool_readiness": resource_pool_readiness,
         "replica": replica,
         "postgres_in_recovery": primary["postgres_in_recovery"],
         "transaction_read_only": primary["transaction_read_only"],
