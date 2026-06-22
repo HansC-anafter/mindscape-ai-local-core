@@ -15,7 +15,7 @@ from backend.app.services.host_resources.workspace_allocations import (
 from backend.app.services.stores.postgres_base import PostgresStoreBase
 
 
-DEFAULT_ALLOCATION_BLUEPRINT_ID = "ig-content-production-default"
+DEFAULT_ALLOCATION_BLUEPRINT_ID = "local-core-workspace-default"
 
 
 def _clean_string(value: Any) -> str | None:

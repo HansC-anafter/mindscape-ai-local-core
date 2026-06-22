@@ -94,7 +94,7 @@ def test_allocation_blueprint_apply_endpoint_materializes_workspace_quota(monkey
 
     response = TestClient(build_app()).post(
         "/api/v1/host-resources/allocation-blueprints/"
-        "ig-content-production-default/apply",
+        "local-core-workspace-default/apply",
         json={"workspace_id": "ws-1"},
     )
 
@@ -105,6 +105,6 @@ def test_allocation_blueprint_apply_endpoint_materializes_workspace_quota(monkey
     ] == "default_local_browser"
     assert received == {
         "workspace_id": "ws-1",
-        "blueprint_id": "ig-content-production-default",
+        "blueprint_id": "local-core-workspace-default",
         "actor_id": "default_user",
     }

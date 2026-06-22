@@ -93,7 +93,7 @@ interface AllocationBlueprintSummary {
   state?: string;
 }
 
-const DEFAULT_BLUEPRINT_ID = 'ig-content-production-default';
+const DEFAULT_BLUEPRINT_ID = 'local-core-workspace-default';
 
 function initialWorkspaceId(workspaceId?: string): string {
   if (workspaceId) return workspaceId;

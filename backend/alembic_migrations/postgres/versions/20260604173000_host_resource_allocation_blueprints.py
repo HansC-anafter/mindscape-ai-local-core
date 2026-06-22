@@ -16,7 +16,7 @@ branch_labels = None
 depends_on = None
 
 
-DEFAULT_BLUEPRINT_ID = "ig-content-production-default"
+DEFAULT_BLUEPRINT_ID = "local-core-workspace-default"
 DEFAULT_WORKSPACE_ID = "bac7ce63-e768-454d-96f3-3a00e8e1df69"
 
 
@@ -223,7 +223,7 @@ def upgrade():
             metadata
         ) VALUES (
             '{DEFAULT_BLUEPRINT_ID}',
-            'IG Content Production Default',
+            'Local Core Workspace Default',
             'workspace_default',
             'enabled',
             '{{"source":"migration_seed","resource_semantics":"shared_pool_admission_quota"}}'::jsonb
@@ -251,39 +251,51 @@ def upgrade():
             metadata
         ) VALUES
             (
-                'hrabe_{DEFAULT_BLUEPRINT_ID}_browser',
+                'hrabe_{DEFAULT_BLUEPRINT_ID}_browser_interactive',
                 '{DEFAULT_BLUEPRINT_ID}',
                 'browser_local',
-                'ig_browser_capture',
-                'IG browser capture',
+                'browser_interactive',
+                'Browser interactive',
                 3,
                 'shared_pool',
                 'normal',
-                '["ig_pin_post_detail","ig_analyze_following"]'::jsonb,
+                '[]'::jsonb,
                 '{{"source":"current_queue_capacity_snapshot"}}'::jsonb
             ),
             (
-                'hrabe_{DEFAULT_BLUEPRINT_ID}_batch',
+                'hrabe_{DEFAULT_BLUEPRINT_ID}_default_local_browser_browser_batch',
+                '{DEFAULT_BLUEPRINT_ID}',
+                'default_local_browser',
+                'browser_batch',
+                'Browser batch',
+                3,
+                'shared_pool',
+                'normal',
+                '[]'::jsonb,
+                '{{"source":"current_queue_capacity_snapshot"}}'::jsonb
+            ),
+            (
+                'hrabe_{DEFAULT_BLUEPRINT_ID}_default_compute',
                 '{DEFAULT_BLUEPRINT_ID}',
                 'default_local',
-                'ig_reference_batch',
-                'IG reference batch',
+                'default_compute',
+                'Default compute',
                 8,
                 'shared_pool',
                 'normal',
-                '["ig_batch_pin_references"]'::jsonb,
+                '[]'::jsonb,
                 '{{"source":"current_queue_capacity_snapshot"}}'::jsonb
             ),
             (
-                'hrabe_{DEFAULT_BLUEPRINT_ID}_vision',
+                'hrabe_{DEFAULT_BLUEPRINT_ID}_vision_analysis',
                 '{DEFAULT_BLUEPRINT_ID}',
                 'vision_local',
-                'ig_reference_vision',
-                'IG reference vision',
+                'vision_analysis',
+                'Vision analysis',
                 4,
                 'shared_pool',
                 'normal',
-                '["ig_analyze_pinned_reference"]'::jsonb,
+                '[]'::jsonb,
                 '{{"source":"current_queue_capacity_snapshot"}}'::jsonb
             )
         ON CONFLICT (blueprint_id, queue_shard, task_family) DO UPDATE SET
