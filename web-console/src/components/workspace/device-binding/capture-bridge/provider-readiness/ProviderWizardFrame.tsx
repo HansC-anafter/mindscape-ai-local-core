@@ -13,7 +13,7 @@ export function ProviderWizardFrame({
 }) {
   return (
     <div
-      className="mt-2 min-h-48 max-h-[min(34rem,calc(100vh-12rem))] resize-y overflow-hidden rounded-lg border border-sky-200 bg-sky-50/60 shadow-sm dark:border-sky-900 dark:bg-sky-950/20"
+      className="mt-2 flex min-h-48 max-h-[min(34rem,calc(100vh-12rem))] resize-y flex-col overflow-hidden rounded-lg border border-sky-200 bg-sky-50/60 shadow-sm dark:border-sky-900 dark:bg-sky-950/20"
       data-testid="capture-provider-wizard"
       role="dialog"
       aria-modal="false"
@@ -40,7 +40,7 @@ export function ProviderWizardFrame({
           <X className="h-4 w-4" aria-hidden="true" />
         </button>
       </div>
-      <div className="h-[calc(100%-2.75rem)] min-h-36 overflow-auto p-3 text-xs">
+      <div className="min-h-0 flex-1 overflow-auto p-3 text-xs" data-testid="capture-provider-wizard-body">
         {children}
       </div>
     </div>

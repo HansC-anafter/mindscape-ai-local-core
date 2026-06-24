@@ -84,7 +84,12 @@ describe('MotionSourceRailPanel', () => {
     );
     fireEvent.click(screen.getByRole('button', { name: 'Close provider setup' }));
 
-    openProviderSetup('external');
+    const externalWizard = openProviderSetup('external');
+    expect(externalWizard.className).toContain('flex-col');
+    expect(externalWizard.className).toContain('overflow-hidden');
+    expect(screen.getByTestId('capture-provider-wizard-body').className).toContain('min-h-0');
+    expect(screen.getByTestId('capture-provider-wizard-body').className).toContain('flex-1');
+    expect(screen.getByTestId('capture-provider-wizard-body').className).toContain('overflow-auto');
     expect(screen.getByTestId('external-provider-bridge-card')).toHaveTextContent(
       'External bridge',
     );

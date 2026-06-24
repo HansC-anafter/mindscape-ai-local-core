@@ -3,9 +3,7 @@
 import React from 'react';
 import { Clipboard, RadioTower } from 'lucide-react';
 
-const DEFAULT_PUBLIC_RTMP_INGEST_ORIGIN = (
-  process.env.NEXT_PUBLIC_CAMERA_CAPTURE_RTMP_ORIGIN || 'rtmp://34.80.219.221:1935'
-);
+const DEFAULT_PUBLIC_RTMP_INGEST_ORIGIN = 'rtmp://34.80.219.221:1935';
 
 function normalizeOrigin(value: string): string {
   return value.trim().replace(/\/+$/, '') || DEFAULT_PUBLIC_RTMP_INGEST_ORIGIN;
