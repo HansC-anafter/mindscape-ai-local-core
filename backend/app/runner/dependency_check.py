@@ -269,10 +269,11 @@ class DependencyChecker:
     async def _check_mlx(self) -> tuple[bool, Optional[str]]:
         """Check MLX liveness with a real HTTP probe plus watchdog fallback.
 
-        `/v1/models` proves the server is answering requests. When the single
-        worker is busy, that endpoint can still stall; in that case accept a
-        fresh watchdog heartbeat as evidence that the in-flight request is
-        making progress instead of treating MLX as dead.
+        `/health` proves the server is answering requests without scanning the
+        HuggingFace cache catalog. When the single worker is busy, that endpoint
+        can still stall; in that case accept a fresh watchdog heartbeat as
+        evidence that the in-flight request is making progress instead of
+        treating MLX as dead.
         """
         host, port = _resolve_mlx_probe_target()
 
@@ -282,7 +283,7 @@ class DependencyChecker:
                 timeout=1.0,
             )
             request = (
-                f"GET /v1/models HTTP/1.1\r\n"
+                f"GET /health HTTP/1.1\r\n"
                 f"Host: {host}:{port}\r\n"
                 "Connection: close\r\n"
                 "\r\n"

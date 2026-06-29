@@ -1,3 +1,4 @@
+import asyncio
 import sys
 import types
 import json
@@ -137,3 +138,40 @@ def test_resolve_mlx_probe_target_falls_back_to_legacy_host_and_port(monkeypatch
     monkeypatch.setenv("MLX_HOST_FROM_RUNNER", "legacy-host")
 
     assert dependency_check._resolve_mlx_probe_target() == ("legacy-host", 8210)
+
+
+@pytest.mark.asyncio
+async def test_mlx_dependency_probe_uses_health_endpoint(monkeypatch):
+    captured: dict[str, bytes] = {}
+
+    class FakeReader:
+        async def readline(self) -> bytes:
+            return b"HTTP/1.1 200 OK\r\n"
+
+    class FakeWriter:
+        def write(self, request: bytes) -> None:
+            captured["request"] = request
+
+        async def drain(self) -> None:
+            return None
+
+        def close(self) -> None:
+            return None
+
+        async def wait_closed(self) -> None:
+            return None
+
+    async def fake_open_connection(host: str, port: int):
+        assert host == "runtime-host"
+        assert port == 8212
+        return FakeReader(), FakeWriter()
+
+    monkeypatch.setenv("LOCAL_CORE_RUNTIME_ENDPOINT", "http://runtime-host:8212")
+    monkeypatch.setattr(asyncio, "open_connection", fake_open_connection)
+
+    available, error = await DependencyChecker(cache_ttl=0)._check_mlx()
+
+    assert available is True
+    assert error is None
+    assert captured["request"].startswith(b"GET /health HTTP/1.1")
+    assert b"/v1/models" not in captured["request"]

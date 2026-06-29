@@ -45,6 +45,34 @@ ensure_mlx_vlm() {
   fi
 }
 
+_mlx_resolve_hf_cache_dir() {
+  if [ -n "${HF_HUB_CACHE:-}" ]; then
+    printf '%s\n' "$HF_HUB_CACHE"
+  elif [ -n "${HF_HOME:-}" ]; then
+    printf '%s\n' "${HF_HOME%/}/hub"
+  else
+    printf '%s\n' "${HOME:-$PWD}/.cache/huggingface/hub"
+  fi
+}
+
+_mlx_ensure_hf_cache_dir() {
+  local cache_dir
+  cache_dir="$(_mlx_resolve_hf_cache_dir)"
+
+  if [ -z "$cache_dir" ]; then
+    echo "  ERROR HuggingFace cache dir resolved to an empty path"
+    return 1
+  fi
+
+  if [ ! -d "$cache_dir" ]; then
+    if ! mkdir -p "$cache_dir"; then
+      echo "  ERROR Failed to create HuggingFace cache dir: $cache_dir"
+      return 1
+    fi
+    echo "  Created HuggingFace cache dir: $cache_dir"
+  fi
+}
+
 # Start MLX server
 start_mlx_server() {
   local model="${MLX_MODEL:-mlx-community/Qwen3.5-9B-4bit}"
@@ -61,6 +89,7 @@ start_mlx_server() {
   fi
 
   ensure_mlx_vlm "$python_bin"
+  _mlx_ensure_hf_cache_dir
 
   echo "  Starting MLX VLM server: host=$host port=$port"
   exec "$python_bin" -m mlx_vlm.server \

@@ -15,6 +15,35 @@ PORT="${MLX_PORT:-8212}"
 HOST="${MLX_HOST:-0.0.0.0}"
 PYTHON="/opt/miniconda3/bin/python"
 
+_mlx_resolve_hf_cache_dir() {
+  if [ -n "${HF_HUB_CACHE:-}" ]; then
+    printf '%s\n' "$HF_HUB_CACHE"
+  elif [ -n "${HF_HOME:-}" ]; then
+    printf '%s\n' "${HF_HOME%/}/hub"
+  else
+    printf '%s\n' "${HOME:-$PWD}/.cache/huggingface/hub"
+  fi
+}
+
+_mlx_ensure_hf_cache_dir() {
+  local log_prefix="${1:-mlx-server}"
+  local cache_dir
+  cache_dir="$(_mlx_resolve_hf_cache_dir)"
+
+  if [ -z "$cache_dir" ]; then
+    echo "[$log_prefix] HuggingFace cache dir resolved to an empty path" >&2
+    return 1
+  fi
+
+  if [ ! -d "$cache_dir" ]; then
+    if ! mkdir -p "$cache_dir"; then
+      echo "[$log_prefix] Failed to create HuggingFace cache dir: $cache_dir" >&2
+      return 1
+    fi
+    echo "[$log_prefix] Created HuggingFace cache dir: $cache_dir"
+  fi
+}
+
 # -- macOS Firewall: allow Docker VM -> host connections to MLX server --
 # Without this, the application firewall silently drops connections from
 # Docker's host.docker.internal (192.168.65.x) to this port.
@@ -35,11 +64,8 @@ if ! "$PYTHON" -c "import mlx_vlm" 2>/dev/null; then
 fi
 
 # Check if model is already cached
-CACHE_DIR="${HF_HOME:-$HOME/.cache/huggingface}/hub"
-MODEL_DIR="models--${MODEL//\//-}"  # Replace / with -
-# Correct HuggingFace cache dir name: models--org--name
-MODEL_DIR="models--${MODEL//\//-}"
-# Actually HF uses -- as separator
+_mlx_ensure_hf_cache_dir "mlx-server"
+CACHE_DIR="$(_mlx_resolve_hf_cache_dir)"
 MODEL_DIR="models--$(echo "$MODEL" | sed 's|/|--|g')"
 
 if [ ! -d "$CACHE_DIR/$MODEL_DIR" ]; then
@@ -94,14 +120,14 @@ trap cleanup_mlx_child EXIT INT TERM
 
 # -- Liveness watchdog --
 # If MLX hangs mid-inference, it blocks the entire event loop and can't
-# respond to any request (including /v1/models). This watchdog detects
+# respond to any request (including /health). This watchdog detects
 # prolonged unresponsiveness and kills the process so that launchd's
 # KeepAlive: true restarts it automatically.
 #
 # Detection:
 # 1. Count completed HTTP requests from stdout ("200 OK" lines).
 # 2. Track stderr log growth while MLX is busy loading/prefilling.
-# If /v1/models stops responding and neither counter advances across
+# If /health stops responding and neither counter advances across
 # WATCHDOG_MAX_FAILURES consecutive checks, treat the process as hung.
 LOG_DIR="${MLX_LOG_DIR:-$(dirname "$0")/logs}"
 mkdir -p "$LOG_DIR" 2>/dev/null || true
@@ -151,7 +177,11 @@ last_stderr_size=$(_file_size "$STDERR_LOG")
 while kill -0 "$MLX_PID" 2>/dev/null; do
   sleep "$WATCHDOG_INTERVAL"
 
-  if curl -sf -m "$WATCHDOG_CURL_TIMEOUT" "http://localhost:${PORT}/v1/models" > /dev/null 2>&1; then
+  if ! _mlx_ensure_hf_cache_dir "mlx-watchdog"; then
+    echo "[mlx-watchdog] HuggingFace cache dir unavailable before health check"
+  fi
+
+  if curl -sf -m "$WATCHDOG_CURL_TIMEOUT" "http://localhost:${PORT}/health" > /dev/null 2>&1; then
     # Health check OK - reset
     if [ "$failures" -gt 0 ]; then
       echo "[mlx-watchdog] Health check OK, resetting failure count (was ${failures})"
