@@ -13,6 +13,36 @@ from pydantic import BaseModel, Field
 DEFAULT_XTTS_BASE_URL = "http://xtts-service:8020"
 MAX_TTS_TEXT_CHARS = 700
 XTTS_SYNTHESIS_TIMEOUT_SECONDS = 180.0
+XTTS_SUPPORTED_LANGUAGES = {
+    "en",
+    "es",
+    "fr",
+    "de",
+    "it",
+    "pt",
+    "pl",
+    "tr",
+    "ru",
+    "nl",
+    "cs",
+    "ar",
+    "zh-cn",
+    "hu",
+    "ko",
+    "ja",
+    "hi",
+}
+XTTS_LANGUAGE_ALIASES = {
+    "zh": "zh-cn",
+    "zh-cn": "zh-cn",
+    "zh-hans": "zh-cn",
+    "zh-hans-cn": "zh-cn",
+    "zh-hant": "zh-cn",
+    "zh-hant-tw": "zh-cn",
+    "zh-tw": "zh-cn",
+    "zh-hk": "zh-cn",
+    "zh-mo": "zh-cn",
+}
 
 
 class XTTSSynthesisRequest(BaseModel):
@@ -69,6 +99,23 @@ def get_xtts_synthesis_timeout_seconds() -> float:
     return parsed if parsed > 0 else XTTS_SYNTHESIS_TIMEOUT_SECONDS
 
 
+def normalize_xtts_language(language: str) -> str:
+    """Map BCP-47 app locales to XTTS's supported language ids."""
+
+    normalized = str(language or "").strip().lower().replace("_", "-")
+    if not normalized:
+        return "zh-cn"
+    alias = XTTS_LANGUAGE_ALIASES.get(normalized)
+    if alias:
+        return alias
+    if normalized in XTTS_SUPPORTED_LANGUAGES:
+        return normalized
+    base_language = normalized.split("-", 1)[0]
+    if base_language in XTTS_SUPPORTED_LANGUAGES:
+        return base_language
+    return normalized
+
+
 async def synthesize_xtts_audio(
     request: XTTSSynthesisRequest,
     *,
@@ -85,7 +132,7 @@ async def synthesize_xtts_audio(
     )
     payload = {
         "text": request.text.strip(),
-        "language": request.language,
+        "language": normalize_xtts_language(request.language),
         "voice_profile_id": request.voice_profile_id,
         "output_format": request.output_format,
     }
@@ -119,5 +166,6 @@ __all__ = [
     "XTTSSynthesisUnavailable",
     "get_xtts_base_url",
     "get_xtts_synthesis_timeout_seconds",
+    "normalize_xtts_language",
     "synthesize_xtts_audio",
 ]

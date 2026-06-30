@@ -1,5 +1,6 @@
 from .base import *
 from .schemas import ExecutionContext, ExecutionResult
+from .image_attachments import build_codex_image_args
 from backend.app.services.host_runtime_sessions.runtime_recovery_policy import (
     build_direct_codex_failure_metadata,
     is_direct_codex_auth_bundle,
@@ -121,6 +122,7 @@ class CodexExecutionMixin:
             cmd.extend(["--model", codex_model])
         if ctx.task:
             cmd.append(prompt)
+            cmd.extend(build_codex_image_args(ctx.uploaded_files))
         if ctx.max_duration:
             # Codex currently does not expose an explicit timeout flag; runner timeout is enforced outside.
             pass

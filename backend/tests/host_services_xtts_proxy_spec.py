@@ -10,6 +10,7 @@ from backend.app.services.host_services.xtts_proxy import (
     XTTSAudioResult,
     XTTSSynthesisRequest,
     XTTSSynthesisUnavailable,
+    normalize_xtts_language,
     synthesize_xtts_audio,
 )
 
@@ -75,6 +76,13 @@ def test_xtts_tts_route_rejects_overlong_text() -> None:
     assert response.status_code == 422
 
 
+def test_normalize_xtts_language_maps_app_locales_to_supported_ids() -> None:
+    assert normalize_xtts_language("zh-TW") == "zh-cn"
+    assert normalize_xtts_language("zh_Hant") == "zh-cn"
+    assert normalize_xtts_language("ja-JP") == "ja"
+    assert normalize_xtts_language("en-US") == "en"
+
+
 def test_synthesize_xtts_audio_posts_bounded_payload(monkeypatch) -> None:
     captured = {}
 
@@ -105,7 +113,7 @@ def test_synthesize_xtts_audio_posts_bounded_payload(monkeypatch) -> None:
         synthesize_xtts_audio(
             XTTSSynthesisRequest(
                 text="今天的練習完成了。",
-                language="zh-cn",
+                language="zh-TW",
                 output_format="wav",
             ),
             base_url="http://xtts.local",

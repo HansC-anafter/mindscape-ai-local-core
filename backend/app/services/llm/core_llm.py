@@ -23,9 +23,6 @@ from backend.app.services.codex_runtime_failure_classifier import (
     classify_codex_cli_runtime_failure,
     should_retry_codex_runtime_fault,
 )
-from backend.app.services.external_agents.bridge.codex_cli_runner import (
-    should_use_direct_codex_cli_subprocess,
-)
 from .governed_stage_router import (
     append_stage_route_decision,
     resolve_governed_stage_route,
@@ -37,6 +34,7 @@ from .core_llm_codex_cli import (
     merge_codex_env,
     parse_codex_success_output,
     resolve_codex_stall_timeout,
+    should_use_direct_codex_runtime_for_request,
 )
 
 logger = logging.getLogger(__name__)
@@ -330,9 +328,10 @@ async def _call_via_runtime(
     user_message: str,
     response_format: str,
     model: Optional[str],
+    uploaded_files: Optional[list[dict[str, Any]]] = None,
 ) -> Any:
     normalized_runtime = str(executor_runtime or "").strip().lower()
-    if normalized_runtime == "codex_cli" and should_use_direct_codex_cli_subprocess():
+    if should_use_direct_codex_runtime_for_request(normalized_runtime, uploaded_files):
         return await _call_via_direct_codex_runtime(
             workspace=workspace,
             system_prompt=system_prompt,
@@ -365,6 +364,7 @@ async def _call_via_runtime(
             context_overrides={
                 "conversation_context": system_prompt or "",
                 "model": model,
+                "uploaded_files": list(uploaded_files or []),
             },
         )
         if result.success:
@@ -438,6 +438,7 @@ async def core_llm_call(
     purpose: str = "core_llm_call",
     decision_log: Optional[list[dict[str, Any]]] = None,
     risk_level: str = "read",
+    uploaded_files: Optional[list[dict[str, Any]]] = None,
     **kwargs: Any,
 ) -> Any:
     """Compatibility entry point for capability-pack LLM calls."""
@@ -472,6 +473,7 @@ async def core_llm_call(
             user_message=user_message,
             response_format=response_format,
             model=decision.model_name,
+            uploaded_files=uploaded_files,
         )
 
     if decision.executor_runtime:

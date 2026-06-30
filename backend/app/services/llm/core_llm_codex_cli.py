@@ -6,6 +6,9 @@ import os
 from typing import Any, Optional
 
 from ...shared.llm_utils import extract_json_from_text
+from backend.app.services.external_agents.bridge.codex_cli_runner import (
+    should_use_direct_codex_cli_subprocess,
+)
 
 
 def codex_model_hint(model: Optional[str]) -> Optional[str]:
@@ -16,6 +19,17 @@ def codex_model_hint(model: Optional[str]) -> Optional[str]:
     if lowered.startswith(("gpt-", "o", "codex")):
         return candidate
     return None
+
+
+def should_use_direct_codex_runtime_for_request(
+    runtime_name: str,
+    uploaded_files: Optional[list[dict[str, Any]]],
+) -> bool:
+    return (
+        runtime_name == "codex_cli"
+        and not uploaded_files
+        and should_use_direct_codex_cli_subprocess()
+    )
 
 
 def build_codex_cli_command(
