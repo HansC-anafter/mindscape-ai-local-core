@@ -45,6 +45,20 @@ function staticCapabilityRedirects() {
   );
 }
 
+function topLevelStaticCapabilityRedirects() {
+  return staticCapabilityHostCodes.flatMap((capabilityCode) => {
+    const variants = new Set([
+      capabilityCode,
+      capabilityCode.replace(/_/g, '-'),
+    ]);
+    return Array.from(variants).map((variant) => ({
+      source: `/capabilities/${variant}`,
+      destination: `/workspaces/default/capability-ui-hosts/${capabilityCode}`,
+      permanent: false,
+    }));
+  });
+}
+
 function performanceDirectionRedirects() {
   return ['performance_direction', 'performance-direction'].flatMap((capabilityCode) =>
     [
@@ -77,6 +91,7 @@ const nextConfig = {
     return [
       ...performanceDirectionRedirects(),
       ...staticCapabilityRedirects(),
+      ...topLevelStaticCapabilityRedirects(),
     ];
   },
   async rewrites() {

@@ -17,4 +17,19 @@ describe('next config capability host routing', () => {
       destination: '/capability-ui-host-runtime/:workspaceId/:capabilityCode/:surfacePath*',
     });
   });
+
+  it('redirects top-level capability URLs to the default workspace workbench host', async () => {
+    const redirects = await nextConfig.redirects();
+
+    expect(redirects).toContainEqual({
+      source: '/capabilities/public_persona_studio',
+      destination: '/workspaces/default/capability-ui-hosts/public_persona_studio',
+      permanent: false,
+    });
+    expect(redirects).toContainEqual({
+      source: '/capabilities/public-persona-studio',
+      destination: '/workspaces/default/capability-ui-hosts/public_persona_studio',
+      permanent: false,
+    });
+  });
 });
