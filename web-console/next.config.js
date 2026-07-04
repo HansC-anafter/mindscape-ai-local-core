@@ -4,7 +4,6 @@ const staticCapabilityHostCodes = [
   'blender_bridge',
   'brand_identity',
   'character_training',
-  'chat_capture',
   'comfyui_runtime',
   'content_scheduler',
   'demo_aol_pack',

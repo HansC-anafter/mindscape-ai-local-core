@@ -14,7 +14,6 @@ const contextLoaders: Record<string, CapabilityContextLoader> = {
   "blender_bridge": () => import('./capability-ui-contexts/blender_bridge'),
   "brand_identity": () => import('./capability-ui-contexts/brand_identity'),
   "character_training": () => import('./capability-ui-contexts/character_training'),
-  "chat_capture": () => import('./capability-ui-contexts/chat_capture'),
   "comfyui_runtime": () => import('./capability-ui-contexts/comfyui_runtime'),
   "content_scheduler": () => import('./capability-ui-contexts/content_scheduler'),
   "demo_aol_pack": () => import('./capability-ui-contexts/demo_aol_pack'),

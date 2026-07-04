@@ -42,6 +42,15 @@ describe('DashboardView seams', () => {
         expect(workspaceLayout).toContain("<DashboardView />");
     });
 
+    it('keeps retired Chat Capture source-copy UI out of WorkspaceLayout', () => {
+        const workspaceLayout = readComponentFile('WorkspaceLayout.tsx');
+
+        expect(workspaceLayout).not.toContain('chat_capture');
+        expect(workspaceLayout).not.toContain('chat-capture');
+        expect(workspaceLayout).not.toContain('ChatCaptureWorkbench');
+        expect(workspaceLayout).not.toContain('/api/v1/chat-capture');
+    });
+
     it('keeps raw dashboard API ownership in existing hooks', () => {
         const dashboardHook = readWorkFile('hooks/useDashboard.ts');
         const savedViewsHook = readWorkFile('hooks/useSavedViews.ts');
