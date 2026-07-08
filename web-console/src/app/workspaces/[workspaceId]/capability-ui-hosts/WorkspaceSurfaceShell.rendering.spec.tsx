@@ -5,7 +5,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import './WorkspaceSurfaceShell.test-support';
 import { KeyboardShortcutProvider } from '@/lib/keyboard-shortcuts';
 import { fetchWorkspaceToolDefinitions } from '@/lib/workspace-tools/workspace-tool-registry';
-import { WorkbenchMetadataRegistration } from './WorkspaceSurfaceShell.test-support';
+import {
+  ActionableWorkbenchMetadataRegistration,
+  WorkbenchMetadataRegistration,
+} from './WorkspaceSurfaceShell.test-support';
 import WorkspaceSurfaceShell from './WorkspaceSurfaceShell';
 
 describe('WorkspaceSurfaceShell', () => {
@@ -54,9 +57,8 @@ describe('WorkspaceSurfaceShell', () => {
     expect(screen.getByTestId('workspace-runs-tool')).toHaveTextContent('1');
     expect(document.querySelector('[data-workspace-tool-rail="true"]')).not.toBeNull();
     await waitFor(() => {
-      expect(screen.getByTestId('workspace-info-tool')).toBeDisabled();
+      expect(screen.queryByTestId('workspace-info-tool')).not.toBeInTheDocument();
     });
-    expect(screen.getByTestId('workspace-info-tool')).toHaveAttribute('title', 'Info (Q)');
     expect(screen.getByTestId('workspace-settings-tool')).toBeInTheDocument();
     expect(screen.getByTestId('workspace-pack-tool')).toBeInTheDocument();
     expect(screen.getByTestId('workspace-motion-source-tool')).toBeInTheDocument();
@@ -138,7 +140,7 @@ describe('WorkspaceSurfaceShell', () => {
     });
   });
 
-  it('opens the shared workbench info panel when the capability registers metadata', async () => {
+  it('does not reserve the Info rail for metadata-only workbench references', async () => {
     render(
       <WorkspaceSurfaceShell
         workspaceId="ws_test"
@@ -150,7 +152,23 @@ describe('WorkspaceSurfaceShell', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByTestId('workspace-info-tool')).not.toBeDisabled();
+      expect(screen.queryByTestId('workspace-info-tool')).not.toBeInTheDocument();
+    });
+  });
+
+  it('opens the shared workbench info panel for actionable metadata', async () => {
+    render(
+      <WorkspaceSurfaceShell
+        workspaceId="ws_test"
+        activeCapabilityCode="demo_capability"
+        surfacePath={['sessions', 'session_route_001']}
+      >
+        <ActionableWorkbenchMetadataRegistration />
+      </WorkspaceSurfaceShell>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('workspace-info-tool')).toBeInTheDocument();
     });
 
     fireEvent.click(screen.getByTestId('workspace-info-tool'));

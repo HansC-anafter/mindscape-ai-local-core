@@ -162,7 +162,24 @@ export const WORKBENCH_METADATA: CapabilityWorkbenchInfoMetadata = {
   ],
 };
 
+export const ACTIONABLE_WORKBENCH_METADATA: CapabilityWorkbenchInfoMetadata = {
+  ...WORKBENCH_METADATA,
+  status: [
+    {
+      key: 'missing_setup',
+      label: 'Missing setup',
+      value: 'Shortcut capture is not ready',
+      tone: 'warning',
+    },
+  ],
+};
+
 export function WorkbenchMetadataRegistration() {
   useCapabilityWorkbenchInfoMetadataRegistration(WORKBENCH_METADATA);
+  return <div data-testid="surface-content">Capability surface</div>;
+}
+
+export function ActionableWorkbenchMetadataRegistration() {
+  useCapabilityWorkbenchInfoMetadataRegistration(ACTIONABLE_WORKBENCH_METADATA);
   return <div data-testid="surface-content">Capability surface</div>;
 }

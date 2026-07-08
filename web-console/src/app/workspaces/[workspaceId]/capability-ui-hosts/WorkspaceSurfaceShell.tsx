@@ -27,6 +27,7 @@ import {
 } from '../components/useWorkspaceGlobalToolRail';
 import CapabilityHostRuntimeFrame from './CapabilityHostRuntimeFrame';
 import { useWorkspaceToolDefinitions } from './useWorkspaceToolDefinitions';
+import { shouldExposeWorkbenchInfoRail } from './workbenchInfoRailPolicy';
 
 const WorkspaceToolExtensionSlot = React.lazy(() => import('./WorkspaceToolExtensionSlot'));
 
@@ -43,31 +44,27 @@ function WorkspaceWorkbenchInfoToolRegistration({
   scopeId: string;
 }) {
   const metadata = useCapabilityWorkbenchInfoMetadata();
-  const contributions = React.useMemo<WorkspaceGlobalToolContribution[]>(() => [
-    {
-      key: `${scopeId}:workbench-info`,
-      id: 'workbench_info',
-      label: 'Info',
-      icon: <Info aria-hidden="true" className="h-4 w-4" />,
-      group: 'workspace',
-      order: 5,
-      defaultShortcut: 'Q',
-      testId: 'workspace-info-tool',
-      disabled: !metadata,
-      renderPanel: () => (
-        metadata ? (
+  const contributions = React.useMemo<WorkspaceGlobalToolContribution[]>(() => {
+    if (!shouldExposeWorkbenchInfoRail(metadata)) {
+      return [];
+    }
+
+    return [
+      {
+        key: `${scopeId}:workbench-info`,
+        id: 'workbench_info',
+        label: 'Info',
+        icon: <Info aria-hidden="true" className="h-4 w-4" />,
+        group: 'workspace',
+        order: 5,
+        defaultShortcut: 'Q',
+        testId: 'workspace-info-tool',
+        renderPanel: () => (
           <CapabilityWorkbenchInfoPanel metadata={metadata} />
-        ) : (
-          <div
-            className="rounded-md border border-dashed border-gray-200 p-3 text-sm text-gray-500 dark:border-gray-800 dark:text-gray-400"
-            data-testid="capability-workbench-info-empty"
-          >
-            No workbench metadata registered.
-          </div>
-        )
-      ),
-    },
-  ], [metadata, scopeId]);
+        ),
+      },
+    ];
+  }, [metadata, scopeId]);
 
   useWorkspaceGlobalToolContributions(`${scopeId}:workbench-info`, contributions);
 
