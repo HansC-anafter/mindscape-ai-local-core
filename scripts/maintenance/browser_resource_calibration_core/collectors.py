@@ -65,6 +65,30 @@ _PGBOUNCER_COLUMNS = (
 _PGBOUNCER_ADMIN_URL = (
     "postgresql://mindscape:mindscape_password@127.0.0.1:6432/pgbouncer"
 )
+_CGROUP_SNAPSHOT_CODE = r"""
+import json
+from pathlib import Path
+root = Path('/sys/fs/cgroup')
+def read(name):
+    return (root / name).read_text(encoding='utf-8')
+events = {
+    parts[0]: int(parts[1])
+    for line in read('memory.events').splitlines()
+    if len(parts := line.split()) == 2
+}
+stat = {
+    parts[0]: int(parts[1])
+    for line in read('memory.stat').splitlines()
+    if len(parts := line.split()) == 2
+}
+print(json.dumps({
+    'memory_current_bytes': int(read('memory.current').strip()),
+    'memory_peak_bytes': int(read('memory.peak').strip()),
+    'inactive_file_bytes': int(stat.get('inactive_file') or 0),
+    'oom_kill': int(events.get('oom_kill') or 0),
+    'oom_group_kill': int(events.get('oom_group_kill') or 0),
+}))
+""".strip()
 
 
 def parse_pgbouncer_pools(raw: str) -> list[dict[str, Any]]:
@@ -121,39 +145,62 @@ class CalibrationCollector:
         cgroups: list[dict[str, Any]] = []
         lean_stats: list[str] = []
         for container in self.browser_containers:
-            current = int(
-                self._run(
-                    ["docker", "exec", container, "cat", "/sys/fs/cgroup/memory.current"]
-                ).strip()
-            )
-            peak = int(
-                self._run(
-                    ["docker", "exec", container, "cat", "/sys/fs/cgroup/memory.peak"]
-                ).strip()
-            )
-            events = parse_memory_events(
-                self._run(
-                    ["docker", "exec", container, "cat", "/sys/fs/cgroup/memory.events"]
+            if include_all_containers:
+                current = int(
+                    self._run(
+                        [
+                            "docker",
+                            "exec",
+                            container,
+                            "cat",
+                            "/sys/fs/cgroup/memory.current",
+                        ]
+                    ).strip()
                 )
-            )
-            if not include_all_containers:
-                memory_stat = self._run(
-                    [
-                        "docker",
-                        "exec",
-                        container,
-                        "cat",
-                        "/sys/fs/cgroup/memory.stat",
-                    ]
+                peak = int(
+                    self._run(
+                        [
+                            "docker",
+                            "exec",
+                            container,
+                            "cat",
+                            "/sys/fs/cgroup/memory.peak",
+                        ]
+                    ).strip()
                 )
-                stat_values = {
-                    parts[0]: int(parts[1])
-                    for line in memory_stat.splitlines()
-                    if len(parts := line.split()) == 2
+                events = parse_memory_events(
+                    self._run(
+                        [
+                            "docker",
+                            "exec",
+                            container,
+                            "cat",
+                            "/sys/fs/cgroup/memory.events",
+                        ]
+                    )
+                )
+            else:
+                snapshot = json.loads(
+                    self._run(
+                        [
+                            "docker",
+                            "exec",
+                            container,
+                            "python",
+                            "-c",
+                            _CGROUP_SNAPSHOT_CODE,
+                        ]
+                    )
+                )
+                current = int(snapshot["memory_current_bytes"])
+                peak = int(snapshot["memory_peak_bytes"])
+                events = {
+                    "oom_kill": int(snapshot["oom_kill"]),
+                    "oom_group_kill": int(snapshot["oom_group_kill"]),
                 }
                 working_set = max(
                     0,
-                    current - int(stat_values.get("inactive_file") or 0),
+                    current - int(snapshot["inactive_file_bytes"]),
                 )
                 lean_stats.append(
                     json.dumps(

@@ -50,17 +50,24 @@ def test_workload_node_collection_uses_exact_cgroups_without_docker_stats() -> N
 
         def run(self, argv, *, timeout_seconds=5):
             self.calls.append(tuple(argv))
+            if argv[3] == "python":
+                output = json.dumps(
+                    {
+                        "memory_current_bytes": 1000,
+                        "memory_peak_bytes": 1200,
+                        "inactive_file_bytes": 100,
+                        "oom_kill": 0,
+                        "oom_group_kill": 0,
+                    }
+                )
+                return type(
+                    "Result",
+                    (),
+                    {"returncode": 0, "stdout": output, "stderr": ""},
+                )()
             path = argv[-1]
             if path == "/proc/meminfo":
                 output = "MemTotal: 16384 kB\nMemAvailable: 8192 kB\n"
-            elif path == "/sys/fs/cgroup/memory.current":
-                output = "1000\n"
-            elif path == "/sys/fs/cgroup/memory.peak":
-                output = "1200\n"
-            elif path == "/sys/fs/cgroup/memory.events":
-                output = "oom 0\noom_kill 0\noom_group_kill 0\n"
-            elif path == "/sys/fs/cgroup/memory.stat":
-                output = "anon 700\ninactive_file 100\n"
             else:
                 raise AssertionError(argv)
             return type("Result", (), {"returncode": 0, "stdout": output, "stderr": ""})()
@@ -73,6 +80,7 @@ def test_workload_node_collection_uses_exact_cgroups_without_docker_stats() -> N
 
     assert sample["browser_container_working_set_bytes"] == 900
     assert sample["non_browser_container_working_set_bytes"] == 0
+    assert sum(call[1] == "exec" for call in commands.calls) == 2
     assert not any(call[1:3] == ("stats", "--no-stream") for call in commands.calls)
 
 
