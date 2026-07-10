@@ -100,3 +100,30 @@ def test_browser_resource_class_defaults_one_context_and_tracks_memory_source():
     assert requirements.browser_contexts == 1
     assert requirements.memory_mb == 3584
     assert requirements.memory_reservation_source == "playbook_profile"
+
+
+def test_memory_profile_identity_participates_in_resolved_contract():
+    task = SimpleNamespace(
+        id="task-browser",
+        pack_id="ig_batch_pin_references",
+        execution_context={"inputs": {}},
+    )
+
+    requirements = resolve_resource_requirements(
+        task,
+        playbook_metadata={
+            "resource_class": "browser",
+            "resource_requirements": {
+                "browser_contexts": 1,
+                "memory_profile_id": "ig-browser-calibration-2026-07-10",
+            },
+        },
+    )
+
+    assert (
+        requirements.memory_profile_id
+        == "ig-browser-calibration-2026-07-10"
+    )
+    assert requirements.to_dict()["memory_profile_id"] == (
+        "ig-browser-calibration-2026-07-10"
+    )

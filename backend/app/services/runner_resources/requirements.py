@@ -17,6 +17,7 @@ class ResourceRequirements:
     ig_profile_lock: Optional[str] = None
     cpu_weight: int = 1
     memory_mb: int = 0
+    memory_profile_id: Optional[str] = None
     memory_reservation_source: Optional[str] = None
     vision_lane: Optional[str] = None
     llm_lane: Optional[str] = None
@@ -126,6 +127,8 @@ def _coerce_requirements(
             minimum=0,
             maximum=1048576,
         )
+    if "memory_profile_id" in raw:
+        data["memory_profile_id"] = _optional_token(raw.get("memory_profile_id"))
     if "vision_lane" in raw:
         data["vision_lane"] = _resolve_lane(raw.get("vision_lane"))
     if "llm_lane" in raw:
