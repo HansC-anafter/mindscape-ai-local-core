@@ -8,6 +8,13 @@ from .admission import (
     release_acquired_resource_admission,
     release_acquired_resource_leases,
 )
+from .browser_startup_gate import (
+    BROWSER_STARTUP_LEASE_KEY,
+    BrowserStartupDecision,
+    acquire_browser_startup_gate,
+    resolve_browser_startup_request_bytes,
+    resolve_browser_startup_spacing_seconds,
+)
 from .node_budget import (
     NODE_BUDGET_CONTEXT_KEY,
     InMemoryNodeBudgetStore,
@@ -66,6 +73,7 @@ __all__ = [
     "RUN_LOG_COUNT_SNAPSHOT_TTL_SECONDS",
     "STATUS_SNAPSHOT_TTL_SECONDS",
     "RESOURCE_WAIT_REASON",
+    "BROWSER_STARTUP_LEASE_KEY",
     "NODE_BUDGET_CONTEXT_KEY",
     "InMemoryNodeBudgetStore",
     "InMemoryResourceLeaseStore",
@@ -75,6 +83,7 @@ __all__ = [
     "RedisTtlSnapshotStore",
     "SyncRedisTtlSnapshotStore",
     "ResourceAdmissionDecision",
+    "BrowserStartupDecision",
     "ResourceLease",
     "ResourceLeaseStore",
     "ResourceRequirements",
@@ -82,6 +91,7 @@ __all__ = [
     "NodeBudgetPolicy",
     "NodeBudgetReservation",
     "acquire_task_resource_admission",
+    "acquire_browser_startup_gate",
     "build_resource_lease_key",
     "build_resource_wait_task_update",
     "build_progress_snapshot_key",
@@ -97,6 +107,8 @@ __all__ = [
     "release_resource_lease_keys",
     "renew_resource_lease_keys",
     "resolve_resource_requirements",
+    "resolve_browser_startup_request_bytes",
+    "resolve_browser_startup_spacing_seconds",
     "resolve_browser_request_bytes",
     "resolve_node_budget_policy",
     "resource_profile_fingerprint",

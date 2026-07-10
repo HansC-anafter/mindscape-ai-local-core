@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import pytest
 
 from backend.app.services.runner_resources import (
+    BROWSER_STARTUP_LEASE_KEY,
     InMemoryNodeBudgetStore,
     InMemoryResourceLeaseStore,
     ResourceRequirements,
@@ -210,6 +211,8 @@ async def test_browser_admission_uses_vm_bytes_and_not_host_advisor(monkeypatch)
         resource_class="browser",
         browser_contexts=1,
         memory_mb=3072,
+        browser_startup_memory_mb=3072,
+        browser_startup_spacing_seconds=5,
         memory_reservation_source="playbook_profile",
     )
 
@@ -259,3 +262,106 @@ async def test_browser_hard_guard_requires_current_memavailable():
     assert decision.allow is False
     assert decision.blocked_payload["reason"] == "node_memory_headroom_unavailable"
     assert (await store.snapshot())["active_reservations"] == 0
+
+
+@pytest.mark.asyncio
+async def test_browser_startup_spacing_serializes_claims_without_durable_lease():
+    lease_store = InMemoryResourceLeaseStore(now_epoch=0.0)
+    node_store = InMemoryNodeBudgetStore()
+    requirements = ResourceRequirements(
+        resource_class="browser",
+        browser_contexts=1,
+        memory_mb=1024,
+        browser_startup_memory_mb=2048,
+        browser_startup_spacing_seconds=10,
+        memory_reservation_source="playbook_profile",
+    )
+    snapshot = {
+        "total_bytes": 10 * 1024 * MIB,
+        "available_bytes": 8 * 1024 * MIB,
+        "cgroup_limit_bytes": 6 * 1024 * MIB,
+    }
+
+    first = await acquire_task_resource_admission(
+        task=_task("task-start-1"),
+        requirements=requirements,
+        runner_profile=_profile(),
+        capacity=_capacity(3),
+        lease_store=lease_store,
+        node_budget_store=node_store,
+        node_memory_snapshot=snapshot,
+        owner_id="runner-a:task-start-1",
+        ttl_seconds=30,
+    )
+    second = await acquire_task_resource_admission(
+        task=_task("task-start-2"),
+        requirements=requirements,
+        runner_profile=_profile(),
+        capacity=_capacity(3),
+        lease_store=lease_store,
+        node_budget_store=node_store,
+        node_memory_snapshot=snapshot,
+        owner_id="runner-b:task-start-2",
+        ttl_seconds=30,
+    )
+
+    assert first.allow is True
+    assert first.acquired_leases == []
+    assert first.execution_context_updates["runner_resource_leases"] == []
+    assert second.allow is False
+    assert second.blocked_payload["reason"] == "browser_startup_spacing_active"
+    assert second.blocked_payload["startup_spacing_seconds"] == 10
+    assert (await node_store.snapshot())["active_reservations"] == 1
+
+    lease_store.advance(10)
+    third = await acquire_task_resource_admission(
+        task=_task("task-start-2"),
+        requirements=requirements,
+        runner_profile=_profile(),
+        capacity=_capacity(3),
+        lease_store=lease_store,
+        node_budget_store=node_store,
+        node_memory_snapshot=snapshot,
+        owner_id="runner-b:task-start-2",
+        ttl_seconds=30,
+    )
+
+    assert third.allow is True
+    assert BROWSER_STARTUP_LEASE_KEY not in [
+        item["lease_key"]
+        for item in third.execution_context_updates["runner_resource_leases"]
+    ]
+    assert (await node_store.snapshot())["active_reservations"] == 2
+
+
+@pytest.mark.asyncio
+async def test_browser_startup_headroom_releases_steady_reservation():
+    node_store = InMemoryNodeBudgetStore()
+    decision = await acquire_task_resource_admission(
+        task=_task("task-start-low-headroom"),
+        requirements=ResourceRequirements(
+            resource_class="browser",
+            browser_contexts=1,
+            memory_mb=1024,
+            browser_startup_memory_mb=4096,
+            browser_startup_spacing_seconds=10,
+        ),
+        runner_profile=_profile(),
+        capacity=_capacity(3),
+        lease_store=InMemoryResourceLeaseStore(),
+        node_budget_store=node_store,
+        node_memory_snapshot={
+            "total_bytes": 10 * 1024 * MIB,
+            "available_bytes": 3 * 1024 * MIB,
+            "cgroup_limit_bytes": 6 * 1024 * MIB,
+        },
+        owner_id="runner-a:task-start-low-headroom",
+        ttl_seconds=30,
+    )
+
+    assert decision.allow is False
+    assert decision.blocked_payload["reason"] == (
+        "browser_startup_headroom_unavailable"
+    )
+    assert decision.blocked_payload["startup_requested_bytes"] == 4096 * MIB
+    assert (await node_store.snapshot())["active_reservations"] == 0

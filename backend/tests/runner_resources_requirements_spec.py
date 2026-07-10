@@ -17,6 +17,8 @@ def test_resolves_resource_requirements_by_locked_precedence():
             "resource_requirements": {
                 "cpu_weight": 6,
                 "memory_mb": 768,
+                "browser_startup_memory_mb": 2048,
+                "browser_startup_spacing_seconds": 35,
                 "llm_lane": "analysis",
             },
         },
@@ -54,6 +56,8 @@ def test_resolves_resource_requirements_by_locked_precedence():
     assert requirements.ig_profile_lock == "ig-profile-a"
     assert requirements.cpu_weight == 6
     assert requirements.memory_mb == 768
+    assert requirements.browser_startup_memory_mb == 2048
+    assert requirements.browser_startup_spacing_seconds == 35
     assert requirements.vision_lane == "ocr"
     assert requirements.llm_lane == "analysis"
     assert requirements.db_write_budget == "high"

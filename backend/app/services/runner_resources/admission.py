@@ -13,6 +13,7 @@ from .leases import (
     ResourceLeaseStore,
     build_resource_lease_key,
 )
+from .browser_startup_gate import acquire_browser_startup_gate
 from .requirements import ResourceRequirements
 from .node_budget import (
     NODE_BUDGET_CONTEXT_KEY,
@@ -145,6 +146,7 @@ async def acquire_task_resource_admission(
     resolved_request_bytes = 0
     resolved_request_source = requirements.memory_reservation_source
     profile_fingerprint = ""
+    browser_startup_decision = None
     if is_browser:
         snapshot = node_memory_snapshot or current_node_memory_snapshot()
         node_policy = resolve_node_budget_policy(snapshot)
@@ -222,6 +224,38 @@ async def acquire_task_resource_admission(
             )
         node_reservation = node_decision.reservation
 
+        browser_startup_decision = await acquire_browser_startup_gate(
+            requirements=requirements,
+            node_snapshot=snapshot,
+            lease_store=lease_store,
+            owner_id=owner_id,
+        )
+        if not browser_startup_decision.allow:
+            await node_budget_store.release(node_reservation)
+            return _blocked_decision(
+                requirements=requirements,
+                reason=(
+                    browser_startup_decision.reason
+                    or "browser_startup_gate_unavailable"
+                ),
+                delay_seconds=browser_startup_decision.spacing_seconds,
+                now=base_now,
+                task=task,
+                runner_profile=runner_profile,
+                extra_payload={
+                    "blocked_resource": "browser_startup",
+                    "startup_requested_bytes": (
+                        browser_startup_decision.requested_bytes
+                    ),
+                    "startup_request_source": (
+                        browser_startup_decision.request_source
+                    ),
+                    "startup_spacing_seconds": (
+                        browser_startup_decision.spacing_seconds
+                    ),
+                },
+            )
+
     acquired: list[ResourceLease] = []
     for resource_type, resource_id in _resource_entries(requirements):
         lease_key = build_resource_lease_key(resource_type, resource_id)
@@ -271,6 +305,15 @@ async def acquire_task_resource_admission(
                 node_policy.fingerprint if node_policy is not None else None
             ),
             "resource_profile_fingerprint": profile_fingerprint or None,
+            "browser_startup": (
+                {
+                    "requested_bytes": browser_startup_decision.requested_bytes,
+                    "request_source": browser_startup_decision.request_source,
+                    "spacing_seconds": browser_startup_decision.spacing_seconds,
+                }
+                if browser_startup_decision is not None
+                else None
+            ),
             "admitted_at": base_now.isoformat(),
         }
 
