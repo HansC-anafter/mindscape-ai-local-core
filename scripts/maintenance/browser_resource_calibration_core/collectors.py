@@ -55,14 +55,21 @@ class CalibrationCollector:
         self.api = api_client or LocalApiClient()
         self.api_base = api_base.rstrip("/")
 
-    def collect_node(self) -> dict[str, Any]:
+    def collect_node(
+        self,
+        *,
+        include_all_containers: bool = True,
+    ) -> dict[str, Any]:
         meminfo = self._run(
             ["docker", "exec", self.browser_containers[0], "cat", "/proc/meminfo"]
         )
-        stats = self._run(
-            ["docker", "stats", "--no-stream", "--format", "{{json .}}"]
-        )
+        stats = ""
+        if include_all_containers:
+            stats = self._run(
+                ["docker", "stats", "--no-stream", "--format", "{{json .}}"]
+            )
         cgroups: list[dict[str, Any]] = []
+        lean_stats: list[str] = []
         for container in self.browser_containers:
             current = int(
                 self._run(
@@ -79,6 +86,33 @@ class CalibrationCollector:
                     ["docker", "exec", container, "cat", "/sys/fs/cgroup/memory.events"]
                 )
             )
+            if not include_all_containers:
+                memory_stat = self._run(
+                    [
+                        "docker",
+                        "exec",
+                        container,
+                        "cat",
+                        "/sys/fs/cgroup/memory.stat",
+                    ]
+                )
+                stat_values = {
+                    parts[0]: int(parts[1])
+                    for line in memory_stat.splitlines()
+                    if len(parts := line.split()) == 2
+                }
+                working_set = max(
+                    0,
+                    current - int(stat_values.get("inactive_file") or 0),
+                )
+                lean_stats.append(
+                    json.dumps(
+                        {
+                            "Name": container,
+                            "MemUsage": f"{working_set}B / {current}B",
+                        }
+                    )
+                )
             cgroups.append(
                 {
                     "container": container,
@@ -87,6 +121,8 @@ class CalibrationCollector:
                     **events,
                 }
             )
+        if not include_all_containers:
+            stats = "\n".join(lean_stats)
         return build_node_sample(
             captured_at_epoch=time.time(),
             meminfo_raw=meminfo,

@@ -6,6 +6,9 @@ from pathlib import Path
 import pytest
 
 from scripts.maintenance.browser_resource_calibration_core.evidence import evidence_row
+from scripts.maintenance.browser_resource_calibration_core.collectors import (
+    CalibrationCollector,
+)
 from scripts.maintenance.browser_resource_calibration_core.envelope_classifier import (
     classify_task_envelope,
 )
@@ -36,6 +39,39 @@ from scripts.maintenance.browser_node_budget_reconcile_core import (
 
 
 GIB = 1024 * 1024 * 1024
+
+
+def test_workload_node_collection_uses_exact_cgroups_without_docker_stats() -> None:
+    class Commands:
+        def __init__(self):
+            self.calls = []
+
+        def run(self, argv, *, timeout_seconds=5):
+            self.calls.append(tuple(argv))
+            path = argv[-1]
+            if path == "/proc/meminfo":
+                output = "MemTotal: 16384 kB\nMemAvailable: 8192 kB\n"
+            elif path == "/sys/fs/cgroup/memory.current":
+                output = "1000\n"
+            elif path == "/sys/fs/cgroup/memory.peak":
+                output = "1200\n"
+            elif path == "/sys/fs/cgroup/memory.events":
+                output = "oom 0\noom_kill 0\noom_group_kill 0\n"
+            elif path == "/sys/fs/cgroup/memory.stat":
+                output = "anon 700\ninactive_file 100\n"
+            else:
+                raise AssertionError(argv)
+            return type("Result", (), {"returncode": 0, "stdout": output, "stderr": ""})()
+
+    commands = Commands()
+    sample = CalibrationCollector(
+        browser_containers=("runner-browser",),
+        command_runner=commands,
+    ).collect_node(include_all_containers=False)
+
+    assert sample["browser_container_working_set_bytes"] == 900
+    assert sample["non_browser_container_working_set_bytes"] == 0
+    assert not any(call[1:3] == ("stats", "--no-stream") for call in commands.calls)
 
 
 def test_size_and_node_sample_formulas() -> None:

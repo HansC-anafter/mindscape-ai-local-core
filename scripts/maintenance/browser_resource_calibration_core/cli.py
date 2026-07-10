@@ -248,7 +248,7 @@ def _wait_for_idle_reset(
     deadline = time.monotonic() + int(timeout_seconds)
     idle_total = int(baseline["browser_idle_peak_bytes"])
     while time.monotonic() < deadline:
-        node = collector.collect_node()
+        node = collector.collect_node(include_all_containers=False)
         peaks = [
             int(row.get("memory_peak_bytes") or 0)
             for row in node["browser_cgroups"]
@@ -282,7 +282,7 @@ def _observe_run(
     )
     final_oom = 0
     while time.monotonic() - started < max_run_seconds:
-        node = collector.collect_node()
+        node = collector.collect_node(include_all_containers=False)
         node_samples.append(node)
         writer.append(
             {
