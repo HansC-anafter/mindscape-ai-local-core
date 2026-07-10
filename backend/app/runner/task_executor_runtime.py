@@ -9,6 +9,7 @@ from typing import Any, Awaitable, Callable, Optional
 from backend.app.models.workspace import TaskStatus
 from backend.app.services.runner_live_state import RunnerLiveStateStore
 from backend.app.services.runner_resources import (
+    NodeBudgetReservation,
     reservation_from_context,
     resource_lease_keys_from_context,
 )
