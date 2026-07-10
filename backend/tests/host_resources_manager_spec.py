@@ -87,6 +87,58 @@ def test_runner_claim_gate_resume_clears_ttl_state(monkeypatch):
     assert manager.get_runner_claim_gate()["state"] == "open"
 
 
+def test_runner_claim_gate_bootstrap_file_fails_closed_without_redis(
+    monkeypatch,
+    tmp_path,
+):
+    cache = _MemoryCache()
+    sentinel = tmp_path / "runner-claim-gate.paused"
+    sentinel.write_text(
+        '{"reason":"docker_recovery","requested_by":"test"}',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(manager, "get_cache_service", lambda: cache)
+    monkeypatch.setenv(
+        "LOCAL_CORE_RUNNER_CLAIM_GATE_BOOTSTRAP_FILE",
+        str(sentinel),
+    )
+    manager._runner_claim_gate_state = None
+
+    gate = manager.get_runner_claim_gate()
+
+    assert gate["state"] == "paused"
+    assert gate["source"] == "bootstrap_file"
+    assert gate["persisted"] is True
+    assert gate["reason"] == "docker_recovery"
+
+
+def test_runner_claim_gate_redis_precedes_bootstrap_and_resume_is_blocked(
+    monkeypatch,
+    tmp_path,
+):
+    cache = _MemoryCache()
+    sentinel = tmp_path / "runner-claim-gate.paused"
+    sentinel.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(manager, "get_cache_service", lambda: cache)
+    monkeypatch.setenv(
+        "LOCAL_CORE_RUNNER_CLAIM_GATE_BOOTSTRAP_FILE",
+        str(sentinel),
+    )
+    manager._runner_claim_gate_state = None
+
+    paused = manager.pause_runner_claim_gate({"reason": "redis_pause"})
+    assert paused["source"] == "redis"
+    assert manager.get_runner_claim_gate()["reason"] == "redis_pause"
+
+    blocked_resume = manager.resume_runner_claim_gate()
+    assert blocked_resume["state"] == "paused"
+    assert blocked_resume["source"] == "bootstrap_file"
+    assert blocked_resume["resume_blocked_reason"] == (
+        "claim_gate_bootstrap_file_present"
+    )
+    assert manager.RUNNER_CLAIM_GATE_KEY in cache.values
+
+
 def test_route_reservation_dual_writes_durable_ledger(monkeypatch):
     class _Store:
         def __init__(self):

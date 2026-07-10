@@ -23,6 +23,7 @@ from .manager_core import (
     ttl_seconds_from_payload as _core_ttl_seconds_from_payload,
 )
 from .samplers import degraded_snapshot, snapshot_from_probe
+from .runner_claim_gate_bootstrap import read_runner_claim_gate_bootstrap
 
 
 logger = logging.getLogger(__name__)
@@ -433,6 +434,14 @@ def get_runner_claim_gate() -> dict[str, Any]:
             source="redis",
         )
         return dict(_runner_claim_gate_state)
+    bootstrap = read_runner_claim_gate_bootstrap()
+    if bootstrap:
+        _runner_claim_gate_state = _normalize_runner_claim_gate(
+            bootstrap,
+            source="bootstrap_file",
+        )
+        _runner_claim_gate_state["persisted"] = True
+        return dict(_runner_claim_gate_state)
     _runner_claim_gate_state = None
     return _normalize_runner_claim_gate(None, source="default")
 
@@ -468,6 +477,17 @@ def pause_runner_claim_gate(payload: dict[str, Any] | None = None) -> dict[str, 
 
 def resume_runner_claim_gate() -> dict[str, Any]:
     global _runner_claim_gate_state
+    bootstrap = read_runner_claim_gate_bootstrap()
+    if bootstrap:
+        _runner_claim_gate_state = _normalize_runner_claim_gate(
+            bootstrap,
+            source="bootstrap_file",
+        )
+        _runner_claim_gate_state["persisted"] = True
+        _runner_claim_gate_state["resume_blocked_reason"] = (
+            "claim_gate_bootstrap_file_present"
+        )
+        return dict(_runner_claim_gate_state)
     _runner_claim_gate_state = {
         "state": "open",
         "reason": None,
