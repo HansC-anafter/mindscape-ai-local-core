@@ -446,6 +446,11 @@ async def _dispatch_claimed_task(
             t_data.id,
             redis_queue=task_queue,
             lock_owner_id=lock_owner_id,
+            node_budget_reservation=(
+                resource_decision.node_budget_reservation
+                if resource_decision is not None
+                else None
+            ),
         )
         dispatch_task = asyncio.create_task(task_coro)
         setattr(dispatch_task, "_mindscape_pack_id", str(t_data.pack_id or ""))

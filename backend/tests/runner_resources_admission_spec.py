@@ -201,6 +201,7 @@ async def test_browser_admission_uses_vm_bytes_and_not_host_advisor(monkeypatch)
     )
     monkeypatch.setenv("LOCAL_CORE_RUNNER_NODE_VM_OVERHEAD_PEAK_MB", "1024")
     monkeypatch.setenv("LOCAL_CORE_RUNNER_NODE_NON_BROWSER_PEAK_MB", "1024")
+    monkeypatch.setenv("LOCAL_CORE_RUNNER_NODE_BROWSER_IDLE_PEAK_MB", "0")
     snapshot = {
         "total_bytes": 10 * 1024 * MIB,
         "available_bytes": 8 * 1024 * MIB,

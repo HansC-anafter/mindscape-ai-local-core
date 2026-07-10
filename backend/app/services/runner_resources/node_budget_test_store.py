@@ -120,6 +120,34 @@ class InMemoryNodeBudgetStore:
         )
         return True
 
+    async def reconcile_down(
+        self,
+        reservation: NodeBudgetReservation,
+        *,
+        request_bytes: int,
+        evidence_fingerprint: str,
+    ) -> bool:
+        self._purge()
+        current = self.reservations.get(reservation.owner_id)
+        if (
+            not current
+            or current.revision != reservation.revision
+            or request_bytes <= 0
+            or request_bytes >= current.bytes
+            or not str(evidence_fingerprint or "").strip()
+        ):
+            return False
+        self.reservations[reservation.owner_id] = NodeBudgetReservation(
+            **{
+                **asdict(current),
+                "bytes": int(request_bytes),
+                "reconciliation_evidence_fingerprint": evidence_fingerprint,
+                "reconciled_from_bytes": current.bytes,
+                "reconciled_at_epoch": self.now_epoch,
+            }
+        )
+        return True
+
     async def release(self, reservation: NodeBudgetReservation) -> bool:
         self._purge()
         current = self.reservations.get(reservation.owner_id)

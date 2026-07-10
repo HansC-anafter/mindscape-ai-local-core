@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -28,6 +29,9 @@ from scripts.maintenance.browser_resource_calibration_core.parsing import (
 from scripts.maintenance.browser_resource_calibration_core.workloads import (
     load_workload_manifest,
     quota_state,
+)
+from scripts.maintenance.browser_node_budget_reconcile_core import (
+    validate_reconciliation_evidence,
 )
 
 
@@ -196,6 +200,83 @@ def test_evidence_rows_are_hash_bound() -> None:
     second = evidence_row({"kind": "node", "value": 2})
     assert len(first["evidence_sha256"]) == 64
     assert first["evidence_sha256"] != second["evidence_sha256"]
+
+
+def test_reconciliation_evidence_derives_rounded_exact_cgroup_peak(
+    tmp_path: Path,
+) -> None:
+    task_id = "task-1"
+    container = "runner-browser"
+    rows = [
+        evidence_row(
+            {
+                "kind": "natural_claim_observed",
+                "classification": {
+                    "valid": True,
+                    "envelope_id": "ig_analyze_following",
+                },
+                "task": {"id": task_id, "runner_id": "runner-1"},
+            }
+        )
+    ]
+    for epoch, peak in ((0.0, 100), (5.0, 65 * 1024 * 1024), (10.0, 70)):
+        rows.append(
+            evidence_row(
+                {
+                    "kind": "workload_node",
+                    "task_id": task_id,
+                    "envelope_id": "ig_analyze_following",
+                    "captured_at_epoch": epoch,
+                    "browser_cgroups": [
+                        {
+                            "container": container,
+                            "memory_peak_bytes": peak,
+                            "oom_kill": 0,
+                            "oom_group_kill": 0,
+                        }
+                    ],
+                }
+            )
+        )
+    rows.append(
+        evidence_row(
+            {
+                "kind": "workload_pool",
+                "task_id": task_id,
+                "envelope_id": "ig_analyze_following",
+                "captured_at_epoch": 5.0,
+                "task": {"id": task_id, "status": "running"},
+                "failures": [],
+                "postgres": "f|off",
+                "pgbouncer_pools": [{"cl_waiting": 0, "maxwait": 0}],
+            }
+        )
+    )
+    path = tmp_path / "workload.jsonl"
+    path.write_text(
+        "".join(json.dumps(row, sort_keys=True, separators=(",", ":")) + "\n" for row in rows),
+        encoding="utf-8",
+    )
+
+    result = validate_reconciliation_evidence(
+        path,
+        task_id=task_id,
+        runner_container=container,
+        minimum_samples=3,
+        minimum_duration_seconds=10,
+    )
+    assert result.observed_cgroup_peak_bytes == 65 * 1024 * 1024
+    assert result.request_bytes == 128 * 1024 * 1024
+
+    path.write_text(path.read_text().replace('"oom_kill":0', '"oom_kill":1', 1))
+    with pytest.raises(ValueError, match="evidence_hash_mismatch"):
+        validate_reconciliation_evidence(
+            path,
+            task_id=task_id,
+            runner_container=container,
+            minimum_samples=3,
+            minimum_duration_seconds=10,
+        )
 
 
 def test_task_memory_series_derives_startup_steady_and_settle() -> None:

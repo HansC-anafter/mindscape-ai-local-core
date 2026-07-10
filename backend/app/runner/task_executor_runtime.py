@@ -65,6 +65,7 @@ async def _run_single_task_impl(
     redis_queue: Optional[RedisRunnerQueueStore],
     lock_owner_id: Optional[str],
     hooks: TaskExecutorHooks,
+    admitted_node_budget_reservation: Optional[NodeBudgetReservation] = None,
 ) -> None:
     asyncio_mod = hooks.asyncio_module
     task = tasks_store.get_task(task_id)
@@ -86,7 +87,9 @@ async def _run_single_task_impl(
         persisted_concurrency_key=getattr(task, "concurrency_key", None),
     )
     resource_lease_keys = resource_lease_keys_from_context(ctx)
-    node_budget_reservation = reservation_from_context(ctx)
+    node_budget_reservation = (
+        admitted_node_budget_reservation or reservation_from_context(ctx)
+    )
     lock_owner_id = lock_owner_id or runner_id
     lock_ttl_seconds = _env_int("LOCAL_CORE_RUNNER_LOCK_TTL_SECONDS", 120)
     stop_event = threading.Event()

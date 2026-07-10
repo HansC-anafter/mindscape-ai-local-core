@@ -20,6 +20,7 @@ class NodeBudgetPolicy:
     total_bytes: int
     vm_overhead_peak_bytes: int
     non_browser_peak_bytes: int
+    browser_idle_peak_bytes: int
     allocatable_bytes: int
     fingerprint: str
 
@@ -34,6 +35,9 @@ class NodeBudgetReservation:
     resource_profile_fingerprint: str
     allocatable_bytes: int
     policy_mode: str
+    reconciliation_evidence_fingerprint: str | None = None
+    reconciled_from_bytes: int | None = None
+    reconciled_at_epoch: float | None = None
 
     def to_context(self) -> dict[str, Any]:
         return asdict(self)
@@ -65,6 +69,14 @@ class NodeBudgetStore(Protocol):
         reservation: NodeBudgetReservation,
         *,
         ttl_seconds: int,
+    ) -> bool: ...
+
+    async def reconcile_down(
+        self,
+        reservation: NodeBudgetReservation,
+        *,
+        request_bytes: int,
+        evidence_fingerprint: str,
     ) -> bool: ...
 
     async def release(self, reservation: NodeBudgetReservation) -> bool: ...
@@ -117,23 +129,37 @@ def resolve_node_budget_policy(
         "LOCAL_CORE_RUNNER_NODE_NON_BROWSER_PEAK_MB",
         source,
     )
-    if overhead_mb is not None and non_browser_mb is not None:
+    browser_idle_mb = _env_mb(
+        "LOCAL_CORE_RUNNER_NODE_BROWSER_IDLE_PEAK_MB",
+        source,
+    )
+    if (
+        overhead_mb is not None
+        and non_browser_mb is not None
+        and browser_idle_mb is not None
+    ):
         mode = "calibrated"
         overhead_bytes = overhead_mb * 1024 * 1024
         non_browser_bytes = non_browser_mb * 1024 * 1024
+        browser_idle_bytes = browser_idle_mb * 1024 * 1024
     elif 0 < cgroup_limit_bytes <= total_bytes:
         mode = "bootstrap_full_cgroup"
         overhead_bytes = total_bytes - cgroup_limit_bytes
         non_browser_bytes = 0
+        browser_idle_bytes = 0
     else:
         return None
 
-    allocatable = max(0, total_bytes - overhead_bytes - non_browser_bytes)
+    allocatable = max(
+        0,
+        total_bytes - overhead_bytes - non_browser_bytes - browser_idle_bytes,
+    )
     payload = {
         "mode": mode,
         "total_bytes": total_bytes,
         "vm_overhead_peak_bytes": overhead_bytes,
         "non_browser_peak_bytes": non_browser_bytes,
+        "browser_idle_peak_bytes": browser_idle_bytes,
         "allocatable_bytes": allocatable,
     }
     return NodeBudgetPolicy(
@@ -179,6 +205,21 @@ def reservation_from_context(
             resource_profile_fingerprint=str(raw["resource_profile_fingerprint"]),
             allocatable_bytes=int(raw["allocatable_bytes"]),
             policy_mode=str(raw["policy_mode"]),
+            reconciliation_evidence_fingerprint=(
+                str(raw["reconciliation_evidence_fingerprint"])
+                if raw.get("reconciliation_evidence_fingerprint")
+                else None
+            ),
+            reconciled_from_bytes=(
+                int(raw["reconciled_from_bytes"])
+                if raw.get("reconciled_from_bytes") is not None
+                else None
+            ),
+            reconciled_at_epoch=(
+                float(raw["reconciled_at_epoch"])
+                if raw.get("reconciled_at_epoch") is not None
+                else None
+            ),
         )
     except (KeyError, TypeError, ValueError):
         return None

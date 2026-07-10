@@ -13,6 +13,7 @@ from backend.app.services.runner_topology import (
 )
 from backend.app.services.stores.redis.runner_queue_store import RedisRunnerQueueStore
 from backend.app.services.stores.tasks_store import TasksStore
+from backend.app.services.runner_resources import NodeBudgetReservation
 
 from backend.app.runner.resource_pressure import build_runner_resource_snapshot
 from backend.app.runner.task_executor_child import (
@@ -131,6 +132,7 @@ async def _run_single_task(
     task_id: str,
     redis_queue: Optional[RedisRunnerQueueStore] = None,
     lock_owner_id: Optional[str] = None,
+    node_budget_reservation: Optional[NodeBudgetReservation] = None,
 ) -> None:
     await _run_single_task_impl(
         tasks_store,
@@ -139,6 +141,7 @@ async def _run_single_task(
         redis_queue,
         lock_owner_id,
         _build_hooks(),
+        admitted_node_budget_reservation=node_budget_reservation,
     )
 
 

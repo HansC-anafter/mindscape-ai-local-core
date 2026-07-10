@@ -28,10 +28,22 @@ def test_calibrated_and_bootstrap_policies_deduct_reserve_once():
         environ={
             "LOCAL_CORE_RUNNER_NODE_VM_OVERHEAD_PEAK_MB": "2048",
             "LOCAL_CORE_RUNNER_NODE_NON_BROWSER_PEAK_MB": "3072",
+            "LOCAL_CORE_RUNNER_NODE_BROWSER_IDLE_PEAK_MB": "1024",
         },
     )
     assert calibrated.mode == "calibrated"
-    assert calibrated.allocatable_bytes == (16384 - 2048 - 3072) * MIB
+    assert calibrated.allocatable_bytes == (16384 - 2048 - 3072 - 1024) * MIB
+    assert calibrated.browser_idle_peak_bytes == 1024 * MIB
+
+    partial = resolve_node_budget_policy(
+        _snapshot(),
+        environ={
+            "LOCAL_CORE_RUNNER_NODE_VM_OVERHEAD_PEAK_MB": "2048",
+            "LOCAL_CORE_RUNNER_NODE_NON_BROWSER_PEAK_MB": "3072",
+        },
+    )
+    assert partial.mode == "bootstrap_full_cgroup"
+    assert partial.browser_idle_peak_bytes == 0
 
     bootstrap = resolve_node_budget_policy(_snapshot(), environ={})
     assert bootstrap.mode == "bootstrap_full_cgroup"
@@ -57,6 +69,7 @@ async def test_budget_derives_active_count_from_bytes_and_is_idempotent():
         environ={
             "LOCAL_CORE_RUNNER_NODE_VM_OVERHEAD_PEAK_MB": "2048",
             "LOCAL_CORE_RUNNER_NODE_NON_BROWSER_PEAK_MB": "2048",
+            "LOCAL_CORE_RUNNER_NODE_BROWSER_IDLE_PEAK_MB": "0",
         },
     )
     store = InMemoryNodeBudgetStore(now_epoch=100)
@@ -96,6 +109,50 @@ async def test_budget_derives_active_count_from_bytes_and_is_idempotent():
     assert snapshot["active_reservations"] == 4
     assert snapshot["reserved_bytes"] == 12000 * MIB
     assert snapshot["policy_fingerprint"] == policy.fingerprint
+
+
+@pytest.mark.asyncio
+async def test_reconcile_down_preserves_revision_renewal_and_release_accounting():
+    policy = resolve_node_budget_policy(_snapshot(), environ={})
+    store = InMemoryNodeBudgetStore(now_epoch=100)
+    acquired = await store.acquire(
+        owner_id="runner-a:task-1",
+        request_bytes=6144 * MIB,
+        policy=policy,
+        profile_fingerprint="profile-a",
+        ttl_seconds=30,
+    )
+    reservation = acquired.reservation
+    assert reservation is not None
+
+    assert await store.reconcile_down(
+        reservation,
+        request_bytes=2432 * MIB,
+        evidence_fingerprint="a" * 64,
+    )
+    snapshot = await store.snapshot()
+    reconciled = snapshot["reservations"][0]
+    assert snapshot["reserved_bytes"] == 2432 * MIB
+    assert reconciled["revision"] == reservation.revision
+    assert reconciled["reconciled_from_bytes"] == 6144 * MIB
+    assert reconciled["reconciliation_evidence_fingerprint"] == "a" * 64
+
+    assert await store.renew(reservation, ttl_seconds=30)
+    assert not await store.reconcile_down(
+        reservation,
+        request_bytes=7000 * MIB,
+        evidence_fingerprint="b" * 64,
+    )
+    wrong_revision = type(reservation)(
+        **{**reservation.to_context(), "revision": reservation.revision + 1}
+    )
+    assert not await store.reconcile_down(
+        wrong_revision,
+        request_bytes=1024 * MIB,
+        evidence_fingerprint="c" * 64,
+    )
+    assert await store.release(reservation)
+    assert (await store.snapshot())["reserved_bytes"] == 0
 
 
 @pytest.mark.asyncio

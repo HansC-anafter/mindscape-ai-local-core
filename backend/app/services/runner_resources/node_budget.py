@@ -149,6 +149,32 @@ redis.call('EXPIRE', expiries_key, key_ttl)
 return 1
 """
 
+_RECONCILE_DOWN_LUA = r"""
+local reservations_key = KEYS[1]
+local total_key = KEYS[2]
+local owner = ARGV[1]
+local revision = tonumber(ARGV[2])
+local requested = tonumber(ARGV[3])
+local evidence_fingerprint = ARGV[4]
+local reconciled_at_epoch = tonumber(ARGV[5])
+local raw = redis.call('HGET', reservations_key, owner)
+if not raw then return 0 end
+local reservation = cjson.decode(raw)
+if tonumber(reservation.revision or 0) ~= revision then return -1 end
+local existing = tonumber(reservation.bytes or 0)
+if requested <= 0 or requested >= existing then return -2 end
+if tostring(evidence_fingerprint or '') == '' then return -3 end
+local total = tonumber(redis.call('GET', total_key) or '0')
+reservation.bytes = requested
+reservation.reconciled_from_bytes = existing
+reservation.reconciliation_evidence_fingerprint = evidence_fingerprint
+reservation.reconciled_at_epoch = reconciled_at_epoch
+total = math.max(0, total - (existing - requested))
+redis.call('HSET', reservations_key, owner, cjson.encode(reservation))
+redis.call('SET', total_key, total)
+return 1
+"""
+
 _RELEASE_LUA = r"""
 local reservations_key = KEYS[1]
 local expiries_key = KEYS[2]
@@ -287,6 +313,35 @@ class RedisNodeBudgetStore:
                 max(60, int(ttl_seconds) * 4),
             )
             return bool(result)
+        except Exception:
+            return False
+
+    async def reconcile_down(
+        self,
+        reservation: NodeBudgetReservation,
+        *,
+        request_bytes: int,
+        evidence_fingerprint: str,
+    ) -> bool:
+        client = await self._client()
+        if not client:
+            return False
+        reservations_key, _expiries_key, total_key, _revision_key, _policy_key = (
+            self._keys
+        )
+        try:
+            result = await client.eval(
+                _RECONCILE_DOWN_LUA,
+                2,
+                reservations_key,
+                total_key,
+                reservation.owner_id,
+                reservation.revision,
+                int(request_bytes),
+                str(evidence_fingerprint or ""),
+                float(self._now_fn()),
+            )
+            return int(result) == 1
         except Exception:
             return False
 
