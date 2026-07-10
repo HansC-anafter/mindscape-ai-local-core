@@ -117,7 +117,7 @@ class CalibrationCollector:
         )
         host = self.api.request(
             "GET",
-            f"{self.api_base}/api/v1/host-resources/queue-utilization",
+            f"{self.api_base}/api/v1/host-resources/summary?allow_stale=true",
         )
         pools = pgbouncer.get("pools") if isinstance(pgbouncer, dict) else []
         return {

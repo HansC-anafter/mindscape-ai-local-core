@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import Any
 
 
-_READ_PATHS = {"/healthz", "/api/v1/host-resources/queue-utilization"}
+_READ_PATHS = {"/healthz", "/api/v1/host-resources/summary"}
 
 
 @dataclass(frozen=True)

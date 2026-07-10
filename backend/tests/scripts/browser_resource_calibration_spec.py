@@ -158,7 +158,7 @@ def test_manifest_requires_natural_claim_quota_contract(tmp_path) -> None:
 def test_http_policy_allows_only_read_evidence_paths() -> None:
     validate_local_request(
         "GET",
-        "http://127.0.0.1:8200/api/v1/host-resources/queue-utilization",
+        "http://127.0.0.1:8200/api/v1/host-resources/summary?allow_stale=true",
     )
     with pytest.raises(ValueError):
         validate_local_request(
