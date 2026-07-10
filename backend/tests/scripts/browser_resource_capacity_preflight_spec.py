@@ -140,6 +140,9 @@ def test_command_policy_allows_bounded_reads() -> None:
         ["docker", "exec", "redis", "redis-cli", "GET", "gate"]
     )
     ensure_read_only_command(
+        ["docker", "exec", "redis", "redis-cli", "TTL", "gate"]
+    )
+    ensure_read_only_command(
         ["docker", "exec", "postgres", "psql", "-Atc", "SELECT 1"]
     )
 

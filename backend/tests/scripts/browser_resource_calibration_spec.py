@@ -5,20 +5,28 @@ import json
 import pytest
 
 from scripts.maintenance.browser_resource_calibration_core.evidence import evidence_row
+from scripts.maintenance.browser_resource_calibration_core.envelope_classifier import (
+    classify_task_envelope,
+)
 from scripts.maintenance.browser_resource_calibration_core.http_client import (
     validate_local_request,
+)
+from scripts.maintenance.browser_resource_calibration_core.natural_claim_observer import (
+    NaturalClaimObservationError,
+    select_fresh_running_task,
+    validate_live_owner,
 )
 from scripts.maintenance.browser_resource_calibration_core.parsing import (
     build_node_sample,
     parse_size_bytes,
     round_request_bytes,
     summarize_baseline,
+    summarize_task_memory_series,
     summarize_workload_runs,
 )
 from scripts.maintenance.browser_resource_calibration_core.workloads import (
-    build_run_sequence,
-    build_start_request,
     load_workload_manifest,
+    quota_state,
 )
 
 
@@ -71,14 +79,20 @@ def test_baseline_and_workload_summary_use_maxima_and_rounding() -> None:
             "envelope_id": "ig_pin_post_detail",
             "workload_code": "ig_pin_post_detail",
             "valid": True,
-            "task_peak_bytes": peak,
-            "payload_sha256": "same",
+            "startup_peak_bytes": peak + 64 * 1024 * 1024,
+            "steady_peak_bytes": peak,
+            "startup_settle_seconds": 12,
+            "payload_sha256": f"hash-{peak}",
         }
         for peak in (65 * 1024 * 1024, 70 * 1024 * 1024, 80 * 1024 * 1024)
     ]
-    summary = summarize_workload_runs(runs)
+    summary = summarize_workload_runs(
+        runs,
+        required_envelopes={"ig_pin_post_detail"},
+    )
     assert summary["status"] == "pass"
     assert summary["workloads"][0]["request_bytes"] == 128 * 1024 * 1024
+    assert summary["workloads"][0]["startup_spacing_seconds"] == 15
 
 
 def test_workload_summary_fails_without_three_valid_runs() -> None:
@@ -88,93 +102,70 @@ def test_workload_summary_fails_without_three_valid_runs() -> None:
                 "envelope_id": "ig_analyze_following",
                 "workload_code": "ig_analyze_following",
                 "valid": True,
-                "task_peak_bytes": GIB,
+                "startup_peak_bytes": GIB,
+                "steady_peak_bytes": GIB,
+                "startup_settle_seconds": 0,
+                "payload_sha256": "one",
             }
-        ]
+        ],
+        required_envelopes={"ig_analyze_following"},
     )
     assert summary["status"] == "blocked"
     assert summary["failures"] == ["ig_analyze_following:valid_runs=1"]
 
 
-def test_workload_summary_rejects_payload_hash_drift() -> None:
+def test_workload_summary_accepts_distinct_natural_task_inputs() -> None:
     summary = summarize_workload_runs(
         [
             {
                 "envelope_id": "ig_analyze_following",
                 "workload_code": "ig_analyze_following",
                 "valid": True,
-                "task_peak_bytes": GIB,
+                "startup_peak_bytes": GIB,
+                "steady_peak_bytes": GIB // 2,
+                "startup_settle_seconds": 6,
                 "payload_sha256": value,
             }
             for value in ("one", "one", "two")
-        ]
+        ],
+        required_envelopes={"ig_analyze_following"},
     )
-    assert summary["status"] == "blocked"
-    assert summary["failures"] == ["ig_analyze_following:payload_hash_drift"]
+    assert summary["status"] == "pass"
+    assert summary["workloads"][0]["payload_sha256s"] == ["one", "two"]
 
 
-def test_manifest_requires_four_envelopes_and_builds_twelve_runs(tmp_path) -> None:
+def test_manifest_requires_natural_claim_quota_contract(tmp_path) -> None:
     baseline = tmp_path / "baseline.json"
     baseline.write_text("{}", encoding="utf-8")
     manifest_path = tmp_path / "manifest.json"
-    workloads = [
-        {
-            "envelope_id": "ig_analyze_following",
-            "workload_code": "ig_analyze_following",
-            "inputs": {"workspace_id": "workspace"},
-        },
-        {
-            "envelope_id": "ig_batch_pin_references.browser",
-            "workload_code": "ig_batch_pin_references",
-            "inputs": {"workspace_id": "workspace", "source_mode": "browser"},
-        },
-        {
-            "envelope_id": "ig_batch_pin_references.captured_posts",
-            "workload_code": "ig_batch_pin_references",
-            "inputs": {
-                "workspace_id": "workspace",
-                "source_mode": "captured_posts",
-            },
-        },
-        {
-            "envelope_id": "ig_pin_post_detail",
-            "workload_code": "ig_pin_post_detail",
-            "inputs": {"workspace_id": "workspace"},
-        },
-    ]
     manifest_path.write_text(
         json.dumps(
             {
-                "version": 1,
-                "workspace_id": "workspace",
+                "version": 2,
                 "baseline_summary_path": str(baseline),
-                "workloads": workloads,
+                "required_valid_runs_per_envelope": 3,
+                "max_browser_local_runs": 24,
+                "max_captured_post_runs": 3,
             }
         ),
         encoding="utf-8",
     )
     manifest = load_workload_manifest(manifest_path)
-    sequence = build_run_sequence(manifest, 3)
-
-    assert len(sequence) == 12
-    assert [row["repetition"] for row in sequence[:3]] == [1, 2, 3]
-    assert len(sequence[0]["payload_sha256"]) == 64
+    assert manifest["version"] == 2
+    assert manifest["required_valid_runs_per_envelope"] == 3
 
 
-def test_start_request_uses_only_canonical_runner_api() -> None:
-    workload = {
-        "envelope_id": "ig_analyze_following",
-        "workload_code": "ig_analyze_following",
-        "inputs": {"workspace_id": "workspace"},
-    }
-    url, payload = build_start_request(
-        api_base="http://127.0.0.1:8200",
-        workspace_id="workspace",
-        profile_id="profile",
-        workload=workload,
+def test_http_policy_allows_only_read_evidence_paths() -> None:
+    validate_local_request(
+        "GET",
+        "http://127.0.0.1:8200/api/v1/host-resources/queue-utilization",
     )
-    validate_local_request("POST", url)
-    assert payload["execution_backend"] == "runner"
+    with pytest.raises(ValueError):
+        validate_local_request(
+            "POST",
+            "http://127.0.0.1:8200/api/v1/playbooks/execute/start?"
+            "playbook_code=ig_analyze_following&execution_backend=runner",
+        )
 
 
 @pytest.mark.parametrize(
@@ -201,3 +192,77 @@ def test_evidence_rows_are_hash_bound() -> None:
     second = evidence_row({"kind": "node", "value": 2})
     assert len(first["evidence_sha256"]) == 64
     assert first["evidence_sha256"] != second["evidence_sha256"]
+
+
+def test_task_memory_series_derives_startup_steady_and_settle() -> None:
+    samples = [
+        {"captured_at_epoch": epoch, "browser_container_working_set_bytes": value}
+        for epoch, value in ((0, 100), (5, 500), (10, 300), (15, 250), (20, 260), (25, 240))
+    ]
+    summary = summarize_task_memory_series(samples, browser_idle_peak_bytes=100)
+    assert summary["startup_peak_bytes"] == 400
+    assert summary["steady_peak_bytes"] == 160
+    assert summary["startup_settle_seconds"] == 15
+
+
+def test_natural_claim_selection_and_live_owner_are_exact() -> None:
+    task = {"id": "task", "runner_id": "runner", "started_at_epoch": 11}
+    assert select_fresh_running_task([task], observer_started_epoch=10) == task
+    assert select_fresh_running_task([task], observer_started_epoch=12) is None
+    assert validate_live_owner(
+        task,
+        {"task_id": "task", "runner_id": "runner", "ttl_seconds_remaining": 30},
+    ) == []
+    with pytest.raises(NaturalClaimObservationError):
+        select_fresh_running_task(
+            [task, {**task, "id": "task-2"}],
+            observer_started_epoch=10,
+        )
+
+
+def test_envelope_classifier_enforces_partition_and_lock_contracts() -> None:
+    captured = classify_task_envelope(
+        {
+            "pack_id": "ig_batch_pin_references",
+            "queue_shard": "default_local_browser",
+            "concurrency_key": "concurrency:ig_batch_pin_target:workspace:target",
+            "execution_context": {
+                "inputs": {"source_mode": "captured_posts", "target_handle": "target"},
+                "resource_requirements": {"ig_profile_lock": False},
+            },
+        }
+    )
+    assert captured["valid"] is True
+    assert captured["envelope_id"] == "ig_batch_pin_references.captured_posts"
+
+    invalid = classify_task_envelope(
+        {
+            "pack_id": "ig_analyze_following",
+            "queue_shard": "default_local_browser",
+            "execution_context": {
+                "inputs": {"user_data_dir": "/profile"},
+                "resource_requirements": {"ig_profile_lock": "{user_data_dir}"},
+            },
+        }
+    )
+    assert invalid["valid"] is False
+    assert invalid["failures"] == ["browser_local_partition_mismatch"]
+
+
+def test_quota_state_counts_valid_envelopes_and_partition_limits() -> None:
+    manifest = {
+        "required_valid_runs_per_envelope": 3,
+        "max_browser_local_runs": 24,
+        "max_captured_post_runs": 3,
+    }
+    runs = [
+        {
+            "envelope_id": "ig_batch_pin_references.captured_posts",
+            "partition": "default_local_browser",
+            "valid": False,
+        }
+        for _ in range(3)
+    ]
+    state = quota_state(runs, manifest)
+    assert state["complete"] is False
+    assert state["failures"] == ["captured_post_run_limit_reached"]

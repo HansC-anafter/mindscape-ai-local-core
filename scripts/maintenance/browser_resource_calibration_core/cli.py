@@ -11,9 +11,13 @@ from typing import Any, Sequence
 
 from .collectors import CalibrationCollector, pool_sample_failures
 from .evidence import JsonlEvidenceWriter, write_immutable_json
-from .http_client import LocalApiClient
-from .parsing import summarize_baseline, summarize_workload_runs
-from .workloads import build_run_sequence, build_start_request, load_workload_manifest
+from .natural_claim_observer import wait_for_natural_claim
+from .parsing import (
+    summarize_baseline,
+    summarize_task_memory_series,
+    summarize_workload_runs,
+)
+from .workloads import load_workload_manifest, quota_state
 
 
 NODE_INTERVAL_SECONDS = 5
@@ -38,6 +42,7 @@ def build_parser() -> argparse.ArgumentParser:
     workload.add_argument("--repetitions", type=int, required=True)
     workload.add_argument("--sequential", action="store_true", required=True)
     workload.add_argument("--max-run-seconds", type=int, default=43200)
+    workload.add_argument("--max-claim-wait-seconds", type=int, default=43200)
     _add_outputs(workload)
     parser.add_argument("--api-base", default="http://127.0.0.1:8200")
     parser.add_argument("--browser-container", action="append")
@@ -62,6 +67,13 @@ def _run_baseline(args: argparse.Namespace) -> int:
     collector = _collector(args)
     if collector.count_running_browser_tasks() != 0:
         raise ValueError("baseline requires zero running browser tasks")
+    initial_node = collector.collect_node()
+    idle_total = int(initial_node["browser_container_working_set_bytes"])
+    if any(
+        int(row.get("memory_peak_bytes") or 0) > idle_total
+        for row in initial_node["browser_cgroups"]
+    ):
+        raise ValueError("baseline requires fresh idle browser cgroups")
     writer = JsonlEvidenceWriter(args.output_jsonl)
     samples: list[dict[str, Any]] = []
     failures: list[str] = []
@@ -97,45 +109,90 @@ def _run_workloads(args: argparse.Namespace) -> int:
         raise ValueError("formal workload calibration requires sequential repetitions=3")
     if args.max_run_seconds <= 0:
         raise ValueError("max run seconds must be positive")
+    if args.max_claim_wait_seconds <= 0:
+        raise ValueError("max claim wait seconds must be positive")
     manifest = load_workload_manifest(args.manifest)
     baseline_path = Path(manifest["baseline_summary_path"])
     baseline_raw = baseline_path.read_bytes()
     baseline = json.loads(baseline_raw)
     if baseline.get("status") != "pass" or int(baseline.get("duration_seconds") or 0) < 1800:
         raise ValueError("workload calibration requires a passing 30-minute baseline")
-    sequence = build_run_sequence(manifest, args.repetitions)
     collector = _collector(args)
-    api = LocalApiClient()
     writer = JsonlEvidenceWriter(args.output_jsonl)
     run_summaries: list[dict[str, Any]] = []
+    outer_failures: list[str] = []
     try:
-        for workload in sequence:
+        while True:
+            quota = quota_state(run_summaries, manifest)
+            if quota["complete"] or quota["failures"]:
+                outer_failures.extend(quota["failures"])
+                break
             if collector.count_running_browser_tasks() != 0:
                 raise ValueError("sequential calibration found another running browser task")
+            prelaunch_node = _wait_for_idle_reset(
+                collector=collector,
+                writer=writer,
+                baseline=baseline,
+                timeout_seconds=args.max_claim_wait_seconds,
+            )
             pool = collector.collect_pool()
             preflight_failures = pool_sample_failures(pool)
             if preflight_failures:
                 raise ValueError(f"pool preflight failed: {preflight_failures}")
-            prelaunch_node = collector.collect_node()
             writer.append(
                 {
-                    "kind": "workload_prelaunch",
-                    "envelope_id": workload["envelope_id"],
-                    "workload_code": workload["workload_code"],
-                    "repetition": workload["repetition"],
+                    "kind": "natural_claim_waiting",
+                    "quota": quota,
                     **prelaunch_node,
                 }
             )
-            url, payload = build_start_request(
-                api_base=args.api_base,
-                workspace_id=manifest["workspace_id"],
-                profile_id=manifest["profile_id"],
-                workload=workload,
+            observer_started_epoch = time.time()
+            print(
+                json.dumps(
+                    {
+                        "state": "waiting_for_natural_claim",
+                        "observer_started_epoch": observer_started_epoch,
+                        "quota": quota,
+                    },
+                    sort_keys=True,
+                ),
+                flush=True,
             )
-            launched = api.request("POST", url, payload=payload)
-            task_id = str(launched.payload.get("execution_id") or "")
-            if launched.status >= 300 or not task_id:
-                raise ValueError("playbook start did not return an execution id")
+            observation = wait_for_natural_claim(
+                collector,
+                observer_started_epoch=observer_started_epoch,
+                timeout_seconds=args.max_claim_wait_seconds,
+            )
+            task = observation["task"]
+            workload = observation["classification"]
+            task_id = str(task.get("id") or "")
+            repetition = 1 + sum(
+                1
+                for row in run_summaries
+                if row.get("envelope_id") == workload.get("envelope_id")
+            )
+            workload = {**workload, "repetition": repetition}
+            writer.append(
+                {
+                    "kind": "natural_claim_observed",
+                    "task": task,
+                    "live_owner": observation["live_owner"],
+                    "classification": workload,
+                }
+            )
+            print(
+                json.dumps(
+                    {
+                        "state": "natural_claim_observed",
+                        "task_id": task_id,
+                        "runner_id": task.get("runner_id"),
+                        "envelope_id": workload.get("envelope_id"),
+                        "classification_failures": workload.get("failures"),
+                    },
+                    sort_keys=True,
+                ),
+                flush=True,
+            )
             run_summary = _observe_run(
                 collector=collector,
                 writer=writer,
@@ -146,15 +203,53 @@ def _run_workloads(args: argparse.Namespace) -> int:
                 max_run_seconds=args.max_run_seconds,
             )
             run_summaries.append(run_summary)
-            if not run_summary["valid"]:
-                break
+            print(
+                json.dumps(
+                    {
+                        "state": "natural_task_terminal",
+                        "task_id": task_id,
+                        "runner_id": task.get("runner_id"),
+                        "envelope_id": workload.get("envelope_id"),
+                        "valid": run_summary["valid"],
+                        "failures": run_summary["failures"],
+                        "next": "restart_idle_runner_then_keep_claims_paused",
+                    },
+                    sort_keys=True,
+                ),
+                flush=True,
+            )
     finally:
         writer.close()
     summary = summarize_workload_runs(run_summaries)
+    summary["failures"] = sorted(set(summary["failures"] + outer_failures))
+    if summary["failures"]:
+        summary["status"] = "blocked"
     summary["run_count"] = len(run_summaries)
     summary["baseline_summary_sha256"] = hashlib.sha256(baseline_raw).hexdigest()
     write_immutable_json(args.summary_json, summary)
     return 0 if summary["status"] == "pass" else 2
+
+
+def _wait_for_idle_reset(
+    *,
+    collector: CalibrationCollector,
+    writer: JsonlEvidenceWriter,
+    baseline: dict[str, Any],
+    timeout_seconds: int,
+) -> dict[str, Any]:
+    deadline = time.monotonic() + int(timeout_seconds)
+    idle_total = int(baseline["browser_idle_peak_bytes"])
+    while time.monotonic() < deadline:
+        node = collector.collect_node()
+        peaks = [
+            int(row.get("memory_peak_bytes") or 0)
+            for row in node["browser_cgroups"]
+        ]
+        if peaks and all(peak <= idle_total for peak in peaks):
+            writer.append({"kind": "idle_cgroup_reset_ready", **node})
+            return node
+        time.sleep(NODE_INTERVAL_SECONDS)
+    raise ValueError("idle browser cgroup reset was not observed")
 
 
 def _observe_run(
@@ -224,18 +319,34 @@ def _observe_run(
         failures.append("runner_cgroup_oom_delta")
     if str(terminal_task.get("status") or "") != "succeeded":
         failures.append("task_not_succeeded")
-    browser_peak = max(
-        int(row["browser_container_working_set_bytes"]) for row in node_samples
-    )
-    task_peak = max(0, browser_peak - int(baseline["browser_idle_peak_bytes"]))
+    failures.extend(str(value) for value in (workload.get("failures") or []))
+    try:
+        memory = summarize_task_memory_series(
+            node_samples,
+            browser_idle_peak_bytes=int(baseline["browser_idle_peak_bytes"]),
+        )
+    except ValueError as exc:
+        failures.append(str(exc))
+        memory = {
+            "startup_peak_bytes": 0,
+            "steady_peak_bytes": 0,
+            "startup_settle_seconds": 0.0,
+            "sample_count": len(node_samples),
+        }
     return {
         "envelope_id": workload["envelope_id"],
         "workload_code": workload["workload_code"],
+        "partition": workload.get("partition"),
         "repetition": workload["repetition"],
         "task_id": task_id,
         "payload_sha256": workload["payload_sha256"],
-        "task_peak_bytes": task_peak,
-        "valid": not failures and task_peak > 0,
+        **memory,
+        "task_peak_bytes": int(memory["startup_peak_bytes"]),
+        "valid": (
+            not failures
+            and int(memory["startup_peak_bytes"]) > 0
+            and int(memory["steady_peak_bytes"]) > 0
+        ),
         "failures": sorted(set(failures)),
         "terminal_task": terminal_task,
     }

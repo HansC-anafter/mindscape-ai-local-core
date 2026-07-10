@@ -1,4 +1,4 @@
-"""Loopback API policy for calibration workload launch and reads."""
+"""Loopback read policy for calibration pool evidence."""
 
 from __future__ import annotations
 
@@ -9,31 +9,7 @@ from dataclasses import dataclass
 from typing import Any
 
 
-APPROVED_WORKLOADS = {
-    "ig_analyze_following",
-    "ig_batch_pin_references",
-    "ig_pin_post_detail",
-}
-APPROVED_ENVELOPES = {
-    "ig_analyze_following": {
-        "workload_code": "ig_analyze_following",
-        "source_mode": None,
-    },
-    "ig_batch_pin_references.browser": {
-        "workload_code": "ig_batch_pin_references",
-        "source_mode": "browser",
-    },
-    "ig_batch_pin_references.captured_posts": {
-        "workload_code": "ig_batch_pin_references",
-        "source_mode": "captured_posts",
-    },
-    "ig_pin_post_detail": {
-        "workload_code": "ig_pin_post_detail",
-        "source_mode": None,
-    },
-}
 _READ_PATHS = {"/healthz", "/api/v1/host-resources/queue-utilization"}
-_WRITE_PATH = "/api/v1/playbooks/execute/start"
 
 
 @dataclass(frozen=True)
@@ -50,15 +26,8 @@ def validate_local_request(method: str, url: str) -> None:
     if parsed.port != 8200:
         raise ValueError("calibration HTTP target must use execution port 8200")
     normalized_method = method.upper()
-    if normalized_method == "GET" and parsed.path in _READ_PATHS:
-        return
-    if normalized_method != "POST" or parsed.path != _WRITE_PATH:
+    if normalized_method != "GET" or parsed.path not in _READ_PATHS:
         raise ValueError("calibration HTTP mutation is forbidden")
-    query = urllib.parse.parse_qs(parsed.query)
-    workload = (query.get("playbook_code") or [""])[0]
-    backend = (query.get("execution_backend") or [""])[0]
-    if workload not in APPROVED_WORKLOADS or backend != "runner":
-        raise ValueError("calibration may launch only approved runner playbooks")
 
 
 class LocalApiClient:

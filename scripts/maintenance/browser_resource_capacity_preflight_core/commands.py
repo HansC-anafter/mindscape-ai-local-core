@@ -69,8 +69,8 @@ def ensure_read_only_command(argv: Sequence[str]) -> None:
         _validate_psql(argv[3:])
     if inner == "redis-cli":
         upper = {part.upper() for part in argv[4:]}
-        if upper.isdisjoint({"GET", "EVAL_RO"}):
-            raise ValueError("redis-cli requires GET or EVAL_RO")
+        if upper.isdisjoint({"GET", "TTL", "EVAL_RO"}):
+            raise ValueError("redis-cli requires GET, TTL, or EVAL_RO")
         if upper.intersection({"DEL", "EVAL", "FLUSHALL", "FLUSHDB", "SET"}):
             raise ValueError("Redis mutation is forbidden")
 

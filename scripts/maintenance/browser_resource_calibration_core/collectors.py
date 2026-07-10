@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 import time
 from typing import Any
@@ -41,6 +42,7 @@ class CalibrationCollector:
         browser_containers: tuple[str, ...],
         backend_container: str = "mindscape-ai-local-core-backend",
         postgres_container: str = "mindscape-ai-local-core-postgres",
+        redis_container: str = "mindscape-ai-local-core-redis",
         command_runner: ReadOnlyCommandRunner | None = None,
         api_client: LocalApiClient | None = None,
         api_base: str = "http://127.0.0.1:8200",
@@ -48,6 +50,7 @@ class CalibrationCollector:
         self.browser_containers = browser_containers
         self.backend_container = backend_container
         self.postgres_container = postgres_container
+        self.redis_container = redis_container
         self.commands = command_runner or ReadOnlyCommandRunner()
         self.api = api_client or LocalApiClient()
         self.api_base = api_base.rstrip("/")
@@ -171,6 +174,57 @@ class CalibrationCollector:
                 ]
             ).strip()
         )
+
+    def list_running_browser_tasks_started_after(
+        self,
+        started_after_epoch: float,
+    ) -> list[dict[str, Any]]:
+        epoch = float(started_after_epoch)
+        if not math.isfinite(epoch) or epoch <= 0:
+            raise ValueError("observer start epoch must be positive and finite")
+        sql = (
+            "SELECT json_build_object("
+            "'id', id, 'workspace_id', workspace_id, 'pack_id', pack_id, "
+            "'status', status, 'queue_shard', queue_shard, "
+            "'concurrency_key', concurrency_key, 'runner_id', runner_id, "
+            "'started_at_epoch', EXTRACT(EPOCH FROM started_at), "
+            "'params', params, 'execution_context', execution_context)::text "
+            "FROM tasks WHERE status='running' AND queue_shard IN "
+            "('browser_local','ig_browser','default_local_browser') "
+            f"AND started_at >= to_timestamp({epoch:.6f}) "
+            "ORDER BY started_at ASC, id ASC;"
+        )
+        raw = self._run(
+            [
+                "docker",
+                "exec",
+                self.postgres_container,
+                "psql",
+                "-U",
+                "mindscape",
+                "-d",
+                "mindscape_core",
+                "-Atc",
+                sql,
+            ]
+        )
+        return [json.loads(line) for line in raw.splitlines() if line.strip()]
+
+    def read_live_owner(self, task_id: str) -> dict[str, Any]:
+        if not _TASK_ID.fullmatch(task_id):
+            raise ValueError("task id must be a UUID")
+        key = f"mindscape:runner_live:task:{task_id}"
+        raw = self._run(
+            ["docker", "exec", self.redis_container, "redis-cli", "--raw", "GET", key]
+        ).strip()
+        ttl_raw = self._run(
+            ["docker", "exec", self.redis_container, "redis-cli", "TTL", key]
+        ).strip()
+        payload = json.loads(raw) if raw else {}
+        if not isinstance(payload, dict):
+            payload = {}
+        payload["ttl_seconds_remaining"] = int(ttl_raw or -2)
+        return payload
 
     def _run(self, argv: list[str]) -> str:
         result = self.commands.run(argv, timeout_seconds=5)
