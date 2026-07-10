@@ -8,6 +8,7 @@ import pytest
 from scripts.maintenance.browser_resource_calibration_core.evidence import evidence_row
 from scripts.maintenance.browser_resource_calibration_core.collectors import (
     CalibrationCollector,
+    parse_pgbouncer_pools,
 )
 from scripts.maintenance.browser_resource_calibration_core.envelope_classifier import (
     classify_task_envelope,
@@ -73,6 +74,53 @@ def test_workload_node_collection_uses_exact_cgroups_without_docker_stats() -> N
     assert sample["browser_container_working_set_bytes"] == 900
     assert sample["non_browser_container_working_set_bytes"] == 0
     assert not any(call[1:3] == ("stats", "--no-stream") for call in commands.calls)
+
+
+def test_pgbouncer_pool_parser_keeps_only_core_vector_wait_gates() -> None:
+    row = "|".join(
+        [
+            "mindscape_core",
+            "mindscape",
+            "4",
+            "0",
+            "0",
+            "0",
+            "0",
+            "0",
+            "0",
+            "3",
+            "1",
+            "0",
+            "0",
+            "0",
+            "0",
+            "transaction",
+            "",
+        ]
+    )
+    ignored = row.replace("mindscape_core", "pgbouncer", 1)
+    pools = parse_pgbouncer_pools(f"{row}\n{ignored}\n")
+    assert pools == [
+        {
+            "database": "mindscape_core",
+            "user": "mindscape",
+            "cl_active": "4",
+            "cl_waiting": "0",
+            "cl_active_cancel_req": "0",
+            "cl_waiting_cancel_req": "0",
+            "sv_active": "0",
+            "sv_active_cancel": "0",
+            "sv_being_canceled": "0",
+            "sv_idle": "3",
+            "sv_used": "1",
+            "sv_tested": "0",
+            "sv_login": "0",
+            "maxwait": "0",
+            "maxwait_us": "0",
+            "pool_mode": "transaction",
+            "load_balance_hosts": "",
+        }
+    ]
 
 
 def test_size_and_node_sample_formulas() -> None:

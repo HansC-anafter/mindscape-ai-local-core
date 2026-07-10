@@ -43,20 +43,42 @@ repeat
 until cursor == '0'
 return result
 """.strip()
-_PGBOUNCER_CODE = """
-import json
-import psycopg2
-from backend.app.runner.db_pool_pressure import get_pgbouncer_admin_url
-conn = psycopg2.connect(get_pgbouncer_admin_url(required=True), connect_timeout=5)
-conn.autocommit = True
-cur = conn.cursor()
-cur.execute('SHOW POOLS')
-columns = [item[0] for item in cur.description]
-rows = [dict(zip(columns, row)) for row in cur.fetchall()]
-cur.close()
-conn.close()
-print(json.dumps({'pools': [row for row in rows if row.get('database') in {'mindscape_core', 'mindscape_vectors'}]}, default=str))
-""".strip()
+_PGBOUNCER_COLUMNS = (
+    "database",
+    "user",
+    "cl_active",
+    "cl_waiting",
+    "cl_active_cancel_req",
+    "cl_waiting_cancel_req",
+    "sv_active",
+    "sv_active_cancel",
+    "sv_being_canceled",
+    "sv_idle",
+    "sv_used",
+    "sv_tested",
+    "sv_login",
+    "maxwait",
+    "maxwait_us",
+    "pool_mode",
+    "load_balance_hosts",
+)
+_PGBOUNCER_ADMIN_URL = (
+    "postgresql://mindscape:mindscape_password@127.0.0.1:6432/pgbouncer"
+)
+
+
+def parse_pgbouncer_pools(raw: str) -> list[dict[str, Any]]:
+    pools: list[dict[str, Any]] = []
+    for line in raw.splitlines():
+        if not line.strip():
+            continue
+        values = line.split("|")
+        if len(values) != len(_PGBOUNCER_COLUMNS):
+            raise ValueError("pgbouncer pool column count mismatch")
+        row = dict(zip(_PGBOUNCER_COLUMNS, values))
+        if row["database"] in {"mindscape_core", "mindscape_vectors"}:
+            pools.append(row)
+    return pools
 
 
 class CalibrationCollector:
@@ -68,6 +90,7 @@ class CalibrationCollector:
         browser_containers: tuple[str, ...],
         backend_container: str = "mindscape-ai-local-core-backend",
         postgres_container: str = "mindscape-ai-local-core-postgres",
+        pgbouncer_container: str = "mindscape-ai-local-core-pgbouncer",
         redis_container: str = "mindscape-ai-local-core-redis",
         command_runner: ReadOnlyCommandRunner | None = None,
         api_client: LocalApiClient | None = None,
@@ -76,6 +99,7 @@ class CalibrationCollector:
         self.browser_containers = browser_containers
         self.backend_container = backend_container
         self.postgres_container = postgres_container
+        self.pgbouncer_container = pgbouncer_container
         self.redis_container = redis_container
         self.commands = command_runner or ReadOnlyCommandRunner()
         self.api = api_client or LocalApiClient()
@@ -170,22 +194,30 @@ class CalibrationCollector:
                 "mindscape_core",
                 "-Atc",
                 "SELECT pg_is_in_recovery(), current_setting('transaction_read_only');",
-            ]
+            ],
+            timeout_seconds=15,
         ).strip()
-        pgbouncer = json.loads(
-            self._run(
-                ["docker", "exec", self.backend_container, "python", "-c", _PGBOUNCER_CODE]
-            )
+        pgbouncer_raw = self._run(
+            [
+                "docker",
+                "exec",
+                self.pgbouncer_container,
+                "psql",
+                _PGBOUNCER_ADMIN_URL,
+                "-w",
+                "-Atc",
+                "SHOW POOLS",
+            ],
+            timeout_seconds=15,
         )
         host = self.api.request(
             "GET",
             f"{self.api_base}/api/v1/host-resources/summary?allow_stale=true",
         )
-        pools = pgbouncer.get("pools") if isinstance(pgbouncer, dict) else []
         return {
             "captured_at_epoch": time.time(),
             "postgres": postgres_raw,
-            "pgbouncer_pools": pools if isinstance(pools, list) else [],
+            "pgbouncer_pools": parse_pgbouncer_pools(pgbouncer_raw),
             "host_resources_status": host.status,
             "host_resources_elapsed_seconds": host.elapsed_seconds,
         }
