@@ -4,7 +4,6 @@ import asyncio
 import logging
 import os
 
-from backend.app.services.mindscape_store import MindscapeStore
 from backend.app.services.runner_topology import (
     DEFAULT_LOCAL_QUEUE_PARTITION,
     resolve_runner_capacity_snapshot,
@@ -19,6 +18,10 @@ from backend.app.runner.resource_pressure import (
     build_runner_resource_snapshot,
     is_browser_resource_profile,
     should_defer_browser_claim,
+)
+from backend.app.runner.maintenance_leader import (
+    resolve_maintenance_lease_seconds,
+    try_hold_maintenance_leadership,
 )
 from backend.app.runner.utils import _env_int
 from backend.app.runner.worker_claim_policy import (
@@ -85,7 +88,6 @@ async def run_forever() -> None:
         configured_poll_batch_limit=configured_poll_batch_limit,
     )
 
-    store = MindscapeStore()
     tasks_store = TasksStore()
     if not runner_profile.enabled:
         logger.warning(
@@ -105,6 +107,10 @@ async def run_forever() -> None:
     ready_targets = _split_ready_target(
         _env_int("LOCAL_CORE_RUNNER_READY_TARGET", 64),
         list(ready_queues.keys()),
+    )
+    reap_interval_seconds = _env_int("LOCAL_CORE_RUNNER_REAP_INTERVAL_SECONDS", 60)
+    maintenance_lease_seconds = resolve_maintenance_lease_seconds(
+        reap_interval_seconds
     )
 
     logger.info(
@@ -128,11 +134,18 @@ async def run_forever() -> None:
 
     claim_gate_paused, startup_claim_gate = _runner_claim_gate_paused()
     startup_db_pressure = DbPoolPressureDecision.open(reason="startup_not_checked")
+    startup_maintenance_leader = False
     if not claim_gate_paused:
-        startup_db_pressure = await check_db_pool_pressure(
+        startup_maintenance_leader = await try_hold_maintenance_leadership(
             redis_queue,
-            owner_id=f"{runner_id}:startup",
+            runner_id=runner_id,
+            ttl_seconds=maintenance_lease_seconds,
         )
+        if startup_maintenance_leader:
+            startup_db_pressure = await check_db_pool_pressure(
+                redis_queue,
+                owner_id=f"{runner_id}:startup",
+            )
     startup_reconcile_enabled = _runner_startup_reconcile_enabled()
     if not startup_reconcile_enabled:
         logger.info(
@@ -146,6 +159,12 @@ async def run_forever() -> None:
             runner_profile.profile_code,
             startup_claim_gate.get("reason"),
             startup_claim_gate.get("source"),
+        )
+    elif not startup_maintenance_leader:
+        logger.info(
+            "Runner startup reconciliation skipped because another runner owns "
+            "maintenance leadership profile=%s",
+            runner_profile.profile_code,
         )
     elif startup_db_pressure.paused:
         logger.warning(
@@ -170,7 +189,6 @@ async def run_forever() -> None:
         await _cleanup_stale_locks(redis_queue, runner_id, tasks_store)
 
     inflight: set[asyncio.Task] = set()
-    reap_interval_seconds = _env_int("LOCAL_CORE_RUNNER_REAP_INTERVAL_SECONDS", 60)
     dep_checker = DependencyChecker(cache_ttl=5.0)
     is_browser_runner = is_browser_resource_profile(runner_profile)
     next_resource_defer_log_at = 0.0
@@ -199,6 +217,7 @@ async def run_forever() -> None:
             ready_queues=ready_queues,
             ready_targets=ready_targets,
             queue_cycle=queue_cycle,
+            maintenance_lease_seconds=maintenance_lease_seconds,
         ),
         name="runner-startup-maintenance-kick",
     )
@@ -212,6 +231,7 @@ async def run_forever() -> None:
             ready_targets=ready_targets,
             queue_cycle=queue_cycle,
             reap_interval_seconds=reap_interval_seconds,
+            maintenance_lease_seconds=maintenance_lease_seconds,
         )
     )
     logger.info(

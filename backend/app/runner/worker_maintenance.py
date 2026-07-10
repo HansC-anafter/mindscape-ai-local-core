@@ -13,6 +13,10 @@ from backend.app.services.host_resources.queue_utilization import (
 from backend.app.runner.concurrency import _resolve_lock_keys
 from backend.app.runner.database_backoff import RunnerDatabaseRecoveryBackoff
 from backend.app.runner.db_pool_pressure import check_db_pool_pressure
+from backend.app.runner.maintenance_leader import (
+    resolve_maintenance_lease_seconds,
+    try_hold_maintenance_leadership,
+)
 from backend.app.runner.reaper import (
     _request_watchdog_abort_for_no_progress_tasks,
     _reap_stale_running_tasks,
@@ -135,6 +139,7 @@ async def _run_maintenance_cycle(
     ready_queues: dict[str, RedisRunnerQueueStore],
     ready_targets: dict[str, int],
     queue_cycle: list[RedisRunnerQueueStore],
+    maintenance_lease_seconds: int = 180,
 ) -> bool:
     """Keep the ready frontier warm even when the dequeue loop is idle."""
     claim_gate_paused, claim_gate = _facade_attr("_runner_claim_gate_paused", _runner_claim_gate_paused)()
@@ -143,6 +148,19 @@ async def _run_maintenance_cycle(
             "Runner maintenance skipped while claim gate is paused reason=%s source=%s",
             claim_gate.get("reason"),
             claim_gate.get("source"),
+        )
+        return False
+
+    is_leader = await try_hold_maintenance_leadership(
+        redis_queue,
+        runner_id=runner_id,
+        ttl_seconds=maintenance_lease_seconds,
+    )
+    if not is_leader:
+        logger.debug(
+            "Runner maintenance skipped because another runner owns leadership "
+            "runner_id=%s",
+            runner_id,
         )
         return False
 
@@ -199,7 +217,11 @@ async def _maintenance_loop(
     ready_targets: dict[str, int],
     queue_cycle: list[RedisRunnerQueueStore],
     reap_interval_seconds: int,
+    maintenance_lease_seconds: int | None = None,
 ) -> None:
+    maintenance_lease_seconds = maintenance_lease_seconds or (
+        resolve_maintenance_lease_seconds(reap_interval_seconds)
+    )
     db_recovery_backoff = RunnerDatabaseRecoveryBackoff(
         delay_seconds=_env_int("LOCAL_CORE_RUNNER_DB_RECOVERY_BACKOFF_SECONDS", 30)
     )
@@ -212,6 +234,7 @@ async def _maintenance_loop(
                 ready_queues=ready_queues,
                 ready_targets=ready_targets,
                 queue_cycle=queue_cycle,
+                maintenance_lease_seconds=maintenance_lease_seconds,
             )
             if not maintenance_ran:
                 await asyncio.sleep(reap_interval_seconds)

@@ -4,10 +4,8 @@ import asyncio
 import logging
 import os
 
-from backend.app.services.mindscape_store import MindscapeStore
 from backend.app.services.runner_topology import runner_profile_can_claim_task
 from backend.app.services.stores.redis.runner_queue_store import RedisRunnerQueueStore
-from backend.app.services.stores.tasks_store import TasksStore
 
 from backend.app.runner.utils import _utc_now, _parse_utc_iso, _env_int
 from backend.app.runner.concurrency import (
@@ -141,18 +139,6 @@ async def _repair_misqueued_task_if_needed(
 def main() -> None:
     logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
     _initialize_capability_packages_for_runner()
-    try:
-        store = MindscapeStore()
-        tasks_store = TasksStore()
-        rid = _runner_id()
-        _reap_stale_running_tasks(
-            tasks_store,
-            runner_id=rid,
-            redis_queue=RedisRunnerQueueStore(),
-        )
-
-    except Exception:
-        pass
     asyncio.run(run_forever())
 
 

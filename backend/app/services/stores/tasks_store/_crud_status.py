@@ -101,7 +101,14 @@ class TasksStoreStatusUpdateMixin:
             updates.append("completed_at = :completed_at")
             params["completed_at"] = completed_at
 
+        status_transition_changed = False
         with self.transaction() as conn:
+            lock_clause = (
+                " FOR UPDATE"
+                if getattr(getattr(conn, "dialect", None), "name", "")
+                == "postgresql"
+                else ""
+            )
             existing_row = conn.execute(
                 text(
                     """
@@ -117,6 +124,7 @@ class TasksStoreStatusUpdateMixin:
                     FROM tasks
                     WHERE id = :task_id
                     """
+                    + lock_clause
                 ),
                 {"task_id": task_id},
             ).fetchone()
@@ -127,35 +135,38 @@ class TasksStoreStatusUpdateMixin:
                     if hasattr(existing_row, "_mapping")
                     else existing_row[0]
                 )
+            status_transition_changed = existing_status != status.value
             query = text(f"UPDATE tasks SET {', '.join(updates)} WHERE id = :task_id")
             result_row = conn.execute(query, params)
             if result_row.rowcount == 0:
                 raise StoreNotFoundError(f"Task not found: {task_id}")
 
-            # Sync playbook_executions status (best effort)
-            try:
-                row = conn.execute(
-                    text(
-                        "SELECT execution_id, execution_context FROM tasks WHERE id = :task_id"
-                    ),
-                    {"task_id": task_id},
-                ).fetchone()
-                if row:
-                    execution_id = (
-                        row._mapping["execution_id"]
-                        if hasattr(row, "_mapping")
-                        else row[0]
-                    )
-                    execution_context = self.deserialize_json(
-                        row._mapping["execution_context"]
-                        if hasattr(row, "_mapping")
-                        else row[1]
-                    )
-                    self._sync_playbook_execution_status(
-                        conn, execution_id, status, execution_context
-                    )
-            except Exception:
-                pass
+            # Sync playbook_executions status only for a real transition.
+            if status_transition_changed:
+                try:
+                    row = conn.execute(
+                        text(
+                            "SELECT execution_id, execution_context "
+                            "FROM tasks WHERE id = :task_id"
+                        ),
+                        {"task_id": task_id},
+                    ).fetchone()
+                    if row:
+                        execution_id = (
+                            row._mapping["execution_id"]
+                            if hasattr(row, "_mapping")
+                            else row[0]
+                        )
+                        execution_context = self.deserialize_json(
+                            row._mapping["execution_context"]
+                            if hasattr(row, "_mapping")
+                            else row[1]
+                        )
+                        self._sync_playbook_execution_status(
+                            conn, execution_id, status, execution_context
+                        )
+                except Exception:
+                    pass
 
             control_row = conn.execute(
                 text(
@@ -167,7 +178,7 @@ class TasksStoreStatusUpdateMixin:
                 ),
                 {"task_id": task_id},
             ).fetchone()
-            if control_row:
+            if control_row and status_transition_changed:
                 mapping = (
                     control_row._mapping
                     if hasattr(control_row, "_mapping")
@@ -224,13 +235,15 @@ class TasksStoreStatusUpdateMixin:
                     ),
                     occurred_at=event_time,
                 )
+            if control_row:
                 self._refresh_task_projection(conn, task_id)
 
             logger.info("Updated task %s status to %s", task_id, status.value)
-            updated_task = self.get_task(task_id)
 
+        updated_task = self.get_task(task_id)
         sync_meeting_command_from_task_safely(updated_task)
         # Activity stream: push terminal status change
-        _publish_terminal_event(task_id, status.value, updated_task)
+        if status_transition_changed:
+            _publish_terminal_event(task_id, status.value, updated_task)
 
         return updated_task

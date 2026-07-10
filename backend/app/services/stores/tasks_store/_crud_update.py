@@ -98,7 +98,14 @@ class TasksStoreUpdateMixin:
         if not updates:
             return self.get_task(task_id)
 
+        status_transition_changed = False
         with self.transaction() as conn:
+            lock_clause = (
+                " FOR UPDATE"
+                if getattr(getattr(conn, "dialect", None), "name", "")
+                == "postgresql"
+                else ""
+            )
             existing_row = conn.execute(
                 text(
                     """
@@ -114,6 +121,7 @@ class TasksStoreUpdateMixin:
                     FROM tasks
                     WHERE id = :task_id
                     """
+                    + lock_clause
                 ),
                 {"task_id": task_id},
             ).fetchone()
@@ -127,6 +135,16 @@ class TasksStoreUpdateMixin:
                     existing_mapping["status"]
                     if existing_mapping is not None
                     else existing_row[0]
+                )
+            requested_status = kwargs.get("status")
+            if requested_status is not None:
+                requested_status_raw = (
+                    requested_status.value
+                    if hasattr(requested_status, "value")
+                    else str(requested_status)
+                )
+                status_transition_changed = (
+                    existing_status != requested_status_raw
                 )
             if execution_context is not None and existing_row:
                 explicit_update_keys = set(kwargs.keys())
@@ -219,7 +237,7 @@ class TasksStoreUpdateMixin:
             # Sync playbook_executions status when task status is set.
             try:
                 status_val = kwargs.get("status")
-                if status_val is not None:
+                if status_val is not None and status_transition_changed:
                     status_obj = coerce_task_status_enum(status_val)
                     row = conn.execute(
                         text("SELECT execution_id FROM tasks WHERE id = :task_id"),
@@ -252,7 +270,7 @@ class TasksStoreUpdateMixin:
                 project_id is not None
                 or bool(projection_keys.intersection(kwargs.keys()))
             )
-            if status_val is not None:
+            if status_val is not None and status_transition_changed:
                 status_raw = (
                     status_val.value if hasattr(status_val, "value") else str(status_val)
                 )
@@ -339,13 +357,13 @@ class TasksStoreUpdateMixin:
                 self._refresh_task_projection(conn, task_id)
 
             logger.debug("Updated task %s", task_id)
-            updated_task = self.get_task(task_id) if return_updated else None
 
+        updated_task = self.get_task(task_id) if return_updated else None
         if updated_task is not None:
             sync_meeting_command_from_task_safely(updated_task)
         # Activity stream: push terminal status change
         status_val = kwargs.get("status")
-        if status_val is not None:
+        if status_val is not None and status_transition_changed:
             raw = status_val.value if hasattr(status_val, "value") else str(status_val)
             _publish_terminal_event(task_id, raw, updated_task)
 
