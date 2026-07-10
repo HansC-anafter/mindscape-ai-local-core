@@ -14,6 +14,7 @@ from .evidence import JsonlEvidenceWriter, write_immutable_json
 from .natural_claim_observer import wait_for_natural_claim
 from .parsing import (
     summarize_baseline,
+    summarize_node_cadence,
     summarize_task_memory_series,
     summarize_workload_runs,
 )
@@ -78,6 +79,7 @@ def _run_baseline(args: argparse.Namespace) -> int:
     samples: list[dict[str, Any]] = []
     failures: list[str] = []
     started = time.monotonic()
+    next_node_started_at = started
     next_pool = started
     try:
         while time.monotonic() - started < args.duration_seconds:
@@ -93,10 +95,16 @@ def _run_baseline(args: argparse.Namespace) -> int:
                 if collector.count_running_browser_tasks() != 0:
                     failures.append("browser_task_started_during_baseline")
                 next_pool = now + POOL_INTERVAL_SECONDS
-            time.sleep(max(0.0, NODE_INTERVAL_SECONDS - (time.monotonic() - now)))
+            next_node_started_at = max(
+                next_node_started_at + NODE_INTERVAL_SECONDS,
+                time.monotonic(),
+            )
+            time.sleep(max(0.0, next_node_started_at - time.monotonic()))
     finally:
         writer.close()
     summary = summarize_baseline(samples, duration_seconds=args.duration_seconds)
+    if summary["node_cadence"]["status"] != "pass":
+        failures.append(str(summary["node_cadence"]["failure"]))
     summary["failures"] = sorted(set(failures))
     if failures:
         summary["status"] = "blocked"
@@ -263,6 +271,7 @@ def _observe_run(
     max_run_seconds: int,
 ) -> dict[str, Any]:
     started = time.monotonic()
+    next_node_started_at = started
     next_pool = started
     node_samples: list[dict[str, Any]] = []
     failures: list[str] = []
@@ -311,7 +320,11 @@ def _observe_run(
             if status in TERMINAL_STATUSES or blocked in PRESERVED_BLOCKS:
                 break
             next_pool = now + POOL_INTERVAL_SECONDS
-        time.sleep(max(0.0, NODE_INTERVAL_SECONDS - (time.monotonic() - now)))
+        next_node_started_at = max(
+            next_node_started_at + NODE_INTERVAL_SECONDS,
+            time.monotonic(),
+        )
+        time.sleep(max(0.0, next_node_started_at - time.monotonic()))
     else:
         failures.append("run_timeout")
 
@@ -333,6 +346,9 @@ def _observe_run(
             "startup_settle_seconds": 0.0,
             "sample_count": len(node_samples),
         }
+    cadence = summarize_node_cadence(node_samples)
+    if cadence["status"] != "pass":
+        failures.append(str(cadence["failure"]))
     return {
         "envelope_id": workload["envelope_id"],
         "workload_code": workload["workload_code"],
@@ -341,6 +357,7 @@ def _observe_run(
         "task_id": task_id,
         "payload_sha256": workload["payload_sha256"],
         **memory,
+        "node_cadence": cadence,
         "task_peak_bytes": int(memory["startup_peak_bytes"]),
         "valid": (
             not failures

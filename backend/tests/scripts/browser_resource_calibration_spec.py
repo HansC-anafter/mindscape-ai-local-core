@@ -21,6 +21,7 @@ from scripts.maintenance.browser_resource_calibration_core.parsing import (
     parse_size_bytes,
     round_request_bytes,
     summarize_baseline,
+    summarize_node_cadence,
     summarize_task_memory_series,
     summarize_workload_runs,
 )
@@ -56,12 +57,14 @@ def test_size_and_node_sample_formulas() -> None:
 def test_baseline_and_workload_summary_use_maxima_and_rounding() -> None:
     samples = [
         {
+            "captured_at_epoch": 0,
             "vm_overhead_bytes": 10,
             "non_browser_container_working_set_bytes": 20,
             "browser_container_working_set_bytes": 30,
             "mem_available_bytes": 100,
         },
         {
+            "captured_at_epoch": 5,
             "vm_overhead_bytes": 11,
             "non_browser_container_working_set_bytes": 19,
             "browser_container_working_set_bytes": 31,
@@ -72,6 +75,7 @@ def test_baseline_and_workload_summary_use_maxima_and_rounding() -> None:
     assert baseline["vm_overhead_peak_bytes"] == 11
     assert baseline["non_browser_peak_bytes"] == 20
     assert baseline["browser_idle_peak_bytes"] == 31
+    assert baseline["node_cadence"]["status"] == "pass"
     assert round_request_bytes(65 * 1024 * 1024) == 128 * 1024 * 1024
 
     runs = [
@@ -203,6 +207,17 @@ def test_task_memory_series_derives_startup_steady_and_settle() -> None:
     assert summary["startup_peak_bytes"] == 400
     assert summary["steady_peak_bytes"] == 160
     assert summary["startup_settle_seconds"] == 15
+
+
+def test_node_cadence_rejects_collect_then_sleep_drift() -> None:
+    passing = summarize_node_cadence(
+        [{"captured_at_epoch": value} for value in (0, 5, 10.5, 15.5)]
+    )
+    blocked = summarize_node_cadence(
+        [{"captured_at_epoch": value} for value in (0, 7, 14, 21)]
+    )
+    assert passing["status"] == "pass"
+    assert blocked["failure"] == "node_cadence_violation"
 
 
 def test_natural_claim_selection_and_live_owner_are_exact() -> None:

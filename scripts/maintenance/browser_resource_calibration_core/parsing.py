@@ -6,6 +6,7 @@ import json
 import hashlib
 import math
 import re
+import statistics
 from typing import Any
 
 from scripts.maintenance.browser_resource_capacity_preflight_core.collectors import (
@@ -94,6 +95,7 @@ def summarize_baseline(
         for sample in samples
         for cgroup in (sample.get("browser_cgroups") or [])
     ]
+    cadence = summarize_node_cadence(samples)
     return {
         "status": "pass",
         "duration_seconds": int(duration_seconds),
@@ -112,6 +114,7 @@ def summarize_baseline(
         "mem_available_min_bytes": min(
             int(row["mem_available_bytes"]) for row in samples
         ),
+        "node_cadence": cadence,
     }
 
 
@@ -125,6 +128,27 @@ def round_spacing_seconds(value: float) -> int:
     if value < 0:
         raise ValueError("startup spacing cannot be negative")
     return int(math.ceil(float(value) / 5.0) * 5)
+
+
+def summarize_node_cadence(samples: list[dict[str, Any]]) -> dict[str, Any]:
+    if len(samples) < 2:
+        return {
+            "status": "blocked",
+            "failure": "node_cadence_requires_two_samples",
+            "interval_count": 0,
+        }
+    ordered = sorted(float(row["captured_at_epoch"]) for row in samples)
+    intervals = [right - left for left, right in zip(ordered, ordered[1:])]
+    median_seconds = float(statistics.median(intervals))
+    max_seconds = float(max(intervals))
+    passed = 4.0 <= median_seconds <= 6.0 and max_seconds <= 10.0
+    return {
+        "status": "pass" if passed else "blocked",
+        "failure": None if passed else "node_cadence_violation",
+        "interval_count": len(intervals),
+        "median_seconds": median_seconds,
+        "max_seconds": max_seconds,
+    }
 
 
 def summarize_task_memory_series(
@@ -235,6 +259,7 @@ __all__ = [
     "round_request_bytes",
     "round_spacing_seconds",
     "summarize_baseline",
+    "summarize_node_cadence",
     "summarize_task_memory_series",
     "summarize_workload_runs",
 ]
