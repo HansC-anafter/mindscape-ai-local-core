@@ -65,6 +65,7 @@ _PGBOUNCER_COLUMNS = (
 _PGBOUNCER_ADMIN_URL = (
     "postgresql://mindscape:mindscape_password@127.0.0.1:6432/pgbouncer"
 )
+_CGROUP_SNAPSHOT_TIMEOUT_SECONDS = 8
 _CGROUP_SNAPSHOT_CODE = r"""
 import json
 from pathlib import Path
@@ -189,7 +190,8 @@ class CalibrationCollector:
                             "python",
                             "-c",
                             _CGROUP_SNAPSHOT_CODE,
-                        ]
+                        ],
+                        timeout_seconds=_CGROUP_SNAPSHOT_TIMEOUT_SECONDS,
                     )
                 )
                 current = int(snapshot["memory_current_bytes"])

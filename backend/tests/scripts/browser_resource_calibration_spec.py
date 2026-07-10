@@ -47,9 +47,11 @@ def test_workload_node_collection_uses_exact_cgroups_without_docker_stats() -> N
     class Commands:
         def __init__(self):
             self.calls = []
+            self.timeouts = []
 
         def run(self, argv, *, timeout_seconds=5):
             self.calls.append(tuple(argv))
+            self.timeouts.append((tuple(argv), timeout_seconds))
             if argv[3] == "python":
                 output = json.dumps(
                     {
@@ -82,6 +84,11 @@ def test_workload_node_collection_uses_exact_cgroups_without_docker_stats() -> N
     assert sample["non_browser_container_working_set_bytes"] == 0
     assert sum(call[1] == "exec" for call in commands.calls) == 2
     assert not any(call[1:3] == ("stats", "--no-stream") for call in commands.calls)
+    assert [
+        timeout
+        for call, timeout in commands.timeouts
+        if call[3] == "python"
+    ] == [8]
 
 
 def test_pgbouncer_pool_parser_keeps_only_core_vector_wait_gates() -> None:
