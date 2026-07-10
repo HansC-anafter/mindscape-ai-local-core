@@ -2,17 +2,26 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
-import os
 import time
-from dataclasses import asdict, dataclass
-from typing import Any, Mapping, Protocol
+from dataclasses import asdict
+from typing import Any
 
-from .node_memory import read_node_memory_snapshot
+from .node_budget_contract import (
+    NODE_BUDGET_CONTEXT_KEY,
+    NODE_BUDGET_ID,
+    NodeBudgetAcquireResult,
+    NodeBudgetPolicy,
+    NodeBudgetReservation,
+    NodeBudgetStore,
+    current_node_memory_snapshot,
+    reservation_from_context,
+    resolve_browser_request_bytes,
+    resolve_node_budget_policy,
+    resource_profile_fingerprint,
+)
+from .node_budget_test_store import InMemoryNodeBudgetStore
 
-NODE_BUDGET_CONTEXT_KEY = "runner_node_budget_reservation"
-NODE_BUDGET_ID = "docker_vm_browser_memory"
 _KEY_PREFIX = "mindscape:runner_resources:node_budget:v1"
 
 _ACQUIRE_LUA = r"""
@@ -157,173 +166,6 @@ redis.call('ZREM', expiries_key, owner)
 redis.call('SET', total_key, total)
 return 1
 """
-
-
-@dataclass(frozen=True)
-class NodeBudgetPolicy:
-    mode: str
-    total_bytes: int
-    vm_overhead_peak_bytes: int
-    non_browser_peak_bytes: int
-    allocatable_bytes: int
-    fingerprint: str
-
-
-@dataclass(frozen=True)
-class NodeBudgetReservation:
-    owner_id: str
-    bytes: int
-    revision: int
-    expires_at_epoch: float
-    policy_fingerprint: str
-    resource_profile_fingerprint: str
-    allocatable_bytes: int
-    policy_mode: str
-
-    def to_context(self) -> dict[str, Any]:
-        return asdict(self)
-
-
-@dataclass(frozen=True)
-class NodeBudgetAcquireResult:
-    allow: bool
-    reason: str | None
-    reservation: NodeBudgetReservation | None
-    reserved_bytes: int
-    request_bytes: int
-    policy: NodeBudgetPolicy
-
-
-class NodeBudgetStore(Protocol):
-    async def acquire(
-        self,
-        *,
-        owner_id: str,
-        request_bytes: int,
-        policy: NodeBudgetPolicy,
-        profile_fingerprint: str,
-        ttl_seconds: int,
-    ) -> NodeBudgetAcquireResult: ...
-
-    async def renew(
-        self,
-        reservation: NodeBudgetReservation,
-        *,
-        ttl_seconds: int,
-    ) -> bool: ...
-
-    async def release(self, reservation: NodeBudgetReservation) -> bool: ...
-
-    async def snapshot(self) -> dict[str, Any]: ...
-
-
-def _env_mb(name: str, source: Mapping[str, str]) -> int | None:
-    raw = source.get(name)
-    if raw is None or str(raw).strip() == "":
-        return None
-    try:
-        value = int(str(raw).strip())
-    except (TypeError, ValueError):
-        return None
-    return value if value >= 0 else None
-
-
-def _fingerprint(payload: Mapping[str, Any]) -> str:
-    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
-    return hashlib.sha256(encoded).hexdigest()
-
-
-def resource_profile_fingerprint(requirements: Any, request_bytes: int) -> str:
-    payload = (
-        requirements.to_dict()
-        if hasattr(requirements, "to_dict")
-        else dict(requirements or {})
-    )
-    payload["resolved_request_bytes"] = int(request_bytes)
-    return _fingerprint(payload)
-
-
-def resolve_node_budget_policy(
-    node_snapshot: Mapping[str, Any],
-    *,
-    environ: Mapping[str, str] | None = None,
-) -> NodeBudgetPolicy | None:
-    source = environ if environ is not None else os.environ
-    try:
-        total_bytes = int(node_snapshot.get("total_bytes") or 0)
-        cgroup_limit_bytes = int(node_snapshot.get("cgroup_limit_bytes") or 0)
-    except (TypeError, ValueError):
-        return None
-    if total_bytes <= 0:
-        return None
-
-    overhead_mb = _env_mb("LOCAL_CORE_RUNNER_NODE_VM_OVERHEAD_PEAK_MB", source)
-    non_browser_mb = _env_mb(
-        "LOCAL_CORE_RUNNER_NODE_NON_BROWSER_PEAK_MB",
-        source,
-    )
-    if overhead_mb is not None and non_browser_mb is not None:
-        mode = "calibrated"
-        overhead_bytes = overhead_mb * 1024 * 1024
-        non_browser_bytes = non_browser_mb * 1024 * 1024
-    elif 0 < cgroup_limit_bytes <= total_bytes:
-        mode = "bootstrap_full_cgroup"
-        overhead_bytes = total_bytes - cgroup_limit_bytes
-        non_browser_bytes = 0
-    else:
-        return None
-
-    allocatable = max(0, total_bytes - overhead_bytes - non_browser_bytes)
-    payload = {
-        "mode": mode,
-        "total_bytes": total_bytes,
-        "vm_overhead_peak_bytes": overhead_bytes,
-        "non_browser_peak_bytes": non_browser_bytes,
-        "allocatable_bytes": allocatable,
-    }
-    return NodeBudgetPolicy(**payload, fingerprint=_fingerprint(payload))
-
-
-def resolve_browser_request_bytes(
-    requirements: Any,
-    node_snapshot: Mapping[str, Any],
-) -> tuple[int, str] | None:
-    try:
-        explicit_mb = int(getattr(requirements, "memory_mb", 0) or 0)
-    except (TypeError, ValueError):
-        explicit_mb = 0
-    if explicit_mb > 0:
-        return explicit_mb * 1024 * 1024, "playbook_profile"
-    try:
-        cgroup_limit = int(node_snapshot.get("cgroup_limit_bytes") or 0)
-    except (TypeError, ValueError):
-        cgroup_limit = 0
-    if cgroup_limit > 0:
-        return cgroup_limit, "container_limit_fallback"
-    return None
-
-
-def reservation_from_context(
-    context: Mapping[str, Any] | None,
-) -> NodeBudgetReservation | None:
-    if not isinstance(context, Mapping):
-        return None
-    raw = context.get(NODE_BUDGET_CONTEXT_KEY)
-    if not isinstance(raw, Mapping):
-        return None
-    try:
-        return NodeBudgetReservation(
-            owner_id=str(raw["owner_id"]),
-            bytes=int(raw["bytes"]),
-            revision=int(raw["revision"]),
-            expires_at_epoch=float(raw["expires_at_epoch"]),
-            policy_fingerprint=str(raw["policy_fingerprint"]),
-            resource_profile_fingerprint=str(raw["resource_profile_fingerprint"]),
-            allocatable_bytes=int(raw["allocatable_bytes"]),
-            policy_mode=str(raw["policy_mode"]),
-        )
-    except (KeyError, TypeError, ValueError):
-        return None
 
 
 class RedisNodeBudgetStore:
@@ -520,138 +362,3 @@ class RedisNodeBudgetStore:
             "policy_fingerprint": policy.get("fingerprint"),
             "reservations": reservations,
         }
-
-
-class InMemoryNodeBudgetStore:
-    def __init__(self, *, now_epoch: float = 0.0):
-        self.now_epoch = float(now_epoch)
-        self.revision = 0
-        self.reservations: dict[str, NodeBudgetReservation] = {}
-        self.policy: NodeBudgetPolicy | None = None
-
-    def advance(self, seconds: float) -> None:
-        self.now_epoch += max(0.0, float(seconds))
-
-    def _purge(self) -> None:
-        self.reservations = {
-            owner: reservation
-            for owner, reservation in self.reservations.items()
-            if reservation.expires_at_epoch > self.now_epoch
-        }
-
-    async def acquire(
-        self,
-        *,
-        owner_id: str,
-        request_bytes: int,
-        policy: NodeBudgetPolicy,
-        profile_fingerprint: str,
-        ttl_seconds: int,
-    ) -> NodeBudgetAcquireResult:
-        self._purge()
-        self.policy = policy
-        existing = self.reservations.get(owner_id)
-        reserved = sum(item.bytes for item in self.reservations.values())
-        if existing:
-            if (
-                existing.bytes != request_bytes
-                or existing.policy_fingerprint != policy.fingerprint
-                or existing.resource_profile_fingerprint != profile_fingerprint
-            ):
-                return NodeBudgetAcquireResult(
-                    False,
-                    "node_budget_owner_conflict",
-                    None,
-                    reserved,
-                    request_bytes,
-                    policy,
-                )
-            refreshed = NodeBudgetReservation(
-                **{
-                    **asdict(existing),
-                    "expires_at_epoch": self.now_epoch + max(1, int(ttl_seconds)),
-                }
-            )
-            self.reservations[owner_id] = refreshed
-            return NodeBudgetAcquireResult(
-                True, None, refreshed, reserved, request_bytes, policy
-            )
-        if request_bytes <= 0 or reserved + request_bytes > policy.allocatable_bytes:
-            return NodeBudgetAcquireResult(
-                False,
-                "node_budget_exhausted",
-                None,
-                reserved,
-                request_bytes,
-                policy,
-            )
-        self.revision += 1
-        reservation = NodeBudgetReservation(
-            owner_id=owner_id,
-            bytes=request_bytes,
-            revision=self.revision,
-            expires_at_epoch=self.now_epoch + max(1, int(ttl_seconds)),
-            policy_fingerprint=policy.fingerprint,
-            resource_profile_fingerprint=profile_fingerprint,
-            allocatable_bytes=policy.allocatable_bytes,
-            policy_mode=policy.mode,
-        )
-        self.reservations[owner_id] = reservation
-        return NodeBudgetAcquireResult(
-            True,
-            None,
-            reservation,
-            reserved + request_bytes,
-            request_bytes,
-            policy,
-        )
-
-    async def renew(
-        self,
-        reservation: NodeBudgetReservation,
-        *,
-        ttl_seconds: int,
-    ) -> bool:
-        self._purge()
-        current = self.reservations.get(reservation.owner_id)
-        if not current or current.revision != reservation.revision:
-            return False
-        self.reservations[reservation.owner_id] = NodeBudgetReservation(
-            **{
-                **asdict(current),
-                "expires_at_epoch": self.now_epoch + max(1, int(ttl_seconds)),
-            }
-        )
-        return True
-
-    async def release(self, reservation: NodeBudgetReservation) -> bool:
-        self._purge()
-        current = self.reservations.get(reservation.owner_id)
-        if not current or current.revision != reservation.revision:
-            return False
-        self.reservations.pop(reservation.owner_id, None)
-        return True
-
-    async def snapshot(self) -> dict[str, Any]:
-        self._purge()
-        reservations = [item.to_context() for item in self.reservations.values()]
-        policy = self.policy
-        return {
-            "available": True,
-            "budget_id": NODE_BUDGET_ID,
-            "reserved_bytes": sum(item["bytes"] for item in reservations),
-            "active_reservations": len(reservations),
-            "revision": self.revision,
-            "allocatable_bytes": (
-                policy.allocatable_bytes if policy is not None else None
-            ),
-            "policy_mode": policy.mode if policy is not None else None,
-            "policy_fingerprint": (
-                policy.fingerprint if policy is not None else None
-            ),
-            "reservations": reservations,
-        }
-
-
-def current_node_memory_snapshot() -> dict[str, Any]:
-    return read_node_memory_snapshot()
