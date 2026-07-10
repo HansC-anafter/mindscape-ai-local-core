@@ -127,12 +127,23 @@ async def test_response_builder_summary_uses_compact_query(monkeypatch):
         "get_latest_queue_utilization_snapshot_with_resource_lanes",
         _latest,
     )
+    async def _node_budget():
+        return [{"budget_id": "docker_vm_browser_memory", "available": True}]
+
+    monkeypatch.setattr(
+        queue_utilization_response,
+        "get_node_budget_projection",
+        _node_budget,
+    )
 
     response = await queue_utilization_response.build_queue_utilization_response(
         view="summary",
     )
 
     assert response["view"] == "summary"
+    assert response["node_budgets"] == [
+        {"budget_id": "docker_vm_browser_memory", "available": True}
+    ]
     assert received == {
         "include_backlog_breakdowns": False,
         "include_active_route_lanes": False,

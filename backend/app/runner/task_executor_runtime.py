@@ -8,7 +8,10 @@ from typing import Any, Awaitable, Callable, Optional
 
 from backend.app.models.workspace import TaskStatus
 from backend.app.services.runner_live_state import RunnerLiveStateStore
-from backend.app.services.runner_resources import resource_lease_keys_from_context
+from backend.app.services.runner_resources import (
+    reservation_from_context,
+    resource_lease_keys_from_context,
+)
 from backend.app.services.stores.redis.runner_queue_store import RedisRunnerQueueStore
 from backend.app.services.stores.tasks_store import TasksStore
 
@@ -83,9 +86,11 @@ async def _run_single_task_impl(
         persisted_concurrency_key=getattr(task, "concurrency_key", None),
     )
     resource_lease_keys = resource_lease_keys_from_context(ctx)
+    node_budget_reservation = reservation_from_context(ctx)
     lock_owner_id = lock_owner_id or runner_id
     lock_ttl_seconds = _env_int("LOCAL_CORE_RUNNER_LOCK_TTL_SECONDS", 120)
     stop_event = threading.Event()
+    ownership_lost_event = threading.Event()
     hb_thread: Optional[threading.Thread] = None
     lock_renew_thread = None
     proc = None
@@ -95,6 +100,7 @@ async def _run_single_task_impl(
     timeout_task = None
     task_finalized = False
     task_timeout_seconds = _env_int("LOCAL_CORE_RUNNER_TASK_TIMEOUT_SECONDS", 3600)
+    resource_baseline = None
 
     try:
         ctx2 = dict(ctx)
@@ -136,6 +142,7 @@ async def _run_single_task_impl(
                 redis_queue,
                 resource_lease_keys,
                 lock_owner_id,
+                node_budget_reservation,
             )
         return
 
@@ -200,6 +207,8 @@ async def _run_single_task_impl(
         redis_queue=redis_queue,
         lock_keys=lock_keys,
         resource_lease_keys=resource_lease_keys,
+        node_budget_reservation=node_budget_reservation,
+        ownership_lost_event=ownership_lost_event,
         lock_owner_id=lock_owner_id,
         lock_ttl_seconds=lock_ttl_seconds,
         heartbeat_interval_ms=hb_interval_ms,
@@ -219,6 +228,11 @@ async def _run_single_task_impl(
 
         async def _wait_for_control_signal() -> Optional[dict[str, str]]:
             while True:
+                if ownership_lost_event.is_set():
+                    return {
+                        "kind": "resource_ownership_lost",
+                        "message": "Runner resource reservation ownership was lost",
+                    }
                 try:
                     latest = await asyncio_mod.to_thread(tasks_store.get_task, task.id)
                     signal = hooks.get_task_control_signal(latest)
@@ -237,6 +251,7 @@ async def _run_single_task_impl(
             resolved_profile_id=resolved_profile_id,
             result_file=result_file,
         )
+        resource_baseline = hooks.build_resource_failure_snapshot(inflight=1)
         proc = start_child_process(
             ctx_mp=ctx_mp,
             target=hooks.child_execute_playbook,
@@ -307,14 +322,21 @@ async def _run_single_task_impl(
             await ignore_cancelled(timeout_task)
             exitcode = await exec_task
             await finalize_process_exit(
-                hooks, tasks_store, task, runner_id, result_file, redis_queue, exitcode
+                hooks,
+                tasks_store,
+                task,
+                runner_id,
+                result_file,
+                redis_queue,
+                exitcode,
+                resource_baseline,
             )
             task_finalized = True
     finally:
         if proc and proc.is_alive() and not task_finalized:
             await wait_for_late_subprocess(
                 hooks, tasks_store, task, runner_id, result_file, redis_queue,
-                proc, task_timeout_seconds,
+                proc, task_timeout_seconds, resource_baseline,
             )
         try:
             if result_file and os.path.exists(result_file):
@@ -348,4 +370,5 @@ async def _run_single_task_impl(
             redis_queue,
             resource_lease_keys,
             lock_owner_id,
+            node_budget_reservation,
         )

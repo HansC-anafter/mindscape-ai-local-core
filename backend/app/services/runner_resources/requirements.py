@@ -12,10 +12,12 @@ DURATION_CLASSES = ("short", "medium", "long")
 
 @dataclass(frozen=True)
 class ResourceRequirements:
+    resource_class: Optional[str] = None
     browser_contexts: int = 0
     ig_profile_lock: Optional[str] = None
     cpu_weight: int = 1
     memory_mb: int = 0
+    memory_reservation_source: Optional[str] = None
     vision_lane: Optional[str] = None
     llm_lane: Optional[str] = None
     db_write_budget: str = "low"
@@ -165,6 +167,27 @@ def _context_execution_profile_requirements(context: Mapping[str, Any]) -> dict[
     return _as_mapping(execution_profile.get("resource_requirements"))
 
 
+def _execution_profile_resource_class(
+    metadata: Mapping[str, Any],
+    context: Mapping[str, Any],
+) -> Optional[str]:
+    for raw_value in (
+        context.get("resource_class"),
+        metadata.get("resource_class"),
+    ):
+        token = _optional_token(raw_value)
+        if token:
+            return token.lower()
+    for raw_profile in (
+        _as_mapping(context.get("execution_profile")),
+        _as_mapping(metadata.get("execution_profile")),
+    ):
+        token = _optional_token(raw_profile.get("resource_class"))
+        if token:
+            return token.lower()
+    return None
+
+
 def resolve_resource_requirements(
     task: Any,
     *,
@@ -185,13 +208,18 @@ def resolve_resource_requirements(
     metadata = _as_mapping(playbook_metadata)
 
     resolved = ResourceRequirements()
-    for source in (
+    sources = (
         _as_mapping(pack_defaults) or _as_mapping(context.get("pack_resource_defaults")),
         _metadata_resource_requirements(metadata),
         _context_execution_profile_requirements(context),
         _as_mapping(context.get("resource_requirements"))
         or _as_mapping(context.get("runner_resource_requirements")),
-    ):
+    )
+    browser_contexts_declared = any(
+        "browser_contexts" in source for source in sources if source
+    )
+    memory_declared = any("memory_mb" in source for source in sources if source)
+    for source in sources:
         if source:
             resolved = _coerce_requirements(
                 source,
@@ -199,4 +227,16 @@ def resolve_resource_requirements(
                 context=context,
                 inputs=inputs,
             )
+    resource_class = _execution_profile_resource_class(metadata, context)
+    data = resolved.to_dict()
+    data["resource_class"] = resource_class
+    if (
+        resource_class == "browser"
+        and not browser_contexts_declared
+        and resolved.browser_contexts == 0
+    ):
+        data["browser_contexts"] = 1
+    if memory_declared and resolved.memory_mb > 0:
+        data["memory_reservation_source"] = "playbook_profile"
+    resolved = ResourceRequirements(**data)
     return resolved

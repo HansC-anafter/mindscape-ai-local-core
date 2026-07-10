@@ -1,6 +1,6 @@
 version: 1
 registry_id: mindscape.product-semantic-surfaces.local-core
-updated_at: "2026-06-21"
+updated_at: "2026-07-10"
 owner_review_handle: "@team-leads"
 
 declaration:
@@ -180,6 +180,32 @@ surfaces:
       - device-node/src/**
       - web-console/src/components/workspace/device-binding/**
       - web-console/src/lib/media-transport/**
+
+  - id: psc.local-core.runner-browser-resource-governance.v1
+    tier: P0
+    owner: "@team-leads"
+    contract_doc: mindscape-ai-cloud/docs/internal/local-core/product-semantics/docker-browser-resource-governance-contract-2026-07-10.zh-TW.md
+    requires_product_semantic_declaration: true
+    semantics:
+      - Browser task admission preserves unfinished task state while deriving VM concurrency from atomic byte reservations rather than a fixed global task count.
+      - OOM correlation requires a failing child plus a cgroup v2 oom_kill or oom_group_kill counter delta; a plain SIGKILL remains unclassified.
+      - Resource-blocked tasks remain cold and non-runnable until one explicit control action observes a changed node-policy or resource-profile fingerprint.
+    path_globs:
+      - backend/app/runner/cgroup_memory_events.py
+      - backend/app/runner/resource_failure_policy.py
+      - backend/app/runner/resource_pressure.py
+      - backend/app/runner/task_executor_*.py
+      - backend/app/runner/worker_dispatch.py
+      - backend/app/runner/worker_startup.py
+      - backend/app/services/runner_resources/**
+      - backend/app/services/host_resources/node_budget_projection.py
+      - backend/app/services/host_resources/queue_utilization_response.py
+      - backend/app/services/stores/tasks_store/_crud_update.py
+      - backend/app/routes/core/workspace/tasks_core/control_routes.py
+      - backend/tests/runner*cgroup*memory*events*
+      - backend/tests/runner*resource*
+      - backend/tests/runner/task_executor_resource_ownership_spec.py
+      - docker-compose.yml
 
   - id: psc.local-core.semantic-governance-tooling.v1
     tier: P0

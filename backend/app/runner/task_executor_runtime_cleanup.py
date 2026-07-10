@@ -1,6 +1,7 @@
 """Task executor process finalization helpers."""
 
 import logging
+import os
 import time
 from typing import Any, Optional
 
@@ -9,6 +10,38 @@ from backend.app.services.stores.redis.runner_queue_store import RedisRunnerQueu
 from backend.app.services.stores.tasks_store import TasksStore
 
 logger = logging.getLogger(__name__)
+
+
+def _ownership_loss_termination_seconds() -> int:
+    try:
+        value = int(
+            os.getenv(
+                "LOCAL_CORE_RUNNER_OWNERSHIP_LOSS_TERMINATION_SECONDS",
+                "10",
+            )
+        )
+    except (TypeError, ValueError):
+        value = 10
+    return max(1, min(value, 60))
+
+
+async def _wait_for_ownership_loss_termination(hooks: Any, proc: Any) -> None:
+    """Bound child lifetime before the task is recorded as ownership-blocked."""
+    if not proc:
+        return
+    try:
+        await hooks.asyncio_module.to_thread(
+            proc.join,
+            timeout=_ownership_loss_termination_seconds(),
+        )
+        if proc.is_alive():
+            proc.kill()
+            await hooks.asyncio_module.to_thread(proc.join, timeout=1.0)
+    except Exception:
+        logger.warning(
+            "Failed while fencing child after runner ownership loss",
+            exc_info=True,
+        )
 
 
 async def ignore_cancelled(task: Any) -> None:
@@ -54,6 +87,17 @@ async def handle_control_signal(
     signal_kind = signal.get("kind")
     if signal_kind == "cancelled":
         await finalize_cancelled_task(hooks, tasks_store, latest, task, runner_id, redis_queue)
+    elif signal_kind == "resource_ownership_lost":
+        await _wait_for_ownership_loss_termination(hooks, proc)
+        msg = signal.get("message") or "Runner resource reservation ownership was lost"
+        await hooks.mark_task_failed(
+            tasks_store,
+            task.id,
+            runner_id,
+            msg,
+            redis_queue,
+            resource_pressure_source="resource_ownership_lost",
+        )
     elif latest and latest.status in (TaskStatus.FAILED, TaskStatus.EXPIRED):
         hooks.emit_run_state_changed_for_task(
             latest,
@@ -114,18 +158,23 @@ async def finalize_process_exit(
     result_file: Optional[str],
     redis_queue: Optional[RedisRunnerQueueStore],
     exitcode: int,
+    resource_baseline: Optional[dict[str, Any]] = None,
 ) -> None:
     if exitcode != 0:
         msg = hooks.build_subprocess_failure_message(result_file, exitcode)
         from backend.app.runner.resource_pressure import classify_subprocess_resource_failure
         from backend.app.runner.resource_pressure import resource_failure_retry_delay_seconds
 
-        resource_source = classify_subprocess_resource_failure(exitcode, msg)
-        resource_snapshot = None
+        resource_snapshot = hooks.build_resource_failure_snapshot(inflight=1)
+        resource_source = classify_subprocess_resource_failure(
+            exitcode,
+            msg,
+            before_snapshot=resource_baseline,
+            after_snapshot=resource_snapshot,
+        )
         retry_delay_sec = 15
         if resource_source:
             retry_delay_sec = resource_failure_retry_delay_seconds()
-            resource_snapshot = hooks.build_resource_failure_snapshot(inflight=1)
         await hooks.mark_task_failed(
             tasks_store,
             task.id,
@@ -149,6 +198,7 @@ async def wait_for_late_subprocess(
     redis_queue: Optional[RedisRunnerQueueStore],
     proc: Any,
     task_timeout_seconds: int,
+    resource_baseline: Optional[dict[str, Any]] = None,
 ) -> None:
     logger.warning(
         "Runner orchestration reached cleanup before subprocess exit; "
@@ -167,7 +217,14 @@ async def wait_for_late_subprocess(
             if exitcode is None:
                 exitcode = -1
             await finalize_process_exit(
-                hooks, tasks_store, task, runner_id, result_file, redis_queue, int(exitcode)
+                hooks,
+                tasks_store,
+                task,
+                runner_id,
+                result_file,
+                redis_queue,
+                int(exitcode),
+                resource_baseline,
             )
     except BaseException:
         logger.exception("Runner cleanup wait failed for task %s", task.id)

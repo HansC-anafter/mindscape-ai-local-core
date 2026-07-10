@@ -350,3 +350,44 @@ class TasksStoreUpdateMixin:
             _publish_terminal_event(task_id, raw, updated_task)
 
         return updated_task
+
+    def try_resume_resource_block(
+        self,
+        task_id: str,
+        *,
+        expected_blocked_reason: str,
+        execution_context: Dict[str, Any],
+        resumed_at: datetime,
+    ) -> bool:
+        """Atomically move one still-blocked task back to the runnable frontier."""
+        serialized_context = self.serialize_json(
+            apply_task_payload_budget("execution_context", execution_context)
+        )
+        with self.transaction() as conn:
+            result = conn.execute(
+                text(
+                    """
+                    UPDATE tasks
+                    SET execution_context = :execution_context,
+                        blocked_reason = NULL,
+                        blocked_payload = NULL,
+                        next_eligible_at = :resumed_at,
+                        frontier_state = 'ready',
+                        frontier_enqueued_at = :resumed_at,
+                        runner_id = NULL,
+                        heartbeat_at = NULL
+                    WHERE id = :task_id
+                      AND status = :pending_status
+                      AND frontier_state = 'cold'
+                      AND blocked_reason = :expected_blocked_reason
+                    """
+                ),
+                {
+                    "task_id": task_id,
+                    "pending_status": TaskStatus.PENDING.value,
+                    "expected_blocked_reason": expected_blocked_reason,
+                    "execution_context": serialized_context,
+                    "resumed_at": resumed_at,
+                },
+            )
+            return result.rowcount == 1

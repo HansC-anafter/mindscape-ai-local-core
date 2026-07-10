@@ -79,3 +79,24 @@ def test_extracts_resource_requirements_from_playbook_execution_profile():
         "browser_contexts": 1,
         "ig_profile_lock": "{profile_id}",
     }
+
+
+def test_browser_resource_class_defaults_one_context_and_tracks_memory_source():
+    task = SimpleNamespace(
+        id="task-browser",
+        pack_id="ig_batch_pin_references",
+        execution_context={"inputs": {}},
+    )
+
+    requirements = resolve_resource_requirements(
+        task,
+        playbook_metadata={
+            "resource_class": "browser",
+            "resource_requirements": {"memory_mb": 3584},
+        },
+    )
+
+    assert requirements.resource_class == "browser"
+    assert requirements.browser_contexts == 1
+    assert requirements.memory_mb == 3584
+    assert requirements.memory_reservation_source == "playbook_profile"

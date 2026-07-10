@@ -7,9 +7,10 @@ from datetime import datetime, timezone
 from backend.app.models.workspace import TaskStatus
 from backend.app.services.runner_resources import (
     RedisResourceLeaseStore,
+    RedisNodeBudgetStore,
     acquire_task_resource_admission,
     build_resource_wait_task_update,
-    release_acquired_resource_leases,
+    release_acquired_resource_admission,
     resolve_resource_requirements,
 )
 from backend.app.services.runner_topology import (
@@ -52,6 +53,7 @@ async def _dispatch_claimed_task(
 ) -> asyncio.Task | None:
     lock_owner_id = f"{runner_id}:{task_id}"
     resource_lease_store = None
+    node_budget_store = None
     resource_decision = None
 
     try:
@@ -217,12 +219,14 @@ async def _dispatch_claimed_task(
             playbook_metadata=playbook_metadata,
         )
         resource_lease_store = RedisResourceLeaseStore(task_queue)
+        node_budget_store = RedisNodeBudgetStore(task_queue)
         resource_decision = await acquire_task_resource_admission(
             task=t_data,
             requirements=resource_requirements,
             runner_profile=runner_profile,
             capacity=capacity,
             lease_store=resource_lease_store,
+            node_budget_store=node_budget_store,
             owner_id=lock_owner_id,
             ttl_seconds=lock_ttl_seconds,
         )
@@ -266,9 +270,10 @@ async def _dispatch_claimed_task(
             )
             if db_conflict:
                 if resource_lease_store and resource_decision:
-                    await release_acquired_resource_leases(
-                        resource_lease_store,
-                        resource_decision.acquired_leases,
+                    await release_acquired_resource_admission(
+                        lease_store=resource_lease_store,
+                        node_budget_store=node_budget_store,
+                        decision=resource_decision,
                         owner_id=lock_owner_id,
                     )
                 parked_update = _build_parked_task_update(
@@ -307,9 +312,10 @@ async def _dispatch_claimed_task(
                     except Exception:
                         pass
                 if resource_lease_store and resource_decision:
-                    await release_acquired_resource_leases(
-                        resource_lease_store,
-                        resource_decision.acquired_leases,
+                    await release_acquired_resource_admission(
+                        lease_store=resource_lease_store,
+                        node_budget_store=node_budget_store,
+                        decision=resource_decision,
                         owner_id=lock_owner_id,
                     )
                 parked_update = _build_parked_task_update(
@@ -354,9 +360,10 @@ async def _dispatch_claimed_task(
                 except Exception:
                     pass
             if resource_lease_store and resource_decision:
-                await release_acquired_resource_leases(
-                    resource_lease_store,
-                    resource_decision.acquired_leases,
+                await release_acquired_resource_admission(
+                    lease_store=resource_lease_store,
+                    node_budget_store=node_budget_store,
+                    decision=resource_decision,
                     owner_id=lock_owner_id,
                 )
             if not db_conflict:
@@ -457,9 +464,10 @@ async def _dispatch_claimed_task(
             )
         if resource_lease_store and resource_decision:
             try:
-                await release_acquired_resource_leases(
-                    resource_lease_store,
-                    resource_decision.acquired_leases,
+                await release_acquired_resource_admission(
+                    lease_store=resource_lease_store,
+                    node_budget_store=node_budget_store,
+                    decision=resource_decision,
                     owner_id=lock_owner_id,
                 )
             except Exception:

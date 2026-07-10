@@ -7,6 +7,8 @@ from typing import Any, Optional
 
 from backend.app.services.runner_live_state import RunnerLiveStateStore
 from backend.app.services.runner_resources import (
+    NodeBudgetReservation,
+    RedisNodeBudgetStore,
     RedisResourceLeaseStore,
     renew_resource_lease_keys,
 )
@@ -170,15 +172,24 @@ def start_lease_renew_thread(
     redis_queue: Optional[RedisRunnerQueueStore],
     lock_keys: list[str],
     resource_lease_keys: list[str],
+    node_budget_reservation: Optional[NodeBudgetReservation],
+    ownership_lost_event: Event,
     lock_owner_id: str,
     lock_ttl_seconds: int,
     heartbeat_interval_ms: int,
 ) -> Optional[Thread]:
-    if not redis_queue or not (lock_keys or resource_lease_keys):
+    if not redis_queue or not (
+        lock_keys or resource_lease_keys or node_budget_reservation
+    ):
         return None
 
     resource_lease_store = (
         RedisResourceLeaseStore(redis_queue) if resource_lease_keys else None
+    )
+    node_budget_store = (
+        RedisNodeBudgetStore(redis_queue)
+        if node_budget_reservation is not None
+        else None
     )
 
     def _renew_thread() -> None:
@@ -203,6 +214,8 @@ def start_lease_renew_thread(
                             held_key,
                             lock_owner_id,
                         )
+                        ownership_lost_event.set()
+                        return
                 if resource_lease_store and resource_lease_keys:
                     fut = asyncio_module.run_coroutine_threadsafe(
                         renew_resource_lease_keys(
@@ -213,8 +226,37 @@ def start_lease_renew_thread(
                         ),
                         main_loop,
                     )
-                    fut.result(timeout=10)
+                    renew_ok = fut.result(timeout=10)
+                    if not renew_ok:
+                        logger.warning(
+                            "Runner resource lease renew returned false task_id=%s playbook=%s owner_id=%s",
+                            task.id,
+                            task.pack_id,
+                            lock_owner_id,
+                        )
+                        ownership_lost_event.set()
+                        return
+                if node_budget_store and node_budget_reservation is not None:
+                    fut = asyncio_module.run_coroutine_threadsafe(
+                        node_budget_store.renew(
+                            node_budget_reservation,
+                            ttl_seconds=lock_ttl_seconds,
+                        ),
+                        main_loop,
+                    )
+                    renew_ok = fut.result(timeout=10)
+                    if not renew_ok:
+                        logger.warning(
+                            "Runner node budget renew returned false task_id=%s playbook=%s owner_id=%s revision=%s",
+                            task.id,
+                            task.pack_id,
+                            lock_owner_id,
+                            node_budget_reservation.revision,
+                        )
+                        ownership_lost_event.set()
+                        return
             except Exception as e:
+                ownership_lost_event.set()
                 logger.warning(
                     "Runner lease renew failed task_id=%s playbook=%s owner_id=%s: %s",
                     task.id,
@@ -223,6 +265,7 @@ def start_lease_renew_thread(
                     e,
                     exc_info=True,
                 )
+                return
             stop_event.wait(interval_s)
 
     lock_renew_thread = Thread(target=_renew_thread, daemon=True)

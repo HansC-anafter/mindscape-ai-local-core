@@ -4,6 +4,8 @@ from typing import Dict, Optional
 
 from backend.app.models.workspace import Task, TaskStatus
 from backend.app.services.runner_resources import (
+    NodeBudgetReservation,
+    RedisNodeBudgetStore,
     RedisResourceLeaseStore,
     release_resource_lease_keys,
 )
@@ -31,15 +33,21 @@ async def _release_task_resource_leases(
     redis_queue: Optional[RedisRunnerQueueStore],
     resource_lease_keys: list[str],
     lock_owner_id: str,
+    node_budget_reservation: Optional[NodeBudgetReservation] = None,
 ) -> None:
-    if not redis_queue or not resource_lease_keys:
+    if not redis_queue or not (resource_lease_keys or node_budget_reservation):
         return
     try:
-        await release_resource_lease_keys(
-            RedisResourceLeaseStore(redis_queue),
-            resource_lease_keys,
-            owner_id=lock_owner_id,
-        )
+        if resource_lease_keys:
+            await release_resource_lease_keys(
+                RedisResourceLeaseStore(redis_queue),
+                resource_lease_keys,
+                owner_id=lock_owner_id,
+            )
+        if node_budget_reservation is not None:
+            await RedisNodeBudgetStore(redis_queue).release(
+                node_budget_reservation
+            )
     except Exception:
         pass
 

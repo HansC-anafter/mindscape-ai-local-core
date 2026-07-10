@@ -16,6 +16,8 @@ from backend.app.services.stores.tasks_store import TasksStore
 
 from backend.app.runner.lifecycle_hooks import _invoke_on_fail_hook
 from backend.app.runner.resource_pressure import build_runner_resource_snapshot
+from backend.app.runner.resource_failure_policy import decide_resource_failure
+from backend.app.services.runner_resources import NODE_BUDGET_CONTEXT_KEY
 from backend.app.runner.utils import _env_int, _utc_now
 
 logger = logging.getLogger(__name__)
@@ -28,9 +30,11 @@ _TERMINAL_SUCCESS_STALE_KEYS = (
     "resource_pressure_source",
     "resource_retry_delay_sec",
     "resource_snapshot",
+    "resource_block",
     "resource_admission",
     "resume_after",
     "runner_resource_leases",
+    NODE_BUDGET_CONTEXT_KEY,
     "runner_reaper",
     "runner_skip_conflict_lock_key",
     "runner_skip_lock_key",
@@ -89,15 +93,32 @@ async def _mark_task_failed(
                 else {}
             )
             ctxf = dict(ctxf)
-            resource_wait = bool(resource_pressure_source)
-            if resource_wait:
+            admission_context = (
+                dict(ctxf.get("resource_admission") or {})
+                if isinstance(ctxf.get("resource_admission"), dict)
+                else {}
+            )
+            resource_decision = decide_resource_failure(
+                resource_pressure_source,
+                resource_contract_available=bool(
+                    admission_context.get("node_policy_fingerprint")
+                    and admission_context.get("resource_profile_fingerprint")
+                ),
+            )
+            resource_wait = resource_decision.action == "resource_wait"
+            resource_block = resource_decision.action == "resource_block"
+            if resource_wait or resource_block:
                 retry_count = int(ctxf.get("retry_count", 0) or 0)
-                ctxf["resource_wait_count"] = int(ctxf.get("resource_wait_count", 0) or 0) + 1
+                counter_key = (
+                    "resource_wait_count" if resource_wait else "resource_block_count"
+                )
+                ctxf[counter_key] = int(ctxf.get(counter_key, 0) or 0) + 1
             else:
                 retry_count = int(ctxf.get("retry_count", 0) or 0) + 1
                 ctxf["retry_count"] = retry_count
             ctxf.pop("resource_admission", None)
             ctxf.pop("runner_resource_leases", None)
+            ctxf.pop(NODE_BUDGET_CONTEXT_KEY, None)
             ctxf["error"] = msg
             ctxf["failed_at"] = _utc_now().isoformat()
             if resource_pressure_source:
@@ -108,7 +129,7 @@ async def _mark_task_failed(
                     ctxf["resource_snapshot"] = resource_snapshot
 
             non_retryable = is_non_retryable_task_error(msg)
-            is_deadletter = False if resource_wait else (
+            is_deadletter = False if (resource_wait or resource_block) else (
                 non_retryable or retry_count >= max_attempts
             )
             if non_retryable:
@@ -121,7 +142,7 @@ async def _mark_task_failed(
             ctxf.pop("heartbeat_at", None)
 
             hook_invoked = False
-            if not resource_wait:
+            if not resource_wait and not resource_block:
                 try:
                     hook_invoked = await _invoke_on_fail_hook(ctxf, msg, latest.id)
                 except Exception as hook_err:
@@ -142,6 +163,38 @@ async def _mark_task_failed(
                 if is_deadletter
                 else _utc_now() + timedelta(seconds=retry_delay_sec)
             )
+            blocked_reason = None
+            blocked_payload = None
+            if resource_block:
+                blocked_reason = resource_decision.blocked_reason
+                next_eligible_at = _utc_now()
+                resource_block_payload = {
+                    "reason": blocked_reason,
+                    "source": resource_pressure_source,
+                    "blocked_at": _utc_now().isoformat(),
+                    "node_policy_fingerprint": admission_context.get(
+                        "node_policy_fingerprint"
+                    ),
+                    "resource_profile_fingerprint": admission_context.get(
+                        "resource_profile_fingerprint"
+                    ),
+                    "requested_memory_bytes": admission_context.get(
+                        "requested_memory_bytes"
+                    ),
+                    "memory_reservation_source": admission_context.get(
+                        "memory_reservation_source"
+                    ),
+                    "resource_snapshot": resource_snapshot,
+                }
+                ctxf["resource_block"] = resource_block_payload
+                ctxf["status"] = "blocked_resource"
+                blocked_payload = resource_block_payload
+            elif resource_wait:
+                blocked_reason = "resource_wait"
+                blocked_payload = {
+                    "reason": resource_pressure_source,
+                    "defer_until": next_eligible_at.isoformat(),
+                }
 
             tasks_store.update_task(
                 latest.id,
@@ -149,8 +202,8 @@ async def _mark_task_failed(
                 status=new_status,
                 started_at=getattr(latest, "started_at", None) if is_deadletter else None,
                 next_eligible_at=next_eligible_at,
-                blocked_reason=None,
-                blocked_payload=None,
+                blocked_reason=blocked_reason,
+                blocked_payload=blocked_payload,
                 frontier_state="done" if is_deadletter else "cold",
                 frontier_enqueued_at=None,
                 completed_at=_utc_now() if is_deadletter else None,
@@ -171,6 +224,13 @@ async def _mark_task_failed(
                 if is_deadletter:
                     logger.warning(f"Task {task_id} reached max_attempts ({max_attempts}). Sending to Deadletter.")
                     await redis_queue.move_to_deadletter(task_id)
+                    await redis_queue.ack_task(task_id)
+                elif resource_block:
+                    logger.warning(
+                        "Task %s preserved in resource block reason=%s; ACKing current queue item without delayed/deadletter enqueue.",
+                        task_id,
+                        blocked_reason,
+                    )
                     await redis_queue.ack_task(task_id)
                 elif resource_wait:
                     logger.warning(

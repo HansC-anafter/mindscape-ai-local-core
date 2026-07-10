@@ -4,12 +4,15 @@ from types import SimpleNamespace
 import pytest
 
 from backend.app.services.runner_resources import (
+    InMemoryNodeBudgetStore,
     InMemoryResourceLeaseStore,
     ResourceRequirements,
     acquire_task_resource_admission,
     build_resource_wait_task_update,
     release_acquired_resource_leases,
 )
+
+MIB = 1024 * 1024
 
 
 def _capacity(available_slots: int):
@@ -181,3 +184,78 @@ async def test_host_resource_advisor_blocks_declared_memory_pressure(monkeypatch
     assert decision.blocked_payload["host_advisor"]["blocking_consumers"] == [
         "mlx:qwen9b_4bit_vision"
     ]
+
+
+@pytest.mark.asyncio
+async def test_browser_admission_uses_vm_bytes_and_not_host_advisor(monkeypatch):
+    from backend.app import services as _services  # noqa: F401
+    import backend.app.services.host_resources as host_resources
+
+    monkeypatch.setattr(
+        host_resources,
+        "evaluate_runner_requirements",
+        lambda _requirements: (_ for _ in ()).throw(
+            AssertionError("browser path must not use physical-host advisor")
+        ),
+    )
+    monkeypatch.setenv("LOCAL_CORE_RUNNER_NODE_VM_OVERHEAD_PEAK_MB", "1024")
+    monkeypatch.setenv("LOCAL_CORE_RUNNER_NODE_NON_BROWSER_PEAK_MB", "1024")
+    snapshot = {
+        "total_bytes": 10 * 1024 * MIB,
+        "available_bytes": 8 * 1024 * MIB,
+        "cgroup_limit_bytes": 6 * 1024 * MIB,
+    }
+    store = InMemoryNodeBudgetStore()
+    requirements = ResourceRequirements(
+        resource_class="browser",
+        browser_contexts=1,
+        memory_mb=3072,
+        memory_reservation_source="playbook_profile",
+    )
+
+    decisions = []
+    for index in range(3):
+        decisions.append(
+            await acquire_task_resource_admission(
+                task=_task(f"task-{index}"),
+                requirements=requirements,
+                runner_profile=_profile(),
+                capacity=_capacity(3),
+                lease_store=InMemoryResourceLeaseStore(),
+                node_budget_store=store,
+                node_memory_snapshot=snapshot,
+                owner_id=f"runner-{index}:task-{index}",
+                ttl_seconds=30,
+            )
+        )
+
+    assert [item.allow for item in decisions] == [True, True, False]
+    assert decisions[-1].blocked_payload["reason"] == "node_budget_exhausted"
+
+
+@pytest.mark.asyncio
+async def test_browser_hard_guard_requires_current_memavailable():
+    store = InMemoryNodeBudgetStore()
+    decision = await acquire_task_resource_admission(
+        task=_task("task-low-headroom"),
+        requirements=ResourceRequirements(
+            resource_class="browser",
+            browser_contexts=1,
+            memory_mb=4096,
+        ),
+        runner_profile=_profile(),
+        capacity=_capacity(3),
+        lease_store=InMemoryResourceLeaseStore(),
+        node_budget_store=store,
+        node_memory_snapshot={
+            "total_bytes": 16 * 1024 * MIB,
+            "available_bytes": 3 * 1024 * MIB,
+            "cgroup_limit_bytes": 6 * 1024 * MIB,
+        },
+        owner_id="runner-a:task-low-headroom",
+        ttl_seconds=30,
+    )
+
+    assert decision.allow is False
+    assert decision.blocked_payload["reason"] == "node_memory_headroom_unavailable"
+    assert (await store.snapshot())["active_reservations"] == 0

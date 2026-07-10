@@ -17,6 +17,11 @@ from backend.app.runner.resource_pressure_cpu import (
     read_cpu_counters,
     reset_cpu_samples_for_tests,
 )
+from backend.app.runner.cgroup_memory_events import (
+    has_oom_kill_delta,
+    memory_event_delta,
+    read_cgroup_memory_events,
+)
 
 _BROWSER_RESOURCE_CLASS = "browser"
 _COOLDOWN_UNTIL_EPOCH = 0.0
@@ -230,6 +235,7 @@ def build_runner_resource_snapshot(
             now_epoch=now,
             counters=cpu_counters,
         ),
+        "memory_events": read_cgroup_memory_events(cgroup_root),
     }
     snapshot["admission"] = evaluate_browser_resource_pressure(
         snapshot,
@@ -377,9 +383,18 @@ def resource_failure_retry_delay_seconds() -> int:
 def classify_subprocess_resource_failure(
     exitcode: Optional[int],
     message: str,
+    *,
+    before_snapshot: Optional[dict[str, Any]] = None,
+    after_snapshot: Optional[dict[str, Any]] = None,
 ) -> Optional[str]:
+    event_delta = memory_event_delta(
+        (before_snapshot or {}).get("memory_events"),
+        (after_snapshot or {}).get("memory_events"),
+    )
+    if exitcode not in (None, 0) and has_oom_kill_delta(event_delta):
+        return "runner_cgroup_oom_correlated"
     if exitcode == -9:
-        return "subprocess_sigkill"
+        return "unclassified_sigkill"
     lowered = (message or "").lower()
     if "browser launch timed out" in lowered:
         return "browser_launch_timeout"

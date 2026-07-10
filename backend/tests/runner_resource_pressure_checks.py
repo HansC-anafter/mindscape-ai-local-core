@@ -189,7 +189,7 @@ def test_runner_resource_pressure_enters_cooldown(tmp_path, monkeypatch):
 def test_classify_subprocess_resource_failure():
     assert (
         resource_pressure.classify_subprocess_resource_failure(-9, "")
-        == "subprocess_sigkill"
+        == "unclassified_sigkill"
     )
     assert (
         resource_pressure.classify_subprocess_resource_failure(
@@ -282,12 +282,19 @@ async def test_browser_resource_lease_wait_does_not_consume_workflow_retry():
 
 
 @pytest.mark.asyncio
-async def test_subprocess_sigkill_resource_wait_clears_runner_ownership():
+async def test_subprocess_sigkill_blocks_without_requeue_and_keeps_checkpoint():
     store = _FakeTasksStore()
     store.task.execution_context = {
         "retry_count": 2,
         "runner_id": "previous-runner",
         "heartbeat_at": "2026-05-08T03:00:00+00:00",
+        "checkpoint": {"cursor": "pin-7"},
+        "resource_admission": {
+            "node_policy_fingerprint": "policy-a",
+            "resource_profile_fingerprint": "profile-a",
+            "requested_memory_bytes": 4096,
+            "memory_reservation_source": "playbook_profile",
+        },
     }
     queue = _FakeRedisQueue()
 
@@ -306,12 +313,18 @@ async def test_subprocess_sigkill_resource_wait_clears_runner_ownership():
     assert store.update_kwargs["frontier_state"] == "cold"
     assert store.update_kwargs["started_at"] is None
     assert updated_context["retry_count"] == 2
-    assert updated_context["resource_wait_count"] == 1
+    assert updated_context["resource_block_count"] == 1
     assert updated_context["resource_pressure_source"] == "subprocess_sigkill"
+    assert updated_context["checkpoint"] == {"cursor": "pin-7"}
+    assert updated_context["resource_block"]["reason"] == "unclassified_sigkill"
+    assert updated_context["resource_block"]["node_policy_fingerprint"] == "policy-a"
+    assert updated_context["resource_block"]["resource_profile_fingerprint"] == "profile-a"
+    assert store.update_kwargs["blocked_reason"] == "unclassified_sigkill"
     assert updated_context["last_runner_id"] == "runner-browser"
     assert "runner_id" not in updated_context
     assert "heartbeat_at" not in updated_context
-    assert queue.delayed == ("task-1", 300)
+    assert queue.delayed is None
+    assert queue.acked is True
     assert queue.deadlettered is False
 
 

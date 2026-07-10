@@ -24,6 +24,7 @@ from backend.app.runner.worker_transport import (
     _collect_transport_members,
     _split_ready_target,
 )
+from backend.app.runner.resource_failure_policy import is_resource_block_reason
 
 logger = logging.getLogger("backend.app.runner.worker")
 
@@ -170,7 +171,9 @@ async def _reset_orphaned_running_tasks(
             ctx2 = dict(ctx)
             update_kwargs = {}
             frontier_state = str(getattr(t, "frontier_state", "") or "").strip()
-            if frontier_state in {"running", "cold"}:
+            if frontier_state in {"running", "cold"} and not is_resource_block_reason(
+                getattr(t, "blocked_reason", None)
+            ):
                 ctx2["status"] = "queued"
                 ctx2["runner_reaper"] = {
                     "action": "startup_reset",

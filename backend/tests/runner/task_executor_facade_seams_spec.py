@@ -139,7 +139,13 @@ def test_run_single_task_uses_facade_park_hook(monkeypatch):
     async def fake_release_locks(redis_queue, lock_keys, lock_owner_id):
         released.append(("locks", lock_owner_id))
 
-    async def fake_release_leases(redis_queue, resource_lease_keys, lock_owner_id):
+    async def fake_release_leases(
+        redis_queue,
+        resource_lease_keys,
+        lock_owner_id,
+        node_budget_reservation=None,
+    ):
+        assert node_budget_reservation is None
         released.append(("leases", lock_owner_id))
 
     monkeypatch.setattr(

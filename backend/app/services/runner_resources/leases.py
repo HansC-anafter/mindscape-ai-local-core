@@ -89,9 +89,11 @@ async def renew_resource_lease_keys(
     *,
     owner_id: str,
     ttl_seconds: int,
-) -> None:
+) -> bool:
     for lease_key in lease_keys:
-        await lease_store.extend(lease_key, owner_id, ttl_seconds)
+        if not await lease_store.extend(lease_key, owner_id, ttl_seconds):
+            return False
+    return True
 
 
 async def release_resource_lease_keys(

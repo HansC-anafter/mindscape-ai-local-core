@@ -12,6 +12,11 @@ from .queue_utilization_projection import (
     project_queue_utilization_detail,
     project_queue_utilization_summary,
 )
+from .node_budget_projection import get_node_budget_projection
+
+
+async def _with_node_budgets(payload: dict[str, Any]) -> dict[str, Any]:
+    return {**payload, "node_budgets": await get_node_budget_projection()}
 
 
 async def build_queue_utilization_response(
@@ -27,13 +32,17 @@ async def build_queue_utilization_response(
 
     normalized_view = str(view or "full").strip().lower()
     if normalized_view in {"", "full"}:
-        return await get_latest_queue_utilization_snapshot_with_resource_lanes()
+        return await _with_node_budgets(
+            await get_latest_queue_utilization_snapshot_with_resource_lanes()
+        )
     if normalized_view == "summary":
         snapshot = await get_latest_queue_utilization_snapshot_with_resource_lanes(
             include_backlog_breakdowns=False,
             include_active_route_lanes=False,
         )
-        return project_queue_utilization_summary(snapshot)
+        return await _with_node_budgets(
+            project_queue_utilization_summary(snapshot)
+        )
     if normalized_view == "detail":
         normalized_queue = str(queue_shard or "").strip()
         if not normalized_queue:

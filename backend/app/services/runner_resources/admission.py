@@ -14,6 +14,15 @@ from .leases import (
     build_resource_lease_key,
 )
 from .requirements import ResourceRequirements
+from .node_budget import (
+    NODE_BUDGET_CONTEXT_KEY,
+    NodeBudgetReservation,
+    NodeBudgetStore,
+    current_node_memory_snapshot,
+    resolve_browser_request_bytes,
+    resolve_node_budget_policy,
+    resource_profile_fingerprint,
+)
 
 RESOURCE_WAIT_REASON = "resource_wait"
 
@@ -26,6 +35,7 @@ class ResourceAdmissionDecision:
     blocked_payload: Optional[dict[str, Any]] = None
     next_eligible_at: Optional[datetime] = None
     acquired_leases: list[ResourceLease] = field(default_factory=list)
+    node_budget_reservation: Optional[NodeBudgetReservation] = None
     execution_context_updates: dict[str, Any] = field(default_factory=dict)
 
 
@@ -53,6 +63,8 @@ def _host_resource_admission_enabled() -> bool:
 
 
 def _requires_host_resource_gate(requirements: ResourceRequirements) -> bool:
+    if requirements.resource_class == "browser" or requirements.browser_contexts > 0:
+        return False
     return bool(
         requirements.memory_mb > 0
         or requirements.vision_lane
@@ -85,6 +97,8 @@ async def acquire_task_resource_admission(
     runner_profile: Any,
     capacity: Any,
     lease_store: ResourceLeaseStore,
+    node_budget_store: Optional[NodeBudgetStore] = None,
+    node_memory_snapshot: Optional[dict[str, Any]] = None,
     owner_id: str,
     ttl_seconds: int,
     delay_seconds: int = 30,
@@ -122,6 +136,92 @@ async def acquire_task_resource_admission(
             },
         )
 
+    node_reservation: Optional[NodeBudgetReservation] = None
+    is_browser = (
+        requirements.resource_class == "browser"
+        or requirements.browser_contexts > 0
+    )
+    node_policy = None
+    resolved_request_bytes = 0
+    resolved_request_source = requirements.memory_reservation_source
+    profile_fingerprint = ""
+    if is_browser:
+        snapshot = node_memory_snapshot or current_node_memory_snapshot()
+        node_policy = resolve_node_budget_policy(snapshot)
+        request_resolution = resolve_browser_request_bytes(requirements, snapshot)
+        if node_policy is None or request_resolution is None:
+            return _blocked_decision(
+                requirements=requirements,
+                reason="browser_memory_requirement_unavailable",
+                delay_seconds=delay_seconds,
+                now=base_now,
+                task=task,
+                runner_profile=runner_profile,
+                extra_payload={
+                    "blocked_resource": "node_memory",
+                    "node_memory_snapshot": snapshot,
+                },
+            )
+        resolved_request_bytes, resolved_request_source = request_resolution
+        try:
+            available_bytes = int(snapshot.get("available_bytes") or 0)
+        except (TypeError, ValueError):
+            available_bytes = 0
+        if available_bytes < resolved_request_bytes:
+            return _blocked_decision(
+                requirements=requirements,
+                reason="node_memory_headroom_unavailable",
+                delay_seconds=delay_seconds,
+                now=base_now,
+                task=task,
+                runner_profile=runner_profile,
+                extra_payload={
+                    "blocked_resource": "node_memory",
+                    "requested_bytes": resolved_request_bytes,
+                    "available_bytes": available_bytes,
+                    "node_policy_fingerprint": node_policy.fingerprint,
+                },
+            )
+        if node_budget_store is None:
+            return _blocked_decision(
+                requirements=requirements,
+                reason="node_budget_unavailable",
+                delay_seconds=delay_seconds,
+                now=base_now,
+                task=task,
+                runner_profile=runner_profile,
+                extra_payload={"blocked_resource": "node_budget"},
+            )
+        profile_fingerprint = resource_profile_fingerprint(
+            requirements,
+            resolved_request_bytes,
+        )
+        node_decision = await node_budget_store.acquire(
+            owner_id=owner_id,
+            request_bytes=resolved_request_bytes,
+            policy=node_policy,
+            profile_fingerprint=profile_fingerprint,
+            ttl_seconds=ttl_seconds,
+        )
+        if not node_decision.allow or node_decision.reservation is None:
+            return _blocked_decision(
+                requirements=requirements,
+                reason=node_decision.reason or "node_budget_exhausted",
+                delay_seconds=delay_seconds,
+                now=base_now,
+                task=task,
+                runner_profile=runner_profile,
+                extra_payload={
+                    "blocked_resource": "node_budget",
+                    "requested_bytes": resolved_request_bytes,
+                    "reserved_bytes": node_decision.reserved_bytes,
+                    "allocatable_bytes": node_policy.allocatable_bytes,
+                    "node_policy_fingerprint": node_policy.fingerprint,
+                    "resource_profile_fingerprint": profile_fingerprint,
+                },
+            )
+        node_reservation = node_decision.reservation
+
     acquired: list[ResourceLease] = []
     for resource_type, resource_id in _resource_entries(requirements):
         lease_key = build_resource_lease_key(resource_type, resource_id)
@@ -137,6 +237,8 @@ async def acquire_task_resource_admission(
                 acquired,
                 owner_id=owner_id,
             )
+            if node_reservation is not None and node_budget_store is not None:
+                await node_budget_store.release(node_reservation)
             return _blocked_decision(
                 requirements=requirements,
                 reason=f"{resource_type}_leased",
@@ -149,16 +251,26 @@ async def acquire_task_resource_admission(
         acquired.append(lease)
 
     context_updates: dict[str, Any] = {}
-    if acquired:
+    if acquired or node_reservation is not None:
         context_updates[LEASE_CONTEXT_KEY] = [
             lease.to_context() for lease in acquired
         ]
+        if node_reservation is not None:
+            context_updates[NODE_BUDGET_CONTEXT_KEY] = (
+                node_reservation.to_context()
+            )
         context_updates["resource_admission"] = {
             "state": "admitted",
             "task_id": _task_id(task),
             "runner_profile": _profile_code(runner_profile),
             "requirements": requirements.to_dict(),
             "lease_keys": [lease.lease_key for lease in acquired],
+            "requested_memory_bytes": resolved_request_bytes,
+            "memory_reservation_source": resolved_request_source,
+            "node_policy_fingerprint": (
+                node_policy.fingerprint if node_policy is not None else None
+            ),
+            "resource_profile_fingerprint": profile_fingerprint or None,
             "admitted_at": base_now.isoformat(),
         }
 
@@ -166,6 +278,7 @@ async def acquire_task_resource_admission(
         allow=True,
         requirements=requirements,
         acquired_leases=acquired,
+        node_budget_reservation=node_reservation,
         execution_context_updates=context_updates,
     )
 
@@ -178,6 +291,22 @@ async def release_acquired_resource_leases(
 ) -> None:
     for lease in leases:
         await lease_store.release(lease.lease_key, owner_id)
+
+
+async def release_acquired_resource_admission(
+    *,
+    lease_store: ResourceLeaseStore,
+    node_budget_store: Optional[NodeBudgetStore],
+    decision: ResourceAdmissionDecision,
+    owner_id: str,
+) -> None:
+    await release_acquired_resource_leases(
+        lease_store,
+        decision.acquired_leases,
+        owner_id=owner_id,
+    )
+    if decision.node_budget_reservation is not None and node_budget_store is not None:
+        await node_budget_store.release(decision.node_budget_reservation)
 
 
 def _blocked_decision(
@@ -247,6 +376,7 @@ def build_resource_wait_task_update(
     if resource_keys:
         ctx2["resource_admission"]["resource_keys"] = resource_keys
     ctx2.pop(LEASE_CONTEXT_KEY, None)
+    ctx2.pop(NODE_BUDGET_CONTEXT_KEY, None)
     return {
         "execution_context": ctx2,
         "next_eligible_at": next_eligible_at,

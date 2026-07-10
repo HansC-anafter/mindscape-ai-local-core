@@ -19,6 +19,10 @@ from backend.app.routes.core.execution_dispatch import get_or_create_cloud_conne
 from backend.app.services.stores.postgres.task_feedback_store import PostgresTaskFeedbackStore
 from backend.app.services.stores.tasks_store import TasksStore
 from backend.app.services.task_status_fix import TaskStatusFixService
+from backend.app.services.runner_resources.resource_block_control import (
+    ResourceBlockResumeError,
+    resume_resource_blocked_task,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -39,6 +43,14 @@ class ResendRemoteStepTaskRequest(BaseModel):
     target_device_id: Optional[str] = Field(
         None,
         description="Optional override target GPU VM / executor device ID",
+    )
+
+
+class ResumeResourceBlockedTaskRequest(BaseModel):
+    reason: str = Field(
+        ...,
+        min_length=1,
+        description="Operator reason after changing the node policy or resource profile",
     )
 
 
@@ -161,6 +173,23 @@ async def resend_remote_step_task(
     except Exception as e:
         logger.error(f"Failed to resend remote step task: {e}", exc_info=True)
         raise HTTPException(status_code=502, detail=f"Cloud dispatch failed: {e}")
+
+
+@router.post("/{workspace_id}/tasks/{task_id}/resume-resource-block")
+async def resume_resource_blocked_task_route(
+    workspace_id: str = PathParam(..., description="Workspace ID"),
+    task_id: str = PathParam(..., description="Task ID"),
+    request: ResumeResourceBlockedTaskRequest = Body(...),
+):
+    """Resume one preserved resource-blocked task after its contract changed."""
+    try:
+        return await resume_resource_blocked_task(
+            workspace_id=workspace_id,
+            task_id=task_id,
+            reason=request.reason,
+        )
+    except ResourceBlockResumeError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.reason) from exc
 
 
 @router.post("/{workspace_id}/fix-task-status")
