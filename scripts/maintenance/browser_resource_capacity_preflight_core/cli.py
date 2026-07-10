@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 from typing import Sequence
 
+from .candidate_plan import build_candidate_request_plan
 from .collectors import RuntimeTargets, collect_runtime_snapshot
 from .commands import ReadOnlyCommandRunner
 from .policy import CapacityInputs, evaluate_capacity
@@ -54,7 +55,7 @@ def build_parser() -> argparse.ArgumentParser:
 def _capacity_inputs(
     args: argparse.Namespace,
     snapshot: dict,
-    request_bytes: int,
+    request_plan: dict,
 ) -> CapacityInputs:
     policy = snapshot["node_budget"].get("policy") or {}
     tasks = snapshot["tasks"]
@@ -63,13 +64,31 @@ def _capacity_inputs(
         required_concurrency=int(args.required_concurrency),
         claim_gate_state=str(snapshot["claim_gate"].get("state") or "unknown"),
         allocatable_bytes=int(policy.get("allocatable_bytes") or 0),
-        request_bytes=int(request_bytes),
+        reserved_bytes=sum(
+            int(item.get("bytes") or 0)
+            for item in snapshot["node_budget"].get("reservations") or []
+            if isinstance(item, dict)
+        ),
+        additional_request_bytes=tuple(
+            int(value)
+            for value in request_plan.get("additional_request_bytes") or []
+        ),
+        missing_request_workload_count=len(
+            request_plan.get("missing_request_workloads") or []
+        ),
         mem_available_bytes=int(snapshot["memory"].get("available_bytes") or 0),
         running_count=int(tasks.get("running_count") or 0),
-        running_distinct_locks=int(tasks.get("running_distinct_locks") or 0),
-        runnable_distinct_locks=int(tasks.get("runnable_distinct_locks") or 0),
-        duplicate_running_lock_count=int(
-            tasks.get("duplicate_running_lock_count") or 0
+        running_physical_profile_count=int(
+            tasks.get("running_physical_profile_count") or 0
+        ),
+        runnable_physical_profile_count=int(
+            tasks.get("runnable_physical_profile_count") or 0
+        ),
+        duplicate_running_physical_profile_count=int(
+            tasks.get("duplicate_running_physical_profile_count") or 0
+        ),
+        selected_candidate_count=int(
+            request_plan.get("selected_candidate_count") or 0
         ),
         runner_slot_capacity=int(snapshot.get("runner_slot_capacity") or 0),
         processing_count=int(
@@ -80,15 +99,15 @@ def _capacity_inputs(
     )
 
 
-def load_request_evidence(path: Path) -> tuple[int, dict]:
-    """Load repeated-run memory requests and return the conservative maximum."""
+def load_request_evidence(path: Path) -> tuple[dict[str, int], dict]:
+    """Load repeated-run memory requests keyed by workload code."""
 
     raw = path.read_bytes()
     payload = json.loads(raw)
     workloads = payload.get("workloads") if isinstance(payload, dict) else None
     if not isinstance(workloads, list) or not workloads:
         raise ValueError("request evidence requires a non-empty workloads list")
-    requests: list[int] = []
+    requests: dict[str, int] = {}
     normalized: list[dict] = []
     for item in workloads:
         if not isinstance(item, dict):
@@ -98,7 +117,9 @@ def load_request_evidence(path: Path) -> tuple[int, dict]:
         valid_run_count = int(item.get("valid_run_count") or 0)
         if not code or request_bytes <= 0 or valid_run_count < 3:
             raise ValueError("each workload requires code, positive bytes, and three runs")
-        requests.append(request_bytes)
+        if code in requests:
+            raise ValueError("request evidence workload codes must be unique")
+        requests[code] = request_bytes
         normalized.append(
             {
                 "workload_code": code,
@@ -106,7 +127,7 @@ def load_request_evidence(path: Path) -> tuple[int, dict]:
                 "valid_run_count": valid_run_count,
             }
         )
-    return max(requests), {
+    return requests, {
         "source": "calibration_summary",
         "path": str(path.resolve()),
         "sha256": hashlib.sha256(raw).hexdigest(),
@@ -114,16 +135,20 @@ def load_request_evidence(path: Path) -> tuple[int, dict]:
     }
 
 
-def resolve_request(args: argparse.Namespace, snapshot: dict) -> tuple[int, dict]:
+def resolve_request_catalog(
+    args: argparse.Namespace,
+    snapshot: dict,
+) -> tuple[int | None, dict[str, int], dict]:
     if args.container_limit_fallback:
         request_bytes = int(snapshot.get("browser_cgroup_limit_bytes") or 0)
         if request_bytes <= 0:
             raise ValueError("finite browser cgroup limit is required")
-        return request_bytes, {
+        return request_bytes, {}, {
             "source": "container_limit_fallback",
             "request_bytes": request_bytes,
         }
-    return load_request_evidence(args.request_evidence_json)
+    requests, provenance = load_request_evidence(args.request_evidence_json)
+    return None, requests, provenance
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -136,13 +161,22 @@ def main(argv: Sequence[str] | None = None) -> int:
         queue_shards=tuple(args.queue_shard or DEFAULT_SHARDS),
     )
     snapshot = collect_runtime_snapshot(ReadOnlyCommandRunner(), targets)
-    request_bytes, request_evidence = resolve_request(args, snapshot)
+    default_request_bytes, workload_request_bytes, request_evidence = (
+        resolve_request_catalog(args, snapshot)
+    )
+    request_plan = build_candidate_request_plan(
+        snapshot["tasks"],
+        required_concurrency=int(args.required_concurrency),
+        default_request_bytes=default_request_bytes,
+        workload_request_bytes=workload_request_bytes,
+    )
     evaluation = evaluate_capacity(
-        _capacity_inputs(args, snapshot, request_bytes)
+        _capacity_inputs(args, snapshot, request_plan)
     )
     output = {
         "evaluation": evaluation,
         "request_evidence": request_evidence,
+        "request_plan": request_plan,
         "snapshot": snapshot,
     }
     rendered = json.dumps(output, indent=2, sort_keys=True)

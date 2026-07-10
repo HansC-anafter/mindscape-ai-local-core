@@ -7,6 +7,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Iterable
 
+from .candidate_plan import summarize_physical_profiles
 from .commands import ReadOnlyCommandRunner
 
 
@@ -127,49 +128,69 @@ def collect_runtime_snapshot(
     shard_sql = ",".join(f"'{name}'" for name in shards)
     task_sql = f"""
 WITH candidates AS (
-  SELECT status, frontier_state, COALESCE(blocked_reason, '') AS blocked_reason,
-         COALESCE(concurrency_key, '') AS lock_key
+  SELECT id AS task_id,
+         COALESCE(pack_id, '') AS workload_code,
+         status,
+         queue_shard,
+         COALESCE(concurrency_key, '') AS concurrency_key,
+         COALESCE(
+           NULLIF(execution_context::jsonb #>> '{{inputs,user_data_dir}}', ''),
+           NULLIF(params::jsonb ->> 'user_data_dir', ''),
+           ''
+         ) AS profile_path,
+         frontier_enqueued_at,
+         created_at
   FROM tasks
   WHERE queue_shard IN ({shard_sql})
     AND status IN ('pending', 'running')
-), running_locks AS (
-  SELECT lock_key, COUNT(*) AS item_count
-  FROM candidates
-  WHERE status = 'running' AND lock_key <> ''
-  GROUP BY lock_key
+    AND (
+      status = 'running' OR (
+        status = 'pending'
+        AND frontier_state = 'ready'
+        AND COALESCE(blocked_reason, '') = ''
+      )
+    )
 )
 SELECT json_build_object(
   'running_count', COUNT(*) FILTER (WHERE status = 'running'),
-  'running_distinct_locks', COUNT(DISTINCT lock_key) FILTER (
-    WHERE status = 'running' AND lock_key <> ''
-  ),
-  'runnable_distinct_locks', COUNT(DISTINCT lock_key) FILTER (
-    WHERE lock_key <> '' AND (
-      status = 'running' OR (
-        status = 'pending' AND frontier_state = 'ready' AND blocked_reason = ''
-      )
-    )
-  ),
-  'duplicate_running_lock_count', (
-    SELECT COUNT(*) FROM running_locks WHERE item_count > 1
+  'candidates', COALESCE(
+    json_agg(
+      json_build_object(
+        'task_id', task_id,
+        'workload_code', workload_code,
+        'status', status,
+        'queue_shard', queue_shard,
+        'concurrency_key', concurrency_key,
+        'profile_path', profile_path,
+        'frontier_enqueued_at', frontier_enqueued_at,
+        'created_at', created_at
+      ) ORDER BY
+        CASE WHEN status = 'running' THEN 0 ELSE 1 END,
+        COALESCE(frontier_enqueued_at, created_at),
+        created_at,
+        task_id
+    ),
+    '[]'::json
   )
 )::text
 FROM candidates;
 """.strip()
-    tasks = _run_json(
-        command_runner,
-        [
-            "docker",
-            "exec",
-            postgres,
-            "psql",
-            "-U",
-            "mindscape",
-            "-d",
-            "mindscape_core",
-            "-Atc",
-            task_sql,
-        ],
+    tasks = summarize_physical_profiles(
+        _run_json(
+            command_runner,
+            [
+                "docker",
+                "exec",
+                postgres,
+                "psql",
+                "-U",
+                "mindscape",
+                "-d",
+                "mindscape_core",
+                "-Atc",
+                task_sql,
+            ],
+        )
     )
 
     runner_slots = 0

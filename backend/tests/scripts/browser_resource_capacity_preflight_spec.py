@@ -4,6 +4,11 @@ import json
 
 import pytest
 
+from scripts.maintenance.browser_resource_capacity_preflight_core.candidate_plan import (
+    build_candidate_request_plan,
+    normalize_profile_identity,
+    summarize_physical_profiles,
+)
 from scripts.maintenance.browser_resource_capacity_preflight_core.collectors import (
     parse_meminfo,
     parse_memory_events,
@@ -27,15 +32,18 @@ GIB = 1024 * 1024 * 1024
 def _inputs(**overrides: object) -> CapacityInputs:
     values: dict[str, object] = {
         "mode": "pre-resume",
-        "required_concurrency": 2,
+        "required_concurrency": 6,
         "claim_gate_state": "paused",
         "allocatable_bytes": 6 * GIB,
-        "request_bytes": 6 * GIB,
+        "reserved_bytes": 6 * GIB,
+        "additional_request_bytes": (6 * GIB, 6 * GIB, 6 * GIB),
+        "missing_request_workload_count": 0,
         "mem_available_bytes": 9 * GIB,
         "running_count": 1,
-        "running_distinct_locks": 1,
-        "runnable_distinct_locks": 7,
-        "duplicate_running_lock_count": 0,
+        "running_physical_profile_count": 1,
+        "runnable_physical_profile_count": 4,
+        "duplicate_running_physical_profile_count": 0,
+        "selected_candidate_count": 4,
         "runner_slot_capacity": 9,
         "processing_count": 2,
         "oom_kill_count": 0,
@@ -45,30 +53,59 @@ def _inputs(**overrides: object) -> CapacityInputs:
     return CapacityInputs(**values)  # type: ignore[arg-type]
 
 
-def test_current_bootstrap_capacity_blocks_required_two() -> None:
+def test_current_bootstrap_capacity_blocks_required_six_profiles() -> None:
     result = evaluate_capacity(_inputs())
 
     assert result["verdict"] == "blocked"
     assert result["byte_capacity"] == 1
-    assert result["blockers"] == ["byte_capacity_below_required"]
+    assert result["blockers"] == [
+        "physical_profile_capacity_below_required",
+        "byte_capacity_below_required",
+        "mem_available_below_required",
+    ]
 
 
-def test_measured_three_gib_request_passes_pre_resume_two() -> None:
-    result = evaluate_capacity(_inputs(request_bytes=3 * GIB))
+def test_heterogeneous_request_vector_passes_pre_resume_six() -> None:
+    result = evaluate_capacity(
+        _inputs(
+            reserved_bytes=1 * GIB,
+            additional_request_bytes=(
+                1 * GIB,
+                1 * GIB,
+                1 * GIB,
+                1 * GIB,
+                1 * GIB,
+            ),
+            mem_available_bytes=5 * GIB,
+            runnable_physical_profile_count=6,
+            selected_candidate_count=6,
+        )
+    )
 
     assert result["verdict"] == "pass"
-    assert result["byte_capacity"] == 2
+    assert result["byte_capacity"] == 6
+    assert result["projected_reserved_bytes"] == 6 * GIB
     assert result["blockers"] == []
 
 
-def test_post_resume_requires_two_distinct_running_tasks() -> None:
+def test_post_resume_requires_six_distinct_physical_profiles() -> None:
     result = evaluate_capacity(
         _inputs(
             mode="post-resume",
             claim_gate_state="open",
-            request_bytes=3 * GIB,
+            reserved_bytes=1 * GIB,
+            additional_request_bytes=(
+                1 * GIB,
+                1 * GIB,
+                1 * GIB,
+                1 * GIB,
+                1 * GIB,
+            ),
+            mem_available_bytes=5 * GIB,
             running_count=1,
-            running_distinct_locks=1,
+            running_physical_profile_count=1,
+            runnable_physical_profile_count=6,
+            selected_candidate_count=6,
             processing_count=1,
         )
     )
@@ -76,17 +113,22 @@ def test_post_resume_requires_two_distinct_running_tasks() -> None:
     assert result["verdict"] == "blocked"
     assert result["blockers"] == [
         "actual_running_below_required",
-        "running_distinct_locks_below_required",
+        "running_physical_profiles_below_required",
         "processing_count_below_required",
     ]
 
 
-def test_duplicate_running_profile_lock_is_always_blocked() -> None:
+def test_duplicate_running_physical_profile_is_always_blocked() -> None:
     result = evaluate_capacity(
-        _inputs(request_bytes=3 * GIB, duplicate_running_lock_count=1)
+        _inputs(duplicate_running_physical_profile_count=1)
     )
 
-    assert result["blockers"] == ["duplicate_running_profile_lock"]
+    assert result["blockers"] == [
+        "physical_profile_capacity_below_required",
+        "byte_capacity_below_required",
+        "mem_available_below_required",
+        "duplicate_running_physical_profile",
+    ]
 
 
 @pytest.mark.parametrize(
@@ -130,6 +172,80 @@ def test_runtime_parsers_are_strict_and_unit_safe() -> None:
     ) == 3
 
 
+def test_physical_profile_summary_does_not_count_playbook_keys() -> None:
+    summary = summarize_physical_profiles(
+        {
+            "running_count": 2,
+            "candidates": [
+                {
+                    "task_id": "analyze",
+                    "workload_code": "ig_analyze_following",
+                    "status": "running",
+                    "profile_path": "/profiles/walto/",
+                    "concurrency_key": "playbook:analyze:/profiles/walto",
+                    "created_at": "2026-07-08T00:00:00+00:00",
+                },
+                {
+                    "task_id": "detail",
+                    "workload_code": "ig_pin_post_detail",
+                    "status": "running",
+                    "profile_path": "/profiles/walto",
+                    "concurrency_key": "playbook:detail:/profiles/walto",
+                    "created_at": "2026-07-08T00:01:00+00:00",
+                },
+                {
+                    "task_id": "chaos",
+                    "workload_code": "ig_pin_post_detail",
+                    "status": "pending",
+                    "profile_path": "/profiles/chaos",
+                    "created_at": "2026-07-08T00:02:00+00:00",
+                },
+            ],
+        }
+    )
+
+    assert normalize_profile_identity("/profiles/walto/") == "/profiles/walto"
+    assert summary["runnable_physical_profile_count"] == 2
+    assert summary["running_physical_profile_count"] == 1
+    assert summary["duplicate_running_physical_profile_count"] == 1
+
+
+def test_candidate_request_plan_uses_per_workload_bytes() -> None:
+    tasks = {
+        "physical_profile_candidates": [
+            {
+                "task_id": "running",
+                "workload_code": "ig_analyze_following",
+                "status": "running",
+                "profile_identity": "/profiles/a",
+            },
+            {
+                "task_id": "detail",
+                "workload_code": "ig_pin_post_detail",
+                "status": "pending",
+                "profile_identity": "/profiles/b",
+            },
+        ]
+    }
+
+    plan = build_candidate_request_plan(
+        tasks,
+        required_concurrency=2,
+        default_request_bytes=None,
+        workload_request_bytes={
+            "ig_analyze_following": 2 * GIB,
+            "ig_pin_post_detail": 1 * GIB,
+        },
+    )
+
+    assert plan["additional_request_bytes"] == [1 * GIB]
+    assert plan["missing_request_workloads"] == []
+    assert [item["request_bytes"] for item in plan["selected_candidates"]] == [
+        2 * GIB,
+        1 * GIB,
+    ]
+
+
 def test_request_evidence_requires_three_valid_runs_per_workload(tmp_path) -> None:
     evidence = tmp_path / "summary.json"
     evidence.write_text(
@@ -154,7 +270,10 @@ def test_request_evidence_requires_three_valid_runs_per_workload(tmp_path) -> No
 
     request_bytes, provenance = load_request_evidence(evidence)
 
-    assert request_bytes == 3 * GIB
+    assert request_bytes == {
+        "ig_analyze_following": 3 * GIB,
+        "ig_pin_post_detail": 2 * GIB,
+    }
     assert provenance["source"] == "calibration_summary"
     assert len(provenance["sha256"]) == 64
 
