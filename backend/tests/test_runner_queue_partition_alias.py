@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from backend.app.runner import worker
+from backend.app.runner import worker, worker_maintenance
 from backend.app.runner.worker import _build_ready_queue_stores, _resolve_task_queue_shard
 from backend.app.services.runner_topology import RUNNER_READY_QUEUE_ORDER
 from backend.app.services.stores.tasks_store._base import _resolve_queue_shard
@@ -54,6 +54,23 @@ async def test_run_maintenance_cycle_uses_profile_ready_queue_keys(monkeypatch):
     called: list[str] = []
 
     monkeypatch.setattr(worker, "_reap_stale_running_tasks", lambda *args, **kwargs: None)
+
+    async def _not_global(*_args, **_kwargs):
+        return False
+
+    async def _partition_owner(*_args, **_kwargs):
+        return True
+
+    monkeypatch.setattr(
+        worker_maintenance,
+        "try_hold_maintenance_leadership",
+        _not_global,
+    )
+    monkeypatch.setattr(
+        worker_maintenance,
+        "try_hold_partition_maintenance_leadership",
+        _partition_owner,
+    )
 
     async def _fake_reap(_tasks_store, queue_store, *, ready_target_override, all_queues):
         called.append(f"{queue_store.pack_id}:{ready_target_override}:{len(all_queues)}")

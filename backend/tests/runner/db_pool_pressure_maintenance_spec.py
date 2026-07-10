@@ -1,6 +1,6 @@
 import pytest
 
-from backend.app.runner import db_pool_pressure, worker
+from backend.app.runner import db_pool_pressure, worker, worker_maintenance
 
 
 class _FakeQueue:
@@ -17,8 +17,21 @@ async def test_maintenance_skips_db_work_when_pgbouncer_pressure_paused(monkeypa
             "pgbouncer_client_waiting"
         )
 
+    async def owns_maintenance(*_args, **_kwargs):
+        return True
+
     monkeypatch.setattr(worker, "_runner_claim_gate_paused", lambda: (False, {}))
     monkeypatch.setattr(worker, "check_db_pool_pressure", paused_pressure)
+    monkeypatch.setattr(
+        worker_maintenance,
+        "try_hold_maintenance_leadership",
+        owns_maintenance,
+    )
+    monkeypatch.setattr(
+        worker_maintenance,
+        "try_hold_partition_maintenance_leadership",
+        owns_maintenance,
+    )
     monkeypatch.setattr(
         worker,
         "_reap_stale_running_tasks",

@@ -16,6 +16,7 @@ from backend.app.runner.db_pool_pressure import check_db_pool_pressure
 from backend.app.runner.maintenance_leader import (
     resolve_maintenance_lease_seconds,
     try_hold_maintenance_leadership,
+    try_hold_partition_maintenance_leadership,
 )
 from backend.app.runner.reaper import (
     _request_watchdog_abort_for_no_progress_tasks,
@@ -151,14 +152,25 @@ async def _run_maintenance_cycle(
         )
         return False
 
-    is_leader = await try_hold_maintenance_leadership(
+    is_global_leader = await try_hold_maintenance_leadership(
         redis_queue,
         runner_id=runner_id,
         ttl_seconds=maintenance_lease_seconds,
     )
-    if not is_leader:
+    partition_leader_queues: list[tuple[str, RedisRunnerQueueStore]] = []
+    for shard_name, queue_store in ready_queues.items():
+        if await try_hold_partition_maintenance_leadership(
+            queue_store,
+            runner_id=runner_id,
+            queue_partition=shard_name,
+            ttl_seconds=maintenance_lease_seconds,
+        ):
+            partition_leader_queues.append((shard_name, queue_store))
+
+    if not is_global_leader and not partition_leader_queues:
         logger.debug(
-            "Runner maintenance skipped because another runner owns leadership "
+            "Runner maintenance skipped because other runners own global and "
+            "partition leadership "
             "runner_id=%s",
             runner_id,
         )
@@ -184,24 +196,32 @@ async def _run_maintenance_cycle(
             )
             return False
 
-    loop = asyncio.get_running_loop()
-    await asyncio.to_thread(
-        _facade_attr("_reap_stale_running_tasks", _reap_stale_running_tasks),
-        tasks_store,
-        runner_id=runner_id,
-        redis_queue=redis_queue,
-        event_loop=loop,
-    )
-    await _facade_attr("_cleanup_stale_locks", _cleanup_stale_locks)(redis_queue, runner_id, tasks_store)
-    await asyncio.to_thread(
-        _facade_attr("_request_watchdog_abort_for_no_progress_tasks", _request_watchdog_abort_for_no_progress_tasks),
-        tasks_store,
-        watcher_id=f"runner_maintenance:{runner_id}",
-    )
-    for shard_name in ready_queues.keys():
+    if is_global_leader:
+        loop = asyncio.get_running_loop()
+        await asyncio.to_thread(
+            _facade_attr("_reap_stale_running_tasks", _reap_stale_running_tasks),
+            tasks_store,
+            runner_id=runner_id,
+            redis_queue=redis_queue,
+            event_loop=loop,
+        )
+        await _facade_attr("_cleanup_stale_locks", _cleanup_stale_locks)(
+            redis_queue,
+            runner_id,
+            tasks_store,
+        )
+        await asyncio.to_thread(
+            _facade_attr(
+                "_request_watchdog_abort_for_no_progress_tasks",
+                _request_watchdog_abort_for_no_progress_tasks,
+            ),
+            tasks_store,
+            watcher_id=f"runner_maintenance:{runner_id}",
+        )
+    for shard_name, queue_store in partition_leader_queues:
         await _facade_attr("_reap_redis_queues", _reap_redis_queues)(
             tasks_store,
-            ready_queues[shard_name],
+            queue_store,
             ready_target_override=ready_targets.get(shard_name, 0),
             all_queues=queue_cycle,
         )

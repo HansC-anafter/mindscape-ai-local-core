@@ -3,14 +3,19 @@ import pytest
 from backend.app.runner.maintenance_leader import (
     MAINTENANCE_LEADER_KEY,
     maintenance_owner_id,
+    partition_maintenance_leader_key,
+    partition_maintenance_owner_id,
     resolve_maintenance_lease_seconds,
     try_hold_maintenance_leadership,
+    try_hold_partition_maintenance_leadership,
 )
 
 
 class _FakeQueue:
     def __init__(self, owner=None, *, fail=False):
-        self.owner = owner
+        self.owners = {}
+        if owner is not None:
+            self.owners[MAINTENANCE_LEADER_KEY] = owner
         self.fail = fail
         self.acquire_calls = []
         self.renew_calls = []
@@ -19,21 +24,20 @@ class _FakeQueue:
         self.acquire_calls.append((key, owner_id, ttl_seconds))
         if self.fail:
             raise RuntimeError("redis unavailable")
-        if self.owner is None:
-            self.owner = owner_id
+        if key not in self.owners:
+            self.owners[key] = owner_id
             return True
         return False
 
     async def get_lock_owner(self, key):
-        assert key == MAINTENANCE_LEADER_KEY
-        return self.owner
+        return self.owners.get(key)
 
     async def renew_lock(self, key, owner_id, ttl_seconds):
         self.renew_calls.append((key, owner_id, ttl_seconds))
         current = (
-            self.owner.decode("utf-8")
-            if isinstance(self.owner, bytes)
-            else self.owner
+            self.owners[key].decode("utf-8")
+            if isinstance(self.owners.get(key), bytes)
+            else self.owners.get(key)
         )
         return current == owner_id
 
@@ -55,7 +59,7 @@ async def test_first_runner_acquires_maintenance_leadership():
     )
 
     assert held is True
-    assert queue.owner == maintenance_owner_id("runner-a")
+    assert queue.owners[MAINTENANCE_LEADER_KEY] == maintenance_owner_id("runner-a")
     assert queue.renew_calls == []
 
 
@@ -90,3 +94,54 @@ async def test_redis_uncertainty_fails_closed():
         ttl_seconds=1,
     )
     assert queue.acquire_calls[0][2] == 180
+
+
+def test_partition_maintenance_key_accepts_only_canonical_partition_codes():
+    assert partition_maintenance_leader_key("browser_local") == (
+        "mindscape:runner:maintenance:partition:browser_local:leader:v1"
+    )
+    with pytest.raises(ValueError):
+        partition_maintenance_leader_key("browser/local")
+
+
+@pytest.mark.asyncio
+async def test_partition_leases_exclude_same_partition_but_not_other_partition():
+    queue = _FakeQueue()
+
+    assert await try_hold_partition_maintenance_leadership(
+        queue,
+        runner_id="runner-a",
+        queue_partition="browser_local",
+        ttl_seconds=180,
+    )
+    assert not await try_hold_partition_maintenance_leadership(
+        queue,
+        runner_id="runner-b",
+        queue_partition="browser_local",
+        ttl_seconds=180,
+    )
+    assert await try_hold_partition_maintenance_leadership(
+        queue,
+        runner_id="runner-b",
+        queue_partition="default_local_browser",
+        ttl_seconds=180,
+    )
+    assert queue.owners[
+        partition_maintenance_leader_key("browser_local")
+    ] == partition_maintenance_owner_id("runner-a", "browser_local")
+    assert queue.owners[
+        partition_maintenance_leader_key("default_local_browser")
+    ] == partition_maintenance_owner_id("runner-b", "default_local_browser")
+
+
+@pytest.mark.asyncio
+async def test_invalid_partition_leadership_fails_closed_without_redis_call():
+    queue = _FakeQueue()
+
+    assert not await try_hold_partition_maintenance_leadership(
+        queue,
+        runner_id="runner-a",
+        queue_partition="invalid/partition",
+        ttl_seconds=180,
+    )
+    assert queue.acquire_calls == []
