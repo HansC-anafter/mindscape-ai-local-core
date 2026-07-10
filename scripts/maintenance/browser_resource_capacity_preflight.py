@@ -6,6 +6,9 @@ import sys
 
 
 LOCAL_CORE_ROOT = Path(__file__).resolve().parents[2]
+BACKEND_ROOT = LOCAL_CORE_ROOT / "backend"
+if str(BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(BACKEND_ROOT))
 if str(LOCAL_CORE_ROOT) not in sys.path:
     sys.path.insert(0, str(LOCAL_CORE_ROOT))
 

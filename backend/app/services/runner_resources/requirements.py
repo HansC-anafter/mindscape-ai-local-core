@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import copy
+import posixpath
 from dataclasses import asdict, dataclass
 from typing import Any, Mapping, Optional
+
+from .requirement_variants import select_requirement_variant
 
 DB_WRITE_BUDGETS = ("none", "low", "medium", "high")
 DURATION_CLASSES = ("short", "medium", "long")
@@ -91,7 +94,10 @@ def _resolve_profile_lock(
             or _optional_token(inputs.get("user_data_dir"))
             or "default"
         )
-    return _render_template(token, context=context, inputs=inputs) or None
+    resolved = _render_template(token, context=context, inputs=inputs)
+    if resolved.startswith("/"):
+        resolved = posixpath.normpath(resolved)
+    return resolved or None
 
 
 def _coerce_requirements(
@@ -165,6 +171,18 @@ def _metadata_resource_requirements(metadata: Mapping[str, Any]) -> dict[str, An
     return _as_mapping(execution_profile.get("resource_requirements"))
 
 
+def _metadata_requirement_variant(
+    metadata: Mapping[str, Any],
+    *,
+    inputs: Mapping[str, Any],
+) -> dict[str, Any]:
+    raw_variants = metadata.get("resource_requirement_variants")
+    if raw_variants is None:
+        execution_profile = _as_mapping(metadata.get("execution_profile"))
+        raw_variants = execution_profile.get("resource_requirement_variants")
+    return select_requirement_variant(raw_variants, inputs=inputs)
+
+
 def _context_execution_profile_requirements(context: Mapping[str, Any]) -> dict[str, Any]:
     execution_profile = _as_mapping(context.get("execution_profile"))
     return _as_mapping(execution_profile.get("resource_requirements"))
@@ -214,6 +232,7 @@ def resolve_resource_requirements(
     sources = (
         _as_mapping(pack_defaults) or _as_mapping(context.get("pack_resource_defaults")),
         _metadata_resource_requirements(metadata),
+        _metadata_requirement_variant(metadata, inputs=inputs),
         _context_execution_profile_requirements(context),
         _as_mapping(context.get("resource_requirements"))
         or _as_mapping(context.get("runner_resource_requirements")),

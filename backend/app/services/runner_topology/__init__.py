@@ -40,6 +40,7 @@ from .routing import (
 )
 from .spec_metadata import (
     merge_runner_metadata_into_context,
+    resolve_runner_metadata_variant,
     resolve_installed_playbook_runner_metadata,
 )
 from .runtime_binding import (
@@ -100,4 +101,5 @@ __all__ = [
     "is_default_local_browser_legacy_partition",
     "is_default_local_browser_playbook",
     "merge_runner_metadata_into_context",
+    "resolve_runner_metadata_variant",
 ]

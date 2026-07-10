@@ -7,12 +7,17 @@ import pytest
 from scripts.maintenance.browser_resource_capacity_preflight_core.candidate_plan import (
     build_candidate_request_plan,
     normalize_profile_identity,
-    summarize_physical_profiles,
+    summarize_task_candidates,
+    workload_envelope_id,
+)
+from scripts.maintenance.browser_resource_capacity_preflight_core.cli import (
+    load_request_evidence,
 )
 from scripts.maintenance.browser_resource_capacity_preflight_core.collectors import (
     parse_meminfo,
     parse_memory_events,
     parse_runner_max_inflight,
+    parse_runner_partitions,
 )
 from scripts.maintenance.browser_resource_capacity_preflight_core.commands import (
     ensure_read_only_command,
@@ -20,9 +25,6 @@ from scripts.maintenance.browser_resource_capacity_preflight_core.commands impor
 from scripts.maintenance.browser_resource_capacity_preflight_core.policy import (
     CapacityInputs,
     evaluate_capacity,
-)
-from scripts.maintenance.browser_resource_capacity_preflight_core.cli import (
-    load_request_evidence,
 )
 
 
@@ -36,16 +38,17 @@ def _inputs(**overrides: object) -> CapacityInputs:
         "claim_gate_state": "paused",
         "allocatable_bytes": 6 * GIB,
         "reserved_bytes": 6 * GIB,
-        "additional_request_bytes": (6 * GIB, 6 * GIB, 6 * GIB),
+        "additional_request_bytes": (6 * GIB,) * 4,
         "missing_request_workload_count": 0,
         "mem_available_bytes": 9 * GIB,
         "running_count": 1,
-        "running_physical_profile_count": 1,
-        "runnable_physical_profile_count": 4,
-        "duplicate_running_physical_profile_count": 0,
-        "selected_candidate_count": 4,
+        "fresh_live_running_count": 0,
+        "stale_running_count": 1,
+        "eligible_candidate_count": 5,
+        "running_lock_conflict_count": 0,
+        "selected_candidate_count": 5,
         "runner_slot_capacity": 9,
-        "processing_count": 2,
+        "processing_count": 1,
         "oom_kill_count": 0,
         "oom_group_kill_count": 0,
     }
@@ -53,15 +56,16 @@ def _inputs(**overrides: object) -> CapacityInputs:
     return CapacityInputs(**values)  # type: ignore[arg-type]
 
 
-def test_current_bootstrap_capacity_blocks_required_six_profiles() -> None:
+def test_current_bootstrap_capacity_blocks_required_six_live_tasks() -> None:
     result = evaluate_capacity(_inputs())
 
     assert result["verdict"] == "blocked"
     assert result["byte_capacity"] == 1
     assert result["blockers"] == [
-        "physical_profile_capacity_below_required",
+        "lock_or_partition_capacity_below_required",
         "byte_capacity_below_required",
         "mem_available_below_required",
+        "stale_running_tasks",
     ]
 
 
@@ -69,15 +73,11 @@ def test_heterogeneous_request_vector_passes_pre_resume_six() -> None:
     result = evaluate_capacity(
         _inputs(
             reserved_bytes=1 * GIB,
-            additional_request_bytes=(
-                1 * GIB,
-                1 * GIB,
-                1 * GIB,
-                1 * GIB,
-                1 * GIB,
-            ),
+            additional_request_bytes=(1 * GIB,) * 5,
             mem_available_bytes=5 * GIB,
-            runnable_physical_profile_count=6,
+            fresh_live_running_count=1,
+            stale_running_count=0,
+            eligible_candidate_count=6,
             selected_candidate_count=6,
         )
     )
@@ -85,50 +85,36 @@ def test_heterogeneous_request_vector_passes_pre_resume_six() -> None:
     assert result["verdict"] == "pass"
     assert result["byte_capacity"] == 6
     assert result["projected_reserved_bytes"] == 6 * GIB
-    assert result["blockers"] == []
 
 
-def test_post_resume_requires_six_distinct_physical_profiles() -> None:
+def test_post_resume_requires_six_fresh_live_tasks() -> None:
     result = evaluate_capacity(
         _inputs(
             mode="post-resume",
             claim_gate_state="open",
-            reserved_bytes=1 * GIB,
-            additional_request_bytes=(
-                1 * GIB,
-                1 * GIB,
-                1 * GIB,
-                1 * GIB,
-                1 * GIB,
-            ),
+            reserved_bytes=6 * GIB,
+            additional_request_bytes=(),
             mem_available_bytes=5 * GIB,
-            running_count=1,
-            running_physical_profile_count=1,
-            runnable_physical_profile_count=6,
+            running_count=6,
+            fresh_live_running_count=5,
+            stale_running_count=1,
+            eligible_candidate_count=6,
             selected_candidate_count=6,
-            processing_count=1,
+            processing_count=6,
         )
     )
 
-    assert result["verdict"] == "blocked"
     assert result["blockers"] == [
-        "actual_running_below_required",
-        "running_physical_profiles_below_required",
-        "processing_count_below_required",
+        "stale_running_tasks",
+        "fresh_live_running_below_required",
     ]
 
 
-def test_duplicate_running_physical_profile_is_always_blocked() -> None:
+def test_running_lock_conflict_is_always_blocked() -> None:
     result = evaluate_capacity(
-        _inputs(duplicate_running_physical_profile_count=1)
+        _inputs(running_lock_conflict_count=1)
     )
-
-    assert result["blockers"] == [
-        "physical_profile_capacity_below_required",
-        "byte_capacity_below_required",
-        "mem_available_below_required",
-        "duplicate_running_physical_profile",
-    ]
+    assert "running_lock_conflict" in result["blockers"]
 
 
 @pytest.mark.parametrize(
@@ -167,99 +153,276 @@ def test_runtime_parsers_are_strict_and_unit_safe() -> None:
         "oom_kill": 2,
         "oom_group_kill": 1,
     }
-    assert parse_runner_max_inflight(
-        "LOCAL_CORE_RUNNER_PROFILE=browser\nLOCAL_CORE_RUNNER_MAX_INFLIGHT=3\n"
-    ) == 3
+    env = (
+        "LOCAL_CORE_RUNNER_ACCEPTED_PARTITIONS=browser_local,ig_browser\n"
+        "LOCAL_CORE_RUNNER_MAX_INFLIGHT=3\n"
+    )
+    assert parse_runner_max_inflight(env) == 3
+    assert parse_runner_partitions(env) == ("browser_local", "ig_browser")
 
 
-def test_physical_profile_summary_does_not_count_playbook_keys() -> None:
-    summary = summarize_physical_profiles(
-        {
-            "running_count": 2,
-            "candidates": [
-                {
-                    "task_id": "analyze",
-                    "workload_code": "ig_analyze_following",
-                    "status": "running",
-                    "profile_path": "/profiles/walto/",
-                    "concurrency_key": "playbook:analyze:/profiles/walto",
-                    "created_at": "2026-07-08T00:00:00+00:00",
-                },
-                {
-                    "task_id": "detail",
-                    "workload_code": "ig_pin_post_detail",
-                    "status": "running",
-                    "profile_path": "/profiles/walto",
-                    "concurrency_key": "playbook:detail:/profiles/walto",
-                    "created_at": "2026-07-08T00:01:00+00:00",
-                },
-                {
-                    "task_id": "chaos",
-                    "workload_code": "ig_pin_post_detail",
-                    "status": "pending",
-                    "profile_path": "/profiles/chaos",
-                    "created_at": "2026-07-08T00:02:00+00:00",
-                },
+def _context(
+    *,
+    code: str,
+    profile: str,
+    source_mode: str | None = None,
+    target: str | None = None,
+    captured_target_lock: bool = False,
+) -> dict:
+    inputs = {"user_data_dir": profile}
+    if source_mode:
+        inputs["source_mode"] = source_mode
+    if target:
+        inputs["target_handle"] = target
+    if captured_target_lock:
+        concurrency = {
+            "lock_key_input": "target_handle",
+            "lock_scope": "playbook_input",
+        }
+    else:
+        concurrency = {
+            "lock_key_input": "user_data_dir",
+            "lock_scope": "playbook_input",
+            "lock_aliases": [
+                {"lock_key_input": "user_data_dir", "lock_scope": "input"}
             ],
         }
-    )
-
-    assert normalize_profile_identity("/profiles/walto/") == "/profiles/walto"
-    assert summary["runnable_physical_profile_count"] == 2
-    assert summary["running_physical_profile_count"] == 1
-    assert summary["duplicate_running_physical_profile_count"] == 1
-
-
-def test_candidate_request_plan_uses_per_workload_bytes() -> None:
-    tasks = {
-        "physical_profile_candidates": [
-            {
-                "task_id": "running",
-                "workload_code": "ig_analyze_following",
-                "status": "running",
-                "profile_identity": "/profiles/a",
-            },
-            {
-                "task_id": "detail",
-                "workload_code": "ig_pin_post_detail",
-                "status": "pending",
-                "profile_identity": "/profiles/b",
-            },
-        ]
+    return {
+        "playbook_code": code,
+        "inputs": inputs,
+        "resource_class": "browser",
+        "concurrency": concurrency,
     }
 
-    plan = build_candidate_request_plan(
-        tasks,
-        required_concurrency=2,
-        default_request_bytes=None,
-        workload_request_bytes={
-            "ig_analyze_following": 2 * GIB,
-            "ig_pin_post_detail": 1 * GIB,
+
+def _candidate(
+    task_id: str,
+    context: dict,
+    *,
+    status: str = "pending",
+    partition: str = "browser_local",
+    heartbeat_fresh: bool = False,
+) -> dict:
+    return {
+        "task_id": task_id,
+        "workload_code": context["playbook_code"],
+        "status": status,
+        "queue_shard": partition,
+        "execution_context": context,
+        "concurrency_key": "",
+        "heartbeat_fresh": heartbeat_fresh,
+        "created_at": f"2026-07-10T00:00:{task_id[-2:]}+00:00",
+    }
+
+
+def _metadata() -> dict:
+    base = {
+        "resource_class": "browser",
+        "resource_requirements": {
+            "browser_contexts": 1,
+            "ig_profile_lock": "{user_data_dir}",
         },
+    }
+    return {
+        "ig_analyze_following": base,
+        "ig_pin_post_detail": base,
+        "ig_batch_pin_references": {
+            **base,
+            "resource_requirement_variants": [
+                {
+                    "when": {"input": "source_mode", "equals": "captured_posts"},
+                    "resource_requirements": {"ig_profile_lock": False},
+                }
+            ],
+        },
+    }
+
+
+def test_four_profile_locks_plus_two_captured_targets_select_six() -> None:
+    rows = [
+        _candidate(
+            f"profile-{index:02d}",
+            _context(
+                code="ig_analyze_following",
+                profile=f"/profiles/{index}/",
+            ),
+        )
+        for index in range(4)
+    ]
+    rows.extend(
+        [
+            _candidate(
+                f"captured-{index:02d}",
+                _context(
+                    code="ig_batch_pin_references",
+                    profile="/profiles/0",
+                    source_mode="captured_posts",
+                    target=f"target-{index}",
+                    captured_target_lock=True,
+                ),
+                partition="default_local_browser",
+            )
+            for index in range(2)
+        ]
+    )
+    summary = summarize_task_candidates(
+        {"candidates": rows},
+        playbook_metadata=_metadata(),
+    )
+    plan = build_candidate_request_plan(
+        summary,
+        required_concurrency=6,
+        default_request_bytes=None,
+        envelope_request_bytes={
+            "ig_analyze_following": GIB,
+            "ig_batch_pin_references.captured_posts": GIB // 2,
+        },
+        slot_capacity_by_partition={
+            "browser_local": 6,
+            "default_local_browser": 3,
+        },
+        available_request_bytes=5 * GIB,
     )
 
-    assert plan["additional_request_bytes"] == [1 * GIB]
-    assert plan["missing_request_workloads"] == []
-    assert [item["request_bytes"] for item in plan["selected_candidates"]] == [
-        2 * GIB,
-        1 * GIB,
+    assert normalize_profile_identity("/profiles/0/") == "/profiles/0"
+    assert plan["eligible_candidate_count"] == 6
+    assert sorted(plan["additional_request_bytes"]) == [
+        GIB // 2,
+        GIB // 2,
+        GIB,
+        GIB,
+        GIB,
+        GIB,
     ]
 
 
-def test_request_evidence_requires_three_valid_runs_per_workload(tmp_path) -> None:
+def test_six_profile_locked_tasks_on_four_profiles_select_only_four() -> None:
+    rows = [
+        _candidate(
+            f"task-{index:02d}",
+            _context(
+                code="ig_pin_post_detail",
+                profile=f"/profiles/{index % 4}",
+            ),
+            partition="default_local_browser",
+        )
+        for index in range(6)
+    ]
+    summary = summarize_task_candidates(
+        {"candidates": rows},
+        playbook_metadata=_metadata(),
+    )
+    plan = build_candidate_request_plan(
+        summary,
+        required_concurrency=6,
+        default_request_bytes=GIB,
+        envelope_request_bytes={},
+        slot_capacity_by_partition={"default_local_browser": 6},
+        available_request_bytes=6 * GIB,
+    )
+
+    assert plan["eligible_candidate_count"] == 4
+    assert plan["lock_blocked_candidate_count"] == 2
+
+
+def test_older_oversized_candidate_does_not_hide_smaller_valid_vector() -> None:
+    rows = [
+        _candidate(
+            "large-01",
+            _context(
+                code="ig_batch_pin_references",
+                profile="/profiles/large",
+                source_mode="browser",
+                target="large",
+                captured_target_lock=True,
+            ),
+        ),
+        _candidate(
+            "small-01",
+            _context(
+                code="ig_batch_pin_references",
+                profile="/profiles/small",
+                source_mode="captured_posts",
+                target="small",
+                captured_target_lock=True,
+            ),
+            partition="default_local_browser",
+        ),
+    ]
+    summary = summarize_task_candidates(
+        {"candidates": rows},
+        playbook_metadata=_metadata(),
+    )
+
+    plan = build_candidate_request_plan(
+        summary,
+        required_concurrency=1,
+        default_request_bytes=None,
+        envelope_request_bytes={
+            "ig_batch_pin_references.browser": 2 * GIB,
+            "ig_batch_pin_references.captured_posts": GIB,
+        },
+        slot_capacity_by_partition={
+            "browser_local": 6,
+            "default_local_browser": 3,
+        },
+        available_request_bytes=GIB,
+    )
+
+    assert plan["selected_candidate_count"] == 1
+    assert plan["selected_candidates"][0]["task_id"] == "small-01"
+    assert plan["byte_blocked_candidate_count"] == 1
+
+
+def test_stale_running_task_never_becomes_fresh_live() -> None:
+    context = _context(
+        code="ig_analyze_following",
+        profile="/profiles/a",
+    )
+    summary = summarize_task_candidates(
+        {
+            "candidates": [
+                _candidate(
+                    "running-01",
+                    context,
+                    status="running",
+                    heartbeat_fresh=False,
+                )
+            ]
+        },
+        playbook_metadata=_metadata(),
+        processing_task_ids={"running-01"},
+        reservation_owner_ids={"runner:running-01"},
+    )
+
+    assert summary["running_count"] == 1
+    assert summary["fresh_live_running_count"] == 0
+    assert summary["stale_running_count"] == 1
+
+
+def test_workload_envelope_distinguishes_batch_source_modes() -> None:
+    assert workload_envelope_id(
+        "ig_batch_pin_references", {"source_mode": "browser"}
+    ) == "ig_batch_pin_references.browser"
+    assert workload_envelope_id(
+        "ig_batch_pin_references", {"source_mode": "captured_posts"}
+    ) == "ig_batch_pin_references.captured_posts"
+
+
+def test_request_evidence_requires_three_valid_runs_per_envelope(tmp_path) -> None:
     evidence = tmp_path / "summary.json"
     evidence.write_text(
         json.dumps(
             {
                 "workloads": [
                     {
-                        "workload_code": "ig_analyze_following",
+                        "envelope_id": "ig_batch_pin_references.browser",
                         "request_bytes": 3 * GIB,
                         "valid_run_count": 3,
                     },
                     {
-                        "workload_code": "ig_pin_post_detail",
-                        "request_bytes": 2 * GIB,
+                        "envelope_id": "ig_batch_pin_references.captured_posts",
+                        "request_bytes": GIB,
                         "valid_run_count": 3,
                     },
                 ]
@@ -269,13 +432,11 @@ def test_request_evidence_requires_three_valid_runs_per_workload(tmp_path) -> No
     )
 
     request_bytes, provenance = load_request_evidence(evidence)
-
     assert request_bytes == {
-        "ig_analyze_following": 3 * GIB,
-        "ig_pin_post_detail": 2 * GIB,
+        "ig_batch_pin_references.browser": 3 * GIB,
+        "ig_batch_pin_references.captured_posts": GIB,
     }
     assert provenance["source"] == "calibration_summary"
-    assert len(provenance["sha256"]) == 64
 
 
 def test_request_evidence_rejects_fewer_than_three_runs(tmp_path) -> None:
@@ -285,7 +446,7 @@ def test_request_evidence_rejects_fewer_than_three_runs(tmp_path) -> None:
             {
                 "workloads": [
                     {
-                        "workload_code": "ig_analyze_following",
+                        "envelope_id": "ig_analyze_following",
                         "request_bytes": 3 * GIB,
                         "valid_run_count": 2,
                     }

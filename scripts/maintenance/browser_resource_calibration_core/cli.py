@@ -120,6 +120,7 @@ def _run_workloads(args: argparse.Namespace) -> int:
             writer.append(
                 {
                     "kind": "workload_prelaunch",
+                    "envelope_id": workload["envelope_id"],
                     "workload_code": workload["workload_code"],
                     "repetition": workload["repetition"],
                     **prelaunch_node,
@@ -183,6 +184,7 @@ def _observe_run(
             {
                 "kind": "workload_node",
                 "task_id": task_id,
+                "envelope_id": workload["envelope_id"],
                 "workload_code": workload["workload_code"],
                 "repetition": workload["repetition"],
                 **node,
@@ -203,6 +205,7 @@ def _observe_run(
                 {
                     "kind": "workload_pool",
                     "task_id": task_id,
+                    "envelope_id": workload["envelope_id"],
                     "task": terminal_task,
                     "failures": pool_failures,
                     **pool,
@@ -226,6 +229,7 @@ def _observe_run(
     )
     task_peak = max(0, browser_peak - int(baseline["browser_idle_peak_bytes"]))
     return {
+        "envelope_id": workload["envelope_id"],
         "workload_code": workload["workload_code"],
         "repetition": workload["repetition"],
         "task_id": task_id,

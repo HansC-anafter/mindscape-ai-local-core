@@ -7,7 +7,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Iterable
 
-from .candidate_plan import summarize_physical_profiles
+from .candidate_plan import summarize_task_candidates
 from .commands import ReadOnlyCommandRunner
 
 
@@ -16,6 +16,13 @@ _GATE_CODE = (
     "import json; "
     "from backend.app.services.host_resources import get_runner_claim_gate; "
     "print(json.dumps(get_runner_claim_gate(), sort_keys=True))"
+)
+_METADATA_CODE = (
+    "import json; "
+    "from backend.app.services.runner_topology import "
+    "resolve_installed_playbook_runner_metadata as resolve; "
+    "codes=('ig_analyze_following','ig_batch_pin_references','ig_pin_post_detail'); "
+    "print(json.dumps({code: resolve(code) for code in codes}, sort_keys=True))"
 )
 _REDIS_SCRIPT = """
 local base = 'mindscape:runner_resources:node_budget:v1:docker_vm_browser_memory'
@@ -26,13 +33,19 @@ for _, raw in ipairs(reservations_raw) do
   table.insert(reservations, cjson.decode(raw))
 end
 local processing = 0
+local processing_task_ids = {}
 for _, shard in ipairs(ARGV) do
   processing = processing + redis.call('ZCARD', 'mindscape:queue:processing:' .. shard)
+  local task_ids = redis.call('ZRANGE', 'mindscape:queue:processing:' .. shard, 0, -1)
+  for _, task_id in ipairs(task_ids) do
+    table.insert(processing_task_ids, task_id)
+  end
 end
 return cjson.encode({
   policy = cjson.decode(policy_raw),
   reservations = reservations,
-  processing_count = processing
+  processing_count = processing,
+  processing_task_ids = processing_task_ids
 })
 """.strip()
 
@@ -86,6 +99,18 @@ def parse_runner_max_inflight(raw: str) -> int:
     raise ValueError("runner max_inflight is missing")
 
 
+def parse_runner_partitions(raw: str) -> tuple[str, ...]:
+    for line in raw.splitlines():
+        if line.startswith("LOCAL_CORE_RUNNER_ACCEPTED_PARTITIONS="):
+            value = line.split("=", 1)[1]
+            partitions = tuple(
+                item.strip() for item in value.split(",") if item.strip()
+            )
+            if partitions:
+                return partitions
+    raise ValueError("runner accepted partitions are missing")
+
+
 def _run_json(runner: ReadOnlyCommandRunner, argv: list[str]) -> dict[str, Any]:
     result = runner.run(argv)
     if result.returncode != 0:
@@ -124,6 +149,10 @@ def collect_runtime_snapshot(
             *shards,
         ],
     )
+    playbook_metadata = _run_json(
+        command_runner,
+        ["docker", "exec", backend, "python", "-c", _METADATA_CODE],
+    )
 
     shard_sql = ",".join(f"'{name}'" for name in shards)
     task_sql = f"""
@@ -133,11 +162,54 @@ WITH candidates AS (
          status,
          queue_shard,
          COALESCE(concurrency_key, '') AS concurrency_key,
+         jsonb_build_object(
+           'playbook_code', COALESCE(
+             execution_context::jsonb ->> 'playbook_code',
+             pack_id,
+             ''
+           ),
+           'workspace_id', COALESCE(
+             execution_context::jsonb ->> 'workspace_id',
+             workspace_id,
+             ''
+           ),
+           'resource_class', COALESCE(
+             execution_context::jsonb ->> 'resource_class',
+             ''
+           ),
+           'inputs', COALESCE(
+             execution_context::jsonb -> 'inputs',
+             params::jsonb,
+             '{{}}'::jsonb
+           ),
+           'concurrency', COALESCE(
+             execution_context::jsonb -> 'concurrency',
+             '{{}}'::jsonb
+           ),
+           'execution_profile', COALESCE(
+             execution_context::jsonb -> 'execution_profile',
+             '{{}}'::jsonb
+           ),
+           'resource_requirements', COALESCE(
+             execution_context::jsonb -> 'resource_requirements',
+             '{{}}'::jsonb
+           ),
+           'runner_resource_requirements', COALESCE(
+             execution_context::jsonb -> 'runner_resource_requirements',
+             '{{}}'::jsonb
+           )
+         ) AS execution_context,
          COALESCE(
            NULLIF(execution_context::jsonb #>> '{{inputs,user_data_dir}}', ''),
            NULLIF(params::jsonb ->> 'user_data_dir', ''),
            ''
          ) AS profile_path,
+         runner_id,
+         heartbeat_at,
+         (
+           heartbeat_at IS NOT NULL
+           AND heartbeat_at >= NOW() - INTERVAL '90 seconds'
+         ) AS heartbeat_fresh,
          frontier_enqueued_at,
          created_at
   FROM tasks
@@ -161,7 +233,11 @@ SELECT json_build_object(
         'status', status,
         'queue_shard', queue_shard,
         'concurrency_key', concurrency_key,
+        'execution_context', execution_context,
         'profile_path', profile_path,
+        'runner_id', runner_id,
+        'heartbeat_at', heartbeat_at,
+        'heartbeat_fresh', heartbeat_fresh,
         'frontier_enqueued_at', frontier_enqueued_at,
         'created_at', created_at
       ) ORDER BY
@@ -175,8 +251,7 @@ SELECT json_build_object(
 )::text
 FROM candidates;
 """.strip()
-    tasks = summarize_physical_profiles(
-        _run_json(
+    raw_tasks = _run_json(
             command_runner,
             [
                 "docker",
@@ -191,6 +266,21 @@ FROM candidates;
                 task_sql,
             ],
         )
+    processing_task_ids = {
+        str(item)
+        for item in redis_snapshot.get("processing_task_ids") or []
+        if str(item)
+    }
+    reservation_owner_ids = {
+        str(item.get("owner_id") or "")
+        for item in redis_snapshot.get("reservations") or []
+        if isinstance(item, dict) and str(item.get("owner_id") or "")
+    }
+    tasks = summarize_task_candidates(
+        raw_tasks,
+        playbook_metadata=playbook_metadata,
+        processing_task_ids=processing_task_ids,
+        reservation_owner_ids=reservation_owner_ids,
     )
 
     runner_slots = 0
@@ -198,6 +288,7 @@ FROM candidates;
     oom_kill = 0
     oom_group_kill = 0
     runner_evidence: list[dict[str, Any]] = []
+    runner_slot_capacity_by_partition: dict[str, int] = {}
     for container in runners:
         env_result = command_runner.run(["docker", "exec", container, "env"])
         events_result = command_runner.run(
@@ -225,6 +316,7 @@ FROM candidates;
         ):
             raise RuntimeError(f"runner evidence unavailable: {container}")
         slots = parse_runner_max_inflight(env_result.stdout)
+        partitions = parse_runner_partitions(env_result.stdout)
         events = parse_memory_events(events_result.stdout)
         try:
             cgroup_limit = int(limit_result.stdout.strip())
@@ -233,6 +325,10 @@ FROM candidates;
         if cgroup_limit <= 0:
             raise ValueError(f"positive cgroup limit required: {container}")
         runner_slots += slots
+        for partition in partitions:
+            runner_slot_capacity_by_partition[partition] = (
+                runner_slot_capacity_by_partition.get(partition, 0) + slots
+            )
         cgroup_limits.append(cgroup_limit)
         oom_kill += events["oom_kill"]
         oom_group_kill += events["oom_group_kill"]
@@ -240,6 +336,7 @@ FROM candidates;
             {
                 "container": container,
                 "max_inflight": slots,
+                "accepted_partitions": list(partitions),
                 "cgroup_limit_bytes": cgroup_limit,
                 **events,
             }
@@ -257,6 +354,8 @@ FROM candidates;
         "tasks": tasks,
         "memory": parse_meminfo(mem_result.stdout),
         "runner_slot_capacity": runner_slots,
+        "runner_slot_capacity_by_partition": runner_slot_capacity_by_partition,
+        "playbook_metadata": playbook_metadata,
         "browser_cgroup_limit_bytes": max(cgroup_limits),
         "runner_evidence": runner_evidence,
         "oom_kill_count": oom_kill,

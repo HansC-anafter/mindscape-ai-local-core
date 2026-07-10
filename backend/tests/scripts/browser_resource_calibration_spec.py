@@ -68,6 +68,7 @@ def test_baseline_and_workload_summary_use_maxima_and_rounding() -> None:
 
     runs = [
         {
+            "envelope_id": "ig_pin_post_detail",
             "workload_code": "ig_pin_post_detail",
             "valid": True,
             "task_peak_bytes": peak,
@@ -84,6 +85,7 @@ def test_workload_summary_fails_without_three_valid_runs() -> None:
     summary = summarize_workload_runs(
         [
             {
+                "envelope_id": "ig_analyze_following",
                 "workload_code": "ig_analyze_following",
                 "valid": True,
                 "task_peak_bytes": GIB,
@@ -98,6 +100,7 @@ def test_workload_summary_rejects_payload_hash_drift() -> None:
     summary = summarize_workload_runs(
         [
             {
+                "envelope_id": "ig_analyze_following",
                 "workload_code": "ig_analyze_following",
                 "valid": True,
                 "task_peak_bytes": GIB,
@@ -110,17 +113,34 @@ def test_workload_summary_rejects_payload_hash_drift() -> None:
     assert summary["failures"] == ["ig_analyze_following:payload_hash_drift"]
 
 
-def test_manifest_requires_three_workloads_and_builds_nine_runs(tmp_path) -> None:
+def test_manifest_requires_four_envelopes_and_builds_twelve_runs(tmp_path) -> None:
     baseline = tmp_path / "baseline.json"
     baseline.write_text("{}", encoding="utf-8")
     manifest_path = tmp_path / "manifest.json"
     workloads = [
-        {"workload_code": code, "inputs": {"workspace_id": "workspace", "x": code}}
-        for code in (
-            "ig_analyze_following",
-            "ig_batch_pin_references",
-            "ig_pin_post_detail",
-        )
+        {
+            "envelope_id": "ig_analyze_following",
+            "workload_code": "ig_analyze_following",
+            "inputs": {"workspace_id": "workspace"},
+        },
+        {
+            "envelope_id": "ig_batch_pin_references.browser",
+            "workload_code": "ig_batch_pin_references",
+            "inputs": {"workspace_id": "workspace", "source_mode": "browser"},
+        },
+        {
+            "envelope_id": "ig_batch_pin_references.captured_posts",
+            "workload_code": "ig_batch_pin_references",
+            "inputs": {
+                "workspace_id": "workspace",
+                "source_mode": "captured_posts",
+            },
+        },
+        {
+            "envelope_id": "ig_pin_post_detail",
+            "workload_code": "ig_pin_post_detail",
+            "inputs": {"workspace_id": "workspace"},
+        },
     ]
     manifest_path.write_text(
         json.dumps(
@@ -136,13 +156,14 @@ def test_manifest_requires_three_workloads_and_builds_nine_runs(tmp_path) -> Non
     manifest = load_workload_manifest(manifest_path)
     sequence = build_run_sequence(manifest, 3)
 
-    assert len(sequence) == 9
+    assert len(sequence) == 12
     assert [row["repetition"] for row in sequence[:3]] == [1, 2, 3]
     assert len(sequence[0]["payload_sha256"]) == 64
 
 
 def test_start_request_uses_only_canonical_runner_api() -> None:
     workload = {
+        "envelope_id": "ig_analyze_following",
         "workload_code": "ig_analyze_following",
         "inputs": {"workspace_id": "workspace"},
     }

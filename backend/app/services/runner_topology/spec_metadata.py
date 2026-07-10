@@ -9,6 +9,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from backend.app.services.contract_variants import select_exact_input_variant
+
 logger = logging.getLogger(__name__)
 
 _EXECUTION_PROFILE_KEYS = (
@@ -22,6 +24,8 @@ _EXECUTION_PROFILE_KEYS = (
     "runtime_affinity",
     "runner_timeout_seconds",
     "resource_requirements",
+    "resource_requirement_variants",
+    "runner_metadata_variants",
     "trace_runner_heartbeat",
     "no_progress_watchdog",
     "runner_dependencies",
@@ -176,8 +180,11 @@ def merge_runner_metadata_into_context(
     if not isinstance(metadata, dict) or not metadata:
         return context
 
+    metadata = resolve_runner_metadata_variant(metadata, context)
     merged = dict(context)
     for key, value in metadata.items():
+        if key == "runner_metadata_variants":
+            continue
         if key == "concurrency":
             declared = value if isinstance(value, dict) else {}
             explicit = context.get("concurrency") if isinstance(context.get("concurrency"), dict) else {}
@@ -190,3 +197,24 @@ def merge_runner_metadata_into_context(
         if key not in merged or merged.get(key) is None:
             merged[key] = copy.deepcopy(value)
     return merged
+
+
+def resolve_runner_metadata_variant(
+    metadata: Dict[str, Any],
+    execution_context: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Apply at most one exact-input runner metadata overlay."""
+
+    base = copy.deepcopy(metadata) if isinstance(metadata, dict) else {}
+    context = execution_context if isinstance(execution_context, dict) else {}
+    inputs = context.get("inputs")
+    if not isinstance(inputs, dict):
+        inputs = {}
+    selected = select_exact_input_variant(
+        base.get("runner_metadata_variants"),
+        inputs=inputs,
+        payload_key="metadata",
+        contract_label="runner metadata",
+    )
+    base.update(selected)
+    return base

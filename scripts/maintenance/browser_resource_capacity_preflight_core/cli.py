@@ -74,18 +74,21 @@ def _capacity_inputs(
             for value in request_plan.get("additional_request_bytes") or []
         ),
         missing_request_workload_count=len(
-            request_plan.get("missing_request_workloads") or []
+            request_plan.get("missing_request_envelopes") or []
         ),
         mem_available_bytes=int(snapshot["memory"].get("available_bytes") or 0),
         running_count=int(tasks.get("running_count") or 0),
-        running_physical_profile_count=int(
-            tasks.get("running_physical_profile_count") or 0
+        fresh_live_running_count=int(
+            tasks.get("fresh_live_running_count") or 0
         ),
-        runnable_physical_profile_count=int(
-            tasks.get("runnable_physical_profile_count") or 0
+        stale_running_count=int(
+            tasks.get("stale_running_count") or 0
         ),
-        duplicate_running_physical_profile_count=int(
-            tasks.get("duplicate_running_physical_profile_count") or 0
+        eligible_candidate_count=int(
+            request_plan.get("eligible_candidate_count") or 0
+        ),
+        running_lock_conflict_count=int(
+            request_plan.get("running_lock_conflict_count") or 0
         ),
         selected_candidate_count=int(
             request_plan.get("selected_candidate_count") or 0
@@ -100,7 +103,7 @@ def _capacity_inputs(
 
 
 def load_request_evidence(path: Path) -> tuple[dict[str, int], dict]:
-    """Load repeated-run memory requests keyed by workload code."""
+    """Load repeated-run memory requests keyed by workload envelope id."""
 
     raw = path.read_bytes()
     payload = json.loads(raw)
@@ -112,17 +115,19 @@ def load_request_evidence(path: Path) -> tuple[dict[str, int], dict]:
     for item in workloads:
         if not isinstance(item, dict):
             raise ValueError("request evidence workload must be an object")
-        code = str(item.get("workload_code") or "").strip()
+        envelope_id = str(item.get("envelope_id") or "").strip()
         request_bytes = int(item.get("request_bytes") or 0)
         valid_run_count = int(item.get("valid_run_count") or 0)
-        if not code or request_bytes <= 0 or valid_run_count < 3:
-            raise ValueError("each workload requires code, positive bytes, and three runs")
-        if code in requests:
-            raise ValueError("request evidence workload codes must be unique")
-        requests[code] = request_bytes
+        if not envelope_id or request_bytes <= 0 or valid_run_count < 3:
+            raise ValueError(
+                "each envelope requires id, positive bytes, and three runs"
+            )
+        if envelope_id in requests:
+            raise ValueError("request evidence envelope ids must be unique")
+        requests[envelope_id] = request_bytes
         normalized.append(
             {
-                "workload_code": code,
+                "envelope_id": envelope_id,
                 "request_bytes": request_bytes,
                 "valid_run_count": valid_run_count,
             }
@@ -161,23 +166,41 @@ def main(argv: Sequence[str] | None = None) -> int:
         queue_shards=tuple(args.queue_shard or DEFAULT_SHARDS),
     )
     snapshot = collect_runtime_snapshot(ReadOnlyCommandRunner(), targets)
-    default_request_bytes, workload_request_bytes, request_evidence = (
+    default_request_bytes, envelope_request_bytes, request_evidence = (
         resolve_request_catalog(args, snapshot)
+    )
+    node_policy = snapshot["node_budget"].get("policy") or {}
+    reserved_bytes = sum(
+        int(item.get("bytes") or 0)
+        for item in snapshot["node_budget"].get("reservations") or []
+        if isinstance(item, dict)
+    )
+    available_request_bytes = min(
+        max(0, int(node_policy.get("allocatable_bytes") or 0) - reserved_bytes),
+        int(snapshot["memory"].get("available_bytes") or 0),
     )
     request_plan = build_candidate_request_plan(
         snapshot["tasks"],
         required_concurrency=int(args.required_concurrency),
         default_request_bytes=default_request_bytes,
-        workload_request_bytes=workload_request_bytes,
+        envelope_request_bytes=envelope_request_bytes,
+        slot_capacity_by_partition=(
+            snapshot.get("runner_slot_capacity_by_partition") or {}
+        ),
+        available_request_bytes=available_request_bytes,
     )
     evaluation = evaluate_capacity(
         _capacity_inputs(args, snapshot, request_plan)
     )
+    public_snapshot = dict(snapshot)
+    public_tasks = dict(snapshot.get("tasks") or {})
+    public_tasks.pop("task_candidates", None)
+    public_snapshot["tasks"] = public_tasks
     output = {
         "evaluation": evaluation,
         "request_evidence": request_evidence,
         "request_plan": request_plan,
-        "snapshot": snapshot,
+        "snapshot": public_snapshot,
     }
     rendered = json.dumps(output, indent=2, sort_keys=True)
     if args.output_json:

@@ -14,6 +14,24 @@ APPROVED_WORKLOADS = {
     "ig_batch_pin_references",
     "ig_pin_post_detail",
 }
+APPROVED_ENVELOPES = {
+    "ig_analyze_following": {
+        "workload_code": "ig_analyze_following",
+        "source_mode": None,
+    },
+    "ig_batch_pin_references.browser": {
+        "workload_code": "ig_batch_pin_references",
+        "source_mode": "browser",
+    },
+    "ig_batch_pin_references.captured_posts": {
+        "workload_code": "ig_batch_pin_references",
+        "source_mode": "captured_posts",
+    },
+    "ig_pin_post_detail": {
+        "workload_code": "ig_pin_post_detail",
+        "source_mode": None,
+    },
+}
 _READ_PATHS = {"/healthz", "/api/v1/host-resources/queue-utilization"}
 _WRITE_PATH = "/api/v1/playbooks/execute/start"
 

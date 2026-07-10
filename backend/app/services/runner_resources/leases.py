@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import time
 from dataclasses import dataclass
 from typing import Any, Iterable, Optional, Protocol
@@ -11,9 +10,9 @@ from backend.app.services.stores.redis.runner_queue_store import (
     LUA_COMPARE_AND_DELETE,
     LUA_RENEW_LEASE,
 )
+from .lease_keys import LEASE_KEY_PREFIX, build_resource_lease_key
 
 LEASE_CONTEXT_KEY = "runner_resource_leases"
-LEASE_KEY_PREFIX = "mindscape:runner_resources:lease:v1"
 
 
 class ResourceLeaseStore(Protocol):
@@ -42,22 +41,6 @@ class ResourceLease:
             "resource_type": self.resource_type,
             "resource_id": self.resource_id,
         }
-
-
-def _normalize_key_part(value: str) -> str:
-    normalized = "".join(
-        char if char.isalnum() or char in {"-", "_", "."} else "_"
-        for char in str(value or "").strip()
-    ).strip("_")
-    return normalized[:64] or "default"
-
-
-def build_resource_lease_key(resource_type: str, resource_id: str) -> str:
-    normalized_type = _normalize_key_part(resource_type)
-    normalized_id = str(resource_id or "default").strip() or "default"
-    digest = hashlib.sha256(normalized_id.encode("utf-8")).hexdigest()[:16]
-    label = _normalize_key_part(normalized_id)
-    return f"{LEASE_KEY_PREFIX}:{normalized_type}:{label}:{digest}"
 
 
 def resource_lease_keys_from_context(context: Optional[dict[str, Any]]) -> list[str]:

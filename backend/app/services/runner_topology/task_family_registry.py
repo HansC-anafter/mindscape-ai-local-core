@@ -8,6 +8,7 @@ from typing import Any, Mapping, Optional
 from .spec_metadata import (
     iter_installed_playbook_runner_metadata,
     resolve_installed_playbook_runner_metadata,
+    resolve_runner_metadata_variant,
 )
 
 
@@ -131,6 +132,7 @@ def resolve_managed_batch_binding(
     if not playbook_code:
         return None
     metadata = resolve_installed_playbook_runner_metadata(playbook_code)
+    metadata = resolve_runner_metadata_variant(metadata, dict(context))
     merged = _metadata_with_context(metadata, context)
     return _binding_from_metadata(playbook_code=playbook_code, metadata=merged)
 
@@ -139,12 +141,27 @@ def iter_managed_batch_bindings() -> tuple[TaskFamilyBinding, ...]:
     """Return all installed playbook bindings for the managed browser batch family."""
     bindings: list[TaskFamilyBinding] = []
     for playbook_code, metadata in iter_installed_playbook_runner_metadata():
-        binding = _binding_from_metadata(
-            playbook_code=playbook_code,
-            metadata=metadata,
-        )
-        if binding is not None:
-            bindings.append(binding)
+        contracts: list[Mapping[str, Any]] = [metadata]
+        raw_variants = metadata.get("runner_metadata_variants")
+        if raw_variants is not None:
+            if not isinstance(raw_variants, list):
+                raise ValueError("runner metadata variants must be a list")
+            for raw_variant in raw_variants:
+                if not isinstance(raw_variant, Mapping) or not isinstance(
+                    raw_variant.get("metadata"),
+                    Mapping,
+                ):
+                    raise ValueError("runner metadata variant requires metadata")
+                variant_contract = dict(metadata)
+                variant_contract.update(dict(raw_variant["metadata"]))
+                contracts.append(variant_contract)
+        for contract in contracts:
+            binding = _binding_from_metadata(
+                playbook_code=playbook_code,
+                metadata=contract,
+            )
+            if binding is not None and binding not in bindings:
+                bindings.append(binding)
     return tuple(bindings)
 
 

@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .evidence import canonical_json
-from .http_client import APPROVED_WORKLOADS
+from .http_client import APPROVED_ENVELOPES
 
 
 def load_workload_manifest(path: Path) -> dict[str, Any]:
@@ -21,9 +21,13 @@ def load_workload_manifest(path: Path) -> dict[str, Any]:
     workloads = payload.get("workloads")
     if not workspace_id or not baseline_summary_path or not isinstance(workloads, list):
         raise ValueError("manifest requires workspace, baseline summary, and workloads")
-    codes = [str(item.get("workload_code") or "") for item in workloads if isinstance(item, dict)]
-    if len(workloads) != 3 or set(codes) != APPROVED_WORKLOADS:
-        raise ValueError("manifest requires exactly the three approved workloads")
+    envelope_ids = [
+        str(item.get("envelope_id") or "")
+        for item in workloads
+        if isinstance(item, dict)
+    ]
+    if len(workloads) != 4 or set(envelope_ids) != set(APPROVED_ENVELOPES):
+        raise ValueError("manifest requires exactly the four approved envelopes")
     normalized: list[dict[str, Any]] = []
     for item in workloads:
         if not isinstance(item, dict) or not isinstance(item.get("inputs"), dict):
@@ -31,9 +35,19 @@ def load_workload_manifest(path: Path) -> dict[str, Any]:
         inputs = item["inputs"]
         if str(inputs.get("workspace_id") or workspace_id) != workspace_id:
             raise ValueError("workload workspace must match manifest workspace")
-        workload_code = str(item["workload_code"])
+        envelope_id = str(item["envelope_id"])
+        workload_code = str(item.get("workload_code") or "")
+        approved = APPROVED_ENVELOPES[envelope_id]
+        if workload_code != approved["workload_code"]:
+            raise ValueError("envelope workload code mismatch")
+        expected_source_mode = approved["source_mode"]
+        if expected_source_mode is not None and str(
+            inputs.get("source_mode") or ""
+        ).strip().lower() != expected_source_mode:
+            raise ValueError("envelope source_mode mismatch")
         normalized.append(
             {
+                "envelope_id": envelope_id,
                 "workload_code": workload_code,
                 "inputs": dict(inputs),
                 "payload_sha256": hashlib.sha256(

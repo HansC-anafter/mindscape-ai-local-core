@@ -127,3 +127,135 @@ def test_memory_profile_identity_participates_in_resolved_contract():
     assert requirements.to_dict()["memory_profile_id"] == (
         "ig-browser-calibration-2026-07-10"
     )
+
+
+def test_exact_input_variant_clears_profile_lock_and_overrides_profile_id():
+    context = {
+        "inputs": {
+            "source_mode": "captured_posts",
+            "user_data_dir": "/profiles/a/",
+        }
+    }
+    task = SimpleNamespace(
+        id="task-captured",
+        pack_id="ig_batch_pin_references",
+        execution_context=context,
+    )
+
+    requirements = resolve_resource_requirements(
+        task,
+        execution_context=context,
+        playbook_metadata={
+            "resource_class": "browser",
+            "resource_requirements": {
+                "browser_contexts": 1,
+                "ig_profile_lock": "{user_data_dir}",
+                "memory_profile_id": "ig-batch-browser",
+            },
+            "resource_requirement_variants": [
+                {
+                    "when": {"input": "source_mode", "equals": "captured_posts"},
+                    "resource_requirements": {
+                        "ig_profile_lock": False,
+                        "memory_profile_id": "ig-batch-captured-posts",
+                    },
+                }
+            ],
+        },
+    )
+
+    assert requirements.browser_contexts == 1
+    assert requirements.ig_profile_lock is None
+    assert requirements.memory_profile_id == "ig-batch-captured-posts"
+
+
+def test_nonmatching_variant_preserves_browser_profile_lock():
+    context = {
+        "inputs": {
+            "source_mode": "browser",
+            "user_data_dir": "/profiles/a/",
+        }
+    }
+    task = SimpleNamespace(
+        id="task-browser",
+        pack_id="ig_batch_pin_references",
+        execution_context=context,
+    )
+
+    requirements = resolve_resource_requirements(
+        task,
+        execution_context=context,
+        playbook_metadata={
+            "resource_class": "browser",
+            "resource_requirements": {
+                "browser_contexts": 1,
+                "ig_profile_lock": "{user_data_dir}",
+            },
+            "resource_requirement_variants": [
+                {
+                    "when": {"input": "source_mode", "equals": "captured_posts"},
+                    "resource_requirements": {"ig_profile_lock": False},
+                }
+            ],
+        },
+    )
+
+    assert requirements.ig_profile_lock == "/profiles/a"
+
+
+def test_overlapping_requirement_variants_fail_closed():
+    context = {"inputs": {"source_mode": "captured_posts"}}
+    task = SimpleNamespace(
+        id="task-overlap",
+        pack_id="ig_batch_pin_references",
+        execution_context=context,
+    )
+
+    import pytest
+
+    with pytest.raises(ValueError, match="multiple resource requirement variants"):
+        resolve_resource_requirements(
+            task,
+            execution_context=context,
+            playbook_metadata={
+                "resource_requirement_variants": [
+                    {
+                        "when": {
+                            "input": "source_mode",
+                            "equals": "captured_posts",
+                        },
+                        "resource_requirements": {"memory_mb": 1},
+                    },
+                    {
+                        "when": {
+                            "input": "source_mode",
+                            "equals": "captured_posts",
+                        },
+                        "resource_requirements": {"memory_mb": 2},
+                    },
+                ]
+            },
+        )
+
+
+def test_spec_metadata_preserves_requirement_variants():
+    metadata = _extract_runner_metadata_from_spec(
+        {
+            "execution_profile": {
+                "resource_requirement_variants": [
+                    {
+                        "when": {
+                            "input": "source_mode",
+                            "equals": "captured_posts",
+                        },
+                        "resource_requirements": {"ig_profile_lock": False},
+                    }
+                ]
+            }
+        },
+        capability_code="ig",
+    )
+
+    assert metadata["resource_requirement_variants"][0][
+        "resource_requirements"
+    ] == {"ig_profile_lock": False}

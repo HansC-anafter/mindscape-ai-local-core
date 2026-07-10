@@ -121,23 +121,24 @@ def summarize_workload_runs(
 ) -> dict[str, Any]:
     grouped: dict[str, list[dict[str, Any]]] = {}
     for run in runs:
-        grouped.setdefault(str(run.get("workload_code") or ""), []).append(run)
+        grouped.setdefault(str(run.get("envelope_id") or ""), []).append(run)
     workloads: list[dict[str, Any]] = []
     failures: list[str] = []
-    for workload_code in sorted(grouped):
-        rows = grouped[workload_code]
+    for envelope_id in sorted(grouped):
+        rows = grouped[envelope_id]
         valid = [row for row in rows if row.get("valid") is True]
         if len(valid) != expected_repetitions:
-            failures.append(f"{workload_code}:valid_runs={len(valid)}")
+            failures.append(f"{envelope_id}:valid_runs={len(valid)}")
             continue
         payload_hashes = {str(row.get("payload_sha256") or "") for row in valid}
         if len(payload_hashes) != 1 or "" in payload_hashes:
-            failures.append(f"{workload_code}:payload_hash_drift")
+            failures.append(f"{envelope_id}:payload_hash_drift")
             continue
         peak = max(int(row.get("task_peak_bytes") or 0) for row in valid)
         workloads.append(
             {
-                "workload_code": workload_code,
+                "envelope_id": envelope_id,
+                "workload_code": str(valid[0].get("workload_code") or ""),
                 "valid_run_count": len(valid),
                 "observed_peak_bytes": peak,
                 "request_bytes": round_request_bytes(peak),
