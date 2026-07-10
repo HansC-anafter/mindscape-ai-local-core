@@ -19,6 +19,7 @@ from scripts.maintenance.browser_resource_calibration_core.natural_claim_observe
     NaturalClaimObservationError,
     select_fresh_running_task,
     validate_live_owner,
+    wait_for_natural_claim,
 )
 from scripts.maintenance.browser_resource_calibration_core.parsing import (
     build_node_sample,
@@ -350,6 +351,59 @@ def test_natural_claim_selection_and_live_owner_are_exact() -> None:
             [task, {**task, "id": "task-2"}],
             observer_started_epoch=10,
         )
+
+
+def test_natural_claim_discovery_uses_live_owner_then_one_exact_task_read() -> None:
+    task_id = "11111111-1111-1111-1111-111111111111"
+
+    class Collector:
+        db_scans = 0
+        exact_reads = 0
+
+        def list_live_browser_owners(self):
+            return [{"task_id": task_id, "runner_id": "runner-1"}]
+
+        def collect_running_browser_task(self, observed_task_id):
+            self.exact_reads += 1
+            assert observed_task_id == task_id
+            return {
+                "id": task_id,
+                "pack_id": "ig_analyze_following",
+                "status": "running",
+                "queue_shard": "browser_local",
+                "runner_id": "runner-1",
+                "started_at_epoch": 20,
+                "execution_context": {
+                    "inputs": {"user_data_dir": "/profile"},
+                    "resource_requirements": {
+                        "ig_profile_lock": "{user_data_dir}"
+                    },
+                },
+            }
+
+        def read_live_owner(self, observed_task_id):
+            assert observed_task_id == task_id
+            return {
+                "task_id": task_id,
+                "runner_id": "runner-1",
+                "ttl_seconds_remaining": 60,
+            }
+
+        def list_running_browser_tasks_started_after(self, _epoch):
+            self.db_scans += 1
+            raise AssertionError("per-second DB scan is forbidden")
+
+    collector = Collector()
+    observed = wait_for_natural_claim(
+        collector,
+        observer_started_epoch=10,
+        timeout_seconds=1,
+        poll_interval_seconds=0.01,
+    )
+    assert observed["task"]["id"] == task_id
+    assert observed["classification"]["valid"] is True
+    assert collector.exact_reads == 1
+    assert collector.db_scans == 0
 
 
 def test_envelope_classifier_enforces_partition_and_lock_contracts() -> None:

@@ -51,11 +51,36 @@ def wait_for_natural_claim(
     deadline = time.monotonic() + max(1, int(timeout_seconds))
     last_owner_failures: list[str] = []
     while time.monotonic() < deadline:
-        rows = collector.list_running_browser_tasks_started_after(observer_started_epoch)
-        task = select_fresh_running_task(
-            rows,
-            observer_started_epoch=observer_started_epoch,
+        list_live_owners = getattr(collector, "list_live_browser_owners", None)
+        collect_running_task = getattr(
+            collector,
+            "collect_running_browser_task",
+            None,
         )
+        if callable(list_live_owners) and callable(collect_running_task):
+            owners = list_live_owners()
+            if len(owners) > 1:
+                ids = sorted(str(row.get("task_id") or "") for row in owners)
+                raise NaturalClaimObservationError(
+                    f"multiple_fresh_browser_claims:{','.join(ids)}"
+                )
+            task = (
+                collect_running_task(str(owners[0].get("task_id") or ""))
+                if owners
+                else None
+            )
+            if task and float(task.get("started_at_epoch") or 0) < float(
+                observer_started_epoch
+            ):
+                task = None
+        else:
+            rows = collector.list_running_browser_tasks_started_after(
+                observer_started_epoch
+            )
+            task = select_fresh_running_task(
+                rows,
+                observer_started_epoch=observer_started_epoch,
+            )
         if task is None:
             time.sleep(max(0.1, float(poll_interval_seconds)))
             continue

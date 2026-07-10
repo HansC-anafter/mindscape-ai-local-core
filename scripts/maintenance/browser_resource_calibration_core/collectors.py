@@ -17,6 +17,32 @@ from .parsing import build_node_sample, parse_memory_events
 
 
 _TASK_ID = re.compile(r"^[0-9a-fA-F-]{36}$")
+_LIVE_BROWSER_OWNERS_LUA = r"""
+local cursor = '0'
+local result = {}
+repeat
+  local scanned = redis.call(
+    'SCAN', cursor, 'MATCH', 'mindscape:runner_live:task:*', 'COUNT', 100
+  )
+  cursor = scanned[1]
+  for _, key in ipairs(scanned[2]) do
+    local raw = redis.call('GET', key)
+    if raw then
+      local ok, payload = pcall(cjson.decode, raw)
+      if ok then
+        local shard = tostring(payload.queue_shard or '')
+        if shard == 'browser_local'
+          or shard == 'ig_browser'
+          or shard == 'default_local_browser' then
+          table.insert(result, raw)
+          if #result >= 10 then return result end
+        end
+      end
+    end
+  end
+until cursor == '0'
+return result
+""".strip()
 _PGBOUNCER_CODE = """
 import json
 import psycopg2
@@ -211,6 +237,58 @@ class CalibrationCollector:
             ).strip()
         )
 
+    def list_live_browser_owners(self) -> list[dict[str, Any]]:
+        raw = self._run(
+            [
+                "docker",
+                "exec",
+                self.redis_container,
+                "redis-cli",
+                "--raw",
+                "EVAL_RO",
+                _LIVE_BROWSER_OWNERS_LUA,
+                "0",
+            ]
+        )
+        owners: list[dict[str, Any]] = []
+        for line in raw.splitlines():
+            if not line.strip():
+                continue
+            payload = json.loads(line)
+            if isinstance(payload, dict):
+                owners.append(payload)
+        return owners
+
+    def collect_running_browser_task(self, task_id: str) -> dict[str, Any]:
+        if not _TASK_ID.fullmatch(task_id):
+            raise ValueError("task id must be a UUID")
+        sql = (
+            "SELECT json_build_object("
+            "'id', id, 'workspace_id', workspace_id, 'pack_id', pack_id, "
+            "'status', status, 'queue_shard', queue_shard, "
+            "'concurrency_key', concurrency_key, 'runner_id', runner_id, "
+            "'started_at_epoch', EXTRACT(EPOCH FROM started_at), "
+            "'params', params, 'execution_context', execution_context)::text "
+            f"FROM tasks WHERE id = '{task_id}' AND status='running';"
+        )
+        raw = self._run(
+            [
+                "docker",
+                "exec",
+                self.postgres_container,
+                "psql",
+                "-U",
+                "mindscape",
+                "-d",
+                "mindscape_core",
+                "-Atc",
+                sql,
+            ],
+            timeout_seconds=15,
+        ).strip()
+        payload = json.loads(raw) if raw else {}
+        return payload if isinstance(payload, dict) else {}
+
     def list_running_browser_tasks_started_after(
         self,
         started_after_epoch: float,
@@ -262,8 +340,8 @@ class CalibrationCollector:
         payload["ttl_seconds_remaining"] = int(ttl_raw or -2)
         return payload
 
-    def _run(self, argv: list[str]) -> str:
-        result = self.commands.run(argv, timeout_seconds=5)
+    def _run(self, argv: list[str], *, timeout_seconds: int = 5) -> str:
+        result = self.commands.run(argv, timeout_seconds=timeout_seconds)
         if result.returncode != 0:
             raise RuntimeError(result.stderr.strip() or "calibration collector failed")
         return result.stdout
