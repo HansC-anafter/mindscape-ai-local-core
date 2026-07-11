@@ -23,7 +23,12 @@ from .manager_core import (
     ttl_seconds_from_payload as _core_ttl_seconds_from_payload,
 )
 from .samplers import degraded_snapshot, snapshot_from_probe
-from .runner_claim_gate_bootstrap import read_runner_claim_gate_bootstrap
+from .runner_claim_gate_facade import (
+    RUNNER_CLAIM_GATE_KEY,
+    get_claim_gate_state,
+    pause_claim_gate_state,
+    resume_claim_gate_state,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -33,7 +38,6 @@ STATE_TTL_SECONDS = int(os.getenv("LOCAL_CORE_HOST_RESOURCE_STATE_TTL_SECONDS", 
 PAUSED_LANES_KEY = "mindscape:host_resources:paused_lanes"
 ROUTE_RESERVATIONS_KEY = "mindscape:host_resources:route_reservations"
 NOTIFICATIONS_KEY = "mindscape:host_resources:notifications"
-RUNNER_CLAIM_GATE_KEY = "mindscape:host_resources:runner_claim_gate"
 
 _cached_snapshot: dict[str, Any] | None = None
 _cached_at: datetime | None = None
@@ -99,26 +103,6 @@ def _write_json_list(key: str, value: list[str]) -> None:
         get_cache_service().set_json(key, value, ttl=STATE_TTL_SECONDS)
     except Exception:
         pass
-
-
-def _write_json_value(key: str, value: Any, *, ttl: int | None = None) -> bool:
-    try:
-        return bool(
-            get_cache_service().set_json(
-                key,
-                value,
-                ttl=ttl or STATE_TTL_SECONDS,
-            )
-        )
-    except Exception:
-        return False
-
-
-def _delete_json_value(key: str) -> bool:
-    try:
-        return bool(get_cache_service().delete(key))
-    except Exception:
-        return False
 
 
 def _ttl_seconds_from_payload(payload: dict[str, Any]) -> int:
@@ -427,73 +411,23 @@ def update_notification(
 
 def get_runner_claim_gate() -> dict[str, Any]:
     global _runner_claim_gate_state
-    persisted = _read_json_map(RUNNER_CLAIM_GATE_KEY)
-    if persisted:
-        _runner_claim_gate_state = _normalize_runner_claim_gate(
-            persisted,
-            source="redis",
-        )
-        return dict(_runner_claim_gate_state)
-    bootstrap = read_runner_claim_gate_bootstrap()
-    if bootstrap:
-        _runner_claim_gate_state = _normalize_runner_claim_gate(
-            bootstrap,
-            source="bootstrap_file",
-        )
-        _runner_claim_gate_state["persisted"] = True
-        return dict(_runner_claim_gate_state)
-    _runner_claim_gate_state = None
-    return _normalize_runner_claim_gate(None, source="default")
+    _runner_claim_gate_state, result = get_claim_gate_state(get_cache_service())
+    return result
 
 
 def pause_runner_claim_gate(payload: dict[str, Any] | None = None) -> dict[str, Any]:
     global _runner_claim_gate_state
-    payload = payload if isinstance(payload, dict) else {}
-    try:
-        ttl_seconds = int(payload.get("ttl_seconds") or STATE_TTL_SECONDS)
-    except Exception:
-        ttl_seconds = STATE_TTL_SECONDS
-    ttl_seconds = max(60, ttl_seconds)
-    gate = {
-        "state": "paused",
-        "reason": str(payload.get("reason") or "maintenance"),
-        "requested_by": str(payload.get("requested_by") or "local_runtime"),
-        "paused_at": _utc_now_iso(),
-        "ttl_seconds": ttl_seconds,
-    }
-    persisted = _write_json_value(
-        RUNNER_CLAIM_GATE_KEY,
-        gate,
-        ttl=ttl_seconds,
+    _runner_claim_gate_state, result = pause_claim_gate_state(
+        get_cache_service(),
+        payload,
+        default_ttl_seconds=STATE_TTL_SECONDS,
     )
-    _runner_claim_gate_state = dict(gate)
-    result = _normalize_runner_claim_gate(
-        gate,
-        source="redis" if persisted else "memory",
-    )
-    result["persisted"] = persisted
     return result
 
 
 def resume_runner_claim_gate() -> dict[str, Any]:
     global _runner_claim_gate_state
-    bootstrap = read_runner_claim_gate_bootstrap()
-    if bootstrap:
-        _runner_claim_gate_state = _normalize_runner_claim_gate(
-            bootstrap,
-            source="bootstrap_file",
-        )
-        _runner_claim_gate_state["persisted"] = True
-        _runner_claim_gate_state["resume_blocked_reason"] = (
-            "claim_gate_bootstrap_file_present"
-        )
-        return dict(_runner_claim_gate_state)
-    _runner_claim_gate_state = {
-        "state": "open",
-        "reason": None,
-        "resumed_at": _utc_now_iso(),
-    }
-    persisted = _delete_json_value(RUNNER_CLAIM_GATE_KEY)
-    result = _normalize_runner_claim_gate(_runner_claim_gate_state, source="memory")
-    result["persisted"] = persisted
+    _runner_claim_gate_state, result = resume_claim_gate_state(
+        get_cache_service()
+    )
     return result
