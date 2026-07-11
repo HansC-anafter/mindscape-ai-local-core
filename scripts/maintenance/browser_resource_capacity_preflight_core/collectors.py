@@ -34,18 +34,50 @@ for _, raw in ipairs(reservations_raw) do
 end
 local processing = 0
 local processing_task_ids = {}
+local allowed_shards = {}
 for _, shard in ipairs(ARGV) do
+  allowed_shards[shard] = true
   processing = processing + redis.call('ZCARD', 'mindscape:queue:processing:' .. shard)
   local task_ids = redis.call('ZRANGE', 'mindscape:queue:processing:' .. shard, 0, -1)
   for _, task_id in ipairs(task_ids) do
     table.insert(processing_task_ids, task_id)
   end
 end
+local live_owners = {}
+local cursor = '0'
+repeat
+  local scanned = redis.call(
+    'SCAN', cursor, 'MATCH', 'mindscape:runner_live:task:*', 'COUNT', 100
+  )
+  cursor = scanned[1]
+  for _, key in ipairs(scanned[2]) do
+    local raw = redis.call('GET', key)
+    local ttl = redis.call('TTL', key)
+    if raw and ttl > 0 then
+      local ok, payload = pcall(cjson.decode, raw)
+      local shard = ok and tostring(payload.queue_shard or '') or ''
+      local task_id = ok and tostring(payload.task_id or '') or ''
+      local runner_id = ok and tostring(payload.runner_id or '') or ''
+      if allowed_shards[shard] and task_id ~= '' and runner_id ~= '' then
+        table.insert(live_owners, {
+          task_id = task_id,
+          runner_id = runner_id,
+          ttl_seconds_remaining = ttl
+        })
+        if #live_owners >= 10 then
+          cursor = '0'
+          break
+        end
+      end
+    end
+  end
+until cursor == '0'
 return cjson.encode({
   policy = cjson.decode(policy_raw),
   reservations = reservations,
   processing_count = processing,
-  processing_task_ids = processing_task_ids
+  processing_task_ids = processing_task_ids,
+  live_owners = live_owners
 })
 """.strip()
 
@@ -276,11 +308,17 @@ FROM candidates;
         for item in redis_snapshot.get("reservations") or []
         if isinstance(item, dict) and str(item.get("owner_id") or "")
     }
+    live_owners = {
+        str(item.get("task_id") or ""): item
+        for item in redis_snapshot.get("live_owners") or []
+        if isinstance(item, dict) and str(item.get("task_id") or "")
+    }
     tasks = summarize_task_candidates(
         raw_tasks,
         playbook_metadata=playbook_metadata,
         processing_task_ids=processing_task_ids,
         reservation_owner_ids=reservation_owner_ids,
+        live_owners=live_owners,
     )
 
     runner_slots = 0

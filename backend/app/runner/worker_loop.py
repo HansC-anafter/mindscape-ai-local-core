@@ -239,6 +239,12 @@ async def run_forever() -> None:
     )
 
     while True:
+        _discard_finished_tasks(inflight)
+        capacity = resolve_runner_capacity_snapshot(
+            runner_profile,
+            inflight=len(inflight),
+            configured_poll_batch_limit=configured_poll_batch_limit,
+        )
         resource_snapshot = _build_initial_resource_snapshot(
             runner_profile,
             inflight=len(inflight),
@@ -347,11 +353,6 @@ async def run_forever() -> None:
             )
             continue
 
-        capacity = resolve_runner_capacity_snapshot(
-            runner_profile,
-            inflight=len(inflight),
-            configured_poll_batch_limit=configured_poll_batch_limit,
-        )
         if capacity.saturated:
             await asyncio.sleep(poll_interval_ms / 1000)
             continue

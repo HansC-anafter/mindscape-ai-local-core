@@ -403,6 +403,118 @@ def test_stale_running_task_never_becomes_fresh_live() -> None:
     assert summary["stale_running_count"] == 1
 
 
+def test_exact_live_owner_overrides_stale_db_heartbeat() -> None:
+    context = _context(
+        code="ig_analyze_following",
+        profile="/profiles/a",
+    )
+    summary = summarize_task_candidates(
+        {
+            "candidates": [
+                {
+                    **_candidate(
+                        "running-01",
+                        context,
+                        status="running",
+                        heartbeat_fresh=False,
+                    ),
+                    "runner_id": "runner-01",
+                }
+            ]
+        },
+        playbook_metadata=_metadata(),
+        processing_task_ids={"running-01"},
+        reservation_owner_ids={"runner-01:running-01"},
+        live_owners={
+            "running-01": {
+                "task_id": "running-01",
+                "runner_id": "runner-01",
+                "ttl_seconds_remaining": 60,
+            }
+        },
+    )
+
+    candidate = summary["task_candidates"][0]
+    assert candidate["db_heartbeat_fresh"] is False
+    assert candidate["live_owner_fresh"] is True
+    assert candidate["fresh_live"] is True
+    assert summary["fresh_live_running_count"] == 1
+    assert summary["stale_running_count"] == 0
+
+
+@pytest.mark.parametrize(
+    ("live_owner", "processing_ids", "reservation_ids"),
+    [
+        (
+            {
+                "task_id": "running-01",
+                "runner_id": "runner-other",
+                "ttl_seconds_remaining": 60,
+            },
+            {"running-01"},
+            {"runner-01:running-01"},
+        ),
+        (
+            {
+                "task_id": "running-01",
+                "runner_id": "runner-01",
+                "ttl_seconds_remaining": 0,
+            },
+            {"running-01"},
+            {"runner-01:running-01"},
+        ),
+        (
+            {
+                "task_id": "running-01",
+                "runner_id": "runner-01",
+                "ttl_seconds_remaining": 60,
+            },
+            set(),
+            {"runner-01:running-01"},
+        ),
+        (
+            {
+                "task_id": "running-01",
+                "runner_id": "runner-01",
+                "ttl_seconds_remaining": 60,
+            },
+            {"running-01"},
+            set(),
+        ),
+    ],
+)
+def test_live_owner_requires_exact_runtime_conjunction(
+    live_owner: dict[str, object],
+    processing_ids: set[str],
+    reservation_ids: set[str],
+) -> None:
+    summary = summarize_task_candidates(
+        {
+            "candidates": [
+                {
+                    **_candidate(
+                        "running-01",
+                        _context(
+                            code="ig_analyze_following",
+                            profile="/profiles/a",
+                        ),
+                        status="running",
+                        heartbeat_fresh=True,
+                    ),
+                    "runner_id": "runner-01",
+                }
+            ]
+        },
+        playbook_metadata=_metadata(),
+        processing_task_ids=processing_ids,
+        reservation_owner_ids=reservation_ids,
+        live_owners={"running-01": live_owner},
+    )
+
+    assert summary["fresh_live_running_count"] == 0
+    assert summary["stale_running_count"] == 1
+
+
 def test_workload_envelope_distinguishes_batch_source_modes() -> None:
     assert workload_envelope_id(
         "ig_batch_pin_references", {"source_mode": "browser"}

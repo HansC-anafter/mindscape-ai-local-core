@@ -41,6 +41,7 @@ def summarize_task_candidates(
     playbook_metadata: Mapping[str, Any] | None = None,
     processing_task_ids: set[str] | None = None,
     reservation_owner_ids: set[str] | None = None,
+    live_owners: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Resolve installed requirements and complete exclusive lock sets."""
 
@@ -50,6 +51,7 @@ def summarize_task_candidates(
     metadata_catalog = playbook_metadata or {}
     processing_ids = processing_task_ids or set()
     owner_ids = reservation_owner_ids or set()
+    live_owner_catalog = live_owners or {}
     candidates: list[dict[str, Any]] = []
     missing_lock_identity_count = 0
 
@@ -93,7 +95,17 @@ def summarize_task_candidates(
         has_reservation_owner = any(
             task_id and task_id in owner_id for owner_id in owner_ids
         )
-        heartbeat_fresh = raw.get("heartbeat_fresh") is True
+        db_heartbeat_fresh = raw.get("heartbeat_fresh") is True
+        live_owner = live_owner_catalog.get(task_id)
+        if not isinstance(live_owner, Mapping):
+            live_owner = {}
+        live_owner_fresh = bool(
+            status == "running"
+            and str(live_owner.get("task_id") or "") == task_id
+            and str(live_owner.get("runner_id") or "")
+            == str(raw.get("runner_id") or "")
+            and int(live_owner.get("ttl_seconds_remaining") or 0) > 0
+        )
         candidate = dict(raw)
         candidate.pop("execution_context", None)
         candidate.update(
@@ -107,12 +119,14 @@ def summarize_task_candidates(
                     raw.get("queue_shard"),
                     fallback=None,
                 ),
-                "heartbeat_fresh": heartbeat_fresh,
+                "db_heartbeat_fresh": db_heartbeat_fresh,
+                "heartbeat_fresh": db_heartbeat_fresh or live_owner_fresh,
+                "live_owner_fresh": live_owner_fresh,
                 "in_processing": in_processing,
                 "has_reservation_owner": has_reservation_owner,
                 "fresh_live": bool(
                     status == "running"
-                    and heartbeat_fresh
+                    and live_owner_fresh
                     and in_processing
                     and has_reservation_owner
                 ),
