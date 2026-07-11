@@ -40,7 +40,6 @@ async def test_false_lock_renewal_sets_ownership_loss_and_stops_thread():
         redis_queue=Queue(),
         lock_keys=["lock-1"],
         resource_lease_keys=[],
-        node_budget_reservation=None,
         ownership_lost_event=ownership_lost,
         lock_owner_id="runner-a:task-1",
         lock_ttl_seconds=120,

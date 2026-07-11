@@ -10,6 +10,7 @@ from backend.app.models.workspace import TaskStatus
 from backend.app.services.runner_live_state import RunnerLiveStateStore
 from backend.app.services.runner_resources import (
     NodeBudgetReservation,
+    RedisNodeBudgetStore,
     reservation_from_context,
     resource_lease_keys_from_context,
 )
@@ -37,6 +38,22 @@ from backend.app.runner.task_executor_runtime_cleanup import (
 from backend.app.runner.utils import _env_int
 
 logger = logging.getLogger(__name__)
+
+
+async def _renew_node_budget_before_child(
+    redis_queue: Optional[RedisRunnerQueueStore],
+    reservation: Optional[NodeBudgetReservation],
+    *,
+    ttl_seconds: int,
+) -> bool:
+    if reservation is None:
+        return True
+    if redis_queue is None:
+        return False
+    return await RedisNodeBudgetStore(redis_queue).renew(
+        reservation,
+        ttl_seconds=ttl_seconds,
+    )
 
 
 @dataclass(frozen=True)
@@ -189,6 +206,43 @@ async def _run_single_task_impl(
     proc_ref = [None]
     trace_heartbeat = bool(ctx.get("trace_runner_heartbeat"))
 
+    if node_budget_reservation is not None:
+        renew_ok = await _renew_node_budget_before_child(
+            redis_queue,
+            node_budget_reservation,
+            ttl_seconds=lock_ttl_seconds,
+        )
+        if not renew_ok:
+            logger.warning(
+                "Runner prelaunch node budget renew failed task_id=%s playbook=%s "
+                "owner_id=%s revision=%s ttl_seconds=%s",
+                task.id,
+                task.pack_id,
+                node_budget_reservation.owner_id,
+                node_budget_reservation.revision,
+                lock_ttl_seconds,
+            )
+            await hooks.mark_task_failed(
+                tasks_store,
+                task.id,
+                runner_id,
+                "Runner node budget ownership was not valid before child launch",
+                redis_queue,
+                resource_pressure_source="resource_ownership_lost",
+            )
+            await hooks.release_task_locks(
+                redis_queue,
+                lock_keys,
+                lock_owner_id,
+            )
+            await hooks.release_task_resource_leases(
+                redis_queue,
+                resource_lease_keys,
+                lock_owner_id,
+                node_budget_reservation,
+            )
+            return
+
     hb_thread = start_heartbeat_thread(
         asyncio_module=asyncio_mod,
         main_loop=main_loop,
@@ -198,6 +252,9 @@ async def _run_single_task_impl(
         runner_id=runner_id,
         redis_queue=redis_queue,
         runner_live_state=runner_live_state,
+        node_budget_reservation=node_budget_reservation,
+        ownership_lost_event=ownership_lost_event,
+        node_budget_ttl_seconds=lock_ttl_seconds,
         heartbeat_interval_ms=hb_interval_ms,
         heartbeat_ttl_seconds=heartbeat_ttl_seconds,
         trace_heartbeat=trace_heartbeat,
@@ -211,7 +268,6 @@ async def _run_single_task_impl(
         redis_queue=redis_queue,
         lock_keys=lock_keys,
         resource_lease_keys=resource_lease_keys,
-        node_budget_reservation=node_budget_reservation,
         ownership_lost_event=ownership_lost_event,
         lock_owner_id=lock_owner_id,
         lock_ttl_seconds=lock_ttl_seconds,

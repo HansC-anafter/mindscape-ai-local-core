@@ -29,11 +29,20 @@ def start_heartbeat_thread(
     runner_id: str,
     redis_queue: Optional[RedisRunnerQueueStore],
     runner_live_state: RunnerLiveStateStore,
+    node_budget_reservation: Optional[NodeBudgetReservation],
+    ownership_lost_event: Event,
+    node_budget_ttl_seconds: int,
     heartbeat_interval_ms: int,
     heartbeat_ttl_seconds: int,
     trace_heartbeat: bool,
     proc_ref: list[Any],
 ) -> Thread:
+    node_budget_store = (
+        RedisNodeBudgetStore(redis_queue)
+        if redis_queue and node_budget_reservation is not None
+        else None
+    )
+
     def _heartbeat_thread() -> None:
         interval_s = max(1.0, heartbeat_interval_ms / 1000.0)
         beat_seq = 0
@@ -54,6 +63,41 @@ def start_heartbeat_thread(
                     break
             except Exception as e:
                 logger.error(f"Error checking subprocess alive status in heartbeat thread: {e}", exc_info=True)
+            if node_budget_store and node_budget_reservation is not None:
+                try:
+                    fut = asyncio_module.run_coroutine_threadsafe(
+                        node_budget_store.renew(
+                            node_budget_reservation,
+                            ttl_seconds=node_budget_ttl_seconds,
+                        ),
+                        main_loop,
+                    )
+                    renew_ok = fut.result(timeout=10)
+                    if not renew_ok:
+                        logger.warning(
+                            "Runner primary heartbeat node budget renew returned false "
+                            "task_id=%s playbook=%s owner_id=%s revision=%s ttl_seconds=%s",
+                            task.id,
+                            task.pack_id,
+                            node_budget_reservation.owner_id,
+                            node_budget_reservation.revision,
+                            node_budget_ttl_seconds,
+                        )
+                        ownership_lost_event.set()
+                        return
+                except Exception:
+                    logger.warning(
+                        "Runner primary heartbeat node budget renew failed "
+                        "task_id=%s playbook=%s owner_id=%s revision=%s ttl_seconds=%s",
+                        task.id,
+                        task.pack_id,
+                        node_budget_reservation.owner_id,
+                        node_budget_reservation.revision,
+                        node_budget_ttl_seconds,
+                        exc_info=True,
+                    )
+                    ownership_lost_event.set()
+                    return
             try:
                 hb_started = time.monotonic()
                 if trace_heartbeat and beat_seq <= 3:
@@ -172,26 +216,17 @@ def start_lease_renew_thread(
     redis_queue: Optional[RedisRunnerQueueStore],
     lock_keys: list[str],
     resource_lease_keys: list[str],
-    node_budget_reservation: Optional[NodeBudgetReservation],
     ownership_lost_event: Event,
     lock_owner_id: str,
     lock_ttl_seconds: int,
     heartbeat_interval_ms: int,
 ) -> Optional[Thread]:
-    if not redis_queue or not (
-        lock_keys or resource_lease_keys or node_budget_reservation
-    ):
+    if not redis_queue or not (lock_keys or resource_lease_keys):
         return None
 
     resource_lease_store = (
         RedisResourceLeaseStore(redis_queue) if resource_lease_keys else None
     )
-    node_budget_store = (
-        RedisNodeBudgetStore(redis_queue)
-        if node_budget_reservation is not None
-        else None
-    )
-
     def _renew_thread() -> None:
         interval_s = max(5.0, heartbeat_interval_ms / 1000.0)
         while not stop_event.is_set():
@@ -233,25 +268,6 @@ def start_lease_renew_thread(
                             task.id,
                             task.pack_id,
                             lock_owner_id,
-                        )
-                        ownership_lost_event.set()
-                        return
-                if node_budget_store and node_budget_reservation is not None:
-                    fut = asyncio_module.run_coroutine_threadsafe(
-                        node_budget_store.renew(
-                            node_budget_reservation,
-                            ttl_seconds=lock_ttl_seconds,
-                        ),
-                        main_loop,
-                    )
-                    renew_ok = fut.result(timeout=10)
-                    if not renew_ok:
-                        logger.warning(
-                            "Runner node budget renew returned false task_id=%s playbook=%s owner_id=%s revision=%s",
-                            task.id,
-                            task.pack_id,
-                            lock_owner_id,
-                            node_budget_reservation.revision,
                         )
                         ownership_lost_event.set()
                         return
