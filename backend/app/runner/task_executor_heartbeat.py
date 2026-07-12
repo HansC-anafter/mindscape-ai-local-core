@@ -1,9 +1,11 @@
 """Task executor heartbeat and lease-renew thread helpers."""
 
+from concurrent.futures import TimeoutError as FutureTimeoutError
 import logging
+import os
 import time
 from threading import Event, Thread
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from backend.app.services.runner_live_state import RunnerLiveStateStore
 from backend.app.services.runner_resources import (
@@ -17,6 +19,66 @@ from backend.app.services.stores.redis.runner_queue_store import RedisRunnerQueu
 from backend.app.runner.database_backoff import is_database_recovery_error
 
 logger = logging.getLogger(__name__)
+
+_LOOP_TIMEOUT_EXIT_CODE = 75
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
+def _loop_timeout_exit_threshold() -> int:
+    return max(1, _env_int("LOCAL_CORE_RUNNER_LOOP_TIMEOUT_EXIT_THRESHOLD", 3))
+
+
+def _handle_loop_future_timeout(
+    *,
+    kind: str,
+    task: Any,
+    owner_id: Optional[str],
+    consecutive_timeouts: int,
+    threshold: int,
+    exit_enabled: bool,
+    exit_func: Callable[[int], None] = os._exit,
+) -> None:
+    logger.warning(
+        "Runner main event loop did not service %s future task_id=%s playbook=%s owner_id=%s "
+        "consecutive_timeouts=%s threshold=%s exit_enabled=%s",
+        kind,
+        task.id,
+        task.pack_id,
+        owner_id,
+        consecutive_timeouts,
+        threshold,
+        exit_enabled,
+        exc_info=True,
+    )
+    if not exit_enabled or consecutive_timeouts < threshold:
+        return
+
+    logger.critical(
+        "Runner main event loop appears stuck after repeated %s future timeouts; forcing runner process exit "
+        "task_id=%s playbook=%s owner_id=%s exit_code=%s",
+        kind,
+        task.id,
+        task.pack_id,
+        owner_id,
+        _LOOP_TIMEOUT_EXIT_CODE,
+    )
+    exit_func(_LOOP_TIMEOUT_EXIT_CODE)
 
 
 def start_heartbeat_thread(
@@ -47,6 +109,13 @@ def start_heartbeat_thread(
         interval_s = max(1.0, heartbeat_interval_ms / 1000.0)
         beat_seq = 0
         next_db_recovery_log_at = 0.0
+        loop_future_timeouts = 0
+        node_budget_future_timeouts = 0
+        loop_timeout_exit_enabled = _env_bool(
+            "LOCAL_CORE_RUNNER_LOOP_TIMEOUT_EXIT_ENABLED",
+            True,
+        )
+        loop_timeout_threshold = _loop_timeout_exit_threshold()
         while not stop_event.is_set():
             beat_seq += 1
             try:
@@ -73,6 +142,7 @@ def start_heartbeat_thread(
                         main_loop,
                     )
                     renew_ok = fut.result(timeout=10)
+                    node_budget_future_timeouts = 0
                     if not renew_ok:
                         logger.warning(
                             "Runner primary heartbeat node budget renew returned false "
@@ -85,6 +155,16 @@ def start_heartbeat_thread(
                         )
                         ownership_lost_event.set()
                         return
+                except FutureTimeoutError:
+                    node_budget_future_timeouts += 1
+                    _handle_loop_future_timeout(
+                        kind="node budget renew",
+                        task=task,
+                        owner_id=node_budget_reservation.owner_id,
+                        consecutive_timeouts=node_budget_future_timeouts,
+                        threshold=loop_timeout_threshold,
+                        exit_enabled=loop_timeout_exit_enabled,
+                    )
                 except Exception:
                     logger.warning(
                         "Runner primary heartbeat node budget renew failed "
@@ -164,6 +244,7 @@ def start_heartbeat_thread(
                         main_loop,
                     )
                     touch_ok = fut.result(timeout=10)
+                    loop_future_timeouts = 0
                     hb_redis_elapsed_ms = int((time.monotonic() - redis_started) * 1000)
                     if (trace_heartbeat and beat_seq <= 3) or hb_redis_elapsed_ms >= 2000 or not touch_ok:
                         log_fn = (
@@ -179,6 +260,16 @@ def start_heartbeat_thread(
                             hb_redis_elapsed_ms,
                             touch_ok,
                         )
+            except FutureTimeoutError:
+                loop_future_timeouts += 1
+                _handle_loop_future_timeout(
+                    kind="visibility heartbeat",
+                    task=task,
+                    owner_id=runner_id,
+                    consecutive_timeouts=loop_future_timeouts,
+                    threshold=loop_timeout_threshold,
+                    exit_enabled=loop_timeout_exit_enabled,
+                )
             except Exception as e:
                 if is_database_recovery_error(e):
                     now_monotonic = time.monotonic()
@@ -229,6 +320,12 @@ def start_lease_renew_thread(
     )
     def _renew_thread() -> None:
         interval_s = max(5.0, heartbeat_interval_ms / 1000.0)
+        loop_future_timeouts = 0
+        loop_timeout_exit_enabled = _env_bool(
+            "LOCAL_CORE_RUNNER_LOOP_TIMEOUT_EXIT_ENABLED",
+            True,
+        )
+        loop_timeout_threshold = _loop_timeout_exit_threshold()
         while not stop_event.is_set():
             try:
                 for held_key in lock_keys:
@@ -241,6 +338,7 @@ def start_lease_renew_thread(
                         main_loop,
                     )
                     renew_ok = fut.result(timeout=10)
+                    loop_future_timeouts = 0
                     if not renew_ok:
                         logger.warning(
                             "Runner concurrency lock renew returned false task_id=%s playbook=%s lock_key=%s owner_id=%s",
@@ -262,6 +360,7 @@ def start_lease_renew_thread(
                         main_loop,
                     )
                     renew_ok = fut.result(timeout=10)
+                    loop_future_timeouts = 0
                     if not renew_ok:
                         logger.warning(
                             "Runner resource lease renew returned false task_id=%s playbook=%s owner_id=%s",
@@ -271,6 +370,16 @@ def start_lease_renew_thread(
                         )
                         ownership_lost_event.set()
                         return
+            except FutureTimeoutError:
+                loop_future_timeouts += 1
+                _handle_loop_future_timeout(
+                    kind="lease renew",
+                    task=task,
+                    owner_id=lock_owner_id,
+                    consecutive_timeouts=loop_future_timeouts,
+                    threshold=loop_timeout_threshold,
+                    exit_enabled=loop_timeout_exit_enabled,
+                )
             except Exception as e:
                 ownership_lost_event.set()
                 logger.warning(
