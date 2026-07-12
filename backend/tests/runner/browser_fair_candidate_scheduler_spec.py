@@ -95,6 +95,38 @@ def test_tie_preserves_scan_order():
     assert decision.selected_lane == FOLLOWING_PLAYBOOK
 
 
+def test_tie_rotates_after_last_selected_lane():
+    decision = select_browser_fair_candidate(
+        [
+            BrowserCandidate(
+                task_id="following-1",
+                pack_id=FOLLOWING_PLAYBOOK,
+                queue_position=0,
+            ),
+            BrowserCandidate(
+                task_id="batch-1",
+                pack_id=BATCH_PLAYBOOK,
+                queue_position=1,
+            ),
+            BrowserCandidate(
+                task_id="pin-1",
+                pack_id=DETAIL_PLAYBOOK,
+                queue_position=2,
+            ),
+        ],
+        {
+            FOLLOWING_PLAYBOOK: 0,
+            BATCH_PLAYBOOK: 0,
+            DETAIL_PLAYBOOK: 0,
+        },
+        last_selected_lane=FOLLOWING_PLAYBOOK,
+    )
+
+    assert decision.selected_task_id == "batch-1"
+    assert decision.selected_lane == BATCH_PLAYBOOK
+    assert decision.reason == "lane_round_robin"
+
+
 def test_same_lane_window_selects_first_candidate():
     decision = select_browser_fair_candidate(
         [

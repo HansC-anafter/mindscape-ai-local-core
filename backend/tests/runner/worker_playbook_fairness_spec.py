@@ -65,6 +65,46 @@ def test_worker_browser_fairness_keeps_following_available_to_general_browser_pr
     assert drain_wait is False
     assert queue.promoted == ["task-following"]
     assert tasks_store.requested_ids == ["task-following", "task-batch"]
+    assert queue.client.setex_calls[-1][2] == FOLLOWING_PLAYBOOK
+
+
+def test_worker_browser_fairness_rotates_tied_lane_from_durable_cursor():
+    alternate_playbook = "browser_alt_collect"
+    queue = FakeFairQueue(["task-following", "task-alternate"])
+    queue.client.values[
+        "mindscape:runner:browser_fair_cursor:v1:browser_local"
+    ] = FOLLOWING_PLAYBOOK
+    tasks_store = FakeCandidateTasksStore(
+        {
+            "task-following": candidate_projection(
+                "task-following",
+                FOLLOWING_PLAYBOOK,
+            ),
+            "task-alternate": candidate_projection(
+                "task-alternate",
+                alternate_playbook,
+            ),
+        },
+        {
+            FOLLOWING_PLAYBOOK: 0,
+            alternate_playbook: 0,
+        },
+    )
+
+    task_id, queue_store, drain_wait = asyncio.run(
+        _dequeue_by_browser_fair_candidate_policy(
+            [queue],
+            tasks_store=tasks_store,
+            runner_profile=browser_profile(),
+            visibility_timeout_sec=180,
+            scan_limit=10,
+        )
+    )
+
+    assert task_id == "task-alternate"
+    assert queue_store is queue
+    assert drain_wait is False
+    assert queue.client.setex_calls[-1][2] == alternate_playbook
 
 
 def test_route_gate_policy_falls_back_when_only_same_playbook():

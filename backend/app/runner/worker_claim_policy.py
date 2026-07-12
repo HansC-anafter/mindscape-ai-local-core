@@ -19,6 +19,10 @@ from backend.app.services.host_resources.route_identity_projection import (
 from backend.app.runner.browser_fair_candidate_scheduler import (
     select_browser_fair_candidate,
 )
+from backend.app.runner.browser_fairness_cursor import (
+    read_browser_fairness_cursor,
+    write_browser_fairness_cursor,
+)
 from backend.app.runner.resource_pressure import is_browser_resource_profile
 from backend.app.runner.worker_transport import _normalize_task_id, _resolve_task_queue_shard
 
@@ -200,11 +204,14 @@ async def _dequeue_by_browser_fair_candidate_policy(
         active_reservations = []
 
     candidates: list[dict] = []
+    cursor_client = None
     seen: set[str] = set()
     for queue_store in queue_cycle:
         client = await queue_store._get_client()
         if not client:
             continue
+        if cursor_client is None:
+            cursor_client = client
         try:
             candidate_ids = await client.lrange(
                 queue_store.q_pending,
@@ -303,7 +310,24 @@ async def _dequeue_by_browser_fair_candidate_policy(
         tasks_store.count_running_browser_lanes,
         queue_shard,
     )
-    fair_decision = select_browser_fair_candidate(candidates, running_counts)
+    last_selected_lane = None
+    if cursor_client is not None:
+        try:
+            last_selected_lane = await read_browser_fairness_cursor(
+                cursor_client,
+                queue_shard=queue_shard,
+            )
+        except Exception as exc:
+            logger.warning(
+                "[Worker] Failed to read browser fairness cursor queue=%s: %s",
+                queue_shard,
+                exc,
+            )
+    fair_decision = select_browser_fair_candidate(
+        candidates,
+        running_counts,
+        last_selected_lane=last_selected_lane,
+    )
     if not fair_decision.selected_task_id:
         return None, None, False
 
@@ -327,6 +351,20 @@ async def _dequeue_by_browser_fair_candidate_policy(
         visibility_timeout_sec=visibility_timeout_sec,
     )
     if moved:
+        if cursor_client is not None and fair_decision.selected_lane:
+            try:
+                await write_browser_fairness_cursor(
+                    cursor_client,
+                    queue_shard=queue_shard,
+                    lane_key=fair_decision.selected_lane,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "[Worker] Failed to write browser fairness cursor queue=%s lane=%s: %s",
+                    queue_shard,
+                    fair_decision.selected_lane,
+                    exc,
+                )
         logger.info(
             "[Worker] Browser fair policy selected task %s lane=%s running_count=%s queue=%s",
             fair_decision.selected_task_id,

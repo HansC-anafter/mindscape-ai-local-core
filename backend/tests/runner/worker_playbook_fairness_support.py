@@ -12,12 +12,22 @@ class FakeFairClient:
     def __init__(self, ids):
         self.ids = ids
         self.projections = {}
+        self.values = {}
+        self.setex_calls = []
 
     async def lrange(self, queue_name, start, end):
         return self.ids[start : end + 1]
 
     async def mget(self, keys):
         return [self.projections.get(key) for key in keys]
+
+    async def get(self, key):
+        return self.values.get(key)
+
+    async def setex(self, key, ttl_seconds, value):
+        self.values[key] = value
+        self.setex_calls.append((key, ttl_seconds, value))
+        return True
 
 
 class FakeFairQueue:

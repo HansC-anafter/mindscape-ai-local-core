@@ -91,8 +91,10 @@ def _candidate_from_any(candidate: Any, position: int) -> Optional[BrowserCandid
 def select_browser_fair_candidate(
     candidates: list[Any],
     running_counts_by_lane: dict[str, int],
+    *,
+    last_selected_lane: Optional[str] = None,
 ) -> BrowserFairDecision:
-    """Select the next browser candidate by lane running counts, then scan order."""
+    """Select by running count, then rotate tied lanes after the durable cursor."""
 
     first_by_lane: dict[str, BrowserCandidate] = {}
     for position, raw_candidate in enumerate(candidates):
@@ -116,17 +118,33 @@ def select_browser_fair_candidate(
             reason="no_candidates",
         )
 
-    selected_lane, selected_candidate = min(
-        first_by_lane.items(),
-        key=lambda item: (
-            int(running_counts_by_lane.get(item[0], 0) or 0),
-            item[1].queue_position,
-        ),
+    minimum_running_count = min(
+        int(running_counts_by_lane.get(lane_key, 0) or 0)
+        for lane_key in first_by_lane
     )
-    running_count = int(running_counts_by_lane.get(selected_lane, 0) or 0)
+    tied_lanes = sorted(
+        (
+            (lane_key, candidate)
+            for lane_key, candidate in first_by_lane.items()
+            if int(running_counts_by_lane.get(lane_key, 0) or 0)
+            == minimum_running_count
+        ),
+        key=lambda item: item[1].queue_position,
+    )
+    selected_index = 0
+    tied_lane_keys = [lane_key for lane_key, _candidate in tied_lanes]
+    normalized_cursor = _normalize_token(last_selected_lane)
+    if normalized_cursor in tied_lane_keys and len(tied_lanes) > 1:
+        selected_index = (tied_lane_keys.index(normalized_cursor) + 1) % len(tied_lanes)
+    selected_lane, selected_candidate = tied_lanes[selected_index]
+    running_count = minimum_running_count
     return BrowserFairDecision(
         selected_task_id=selected_candidate.task_id,
         selected_lane=selected_lane,
-        reason="lane_running_count",
+        reason=(
+            "lane_round_robin"
+            if len(tied_lanes) > 1 and normalized_cursor in tied_lane_keys
+            else "lane_running_count"
+        ),
         running_count=running_count,
     )
