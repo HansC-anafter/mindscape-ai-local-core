@@ -1,6 +1,6 @@
 version: 1
 registry_id: mindscape.product-semantic-surfaces.local-core
-updated_at: "2026-07-10"
+updated_at: "2026-07-13"
 owner_review_handle: "@team-leads"
 
 declaration:
@@ -216,6 +216,72 @@ surfaces:
       - backend/tests/runner/worker_maintenance_leader_spec.py
       - backend/tests/tasks_store_transition_idempotency_spec.py
       - docker-compose.yml
+
+  - id: psc.local-core.remote-workbench-identity-workspace-enforcement.v1
+    tier: P0
+    owner: "@team-leads"
+    contract_doc: mindscape-ai-cloud/docs/internal/local-core/product-semantics/remote-workbench-identity-workspace-authorization-contract-2026-07-13.zh-TW.md
+    requires_product_semantic_declaration: true
+    semantics:
+      - Remote HTTP and WebSocket requests use one asynchronous gateway path that verifies the exact public Host and Cloudflare Access assertion before any workspace policy read.
+      - Frontend startup reads exact issuer, single audience, source, revision, state, and canonical administrator set once from the pack-owned runtime policy; missing, default-deny-with-grants, or malformed config keeps the remote listener closed.
+      - Verified issuer and subject must be an active Local Core super administrator or direct route-workspace member; capability routes independently require workspace allowlist, manifest request-scope contract, canonical host route, and owned API prefixes.
+      - Data routes own an exact workspace_id in their URL; email, URL, Referer, token workspace claim, Host aliases, client ingress markers, and local resource administrators cannot grant membership.
+      - Installed capability list is GET-only and projected by effective workspace allowlist intersected with embedded supported metadata; HEAD, OPTIONS, malformed, missing-support, oversized, or duplicate payloads fail closed without upstream bypass.
+      - Remote workspace root and capability surfaces mount bounded data-only UI without local Header, Settings, Graph, full WorkspaceDataProvider, Link prefetch, timer polling, or hidden background requests.
+      - Public tunnel traffic reaches only the compose-internal remote listener; every host-published HTTP, preview, PostgreSQL, PgBouncer, Redis, OCR, media, XTTS, and Whisper port is loopback-only.
+      - Authorization adds no worker, runner, queue key, DB audit, PgBouncer capacity, N-workspace fan-out, retry loop, or UX polling; caches, payloads, concurrency, latency, and file-backed observability are bounded.
+      - Enrollment, enforcement, install, restore, policy write, origin reconcile, claim pause, and backout use the one receipt-safe cutover runner; succeeded reruns perform zero POST and indeterminate state remains closed.
+    path_globs:
+      - backend/app/routes/core/capability_packs_core/installed_routes.py
+      - backend/app/routes/core/capability_packs_core/mobile_workbench_gateway_support.py
+      - backend/app/services/host_resources/runner_claim_gate_bootstrap.py
+      - backend/app/services/host_resources/runner_claim_gate_facade.py
+      - backend/tests/capability_packs_mobile_workbench_support_spec.py
+      - backend/tests/scripts/remote_workbench_*.py
+      - backend/tests/scripts/verify_remote_workbench_identity_workspace_authorization_spec.py
+      - web-console/dev-proxy.mjs
+      - web-console/dev-proxy.gateway.spec.mjs
+      - web-console/dev-proxy/**
+      - web-console/src/app/workspaces/[workspaceId]/page.tsx
+      - web-console/src/app/workspaces/[workspaceId]/RemoteWorkspaceLanding*
+      - web-console/src/app/workspaces/[workspaceId]/capability-ui-hosts/**
+      - web-console/src/app/workspaces/[workspaceId]/capabilities/[capabilityCode]/CapabilityLoadedComponents.tsx
+      - web-console/src/lib/capability-packs/installed-capabilities-cache*
+      - web-console/src/lib/capability-runtime-asset-url*
+      - web-console/src/lib/capability-ui-*.ts
+      - web-console/src/lib/host-runtime-sessions.ts
+      - web-console/src/lib/keyboard-shortcuts/**
+      - web-console/src/lib/workspace-tools/workspace-tool-registry.ts
+      - scripts/start_remote_workbench_tunnel.sh
+      - scripts/verify_remote_workbench_identity_workspace_authorization.py
+      - scripts/remote_workbench_authorization_cutover/**
+      - scripts/remote_workbench_bridge_monitor.py
+      - scripts/remote_workbench_bridge/**
+      - scripts/install-remote-workbench-bridge-macos.sh
+      - scripts/config/ai.mindscape.remote-workbench-bridge.plist
+      - docker-compose.yml
+
+  - id: psc.local-core.remote-workbench-local-bridge-liveness.v1
+    tier: P0
+    owner: "@team-leads"
+    contract_doc: mindscape-ai-cloud/docs/internal/local-core/product-semantics/remote-workbench-local-bridge-liveness-contract-2026-07-12.zh-TW.md
+    requires_product_semantic_declaration: true
+    semantics:
+      - Remote Workbench uses remote-workbench.mindscapeai.app as its only Access-protected public ingress.
+      - Host supervision preserves one canonical remotely-managed tunnel with pinned image, exact token identity, remote config version lock, maintenance no-repair, and composite readiness.
+      - Recovery is receipt-safe and bounded to the tunnel/origin services that were actually active or mutated; it does not restart unrelated services or add DB, worker, runner, PgBouncer, queue, or UX polling load.
+    path_globs:
+      - scripts/start_remote_workbench_tunnel.sh
+      - scripts/remote_workbench_bridge_monitor.py
+      - scripts/remote_workbench_bridge/**
+      - scripts/install-remote-workbench-bridge-macos.sh
+      - scripts/config/ai.mindscape.remote-workbench-bridge.plist
+      - scripts/remote_workbench_remote_ingress_lock.py
+      - backend/tests/scripts/remote_workbench_bridge_activation_spec.py
+      - backend/tests/scripts/remote_workbench_origin_topology_spec.py
+      - backend/tests/scripts/remote_workbench_remote_ingress_spec.py
+      - backend/tests/scripts/remote_workbench_tunnel_token_identity_spec.py
 
   - id: psc.local-core.semantic-governance-tooling.v1
     tier: P0
