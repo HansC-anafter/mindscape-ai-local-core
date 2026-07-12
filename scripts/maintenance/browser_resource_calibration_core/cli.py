@@ -9,7 +9,11 @@ import time
 from pathlib import Path
 from typing import Any, Sequence
 
-from .collectors import CalibrationCollector, pool_sample_failures
+from .collectors import (
+    CalibrationCollector,
+    CalibrationCommandError,
+    pool_sample_failures,
+)
 from .evidence import JsonlEvidenceWriter, write_immutable_json
 from .natural_claim_observer import wait_for_natural_claim
 from .parsing import (
@@ -250,16 +254,18 @@ def _wait_for_idle_reset(
     while time.monotonic() < deadline:
         try:
             node = collector.collect_node(include_all_containers=False)
-        except RuntimeError as exc:
+        except CalibrationCommandError as exc:
             message = str(exc).lower()
-            if not any(
+            is_browser_exec = (
+                len(exc.argv) >= 3
+                and exc.argv[:2] == ("docker", "exec")
+                and exc.argv[2] in collector.browser_containers
+            )
+            is_known_transition = any(
                 marker in message
-                for marker in (
-                    "is not running",
-                    "is restarting",
-                    "no such container",
-                )
-            ):
+                for marker in ("is not running", "is restarting", "no such container")
+            )
+            if not is_browser_exec or (exc.stderr and not is_known_transition):
                 raise
             time.sleep(NODE_INTERVAL_SECONDS)
             continue

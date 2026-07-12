@@ -11,6 +11,7 @@ from scripts.maintenance.browser_resource_calibration_core.cli import (
 from scripts.maintenance.browser_resource_calibration_core.evidence import evidence_row
 from scripts.maintenance.browser_resource_calibration_core.collectors import (
     CalibrationCollector,
+    CalibrationCommandError,
     parse_pgbouncer_pools,
 )
 from scripts.maintenance.browser_resource_calibration_core.envelope_classifier import (
@@ -55,8 +56,10 @@ def test_idle_reset_waits_through_transient_container_recreation(monkeypatch) ->
             assert include_all_containers is False
             self.calls += 1
             if self.calls == 1:
-                raise RuntimeError(
-                    "Error response from daemon: container abc is not running"
+                raise CalibrationCommandError(
+                    ["docker", "exec", "runner-browser", "cat", "/proc/meminfo"],
+                    1,
+                    "",
                 )
             return {
                 "browser_cgroups": [{"memory_peak_bytes": 100}],
@@ -74,6 +77,7 @@ def test_idle_reset_waits_through_transient_container_recreation(monkeypatch) ->
         lambda _seconds: None,
     )
     collector = Collector()
+    collector.browser_containers = ("runner-browser",)
     writer = Writer()
 
     node = _wait_for_idle_reset(

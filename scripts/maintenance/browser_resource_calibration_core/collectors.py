@@ -17,6 +17,22 @@ from .parsing import build_node_sample, parse_memory_events
 
 
 _TASK_ID = re.compile(r"^[0-9a-fA-F-]{36}$")
+
+
+class CalibrationCommandError(RuntimeError):
+    """Preserve the failed read-only command so callers can fail closed by phase."""
+
+    def __init__(self, argv: list[str], returncode: int, stderr: str) -> None:
+        self.argv = tuple(argv)
+        self.returncode = int(returncode)
+        self.stderr = str(stderr or "").strip()
+        detail = self.stderr or "empty stderr"
+        super().__init__(
+            f"calibration command failed ({self.returncode}): "
+            f"{' '.join(self.argv)}: {detail}"
+        )
+
+
 _LIVE_BROWSER_OWNERS_LUA = r"""
 local cursor = '0'
 local result = {}
@@ -424,7 +440,7 @@ class CalibrationCollector:
     def _run(self, argv: list[str], *, timeout_seconds: int = 5) -> str:
         result = self.commands.run(argv, timeout_seconds=timeout_seconds)
         if result.returncode != 0:
-            raise RuntimeError(result.stderr.strip() or "calibration collector failed")
+            raise CalibrationCommandError(argv, result.returncode, result.stderr)
         return result.stdout
 
 
