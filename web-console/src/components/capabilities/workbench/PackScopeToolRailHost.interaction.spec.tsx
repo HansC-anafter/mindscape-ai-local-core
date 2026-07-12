@@ -93,6 +93,7 @@ describe('PackScopeToolRailHost', () => {
         'ig',
         'FeedGridLoadToolPanel',
         'http://api.test',
+        'ws_test',
       );
       expect(screen.getByTestId('loaded-pack-tool-panel')).toHaveTextContent(
         'feed_grid_card_load_limit:ws_test:http://api.test',

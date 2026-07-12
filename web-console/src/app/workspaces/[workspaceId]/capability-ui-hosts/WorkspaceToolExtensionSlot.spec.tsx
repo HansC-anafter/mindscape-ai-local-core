@@ -81,6 +81,7 @@ describe('WorkspaceToolExtensionSlot', () => {
         'ig',
         'IGRunsWorkspaceToolPanel',
         'http://api.test',
+        'ws_test',
       );
       expect(screen.getByTestId('loaded-tool-panel')).toHaveTextContent(
         'ws_test:http://api.test',

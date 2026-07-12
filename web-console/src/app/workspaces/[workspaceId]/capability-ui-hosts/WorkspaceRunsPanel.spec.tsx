@@ -230,6 +230,7 @@ describe('WorkspaceRunsPanel', () => {
       'ig',
       'IGRunsWorkspaceToolPanel',
       'http://api.test',
+      'ws_test',
     );
   });
 });

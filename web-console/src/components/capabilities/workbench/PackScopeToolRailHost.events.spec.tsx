@@ -75,6 +75,7 @@ describe('PackScopeToolRailHost events', () => {
         'ig',
         'FeedGridLoadToolPanel',
         'http://api.test',
+        'ws_test',
       );
       expect(screen.getByTestId('loaded-pack-tool-panel')).toBeInTheDocument();
     });

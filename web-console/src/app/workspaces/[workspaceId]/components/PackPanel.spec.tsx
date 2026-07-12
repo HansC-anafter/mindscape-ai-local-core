@@ -92,7 +92,7 @@ describe('PackPanel capability workbench routing', () => {
 
     await screen.findByText('Instagram Workbench');
     expect(getInstalledCapabilities).toHaveBeenCalledTimes(1);
-    expect(getInstalledCapabilities).toHaveBeenCalledWith('http://api.test');
+    expect(getInstalledCapabilities).toHaveBeenCalledWith('http://api.test', 'ws-test');
     fireEvent.click(screen.getAllByRole('button', { name: 'Open UI' })[1]);
 
     await waitFor(() => {
