@@ -61,6 +61,8 @@ LOCAL_PROTECTED_PREFIXES = (
     "web-console/src/lib/workspace-tools/workspace-tool-registry.ts",
 )
 CLOUD_PROTECTED_PREFIXES = (
+    "capabilities/dance_motion_coach/manifest.yaml",
+    "capabilities/live_interface_interpreter/manifest.yaml",
     "capabilities/mindscape_cloud_integration/",
     "scripts/package_capability.py",
     "scripts/validate_manifest.py",

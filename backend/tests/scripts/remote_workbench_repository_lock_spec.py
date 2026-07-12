@@ -208,6 +208,32 @@ def test_repository_lock_allows_unrelated_dirty_state_but_rejects_phase06_overla
         )
 
 
+@pytest.mark.parametrize(
+    "manifest_path",
+    (
+        "capabilities/dance_motion_coach/manifest.yaml",
+        "capabilities/live_interface_interpreter/manifest.yaml",
+    ),
+)
+def test_repository_lock_rejects_dirty_remote_supported_pack_manifest(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    manifest_path: str,
+) -> None:
+    paths = _tree(tmp_path, monkeypatch)
+    executor = GitExecutor(paths)
+    executor.status_override[paths["canonical_cloud"]] = f" M {manifest_path}"
+
+    with pytest.raises(CutoverError, match="Phase06 path has unlanded changes"):
+        repository.lock_phase06_repositories(
+            script_repo_root=paths["canonical_local"],
+            runner_cwd=paths["canonical_local"],
+            cloud_worktree=paths["cloud_task"],
+            executor=executor,
+            python_prefix=paths["canonical_local"] / ".venv",
+        )
+
+
 def test_repository_lock_rejects_noncanonical_runner_cwd(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
