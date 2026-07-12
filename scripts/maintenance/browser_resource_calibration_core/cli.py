@@ -248,7 +248,21 @@ def _wait_for_idle_reset(
     deadline = time.monotonic() + int(timeout_seconds)
     idle_total = int(baseline["browser_idle_peak_bytes"])
     while time.monotonic() < deadline:
-        node = collector.collect_node(include_all_containers=False)
+        try:
+            node = collector.collect_node(include_all_containers=False)
+        except RuntimeError as exc:
+            message = str(exc).lower()
+            if not any(
+                marker in message
+                for marker in (
+                    "is not running",
+                    "is restarting",
+                    "no such container",
+                )
+            ):
+                raise
+            time.sleep(NODE_INTERVAL_SECONDS)
+            continue
         peaks = [
             int(row.get("memory_peak_bytes") or 0)
             for row in node["browser_cgroups"]

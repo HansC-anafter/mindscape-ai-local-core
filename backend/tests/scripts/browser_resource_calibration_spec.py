@@ -5,6 +5,9 @@ from pathlib import Path
 
 import pytest
 
+from scripts.maintenance.browser_resource_calibration_core.cli import (
+    _wait_for_idle_reset,
+)
 from scripts.maintenance.browser_resource_calibration_core.evidence import evidence_row
 from scripts.maintenance.browser_resource_calibration_core.collectors import (
     CalibrationCollector,
@@ -41,6 +44,63 @@ from scripts.maintenance.browser_node_budget_reconcile_core import (
 
 
 GIB = 1024 * 1024 * 1024
+
+
+def test_idle_reset_waits_through_transient_container_recreation(monkeypatch) -> None:
+    class Collector:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def collect_node(self, *, include_all_containers):
+            assert include_all_containers is False
+            self.calls += 1
+            if self.calls == 1:
+                raise RuntimeError(
+                    "Error response from daemon: container abc is not running"
+                )
+            return {
+                "browser_cgroups": [{"memory_peak_bytes": 100}],
+            }
+
+    class Writer:
+        def __init__(self) -> None:
+            self.rows = []
+
+        def append(self, row) -> None:
+            self.rows.append(row)
+
+    monkeypatch.setattr(
+        "scripts.maintenance.browser_resource_calibration_core.cli.time.sleep",
+        lambda _seconds: None,
+    )
+    collector = Collector()
+    writer = Writer()
+
+    node = _wait_for_idle_reset(
+        collector=collector,
+        writer=writer,
+        baseline={"browser_idle_peak_bytes": 100},
+        timeout_seconds=1,
+    )
+
+    assert collector.calls == 2
+    assert node["browser_cgroups"][0]["memory_peak_bytes"] == 100
+    assert writer.rows[0]["kind"] == "idle_cgroup_reset_ready"
+
+
+def test_idle_reset_does_not_hide_non_transient_collector_failure() -> None:
+    class Collector:
+        def collect_node(self, *, include_all_containers):
+            assert include_all_containers is False
+            raise RuntimeError("permission denied")
+
+    with pytest.raises(RuntimeError, match="permission denied"):
+        _wait_for_idle_reset(
+            collector=Collector(),
+            writer=type("Writer", (), {"append": lambda self, row: None})(),
+            baseline={"browser_idle_peak_bytes": 100},
+            timeout_seconds=1,
+        )
 
 
 def test_workload_node_collection_uses_exact_cgroups_without_docker_stats() -> None:
