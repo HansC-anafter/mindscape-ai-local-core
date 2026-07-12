@@ -255,6 +255,9 @@ class EnrollmentContinuation:
         self.release = release
         self.runtime = runtime
         self.claims = claims
+        self.claims_paused = False
+        self.resource_before: Any | None = None
+        self.resource_window: str | None = None
 
     @staticmethod
     def _load_original_policy(directory: Path) -> dict[str, Any]:
@@ -312,11 +315,13 @@ class EnrollmentContinuation:
     ) -> dict[str, Any]:
         """Run the one pre-enforcement resource window and public acceptance path."""
 
+        self.claims_paused = True
         authorization_before = self.claims.pause_and_drain(
             inputs.directory,
             "phase06-authorization",
         )
-        completed = False
+        self.resource_before = authorization_before
+        self.resource_window = "phase06-authorization"
         try:
             self.release.require_no_active_install_jobs()
             self.release.verify_database_pools(
@@ -385,9 +390,11 @@ class EnrollmentContinuation:
                 "phase06-authorization",
             )
             self.release.verify_database_pools(inputs.directory, "post-public")
-            self.claims.resume()
             self.runtime.exit_maintenance()
-            completed = True
+            self.claims.resume()
+            self.claims_paused = False
+            self.resource_before = None
+            self.resource_window = None
             return {
                 "status": "succeeded",
                 "runtime_policy_revision": final_revision,
@@ -396,9 +403,8 @@ class EnrollmentContinuation:
                 "resource_window": "unchanged",
                 "maintenance": False,
             }
-        finally:
-            if not completed:
-                self.runtime.safe_close("authorization_enforcement_failed")
+        except Exception:
+            raise
 
     def resume(
         self,

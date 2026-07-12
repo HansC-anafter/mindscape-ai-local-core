@@ -70,6 +70,7 @@ class Runtime:
         self.events.append("effective")
         return {}
     def safe_close(self, _reason): self.events.append("safe-close")
+    def recover_origin(self, _directory): self.events.append("origin-recover")
 
 
 class Release:
@@ -142,7 +143,14 @@ def test_packaging_failure_never_starts_unnecessary_restore(
         _cutover(_workflow(events, Release(events, package_error=CutoverError("package failed"))), tmp_path)
     assert "install" not in events
     assert "restore" not in events
-    assert events[-1] == "safe-close"
+    assert events[-6:] == [
+        "safe-close",
+        "origin-recover",
+        "idle",
+        "db",
+        "after:phase06-backout",
+        "resume",
+    ]
 
 
 def test_active_install_preflight_blocks_every_first_mutation(
@@ -190,7 +198,8 @@ def test_indeterminate_accepted_install_blocks_second_job(
         _cutover(_workflow(events, Release(events, install_error=error)), tmp_path)
     assert "terminal" not in events
     assert "restore" not in events
-    assert events[-1] == "safe-close"
+    assert events[-1] == "origin-recover"
+    assert "resume" not in events[events.index("safe-close") :]
 
 
 def test_terminal_install_failure_gates_restore_on_job_idle_and_database(
@@ -207,11 +216,12 @@ def test_terminal_install_failure_gates_restore_on_job_idle_and_database(
     tail = events[events.index("safe-close"):]
     assert tail == [
         "safe-close",
-        "pause:phase06-backout",
+        "origin-recover",
         "terminal",
         "idle",
-        "db",
         "restore",
+        "idle",
+        "db",
         "after:phase06-backout",
         "resume",
     ]
@@ -228,9 +238,8 @@ def test_existing_restore_receipt_is_consumed_before_zero_or_one_new_restore(
     release = Release(events, restore_job={"state": state})
     workflow = _workflow(events, release)
 
-    prior = workflow._restore_preflight(tmp_path)
-    workflow._finish_restore(tmp_path, prior)
+    workflow.backout_closure._restore_pack(tmp_path)
 
-    assert events[:3] == ["restore-terminal", "idle", "db"]
+    assert events[:3] == ["terminal", "restore-terminal", "idle"]
     assert events[-1] == last_event
     assert events.count("restore") == (0 if state == "succeeded" else 1)

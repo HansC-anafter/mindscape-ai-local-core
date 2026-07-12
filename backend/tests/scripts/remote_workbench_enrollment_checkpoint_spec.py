@@ -186,12 +186,16 @@ class Ingress:
 class Claims:
     def __init__(self, events: list[str]) -> None:
         self.events = events
+        self.before_by_window: dict[str, object] = {}
 
     def pause_and_drain(self, _directory: Path, window: str) -> object:
         self.events.append(f"pause:{window}")
-        return object()
+        before = object()
+        self.before_by_window[window] = before
+        return before
 
-    def verify_after(self, _before: object, _directory: Path, window: str) -> None:
+    def verify_after(self, before: object, _directory: Path, window: str) -> None:
+        assert before is self.before_by_window[window]
         self.events.append(f"after:{window}")
 
     def resume(self) -> None:
@@ -244,11 +248,22 @@ class Release:
     def verify_installed_runtime(self, _job: dict) -> None:
         self.events.append("installed-runtime")
 
+    def restore_known_good(self, _directory: Path) -> None:
+        self.events.append("restore")
+
+    def require_restore_attempt_terminal(self, _directory: Path) -> None:
+        self.events.append("restore-terminal")
+        return None
+
+    def verify_restore_job(self, _directory: Path, _job: dict) -> None:
+        self.events.append("restore-verify")
+
 
 class Runtime:
     def __init__(self, events: list[str]) -> None:
         self.events = events
         self.current = _initial_runtime()
+        self.public_error: Exception | None = None
 
     def activate_supervisor(self) -> None:
         self.events.append("activate")
@@ -269,6 +284,10 @@ class Runtime:
 
     def safe_close(self, reason: str) -> None:
         self.events.append(f"safe-close:{reason}")
+
+    def recover_origin(self, _directory: Path) -> bool:
+        self.events.append("origin-recover")
+        return False
 
     def get_effective_policy(self, _workspace: str) -> dict:
         self.events.append("effective")
@@ -300,6 +319,15 @@ class Runtime:
         }
         return dict(self.current)
 
+    def policy_body(self, snapshot: dict, revision: int) -> dict:
+        return {
+            "expected_revision": revision,
+            "access_issuer": snapshot.get("access_issuer"),
+            "access_audience": snapshot.get("access_audience"),
+            "remote_access_state": snapshot.get("remote_access_state"),
+            "local_core_super_admins": snapshot.get("local_core_super_admins", []),
+        }
+
     def verify_pending_coherence(self, _readback: dict, _workspace: str) -> None:
         self.events.append("pending-coherent")
 
@@ -322,6 +350,8 @@ class Runtime:
 
     def verify_public_matrix(self, _inputs: SecureInputs, _workspace: str) -> None:
         self.events.append("public")
+        if self.public_error is not None:
+            raise self.public_error
 
     def exit_maintenance(self) -> None:
         self.events.append("maintenance-exit")
@@ -404,7 +434,28 @@ def test_resume_uses_zero_package_or_install_and_completes_enforcement(
     assert "install" not in events
     assert events.count("terminal") == 1
     assert "transition:enforced" in events
-    assert events[-1] == "maintenance-exit"
+    assert events[-2:] == ["maintenance-exit", "resume"]
+
+
+def test_public_failure_closure_reuses_original_authorization_baseline(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events: list[str] = []
+    _write_resume_checkpoint(tmp_path)
+    inputs = _inputs(tmp_path, outsider=True)
+    monkeypatch.setattr(workflow_module, "load_secure_inputs", lambda _path: inputs)
+    workflow = _workflow(events)
+    workflow.runtime.current = _enrollment_runtime()
+    workflow.runtime.public_error = CutoverError("public acceptance failed")
+
+    with pytest.raises(CutoverError, match="public acceptance failed"):
+        _cutover(workflow, tmp_path)
+
+    assert events.count("pause:phase06-authorization") == 1
+    assert "pause:phase06-backout" not in events
+    assert "after:phase06-authorization" in events
+    assert events[-1] == "resume"
 
 
 def test_resume_source_mismatch_fails_closed_before_install_readback(
