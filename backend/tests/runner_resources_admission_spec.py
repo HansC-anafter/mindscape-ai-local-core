@@ -266,6 +266,37 @@ async def test_browser_hard_guard_requires_current_memavailable():
 
 
 @pytest.mark.asyncio
+async def test_unmeasured_browser_request_fails_closed_without_reservation():
+    lease_store = InMemoryResourceLeaseStore()
+    node_store = InMemoryNodeBudgetStore()
+    decision = await acquire_task_resource_admission(
+        task=_task("task-unmeasured"),
+        requirements=ResourceRequirements(
+            resource_class="browser",
+            browser_contexts=1,
+        ),
+        runner_profile=_profile(),
+        capacity=_capacity(3),
+        lease_store=lease_store,
+        node_budget_store=node_store,
+        node_memory_snapshot={
+            "total_bytes": 16 * 1024 * MIB,
+            "available_bytes": 12 * 1024 * MIB,
+            "cgroup_limit_bytes": 6 * 1024 * MIB,
+        },
+        owner_id="runner-a:task-unmeasured",
+        ttl_seconds=30,
+    )
+
+    assert decision.allow is False
+    assert decision.blocked_payload["reason"] == (
+        "browser_memory_requirement_unavailable"
+    )
+    assert (await node_store.snapshot())["active_reservations"] == 0
+    assert await lease_store.list_expired() == []
+
+
+@pytest.mark.asyncio
 async def test_browser_startup_spacing_serializes_claims_without_durable_lease():
     lease_store = InMemoryResourceLeaseStore(now_epoch=0.0)
     node_store = InMemoryNodeBudgetStore()

@@ -43,9 +43,6 @@ def resolve_browser_startup_request_bytes(
     )
     if explicit_mb > 0:
         return explicit_mb * 1024 * 1024, "playbook_startup_profile"
-    cgroup_limit = _positive_int(node_snapshot.get("cgroup_limit_bytes"))
-    if cgroup_limit > 0:
-        return cgroup_limit, "container_limit_fallback"
     return None
 
 

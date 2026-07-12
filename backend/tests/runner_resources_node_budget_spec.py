@@ -50,16 +50,10 @@ def test_calibrated_and_bootstrap_policies_deduct_reserve_once():
     assert bootstrap.allocatable_bytes == 6144 * MIB
 
 
-def test_unknown_browser_request_uses_finite_limit_and_unlimited_fails_closed():
+def test_unknown_browser_request_fails_closed_even_with_finite_limit():
     requirements = SimpleNamespace(memory_mb=0)
-    assert resolve_browser_request_bytes(requirements, _snapshot()) == (
-        6144 * MIB,
-        "container_limit_fallback",
-    )
-    assert resolve_browser_request_bytes(
-        requirements,
-        _snapshot(limit_mb=None),
-    ) is None
+    assert resolve_browser_request_bytes(requirements, _snapshot()) is None
+    assert resolve_browser_request_bytes(requirements, _snapshot(limit_mb=None)) is None
 
 
 @pytest.mark.asyncio

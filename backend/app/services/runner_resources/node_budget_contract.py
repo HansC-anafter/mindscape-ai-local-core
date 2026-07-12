@@ -178,12 +178,6 @@ def resolve_browser_request_bytes(
         explicit_mb = 0
     if explicit_mb > 0:
         return explicit_mb * 1024 * 1024, "playbook_profile"
-    try:
-        cgroup_limit = int(node_snapshot.get("cgroup_limit_bytes") or 0)
-    except (TypeError, ValueError):
-        cgroup_limit = 0
-    if cgroup_limit > 0:
-        return cgroup_limit, "container_limit_fallback"
     return None
 
 

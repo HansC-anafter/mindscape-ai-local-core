@@ -12,11 +12,14 @@ from backend.app.services.runner_resources.leases import InMemoryResourceLeaseSt
 MIB = 1024 * 1024
 
 
-def test_unknown_startup_profile_uses_finite_cgroup_limit():
-    assert resolve_browser_startup_request_bytes(
-        SimpleNamespace(browser_startup_memory_mb=0),
-        {"cgroup_limit_bytes": 6 * 1024 * MIB},
-    ) == (6 * 1024 * MIB, "container_limit_fallback")
+def test_unknown_startup_profile_fails_closed_even_with_finite_limit():
+    assert (
+        resolve_browser_startup_request_bytes(
+            SimpleNamespace(browser_startup_memory_mb=0),
+            {"cgroup_limit_bytes": 6 * 1024 * MIB},
+        )
+        is None
+    )
 
 
 def test_unknown_startup_profile_without_limit_fails_closed():
