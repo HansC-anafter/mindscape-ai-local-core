@@ -84,7 +84,9 @@ def _secure_dir(tmp_path: Path, *, revision: int = 7) -> Path:
     return directory
 
 
-def test_secure_inputs_require_locked_config_and_three_distinct_principals(tmp_path: Path) -> None:
+def test_secure_inputs_require_locked_config_and_three_distinct_principals(
+    tmp_path: Path,
+) -> None:
     inputs = load_secure_inputs(_secure_dir(tmp_path))
 
     assert inputs.policy["expected_revision"] == 7
@@ -222,6 +224,13 @@ def _redis_payload() -> dict:
     }
 
 
+def _closed_redis_payload() -> dict:
+    payload = _redis_payload()
+    payload["totals"]["processing"] = 0
+    payload["runners"]["inflight"] = 0
+    return payload
+
+
 def test_direct_redis_snapshot_covers_four_types_inventory_and_runner_capacity(
     tmp_path: Path,
 ) -> None:
@@ -271,30 +280,44 @@ def test_real_resource_sampler_rejects_labels_outside_window_contract(
 
 @pytest.mark.parametrize("drift", ["pending", "processing", "delayed", "deadletter"])
 def test_resource_compare_rejects_each_queue_type_delta(drift: str) -> None:
-    before = RedisResourceSampler._validate(_redis_payload())
-    changed = _redis_payload()
+    before = RedisResourceSampler._validate(_closed_redis_payload())
+    changed = _closed_redis_payload()
     changed["totals"][drift] += 1
     after = RedisResourceSampler._validate(changed)
 
-    with pytest.raises(CutoverError, match="queue totals"):
+    with pytest.raises(CutoverError, match="queue totals|zero processing"):
         RedisResourceSampler.compare(before, after)
 
 
 def test_resource_compare_rejects_new_key_and_runner_change() -> None:
-    before = RedisResourceSampler._validate(_redis_payload())
-    new_key = _redis_payload()
+    before = RedisResourceSampler._validate(_closed_redis_payload())
+    new_key = _closed_redis_payload()
     new_key["inventory"].append("mindscape:queue:temp:new|list")
     with pytest.raises(CutoverError, match="key/type inventory"):
         RedisResourceSampler.compare(before, RedisResourceSampler._validate(new_key))
 
-    runner_change = _redis_payload()
+    runner_change = _closed_redis_payload()
     runner_change["runners"]["capacity"] += 1
     with pytest.raises(CutoverError, match="runner count or capacity"):
-        RedisResourceSampler.compare(before, RedisResourceSampler._validate(runner_change))
+        RedisResourceSampler.compare(
+            before, RedisResourceSampler._validate(runner_change)
+        )
 
-    inflight_change = _redis_payload()
+    inflight_change = _closed_redis_payload()
     inflight_change["runners"]["inflight"] += 1
-    RedisResourceSampler.compare(before, RedisResourceSampler._validate(inflight_change))
+    with pytest.raises(CutoverError, match="zero processing and runner inflight"):
+        RedisResourceSampler.compare(
+            before,
+            RedisResourceSampler._validate(inflight_change),
+        )
+
+
+def test_resource_compare_requires_zero_processing_even_without_delta() -> None:
+    before = RedisResourceSampler._validate(_redis_payload())
+    after = RedisResourceSampler._validate(_redis_payload())
+
+    with pytest.raises(CutoverError, match="zero processing and runner inflight"):
+        RedisResourceSampler.compare(before, after)
 
 
 def test_command_failure_never_echoes_sensitive_arguments() -> None:

@@ -10,6 +10,16 @@ from .io import CutoverError, assert_private_file, write_private_json
 from .resources import RedisResourceSampler, ResourceSnapshot
 
 
+INFRASTRUCTURE_ORDER = ("postgres", "postgres-replica", "redis", "pgbouncer")
+OPTIONAL_SERVICE_ORDER = (
+    "ocr-service",
+    "media-proxy",
+    "xtts-service",
+    "whisper-service",
+)
+APPLICATION_ORDER = ("backend", "backend-control", "frontend")
+
+
 def persist_reconcile_state(
     gate: Any,
     *,
@@ -28,8 +38,11 @@ def persist_reconcile_state(
             "pre_active_services": sorted(active_services),
             "mutated_services": sorted(mutated_services),
             "stopped_dependents": list(stopped_dependents),
-            "runner_count": snapshot.runners["count"],
-            "runner_capacity": snapshot.runners["capacity"],
+            "resource_before": {
+                "totals": snapshot.totals,
+                "inventory": list(snapshot.inventory),
+                "runners": snapshot.runners,
+            },
         },
     )
     return snapshot
@@ -61,8 +74,10 @@ def recover_persisted_reconcile_state(gate: Any, secure_dir: Path) -> bool:
         raise CutoverError("Origin reconcile state is malformed") from error
     expected_keys = {
         "reconcile_completed",
-        "pre_active_services", "mutated_services", "stopped_dependents",
-        "runner_count", "runner_capacity",
+        "pre_active_services",
+        "mutated_services",
+        "stopped_dependents",
+        "resource_before",
     }
     if not isinstance(state, dict) or set(state) != expected_keys:
         raise CutoverError("Origin reconcile state schema is invalid")
@@ -71,26 +86,35 @@ def recover_persisted_reconcile_state(gate: Any, secure_dir: Path) -> bool:
     if state["reconcile_completed"] is True:
         write_private_json(secure_dir / "origin-recovery-readback.json", state)
         return False
-    lists = [state[key] for key in (
-        "pre_active_services", "mutated_services", "stopped_dependents"
-    )]
-    if any(not isinstance(value, list) or not all(isinstance(item, str) for item in value) for value in lists):
+    lists = [
+        state[key]
+        for key in ("pre_active_services", "mutated_services", "stopped_dependents")
+    ]
+    if any(
+        not isinstance(value, list) or not all(isinstance(item, str) for item in value)
+        for value in lists
+    ):
         raise CutoverError("Origin reconcile service inventory is invalid")
-    if type(state["runner_count"]) is not int or type(state["runner_capacity"]) is not int:
-        raise CutoverError("Origin reconcile runner identity is invalid")
+    resource_before = state["resource_before"]
+    if not isinstance(resource_before, dict):
+        raise CutoverError("Origin reconcile resource identity is invalid")
+    try:
+        before = RedisResourceSampler._validate(
+            {
+                "totals": resource_before["totals"],
+                "inventory": resource_before["inventory"],
+                "runners": {
+                    **resource_before["runners"],
+                    "malformed": 0,
+                },
+            }
+        )
+    except (KeyError, TypeError) as error:
+        raise CutoverError("Origin reconcile resource identity is invalid") from error
     config = gate._compose_config(all_profiles=True)
     all_services = set(config["services"])
     if any(not set(value).issubset(all_services) for value in lists):
         raise CutoverError("Origin reconcile state names an unknown service")
-    before = ResourceSnapshot(
-        totals={"pending": 0, "processing": 0, "delayed": 0, "deadletter": 0},
-        inventory=(),
-        runners={
-            "count": state["runner_count"],
-            "capacity": state["runner_capacity"],
-            "inflight": 0,
-        },
-    )
     recover_pre_active_services(
         gate,
         config=config,
@@ -118,37 +142,51 @@ def recover_pre_active_services(
 
     mutated = set(mutated_services)
     stopped = set(stopped_dependents)
-    project = str(config.get("name") or "mindscape-ai-local-core")
-    current = gate._active_services(project)
-    unexpected = sorted(current.intersection(mutated.difference(pre_active_services)))
-    if unexpected:
-        gate.executor.run(gate.compose_command("stop", *unexpected), timeout_seconds=180.0)
+    if not mutated.issubset(pre_active_services):
+        raise CutoverError("Origin recovery contains a non-pre-active mutation")
     recovery = pre_active_services.intersection(mutated.union(stopped))
     runners = {name for name in recovery if name.startswith("runner")}
-    infrastructure = {"postgres", "postgres-replica", "redis", "pgbouncer"}
-    application = {"backend", "backend-control", "frontend"}
-    ordered = [
-        [name for name in ("postgres", "postgres-replica", "redis") if name in recovery],
-        ["pgbouncer"] if "pgbouncer" in recovery else [],
-        sorted(recovery.difference(infrastructure).difference(application).difference(runners)),
-        [name for name in ("backend", "backend-control", "frontend") if name in recovery],
-        sorted(runners),
-    ]
-    for group in ordered:
-        if group:
+    if runners.intersection(mutated):
+        raise CutoverError("Origin recovery cannot recreate a runner service")
+    infrastructure = set(INFRASTRUCTURE_ORDER)
+    application = set(APPLICATION_ORDER)
+    optional = set(OPTIONAL_SERVICE_ORDER)
+    unsupported = (
+        recovery.difference(infrastructure)
+        .difference(application)
+        .difference(optional)
+        .difference(runners)
+    )
+    if unsupported:
+        raise CutoverError("Origin recovery contains an unsupported service")
+    ordered = (
+        [name for name in INFRASTRUCTURE_ORDER if name in recovery]
+        + [name for name in OPTIONAL_SERVICE_ORDER if name in recovery]
+        + [name for name in APPLICATION_ORDER if name in recovery]
+        + sorted(runners)
+    )
+    for name in ordered:
+        if name in mutated:
             gate.executor.run(
                 gate.compose_command(
-                    "up", "-d", "--force-recreate", "--no-deps", *group
+                    "up",
+                    "-d",
+                    "--force-recreate",
+                    "--no-deps",
+                    "--wait",
+                    "--wait-timeout",
+                    "300",
+                    name,
                 ),
                 timeout_seconds=300.0,
             )
-    for name in sorted(pre_active_services):
+        else:
+            gate.executor.run(
+                gate.compose_command("start", name),
+                timeout_seconds=180.0,
+            )
         _evidence, reasons = gate._inspect_service(name, config["services"][name])
-        if set(reasons).intersection({"container_missing", "not_running", "unhealthy"}):
+        if reasons:
             raise CutoverError("Recovered origin dependent is not healthy")
     after = RedisResourceSampler(gate.executor).capture()
-    if (
-        after.runners["count"] != before.runners["count"]
-        or after.runners["capacity"] != before.runners["capacity"]
-    ):
-        raise CutoverError("Origin recovery changed runner count or capacity")
+    RedisResourceSampler.compare(before, after)

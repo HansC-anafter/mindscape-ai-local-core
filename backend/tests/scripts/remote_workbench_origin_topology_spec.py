@@ -21,6 +21,7 @@ from remote_workbench_authorization_cutover.origin_recovery import (
     recover_pre_active_services,
 )
 from remote_workbench_authorization_cutover.resources import ResourceSnapshot
+
 LEGACY_AUTH_ENV_NAMES = {
     "MOBILE_WORKBENCH_GATEWAY_EXTRA_PATH_RULES",
     "MOBILE_WORKBENCH_GATEWAY_ALLOWLIST_EMAILS",
@@ -36,7 +37,9 @@ LEGACY_AUTH_ENV_NAMES = {
 
 
 def _compose() -> dict:
-    return yaml.safe_load((REPO_ROOT / "docker-compose.yml").read_text(encoding="utf-8"))
+    return yaml.safe_load(
+        (REPO_ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+    )
 
 
 def _environment_names(service: dict) -> set[str]:
@@ -50,13 +53,8 @@ def test_remote_workbench_origin_ports_are_loopback_or_internal_only() -> None:
     services = _compose()["services"]
 
     assert "127.0.0.1:8200:8200" in services["backend"]["ports"]
-    assert (
-        "127.0.0.1:3002-3020:3002-3020"
-    ) in services["backend"]["ports"]
-    assert (
-        "127.0.0.1:8220:8210"
-        in services["backend-control"]["ports"]
-    )
+    assert ("127.0.0.1:3002-3020:3002-3020") in services["backend"]["ports"]
+    assert "127.0.0.1:8220:8210" in services["backend-control"]["ports"]
     assert services["pgbouncer"]["ports"] == ["127.0.0.1:6432:6432"]
     assert services["postgres-replica"]["ports"] == ["127.0.0.1:5434:5432"]
     assert services["postgres"]["ports"] == ["127.0.0.1:5433:5432"]
@@ -113,17 +111,13 @@ def test_canonical_launcher_uses_one_immutable_remote_managed_tunnel_command() -
 
     assert (
         'CLOUDFLARED_IMAGE="cloudflare/cloudflared@sha256:'
-        'ba461b8aa9c042156dbd39c38657fe7431bafa063220eab8d5330a523863da9f"'
-        in source
+        'ba461b8aa9c042156dbd39c38657fe7431bafa063220eab8d5330a523863da9f"' in source
     )
     assert "REMOTE_WORKBENCH_CLOUDFLARED_IMAGE" not in source
     assert "cloudflare/cloudflared:latest" not in source
     assert "--config" not in source
     assert "cloudflared-config" not in source
-    assert (
-        "tunnel --no-autoupdate --metrics 0.0.0.0:2000 run"
-        in source
-    )
+    assert "tunnel --no-autoupdate --metrics 0.0.0.0:2000 run" in source
     assert "--token-file /etc/cloudflared/tunnel-token" in source
     assert source.count('--token-path "$TOKEN_PATH"') == 2
     assert 'expected_command=\'["tunnel","--no-autoupdate","--metrics"' in source
@@ -131,9 +125,9 @@ def test_canonical_launcher_uses_one_immutable_remote_managed_tunnel_command() -
 
 
 def test_bridge_plist_has_exact_argument_vector_without_legacy_run() -> None:
-    template = (REPO_ROOT / "scripts/config/ai.mindscape.remote-workbench-bridge.plist").read_text(
-        encoding="utf-8"
-    )
+    template = (
+        REPO_ROOT / "scripts/config/ai.mindscape.remote-workbench-bridge.plist"
+    ).read_text(encoding="utf-8")
 
     assert template.count("<key>ProgramArguments</key>") == 1
     argument_block = template.split("<key>ProgramArguments</key>", 1)[1].split(
@@ -155,9 +149,9 @@ def test_launcher_is_the_only_maintenance_file_writer() -> None:
             writers.append(path.relative_to(REPO_ROOT).as_posix())
 
     assert writers == ["scripts/start_remote_workbench_tunnel.sh"]
-    installer = (REPO_ROOT / "scripts/install-remote-workbench-bridge-macos.sh").read_text(
-        encoding="utf-8"
-    )
+    installer = (
+        REPO_ROOT / "scripts/install-remote-workbench-bridge-macos.sh"
+    ).read_text(encoding="utf-8")
     assert "maintenance enter supervisor_activation" in installer
     assert "maintenance.json" not in installer
     bootout = installer.index('"$LAUNCHCTL_BIN" bootout')
@@ -300,7 +294,9 @@ def test_origin_inspect_records_missing_frontend_closed_without_docker_exec(
     monkeypatch.setattr(
         gate,
         "_internal_listener_probe",
-        lambda _workspace: pytest.fail("missing frontend must not be docker-exec probed"),
+        lambda _workspace: pytest.fail(
+            "missing frontend must not be docker-exec probed"
+        ),
     )
 
     result = gate.inspect(tmp_path, "workspace-a")
@@ -309,7 +305,8 @@ def test_origin_inspect_records_missing_frontend_closed_without_docker_exec(
         "state": "closed",
         "reason": "frontend_unavailable_before_reconcile",
     }
-    assert result["drift"]["frontend"] == ["container_missing"]
+    assert result["drift"] == {}
+    assert result["services"]["frontend"]["drift"] == ["container_missing"]
 
 
 class RecoveryExecutor:
@@ -327,9 +324,19 @@ class RecoveryExecutor:
         ]:
             return json.dumps(
                 {
-                    "totals": {"pending": 0, "processing": 0, "delayed": 0, "deadletter": 0},
+                    "totals": {
+                        "pending": 0,
+                        "processing": 0,
+                        "delayed": 0,
+                        "deadletter": 0,
+                    },
                     "inventory": [],
-                    "runners": {"count": 1, "capacity": 2, "inflight": 0, "malformed": 0},
+                    "runners": {
+                        "count": 1,
+                        "capacity": 2,
+                        "inflight": 0,
+                        "malformed": 0,
+                    },
                 }
             )
         return ""
@@ -344,7 +351,7 @@ def test_origin_recovery_restores_only_pre_active_mutation_set_in_order(
     monkeypatch.setattr(
         gate,
         "_active_services",
-        lambda _project: pre_active | {"backend-control"},
+        lambda _project: pre_active,
     )
     inspected: list[str] = []
     monkeypatch.setattr(
@@ -366,17 +373,164 @@ def test_origin_recovery_restores_only_pre_active_mutation_set_in_order(
         gate,
         config=config,
         pre_active_services=pre_active,
-        mutated_services=["postgres", "backend-control"],
+        mutated_services=["postgres"],
         stopped_dependents=["backend", "frontend", "runner-apple"],
         before=before,
     )
 
-    compose_calls = [call for call in executor.calls if call[:2] == ["docker", "compose"]]
-    assert compose_calls[0][-2:] == ["stop", "backend-control"]
-    assert compose_calls[1][-1] == "postgres"
-    assert compose_calls[2][-2:] == ["backend", "frontend"]
-    assert compose_calls[3][-1] == "runner-apple"
-    assert set(inspected) == pre_active
+    compose_calls = [
+        call for call in executor.calls if call[:2] == ["docker", "compose"]
+    ]
+    assert compose_calls[0][-8:] == [
+        "up",
+        "-d",
+        "--force-recreate",
+        "--no-deps",
+        "--wait",
+        "--wait-timeout",
+        "300",
+        "postgres",
+    ]
+    assert compose_calls[1][-2:] == ["start", "backend"]
+    assert compose_calls[2][-2:] == ["start", "frontend"]
+    assert compose_calls[3][-2:] == ["start", "runner-apple"]
+    assert set(inspected) == {"postgres", "backend", "frontend", "runner-apple"}
+
+
+def test_origin_reconcile_blocks_runner_and_non_port_drift_before_mutation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    executor = RecoveryExecutor()
+    gate = OriginTopologyGate(repo_root=REPO_ROOT, executor=executor)
+    config = {
+        "name": "mindscape-ai-local-core",
+        "services": {
+            "runner-apple": {},
+            "frontend": _service_ports(LOCKED_HOST_BINDINGS["frontend"]),
+        },
+    }
+    monkeypatch.setattr(gate, "_compose_config", lambda **_kwargs: config)
+    monkeypatch.setattr(
+        gate,
+        "_active_services",
+        lambda _project: {"runner-apple", "frontend"},
+    )
+
+    with pytest.raises(CutoverError, match="Runner drift blocks"):
+        gate.reconcile(
+            {"runner-apple": ["command"]},
+            secure_dir=tmp_path,
+            workspace_id="workspace-a",
+        )
+    with pytest.raises(CutoverError, match="published-port drift"):
+        gate.reconcile(
+            {"frontend": ["bind_mounts"]},
+            secure_dir=tmp_path,
+            workspace_id="workspace-a",
+        )
+    assert executor.calls == []
+
+
+def test_origin_reconcile_uses_single_service_wait_and_exact_runner_start(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    executor = RecoveryExecutor()
+    gate = OriginTopologyGate(repo_root=REPO_ROOT, executor=executor)
+    active = {
+        "postgres",
+        "backend",
+        "backend-control",
+        "frontend",
+        "runner-apple",
+    }
+    config = {
+        "name": "mindscape-ai-local-core",
+        "services": {
+            "postgres": _service_ports(LOCKED_HOST_BINDINGS["postgres"]),
+            "backend": _service_ports(LOCKED_HOST_BINDINGS["backend"]),
+            "backend-control": _service_ports(LOCKED_HOST_BINDINGS["backend-control"]),
+            "frontend": _service_ports(LOCKED_HOST_BINDINGS["frontend"]),
+            "runner-apple": {},
+        },
+    }
+    monkeypatch.setattr(gate, "_compose_config", lambda **_kwargs: config)
+    monkeypatch.setattr(gate, "_active_services", lambda _project: active)
+    monkeypatch.setattr(gate, "_inspect_service", lambda _name, _expected: ({}, []))
+    monkeypatch.setattr(
+        gate,
+        "inspect",
+        lambda _directory, _workspace: {"drift": {}, "lan_reachable_ports": []},
+    )
+
+    gate.reconcile(
+        {
+            "postgres": ["port_bindings", "lan_reachable"],
+            "backend": ["port_bindings"],
+        },
+        secure_dir=tmp_path,
+        workspace_id="workspace-a",
+    )
+
+    compose_calls = [
+        call for call in executor.calls if call[:2] == ["docker", "compose"]
+    ]
+    up_calls = [call for call in compose_calls if "up" in call]
+    assert [call[-1] for call in up_calls] == ["postgres", "backend"]
+    for call in up_calls:
+        assert call[-8:-1] == [
+            "up",
+            "-d",
+            "--force-recreate",
+            "--no-deps",
+            "--wait",
+            "--wait-timeout",
+            "300",
+        ]
+    start_calls = [call for call in compose_calls if "start" in call]
+    assert [call[-2:] for call in start_calls] == [
+        ["start", "backend-control"],
+        ["start", "frontend"],
+        ["start", "runner-apple"],
+    ]
+    runner_calls = [
+        call for call in compose_calls if call[-2:] == ["start", "runner-apple"]
+    ]
+    assert runner_calls == [start_calls[-1]]
+
+
+def test_origin_recovery_rejects_runner_recreate_and_non_pre_active_mutation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    executor = RecoveryExecutor()
+    gate = OriginTopologyGate(repo_root=REPO_ROOT, executor=executor)
+    before = ResourceSnapshot(
+        totals={"pending": 0, "processing": 0, "delayed": 0, "deadletter": 0},
+        inventory=(),
+        runners={"count": 1, "capacity": 2, "inflight": 0},
+    )
+    config = {"services": {"runner-apple": {}, "frontend": {}}}
+
+    with pytest.raises(CutoverError, match="cannot recreate a runner"):
+        recover_pre_active_services(
+            gate,
+            config=config,
+            pre_active_services={"runner-apple"},
+            mutated_services=["runner-apple"],
+            stopped_dependents=[],
+            before=before,
+        )
+    with pytest.raises(CutoverError, match="non-pre-active"):
+        recover_pre_active_services(
+            gate,
+            config=config,
+            pre_active_services={"frontend"},
+            mutated_services=["runner-apple"],
+            stopped_dependents=[],
+            before=before,
+        )
+    assert executor.calls == []
 
 
 def test_completed_origin_reconcile_receipt_is_exact_noop(
@@ -390,8 +544,16 @@ def test_completed_origin_reconcile_receipt_is_exact_noop(
                 "pre_active_services": ["frontend"],
                 "mutated_services": ["frontend"],
                 "stopped_dependents": [],
-                "runner_count": 0,
-                "runner_capacity": 0,
+                "resource_before": {
+                    "totals": {
+                        "pending": 0,
+                        "processing": 0,
+                        "delayed": 0,
+                        "deadletter": 0,
+                    },
+                    "inventory": [],
+                    "runners": {"count": 0, "capacity": 0, "inflight": 0},
+                },
             }
         ),
         encoding="utf-8",
@@ -410,8 +572,11 @@ def test_completed_origin_reconcile_receipt_is_exact_noop(
 
 def test_internal_listener_probe_distinguishes_host_gate_from_missing_token() -> None:
     class ListenerExecutor:
-        def __init__(self, rows): self.rows = rows
-        def run(self, _args, **_kwargs): return json.dumps(self.rows)
+        def __init__(self, rows):
+            self.rows = rows
+
+        def run(self, _args, **_kwargs):
+            return json.dumps(self.rows)
 
     rows = [
         {

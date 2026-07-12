@@ -12,6 +12,9 @@ from typing import Any, Callable, Mapping
 from .io import CommandExecutor, CutoverError, write_private_json
 from .origin_mounts import expected_mounts, live_mounts
 from .origin_recovery import (
+    APPLICATION_ORDER,
+    INFRASTRUCTURE_ORDER,
+    OPTIONAL_SERVICE_ORDER,
     mark_reconcile_completed,
     persist_reconcile_state,
     recover_persisted_reconcile_state,
@@ -98,8 +101,12 @@ class OriginTopologyGate:
         try:
             payload = json.loads(raw)
         except json.JSONDecodeError as error:
-            raise CutoverError("Canonical Docker Compose config is malformed") from error
-        if not isinstance(payload, dict) or not isinstance(payload.get("services"), dict):
+            raise CutoverError(
+                "Canonical Docker Compose config is malformed"
+            ) from error
+        if not isinstance(payload, dict) or not isinstance(
+            payload.get("services"), dict
+        ):
             raise CutoverError("Canonical Docker Compose services are unavailable")
         return payload
 
@@ -117,21 +124,31 @@ class OriginTopologyGate:
         bindings: dict[tuple[int, str], int] = {}
         for item in service.get("ports") or []:
             if not isinstance(item, Mapping) or item.get("host_ip") != "127.0.0.1":
-                raise CutoverError("Every canonical published port must bind to 127.0.0.1")
+                raise CutoverError(
+                    "Every canonical published port must bind to 127.0.0.1"
+                )
             published = sorted(OriginTopologyGate._expand_ports(item.get("published")))
             targets = sorted(OriginTopologyGate._expand_ports(item.get("target")))
             protocol = str(item.get("protocol") or "tcp")
-            if not published or len(published) != len(targets) or protocol not in {"tcp", "udp"}:
+            if (
+                not published
+                or len(published) != len(targets)
+                or protocol not in {"tcp", "udp"}
+            ):
                 raise CutoverError("Canonical published port inventory is malformed")
             for target, host_port in zip(targets, published, strict=True):
                 key = (target, protocol)
                 if key in bindings:
-                    raise CutoverError("Canonical container port has duplicate bindings")
+                    raise CutoverError(
+                        "Canonical container port has duplicate bindings"
+                    )
                 bindings[key] = host_port
         return bindings
 
     @staticmethod
-    def _live_bindings(inspect: Mapping[str, Any]) -> dict[tuple[int, str], tuple[str, int]]:
+    def _live_bindings(
+        inspect: Mapping[str, Any]
+    ) -> dict[tuple[int, str], tuple[str, int]]:
         bindings = (inspect.get("HostConfig") or {}).get("PortBindings") or {}
         normalized: dict[tuple[int, str], tuple[str, int]] = {}
         for key, values in bindings.items():
@@ -144,11 +161,16 @@ class OriginTopologyGate:
             for item in values:
                 if not isinstance(item, Mapping):
                     raise CutoverError("Live container port binding is malformed")
-                host_ports = sorted(OriginTopologyGate._expand_ports(item.get("HostPort")))
+                host_ports = sorted(
+                    OriginTopologyGate._expand_ports(item.get("HostPort"))
+                )
                 if len(host_ports) != len(targets):
                     raise CutoverError("Live container port range mapping is malformed")
                 for target, host_port in zip(targets, host_ports, strict=True):
-                    normalized[(target, protocol)] = (str(item.get("HostIp") or ""), host_port)
+                    normalized[(target, protocol)] = (
+                        str(item.get("HostIp") or ""),
+                        host_port,
+                    )
         return normalized
 
     @staticmethod
@@ -178,7 +200,9 @@ class OriginTopologyGate:
             values = json.loads(raw)
             inspect = values[0]
         except (json.JSONDecodeError, IndexError, TypeError) as error:
-            raise CutoverError(f"Docker inspect is malformed for {service_name}") from error
+            raise CutoverError(
+                f"Docker inspect is malformed for {service_name}"
+            ) from error
         reasons: list[str] = []
         state = inspect.get("State") or {}
         if state.get("Running") is not True:
@@ -196,13 +220,17 @@ class OriginTopologyGate:
             reasons.append("port_bindings")
         config = inspect.get("Config") or {}
         expected_image = expected.get("image")
-        if expected_image is not None and str(config.get("Image") or "") != str(expected_image):
+        if expected_image is not None and str(config.get("Image") or "") != str(
+            expected_image
+        ):
             reasons.append("image")
         expected_command = expected.get("command")
         if expected_command is not None and config.get("Cmd") != expected_command:
             reasons.append("command")
         expected_networks = self._networks(expected.get("networks"))
-        live_networks = self._networks((inspect.get("NetworkSettings") or {}).get("Networks"))
+        live_networks = self._networks(
+            (inspect.get("NetworkSettings") or {}).get("Networks")
+        )
         if expected_networks != live_networks:
             reasons.append("networks")
         expected_mount_inventory = expected_mounts(expected)
@@ -220,10 +248,14 @@ class OriginTopologyGate:
             "container_id": container_id,
             "image": config.get("Image"),
             "cmd": config.get("Cmd"),
-            "host_config": {"port_bindings": (inspect.get("HostConfig") or {}).get("PortBindings")},
+            "host_config": {
+                "port_bindings": (inspect.get("HostConfig") or {}).get("PortBindings")
+            },
             "networks": sorted(live_networks),
             "mounts": live_mount_inventory,
-            "live_host_ports": sorted(host_port for _host, host_port in live_bindings.values()),
+            "live_host_ports": sorted(
+                host_port for _host, host_port in live_bindings.values()
+            ),
             "drift": sorted(set(reasons)),
         }
         return evidence, reasons
@@ -231,12 +263,18 @@ class OriginTopologyGate:
     def _lan_hosts(self) -> list[str]:
         raw = self.executor.run(["ifconfig"], timeout_seconds=10.0)
         hosts = []
-        for value in re.findall(r"^\s*inet\s+(\d+\.\d+\.\d+\.\d+)\b", raw, re.MULTILINE):
+        for value in re.findall(
+            r"^\s*inet\s+(\d+\.\d+\.\d+\.\d+)\b", raw, re.MULTILINE
+        ):
             try:
                 parsed = ipaddress.ip_address(value)
             except ValueError:
                 continue
-            if not parsed.is_loopback and not parsed.is_unspecified and not parsed.is_link_local:
+            if (
+                not parsed.is_loopback
+                and not parsed.is_unspecified
+                and not parsed.is_link_local
+            ):
                 hosts.append(value)
         hosts = sorted(set(hosts))
         if not hosts:
@@ -251,7 +289,7 @@ class OriginTopologyGate:
                 "--filter",
                 f"label=com.docker.compose.project={project_name}",
                 "--format",
-                "{{.Label \"com.docker.compose.service\"}}",
+                '{{.Label "com.docker.compose.service"}}',
             ],
             timeout_seconds=20.0,
         )
@@ -310,7 +348,9 @@ Promise.all(hosts.map(run)).then((rows)=>process.stdout.write(JSON.stringify(row
         all_services = all_config["services"]
         unknown_active = active_services.difference(all_services)
         if unknown_active:
-            raise CutoverError("Active Compose project contains an unknown service identity")
+            raise CutoverError(
+                "Active Compose project contains an unknown service identity"
+            )
         services = {
             name: service
             for name, service in config["services"].items()
@@ -325,19 +365,23 @@ Promise.all(hosts.map(run)).then((rows)=>process.stdout.write(JSON.stringify(row
             if not isinstance(service, Mapping):
                 raise CutoverError("Canonical Compose service is malformed")
             expected_bindings = self._expected_bindings(service)
-            for port in expected_bindings.values():
-                if port in port_owner:
-                    raise CutoverError("Canonical published port has multiple owners")
-                port_owner[port] = name
+            if name in active_services:
+                for port in expected_bindings.values():
+                    if port in port_owner:
+                        raise CutoverError(
+                            "Canonical published port has multiple owners"
+                        )
+                    port_owner[port] = name
             evidence, reasons = self._inspect_service(name, service)
             evidence["drift"] = sorted(set(reasons))
             service_evidence[name] = evidence
-            for port in evidence.get("live_host_ports") or []:
-                existing_owner = port_owner.get(port)
-                if existing_owner not in (None, name):
-                    raise CutoverError("Live published port has multiple owners")
-                port_owner[port] = name
-            if reasons:
+            if name in active_services:
+                for port in evidence.get("live_host_ports") or []:
+                    existing_owner = port_owner.get(port)
+                    if existing_owner not in (None, name):
+                        raise CutoverError("Live published port has multiple owners")
+                    port_owner[port] = name
+            if reasons and name in active_services:
                 drift[name] = sorted(set(reasons))
         lan_hosts = self._lan_hosts()
         reachable = []
@@ -346,8 +390,7 @@ Promise.all(hosts.map(run)).then((rows)=>process.stdout.write(JSON.stringify(row
                 if self.connectable(lan_host, port, 0.25):
                     reachable.append({"host": lan_host, "port": port})
                     drift.setdefault(owner, []).append("lan_reachable")
-        frontend_drift = set((service_evidence.get("frontend") or {}).get("drift") or [])
-        if frontend_drift.intersection({"container_missing", "not_running"}):
+        if "frontend" not in active_services:
             listener = {
                 "state": "closed",
                 "reason": "frontend_unavailable_before_reconcile",
@@ -356,6 +399,7 @@ Promise.all(hosts.map(run)).then((rows)=>process.stdout.write(JSON.stringify(row
             listener = self._internal_listener_probe(workspace_id)
         payload = {
             "canonical_repo": str(self.repo_root),
+            "pre_active_services": sorted(active_services),
             "published_ports": sorted(port_owner),
             "lan_hosts": lan_hosts,
             "lan_reachable_ports": reachable,
@@ -378,20 +422,43 @@ Promise.all(hosts.map(run)).then((rows)=>process.stdout.write(JSON.stringify(row
         services = sorted(str(name) for name in drift)
         if services:
             config = self._compose_config(all_profiles=True)
-            all_services = set(config["services"])
-            infra = {"postgres", "postgres-replica", "redis", "pgbouncer"}
-            stopped_dependents: list[str] = []
             active_services = self._active_services(
                 str(config.get("name") or "mindscape-ai-local-core")
             )
-            if infra.intersection(services):
-                stopped_dependents = sorted(
-                    name
-                    for name in active_services.intersection(all_services)
-                    if (
-                        name in {"backend", "backend-control", "frontend"}
-                        or name.startswith("runner")
+            if not set(services).issubset(active_services):
+                raise CutoverError("Origin reconcile drift is not pre-active")
+            if any(name.startswith("runner") for name in services):
+                raise CutoverError("Runner drift blocks origin reconcile")
+            for name, raw_reasons in drift.items():
+                reasons = set(raw_reasons) if isinstance(raw_reasons, list) else set()
+                expected = config["services"].get(name)
+                if (
+                    not isinstance(expected, Mapping)
+                    or not self._expected_bindings(expected)
+                    or "port_bindings" not in reasons
+                    or reasons.difference({"port_bindings", "lan_reachable"})
+                ):
+                    raise CutoverError(
+                        "Origin reconcile only accepts pre-active published-port drift"
                     )
+            infra = set(INFRASTRUCTURE_ORDER)
+            applications = set(APPLICATION_ORDER)
+            optional = set(OPTIONAL_SERVICE_ORDER)
+            if (
+                set(services)
+                .difference(infra)
+                .difference(applications)
+                .difference(optional)
+            ):
+                raise CutoverError(
+                    "Origin reconcile drift names an unsupported service"
+                )
+            stopped_dependents: list[str] = []
+            if infra.intersection(services):
+                stopped_dependents = [
+                    name for name in APPLICATION_ORDER if name in active_services
+                ] + sorted(
+                    name for name in active_services if name.startswith("runner")
                 )
             before = persist_reconcile_state(
                 self,
@@ -400,40 +467,47 @@ Promise.all(hosts.map(run)).then((rows)=>process.stdout.write(JSON.stringify(row
                 mutated_services=services,
                 stopped_dependents=stopped_dependents,
             )
-            ordered_groups = [
-                [name for name in ("postgres", "postgres-replica", "redis") if name in services],
-                ["pgbouncer"] if "pgbouncer" in services else [],
-                [
-                    name
-                    for name in services
-                    if name not in infra
-                    and name not in {"backend", "backend-control", "frontend"}
-                    and not name.startswith("runner")
-                ],
-                [name for name in ("backend", "backend-control", "frontend") if name in services],
-                [name for name in services if name.startswith("runner")],
-            ]
+            ordered_services = (
+                [name for name in INFRASTRUCTURE_ORDER if name in services]
+                + [name for name in OPTIONAL_SERVICE_ORDER if name in services]
+                + [name for name in APPLICATION_ORDER if name in services]
+            )
             try:
                 if stopped_dependents:
                     self.executor.run(
                         self.compose_command("stop", *stopped_dependents),
                         timeout_seconds=180.0,
                     )
-                for group in ordered_groups:
-                    if not group:
-                        continue
+                for name in ordered_services:
                     self.executor.run(
                         self.compose_command(
-                            "up", "-d", "--force-recreate", "--no-deps", *group
+                            "up",
+                            "-d",
+                            "--force-recreate",
+                            "--no-deps",
+                            "--wait",
+                            "--wait-timeout",
+                            "300",
+                            name,
                         ),
                         timeout_seconds=300.0,
                     )
-                restart = [name for name in stopped_dependents if name not in services]
-                if restart:
-                    self.executor.run(
-                        self.compose_command("up", "-d", "--no-deps", *restart),
-                        timeout_seconds=300.0,
+                    _evidence, reasons = self._inspect_service(
+                        name, config["services"][name]
                     )
+                    if reasons:
+                        raise CutoverError("Reconciled origin service is not healthy")
+                restart = [name for name in stopped_dependents if name not in services]
+                for name in restart:
+                    self.executor.run(
+                        self.compose_command("start", name),
+                        timeout_seconds=180.0,
+                    )
+                    _evidence, reasons = self._inspect_service(
+                        name, config["services"][name]
+                    )
+                    if reasons:
+                        raise CutoverError("Restarted origin dependent is not healthy")
                 result = self.inspect(secure_dir, workspace_id)
                 if result.get("drift") or result.get("lan_reachable_ports"):
                     raise CutoverError(
@@ -453,11 +527,15 @@ Promise.all(hosts.map(run)).then((rows)=>process.stdout.write(JSON.stringify(row
                         before=before,
                     )
                 except Exception as recovery_error:
-                    raise CutoverError("Origin reconcile recovery failed closed") from recovery_error
+                    raise CutoverError(
+                        "Origin reconcile recovery failed closed"
+                    ) from recovery_error
                 raise failure
         result = self.inspect(secure_dir, workspace_id)
         if result.get("drift") or result.get("lan_reachable_ports"):
-            raise CutoverError("Canonical origin topology remains drifted after reconcile")
+            raise CutoverError(
+                "Canonical origin topology remains drifted after reconcile"
+            )
         write_private_json(secure_dir / "origin-topology-after.json", result)
         return result
 

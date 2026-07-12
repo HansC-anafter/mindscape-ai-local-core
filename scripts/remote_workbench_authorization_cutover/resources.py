@@ -10,9 +10,7 @@ from typing import Any, Mapping, Protocol, Sequence
 from .io import CutoverError, write_private_json, write_private_text
 
 
-RESOURCE_WINDOWS = frozenset(
-    {"06a-infra", "phase06-authorization", "phase06-backout"}
-)
+RESOURCE_WINDOWS = frozenset({"06a-infra", "phase06-authorization", "phase06-backout"})
 RESOURCE_PHASES = frozenset({"before", "after"})
 
 
@@ -130,7 +128,9 @@ class RedisResourceSampler:
         try:
             payload = json.loads(raw)
         except json.JSONDecodeError as error:
-            raise CutoverError("Direct Redis snapshot returned malformed JSON") from error
+            raise CutoverError(
+                "Direct Redis snapshot returned malformed JSON"
+            ) from error
         return self._validate(payload)
 
     @staticmethod
@@ -172,7 +172,9 @@ class RedisResourceSampler:
         return ResourceSnapshot(
             totals=totals,
             inventory=normalized_inventory,
-            runners={key: value for key, value in runners.items() if key != "malformed"},
+            runners={
+                key: value for key, value in runners.items() if key != "malformed"
+            },
         )
 
     @staticmethod
@@ -195,6 +197,11 @@ class RedisResourceSampler:
     def compare(before: ResourceSnapshot, after: ResourceSnapshot) -> None:
         """Require zero four-type deltas, identical keys/types, and stable runners."""
 
+        if after.totals["processing"] != 0 or after.runners["inflight"] != 0:
+            raise CutoverError(
+                "Authorization closure requires zero processing and runner inflight"
+            )
+
         deltas = {
             key: after.totals[key] - before.totals[key]
             for key in ("pending", "processing", "delayed", "deadletter")
@@ -202,7 +209,9 @@ class RedisResourceSampler:
         if any(value != 0 for value in deltas.values()):
             raise CutoverError("Authorization window changed direct Redis queue totals")
         if before.inventory != after.inventory:
-            raise CutoverError("Authorization window changed Redis queue key/type inventory")
+            raise CutoverError(
+                "Authorization window changed Redis queue key/type inventory"
+            )
         before_capacity = {
             "count": before.runners["count"],
             "capacity": before.runners["capacity"],
