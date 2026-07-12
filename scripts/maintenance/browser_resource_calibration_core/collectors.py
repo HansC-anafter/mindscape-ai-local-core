@@ -6,6 +6,7 @@ import json
 import math
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from redis import Redis
@@ -154,6 +155,40 @@ class CalibrationCollector:
         self.api = api_client or LocalApiClient()
         self.api_base = api_base.rstrip("/")
 
+    def _collect_lean_cgroup_snapshot(
+        self,
+        container: str,
+    ) -> tuple[dict[str, Any], str]:
+        snapshot = json.loads(
+            self._run(
+                [
+                    "docker",
+                    "exec",
+                    container,
+                    "python",
+                    "-c",
+                    _CGROUP_SNAPSHOT_CODE,
+                ],
+                timeout_seconds=_CGROUP_SNAPSHOT_TIMEOUT_SECONDS,
+            )
+        )
+        current = int(snapshot["memory_current_bytes"])
+        row = {
+            "container": container,
+            "memory_current_bytes": current,
+            "memory_peak_bytes": int(snapshot["memory_peak_bytes"]),
+            "oom_kill": int(snapshot["oom_kill"]),
+            "oom_group_kill": int(snapshot["oom_group_kill"]),
+        }
+        working_set = max(0, current - int(snapshot["inactive_file_bytes"]))
+        lean_stat = json.dumps(
+            {
+                "Name": container,
+                "MemUsage": f"{working_set}B / {current}B",
+            }
+        )
+        return row, lean_stat
+
     def collect_node(
         self,
         *,
@@ -169,6 +204,17 @@ class CalibrationCollector:
             )
         cgroups: list[dict[str, Any]] = []
         lean_stats: list[str] = []
+        lean_snapshots: list[tuple[dict[str, Any], str]] = []
+        if not include_all_containers:
+            with ThreadPoolExecutor(
+                max_workers=min(3, len(self.browser_containers))
+            ) as executor:
+                lean_snapshots = list(
+                    executor.map(
+                        self._collect_lean_cgroup_snapshot,
+                        self.browser_containers,
+                    )
+                )
         for container in self.browser_containers:
             if include_all_containers:
                 current = int(
@@ -204,46 +250,18 @@ class CalibrationCollector:
                         ]
                     )
                 )
-            else:
-                snapshot = json.loads(
-                    self._run(
-                        [
-                            "docker",
-                            "exec",
-                            container,
-                            "python",
-                            "-c",
-                            _CGROUP_SNAPSHOT_CODE,
-                        ],
-                        timeout_seconds=_CGROUP_SNAPSHOT_TIMEOUT_SECONDS,
-                    )
+                cgroups.append(
+                    {
+                        "container": container,
+                        "memory_current_bytes": current,
+                        "memory_peak_bytes": peak,
+                        **events,
+                    }
                 )
-                current = int(snapshot["memory_current_bytes"])
-                peak = int(snapshot["memory_peak_bytes"])
-                events = {
-                    "oom_kill": int(snapshot["oom_kill"]),
-                    "oom_group_kill": int(snapshot["oom_group_kill"]),
-                }
-                working_set = max(
-                    0,
-                    current - int(snapshot["inactive_file_bytes"]),
-                )
-                lean_stats.append(
-                    json.dumps(
-                        {
-                            "Name": container,
-                            "MemUsage": f"{working_set}B / {current}B",
-                        }
-                    )
-                )
-            cgroups.append(
-                {
-                    "container": container,
-                    "memory_current_bytes": current,
-                    "memory_peak_bytes": peak,
-                    **events,
-                }
-            )
+        if not include_all_containers:
+            for row, lean_stat in lean_snapshots:
+                cgroups.append(row)
+                lean_stats.append(lean_stat)
         if not include_all_containers:
             stats = "\n".join(lean_stats)
         return build_node_sample(
