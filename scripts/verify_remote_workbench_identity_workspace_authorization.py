@@ -10,6 +10,7 @@ from pathlib import Path
 
 from remote_workbench_authorization_cutover.http import HttpClient
 from remote_workbench_authorization_cutover.edge import AccessEdgeGate
+from remote_workbench_authorization_cutover.exclusive_lock import phase06_runner_lock
 from remote_workbench_authorization_cutover.io import CommandExecutor, CutoverError
 from remote_workbench_authorization_cutover.release import ReleaseGate
 from remote_workbench_authorization_cutover.remote_ingress import RemoteIngressGate
@@ -36,6 +37,17 @@ def main() -> int:
     """Run the requested workflow and emit only a sanitized terminal summary."""
 
     args = build_parser().parse_args()
+    try:
+        with phase06_runner_lock():
+            return _run_locked(args)
+    except CutoverError as error:
+        print(f"ERROR: {error}", file=sys.stderr)
+        return 2
+
+
+def _run_locked(args: argparse.Namespace) -> int:
+    """Run every repository and runtime action while the host lock is held."""
+
     executor = CommandExecutor()
     script_repo_root = Path(__file__).resolve().parents[1]
     try:
