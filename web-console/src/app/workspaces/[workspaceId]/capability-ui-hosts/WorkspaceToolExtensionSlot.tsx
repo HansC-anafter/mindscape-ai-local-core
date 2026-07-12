@@ -43,6 +43,7 @@ export default function WorkspaceToolExtensionSlot({
         activeTool.capability_code,
         activeTool.panel_component_code,
         apiUrl,
+        workspaceId,
       );
     }).then((LoadedComponent) => {
       if (!cancelled) {
@@ -52,7 +53,7 @@ export default function WorkspaceToolExtensionSlot({
     return () => {
       cancelled = true;
     };
-  }, [activeTool, apiUrl, tools]);
+  }, [activeTool, apiUrl, tools, workspaceId]);
 
   return (
     <>

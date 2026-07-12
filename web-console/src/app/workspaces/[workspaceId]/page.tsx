@@ -1,7 +1,10 @@
-import { t } from '@/lib/i18n';
-import WorkspacePageClientLoader from './WorkspacePageClientLoader';
+import { headers } from 'next/headers';
 
-export default function WorkspacePage({ params }: { params: { workspaceId?: string } }) {
+import { t } from '@/lib/i18n';
+
+import RemoteWorkspaceLanding from './RemoteWorkspaceLanding';
+
+export default async function WorkspacePage({ params }: { params: { workspaceId?: string } }) {
   const workspaceId = params?.workspaceId;
   if (!workspaceId) {
     return (
@@ -13,5 +16,10 @@ export default function WorkspacePage({ params }: { params: { workspaceId?: stri
     );
   }
 
+  if (headers().get('x-mindscape-remote-ingress') === 'remote_workbench') {
+    return <RemoteWorkspaceLanding workspaceId={workspaceId} />;
+  }
+
+  const { default: WorkspacePageClientLoader } = await import('./WorkspacePageClientLoader');
   return <WorkspacePageClientLoader workspaceId={workspaceId} />;
 }

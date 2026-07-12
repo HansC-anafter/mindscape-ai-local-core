@@ -47,6 +47,26 @@ export function createRemoteWorkbenchObservability({
     activeLogPath,
   });
 
+  function normalizeSubjectCandidate(value) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return null;
+    }
+    const issuer = normalizeString(value.issuer);
+    const subject = normalizeString(value.subject);
+    const email = normalizeNullable(value.email);
+    if (!issuer || issuer.length > 512 || !subject || subject.length > 512) {
+      return null;
+    }
+    if (email && String(email).length > 320) {
+      return null;
+    }
+    return {
+      issuer,
+      subject,
+      email: email ? String(email).toLowerCase() : null,
+    };
+  }
+
   function createObservation({
     requestId,
     requestUrl = '/',
@@ -57,6 +77,7 @@ export function createRemoteWorkbenchObservability({
   }) {
     const context = requestResult?.context || {};
     const host = resolveRequestHost(requestHeaders);
+    const subjectCandidate = normalizeSubjectCandidate(requestResult?.subject_candidate);
     return {
       timestamp: new Date().toISOString(),
       request_id: String(requestId),
@@ -68,6 +89,7 @@ export function createRemoteWorkbenchObservability({
       route_class: classifyRouteClass(context, requestResult?.ingress),
       workspace_id: normalizeNullable(context.workspaceId),
       capability_code: normalizeNullable(context.capabilityCode),
+      ...(subjectCandidate ? { subject_candidate: subjectCandidate } : {}),
     };
   }
 

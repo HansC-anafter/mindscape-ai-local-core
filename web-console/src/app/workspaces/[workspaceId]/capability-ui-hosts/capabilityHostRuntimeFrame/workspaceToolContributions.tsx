@@ -117,13 +117,15 @@ export function buildCoreWorkspaceToolContributions({
   apiUrl,
   activeCapabilityCode,
   activeExecutionCount,
+  remoteSurfaceMode = false,
 }: {
   workspaceId: string;
   apiUrl: string;
   activeCapabilityCode: string | null;
   activeExecutionCount: number;
+  remoteSurfaceMode?: boolean;
 }): WorkspaceGlobalToolContribution[] {
-  return [
+  const contributions: WorkspaceGlobalToolContribution[] = [
     {
       key: 'core:runs_panel',
       id: 'runs_panel',
@@ -194,4 +196,7 @@ export function buildCoreWorkspaceToolContributions({
       },
     },
   ];
+  return remoteSurfaceMode
+    ? contributions.filter((item) => !['core:settings', 'core:graph'].includes(item.key))
+    : contributions;
 }

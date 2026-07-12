@@ -7,6 +7,7 @@ interface CapabilityUiHostRouteShellProps {
   workspaceId: string;
   capabilityCode: string;
   surfacePath?: readonly string[];
+  remoteSurfaceMode?: boolean;
 }
 
 function CapabilityUiHostRouteShellLoadingState() {
@@ -26,12 +27,14 @@ export default function CapabilityUiHostRouteShell({
   workspaceId,
   capabilityCode,
   surfacePath = [],
+  remoteSurfaceMode = false,
 }: CapabilityUiHostRouteShellProps) {
   return (
     <CapabilityUiHostRouteClient
       workspaceId={workspaceId}
       capabilityCode={capabilityCode}
       surfacePath={surfacePath}
+      remoteSurfaceMode={remoteSurfaceMode}
     />
   );
 }

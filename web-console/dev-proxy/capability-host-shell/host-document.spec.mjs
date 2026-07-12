@@ -11,10 +11,16 @@ describe('capability host shell document', () => {
     });
 
     expect(body).toContain('<html lang="en" class="theme-warm">');
-    expect(body).toContain('__mindscape-capability-host/app-layout.css');
-    expect(body).toContain('__mindscape-capability-host/react.production.min.js');
-    expect(body).toContain('__mindscape-capability-host/react-dom.production.min.js');
-    expect(body).toContain('__mindscape-capability-host/shell-runtime.browser.js');
+    for (const asset of [
+      'app-layout.css',
+      'react.production.min.js',
+      'react-dom.production.min.js',
+      'shell-runtime.browser.js',
+    ]) {
+      expect(body).toContain(
+        `__mindscape-capability-host/${asset}?workspace_id=ws%3Cone&capability_code=ig`,
+      );
+    }
     expect(body).toContain('mindscape-capability-host-config');
     expect(body).toContain('"workspaceId":"ws\\u003cone"');
     expect(body).not.toContain('MindscapeRuntimeReact');

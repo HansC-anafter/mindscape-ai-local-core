@@ -35,6 +35,7 @@ interface WorkspaceSurfaceShellProps {
   workspaceId: string;
   activeCapabilityCode: string;
   surfacePath?: readonly string[];
+  remoteSurfaceMode?: boolean;
   children: React.ReactNode;
 }
 
@@ -75,10 +76,15 @@ export default function WorkspaceSurfaceShell({
   workspaceId,
   activeCapabilityCode,
   surfacePath = [],
+  remoteSurfaceMode = false,
   children,
 }: WorkspaceSurfaceShellProps) {
   return (
-    <CapabilityHostRuntimeFrame workspaceId={workspaceId} initialLoadProfile="capability-host">
+    <CapabilityHostRuntimeFrame
+      workspaceId={workspaceId}
+      initialLoadProfile="capability-host"
+      remoteSurfaceMode={remoteSurfaceMode}
+    >
       <WorkspaceSurfaceShellContent
         workspaceId={workspaceId}
         activeCapabilityCode={activeCapabilityCode}
@@ -102,6 +108,7 @@ function WorkspaceSurfaceShellContent({
   const workspaceToolDefinitions = useWorkspaceToolDefinitions({
     apiUrl,
     capabilityCode: activeCapabilityCode,
+    workspaceId,
   });
   const extensionTools = React.useMemo<WorkspaceToolDefinition[]>(
     () => workspaceToolDefinitions.tools.filter(isPackWorkspaceRailToolVisible),

@@ -123,7 +123,7 @@ export default function OutcomesPanel({
   useEffect(() => {
     const loadCapabilities = async () => {
       try {
-        const capabilities = await getInstalledCapabilities(apiUrl);
+        const capabilities = await getInstalledCapabilities(apiUrl, workspaceId);
         setInstalledCapabilities(capabilities);
       } catch {
         // Capabilities are optional for the outcomes list.
@@ -131,7 +131,7 @@ export default function OutcomesPanel({
     };
 
     loadCapabilities();
-  }, [apiUrl]);
+  }, [apiUrl, workspaceId]);
 
   useEffect(() => {
     if (artifacts.length === 0 || installedCapabilities.length === 0) {

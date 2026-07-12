@@ -1,162 +1,162 @@
 import {
-  ALLOWLIST_EMAIL_ENV,
-  ALLOWLIST_GROUP_ENV,
-  JWT_AUDIENCE_ENV,
-  JWT_CLOCK_SKEW_ENV,
-  JWT_ISSUER_ENV,
-  JWT_PUBLIC_KEY_ENV,
-  JWT_PUBLIC_KEY_FILE_ENV,
-  JWT_REQUIRE_SIGNATURE_VERIFICATION_ENV,
   MAX_CLOCK_SKEW_SECONDS_DEFAULT,
   PUBLIC_ORIGIN_ENV,
-  WORKSPACE_ALLOWLIST_ENV,
+  REMOTE_WORKBENCH_PUBLIC_ORIGIN,
+  RUNTIME_ACCESS_POLICY_PATH,
+  UPSTREAM_TIMEOUT_MS,
 } from './constants.mjs';
 import {
-  isTruthyEnvValue,
-  splitAdditionalRules,
-  splitCommaSeparatedValues,
-} from './normalizers.mjs';
-import {
-  DEFAULT_ALLOWED_PATH_RULES,
-  isGatewayPathAllowed,
-  isLoopbackPublicOrigin,
-  normalizePathPattern,
-} from './path-rules.mjs';
-import {
-  parseClockSkew,
-  readPublicKeySource,
-} from './jwt.mjs';
+  POLICY_PAYLOAD_LIMITS,
+  normalizeRuntimeAccessPolicy,
+  readBoundedJsonResponse,
+} from './policy-contract.mjs';
 
-export function isGatewayPolicyEnabled(config) {
-  return (
-    (config?.allowlistEmails || []).length > 0 ||
-    (config?.allowlistGroups || []).length > 0 ||
-    (config?.workspaceAllowlist || []).length > 0 ||
-    (config?.jwtVerifyRequired || false) ||
-    (config?.jwtAudience || []).length > 0 ||
-    (config?.jwtIssuer || []).length > 0
-  );
-}
-
-export function resolveMobileWorkbenchGatewayConfig(env = process.env) {
-  const enabled = String(env.MOBILE_WORKBENCH_GATEWAY_ENABLED || '').trim() === '1';
-  const rawAdditionalRules = splitAdditionalRules(env.MOBILE_WORKBENCH_GATEWAY_EXTRA_PATH_RULES);
-  const allowlistEmails = splitCommaSeparatedValues(env[ALLOWLIST_EMAIL_ENV]);
-  const allowlistGroups = splitCommaSeparatedValues(env[ALLOWLIST_GROUP_ENV]);
-  const workspaceAllowlist = splitCommaSeparatedValues(env[WORKSPACE_ALLOWLIST_ENV]);
-  const publicOrigin = String(env[PUBLIC_ORIGIN_ENV] || '').trim().replace(/\/+$/, '');
-  const jwtAudience = splitCommaSeparatedValues(env[JWT_AUDIENCE_ENV]);
-  const jwtIssuer = splitCommaSeparatedValues(env[JWT_ISSUER_ENV]);
-  const jwtClockSkewSeconds = parseClockSkew(env[JWT_CLOCK_SKEW_ENV]);
-
-  const publicKeySource = readPublicKeySource(
-    env[JWT_PUBLIC_KEY_FILE_ENV],
-    env[JWT_PUBLIC_KEY_ENV],
-  );
-  const jwtVerifyRequired = isTruthyEnvValue(env[JWT_REQUIRE_SIGNATURE_VERIFICATION_ENV]);
-  const jwtVerifyEnabled = jwtVerifyRequired && Boolean(publicKeySource.value) && !publicKeySource.error;
-
-  const errors = [];
-  const extraAllowedPathRules = rawAdditionalRules
-    .map((token) => normalizePathPattern(token, errors))
-    .filter(Boolean);
-
-  if (publicKeySource.error) {
-    errors.push(publicKeySource.error);
-  }
-  if (
-    isTruthyEnvValue(env[JWT_REQUIRE_SIGNATURE_VERIFICATION_ENV]) &&
-    !publicKeySource.value
-  ) {
-    errors.push('MOBILE_WORKBENCH_GATEWAY_JWT_SIGNATURE_VERIFICATION_ENABLED_BUT_PUBLIC_KEY_missing');
-  }
-  if (publicOrigin) {
-    if (!publicOrigin.startsWith('https://')) {
-      errors.push('MOBILE_WORKBENCH_GATEWAY_PUBLIC_ORIGIN_must_use_https');
-    } else if (isLoopbackPublicOrigin(publicOrigin)) {
-      errors.push('MOBILE_WORKBENCH_GATEWAY_PUBLIC_ORIGIN_must_not_use_loopback_host');
-    }
-  }
-
-  if (!enabled) {
+function normalizePublicOrigin(value, { required = false } = {}) {
+  const normalized = String(value || '').trim();
+  if (!normalized) {
     return {
-      enabled: false,
-      reason: 'disabled',
-      errors,
-      allowedPathRules: [...DEFAULT_ALLOWED_PATH_RULES],
-      extraAllowedPathRules: [],
-      allowlistEmails,
-      allowlistGroups,
-      workspaceAllowlist,
-      publicOrigin,
-      jwtAudience,
-      jwtIssuer,
-      jwtClockSkewSeconds,
-      jwtVerifyRequired: false,
-      jwtVerifyEnabled: false,
-      jwtPublicKey: null,
-      hasJwtPublicKey: false,
+      value: '',
+      error: required ? 'mobile_workbench_public_origin_required' : null,
     };
   }
+  return normalized === REMOTE_WORKBENCH_PUBLIC_ORIGIN
+    ? { value: normalized, error: null }
+    : {
+        value: normalized,
+        error: 'mobile_workbench_public_origin_must_equal_remote_workbench_origin',
+      };
+}
 
+function createBaseConfig(env) {
+  const enabled = String(env.MOBILE_WORKBENCH_GATEWAY_ENABLED || '').trim() === '1';
+  const publicOrigin = normalizePublicOrigin(env[PUBLIC_ORIGIN_ENV], { required: enabled });
   return {
-    enabled: true,
-    reason: errors.length ? 'enabled_with_invalid_rules' : 'enabled',
-    errors,
-    allowedPathRules: [...DEFAULT_ALLOWED_PATH_RULES],
-    extraAllowedPathRules,
-    allowlistEmails,
-    allowlistGroups,
-    workspaceAllowlist,
-    publicOrigin,
-    jwtAudience,
-    jwtIssuer,
-    jwtClockSkewSeconds,
-    jwtVerifyRequired,
-    jwtVerifyEnabled,
-    jwtPublicKey: publicKeySource.value,
-    hasJwtPublicKey: Boolean(publicKeySource.value),
+    enabled,
+    publicOrigin: publicOrigin.value,
+    baseErrors: publicOrigin.error ? [publicOrigin.error] : [],
   };
 }
 
-export function isMobileWorkbenchGatewayPathAllowed(
-  requestUrl = '/',
-  config = resolveMobileWorkbenchGatewayConfig(),
-  requestMethod = 'GET',
+export function resolveMobileWorkbenchGatewayConfig(
+  env = process.env,
+  runtimePolicy = null,
+  {
+    startupError = null,
+    startupFetchCount = 0,
+  } = {},
 ) {
-  return isGatewayPathAllowed(requestUrl, config, requestMethod);
+  const base = createBaseConfig(env);
+  const errors = [...base.baseErrors];
+  if (startupError) {
+    errors.push(String(startupError));
+  }
+  if (!runtimePolicy && base.enabled && !startupError) {
+    errors.push('runtime_access_policy_not_loaded');
+  }
+  const remoteListenerReady = Boolean(
+    base.enabled
+    && runtimePolicy
+    && runtimePolicy.accessIssuer
+    && runtimePolicy.accessAudience
+    && runtimePolicy.authConfigFingerprint
+    && errors.length === 0
+    && startupFetchCount === 1
+  );
+  return {
+    enabled: base.enabled,
+    reason: !base.enabled
+      ? 'disabled'
+      : remoteListenerReady
+        ? 'strict_runtime_policy_ready'
+        : 'runtime_policy_unavailable',
+    errors,
+    publicOrigin: base.publicOrigin,
+    runtimePolicy,
+    remoteListenerReady,
+    authConfigSource: runtimePolicy?.authConfigSource || null,
+    authConfigFingerprint: runtimePolicy?.authConfigFingerprint || null,
+    remoteAccessState: runtimePolicy?.remoteAccessState || null,
+    jwtIssuerReady: Boolean(runtimePolicy?.accessIssuer),
+    jwtAudienceReady: Boolean(runtimePolicy?.accessAudience),
+    jwtSignatureVerificationRequired: true,
+    jwtClockSkewSeconds: MAX_CLOCK_SKEW_SECONDS_DEFAULT,
+    startupFetchCount,
+  };
+}
+
+export async function loadMobileWorkbenchGatewayRuntimeConfig({
+  env = process.env,
+  buildInternalApiUrl,
+  fetchImpl = globalThis.fetch,
+  timeoutMs = UPSTREAM_TIMEOUT_MS,
+} = {}) {
+  if (typeof buildInternalApiUrl !== 'function') {
+    throw new Error('buildInternalApiUrl is required');
+  }
+  if (typeof fetchImpl !== 'function') {
+    throw new Error('fetchImpl is required');
+  }
+  const base = createBaseConfig(env);
+  if (!base.enabled) {
+    return resolveMobileWorkbenchGatewayConfig(env, null, {
+      startupFetchCount: 0,
+    });
+  }
+
+  const abortController = new AbortController();
+  const timeout = setTimeout(() => abortController.abort(), timeoutMs);
+  try {
+    const response = await fetchImpl(buildInternalApiUrl(RUNTIME_ACCESS_POLICY_PATH), {
+      method: 'GET',
+      headers: { accept: 'application/json' },
+      signal: abortController.signal,
+    });
+    const payload = await readBoundedJsonResponse(response, POLICY_PAYLOAD_LIMITS.runtime);
+    const runtimePolicy = normalizeRuntimeAccessPolicy(payload);
+    return resolveMobileWorkbenchGatewayConfig(env, runtimePolicy, {
+      startupFetchCount: 1,
+    });
+  } catch (error) {
+    const reason = error?.name === 'AbortError'
+      ? 'runtime_access_policy_timeout'
+      : `runtime_access_policy_load_failed:${error?.message || 'unknown_error'}`;
+    return resolveMobileWorkbenchGatewayConfig(env, null, {
+      startupError: reason,
+      startupFetchCount: 1,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 export function isMobileWorkbenchGatewayConfigEnabled(env = process.env) {
-  return resolveMobileWorkbenchGatewayConfig(env).enabled;
+  return createBaseConfig(env).enabled;
 }
 
-export function formatMobileWorkbenchGatewayConfig(config) {
+export function formatMobileWorkbenchGatewayConfig(config, resolverStats = {}) {
   return {
-    enabled: config.enabled,
-    reason: config.reason,
-    errors: [...(config.errors || [])],
-    allowed_prefix_rules: config.allowedPathRules
-      .filter((rule) => rule.type === 'prefix')
-      .map((rule) => rule.value),
-    allowed_regex_rules: config.allowedPathRules
-      .filter((rule) => rule.type === 'regex')
-      .map((rule) => rule.source || rule.value.toString()),
-    extra_allowed_rules: (config.extraAllowedPathRules || [])
-      .map((rule) => rule.source || rule.value.toString()),
-    extra_allowed_rules_count: (config.extraAllowedPathRules || []).length,
-    allowlist_emails: config.allowlistEmails || [],
-    allowlist_groups: config.allowlistGroups || [],
-    workspace_allowlist: config.workspaceAllowlist || [],
-    public_origin: config.publicOrigin || null,
-    jwt_audience: config.jwtAudience || [],
-    jwt_issuer: config.jwtIssuer || [],
-    jwt_clock_skew_seconds: Number.isFinite(Number(config.jwtClockSkewSeconds))
-      ? Number(config.jwtClockSkewSeconds)
-      : MAX_CLOCK_SKEW_SECONDS_DEFAULT,
-    jwt_signature_verification_required: Boolean(config.jwtVerifyRequired),
-    jwt_verify_enabled: Boolean(config.jwtVerifyEnabled),
-    jwt_public_key_configured: Boolean(config.jwtPublicKey),
-    gateway_policy_enabled: isGatewayPolicyEnabled(config),
+    enabled: Boolean(config?.enabled),
+    reason: config?.reason || 'runtime_policy_unavailable',
+    errors: [...(config?.errors || [])],
+    public_origin: config?.publicOrigin || null,
+    auth_config_source: config?.authConfigSource || null,
+    auth_config_fingerprint: config?.authConfigFingerprint || null,
+    remote_access_state: config?.remoteAccessState || null,
+    runtime_policy_revision: Number.isSafeInteger(config?.runtimePolicy?.revision)
+      ? config.runtimePolicy.revision
+      : null,
+    startup_config_get_count: Number(config?.startupFetchCount || 0),
+    remote_listener_ready: Boolean(config?.remoteListenerReady),
+    jwt_signature_verification_required: true,
+    jwt_issuer_ready: Boolean(config?.jwtIssuerReady),
+    jwt_audience_ready: Boolean(config?.jwtAudienceReady),
+    jwt_clock_skew_seconds: Number(config?.jwtClockSkewSeconds || MAX_CLOCK_SKEW_SECONDS_DEFAULT),
+    effective_policy_cache_entries: Number(resolverStats?.effectivePolicyCacheEntries || 0),
+    capability_support_cache_entries: Number(resolverStats?.capabilitySupportCacheEntries || 0),
+    upstream_effective_policy_calls: Number(resolverStats?.upstreamEffectivePolicyCalls || 0),
+    upstream_capability_support_calls: Number(resolverStats?.upstreamCapabilitySupportCalls || 0),
+    upstream_in_flight: Number(resolverStats?.upstreamInFlight || 0),
+    upstream_rejected: Number(resolverStats?.upstreamRejected || 0),
+    max_upstream_in_flight: Number(resolverStats?.maxUpstreamInFlight || 16),
   };
 }

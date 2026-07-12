@@ -1,139 +1,19 @@
 import {
-  createDefaultCapabilityGatewayPathRules,
-  createDefaultGatewayWorkspaceSupportRules,
+  createRemoteWorkspacePathRules,
+  isCapabilityStorageMediaPath,
 } from '../mobile-workbench-gateway-capability-rules.mjs';
 import {
-  GATEWAY_CONTROL_CAPABILITY_CODE,
-  GATEWAY_CONTROL_COMPONENT_CODE,
-  READ_ONLY_GATEWAY_METHODS,
-} from './constants.mjs';
-import {
   normalizeRequestMethod,
-  toLowerTrimmed,
 } from './normalizers.mjs';
 
-export const DEFAULT_ALLOWED_PATH_RULES = [
-  { type: 'prefix', value: '/favicon.ico' },
-  { type: 'prefix', value: '/healthz' },
-  { type: 'prefix', value: '/api/healthz' },
-  { type: 'prefix', value: '/_next/' },
-  ...createDefaultCapabilityGatewayPathRules(),
-  ...createDefaultGatewayWorkspaceSupportRules(),
-];
-
-const CONTROL_PLANE_ALLOWED_PATH_RULES = [
-  {
-    type: 'regex',
-    value: /^\/workspaces\/[^/]+\/capability-ui-hosts\/mindscape_cloud_integration(?:\/.*)?$/,
-    methods: READ_ONLY_GATEWAY_METHODS,
-  },
-  {
-    type: 'regex',
-    value: /^\/api\/v1\/capability-packs\/installed-capabilities\/mindscape_cloud_integration(?:\/(?:ui-components|workspace-tools))?$/,
-    methods: READ_ONLY_GATEWAY_METHODS,
-  },
-  {
-    type: 'regex',
-    value: /^\/api\/v1\/capability-packs\/installed-capabilities\/mindscape_cloud_integration\/ui-assets\/.+$/,
-    methods: READ_ONLY_GATEWAY_METHODS,
-  },
-  {
-    type: 'regex',
-    value: /^\/api\/v1\/capabilities\/mindscape_cloud_integration\/mobile-workbench-gateway\/workspaces\/[^/]+\/policy$/,
-    methods: ['GET', 'HEAD', 'OPTIONS', 'PUT'],
-  },
-  {
-    type: 'regex',
-    value: /^\/api\/v1\/host\/services\/mobile-workbench-gateway\/health$/,
-    methods: READ_ONLY_GATEWAY_METHODS,
-  },
-  {
-    type: 'regex',
-    value: /^\/api\/v1\/host\/services\/mobile-workbench-gateway\/summary$/,
-    methods: READ_ONLY_GATEWAY_METHODS,
-  },
-  {
-    type: 'regex',
-    value: /^\/api\/v1\/host\/services\/mobile-workbench-gateway\/audit$/,
-    methods: READ_ONLY_GATEWAY_METHODS,
-  },
-];
-
-export function isLoopbackPublicOrigin(publicOrigin = '') {
-  try {
-    const parsed = new URL(publicOrigin);
-    const hostname = parsed.hostname.toLowerCase();
-    return (
-      hostname === 'localhost' ||
-      hostname.endsWith('.localhost') ||
-      hostname === '127.0.0.1' ||
-      hostname.startsWith('127.') ||
-      hostname === '::1' ||
-      hostname === '[::1]' ||
-      hostname === '0.0.0.0'
-    );
-  } catch {
-    return false;
-  }
-}
-
-function isRegexToken(token = '') {
-  return String(token || '').startsWith('regex:');
-}
-
-export function normalizePathPattern(token, errors = []) {
-  const normalized = String(token || '').trim();
-  if (!normalized) {
-    return null;
-  }
-  if (isRegexToken(normalized)) {
-    try {
-      return {
-        type: 'regex',
-        value: new RegExp(normalized.slice('regex:'.length)),
-        source: normalized,
-      };
-    } catch (error) {
-      errors.push(`invalid_regex_pattern:${normalized}`);
-      return null;
-    }
-  }
-  if (!normalized.startsWith('/')) {
-    errors.push(`invalid_path_pattern:${normalized}`);
-    return null;
-  }
-  return {
-    type: 'prefix',
-    value: normalized,
-  };
-}
-
-export function isGatewayControlCapabilityCode(value = '') {
-  return toLowerTrimmed(value) === GATEWAY_CONTROL_CAPABILITY_CODE;
-}
-
-export function isGatewayControlComponentCode(value = '') {
-  return String(value || '').trim() === GATEWAY_CONTROL_COMPONENT_CODE;
-}
-
-export function isGatewayControlPolicyPath(pathname = '') {
-  return /^\/api\/v1\/capabilities\/mindscape_cloud_integration\/mobile-workbench-gateway\/workspaces\/[^/]+\/policy$/.test(pathname);
-}
-
-export function isGatewayControlObservabilityPath(pathname = '') {
-  return /^\/api\/v1\/host\/services\/mobile-workbench-gateway\/(?:health|summary|audit)$/.test(pathname);
-}
-
-export function isMobileWorkbenchGatewayControlPlanePathAllowed(pathname = '/', requestMethod = 'GET') {
-  return CONTROL_PLANE_ALLOWED_PATH_RULES.some((rule) => matchesRule(pathname, rule, requestMethod));
-}
+const REMOTE_WORKSPACE_PATH_RULES = createRemoteWorkspacePathRules();
 
 export function matchesRule(pathname, rule, requestMethod = 'GET') {
   if (!rule) {
     return false;
   }
-  const normalizedMethod = normalizeRequestMethod(requestMethod);
-  if (Array.isArray(rule.methods) && rule.methods.length > 0 && !rule.methods.includes(normalizedMethod)) {
+  const method = normalizeRequestMethod(requestMethod);
+  if (Array.isArray(rule.methods) && !rule.methods.includes(method)) {
     return false;
   }
   if (rule.type === 'prefix') {
@@ -145,23 +25,51 @@ export function matchesRule(pathname, rule, requestMethod = 'GET') {
   return false;
 }
 
-export function isGatewayPathAllowed(
-  requestUrl = '/',
-  config,
-  requestMethod = 'GET',
-) {
-  if (!config.enabled) {
-    return true;
+export function isPublicBootAssetPath(pathname = '/', requestMethod = 'GET') {
+  const method = normalizeRequestMethod(requestMethod);
+  if (!['GET', 'HEAD', 'OPTIONS'].includes(method)) {
+    return false;
   }
+  return pathname === '/favicon.ico' || pathname.startsWith('/_next/static/');
+}
 
-  let pathname;
+export function isFixedRemoteWorkspacePathAllowed(pathname = '/', requestMethod = 'GET') {
+  return REMOTE_WORKSPACE_PATH_RULES.some((rule) => matchesRule(pathname, rule, requestMethod));
+}
+
+export function isReadOnlyRemotePath(pathname = '/') {
+  return isCapabilityStorageMediaPath(pathname)
+    || /^\/api\/v1\/workspaces\/[^/]+\/media-assets\/[^/]+\/preview-(?:content|data)$/.test(pathname);
+}
+
+export function isGatewayControlPolicyPath(pathname = '') {
+  return (
+    /^\/api\/v1\/capabilities\/mindscape_cloud_integration\/mobile-workbench-gateway\/runtime-policy\/?$/.test(pathname)
+    || /^\/api\/v1\/capabilities\/mindscape_cloud_integration\/mobile-workbench-gateway\/workspaces\/[^/]+\/policy\/?$/.test(pathname)
+  );
+}
+
+export function isGatewayControlObservabilityPath(pathname = '') {
+  return /^\/api\/v1\/host\/services\/mobile-workbench-gateway\/(?:health|summary|audit)\/?$/.test(pathname);
+}
+
+export function isRemoteControlPlanePath(requestUrl = '/') {
+  let pathname = '/';
   try {
     pathname = new URL(requestUrl, 'http://localhost').pathname;
   } catch {
-    pathname = '/';
+    pathname = String(requestUrl || '/').split('?')[0] || '/';
   }
-
-  return config.allowedPathRules.concat(config.extraAllowedPathRules || []).some((rule) =>
-    matchesRule(pathname, rule, requestMethod),
+  try {
+    pathname = decodeURIComponent(pathname);
+  } catch {
+    return true;
+  }
+  return (
+    isGatewayControlPolicyPath(pathname)
+    || isGatewayControlObservabilityPath(pathname)
+    || /^\/workspaces\/[^/]+\/capability-ui-hosts\/mindscape_cloud_integration(?:\/.*)?\/?$/.test(pathname)
+    || /^\/api\/v1\/(?:admin|providers?|deploy)(?:\/|$)/.test(pathname)
+    || /^\/api\/v1\/capability-packs\/(?:install|install-from-file|install-from-cloud|install-jobs)(?:\/|$)/.test(pathname)
   );
 }

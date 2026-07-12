@@ -18,7 +18,7 @@ import {
 } from './proxy-headers.mjs';
 
 const NEXT_HOST = process.env.NEXT_DEV_HOST || '127.0.0.1';
-const NEXT_PORT = Number.parseInt(process.env.NEXT_DEV_PORT || '3001', 10);
+const NEXT_PORT = Number.parseInt(process.env.NEXT_DEV_PORT || '3002', 10);
 const NEXT_DEV_TURBO_ENABLED = process.env.NEXT_DEV_TURBO === '1';
 const PROXY_LOG_MODE = process.env.FRONTEND_PROXY_LOG_MODE || 'slow';
 const PROXY_SLOW_LOG_THRESHOLD_MS = Number.parseInt(
@@ -140,7 +140,12 @@ export function resolveNextProxyTarget(requestUrl = '/', nextProxyTarget = null)
 export function proxyHttpRequest(
   req,
   res,
-  { requestId = ++requestSequence, onComplete = null, nextProxyTarget = null } = {},
+  {
+    requestId = ++requestSequence,
+    onComplete = null,
+    nextProxyTarget = null,
+    stripRemoteIdentityHeaders = false,
+  } = {},
 ) {
   const startedAt = performance.now();
   const upstreamKind = classifyProxyUpstream(req.url);
@@ -231,7 +236,7 @@ export function proxyHttpRequest(
     }
   });
 
-  if (upstreamKind === 'backend_execution_api' && tryProxyCachedDevApiRead(
+  if (!stripRemoteIdentityHeaders && upstreamKind === 'backend_execution_api' && tryProxyCachedDevApiRead(
     req,
     res,
     target,
@@ -244,7 +249,7 @@ export function proxyHttpRequest(
     return;
   }
 
-  if (upstreamKind === 'next_dev' && tryProxySingleflightNextDocument(
+  if (!stripRemoteIdentityHeaders && upstreamKind === 'next_dev' && tryProxySingleflightNextDocument(
     req,
     res,
     target,
@@ -263,7 +268,9 @@ export function proxyHttpRequest(
       port: target.port,
       method: req.method,
       path: target.path,
-      headers: copyProxyRequestHeaders(req.headers, target),
+      headers: copyProxyRequestHeaders(req.headers, target, {
+        stripRemoteIdentityHeaders,
+      }),
     },
     (upstreamRes) => {
       upstreamStatus = upstreamRes.statusCode || null;

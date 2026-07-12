@@ -2,9 +2,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createRemoteWorkbenchObservability } from './remote-workbench-observability.mjs';
+import { createRemoteWorkbenchLogStore } from './remote-workbench-observability/storage.mjs';
 
 const tempDirs = [];
 
@@ -20,7 +21,21 @@ function createGatewayConfig() {
   };
 }
 
+function createStore(baseDir) {
+  return createRemoteWorkbenchLogStore({
+    baseDir,
+    activeLogPath: path.join(baseDir, 'access.current.ndjson'),
+  });
+}
+
+async function expectUnsafeStorage(store) {
+  await expect(store.readRawRecords()).rejects.toMatchObject({
+    code: 'REMOTE_WORKBENCH_AUDIT_STORAGE_UNSAFE',
+  });
+}
+
 afterEach(() => {
+  vi.restoreAllMocks();
   while (tempDirs.length > 0) {
     const target = tempDirs.pop();
     fs.rmSync(target, { recursive: true, force: true });
@@ -163,4 +178,67 @@ describe('remote workbench observability', () => {
     expect(audit.events.map((event) => event.origin_type)).toEqual(['public_host', 'public_host']);
     expect(new Set(audit.events.map((event) => event.outcome))).toEqual(new Set(['proxied', 'denied']));
   });
+
+  it('fails closed when the audit base directory is a symlink', async () => {
+    const root = makeTempDir();
+    const realBase = path.join(root, 'real-audit');
+    const linkedBase = path.join(root, 'linked-audit');
+    fs.mkdirSync(realBase, { mode: 0o700 });
+    fs.symlinkSync(realBase, linkedBase, 'dir');
+
+    await expectUnsafeStorage(createStore(linkedBase));
+  });
+
+  it.each([
+    ['non-directory', (baseDir) => fs.writeFileSync(baseDir, 'not-a-directory')],
+    ['wrong-mode directory', (baseDir) => {
+      fs.mkdirSync(baseDir, { mode: 0o700 });
+      fs.chmodSync(baseDir, 0o755);
+    }],
+  ])('fails closed when the audit base is a %s', async (_label, prepare) => {
+    const baseDir = path.join(makeTempDir(), 'audit');
+    prepare(baseDir);
+
+    await expectUnsafeStorage(createStore(baseDir));
+  });
+
+  it('does not follow an active audit symlink for append or read', async () => {
+    const root = makeTempDir();
+    const baseDir = path.join(root, 'audit');
+    const external = path.join(root, 'external.ndjson');
+    fs.mkdirSync(baseDir, { mode: 0o700 });
+    fs.writeFileSync(external, 'sentinel\n', { mode: 0o600 });
+    fs.symlinkSync(external, path.join(baseDir, 'access.current.ndjson'));
+    const store = createStore(baseDir);
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await store.enqueueAppend({ should_not_escape: true });
+
+    expect(error).toHaveBeenCalledTimes(1);
+    expect(fs.readFileSync(external, 'utf8')).toBe('sentinel\n');
+    await expectUnsafeStorage(store);
+    error.mockRestore();
+  });
+
+  it('fails closed when an archive path is a symlink', async () => {
+    const root = makeTempDir();
+    const baseDir = path.join(root, 'audit');
+    const external = path.join(root, 'external.ndjson');
+    fs.mkdirSync(baseDir, { mode: 0o700 });
+    fs.writeFileSync(external, '{"outside":true}\n', { mode: 0o600 });
+    fs.symlinkSync(external, path.join(baseDir, 'access.1.ndjson'));
+
+    await expectUnsafeStorage(createStore(baseDir));
+  });
+
+  it.each(['access.current.ndjson', 'access.1.ndjson'])(
+    'fails closed when %s is non-regular',
+    async (filename) => {
+      const baseDir = path.join(makeTempDir(), 'audit');
+      fs.mkdirSync(baseDir, { mode: 0o700 });
+      fs.mkdirSync(path.join(baseDir, filename), { mode: 0o700 });
+
+      await expectUnsafeStorage(createStore(baseDir));
+    },
+  );
 });

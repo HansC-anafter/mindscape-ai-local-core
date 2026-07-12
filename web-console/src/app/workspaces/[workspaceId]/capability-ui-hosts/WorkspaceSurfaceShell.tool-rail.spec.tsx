@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import './WorkspaceSurfaceShell.test-support';
@@ -78,6 +78,35 @@ describe('WorkspaceSurfaceShell tool rail', () => {
 
     expect(screen.getByTestId('workspace-runs-tool')).toHaveTextContent('1');
     expect(useRunObservationsSummary).not.toHaveBeenCalled();
+  });
+
+  it('does not register remote-only forbidden controls or issue their background reads', async () => {
+    vi.useFakeTimers();
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({}),
+    } as Response);
+    try {
+      render(
+        <WorkspaceSurfaceShell
+          workspaceId="ws_remote"
+          activeCapabilityCode="demo_capability"
+          surfacePath={[]}
+          remoteSurfaceMode
+        >
+          <div data-testid="surface-content">Remote capability surface</div>
+        </WorkspaceSurfaceShell>,
+      );
+
+      expect(screen.queryByTestId('workspace-settings-tool')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('workspace-graph-tool')).not.toBeInTheDocument();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000);
+      });
+      expect(fetchSpy).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('opens the built-in settings panel at the contract width with a scrollable body', async () => {

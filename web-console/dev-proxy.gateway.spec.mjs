@@ -5,9 +5,9 @@ import {
   createFrontendProxyServer,
   createRemoteWorkbenchObservability,
   isDeviceLinkHttpsHealthRequest,
-  resolveMobileWorkbenchGatewayConfig,
 } from './dev-proxy.mjs';
 import { cleanupTempDirs, makeTempDir } from './dev-proxy.test-helpers.mjs';
+import { createGatewayConfig } from './dev-proxy/mobile-workbench-gateway.test-support.mjs';
 
 describe('frontend dev proxy gateway surfaces', () => {
   afterEach(() => {
@@ -17,12 +17,7 @@ describe('frontend dev proxy gateway surfaces', () => {
   it('exposes mobile workbench gateway health through the proxy surface', async () => {
     const server = createFrontendProxyServer({
       nextRunningRef: { current: true },
-      mobileWorkbenchGatewayConfig: resolveMobileWorkbenchGatewayConfig({
-        MOBILE_WORKBENCH_GATEWAY_ENABLED: '1',
-        MOBILE_WORKBENCH_GATEWAY_ALLOWLIST_EMAILS: 'admin@mindscape.ai',
-        MOBILE_WORKBENCH_GATEWAY_PUBLIC_ORIGIN: 'https://remote-workbench.mindscapeai.app',
-        MOBILE_WORKBENCH_GATEWAY_JWT_AUDIENCE: 'remote-workbench',
-      }),
+      mobileWorkbenchGatewayConfig: createGatewayConfig(),
     });
 
     await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -38,10 +33,11 @@ describe('frontend dev proxy gateway surfaces', () => {
         status: 'ok',
         service: 'mobile-workbench-gateway',
         enabled: true,
-        reason: 'enabled',
+        reason: 'strict_runtime_policy_ready',
         gateway: expect.objectContaining({
-          jwt_audience: ['remote-workbench'],
-          allowlist_emails: ['admin@mindscape.ai'],
+          auth_config_source: 'runtime_policy',
+          remote_listener_ready: true,
+          jwt_signature_verification_required: true,
           public_origin: 'https://remote-workbench.mindscapeai.app',
         }),
       });
@@ -50,7 +46,7 @@ describe('frontend dev proxy gateway surfaces', () => {
     }
   });
 
-  it('exposes remote workbench summary and audit only to the loopback control plane', async () => {
+  it('exposes summary and audit only through the local listener trust boundary', async () => {
     const remoteWorkbenchObservability = createRemoteWorkbenchObservability({
       dataDir: makeTempDir(),
       loadRunnerSnapshot: async () => ({
@@ -67,10 +63,7 @@ describe('frontend dev proxy gateway surfaces', () => {
         }],
       }),
     });
-    const gatewayConfig = resolveMobileWorkbenchGatewayConfig({
-      MOBILE_WORKBENCH_GATEWAY_ENABLED: '1',
-      MOBILE_WORKBENCH_GATEWAY_PUBLIC_ORIGIN: 'https://remote-workbench.mindscapeai.app',
-    });
+    const gatewayConfig = createGatewayConfig();
 
     const proxyObservation = remoteWorkbenchObservability.createObservation({
       requestId: 1,
@@ -134,7 +127,7 @@ describe('frontend dev proxy gateway surfaces', () => {
         origin_type: 'public_host',
       });
 
-      const remoteDenied = await new Promise((resolve, reject) => {
+      const hostHeaderDoesNotChangeLocalTrust = await new Promise((resolve, reject) => {
         const request = http.request(
           {
             hostname: '127.0.0.1',
@@ -163,8 +156,8 @@ describe('frontend dev proxy gateway surfaces', () => {
         request.end();
       });
 
-      expect(remoteDenied).toMatchObject({
-        statusCode: 404,
+      expect(hostHeaderDoesNotChangeLocalTrust).toMatchObject({
+        statusCode: 200,
       });
     } finally {
       await new Promise((resolve) => server.close(resolve));

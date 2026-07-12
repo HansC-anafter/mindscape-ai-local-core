@@ -1,6 +1,23 @@
 from typing import Any, Dict, List
 
 
+_RESERVED_LEGACY_API_ROOTS = {
+    "admin",
+    "capability-packs",
+    "deploy",
+    "host",
+    "host-resources",
+    "host-runtime",
+    "providers",
+    "system-settings",
+    "workspaces",
+}
+_REMOTE_REQUEST_SCOPE_CONTRACTS = {
+    "explicit_workspace_v1",
+    "no_remote_requests_v1",
+}
+
+
 def _normalize_string_list(values: Any) -> List[str]:
     normalized: List[str] = []
     seen = set()
@@ -26,25 +43,55 @@ def _is_main_page_component(component: Dict[str, Any]) -> bool:
     )
 
 
-def _resolve_host_route_template(pack_meta: Dict[str, Any], capability_code: str) -> str | None:
-    for surface in pack_meta.get("ui_surfaces", []) or []:
-        if not isinstance(surface, dict):
-            continue
-        candidate = str(surface.get("host_route_template") or "").strip()
-        if candidate:
-            return candidate
-    if pack_meta.get("ui_components"):
-        return f"/workspaces/{{workspaceId}}/capability-ui-hosts/{capability_code}"
-    return None
+def _is_owned_api_prefix(api_prefix: str, capability_code: str) -> bool:
+    normalized = str(api_prefix or "").strip().rstrip("/")
+    aliases = {capability_code, capability_code.replace("_", "-")}
+    owned_roots = {
+        f"/api/v1/capabilities/{alias}"
+        for alias in aliases
+    }
+    if capability_code not in _RESERVED_LEGACY_API_ROOTS:
+        owned_roots.update(
+            f"/api/v1/{alias}"
+            for alias in aliases
+            if alias not in _RESERVED_LEGACY_API_ROOTS
+        )
+    return any(
+        normalized == root or normalized.startswith(f"{root}/")
+        for root in owned_roots
+    )
+
+
+def _canonical_host_route_template(capability_code: str) -> str:
+    return f"/workspaces/{{workspaceId}}/capability-ui-hosts/{capability_code}"
+
+
+def _resolve_host_route_template(
+    pack_meta: Dict[str, Any],
+    capability_code: str,
+    main_page_component_codes: List[str],
+) -> str | None:
+    if not main_page_component_codes:
+        return None
+    canonical = _canonical_host_route_template(capability_code)
+    explicit_templates = _normalize_string_list(
+        [
+            surface.get("host_route_template")
+            for surface in (pack_meta.get("ui_surfaces", []) or [])
+            if isinstance(surface, dict)
+            and str(surface.get("host_route_template") or "").strip()
+        ]
+    )
+    if explicit_templates and explicit_templates != [canonical]:
+        return None
+    return canonical
 
 
 def build_mobile_workbench_gateway_support_payload(
     capability_code: str,
     pack_meta: Dict[str, Any],
 ) -> Dict[str, Any]:
-    normalized_capability_code = str(
-        pack_meta.get("code") or pack_meta.get("id") or capability_code
-    ).strip()
+    normalized_capability_code = str(capability_code or "").strip().lower()
     ui_components = [
         component
         for component in (pack_meta.get("ui_components", []) or [])
@@ -55,12 +102,39 @@ def build_mobile_workbench_gateway_support_payload(
         for component in ui_components
         if _is_main_page_component(component)
     ]
-    api_prefixes = _normalize_string_list(
+    declared_api_prefixes = _normalize_string_list(
         [
             api.get("prefix")
             for api in (pack_meta.get("apis", []) or [])
             if isinstance(api, dict)
         ]
+    )
+    api_prefixes_valid = all(
+        _is_owned_api_prefix(prefix, normalized_capability_code)
+        for prefix in declared_api_prefixes
+    )
+    api_prefixes = declared_api_prefixes if api_prefixes_valid else []
+    normalized_main_page_component_codes = _normalize_string_list(
+        main_page_component_codes
+    )
+    remote_workbench = pack_meta.get("remote_workbench")
+    request_scope_contract = (
+        str(remote_workbench.get("request_scope_contract") or "").strip()
+        if isinstance(remote_workbench, dict)
+        else ""
+    )
+    request_scope_valid = request_scope_contract in _REMOTE_REQUEST_SCOPE_CONTRACTS
+    host_route_template = _resolve_host_route_template(
+        pack_meta,
+        normalized_capability_code,
+        normalized_main_page_component_codes,
+    )
+    if not api_prefixes_valid or not request_scope_valid:
+        host_route_template = None
+    supported = bool(ui_components) and bool(
+        normalized_main_page_component_codes
+    ) and host_route_template == _canonical_host_route_template(
+        normalized_capability_code
     )
     return {
         "capability_code": normalized_capability_code,
@@ -69,11 +143,10 @@ def build_mobile_workbench_gateway_support_payload(
             or pack_meta.get("name")
             or normalized_capability_code
         ),
-        "supported": bool(ui_components),
+        "supported": supported,
         "has_ui_components": bool(ui_components),
-        "host_route_template": _resolve_host_route_template(
-            pack_meta, normalized_capability_code
-        ),
-        "main_page_component_codes": _normalize_string_list(main_page_component_codes),
+        "host_route_template": host_route_template,
+        "main_page_component_codes": normalized_main_page_component_codes,
         "api_prefixes": api_prefixes,
+        "request_scope_contract": request_scope_contract or None,
     }

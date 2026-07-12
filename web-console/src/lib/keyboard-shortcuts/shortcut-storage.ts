@@ -50,10 +50,13 @@ export function normalizeKeyboardShortcutResponse(
   };
 }
 
-export async function loadKeyboardShortcutProfile() {
+export async function loadKeyboardShortcutProfile(workspaceId?: string) {
   try {
+    const workspaceQuery = workspaceId
+      ? `?workspace_id=${encodeURIComponent(workspaceId)}`
+      : '';
     const response = await settingsApi.get<KeyboardShortcutProfileResponse>(
-      '/api/v1/system-settings/keyboard-shortcuts',
+      `/api/v1/system-settings/keyboard-shortcuts${workspaceQuery}`,
       { silent: true },
     );
     return normalizeKeyboardShortcutResponse(response);

@@ -56,6 +56,26 @@ describe('installed capabilities cache', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it('scopes the remote list URL and cache key by workspace', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => [{ id: 'ig', code: 'ig' }],
+    } as Response);
+    vi.stubGlobal('fetch', fetchMock);
+
+    await getInstalledCapabilities(apiUrl, 'workspace-a');
+    await getInstalledCapabilities(apiUrl, 'workspace-b');
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `${apiUrl}/api/v1/capability-packs/installed-capabilities?workspace_id=workspace-a`,
+      { credentials: 'same-origin' },
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      `${apiUrl}/api/v1/capability-packs/installed-capabilities?workspace_id=workspace-b`,
+      { credentials: 'same-origin' },
+    );
+  });
+
   it('invalidates a cached api base explicitly', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

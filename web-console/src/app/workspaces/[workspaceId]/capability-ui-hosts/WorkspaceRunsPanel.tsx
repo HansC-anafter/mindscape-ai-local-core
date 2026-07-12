@@ -91,7 +91,7 @@ export default function WorkspaceRunsPanel({
         cancelled = true;
       };
     }
-    void getWorkspaceToolDefinitions(apiUrl, activeCapabilityCode)
+    void getWorkspaceToolDefinitions(apiUrl, activeCapabilityCode, workspaceId)
       .then(async (tools) => {
         const runsPanelTool = tools.find(isRunsPanelTool);
         if (!runsPanelTool) {
@@ -109,6 +109,7 @@ export default function WorkspaceRunsPanel({
           runsPanelTool.capability_code,
           runsPanelTool.panel_component_code,
           apiUrl,
+          workspaceId,
         );
       })
       .then((LoadedComponent) => {
@@ -126,7 +127,7 @@ export default function WorkspaceRunsPanel({
     return () => {
       cancelled = true;
     };
-  }, [activeCapabilityCode, apiUrl]);
+  }, [activeCapabilityCode, apiUrl, workspaceId]);
 
   const activeContent = loading ? (
     <div className="p-2 text-xs text-gray-500 dark:text-gray-400">

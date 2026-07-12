@@ -17,6 +17,14 @@ const KeyboardShortcutContext = React.createContext<KeyboardShortcutContextValue
 const PROFILE_SYNC_CHANNEL = 'mindscape.keyboard-shortcuts.profile.v1';
 const PROFILE_SYNC_STORAGE_KEY = 'mindscape.keyboard-shortcuts.profile.updated.v1';
 
+function currentWorkspaceId(): string | undefined {
+  if (typeof window === 'undefined') {
+    return undefined;
+  }
+  const match = /^\/workspaces\/([^/]+)(?:\/|$)/.exec(window.location.pathname);
+  return match ? decodeURIComponent(match[1]) : undefined;
+}
+
 interface RuntimeKeyboardShortcutBridge {
   getSnapshot: () => KeyboardShortcutContextValue | null;
   subscribe: (listener: () => void) => () => void;
@@ -168,7 +176,7 @@ export function KeyboardShortcutProvider({
   }, [applyProfile, publishProfile]);
 
   const reloadProfile = React.useCallback(async () => {
-    const result = await loadKeyboardShortcutProfile();
+    const result = await loadKeyboardShortcutProfile(currentWorkspaceId());
     applyProfile(result.profile);
   }, [applyProfile]);
 

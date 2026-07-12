@@ -1,24 +1,92 @@
-const READ_ONLY_GATEWAY_METHODS = ['GET', 'HEAD', 'OPTIONS'];
+const READ_ONLY_METHODS = ['GET', 'HEAD', 'OPTIONS'];
 const CAPABILITY_STORAGE_MEDIA_PATH_PATTERN =
   /^\/api\/v1\/capabilities\/[^/]+\/storage\/[^/]+\/.+\.(?:apng|avif|gif|jpe?g|m4v|mov|mp4|png|webm|webp)$/i;
+const RESERVED_LEGACY_API_ROOTS = new Set([
+  'admin',
+  'capability-packs',
+  'deploy',
+  'host',
+  'host-resources',
+  'host-runtime',
+  'providers',
+  'system-settings',
+  'workspaces',
+]);
 
 function escapeRegexLiteral(value = '') {
   return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function createCapabilityHostRule(capabilityCode) {
-  const escapedCapabilityCode = escapeRegexLiteral(capabilityCode);
+  const escaped = escapeRegexLiteral(capabilityCode);
   return {
     type: 'regex',
-    value: new RegExp(`^/workspaces/[^/]+/capability-ui-hosts/${escapedCapabilityCode}(?:/.*)?$`),
+    value: new RegExp(`^/workspaces/[^/]+/capability-ui-hosts/${escaped}(?:/.*)?$`),
   };
 }
 
 function createCapabilityApiRule(apiPrefix) {
-  const escapedApiPrefix = escapeRegexLiteral(apiPrefix).replace(/\/+$/, '');
+  const escaped = escapeRegexLiteral(apiPrefix).replace(/\/+$/, '');
   return {
     type: 'regex',
-    value: new RegExp(`^${escapedApiPrefix}(?:/.*)?$`),
+    value: new RegExp(`^${escaped}(?:/.*)?$`),
+  };
+}
+
+export function isCapabilityOwnedApiPrefix(apiPrefix, capabilityCode) {
+  const code = String(capabilityCode || '').trim().toLowerCase();
+  const prefix = String(apiPrefix || '').trim().replace(/\/+$/, '');
+  if (!code || !/^[a-z0-9][a-z0-9_-]*$/.test(code) || !prefix) {
+    return false;
+  }
+  const aliases = new Set([code, code.replaceAll('_', '-')]);
+  const ownedRoots = Array.from(aliases, (alias) => `/api/v1/capabilities/${alias}`);
+  if (!RESERVED_LEGACY_API_ROOTS.has(code)) {
+    for (const alias of aliases) {
+      if (!RESERVED_LEGACY_API_ROOTS.has(alias)) {
+        ownedRoots.push(`/api/v1/${alias}`);
+      }
+    }
+  }
+  return ownedRoots.some((root) => prefix === root || prefix.startsWith(`${root}/`));
+}
+
+function createInstalledCapabilityMetadataRule(capabilityCode) {
+  const escaped = escapeRegexLiteral(capabilityCode);
+  return {
+    type: 'regex',
+    value: new RegExp(
+      `^/api/v1/capability-packs/installed-capabilities/${escaped}(?:/(?:ui-components|workspace-tools))?$`,
+    ),
+    methods: READ_ONLY_METHODS,
+  };
+}
+
+function createInstalledCapabilityAssetsRule(capabilityCode) {
+  const escaped = escapeRegexLiteral(capabilityCode);
+  return {
+    type: 'regex',
+    value: new RegExp(
+      `^/api/v1/capability-packs/installed-capabilities/${escaped}/ui-assets/.+`,
+    ),
+    methods: READ_ONLY_METHODS,
+  };
+}
+
+function createLegacyCapabilityAssetsRule(capabilityCode) {
+  const escaped = escapeRegexLiteral(capabilityCode);
+  return {
+    type: 'regex',
+    value: new RegExp(`^/api/v1/capability-packs/${escaped}/ui-assets/.+`),
+    methods: READ_ONLY_METHODS,
+  };
+}
+
+function createCapabilityHostRuntimeAssetRule() {
+  return {
+    type: 'regex',
+    value: /^\/__mindscape-capability-host\/(?:app-layout\.css|react\.production\.min\.js|react-dom\.production\.min\.js|shell-runtime\.browser\.js)$/,
+    methods: READ_ONLY_METHODS,
   };
 }
 
@@ -26,159 +94,58 @@ export function isCapabilityStorageMediaPath(pathname = '') {
   return CAPABILITY_STORAGE_MEDIA_PATH_PATTERN.test(String(pathname || ''));
 }
 
-function createCapabilityStorageMediaRule() {
-  return {
-    type: 'regex',
-    value: CAPABILITY_STORAGE_MEDIA_PATH_PATTERN,
-    methods: READ_ONLY_GATEWAY_METHODS,
-  };
-}
-
-function createInstalledCapabilityMetadataRule(capabilityCode) {
-  const escapedCapabilityCode = escapeRegexLiteral(capabilityCode);
-  return {
-    type: 'regex',
-    value: new RegExp(
-      `^/api/v1/capability-packs/installed-capabilities/${escapedCapabilityCode}(?:/(?:ui-components|workspace-tools|mobile-workbench-gateway-support))?$`,
-    ),
-  };
-}
-
-function createInstalledCapabilityAssetsRule(capabilityCode) {
-  const escapedCapabilityCode = escapeRegexLiteral(capabilityCode);
-  return {
-    type: 'regex',
-    value: new RegExp(
-      `^/api/v1/capability-packs/installed-capabilities/${escapedCapabilityCode}/ui-assets/.+`,
-    ),
-  };
-}
-
 export function createCapabilityGatewayPathRules({
   capabilityCode,
+  hostRouteTemplate = null,
   apiPrefixes = [],
 }) {
-  const normalizedCapabilityCode = String(capabilityCode || '').trim();
-  if (!normalizedCapabilityCode) {
+  const normalizedCapabilityCode = String(capabilityCode || '').trim().toLowerCase();
+  if (!normalizedCapabilityCode || !/^[a-z0-9][a-z0-9_-]*$/.test(normalizedCapabilityCode)) {
     return [];
   }
-
+  const canonicalHostRouteTemplate =
+    `/workspaces/{workspaceId}/capability-ui-hosts/${normalizedCapabilityCode}`;
+  if (hostRouteTemplate !== canonicalHostRouteTemplate) {
+    return [];
+  }
   const normalizedApiPrefixes = Array.from(new Set(
-    (apiPrefixes || [])
-      .map((prefix) => String(prefix || '').trim())
-      .filter(Boolean),
+    apiPrefixes.map((prefix) => String(prefix || '').trim().replace(/\/+$/, '')),
   ));
-
+  if (normalizedApiPrefixes.some((prefix) => (
+    !isCapabilityOwnedApiPrefix(prefix, normalizedCapabilityCode)
+  ))) {
+    return [];
+  }
   return [
     createCapabilityHostRule(normalizedCapabilityCode),
-    ...normalizedApiPrefixes.map((prefix) => createCapabilityApiRule(prefix)),
+    ...normalizedApiPrefixes.map(createCapabilityApiRule),
     createInstalledCapabilityMetadataRule(normalizedCapabilityCode),
     createInstalledCapabilityAssetsRule(normalizedCapabilityCode),
+    createLegacyCapabilityAssetsRule(normalizedCapabilityCode),
+    createCapabilityHostRuntimeAssetRule(),
   ];
 }
 
-export function createDefaultCapabilityGatewayPathRules() {
+export function createRemoteWorkspacePathRules() {
   return [
-    ...createCapabilityGatewayPathRules({
-      capabilityCode: 'ig',
-      apiPrefixes: ['/api/v1/ig'],
-    }),
-    ...createCapabilityGatewayPathRules({
-      capabilityCode: 'makeup_practice_coach',
-      apiPrefixes: ['/api/v1/capabilities/makeup_practice_coach'],
-    }),
-    ...createCapabilityGatewayPathRules({
-      capabilityCode: 'yogacoach',
-      apiPrefixes: ['/api/v1/capabilities/yogacoach'],
-    }),
-  ];
-}
-
-export function createDefaultGatewayWorkspaceSupportRules() {
-  return [
-    { type: 'regex', value: /^\/api\/v1\/capability-packs\/installed-capabilities$/ },
-    { type: 'regex', value: /^\/api\/v1\/workspaces\/[^/]+\/summary$/ },
-    { type: 'regex', value: /^\/api\/v1\/workspaces\/[^/]+\/executions(?:\/.*)?$/ },
-    {
-      type: 'regex',
-      value: /^\/api\/v1\/host-runtime\/status$/,
-      methods: READ_ONLY_GATEWAY_METHODS,
-    },
-    {
-      type: 'regex',
-      value: /^\/api\/v1\/workspaces\/[^/]+\/host-runtime\/sessions$/,
-      methods: ['GET', 'HEAD', 'OPTIONS', 'POST'],
-    },
-    {
-      type: 'regex',
-      value: /^\/api\/v1\/workspaces\/[^/]+\/host-runtime\/sessions\/[^/]+(?:\/events|\/stream)?$/,
-      methods: READ_ONLY_GATEWAY_METHODS,
-    },
-    {
-      type: 'regex',
-      value: /^\/api\/v1\/workspaces\/[^/]+\/host-runtime\/sessions\/[^/]+\/(?:turns|interrupt)$/,
-      methods: ['OPTIONS', 'POST'],
-    },
-    {
-      type: 'regex',
-      value: /^\/api\/v1\/workspaces\/[^/]+\/host-runtime\/sessions\/[^/]+\/approvals\/[^/]+$/,
-      methods: ['OPTIONS', 'POST'],
-    },
-    {
-      type: 'regex',
-      value: /^\/api\/v1\/workspaces\/[^/]+\/host-runtime\/bridge-service$/,
-      methods: READ_ONLY_GATEWAY_METHODS,
-    },
-    {
-      type: 'regex',
-      value: /^\/api\/v1\/workspaces\/[^/]+\/host-runtime\/bridge-service\/(?:start|restart)$/,
-      methods: ['OPTIONS', 'POST'],
-    },
-    {
-      type: 'regex',
-      value: /^\/api\/v1\/workspaces\/[^/]+\/agents\/bridge-service$/,
-      methods: READ_ONLY_GATEWAY_METHODS,
-    },
-    {
-      type: 'regex',
-      value: /^\/api\/v1\/workspaces\/[^/]+\/agents\/bridge-service\/(?:start|restart)$/,
-      methods: ['OPTIONS', 'POST'],
-    },
-    {
-      type: 'regex',
-      value: /^\/api\/v1\/workspaces\/[^/]+\/tasks(?:\/.*)?$/,
-      methods: READ_ONLY_GATEWAY_METHODS,
-    },
-    {
-      type: 'regex',
-      value: /^\/api\/v1\/workspaces\/[^/]+\/events\/stream$/,
-      methods: READ_ONLY_GATEWAY_METHODS,
-    },
-    {
-      type: 'regex',
-      value: /^\/api\/v1\/workspaces\/[^/]+\/device-bindings\/(?:pairing-codes|control|[^/]+\/(?:control|revoke|media-sessions\/[^/]+\/signal))$/,
-    },
-    {
-      type: 'regex',
-      value: /^\/device-link\/(?!health$|__test__$)[^/]+$/,
-      methods: READ_ONLY_GATEWAY_METHODS,
-    },
-    {
-      type: 'regex',
-      value: /^\/api\/v1\/system-settings\/keyboard-shortcuts$/,
-      methods: READ_ONLY_GATEWAY_METHODS,
-    },
-    {
-      type: 'regex',
-      value: /^\/api\/v1\/host-resources\/lanes$/,
-      methods: READ_ONLY_GATEWAY_METHODS,
-    },
-    {
-      type: 'regex',
-      value: /^\/api\/v1\/host-resources\/queue-utilization$/,
-      methods: READ_ONLY_GATEWAY_METHODS,
-    },
-    createCapabilityStorageMediaRule(),
-    { type: 'regex', value: /^\/api\/v1\/capability-packs\/[^/]+\/ui-assets\// },
+    { type: 'regex', value: /^\/workspaces\/[^/]+\/?$/, methods: READ_ONLY_METHODS },
+    { type: 'regex', value: /^\/api\/v1\/workspaces\/[^/]+\/summary$/, methods: READ_ONLY_METHODS },
+    { type: 'regex', value: /^\/api\/v1\/workspaces\/[^/]+\/executions(?:\/.*)?$/, methods: READ_ONLY_METHODS },
+    { type: 'regex', value: /^\/api\/v1\/workspaces\/[^/]+\/tasks(?:\/.*)?$/, methods: READ_ONLY_METHODS },
+    { type: 'regex', value: /^\/api\/v1\/workspaces\/[^/]+\/events\/stream$/, methods: READ_ONLY_METHODS },
+    { type: 'regex', value: /^\/api\/v1\/workspaces\/[^/]+\/host-runtime\/sessions$/, methods: ['GET', 'HEAD', 'OPTIONS', 'POST'] },
+    { type: 'regex', value: /^\/api\/v1\/workspaces\/[^/]+\/host-runtime\/sessions\/[^/]+(?:\/events|\/stream)?$/, methods: READ_ONLY_METHODS },
+    { type: 'regex', value: /^\/api\/v1\/workspaces\/[^/]+\/host-runtime\/sessions\/[^/]+\/(?:turns|interrupt)$/, methods: ['OPTIONS', 'POST'] },
+    { type: 'regex', value: /^\/api\/v1\/workspaces\/[^/]+\/host-runtime\/sessions\/[^/]+\/approvals\/[^/]+$/, methods: ['OPTIONS', 'POST'] },
+    { type: 'regex', value: /^\/api\/v1\/workspaces\/[^/]+\/(?:host-runtime|agents)\/bridge-service$/, methods: READ_ONLY_METHODS },
+    { type: 'regex', value: /^\/api\/v1\/workspaces\/[^/]+\/(?:host-runtime|agents)\/bridge-service\/(?:start|restart)$/, methods: ['OPTIONS', 'POST'] },
+    { type: 'regex', value: /^\/api\/v1\/workspaces\/[^/]+\/device-bindings\/(?:pairing-codes|control|[^/]+\/(?:control|revoke|media-sessions\/[^/]+\/signal))$/ },
+    { type: 'regex', value: /^\/api\/v1\/workspaces\/[^/]+\/media-assets\/[^/]+\/preview-(?:content|data)$/, methods: READ_ONLY_METHODS },
+    { type: 'regex', value: /^\/device-link\/(?!health$|__test__$)[^/]+$/, methods: READ_ONLY_METHODS },
+    { type: 'regex', value: /^\/api\/v1\/capability-packs\/installed-capabilities$/, methods: ['GET'] },
+    { type: 'regex', value: /^\/api\/v1\/host-runtime\/status$/, methods: READ_ONLY_METHODS },
+    { type: 'regex', value: /^\/api\/v1\/system-settings\/keyboard-shortcuts$/, methods: READ_ONLY_METHODS },
+    { type: 'regex', value: /^\/api\/v1\/host-resources\/(?:lanes|queue-utilization)$/, methods: READ_ONLY_METHODS },
+    { type: 'regex', value: CAPABILITY_STORAGE_MEDIA_PATH_PATTERN, methods: READ_ONLY_METHODS },
   ];
 }

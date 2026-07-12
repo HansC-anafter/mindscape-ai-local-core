@@ -14,6 +14,7 @@ interface CapabilityUiHostClientLoaderProps {
   workspaceId: string;
   capabilityCode: string;
   surfacePath?: readonly string[];
+  remoteSurfaceMode?: boolean;
 }
 
 interface CapabilityUiMetadata {
@@ -92,14 +93,16 @@ function describeCapabilityUiMetadataError(error: unknown): string {
 async function loadCapabilityUiMetadata(
   apiUrl: string,
   capabilityCode: string,
+  workspaceId: string,
 ): Promise<CapabilityUiMetadata> {
   const encodedCapabilityCode = encodeURIComponent(capabilityCode);
+  const workspaceQuery = `?workspace_id=${encodeURIComponent(workspaceId)}`;
   const capabilityInfoPromise = fetchJsonWithTimeout<CapabilityInfo>(
-    `${apiUrl}/api/v1/capability-packs/installed-capabilities/${encodedCapabilityCode}`,
+    `${apiUrl}/api/v1/capability-packs/installed-capabilities/${encodedCapabilityCode}${workspaceQuery}`,
     CAPABILITY_UI_METADATA_TIMEOUT_MS,
   );
   const uiComponentsPromise = fetchJsonWithTimeout<UIComponentInfo[]>(
-    `${apiUrl}/api/v1/capability-packs/installed-capabilities/${encodedCapabilityCode}/ui-components`,
+    `${apiUrl}/api/v1/capability-packs/installed-capabilities/${encodedCapabilityCode}/ui-components${workspaceQuery}`,
     CAPABILITY_UI_METADATA_TIMEOUT_MS,
   );
   const [capabilityInfo, codeUiComponents] = await Promise.all([
@@ -111,7 +114,7 @@ async function loadCapabilityUiMetadata(
   let uiComponents = codeUiComponents;
   if ((!Array.isArray(uiComponents) || uiComponents.length === 0) && capabilityId !== capabilityCode) {
     uiComponents = await fetchJsonWithTimeout<UIComponentInfo[]>(
-      `${apiUrl}/api/v1/capability-packs/installed-capabilities/${encodedCapabilityId}/ui-components`,
+      `${apiUrl}/api/v1/capability-packs/installed-capabilities/${encodedCapabilityId}/ui-components${workspaceQuery}`,
       CAPABILITY_UI_METADATA_TIMEOUT_MS,
     );
   }
@@ -124,8 +127,8 @@ async function loadCapabilityUiMetadata(
   };
 }
 
-function capabilityUiMetadataCacheKey(apiUrl: string, capabilityCode: string): string {
-  return `capability-ui-metadata:${apiUrl}:${capabilityCode}`;
+function capabilityUiMetadataCacheKey(apiUrl: string, capabilityCode: string, workspaceId: string): string {
+  return `capability-ui-metadata:${apiUrl}:${workspaceId}:${capabilityCode}`;
 }
 
 function isCapabilityUiMetadataFresh(entry: CapabilityUiMetadataCacheEntry | undefined): boolean {
@@ -139,16 +142,18 @@ function isCapabilityUiMetadataFresh(entry: CapabilityUiMetadataCacheEntry | und
 function readCapabilityUiMetadataCache(
   apiUrl: string,
   capabilityCode: string,
+  workspaceId: string,
 ): CapabilityUiMetadataCacheEntry | undefined {
-  return metadataCache.get(capabilityUiMetadataCacheKey(apiUrl, capabilityCode));
+  return metadataCache.get(capabilityUiMetadataCacheKey(apiUrl, capabilityCode, workspaceId));
 }
 
 function getCapabilityUiMetadata(
   apiUrl: string,
   capabilityCode: string,
+  workspaceId: string,
   options: { forceRefresh?: boolean } = {},
 ): Promise<CapabilityUiMetadata> {
-  const key = capabilityUiMetadataCacheKey(apiUrl, capabilityCode);
+  const key = capabilityUiMetadataCacheKey(apiUrl, capabilityCode, workspaceId);
   const cached = metadataCache.get(key);
   if (cached?.promise) {
     return cached.promise;
@@ -158,7 +163,7 @@ function getCapabilityUiMetadata(
   }
 
   let promise: Promise<CapabilityUiMetadata>;
-  promise = loadCapabilityUiMetadata(apiUrl, capabilityCode)
+  promise = loadCapabilityUiMetadata(apiUrl, capabilityCode, workspaceId)
     .then((nextMetadata) => {
       metadataCache.set(key, {
         metadata: nextMetadata,
@@ -191,6 +196,7 @@ export default function CapabilityUiHostClientLoader({
   workspaceId,
   capabilityCode,
   surfacePath = [],
+  remoteSurfaceMode = false,
 }: CapabilityUiHostClientLoaderProps) {
   const apiUrl = getApiBaseUrl();
   const [metadata, setMetadata] = React.useState<CapabilityUiMetadata | null>(null);
@@ -198,13 +204,13 @@ export default function CapabilityUiHostClientLoader({
 
   React.useEffect(() => {
     let cancelled = false;
-    const cached = readCapabilityUiMetadataCache(apiUrl, capabilityCode);
+    const cached = readCapabilityUiMetadataCache(apiUrl, capabilityCode, workspaceId);
     const cachedMetadata = cached?.metadata || null;
     const forceRefresh = Boolean(cachedMetadata && !isCapabilityUiMetadataFresh(cached));
 
     setError(null);
     setMetadata(cachedMetadata);
-    void getCapabilityUiMetadata(apiUrl, capabilityCode, { forceRefresh })
+    void getCapabilityUiMetadata(apiUrl, capabilityCode, workspaceId, { forceRefresh })
       .then((nextMetadata) => {
         if (!cancelled) {
           setMetadata(nextMetadata);
@@ -218,7 +224,7 @@ export default function CapabilityUiHostClientLoader({
     return () => {
       cancelled = true;
     };
-  }, [apiUrl, capabilityCode]);
+  }, [apiUrl, capabilityCode, workspaceId]);
 
   let content: React.ReactNode;
   if (error) {
@@ -253,6 +259,7 @@ export default function CapabilityUiHostClientLoader({
         workspaceId={workspaceId}
         activeCapabilityCode={capabilityCode}
         surfacePath={surfacePath}
+        remoteSurfaceMode={remoteSurfaceMode}
       >
         {content}
       </WorkspaceSurfaceShell>

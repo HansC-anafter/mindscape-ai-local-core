@@ -18,14 +18,15 @@ const workspaceToolDefinitionsCache = new Map<string, WorkspaceToolDefinitionsCa
 export function getWorkspaceToolDefinitions(
   apiUrl: string,
   capabilityCode: string,
+  workspaceId: string,
 ): Promise<WorkspaceToolDefinition[]> {
-  const key = `workspace-tools:${apiUrl}:${capabilityCode}`;
+  const key = `workspace-tools:${apiUrl}:${workspaceId}:${capabilityCode}`;
   const now = Date.now();
   const cached = workspaceToolDefinitionsCache.get(key);
   if (cached && cached.expiresAt > now) {
     return cached.promise;
   }
-  const promise = fetchWorkspaceToolDefinitions({ apiUrl, capabilityCode })
+  const promise = fetchWorkspaceToolDefinitions({ apiUrl, capabilityCode, workspaceId })
     .catch((error) => {
       workspaceToolDefinitionsCache.delete(key);
       throw error;
@@ -40,10 +41,12 @@ export function getWorkspaceToolDefinitions(
 export function useWorkspaceToolDefinitions({
   apiUrl,
   capabilityCode,
+  workspaceId,
   delayMs = 2500,
 }: {
   apiUrl: string;
   capabilityCode: string;
+  workspaceId: string;
   delayMs?: number;
 }) {
   const [tools, setTools] = React.useState<WorkspaceToolDefinition[]>([]);
@@ -54,7 +57,7 @@ export function useWorkspaceToolDefinitions({
     const timer = window.setTimeout(() => {
       if (cancelled) return;
       setIsLoading(true);
-      void getWorkspaceToolDefinitions(apiUrl, capabilityCode)
+      void getWorkspaceToolDefinitions(apiUrl, capabilityCode, workspaceId)
         .then((nextTools) => {
           if (!cancelled) {
             setTools(nextTools);
@@ -75,7 +78,7 @@ export function useWorkspaceToolDefinitions({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [apiUrl, capabilityCode, delayMs]);
+  }, [apiUrl, capabilityCode, delayMs, workspaceId]);
 
   return { tools, isLoading };
 }

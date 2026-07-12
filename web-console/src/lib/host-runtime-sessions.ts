@@ -78,8 +78,16 @@ async function parseJsonResponse<T>(response: Response): Promise<T> {
   return payload as T;
 }
 
-export async function fetchHostRuntimeStatus(apiUrl: string): Promise<HostRuntimeStatus> {
-  const response = await fetch(`${normalizeApiUrl(apiUrl)}/api/v1/host-runtime/status`);
+export async function fetchHostRuntimeStatus(
+  apiUrl: string,
+  workspaceId?: string,
+): Promise<HostRuntimeStatus> {
+  const workspaceQuery = workspaceId
+    ? `?workspace_id=${encodeURIComponent(workspaceId)}`
+    : '';
+  const response = await fetch(
+    `${normalizeApiUrl(apiUrl)}/api/v1/host-runtime/status${workspaceQuery}`,
+  );
   return parseJsonResponse<HostRuntimeStatus>(response);
 }
 

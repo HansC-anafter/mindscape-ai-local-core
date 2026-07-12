@@ -8,10 +8,12 @@ vi.mock('./CapabilityUiHostClientLoader', () => ({
     workspaceId,
     capabilityCode,
     surfacePath,
+    remoteSurfaceMode,
   }: {
     workspaceId: string;
     capabilityCode: string;
     surfacePath?: readonly string[];
+    remoteSurfaceMode?: boolean;
   }) {
     return (
       <div
@@ -19,6 +21,7 @@ vi.mock('./CapabilityUiHostClientLoader', () => ({
         data-workspace-id={workspaceId}
         data-capability-code={capabilityCode}
         data-surface-path={(surfacePath || []).join('/')}
+        data-remote-surface-mode={String(Boolean(remoteSurfaceMode))}
       />
     );
   },
@@ -27,7 +30,7 @@ vi.mock('./CapabilityUiHostClientLoader', () => ({
 import CapabilityUiHostRouteClient from './CapabilityUiHostRouteClient';
 
 describe('CapabilityUiHostRouteClient', () => {
-  it('renders the host loader during server render without waiting on route-local shell imports', () => {
+  it('renders the bounded loading fallback while the lazy host loader resolves on the server', () => {
     const html = renderToString(
       <CapabilityUiHostRouteClient
         workspaceId="ws_test"
@@ -36,19 +39,21 @@ describe('CapabilityUiHostRouteClient', () => {
       />,
     );
 
-    expect(html).toContain('data-testid="route-loader"');
+    expect(html).toContain('Loading capability UI...');
   });
 
-  it('renders the host loader immediately on the client', () => {
+  it('renders the host loader with exact remote surface context on the client', async () => {
     render(
       <CapabilityUiHostRouteClient
         workspaceId="ws_test"
         capabilityCode="ig"
         surfacePath={['accounts']}
+        remoteSurfaceMode
       />,
     );
 
-    expect(screen.getByTestId('route-loader')).toHaveAttribute('data-capability-code', 'ig');
+    expect(await screen.findByTestId('route-loader')).toHaveAttribute('data-capability-code', 'ig');
     expect(screen.getByTestId('route-loader')).toHaveAttribute('data-surface-path', 'accounts');
+    expect(screen.getByTestId('route-loader')).toHaveAttribute('data-remote-surface-mode', 'true');
   });
 });

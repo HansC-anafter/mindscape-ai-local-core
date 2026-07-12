@@ -58,6 +58,7 @@ async function sha256Integrity(source: string): Promise<string> {
 export async function loadRuntimeESMComponent(
   component: UIComponentInfo,
   apiUrl: string,
+  workspaceId?: string,
 ): Promise<ComponentType<any> | null> {
   if (!component.asset_url) {
     return null;
@@ -70,6 +71,7 @@ export async function loadRuntimeESMComponent(
   const assetUrl = buildRuntimeAssetFetchUrl(
     resolveRuntimeAssetUrl(component.asset_url, apiUrl),
     component.integrity,
+    workspaceId,
   );
   const response = await fetch(assetUrl, { cache: 'force-cache' });
   if (!response.ok) {

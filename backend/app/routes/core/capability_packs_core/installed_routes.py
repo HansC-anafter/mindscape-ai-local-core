@@ -56,7 +56,15 @@ def list_installed_capabilities():
         for pack_meta in pack_metas:
             pack_id = pack_meta.get("id")
             if pack_id and pack_id in installed_ids:
-                installed_capabilities.append(_format_installed_capability(pack_meta))
+                formatted = _format_installed_capability(pack_meta)
+                capability_code = str(formatted.get("code") or pack_id).strip().lower()
+                formatted["mobile_workbench_gateway_support"] = (
+                    build_mobile_workbench_gateway_support_payload(
+                        capability_code,
+                        pack_meta,
+                    )
+                )
+                installed_capabilities.append(formatted)
 
         t3 = time.time()
         logger.debug("Mapped installed capabilities in %.3fs", t3 - t2)

@@ -1,252 +1,67 @@
-import { describe, expect, it } from 'vitest';
+import assert from 'node:assert/strict';
+import test from 'node:test';
 
 import {
-  createAccessJwt,
-  isMobileWorkbenchGatewayRequestAllowed,
-  resolveMobileWorkbenchGatewayConfig,
+  authorizeRemoteWorkbenchRequest,
+} from './mobile-workbench-gateway.mjs';
+import {
+  createGatewayConfig,
+  createPolicyResolution,
+  createSignedAccessJwt,
+  createTestVerifier,
 } from './mobile-workbench-gateway.test-support.mjs';
 
-describe('mobile workbench gateway support routes', () => {
-  it('allows read-only IG support routes with capability context', () => {
-    const config = resolveMobileWorkbenchGatewayConfig({
-      MOBILE_WORKBENCH_GATEWAY_ENABLED: '1',
-    });
-    const token = createAccessJwt({
-      email: 'user@mindscape.ai',
-      exp: Math.floor(Date.now() / 1000) + 3600,
-    });
-    const headers = {
-      'cf-access-jwt-assertion': token,
-    };
+const config = createGatewayConfig();
+const verifier = createTestVerifier();
+const token = createSignedAccessJwt();
+const referer =
+  'https://remote-workbench.mindscapeai.app/workspaces/workspace-a/capability-ui-hosts/yogacoach';
 
-    expect(
-      isMobileWorkbenchGatewayRequestAllowed(
-        '/api/v1/system-settings/keyboard-shortcuts',
-        headers,
-        config,
-      ),
-    ).toMatchObject({
-      allowed: true,
-      status_code: 200,
-      context: {
-        capabilityCode: 'ig',
-      },
-    });
+async function authorize(path, requestMethod = 'GET', includeReferer = true) {
+  return await authorizeRemoteWorkbenchRequest(
+    path,
+    {
+      host: 'remote-workbench.mindscapeai.app',
+      'Cf-Access-Jwt-Assertion': token,
+      ...(includeReferer ? { referer } : {}),
+    },
+    config,
+    {
+      requestMethod,
+      verifyAccessToken: verifier,
+      resolveWorkspaceCapabilityPolicy: async () => createPolicyResolution(),
+    },
+  );
+}
 
-    expect(
-      isMobileWorkbenchGatewayRequestAllowed(
-        '/api/v1/host-resources/lanes',
-        headers,
-        config,
-      ),
-    ).toMatchObject({
-      allowed: true,
-      status_code: 200,
-      context: {
-        capabilityCode: 'ig',
-      },
-    });
+test('shared host support routes require workspace context in their own URL', async () => {
+  for (const path of [
+    '/api/v1/system-settings/keyboard-shortcuts',
+    '/api/v1/host-resources/lanes',
+    '/api/v1/host-resources/queue-utilization?live=true',
+    '/api/v1/host-runtime/status',
+  ]) {
+    const separator = path.includes('?') ? '&' : '?';
+    const explicitContext = await authorize(`${path}${separator}workspace_id=workspace-a`);
+    assert.equal(explicitContext.allowed, true);
+    for (const includeReferer of [true, false]) {
+      const missingContext = await authorize(path, 'GET', includeReferer);
+      assert.equal(missingContext.allowed, false);
+      assert.equal(missingContext.reason_code, 'route_workspace_required');
+    }
+  }
+});
 
-    expect(
-      isMobileWorkbenchGatewayRequestAllowed(
-        '/api/v1/host-resources/queue-utilization?live=true',
-        headers,
-        config,
-      ),
-    ).toMatchObject({
-      allowed: true,
-      status_code: 200,
-      context: {
-        capabilityCode: 'ig',
-      },
-    });
-  });
-
-  it('rejects non-read methods on bounded IG support routes', () => {
-    const config = resolveMobileWorkbenchGatewayConfig({
-      MOBILE_WORKBENCH_GATEWAY_ENABLED: '1',
-    });
-    const token = createAccessJwt({
-      email: 'user@mindscape.ai',
-      exp: Math.floor(Date.now() / 1000) + 3600,
-    });
-    const headers = {
-      'cf-access-jwt-assertion': token,
-    };
-
-    expect(
-      isMobileWorkbenchGatewayRequestAllowed(
-        '/api/v1/system-settings/keyboard-shortcuts',
-        headers,
-        config,
-        { requestMethod: 'POST' },
-      ),
-    ).toMatchObject({
-      allowed: false,
-      reason: 'mobile_workbench_gateway_path_not_allowed',
-      status_code: 404,
-    });
-
-    expect(
-      isMobileWorkbenchGatewayRequestAllowed(
-        '/api/v1/host-resources/lanes',
-        headers,
-        config,
-        { requestMethod: 'POST' },
-      ),
-    ).toMatchObject({
-      allowed: false,
-      reason: 'mobile_workbench_gateway_path_not_allowed',
-      status_code: 404,
-    });
-
-    expect(
-      isMobileWorkbenchGatewayRequestAllowed(
-        '/api/v1/host-resources/queue-utilization?live=true',
-        headers,
-        config,
-        { requestMethod: 'POST' },
-      ),
-    ).toMatchObject({
-      allowed: false,
-      reason: 'mobile_workbench_gateway_path_not_allowed',
-      status_code: 404,
-    });
-
-    expect(
-      isMobileWorkbenchGatewayRequestAllowed(
-        '/api/v1/workspaces/ws-1/tasks',
-        headers,
-        config,
-        { requestMethod: 'POST' },
-      ),
-    ).toMatchObject({
-      allowed: false,
-      reason: 'mobile_workbench_gateway_path_not_allowed',
-      status_code: 404,
-    });
-
-    expect(
-      isMobileWorkbenchGatewayRequestAllowed(
-        '/api/v1/workspaces/ws-1/events/stream',
-        headers,
-        config,
-        { requestMethod: 'POST' },
-      ),
-    ).toMatchObject({
-      allowed: false,
-      reason: 'mobile_workbench_gateway_path_not_allowed',
-      status_code: 404,
-    });
-  });
-
-  it('uses installed capability path context for bounded support routes', () => {
-    const config = resolveMobileWorkbenchGatewayConfig({
-      MOBILE_WORKBENCH_GATEWAY_ENABLED: '1',
-    });
-    const token = createAccessJwt({
-      email: 'user@mindscape.ai',
-      exp: Math.floor(Date.now() / 1000) + 3600,
-    });
-
-    const allowed = isMobileWorkbenchGatewayRequestAllowed(
-      '/api/v1/capability-packs/installed-capabilities/ig/ui-components',
-      {
-        'cf-access-jwt-assertion': token,
-      },
-      config,
-    );
-    expect(allowed).toMatchObject({
-      allowed: true,
-      status_code: 200,
-      context: {
-        capabilityCode: 'ig',
-      },
-    });
-
-    const allowedMpc = isMobileWorkbenchGatewayRequestAllowed(
-      '/api/v1/capability-packs/installed-capabilities/makeup_practice_coach/ui-components',
-      {
-        'cf-access-jwt-assertion': token,
-      },
-      config,
-    );
-    expect(allowedMpc).toMatchObject({
-      allowed: true,
-      status_code: 200,
-      context: {
-        capabilityCode: 'makeup_practice_coach',
-      },
-    });
-  });
-
-  it('allows Makeup Practice Coach API paths when bounded path rules match', () => {
-    const config = resolveMobileWorkbenchGatewayConfig({
-      MOBILE_WORKBENCH_GATEWAY_ENABLED: '1',
-    });
-    const token = createAccessJwt({
-      email: 'user@mindscape.ai',
-      exp: Math.floor(Date.now() / 1000) + 3600,
-    });
-
-    const allowed = isMobileWorkbenchGatewayRequestAllowed(
-      '/api/v1/capabilities/makeup_practice_coach/acceptance/practice-loop',
-      {
-        'cf-access-jwt-assertion': token,
-      },
-      config,
-    );
-
-    expect(allowed).toMatchObject({
-      allowed: true,
-      status_code: 200,
-      context: {
-        capabilityCode: 'makeup_practice_coach',
-      },
-    });
-  });
-
-  it('allows YogaCoach API and host paths when operator workspace guardrails pass', () => {
-    const config = resolveMobileWorkbenchGatewayConfig({
-      MOBILE_WORKBENCH_GATEWAY_ENABLED: '1',
-      MOBILE_WORKBENCH_GATEWAY_WORKSPACE_ALLOWLIST: 'ws-1',
-    });
-    const token = createAccessJwt({
-      email: 'user@mindscape.ai',
-      exp: Math.floor(Date.now() / 1000) + 3600,
-    });
-
-    const apiAllowed = isMobileWorkbenchGatewayRequestAllowed(
-      '/api/v1/capabilities/yogacoach/practice-review/projection',
-      {
-        'cf-access-jwt-assertion': token,
-      },
-      config,
-    );
-
-    expect(apiAllowed).toMatchObject({
-      allowed: true,
-      status_code: 200,
-      context: {
-        capabilityCode: 'yogacoach',
-      },
-    });
-
-    const hostAllowed = isMobileWorkbenchGatewayRequestAllowed(
-      '/workspaces/ws-1/capability-ui-hosts/yogacoach',
-      {
-        'cf-access-jwt-assertion': token,
-      },
-      config,
-    );
-
-    expect(hostAllowed).toMatchObject({
-      allowed: true,
-      status_code: 200,
-      context: {
-        workspaceId: 'ws-1',
-        capabilityCode: 'yogacoach',
-      },
-    });
-  });
+test('shared read-only routes reject writes', async () => {
+  for (const path of [
+    '/api/v1/system-settings/keyboard-shortcuts?workspace_id=workspace-a',
+    '/api/v1/host-resources/lanes?workspace_id=workspace-a',
+    '/api/v1/host-resources/queue-utilization?live=true&workspace_id=workspace-a',
+    '/api/v1/workspaces/workspace-a/tasks',
+    '/api/v1/workspaces/workspace-a/events/stream',
+  ]) {
+    const result = await authorize(path, 'POST');
+    assert.equal(result.allowed, false);
+    assert.equal(result.reason_code, 'capability_path_not_allowed');
+  }
 });

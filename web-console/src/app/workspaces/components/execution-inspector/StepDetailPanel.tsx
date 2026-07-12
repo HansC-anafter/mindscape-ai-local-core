@@ -45,14 +45,14 @@ export default function StepDetailPanel({
   useEffect(() => {
     if (apiUrl == null) return;
 
-    void getInstalledCapabilities(apiUrl)
+    void getInstalledCapabilities(apiUrl, workspaceId)
       .then((capabilities) => {
         setInstalledCapabilities(capabilities);
       })
       .catch((err) => {
         console.warn('Failed to load installed capabilities:', err);
       });
-  }, [apiUrl]);
+  }, [apiUrl, workspaceId]);
 
   useEffect(() => {
     if (apiUrl == null || artifacts.length === 0 || installedCapabilities.length === 0) {
@@ -91,6 +91,7 @@ export default function StepDetailPanel({
                 capability.code,
                 componentInfo.code,
                 apiUrl,
+                workspaceId,
               ).then((Component) => {
                 if (cancelled) {
                   return;

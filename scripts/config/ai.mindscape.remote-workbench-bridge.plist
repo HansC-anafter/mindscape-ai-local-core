@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>ai.mindscape.remote-workbench-bridge</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>__PYTHON_BIN__</string>
+        <string>__PROJECT_DIR__/scripts/remote_workbench_bridge_monitor.py</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>__PROJECT_DIR__</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <key>StandardOutPath</key>
+    <string>__PROJECT_DIR__/logs/remote-workbench-bridge.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>__PROJECT_DIR__/logs/remote-workbench-bridge.error.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>HOME</key>
+        <string>__HOME__</string>
+        <key>PATH</key>
+        <string>__PATH__</string>
+        <key>PYTHONUNBUFFERED</key>
+        <string>1</string>
+        <key>PYTHONDONTWRITEBYTECODE</key>
+        <string>1</string>
+        <key>DOCKER_HOST</key>
+        <string>unix://__HOME__/.docker/run/docker.sock</string>
+        <key>REMOTE_WORKBENCH_PROJECT_ROOT</key>
+        <string>__PROJECT_DIR__</string>
+        <key>REMOTE_WORKBENCH_BRIDGE_STATE_DIR</key>
+        <string>__STATE_DIR__</string>
+        <key>REMOTE_WORKBENCH_BRIDGE_BUILD_ID</key>
+        <string>__BUILD_ID__</string>
+    </dict>
+</dict>
+</plist>

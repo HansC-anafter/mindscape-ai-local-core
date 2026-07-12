@@ -6,6 +6,7 @@ interface CapabilityUiHostRouteClientProps {
   workspaceId: string;
   capabilityCode: string;
   surfacePath?: readonly string[];
+  remoteSurfaceMode?: boolean;
 }
 
 function CapabilityUiHostRouteClientLoadingState() {
@@ -22,6 +23,7 @@ export default function CapabilityUiHostRouteClient({
   workspaceId,
   capabilityCode,
   surfacePath = [],
+  remoteSurfaceMode = false,
 }: CapabilityUiHostRouteClientProps) {
   return (
     <React.Suspense fallback={<CapabilityUiHostRouteClientLoadingState />}>
@@ -29,6 +31,7 @@ export default function CapabilityUiHostRouteClient({
         workspaceId={workspaceId}
         capabilityCode={capabilityCode}
         surfacePath={surfacePath}
+        remoteSurfaceMode={remoteSurfaceMode}
       />
     </React.Suspense>
   );

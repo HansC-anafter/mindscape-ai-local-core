@@ -19,6 +19,7 @@ vi.mock('./WorkspaceSurfaceShell', () => ({
     workspaceId: string;
     activeCapabilityCode: string;
     surfacePath?: readonly string[];
+    remoteSurfaceMode?: boolean;
     children: React.ReactNode;
   }) {
     return (
@@ -27,6 +28,7 @@ vi.mock('./WorkspaceSurfaceShell', () => ({
         data-workspace-id={props.workspaceId}
         data-active-capability-code={props.activeCapabilityCode}
         data-surface-path={(props.surfacePath || []).join('/')}
+        data-remote-surface-mode={String(Boolean(props.remoteSurfaceMode))}
       >
         {props.children}
       </div>
@@ -63,6 +65,10 @@ function jsonResponse(body: unknown, status = 200): Response {
   } as Response;
 }
 
+function requestPath(input: RequestInfo | URL): string {
+  return new URL(String(input), 'http://api.test').pathname;
+}
+
 describe('CapabilityUiHostClientLoader', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -71,11 +77,11 @@ describe('CapabilityUiHostClientLoader', () => {
 
   it('keeps bridge runtime capability hosts inside the workspace surface shell after metadata resolves', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url.endsWith('/api/v1/capability-packs/installed-capabilities/ig_loader_ok')) {
+      const pathname = requestPath(input);
+      if (pathname.endsWith('/api/v1/capability-packs/installed-capabilities/ig_loader_ok')) {
         return jsonResponse({ id: 'ig_loader_ok', code: 'ig_loader_ok' });
       }
-      if (url.endsWith('/api/v1/capability-packs/installed-capabilities/ig_loader_ok/ui-components')) {
+      if (pathname.endsWith('/api/v1/capability-packs/installed-capabilities/ig_loader_ok/ui-components')) {
         return jsonResponse([{
           code: 'IGWorkbenchPage',
           asset_url: '/api/v1/capability-packs/installed-capabilities/ig_loader_ok/ui-assets/IGWorkbenchPage.mjs',
@@ -92,6 +98,7 @@ describe('CapabilityUiHostClientLoader', () => {
         workspaceId="ws_test"
         capabilityCode="ig_loader_ok"
         surfacePath={['accounts']}
+        remoteSurfaceMode
       />,
     );
 
@@ -106,29 +113,33 @@ describe('CapabilityUiHostClientLoader', () => {
       'data-active-capability-code',
       'ig_loader_ok',
     );
+    expect(screen.getByTestId('workspace-surface-shell')).toHaveAttribute(
+      'data-remote-surface-mode',
+      'true',
+    );
     expect(screen.getByTestId('workspace-surface-shell')).toContainElement(
       screen.getByTestId('loaded-capability-components'),
     );
     expect(fetchMock).toHaveBeenCalledWith(
-      'http://api.test/api/v1/capability-packs/installed-capabilities/ig_loader_ok',
+      'http://api.test/api/v1/capability-packs/installed-capabilities/ig_loader_ok?workspace_id=ws_test',
       expect.objectContaining({ credentials: 'same-origin' }),
     );
     expect(fetchMock).toHaveBeenCalledWith(
-      'http://api.test/api/v1/capability-packs/installed-capabilities/ig_loader_ok/ui-components',
+      'http://api.test/api/v1/capability-packs/installed-capabilities/ig_loader_ok/ui-components?workspace_id=ws_test',
       expect.objectContaining({ credentials: 'same-origin' }),
     );
   });
 
   it('falls back to capability id when code-based ui-components are empty', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url.endsWith('/api/v1/capability-packs/installed-capabilities/ig_loader_fallback')) {
+      const pathname = requestPath(input);
+      if (pathname.endsWith('/api/v1/capability-packs/installed-capabilities/ig_loader_fallback')) {
         return jsonResponse({ id: 'capability_uuid', code: 'ig_loader_fallback' });
       }
-      if (url.endsWith('/api/v1/capability-packs/installed-capabilities/ig_loader_fallback/ui-components')) {
+      if (pathname.endsWith('/api/v1/capability-packs/installed-capabilities/ig_loader_fallback/ui-components')) {
         return jsonResponse([]);
       }
-      if (url.endsWith('/api/v1/capability-packs/installed-capabilities/capability_uuid/ui-components')) {
+      if (pathname.endsWith('/api/v1/capability-packs/installed-capabilities/capability_uuid/ui-components')) {
         return jsonResponse([{
           code: 'IGWorkbenchPage',
           asset_url: '/api/v1/capability-packs/installed-capabilities/capability_uuid/ui-assets/IGWorkbenchPage.mjs',
@@ -154,18 +165,18 @@ describe('CapabilityUiHostClientLoader', () => {
       );
     });
     expect(fetchMock).toHaveBeenCalledWith(
-      'http://api.test/api/v1/capability-packs/installed-capabilities/capability_uuid/ui-components',
+      'http://api.test/api/v1/capability-packs/installed-capabilities/capability_uuid/ui-components?workspace_id=ws_test',
       expect.objectContaining({ credentials: 'same-origin' }),
     );
   });
 
   it('wraps non-runtime capability hosts in the workspace surface shell', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url.endsWith('/api/v1/capability-packs/installed-capabilities/local_hosted_capability')) {
+      const pathname = requestPath(input);
+      if (pathname.endsWith('/api/v1/capability-packs/installed-capabilities/local_hosted_capability')) {
         return jsonResponse({ id: 'local_hosted_capability', code: 'local_hosted_capability' });
       }
-      if (url.endsWith('/api/v1/capability-packs/installed-capabilities/local_hosted_capability/ui-components')) {
+      if (pathname.endsWith('/api/v1/capability-packs/installed-capabilities/local_hosted_capability/ui-components')) {
         return jsonResponse([
           {
             code: 'LocalHostedWorkbenchPage',
@@ -212,11 +223,11 @@ describe('CapabilityUiHostClientLoader', () => {
       layout_hint: 'scrollable_full_bleed',
     }];
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url.endsWith('/api/v1/capability-packs/installed-capabilities/ig_loader_refresh')) {
+      const pathname = requestPath(input);
+      if (pathname.endsWith('/api/v1/capability-packs/installed-capabilities/ig_loader_refresh')) {
         return jsonResponse({ id: 'ig_loader_refresh', code: 'ig_loader_refresh' });
       }
-      if (url.endsWith('/api/v1/capability-packs/installed-capabilities/ig_loader_refresh/ui-components')) {
+      if (pathname.endsWith('/api/v1/capability-packs/installed-capabilities/ig_loader_refresh/ui-components')) {
         return jsonResponse(components);
       }
       return jsonResponse({ detail: 'not found' }, 404);
@@ -258,7 +269,7 @@ describe('CapabilityUiHostClientLoader', () => {
       expect(screen.getByTestId('loaded-capability-components')).toHaveAttribute('data-ui-components', '1');
     });
     expect(fetchMock.mock.calls.filter(([input]) => (
-      String(input).endsWith('/api/v1/capability-packs/installed-capabilities/ig_loader_refresh/ui-components')
+      requestPath(input).endsWith('/api/v1/capability-packs/installed-capabilities/ig_loader_refresh/ui-components')
     ))).toHaveLength(1);
   });
 
@@ -272,11 +283,11 @@ describe('CapabilityUiHostClientLoader', () => {
       layout_hint: 'scrollable_full_bleed',
     }];
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url.endsWith('/api/v1/capability-packs/installed-capabilities/ig_loader_stale')) {
+      const pathname = requestPath(input);
+      if (pathname.endsWith('/api/v1/capability-packs/installed-capabilities/ig_loader_stale')) {
         return jsonResponse({ id: 'ig_loader_stale', code: 'ig_loader_stale' });
       }
-      if (url.endsWith('/api/v1/capability-packs/installed-capabilities/ig_loader_stale/ui-components')) {
+      if (pathname.endsWith('/api/v1/capability-packs/installed-capabilities/ig_loader_stale/ui-components')) {
         return jsonResponse(components);
       }
       return jsonResponse({ detail: 'not found' }, 404);
@@ -318,7 +329,7 @@ describe('CapabilityUiHostClientLoader', () => {
       expect(screen.getByTestId('loaded-capability-components')).toHaveAttribute('data-ui-components', '2');
     });
     expect(fetchMock.mock.calls.filter(([input]) => (
-      String(input).endsWith('/api/v1/capability-packs/installed-capabilities/ig_loader_stale/ui-components')
+      requestPath(input).endsWith('/api/v1/capability-packs/installed-capabilities/ig_loader_stale/ui-components')
     ))).toHaveLength(2);
   });
 

@@ -24,23 +24,29 @@ interface InstalledCapabilitiesCacheEntry {
 const INSTALLED_CAPABILITIES_TTL_MS = 10 * 60 * 1000;
 const installedCapabilitiesCache = new Map<string, InstalledCapabilitiesCacheEntry>();
 
-function cacheKey(apiUrl: string): string {
-  return `installed-capabilities:${apiUrl}`;
+function cacheKey(apiUrl: string, workspaceId?: string): string {
+  return `installed-capabilities:${apiUrl}:${workspaceId || 'local'}`;
 }
 
 function normalizeInstalledCapabilities(data: unknown): InstalledCapability[] {
   return Array.isArray(data) ? data : [];
 }
 
-export function getInstalledCapabilities(apiUrl: string): Promise<InstalledCapability[]> {
-  const key = cacheKey(apiUrl);
+export function getInstalledCapabilities(
+  apiUrl: string,
+  workspaceId?: string,
+): Promise<InstalledCapability[]> {
+  const key = cacheKey(apiUrl, workspaceId);
   const now = Date.now();
   const cached = installedCapabilitiesCache.get(key);
   if (cached && cached.expiresAt > now) {
     return cached.promise;
   }
 
-  const promise = fetch(`${apiUrl}/api/v1/capability-packs/installed-capabilities`, {
+  const workspaceQuery = workspaceId
+    ? `?workspace_id=${encodeURIComponent(workspaceId)}`
+    : '';
+  const promise = fetch(`${apiUrl}/api/v1/capability-packs/installed-capabilities${workspaceQuery}`, {
     credentials: 'same-origin',
   })
     .then(async (response) => {
@@ -62,5 +68,10 @@ export function getInstalledCapabilities(apiUrl: string): Promise<InstalledCapab
 }
 
 export function invalidateInstalledCapabilities(apiUrl: string): void {
-  installedCapabilitiesCache.delete(cacheKey(apiUrl));
+  const prefix = `installed-capabilities:${apiUrl}:`;
+  for (const key of installedCapabilitiesCache.keys()) {
+    if (key.startsWith(prefix)) {
+      installedCapabilitiesCache.delete(key);
+    }
+  }
 }

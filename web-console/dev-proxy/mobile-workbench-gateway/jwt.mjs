@@ -1,230 +1,314 @@
 import crypto from 'node:crypto';
-import fs from 'node:fs';
 
 import {
-  DEFAULT_TOKEN_HEADER_NAMES,
-  JWT_ALGORITHMS,
-  JWT_VERIFY_ALGORITHMS,
+  ACCESS_ASSERTION_HEADER,
+  JWK_CACHE_MAX_AGE_MS,
+  JWK_UNKNOWN_KID_COOLDOWN_MS,
   MAX_CLOCK_SKEW_SECONDS_DEFAULT,
+  MAX_JWK_KEYS,
+  MAX_JWK_SET_BYTES,
+  UPSTREAM_TIMEOUT_MS,
 } from './constants.mjs';
 import {
-  normalizeClaimValue,
-  splitCommaSeparatedValues,
-  toLowerTrimmed,
-} from './normalizers.mjs';
+  normalizeAccessAudience,
+  normalizeAccessIssuer,
+  readBoundedJsonResponse,
+} from './policy-contract.mjs';
+
+const MAX_TOKEN_BYTES = 16 * 1024;
+const MAX_SUBJECT_LENGTH = 512;
+const MAX_EMAIL_LENGTH = 320;
+
+function base64urlDecodeBuffer(value) {
+  if (typeof value !== 'string' || !/^[A-Za-z0-9_-]*$/.test(value)) {
+    throw new Error('invalid_base64url');
+  }
+  const padding = '='.repeat((4 - (value.length % 4)) % 4);
+  return Buffer.from(`${value}${padding}`.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+}
+
+function parseJsonPart(value, reason) {
+  try {
+    const parsed = JSON.parse(base64urlDecodeBuffer(value).toString('utf8'));
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error(reason);
+    }
+    return parsed;
+  } catch {
+    throw new Error(reason);
+  }
+}
+
+function parseJwt(rawToken) {
+  if (typeof rawToken !== 'string' || !rawToken || Buffer.byteLength(rawToken) > MAX_TOKEN_BYTES) {
+    throw new Error('invalid_access_token');
+  }
+  const parts = rawToken.split('.');
+  if (parts.length !== 3 || parts.some((part) => !part)) {
+    throw new Error('invalid_access_token');
+  }
+  return {
+    header: parseJsonPart(parts[0], 'invalid_access_token_header'),
+    claims: parseJsonPart(parts[1], 'invalid_access_token_claims'),
+    signature: base64urlDecodeBuffer(parts[2]),
+    signingInput: `${parts[0]}.${parts[1]}`,
+  };
+}
+
+function findHeaderValue(rawHeaders, expectedName) {
+  const matches = Object.entries(rawHeaders || {})
+    .filter(([name]) => String(name).toLowerCase() === expectedName);
+  if (matches.length !== 1) {
+    return null;
+  }
+  const value = matches[0][1];
+  if (Array.isArray(value)) {
+    return value.length === 1 ? String(value[0] || '').trim() : null;
+  }
+  return String(value || '').trim() || null;
+}
 
 export function parseAccessTokenFromHeaders(rawHeaders = {}) {
-  const headers = rawHeaders || {};
-  for (const headerName of DEFAULT_TOKEN_HEADER_NAMES) {
-    const value = Object.entries(headers).find(([key]) => toLowerTrimmed(key) === headerName)?.[1];
-    if (!value) {
-      continue;
-    }
-    const tokenValue = Array.isArray(value) ? value[0] : value;
-    const normalized = String(tokenValue || '').trim();
-    if (!normalized) {
-      continue;
-    }
-    const match = /^Bearer\s+(.+)$/.exec(normalized);
-    return match ? match[1].trim() : normalized;
+  return findHeaderValue(rawHeaders, ACCESS_ASSERTION_HEADER);
+}
+
+function normalizeAudienceClaim(value) {
+  if (typeof value === 'string') {
+    return value ? [value] : [];
   }
-  return null;
-}
-
-function base64urlPad(value = '') {
-  const normalized = String(value || '');
-  const padLength = normalized.length % 4 === 0 ? 0 : 4 - (normalized.length % 4);
-  return normalized + '='.repeat(padLength);
-}
-
-function base64urlDecode(value = '') {
-  const normalized = base64urlPad(String(value || ''))
-    .replace(/-/g, '+')
-    .replace(/_/g, '/');
-  return Buffer.from(normalized, 'base64').toString('utf8');
-}
-
-function base64urlDecodeBuffer(value = '') {
-  const normalized = base64urlPad(String(value || ''))
-    .replace(/-/g, '+')
-    .replace(/_/g, '/');
-  return Buffer.from(normalized, 'base64');
-}
-
-export function parseAccessJwtToken(rawToken) {
-  if (!rawToken || typeof rawToken !== 'string') {
-    return { claims: null, error: 'missing_access_token', header: null, signature: null, signingInput: null };
+  if (!Array.isArray(value) || value.some((item) => typeof item !== 'string' || !item)) {
+    return [];
   }
+  return value;
+}
 
-  const tokenParts = rawToken.split('.');
-  if (tokenParts.length !== 3) {
-    return { claims: null, error: 'invalid_access_token', header: null, signature: null, signingInput: null };
+function normalizeWorkspaceClaim(claims) {
+  const values = [claims.workspace_id, claims.workspaceId, claims.wsid]
+    .filter((value) => value !== undefined && value !== null)
+    .map((value) => typeof value === 'string' ? value.trim() : '');
+  if (values.some((value) => !value || value.length > 128)) {
+    throw new Error('invalid_access_token_workspace_claim');
   }
+  const unique = Array.from(new Set(values));
+  if (unique.length > 1) {
+    throw new Error('ambiguous_access_token_workspace_claim');
+  }
+  return unique[0] || null;
+}
 
+function normalizeRequiredEpoch(value, reason) {
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new Error(reason);
+  }
+  return value;
+}
+
+function validateClaims(claims, {
+  issuer,
+  audience,
+  nowEpochSeconds,
+  clockSkewSeconds,
+}) {
+  if (claims.iss !== issuer) {
+    throw new Error('invalid_access_token_issuer');
+  }
+  const audiences = normalizeAudienceClaim(claims.aud);
+  if (audiences.length !== 1 || audiences[0] !== audience) {
+    throw new Error('invalid_access_token_audience');
+  }
+  if (claims.type !== 'app') {
+    throw new Error('invalid_access_token_type');
+  }
+  const exp = normalizeRequiredEpoch(claims.exp, 'missing_or_invalid_access_token_exp');
+  const nbf = normalizeRequiredEpoch(claims.nbf, 'missing_or_invalid_access_token_nbf');
+  const iat = normalizeRequiredEpoch(claims.iat, 'missing_or_invalid_access_token_iat');
+  if (exp + clockSkewSeconds < nowEpochSeconds) {
+    throw new Error('expired_access_token');
+  }
+  if (nbf - clockSkewSeconds > nowEpochSeconds) {
+    throw new Error('access_token_not_ready');
+  }
+  if (nbf > exp) {
+    throw new Error('invalid_access_token_nbf');
+  }
+  if (iat - clockSkewSeconds > nowEpochSeconds || exp < iat) {
+    throw new Error('invalid_access_token_iat');
+  }
+  if (typeof claims.sub !== 'string' || !claims.sub.trim() || claims.sub.trim().length > MAX_SUBJECT_LENGTH) {
+    throw new Error('missing_or_invalid_access_token_subject');
+  }
+  const email = claims.email === undefined || claims.email === null
+    ? null
+    : String(claims.email).trim().toLowerCase();
+  if (email !== null && (!email || email.length > MAX_EMAIL_LENGTH)) {
+    throw new Error('invalid_access_token_email');
+  }
+  return {
+    issuer: claims.iss,
+    subject: claims.sub.trim(),
+    email,
+    workspaceClaim: normalizeWorkspaceClaim(claims),
+  };
+}
+
+function createJwkPublicKey(jwk, expectedKid) {
+  if (
+    !jwk
+    || typeof jwk !== 'object'
+    || Array.isArray(jwk)
+    || jwk.kid !== expectedKid
+    || jwk.kty !== 'RSA'
+    || (jwk.alg !== undefined && jwk.alg !== 'RS256')
+    || (jwk.use !== undefined && jwk.use !== 'sig')
+  ) {
+    throw new Error('invalid_access_signing_key');
+  }
   try {
-    const [headerPart, payloadPart] = tokenParts;
-    const headerJson = base64urlDecode(headerPart);
-    const payloadJson = base64urlDecode(payloadPart);
-    const header = JSON.parse(headerJson);
-    const claims = JSON.parse(payloadJson);
-    if (claims === null || typeof claims !== 'object') {
-      return {
-        claims: null,
-        error: 'invalid_access_token_claims',
-        header: null,
-        signature: null,
-        signingInput: null,
-      };
+    return crypto.createPublicKey({ key: jwk, format: 'jwk' });
+  } catch {
+    throw new Error('invalid_access_signing_key');
+  }
+}
+
+export function createRemoteJwkSet({
+  issuer,
+  fetchImpl = globalThis.fetch,
+  now = () => Date.now(),
+  timeoutMs = UPSTREAM_TIMEOUT_MS,
+  cacheMaxAgeMs = JWK_CACHE_MAX_AGE_MS,
+  unknownKidCooldownMs = JWK_UNKNOWN_KID_COOLDOWN_MS,
+} = {}) {
+  const normalizedIssuer = normalizeAccessIssuer(issuer);
+  if (typeof fetchImpl !== 'function') {
+    throw new Error('fetchImpl is required');
+  }
+  const certsUrl = `${normalizedIssuer}/cdn-cgi/access/certs`;
+  let cachedKeys = new Map();
+  let expiresAt = 0;
+  let refreshPromise = null;
+  let lastUnknownKidRefreshAt = Number.NEGATIVE_INFINITY;
+
+  async function refresh() {
+    if (refreshPromise) {
+      return refreshPromise;
     }
-    return {
-      claims,
-      header,
-      signature: base64urlDecodeBuffer(tokenParts[2]),
-      signingInput: `${tokenParts[0]}.${tokenParts[1]}`,
-      error: null,
-    };
-  } catch (error) {
-    return {
-      claims: null,
-      error: `invalid_access_token:${error?.message || 'decode_error'}`,
-      header: null,
-      signature: null,
-      signingInput: null,
-    };
+    const abortController = new AbortController();
+    const timeout = setTimeout(() => abortController.abort(), timeoutMs);
+    refreshPromise = (async () => {
+      const response = await fetchImpl(certsUrl, {
+        method: 'GET',
+        headers: { accept: 'application/json' },
+        signal: abortController.signal,
+      });
+      const payload = await readBoundedJsonResponse(response, MAX_JWK_SET_BYTES);
+      if (!Array.isArray(payload?.keys) || payload.keys.length < 1 || payload.keys.length > MAX_JWK_KEYS) {
+        throw new Error('invalid_access_jwk_set');
+      }
+      const nextKeys = new Map();
+      for (const jwk of payload.keys) {
+        if (typeof jwk?.kid !== 'string' || !jwk.kid || nextKeys.has(jwk.kid)) {
+          throw new Error('invalid_access_jwk_set');
+        }
+        nextKeys.set(jwk.kid, createJwkPublicKey(jwk, jwk.kid));
+      }
+      cachedKeys = nextKeys;
+      expiresAt = now() + cacheMaxAgeMs;
+      return cachedKeys;
+    })().finally(() => {
+      clearTimeout(timeout);
+      refreshPromise = null;
+    });
+    return refreshPromise;
   }
+
+  async function resolveSigningKey(kid) {
+    if (typeof kid !== 'string' || !kid || kid.length > 256) {
+      throw new Error('missing_or_invalid_access_token_kid');
+    }
+    const currentTime = now();
+    if (expiresAt > currentTime && cachedKeys.has(kid)) {
+      return cachedKeys.get(kid);
+    }
+    if (expiresAt > currentTime && !cachedKeys.has(kid)) {
+      if (currentTime - lastUnknownKidRefreshAt < unknownKidCooldownMs) {
+        throw new Error('unknown_access_token_kid');
+      }
+      lastUnknownKidRefreshAt = currentTime;
+    }
+    const keys = await refresh();
+    const key = keys.get(kid);
+    if (!key) {
+      lastUnknownKidRefreshAt = currentTime;
+      throw new Error('unknown_access_token_kid');
+    }
+    return key;
+  }
+
+  resolveSigningKey.stats = () => ({
+    keyCount: cachedKeys.size,
+    expiresAt,
+    refreshInFlight: Boolean(refreshPromise),
+  });
+  return resolveSigningKey;
 }
 
-export function parseClockSkew(rawValue) {
-  if (rawValue === undefined || rawValue === null || String(rawValue).trim() === '') {
-    return MAX_CLOCK_SKEW_SECONDS_DEFAULT;
-  }
-  const parsed = Number.parseInt(String(rawValue).trim(), 10);
-  if (!Number.isInteger(parsed) || parsed < 0 || parsed > 3600) {
-    return MAX_CLOCK_SKEW_SECONDS_DEFAULT;
-  }
-  return parsed;
-}
+export function createCloudflareAccessJwtVerifier({
+  accessIssuer,
+  accessAudience,
+  fetchImpl = globalThis.fetch,
+  resolveSigningKey = null,
+  now = () => Date.now(),
+  clockSkewSeconds = MAX_CLOCK_SKEW_SECONDS_DEFAULT,
+} = {}) {
+  const issuer = normalizeAccessIssuer(accessIssuer);
+  const audience = normalizeAccessAudience(accessAudience);
+  const keyResolver = resolveSigningKey || createRemoteJwkSet({
+    issuer,
+    fetchImpl,
+    now,
+  });
 
-export function readPublicKeySource(keyFile, inlineKey) {
-  const trimmedFile = String(keyFile || '').trim();
-  const trimmedInline = String(inlineKey || '').trim();
-  if (trimmedFile && trimmedInline) {
-    return {
-      value: null,
-      error: 'MOBILE_WORKBENCH_GATEWAY_JWT_PUBLIC_KEY_and_JWT_PUBLIC_KEY_FILE_are_mutually_exclusive',
-    };
-  }
-  if (trimmedFile) {
+  async function verify(rawToken) {
     try {
-      return {
-        value: fs.readFileSync(trimmedFile, 'utf8'),
-        error: null,
-      };
+      const parsed = parseJwt(rawToken);
+      if (parsed.header.alg !== 'RS256') {
+        throw new Error('unsupported_access_token_algorithm');
+      }
+      if (
+        typeof parsed.header.kid !== 'string'
+        || !parsed.header.kid
+        || parsed.header.kid.length > 256
+      ) {
+        throw new Error('missing_or_invalid_access_token_kid');
+      }
+      const publicKey = await keyResolver(parsed.header.kid);
+      const signatureValid = crypto.verify(
+        'RSA-SHA256',
+        Buffer.from(parsed.signingInput),
+        publicKey,
+        parsed.signature,
+      );
+      if (!signatureValid) {
+        throw new Error('invalid_access_token_signature');
+      }
+      const principal = validateClaims(parsed.claims, {
+        issuer,
+        audience,
+        nowEpochSeconds: Math.floor(now() / 1000),
+        clockSkewSeconds,
+      });
+      return { valid: true, principal };
     } catch (error) {
       return {
-        value: null,
-        error: `MOBILE_WORKBENCH_GATEWAY_JWT_PUBLIC_KEY_FILE_read_failed:${error?.code || error?.message || 'read_error'}`,
+        valid: false,
+        reasonCode: error?.name === 'AbortError'
+          ? 'access_signing_key_timeout'
+          : error?.message || 'invalid_access_token',
       };
     }
   }
-  if (trimmedInline) {
-    return {
-      value: trimmedInline,
-      error: null,
-    };
-  }
-  return { value: null, error: null };
-}
 
-export function isJwtTokenExpired(claims, nowEpochSeconds = Math.floor(Date.now() / 1000), clockSkewSeconds = 0) {
-  if (!claims || typeof claims !== 'object') {
-    return true;
-  }
-  if (claims.exp !== undefined && Number.isFinite(Number(claims.exp))) {
-    if (Number(claims.exp) + Number(clockSkewSeconds) < nowEpochSeconds) {
-      return true;
-    }
-  }
-  if (claims.nbf !== undefined && Number.isFinite(Number(claims.nbf))) {
-    if (Number(claims.nbf) - Number(clockSkewSeconds) > nowEpochSeconds) {
-      return true;
-    }
-  }
-  return false;
-}
-
-function normalizeAudience(value) {
-  if (Array.isArray(value)) {
-    return value.map(normalizeClaimValue).filter(Boolean).map(toLowerTrimmed);
-  }
-  if (typeof value === 'string') {
-    return splitCommaSeparatedValues(value);
-  }
-  return [];
-}
-
-export function isAudienceMatch(configAudiences = [], tokenAudience = null) {
-  if (configAudiences.length === 0) {
-    return true;
-  }
-  const tokenAudiences = normalizeAudience(tokenAudience).map(toLowerTrimmed);
-  return tokenAudiences.some((aud) => configAudiences.includes(aud));
-}
-
-export function isIssuerMatch(configIssuers = [], tokenIssuer = null) {
-  if (configIssuers.length === 0) {
-    return true;
-  }
-  const normalizedIssuer = toLowerTrimmed(tokenIssuer);
-  return normalizedIssuer && configIssuers.includes(normalizedIssuer);
-}
-
-export function normalizeClaimList(value) {
-  if (Array.isArray(value)) {
-    return value.map(normalizeClaimValue).filter(Boolean).map(toLowerTrimmed);
-  }
-  if (typeof value === 'string') {
-    return splitCommaSeparatedValues(value);
-  }
-  return [];
-}
-
-function isJwtAlgorithmSupported(alg = '') {
-  return JWT_ALGORITHMS.has(toLowerTrimmed(alg).toUpperCase());
-}
-
-function getJwtVerifyAlgorithm(alg = '') {
-  return JWT_VERIFY_ALGORITHMS[String(alg || '').toUpperCase()] || '';
-}
-
-export function verifyJwtSignature(tokenHeader, tokenSignature, tokenSigningInput, publicKey, verifyEnabled) {
-  if (!verifyEnabled) {
-    return { valid: true };
-  }
-  if (!tokenHeader || typeof tokenHeader !== 'object') {
-    return { valid: false, reason: 'invalid_access_token_header' };
-  }
-  if (!publicKey) {
-    return { valid: false, reason: 'MOBILE_WORKBENCH_GATEWAY_JWT_PUBLIC_KEY_required_for_signature_verification' };
-  }
-  const alg = String(tokenHeader.alg || '').toUpperCase();
-  if (!isJwtAlgorithmSupported(alg)) {
-    return { valid: false, reason: 'unsupported_access_token_algorithm' };
-  }
-  const verifyAlgorithm = getJwtVerifyAlgorithm(alg);
-  try {
-    const verifier = crypto.createVerify(verifyAlgorithm);
-    verifier.update(tokenSigningInput);
-    verifier.end();
-    const isValid = verifier.verify(publicKey, tokenSignature);
-    if (!isValid) {
-      return { valid: false, reason: 'invalid_access_token_signature' };
-    }
-    return { valid: true };
-  } catch (error) {
-    return {
-      valid: false,
-      reason: `access_token_signature_verification_error:${error?.message || 'verification_error'}`,
-    };
-  }
+  verify.issuer = issuer;
+  verify.audience = audience;
+  return verify;
 }

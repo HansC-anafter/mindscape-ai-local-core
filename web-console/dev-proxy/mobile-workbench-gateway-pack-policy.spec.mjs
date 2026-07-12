@@ -1,336 +1,211 @@
-import { describe, expect, it } from 'vitest';
+import assert from 'node:assert/strict';
+import test from 'node:test';
 
 import {
-  createAccessJwt,
-  extractMobileWorkbenchGatewayRequestContext,
-  isMobileWorkbenchGatewayPathAllowed,
-  isMobileWorkbenchGatewayRequestAllowed,
-  isMobileWorkbenchGatewayRequestAllowedAsync,
-  resolveMobileWorkbenchGatewayConfig,
+  authorizeRemoteWorkbenchRequest,
+} from './mobile-workbench-gateway.mjs';
+import {
+  createEffectivePolicyPayload,
+  createGatewayConfig,
+  createPolicyResolution,
+  createSignedAccessJwt,
+  createTestVerifier,
 } from './mobile-workbench-gateway.test-support.mjs';
 
-describe('mobile workbench gateway pack policy', () => {
-  it('rejects expired access tokens even when identity allowlist matches', () => {
-    const config = resolveMobileWorkbenchGatewayConfig({
-      MOBILE_WORKBENCH_GATEWAY_ENABLED: '1',
-      MOBILE_WORKBENCH_GATEWAY_ALLOWLIST_EMAILS: 'expired@mindscape.ai',
-      MOBILE_WORKBENCH_GATEWAY_JWT_CLOCK_SKEW_SECONDS: '0',
-    });
-    const token = createAccessJwt({
-      email: 'expired@mindscape.ai',
-      exp: Math.floor(Date.now() / 1000) - 10,
-      groups: ['default'],
-      workspace_id: 'ws-1',
-    });
-    const result = isMobileWorkbenchGatewayRequestAllowed(
-      '/api/v1/capability-packs/ig/ui-assets/bundle.js?workspace_id=ws-1',
-      {
-        CF_Authorization: `Bearer ${token}`,
-      },
-      config,
-    );
+const config = createGatewayConfig();
+const verifier = createTestVerifier();
+const headers = {
+  host: 'remote-workbench.mindscapeai.app',
+  'Cf-Access-Jwt-Assertion': createSignedAccessJwt(),
+};
 
-    expect(result).toMatchObject({
-      allowed: false,
-      reason: 'mobile_workbench_gateway_access_denied',
-      reason_code: 'expired_or_not_ready_token',
-      status_code: 403,
-    });
+async function authorize(url, resolution, requestMethod = 'GET') {
+  return await authorizeRemoteWorkbenchRequest(url, headers, config, {
+    requestMethod,
+    verifyAccessToken: verifier,
+    resolveWorkspaceCapabilityPolicy: async () => resolution,
   });
+}
 
-  it('collects path parse errors while staying enabled for defaults', () => {
-    const config = resolveMobileWorkbenchGatewayConfig({
-      MOBILE_WORKBENCH_GATEWAY_ENABLED: '1',
-      MOBILE_WORKBENCH_GATEWAY_EXTRA_PATH_RULES: 'badprefix,regex:^(abc',
-    });
-    expect(config).toMatchObject({
-      enabled: true,
-      reason: 'enabled_with_invalid_rules',
-    });
-    expect(config.errors).toEqual([
-      'invalid_path_pattern:badprefix',
-      'invalid_regex_pattern:regex:^(abc',
-    ]);
-    expect(isMobileWorkbenchGatewayPathAllowed('/workspaces/ws-1/capability-ui-hosts/ig', config)).toBe(true);
-    expect(isMobileWorkbenchGatewayPathAllowed('/admin/tools', config)).toBe(false);
+test('global membership never bypasses the workspace capability allowlist', async () => {
+  const resolution = createPolicyResolution({
+    effectivePayload: createEffectivePolicyPayload({ capabilityCodes: [] }),
   });
+  const result = await authorize(
+    '/workspaces/workspace-a/capability-ui-hosts/yogacoach',
+    resolution,
+  );
+  assert.equal(result.allowed, false);
+  assert.equal(result.reason_code, 'capability_not_allowed');
+});
 
-  it('extracts capability scope from referer for shared workspace support paths', () => {
-    expect(
-      extractMobileWorkbenchGatewayRequestContext(
-        '/api/v1/workspaces/ws-1/tasks?limit=20',
-        {
-          referer: 'https://remote-workbench.mindscapeai.app/workspaces/ws-1/capability-ui-hosts/yogacoach?component=YogaPracticeWorkbenchPage',
-        },
-      ),
-    ).toMatchObject({
-      workspaceId: 'ws-1',
-      capabilityCode: 'yogacoach',
+test('installed support must explicitly support the capability', async () => {
+  const resolution = createPolicyResolution({ supported: false });
+  const result = await authorize(
+    '/workspaces/workspace-a/capability-ui-hosts/yogacoach',
+    resolution,
+  );
+  assert.equal(result.allowed, false);
+  assert.equal(result.reason_code, 'capability_not_supported');
+  assert.equal(result.status_code, 404);
+});
+
+test('capability API paths come only from installed support metadata', async () => {
+  const allowed = await authorize(
+    '/api/v1/capabilities/yogacoach/practice-review?workspace_id=workspace-a',
+    createPolicyResolution({
+      apiPrefixes: ['/api/v1/capabilities/yogacoach'],
+    }),
+  );
+  assert.equal(allowed.allowed, true);
+
+  const missingPrefix = await authorize(
+    '/api/v1/capabilities/yogacoach/practice-review?workspace_id=workspace-a',
+    createPolicyResolution({ apiPrefixes: [] }),
+  );
+  assert.equal(missingPrefix.allowed, false);
+  assert.equal(missingPrefix.reason_code, 'capability_path_not_allowed');
+});
+
+test('overbroad or reserved capability API roots never become gateway rules', async () => {
+  for (const apiPrefix of ['/api/v1', '/api/v1/system-settings', '/api/v1/admin']) {
+    const resolution = createPolicyResolution({
+      capabilityCode: 'browser_capture',
+      effectivePayload: createEffectivePolicyPayload({ capabilityCodes: ['browser_capture'] }),
+      apiPrefixes: [apiPrefix],
     });
-  });
-
-  it('enforces pack-owned workspace capability policy before allowing shared support paths', async () => {
-    const config = resolveMobileWorkbenchGatewayConfig({
-      MOBILE_WORKBENCH_GATEWAY_ENABLED: '1',
-    });
-
-    const denied = await isMobileWorkbenchGatewayRequestAllowedAsync(
-      '/workspaces/ws-1/capability-ui-hosts/yogacoach',
-      {
-        referer: 'https://remote-workbench.mindscapeai.app/workspaces/ws-1/capability-ui-hosts/yogacoach',
-      },
-      config,
-      {
-        resolveWorkspaceCapabilityPolicy: async () => ({
-          capabilityAllowed: false,
-          supported: true,
-          allowedPathRules: [
-            {
-              type: 'regex',
-              value: /^\/workspaces\/[^/]+\/capability-ui-hosts\/yogacoach(?:\/.*)?$/,
-            },
-          ],
-        }),
-      },
+    const result = await authorize(
+      '/api/v1/system-settings/keyboard-shortcuts?workspace_id=workspace-a&capability_code=browser_capture',
+      resolution,
+      'PUT',
     );
+    assert.equal(result.allowed, false);
+    assert.equal(result.reason_code, 'capability_path_not_allowed');
+  }
+});
 
-    expect(denied).toMatchObject({
-      allowed: false,
-      reason_code: 'capability_not_allowed',
-      status_code: 403,
-      context: {
-        workspaceId: 'ws-1',
-        capabilityCode: 'yogacoach',
+test('installed and legacy capability assets use the same read-only support decision', async () => {
+  const resolution = createPolicyResolution();
+  for (const path of [
+    '/api/v1/capability-packs/installed-capabilities/yogacoach/ui-assets/1.0.0/component.mjs?workspace_id=workspace-a',
+    '/api/v1/capability-packs/yogacoach/ui-assets/1.0.0/component.mjs?workspace_id=workspace-a',
+  ]) {
+    const allowed = await authorize(path, resolution, 'GET');
+    assert.equal(allowed.allowed, true);
+    const deniedWrite = await authorize(path, resolution, 'POST');
+    assert.equal(deniedWrite.allowed, false);
+    assert.equal(deniedWrite.reason_code, 'capability_path_not_allowed');
+  }
+});
+
+test('legacy shell runtime assets require explicit workspace and capability scope', async () => {
+  const scoped = '/__mindscape-capability-host/shell-runtime.browser.js'
+    + '?workspace_id=workspace-a&capability_code=yogacoach';
+  assert.equal((await authorize(scoped, createPolicyResolution(), 'GET')).allowed, true);
+  const missingScope = await authorize(
+    '/__mindscape-capability-host/shell-runtime.browser.js',
+    createPolicyResolution(),
+    'GET',
+  );
+  assert.equal(missingScope.allowed, false);
+  assert.equal(missingScope.reason_code, 'route_workspace_required');
+});
+
+test('no IG, Yoga, or Makeup static capability allow path remains', async () => {
+  for (const [url, capabilityCode] of [
+    ['/api/v1/ig/workbench/sidebar-summary?workspace_id=workspace-a&capability_code=ig', 'ig'],
+    ['/api/v1/capabilities/yogacoach/review?workspace_id=workspace-a', 'yogacoach'],
+    ['/api/v1/capabilities/makeup_practice_coach/review?workspace_id=workspace-a', 'makeup_practice_coach'],
+  ]) {
+    const resolution = createPolicyResolution({
+      capabilityCode,
+      effectivePayload: createEffectivePolicyPayload({ capabilityCodes: [capabilityCode] }),
+      apiPrefixes: [],
+    });
+    const result = await authorize(url, resolution);
+    assert.equal(result.allowed, false);
+    assert.equal(result.reason_code, 'capability_path_not_allowed');
+  }
+});
+
+test('shared workspace paths still require membership and use bounded methods', async () => {
+  const resolution = createPolicyResolution({ capabilityCode: null });
+  const allowed = await authorize('/api/v1/workspaces/workspace-a/tasks', resolution, 'GET');
+  assert.equal(allowed.allowed, true);
+
+  const deniedMethod = await authorize('/api/v1/workspaces/workspace-a/tasks', resolution, 'POST');
+  assert.equal(deniedMethod.allowed, false);
+  assert.equal(deniedMethod.reason_code, 'capability_path_not_allowed');
+});
+
+test('workspace media preview remains read-only and membership-gated', async () => {
+  const resolution = createPolicyResolution({ capabilityCode: null });
+  const path = '/api/v1/workspaces/workspace-a/media-assets/asset-1/preview-content';
+  const allowed = await authorize(path, resolution, 'GET');
+  assert.equal(allowed.allowed, true);
+  const deniedWrite = await authorize(path, resolution, 'POST');
+  assert.equal(deniedWrite.allowed, false);
+
+  const outsider = await authorizeRemoteWorkbenchRequest(
+    path,
+    {
+      host: 'remote-workbench.mindscapeai.app',
+      'Cf-Access-Jwt-Assertion': createSignedAccessJwt({
+        claims: { sub: 'subject-outsider', email: 'outsider@example.com' },
+      }),
+    },
+    config,
+    {
+      requestMethod: 'GET',
+      verifyAccessToken: verifier,
+      resolveWorkspaceCapabilityPolicy: async () => resolution,
+    },
+  );
+  assert.equal(outsider.allowed, false);
+  assert.equal(outsider.reason_code, 'workspace_membership_required');
+});
+
+test('public runtime/workspace policy, observability, control UI, and install paths are hidden', async () => {
+  const paths = [
+    '/api/v1/capabilities/mindscape_cloud_integration/mobile-workbench-gateway/runtime-policy',
+    '/api/v1/capabilities/mindscape_cloud_integration/mobile-workbench-gateway/runtime-policy/',
+    '/api/v1/capabilities/mindscape_cloud_integration/mobile-workbench-gateway/workspaces/workspace-a/policy',
+    '/api/v1/capabilities/mindscape_cloud_integration/mobile-workbench-gateway/workspaces/workspace-a/policy/',
+    '/api/v1/host/services/mobile-workbench-gateway/summary?workspace_id=workspace-a',
+    '/api/v1/host/services/mobile-workbench-gateway/audit/',
+    '/workspaces/workspace-a/capability-ui-hosts/mindscape_cloud_integration?component=MindscapeMobileWorkbenchGatewayPage',
+    '/workspaces/workspace-a/capability-ui-hosts/mindscape_cloud_integration/',
+    '/workspaces/workspace-a/capability-ui-hosts/%6dindscape_cloud_integration',
+    '/api/v1/capability-packs/install-from-file',
+  ];
+  for (const path of paths) {
+    let resolverCalls = 0;
+    const result = await authorizeRemoteWorkbenchRequest(path, headers, config, {
+      verifyAccessToken: verifier,
+      resolveWorkspaceCapabilityPolicy: async () => {
+        resolverCalls += 1;
+        return createPolicyResolution();
       },
     });
+    assert.equal(result.allowed, false);
+    assert.equal(result.status_code, 404);
+    assert.equal(result.reason_code, 'remote_control_plane_forbidden');
+    assert.equal(resolverCalls, 0);
+  }
+});
 
-    const allowed = await isMobileWorkbenchGatewayRequestAllowedAsync(
-      '/api/v1/workspaces/ws-1/tasks?limit=20',
-      {
-        referer: 'https://remote-workbench.mindscapeai.app/workspaces/ws-1/capability-ui-hosts/yogacoach',
+test('resolver error always fails closed', async () => {
+  const result = await authorizeRemoteWorkbenchRequest(
+    '/workspaces/workspace-a/capability-ui-hosts/yogacoach',
+    headers,
+    config,
+    {
+      verifyAccessToken: verifier,
+      resolveWorkspaceCapabilityPolicy: async () => {
+        throw new Error('backend unavailable');
       },
-      config,
-      {
-        resolveWorkspaceCapabilityPolicy: async () => ({
-          capabilityAllowed: true,
-          supported: true,
-          allowedPathRules: [
-            {
-              type: 'regex',
-              value: /^\/workspaces\/[^/]+\/capability-ui-hosts\/yogacoach(?:\/.*)?$/,
-            },
-          ],
-        }),
-      },
-    );
-
-    expect(allowed).toMatchObject({
-      allowed: true,
-      context: {
-        workspaceId: 'ws-1',
-        capabilityCode: 'yogacoach',
-      },
-    });
-  });
-
-  it('ignores deprecated capability allowlist env and defers capability access to workspace policy', async () => {
-    const config = resolveMobileWorkbenchGatewayConfig({
-      MOBILE_WORKBENCH_GATEWAY_ENABLED: '1',
-      MOBILE_WORKBENCH_GATEWAY_CAPABILITY_ALLOWLIST: 'ig',
-    });
-
-    const allowed = await isMobileWorkbenchGatewayRequestAllowedAsync(
-      '/workspaces/ws-1/capability-ui-hosts/makeup_practice_coach',
-      {
-        referer: 'https://remote-workbench.mindscapeai.app/workspaces/ws-1/capability-ui-hosts/makeup_practice_coach',
-      },
-      config,
-      {
-        resolveWorkspaceCapabilityPolicy: async () => ({
-          capabilityAllowed: true,
-          supported: true,
-          allowedPathRules: [
-            {
-              type: 'regex',
-              value: /^\/workspaces\/[^/]+\/capability-ui-hosts\/makeup_practice_coach(?:\/.*)?$/,
-            },
-          ],
-        }),
-      },
-    );
-
-    expect(allowed).toMatchObject({
-      allowed: true,
-      context: {
-        workspaceId: 'ws-1',
-        capabilityCode: 'makeup_practice_coach',
-      },
-    });
-  });
-
-  it('allows social_video_refs API reads through the workspace pack policy', async () => {
-    const config = resolveMobileWorkbenchGatewayConfig({
-      MOBILE_WORKBENCH_GATEWAY_ENABLED: '1',
-    });
-
-    const allowed = await isMobileWorkbenchGatewayRequestAllowedAsync(
-      '/api/v1/capabilities/social-video-refs/hierarchy/instruction-refs?workspace_id=ws-1&limit=20',
-      {
-        referer: 'https://remote-workbench.mindscapeai.app/workspaces/ws-1/capability-ui-hosts/social_video_refs',
-      },
-      config,
-      {
-        resolveWorkspaceCapabilityPolicy: async ({ capabilityCode }) => ({
-          capabilityAllowed: capabilityCode === 'social_video_refs',
-          supported: true,
-          allowedPathRules: [
-            {
-              type: 'regex',
-              value: /^\/api\/v1\/capabilities\/social-video-refs(?:\/.*)?$/,
-            },
-            {
-              type: 'regex',
-              value: /^\/workspaces\/[^/]+\/capability-ui-hosts\/social_video_refs(?:\/.*)?$/,
-            },
-          ],
-        }),
-      },
-    );
-
-    expect(allowed).toMatchObject({
-      allowed: true,
-      context: {
-        workspaceId: 'ws-1',
-        capabilityCode: 'social_video_refs',
-        routeCapabilityCode: 'social-video-refs',
-      },
-    });
-  });
-
-  it('allows the pack-embedded remote gateway control page when the target capability is allowed', async () => {
-    const config = resolveMobileWorkbenchGatewayConfig({
-      MOBILE_WORKBENCH_GATEWAY_ENABLED: '1',
-    });
-
-    const allowed = await isMobileWorkbenchGatewayRequestAllowedAsync(
-      '/workspaces/ws-1/capability-ui-hosts/mindscape_cloud_integration?component=MindscapeMobileWorkbenchGatewayPage&target_capability=yogacoach',
-      {},
-      config,
-      {
-        resolveWorkspaceCapabilityPolicy: async () => ({
-          capabilityAllowed: true,
-          supported: true,
-          allowedPathRules: [
-            {
-              type: 'regex',
-              value: /^\/workspaces\/[^/]+\/capability-ui-hosts\/yogacoach(?:\/.*)?$/,
-            },
-          ],
-        }),
-      },
-    );
-
-    expect(allowed).toMatchObject({
-      allowed: true,
-      context: {
-        workspaceId: 'ws-1',
-        capabilityCode: 'yogacoach',
-        routeCapabilityCode: 'mindscape_cloud_integration',
-        gatewayControlPlaneTargeted: true,
-      },
-    });
-  });
-
-  it('allows control-plane asset and observability requests when they inherit the target capability from the referer', async () => {
-    const config = resolveMobileWorkbenchGatewayConfig({
-      MOBILE_WORKBENCH_GATEWAY_ENABLED: '1',
-    });
-    const referer =
-      'https://remote-workbench.mindscapeai.app/workspaces/ws-1/capability-ui-hosts/mindscape_cloud_integration?component=MindscapeMobileWorkbenchGatewayPage&target_capability=yogacoach';
-
-    const assetRequest = await isMobileWorkbenchGatewayRequestAllowedAsync(
-      '/api/v1/capability-packs/installed-capabilities/mindscape_cloud_integration/ui-assets/1.0.0/components/MindscapeMobileWorkbenchGatewayPage.mjs',
-      { referer },
-      config,
-      {
-        resolveWorkspaceCapabilityPolicy: async () => ({
-          capabilityAllowed: true,
-          supported: true,
-          allowedPathRules: [
-            {
-              type: 'regex',
-              value: /^\/workspaces\/[^/]+\/capability-ui-hosts\/yogacoach(?:\/.*)?$/,
-            },
-          ],
-        }),
-      },
-    );
-
-    expect(assetRequest).toMatchObject({
-      allowed: true,
-      context: {
-        workspaceId: 'ws-1',
-        capabilityCode: 'yogacoach',
-        routeCapabilityCode: 'mindscape_cloud_integration',
-        gatewayControlPlaneTargeted: true,
-      },
-    });
-
-    const summaryRequest = await isMobileWorkbenchGatewayRequestAllowedAsync(
-      '/api/v1/host/services/mobile-workbench-gateway/summary?workspace_id=ws-1&capability_code=yogacoach',
-      { referer },
-      config,
-      {
-        resolveWorkspaceCapabilityPolicy: async () => ({
-          capabilityAllowed: true,
-          supported: true,
-          allowedPathRules: [
-            {
-              type: 'regex',
-              value: /^\/workspaces\/[^/]+\/capability-ui-hosts\/yogacoach(?:\/.*)?$/,
-            },
-          ],
-        }),
-      },
-    );
-
-    expect(summaryRequest).toMatchObject({
-      allowed: true,
-      context: {
-        workspaceId: 'ws-1',
-        capabilityCode: 'yogacoach',
-        gatewayControlPlaneTargeted: true,
-      },
-    });
-  });
-
-  it('keeps non-gateway cloud integration components outside the remote pack allowlist', async () => {
-    const config = resolveMobileWorkbenchGatewayConfig({
-      MOBILE_WORKBENCH_GATEWAY_ENABLED: '1',
-    });
-
-    const denied = await isMobileWorkbenchGatewayRequestAllowedAsync(
-      '/workspaces/ws-1/capability-ui-hosts/mindscape_cloud_integration?component=MindscapeCloudChannelBindingPanel&target_capability=yogacoach',
-      {},
-      config,
-      {
-        resolveWorkspaceCapabilityPolicy: async () => ({
-          capabilityAllowed: true,
-          supported: true,
-          allowedPathRules: [
-            {
-              type: 'regex',
-              value: /^\/workspaces\/[^/]+\/capability-ui-hosts\/yogacoach(?:\/.*)?$/,
-            },
-          ],
-        }),
-      },
-    );
-
-    expect(denied).toMatchObject({
-      allowed: false,
-      reason: 'mobile_workbench_gateway_path_not_allowed',
-      status_code: 404,
-    });
-  });
+    },
+  );
+  assert.equal(result.allowed, false);
+  assert.equal(result.reason_code, 'workspace_policy_unavailable');
 });

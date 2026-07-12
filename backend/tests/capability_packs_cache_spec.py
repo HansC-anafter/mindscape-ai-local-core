@@ -262,6 +262,9 @@ def test_get_capability_mobile_workbench_gateway_support_formats_runtime_manifes
             "id": "yogacoach",
             "code": "yogacoach",
             "display_name": "YogaCoach",
+            "remote_workbench": {
+                "request_scope_contract": "explicit_workspace_v1"
+            },
             "ui_components": [
                 {
                     "code": "YogaPracticeWorkbenchPage",
@@ -292,6 +295,50 @@ def test_get_capability_mobile_workbench_gateway_support_formats_runtime_manifes
     )
     assert payload["main_page_component_codes"] == ["YogaPracticeWorkbenchPage"]
     assert payload["api_prefixes"] == ["/api/v1/capabilities/yogacoach"]
+    assert payload["request_scope_contract"] == "explicit_workspace_v1"
+
+
+def test_mobile_workbench_gateway_support_requires_main_page_and_canonical_route(
+    monkeypatch,
+):
+    _reset_pack_yaml_cache()
+    manifests = {
+        "tool_only": {
+            "id": "tool_only",
+            "code": "tool_only",
+            "ui_components": [{"code": "SidebarPanel"}],
+        },
+        "custom_route": {
+            "id": "custom_route",
+            "code": "custom_route",
+            "ui_components": [{"code": "CustomWorkbenchPage"}],
+            "ui_surfaces": [{"host_route_template": "/custom/{workspaceId}"}],
+        },
+    }
+    monkeypatch.setattr(
+        capability_packs,
+        "_get_pack_meta_by_code",
+        lambda capability_code: manifests[capability_code],
+    )
+    monkeypatch.setattr(
+        capability_packs,
+        "_get_installed_pack_ids",
+        lambda: set(manifests),
+    )
+
+    tool_only = capability_packs.get_capability_mobile_workbench_gateway_support(
+        "tool_only"
+    )
+    custom_route = capability_packs.get_capability_mobile_workbench_gateway_support(
+        "custom_route"
+    )
+
+    assert tool_only["supported"] is False
+    assert tool_only["host_route_template"] is None
+    assert tool_only["main_page_component_codes"] == []
+    assert custom_route["supported"] is False
+    assert custom_route["host_route_template"] is None
+    assert custom_route["main_page_component_codes"] == ["CustomWorkbenchPage"]
 
 
 def test_get_installed_pack_ids_caches_store_lookup(monkeypatch):

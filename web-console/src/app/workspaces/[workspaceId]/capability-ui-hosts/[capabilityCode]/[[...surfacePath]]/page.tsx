@@ -1,3 +1,5 @@
+import { headers } from 'next/headers';
+
 import { renderCapabilityUiHostPage } from '../../renderCapabilityUiHostPage';
 
 interface CapabilityUiHostPageProps {
@@ -15,5 +17,6 @@ export default function CapabilityUiHostPage({
     workspaceId: params.workspaceId,
     capabilityCode: params.capabilityCode,
     surfacePath: params.surfacePath || [],
+    remoteSurfaceMode: headers().get('x-mindscape-remote-ingress') === 'remote_workbench',
   });
 }

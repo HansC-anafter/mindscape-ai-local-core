@@ -1,216 +1,180 @@
 import {
-  isCapabilityStorageMediaPath,
-} from '../mobile-workbench-gateway-capability-rules.mjs';
-import {
   decodeURIComponentSafe,
   normalizeCapabilityCodeFromApiSegment,
   normalizeClaimValue,
 } from './normalizers.mjs';
 import {
-  isGatewayControlCapabilityCode,
-  isGatewayControlComponentCode,
   isGatewayControlObservabilityPath,
   isGatewayControlPolicyPath,
+  isPublicBootAssetPath,
+  isRemoteControlPlanePath,
 } from './path-rules.mjs';
 
-function extractRequestContextFromUrl(requestUrl = '/') {
-  let pathname = '/';
-  let workspaceId = null;
-  let capabilityCode = null;
-  let capabilityFromFallback = false;
-  let routeCapabilityCode = null;
-  let targetCapabilityCode = null;
-  let componentCode = null;
-  let gatewayControlPlaneCarrier = false;
-  let gatewayControlPlaneTargeted = false;
+function normalizeIdentifier(value) {
+  const normalized = normalizeClaimValue(value);
+  if (!normalized || normalized.length > 128 || /[\u0000-\u001f\u007f]/.test(normalized)) {
+    return null;
+  }
+  return normalized;
+}
 
+function addCandidate(target, value, source) {
+  if (value === undefined || value === null) {
+    return;
+  }
+  const normalized = normalizeIdentifier(decodeURIComponentSafe(String(value)));
+  target.push({ value: normalized, source });
+}
+
+function addSearchParameterCandidates(target, searchParams, parameterName) {
+  for (const value of searchParams.getAll(parameterName)) {
+    addCandidate(target, value, `query.${parameterName}`);
+  }
+}
+
+function resolveCandidates(candidates, field) {
+  if (candidates.some((candidate) => !candidate.value)) {
+    return { value: null, conflicts: [`invalid_${field}`] };
+  }
+  const unique = Array.from(new Set(candidates.map((candidate) => candidate.value)));
+  if (unique.length > 1) {
+    return { value: null, conflicts: [`conflicting_${field}`] };
+  }
+  return { value: unique[0] || null, conflicts: [] };
+}
+
+function parseRequestUrl(requestUrl) {
   try {
-    const parsed = new URL(requestUrl, 'http://localhost');
-    pathname = parsed.pathname || '/';
-    workspaceId =
-      parsed.searchParams.get('workspace_id') ||
-      parsed.searchParams.get('workspaceId') ||
-      null;
-    capabilityCode =
-      parsed.searchParams.get('capability_code') ||
-      parsed.searchParams.get('capabilityCode') ||
-      null;
-    targetCapabilityCode =
-      parsed.searchParams.get('target_capability') ||
-      parsed.searchParams.get('targetCapability') ||
-      null;
-    componentCode = parsed.searchParams.get('component') || null;
+    return new URL(requestUrl, 'http://localhost');
   } catch {
-    pathname = '/';
+    return new URL('http://localhost/');
   }
+}
 
-  const workspaceMatch = /^\/workspaces\/([^/]+)\/capability-ui-hosts\/([^/]+)(?:\/.*)?$/.exec(pathname);
-  if (workspaceMatch) {
-    workspaceId = normalizeClaimValue(decodeURIComponentSafe(workspaceMatch[1]));
-    routeCapabilityCode = normalizeClaimValue(decodeURIComponentSafe(workspaceMatch[2]));
-    capabilityCode = routeCapabilityCode;
+function extractSingleUrlContext(requestUrl = '/', requestMethod = 'GET') {
+  const parsed = parseRequestUrl(requestUrl);
+  const pathname = parsed.pathname || '/';
+  const workspaceCandidates = [];
+  const capabilityCandidates = [];
+  const componentCandidates = [];
+  const targetCapabilityCandidates = [];
+
+  addSearchParameterCandidates(workspaceCandidates, parsed.searchParams, 'workspace_id');
+  addSearchParameterCandidates(workspaceCandidates, parsed.searchParams, 'workspaceId');
+  addSearchParameterCandidates(capabilityCandidates, parsed.searchParams, 'capability_code');
+  addSearchParameterCandidates(capabilityCandidates, parsed.searchParams, 'capabilityCode');
+  addSearchParameterCandidates(componentCandidates, parsed.searchParams, 'component');
+  addSearchParameterCandidates(targetCapabilityCandidates, parsed.searchParams, 'target_capability');
+  addSearchParameterCandidates(targetCapabilityCandidates, parsed.searchParams, 'targetCapability');
+
+  const workspacePathMatch = /^\/workspaces\/([^/]+)(?:\/|$)/.exec(pathname);
+  const workspaceApiMatch = /^\/api\/v1\/workspaces\/([^/]+)(?:\/|$)/.exec(pathname);
+  addCandidate(workspaceCandidates, workspacePathMatch?.[1], 'route.workspace');
+  addCandidate(workspaceCandidates, workspaceApiMatch?.[1], 'route.workspace_api');
+
+  const capabilityHostMatch = /^\/workspaces\/[^/]+\/capability-ui-hosts\/([^/]+)(?:\/|$)/.exec(pathname);
+  if (capabilityHostMatch) {
+    addCandidate(capabilityCandidates, capabilityHostMatch[1], 'route.capability_host');
   }
-
-  const igApiMatch = /^\/api\/v1\/ig(?:\/.*)?$/.exec(pathname);
-  if (igApiMatch) {
-    routeCapabilityCode = 'ig';
-    capabilityCode = 'ig';
-  }
-
-  const capabilityApiMatch = /^\/api\/v1\/capabilities\/([^/]+)(?:\/.*)?$/.exec(pathname);
+  const capabilityApiMatch = /^\/api\/v1\/capabilities\/([^/]+)(?:\/|$)/.exec(pathname);
   if (capabilityApiMatch) {
-    routeCapabilityCode = normalizeClaimValue(decodeURIComponentSafe(capabilityApiMatch[1]));
-    capabilityCode = normalizeCapabilityCodeFromApiSegment(routeCapabilityCode);
-    if (isCapabilityStorageMediaPath(pathname)) {
-      capabilityFromFallback = true;
-    }
+    addCandidate(
+      capabilityCandidates,
+      normalizeCapabilityCodeFromApiSegment(capabilityApiMatch[1]),
+      'route.capability_api',
+    );
   }
-
   const installedCapabilityMatch =
-    /^\/api\/v1\/capability-packs\/installed-capabilities(?:\/([^/]+))?(?:\/.*)?$/.exec(pathname);
-  if (installedCapabilityMatch) {
-    routeCapabilityCode = normalizeClaimValue(decodeURIComponentSafe(installedCapabilityMatch[1])) || null;
-    capabilityCode = routeCapabilityCode || 'ig';
-    capabilityFromFallback = !installedCapabilityMatch[1];
-  }
+    /^\/api\/v1\/capability-packs\/installed-capabilities\/([^/]+)(?:\/|$)/.exec(pathname);
+  addCandidate(capabilityCandidates, installedCapabilityMatch?.[1], 'route.installed_capability');
+  const legacyAssetMatch = /^\/api\/v1\/capability-packs\/([^/]+)\/ui-assets\//.exec(pathname);
+  addCandidate(capabilityCandidates, legacyAssetMatch?.[1], 'route.capability_asset');
 
-  const capabilityAssetsMatch = /^\/api\/v1\/capability-packs\/([^/]+)\/ui-assets\//.exec(pathname);
-  if (capabilityAssetsMatch) {
-    routeCapabilityCode = normalizeClaimValue(decodeURIComponentSafe(capabilityAssetsMatch[1]));
-    capabilityCode = routeCapabilityCode;
-  }
-
-  const workspaceExecutionsMatch = /^\/api\/v1\/workspaces\/([^/]+)\/executions(?:\/.*)?$/.exec(pathname);
-  if (workspaceExecutionsMatch) {
-    workspaceId = normalizeClaimValue(decodeURIComponentSafe(workspaceExecutionsMatch[1]));
-    capabilityCode = capabilityCode || 'ig';
-    capabilityFromFallback = capabilityCode === 'ig';
-  }
-
-  const workspaceDeviceBindingMatch =
-    /^\/api\/v1\/workspaces\/([^/]+)\/device-bindings\//.exec(pathname);
-  if (workspaceDeviceBindingMatch) {
-    workspaceId = normalizeClaimValue(decodeURIComponentSafe(workspaceDeviceBindingMatch[1]));
-  }
-
-  const workspaceSummaryMatch = /^\/api\/v1\/workspaces\/([^/]+)\/summary$/.exec(pathname);
-  if (workspaceSummaryMatch) {
-    workspaceId = normalizeClaimValue(decodeURIComponentSafe(workspaceSummaryMatch[1]));
-  }
-
-  const workspaceTasksMatch = /^\/api\/v1\/workspaces\/([^/]+)\/tasks(?:\/.*)?$/.exec(pathname);
-  if (workspaceTasksMatch) {
-    workspaceId = normalizeClaimValue(decodeURIComponentSafe(workspaceTasksMatch[1]));
-    capabilityCode = capabilityCode || 'ig';
-    capabilityFromFallback = capabilityCode === 'ig';
-  }
-
-  const workspaceHostRuntimeMatch = /^\/api\/v1\/workspaces\/([^/]+)\/host-runtime\/sessions(?:\/.*)?$/.exec(pathname);
-  if (workspaceHostRuntimeMatch) {
-    workspaceId = normalizeClaimValue(decodeURIComponentSafe(workspaceHostRuntimeMatch[1]));
-  }
-
-  const workspaceEventsMatch = /^\/api\/v1\/workspaces\/([^/]+)\/events\/stream$/.exec(pathname);
-  if (workspaceEventsMatch) {
-    workspaceId = normalizeClaimValue(decodeURIComponentSafe(workspaceEventsMatch[1]));
-    capabilityCode = capabilityCode || 'ig';
-    capabilityFromFallback = capabilityCode === 'ig';
-  }
-
-  if (
-    /^\/api\/v1\/system-settings\/keyboard-shortcuts$/.test(pathname) ||
-    /^\/api\/v1\/host-resources\/lanes$/.test(pathname) ||
-    /^\/api\/v1\/host-resources\/queue-utilization$/.test(pathname)
-  ) {
-    capabilityCode = capabilityCode || 'ig';
-    capabilityFromFallback = capabilityCode === 'ig';
-  }
-
-  gatewayControlPlaneCarrier =
-    (
-      isGatewayControlCapabilityCode(routeCapabilityCode)
-      && isGatewayControlComponentCode(componentCode)
-    )
-    || (
-      isGatewayControlCapabilityCode(routeCapabilityCode)
-      && /^\/api\/v1\/capability-packs\/installed-capabilities\/mindscape_cloud_integration\/ui-assets\/.+$/.test(pathname)
-    )
-    || isGatewayControlPolicyPath(pathname)
-    || isGatewayControlObservabilityPath(pathname);
-
-  if (
-    isGatewayControlCapabilityCode(routeCapabilityCode)
-    && isGatewayControlComponentCode(componentCode)
-    && targetCapabilityCode
-  ) {
-    capabilityCode = normalizeClaimValue(targetCapabilityCode);
-    gatewayControlPlaneTargeted = true;
-  } else if (isGatewayControlObservabilityPath(pathname) && capabilityCode) {
-    gatewayControlPlaneTargeted = true;
-    targetCapabilityCode = normalizeClaimValue(capabilityCode);
-  }
-
+  const workspace = resolveCandidates(workspaceCandidates, 'workspace_context');
+  const capability = resolveCandidates(capabilityCandidates, 'capability_context');
+  const component = resolveCandidates(componentCandidates, 'component_context');
+  const targetCapability = resolveCandidates(
+    targetCapabilityCandidates,
+    'target_capability_context',
+  );
   return {
     path: pathname,
-    workspaceId: workspaceId || null,
-    capabilityCode: capabilityCode || null,
-    capabilityFromFallback,
-    routeCapabilityCode: routeCapabilityCode || null,
-    targetCapabilityCode: normalizeClaimValue(targetCapabilityCode) || null,
-    componentCode: normalizeClaimValue(componentCode) || null,
-    gatewayControlPlaneCarrier,
-    gatewayControlPlaneTargeted,
+    workspaceId: workspace.value,
+    capabilityCode: capability.value?.toLowerCase() || null,
+    componentCode: component.value,
+    targetCapabilityCode: targetCapability.value,
+    conflicts: [
+      ...workspace.conflicts,
+      ...capability.conflicts,
+      ...component.conflicts,
+      ...targetCapability.conflicts,
+    ],
+    isBootAsset: isPublicBootAssetPath(pathname, requestMethod),
+    isRemoteControlPlane: isRemoteControlPlanePath(requestUrl),
+    gatewayPolicyTargeted: isGatewayControlPolicyPath(pathname),
+    gatewayObservabilityTargeted: isGatewayControlObservabilityPath(pathname),
   };
 }
 
-function resolveRefererHeader(requestHeaders = {}) {
-  const candidate = requestHeaders?.referer || requestHeaders?.referrer || '';
-  return String(Array.isArray(candidate) ? candidate[0] || '' : candidate || '').trim();
-}
-
-export function extractRequestContext(requestUrl = '/', requestHeaders = {}) {
-  const primaryContext = extractRequestContextFromUrl(requestUrl);
-  const referer = resolveRefererHeader(requestHeaders);
-  const canUseRefererCapability = Boolean(
-    !primaryContext.capabilityCode
-    || primaryContext.capabilityFromFallback
-    || primaryContext.gatewayControlPlaneCarrier
-  );
-  if (!referer || (primaryContext.workspaceId && primaryContext.capabilityCode && !canUseRefererCapability)) {
-    return primaryContext;
+function resolveRefererHeader(requestHeaders) {
+  const value = requestHeaders?.referer ?? requestHeaders?.referrer ?? null;
+  if (Array.isArray(value)) {
+    return value.length === 1 ? String(value[0] || '').trim() : '';
   }
-  const refererContext = extractRequestContextFromUrl(referer);
-  const inheritGatewayTargetCapability = Boolean(
-    primaryContext.gatewayControlPlaneCarrier
-    && refererContext.gatewayControlPlaneTargeted
-    && refererContext.capabilityCode
-  );
+  return String(value || '').trim();
+}
+
+function mergeContext(primary, referer, { inherit = false } = {}) {
+  const conflicts = [...primary.conflicts, ...referer.conflicts];
+  if (primary.workspaceId && referer.workspaceId && primary.workspaceId !== referer.workspaceId) {
+    conflicts.push('referer_workspace_mismatch');
+  }
+  if (primary.capabilityCode && referer.capabilityCode && primary.capabilityCode !== referer.capabilityCode) {
+    conflicts.push('referer_capability_mismatch');
+  }
   return {
-    path: primaryContext.path,
-    workspaceId: primaryContext.workspaceId || refererContext.workspaceId || null,
-    capabilityCode: inheritGatewayTargetCapability
-      ? (refererContext.capabilityCode || primaryContext.capabilityCode || null)
-      : (
-          canUseRefererCapability
-            ? (refererContext.capabilityCode || primaryContext.capabilityCode || null)
-            : (primaryContext.capabilityCode || refererContext.capabilityCode || null)
-        ),
-    routeCapabilityCode: primaryContext.routeCapabilityCode || refererContext.routeCapabilityCode || null,
-    targetCapabilityCode: primaryContext.targetCapabilityCode
-      || (inheritGatewayTargetCapability ? refererContext.targetCapabilityCode : null)
-      || null,
-    componentCode: primaryContext.componentCode || refererContext.componentCode || null,
-    gatewayControlPlaneCarrier: Boolean(
-      primaryContext.gatewayControlPlaneCarrier
-      || (inheritGatewayTargetCapability && refererContext.gatewayControlPlaneCarrier)
-    ),
-    gatewayControlPlaneTargeted: Boolean(
-      primaryContext.gatewayControlPlaneTargeted || inheritGatewayTargetCapability
-    ),
-    referer_path: refererContext.path || null,
+    ...primary,
+    workspaceId: primary.workspaceId || (inherit ? referer.workspaceId : null),
+    capabilityCode: primary.capabilityCode || (inherit ? referer.capabilityCode : null),
+    conflicts: Array.from(new Set(conflicts)),
+    refererPath: referer.path,
   };
 }
 
-export function extractMobileWorkbenchGatewayRequestContext(requestUrl = '/', requestHeaders = {}) {
-  return extractRequestContext(requestUrl, requestHeaders);
+export function extractRequestContext(
+  requestUrl = '/',
+  requestHeaders = {},
+  { publicOrigin = '', requestMethod = 'GET' } = {},
+) {
+  const primary = extractSingleUrlContext(requestUrl, requestMethod);
+  const refererHeader = resolveRefererHeader(requestHeaders);
+  if (!refererHeader) {
+    return primary;
+  }
+  let parsedReferer;
+  try {
+    parsedReferer = new URL(refererHeader);
+  } catch {
+    return { ...primary, conflicts: [...primary.conflicts, 'invalid_referer'] };
+  }
+  if (publicOrigin) {
+    let expectedOrigin;
+    try {
+      expectedOrigin = new URL(publicOrigin).origin;
+    } catch {
+      expectedOrigin = '';
+    }
+    if (!expectedOrigin || parsedReferer.origin !== expectedOrigin) {
+      return { ...primary, conflicts: [...primary.conflicts, 'invalid_referer_origin'] };
+    }
+  }
+  return mergeContext(
+    primary,
+    extractSingleUrlContext(parsedReferer.href),
+    { inherit: primary.isBootAsset },
+  );
+}
+
+export function extractMobileWorkbenchGatewayRequestContext(requestUrl = '/', requestHeaders = {}, options = {}) {
+  return extractRequestContext(requestUrl, requestHeaders, options);
 }

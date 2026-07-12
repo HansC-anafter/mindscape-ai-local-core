@@ -158,6 +158,7 @@ export function PackScopeToolRailHost({
       activeTool.capability_code,
       activeTool.panel_component_code,
       apiUrl,
+      workspaceId,
     ).then((Component) => {
       if (!cancelled) {
         setLoadedPanel(() => Component);
@@ -166,7 +167,7 @@ export function PackScopeToolRailHost({
     return () => {
       cancelled = true;
     };
-  }, [activeTool, apiUrl, tools]);
+  }, [activeTool, apiUrl, tools, workspaceId]);
 
   const activateTool = React.useCallback((tool: WorkspaceToolDefinition) => {
     setActiveToolKey((current) => {

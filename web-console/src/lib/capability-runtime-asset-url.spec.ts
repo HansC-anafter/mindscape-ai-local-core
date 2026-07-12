@@ -20,6 +20,17 @@ describe('buildRuntimeAssetFetchUrl', () => {
     )).toBe('/asset.mjs?pack=ig&integrity=sha256-next#runtime');
   });
 
+  it('adds explicit workspace context before the integrity cache key', () => {
+    expect(buildRuntimeAssetFetchUrl(
+      '/api/v1/capability-packs/installed-capabilities/ig/ui-assets/component.mjs',
+      'sha256-next',
+      'workspace-a',
+    )).toBe(
+      '/api/v1/capability-packs/installed-capabilities/ig/ui-assets/component.mjs'
+        + '?workspace_id=workspace-a&integrity=sha256-next',
+    );
+  });
+
   it('does not change asset URLs without integrity', () => {
     expect(buildRuntimeAssetFetchUrl('/asset.mjs')).toBe('/asset.mjs');
   });

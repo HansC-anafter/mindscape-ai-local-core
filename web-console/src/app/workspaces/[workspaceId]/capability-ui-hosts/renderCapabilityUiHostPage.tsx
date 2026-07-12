@@ -6,12 +6,14 @@ interface RenderCapabilityUiHostPageOptions {
   workspaceId: string;
   capabilityCode: string;
   surfacePath?: readonly string[];
+  remoteSurfaceMode?: boolean;
 }
 
 export function renderCapabilityUiHostPage({
   workspaceId,
   capabilityCode,
   surfacePath = [],
+  remoteSurfaceMode = false,
 }: RenderCapabilityUiHostPageOptions) {
   return (
     <div
@@ -30,6 +32,7 @@ export function renderCapabilityUiHostPage({
             workspaceId={workspaceId}
             capabilityCode={capabilityCode}
             surfacePath={surfacePath}
+            remoteSurfaceMode={remoteSurfaceMode}
           />
         </main>
       </div>

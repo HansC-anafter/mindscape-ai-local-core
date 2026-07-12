@@ -16,6 +16,14 @@ from .runner_claim_gate_bootstrap import (
 RUNNER_CLAIM_GATE_KEY = "mindscape:host_resources:runner_claim_gate"
 
 
+def _is_managed_durable_bootstrap(value: Any) -> bool:
+    return bool(
+        isinstance(value, dict)
+        and value.get("schema_version") == 1
+        and value.get("managed_by") == MANAGED_BOOTSTRAP_OWNER
+    )
+
+
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -52,13 +60,15 @@ def get_claim_gate_state(
     cache_service: Any,
 ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
     persisted = _read(cache_service)
+    bootstrap = read_runner_claim_gate_bootstrap()
     if persisted:
         state = normalize_runner_claim_gate(persisted, source="redis")
+        state["durable"] = _is_managed_durable_bootstrap(bootstrap)
         return state, dict(state)
-    bootstrap = read_runner_claim_gate_bootstrap()
     if bootstrap:
         state = normalize_runner_claim_gate(bootstrap, source="bootstrap_file")
         state["persisted"] = True
+        state["durable"] = _is_managed_durable_bootstrap(bootstrap)
         return state, dict(state)
     return None, normalize_runner_claim_gate(None, source="default")
 

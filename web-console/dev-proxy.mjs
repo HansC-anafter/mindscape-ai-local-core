@@ -1,82 +1,36 @@
-import http from 'node:http';
 import crypto from 'node:crypto';
 import { spawn } from 'node:child_process';
+
 import {
-  prewarmNextDevRoutes,
-} from './dev-proxy/prewarm.mjs';
-import { resolveApiRoutePlane } from './dev-proxy/api-route-plane.mjs';
+  buildInternalApiUrl,
+} from './dev-proxy/api-target.mjs';
 import {
-  DEFAULT_FRONTEND_DOCUMENT_SINGLEFLIGHT_MAX_BODY_BYTES,
-  isFrontendDocumentRequest,
-  normalizeFrontendDocumentSingleflightKey,
-} from './dev-proxy/document-singleflight.mjs';
-import {
-  isFrontendDocumentHeadReadinessRequest,
-  writeFrontendDocumentHeadReadiness,
-} from './dev-proxy/head-readiness.mjs';
-import {
-  isCapabilityHostRuntimeAssetRequest,
   prepareCapabilityHostRuntimeAssets,
-  writeCapabilityHostRuntimeAsset,
 } from './dev-proxy/capability-host-bootstrap.mjs';
 import {
   resolveDeviceLinkHttpsConfig,
   startDeviceLinkHttpsProxy,
 } from './dev-proxy/device-link-https.mjs';
 import {
-  isMobileWorkbenchGatewayPathAllowed,
-  isMobileWorkbenchGatewayRequestAllowed,
-  isMobileWorkbenchGatewayRequestAllowedAsync,
-  isLoopbackControlPlaneRequest,
-  formatMobileWorkbenchGatewayConfig,
+  createFrontendProxyServer,
+} from './dev-proxy/frontend-proxy-server.mjs';
+import {
+  createCloudflareAccessJwtVerifier,
+  loadMobileWorkbenchGatewayRuntimeConfig,
   resolveMobileWorkbenchGatewayConfig,
 } from './dev-proxy/mobile-workbench-gateway.mjs';
 import {
   createMobileWorkbenchGatewayPolicyResolver,
 } from './dev-proxy/mobile-workbench-gateway-policy-resolver.mjs';
 import {
-  createRemoteWorkbenchObservability,
-} from './dev-proxy/remote-workbench-observability.mjs';
+  prewarmNextDevRoutes,
+} from './dev-proxy/prewarm.mjs';
 import {
-  buildInternalApiUrl,
-  isDevApiProxyPath,
-  isFrontendLivenessPath,
-  resolveDevApiProxyTarget,
-} from './dev-proxy/api-target.mjs';
-import {
-  copyProxyResponseHeaders,
-  copyProxyUpgradeHeaders,
-} from './dev-proxy/proxy-headers.mjs';
-import {
-  clearDevApiReadCacheForTests,
-  resolveDevApiReadCacheTtlMs,
-} from './dev-proxy/dev-api-read-cache.mjs';
-import {
-  clearFrontendDocumentSingleflightForTests,
-} from './dev-proxy/frontend-document-stream.mjs';
-import {
-  isDeviceLinkHttpsHealthRequest,
-  isMobileWorkbenchGatewayAuditRequest,
-  isMobileWorkbenchGatewayHealthRequest,
-  isMobileWorkbenchGatewaySummaryRequest,
-  writeDeviceLinkHttpsHealth,
-  writeFrontendLiveness,
-  writeMobileWorkbenchGatewayAudit,
-  writeMobileWorkbenchGatewayHealth,
-  writeMobileWorkbenchGatewayRejection,
-  writeMobileWorkbenchGatewaySummary,
-} from './dev-proxy/local-control-endpoints.mjs';
-import {
-  classifyProxyUpstream,
-  loadRemoteWorkbenchRunnerSnapshot,
-  normalizeProxyLogPath,
-  proxyHttpRequest,
   resolveNextDevArgs,
-  shouldWriteProxyTimingLog,
 } from './dev-proxy/proxy-http.mjs';
 import {
-  proxyUpgrade,
-} from './dev-proxy/proxy-upgrade.mjs';
+  startRemoteWorkbenchListener,
+} from './dev-proxy/remote-workbench-listener.mjs';
 
 export { resolveFrontendPrewarmPaths } from './dev-proxy/prewarm.mjs';
 export { resolveApiRoutePlane } from './dev-proxy/api-route-plane.mjs';
@@ -104,16 +58,19 @@ export {
   startDeviceLinkHttpsProxy,
 } from './dev-proxy/device-link-https.mjs';
 export {
-  isMobileWorkbenchGatewayPathAllowed,
-  isMobileWorkbenchGatewayRequestAllowed,
-  isMobileWorkbenchGatewayRequestAllowedAsync,
-  isLoopbackControlPlaneRequest,
+  authorizeRemoteWorkbenchRequest,
+  createCloudflareAccessJwtVerifier,
+  createRemoteJwkSet,
+  deriveAuthConfigFingerprint,
+  extractMobileWorkbenchGatewayRequestContext,
   formatMobileWorkbenchGatewayConfig,
+  loadMobileWorkbenchGatewayRuntimeConfig,
+  normalizeEffectiveWorkspacePolicy,
+  normalizeRuntimeAccessPolicy,
+  parseAccessTokenFromHeaders,
   resolveMobileWorkbenchGatewayConfig,
 } from './dev-proxy/mobile-workbench-gateway.mjs';
-export {
-  createRemoteWorkbenchObservability,
-} from './dev-proxy/remote-workbench-observability.mjs';
+export { createRemoteWorkbenchObservability } from './dev-proxy/remote-workbench-observability.mjs';
 export {
   buildInternalApiUrl,
   isDevApiProxyPath,
@@ -121,6 +78,7 @@ export {
   resolveDevApiProxyTarget,
 } from './dev-proxy/api-target.mjs';
 export {
+  copyProxyRequestHeaders,
   copyProxyResponseHeaders,
   copyProxyUpgradeHeaders,
 } from './dev-proxy/proxy-headers.mjs';
@@ -128,28 +86,31 @@ export {
   clearDevApiReadCacheForTests,
   resolveDevApiReadCacheTtlMs,
 } from './dev-proxy/dev-api-read-cache.mjs';
-export {
-  clearFrontendDocumentSingleflightForTests,
-} from './dev-proxy/frontend-document-stream.mjs';
-export {
-  isDeviceLinkHttpsHealthRequest,
-} from './dev-proxy/local-control-endpoints.mjs';
+export { clearFrontendDocumentSingleflightForTests } from './dev-proxy/frontend-document-stream.mjs';
+export { isDeviceLinkHttpsHealthRequest } from './dev-proxy/local-control-endpoints.mjs';
 export {
   classifyProxyUpstream,
   normalizeProxyLogPath,
   resolveNextDevArgs,
   shouldWriteProxyTimingLog,
 } from './dev-proxy/proxy-http.mjs';
+export {
+  createFrontendProxyServer,
+  isForegroundFrontendRequest,
+} from './dev-proxy/frontend-proxy-server.mjs';
+export { startRemoteWorkbenchListener } from './dev-proxy/remote-workbench-listener.mjs';
 
-const PUBLIC_HOST = process.env.FRONTEND_PROXY_HOST || '0.0.0.0';
-const PUBLIC_PORT = Number.parseInt(process.env.PORT || '3000', 10);
-const NEXT_HOST = process.env.NEXT_DEV_HOST || '127.0.0.1';
-const NEXT_PORT = Number.parseInt(process.env.NEXT_DEV_PORT || '3001', 10);
+const LOCAL_HOST = process.env.FRONTEND_PROXY_HOST || '0.0.0.0';
+const LOCAL_PORT = Number.parseInt(process.env.PORT || '3000', 10);
+const REMOTE_HOST = '0.0.0.0';
+const REMOTE_PORT = 3001;
 const PREWARM_ENABLED = process.env.FRONTEND_PREWARM_ENABLED === '1';
 const PREWARM_DELAY_MS = Number.parseInt(process.env.FRONTEND_PREWARM_DELAY_MS || '8000', 10);
 const PREWARM_IDLE_MS = Number.parseInt(process.env.FRONTEND_PREWARM_IDLE_MS || '45000', 10);
-const PREWARM_FOREGROUND_GRACE_MS = Number.parseInt(process.env.FRONTEND_PREWARM_FOREGROUND_GRACE_MS || '15000', 10);
-let requestSequence = 0;
+const PREWARM_FOREGROUND_GRACE_MS = Number.parseInt(
+  process.env.FRONTEND_PREWARM_FOREGROUND_GRACE_MS || '15000',
+  10,
+);
 
 export function computeNextDevRestartDelayMs(restartCount) {
   const boundedCount = Math.max(0, Math.min(Number(restartCount) || 0, 5));
@@ -162,193 +123,38 @@ export function resolvePrewarmIdleDelayMs(lastForegroundActivityAt, now = Date.n
   if (!normalizedIdleMs || !normalizedLastActivityAt) {
     return 0;
   }
-  const elapsedMs = Math.max(0, Number(now) - normalizedLastActivityAt);
-  return Math.max(0, normalizedIdleMs - elapsedMs);
-}
-
-export function isForegroundFrontendRequest(method = 'GET', requestUrl = '/', headers = {}) {
-  if (
-    headers?.['x-mindscape-frontend-prewarm'] ||
-    headers?.['x-mindscape-frontend-prewarm-metadata'] ||
-    headers?.['x-mindscape-frontend-prewarm-probe']
-  ) {
-    return false;
-  }
-  if (isFrontendLivenessPath(requestUrl)) {
-    return false;
-  }
-  if (isFrontendDocumentHeadReadinessRequest(method, requestUrl)) {
-    return false;
-  }
-  try {
-    const parsed = new URL(requestUrl, 'http://localhost');
-    if (parsed.pathname === '/_next/webpack-hmr') {
-      return false;
-    }
-  } catch {
-    if (requestUrl === '/_next/webpack-hmr') {
-      return false;
-    }
-  }
-  return isFrontendDocumentRequest(method, requestUrl) || isDevApiProxyPath(requestUrl);
+  return Math.max(0, normalizedIdleMs - Math.max(0, Number(now) - normalizedLastActivityAt));
 }
 
 export function createDeviceLinkIngressToken() {
   return crypto.randomBytes(32).toString('hex');
 }
 
-export function createFrontendProxyServer({
-  nextRunningRef = { current: false },
-  nextProxyTarget = null,
-  mobileWorkbenchGatewayConfig = resolveMobileWorkbenchGatewayConfig(),
-  deviceLinkIngressToken = '',
-  remoteWorkbenchObservability = createRemoteWorkbenchObservability({
-    loadRunnerSnapshot: loadRemoteWorkbenchRunnerSnapshot,
-  }),
-  recordForegroundActivity = () => {},
-} = {}) {
-  const resolveWorkspaceCapabilityPolicy = createMobileWorkbenchGatewayPolicyResolver({
-    buildInternalApiUrl,
-  });
-
-  const server = http.createServer((req, res) => {
-    void (async () => {
-      if (isDeviceLinkHttpsHealthRequest(req.url, req.method)) {
-        writeDeviceLinkHttpsHealth(res);
-        return;
-      }
-      if (isMobileWorkbenchGatewayHealthRequest(req.url, req.method)) {
-        writeMobileWorkbenchGatewayHealth(res, mobileWorkbenchGatewayConfig);
-        return;
-      }
-      if (isMobileWorkbenchGatewaySummaryRequest(req.url, req.method)) {
-        if (!isLoopbackControlPlaneRequest(req.headers)) {
-          writeMobileWorkbenchGatewayRejection(
-            res,
-            { reason: 'mobile_workbench_gateway_path_not_allowed', status_code: 404 },
-            req.url,
-          );
-          return;
-        }
-        await writeMobileWorkbenchGatewaySummary(res, remoteWorkbenchObservability, req.url);
-        return;
-      }
-      if (isMobileWorkbenchGatewayAuditRequest(req.url, req.method)) {
-        if (!isLoopbackControlPlaneRequest(req.headers)) {
-          writeMobileWorkbenchGatewayRejection(
-            res,
-            { reason: 'mobile_workbench_gateway_path_not_allowed', status_code: 404 },
-            req.url,
-          );
-          return;
-        }
-        await writeMobileWorkbenchGatewayAudit(res, remoteWorkbenchObservability, req.url);
-        return;
-      }
-      if (isFrontendLivenessPath(req.url)) {
-        writeFrontendLiveness(res, nextRunningRef.current);
-        return;
-      }
-      if (isFrontendDocumentHeadReadinessRequest(req.method, req.url)) {
-        writeFrontendDocumentHeadReadiness(res, nextRunningRef.current);
-        return;
-      }
-      if (isCapabilityHostRuntimeAssetRequest(req.method, req.url)) {
-        await writeCapabilityHostRuntimeAsset(res, req.url);
-        return;
-      }
-
-      if (isForegroundFrontendRequest(req.method, req.url, req.headers)) {
-        recordForegroundActivity(Date.now());
-      }
-
-      const requestId = ++requestSequence;
-      const requestResult = await isMobileWorkbenchGatewayRequestAllowedAsync(
-        req.url,
-        req.headers,
-        mobileWorkbenchGatewayConfig,
-        {
-          deviceLinkIngressToken,
-          requestMethod: req.method,
-          resolveWorkspaceCapabilityPolicy,
-        },
-      );
-      const requestObservation = remoteWorkbenchObservability.createObservation({
-        requestId,
-        requestUrl: req.url,
-        requestMethod: req.method,
-        requestHeaders: req.headers,
-        requestResult,
-        mobileWorkbenchGatewayConfig,
-      });
-      if (!requestResult.allowed) {
-        const rejection = writeMobileWorkbenchGatewayRejection(res, requestResult, req.url);
-        void remoteWorkbenchObservability.recordDeniedRequest(requestObservation, {
-          requestResult,
-          statusCode: rejection.statusCode,
-          responseBytes: rejection.bodyBytes,
-        });
-        return;
-      }
-      proxyHttpRequest(req, res, {
-        requestId,
-        nextProxyTarget,
-        onComplete: (event) => {
-          void remoteWorkbenchObservability.recordCompletedRequest(requestObservation, event);
-        },
-      });
-    })().catch((error) => {
-      if (!res.headersSent) {
-        res.writeHead(500, { 'content-type': 'application/json', 'cache-control': 'no-store' });
-      }
-      if (!res.writableEnded) {
-        res.end(JSON.stringify({
-          error: 'frontend_proxy_request_failed',
-          detail: error?.message || 'unknown_error',
-        }));
-      }
-    });
-  });
-
-  server.on('upgrade', (req, socket, head) => {
-    void proxyUpgrade(
-      req,
-      socket,
-      head,
-      mobileWorkbenchGatewayConfig,
-      deviceLinkIngressToken,
-      resolveWorkspaceCapabilityPolicy,
-      nextProxyTarget,
-    ).catch(() => {
-      socket.destroy();
-    });
-  });
-  server.on('clientError', (_error, socket) => {
-    socket.end('HTTP/1.1 400 Bad Request\r\n\r\n');
-  });
-
-  return server;
-}
-
 export function start() {
   const nextRunningRef = { current: false };
+  const gatewayConfigRef = { current: resolveMobileWorkbenchGatewayConfig() };
   const deviceLinkIngressToken = createDeviceLinkIngressToken();
+  const policyResolver = createMobileWorkbenchGatewayPolicyResolver({ buildInternalApiUrl });
   let nextProcess = null;
   let restartTimer = null;
   let prewarmTimer = null;
   let deviceLinkHttpsServer = null;
+  let remoteServer = null;
   let restartCount = 0;
   let shuttingDown = false;
   let lastForegroundActivityAt = Date.now();
+
   const recordForegroundActivity = (activityAt = Date.now()) => {
     lastForegroundActivityAt = Math.max(lastForegroundActivityAt, Number(activityAt) || Date.now());
   };
   const hasRecentForegroundActivity = () => (
     resolvePrewarmIdleDelayMs(lastForegroundActivityAt, Date.now(), PREWARM_FOREGROUND_GRACE_MS) > 0
   );
-  const server = createFrontendProxyServer({
+  const localServer = createFrontendProxyServer({
+    ingressMode: 'local',
     nextRunningRef,
-    deviceLinkIngressToken,
+    getMobileWorkbenchGatewayConfig: () => gatewayConfigRef.current,
+    policyResolver,
     recordForegroundActivity,
   });
 
@@ -363,10 +169,6 @@ export function start() {
       prewarmTimer = null;
       const idleDelayMs = resolvePrewarmIdleDelayMs(lastForegroundActivityAt, Date.now(), PREWARM_IDLE_MS);
       if (idleDelayMs > 0) {
-        console.log(`[frontend-proxy] prewarm_deferred ${JSON.stringify({
-          reason: 'foreground_activity',
-          delay_ms: idleDelayMs,
-        })}`);
         schedulePrewarm(idleDelayMs);
         return;
       }
@@ -381,18 +183,12 @@ export function start() {
     if (shuttingDown) {
       return;
     }
-
     nextRunningRef.current = false;
-    nextProcess = spawn(
-      'pnpm',
-      resolveNextDevArgs(),
-      {
-        cwd: process.cwd(),
-        env: process.env,
-        stdio: 'inherit',
-      },
-    );
-
+    nextProcess = spawn('pnpm', resolveNextDevArgs(), {
+      cwd: process.cwd(),
+      env: process.env,
+      stdio: 'inherit',
+    });
     nextProcess.on('spawn', () => {
       nextRunningRef.current = true;
       if (PREWARM_ENABLED) {
@@ -400,7 +196,6 @@ export function start() {
         schedulePrewarm(PREWARM_DELAY_MS);
       }
     });
-
     nextProcess.on('exit', (code, signal) => {
       nextRunningRef.current = false;
       if (prewarmTimer) {
@@ -408,54 +203,67 @@ export function start() {
         prewarmTimer = null;
       }
       console.error(`[frontend-proxy] next dev exited code=${code ?? 'null'} signal=${signal ?? 'null'}`);
-
-      if (shuttingDown) {
-        return;
+      if (!shuttingDown) {
+        const delayMs = computeNextDevRestartDelayMs(restartCount);
+        restartCount += 1;
+        restartTimer = setTimeout(() => {
+          restartTimer = null;
+          launchNextDev();
+        }, delayMs);
       }
-
-      const delayMs = computeNextDevRestartDelayMs(restartCount);
-      restartCount += 1;
-      console.error(`[frontend-proxy] restarting next dev in ${delayMs}ms`);
-      restartTimer = setTimeout(() => {
-        restartTimer = null;
-        launchNextDev();
-      }, delayMs);
     });
   };
 
   launchNextDev();
-
-  server.listen(PUBLIC_PORT, PUBLIC_HOST, () => {
-    console.log(`[frontend-proxy] listening on ${PUBLIC_HOST}:${PUBLIC_PORT}, proxying to ${NEXT_HOST}:${NEXT_PORT}`);
+  localServer.listen(LOCAL_PORT, LOCAL_HOST, () => {
+    console.log(`[frontend-proxy] local listener ${LOCAL_HOST}:${LOCAL_PORT}`);
     void prepareCapabilityHostRuntimeAssets();
     deviceLinkHttpsServer = startDeviceLinkHttpsProxy({
       targetHost: '127.0.0.1',
-      targetPort: PUBLIC_PORT,
+      targetPort: LOCAL_PORT,
       ingressToken: deviceLinkIngressToken,
+    });
+    void startRemoteWorkbenchListener({
+      loadRuntimeConfig: () => loadMobileWorkbenchGatewayRuntimeConfig({ buildInternalApiUrl }),
+      createVerifier: (runtimePolicy) => createCloudflareAccessJwtVerifier({
+        accessIssuer: runtimePolicy.accessIssuer,
+        accessAudience: runtimePolicy.accessAudience,
+      }),
+      createServer: ({ verifier }) => createFrontendProxyServer({
+        ingressMode: 'remote',
+        nextRunningRef,
+        getMobileWorkbenchGatewayConfig: () => gatewayConfigRef.current,
+        verifyAccessToken: verifier,
+        policyResolver,
+        recordForegroundActivity,
+      }),
+      configRef: gatewayConfigRef,
+      host: REMOTE_HOST,
+      port: REMOTE_PORT,
+    }).then((result) => {
+      remoteServer = result.server;
+      if (remoteServer) {
+        console.log(`[frontend-proxy] remote listener ${REMOTE_HOST}:${REMOTE_PORT}`);
+      } else {
+        console.error('[frontend-proxy] remote listener closed: runtime policy is not ready');
+      }
+    }).catch((error) => {
+      console.error(`[frontend-proxy] remote listener failed: ${error?.message || 'unknown_error'}`);
     });
   });
 
   const shutdown = () => {
     shuttingDown = true;
-    if (restartTimer) {
-      clearTimeout(restartTimer);
-      restartTimer = null;
-    }
-    if (prewarmTimer) {
-      clearTimeout(prewarmTimer);
-      prewarmTimer = null;
-    }
+    if (restartTimer) clearTimeout(restartTimer);
+    if (prewarmTimer) clearTimeout(prewarmTimer);
     deviceLinkHttpsServer?.close();
-    deviceLinkHttpsServer = null;
-    server.close(() => {
-      nextProcess?.kill('SIGTERM');
-    });
+    remoteServer?.close();
+    localServer.close(() => nextProcess?.kill('SIGTERM'));
     setTimeout(() => {
       nextProcess?.kill('SIGKILL');
       process.exit(0);
     }, 10_000).unref();
   };
-
   process.on('SIGTERM', shutdown);
   process.on('SIGINT', shutdown);
 }

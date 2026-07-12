@@ -70,9 +70,13 @@ function logSuspiciousComponentPaths(components: UIComponentInfo[]): void {
 async function fetchCapabilityUIComponents(
   capabilityCode: string,
   apiUrl: string,
+  workspaceId?: string,
 ): Promise<UIComponentInfo[] | null> {
+  const workspaceQuery = workspaceId
+    ? `?workspace_id=${encodeURIComponent(workspaceId)}`
+    : '';
   const response = await fetch(
-    `${apiUrl}/api/v1/capability-packs/installed-capabilities/${capabilityCode}/ui-components`
+    `${apiUrl}/api/v1/capability-packs/installed-capabilities/${capabilityCode}/ui-components${workspaceQuery}`
   );
 
   if (!response.ok) {
@@ -163,12 +167,13 @@ function canUseLegacyContextComponent(component: UIComponentInfo): boolean {
 export async function loadCapabilityUIComponent(
   capabilityCode: string,
   componentCode: string,
-  apiUrl: string
+  apiUrl: string,
+  workspaceId?: string,
 ): Promise<ComponentType<any> | null> {
   try {
     let components = getCachedMetadata(capabilityCode);
     if (!components) {
-      components = await fetchCapabilityUIComponents(capabilityCode, apiUrl);
+      components = await fetchCapabilityUIComponents(capabilityCode, apiUrl, workspaceId);
       if (!components) {
         return null;
       }
@@ -188,7 +193,7 @@ export async function loadCapabilityUIComponent(
 
     if (component.asset_url) {
       try {
-        const RuntimeComponent = await loadRuntimeESMComponent(component, apiUrl);
+        const RuntimeComponent = await loadRuntimeESMComponent(component, apiUrl, workspaceId);
         if (RuntimeComponent) {
           setCachedLoadedComponent(cacheKey, RuntimeComponent);
           return RuntimeComponent;

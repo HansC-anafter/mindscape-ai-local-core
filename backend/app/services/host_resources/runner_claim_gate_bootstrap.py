@@ -41,6 +41,7 @@ def read_runner_claim_gate_bootstrap() -> dict[str, Any] | None:
         "state": "paused",
         "reason": str(payload.get("reason") or "cold_start_bootstrap"),
         "requested_by": str(payload.get("requested_by") or "local_runtime"),
+        "ttl_seconds": payload.get("ttl_seconds"),
         "paused_at": str(payload.get("paused_at") or paused_at),
         "bootstrap_path": str(path),
         "schema_version": payload.get("schema_version"),
@@ -61,6 +62,7 @@ def write_managed_runner_claim_gate_bootstrap(
         "paused_at": str(
             source.get("paused_at") or datetime.now(timezone.utc).isoformat()
         ),
+        "ttl_seconds": int(source.get("ttl_seconds") or 0),
     }
     temporary = path.with_name(f".{path.name}.tmp-{os.getpid()}")
     try:

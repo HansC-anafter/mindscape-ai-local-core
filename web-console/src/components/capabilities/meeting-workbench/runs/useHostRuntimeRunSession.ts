@@ -64,7 +64,7 @@ export function useHostRuntimeRunSession({
 
   useEffect(() => {
     let cancelled = false;
-    void fetchHostRuntimeStatus(apiUrl)
+    void fetchHostRuntimeStatus(apiUrl, workspaceId)
       .then((status) => {
         if (!cancelled) {
           setState((current) => ({ ...current, status }));
@@ -81,7 +81,7 @@ export function useHostRuntimeRunSession({
     return () => {
       cancelled = true;
     };
-  }, [apiUrl]);
+  }, [apiUrl, workspaceId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -205,7 +205,7 @@ export function useHostRuntimeRunSession({
     setState((current) => ({ ...current, isStartingBridge: true, error: null }));
     try {
       const bridgeService = await startSharedCliBridgeService({ apiUrl, workspaceId });
-      const status = await fetchHostRuntimeStatus(apiUrl);
+      const status = await fetchHostRuntimeStatus(apiUrl, workspaceId);
       setState((current) => ({
         ...current,
         bridgeService,

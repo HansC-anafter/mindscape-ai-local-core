@@ -51,7 +51,7 @@ export function PackPanel({
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    void getInstalledCapabilities(apiUrl)
+    void getInstalledCapabilities(apiUrl, workspaceId)
       .then((capabilities) => {
         if (!cancelled) {
           setInstalledCapabilities(capabilities);
@@ -70,7 +70,7 @@ export function PackPanel({
     return () => {
       cancelled = true;
     };
-  }, [apiUrl]);
+  }, [apiUrl, workspaceId]);
 
   const openCapabilityUI = (capabilityCode: string, componentCode?: string) => {
     const params = new URLSearchParams();

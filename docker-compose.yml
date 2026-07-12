@@ -134,8 +134,8 @@ services:
     logging: *default-logging
     command: ["sh", "-c", "exec sh /app/backend/scripts/run_backend_server.sh"]
     ports:
-      - "8200:8200"
-      - "${SANDBOX_PREVIEW_PORT_START:-3002}-${SANDBOX_PREVIEW_PORT_END:-3020}:${SANDBOX_PREVIEW_PORT_START:-3002}-${SANDBOX_PREVIEW_PORT_END:-3020}"
+      - "127.0.0.1:8200:8200"
+      - "127.0.0.1:3002-3020:3002-3020"
     environment:
       # Sandbox preview port range
       - SANDBOX_PREVIEW_PORT_START=${SANDBOX_PREVIEW_PORT_START:-3002}
@@ -300,7 +300,7 @@ services:
     logging: *default-logging
     command: ["sh", "-c", "exec sh /app/backend/scripts/run_backend_server.sh"]
     ports:
-      - "${MINDSCAPE_CONTROL_PLANE_HOST_PORT:-8220}:8210"
+      - "127.0.0.1:8220:8210"
     environment:
       - SANDBOX_PREVIEW_PORT_START=${SANDBOX_PREVIEW_PORT_START:-3002}
       - SANDBOX_PREVIEW_PORT_END=${SANDBOX_PREVIEW_PORT_END:-3020}
@@ -531,11 +531,14 @@ services:
     restart: unless-stopped
     logging: *default-logging
     ports:
-      - "8300:3000"
+      - "127.0.0.1:8300:3000"
+    expose:
+      - "3001"
     environment:
       - NODE_ENV=development
       - NEXT_TELEMETRY_DISABLED=1
       - NEXT_DEV_TURBO=${NEXT_DEV_TURBO:-0}
+      - NEXT_DEV_PORT=3002
       - FRONTEND_PREWARM_ENABLED=${FRONTEND_PREWARM_ENABLED:-1}
       - FRONTEND_PREWARM_DELAY_MS=${FRONTEND_PREWARM_DELAY_MS:-12000}
       - FRONTEND_PREWARM_TIMEOUT_MS=${FRONTEND_PREWARM_TIMEOUT_MS:-30000}
@@ -543,16 +546,6 @@ services:
       - FRONTEND_CAPABILITY_PREWARM_ENABLED=${FRONTEND_CAPABILITY_PREWARM_ENABLED:-1}
       - MOBILE_WORKBENCH_GATEWAY_ENABLED=${MOBILE_WORKBENCH_GATEWAY_ENABLED:-}
       - MOBILE_WORKBENCH_GATEWAY_PUBLIC_ORIGIN=${MOBILE_WORKBENCH_GATEWAY_PUBLIC_ORIGIN:-}
-      - MOBILE_WORKBENCH_GATEWAY_EXTRA_PATH_RULES=${MOBILE_WORKBENCH_GATEWAY_EXTRA_PATH_RULES:-}
-      - MOBILE_WORKBENCH_GATEWAY_ALLOWLIST_EMAILS=${MOBILE_WORKBENCH_GATEWAY_ALLOWLIST_EMAILS:-}
-      - MOBILE_WORKBENCH_GATEWAY_ALLOWLIST_GROUPS=${MOBILE_WORKBENCH_GATEWAY_ALLOWLIST_GROUPS:-}
-      - MOBILE_WORKBENCH_GATEWAY_WORKSPACE_ALLOWLIST=${MOBILE_WORKBENCH_GATEWAY_WORKSPACE_ALLOWLIST:-}
-      - MOBILE_WORKBENCH_GATEWAY_JWT_AUDIENCE=${MOBILE_WORKBENCH_GATEWAY_JWT_AUDIENCE:-}
-      - MOBILE_WORKBENCH_GATEWAY_JWT_ISSUER=${MOBILE_WORKBENCH_GATEWAY_JWT_ISSUER:-}
-      - MOBILE_WORKBENCH_GATEWAY_JWT_CLOCK_SKEW_SECONDS=${MOBILE_WORKBENCH_GATEWAY_JWT_CLOCK_SKEW_SECONDS:-}
-      - MOBILE_WORKBENCH_GATEWAY_JWT_PUBLIC_KEY=${MOBILE_WORKBENCH_GATEWAY_JWT_PUBLIC_KEY:-}
-      - MOBILE_WORKBENCH_GATEWAY_JWT_PUBLIC_KEY_FILE=${MOBILE_WORKBENCH_GATEWAY_JWT_PUBLIC_KEY_FILE:-}
-      - MOBILE_WORKBENCH_GATEWAY_REQUIRE_SIGNATURE_VERIFICATION=${MOBILE_WORKBENCH_GATEWAY_REQUIRE_SIGNATURE_VERIFICATION:-}
       - TZ=${TZ:-UTC}
     volumes:
       - ./config:/app/config:ro
@@ -649,7 +642,7 @@ services:
       - -c
       - log_autovacuum_min_duration=1000
     ports:
-      - "5433:5432"
+      - "127.0.0.1:5433:5432"
     environment:
       - POSTGRES_DB=${POSTGRES_CORE_DB:-mindscape_core}
       - POSTGRES_USER=${POSTGRES_CORE_USER:-mindscape}
@@ -690,7 +683,7 @@ services:
         printf '"%s" "%s"\n' "$$POSTGRES_CORE_USER" "$$POSTGRES_CORE_PASSWORD" > /tmp/pgbouncer-userlist.txt
         exec /usr/sbin/pgbouncer /etc/pgbouncer/pgbouncer.ini
     ports:
-      - "${LOCAL_CORE_PGBOUNCER_HOST_PORT:-6432}:6432"
+      - "127.0.0.1:6432:6432"
     environment:
       - POSTGRES_CORE_USER=${POSTGRES_CORE_USER:-mindscape}
       - POSTGRES_CORE_PASSWORD=${POSTGRES_CORE_PASSWORD:-mindscape_password}
@@ -737,7 +730,7 @@ services:
         fi
         exec postgres -c hot_standby=on -c shared_buffers=256MB -c max_wal_size=2GB
     ports:
-      - "${LOCAL_CORE_POSTGRES_REPLICA_HOST_PORT:-5434}:5432"
+      - "127.0.0.1:5434:5432"
     environment:
       - POSTGRES_DB=${POSTGRES_CORE_DB:-mindscape_core}
       - POSTGRES_USER=${POSTGRES_CORE_USER:-mindscape}
@@ -764,7 +757,7 @@ services:
     restart: unless-stopped
     logging: *default-logging
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     command:
       - redis-server
       - --save
@@ -798,7 +791,7 @@ services:
     restart: unless-stopped
     logging: *default-logging
     ports:
-      - "8001:8001"
+      - "127.0.0.1:8001:8001"
     environment:
       - OCR_USE_GPU=${OCR_USE_GPU:-false}
       - OCR_LANG=${OCR_LANG:-ch}
@@ -832,7 +825,7 @@ services:
     restart: unless-stopped
     logging: *default-logging
     ports:
-      - "8202:8000"
+      - "127.0.0.1:8202:8000"
     environment:
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - TZ=${TZ:-UTC}
@@ -860,7 +853,7 @@ services:
     restart: unless-stopped
     logging: *default-logging
     ports:
-      - "8020:8020"
+      - "127.0.0.1:8020:8020"
     environment:
       - COQUI_TOS_AGREED=1
       - XTTS_VOICES_DIR=/app/voices
@@ -895,7 +888,7 @@ services:
     restart: unless-stopped
     logging: *default-logging
     ports:
-      - "8006:8006"
+      - "127.0.0.1:8006:8006"
     environment:
       - HF_HOME=/root/.cache/huggingface
       - HUGGINGFACE_HUB_CACHE=/root/.cache/huggingface/hub

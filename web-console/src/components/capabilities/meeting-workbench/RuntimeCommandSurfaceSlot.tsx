@@ -52,7 +52,7 @@ export function RuntimeCommandSurfaceSlot({
     async function loadCommandSurface() {
       setLoading(true);
       try {
-        const tools = await fetchWorkspaceToolDefinitions({ apiUrl, capabilityCode });
+        const tools = await fetchWorkspaceToolDefinitions({ apiUrl, capabilityCode, workspaceId });
         if (cancelled) return;
         const nextTool = firstCommandSurfaceTool(tools);
         setTool(nextTool);
@@ -70,6 +70,7 @@ export function RuntimeCommandSurfaceSlot({
           nextTool.capability_code,
           nextTool.panel_component_code,
           apiUrl,
+          workspaceId,
         );
         if (!cancelled && LoadedComponent) {
           setComponent(() => LoadedComponent as RuntimeCommandSurfaceComponent);

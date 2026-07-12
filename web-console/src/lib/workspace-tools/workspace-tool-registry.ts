@@ -173,12 +173,17 @@ export function normalizeWorkspaceToolDefinitions(
 export async function fetchWorkspaceToolDefinitions({
   apiUrl,
   capabilityCode,
+  workspaceId,
 }: {
   apiUrl: string;
   capabilityCode: string;
+  workspaceId?: string;
 }): Promise<WorkspaceToolDefinition[]> {
+  const workspaceQuery = workspaceId
+    ? `?workspace_id=${encodeURIComponent(workspaceId)}`
+    : '';
   const response = await fetch(
-    `${apiUrl}/api/v1/capability-packs/installed-capabilities/${encodeURIComponent(capabilityCode)}/workspace-tools`,
+    `${apiUrl}/api/v1/capability-packs/installed-capabilities/${encodeURIComponent(capabilityCode)}/workspace-tools${workspaceQuery}`,
     { credentials: 'same-origin' },
   );
   if (!response.ok) {

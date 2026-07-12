@@ -77,6 +77,8 @@ def test_runner_claim_gate_is_restored_from_ttl_state(monkeypatch, tmp_path):
     assert sentinel.is_file()
     assert restored["state"] == "paused"
     assert restored["source"] == "redis"
+    assert restored["durable"] is True
+    assert restored["ttl_seconds"] == 120
 
 
 def test_runner_claim_gate_resume_clears_ttl_state(monkeypatch, tmp_path):
@@ -125,6 +127,7 @@ def test_runner_claim_gate_ttl_expiry_falls_back_to_managed_bootstrap(
     assert restored["source"] == "bootstrap_file"
     assert restored["reason"] == "docker_upgrade"
     assert restored["managed_by"] == "runner_claim_gate_facade"
+    assert restored["durable"] is True
 
 
 def test_runner_claim_gate_bootstrap_file_fails_closed_without_redis(

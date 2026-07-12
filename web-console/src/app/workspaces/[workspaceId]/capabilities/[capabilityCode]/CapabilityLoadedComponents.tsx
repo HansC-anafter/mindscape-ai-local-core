@@ -69,6 +69,7 @@ export default function CapabilityLoadedComponents({
             capabilityId,
             componentInfo.code,
             apiUrl,
+            workspaceId,
           );
           if (!Component && !cancelled) {
             await waitForComponentRetry();
@@ -76,6 +77,7 @@ export default function CapabilityLoadedComponents({
               capabilityId,
               componentInfo.code,
               apiUrl,
+              workspaceId,
             );
           }
 
@@ -111,7 +113,7 @@ export default function CapabilityLoadedComponents({
     return () => {
       cancelled = true;
     };
-  }, [apiUrl, capabilityCode, capabilityInfo?.id, uiComponents]);
+  }, [apiUrl, capabilityCode, capabilityInfo?.id, uiComponents, workspaceId]);
 
   return (
     <CapabilityLoadedComponentsView

@@ -17,13 +17,18 @@ function jsonScript(value) {
 export function renderCapabilityHostDocument(route) {
   const title = `${route.capabilityCode} capability host`;
   const config = createCapabilityHostConfig(route);
+  const scope = new URLSearchParams({
+    workspace_id: route.workspaceId,
+    capability_code: route.capabilityCode,
+  }).toString();
+  const runtimeAsset = (name) => `${RUNTIME_ASSET_PREFIX}${name}?${scope}`;
   return `<!doctype html>
 <html lang="en" class="theme-warm">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>${escapeHtml(title)}</title>
-  <link rel="stylesheet" href="${RUNTIME_ASSET_PREFIX}app-layout.css" />
+  <link rel="stylesheet" href="${runtimeAsset('app-layout.css')}" />
   <style>
     html, body, #root { height: 100%; margin: 0; }
     body { background: var(--color-surface, #fff); color: var(--color-text-primary, #111827); font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
@@ -37,9 +42,9 @@ export function renderCapabilityHostDocument(route) {
     <div class="capability-host-status"><div>Loading capability UI...</div></div>
   </div>
   <script id="mindscape-capability-host-config" type="application/json">${jsonScript(config)}</script>
-  <script src="${RUNTIME_ASSET_PREFIX}react.production.min.js"></script>
-  <script src="${RUNTIME_ASSET_PREFIX}react-dom.production.min.js"></script>
-  <script type="module" src="${RUNTIME_ASSET_PREFIX}shell-runtime.browser.js"></script>
+  <script src="${runtimeAsset('react.production.min.js')}"></script>
+  <script src="${runtimeAsset('react-dom.production.min.js')}"></script>
+  <script type="module" src="${runtimeAsset('shell-runtime.browser.js')}"></script>
 </body>
 </html>`;
 }

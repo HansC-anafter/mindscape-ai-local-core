@@ -1,43 +1,81 @@
 import {
   createCapabilityGatewayPathRules,
 } from './mobile-workbench-gateway-capability-rules.mjs';
+import {
+  MAX_POLICY_CACHE_ENTRIES,
+  MAX_SUPPORT_CACHE_ENTRIES,
+  POLICY_TTL_MS,
+  SUPPORT_TTL_MS,
+  UPSTREAM_TIMEOUT_MS,
+  WORKSPACE_EFFECTIVE_POLICY_PATH_PREFIX,
+} from './mobile-workbench-gateway/constants.mjs';
+import {
+  POLICY_PAYLOAD_LIMITS,
+  normalizeEffectiveWorkspacePolicy,
+  readBoundedJsonResponse,
+} from './mobile-workbench-gateway/policy-contract.mjs';
+import {
+  normalizeCapabilitySupport,
+} from './mobile-workbench-gateway/capability-support-contract.mjs';
 
-const POLICY_TTL_MS = 15_000;
-
-function normalizeCapabilityCode(value = '') {
-  return String(value || '').trim().toLowerCase();
-}
-
-function normalizeCapabilityCodes(values = []) {
-  if (!Array.isArray(values)) {
-    return [];
+function normalizeWorkspaceId(value) {
+  const normalized = String(value || '').trim();
+  if (!normalized || normalized.length > 128) {
+    throw new Error('invalid_workspace_id');
   }
-  const seen = new Set();
-  const normalized = [];
-  for (const value of values) {
-    const candidate = normalizeCapabilityCode(value);
-    if (!candidate || seen.has(candidate)) {
-      continue;
-    }
-    seen.add(candidate);
-    normalized.push(candidate);
-  }
-  normalized.sort();
   return normalized;
 }
 
-async function fetchJson(fetchImpl, url) {
-  const response = await fetchImpl(url);
-  if (!response.ok) {
-    throw new Error(`Gateway policy request failed: ${response.status} ${url}`);
+function normalizeCapabilityCode(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (!normalized || !/^[a-z0-9][a-z0-9_-]*$/.test(normalized)) {
+    throw new Error('invalid_capability_code');
   }
-  return await response.json();
+  return normalized;
+}
+
+function touchCacheEntry(cache, key, entry) {
+  cache.delete(key);
+  cache.set(key, entry);
+}
+
+function setBoundedCacheEntry(cache, key, entry, maxEntries) {
+  if (!cache.has(key) && cache.size >= maxEntries) {
+    cache.delete(cache.keys().next().value);
+  }
+  cache.set(key, entry);
+}
+
+async function fetchBoundedJson(fetchImpl, url, maxBytes, timeoutMs) {
+  const abortController = new AbortController();
+  const timeout = setTimeout(() => abortController.abort(), timeoutMs);
+  try {
+    const response = await fetchImpl(url, {
+      method: 'GET',
+      headers: { accept: 'application/json' },
+      signal: abortController.signal,
+    });
+    return await readBoundedJsonResponse(response, maxBytes);
+  } catch (error) {
+    if (error?.name === 'AbortError') {
+      throw new Error('mobile_workbench_policy_timeout');
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 export function createMobileWorkbenchGatewayPolicyResolver({
   buildInternalApiUrl,
   fetchImpl = globalThis.fetch,
   now = () => Date.now(),
+  timeoutMs = UPSTREAM_TIMEOUT_MS,
+  policyTtlMs = POLICY_TTL_MS,
+  supportTtlMs = SUPPORT_TTL_MS,
+  maxPolicyEntries = MAX_POLICY_CACHE_ENTRIES,
+  maxSupportEntries = MAX_SUPPORT_CACHE_ENTRIES,
+  maxUpstreamInFlight = 16,
 } = {}) {
   if (typeof buildInternalApiUrl !== 'function') {
     throw new Error('buildInternalApiUrl is required');
@@ -46,73 +84,161 @@ export function createMobileWorkbenchGatewayPolicyResolver({
     throw new Error('fetchImpl is required');
   }
 
-  const cache = new Map();
+  const effectivePolicyCache = new Map();
+  const capabilitySupportCache = new Map();
+  const upstreamCalls = { effectivePolicy: 0, capabilitySupport: 0 };
+  const upstreamLimit = Number.isSafeInteger(maxUpstreamInFlight) && maxUpstreamInFlight > 0
+    ? maxUpstreamInFlight
+    : 16;
+  let upstreamInFlight = 0;
+  let upstreamRejected = 0;
 
-  async function resolve({
-    workspaceId,
-    capabilityCode,
-  }) {
-    const normalizedWorkspaceId = String(workspaceId || '').trim();
-    const normalizedCapabilityCode = normalizeCapabilityCode(capabilityCode);
-    if (!normalizedWorkspaceId || !normalizedCapabilityCode) {
-      return null;
+  function incrementUpstreamCall(key) {
+    upstreamCalls[key] = Math.min(
+      Number.MAX_SAFE_INTEGER,
+      upstreamCalls[key] + 1,
+    );
+  }
+
+  async function runWithUpstreamSlot(loader) {
+    if (upstreamInFlight >= upstreamLimit) {
+      upstreamRejected = Math.min(Number.MAX_SAFE_INTEGER, upstreamRejected + 1);
+      throw new Error('mobile_workbench_policy_upstream_saturated');
     }
+    upstreamInFlight += 1;
+    try {
+      return await loader();
+    } finally {
+      upstreamInFlight -= 1;
+    }
+  }
 
-    const cacheKey = `${normalizedWorkspaceId}:${normalizedCapabilityCode}`;
-    const cached = cache.get(cacheKey);
+  function getOrLoad(cache, key, ttlMs, maxEntries, loader) {
     const currentTime = now();
+    const cached = cache.get(key);
     if (cached && cached.expiresAt > currentTime) {
+      touchCacheEntry(cache, key, cached);
       return cached.promise;
     }
-
-    const promise = Promise.all([
-      fetchJson(
-        fetchImpl,
-        buildInternalApiUrl(
-          `/api/v1/capabilities/mindscape_cloud_integration/mobile-workbench-gateway/workspaces/${encodeURIComponent(normalizedWorkspaceId)}/policy`,
-        ),
-      ),
-      fetchJson(
-        fetchImpl,
-        buildInternalApiUrl(
-          `/api/v1/capability-packs/installed-capabilities/${encodeURIComponent(normalizedCapabilityCode)}/mobile-workbench-gateway-support`,
-        ),
-      ),
-    ]).then(([policyPayload, supportPayload]) => {
-      const allowedCapabilityCodes = normalizeCapabilityCodes(
-        policyPayload?.allowed_capability_codes || [],
-      );
-      const apiPrefixes = Array.isArray(supportPayload?.api_prefixes)
-        ? supportPayload.api_prefixes
-        : [];
-      return {
-        workspaceId: normalizedWorkspaceId,
-        capabilityCode: normalizedCapabilityCode,
-        allowedCapabilityCodes,
-        capabilityAllowed: allowedCapabilityCodes.includes(normalizedCapabilityCode),
-        supported: Boolean(supportPayload?.supported),
-        hostRouteTemplate: supportPayload?.host_route_template || null,
-        apiPrefixes,
-        allowedPathRules: createCapabilityGatewayPathRules({
-          capabilityCode: normalizedCapabilityCode,
-          apiPrefixes,
-        }),
-      };
-    }).catch((error) => {
-      cache.delete(cacheKey);
+    cache.delete(key);
+    const promise = loader().catch((error) => {
+      if (cache.get(key)?.promise === promise) {
+        cache.delete(key);
+      }
       throw error;
     });
-
-    cache.set(cacheKey, {
-      expiresAt: currentTime + POLICY_TTL_MS,
+    setBoundedCacheEntry(cache, key, {
+      expiresAt: currentTime + ttlMs,
       promise,
-    });
+    }, maxEntries);
     return promise;
   }
 
-  resolve.clear = () => {
-    cache.clear();
-  };
+  function resolveEffectivePolicy(workspaceId) {
+    const normalizedWorkspaceId = normalizeWorkspaceId(workspaceId);
+    return getOrLoad(
+      effectivePolicyCache,
+      normalizedWorkspaceId,
+      policyTtlMs,
+      maxPolicyEntries,
+      () => runWithUpstreamSlot(async () => {
+        incrementUpstreamCall('effectivePolicy');
+        const path = `${WORKSPACE_EFFECTIVE_POLICY_PATH_PREFIX}/${encodeURIComponent(normalizedWorkspaceId)}/policy`;
+        const payload = await fetchBoundedJson(
+          fetchImpl,
+          buildInternalApiUrl(path),
+          POLICY_PAYLOAD_LIMITS.effective,
+          timeoutMs,
+        );
+        return normalizeEffectiveWorkspacePolicy(payload, normalizedWorkspaceId);
+      }),
+    );
+  }
 
+  function resolveCapabilitySupport(capabilityCode) {
+    const normalizedCapabilityCode = normalizeCapabilityCode(capabilityCode);
+    return getOrLoad(
+      capabilitySupportCache,
+      normalizedCapabilityCode,
+      supportTtlMs,
+      maxSupportEntries,
+      () => runWithUpstreamSlot(async () => {
+        incrementUpstreamCall('capabilitySupport');
+        const path = `/api/v1/capability-packs/installed-capabilities/${encodeURIComponent(normalizedCapabilityCode)}/mobile-workbench-gateway-support`;
+        const payload = await fetchBoundedJson(
+          fetchImpl,
+          buildInternalApiUrl(path),
+          POLICY_PAYLOAD_LIMITS.support,
+          timeoutMs,
+        );
+        return normalizeCapabilitySupport(payload, normalizedCapabilityCode);
+      }),
+    );
+  }
+
+  async function resolveCapabilityDecision(capabilityCode) {
+    const normalizedCapabilityCode = normalizeCapabilityCode(capabilityCode);
+    const capabilitySupport = await resolveCapabilitySupport(normalizedCapabilityCode);
+    return {
+      capabilityCode: normalizedCapabilityCode,
+      capabilitySupport,
+      allowedPathRules: createCapabilityGatewayPathRules({
+        capabilityCode: normalizedCapabilityCode,
+        hostRouteTemplate: capabilitySupport.hostRouteTemplate,
+        apiPrefixes: capabilitySupport.apiPrefixes,
+      }),
+    };
+  }
+
+  async function resolve({ workspaceId, capabilityCode = null }) {
+    const effectivePolicyPromise = resolveEffectivePolicy(workspaceId);
+    const supportPromise = capabilityCode
+      ? resolveCapabilitySupport(capabilityCode)
+      : Promise.resolve(null);
+    const settled = await Promise.allSettled([
+      effectivePolicyPromise,
+      supportPromise,
+    ]);
+    const rejected = settled.find((result) => result.status === 'rejected');
+    if (rejected) {
+      throw rejected.reason;
+    }
+    const [effectivePolicy, capabilitySupport] = settled.map((result) => result.value);
+    const normalizedCapabilityCode = capabilityCode
+      ? normalizeCapabilityCode(capabilityCode)
+      : null;
+    return {
+      effectivePolicy,
+      capabilitySupport,
+      capabilityCode: normalizedCapabilityCode,
+      capabilityAllowed: normalizedCapabilityCode
+        ? effectivePolicy.allowedCapabilityCodes.includes(normalizedCapabilityCode)
+        : true,
+      allowedPathRules: normalizedCapabilityCode && capabilitySupport
+          ? createCapabilityGatewayPathRules({
+              capabilityCode: normalizedCapabilityCode,
+              hostRouteTemplate: capabilitySupport.hostRouteTemplate,
+              apiPrefixes: capabilitySupport.apiPrefixes,
+            })
+        : [],
+    };
+  }
+
+  resolve.resolveEffectivePolicy = resolveEffectivePolicy;
+  resolve.resolveCapabilitySupport = resolveCapabilitySupport;
+  resolve.resolveCapabilityDecision = resolveCapabilityDecision;
+  resolve.clear = () => {
+    effectivePolicyCache.clear();
+    capabilitySupportCache.clear();
+  };
+  resolve.stats = () => ({
+    effectivePolicyCacheEntries: effectivePolicyCache.size,
+    capabilitySupportCacheEntries: capabilitySupportCache.size,
+    upstreamEffectivePolicyCalls: upstreamCalls.effectivePolicy,
+    upstreamCapabilitySupportCalls: upstreamCalls.capabilitySupport,
+    upstreamInFlight,
+    upstreamRejected,
+    maxUpstreamInFlight: upstreamLimit,
+  });
   return resolve;
 }

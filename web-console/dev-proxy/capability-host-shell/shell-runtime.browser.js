@@ -53,6 +53,16 @@ async function fetchJson(url, cacheKey = '') {
   return promise;
 }
 
+function scopedUrl(rawUrl, config) {
+  const parsed = new URL(rawUrl, window.location.origin);
+  if (parsed.origin !== window.location.origin) {
+    throw new Error('Cross-origin capability asset is forbidden');
+  }
+  parsed.searchParams.set('workspace_id', config.workspaceId);
+  parsed.searchParams.set('capability_code', config.capabilityCode);
+  return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+}
+
 function isMainPageComponent(component) {
   return Boolean(
     component?.code &&
@@ -89,18 +99,18 @@ function createNoopHost() {
 async function loadCapabilityComponents(config) {
   const encodedCapabilityCode = encodeURIComponent(config.capabilityCode);
   const capabilityInfo = await fetchJson(
-    `/api/v1/capability-packs/installed-capabilities/${encodedCapabilityCode}`,
-    `capability:${config.capabilityCode}`,
+    scopedUrl(`/api/v1/capability-packs/installed-capabilities/${encodedCapabilityCode}`, config),
+    `capability:${config.workspaceId}:${config.capabilityCode}`,
   );
   const capabilityId = capabilityInfo.id || config.capabilityCode;
   let components = await fetchJson(
-    `/api/v1/capability-packs/installed-capabilities/${encodedCapabilityCode}/ui-components`,
-    `components:${config.capabilityCode}`,
+    scopedUrl(`/api/v1/capability-packs/installed-capabilities/${encodedCapabilityCode}/ui-components`, config),
+    `components:${config.workspaceId}:${config.capabilityCode}`,
   );
   if ((!Array.isArray(components) || components.length === 0) && capabilityId !== config.capabilityCode) {
     components = await fetchJson(
-      `/api/v1/capability-packs/installed-capabilities/${encodeURIComponent(capabilityId)}/ui-components`,
-      `components:${capabilityId}`,
+      scopedUrl(`/api/v1/capability-packs/installed-capabilities/${encodeURIComponent(capabilityId)}/ui-components`, config),
+      `components:${config.workspaceId}:${capabilityId}`,
     );
   }
   if (!Array.isArray(components) || components.length === 0) {
@@ -128,7 +138,7 @@ async function load() {
     throw new Error('Selected component does not expose a runtime asset');
   }
   renderStatus(rootElement, `Loading ${componentInfo.code}...`);
-  const componentModule = await import(componentInfo.asset_url);
+  const componentModule = await import(scopedUrl(componentInfo.asset_url, config));
   const Component = componentModule[componentInfo.export || 'default'] || componentModule.default;
   if (!Component) {
     throw new Error('Runtime asset did not export a React component');

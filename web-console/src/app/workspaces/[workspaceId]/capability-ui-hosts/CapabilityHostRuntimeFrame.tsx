@@ -49,6 +49,7 @@ import {
 interface CapabilityHostRuntimeFrameProps {
   workspaceId: string;
   initialLoadProfile?: WorkspaceDataInitialLoadProfile;
+  remoteSurfaceMode?: boolean;
   children: React.ReactNode;
 }
 
@@ -62,9 +63,11 @@ function WorkspaceToolPanelLoadingState({ label }: { label: string }) {
 
 function CapabilityHostToolRailProvider({
   workspaceId,
+  remoteSurfaceMode,
   children,
 }: {
   workspaceId: string;
+  remoteSurfaceMode: boolean;
   children: React.ReactNode;
 }) {
   const apiUrl = getApiBaseUrl();
@@ -134,8 +137,9 @@ function CapabilityHostToolRailProvider({
       apiUrl,
       activeCapabilityCode,
       activeExecutionCount,
+      remoteSurfaceMode,
     })
-  ), [activeCapabilityCode, activeExecutionCount, apiUrl, workspaceId]);
+  ), [activeCapabilityCode, activeExecutionCount, apiUrl, remoteSurfaceMode, workspaceId]);
 
   const visibleContributions = React.useMemo(
     () => resolveVisibleContributions(coreContributions, registeredScopeContributions),
@@ -375,12 +379,16 @@ function CapabilityHostToolRailProvider({
 export default function CapabilityHostRuntimeFrame({
   workspaceId,
   initialLoadProfile,
+  remoteSurfaceMode = false,
   children,
 }: CapabilityHostRuntimeFrameProps) {
   return (
     <WorkspaceDataProvider workspaceId={workspaceId} initialLoadProfile={initialLoadProfile}>
       <ExecutionContextProvider workspaceId={workspaceId}>
-        <CapabilityHostToolRailProvider workspaceId={workspaceId}>
+        <CapabilityHostToolRailProvider
+          workspaceId={workspaceId}
+          remoteSurfaceMode={remoteSurfaceMode}
+        >
           {children}
         </CapabilityHostToolRailProvider>
       </ExecutionContextProvider>

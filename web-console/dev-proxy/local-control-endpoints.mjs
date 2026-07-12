@@ -97,11 +97,16 @@ export function writeDeviceLinkHttpsHealth(res, config = resolveDeviceLinkHttpsC
   res.end(body);
 }
 
-export function writeMobileWorkbenchGatewayHealth(res, config = resolveMobileWorkbenchGatewayConfig()) {
-  const formatted = formatMobileWorkbenchGatewayConfig(config);
-  const statusCode = 200;
+export function writeMobileWorkbenchGatewayHealth(
+  res,
+  config = resolveMobileWorkbenchGatewayConfig(),
+  resolverStats = {},
+) {
+  const formatted = formatMobileWorkbenchGatewayConfig(config, resolverStats);
+  const ready = Boolean(config.enabled && config.remoteListenerReady);
+  const statusCode = config.enabled && !ready ? 503 : 200;
   const body = JSON.stringify({
-    status: config.enabled ? 'ok' : 'disabled',
+    status: ready ? 'ok' : config.enabled ? 'blocked' : 'disabled',
     service: 'mobile-workbench-gateway',
     enabled: config.enabled,
     reason: config.reason,
@@ -177,6 +182,8 @@ export function writeMobileWorkbenchGatewayRejection(res, requestResult = {}, re
     'content-type': 'application/json',
     'cache-control': 'no-store',
     'content-length': Buffer.byteLength(body),
+    'x-mindscape-remote-auth-stage': requestResult.verification_stage || 'identity_rejected',
+    'x-mindscape-remote-auth-reason': requestResult.reason_code || reason,
   });
   res.end(body);
   return {
