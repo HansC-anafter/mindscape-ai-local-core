@@ -323,20 +323,35 @@ def _observe_run(
         final_oom = oom_total
         now = time.monotonic()
         if now >= next_pool:
-            pool = collector.collect_pool()
-            pool_failures = pool_sample_failures(pool)
+            pool: dict[str, Any] = {}
+            pool_failures: list[str] = []
+            pool_error_type: str | None = None
+            try:
+                pool = collector.collect_pool()
+                pool_failures.extend(pool_sample_failures(pool))
+            except Exception as exc:
+                pool_failures.append("pool_sample_failed")
+                pool_error_type = type(exc).__name__
             failures.extend(pool_failures)
-            terminal_task = collector.collect_task(task_id)
-            writer.append(
-                {
-                    "kind": "workload_pool",
-                    "task_id": task_id,
-                    "envelope_id": workload["envelope_id"],
-                    "task": terminal_task,
-                    "failures": pool_failures,
-                    **pool,
-                }
-            )
+            try:
+                terminal_task = collector.collect_task(task_id)
+            except Exception as exc:
+                failures.append("task_sample_failed")
+                terminal_task = {}
+                pool_failures.append("task_sample_failed")
+                if pool_error_type is None:
+                    pool_error_type = type(exc).__name__
+            pool_row = {
+                "kind": "workload_pool",
+                "task_id": task_id,
+                "envelope_id": workload["envelope_id"],
+                "task": terminal_task,
+                "failures": sorted(set(pool_failures)),
+                **pool,
+            }
+            if pool_error_type is not None:
+                pool_row["error_type"] = pool_error_type
+            writer.append(pool_row)
             status = str(terminal_task.get("status") or "")
             blocked = str(terminal_task.get("blocked_reason") or "")
             if status in TERMINAL_STATUSES or blocked in PRESERVED_BLOCKS:

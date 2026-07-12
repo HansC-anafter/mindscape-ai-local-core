@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from scripts.maintenance.browser_resource_calibration_core.cli import (
+    _observe_run,
     _wait_for_idle_reset,
 )
 from scripts.maintenance.browser_resource_calibration_core.evidence import evidence_row
@@ -45,6 +46,59 @@ from scripts.maintenance.browser_node_budget_reconcile_core import (
 
 
 GIB = 1024 * 1024 * 1024
+
+
+def test_workload_pool_timeout_invalidates_run_without_raising(monkeypatch) -> None:
+    class Collector:
+        def collect_node(self, *, include_all_containers):
+            assert include_all_containers is False
+            return {
+                "captured_at_epoch": 1.0,
+                "browser_cgroups": [{"oom_kill": 0, "oom_group_kill": 0}],
+                "browser_container_working_set_bytes": 100,
+            }
+
+        def collect_pool(self):
+            raise TimeoutError("loopback read timed out")
+
+        def collect_task(self, task_id):
+            return {"id": task_id, "status": "succeeded"}
+
+    class Writer:
+        def __init__(self):
+            self.rows = []
+
+        def append(self, row):
+            self.rows.append(row)
+
+    monkeypatch.setattr(
+        "scripts.maintenance.browser_resource_calibration_core.cli.time.sleep",
+        lambda _seconds: None,
+    )
+    writer = Writer()
+    result = _observe_run(
+        collector=Collector(),
+        writer=writer,
+        workload={
+            "envelope_id": "ig_batch_pin_references.browser",
+            "workload_code": "ig_batch_pin_references",
+            "partition": "browser_local",
+            "repetition": 3,
+            "payload_sha256": "abc",
+        },
+        task_id="11111111-1111-1111-1111-111111111111",
+        baseline={"browser_idle_peak_bytes": 0},
+        prelaunch_node={
+            "browser_cgroups": [{"oom_kill": 0, "oom_group_kill": 0}],
+        },
+        max_run_seconds=1,
+    )
+
+    assert result["valid"] is False
+    assert "pool_sample_failed" in result["failures"]
+    assert result["terminal_task"]["status"] == "succeeded"
+    assert writer.rows[-1]["kind"] == "workload_pool"
+    assert writer.rows[-1]["error_type"] == "TimeoutError"
 
 
 def test_idle_reset_waits_through_transient_container_recreation(monkeypatch) -> None:
