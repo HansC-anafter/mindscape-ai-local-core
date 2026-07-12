@@ -10,6 +10,7 @@ from scripts.maintenance.browser_resource_calibration_core.cli import (
     _wait_for_idle_reset,
 )
 from scripts.maintenance.browser_resource_calibration_core.evidence import evidence_row
+from scripts.maintenance.browser_resource_calibration_core.resume import load_run_summaries
 from scripts.maintenance.browser_resource_calibration_core.collectors import (
     CalibrationCollector,
     CalibrationCommandError,
@@ -272,6 +273,122 @@ def test_idle_reset_does_not_hide_non_transient_collector_failure() -> None:
             baseline={"browser_idle_peak_bytes": 100},
             timeout_seconds=1,
         )
+
+
+def test_idle_reset_accepts_browser_docker_upgrade_transition(monkeypatch) -> None:
+    class Collector:
+        browser_containers = ("runner-browser",)
+
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def collect_node(self, *, include_all_containers):
+            assert include_all_containers is False
+            self.calls += 1
+            if self.calls == 1:
+                raise CalibrationCommandError(
+                    ["docker", "exec", "runner-browser", "python", "-c", "pass"],
+                    1,
+                    "unable to upgrade to tcp, received 409",
+                )
+            return {"browser_cgroups": [{"memory_peak_bytes": 100}]}
+
+    monkeypatch.setattr(
+        "scripts.maintenance.browser_resource_calibration_core.cli.time.sleep",
+        lambda _seconds: None,
+    )
+    collector = Collector()
+    node = _wait_for_idle_reset(
+        collector=collector,
+        writer=type("Writer", (), {"append": lambda self, row: None})(),
+        baseline={"browser_idle_peak_bytes": 100},
+        timeout_seconds=1,
+    )
+    assert collector.calls == 2
+    assert node["browser_cgroups"][0]["memory_peak_bytes"] == 100
+
+
+def _write_resume_rows(path: Path, rows: list[dict]) -> None:
+    path.write_text(
+        "".join(json.dumps(evidence_row(row), sort_keys=True) + "\n" for row in rows),
+        encoding="utf-8",
+    )
+
+
+def _resume_claim(task_id: str = "task-1") -> dict:
+    return {
+        "kind": "natural_claim_observed",
+        "task": {"id": task_id},
+        "classification": {
+            "envelope_id": "ig_batch_pin_references.browser",
+            "workload_code": "ig_batch_pin_references",
+            "partition": "browser_local",
+            "repetition": 1,
+            "payload_sha256": "a" * 64,
+            "failures": [],
+        },
+    }
+
+
+def test_resume_rebuilds_valid_run_from_immutable_evidence(tmp_path: Path) -> None:
+    path = tmp_path / "source.jsonl"
+    node = {
+        "browser_container_working_set_bytes": 220,
+        "browser_cgroups": [{"oom_kill": 0, "oom_group_kill": 0}],
+    }
+    _write_resume_rows(
+        path,
+        [
+            {
+                "kind": "idle_cgroup_reset_ready",
+                "browser_cgroups": [{"memory_peak_bytes": 100, "oom_kill": 0, "oom_group_kill": 0}],
+            },
+            _resume_claim(),
+            {"kind": "workload_node", "task_id": "task-1", "captured_at_epoch": 1.0, **node},
+            {"kind": "workload_node", "task_id": "task-1", "captured_at_epoch": 6.0, **node},
+            {
+                "kind": "workload_pool",
+                "task_id": "task-1",
+                "failures": [],
+                "task": {"id": "task-1", "status": "succeeded"},
+            },
+        ],
+    )
+    runs, source_sha = load_run_summaries(
+        path,
+        baseline={"browser_idle_peak_bytes": 100},
+    )
+    assert len(source_sha) == 64
+    assert len(runs) == 1
+    assert runs[0]["valid"] is True
+    assert runs[0]["startup_peak_bytes"] == 120
+
+
+def test_resume_counts_partial_claim_as_invalid_partition_run(tmp_path: Path) -> None:
+    path = tmp_path / "partial.jsonl"
+    _write_resume_rows(path, [_resume_claim("partial-task")])
+    runs, _ = load_run_summaries(path, baseline={"browser_idle_peak_bytes": 100})
+    assert len(runs) == 1
+    assert runs[0]["valid"] is False
+    assert "resume_incomplete_evidence" in runs[0]["failures"]
+    state = quota_state(
+        runs,
+        {
+            "required_valid_runs_per_envelope": 3,
+            "max_browser_local_runs": 24,
+            "max_captured_post_runs": 3,
+        },
+    )
+    assert state["partition_runs"]["browser_local"] == 1
+
+
+def test_resume_rejects_tampered_evidence_hash(tmp_path: Path) -> None:
+    path = tmp_path / "tampered.jsonl"
+    row = evidence_row(_resume_claim())
+    row["classification"]["repetition"] = 2
+    path.write_text(json.dumps(row) + "\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="hash mismatch"):
+        load_run_summaries(path, baseline={"browser_idle_peak_bytes": 100})
 
 
 def test_workload_node_collection_uses_exact_cgroups_without_docker_stats() -> None:

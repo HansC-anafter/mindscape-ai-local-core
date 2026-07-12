@@ -18,10 +18,10 @@ from .evidence import JsonlEvidenceWriter, write_immutable_json
 from .natural_claim_observer import wait_for_natural_claim
 from .parsing import (
     summarize_baseline,
-    summarize_node_cadence,
-    summarize_task_memory_series,
     summarize_workload_runs,
 )
+from .resume import load_run_summaries
+from .run_summary import build_run_summary
 from .workloads import load_workload_manifest, quota_state
 
 
@@ -52,6 +52,7 @@ def build_parser() -> argparse.ArgumentParser:
     workload.add_argument("--sequential", action="store_true", required=True)
     workload.add_argument("--max-run-seconds", type=int, default=43200)
     workload.add_argument("--max-claim-wait-seconds", type=int, default=43200)
+    workload.add_argument("--resume-evidence-jsonl", type=Path)
     _add_outputs(workload)
     parser.add_argument("--api-base", default="http://127.0.0.1:8200")
     parser.add_argument("--redis-url", default="redis://127.0.0.1:6379/0")
@@ -136,8 +137,25 @@ def _run_workloads(args: argparse.Namespace) -> int:
     if baseline.get("status") != "pass" or int(baseline.get("duration_seconds") or 0) < 1800:
         raise ValueError("workload calibration requires a passing 30-minute baseline")
     collector = _collector(args)
+    seed_summaries: list[dict[str, Any]] = []
+    resume_sha256: str | None = None
+    if args.resume_evidence_jsonl is not None:
+        seed_summaries, resume_sha256 = load_run_summaries(
+            args.resume_evidence_jsonl,
+            baseline=baseline,
+        )
     writer = JsonlEvidenceWriter(args.output_jsonl)
-    run_summaries: list[dict[str, Any]] = []
+    run_summaries: list[dict[str, Any]] = list(seed_summaries)
+    if args.resume_evidence_jsonl is not None:
+        writer.append(
+            {
+                "kind": "workload_resume_loaded",
+                "source_path": str(args.resume_evidence_jsonl),
+                "source_sha256": resume_sha256,
+                "loaded_run_count": len(seed_summaries),
+                "quota": quota_state(run_summaries, manifest),
+            }
+        )
     outer_failures: list[str] = []
     try:
         while True:
@@ -221,6 +239,7 @@ def _run_workloads(args: argparse.Namespace) -> int:
                 max_run_seconds=args.max_run_seconds,
             )
             run_summaries.append(run_summary)
+            writer.append({"kind": "workload_run_summary", "run_summary": run_summary})
             print(
                 json.dumps(
                     {
@@ -269,7 +288,12 @@ def _wait_for_idle_reset(
             )
             is_known_transition = any(
                 marker in message
-                for marker in ("is not running", "is restarting", "no such container")
+                for marker in (
+                    "is not running",
+                    "is restarting",
+                    "no such container",
+                    "unable to upgrade to tcp",
+                )
             )
             if not is_browser_exec or (exc.stderr and not is_known_transition):
                 raise
@@ -302,11 +326,6 @@ def _observe_run(
     node_samples: list[dict[str, Any]] = []
     failures: list[str] = []
     terminal_task: dict[str, Any] = {}
-    initial_oom = sum(
-        int(row.get("oom_kill") or 0) + int(row.get("oom_group_kill") or 0)
-        for row in prelaunch_node["browser_cgroups"]
-    )
-    final_oom = 0
     while time.monotonic() - started < max_run_seconds:
         try:
             node = collector.collect_node(include_all_containers=False)
@@ -335,12 +354,6 @@ def _observe_run(
                     **node,
                 }
             )
-            oom_total = sum(
-                int(row.get("oom_kill") or 0)
-                + int(row.get("oom_group_kill") or 0)
-                for row in node["browser_cgroups"]
-            )
-            final_oom = oom_total
         now = time.monotonic()
         if now >= next_pool:
             pool: dict[str, Any] = {}
@@ -385,45 +398,15 @@ def _observe_run(
     else:
         failures.append("run_timeout")
 
-    if final_oom > initial_oom:
-        failures.append("runner_cgroup_oom_delta")
-    if str(terminal_task.get("status") or "") != "succeeded":
-        failures.append("task_not_succeeded")
-    failures.extend(str(value) for value in (workload.get("failures") or []))
-    try:
-        memory = summarize_task_memory_series(
-            node_samples,
-            browser_idle_peak_bytes=int(baseline["browser_idle_peak_bytes"]),
-        )
-    except ValueError as exc:
-        failures.append(str(exc))
-        memory = {
-            "startup_peak_bytes": 0,
-            "steady_peak_bytes": 0,
-            "startup_settle_seconds": 0.0,
-            "sample_count": len(node_samples),
-        }
-    cadence = summarize_node_cadence(node_samples)
-    if cadence["status"] != "pass":
-        failures.append(str(cadence["failure"]))
-    return {
-        "envelope_id": workload["envelope_id"],
-        "workload_code": workload["workload_code"],
-        "partition": workload.get("partition"),
-        "repetition": workload["repetition"],
-        "task_id": task_id,
-        "payload_sha256": workload["payload_sha256"],
-        **memory,
-        "node_cadence": cadence,
-        "task_peak_bytes": int(memory["startup_peak_bytes"]),
-        "valid": (
-            not failures
-            and int(memory["startup_peak_bytes"]) > 0
-            and int(memory["steady_peak_bytes"]) > 0
-        ),
-        "failures": sorted(set(failures)),
-        "terminal_task": terminal_task,
-    }
+    return build_run_summary(
+        workload=workload,
+        task_id=task_id,
+        baseline=baseline,
+        prelaunch_node=prelaunch_node,
+        node_samples=node_samples,
+        terminal_task=terminal_task,
+        failures=failures,
+    )
 
 
 def main(argv: Sequence[str] | None = None) -> int:
