@@ -178,6 +178,34 @@ def verify_public_matrix(runtime: Any, inputs: SecureInputs, workspace_id: str) 
                 expected_reason=None,
                 upgrade=upgrade,
             )
+    projected_list = runtime._public_path_request(  # noqa: SLF001
+        inputs.jwt_paths["hans"],
+        (
+            "/api/v1/capability-packs/installed-capabilities"
+            f"?workspace_id={workspace_id}"
+        ),
+        workspace_id=workspace_id,
+    )
+    runtime._assert_principal_response(  # noqa: SLF001
+        projected_list,
+        allowed=True,
+        expected_reason=None,
+        upgrade=False,
+    )
+    try:
+        projected = json.loads(projected_list.body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise CutoverError("Public installed capability projection is malformed") from error
+    if not isinstance(projected, list) or len(projected) > 64:
+        raise CutoverError("Public installed capability projection is unbounded")
+    for row in projected:
+        support = row.get("mobile_workbench_gateway_support") if isinstance(row, dict) else None
+        if (
+            not isinstance(support, dict)
+            or support.get("supported") is not True
+            or row.get("code") not in EXPECTED_TARGET_CAPABILITIES
+        ):
+            raise CutoverError("Public installed capability projection leaked unsupported data")
     for upgrade in (False, True):
         response = runtime._principal_request(  # noqa: SLF001
             inputs.jwt_paths["outsider"],

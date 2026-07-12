@@ -11,7 +11,9 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
 from remote_workbench_authorization_cutover.io import CutoverError
+from remote_workbench_authorization_cutover.http import HttpResponse
 from remote_workbench_authorization_cutover.runtime import RuntimeGate
+from remote_workbench_authorization_cutover.runtime_acceptance import verify_public_matrix
 from remote_workbench_authorization_cutover.secure_inputs import SecureInputs
 
 
@@ -175,3 +177,57 @@ def test_workflow_has_one_runtime_owned_latency_path_in_locked_order() -> None:
     ).read_text(encoding="utf-8")
     assert "installed-capabilities/yogacoach" not in acceptance
     assert 'f"/workspaces/{workspace_id}"' in acceptance
+
+
+def test_public_matrix_accepts_only_embedded_supported_projection(tmp_path: Path) -> None:
+    secure_dir = tmp_path / "secure-public"
+    secure_dir.mkdir(mode=0o700)
+    jwt_paths = {}
+    for label in ("hans", "pproo", "outsider"):
+        path = secure_dir / f"{label}.jwt"
+        path.write_text(f"{label}-cookie", encoding="utf-8")
+        path.chmod(0o600)
+        jwt_paths[label] = path
+    denied_membership = HttpResponse(
+        403,
+        {
+            "x-mindscape-remote-auth-stage": "principal_verified",
+            "x-mindscape-remote-auth-reason": "workspace_membership_required",
+        },
+        b"{}",
+    )
+    denied_capability = HttpResponse(
+        403,
+        {
+            "x-mindscape-remote-auth-stage": "principal_verified",
+            "x-mindscape-remote-auth-reason": "capability_not_allowed",
+        },
+        b"{}",
+    )
+    projection = [{
+        "code": "dance_motion_coach",
+        "mobile_workbench_gateway_support": {"supported": True},
+    }]
+
+    class SequencedHttp:
+        def __init__(self) -> None:
+            self.responses = [
+                HttpResponse(200, {}, b"ok"), HttpResponse(101, {}, b""),
+                HttpResponse(200, {}, b"ok"), HttpResponse(101, {}, b""),
+                HttpResponse(200, {}, json.dumps(projection).encode()),
+                denied_membership, denied_membership,
+                denied_capability, denied_capability,
+            ]
+
+        def request(self, *_args, **_kwargs):
+            return self.responses.pop(0)
+
+    inputs = SecureInputs(
+        directory=secure_dir,
+        policy={},
+        jwt_paths=jwt_paths,
+        jwt_claims={},
+    )
+    http = SequencedHttp()
+    verify_public_matrix(_gate(ProbeExecutor(), http), inputs, WORKSPACE_ID)
+    assert http.responses == []
