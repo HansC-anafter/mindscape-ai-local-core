@@ -16,6 +16,7 @@ from remote_workbench_authorization_cutover.pgbouncer_capacity import (
     CAPACITY_KEYS,
     PgBouncerCapacityGate,
 )
+from remote_workbench_authorization_cutover.release import ReleaseGate
 
 
 BASELINE = {
@@ -90,6 +91,47 @@ def test_capacity_gate_rejects_larger_pool_even_without_waiter_signal(
 
     with pytest.raises(CutoverError, match="drifted"):
         gate.verify_and_persist(secure, "post-origin")
+
+
+class ReleaseExecutor(Executor):
+    def run(self, args, **_kwargs) -> str:
+        self.calls.append(list(args))
+        command = " ".join(args)
+        if "pg_is_in_recovery" in command:
+            return "f|off|off\n"
+        if "SHOW POOLS" in command:
+            return (
+                "database,user,cl_waiting,sv_active,sv_idle,maxwait\n"
+                "mindscape_core,mindscape,0,1,2,0\n"
+            )
+        if "SHOW CONFIG" in command:
+            return _csv(self.values)
+        raise AssertionError(command)
+
+
+def test_release_database_gate_persists_and_compares_capacity_evidence(
+    tmp_path: Path,
+) -> None:
+    secure = tmp_path / "secure"
+    secure.mkdir(mode=0o700)
+    executor = ReleaseExecutor(dict(BASELINE))
+    gate = ReleaseGate(
+        repo_root=tmp_path,
+        cloud_worktree=tmp_path,
+        executor=executor,
+        http=object(),
+    )
+    (tmp_path / "docker/pgbouncer").mkdir(parents=True)
+    (tmp_path / "docker/pgbouncer/pgbouncer.ini").write_text(
+        "[pgbouncer]\ndefault_pool_size = 30\n",
+        encoding="utf-8",
+    )
+
+    gate.verify_database_pools(secure, "preflight")
+    executor.values = {**BASELINE, "max_client_conn": "900"}
+
+    with pytest.raises(CutoverError, match="drifted"):
+        gate.verify_database_pools(secure, "post-origin")
 
 
 @pytest.mark.parametrize(

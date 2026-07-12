@@ -19,6 +19,7 @@ from .install_receipt import (
 from .install_attempt_state import ACTIVE_INSTALL_STATES
 from .io import CommandExecutor, CutoverError
 from .pack_release import PackReleaseGate
+from .pgbouncer_capacity import PgBouncerCapacityGate
 from .query_plan import QueryPlanGate
 
 
@@ -40,6 +41,10 @@ class ReleaseGate:
         self.executor = executor
         self.http = http
         self.backup = BackupGate(repo_root=repo_root, executor=executor)
+        self.pgbouncer_capacity = PgBouncerCapacityGate(
+            repo_root=repo_root,
+            executor=executor,
+        )
         self.query_plan = QueryPlanGate(executor)
         self.pack = PackReleaseGate(
             cloud_worktree=cloud_worktree,
@@ -72,8 +77,15 @@ class ReleaseGate:
         if raw != "0":
             raise CutoverError("A capability install job is still active")
 
-    def verify_database_pools(self) -> None:
+    def verify_database_pools(
+        self,
+        secure_dir: Path | None = None,
+        evidence_label: str | None = None,
+    ) -> None:
         """Require writable PostgreSQL and idle PgBouncer wait queues."""
+
+        if (secure_dir is None) != (evidence_label is None):
+            raise CutoverError("PgBouncer capacity evidence requires directory and label")
 
         database = self.executor.run(
             [
@@ -129,6 +141,8 @@ class ReleaseGate:
         )
         if core_connections > 40:
             raise CutoverError("PgBouncer server connection budget exceeds 40")
+        if secure_dir is not None and evidence_label is not None:
+            self.pgbouncer_capacity.verify_and_persist(secure_dir, evidence_label)
 
     def verify_workspace_rows(self, target: str, inheritance: str) -> None:
         """Prove both workspace rows exist and inheritance has no direct policy row."""
