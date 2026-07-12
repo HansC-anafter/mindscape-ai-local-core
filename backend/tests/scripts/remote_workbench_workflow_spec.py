@@ -157,6 +157,24 @@ def test_active_install_preflight_blocks_every_first_mutation(
     assert events == ["edge", "ingress-read", "idle"]
 
 
+def test_fresh_backup_is_created_only_after_durable_infra_pause(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events: list[str] = []
+    monkeypatch.setattr(workflow_module, "load_secure_inputs", lambda _path: _inputs(tmp_path))
+    with pytest.raises(CutoverError, match="package failed"):
+        _cutover(
+            _workflow(events, Release(events, package_error=CutoverError("package failed"))),
+            tmp_path,
+        )
+
+    pause = events.index("pause:06a-infra")
+    backup = events.index("backup")
+    close = events.index("close-prove")
+    assert pause < backup < close
+
+
 def test_indeterminate_accepted_install_blocks_second_job(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

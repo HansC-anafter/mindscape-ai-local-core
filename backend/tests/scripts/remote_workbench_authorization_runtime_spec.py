@@ -125,18 +125,18 @@ def test_workflow_activation_and_origin_reconcile_order_is_single_path() -> None
     ).read_text(encoding="utf-8")
     edge = source.index("self.edge.verify()")
     idle = source.index("self.release.require_no_active_install_jobs()", edge)
-    backup = source.index("self.release.verify_or_create_backup()", idle)
-    activate = source.index("self.runtime.activate_supervisor()", backup)
+    activate = source.index("self.runtime.activate_supervisor()", idle)
     verify = source.index("self.runtime.verify_supervisor()", activate)
     inspect = source.index("self.runtime.inspect_origin", verify)
     pause = source.index('"06a-infra"', inspect)
-    close = source.index("self.runtime.close_and_prove", pause)
+    backup = source.index("self.release.verify_or_create_backup()", pause)
+    close = source.index("self.runtime.close_and_prove", backup)
     reconcile = source.index("self.runtime.reconcile_origin", close)
     database = source.index("self.release.verify_database_pools()", reconcile)
     known_good = source.index("self.release.capture_known_good", database)
 
-    assert edge < idle < backup < activate < verify < inspect < pause
-    assert pause < close < reconcile < database < known_good
+    assert edge < idle < activate < verify < inspect < pause
+    assert pause < backup < close < reconcile < database < known_good
 
 
 def test_workspace_api_records_require_both_exact_real_workspace_ids() -> None:
