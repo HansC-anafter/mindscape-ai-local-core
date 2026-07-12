@@ -498,6 +498,25 @@ def test_envelope_classifier_enforces_partition_and_lock_contracts() -> None:
     assert invalid["failures"] == ["browser_local_partition_mismatch"]
 
 
+def test_envelope_classifier_reads_admitted_profile_lock_contract() -> None:
+    following = classify_task_envelope(
+        {
+            "pack_id": "ig_analyze_following",
+            "queue_shard": "browser_local",
+            "concurrency_key": "concurrency:playbook_input:ig_analyze_following:/profile",
+            "execution_context": {
+                "inputs": {"user_data_dir": "/profile"},
+                "resource_admission": {
+                    "requirements": {"ig_profile_lock": "/profile"},
+                },
+            },
+        }
+    )
+
+    assert following["valid"] is True
+    assert following["envelope_id"] == "ig_analyze_following"
+
+
 def test_quota_state_counts_valid_envelopes_and_partition_limits() -> None:
     manifest = {
         "required_valid_runs_per_envelope": 3,

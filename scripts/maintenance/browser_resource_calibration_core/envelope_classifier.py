@@ -46,7 +46,10 @@ def classify_task_envelope(task: dict[str, Any]) -> dict[str, Any]:
     context = _mapping(task.get("execution_context"))
     params = _mapping(task.get("params"))
     inputs = _mapping(context.get("inputs")) or _mapping(task.get("inputs")) or params
-    requirements = _mapping(context.get("resource_requirements"))
+    admission = _mapping(context.get("resource_admission"))
+    requirements = _mapping(context.get("resource_requirements")) or _mapping(
+        admission.get("requirements")
+    )
     workload_code = str(
         context.get("playbook_code") or task.get("pack_id") or task.get("workload_code") or ""
     ).strip()
