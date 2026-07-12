@@ -163,7 +163,7 @@ def _validate_policy(payload: Any) -> dict[str, Any]:
 
 
 def load_secure_inputs(directory: Path) -> SecureInputs:
-    """Load the locked policy and three signed assertions from a 0700 directory."""
+    """Load the locked policy, two admins, and an optional outsider assertion."""
 
     expanded = directory.expanduser()
     if expanded.is_symlink():
@@ -180,16 +180,18 @@ def load_secure_inputs(directory: Path) -> SecureInputs:
     jwt_paths = {
         "hans": directory / "hans.jwt",
         "pproo": directory / "pproo.jwt",
-        "outsider": directory / "outsider.jwt",
     }
+    outsider_path = directory / "outsider.jwt"
+    if outsider_path.exists() or outsider_path.is_symlink():
+        jwt_paths["outsider"] = outsider_path
     jwt_claims: dict[str, dict[str, Any]] = {}
     token_hashes: set[str] = set()
     for label, path in jwt_paths.items():
         token_hash, claims = _read_assertion(path)
         token_hashes.add(token_hash)
         jwt_claims[label] = claims
-    if len(token_hashes) != 3:
-        raise CutoverError("Access assertions must belong to three distinct principals")
+    if len(token_hashes) != len(jwt_paths):
+        raise CutoverError("Access assertions must belong to distinct principals")
 
     expected = {
         "hans": "hans@anafter.co",
@@ -202,14 +204,20 @@ def load_secure_inputs(directory: Path) -> SecureInputs:
             raise CutoverError(f"Access assertion email mismatch: {label}")
         if str(claims.get("sub") or "").strip() != admins[email]:
             raise CutoverError(f"Access assertion subject mismatch: {label}")
-    outsider = jwt_claims["outsider"]
-    outsider_email = str(outsider.get("email") or "").strip().lower()
-    if not outsider_email:
-        raise CutoverError("Outsider assertion must include a non-empty email preview")
-    if outsider_email in EXPECTED_ADMIN_EMAILS:
-        raise CutoverError("Outsider assertion must not use a designated administrator email")
-    if outsider.get("sub") in admins.values():
-        raise CutoverError("Outsider assertion must not reuse an administrator subject")
+    outsider = jwt_claims.get("outsider")
+    if outsider is not None:
+        outsider_email = str(outsider.get("email") or "").strip().lower()
+        outsider_subject = str(outsider.get("sub") or "").strip()
+        if not outsider_email or not outsider_subject:
+            raise CutoverError(
+                "Outsider assertion must include a non-empty email and subject"
+            )
+        if outsider_email in EXPECTED_ADMIN_EMAILS:
+            raise CutoverError(
+                "Outsider assertion must not use a designated administrator email"
+            )
+        if outsider_subject in admins.values():
+            raise CutoverError("Outsider assertion must not reuse an administrator subject")
 
     account_path = directory / "cloudflare-account-id.txt"
     tunnel_path = directory / "cloudflare-tunnel-id.txt"

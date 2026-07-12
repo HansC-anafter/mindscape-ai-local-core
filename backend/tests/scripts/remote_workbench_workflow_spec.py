@@ -91,7 +91,7 @@ class Release:
     def verify_or_create_backup(self):
         self.events.append("backup")
         return Path("/backup")
-    def verify_database_pools(self): self.events.append("db")
+    def verify_database_pools(self, _directory=None, _label=None): self.events.append("db")
     def verify_workspace_rows(self, _target, _inheritance): self.events.append("workspace-db")
     def require_no_active_install_jobs(self):
         self.events.append("idle")

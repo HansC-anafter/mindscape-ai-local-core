@@ -221,3 +221,54 @@ class RemoteIngressGate:
         write_private_json(lock_path, lock)
         write_private_json(inputs.directory / "cloudflare-ingress-after.json", lock)
         return lock
+
+    def verify_exact(
+        self,
+        inputs: SecureInputs,
+        expected: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """Read back the exact live config and both launcher locks without a PUT."""
+
+        metadata = self._request(inputs, "")
+        if (
+            metadata.get("id") != inputs.cloudflare_tunnel_id
+            or metadata.get("account_tag") != inputs.cloudflare_account_id
+            or metadata.get("config_src") != "cloudflare"
+        ):
+            raise CutoverError("Cloudflare tunnel identity changed after enrollment")
+        configuration = self._request(inputs, "/configurations")
+        version = self._require_exact_readback(inputs, configuration)
+        live = {
+            "tunnel_id": inputs.cloudflare_tunnel_id,
+            "config_version": version,
+            "config_sha256": canonical_config_sha256(),
+            "config_src": "cloudflare",
+            "hostname": PUBLIC_HOSTNAME,
+            "service": INTERNAL_REMOTE_SERVICE,
+            "catch_all": FALLBACK_SERVICE,
+        }
+        if dict(expected) != live:
+            raise CutoverError("Cloudflare ingress checkpoint no longer matches live config")
+        state_root = Path(
+            os.getenv(
+                "REMOTE_WORKBENCH_BRIDGE_STATE_DIR",
+                "~/.mindscape/remote-workbench-bridge",
+            )
+        ).expanduser()
+        if state_root.is_symlink():
+            raise CutoverError("Remote ingress lock directory must not be symbolic")
+        lock_paths = (
+            state_root / "remote-ingress-lock.json",
+            inputs.directory / "cloudflare-ingress-after.json",
+        )
+        for path in lock_paths:
+            assert_private_file(path, max_bytes=32_768)
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError as error:
+                raise CutoverError("Remote ingress lock is malformed") from error
+            if not isinstance(payload, Mapping) or any(
+                payload.get(key) != value for key, value in live.items()
+            ):
+                raise CutoverError("Remote ingress lock identity changed after enrollment")
+        return live

@@ -125,7 +125,7 @@ def test_workflow_activation_and_origin_reconcile_order_is_single_path() -> None
     ).read_text(encoding="utf-8")
     edge = source.index("self.edge.verify()")
     idle = source.index("self.release.require_no_active_install_jobs()", edge)
-    database_before = source.index("self.release.verify_database_pools()", idle)
+    database_before = source.index("self.release.verify_database_pools(", idle)
     pause = source.index('"06a-infra"', database_before)
     backup = source.index("self.release.verify_or_create_backup()", pause)
     activate = source.index("self.runtime.activate_supervisor()", backup)
@@ -133,7 +133,7 @@ def test_workflow_activation_and_origin_reconcile_order_is_single_path() -> None
     inspect = source.index("self.runtime.inspect_origin", verify)
     close = source.index("self.runtime.close_and_prove", inspect)
     reconcile = source.index("self.runtime.reconcile_origin", close)
-    database = source.index("self.release.verify_database_pools()", reconcile)
+    database = source.index("self.release.verify_database_pools(", reconcile)
     known_good = source.index("self.release.capture_known_good", database)
 
     assert edge < idle < database_before < pause < backup < activate < verify < inspect
@@ -395,7 +395,7 @@ class EnrollmentHttp:
         return {"events": self.events}
 
 
-def test_enrollment_discovery_uses_three_requests_and_exactly_one_audit_get(
+def test_enrollment_discovery_uses_two_admin_requests_and_exactly_one_audit_get(
     tmp_path: Path,
 ) -> None:
     captured = datetime.now(timezone.utc) + timedelta(seconds=1)
@@ -424,7 +424,7 @@ def test_enrollment_discovery_uses_three_requests_and_exactly_one_audit_get(
         http=http,
     ).verify_enrollment_assertions(inputs, EXPECTED_TARGET_WORKSPACE_ID)
 
-    assert http.request_count == 3
+    assert http.request_count == 2
     assert http.audit_get_count == 1
 
 

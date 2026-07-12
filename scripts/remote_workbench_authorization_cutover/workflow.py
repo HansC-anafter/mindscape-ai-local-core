@@ -8,6 +8,12 @@ from typing import Any
 
 from .claim_gate import RunnerClaimGate
 from .edge import AccessEdgeGate
+from .enrollment_checkpoint import (
+    EnrollmentContinuation,
+    checkpoint_path,
+    load_checkpoint,
+    write_checkpoint,
+)
 from .io import (
     CutoverError,
     assert_private_directory,
@@ -48,6 +54,13 @@ class CutoverWorkflow:
         self.runtime = runtime
         self.resources = resources
         self.claims = claims
+        self.continuation = EnrollmentContinuation(
+            edge=edge,
+            ingress=ingress,
+            release=release,
+            runtime=runtime,
+            claims=claims,
+        )
 
     @staticmethod
     def _validate_workspace_ids(target: str, inheritance: str) -> None:
@@ -212,7 +225,25 @@ class CutoverWorkflow:
         """Run the one backup/install/enrollment/enforcement transition path."""
 
         self._validate_workspace_ids(target_workspace_id, inheritance_workspace_id)
+        checkpoint_present = (
+            checkpoint_path(secure_input_dir).exists()
+            or checkpoint_path(secure_input_dir).is_symlink()
+        )
+        if checkpoint_present:
+            self.runtime.safe_close("authorization_resume_preflight")
         inputs = load_secure_inputs(secure_input_dir)
+        checkpoint = load_checkpoint(inputs.directory)
+        if checkpoint is not None:
+            try:
+                return self.continuation.resume(
+                    inputs=inputs,
+                    checkpoint=checkpoint,
+                    target_workspace_id=target_workspace_id,
+                    inheritance_workspace_id=inheritance_workspace_id,
+                )
+            except Exception:
+                self.runtime.safe_close("authorization_resume_failed")
+                raise
         original: dict[str, Any] | None = None
         policy_intent_recorded = False
         pack_mutation_started = False
@@ -225,7 +256,7 @@ class CutoverWorkflow:
             self.release.require_no_active_install_jobs()
             self.release.verify_workspace_rows(target_workspace_id, inheritance_workspace_id)
             self.runtime.verify_workspace_records(target_workspace_id, inheritance_workspace_id)
-            self.release.verify_database_pools()
+            self.release.verify_database_pools(inputs.directory, "preflight")
 
             claims_paused = True
             infra_before = self.claims.pause_and_drain(inputs.directory, "06a-infra")
@@ -246,7 +277,7 @@ class CutoverWorkflow:
                     secure_dir=inputs.directory,
                     workspace_id=target_workspace_id,
                 )
-            self.release.verify_database_pools()
+            self.release.verify_database_pools(inputs.directory, "post-origin")
             self.release.require_no_active_install_jobs()
             self.release.capture_known_good(inputs.directory)
             workspace_before = self.runtime.get_effective_policy(target_workspace_id)
@@ -268,7 +299,7 @@ class CutoverWorkflow:
             pack_mutation_started = True
             pack_restore_allowed = True
             self.release.require_no_active_install_jobs()
-            self.release.verify_database_pools()
+            self.release.verify_database_pools(inputs.directory, "post-install")
             self.release.verify_effective_policy_query_plan(target_workspace_id)
 
             original = self.runtime.get_runtime_policy()
@@ -294,7 +325,7 @@ class CutoverWorkflow:
                 reopen=False,
             )
             self.runtime.verify_pending_coherence(pending_readback, target_workspace_id)
-            self.ingress.apply_exact(inputs)
+            ingress_lock = self.ingress.apply_exact(inputs)
             self.runtime.reopen_transport()
             require_access_token_remaining(inputs)
             self.runtime.verify_enrollment_assertions(inputs, target_workspace_id)
@@ -317,51 +348,38 @@ class CutoverWorkflow:
                 state="enrollment_only",
                 revision=current_revision,
             )
-
-            claims_paused = True
-            authorization_before = self.claims.pause_and_drain(
-                inputs.directory,
-                "phase06-authorization",
-            )
-            require_access_token_remaining(inputs)
-            enforced_body = self._enforced_body(inputs, current_revision)
-            record_policy_intent(inputs.directory, original=original, body=enforced_body)
-            final_readback = self.runtime.transition(
-                enforced_body,
-                assertion_path=inputs.jwt_paths["hans"],
-                workspace_id=target_workspace_id,
-                reopen=True,
-            )
-            final_revision = final_readback["revision"]
-            self.runtime.verify_effective_policies(
-                inputs,
+            if "outsider" not in inputs.jwt_paths:
+                self.runtime.close_and_prove(
+                    inputs.jwt_paths["hans"],
+                    target_workspace_id,
+                )
+                checkpoint = write_checkpoint(
+                    inputs.directory,
+                    target_workspace_id=target_workspace_id,
+                    inheritance_workspace_id=inheritance_workspace_id,
+                    runtime=enrollment_readback,
+                    install=install_job,
+                    ingress=ingress_lock,
+                    source=self.release.source_identity(),
+                    backup_dir=backup_dir,
+                )
+                return {
+                    "status": "pending_outsider",
+                    "runtime_policy_revision": current_revision,
+                    "install_id": checkpoint["install"]["install_id"],
+                    "backup_dir": checkpoint["backup_dir"],
+                    "maintenance": True,
+                    "tunnel": "closed",
+                }
+            return self.continuation.finish(
+                inputs=inputs,
                 target_workspace_id=target_workspace_id,
                 inheritance_workspace_id=inheritance_workspace_id,
-                state="enforced",
-                revision=final_revision,
+                current_revision=current_revision,
+                original=original,
+                install_id=install_job["install_id"],
+                backup_dir=str(backup_dir),
             )
-            self.release.verify_workspace_rows(target_workspace_id, inheritance_workspace_id)
-            self.runtime.verify_workspace_records(target_workspace_id, inheritance_workspace_id)
-            self.runtime.verify_gateway_latency(inputs, target_workspace_id)
-            require_access_token_remaining(inputs)
-            self.runtime.verify_public_matrix(inputs, target_workspace_id)
-            self.claims.verify_after(
-                authorization_before,
-                inputs.directory,
-                "phase06-authorization",
-            )
-            self.release.verify_database_pools()
-            self.claims.resume()
-            claims_paused = False
-            self.runtime.exit_maintenance()
-            return {
-                "status": "succeeded",
-                "runtime_policy_revision": final_revision,
-                "install_id": install_job.get("install_id"),
-                "backup_dir": str(backup_dir),
-                "resource_window": "unchanged",
-                "maintenance": False,
-            }
         except Exception as failure:
             try:
                 self._mandatory_backout(

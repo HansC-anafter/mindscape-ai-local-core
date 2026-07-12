@@ -38,15 +38,13 @@ def validate_enrollment_candidates(
         for item in inputs.policy["local_core_super_admins"]
     }
     claims_by_email = {
-        str(claims.get("email") or "").lower(): claims
-        for claims in inputs.jwt_claims.values()
+        str(inputs.jwt_claims[label].get("email") or "").lower():
+        inputs.jwt_claims[label]
+        for label in ("hans", "pproo")
     }
     candidates: dict[str, list[Mapping[str, Any]]] = {
         email: [] for email in EXPECTED_ADMIN_EMAILS
     }
-    outsider = inputs.jwt_claims["outsider"]
-    outsider_email = str(outsider.get("email") or "").lower()
-    outsider_subject = str(outsider.get("sub") or "")
     for event in events:
         if not isinstance(event, Mapping):
             continue
@@ -64,8 +62,6 @@ def validate_enrollment_candidates(
             raise CutoverError("Enrollment subject candidate is malformed")
         email = str(candidate.get("email") or "").lower()
         subject = str(candidate.get("subject") or "")
-        if email == outsider_email or subject == outsider_subject:
-            raise CutoverError("Outsider unexpectedly produced an enrollment candidate")
         if email not in candidates:
             raise CutoverError("Enrollment audit contains an unknown candidate")
         candidates[email].append(candidate)
@@ -93,7 +89,8 @@ def verify_enrollment_assertions(
     """Prove identity verification while enrollment state denies data access."""
 
     started_at = datetime.now(timezone.utc)
-    for path in inputs.jwt_paths.values():
+    for label in ("hans", "pproo"):
+        path = inputs.jwt_paths[label]
         response = runtime._principal_request(  # noqa: SLF001 - canonical facade
             path,
             workspace_id,

@@ -14,6 +14,7 @@ sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
 from remote_workbench_authorization_cutover.http import HttpResponse
 from remote_workbench_authorization_cutover.io import CutoverError
+from remote_workbench_authorization_cutover.enrollment_checkpoint import ingress_identity
 from remote_workbench_authorization_cutover.remote_ingress import (
     CANONICAL_CONFIG,
     RemoteIngressGate,
@@ -135,6 +136,28 @@ def test_remote_ingress_rejects_local_config_source_and_extra_config(
     extra = {**CANONICAL_CONFIG, "originRequest": {}}
     with pytest.raises(CutoverError, match="canonical config"):
         RemoteIngressGate(CloudflareHttp(readback_config=extra)).apply_exact(inputs)
+
+
+def test_resume_verifies_exact_ingress_and_locks_without_a_second_put(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    inputs = _inputs(tmp_path)
+    state = tmp_path / "resume-state"
+    monkeypatch.setenv("REMOTE_WORKBENCH_BRIDGE_STATE_DIR", str(state))
+    http = CloudflareHttp()
+    gate = RemoteIngressGate(http)
+    gate.capture_prechange(inputs)
+    expected = ingress_identity(gate.apply_exact(inputs))
+    puts_before = sum(call["method"] == "PUT" for call in http.calls)
+
+    assert gate.verify_exact(inputs, expected)["config_version"] == 5
+    assert sum(call["method"] == "PUT" for call in http.calls) == puts_before == 1
+
+    changed = dict(expected)
+    changed["config_version"] = 6
+    with pytest.raises(CutoverError, match="checkpoint no longer matches"):
+        gate.verify_exact(inputs, changed)
 
 
 def test_workflow_applies_remote_ingress_only_after_pending_runtime_coherence() -> None:

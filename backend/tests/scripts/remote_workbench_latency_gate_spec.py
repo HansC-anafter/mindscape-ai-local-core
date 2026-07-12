@@ -165,12 +165,13 @@ def test_latency_gate_rejects_live_upstream_counter_drift(tmp_path: Path) -> Non
 
 def test_workflow_has_one_runtime_owned_latency_path_in_locked_order() -> None:
     source = (
-        REPO_ROOT / "scripts/remote_workbench_authorization_cutover/workflow.py"
+        REPO_ROOT
+        / "scripts/remote_workbench_authorization_cutover/enrollment_checkpoint.py"
     ).read_text(encoding="utf-8")
     active = source.index("state=\"enforced\"")
     latency = source.index("self.runtime.verify_gateway_latency", active)
     public = source.index("self.runtime.verify_public_matrix", latency)
-    database = source.index("self.release.verify_database_pools()", public)
+    database = source.index("self.release.verify_database_pools(", public)
 
     assert active < latency < public < database
     assert source.count("verify_gateway_latency") == 1
