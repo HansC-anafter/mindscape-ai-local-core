@@ -157,6 +157,63 @@ def test_workload_node_sample_failure_invalidates_run_without_raising(
     assert writer.rows[0]["error_type"] == "CalibrationCommandError"
 
 
+def test_workload_resource_ownership_lost_stops_as_preserved_invalid(
+    monkeypatch,
+) -> None:
+    class Collector:
+        def collect_node(self, *, include_all_containers):
+            assert include_all_containers is False
+            return {
+                "captured_at_epoch": 1.0,
+                "browser_cgroups": [{"oom_kill": 0, "oom_group_kill": 0}],
+                "browser_container_working_set_bytes": 100,
+            }
+
+        def collect_pool(self):
+            return {"pgbouncer_waiting": 0, "pgbouncer_maxwait_seconds": 0}
+
+        def collect_task(self, task_id):
+            return {
+                "id": task_id,
+                "status": "pending",
+                "blocked_reason": "resource_ownership_lost",
+            }
+
+    class Writer:
+        def __init__(self):
+            self.rows = []
+
+        def append(self, row):
+            self.rows.append(row)
+
+    monkeypatch.setattr(
+        "scripts.maintenance.browser_resource_calibration_core.cli.time.sleep",
+        lambda _seconds: None,
+    )
+    result = _observe_run(
+        collector=Collector(),
+        writer=Writer(),
+        workload={
+            "envelope_id": "ig_pin_post_detail",
+            "workload_code": "ig_pin_post_detail",
+            "partition": "browser_local",
+            "repetition": 5,
+            "payload_sha256": "abc",
+        },
+        task_id="33333333-3333-3333-3333-333333333333",
+        baseline={"browser_idle_peak_bytes": 0},
+        prelaunch_node={
+            "browser_cgroups": [{"oom_kill": 0, "oom_group_kill": 0}],
+        },
+        max_run_seconds=1,
+    )
+
+    assert result["valid"] is False
+    assert result["terminal_task"]["blocked_reason"] == "resource_ownership_lost"
+    assert "task_not_succeeded" in result["failures"]
+    assert "run_timeout" not in result["failures"]
+
+
 def test_idle_reset_waits_through_transient_container_recreation(monkeypatch) -> None:
     class Collector:
         def __init__(self) -> None:

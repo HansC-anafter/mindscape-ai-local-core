@@ -28,7 +28,11 @@ from .workloads import load_workload_manifest, quota_state
 NODE_INTERVAL_SECONDS = 5
 POOL_INTERVAL_SECONDS = 60
 TERMINAL_STATUSES = {"succeeded", "failed", "cancelled", "cancelled_by_user", "expired"}
-PRESERVED_BLOCKS = {"resource_exhausted", "unclassified_sigkill"}
+PRESERVED_BLOCKS = {
+    "resource_exhausted",
+    "resource_ownership_lost",
+    "unclassified_sigkill",
+}
 DEFAULT_BROWSERS = (
     "mindscape-ai-local-core-runner-browser",
     "mindscape-ai-local-core-runner-browser-extra",
