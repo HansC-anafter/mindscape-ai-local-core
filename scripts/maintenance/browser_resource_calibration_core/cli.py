@@ -304,23 +304,39 @@ def _observe_run(
     )
     final_oom = 0
     while time.monotonic() - started < max_run_seconds:
-        node = collector.collect_node(include_all_containers=False)
-        node_samples.append(node)
-        writer.append(
-            {
-                "kind": "workload_node",
-                "task_id": task_id,
-                "envelope_id": workload["envelope_id"],
-                "workload_code": workload["workload_code"],
-                "repetition": workload["repetition"],
-                **node,
-            }
-        )
-        oom_total = sum(
-            int(row.get("oom_kill") or 0) + int(row.get("oom_group_kill") or 0)
-            for row in node["browser_cgroups"]
-        )
-        final_oom = oom_total
+        try:
+            node = collector.collect_node(include_all_containers=False)
+        except Exception as exc:
+            failures.append("node_sample_failed")
+            writer.append(
+                {
+                    "kind": "workload_node",
+                    "task_id": task_id,
+                    "envelope_id": workload["envelope_id"],
+                    "workload_code": workload["workload_code"],
+                    "repetition": workload["repetition"],
+                    "failures": ["node_sample_failed"],
+                    "error_type": type(exc).__name__,
+                }
+            )
+        else:
+            node_samples.append(node)
+            writer.append(
+                {
+                    "kind": "workload_node",
+                    "task_id": task_id,
+                    "envelope_id": workload["envelope_id"],
+                    "workload_code": workload["workload_code"],
+                    "repetition": workload["repetition"],
+                    **node,
+                }
+            )
+            oom_total = sum(
+                int(row.get("oom_kill") or 0)
+                + int(row.get("oom_group_kill") or 0)
+                for row in node["browser_cgroups"]
+            )
+            final_oom = oom_total
         now = time.monotonic()
         if now >= next_pool:
             pool: dict[str, Any] = {}

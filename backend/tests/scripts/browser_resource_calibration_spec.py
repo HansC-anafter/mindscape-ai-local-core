@@ -101,6 +101,62 @@ def test_workload_pool_timeout_invalidates_run_without_raising(monkeypatch) -> N
     assert writer.rows[-1]["error_type"] == "TimeoutError"
 
 
+def test_workload_node_sample_failure_invalidates_run_without_raising(
+    monkeypatch,
+) -> None:
+    class Collector:
+        def collect_node(self, *, include_all_containers):
+            assert include_all_containers is False
+            raise CalibrationCommandError(
+                ["docker", "exec", "runner-browser", "cat", "/proc/meminfo"],
+                1,
+                "docker socket unavailable",
+            )
+
+        def collect_pool(self):
+            return {"pgbouncer_waiting": 0, "pgbouncer_maxwait_seconds": 0}
+
+        def collect_task(self, task_id):
+            return {"id": task_id, "status": "succeeded"}
+
+    class Writer:
+        def __init__(self):
+            self.rows = []
+
+        def append(self, row):
+            self.rows.append(row)
+
+    monkeypatch.setattr(
+        "scripts.maintenance.browser_resource_calibration_core.cli.time.sleep",
+        lambda _seconds: None,
+    )
+    writer = Writer()
+    result = _observe_run(
+        collector=Collector(),
+        writer=writer,
+        workload={
+            "envelope_id": "ig_pin_post_detail",
+            "workload_code": "ig_pin_post_detail",
+            "partition": "browser_local",
+            "repetition": 1,
+            "payload_sha256": "abc",
+        },
+        task_id="22222222-2222-2222-2222-222222222222",
+        baseline={"browser_idle_peak_bytes": 0},
+        prelaunch_node={
+            "browser_cgroups": [{"oom_kill": 0, "oom_group_kill": 0}],
+        },
+        max_run_seconds=1,
+    )
+
+    assert result["valid"] is False
+    assert "node_sample_failed" in result["failures"]
+    assert result["terminal_task"]["status"] == "succeeded"
+    assert writer.rows[0]["kind"] == "workload_node"
+    assert writer.rows[0]["failures"] == ["node_sample_failed"]
+    assert writer.rows[0]["error_type"] == "CalibrationCommandError"
+
+
 def test_idle_reset_waits_through_transient_container_recreation(monkeypatch) -> None:
     class Collector:
         def __init__(self) -> None:
