@@ -135,3 +135,20 @@ def test_remote_ingress_rejects_local_config_source_and_extra_config(
     extra = {**CANONICAL_CONFIG, "originRequest": {}}
     with pytest.raises(CutoverError, match="canonical config"):
         RemoteIngressGate(CloudflareHttp(readback_config=extra)).apply_exact(inputs)
+
+
+def test_workflow_applies_remote_ingress_only_after_pending_runtime_coherence() -> None:
+    source = (
+        REPO_ROOT / "scripts/remote_workbench_authorization_cutover/workflow.py"
+    ).read_text(encoding="utf-8")
+    package = source.index("self.release.package_current()")
+    install = source.index("self.release.install_current", package)
+    pending = source.index("pending_readback = self.runtime.transition", install)
+    pending_closed = source.index("reopen=False", pending)
+    coherent = source.index("self.runtime.verify_pending_coherence", pending_closed)
+    ingress = source.index("self.ingress.apply_exact(inputs)", coherent)
+    reopen = source.index("self.runtime.reopen_transport()", ingress)
+    enrollment = source.index("self.runtime.verify_enrollment_assertions", reopen)
+
+    assert package < install < pending < pending_closed < coherent
+    assert coherent < ingress < reopen < enrollment

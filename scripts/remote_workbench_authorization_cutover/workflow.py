@@ -256,7 +256,6 @@ class CutoverWorkflow:
             self.claims.resume()
             claims_paused = False
 
-            self.ingress.apply_exact(inputs)
             archive = self.release.package_current()
             try:
                 install_job = self.release.install_current(archive, inputs.directory)
@@ -290,9 +289,11 @@ class CutoverWorkflow:
                 pending_body,
                 assertion_path=inputs.jwt_paths["hans"],
                 workspace_id=target_workspace_id,
-                reopen=True,
+                reopen=False,
             )
             self.runtime.verify_pending_coherence(pending_readback, target_workspace_id)
+            self.ingress.apply_exact(inputs)
+            self.runtime.reopen_transport()
             require_access_token_remaining(inputs)
             self.runtime.verify_enrollment_assertions(inputs, target_workspace_id)
 

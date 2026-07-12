@@ -154,6 +154,11 @@ class RuntimeGate:
 
         self._launcher("maintenance", "exit")
 
+    def reopen_transport(self) -> None:
+        """Start the canonical tunnel only after its remote ingress lock exists."""
+
+        self._launcher("ensure")
+
     def close_and_prove(self, assertion_path: Path, workspace_id: str) -> None:
         """Close the public tunnel and require both local and edge evidence."""
 
@@ -365,7 +370,7 @@ class RuntimeGate:
         if body.get("access_issuer") is not None:
             self._prewarm_backend(workspace_id)
         if reopen:
-            self._launcher("ensure")
+            self.reopen_transport()
         return readback
 
     def _assert_principal_response(
