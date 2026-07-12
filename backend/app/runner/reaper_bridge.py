@@ -18,6 +18,8 @@ from backend.app.services.host_resources.route_identity_projection import (
 )
 from backend.app.runner.database_backoff import is_database_recovery_error
 from backend.app.runner.reaper_context import (
+    _BROWSER_LOCAL_QUEUE_SHARD,
+    _DEFAULT_LOCAL_BROWSER_QUEUE_SHARD,
     _blocked_release_limit,
     _normalize_task_id,
     logger,
@@ -262,7 +264,12 @@ async def _reap_redis_queues(
                 build_route_identity_projection_func=build_route_identity_projection_func,
             )
             if ready_refilled_count:
-                return
+                ready_depth += ready_refilled_count
+                if redis_queue.pack_id not in {
+                    _BROWSER_LOCAL_QUEUE_SHARD,
+                    _DEFAULT_LOCAL_BROWSER_QUEUE_SHARD,
+                }:
+                    return
         except Exception as e:
             logger.error(f"[Bridge] DB ready frontier refill failed: {e}")
 

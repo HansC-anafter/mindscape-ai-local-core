@@ -38,12 +38,12 @@ class _FakeRedisClient:
 
 
 class _FakeRedisQueue:
-    def __init__(self, client):
-        self.pack_id = "vision_local"
-        self.q_pending = "mindscape:queue:pending:vision_local"
-        self.q_temp = "mindscape:queue:temp:vision_local"
-        self.q_processing = "mindscape:queue:processing:vision_local"
-        self.q_delayed = "mindscape:queue:delayed:vision_local"
+    def __init__(self, client, pack_id="vision_local"):
+        self.pack_id = pack_id
+        self.q_pending = f"mindscape:queue:pending:{pack_id}"
+        self.q_temp = f"mindscape:queue:temp:{pack_id}"
+        self.q_processing = f"mindscape:queue:processing:{pack_id}"
+        self.q_delayed = f"mindscape:queue:delayed:{pack_id}"
         self._client = client
         self.enqueued: list[tuple[str, dict]] = []
 
@@ -88,7 +88,7 @@ async def _zero(*_args, **_kwargs):
     return 0
 
 
-def _ready_task(task_id: str) -> Task:
+def _ready_task(task_id: str, queue_shard="vision_local") -> Task:
     now = _utc_now()
     return Task(
         id=task_id,
@@ -98,14 +98,14 @@ def _ready_task(task_id: str) -> Task:
         pack_id="ig_analyze_pinned_reference",
         task_type="playbook_execution",
         status=TaskStatus.PENDING,
-        queue_shard="vision_local",
+        queue_shard=queue_shard,
         concurrency_key="concurrency:playbook:ig_analyze_pinned_reference",
         created_at=now - timedelta(minutes=10),
         next_eligible_at=now - timedelta(minutes=10),
         frontier_state="ready",
         execution_context={
             "playbook_code": "ig_analyze_pinned_reference",
-            "queue_shard": "vision_local",
+            "queue_shard": queue_shard,
         },
     )
 
@@ -139,3 +139,48 @@ async def test_ready_db_frontier_refills_before_blocked_release(monkeypatch):
     assert store.runnable_calls == 1
     assert store.updated[0][0] == "ready-task-1"
     assert release_calls == []
+
+
+@pytest.mark.asyncio
+async def test_browser_ready_refill_continues_bounded_blocked_release(monkeypatch):
+    release_calls: list[tuple[str, int]] = []
+
+    async def _record_release(name, *_args, release_limit, **_kwargs):
+        release_calls.append((name, release_limit))
+        return 0
+
+    async def _concurrency(*args, **kwargs):
+        return await _record_release("concurrency", *args, **kwargs)
+
+    async def _dependency(*args, **kwargs):
+        return await _record_release("dependency", *args, **kwargs)
+
+    async def _resource(*args, **kwargs):
+        return await _record_release("resource", *args, **kwargs)
+
+    monkeypatch.setenv("LOCAL_CORE_RUNNER_READY_TARGET", "1")
+    monkeypatch.setenv("LOCAL_CORE_RUNNER_BLOCKED_RELEASE_MINIMUM", "4")
+    monkeypatch.setattr(reaper, "_reconcile_temp_transport_items", _zero)
+    monkeypatch.setattr(reaper, "_scrub_processing_terminal_items", _zero)
+    monkeypatch.setattr(reaper, "_release_concurrency_locked_tasks", _concurrency)
+    monkeypatch.setattr(reaper, "_release_dependency_hold_tasks", _dependency)
+    monkeypatch.setattr(reaper, "_release_resource_wait_tasks", _resource)
+    monkeypatch.setattr(reaper, "_release_workspace_quota_tasks", _zero)
+    monkeypatch.setattr(reaper, "_release_admission_deferred_tasks", _zero)
+    monkeypatch.setattr(reaper, "_release_unblocked_cold_tasks", _zero)
+    monkeypatch.setattr(reaper, "_refill_browser_peer_frontier", _zero)
+
+    store = _FakeTasksStore(
+        [_ready_task("ready-browser-1", queue_shard="browser_local")]
+    )
+    client = _FakeRedisClient()
+    queue = _FakeRedisQueue(client, pack_id="browser_local")
+
+    await reaper._reap_redis_queues(store, queue)
+
+    assert [task_id for task_id, _route in queue.enqueued] == ["ready-browser-1"]
+    assert release_calls == [
+        ("concurrency", 4),
+        ("dependency", 4),
+        ("resource", 4),
+    ]
