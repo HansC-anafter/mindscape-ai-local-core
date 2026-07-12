@@ -202,6 +202,55 @@ def test_pgbouncer_pool_parser_keeps_only_core_vector_wait_gates() -> None:
     ]
 
 
+def test_live_owner_reads_use_direct_redis_without_docker_exec() -> None:
+    task_id = "11111111-1111-1111-1111-111111111111"
+
+    class Pipeline:
+        def __init__(self) -> None:
+            self.calls = []
+
+        def get(self, key):
+            self.calls.append(("get", key))
+            return self
+
+        def ttl(self, key):
+            self.calls.append(("ttl", key))
+            return self
+
+        def execute(self):
+            return [json.dumps({"task_id": task_id}), 59]
+
+    class RedisClient:
+        def __init__(self) -> None:
+            self.pipeline_instance = Pipeline()
+
+        def eval(self, script, keys):
+            assert "mindscape:runner_live:task:*" in script
+            assert keys == 0
+            return [json.dumps({"task_id": task_id, "queue_shard": "browser_local"})]
+
+        def pipeline(self, *, transaction):
+            assert transaction is False
+            return self.pipeline_instance
+
+    class Commands:
+        def run(self, argv, *, timeout_seconds=5):
+            raise AssertionError(f"unexpected command: {argv}")
+
+    redis_client = RedisClient()
+    collector = CalibrationCollector(
+        browser_containers=("runner-browser",),
+        command_runner=Commands(),
+        redis_client=redis_client,
+    )
+
+    assert collector.list_live_browser_owners()[0]["task_id"] == task_id
+    owner = collector.read_live_owner(task_id)
+    assert owner["task_id"] == task_id
+    assert owner["ttl_seconds_remaining"] == 59
+    assert [call[0] for call in redis_client.pipeline_instance.calls] == ["get", "ttl"]
+
+
 def test_size_and_node_sample_formulas() -> None:
     assert parse_size_bytes("1.5GiB") == int(1.5 * GIB)
     sample = build_node_sample(

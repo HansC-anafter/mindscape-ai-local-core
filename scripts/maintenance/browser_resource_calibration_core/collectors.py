@@ -8,6 +8,8 @@ import re
 import time
 from typing import Any
 
+from redis import Redis
+
 from scripts.maintenance.browser_resource_capacity_preflight_core.commands import (
     ReadOnlyCommandRunner,
 )
@@ -132,7 +134,8 @@ class CalibrationCollector:
         backend_container: str = "mindscape-ai-local-core-backend",
         postgres_container: str = "mindscape-ai-local-core-postgres",
         pgbouncer_container: str = "mindscape-ai-local-core-pgbouncer",
-        redis_container: str = "mindscape-ai-local-core-redis",
+        redis_url: str = "redis://127.0.0.1:6379/0",
+        redis_client: Any | None = None,
         command_runner: ReadOnlyCommandRunner | None = None,
         api_client: LocalApiClient | None = None,
         api_base: str = "http://127.0.0.1:8200",
@@ -141,7 +144,12 @@ class CalibrationCollector:
         self.backend_container = backend_container
         self.postgres_container = postgres_container
         self.pgbouncer_container = pgbouncer_container
-        self.redis_container = redis_container
+        self.redis = redis_client or Redis.from_url(
+            redis_url,
+            decode_responses=True,
+            socket_connect_timeout=5,
+            socket_timeout=5,
+        )
         self.commands = command_runner or ReadOnlyCommandRunner()
         self.api = api_client or LocalApiClient()
         self.api_base = api_base.rstrip("/")
@@ -335,20 +343,10 @@ class CalibrationCollector:
         )
 
     def list_live_browser_owners(self) -> list[dict[str, Any]]:
-        raw = self._run(
-            [
-                "docker",
-                "exec",
-                self.redis_container,
-                "redis-cli",
-                "--raw",
-                "EVAL_RO",
-                _LIVE_BROWSER_OWNERS_LUA,
-                "0",
-            ]
-        )
+        rows = self.redis.eval(_LIVE_BROWSER_OWNERS_LUA, 0)
         owners: list[dict[str, Any]] = []
-        for line in raw.splitlines():
+        for raw in rows or []:
+            line = raw.decode("utf-8") if isinstance(raw, bytes) else str(raw)
             if not line.strip():
                 continue
             payload = json.loads(line)
@@ -425,16 +423,16 @@ class CalibrationCollector:
         if not _TASK_ID.fullmatch(task_id):
             raise ValueError("task id must be a UUID")
         key = f"mindscape:runner_live:task:{task_id}"
-        raw = self._run(
-            ["docker", "exec", self.redis_container, "redis-cli", "--raw", "GET", key]
-        ).strip()
-        ttl_raw = self._run(
-            ["docker", "exec", self.redis_container, "redis-cli", "TTL", key]
-        ).strip()
+        pipeline = self.redis.pipeline(transaction=False)
+        pipeline.get(key)
+        pipeline.ttl(key)
+        raw, ttl_raw = pipeline.execute()
+        if isinstance(raw, bytes):
+            raw = raw.decode("utf-8")
         payload = json.loads(raw) if raw else {}
         if not isinstance(payload, dict):
             payload = {}
-        payload["ttl_seconds_remaining"] = int(ttl_raw or -2)
+        payload["ttl_seconds_remaining"] = int(ttl_raw if ttl_raw is not None else -2)
         return payload
 
     def _run(self, argv: list[str], *, timeout_seconds: int = 5) -> str:

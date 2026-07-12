@@ -50,6 +50,7 @@ def build_parser() -> argparse.ArgumentParser:
     workload.add_argument("--max-claim-wait-seconds", type=int, default=43200)
     _add_outputs(workload)
     parser.add_argument("--api-base", default="http://127.0.0.1:8200")
+    parser.add_argument("--redis-url", default="redis://127.0.0.1:6379/0")
     parser.add_argument("--browser-container", action="append")
     return parser
 
@@ -63,6 +64,7 @@ def _collector(args: argparse.Namespace) -> CalibrationCollector:
     return CalibrationCollector(
         browser_containers=tuple(args.browser_container or DEFAULT_BROWSERS),
         api_base=args.api_base,
+        redis_url=args.redis_url,
     )
 
 
