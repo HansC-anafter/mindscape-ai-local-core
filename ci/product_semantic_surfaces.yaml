@@ -243,10 +243,10 @@ surfaces:
       - web-console/dev-proxy.mjs
       - web-console/dev-proxy.gateway.spec.mjs
       - web-console/dev-proxy/**
-      - web-console/src/app/workspaces/[workspaceId]/page.tsx
-      - web-console/src/app/workspaces/[workspaceId]/RemoteWorkspaceLanding*
-      - web-console/src/app/workspaces/[workspaceId]/capability-ui-hosts/**
-      - web-console/src/app/workspaces/[workspaceId]/capabilities/[capabilityCode]/CapabilityLoadedComponents.tsx
+      - web-console/src/app/workspaces/*/page.tsx
+      - web-console/src/app/workspaces/*/RemoteWorkspaceLanding*
+      - web-console/src/app/workspaces/*/capability-ui-hosts/**
+      - web-console/src/app/workspaces/*/capabilities/*/CapabilityLoadedComponents.tsx
       - web-console/src/lib/capability-packs/installed-capabilities-cache*
       - web-console/src/lib/capability-runtime-asset-url*
       - web-console/src/lib/capability-ui-*.ts
@@ -391,6 +391,12 @@ surfaces:
         required_text:
           - token: device-node/**
             message: Guardrail workflow must run when registered device-node semantic surfaces change.
+          - token: scripts/remote_workbench_remote_ingress_lock.py
+            message: Guardrail workflow must run when the Remote Workbench ingress lock changes.
+          - token: scripts/rtmp_motion_window_publisher.py
+            message: Guardrail workflow must preserve the canonical motion publisher trigger.
+          - token: scripts/rtmp_motion_publisher/**
+            message: Guardrail workflow must preserve the canonical motion publisher module trigger.
           - token: Validate product semantics (pull request)
             message: Guardrail workflow must keep the pull-request product semantic validator step.
           - token: Validate product semantics (push)

@@ -264,3 +264,26 @@ def test_normalize_path_preserves_dot_directories() -> None:
     assert module._normalize_path(".github/workflows/architecture-guardrails.yml") == (
         ".github/workflows/architecture-guardrails.yml"
     )
+
+
+def test_remote_workbench_registry_matches_literal_dynamic_route_directories() -> None:
+    sys.path.insert(0, str(REPO_ROOT))
+    try:
+        from scripts.ci import validate_product_semantics as module
+    finally:
+        sys.path.pop(0)
+
+    registry = module._load_registry(REPO_ROOT / "ci/product_semantic_surfaces.yaml")
+    surface_id = "psc.local-core.remote-workbench-identity-workspace-enforcement.v1"
+    paths = {
+        "web-console/src/app/workspaces/[workspaceId]/page.tsx",
+        "web-console/src/app/workspaces/[workspaceId]/RemoteWorkspaceLanding.tsx",
+        "web-console/src/app/workspaces/[workspaceId]/capability-ui-hosts/WorkspaceSurfaceShell.tsx",
+        "web-console/src/app/workspaces/[workspaceId]/capabilities/[capabilityCode]/CapabilityLoadedComponents.tsx",
+    }
+
+    hits = set(
+        module._registered_surface_hits(registry=registry, changed_files=paths)
+    )
+
+    assert {(surface_id, path) for path in paths}.issubset(hits)
