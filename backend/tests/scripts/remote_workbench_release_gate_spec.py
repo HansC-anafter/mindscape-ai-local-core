@@ -15,6 +15,10 @@ sys.path.insert(0, str(REPO_ROOT / "scripts"))
 from remote_workbench_authorization_cutover.io import CutoverError
 from remote_workbench_authorization_cutover.install_state import AcceptedInstallError
 from remote_workbench_authorization_cutover.install_receipt import next_restore_attempt_round
+from remote_workbench_authorization_cutover.install_attempt_state import (
+    write_install_attempt,
+    write_install_intent,
+)
 from remote_workbench_authorization_cutover.http import HttpResponse
 from remote_workbench_authorization_cutover.release import ReleaseGate
 
@@ -218,22 +222,51 @@ class InstalledHttp:
 
 
 class CompletedInstallHttp:
-    def get_json(self, _url, *, timeout_seconds=5.0) -> dict:
+    def __init__(self, directory: Path) -> None:
+        self.directory = directory
+
+    def get_json(self, _url, **_kwargs) -> dict:
+        intent = json.loads(
+            (self.directory / "install-intent.json").read_text(encoding="utf-8")
+        )
         return {
             "install_id": INSTALL_ID,
             "state": "succeeded",
+            "source_kind": "file_upload",
+            "source_payload": {
+                "filename": intent["multipart_filename"],
+                "mindpack_path": (
+                    f"/app/data/capability-install-jobs/{INSTALL_ID}/input.mindpack"
+                ),
+            },
             "result_payload": {"execution_activation": {"state": "active"}},
         }
 
 
 class InstallStateHttp:
-    def __init__(self, state: str) -> None:
+    def __init__(self, state: str, directory: Path, *, kind: str = "install") -> None:
         self.state = state
+        self.directory = directory
+        self.kind = kind
         self.urls: list[str] = []
 
     def get_json(self, url, **_kwargs) -> dict:
         self.urls.append(url)
-        return {"install_id": url.rsplit("/", 1)[-1], "state": self.state}
+        install_id = url.rsplit("/", 1)[-1]
+        intent = json.loads(
+            (self.directory / f"{self.kind}-intent.json").read_text(encoding="utf-8")
+        )
+        return {
+            "install_id": install_id,
+            "state": self.state,
+            "source_kind": "file_upload",
+            "source_payload": {
+                "filename": intent["multipart_filename"],
+                "mindpack_path": (
+                    f"/app/data/capability-install-jobs/{install_id}/input.mindpack"
+                ),
+            },
+        }
 
 
 def test_package_gate_uses_the_current_verified_python_runtime(tmp_path: Path) -> None:
@@ -246,6 +279,9 @@ def test_package_gate_uses_the_current_verified_python_runtime(tmp_path: Path) -
                 "mindscape_cloud_integration/manifest.yaml\n"
                 "mindscape_cloud_integration/ui_dist/ui_dist_manifest.json\n"
             ),
+            "0",
+            "f|off|off",
+            POOL_CSV,
             json.dumps(
                 {
                     "success": True,
@@ -259,14 +295,15 @@ def test_package_gate_uses_the_current_verified_python_runtime(tmp_path: Path) -
     )
     gate = ReleaseGate(
         repo_root=REPO_ROOT,
-        cloud_worktree=REPO_ROOT,
+        cloud_worktree=tmp_path,
         executor=executor,
-        http=CompletedInstallHttp(),
+        http=CompletedInstallHttp(tmp_path),
         sleep=lambda _seconds: None,
     )
     gate.pack.verify_installed_runtime = lambda _job: None
 
     archive = gate.package_current()
+    archive.write_bytes(b"pack")
     gate.install_current(archive, tmp_path)
 
     assert executor.calls[0][0] == sys.executable
@@ -282,8 +319,13 @@ def test_accepted_install_error_tracks_exact_terminal_or_indeterminate_state(
     terminal: bool,
 ) -> None:
     install_id = "2" * 32
+    archive = tmp_path / "current.mindpack"
+    archive.write_bytes(b"pack")
     executor = SequenceExecutor(
         [
+            "0",
+            "f|off|off",
+            POOL_CSV,
             json.dumps(
                 {
                     "success": True,
@@ -300,45 +342,47 @@ def test_accepted_install_error_tracks_exact_terminal_or_indeterminate_state(
         repo_root=REPO_ROOT,
         cloud_worktree=REPO_ROOT,
         executor=executor,
-        http=InstallStateHttp(state),
+        http=InstallStateHttp(state, tmp_path),
         sleep=lambda _seconds: None,
         monotonic=lambda: next(times),
     )
 
     with pytest.raises(AcceptedInstallError) as captured:
-        gate.install_current(tmp_path / "current.mindpack", tmp_path)
+        gate.install_current(archive, tmp_path)
 
     assert captured.value.install_id == install_id
     assert captured.value.terminal is terminal
     receipt = json.loads((tmp_path / "install-attempt.json").read_text(encoding="utf-8"))
     assert receipt["install_id"] == install_id
     assert receipt["terminal"] is terminal
+    assert receipt["archive_sha256"] == hashlib.sha256(b"pack").hexdigest()
+    assert (tmp_path / "install-intent.json").stat().st_mode & 0o777 == 0o600
 
 
 def test_restore_preflight_refreshes_exact_job_and_blocks_active_attempt(tmp_path: Path) -> None:
     install_id = "3" * 32
-    receipt = tmp_path / "install-attempt.json"
-    receipt.write_text(
-        json.dumps(
-            {
-                "attempt_kind": "install",
-                "attempt_round": 1,
-                "install_id": install_id,
-                "state": "queued",
-                "terminal": False,
-            }
-        ),
-        encoding="utf-8",
+    intent = write_install_intent(
+        tmp_path,
+        attempt_kind="install",
+        attempt_round=1,
+        archive_sha256="a" * 64,
+        multipart_filename=f"remote-workbench-install-{'a' * 32}.mindpack",
     )
-    receipt.chmod(0o600)
-    active_http = InstallStateHttp("running")
+    write_install_attempt(
+        tmp_path,
+        intent=intent,
+        install_id=install_id,
+        state="queued",
+        terminal=False,
+    )
+    active_http = InstallStateHttp("running", tmp_path)
     active = ReleaseGate(
         repo_root=REPO_ROOT,
         cloud_worktree=REPO_ROOT,
         executor=SequenceExecutor([]),
         http=active_http,
     )
-    with pytest.raises(CutoverError, match="restore is blocked"):
+    with pytest.raises(CutoverError, match="maintenance is required"):
         active.require_install_attempt_terminal(tmp_path)
     assert active_http.urls == [
         f"http://localhost:8220/api/v1/capability-packs/install-jobs/{install_id}"
@@ -348,28 +392,29 @@ def test_restore_preflight_refreshes_exact_job_and_blocks_active_attempt(tmp_pat
         repo_root=REPO_ROOT,
         cloud_worktree=REPO_ROOT,
         executor=SequenceExecutor([]),
-        http=InstallStateHttp("succeeded"),
+        http=InstallStateHttp("succeeded", tmp_path),
     )
     assert terminal.require_install_attempt_terminal(tmp_path)["state"] == "succeeded"
 
 
 def test_failed_restore_receipt_allows_exactly_the_next_round(tmp_path: Path) -> None:
-    receipt = tmp_path / "restore-attempt.json"
-    receipt.write_text(
-        json.dumps(
-            {
-                "attempt_kind": "restore",
-                "attempt_round": 2,
-                "install_id": "4" * 32,
-                "state": "failed",
-                "terminal": True,
-            }
-        ),
-        encoding="utf-8",
+    intent = write_install_intent(
+        tmp_path,
+        attempt_kind="restore",
+        attempt_round=2,
+        archive_sha256="b" * 64,
+        multipart_filename=f"remote-workbench-restore-{'b' * 32}.mindpack",
     )
-    receipt.chmod(0o600)
+    write_install_attempt(
+        tmp_path,
+        intent=intent,
+        install_id="4" * 32,
+        state="failed",
+        terminal=True,
+    )
     assert next_restore_attempt_round(tmp_path) == 3
 
+    receipt = tmp_path / "restore-attempt.json"
     payload = json.loads(receipt.read_text(encoding="utf-8"))
     payload["state"] = "succeeded"
     receipt.write_text(json.dumps(payload), encoding="utf-8")

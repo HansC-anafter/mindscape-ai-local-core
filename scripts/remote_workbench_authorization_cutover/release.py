@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import re
 import time
 from pathlib import Path
 from typing import Any, Callable
@@ -15,8 +16,9 @@ from .install_receipt import (
     require_terminal_install_attempt,
     verify_known_good_restore_job,
 )
+from .install_attempt_state import ACTIVE_INSTALL_STATES
 from .io import CommandExecutor, CutoverError
-from .pack_release import ACTIVE_INSTALL_STATES, PackReleaseGate
+from .pack_release import PackReleaseGate
 from .query_plan import QueryPlanGate
 
 
@@ -176,7 +178,17 @@ SELECT json_build_object(
         return self.pack.package_current()
 
     def install_current(self, archive: Path, secure_dir: Path) -> dict[str, Any]:
-        return self.pack.install_current(archive, secure_dir)
+        return self.pack.install_current(
+            archive,
+            secure_dir,
+            before_create=self._verify_install_create_gates,
+        )
+
+    def _verify_install_create_gates(self) -> None:
+        """Close the DB and queue race immediately before a new intake POST."""
+
+        self.require_no_active_install_jobs()
+        self.verify_database_pools()
 
     def require_install_attempt_terminal(self, secure_dir: Path) -> dict[str, Any]:
         return require_terminal_install_attempt(self.http, secure_dir)
@@ -193,7 +205,28 @@ SELECT json_build_object(
         self.pack.verify_installed_runtime(job)
 
     def restore_known_good(self, secure_dir: Path) -> dict[str, Any]:
-        return self.pack.restore_known_good(secure_dir)
+        return self.pack.restore_known_good(
+            secure_dir,
+            before_create=self._verify_install_create_gates,
+        )
 
     def verify_installed_runtime(self, job: dict[str, Any]) -> None:
         self.pack.verify_installed_runtime(job)
+
+    def source_identity(self) -> dict[str, str]:
+        """Read the exact already repository-locked Local and Cloud commits."""
+
+        pattern = re.compile(r"^[a-f0-9]{40}$")
+        result = {
+            "local_commit": self.executor.run(
+                ["git", "-C", str(self.repo_root), "rev-parse", "HEAD"],
+                timeout_seconds=20.0,
+            ).strip(),
+            "cloud_commit": self.executor.run(
+                ["git", "-C", str(self.cloud_worktree), "rev-parse", "HEAD"],
+                timeout_seconds=20.0,
+            ).strip(),
+        }
+        if any(not pattern.fullmatch(value) for value in result.values()):
+            raise CutoverError("Repository source commit identity is malformed")
+        return result

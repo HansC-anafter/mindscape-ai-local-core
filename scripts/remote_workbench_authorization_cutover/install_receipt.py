@@ -1,146 +1,393 @@
-"""Exact accepted-install receipt readback before any restore intake."""
+"""Receipt-bound durable install intake and exact response-loss recovery."""
 
 from __future__ import annotations
 
+import hashlib
 import json
-import re
+import time
+import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from .http import HttpClient
-from .install_state import ActiveInstallAttemptError
-from .io import CutoverError, assert_private_file, write_private_json
+from .install_attempt_state import (
+    ACTIVE_INSTALL_STATES,
+    INSTALL_POLL_BUDGET_SECONDS,
+    MAX_PACK_BYTES,
+    _INSTALL_ID as INSTALL_ID_PATTERN,
+    contexts_match,
+    load_install_attempt,
+    load_install_intent,
+    next_restore_attempt_round,
+    refresh_exact_attempt,
+    require_terminal_install_attempt,
+    validate_job_identity,
+    verify_known_good_restore_job,
+    write_install_attempt,
+    write_install_intent,
+)
+from .install_state import AcceptedInstallError, ActiveInstallAttemptError
+from .io import CommandExecutor, CutoverError
 
 
-_INSTALL_ID = re.compile(r"^[a-f0-9]{32}$")
-_TERMINAL_STATES = {"succeeded", "failed"}
+class InstallReceiptGate:
+    """Consume or create exactly one receipt-bound durable install round."""
 
+    def __init__(
+        self,
+        *,
+        executor: CommandExecutor,
+        http: HttpClient,
+        sleep: Callable[[float], None] = time.sleep,
+        monotonic: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self.executor = executor
+        self.http = http
+        self.sleep = sleep
+        self.monotonic = monotonic
 
-def write_install_attempt(
-    directory: Path,
-    *,
-    attempt_kind: str,
-    install_id: str,
-    state: str,
-    terminal: bool,
-    attempt_round: int,
-) -> None:
-    if (
-        attempt_kind not in {"install", "restore"}
-        or not _INSTALL_ID.fullmatch(install_id)
-        or type(attempt_round) is not int
-        or attempt_round < 1
-    ):
-        raise CutoverError("Install attempt receipt identity is invalid")
-    write_private_json(
-        directory / f"{attempt_kind}-attempt.json",
-        {
-            "attempt_kind": attempt_kind,
-            "attempt_round": attempt_round,
-            "install_id": install_id,
-            "state": state,
-            "terminal": terminal,
-        },
-    )
+    @staticmethod
+    def _sha256(path: Path) -> str:
+        if path.is_symlink() or not path.is_file():
+            raise CutoverError("Install archive is not a regular file")
+        size = path.stat().st_size
+        if size <= 0 or size > MAX_PACK_BYTES:
+            raise CutoverError("Install archive exceeds its byte budget")
+        digest = hashlib.sha256()
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
 
-
-def require_terminal_install_attempt(
-    http: HttpClient,
-    secure_dir: Path,
-    *,
-    attempt_kind: str = "install",
-) -> dict[str, Any]:
-    """Refresh the exact accepted job and reject active or indeterminate state."""
-
-    if attempt_kind not in {"install", "restore"}:
-        raise CutoverError("Install attempt kind is invalid")
-    path = secure_dir / f"{attempt_kind}-attempt.json"
-    assert_private_file(path, max_bytes=4_096)
-    try:
-        receipt = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as error:
-        raise CutoverError("Install attempt receipt is malformed") from error
-    install_id = str(receipt.get("install_id") or "") if isinstance(receipt, dict) else ""
-    if (
-        not isinstance(receipt, dict)
-        or set(receipt) != {
-            "attempt_kind", "attempt_round", "install_id", "state", "terminal"
-        }
-        or receipt.get("attempt_kind") != attempt_kind
-        or type(receipt.get("attempt_round")) is not int
-        or receipt.get("attempt_round") < 1
-        or not _INSTALL_ID.fullmatch(install_id)
-    ):
-        raise CutoverError("Install attempt receipt identity is invalid")
-    try:
-        job = http.get_json(
-            f"http://localhost:8220/api/v1/capability-packs/install-jobs/{install_id}",
-            timeout_seconds=10.0,
-            max_response_bytes=262_144,
+    def _recover_by_intent(
+        self,
+        secure_dir: Path,
+        *,
+        intent: dict[str, Any],
+    ) -> dict[str, Any]:
+        sql = """
+SELECT COALESCE(json_agg(json_build_object(
+  'install_id', install_id,
+  'source_kind', source_kind,
+  'state', state,
+  'source_payload', json_build_object(
+    'filename', source_payload->>'filename',
+    'mindpack_path', source_payload->>'mindpack_path'
+  )
+) ORDER BY created_at), '[]'::json)::text
+FROM capability_install_jobs
+WHERE source_kind = 'file_upload'
+  AND source_payload->>'filename' = :'multipart_filename';
+""".strip()
+        raw = self.executor.run(
+            [
+                "docker",
+                "exec",
+                "mindscape-ai-local-core-postgres",
+                "psql",
+                "-XqAt",
+                "-v",
+                "ON_ERROR_STOP=1",
+                "-v",
+                f"multipart_filename={intent['multipart_filename']}",
+                "-U",
+                "mindscape",
+                "-d",
+                "mindscape_core",
+                "-c",
+                sql,
+            ],
+            timeout_seconds=20.0,
+        ).strip()
+        try:
+            matches = json.loads(raw)
+        except json.JSONDecodeError as error:
+            raise ActiveInstallAttemptError(
+                "Install intent recovery is indeterminate; maintenance is required"
+            ) from error
+        if not isinstance(matches, list) or len(matches) != 1:
+            raise ActiveInstallAttemptError(
+                "Install intent recovery did not find one exact job; maintenance is required"
+            )
+        candidate = matches[0]
+        if not isinstance(candidate, dict):
+            raise ActiveInstallAttemptError(
+                "Install intent recovery is indeterminate; maintenance is required"
+            )
+        install_id = str(candidate.get("install_id") or "")
+        state = validate_job_identity(
+            candidate,
+            intent=intent,
+            expected_install_id=install_id,
         )
-    except Exception as error:  # noqa: BLE001 - status is now indeterminate
-        raise ActiveInstallAttemptError(
-            "Accepted install status is indeterminate; restore is blocked"
-        ) from error
-    state = str(job.get("state") or "")
-    if state not in _TERMINAL_STATES:
-        raise ActiveInstallAttemptError(
-            "Accepted install is active or indeterminate; restore is blocked"
+        write_install_attempt(
+            secure_dir,
+            intent=intent,
+            install_id=install_id,
+            state=state,
+            terminal=state in {"succeeded", "failed"},
         )
-    write_install_attempt(
-        secure_dir,
-        attempt_kind=attempt_kind,
-        install_id=install_id,
-        state=state,
-        terminal=True,
-        attempt_round=receipt["attempt_round"],
-    )
-    return job
+        return candidate
 
+    def _verify_succeeded(
+        self,
+        job: dict[str, Any],
+        *,
+        verify_succeeded: Callable[[dict[str, Any]], None],
+    ) -> None:
+        result = job.get("result_payload")
+        activation = (
+            result.get("execution_activation") if isinstance(result, dict) else None
+        )
+        if not isinstance(activation, dict) or activation.get("state") in {
+            None,
+            "pending",
+            "pending_execution_activation",
+        }:
+            raise AcceptedInstallError(
+                "Execution activation remains pending",
+                install_id=str(job.get("install_id") or ""),
+                state="succeeded",
+                terminal=True,
+            )
+        try:
+            verify_succeeded(job)
+        except Exception as error:  # noqa: BLE001 - retain terminal receipt
+            raise AcceptedInstallError(
+                "Installed runtime verification failed",
+                install_id=str(job.get("install_id") or ""),
+                state="succeeded",
+                terminal=True,
+            ) from error
 
-def next_restore_attempt_round(secure_dir: Path) -> int:
-    """Allow a new restore only after an exact terminal failed prior round."""
+    def _poll(
+        self,
+        secure_dir: Path,
+        *,
+        intent: dict[str, Any],
+        receipt: dict[str, Any],
+        verify_succeeded: Callable[[dict[str, Any]], None],
+    ) -> dict[str, Any]:
+        install_id = str(receipt["install_id"])
+        state = str(receipt["state"])
+        deadline = self.monotonic() + INSTALL_POLL_BUDGET_SECONDS
+        try:
+            while self.monotonic() < deadline:
+                job = self.http.get_json(
+                    "http://localhost:8220/api/v1/capability-packs/"
+                    f"install-jobs/{install_id}",
+                    timeout_seconds=10.0,
+                    max_response_bytes=262_144,
+                )
+                if not isinstance(job, dict):
+                    raise CutoverError("Install status payload is not an object")
+                state = validate_job_identity(
+                    job,
+                    intent=intent,
+                    expected_install_id=install_id,
+                )
+                terminal = state in {"succeeded", "failed"}
+                write_install_attempt(
+                    secure_dir,
+                    intent=intent,
+                    install_id=install_id,
+                    state=state,
+                    terminal=terminal,
+                )
+                if state == "succeeded":
+                    self._verify_succeeded(job, verify_succeeded=verify_succeeded)
+                    return job
+                if state == "failed":
+                    raise AcceptedInstallError(
+                        "Capability install job failed",
+                        install_id=install_id,
+                        state=state,
+                        terminal=True,
+                    )
+                self.sleep(min(2.0, max(0.0, deadline - self.monotonic())))
+        except AcceptedInstallError:
+            raise
+        except Exception as error:  # noqa: BLE001 - accepted state is indeterminate
+            raise AcceptedInstallError(
+                "Accepted capability install state became indeterminate",
+                install_id=install_id,
+                state=state,
+                terminal=False,
+            ) from error
+        raise AcceptedInstallError(
+            "Capability install job exceeded its 600 second poll budget",
+            install_id=install_id,
+            state=state,
+            terminal=False,
+        )
 
-    path = secure_dir / "restore-attempt.json"
-    if not path.exists():
-        return 1
-    assert_private_file(path, max_bytes=4_096)
-    try:
-        receipt = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as error:
-        raise CutoverError("Restore attempt receipt is malformed") from error
-    if (
-        not isinstance(receipt, dict)
-        or set(receipt) != {
-            "attempt_kind", "attempt_round", "install_id", "state", "terminal"
-        }
-        or receipt.get("attempt_kind") != "restore"
-        or not _INSTALL_ID.fullmatch(str(receipt.get("install_id") or ""))
-        or receipt.get("state") != "failed"
-        or receipt.get("terminal") is not True
-        or type(receipt.get("attempt_round")) is not int
-        or receipt["attempt_round"] < 1
-    ):
-        raise CutoverError("A new restore round is not permitted by the fixed receipt")
-    return receipt["attempt_round"] + 1
+    def _consume_recovered(
+        self,
+        secure_dir: Path,
+        *,
+        intent: dict[str, Any],
+        candidate: dict[str, Any],
+        verify_succeeded: Callable[[dict[str, Any]], None],
+    ) -> dict[str, Any]:
+        receipt = load_install_attempt(
+            secure_dir,
+            attempt_kind=str(intent["attempt_kind"]),
+        )
+        if receipt is None:
+            raise CutoverError("Recovered install receipt was not persisted")
+        state = str(candidate.get("state") or "")
+        if state == "failed":
+            raise AcceptedInstallError(
+                "Recovered capability install job failed",
+                install_id=str(candidate.get("install_id") or ""),
+                state=state,
+                terminal=True,
+            )
+        if state == "succeeded":
+            job = refresh_exact_attempt(
+                self.http,
+                secure_dir,
+                intent=intent,
+                receipt=receipt,
+            )
+            self._verify_succeeded(job, verify_succeeded=verify_succeeded)
+            return job
+        return self._poll(
+            secure_dir,
+            intent=intent,
+            receipt=receipt,
+            verify_succeeded=verify_succeeded,
+        )
 
+    def resume_or_create(
+        self,
+        archive: Path,
+        secure_dir: Path,
+        *,
+        attempt_kind: str,
+        overwrite: bool,
+        before_create: Callable[[], None],
+        verify_succeeded: Callable[[dict[str, Any]], None],
+    ) -> dict[str, Any]:
+        """Resume one exact round or create one new receipt-bound job."""
 
-def verify_known_good_restore_job(secure_dir: Path, job: dict[str, Any]) -> None:
-    """Match a terminal restore job to the fixed known-good identity evidence."""
+        intent = load_install_intent(secure_dir, attempt_kind=attempt_kind)
+        receipt = load_install_attempt(secure_dir, attempt_kind=attempt_kind)
+        next_round = 1
+        if receipt is not None and intent is None:
+            raise CutoverError("Install receipt exists without its atomic intent")
+        if intent is not None:
+            if receipt is None:
+                recovered = self._recover_by_intent(secure_dir, intent=intent)
+                return self._consume_recovered(
+                    secure_dir,
+                    intent=intent,
+                    candidate=recovered,
+                    verify_succeeded=verify_succeeded,
+                )
+            if contexts_match(intent, receipt):
+                job = refresh_exact_attempt(
+                    self.http,
+                    secure_dir,
+                    intent=intent,
+                    receipt=receipt,
+                )
+                state = str(job.get("state") or "")
+                if state == "succeeded":
+                    self._verify_succeeded(job, verify_succeeded=verify_succeeded)
+                    return job
+                if state in ACTIVE_INSTALL_STATES:
+                    raise ActiveInstallAttemptError(
+                        "Accepted install remains active; maintenance is required"
+                    )
+                next_round = int(receipt["attempt_round"]) + 1
+            elif (
+                receipt["state"] == "failed"
+                and receipt["terminal"] is True
+                and int(intent["attempt_round"]) == int(receipt["attempt_round"]) + 1
+            ):
+                recovered = self._recover_by_intent(secure_dir, intent=intent)
+                return self._consume_recovered(
+                    secure_dir,
+                    intent=intent,
+                    candidate=recovered,
+                    verify_succeeded=verify_succeeded,
+                )
+            else:
+                raise CutoverError("Install intent and receipt rounds are inconsistent")
 
-    path = secure_dir / "known-good-pack.json"
-    assert_private_file(path, max_bytes=32_768)
-    try:
-        evidence = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as error:
-        raise CutoverError("Known-good pack evidence is malformed") from error
-    result = job.get("result_payload") if isinstance(job, dict) else None
-    activation = result.get("activation") if isinstance(result, dict) else None
-    if (
-        not isinstance(evidence, dict)
-        or evidence.get("schema_version") != 1
-        or not isinstance(activation, dict)
-        or result.get("version") != evidence.get("version")
-        or activation.get("manifest_hash") != evidence.get("manifest_hash")
-    ):
-        raise CutoverError("Terminal restore job does not match known-good evidence")
+        before_create()
+        archive_sha256 = self._sha256(archive)
+        multipart_filename = (
+            f"remote-workbench-{attempt_kind}-{uuid.uuid4().hex}.mindpack"
+        )
+        intent = write_install_intent(
+            secure_dir,
+            attempt_kind=attempt_kind,
+            attempt_round=next_round,
+            archive_sha256=archive_sha256,
+            multipart_filename=multipart_filename,
+        )
+        command = [
+            "curl",
+            "-sS",
+            "--fail-with-body",
+            "-X",
+            "POST",
+            "http://localhost:8220/api/v1/capability-packs/install-from-file",
+            "-F",
+            f"file=@{archive};filename={multipart_filename}",
+        ]
+        if overwrite:
+            command.extend(
+                [
+                    "-F",
+                    "allow_overwrite=true",
+                    "-F",
+                    "overwrite_confirmation=OVERWRITE",
+                    "-F",
+                    "overwrite_review_confirmation=REVIEWED_LOCAL_DIFFS",
+                ]
+            )
+        try:
+            raw = self.executor.run(command, timeout_seconds=120.0)
+            accepted = json.loads(raw)
+            install_id = str(accepted.get("install_id") or "")
+            state = str(accepted.get("state") or "")
+            if (
+                not isinstance(accepted, dict)
+                or accepted.get("success") is not True
+                or accepted.get("accepted") is not True
+                or not INSTALL_ID_PATTERN.fullmatch(install_id)
+                or accepted.get("status_url")
+                != f"/api/v1/capability-packs/install-jobs/{install_id}"
+                or state not in ACTIVE_INSTALL_STATES
+            ):
+                raise CutoverError("Install intake returned an invalid durable job")
+        except Exception as intake_error:  # noqa: BLE001 - recover exact DB correlation
+            try:
+                recovered = self._recover_by_intent(secure_dir, intent=intent)
+                return self._consume_recovered(
+                    secure_dir,
+                    intent=intent,
+                    candidate=recovered,
+                    verify_succeeded=verify_succeeded,
+                )
+            except Exception as recovery_error:
+                raise recovery_error from intake_error
+        write_install_attempt(
+            secure_dir,
+            intent=intent,
+            install_id=install_id,
+            state=state,
+            terminal=False,
+        )
+        receipt = load_install_attempt(secure_dir, attempt_kind=attempt_kind)
+        if receipt is None:
+            raise CutoverError("Accepted install receipt was not persisted")
+        return self._poll(
+            secure_dir,
+            intent=intent,
+            receipt=receipt,
+            verify_succeeded=verify_succeeded,
+        )

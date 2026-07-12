@@ -13,8 +13,8 @@ from pathlib import Path
 from typing import Any, Callable
 import yaml
 from .http import HttpClient
-from .install_receipt import next_restore_attempt_round, write_install_attempt
-from .install_state import AcceptedInstallError
+from .install_attempt_state import MAX_PACK_BYTES
+from .install_receipt import InstallReceiptGate
 from .io import (
     CommandExecutor,
     CutoverError,
@@ -22,20 +22,11 @@ from .io import (
     write_private_json,
 )
 CAPABILITY_CODE = "mindscape_cloud_integration"
-ACTIVE_INSTALL_STATES = (
-    "queued",
-    "running",
-    "waiting_db",
-    "pending_execution_activation",
-)
-INSTALL_POLL_BUDGET_SECONDS = 600.0
-MAX_PACK_BYTES = 128 * 1024 * 1024
 _ARTIFACT_PATH = re.compile(
     r"^/app/data/capability-install-jobs/([a-f0-9]{32})/input\.mindpack$"
 )
 _VERSION_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$")
 _HASH_PATTERN = re.compile(r"^[a-f0-9]{64}$")
-_INSTALL_ID_PATTERN = re.compile(r"^[a-f0-9]{32}$")
 class PackReleaseGate:
     """Use the durable file-upload artifact seam for release and backout."""
     def __init__(
@@ -52,6 +43,12 @@ class PackReleaseGate:
         self.http = http
         self.sleep = sleep
         self.monotonic = monotonic
+        self.receipts = InstallReceiptGate(
+            executor=executor,
+            http=http,
+            sleep=sleep,
+            monotonic=monotonic,
+        )
     @staticmethod
     def _sha256(path: Path) -> str:
         digest = hashlib.sha256()
@@ -127,8 +124,96 @@ class PackReleaseGate:
         ):
             raise CutoverError("Installed capability identity is incomplete")
         return version, manifest_hash
+
+    def _load_known_good_evidence(self, secure_dir: Path) -> dict[str, Any]:
+        evidence_path = secure_dir / "known-good-pack.json"
+        assert_private_file(evidence_path, max_bytes=32_768)
+        try:
+            evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as error:
+            raise CutoverError("Known-good pack evidence is malformed") from error
+        expected_keys = {
+            "schema_version",
+            "capability_code",
+            "version",
+            "manifest_hash",
+            "source_kind",
+            "source_install_id",
+            "source_container_path",
+            "archive_file",
+            "archive_sha256",
+            "captured_at",
+        }
+        version = str(evidence.get("version") or "") if isinstance(evidence, dict) else ""
+        manifest_hash = str(evidence.get("manifest_hash") or "") if isinstance(evidence, dict) else ""
+        source_install_id = str(evidence.get("source_install_id") or "") if isinstance(evidence, dict) else ""
+        source_path = str(evidence.get("source_container_path") or "") if isinstance(evidence, dict) else ""
+        source_match = _ARTIFACT_PATH.fullmatch(source_path)
+        archive_name = f"known-good-{CAPABILITY_CODE}-{version}.mindpack"
+        if (
+            not isinstance(evidence, dict)
+            or set(evidence) != expected_keys
+            or evidence.get("schema_version") != 1
+            or evidence.get("capability_code") != CAPABILITY_CODE
+            or evidence.get("source_kind") != "file_upload"
+            or not _VERSION_PATTERN.fullmatch(version)
+            or not _HASH_PATTERN.fullmatch(manifest_hash)
+            or not _HASH_PATTERN.fullmatch(str(evidence.get("archive_sha256") or ""))
+            or source_match is None
+            or source_match.group(1) != source_install_id
+            or evidence.get("archive_file") != archive_name
+            or not str(evidence.get("captured_at") or "")
+        ):
+            raise CutoverError("Known-good pack evidence identity is invalid")
+        archive = secure_dir / archive_name
+        assert_private_file(archive, max_bytes=MAX_PACK_BYTES)
+        if self._sha256(archive) != evidence["archive_sha256"]:
+            raise CutoverError("Known-good archive sha256 mismatch")
+        self._verify_archive_manifest(
+            archive,
+            version=version,
+            manifest_hash=manifest_hash,
+        )
+        sql = """
+SELECT json_build_object(
+  'install_id', install_id,
+  'source_kind', source_kind,
+  'source_path', source_payload->>'mindpack_path',
+  'version', result_payload->>'version',
+  'manifest_hash', result_payload->'activation'->>'manifest_hash'
+)::text
+FROM capability_install_jobs
+WHERE install_id = :'install_id'
+  AND state = 'succeeded';
+""".strip()
+        raw = self.executor.run(
+            [
+                "docker", "exec", "mindscape-ai-local-core-postgres",
+                "psql", "-XqAt", "-v", "ON_ERROR_STOP=1",
+                "-v", f"install_id={source_install_id}",
+                "-U", "mindscape", "-d", "mindscape_core", "-c", sql,
+            ],
+            timeout_seconds=20.0,
+        ).strip()
+        try:
+            source = json.loads(raw)
+        except json.JSONDecodeError as error:
+            raise CutoverError("Known-good source job evidence is unavailable") from error
+        if source != {
+            "install_id": source_install_id,
+            "source_kind": "file_upload",
+            "source_path": source_path,
+            "version": version,
+            "manifest_hash": manifest_hash,
+        }:
+            raise CutoverError("Known-good source job no longer matches its evidence")
+        return evidence
+
     def capture_known_good(self, secure_dir: Path) -> dict[str, Any]:
         """Copy the exact current file-upload job artifact before any install."""
+        evidence_path = secure_dir / "known-good-pack.json"
+        if evidence_path.exists() or evidence_path.is_symlink():
+            return self._load_known_good_evidence(secure_dir)
         version, manifest_hash = self._runtime_identity()
         sql = """
 SELECT json_build_object(
@@ -186,7 +271,6 @@ LIMIT 1;
         ):
             raise CutoverError("Known-good artifact is not the current durable file upload")
         archive = secure_dir / f"known-good-{CAPABILITY_CODE}-{version}.mindpack"
-        evidence_path = secure_dir / "known-good-pack.json"
         if archive.exists() or evidence_path.exists():
             raise CutoverError("Known-good evidence already exists; run explicit backout first")
         self.executor.run(
@@ -249,152 +333,27 @@ LIMIT 1;
         if any(item not in listing.splitlines() for item in required):
             raise CutoverError("Capability archive is missing manifest or runtime UI assets")
         return archive
-    def _install_archive(
+    def install_current(
         self,
         archive: Path,
+        evidence_dir: Path,
         *,
-        overwrite: bool,
-        evidence_dir: Path | None = None,
-        attempt_kind: str = "install",
-        attempt_round: int = 1,
+        before_create: Callable[[], None],
     ) -> dict[str, Any]:
-        command = [
-            "curl",
-            "-sS",
-            "--fail-with-body",
-            "-X",
-            "POST",
-            "http://localhost:8220/api/v1/capability-packs/install-from-file",
-            "-F",
-            f"file=@{archive}",
-        ]
-        if overwrite:
-            command.extend(
-                [
-                    "-F",
-                    "allow_overwrite=true",
-                    "-F",
-                    "overwrite_confirmation=OVERWRITE",
-                    "-F",
-                    "overwrite_review_confirmation=REVIEWED_LOCAL_DIFFS",
-                ]
-            )
-        raw = self.executor.run(command, timeout_seconds=120.0)
-        try:
-            accepted = json.loads(raw)
-        except json.JSONDecodeError as error:
-            raise CutoverError("Install intake returned malformed JSON") from error
-        if (
-            not isinstance(accepted, dict)
-            or accepted.get("success") is not True
-            or accepted.get("accepted") is not True
-        ):
-            raise CutoverError("Backend-control did not accept a durable install job")
-        install_id = str(accepted.get("install_id") or "")
-        status_url = str(accepted.get("status_url") or "")
-        state = str(accepted.get("state") or "")
-        if (
-            not _INSTALL_ID_PATTERN.fullmatch(install_id)
-            or status_url != f"/api/v1/capability-packs/install-jobs/{install_id}"
-            or state not in ACTIVE_INSTALL_STATES
-        ):
-            raise CutoverError("Install intake returned an invalid status URL")
-        if evidence_dir is not None:
-            write_install_attempt(
-                evidence_dir,
-                attempt_kind=attempt_kind,
-                install_id=install_id,
-                state=state,
-                terminal=False,
-                attempt_round=attempt_round,
-            )
-        url = f"http://localhost:8220{status_url}"
-        deadline = self.monotonic() + INSTALL_POLL_BUDGET_SECONDS
-        try:
-            while self.monotonic() < deadline:
-                job = self.http.get_json(url, timeout_seconds=10.0)
-                state = str(job.get("state") or "")
-                if job.get("install_id") != install_id:
-                    raise AcceptedInstallError(
-                        "Install status identity changed",
-                        install_id=install_id,
-                        state=state,
-                        terminal=False,
-                    )
-                if evidence_dir is not None:
-                    write_install_attempt(
-                        evidence_dir,
-                        attempt_kind=attempt_kind,
-                        install_id=install_id,
-                        state=state,
-                        terminal=state in {"succeeded", "failed"},
-                        attempt_round=attempt_round,
-                    )
-                if state == "succeeded":
-                    result = job.get("result_payload")
-                    activation = (
-                        result.get("execution_activation")
-                        if isinstance(result, dict)
-                        else None
-                    )
-                    if not isinstance(activation, dict) or activation.get("state") in {
-                        None,
-                        "pending",
-                        "pending_execution_activation",
-                    }:
-                        raise AcceptedInstallError(
-                            "Execution activation remains pending",
-                            install_id=install_id,
-                            state=state,
-                            terminal=True,
-                        )
-                    try:
-                        self.verify_installed_runtime(job)
-                    except Exception as error:  # noqa: BLE001 - retain terminal receipt
-                        raise AcceptedInstallError(
-                            "Installed runtime verification failed",
-                            install_id=install_id,
-                            state=state,
-                            terminal=True,
-                        ) from error
-                    return job
-                if state == "failed":
-                    raise AcceptedInstallError(
-                        "Capability install job failed",
-                        install_id=install_id,
-                        state=state,
-                        terminal=True,
-                    )
-                if state not in ACTIVE_INSTALL_STATES:
-                    raise AcceptedInstallError(
-                        "Capability install job returned an unknown state",
-                        install_id=install_id,
-                        state=state,
-                        terminal=False,
-                    )
-                self.sleep(min(2.0, max(0.0, deadline - self.monotonic())))
-        except AcceptedInstallError:
-            raise
-        except Exception as error:  # noqa: BLE001 - accepted state is indeterminate
-            raise AcceptedInstallError(
-                "Accepted capability install state became indeterminate",
-                install_id=install_id,
-                state=state,
-                terminal=False,
-            ) from error
-        raise AcceptedInstallError(
-            "Capability install job exceeded its 600 second poll budget",
-            install_id=install_id,
-            state=state,
-            terminal=False,
-        )
-    def install_current(self, archive: Path, evidence_dir: Path) -> dict[str, Any]:
-        return self._install_archive(
+        return self.receipts.resume_or_create(
             archive,
+            evidence_dir,
+            attempt_kind="install",
             overwrite=False,
-            evidence_dir=evidence_dir,
+            before_create=before_create,
+            verify_succeeded=self.verify_installed_runtime,
         )
-    def restore_known_good(self, secure_dir: Path) -> dict[str, Any]:
+    def restore_known_good(
+        self,
+        secure_dir: Path,
+        *,
+        before_create: Callable[[], None],
+    ) -> dict[str, Any]:
         """Reinstall the captured archive only through the 8220 durable job path."""
         evidence_path = secure_dir / "known-good-pack.json"
         assert_private_file(evidence_path, max_bytes=32_768)
@@ -417,18 +376,26 @@ LIMIT 1;
             version=version,
             manifest_hash=manifest_hash,
         )
-        job = self._install_archive(
+        def verify_restore(job: dict[str, Any]) -> None:
+            self.verify_installed_runtime(job)
+            result = job.get("result_payload") or {}
+            activation = result.get("activation") or {}
+            if (
+                result.get("version") != version
+                or activation.get("manifest_hash") != manifest_hash
+            ):
+                raise CutoverError(
+                    "Known-good restore job identity does not match evidence"
+                )
+
+        return self.receipts.resume_or_create(
             archive,
-            overwrite=True,
-            evidence_dir=secure_dir,
+            secure_dir,
             attempt_kind="restore",
-            attempt_round=next_restore_attempt_round(secure_dir),
+            overwrite=True,
+            before_create=before_create,
+            verify_succeeded=verify_restore,
         )
-        result = job.get("result_payload") or {}
-        activation = result.get("activation") or {}
-        if result.get("version") != version or activation.get("manifest_hash") != manifest_hash:
-            raise CutoverError("Known-good restore job identity does not match evidence")
-        return job
     def verify_installed_runtime(self, job: dict[str, Any]) -> None:
         """Verify installed source, activation hash, and every runtime UI asset."""
         result = job.get("result_payload")
