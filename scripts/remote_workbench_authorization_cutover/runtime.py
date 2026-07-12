@@ -437,15 +437,26 @@ class RuntimeGate:
         path: str,
         *,
         workspace_id: str,
+        upgrade: bool = False,
     ) -> HttpResponse:
         token = assertion_path.read_text(encoding="utf-8").strip()
+        headers = {
+            "Cookie": f"CF_Authorization={token}",
+            "Referer": f"{self.public_origin}/workspaces/{workspace_id}",
+        }
+        if upgrade:
+            headers.update(
+                {
+                    "Connection": "Upgrade",
+                    "Upgrade": "websocket",
+                    "Sec-WebSocket-Key": base64.b64encode(os.urandom(16)).decode("ascii"),
+                    "Sec-WebSocket-Version": "13",
+                }
+            )
         return self.http.request(
             "GET",
             f"{self.public_origin}{path}",
-            headers={
-                "Cookie": f"CF_Authorization={token}",
-                "Referer": f"{self.public_origin}/workspaces/{workspace_id}",
-            },
+            headers=headers,
             timeout_seconds=10.0,
         )
 

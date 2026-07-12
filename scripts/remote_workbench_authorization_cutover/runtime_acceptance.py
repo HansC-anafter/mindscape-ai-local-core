@@ -20,6 +20,26 @@ CACHE_HIT_P95_LIMIT_MS = 25.0
 WARM_MISS_LIMIT_MS = 500.0
 
 
+def public_control_plane_paths(workspace_id: str) -> tuple[str, ...]:
+    """Return the bounded control-plane routes that public ingress must hide."""
+
+    return (
+        "/api/v1/capabilities/mindscape_cloud_integration/"
+        "mobile-workbench-gateway/runtime-policy",
+        "/api/v1/capabilities/mindscape_cloud_integration/"
+        f"mobile-workbench-gateway/workspaces/{workspace_id}/policy",
+        "/api/v1/host/services/mobile-workbench-gateway/health",
+        f"/api/v1/host/services/mobile-workbench-gateway/summary?workspace_id={workspace_id}",
+        f"/api/v1/host/services/mobile-workbench-gateway/audit?workspace_id={workspace_id}",
+        f"/workspaces/{workspace_id}/capability-ui-hosts/"
+        "mindscape_cloud_integration?component=MindscapeMobileWorkbenchGatewayPage",
+        "/api/v1/admin/remote-workbench",
+        "/api/v1/providers/remote-workbench",
+        "/api/v1/deploy/remote-workbench",
+        "/api/v1/capability-packs/install-from-file",
+    )
+
+
 def verify_workspace_api_records(runtime: Any, workspace_ids: tuple[str, str]) -> None:
     """Prove canonical local workspace detail endpoints resolve both real rows."""
 
@@ -231,6 +251,22 @@ def verify_public_matrix(runtime: Any, inputs: SecureInputs, workspace_id: str) 
             expected_reason="capability_not_allowed",
             upgrade=upgrade,
         )
+    for path in public_control_plane_paths(workspace_id):
+        for upgrade in (False, True):
+            response = runtime._public_path_request(  # noqa: SLF001
+                inputs.jwt_paths["hans"],
+                path,
+                workspace_id=workspace_id,
+                upgrade=upgrade,
+            )
+            if (
+                response.status != 404
+                or response.headers.get("x-mindscape-remote-auth-stage")
+                != "principal_verified"
+                or response.headers.get("x-mindscape-remote-auth-reason")
+                != "remote_control_plane_forbidden"
+            ):
+                raise CutoverError("Public control-plane route was not hidden by the gateway")
 
 
 def _nearest_rank(values: list[float]) -> float:

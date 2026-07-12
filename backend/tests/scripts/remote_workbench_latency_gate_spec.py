@@ -13,7 +13,10 @@ sys.path.insert(0, str(REPO_ROOT / "scripts"))
 from remote_workbench_authorization_cutover.io import CutoverError
 from remote_workbench_authorization_cutover.http import HttpResponse
 from remote_workbench_authorization_cutover.runtime import RuntimeGate
-from remote_workbench_authorization_cutover.runtime_acceptance import verify_public_matrix
+from remote_workbench_authorization_cutover.runtime_acceptance import (
+    public_control_plane_paths,
+    verify_public_matrix,
+)
 from remote_workbench_authorization_cutover.secure_inputs import SecureInputs
 
 
@@ -204,6 +207,14 @@ def test_public_matrix_accepts_only_embedded_supported_projection(tmp_path: Path
         },
         b"{}",
     )
+    denied_control = HttpResponse(
+        404,
+        {
+            "x-mindscape-remote-auth-stage": "principal_verified",
+            "x-mindscape-remote-auth-reason": "remote_control_plane_forbidden",
+        },
+        b"{}",
+    )
     projection = [{
         "code": "dance_motion_coach",
         "mobile_workbench_gateway_support": {"supported": True},
@@ -211,15 +222,21 @@ def test_public_matrix_accepts_only_embedded_supported_projection(tmp_path: Path
 
     class SequencedHttp:
         def __init__(self) -> None:
+            self.calls = []
             self.responses = [
                 HttpResponse(200, {}, b"ok"), HttpResponse(101, {}, b""),
                 HttpResponse(200, {}, b"ok"), HttpResponse(101, {}, b""),
                 HttpResponse(200, {}, json.dumps(projection).encode()),
                 denied_membership, denied_membership,
                 denied_capability, denied_capability,
+                *(
+                    denied_control
+                    for _ in range(2 * len(public_control_plane_paths(WORKSPACE_ID)))
+                ),
             ]
 
-        def request(self, *_args, **_kwargs):
+        def request(self, *_args, **kwargs):
+            self.calls.append(kwargs)
             return self.responses.pop(0)
 
     inputs = SecureInputs(
@@ -231,3 +248,9 @@ def test_public_matrix_accepts_only_embedded_supported_projection(tmp_path: Path
     http = SequencedHttp()
     verify_public_matrix(_gate(ProbeExecutor(), http), inputs, WORKSPACE_ID)
     assert http.responses == []
+    control_calls = http.calls[-2 * len(public_control_plane_paths(WORKSPACE_ID)):]
+    for index, call in enumerate(control_calls):
+        if index % 2 == 0:
+            assert "Upgrade" not in call["headers"]
+        else:
+            assert call["headers"]["Upgrade"] == "websocket"
