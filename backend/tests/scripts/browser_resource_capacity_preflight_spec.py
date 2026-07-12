@@ -377,6 +377,113 @@ def test_older_oversized_candidate_does_not_hide_smaller_valid_vector() -> None:
     assert plan["byte_blocked_candidate_count"] == 1
 
 
+def test_older_unmeasured_candidate_does_not_hide_measured_vector() -> None:
+    rows = [
+        _candidate(
+            "unmeasured-00",
+            _context(
+                code="ig_batch_pin_references",
+                profile="/profiles/unmeasured",
+                source_mode="browser",
+                target="unmeasured",
+                captured_target_lock=True,
+            ),
+        ),
+        *[
+            _candidate(
+                f"captured-{index:02d}",
+                _context(
+                    code="ig_batch_pin_references",
+                    profile=f"/profiles/captured-{index}",
+                    source_mode="captured_posts",
+                    target=f"captured-{index}",
+                    captured_target_lock=True,
+                ),
+                partition="default_local_browser",
+            )
+            for index in range(2)
+        ],
+    ]
+    summary = summarize_task_candidates(
+        {"candidates": rows},
+        playbook_metadata=_metadata(),
+    )
+
+    plan = build_candidate_request_plan(
+        summary,
+        required_concurrency=2,
+        default_request_bytes=None,
+        envelope_request_bytes={
+            "ig_batch_pin_references.captured_posts": GIB,
+        },
+        slot_capacity_by_partition={
+            "browser_local": 6,
+            "default_local_browser": 3,
+        },
+        available_request_bytes=2 * GIB,
+    )
+
+    assert plan["selected_candidate_count"] == 2
+    assert [
+        candidate["task_id"] for candidate in plan["selected_candidates"]
+    ] == ["captured-00", "captured-01"]
+    assert plan["additional_request_bytes"] == [GIB, GIB]
+    assert plan["missing_request_envelopes"] == [
+        "ig_batch_pin_references.browser"
+    ]
+    assert plan["selected_missing_request_envelopes"] == []
+
+
+def test_running_unmeasured_candidate_remains_a_selected_blocker() -> None:
+    context = _context(
+        code="ig_batch_pin_references",
+        profile="/profiles/running",
+        source_mode="browser",
+        target="running",
+        captured_target_lock=True,
+    )
+    summary = summarize_task_candidates(
+        {
+            "candidates": [
+                {
+                    **_candidate(
+                        "running-00",
+                        context,
+                        status="running",
+                    ),
+                    "runner_id": "runner-00",
+                }
+            ]
+        },
+        playbook_metadata=_metadata(),
+        processing_task_ids={"running-00"},
+        reservation_owner_ids={"runner-00:running-00"},
+        live_owners={
+            "running-00": {
+                "task_id": "running-00",
+                "runner_id": "runner-00",
+                "ttl_seconds_remaining": 60,
+            }
+        },
+    )
+
+    plan = build_candidate_request_plan(
+        summary,
+        required_concurrency=1,
+        default_request_bytes=None,
+        envelope_request_bytes={},
+        slot_capacity_by_partition={"browser_local": 6},
+        available_request_bytes=2 * GIB,
+    )
+
+    assert plan["selected_candidate_count"] == 1
+    assert plan["selected_candidates"][0]["task_id"] == "running-00"
+    assert plan["selected_candidates"][0]["request_bytes"] is None
+    assert plan["selected_missing_request_envelopes"] == [
+        "ig_batch_pin_references.browser"
+    ]
+
+
 def test_stale_running_task_never_becomes_fresh_live() -> None:
     context = _context(
         code="ig_analyze_following",

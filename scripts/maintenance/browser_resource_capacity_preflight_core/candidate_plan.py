@@ -189,9 +189,17 @@ def build_candidate_request_plan(
     lock_blocked_count = 0
     partition_blocked_count = 0
     byte_blocked_count = 0
+    missing_envelopes: list[str] = []
     for candidate in ready:
         if len(selected) >= required_concurrency:
             break
+        envelope_id = str(candidate.get("envelope_id") or "").strip()
+        request_bytes = envelope_request_bytes.get(envelope_id)
+        if request_bytes is None:
+            request_bytes = default_request_bytes
+        if request_bytes is None or int(request_bytes) <= 0:
+            missing_envelopes.append(envelope_id or "<missing>")
+            continue
         candidate_locks = set(candidate.get("lock_keys") or [])
         if candidate_locks.intersection(used_locks):
             lock_blocked_count += 1
@@ -201,21 +209,16 @@ def build_candidate_request_plan(
         if partition_usage.get(partition, 0) >= capacity:
             partition_blocked_count += 1
             continue
-        envelope_id = str(candidate.get("envelope_id") or "").strip()
-        request_bytes = envelope_request_bytes.get(envelope_id)
-        if request_bytes is None:
-            request_bytes = default_request_bytes
-        if request_bytes is not None and int(request_bytes) > remaining_request_bytes:
+        if int(request_bytes) > remaining_request_bytes:
             byte_blocked_count += 1
             continue
         selected.append(dict(candidate))
         used_locks.update(candidate_locks)
         partition_usage[partition] = partition_usage.get(partition, 0) + 1
-        if request_bytes is not None:
-            remaining_request_bytes -= int(request_bytes)
+        remaining_request_bytes -= int(request_bytes)
 
-    missing_envelopes: list[str] = []
     additional_request_bytes: list[int] = []
+    selected_missing_envelopes: list[str] = []
     rendered_selected: list[dict[str, Any]] = []
     for candidate in selected:
         envelope_id = str(candidate.get("envelope_id") or "").strip()
@@ -225,6 +228,7 @@ def build_candidate_request_plan(
         rendered = dict(candidate)
         if request_bytes is None or int(request_bytes) <= 0:
             missing_envelopes.append(envelope_id or "<missing>")
+            selected_missing_envelopes.append(envelope_id or "<missing>")
             rendered["request_bytes"] = None
         else:
             request_bytes = int(request_bytes)
@@ -242,6 +246,9 @@ def build_candidate_request_plan(
         "selected_candidates": rendered_selected,
         "additional_request_bytes": additional_request_bytes,
         "missing_request_envelopes": sorted(set(missing_envelopes)),
+        "selected_missing_request_envelopes": sorted(
+            set(selected_missing_envelopes)
+        ),
         "running_lock_conflict_count": running_lock_conflict_count,
         "lock_blocked_candidate_count": lock_blocked_count,
         "partition_blocked_candidate_count": partition_blocked_count,

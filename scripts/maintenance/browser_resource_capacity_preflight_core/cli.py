@@ -74,7 +74,7 @@ def _capacity_inputs(
             for value in request_plan.get("additional_request_bytes") or []
         ),
         missing_request_workload_count=len(
-            request_plan.get("missing_request_envelopes") or []
+            request_plan.get("selected_missing_request_envelopes") or []
         ),
         mem_available_bytes=int(snapshot["memory"].get("available_bytes") or 0),
         running_count=int(tasks.get("running_count") or 0),
