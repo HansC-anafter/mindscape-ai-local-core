@@ -18,6 +18,7 @@ class SupervisorRuntime:
 
     connector_failures: int = 0
     repair_failures: int = 0
+    next_repair_at: float = 0.0
 
 
 class BridgeSupervisor:
@@ -32,6 +33,7 @@ class BridgeSupervisor:
         supervisor_build_id: str,
         supervisor_pid: int,
         sleep: Callable[[float], None] = time.sleep,
+        monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
         self.settings = settings
         self.state_store = state_store
@@ -39,6 +41,7 @@ class BridgeSupervisor:
         self.supervisor_build_id = supervisor_build_id
         self.supervisor_pid = supervisor_pid
         self.sleep = sleep
+        self.monotonic = monotonic
         self.runtime = SupervisorRuntime()
 
     def _launcher(self, action: str) -> bool:
@@ -55,11 +58,21 @@ class BridgeSupervisor:
         return result.returncode == 0
 
     def _repair_delay(self) -> float:
-        exponent = max(0, self.runtime.repair_failures - 1)
+        exponent = min(16, max(0, self.runtime.repair_failures - 1))
         return min(
             self.settings.backoff_initial_seconds * (2**exponent),
             self.settings.backoff_max_seconds,
         )
+
+    def _repair_allowed(self) -> bool:
+        return self.monotonic() >= self.runtime.next_repair_at
+
+    def _schedule_repair_gate(self) -> None:
+        self.runtime.next_repair_at = self.monotonic() + self._repair_delay()
+
+    def _clear_repair_gate(self) -> None:
+        self.runtime.repair_failures = 0
+        self.runtime.next_repair_at = 0.0
 
     def _status(
         self,
@@ -86,10 +99,12 @@ class BridgeSupervisor:
     def _persist(self, status: dict[str, Any]) -> dict[str, Any]:
         previous = self.state_store.read_status()
         self.state_store.write_status(status)
-        if previous is None or previous.get("state") != status["state"]:
+        previous_state = previous.get("state") if isinstance(previous, dict) else None
+        if previous_state != status["state"] or status["repair_action"] is not None:
             self.state_store.append_event(
                 {
                     "at": status["checked_at"],
+                    "previous_state": previous_state,
                     "state": status["state"],
                     "ready": status["ready"],
                     "repair_action": status["repair_action"],
@@ -112,7 +127,7 @@ class BridgeSupervisor:
             )
 
         if not docker.ok:
-            self.runtime.repair_failures += 1
+            self.runtime.repair_failures = min(16, self.runtime.repair_failures + 1)
             return self._persist(
                 self._status(state="waiting_docker", ready=False, probes={"docker": docker})
             )
@@ -131,33 +146,49 @@ class BridgeSupervisor:
             )
 
         if not tunnel.ok:
-            repaired = self._launcher("ensure")
-            self.runtime.repair_failures = 0 if repaired else self.runtime.repair_failures + 1
+            repair_action = None
+            if self._repair_allowed():
+                repaired = self._launcher("ensure")
+                repair_action = "ensure" if repaired else "ensure_failed"
+                self.runtime.repair_failures = (
+                    0 if repaired else min(16, self.runtime.repair_failures + 1)
+                )
+                self._schedule_repair_gate()
             return self._persist(
                 self._status(
                     state="recovering_tunnel",
                     ready=False,
                     probes=probes,
-                    repair_action="ensure" if repaired else "ensure_failed",
+                    repair_action=repair_action,
                 )
             )
 
         connector = self.probes.connector()
         probes["connector"] = connector
         if not connector.ok:
-            self.runtime.connector_failures += 1
+            self.runtime.connector_failures = min(
+                self.settings.connector_failure_threshold,
+                self.runtime.connector_failures + 1,
+            )
             repair_action = None
-            if self.runtime.connector_failures >= self.settings.connector_failure_threshold:
+            state = "degraded_tunnel"
+            if (
+                self.runtime.connector_failures
+                >= self.settings.connector_failure_threshold
+                and self._repair_allowed()
+            ):
                 repaired = self._launcher("restart")
                 repair_action = "restart" if repaired else "restart_failed"
                 self.runtime.repair_failures = (
-                    0 if repaired else self.runtime.repair_failures + 1
+                    0 if repaired else min(16, self.runtime.repair_failures + 1)
                 )
                 if repaired:
                     self.runtime.connector_failures = 0
+                self._schedule_repair_gate()
+                state = "recovering_tunnel"
             return self._persist(
                 self._status(
-                    state="recovering_tunnel",
+                    state=state,
                     ready=False,
                     probes=probes,
                     repair_action=repair_action,
@@ -172,7 +203,7 @@ class BridgeSupervisor:
                 self._status(state="degraded_remote", ready=False, probes=probes)
             )
 
-        self.runtime.repair_failures = 0
+        self._clear_repair_gate()
         return self._persist(self._status(state="ready", ready=True, probes=probes))
 
     def run_forever(self) -> None:

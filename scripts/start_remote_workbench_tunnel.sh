@@ -21,6 +21,10 @@ INGRESS_LOCK_HELPER="$PROJECT_ROOT/scripts/remote_workbench_remote_ingress_lock.
 BRIDGE_INSTALLER="$PROJECT_ROOT/scripts/install-remote-workbench-bridge-macos.sh"
 STATUS_STALE_SECONDS="60"
 
+if [[ -z "${DOCKER_HOST:-}" && -S "$HOME/.docker/run/docker.sock" ]]; then
+  export DOCKER_HOST="unix://$HOME/.docker/run/docker.sock"
+fi
+
 log() {
   printf '[remote-workbench-tunnel] %s\n' "$*" >&2
 }

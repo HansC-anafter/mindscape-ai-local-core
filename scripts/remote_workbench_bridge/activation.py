@@ -53,6 +53,7 @@ SOURCE_PATHS = (
 KNOWN_STATES = {
     "degraded_origin",
     "degraded_remote",
+    "degraded_tunnel",
     "maintenance",
     "ready",
     "recovering_tunnel",

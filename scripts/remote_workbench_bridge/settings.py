@@ -33,6 +33,7 @@ class BridgeSettings:
     status_path: Path
     events_path: Path
     maintenance_path: Path
+    docker_socket_path: Path
     container_name: str
     network_name: str
     internal_target: str
@@ -63,6 +64,12 @@ class BridgeSettings:
                 "~/.mindscape/remote-workbench-bridge",
             )
         ).expanduser().resolve()
+        docker_host = os.getenv("DOCKER_HOST", "")
+        docker_socket_path = (
+            Path(docker_host.removeprefix("unix://")).expanduser()
+            if docker_host.startswith("unix://")
+            else Path.home() / ".docker" / "run" / "docker.sock"
+        )
         return cls(
             project_root=project_root,
             state_dir=state_dir,
@@ -70,6 +77,7 @@ class BridgeSettings:
             status_path=state_dir / "status.json",
             events_path=state_dir / "events.jsonl",
             maintenance_path=state_dir / "maintenance.json",
+            docker_socket_path=docker_socket_path,
             container_name=os.getenv(
                 "REMOTE_WORKBENCH_TUNNEL_CONTAINER",
                 "ig-workbench-cloudflared",

@@ -29,6 +29,7 @@ def build_supervisor(
     )
     probes = BridgeProbes(
         launcher_path=settings.launcher_path,
+        docker_socket_path=settings.docker_socket_path,
         local_origin_url=settings.local_origin_url,
         connector_ready_url=settings.connector_ready_url,
         public_origin_url=settings.public_origin_url,
@@ -66,8 +67,9 @@ def main() -> int:
         pid=os.getpid(),
     )
     if args.once:
-        print(json.dumps(supervisor.run_once(), sort_keys=True))
-        return 0
+        status = supervisor.run_once()
+        print(json.dumps(status, sort_keys=True))
+        return 0 if status.get("ready") is True else 2
     supervisor.run_forever()
     return 0
 
