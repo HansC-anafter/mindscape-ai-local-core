@@ -225,6 +225,7 @@ class CutoverWorkflow:
             self.release.require_no_active_install_jobs()
             self.release.verify_workspace_rows(target_workspace_id, inheritance_workspace_id)
             self.runtime.verify_workspace_records(target_workspace_id, inheritance_workspace_id)
+            self.release.verify_database_pools()
 
             claims_paused = True
             infra_before = self.claims.pause_and_drain(inputs.directory, "06a-infra")
