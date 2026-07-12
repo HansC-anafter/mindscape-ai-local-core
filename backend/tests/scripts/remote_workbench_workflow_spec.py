@@ -171,8 +171,9 @@ def test_fresh_backup_is_created_only_after_durable_infra_pause(
 
     pause = events.index("pause:06a-infra")
     backup = events.index("backup")
+    activate = events.index("activate")
     close = events.index("close-prove")
-    assert pause < backup < close
+    assert pause < backup < activate < close
 
 
 def test_indeterminate_accepted_install_blocks_second_job(

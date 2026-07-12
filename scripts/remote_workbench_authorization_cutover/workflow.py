@@ -225,14 +225,15 @@ class CutoverWorkflow:
             self.release.require_no_active_install_jobs()
             self.release.verify_workspace_rows(target_workspace_id, inheritance_workspace_id)
             self.runtime.verify_workspace_records(target_workspace_id, inheritance_workspace_id)
-            public_mutation_started = True
-            self.runtime.activate_supervisor()
-            self.runtime.verify_supervisor()
-            origin = self.runtime.inspect_origin(inputs.directory, target_workspace_id)
 
             claims_paused = True
             infra_before = self.claims.pause_and_drain(inputs.directory, "06a-infra")
             backup_dir = self.release.verify_or_create_backup()
+
+            public_mutation_started = True
+            self.runtime.activate_supervisor()
+            self.runtime.verify_supervisor()
+            origin = self.runtime.inspect_origin(inputs.directory, target_workspace_id)
             require_access_token_remaining(inputs)
             self.runtime.close_and_prove(
                 inputs.jwt_paths["hans"],
