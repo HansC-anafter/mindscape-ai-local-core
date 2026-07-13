@@ -34,6 +34,7 @@ class TasksStoreColdReleaseQueryMixin:
             queue_shard=queue_shard,
             limit=limit,
             include_execution_context=False,
+            rank_by_concurrency_key=True,
         )
 
     def _list_ranked_cold_release_candidates(
@@ -43,13 +44,20 @@ class TasksStoreColdReleaseQueryMixin:
         queue_shard: Optional[str],
         limit: int,
         include_execution_context: bool = True,
+        rank_by_concurrency_key: bool = False,
     ) -> List[Task]:
+        release_group_sql = (
+            "COALESCE(NULLIF(concurrency_key, ''), pack_id)"
+            if rank_by_concurrency_key
+            else "pack_id"
+        )
         query_parts = [
-            """
+            f"""
             WITH sampled AS (
                 SELECT
                     id,
                     pack_id,
+                    {release_group_sql} AS release_group,
                     next_eligible_at,
                     created_at
                 FROM tasks
@@ -93,7 +101,7 @@ class TasksStoreColdReleaseQueryMixin:
                 SELECT
                     id,
                     ROW_NUMBER() OVER (
-                        PARTITION BY pack_id
+                        PARTITION BY release_group
                         ORDER BY next_eligible_at ASC, created_at ASC, id ASC
                     ) AS pack_rank,
                     next_eligible_at,
