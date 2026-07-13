@@ -9,24 +9,28 @@ from typing import Any, Iterable
 
 from .candidate_plan import summarize_task_candidates
 from .commands import ReadOnlyCommandRunner
+from .runtime_sources import (
+    BACKEND_APP_MOUNT,
+    BACKEND_DATA_MOUNT,
+    CLAIM_GATE_BOOTSTRAP_RELATIVE_PATH,
+    collect_backend_mounts,
+    load_deployed_playbook_metadata,
+    resolve_claim_gate,
+)
 
 
 _SAFE_NAME = re.compile(r"^[a-zA-Z0-9_.-]+$")
-_GATE_CODE = (
-    "import json; "
-    "from backend.app.services.host_resources import get_runner_claim_gate; "
-    "print(json.dumps(get_runner_claim_gate(), sort_keys=True))"
-)
-_METADATA_CODE = (
-    "import json; "
-    "from backend.app.services.runner_topology import "
-    "resolve_installed_playbook_runner_metadata as resolve; "
-    "codes=('ig_analyze_following','ig_batch_pin_references','ig_pin_post_detail'); "
-    "print(json.dumps({code: resolve(code) for code in codes}, sort_keys=True))"
-)
 _REDIS_SCRIPT = """
 local base = 'mindscape:runner_resources:node_budget:v1:docker_vm_browser_memory'
 local policy_raw = redis.call('GET', base .. ':policy') or '{}'
+local claim_gate_raw = redis.call(
+  'GET', 'mindscape:host_resources:runner_claim_gate'
+)
+local claim_gate = cjson.null
+if claim_gate_raw then
+  local ok, payload = pcall(cjson.decode, claim_gate_raw)
+  if ok then claim_gate = payload end
+end
 local reservations_raw = redis.call('HVALS', base .. ':reservations')
 local reservations = {}
 for _, raw in ipairs(reservations_raw) do
@@ -73,6 +77,7 @@ repeat
   end
 until cursor == '0'
 return cjson.encode({
+  claim_gate = claim_gate,
   policy = cjson.decode(policy_raw),
   reservations = reservations,
   processing_count = processing,
@@ -143,8 +148,13 @@ def parse_runner_partitions(raw: str) -> tuple[str, ...]:
     raise ValueError("runner accepted partitions are missing")
 
 
-def _run_json(runner: ReadOnlyCommandRunner, argv: list[str]) -> dict[str, Any]:
-    result = runner.run(argv)
+def _run_json(
+    runner: ReadOnlyCommandRunner,
+    argv: list[str],
+    *,
+    timeout_seconds: int = 5,
+) -> dict[str, Any]:
+    result = runner.run(argv, timeout_seconds=timeout_seconds)
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip() or "runtime collector failed")
     payload = json.loads(result.stdout.strip())
@@ -163,10 +173,7 @@ def collect_runtime_snapshot(
     postgres = _require_safe_names([targets.postgres_container])[0]
     redis = _require_safe_names([targets.redis_container])[0]
 
-    gate = _run_json(
-        command_runner,
-        ["docker", "exec", backend, "python", "-c", _GATE_CODE],
-    )
+    backend_mounts = collect_backend_mounts(command_runner, backend)
     redis_snapshot = _run_json(
         command_runner,
         [
@@ -181,9 +188,13 @@ def collect_runtime_snapshot(
             *shards,
         ],
     )
-    playbook_metadata = _run_json(
-        command_runner,
-        ["docker", "exec", backend, "python", "-c", _METADATA_CODE],
+    gate = resolve_claim_gate(
+        redis_snapshot.get("claim_gate"),
+        backend_mounts[BACKEND_DATA_MOUNT]
+        / CLAIM_GATE_BOOTSTRAP_RELATIVE_PATH,
+    )
+    playbook_metadata = load_deployed_playbook_metadata(
+        backend_mounts[BACKEND_APP_MOUNT]
     )
 
     shard_sql = ",".join(f"'{name}'" for name in shards)
