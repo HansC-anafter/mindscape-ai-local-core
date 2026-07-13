@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import base64
 import json
-import os
 from pathlib import Path
 from typing import Any, Mapping
 from .http import HttpClient, HttpResponse
@@ -13,6 +11,11 @@ from .origin import OriginTopologyGate
 from .runtime_enrollment import (
     validate_enrollment_candidates as validate_enrollment_candidate_events,
     verify_enrollment_assertions as verify_signed_enrollment_assertions,
+)
+from .runtime_public_transport import (
+    assert_principal_response,
+    principal_request,
+    public_path_request,
 )
 from .runtime_acceptance import (
     verify_actual_gateway_cache_latency,
@@ -381,15 +384,12 @@ class RuntimeGate:
         expected_reason: str | None,
         upgrade: bool,
     ) -> None:
-        stage = response.headers.get("x-mindscape-remote-auth-stage")
-        reason = response.headers.get("x-mindscape-remote-auth-reason")
-        if allowed:
-            expected = response.status == 101 if upgrade else 200 <= response.status < 300
-            if not expected:
-                raise CutoverError("Authorized principal did not reach the expected upstream response")
-            return
-        if response.status != 403 or stage != "principal_verified" or reason != expected_reason:
-            raise CutoverError("Denied principal did not fail at the expected authorization stage")
+        assert_principal_response(
+            response,
+            allowed=allowed,
+            expected_reason=expected_reason,
+            upgrade=upgrade,
+        )
 
     def _principal_request(
         self,
@@ -399,36 +399,12 @@ class RuntimeGate:
         upgrade: bool,
         denied_capability: bool = False,
     ) -> HttpResponse:
-        token = assertion_path.read_text(encoding="utf-8").strip()
-        headers = {
-            "Cookie": f"CF_Authorization={token}",
-            "Referer": f"{self.public_origin}/workspaces/{workspace_id}",
-        }
-        if upgrade:
-            headers.update(
-                {
-                    "Connection": "Upgrade",
-                    "Upgrade": "websocket",
-                    "Sec-WebSocket-Key": base64.b64encode(os.urandom(16)).decode("ascii"),
-                    "Sec-WebSocket-Version": "13",
-                }
-            )
-        if denied_capability:
-            path = (
-                "/api/v1/capability-packs/installed-capabilities/"
-                f"mindscape_cloud_integration?workspace_id={workspace_id}"
-            )
-        else:
-            path = (
-                f"/api/v1/workspaces/{workspace_id}/device-bindings/control"
-                if upgrade
-                else f"/workspaces/{workspace_id}"
-            )
-        return self.http.request(
-            "GET",
-            f"{self.public_origin}{path}",
-            headers=headers,
-            timeout_seconds=10.0,
+        return principal_request(
+            self,
+            assertion_path,
+            workspace_id,
+            upgrade=upgrade,
+            denied_capability=denied_capability,
         )
 
     def _public_path_request(
@@ -439,25 +415,12 @@ class RuntimeGate:
         workspace_id: str,
         upgrade: bool = False,
     ) -> HttpResponse:
-        token = assertion_path.read_text(encoding="utf-8").strip()
-        headers = {
-            "Cookie": f"CF_Authorization={token}",
-            "Referer": f"{self.public_origin}/workspaces/{workspace_id}",
-        }
-        if upgrade:
-            headers.update(
-                {
-                    "Connection": "Upgrade",
-                    "Upgrade": "websocket",
-                    "Sec-WebSocket-Key": base64.b64encode(os.urandom(16)).decode("ascii"),
-                    "Sec-WebSocket-Version": "13",
-                }
-            )
-        return self.http.request(
-            "GET",
-            f"{self.public_origin}{path}",
-            headers=headers,
-            timeout_seconds=10.0,
+        return public_path_request(
+            self,
+            assertion_path,
+            path,
+            workspace_id=workspace_id,
+            upgrade=upgrade,
         )
 
     def verify_enrollment_assertions(self, inputs: SecureInputs, workspace_id: str) -> None:
