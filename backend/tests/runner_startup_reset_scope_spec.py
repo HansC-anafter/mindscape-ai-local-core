@@ -5,6 +5,7 @@ import pytest
 
 from backend.app.models.workspace import Task, TaskStatus
 from backend.app.runner import task_executor
+from backend.app.runner import worker_startup
 from backend.app.runner.worker import _cleanup_stale_locks, _reset_orphaned_running_tasks
 from backend.app.services.runner_topology.partitions import (
     BROWSER_LOCAL_QUEUE_PARTITION,
@@ -89,6 +90,14 @@ class _FakeRedisQueueWithClient:
         return self.client
 
 
+class _FakeLiveStateStore:
+    def __init__(self, payloads=None):
+        self.payloads = dict(payloads or {})
+
+    def get_task_heartbeat(self, task_id):
+        return self.payloads.get(task_id)
+
+
 @pytest.mark.asyncio
 async def test_startup_reset_skips_running_task_owned_by_active_runner():
     store = _FakeTasksStore(
@@ -169,6 +178,118 @@ async def test_startup_reset_keeps_same_profile_stale_runner_recovery():
     assert reset == {"browser-task"}
     assert store.updated[0][0] == "browser-task"
     assert store.updated[0][1]["status"] == TaskStatus.PENDING
+
+
+@pytest.mark.asyncio
+async def test_startup_reset_skips_exact_fresh_peer_task_owner(monkeypatch):
+    store = _FakeTasksStore(
+        [
+            _task(
+                "browser-task",
+                runner_id="peer-browser-runner",
+                queue_shard=BROWSER_LOCAL_QUEUE_PARTITION,
+                resource_class=RESOURCE_CLASS_BROWSER,
+            )
+        ],
+        [],
+    )
+    profile = RunnerProfile(
+        profile_code="browser_local",
+        display_name="Browser Local Runner",
+        dispatch_mode="docker_local",
+        accepted_queue_partitions=(BROWSER_LOCAL_QUEUE_PARTITION,),
+        accepted_resource_classes=(RESOURCE_CLASS_BROWSER,),
+    )
+
+    async def _no_runner_heartbeats(_redis_queue):
+        return []
+
+    monkeypatch.setattr(
+        worker_startup,
+        "list_active_runner_resource_heartbeats",
+        _no_runner_heartbeats,
+    )
+    monkeypatch.setattr(
+        worker_startup,
+        "_env_int",
+        lambda name, default: (
+            0
+            if name == "LOCAL_CORE_RUNNER_ORPHAN_DISCOVERY_GRACE_SECONDS"
+            else default
+        ),
+    )
+
+    reset = await worker_startup._reset_orphaned_running_tasks(
+        store,
+        "browser-runner",
+        profile,
+        redis_queue=SimpleNamespace(),
+        live_state_store=_FakeLiveStateStore(
+            {
+                "browser-task": {
+                    "task_id": "browser-task",
+                    "runner_id": "peer-browser-runner",
+                }
+            }
+        ),
+    )
+
+    assert reset == set()
+    assert store.updated == []
+
+
+@pytest.mark.asyncio
+async def test_startup_reset_rescans_peer_heartbeats_after_grace(monkeypatch):
+    store = _FakeTasksStore(
+        [
+            _task(
+                "browser-task",
+                runner_id="peer-browser-runner",
+                queue_shard=BROWSER_LOCAL_QUEUE_PARTITION,
+                resource_class=RESOURCE_CLASS_BROWSER,
+            )
+        ],
+        [],
+    )
+    profile = RunnerProfile(
+        profile_code="browser_local",
+        display_name="Browser Local Runner",
+        dispatch_mode="docker_local",
+        accepted_queue_partitions=(BROWSER_LOCAL_QUEUE_PARTITION,),
+        accepted_resource_classes=(RESOURCE_CLASS_BROWSER,),
+    )
+    reads = iter((set(), {"peer-browser-runner"}))
+    slept = []
+
+    async def _load(*args, **kwargs):
+        return next(reads)
+
+    async def _sleep(seconds):
+        slept.append(seconds)
+
+    monkeypatch.setattr(worker_startup, "_load_active_runner_ids", _load)
+    monkeypatch.setattr(worker_startup.asyncio, "sleep", _sleep)
+    monkeypatch.setattr(
+        worker_startup,
+        "_env_int",
+        lambda name, default: (
+            2
+            if name == "LOCAL_CORE_RUNNER_ORPHAN_DISCOVERY_GRACE_SECONDS"
+            else default
+        ),
+    )
+
+    reset = await worker_startup._reset_orphaned_running_tasks(
+        store,
+        "browser-runner",
+        profile,
+        redis_queue=SimpleNamespace(),
+        live_state_store=_FakeLiveStateStore(),
+    )
+
+    assert slept == [2]
+    assert reset == set()
+    assert store.updated == []
 
 
 @pytest.mark.asyncio

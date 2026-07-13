@@ -7,6 +7,7 @@ from typing import Iterable, Optional
 
 from backend.app.models.workspace import TaskStatus
 from backend.app.services.runner_resources import list_active_runner_resource_heartbeats
+from backend.app.services.runner_live_state import RunnerLiveStateStore
 from backend.app.services.runner_topology import (
     resolve_runner_profile_from_env,
     runner_profile_can_claim_task,
@@ -75,11 +76,23 @@ async def _load_active_runner_ids(
     return active_runner_ids
 
 
+def _task_runner_id(task) -> str:
+    context = (
+        task.execution_context
+        if isinstance(task.execution_context, dict)
+        else {}
+    )
+    return str(
+        getattr(task, "runner_id", None) or context.get("runner_id") or ""
+    ).strip()
+
+
 async def _reset_orphaned_running_tasks(
     tasks_store: TasksStore,
     current_runner_id: str,
     runner_profile=None,
     redis_queue: Optional[RedisRunnerQueueStore] = None,
+    live_state_store: Optional[RunnerLiveStateStore] = None,
 ) -> set[str]:
     """Reset running tasks from dead runners back to PENDING on startup.
 
@@ -110,14 +123,71 @@ async def _reset_orphaned_running_tasks(
             tasks_store.list_running_playbook_execution_tasks,
             workspace_id=None, limit=500,
         )
+        unknown_peer_ids = {
+            _task_runner_id(t)
+            for t in running
+            if _task_runner_id(t) not in active_runner_ids
+            and runner_profile_can_claim_task(runner_profile, t)
+        }
+        unknown_peer_ids.discard("")
+        if unknown_peer_ids and redis_queue is not None:
+            grace_seconds = max(
+                0,
+                _env_int(
+                    "LOCAL_CORE_RUNNER_ORPHAN_DISCOVERY_GRACE_SECONDS",
+                    3,
+                ),
+            )
+            if grace_seconds:
+                await asyncio.sleep(grace_seconds)
+                active_runner_ids.update(
+                    await _load_active_runner_ids(
+                        redis_queue,
+                        tasks_store,
+                        max_age_seconds=heartbeat_max_age,
+                    )
+                )
+            if live_state_store is None:
+                live_state_store = RunnerLiveStateStore()
         reset_count = 0
         for t in running:
             ctx = t.execution_context if isinstance(t.execution_context, dict) else {}
-            old_runner = getattr(t, "runner_id", None) or ctx.get("runner_id")
+            old_runner = _task_runner_id(t)
+            exact_live_owner = False
+            if (
+                live_state_store is not None
+                and old_runner
+                and old_runner != current_runner_id
+                and old_runner not in active_runner_ids
+            ):
+                try:
+                    live_owner = await asyncio.to_thread(
+                        live_state_store.get_task_heartbeat,
+                        str(t.id),
+                    )
+                    exact_live_owner = bool(
+                        isinstance(live_owner, dict)
+                        and str(live_owner.get("task_id") or "") == str(t.id)
+                        and str(live_owner.get("runner_id") or "")
+                        == str(old_runner)
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "Runner live task owner read failed task_id=%s: %s",
+                        t.id,
+                        exc,
+                    )
+            if exact_live_owner:
+                logger.info(
+                    "[Startup] Preserved live peer task %s (runner=%s)",
+                    t.id,
+                    old_runner,
+                )
             if (
                 old_runner
                 and old_runner != current_runner_id
                 and old_runner not in active_runner_ids
+                and not exact_live_owner
                 and runner_profile_can_claim_task(runner_profile, t)
             ):
                 ctx2 = dict(ctx)
