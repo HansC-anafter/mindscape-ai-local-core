@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import os
 import socket
 import sys
 from datetime import datetime, timezone
@@ -11,6 +12,7 @@ from backend.app.services.runner_resources import (
     publish_runner_resource_heartbeat,
 )
 from backend.app.services.host_resources.runner_claim_modes import (
+    RunnerClaimControl,
     active_runner_claim_control,
     get_runner_claim_control,
     runner_claims_enabled,
@@ -31,6 +33,18 @@ from backend.app.runner.worker_db_budget import (
 logger = logging.getLogger("backend.app.runner.worker")
 
 
+def _maintenance_only_claim_control(runner_id: str) -> RunnerClaimControl | None:
+    raw = os.getenv("LOCAL_CORE_RUNNER_MAINTENANCE_ONLY")
+    if raw is None or raw.strip().lower() in {"", "0", "false", "no", "off"}:
+        return None
+    return RunnerClaimControl(
+        runner_id=str(runner_id or "").strip(),
+        mode="drain",
+        reason="maintenance_only",
+        updated_by="environment",
+        source="environment",
+    )
+
 def _build_initial_resource_snapshot(runner_profile, *, inflight: int, max_inflight: int):
     try:
         return build_runner_resource_snapshot(
@@ -50,13 +64,15 @@ async def _resolve_loop_claim_budget(
     inflight: int,
     max_inflight: int,
 ):
-    try:
-        runner_claim_control = await get_runner_claim_control(
-            redis_queue,
-            runner_id=runner_id,
-        )
-    except Exception:
-        runner_claim_control = active_runner_claim_control(runner_id)
+    runner_claim_control = _maintenance_only_claim_control(runner_id)
+    if runner_claim_control is None:
+        try:
+            runner_claim_control = await get_runner_claim_control(
+                redis_queue,
+                runner_id=runner_id,
+            )
+        except Exception:
+            runner_claim_control = active_runner_claim_control(runner_id)
     runner_claiming_enabled = runner_claims_enabled(runner_claim_control)
 
     if runner_claiming_enabled:

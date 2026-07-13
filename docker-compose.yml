@@ -461,6 +461,23 @@ services:
       LOCAL_CORE_RUNNER_MAX_INFLIGHT: ${LOCAL_CORE_RUNNER_BROWSER_EXTRA_MAX_INFLIGHT:-2}
       LOCAL_CORE_RUNNER_REAP_INTERVAL_SECONDS: ${LOCAL_CORE_RUNNER_BROWSER_EXTRA_REAP_INTERVAL_SECONDS:-2}
 
+  runner-browser-maintenance:
+    <<: *runner-common
+    container_name: mindscape-ai-local-core-runner-browser-maintenance
+    environment:
+      <<: *runner-environment
+      DB_APPLICATION_NAME: ${LOCAL_CORE_RUNNER_BROWSER_MAINTENANCE_DB_APPLICATION_NAME:-local-core-runner-browser-maintenance}
+      LOCAL_CORE_RUNNER_ID: ${LOCAL_CORE_RUNNER_BROWSER_MAINTENANCE_ID:-browser-maintenance}
+      LOCAL_CORE_RUNNER_PROFILE: browser_maintenance
+      LOCAL_CORE_RUNNER_DISPLAY_NAME: Browser Partition Maintenance Owner
+      LOCAL_CORE_RUNNER_ACCEPTED_PARTITIONS: browser_local,default_local_browser
+      LOCAL_CORE_RUNNER_ACCEPTED_RESOURCE_CLASSES: browser
+      LOCAL_CORE_RUNNER_MAX_INFLIGHT: 1
+      LOCAL_CORE_RUNNER_MAINTENANCE_ONLY: "true"
+      LOCAL_CORE_RUNNER_STARTUP_RECONCILE_ENABLED: "false"
+      LOCAL_CORE_RUNNER_READY_TARGET: ${LOCAL_CORE_RUNNER_BROWSER_MAINTENANCE_READY_TARGET:-128}
+      LOCAL_CORE_RUNNER_REAP_INTERVAL_SECONDS: ${LOCAL_CORE_RUNNER_BROWSER_MAINTENANCE_REAP_INTERVAL_SECONDS:-20}
+
   runner-vision:
     <<: *runner-common
     container_name: mindscape-ai-local-core-runner-vision
