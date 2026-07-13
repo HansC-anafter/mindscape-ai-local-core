@@ -255,10 +255,6 @@ services:
       # HuggingFace model cache (shared with host)
       - ${HF_HOME:-${HOME}/.cache/huggingface}:/root/.cache/huggingface:rw
 
-    deploy:
-      resources:
-        limits:
-          memory: 6g
     networks:
       - mindscape-network
     dns:
@@ -395,10 +391,6 @@ services:
       - "${LOCAL_CORE_LOGS_HOST_DIR:-./logs}:/app/logs:rw"
       - ./web-console:/app/web-console:rw
       - ${HF_HOME:-${HOME}/.cache/huggingface}:/root/.cache/huggingface:rw
-    deploy:
-      resources:
-        limits:
-          memory: 6g
     networks:
       - mindscape-network
     dns:
@@ -436,7 +428,7 @@ services:
       LOCAL_CORE_RUNNER_DISPLAY_NAME: ${LOCAL_CORE_RUNNER_DEFAULT_LOCAL_BROWSER_DISPLAY_NAME:-Default Local Browser Batch Runner}
       LOCAL_CORE_RUNNER_ACCEPTED_PARTITIONS: ${LOCAL_CORE_RUNNER_DEFAULT_LOCAL_BROWSER_ACCEPTED_PARTITIONS:-default_local_browser}
       LOCAL_CORE_RUNNER_ACCEPTED_RESOURCE_CLASSES: ${LOCAL_CORE_RUNNER_DEFAULT_LOCAL_BROWSER_ACCEPTED_RESOURCE_CLASSES:-browser}
-      LOCAL_CORE_RUNNER_MAX_INFLIGHT: ${LOCAL_CORE_RUNNER_DEFAULT_LOCAL_BROWSER_MAX_INFLIGHT:-3}
+      LOCAL_CORE_RUNNER_MAX_INFLIGHT: ${LOCAL_CORE_RUNNER_DEFAULT_LOCAL_BROWSER_MAX_INFLIGHT:-2}
       LOCAL_CORE_RUNNER_REAP_INTERVAL_SECONDS: ${LOCAL_CORE_RUNNER_DEFAULT_LOCAL_BROWSER_REAP_INTERVAL_SECONDS:-2}
 
   runner-browser:
@@ -450,7 +442,7 @@ services:
       LOCAL_CORE_RUNNER_ACCEPTED_RESOURCE_CLASSES: ${LOCAL_CORE_RUNNER_BROWSER_ACCEPTED_RESOURCE_CLASSES:-browser}
       # Total browser-runner task cap. Keep this below the observed OOM threshold;
       # lock-specific concurrency still applies inside this ceiling.
-      LOCAL_CORE_RUNNER_MAX_INFLIGHT: ${LOCAL_CORE_RUNNER_BROWSER_MAX_INFLIGHT:-3}
+      LOCAL_CORE_RUNNER_MAX_INFLIGHT: ${LOCAL_CORE_RUNNER_BROWSER_MAX_INFLIGHT:-2}
       LOCAL_CORE_RUNNER_REAP_INTERVAL_SECONDS: ${LOCAL_CORE_RUNNER_BROWSER_REAP_INTERVAL_SECONDS:-2}
 
   runner-browser-extra:
@@ -463,16 +455,12 @@ services:
       LOCAL_CORE_RUNNER_DISPLAY_NAME: ${LOCAL_CORE_RUNNER_BROWSER_EXTRA_DISPLAY_NAME:-Browser Local Extra Runner}
       LOCAL_CORE_RUNNER_ACCEPTED_PARTITIONS: ${LOCAL_CORE_RUNNER_BROWSER_EXTRA_ACCEPTED_PARTITIONS:-browser_local}
       LOCAL_CORE_RUNNER_ACCEPTED_RESOURCE_CLASSES: ${LOCAL_CORE_RUNNER_BROWSER_EXTRA_ACCEPTED_RESOURCE_CLASSES:-browser}
-      LOCAL_CORE_RUNNER_MAX_INFLIGHT: ${LOCAL_CORE_RUNNER_BROWSER_EXTRA_MAX_INFLIGHT:-3}
+      LOCAL_CORE_RUNNER_MAX_INFLIGHT: ${LOCAL_CORE_RUNNER_BROWSER_EXTRA_MAX_INFLIGHT:-2}
       LOCAL_CORE_RUNNER_REAP_INTERVAL_SECONDS: ${LOCAL_CORE_RUNNER_BROWSER_EXTRA_REAP_INTERVAL_SECONDS:-2}
 
   runner-vision:
     <<: *runner-common
     container_name: mindscape-ai-local-core-runner-vision
-    deploy:
-      resources:
-        limits:
-          memory: 6g
     environment:
       <<: *runner-environment
       DB_APPLICATION_NAME: ${LOCAL_CORE_RUNNER_VISION_DB_APPLICATION_NAME:-local-core-runner-vision}
@@ -484,10 +472,6 @@ services:
   runner-vision-mlx-dev:
     <<: *runner-common
     container_name: mindscape-ai-local-core-runner-vision-mlx-dev
-    deploy:
-      resources:
-        limits:
-          memory: 6g
     environment:
       <<: *runner-environment
       DB_APPLICATION_NAME: ${LOCAL_CORE_RUNNER_VISION_MLX_DEV_DB_APPLICATION_NAME:-local-core-runner-vision-mlx-dev}
@@ -517,10 +501,6 @@ services:
     <<: *runner-common
     profiles: ["spillover"]
     container_name: mindscape-ai-local-core-runner-spillover
-    deploy:
-      resources:
-        limits:
-          memory: 6g
     environment:
       <<: *runner-environment
       DB_APPLICATION_NAME: ${LOCAL_CORE_RUNNER_SPILLOVER_DB_APPLICATION_NAME:-local-core-runner-spillover}

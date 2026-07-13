@@ -48,7 +48,7 @@ def test_startup_spacing_precedence_and_bounds():
 
 
 @pytest.mark.asyncio
-async def test_missing_startup_memory_and_limit_does_not_acquire_spacing_key():
+async def test_missing_startup_memory_still_acquires_spacing_key():
     store = InMemoryResourceLeaseStore()
     decision = await acquire_browser_startup_gate(
         requirements=SimpleNamespace(
@@ -60,6 +60,9 @@ async def test_missing_startup_memory_and_limit_does_not_acquire_spacing_key():
         owner_id="runner-a:task-a",
     )
 
-    assert decision.allow is False
-    assert decision.reason == "browser_startup_memory_requirement_unavailable"
+    assert decision.allow is True
+    assert decision.reason is None
+    assert decision.requested_bytes == 0
+    assert decision.request_source == "unmeasured_spacing_only"
+    assert decision.spacing_seconds == 30
     assert await store.list_expired() == []

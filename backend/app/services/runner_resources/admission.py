@@ -269,43 +269,44 @@ async def acquire_task_resource_admission(
             )
         node_reservation = node_decision.reservation
 
-        if requirements.browser_startup_memory_mb > 0:
-            browser_startup_decision = await acquire_browser_startup_gate(
-                requirements=requirements,
-                node_snapshot=snapshot,
-                lease_store=lease_store,
+    if is_browser:
+        browser_startup_decision = await acquire_browser_startup_gate(
+            requirements=requirements,
+            node_snapshot=snapshot,
+            lease_store=lease_store,
+            owner_id=owner_id,
+        )
+        if not browser_startup_decision.allow:
+            await release_acquired_resource_leases(
+                lease_store,
+                acquired,
                 owner_id=owner_id,
             )
-            if not browser_startup_decision.allow:
-                await release_acquired_resource_leases(
-                    lease_store,
-                    acquired,
-                    owner_id=owner_id,
-                )
+            if node_reservation is not None and node_budget_store is not None:
                 await node_budget_store.release(node_reservation)
-                return _blocked_decision(
-                    requirements=requirements,
-                    reason=(
-                        browser_startup_decision.reason
-                        or "browser_startup_gate_unavailable"
+            return _blocked_decision(
+                requirements=requirements,
+                reason=(
+                    browser_startup_decision.reason
+                    or "browser_startup_gate_unavailable"
+                ),
+                delay_seconds=browser_startup_decision.spacing_seconds,
+                now=base_now,
+                task=task,
+                runner_profile=runner_profile,
+                extra_payload={
+                    "blocked_resource": "browser_startup",
+                    "startup_requested_bytes": (
+                        browser_startup_decision.requested_bytes
                     ),
-                    delay_seconds=browser_startup_decision.spacing_seconds,
-                    now=base_now,
-                    task=task,
-                    runner_profile=runner_profile,
-                    extra_payload={
-                        "blocked_resource": "browser_startup",
-                        "startup_requested_bytes": (
-                            browser_startup_decision.requested_bytes
-                        ),
-                        "startup_request_source": (
-                            browser_startup_decision.request_source
-                        ),
-                        "startup_spacing_seconds": (
-                            browser_startup_decision.spacing_seconds
-                        ),
-                    },
-                )
+                    "startup_request_source": (
+                        browser_startup_decision.request_source
+                    ),
+                    "startup_spacing_seconds": (
+                        browser_startup_decision.spacing_seconds
+                    ),
+                },
+            )
 
     context_updates: dict[str, Any] = {}
     if acquired or node_reservation is not None or is_browser:

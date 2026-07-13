@@ -74,17 +74,11 @@ async def acquire_browser_startup_gate(
 ) -> BrowserStartupDecision:
     spacing_seconds = resolve_browser_startup_spacing_seconds(requirements)
     request = resolve_browser_startup_request_bytes(requirements, node_snapshot)
-    if request is None:
-        return BrowserStartupDecision(
-            False,
-            "browser_startup_memory_requirement_unavailable",
-            0,
-            None,
-            spacing_seconds,
-        )
-    requested_bytes, request_source = request
+    requested_bytes, request_source = (
+        request if request is not None else (0, "unmeasured_spacing_only")
+    )
     available_bytes = _positive_int(node_snapshot.get("available_bytes"))
-    if available_bytes < requested_bytes:
+    if requested_bytes > 0 and available_bytes < requested_bytes:
         return BrowserStartupDecision(
             False,
             "browser_startup_headroom_unavailable",

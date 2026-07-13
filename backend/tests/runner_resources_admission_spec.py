@@ -304,7 +304,11 @@ async def test_unmeasured_browser_request_does_not_invent_reservation():
         "memory_admission_mode": "unmeasured_no_reservation",
         "node_policy_fingerprint": None,
         "resource_profile_fingerprint": None,
-        "browser_startup": None,
+        "browser_startup": {
+            "requested_bytes": 0,
+            "request_source": "unmeasured_spacing_only",
+            "spacing_seconds": 30,
+        },
         "admitted_at": decision.execution_context_updates[
             "resource_admission"
         ]["admitted_at"],
@@ -314,7 +318,7 @@ async def test_unmeasured_browser_request_does_not_invent_reservation():
 
 
 @pytest.mark.asyncio
-async def test_measured_browser_request_without_startup_measurement_skips_spacing():
+async def test_measured_browser_request_without_startup_measurement_uses_spacing():
     store = InMemoryNodeBudgetStore()
     decision = await acquire_task_resource_admission(
         task=_task("task-runtime-measured"),
@@ -344,7 +348,11 @@ async def test_measured_browser_request_without_startup_measurement_skips_spacin
     ] == "measured_reservation"
     assert decision.execution_context_updates["resource_admission"][
         "browser_startup"
-    ] is None
+    ] == {
+        "requested_bytes": 0,
+        "request_source": "unmeasured_spacing_only",
+        "spacing_seconds": 30,
+    }
 
 
 @pytest.mark.asyncio
@@ -415,6 +423,52 @@ async def test_browser_startup_spacing_serializes_claims_without_durable_lease()
         for item in third.execution_context_updates["runner_resource_leases"]
     ]
     assert (await node_store.snapshot())["active_reservations"] == 2
+
+
+@pytest.mark.asyncio
+async def test_unmeasured_browser_work_still_uses_vm_wide_startup_spacing():
+    lease_store = InMemoryResourceLeaseStore(now_epoch=0.0)
+    requirements = ResourceRequirements(
+        resource_class="browser",
+        browser_contexts=1,
+    )
+    snapshot = {
+        "total_bytes": 16 * 1024 * MIB,
+        "available_bytes": 8 * 1024 * MIB,
+        "cgroup_limit_bytes": None,
+    }
+
+    first = await acquire_task_resource_admission(
+        task=_task("task-unmeasured-start-1"),
+        requirements=requirements,
+        runner_profile=_profile(),
+        capacity=_capacity(3),
+        lease_store=lease_store,
+        node_memory_snapshot=snapshot,
+        owner_id="runner-a:task-unmeasured-start-1",
+        ttl_seconds=30,
+    )
+    second = await acquire_task_resource_admission(
+        task=_task("task-unmeasured-start-2"),
+        requirements=requirements,
+        runner_profile=_profile(),
+        capacity=_capacity(3),
+        lease_store=lease_store,
+        node_memory_snapshot=snapshot,
+        owner_id="runner-b:task-unmeasured-start-2",
+        ttl_seconds=30,
+    )
+
+    assert first.allow is True
+    assert first.node_budget_reservation is None
+    assert first.execution_context_updates["resource_admission"][
+        "memory_admission_mode"
+    ] == "unmeasured_no_reservation"
+    assert first.execution_context_updates["resource_admission"][
+        "browser_startup"
+    ]["request_source"] == "unmeasured_spacing_only"
+    assert second.allow is False
+    assert second.blocked_payload["reason"] == "browser_startup_spacing_active"
 
 
 @pytest.mark.asyncio
