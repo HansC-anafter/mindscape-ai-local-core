@@ -14,6 +14,7 @@ from scripts.maintenance.browser_resource_capacity_preflight_core.cli import (
     load_request_evidence,
 )
 from scripts.maintenance.browser_resource_capacity_preflight_core.collectors import (
+    parse_cgroup_memory_limit,
     parse_meminfo,
     parse_memory_events,
     parse_runner_max_inflight,
@@ -156,12 +157,20 @@ def test_runtime_parsers_are_strict_and_unit_safe() -> None:
         "oom_kill": 2,
         "oom_group_kill": 1,
     }
+    assert parse_cgroup_memory_limit("6442450944\n") == 6442450944
+    assert parse_cgroup_memory_limit("max\n") is None
     env = (
         "LOCAL_CORE_RUNNER_ACCEPTED_PARTITIONS=browser_local,ig_browser\n"
         "LOCAL_CORE_RUNNER_MAX_INFLIGHT=3\n"
     )
     assert parse_runner_max_inflight(env) == 3
     assert parse_runner_partitions(env) == ("browser_local", "ig_browser")
+
+
+@pytest.mark.parametrize("raw", ["", "unlimited", "0", "-1"])
+def test_cgroup_memory_limit_rejects_invalid_values(raw: str) -> None:
+    with pytest.raises(ValueError):
+        parse_cgroup_memory_limit(raw)
 
 
 def _context(

@@ -129,6 +129,23 @@ def parse_memory_events(raw: str) -> dict[str, int]:
     }
 
 
+def parse_cgroup_memory_limit(raw: str) -> int | None:
+    """Return the finite cgroup limit, or None when the cgroup is unbounded."""
+
+    value = raw.strip()
+    if value == "max":
+        return None
+    try:
+        limit = int(value)
+    except ValueError as exc:
+        raise ValueError(
+            "cgroup memory limit must be a positive integer or max"
+        ) from exc
+    if limit <= 0:
+        raise ValueError("cgroup memory limit must be positive")
+    return limit
+
+
 def parse_runner_max_inflight(raw: str) -> int:
     for line in raw.splitlines():
         if line.startswith("LOCAL_CORE_RUNNER_MAX_INFLIGHT="):
@@ -333,7 +350,7 @@ FROM candidates;
     )
 
     runner_slots = 0
-    cgroup_limits: list[int] = []
+    cgroup_limits: list[int | None] = []
     oom_kill = 0
     oom_group_kill = 0
     runner_evidence: list[dict[str, Any]] = []
@@ -367,12 +384,7 @@ FROM candidates;
         slots = parse_runner_max_inflight(env_result.stdout)
         partitions = parse_runner_partitions(env_result.stdout)
         events = parse_memory_events(events_result.stdout)
-        try:
-            cgroup_limit = int(limit_result.stdout.strip())
-        except ValueError as exc:
-            raise ValueError(f"finite cgroup limit required: {container}") from exc
-        if cgroup_limit <= 0:
-            raise ValueError(f"positive cgroup limit required: {container}")
+        cgroup_limit = parse_cgroup_memory_limit(limit_result.stdout)
         runner_slots += slots
         for partition in partitions:
             runner_slot_capacity_by_partition[partition] = (
@@ -405,7 +417,11 @@ FROM candidates;
         "runner_slot_capacity": runner_slots,
         "runner_slot_capacity_by_partition": runner_slot_capacity_by_partition,
         "playbook_metadata": playbook_metadata,
-        "browser_cgroup_limit_bytes": max(cgroup_limits),
+        "browser_cgroup_limit_bytes": (
+            max(limit for limit in cgroup_limits if limit is not None)
+            if cgroup_limits and all(limit is not None for limit in cgroup_limits)
+            else None
+        ),
         "runner_evidence": runner_evidence,
         "oom_kill_count": oom_kill,
         "oom_group_kill_count": oom_group_kill,

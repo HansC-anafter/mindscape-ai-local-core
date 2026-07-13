@@ -99,10 +99,9 @@ x-runner-common: &runner-common
   logging: *default-logging
   environment: *runner-environment
   volumes: *runner-volumes
-  deploy:
-    resources:
-      limits:
-        memory: 6g
+  # Browser capacity is governed by measured node-budget reservations and
+  # startup-spacing gates. A shared 6 GiB cgroup cap can kill a third browser
+  # startup even while the node-wide byte gate still has measured headroom.
   networks:
     - mindscape-network
   depends_on:
@@ -467,6 +466,10 @@ services:
   runner-vision:
     <<: *runner-common
     container_name: mindscape-ai-local-core-runner-vision
+    deploy:
+      resources:
+        limits:
+          memory: 6g
     environment:
       <<: *runner-environment
       DB_APPLICATION_NAME: ${LOCAL_CORE_RUNNER_VISION_DB_APPLICATION_NAME:-local-core-runner-vision}
@@ -478,6 +481,10 @@ services:
   runner-vision-mlx-dev:
     <<: *runner-common
     container_name: mindscape-ai-local-core-runner-vision-mlx-dev
+    deploy:
+      resources:
+        limits:
+          memory: 6g
     environment:
       <<: *runner-environment
       DB_APPLICATION_NAME: ${LOCAL_CORE_RUNNER_VISION_MLX_DEV_DB_APPLICATION_NAME:-local-core-runner-vision-mlx-dev}
@@ -507,6 +514,10 @@ services:
     <<: *runner-common
     profiles: ["spillover"]
     container_name: mindscape-ai-local-core-runner-spillover
+    deploy:
+      resources:
+        limits:
+          memory: 6g
     environment:
       <<: *runner-environment
       DB_APPLICATION_NAME: ${LOCAL_CORE_RUNNER_SPILLOVER_DB_APPLICATION_NAME:-local-core-runner-spillover}
