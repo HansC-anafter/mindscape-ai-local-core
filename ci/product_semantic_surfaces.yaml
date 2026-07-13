@@ -181,6 +181,25 @@ surfaces:
       - web-console/src/components/workspace/device-binding/**
       - web-console/src/lib/media-transport/**
 
+  - id: psc.local-core.motion-runtime-reference-segmentation.v1
+    tier: P1
+    owner: "@team-leads"
+    contract_doc: mindscape-ai-cloud/docs/internal/local-core/product-semantics/motion-runtime-reference-segmentation-contract-2026-07-08.zh-TW.md
+    requires_product_semantic_declaration: true
+    semantics:
+      - Local motion runtime reference segments represent adaptive practice semantics, not fixed wall-clock slices.
+      - Host RTMP/OBS bridges publish compact motion windows; the motion runtime reference segment ledger owns semantic segment aggregation and checkpoint validation.
+      - Segment aggregation changes must preserve capture source identity, live session identity, and bounded DB/worker/PgBouncer/UX polling behavior.
+    path_globs:
+      - backend/app/capabilities/motion_runtime/**
+      - backend/tests/motion_runtime*
+      - backend/tests/*motion*runtime*
+      - scripts/rtmp_motion_window_publisher.py
+      - scripts/rtmp_motion_publisher/**
+      - web-console/src/lib/motion-analysis/**
+      - web-console/src/components/workspace/device-binding/motionPractice*
+      - web-console/src/components/workspace/device-binding/practice/**
+
   - id: psc.local-core.runner-browser-resource-governance.v1
     tier: P0
     owner: "@team-leads"

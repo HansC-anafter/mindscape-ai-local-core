@@ -6,6 +6,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 import pytest
@@ -284,6 +285,93 @@ def test_connector_degradation_is_distinct_before_bounded_restart(
     assert third["repair_action"] == "restart"
     assert repairs == ["restart"]
     assert "degraded_tunnel" in KNOWN_STATES
+
+
+def test_stale_status_cannot_preserve_ready_claim(tmp_path: Path) -> None:
+    probes = FakeProbes()
+    supervisor = _supervisor(tmp_path, probes, monotonic=lambda: 0.0)
+
+    status = supervisor.run_once()
+
+    assert status["state"] == "ready"
+    assert status["ready"] is True
+    status_path = _settings(tmp_path).status_path
+    stale_at = time.time() - 65
+    os.utime(status_path, (stale_at, stale_at))
+    command = f"""
+source {REPO_ROOT / 'scripts/start_remote_workbench_tunnel.sh'}
+container_running() {{ return 0; }}
+container_contract_valid() {{ return 0; }}
+remote_ingress_live_json() {{ return 0; }}
+token_file_valid() {{ return 0; }}
+status_json
+"""
+    environment = os.environ.copy()
+    environment["REMOTE_WORKBENCH_BRIDGE_STATE_DIR"] = str(status_path.parent)
+    result = subprocess.run(
+        ["bash", "-c", command],
+        env=environment,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    projected = json.loads(result.stdout)
+
+    assert projected["supervisor_fresh"] is False
+    assert projected["supervisor_state"] == "stale"
+    assert projected["ready"] is False
+
+
+def test_origin_failure_never_repairs_the_tunnel(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    probes = FakeProbes()
+    probes.local_result = ProbeResult(False, "http_status", "503")
+    supervisor = _supervisor(tmp_path, probes, monotonic=lambda: 0.0)
+    repairs: list[str] = []
+    monkeypatch.setattr(
+        supervisor,
+        "_launcher",
+        lambda action: repairs.append(action) is None,
+    )
+
+    status = supervisor.run_once()
+
+    assert status["state"] == "degraded_origin"
+    assert status["ready"] is False
+    assert status["repair_action"] is None
+    assert status["probes"]["local_origin"] == {
+        "code": "http_status",
+        "detail": "503",
+        "ok": False,
+    }
+    assert "connector" not in status["probes"]
+    assert "public_origin" not in status["probes"]
+    assert repairs == []
+
+
+def test_access_edge_failure_never_repairs_a_healthy_connector(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    probes = FakeProbes()
+    probes.public_result = ProbeResult(False, "http_status", "503")
+    supervisor = _supervisor(tmp_path, probes, monotonic=lambda: 0.0)
+    repairs: list[str] = []
+    monkeypatch.setattr(
+        supervisor,
+        "_launcher",
+        lambda action: repairs.append(action) is None,
+    )
+
+    statuses = [supervisor.run_once() for _ in range(5)]
+
+    assert {status["state"] for status in statuses} == {"degraded_remote"}
+    assert all(status["ready"] is False for status in statuses)
+    assert all(status["repair_action"] is None for status in statuses)
+    assert all(status["probes"]["connector"]["ok"] is True for status in statuses)
+    assert repairs == []
 
 
 def test_transition_events_are_sanitized_and_name_previous_state(tmp_path: Path) -> None:

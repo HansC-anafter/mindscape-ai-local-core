@@ -103,6 +103,8 @@ describe('PackScopeToolRailHost', () => {
     expect(screen.getByTestId('pack-scope-tool-panel').className).toContain('w-fit');
     expect(screen.getByTestId('pack-scope-tool-panel').className).toContain('h-auto');
     expect(screen.getByTestId('pack-scope-tool-panel').className).toContain('max-h-[min(70dvh,560px)]');
+    expect(screen.getByTestId('pack-scope-tool-panel').className).toContain('overflow-y-auto');
+    expect(screen.getByTestId('pack-scope-tool-panel').className).toContain('overscroll-contain');
     expect(screen.getByTestId('pack-scope-tool-panel').className).not.toContain('h-[min(760px');
     expect(screen.getByTestId('pack-scope-tool-panel').className).not.toContain('bg-zinc-950');
     expect(screen.getByTestId('pack-scope-tool-panel-inner').className).toContain('bg-zinc-950/95');

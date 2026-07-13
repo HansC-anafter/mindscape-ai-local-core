@@ -95,7 +95,7 @@ export function getPackScopeToolPanelClassName(
 ): string {
   const fullBleed = layoutHint === 'scrollable_full_bleed';
   const fullBleedPanelBase = 'fixed z-40 overflow-hidden border border-zinc-800 bg-zinc-950/95 text-zinc-100 shadow-xl shadow-black/25 backdrop-blur-sm';
-  const contentPanelBase = 'fixed z-40 overflow-visible text-zinc-100';
+  const contentPanelBase = 'fixed z-40 overflow-y-auto overscroll-contain text-zinc-100';
   if (placement === 'mobile') {
     if (fullBleed) {
       return panelExpanded
