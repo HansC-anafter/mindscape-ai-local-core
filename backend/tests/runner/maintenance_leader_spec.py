@@ -43,7 +43,8 @@ class _FakeQueue:
 
 
 def test_maintenance_lease_has_three_interval_and_floor_contract():
-    assert resolve_maintenance_lease_seconds(1) == 180
+    assert resolve_maintenance_lease_seconds(1) == 10
+    assert resolve_maintenance_lease_seconds(2) == 10
     assert resolve_maintenance_lease_seconds(60) == 180
     assert resolve_maintenance_lease_seconds(120) == 360
 
@@ -93,7 +94,7 @@ async def test_redis_uncertainty_fails_closed():
         runner_id="runner-a",
         ttl_seconds=1,
     )
-    assert queue.acquire_calls[0][2] == 180
+    assert queue.acquire_calls[0][2] == 10
 
 
 def test_partition_maintenance_key_accepts_only_canonical_partition_codes():

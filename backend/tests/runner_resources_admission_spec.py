@@ -266,7 +266,7 @@ async def test_browser_hard_guard_requires_current_memavailable():
 
 
 @pytest.mark.asyncio
-async def test_unmeasured_browser_request_fails_closed_without_reservation():
+async def test_unmeasured_browser_request_does_not_invent_reservation():
     lease_store = InMemoryResourceLeaseStore()
     node_store = InMemoryNodeBudgetStore()
     decision = await acquire_task_resource_admission(
@@ -288,12 +288,63 @@ async def test_unmeasured_browser_request_fails_closed_without_reservation():
         ttl_seconds=30,
     )
 
-    assert decision.allow is False
-    assert decision.blocked_payload["reason"] == (
-        "browser_memory_requirement_unavailable"
-    )
+    assert decision.allow is True
+    assert decision.node_budget_reservation is None
+    assert decision.execution_context_updates["resource_admission"] == {
+        "state": "admitted",
+        "task_id": "task-unmeasured",
+        "runner_profile": "runner-browser",
+        "requirements": ResourceRequirements(
+            resource_class="browser",
+            browser_contexts=1,
+        ).to_dict(),
+        "lease_keys": [],
+        "requested_memory_bytes": 0,
+        "memory_reservation_source": "unmeasured_no_reservation",
+        "memory_admission_mode": "unmeasured_no_reservation",
+        "node_policy_fingerprint": None,
+        "resource_profile_fingerprint": None,
+        "browser_startup": None,
+        "admitted_at": decision.execution_context_updates[
+            "resource_admission"
+        ]["admitted_at"],
+    }
     assert (await node_store.snapshot())["active_reservations"] == 0
     assert await lease_store.list_expired() == []
+
+
+@pytest.mark.asyncio
+async def test_measured_browser_request_without_startup_measurement_skips_spacing():
+    store = InMemoryNodeBudgetStore()
+    decision = await acquire_task_resource_admission(
+        task=_task("task-runtime-measured"),
+        requirements=ResourceRequirements(
+            resource_class="browser",
+            browser_contexts=1,
+            memory_mb=256,
+            memory_reservation_source="playbook_profile",
+        ),
+        runner_profile=_profile(),
+        capacity=_capacity(3),
+        lease_store=InMemoryResourceLeaseStore(),
+        node_budget_store=store,
+        node_memory_snapshot={
+            "total_bytes": 16 * 1024 * MIB,
+            "available_bytes": 12 * 1024 * MIB,
+            "cgroup_limit_bytes": 6 * 1024 * MIB,
+        },
+        owner_id="runner-a:task-runtime-measured",
+        ttl_seconds=30,
+    )
+
+    assert decision.allow is True
+    assert decision.node_budget_reservation is not None
+    assert decision.execution_context_updates["resource_admission"][
+        "memory_admission_mode"
+    ] == "measured_reservation"
+    assert decision.execution_context_updates["resource_admission"][
+        "browser_startup"
+    ] is None
 
 
 @pytest.mark.asyncio
@@ -364,6 +415,69 @@ async def test_browser_startup_spacing_serializes_claims_without_durable_lease()
         for item in third.execution_context_updates["runner_resource_leases"]
     ]
     assert (await node_store.snapshot())["active_reservations"] == 2
+
+
+@pytest.mark.asyncio
+async def test_profile_lock_conflict_does_not_consume_browser_startup_spacing():
+    lease_store = InMemoryResourceLeaseStore(now_epoch=0.0)
+    node_store = InMemoryNodeBudgetStore()
+    snapshot = {
+        "total_bytes": 10 * 1024 * MIB,
+        "available_bytes": 8 * 1024 * MIB,
+        "cgroup_limit_bytes": 6 * 1024 * MIB,
+    }
+
+    def requirements(profile: str) -> ResourceRequirements:
+        return ResourceRequirements(
+            resource_class="browser",
+            browser_contexts=1,
+            ig_profile_lock=profile,
+            memory_mb=1024,
+            browser_startup_memory_mb=2048,
+            browser_startup_spacing_seconds=10,
+            memory_reservation_source="playbook_profile",
+        )
+
+    first = await acquire_task_resource_admission(
+        task=_task("task-start-profile-1"),
+        requirements=requirements("profile-a"),
+        runner_profile=_profile(),
+        capacity=_capacity(3),
+        lease_store=lease_store,
+        node_budget_store=node_store,
+        node_memory_snapshot=snapshot,
+        owner_id="runner-a:task-start-profile-1",
+        ttl_seconds=30,
+    )
+    assert first.allow is True
+
+    lease_store.advance(10)
+    blocked = await acquire_task_resource_admission(
+        task=_task("task-start-profile-2"),
+        requirements=requirements("profile-a"),
+        runner_profile=_profile(),
+        capacity=_capacity(3),
+        lease_store=lease_store,
+        node_budget_store=node_store,
+        node_memory_snapshot=snapshot,
+        owner_id="runner-b:task-start-profile-2",
+        ttl_seconds=30,
+    )
+    assert blocked.allow is False
+    assert blocked.blocked_payload["reason"] == "ig_profile_lock_leased"
+
+    different_profile = await acquire_task_resource_admission(
+        task=_task("task-start-profile-3"),
+        requirements=requirements("profile-b"),
+        runner_profile=_profile(),
+        capacity=_capacity(3),
+        lease_store=lease_store,
+        node_budget_store=node_store,
+        node_memory_snapshot=snapshot,
+        owner_id="runner-c:task-start-profile-3",
+        ttl_seconds=30,
+    )
+    assert different_profile.allow is True
 
 
 @pytest.mark.asyncio

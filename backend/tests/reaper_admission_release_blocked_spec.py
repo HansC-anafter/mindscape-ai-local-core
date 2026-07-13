@@ -13,6 +13,56 @@ from backend.tests.reaper_admission_release_support import (
 )
 
 
+def test_resource_wait_reconstruction_preserves_browser_governance_fields():
+    requirements = reaper._resource_wait_requirements_from_context(
+        {
+            "resource_admission": {
+                "requirements": {
+                    "resource_class": "browser",
+                    "browser_contexts": 1,
+                    "memory_mb": 1920,
+                    "browser_startup_memory_mb": 3520,
+                    "browser_startup_spacing_seconds": 5,
+                    "memory_profile_id": "measured-browser-profile",
+                    "memory_reservation_source": "playbook_profile",
+                }
+            }
+        }
+    )
+
+    assert requirements is not None
+    assert requirements.resource_class == "browser"
+    assert requirements.browser_contexts == 1
+    assert requirements.browser_startup_memory_mb == 3520
+    assert requirements.browser_startup_spacing_seconds == 5
+    assert requirements.memory_profile_id == "measured-browser-profile"
+    assert requirements.memory_reservation_source == "playbook_profile"
+
+
+def test_browser_resource_wait_skips_generic_host_telemetry(monkeypatch):
+    def _unexpected_advisor_call(_requirements):
+        raise AssertionError("browser wait must not consult generic host telemetry")
+
+    monkeypatch.setattr(
+        "backend.app.services.host_resources.evaluate_runner_requirements",
+        _unexpected_advisor_call,
+    )
+
+    still_blocked = reaper._host_resource_wait_still_blocked(
+        {
+            "resource_admission": {
+                "requirements": {
+                    "resource_class": "browser",
+                    "browser_contexts": 1,
+                    "memory_mb": 192,
+                }
+            }
+        }
+    )
+
+    assert still_blocked is None
+
+
 @pytest.mark.asyncio
 async def test_releases_due_concurrency_locked_task_to_ready_queue():
     store = _FakeTasksStore([_build_concurrency_locked_task()])

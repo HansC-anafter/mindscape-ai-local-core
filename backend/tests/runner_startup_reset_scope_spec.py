@@ -98,6 +98,24 @@ class _FakeLiveStateStore:
         return self.payloads.get(task_id)
 
 
+class _FakeNodeBudgetStore:
+    def __init__(self):
+        self.released = []
+
+    async def release(self, reservation):
+        self.released.append(reservation)
+        return True
+
+
+class _FakeResourceLeaseStore:
+    def __init__(self):
+        self.released = []
+
+    async def release(self, lease_key, owner_id):
+        self.released.append((lease_key, owner_id))
+        return True
+
+
 @pytest.mark.asyncio
 async def test_startup_reset_skips_running_task_owned_by_active_runner():
     store = _FakeTasksStore(
@@ -154,17 +172,18 @@ async def test_startup_reset_skips_task_for_another_runner_profile():
 
 @pytest.mark.asyncio
 async def test_startup_reset_keeps_same_profile_stale_runner_recovery():
-    store = _FakeTasksStore(
-        [
-            _task(
-                "browser-task",
-                runner_id="stale-browser-runner",
-                queue_shard=BROWSER_LOCAL_QUEUE_PARTITION,
-                resource_class=RESOURCE_CLASS_BROWSER,
-            )
-        ],
-        [],
+    task = _task(
+        "browser-task",
+        runner_id="stale-browser-runner",
+        queue_shard=BROWSER_LOCAL_QUEUE_PARTITION,
+        resource_class=RESOURCE_CLASS_BROWSER,
     )
+    task.execution_context.update(
+        resource_admission={"state": "admitted"},
+        runner_resource_leases=[{"lease_key": "lease-1"}],
+        runner_node_budget_reservation={"owner_id": "stale"},
+    )
+    store = _FakeTasksStore([task], [])
     profile = RunnerProfile(
         profile_code="browser_local",
         display_name="Browser Local Runner",
@@ -178,6 +197,60 @@ async def test_startup_reset_keeps_same_profile_stale_runner_recovery():
     assert reset == {"browser-task"}
     assert store.updated[0][0] == "browser-task"
     assert store.updated[0][1]["status"] == TaskStatus.PENDING
+    updated_context = store.updated[0][1]["execution_context"]
+    assert "resource_admission" not in updated_context
+    assert "runner_resource_leases" not in updated_context
+    assert "runner_node_budget_reservation" not in updated_context
+
+
+@pytest.mark.asyncio
+async def test_startup_reset_releases_exact_dead_runner_resource_ownership(monkeypatch):
+    task = SimpleNamespace(
+        id="browser-task",
+        execution_context={
+            "runner_node_budget_reservation": {
+                "owner_id": "stale-browser-runner:browser-task",
+                "bytes": 123,
+                "revision": 7,
+                "expires_at_epoch": 1000.0,
+                "policy_fingerprint": "policy",
+                "resource_profile_fingerprint": "profile",
+                "allocatable_bytes": 999,
+                "policy_mode": "calibrated",
+            },
+            "runner_resource_leases": [
+                {"lease_key": "mindscape:runner_resources:lease:v1:profile:one"}
+            ],
+        },
+    )
+    node_store = _FakeNodeBudgetStore()
+    lease_store = _FakeResourceLeaseStore()
+    monkeypatch.setattr(
+        worker_startup,
+        "RedisNodeBudgetStore",
+        lambda _queue: node_store,
+    )
+    monkeypatch.setattr(
+        worker_startup,
+        "RedisResourceLeaseStore",
+        lambda _queue: lease_store,
+    )
+
+    await worker_startup._release_orphaned_resource_admission(
+        task,
+        old_runner_id="stale-browser-runner",
+        redis_queue=SimpleNamespace(),
+    )
+
+    assert [item.owner_id for item in node_store.released] == [
+        "stale-browser-runner:browser-task"
+    ]
+    assert lease_store.released == [
+        (
+            "mindscape:runner_resources:lease:v1:profile:one",
+            "stale-browser-runner:browser-task",
+        )
+    ]
 
 
 @pytest.mark.asyncio

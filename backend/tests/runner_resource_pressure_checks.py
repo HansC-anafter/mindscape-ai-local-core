@@ -186,6 +186,28 @@ def test_runner_resource_pressure_enters_cooldown(tmp_path, monkeypatch):
     assert cooled_snapshot["admission"]["should_defer"] is True
 
 
+def test_default_browser_resource_cooldown_is_bounded(tmp_path, monkeypatch):
+    monkeypatch.delenv(
+        "LOCAL_CORE_RUNNER_BROWSER_RESOURCE_COOLDOWN_SECONDS",
+        raising=False,
+    )
+    resource_pressure._reset_resource_cooldown_for_tests()
+
+    _write(tmp_path / "memory.current", "950")
+    _write(tmp_path / "memory.max", "1000")
+    _write(tmp_path / "memory.stat", "inactive_file 0\n")
+
+    snapshot = resource_pressure.build_runner_resource_snapshot(
+        profile_code="runner-browser",
+        cgroup_root=tmp_path,
+        now_epoch=100.0,
+    )
+
+    assert snapshot["admission"]["state"] == "hard_cooldown"
+    assert snapshot["admission"]["cooldown_seconds"] == 10
+    assert snapshot["admission"]["cooldown_until_epoch"] == 110.0
+
+
 def test_classify_subprocess_resource_failure():
     assert (
         resource_pressure.classify_subprocess_resource_failure(-9, "")
