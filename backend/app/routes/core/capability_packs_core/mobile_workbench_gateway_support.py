@@ -124,6 +124,11 @@ def build_mobile_workbench_gateway_support_payload(
         else ""
     )
     request_scope_valid = request_scope_contract in _REMOTE_REQUEST_SCOPE_CONTRACTS
+    remote_api_prefixes = (
+        []
+        if request_scope_contract == "no_remote_requests_v1"
+        else api_prefixes
+    )
     host_route_template = _resolve_host_route_template(
         pack_meta,
         normalized_capability_code,
@@ -147,6 +152,6 @@ def build_mobile_workbench_gateway_support_payload(
         "has_ui_components": bool(ui_components),
         "host_route_template": host_route_template,
         "main_page_component_codes": normalized_main_page_component_codes,
-        "api_prefixes": api_prefixes,
+        "api_prefixes": remote_api_prefixes,
         "request_scope_contract": request_scope_contract or None,
     }

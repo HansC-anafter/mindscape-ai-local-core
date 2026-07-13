@@ -186,6 +186,7 @@ export function createMobileWorkbenchGatewayPolicyResolver({
         capabilityCode: normalizedCapabilityCode,
         hostRouteTemplate: capabilitySupport.hostRouteTemplate,
         apiPrefixes: capabilitySupport.apiPrefixes,
+        requestScopeContract: capabilitySupport.requestScopeContract,
       }),
     };
   }
@@ -219,6 +220,7 @@ export function createMobileWorkbenchGatewayPolicyResolver({
               capabilityCode: normalizedCapabilityCode,
               hostRouteTemplate: capabilitySupport.hostRouteTemplate,
               apiPrefixes: capabilitySupport.apiPrefixes,
+              requestScopeContract: capabilitySupport.requestScopeContract,
             })
         : [],
     };

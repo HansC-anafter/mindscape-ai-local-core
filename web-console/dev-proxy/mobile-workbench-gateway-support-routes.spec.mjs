@@ -34,7 +34,8 @@ async function authorize(path, requestMethod = 'GET', includeReferer = true) {
   );
 }
 
-test('shared host support routes require workspace context in their own URL', async () => {
+test('host-global support routes stay hidden without resolver reads', async () => {
+  let resolverCalls = 0;
   for (const path of [
     '/api/v1/system-settings/keyboard-shortcuts',
     '/api/v1/host-resources/lanes',
@@ -42,21 +43,36 @@ test('shared host support routes require workspace context in their own URL', as
     '/api/v1/host-runtime/status',
   ]) {
     const separator = path.includes('?') ? '&' : '?';
-    const explicitContext = await authorize(`${path}${separator}workspace_id=workspace-a`);
-    assert.equal(explicitContext.allowed, true);
-    for (const includeReferer of [true, false]) {
-      const missingContext = await authorize(path, 'GET', includeReferer);
-      assert.equal(missingContext.allowed, false);
-      assert.equal(missingContext.reason_code, 'route_workspace_required');
+    for (const candidate of [path, `${path}${separator}workspace_id=workspace-a`]) {
+      for (const requestMethod of ['GET', 'POST']) {
+        const result = await authorizeRemoteWorkbenchRequest(
+          candidate,
+          {
+            host: 'remote-workbench.mindscapeai.app',
+            'Cf-Access-Jwt-Assertion': token,
+            referer,
+          },
+          config,
+          {
+            requestMethod,
+            verifyAccessToken: verifier,
+            resolveWorkspaceCapabilityPolicy: async () => {
+              resolverCalls += 1;
+              return createPolicyResolution();
+            },
+          },
+        );
+        assert.equal(result.allowed, false, `${requestMethod} ${candidate}`);
+        assert.equal(result.status_code, 404, `${requestMethod} ${candidate}`);
+        assert.equal(result.reason_code, 'remote_control_plane_forbidden');
+      }
     }
   }
+  assert.equal(resolverCalls, 0);
 });
 
 test('shared read-only routes reject writes', async () => {
   for (const path of [
-    '/api/v1/system-settings/keyboard-shortcuts?workspace_id=workspace-a',
-    '/api/v1/host-resources/lanes?workspace_id=workspace-a',
-    '/api/v1/host-resources/queue-utilization?live=true&workspace_id=workspace-a',
     '/api/v1/workspaces/workspace-a/tasks',
     '/api/v1/workspaces/workspace-a/events/stream',
   ]) {

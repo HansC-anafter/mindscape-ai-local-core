@@ -91,3 +91,41 @@ def test_installed_list_embeds_support_without_extra_request(monkeypatch):
         payload[0]["mobile_workbench_gateway_support"]["request_scope_contract"]
         == "no_remote_requests_v1"
     )
+
+
+def test_no_remote_request_pack_never_projects_declared_api_prefixes(monkeypatch):
+    _reset_pack_yaml_cache()
+    monkeypatch.setattr(
+        capability_packs,
+        "_get_pack_meta_by_code",
+        lambda capability_code: {
+            "id": "live_interface_interpreter",
+            "code": "live_interface_interpreter",
+            "remote_workbench": {
+                "request_scope_contract": "no_remote_requests_v1"
+            },
+            "ui_components": [
+                {"code": "LiveInterfaceInterpreterWorkbench"}
+            ],
+            "apis": [
+                {
+                    "prefix": (
+                        "/api/v1/capabilities/live_interface_interpreter"
+                    )
+                }
+            ],
+        },
+    )
+    monkeypatch.setattr(
+        capability_packs,
+        "_get_installed_pack_ids",
+        lambda: {"live_interface_interpreter"},
+    )
+
+    payload = capability_packs.get_capability_mobile_workbench_gateway_support(
+        "live_interface_interpreter"
+    )
+
+    assert payload["supported"] is True
+    assert payload["request_scope_contract"] == "no_remote_requests_v1"
+    assert payload["api_prefixes"] == []

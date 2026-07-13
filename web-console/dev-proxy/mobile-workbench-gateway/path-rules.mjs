@@ -71,5 +71,8 @@ export function isRemoteControlPlanePath(requestUrl = '/') {
     || /^\/workspaces\/[^/]+\/capability-ui-hosts\/mindscape_cloud_integration(?:\/.*)?\/?$/.test(pathname)
     || /^\/api\/v1\/(?:admin|providers?|deploy)(?:\/|$)/.test(pathname)
     || /^\/api\/v1\/capability-packs\/(?:install|install-from-file|install-from-cloud|install-jobs)(?:\/|$)/.test(pathname)
+    || /^\/api\/v1\/host-runtime\/status\/?$/.test(pathname)
+    || /^\/api\/v1\/system-settings\/keyboard-shortcuts\/?$/.test(pathname)
+    || /^\/api\/v1\/host-resources\/(?:lanes|queue-utilization)\/?$/.test(pathname)
   );
 }

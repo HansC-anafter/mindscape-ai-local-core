@@ -69,6 +69,9 @@ export function normalizeCapabilitySupport(payload, expectedCapabilityCode) {
   if (apiPrefixes.length !== payload.api_prefixes.length) {
     malformed('duplicate_capability_api_prefix');
   }
+  if (requestScopeContract === 'no_remote_requests_v1' && apiPrefixes.length > 0) {
+    malformed('no_remote_requests_contract_exposes_api_prefix');
+  }
   const hostRouteTemplate = payload.host_route_template === null
     ? null
     : boundedString(payload.host_route_template, 512, 'invalid_host_route_template');

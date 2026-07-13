@@ -98,6 +98,7 @@ export function createCapabilityGatewayPathRules({
   capabilityCode,
   hostRouteTemplate = null,
   apiPrefixes = [],
+  requestScopeContract = null,
 }) {
   const normalizedCapabilityCode = String(capabilityCode || '').trim().toLowerCase();
   if (!normalizedCapabilityCode || !/^[a-z0-9][a-z0-9_-]*$/.test(normalizedCapabilityCode)) {
@@ -108,9 +109,11 @@ export function createCapabilityGatewayPathRules({
   if (hostRouteTemplate !== canonicalHostRouteTemplate) {
     return [];
   }
-  const normalizedApiPrefixes = Array.from(new Set(
-    apiPrefixes.map((prefix) => String(prefix || '').trim().replace(/\/+$/, '')),
-  ));
+  const normalizedApiPrefixes = requestScopeContract === 'explicit_workspace_v1'
+    ? Array.from(new Set(
+        apiPrefixes.map((prefix) => String(prefix || '').trim().replace(/\/+$/, '')),
+      ))
+    : [];
   if (normalizedApiPrefixes.some((prefix) => (
     !isCapabilityOwnedApiPrefix(prefix, normalizedCapabilityCode)
   ))) {
@@ -143,9 +146,6 @@ export function createRemoteWorkspacePathRules() {
     { type: 'regex', value: /^\/api\/v1\/workspaces\/[^/]+\/media-assets\/[^/]+\/preview-(?:content|data)$/, methods: READ_ONLY_METHODS },
     { type: 'regex', value: /^\/device-link\/(?!health$|__test__$)[^/]+$/, methods: READ_ONLY_METHODS },
     { type: 'regex', value: /^\/api\/v1\/capability-packs\/installed-capabilities$/, methods: ['GET'] },
-    { type: 'regex', value: /^\/api\/v1\/host-runtime\/status$/, methods: READ_ONLY_METHODS },
-    { type: 'regex', value: /^\/api\/v1\/system-settings\/keyboard-shortcuts$/, methods: READ_ONLY_METHODS },
-    { type: 'regex', value: /^\/api\/v1\/host-resources\/(?:lanes|queue-utilization)$/, methods: READ_ONLY_METHODS },
     { type: 'regex', value: CAPABILITY_STORAGE_MEDIA_PATH_PATTERN, methods: READ_ONLY_METHODS },
   ];
 }

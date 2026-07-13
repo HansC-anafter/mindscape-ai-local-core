@@ -75,7 +75,7 @@ test('overbroad or reserved capability API roots never become gateway rules', as
       apiPrefixes: [apiPrefix],
     });
     const result = await authorize(
-      '/api/v1/system-settings/keyboard-shortcuts?workspace_id=workspace-a&capability_code=browser_capture',
+      '/api/v1/system-settings/private?workspace_id=workspace-a&capability_code=browser_capture',
       resolution,
       'PUT',
     );

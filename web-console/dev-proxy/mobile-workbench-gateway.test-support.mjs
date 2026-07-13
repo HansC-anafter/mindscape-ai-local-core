@@ -147,6 +147,7 @@ export function createPolicyResolution({
   effectivePayload = createEffectivePolicyPayload({ workspaceId }),
   supported = true,
   apiPrefixes = ['/api/v1/capabilities/yogacoach'],
+  requestScopeContract = 'explicit_workspace_v1',
 } = {}) {
   const effectivePolicy = normalizeEffectiveWorkspacePolicy(effectivePayload, workspaceId);
   const hostRouteTemplate = capabilityCode
@@ -161,7 +162,7 @@ export function createPolicyResolution({
           hasUiComponents: supported,
           hostRouteTemplate: supported ? hostRouteTemplate : null,
           mainPageComponentCodes: supported ? ['TestWorkbenchPage'] : [],
-          requestScopeContract: supported ? 'explicit_workspace_v1' : null,
+          requestScopeContract: supported ? requestScopeContract : null,
           apiPrefixes,
         }
       : null,
@@ -174,6 +175,7 @@ export function createPolicyResolution({
           capabilityCode,
           hostRouteTemplate: supported ? hostRouteTemplate : null,
           apiPrefixes,
+          requestScopeContract: supported ? requestScopeContract : null,
         })
       : [],
   };
