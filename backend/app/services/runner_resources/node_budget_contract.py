@@ -171,13 +171,38 @@ def resolve_node_budget_policy(
 def resolve_browser_request_bytes(
     requirements: Any,
     node_snapshot: Mapping[str, Any],
+    *,
+    environ: Mapping[str, str] | None = None,
 ) -> tuple[int, str] | None:
+    source = environ if environ is not None else os.environ
     try:
         explicit_mb = int(getattr(requirements, "memory_mb", 0) or 0)
     except (TypeError, ValueError):
         explicit_mb = 0
-    if explicit_mb > 0:
-        return explicit_mb * 1024 * 1024, "playbook_profile"
+    try:
+        startup_mb = int(
+            getattr(requirements, "browser_startup_memory_mb", 0) or 0
+        )
+    except (TypeError, ValueError):
+        startup_mb = 0
+    peak_mb = max(explicit_mb, startup_mb)
+    if peak_mb > 0:
+        request_source = (
+            "playbook_peak_profile"
+            if startup_mb > explicit_mb
+            else "playbook_profile"
+        )
+        return peak_mb * 1024 * 1024, request_source
+
+    observed_floor_mb = _env_mb(
+        "LOCAL_CORE_RUNNER_BROWSER_UNMEASURED_RESERVATION_MB",
+        source,
+    )
+    if observed_floor_mb and observed_floor_mb > 0:
+        return (
+            observed_floor_mb * 1024 * 1024,
+            "observed_unmeasured_floor",
+        )
     return None
 
 

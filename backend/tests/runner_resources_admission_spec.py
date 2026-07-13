@@ -318,6 +318,73 @@ async def test_unmeasured_browser_request_does_not_invent_reservation():
 
 
 @pytest.mark.asyncio
+async def test_observed_floor_blocks_unsafe_sixth_heavy_browser_task(monkeypatch):
+    monkeypatch.setenv("LOCAL_CORE_RUNNER_NODE_VM_OVERHEAD_PEAK_MB", "1374")
+    monkeypatch.setenv("LOCAL_CORE_RUNNER_NODE_NON_BROWSER_PEAK_MB", "3221")
+    monkeypatch.setenv("LOCAL_CORE_RUNNER_NODE_BROWSER_IDLE_PEAK_MB", "1034")
+    monkeypatch.setenv(
+        "LOCAL_CORE_RUNNER_BROWSER_UNMEASURED_RESERVATION_MB",
+        "2304",
+    )
+    snapshot = {
+        "total_bytes": 16 * 1024 * MIB,
+        "available_bytes": 12 * 1024 * MIB,
+        "cgroup_limit_bytes": None,
+    }
+    store = InMemoryNodeBudgetStore()
+    requests = [
+        ResourceRequirements(
+            resource_class="browser",
+            browser_contexts=1,
+            memory_mb=1920,
+            browser_startup_memory_mb=3520,
+        ),
+        ResourceRequirements(
+            resource_class="browser",
+            browser_contexts=1,
+            memory_mb=1920,
+            browser_startup_memory_mb=3520,
+        ),
+        ResourceRequirements(
+            resource_class="browser",
+            browser_contexts=1,
+            memory_mb=192,
+        ),
+        ResourceRequirements(
+            resource_class="browser",
+            browser_contexts=1,
+            memory_mb=192,
+        ),
+        ResourceRequirements(resource_class="browser", browser_contexts=1),
+        ResourceRequirements(resource_class="browser", browser_contexts=1),
+    ]
+
+    decisions = []
+    for index, requirements in enumerate(requests):
+        decisions.append(
+            await acquire_task_resource_admission(
+                task=_task(f"task-mixed-{index}"),
+                requirements=requirements,
+                runner_profile=_profile(),
+                capacity=_capacity(6),
+                lease_store=InMemoryResourceLeaseStore(),
+                node_budget_store=store,
+                node_memory_snapshot=snapshot,
+                owner_id=f"runner-{index}:task-mixed-{index}",
+                ttl_seconds=30,
+            )
+        )
+
+    assert [item.allow for item in decisions] == [True, True, True, True, True, False]
+    observed = decisions[4].execution_context_updates["resource_admission"]
+    assert observed["requested_memory_bytes"] == 2304 * MIB
+    assert observed["memory_reservation_source"] == "observed_unmeasured_floor"
+    assert observed["memory_admission_mode"] == "observed_floor_reservation"
+    assert decisions[-1].blocked_payload["reason"] == "node_budget_exhausted"
+    assert decisions[-1].blocked_payload["reserved_bytes"] == 9728 * MIB
+
+
+@pytest.mark.asyncio
 async def test_measured_browser_request_without_startup_measurement_uses_spacing():
     store = InMemoryNodeBudgetStore()
     decision = await acquire_task_resource_admission(
@@ -345,7 +412,7 @@ async def test_measured_browser_request_without_startup_measurement_uses_spacing
     assert decision.node_budget_reservation is not None
     assert decision.execution_context_updates["resource_admission"][
         "memory_admission_mode"
-    ] == "measured_reservation"
+    ] == "measured_peak_reservation"
     assert decision.execution_context_updates["resource_admission"][
         "browser_startup"
     ] == {
@@ -535,7 +602,7 @@ async def test_profile_lock_conflict_does_not_consume_browser_startup_spacing():
 
 
 @pytest.mark.asyncio
-async def test_browser_startup_headroom_releases_steady_reservation():
+async def test_browser_peak_profile_requires_current_headroom():
     node_store = InMemoryNodeBudgetStore()
     decision = await acquire_task_resource_admission(
         task=_task("task-start-low-headroom"),
@@ -560,8 +627,6 @@ async def test_browser_startup_headroom_releases_steady_reservation():
     )
 
     assert decision.allow is False
-    assert decision.blocked_payload["reason"] == (
-        "browser_startup_headroom_unavailable"
-    )
-    assert decision.blocked_payload["startup_requested_bytes"] == 4096 * MIB
+    assert decision.blocked_payload["reason"] == "node_memory_headroom_unavailable"
+    assert decision.blocked_payload["requested_bytes"] == 4096 * MIB
     assert (await node_store.snapshot())["active_reservations"] == 0

@@ -152,10 +152,9 @@ async def acquire_task_resource_admission(
         snapshot = node_memory_snapshot or current_node_memory_snapshot()
         request_resolution = resolve_browser_request_bytes(requirements, snapshot)
         if request_resolution is None:
-            # Do not invent a container-limit fallback for legacy browser work.
-            # Unmeasured work remains governed by runner slots, live pressure,
-            # and concrete resource leases; byte reservation is evidence-only
-            # until a measured playbook profile exists.
+            # Without an explicitly configured observed floor, unmeasured work
+            # remains governed by runner slots, live pressure, and concrete
+            # resource leases. Never infer a reservation from a container cap.
             resolved_request_source = "unmeasured_no_reservation"
         else:
             node_policy = resolve_node_budget_policy(snapshot)
@@ -326,9 +325,16 @@ async def acquire_task_resource_admission(
             "requested_memory_bytes": resolved_request_bytes,
             "memory_reservation_source": resolved_request_source,
             "memory_admission_mode": (
-                "measured_reservation"
-                if node_reservation is not None
-                else "unmeasured_no_reservation"
+                "observed_floor_reservation"
+                if (
+                    node_reservation is not None
+                    and resolved_request_source == "observed_unmeasured_floor"
+                )
+                else (
+                    "measured_peak_reservation"
+                    if node_reservation is not None
+                    else "unmeasured_no_reservation"
+                )
             ),
             "node_policy_fingerprint": (
                 node_policy.fingerprint if node_policy is not None else None

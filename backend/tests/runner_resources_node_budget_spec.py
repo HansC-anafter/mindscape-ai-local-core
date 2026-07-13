@@ -51,9 +51,42 @@ def test_calibrated_and_bootstrap_policies_deduct_reserve_once():
 
 
 def test_unknown_browser_request_fails_closed_even_with_finite_limit():
-    requirements = SimpleNamespace(memory_mb=0)
-    assert resolve_browser_request_bytes(requirements, _snapshot()) is None
-    assert resolve_browser_request_bytes(requirements, _snapshot(limit_mb=None)) is None
+    requirements = SimpleNamespace(memory_mb=0, browser_startup_memory_mb=0)
+    assert (
+        resolve_browser_request_bytes(requirements, _snapshot(), environ={})
+        is None
+    )
+    assert (
+        resolve_browser_request_bytes(
+            requirements,
+            _snapshot(limit_mb=None),
+            environ={},
+        )
+        is None
+    )
+
+
+def test_browser_request_reserves_playbook_peak_for_full_task_lifetime():
+    requirements = SimpleNamespace(
+        memory_mb=1920,
+        browser_startup_memory_mb=3520,
+    )
+    assert resolve_browser_request_bytes(
+        requirements,
+        _snapshot(limit_mb=None),
+        environ={},
+    ) == (3520 * MIB, "playbook_peak_profile")
+
+
+def test_unmeasured_browser_request_uses_observed_floor_when_configured():
+    requirements = SimpleNamespace(memory_mb=0, browser_startup_memory_mb=0)
+    assert resolve_browser_request_bytes(
+        requirements,
+        _snapshot(limit_mb=None),
+        environ={
+            "LOCAL_CORE_RUNNER_BROWSER_UNMEASURED_RESERVATION_MB": "2304"
+        },
+    ) == (2304 * MIB, "observed_unmeasured_floor")
 
 
 @pytest.mark.asyncio
