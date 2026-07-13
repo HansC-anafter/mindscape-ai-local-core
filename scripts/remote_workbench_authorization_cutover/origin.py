@@ -11,15 +11,8 @@ from typing import Any, Callable, Mapping
 
 from .io import CommandExecutor, CutoverError, write_private_json
 from .origin_mounts import expected_mounts, live_mounts
-from .origin_recovery import (
-    APPLICATION_ORDER,
-    INFRASTRUCTURE_ORDER,
-    OPTIONAL_SERVICE_ORDER,
-    mark_reconcile_completed,
-    persist_reconcile_state,
-    recover_persisted_reconcile_state,
-    recover_pre_active_services,
-)
+from .origin_reconcile import reconcile_origin
+from .origin_recovery import recover_persisted_reconcile_state
 
 
 LOCKED_HOST_BINDINGS = {
@@ -419,125 +412,12 @@ Promise.all(hosts.map(run)).then((rows)=>process.stdout.write(JSON.stringify(row
     ) -> dict[str, Any]:
         """Recreate only drifted services, then require a closed topology."""
 
-        services = sorted(str(name) for name in drift)
-        if services:
-            config = self._compose_config(all_profiles=True)
-            active_services = self._active_services(
-                str(config.get("name") or "mindscape-ai-local-core")
-            )
-            if not set(services).issubset(active_services):
-                raise CutoverError("Origin reconcile drift is not pre-active")
-            if any(name.startswith("runner") for name in services):
-                raise CutoverError("Runner drift blocks origin reconcile")
-            for name, raw_reasons in drift.items():
-                reasons = set(raw_reasons) if isinstance(raw_reasons, list) else set()
-                expected = config["services"].get(name)
-                if (
-                    not isinstance(expected, Mapping)
-                    or not self._expected_bindings(expected)
-                    or "port_bindings" not in reasons
-                    or reasons.difference({"port_bindings", "lan_reachable"})
-                ):
-                    raise CutoverError(
-                        "Origin reconcile only accepts pre-active published-port drift"
-                    )
-            infra = set(INFRASTRUCTURE_ORDER)
-            applications = set(APPLICATION_ORDER)
-            optional = set(OPTIONAL_SERVICE_ORDER)
-            if (
-                set(services)
-                .difference(infra)
-                .difference(applications)
-                .difference(optional)
-            ):
-                raise CutoverError(
-                    "Origin reconcile drift names an unsupported service"
-                )
-            stopped_dependents: list[str] = []
-            if infra.intersection(services):
-                stopped_dependents = [
-                    name for name in APPLICATION_ORDER if name in active_services
-                ] + sorted(
-                    name for name in active_services if name.startswith("runner")
-                )
-            before = persist_reconcile_state(
-                self,
-                secure_dir=secure_dir,
-                active_services=active_services,
-                mutated_services=services,
-                stopped_dependents=stopped_dependents,
-            )
-            ordered_services = (
-                [name for name in INFRASTRUCTURE_ORDER if name in services]
-                + [name for name in OPTIONAL_SERVICE_ORDER if name in services]
-                + [name for name in APPLICATION_ORDER if name in services]
-            )
-            try:
-                if stopped_dependents:
-                    self.executor.run(
-                        self.compose_command("stop", *stopped_dependents),
-                        timeout_seconds=180.0,
-                    )
-                for name in ordered_services:
-                    self.executor.run(
-                        self.compose_command(
-                            "up",
-                            "-d",
-                            "--force-recreate",
-                            "--no-deps",
-                            "--wait",
-                            "--wait-timeout",
-                            "300",
-                            name,
-                        ),
-                        timeout_seconds=300.0,
-                    )
-                    _evidence, reasons = self._inspect_service(
-                        name, config["services"][name]
-                    )
-                    if reasons:
-                        raise CutoverError("Reconciled origin service is not healthy")
-                restart = [name for name in stopped_dependents if name not in services]
-                for name in restart:
-                    self.executor.run(
-                        self.compose_command("start", name),
-                        timeout_seconds=180.0,
-                    )
-                    _evidence, reasons = self._inspect_service(
-                        name, config["services"][name]
-                    )
-                    if reasons:
-                        raise CutoverError("Restarted origin dependent is not healthy")
-                result = self.inspect(secure_dir, workspace_id)
-                if result.get("drift") or result.get("lan_reachable_ports"):
-                    raise CutoverError(
-                        "Canonical origin topology remains drifted after reconcile"
-                    )
-                write_private_json(secure_dir / "origin-topology-after.json", result)
-                mark_reconcile_completed(secure_dir)
-                return result
-            except Exception as failure:
-                try:
-                    recover_pre_active_services(
-                        self,
-                        config=config,
-                        pre_active_services=active_services,
-                        mutated_services=services,
-                        stopped_dependents=stopped_dependents,
-                        before=before,
-                    )
-                except Exception as recovery_error:
-                    raise CutoverError(
-                        "Origin reconcile recovery failed closed"
-                    ) from recovery_error
-                raise failure
-        result = self.inspect(secure_dir, workspace_id)
-        if result.get("drift") or result.get("lan_reachable_ports"):
-            raise CutoverError(
-                "Canonical origin topology remains drifted after reconcile"
-            )
-        write_private_json(secure_dir / "origin-topology-after.json", result)
-        return result
+        return reconcile_origin(
+            self,
+            drift,
+            secure_dir=secure_dir,
+            workspace_id=workspace_id,
+        )
 
     def recover_persisted(self, secure_dir: Path) -> bool:
         return recover_persisted_reconcile_state(self, secure_dir)
