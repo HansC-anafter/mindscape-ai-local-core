@@ -376,6 +376,27 @@ class RuntimeGate:
             self.reopen_transport()
         return readback
 
+    def resume_owned_transition(
+        self,
+        expected: Mapping[str, Any],
+        *,
+        assertion_path: Path,
+        workspace_id: str,
+    ) -> dict[str, Any]:
+        """Re-activate an exact receipt-owned PUT while transport stays closed."""
+
+        self.close_and_prove(assertion_path, workspace_id)
+        readback = self.get_runtime_policy()
+        self.assert_policy_readback(readback, expected)
+        revision = readback.get("revision")
+        if type(revision) is not int:
+            raise CutoverError("Recovered runtime policy revision is invalid")
+        self._recreate_frontend()
+        self._assert_health(expected, revision)
+        if expected.get("access_issuer") is not None:
+            self._prewarm_backend(workspace_id)
+        return readback
+
     def _assert_principal_response(
         self,
         response: HttpResponse,

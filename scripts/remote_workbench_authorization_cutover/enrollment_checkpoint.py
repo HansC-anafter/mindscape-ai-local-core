@@ -7,9 +7,11 @@ import re
 from pathlib import Path
 from typing import Any, Mapping
 
+from .enforcement import enforced_body, verify_outsider_zero_grant
 from .io import CutoverError, assert_private_file, write_private_json
-from .policy_receipt import record_policy_intent
+from .policy_receipt import policy_transition_state, record_policy_intent
 from .secure_inputs import SecureInputs, require_access_token_remaining
+from .transition_recovery import load_original_policy
 
 
 CHECKPOINT_NAME = "authorization-enrollment-checkpoint.json"
@@ -259,49 +261,6 @@ class EnrollmentContinuation:
         self.resource_before: Any | None = None
         self.resource_window: str | None = None
 
-    @staticmethod
-    def _load_original_policy(directory: Path) -> dict[str, Any]:
-        path = directory / "runtime-policy-before.json"
-        assert_private_file(path, max_bytes=32_768)
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError as error:
-            raise CutoverError("Saved initial runtime policy is malformed") from error
-        if not isinstance(payload, dict) or type(payload.get("revision")) is not int:
-            raise CutoverError("Saved initial runtime policy identity is invalid")
-        return payload
-
-    @staticmethod
-    def _verify_outsider_zero_grant(
-        inputs: SecureInputs,
-        *effective_policies: dict[str, Any],
-    ) -> None:
-        outsider = inputs.jwt_claims.get("outsider")
-        if outsider is None:
-            raise CutoverError("Outsider assertion is required before enforcement")
-        outsider_email = str(outsider.get("email") or "").strip().lower()
-        outsider_subject = str(outsider.get("sub") or "").strip()
-        for payload in effective_policies:
-            principals = payload.get("effective_principals")
-            admins = payload.get("local_core_super_admins")
-            if not isinstance(principals, list) or not isinstance(admins, list):
-                raise CutoverError("Effective policy grant projection is malformed")
-            for row in [*principals, *admins]:
-                if not isinstance(row, dict):
-                    raise CutoverError("Effective policy grant principal is malformed")
-                if (
-                    str(row.get("email") or "").strip().lower() == outsider_email
-                    or str(row.get("subject") or "").strip() == outsider_subject
-                ):
-                    raise CutoverError("Outsider unexpectedly has an effective grant")
-
-    @staticmethod
-    def _enforced_body(inputs: SecureInputs, revision: int) -> dict[str, Any]:
-        body = dict(inputs.policy)
-        body["expected_revision"] = revision
-        body["remote_access_state"] = "enforced"
-        return body
-
     def finish(
         self,
         *,
@@ -312,14 +271,21 @@ class EnrollmentContinuation:
         original: dict[str, Any],
         install_id: str,
         backup_dir: str,
+        enforced_readback: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Run the one pre-enforcement resource window and public acceptance path."""
 
         self.claims_paused = True
-        authorization_before = self.claims.pause_and_drain(
-            inputs.directory,
-            "phase06-authorization",
-        )
+        if enforced_readback is None:
+            authorization_before = self.claims.pause_and_drain(
+                inputs.directory,
+                "phase06-authorization",
+            )
+        else:
+            authorization_before = self.claims.load_before(
+                inputs.directory,
+                "phase06-authorization",
+            )
         self.resource_before = authorization_before
         self.resource_window = "phase06-authorization"
         try:
@@ -336,35 +302,45 @@ class EnrollmentContinuation:
                 target_workspace_id,
                 inheritance_workspace_id,
             )
-            self.runtime.verify_effective_policies(
-                inputs,
-                target_workspace_id=target_workspace_id,
-                inheritance_workspace_id=inheritance_workspace_id,
-                state="enrollment_only",
-                revision=current_revision,
-            )
-            target_effective = self.runtime.get_effective_policy(target_workspace_id)
-            inheritance_effective = self.runtime.get_effective_policy(
-                inheritance_workspace_id
-            )
-            self._verify_outsider_zero_grant(
-                inputs,
-                target_effective,
-                inheritance_effective,
-            )
-            require_access_token_remaining(inputs)
-            enforced_body = self._enforced_body(inputs, current_revision)
-            record_policy_intent(
-                inputs.directory,
-                original=original,
-                body=enforced_body,
-            )
-            final_readback = self.runtime.transition(
-                enforced_body,
-                assertion_path=inputs.jwt_paths["hans"],
-                workspace_id=target_workspace_id,
-                reopen=True,
-            )
+            if enforced_readback is None:
+                self.runtime.verify_effective_policies(
+                    inputs,
+                    target_workspace_id=target_workspace_id,
+                    inheritance_workspace_id=inheritance_workspace_id,
+                    state="enrollment_only",
+                    revision=current_revision,
+                )
+                target_effective = self.runtime.get_effective_policy(
+                    target_workspace_id
+                )
+                inheritance_effective = self.runtime.get_effective_policy(
+                    inheritance_workspace_id
+                )
+                verify_outsider_zero_grant(
+                    inputs,
+                    target_effective,
+                    inheritance_effective,
+                )
+                require_access_token_remaining(inputs)
+                body = enforced_body(inputs, current_revision)
+                record_policy_intent(
+                    inputs.directory,
+                    original=original,
+                    body=body,
+                )
+                final_readback = self.runtime.transition(
+                    body,
+                    assertion_path=inputs.jwt_paths["hans"],
+                    workspace_id=target_workspace_id,
+                    reopen=True,
+                )
+            else:
+                require_access_token_remaining(inputs)
+                final_readback = self.runtime.resume_owned_transition(
+                    inputs.policy,
+                    assertion_path=inputs.jwt_paths["hans"],
+                    workspace_id=target_workspace_id,
+                )
             final_revision = final_readback["revision"]
             self.runtime.verify_effective_policies(
                 inputs,
@@ -373,6 +349,13 @@ class EnrollmentContinuation:
                 state="enforced",
                 revision=final_revision,
             )
+            if enforced_readback is not None:
+                verify_outsider_zero_grant(
+                    inputs,
+                    self.runtime.get_effective_policy(target_workspace_id),
+                    self.runtime.get_effective_policy(inheritance_workspace_id),
+                )
+                self.runtime.reopen_transport()
             self.release.verify_workspace_rows(
                 target_workspace_id,
                 inheritance_workspace_id,
@@ -435,9 +418,23 @@ class EnrollmentContinuation:
         if install_identity(install_job) != checkpoint["install"]:
             raise CutoverError("Enrollment checkpoint install identity changed")
         current = self.runtime.get_runtime_policy()
-        self.runtime.assert_policy_readback(current, inputs.policy)
-        if runtime_identity(current) != checkpoint["runtime"]:
-            raise CutoverError("Enrollment checkpoint runtime identity changed")
+        original = load_original_policy(inputs.directory)
+        enforced_readback: dict[str, Any] | None = None
+        if current.get("remote_access_state") == "enrollment_only":
+            self.runtime.assert_policy_readback(current, checkpoint["runtime"])
+            if runtime_identity(current) != checkpoint["runtime"]:
+                raise CutoverError("Enrollment checkpoint runtime identity changed")
+        elif current.get("remote_access_state") == "enforced":
+            self.runtime.assert_policy_readback(current, inputs.policy)
+            if policy_transition_state(
+                inputs.directory,
+                original=original,
+                current=current,
+            ) != "owned":
+                raise CutoverError("Enforced runtime policy is not receipt-owned")
+            enforced_readback = current
+        else:
+            raise CutoverError("Enrollment checkpoint runtime state is invalid")
         current_revision = current["revision"]
         self.release.verify_workspace_rows(
             target_workspace_id,
@@ -464,7 +461,6 @@ class EnrollmentContinuation:
                 "tunnel": "closed",
             }
         require_access_token_remaining(inputs)
-        original = self._load_original_policy(inputs.directory)
         return self.finish(
             inputs=inputs,
             target_workspace_id=target_workspace_id,
@@ -473,4 +469,5 @@ class EnrollmentContinuation:
             original=original,
             install_id=checkpoint["install"]["install_id"],
             backup_dir=checkpoint["backup_dir"],
+            enforced_readback=enforced_readback,
         )

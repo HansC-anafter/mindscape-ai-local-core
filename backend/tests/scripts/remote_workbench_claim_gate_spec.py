@@ -16,7 +16,10 @@ from remote_workbench_authorization_cutover.claim_gate import (
 )
 from remote_workbench_authorization_cutover.http import HttpResponse
 from remote_workbench_authorization_cutover.io import CutoverError
-from remote_workbench_authorization_cutover.resources import ResourceSnapshot
+from remote_workbench_authorization_cutover.resources import (
+    RedisResourceSampler,
+    ResourceSnapshot,
+)
 
 
 def _snapshot(*, processing: int = 0, inflight: int = 0) -> ResourceSnapshot:
@@ -124,3 +127,25 @@ def test_claim_gate_rejects_unknown_window_before_api_mutation(tmp_path: Path) -
             resources=ClaimResources([_snapshot()]),
         ).pause_and_drain(tmp_path, "../../escape")
     assert http.calls == []
+
+
+@pytest.mark.parametrize("inventory", [(), ("mindscape:queue:pending:default|list",)])
+def test_interrupted_claim_window_reloads_exact_private_baseline(
+    tmp_path: Path,
+    inventory: tuple[str, ...],
+) -> None:
+    snapshot = ResourceSnapshot(
+        totals={"pending": 0, "processing": 0, "delayed": 0, "deadletter": 0},
+        inventory=inventory,
+        runners={"count": 2, "capacity": 6, "inflight": 0},
+    )
+    RedisResourceSampler.persist(snapshot, tmp_path, "phase06-authorization-before")
+
+    loaded = RedisResourceSampler.load(
+        tmp_path,
+        "phase06-authorization-before",
+    )
+
+    assert loaded == snapshot
+    for path in tmp_path.iterdir():
+        assert path.stat().st_mode & 0o777 == 0o600

@@ -18,6 +18,9 @@ from remote_workbench_authorization_cutover.repository import lock_phase06_repos
 from remote_workbench_authorization_cutover.resources import RedisResourceSampler
 from remote_workbench_authorization_cutover.runtime import RuntimeGate
 from remote_workbench_authorization_cutover.claim_gate import RunnerClaimGate
+from remote_workbench_authorization_cutover.transition_recovery import (
+    safe_close_before_preflight,
+)
 from remote_workbench_authorization_cutover.workflow import CutoverWorkflow
 
 
@@ -50,6 +53,15 @@ def _run_locked(args: argparse.Namespace) -> int:
 
     executor = CommandExecutor()
     script_repo_root = Path(__file__).resolve().parents[1]
+    preflight_runtime = RuntimeGate(
+        repo_root=script_repo_root,
+        executor=executor,
+        http=HttpClient(),
+    )
+    safe_close_before_preflight(
+        args.secure_input_dir,
+        preflight_runtime,
+    )
     try:
         repositories = lock_phase06_repositories(
             script_repo_root=script_repo_root,

@@ -112,6 +112,14 @@ class RunnerClaimGate:
         )
         self.resources.compare(before, after)
 
+    def load_before(self, secure_dir: Path, window: str) -> ResourceSnapshot:
+        """Load the durable baseline owned by an interrupted paused window."""
+
+        return self.resources.load(
+            secure_dir,
+            resource_snapshot_label(window, "before"),
+        )
+
     def resume(self) -> None:
         """Resume local claims only after closure or completed backout."""
 

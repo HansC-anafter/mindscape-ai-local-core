@@ -34,6 +34,11 @@ from .secure_inputs import (
     load_secure_inputs,
     require_access_token_remaining,
 )
+from .transition_recovery import (
+    load_original_policy,
+    recover_uncheckpointed_transition,
+    transition_artifacts_present,
+)
 
 
 class CutoverWorkflow:
@@ -160,7 +165,8 @@ class CutoverWorkflow:
             checkpoint_path(secure_input_dir).exists()
             or checkpoint_path(secure_input_dir).is_symlink()
         )
-        if checkpoint_present:
+        interrupted_transition = transition_artifacts_present(secure_input_dir)
+        if interrupted_transition:
             self.runtime.safe_close("authorization_resume_preflight")
         inputs = load_secure_inputs(secure_input_dir)
         checkpoint = load_checkpoint(inputs.directory)
@@ -175,9 +181,7 @@ class CutoverWorkflow:
             except Exception:
                 if self.continuation.claims_paused:
                     try:
-                        original = self.continuation._load_original_policy(
-                            inputs.directory
-                        )
+                        original = load_original_policy(inputs.directory)
                         self.backout_closure.close(
                             inputs=inputs,
                             target_workspace_id=target_workspace_id,
@@ -198,7 +202,15 @@ class CutoverWorkflow:
                 else:
                     self.runtime.safe_close("authorization_resume_failed")
                 raise
-        original: dict[str, Any] | None = None
+        original = (
+            recover_uncheckpointed_transition(
+                inputs=inputs,
+                runtime=self.runtime,
+                target_workspace_id=target_workspace_id,
+            )
+            if interrupted_transition and not checkpoint_present
+            else None
+        )
         policy_intent_recorded = False
         pack_mutation_started = False
         pack_restore_allowed = False
@@ -262,17 +274,21 @@ class CutoverWorkflow:
             self.release.verify_database_pools(inputs.directory, "post-install")
             self.release.verify_effective_policy_query_plan(target_workspace_id)
 
-            original = self.runtime.get_runtime_policy()
+            seed = self.runtime.get_runtime_policy()
             self.runtime.assert_initial_seed(
-                original,
-                inputs.policy["expected_revision"],
+                seed,
+                seed["revision"]
+                if original is not None
+                else inputs.policy["expected_revision"],
             )
+            if original is None:
+                original = seed
             write_private_json(inputs.directory / "runtime-policy-before.json", original)
             write_private_json(
                 inputs.directory / "workspace-policy-post-migration.json",
                 self.runtime.get_effective_policy(target_workspace_id),
             )
-            revision = original["revision"]
+            revision = seed["revision"]
 
             require_access_token_remaining(inputs)
             pending_body = self._pending_enrollment_body(inputs, revision)
@@ -308,20 +324,20 @@ class CutoverWorkflow:
                 state="enrollment_only",
                 revision=current_revision,
             )
+            checkpoint = write_checkpoint(
+                inputs.directory,
+                target_workspace_id=target_workspace_id,
+                inheritance_workspace_id=inheritance_workspace_id,
+                runtime=enrollment_readback,
+                install=install_job,
+                ingress=ingress_lock,
+                source=self.release.source_identity(),
+                backup_dir=backup_dir,
+            )
             if "outsider" not in inputs.jwt_paths:
                 self.runtime.close_and_prove(
                     inputs.jwt_paths["hans"],
                     target_workspace_id,
-                )
-                checkpoint = write_checkpoint(
-                    inputs.directory,
-                    target_workspace_id=target_workspace_id,
-                    inheritance_workspace_id=inheritance_workspace_id,
-                    runtime=enrollment_readback,
-                    install=install_job,
-                    ingress=ingress_lock,
-                    source=self.release.source_identity(),
-                    backup_dir=backup_dir,
                 )
                 return {
                     "status": "pending_outsider",

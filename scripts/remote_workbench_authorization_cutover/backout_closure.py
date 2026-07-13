@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .io import CutoverError
-from .policy_receipt import current_policy_requires_rollback
+from .policy_receipt import current_policy_requires_rollback, record_policy_intent
 from .resources import ResourceSnapshot
 from .secure_inputs import SecureInputs, require_access_token_remaining
 
@@ -39,6 +39,7 @@ class BackoutClosure:
         snapshot = dict(original)
         snapshot["remote_access_state"] = "enrollment_only"
         body = self.runtime.policy_body(snapshot, revision)
+        record_policy_intent(inputs.directory, original=original, body=body)
         self.runtime.transition(
             body,
             assertion_path=inputs.jwt_paths["hans"],

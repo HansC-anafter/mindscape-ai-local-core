@@ -7,7 +7,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Protocol, Sequence
 
-from .io import CutoverError, write_private_json, write_private_text
+from .io import (
+    CutoverError,
+    assert_mode,
+    assert_private_file,
+    write_private_json,
+    write_private_text,
+)
 
 
 RESOURCE_WINDOWS = frozenset({"06a-infra", "phase06-authorization", "phase06-backout"})
@@ -192,6 +198,39 @@ class RedisResourceSampler:
         inventory = "".join(f"{item}\n" for item in snapshot.inventory)
         write_private_text(directory / f"queue-inventory-{label}.txt", inventory)
         write_private_json(directory / f"runner-{label}.json", snapshot.runners)
+
+    @classmethod
+    def load(cls, directory: Path, label: str) -> ResourceSnapshot:
+        """Reload one private before snapshot after an interrupted process."""
+
+        allowed = {
+            resource_snapshot_label(window, "before") for window in RESOURCE_WINDOWS
+        }
+        if label not in allowed:
+            raise CutoverError("Resource snapshot label is not a before checkpoint")
+        totals_path = directory / f"queue-totals-{label}.json"
+        inventory_path = directory / f"queue-inventory-{label}.txt"
+        runners_path = directory / f"runner-{label}.json"
+        assert_private_file(totals_path, max_bytes=4_096)
+        assert_mode(inventory_path, 0o600)
+        if not inventory_path.is_file() or inventory_path.stat().st_size > 262_144:
+            raise CutoverError("Saved resource inventory file is invalid")
+        assert_private_file(runners_path, max_bytes=4_096)
+        try:
+            totals = json.loads(totals_path.read_text(encoding="utf-8"))
+            runners = json.loads(runners_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as error:
+            raise CutoverError("Saved resource snapshot is malformed") from error
+        inventory = inventory_path.read_text(encoding="utf-8").splitlines()
+        return cls._validate(
+            {
+                "totals": totals,
+                "inventory": inventory,
+                "runners": {**runners, "malformed": 0}
+                if isinstance(runners, Mapping)
+                else runners,
+            }
+        )
 
     @staticmethod
     def compare(before: ResourceSnapshot, after: ResourceSnapshot) -> None:

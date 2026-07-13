@@ -73,3 +73,23 @@ def test_policy_receipt_preserves_prior_owned_projection_after_later_put_timeout
         original=original,
         current=_policy(8),
     ) is True
+
+
+def test_policy_receipt_recognizes_exact_owned_restore_after_rollback_timeout(
+    tmp_path: Path,
+) -> None:
+    original = _policy(7)
+    pending = {**_policy(8), "expected_revision": 7}
+    pending.pop("revision")
+    restored = {**_policy(9), "expected_revision": 8}
+    restored.pop("revision")
+    restored["access_issuer"] = None
+    restored["access_audience"] = None
+    record_policy_intent(tmp_path, original=original, body=pending)
+    record_policy_intent(tmp_path, original=original, body=restored)
+
+    assert current_policy_requires_rollback(
+        tmp_path,
+        original=original,
+        current={**original, "revision": 9},
+    ) is False

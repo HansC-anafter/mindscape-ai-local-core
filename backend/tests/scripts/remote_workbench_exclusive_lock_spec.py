@@ -86,7 +86,8 @@ def test_cli_holds_lock_before_repository_or_runtime_actions() -> None:
     ).read_text(encoding="utf-8")
     lock = source.index("with phase06_runner_lock():")
     dispatch = source.index("return _run_locked(args)", lock)
+    interrupted_close = source.index("safe_close_before_preflight(", dispatch)
     repository = source.index("lock_phase06_repositories(", dispatch)
     workflow = source.index("workflow.cutover(", repository)
 
-    assert lock < dispatch < repository < workflow
+    assert lock < dispatch < interrupted_close < repository < workflow
