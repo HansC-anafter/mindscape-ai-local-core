@@ -78,7 +78,7 @@ def ensure_read_only_command(argv: Sequence[str]) -> None:
 class ReadOnlyCommandRunner:
     """Execute only commands accepted by the read-only policy."""
 
-    def run(self, argv: Sequence[str], *, timeout_seconds: int = 5) -> CommandResult:
+    def run(self, argv: Sequence[str], *, timeout_seconds: int = 15) -> CommandResult:
         ensure_read_only_command(argv)
         completed = subprocess.run(
             list(argv),

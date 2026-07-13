@@ -312,20 +312,21 @@ SELECT json_build_object(
 FROM candidates;
 """.strip()
     raw_tasks = _run_json(
-            command_runner,
-            [
-                "docker",
-                "exec",
-                postgres,
-                "psql",
-                "-U",
-                "mindscape",
-                "-d",
-                "mindscape_core",
-                "-Atc",
-                task_sql,
-            ],
-        )
+        command_runner,
+        [
+            "docker",
+            "exec",
+            postgres,
+            "psql",
+            "-U",
+            "mindscape",
+            "-d",
+            "mindscape_core",
+            "-Atc",
+            task_sql,
+        ],
+        timeout_seconds=30,
+    )
     processing_task_ids = {
         str(item)
         for item in redis_snapshot.get("processing_task_ids") or []
