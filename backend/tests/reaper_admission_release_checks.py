@@ -8,12 +8,37 @@ from backend.tests.reaper_admission_release_support import (
 )
 
 
-def test_blocked_release_limit_keeps_small_fairness_floor(monkeypatch):
+def test_blocked_release_limit_bounds_fairness_floor_as_fixed_headroom(monkeypatch):
     monkeypatch.setenv("LOCAL_CORE_RUNNER_BLOCKED_RELEASE_MINIMUM", "4")
 
-    assert reaper._blocked_release_limit(ready_target=64, ready_depth=80) == 4
+    assert reaper._blocked_release_limit(ready_target=64, ready_depth=80) == 0
+    assert reaper._blocked_release_limit(ready_target=64, ready_depth=68) == 0
+    assert reaper._blocked_release_limit(ready_target=64, ready_depth=66) == 2
+    assert reaper._blocked_release_limit(ready_target=64, ready_depth=64) == 4
     assert reaper._blocked_release_limit(ready_target=64, ready_depth=60) == 4
     assert reaper._blocked_release_limit(ready_target=64, ready_depth=10) == 54
+
+
+def test_blocked_release_limit_stops_later_stages_and_cycles_at_headroom(monkeypatch):
+    monkeypatch.setenv("LOCAL_CORE_RUNNER_BLOCKED_RELEASE_MINIMUM", "4")
+
+    ready_depth = 64
+    first_stage_limit = reaper._blocked_release_limit(
+        ready_target=64,
+        ready_depth=ready_depth,
+    )
+    ready_depth += first_stage_limit
+
+    assert first_stage_limit == 4
+    assert reaper._blocked_release_limit(ready_target=64, ready_depth=ready_depth) == 0
+
+
+@pytest.mark.parametrize("configured_floor", ["0", "-4"])
+def test_blocked_release_limit_normalizes_non_positive_floor(monkeypatch, configured_floor):
+    monkeypatch.setenv("LOCAL_CORE_RUNNER_BLOCKED_RELEASE_MINIMUM", configured_floor)
+
+    assert reaper._blocked_release_limit(ready_target=64, ready_depth=64) == 0
+    assert reaper._blocked_release_limit(ready_target=64, ready_depth=80) == 0
 
 
 @pytest.mark.asyncio

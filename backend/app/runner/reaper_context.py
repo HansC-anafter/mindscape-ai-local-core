@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from datetime import datetime
 from typing import Any, Optional
 
@@ -99,11 +100,17 @@ def _heartbeat_log_value(heartbeat_at: Optional[datetime], ctx: dict[str, Any]) 
 
 def _blocked_release_limit(ready_target: int, ready_depth: int) -> int:
     capacity_limit = max(0, ready_target - ready_depth)
-    floor_limit = max(
-        0,
-        _env_int("LOCAL_CORE_RUNNER_BLOCKED_RELEASE_MINIMUM", 4),
-    )
-    return max(capacity_limit, floor_limit)
+    raw_floor_limit = os.getenv("LOCAL_CORE_RUNNER_BLOCKED_RELEASE_MINIMUM")
+    try:
+        floor_limit = max(
+            0,
+            int(raw_floor_limit) if raw_floor_limit is not None else 4,
+        )
+    except (TypeError, ValueError):
+        floor_limit = 4
+    if capacity_limit > 0:
+        return max(capacity_limit, floor_limit)
+    return max(0, ready_target + floor_limit - ready_depth)
 
 def _browser_peer_frontier_refill_limit() -> int:
     return max(0, _env_int("LOCAL_CORE_RUNNER_BROWSER_PEER_REFILL_LIMIT", 4))
