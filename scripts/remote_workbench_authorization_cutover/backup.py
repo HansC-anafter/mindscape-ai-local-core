@@ -8,6 +8,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .backup_privacy import (
+    resolve_private_output_directory,
+    verify_private_backup_tree,
+)
 from .io import CommandExecutor, CutoverError
 
 
@@ -111,10 +115,18 @@ class BackupGate:
     def _verify(self, backup_dir: Path) -> Path:
         if backup_dir.is_symlink() or not backup_dir.is_dir():
             raise CutoverError("Verified backup path must be a real directory")
+        verify_private_backup_tree(
+            backup_dir,
+            required_artifacts=REQUIRED_DATABASE_ARTIFACTS,
+        )
         verify_script = self.repo_root / "scripts/verify_local_runtime_backup.sh"
         self.executor.run(
             [str(verify_script), str(backup_dir)],
             timeout_seconds=300.0,
+        )
+        verify_private_backup_tree(
+            backup_dir,
+            required_artifacts=REQUIRED_DATABASE_ARTIFACTS,
         )
         self._validate_phase06_manifest(backup_dir)
         return backup_dir
@@ -125,16 +137,17 @@ class BackupGate:
         output_value = os.getenv("REMOTE_WORKBENCH_BACKUP_OUTPUT_DIR")
         if not output_value:
             raise CutoverError("Set REMOTE_WORKBENCH_BACKUP_OUTPUT_DIR")
-        output_dir = Path(output_value).expanduser()
-        if output_dir.is_symlink():
-            raise CutoverError("Backup output directory must not be symbolic")
-        output_dir = output_dir.resolve()
+        output_dir = resolve_private_output_directory(output_value)
         name = "remote-workbench-access-policy-" + datetime.now(timezone.utc).strftime(
             "%Y%m%dT%H%M%SZ"
         )
         backup_dir = output_dir / name
         self.executor.run(
             [
+                "/bin/bash",
+                "-c",
+                'umask 077; exec "$@"',
+                "phase06-backup",
                 str(self.repo_root / "scripts/backup_local_runtime.sh"),
                 "--output-dir",
                 str(output_dir),
