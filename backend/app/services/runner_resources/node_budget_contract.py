@@ -171,13 +171,41 @@ def resolve_node_budget_policy(
 def resolve_browser_request_bytes(
     requirements: Any,
     node_snapshot: Mapping[str, Any],
+    *,
+    environ: Mapping[str, str] | None = None,
 ) -> tuple[int, str] | None:
+    source = environ if environ is not None else os.environ
     try:
         explicit_mb = int(getattr(requirements, "memory_mb", 0) or 0)
     except (TypeError, ValueError):
         explicit_mb = 0
+    try:
+        startup_mb = int(
+            getattr(requirements, "browser_startup_memory_mb", 0) or 0
+        )
+    except (TypeError, ValueError):
+        startup_mb = 0
+    # The VM-wide node budget owns bytes retained for the complete task
+    # lifetime.  A measured runtime profile is therefore the authoritative
+    # reservation when one exists.  The larger cold-start peak is transient
+    # and remains guarded independently by browser_startup_gate.
     if explicit_mb > 0:
-        return explicit_mb * 1024 * 1024, "playbook_profile"
+        return explicit_mb * 1024 * 1024, "playbook_steady_profile"
+    if startup_mb > 0:
+        # Fail closed when the playbook has a startup measurement but no
+        # steady-state measurement: retaining the startup peak for the full
+        # lifetime is safer than inventing a smaller runtime reservation.
+        return startup_mb * 1024 * 1024, "playbook_startup_fallback"
+
+    observed_floor_mb = _env_mb(
+        "LOCAL_CORE_RUNNER_BROWSER_UNMEASURED_RESERVATION_MB",
+        source,
+    )
+    if observed_floor_mb and observed_floor_mb > 0:
+        return (
+            observed_floor_mb * 1024 * 1024,
+            "observed_unmeasured_floor",
+        )
     return None
 
 

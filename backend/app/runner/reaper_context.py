@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from datetime import datetime
 from typing import Any, Optional
 
@@ -99,11 +100,17 @@ def _heartbeat_log_value(heartbeat_at: Optional[datetime], ctx: dict[str, Any]) 
 
 def _blocked_release_limit(ready_target: int, ready_depth: int) -> int:
     capacity_limit = max(0, ready_target - ready_depth)
-    floor_limit = max(
-        0,
-        _env_int("LOCAL_CORE_RUNNER_BLOCKED_RELEASE_MINIMUM", 4),
-    )
-    return max(capacity_limit, floor_limit)
+    raw_floor_limit = os.getenv("LOCAL_CORE_RUNNER_BLOCKED_RELEASE_MINIMUM")
+    try:
+        floor_limit = max(
+            0,
+            int(raw_floor_limit) if raw_floor_limit is not None else 4,
+        )
+    except (TypeError, ValueError):
+        floor_limit = 4
+    if capacity_limit > 0:
+        return max(capacity_limit, floor_limit)
+    return max(0, ready_target + floor_limit - ready_depth)
 
 def _browser_peer_frontier_refill_limit() -> int:
     return max(0, _env_int("LOCAL_CORE_RUNNER_BROWSER_PEER_REFILL_LIMIT", 4))
@@ -131,10 +138,27 @@ def _resource_wait_requirements_from_context(ctx: dict[str, Any]) -> Optional[Re
     try:
         base = ResourceRequirements()
         return ResourceRequirements(
+            resource_class=raw_requirements.get("resource_class") or base.resource_class,
             browser_contexts=int(raw_requirements.get("browser_contexts") or base.browser_contexts),
             ig_profile_lock=raw_requirements.get("ig_profile_lock") or base.ig_profile_lock,
             cpu_weight=int(raw_requirements.get("cpu_weight") or base.cpu_weight),
             memory_mb=int(raw_requirements.get("memory_mb") or base.memory_mb),
+            browser_startup_memory_mb=int(
+                raw_requirements.get("browser_startup_memory_mb")
+                or base.browser_startup_memory_mb
+            ),
+            browser_startup_spacing_seconds=int(
+                raw_requirements.get("browser_startup_spacing_seconds")
+                or base.browser_startup_spacing_seconds
+            ),
+            memory_profile_id=(
+                raw_requirements.get("memory_profile_id")
+                or base.memory_profile_id
+            ),
+            memory_reservation_source=(
+                raw_requirements.get("memory_reservation_source")
+                or base.memory_reservation_source
+            ),
             vision_lane=raw_requirements.get("vision_lane") or base.vision_lane,
             llm_lane=raw_requirements.get("llm_lane") or base.llm_lane,
             db_write_budget=raw_requirements.get("db_write_budget") or base.db_write_budget,
@@ -146,6 +170,14 @@ def _resource_wait_requirements_from_context(ctx: dict[str, Any]) -> Optional[Re
 def _host_resource_wait_still_blocked(ctx: dict[str, Any]) -> Optional[Any]:
     requirements = _resource_wait_requirements_from_context(ctx)
     if requirements is None:
+        return None
+    # Browser work is governed by its measured node budget, cold-start
+    # headroom, runner slots, and canonical resource leases.  Re-evaluating it
+    # through the generic host advisor is both redundant and incorrect: the
+    # runner container cannot see host telemetry and therefore reports
+    # ``host_telemetry_degraded``, permanently trapping an otherwise due
+    # browser task in the cold frontier.
+    if requirements.resource_class == "browser" or requirements.browser_contexts > 0:
         return None
     try:
         from backend.app.services.host_resources import evaluate_runner_requirements

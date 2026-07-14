@@ -25,6 +25,7 @@ from backend.app.runner.cgroup_memory_events import (
 
 _BROWSER_RESOURCE_CLASS = "browser"
 _COOLDOWN_UNTIL_EPOCH = 0.0
+DEFAULT_BROWSER_RESOURCE_COOLDOWN_SECONDS = 10
 
 
 def _env_float(name: str, default: float) -> float:
@@ -255,7 +256,10 @@ def evaluate_browser_resource_pressure(
     now = float(now_epoch if now_epoch is not None else time.time())
     cooldown_seconds = max(
         1,
-        _env_int("LOCAL_CORE_RUNNER_BROWSER_RESOURCE_COOLDOWN_SECONDS", 300),
+        _env_int(
+            "LOCAL_CORE_RUNNER_BROWSER_RESOURCE_COOLDOWN_SECONDS",
+            DEFAULT_BROWSER_RESOURCE_COOLDOWN_SECONDS,
+        ),
     )
     memory_soft_ratio = _env_float("LOCAL_CORE_RUNNER_BROWSER_MEMORY_SOFT_RATIO", 0.78)
     memory_hard_ratio = _env_float("LOCAL_CORE_RUNNER_BROWSER_MEMORY_HARD_RATIO", 0.90)
@@ -376,7 +380,10 @@ def should_defer_browser_claim(snapshot: Optional[dict[str, Any]]) -> bool:
 def resource_failure_retry_delay_seconds() -> int:
     return max(
         15,
-        _env_int("LOCAL_CORE_RUNNER_BROWSER_RESOURCE_COOLDOWN_SECONDS", 300),
+        _env_int(
+            "LOCAL_CORE_RUNNER_BROWSER_RESOURCE_COOLDOWN_SECONDS",
+            DEFAULT_BROWSER_RESOURCE_COOLDOWN_SECONDS,
+        ),
     )
 
 

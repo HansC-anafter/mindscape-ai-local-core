@@ -12,7 +12,10 @@ MAINTENANCE_LEADER_KEY = "mindscape:runner:maintenance:leader:v1"
 PARTITION_MAINTENANCE_LEADER_KEY_PREFIX = (
     "mindscape:runner:maintenance:partition"
 )
-MIN_MAINTENANCE_LEASE_SECONDS = 180
+# Fast maintenance loops must not leave a dead owner blocking the queue for
+# three minutes.  Ten seconds gives the 2-second browser loop five renewal
+# opportunities while keeping takeover bounded after a runner disappears.
+MIN_MAINTENANCE_LEASE_SECONDS = 10
 _QUEUE_PARTITION_PATTERN = re.compile(r"^[a-z0-9_-]+$")
 
 

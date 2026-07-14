@@ -5,6 +5,7 @@ import pytest
 
 from backend.app.models.workspace import Task, TaskStatus
 from backend.app.runner import task_executor
+from backend.app.runner import worker_startup
 from backend.app.runner.worker import _cleanup_stale_locks, _reset_orphaned_running_tasks
 from backend.app.services.runner_topology.partitions import (
     BROWSER_LOCAL_QUEUE_PARTITION,
@@ -89,6 +90,32 @@ class _FakeRedisQueueWithClient:
         return self.client
 
 
+class _FakeLiveStateStore:
+    def __init__(self, payloads=None):
+        self.payloads = dict(payloads or {})
+
+    def get_task_heartbeat(self, task_id):
+        return self.payloads.get(task_id)
+
+
+class _FakeNodeBudgetStore:
+    def __init__(self):
+        self.released = []
+
+    async def release(self, reservation):
+        self.released.append(reservation)
+        return True
+
+
+class _FakeResourceLeaseStore:
+    def __init__(self):
+        self.released = []
+
+    async def release(self, lease_key, owner_id):
+        self.released.append((lease_key, owner_id))
+        return True
+
+
 @pytest.mark.asyncio
 async def test_startup_reset_skips_running_task_owned_by_active_runner():
     store = _FakeTasksStore(
@@ -145,11 +172,94 @@ async def test_startup_reset_skips_task_for_another_runner_profile():
 
 @pytest.mark.asyncio
 async def test_startup_reset_keeps_same_profile_stale_runner_recovery():
+    task = _task(
+        "browser-task",
+        runner_id="stale-browser-runner",
+        queue_shard=BROWSER_LOCAL_QUEUE_PARTITION,
+        resource_class=RESOURCE_CLASS_BROWSER,
+    )
+    task.execution_context.update(
+        resource_admission={"state": "admitted"},
+        runner_resource_leases=[{"lease_key": "lease-1"}],
+        runner_node_budget_reservation={"owner_id": "stale"},
+    )
+    store = _FakeTasksStore([task], [])
+    profile = RunnerProfile(
+        profile_code="browser_local",
+        display_name="Browser Local Runner",
+        dispatch_mode="docker_local",
+        accepted_queue_partitions=(BROWSER_LOCAL_QUEUE_PARTITION,),
+        accepted_resource_classes=(RESOURCE_CLASS_BROWSER,),
+    )
+
+    reset = await _reset_orphaned_running_tasks(store, "browser-runner", profile)
+
+    assert reset == {"browser-task"}
+    assert store.updated[0][0] == "browser-task"
+    assert store.updated[0][1]["status"] == TaskStatus.PENDING
+    updated_context = store.updated[0][1]["execution_context"]
+    assert "resource_admission" not in updated_context
+    assert "runner_resource_leases" not in updated_context
+    assert "runner_node_budget_reservation" not in updated_context
+
+
+@pytest.mark.asyncio
+async def test_startup_reset_releases_exact_dead_runner_resource_ownership(monkeypatch):
+    task = SimpleNamespace(
+        id="browser-task",
+        execution_context={
+            "runner_node_budget_reservation": {
+                "owner_id": "stale-browser-runner:browser-task",
+                "bytes": 123,
+                "revision": 7,
+                "expires_at_epoch": 1000.0,
+                "policy_fingerprint": "policy",
+                "resource_profile_fingerprint": "profile",
+                "allocatable_bytes": 999,
+                "policy_mode": "calibrated",
+            },
+            "runner_resource_leases": [
+                {"lease_key": "mindscape:runner_resources:lease:v1:profile:one"}
+            ],
+        },
+    )
+    node_store = _FakeNodeBudgetStore()
+    lease_store = _FakeResourceLeaseStore()
+    monkeypatch.setattr(
+        worker_startup,
+        "RedisNodeBudgetStore",
+        lambda _queue: node_store,
+    )
+    monkeypatch.setattr(
+        worker_startup,
+        "RedisResourceLeaseStore",
+        lambda _queue: lease_store,
+    )
+
+    await worker_startup._release_orphaned_resource_admission(
+        task,
+        old_runner_id="stale-browser-runner",
+        redis_queue=SimpleNamespace(),
+    )
+
+    assert [item.owner_id for item in node_store.released] == [
+        "stale-browser-runner:browser-task"
+    ]
+    assert lease_store.released == [
+        (
+            "mindscape:runner_resources:lease:v1:profile:one",
+            "stale-browser-runner:browser-task",
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_startup_reset_skips_exact_fresh_peer_task_owner(monkeypatch):
     store = _FakeTasksStore(
         [
             _task(
                 "browser-task",
-                runner_id="stale-browser-runner",
+                runner_id="peer-browser-runner",
                 queue_shard=BROWSER_LOCAL_QUEUE_PARTITION,
                 resource_class=RESOURCE_CLASS_BROWSER,
             )
@@ -164,11 +274,95 @@ async def test_startup_reset_keeps_same_profile_stale_runner_recovery():
         accepted_resource_classes=(RESOURCE_CLASS_BROWSER,),
     )
 
-    reset = await _reset_orphaned_running_tasks(store, "browser-runner", profile)
+    async def _no_runner_heartbeats(_redis_queue):
+        return []
 
-    assert reset == {"browser-task"}
-    assert store.updated[0][0] == "browser-task"
-    assert store.updated[0][1]["status"] == TaskStatus.PENDING
+    monkeypatch.setattr(
+        worker_startup,
+        "list_active_runner_resource_heartbeats",
+        _no_runner_heartbeats,
+    )
+    monkeypatch.setattr(
+        worker_startup,
+        "_env_int",
+        lambda name, default: (
+            0
+            if name == "LOCAL_CORE_RUNNER_ORPHAN_DISCOVERY_GRACE_SECONDS"
+            else default
+        ),
+    )
+
+    reset = await worker_startup._reset_orphaned_running_tasks(
+        store,
+        "browser-runner",
+        profile,
+        redis_queue=SimpleNamespace(),
+        live_state_store=_FakeLiveStateStore(
+            {
+                "browser-task": {
+                    "task_id": "browser-task",
+                    "runner_id": "peer-browser-runner",
+                }
+            }
+        ),
+    )
+
+    assert reset == set()
+    assert store.updated == []
+
+
+@pytest.mark.asyncio
+async def test_startup_reset_rescans_peer_heartbeats_after_grace(monkeypatch):
+    store = _FakeTasksStore(
+        [
+            _task(
+                "browser-task",
+                runner_id="peer-browser-runner",
+                queue_shard=BROWSER_LOCAL_QUEUE_PARTITION,
+                resource_class=RESOURCE_CLASS_BROWSER,
+            )
+        ],
+        [],
+    )
+    profile = RunnerProfile(
+        profile_code="browser_local",
+        display_name="Browser Local Runner",
+        dispatch_mode="docker_local",
+        accepted_queue_partitions=(BROWSER_LOCAL_QUEUE_PARTITION,),
+        accepted_resource_classes=(RESOURCE_CLASS_BROWSER,),
+    )
+    reads = iter((set(), {"peer-browser-runner"}))
+    slept = []
+
+    async def _load(*args, **kwargs):
+        return next(reads)
+
+    async def _sleep(seconds):
+        slept.append(seconds)
+
+    monkeypatch.setattr(worker_startup, "_load_active_runner_ids", _load)
+    monkeypatch.setattr(worker_startup.asyncio, "sleep", _sleep)
+    monkeypatch.setattr(
+        worker_startup,
+        "_env_int",
+        lambda name, default: (
+            2
+            if name == "LOCAL_CORE_RUNNER_ORPHAN_DISCOVERY_GRACE_SECONDS"
+            else default
+        ),
+    )
+
+    reset = await worker_startup._reset_orphaned_running_tasks(
+        store,
+        "browser-runner",
+        profile,
+        redis_queue=SimpleNamespace(),
+        live_state_store=_FakeLiveStateStore(),
+    )
+
+    assert slept == [2]
+    assert reset == set()
+    assert store.updated == []
 
 
 @pytest.mark.asyncio

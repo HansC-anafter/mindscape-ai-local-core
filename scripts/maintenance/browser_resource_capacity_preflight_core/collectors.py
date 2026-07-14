@@ -9,24 +9,28 @@ from typing import Any, Iterable
 
 from .candidate_plan import summarize_task_candidates
 from .commands import ReadOnlyCommandRunner
+from .runtime_sources import (
+    BACKEND_APP_MOUNT,
+    BACKEND_DATA_MOUNT,
+    CLAIM_GATE_BOOTSTRAP_RELATIVE_PATH,
+    collect_backend_mounts,
+    load_deployed_playbook_metadata,
+    resolve_claim_gate,
+)
 
 
 _SAFE_NAME = re.compile(r"^[a-zA-Z0-9_.-]+$")
-_GATE_CODE = (
-    "import json; "
-    "from backend.app.services.host_resources import get_runner_claim_gate; "
-    "print(json.dumps(get_runner_claim_gate(), sort_keys=True))"
-)
-_METADATA_CODE = (
-    "import json; "
-    "from backend.app.services.runner_topology import "
-    "resolve_installed_playbook_runner_metadata as resolve; "
-    "codes=('ig_analyze_following','ig_batch_pin_references','ig_pin_post_detail'); "
-    "print(json.dumps({code: resolve(code) for code in codes}, sort_keys=True))"
-)
 _REDIS_SCRIPT = """
 local base = 'mindscape:runner_resources:node_budget:v1:docker_vm_browser_memory'
 local policy_raw = redis.call('GET', base .. ':policy') or '{}'
+local claim_gate_raw = redis.call(
+  'GET', 'mindscape:host_resources:runner_claim_gate'
+)
+local claim_gate = cjson.null
+if claim_gate_raw then
+  local ok, payload = pcall(cjson.decode, claim_gate_raw)
+  if ok then claim_gate = payload end
+end
 local reservations_raw = redis.call('HVALS', base .. ':reservations')
 local reservations = {}
 for _, raw in ipairs(reservations_raw) do
@@ -73,6 +77,7 @@ repeat
   end
 until cursor == '0'
 return cjson.encode({
+  claim_gate = claim_gate,
   policy = cjson.decode(policy_raw),
   reservations = reservations,
   processing_count = processing,
@@ -124,6 +129,23 @@ def parse_memory_events(raw: str) -> dict[str, int]:
     }
 
 
+def parse_cgroup_memory_limit(raw: str) -> int | None:
+    """Return the finite cgroup limit, or None when the cgroup is unbounded."""
+
+    value = raw.strip()
+    if value == "max":
+        return None
+    try:
+        limit = int(value)
+    except ValueError as exc:
+        raise ValueError(
+            "cgroup memory limit must be a positive integer or max"
+        ) from exc
+    if limit <= 0:
+        raise ValueError("cgroup memory limit must be positive")
+    return limit
+
+
 def parse_runner_max_inflight(raw: str) -> int:
     for line in raw.splitlines():
         if line.startswith("LOCAL_CORE_RUNNER_MAX_INFLIGHT="):
@@ -143,8 +165,13 @@ def parse_runner_partitions(raw: str) -> tuple[str, ...]:
     raise ValueError("runner accepted partitions are missing")
 
 
-def _run_json(runner: ReadOnlyCommandRunner, argv: list[str]) -> dict[str, Any]:
-    result = runner.run(argv)
+def _run_json(
+    runner: ReadOnlyCommandRunner,
+    argv: list[str],
+    *,
+    timeout_seconds: int = 5,
+) -> dict[str, Any]:
+    result = runner.run(argv, timeout_seconds=timeout_seconds)
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip() or "runtime collector failed")
     payload = json.loads(result.stdout.strip())
@@ -163,10 +190,7 @@ def collect_runtime_snapshot(
     postgres = _require_safe_names([targets.postgres_container])[0]
     redis = _require_safe_names([targets.redis_container])[0]
 
-    gate = _run_json(
-        command_runner,
-        ["docker", "exec", backend, "python", "-c", _GATE_CODE],
-    )
+    backend_mounts = collect_backend_mounts(command_runner, backend)
     redis_snapshot = _run_json(
         command_runner,
         [
@@ -181,9 +205,13 @@ def collect_runtime_snapshot(
             *shards,
         ],
     )
-    playbook_metadata = _run_json(
-        command_runner,
-        ["docker", "exec", backend, "python", "-c", _METADATA_CODE],
+    gate = resolve_claim_gate(
+        redis_snapshot.get("claim_gate"),
+        backend_mounts[BACKEND_DATA_MOUNT]
+        / CLAIM_GATE_BOOTSTRAP_RELATIVE_PATH,
+    )
+    playbook_metadata = load_deployed_playbook_metadata(
+        backend_mounts[BACKEND_APP_MOUNT]
     )
 
     shard_sql = ",".join(f"'{name}'" for name in shards)
@@ -284,20 +312,21 @@ SELECT json_build_object(
 FROM candidates;
 """.strip()
     raw_tasks = _run_json(
-            command_runner,
-            [
-                "docker",
-                "exec",
-                postgres,
-                "psql",
-                "-U",
-                "mindscape",
-                "-d",
-                "mindscape_core",
-                "-Atc",
-                task_sql,
-            ],
-        )
+        command_runner,
+        [
+            "docker",
+            "exec",
+            postgres,
+            "psql",
+            "-U",
+            "mindscape",
+            "-d",
+            "mindscape_core",
+            "-Atc",
+            task_sql,
+        ],
+        timeout_seconds=30,
+    )
     processing_task_ids = {
         str(item)
         for item in redis_snapshot.get("processing_task_ids") or []
@@ -322,7 +351,7 @@ FROM candidates;
     )
 
     runner_slots = 0
-    cgroup_limits: list[int] = []
+    cgroup_limits: list[int | None] = []
     oom_kill = 0
     oom_group_kill = 0
     runner_evidence: list[dict[str, Any]] = []
@@ -356,12 +385,7 @@ FROM candidates;
         slots = parse_runner_max_inflight(env_result.stdout)
         partitions = parse_runner_partitions(env_result.stdout)
         events = parse_memory_events(events_result.stdout)
-        try:
-            cgroup_limit = int(limit_result.stdout.strip())
-        except ValueError as exc:
-            raise ValueError(f"finite cgroup limit required: {container}") from exc
-        if cgroup_limit <= 0:
-            raise ValueError(f"positive cgroup limit required: {container}")
+        cgroup_limit = parse_cgroup_memory_limit(limit_result.stdout)
         runner_slots += slots
         for partition in partitions:
             runner_slot_capacity_by_partition[partition] = (
@@ -394,7 +418,11 @@ FROM candidates;
         "runner_slot_capacity": runner_slots,
         "runner_slot_capacity_by_partition": runner_slot_capacity_by_partition,
         "playbook_metadata": playbook_metadata,
-        "browser_cgroup_limit_bytes": max(cgroup_limits),
+        "browser_cgroup_limit_bytes": (
+            max(limit for limit in cgroup_limits if limit is not None)
+            if cgroup_limits and all(limit is not None for limit in cgroup_limits)
+            else None
+        ),
         "runner_evidence": runner_evidence,
         "oom_kill_count": oom_kill,
         "oom_group_kill_count": oom_group_kill,

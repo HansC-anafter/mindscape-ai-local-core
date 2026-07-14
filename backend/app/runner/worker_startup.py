@@ -6,7 +6,15 @@ import os
 from typing import Iterable, Optional
 
 from backend.app.models.workspace import TaskStatus
-from backend.app.services.runner_resources import list_active_runner_resource_heartbeats
+from backend.app.services.runner_resources import (
+    NODE_BUDGET_CONTEXT_KEY,
+    RedisNodeBudgetStore,
+    RedisResourceLeaseStore,
+    list_active_runner_resource_heartbeats,
+    reservation_from_context,
+    resource_lease_keys_from_context,
+)
+from backend.app.services.runner_live_state import RunnerLiveStateStore
 from backend.app.services.runner_topology import (
     resolve_runner_profile_from_env,
     runner_profile_can_claim_task,
@@ -75,11 +83,79 @@ async def _load_active_runner_ids(
     return active_runner_ids
 
 
+def _task_runner_id(task) -> str:
+    context = (
+        task.execution_context
+        if isinstance(task.execution_context, dict)
+        else {}
+    )
+    return str(
+        getattr(task, "runner_id", None) or context.get("runner_id") or ""
+    ).strip()
+
+
+async def _release_orphaned_resource_admission(
+    task,
+    *,
+    old_runner_id: str,
+    redis_queue: Optional[RedisRunnerQueueStore],
+) -> None:
+    """Release exact dead-runner resource ownership before startup reset.
+
+    Startup reconciliation already requires the peer runner heartbeat and exact
+    task live owner to be absent.  Releasing with the canonical
+    ``runner_id:task_id`` owner keeps the operation compare-and-delete safe and
+    prevents a reset task from leaving byte/profile reservations behind until
+    their long TTL expires.
+    """
+
+    if redis_queue is None:
+        return
+    context = (
+        task.execution_context
+        if isinstance(task.execution_context, dict)
+        else {}
+    )
+    expected_owner = f"{old_runner_id}:{task.id}"
+    reservation = reservation_from_context(context)
+    if reservation is not None:
+        if reservation.owner_id != expected_owner:
+            logger.warning(
+                "[Startup] Skipped mismatched node reservation task_id=%s "
+                "expected_owner=%s actual_owner=%s",
+                task.id,
+                expected_owner,
+                reservation.owner_id,
+            )
+        elif not await RedisNodeBudgetStore(redis_queue).release(reservation):
+            logger.warning(
+                "[Startup] Exact node reservation release was not applied "
+                "task_id=%s owner=%s revision=%s",
+                task.id,
+                expected_owner,
+                reservation.revision,
+            )
+
+    lease_keys = resource_lease_keys_from_context(context)
+    if lease_keys:
+        lease_store = RedisResourceLeaseStore(redis_queue)
+        for lease_key in lease_keys:
+            if not await lease_store.release(lease_key, expected_owner):
+                logger.warning(
+                    "[Startup] Exact resource lease release was not applied "
+                    "task_id=%s owner=%s lease_key=%s",
+                    task.id,
+                    expected_owner,
+                    lease_key,
+                )
+
+
 async def _reset_orphaned_running_tasks(
     tasks_store: TasksStore,
     current_runner_id: str,
     runner_profile=None,
     redis_queue: Optional[RedisRunnerQueueStore] = None,
+    live_state_store: Optional[RunnerLiveStateStore] = None,
 ) -> set[str]:
     """Reset running tasks from dead runners back to PENDING on startup.
 
@@ -110,19 +186,84 @@ async def _reset_orphaned_running_tasks(
             tasks_store.list_running_playbook_execution_tasks,
             workspace_id=None, limit=500,
         )
+        unknown_peer_ids = {
+            _task_runner_id(t)
+            for t in running
+            if _task_runner_id(t) not in active_runner_ids
+            and runner_profile_can_claim_task(runner_profile, t)
+        }
+        unknown_peer_ids.discard("")
+        if unknown_peer_ids and redis_queue is not None:
+            grace_seconds = max(
+                0,
+                _env_int(
+                    "LOCAL_CORE_RUNNER_ORPHAN_DISCOVERY_GRACE_SECONDS",
+                    3,
+                ),
+            )
+            if grace_seconds:
+                await asyncio.sleep(grace_seconds)
+                active_runner_ids.update(
+                    await _load_active_runner_ids(
+                        redis_queue,
+                        tasks_store,
+                        max_age_seconds=heartbeat_max_age,
+                    )
+                )
+            if live_state_store is None:
+                live_state_store = RunnerLiveStateStore()
         reset_count = 0
         for t in running:
             ctx = t.execution_context if isinstance(t.execution_context, dict) else {}
-            old_runner = getattr(t, "runner_id", None) or ctx.get("runner_id")
+            old_runner = _task_runner_id(t)
+            exact_live_owner = False
+            if (
+                live_state_store is not None
+                and old_runner
+                and old_runner != current_runner_id
+                and old_runner not in active_runner_ids
+            ):
+                try:
+                    live_owner = await asyncio.to_thread(
+                        live_state_store.get_task_heartbeat,
+                        str(t.id),
+                    )
+                    exact_live_owner = bool(
+                        isinstance(live_owner, dict)
+                        and str(live_owner.get("task_id") or "") == str(t.id)
+                        and str(live_owner.get("runner_id") or "")
+                        == str(old_runner)
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "Runner live task owner read failed task_id=%s: %s",
+                        t.id,
+                        exc,
+                    )
+            if exact_live_owner:
+                logger.info(
+                    "[Startup] Preserved live peer task %s (runner=%s)",
+                    t.id,
+                    old_runner,
+                )
             if (
                 old_runner
                 and old_runner != current_runner_id
                 and old_runner not in active_runner_ids
+                and not exact_live_owner
                 and runner_profile_can_claim_task(runner_profile, t)
             ):
+                await _release_orphaned_resource_admission(
+                    t,
+                    old_runner_id=old_runner,
+                    redis_queue=redis_queue,
+                )
                 ctx2 = dict(ctx)
                 ctx2.pop("runner_id", None)
                 ctx2.pop("heartbeat_at", None)
+                ctx2.pop("resource_admission", None)
+                ctx2.pop("runner_resource_leases", None)
+                ctx2.pop(NODE_BUDGET_CONTEXT_KEY, None)
                 ctx2["status"] = "queued"
                 ctx2["runner_reaper"] = {
                     "action": "startup_reset",

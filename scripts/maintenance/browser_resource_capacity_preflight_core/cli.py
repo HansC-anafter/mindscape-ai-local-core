@@ -28,12 +28,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("mode", choices=("pre-resume", "post-resume"))
     parser.add_argument("--required-concurrency", type=int, required=True)
-    request_source = parser.add_mutually_exclusive_group(required=True)
-    request_source.add_argument(
-        "--container-limit-fallback",
-        action="store_true",
+    parser.add_argument(
+        "--request-evidence-json",
+        type=Path,
+        required=True,
     )
-    request_source.add_argument("--request-evidence-json", type=Path)
     parser.add_argument("--output-json", type=Path)
     parser.add_argument(
         "--backend-container",
@@ -140,22 +139,6 @@ def load_request_evidence(path: Path) -> tuple[dict[str, int], dict]:
     }
 
 
-def resolve_request_catalog(
-    args: argparse.Namespace,
-    snapshot: dict,
-) -> tuple[int | None, dict[str, int], dict]:
-    if args.container_limit_fallback:
-        request_bytes = int(snapshot.get("browser_cgroup_limit_bytes") or 0)
-        if request_bytes <= 0:
-            raise ValueError("finite browser cgroup limit is required")
-        return request_bytes, {}, {
-            "source": "container_limit_fallback",
-            "request_bytes": request_bytes,
-        }
-    requests, provenance = load_request_evidence(args.request_evidence_json)
-    return None, requests, provenance
-
-
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     targets = RuntimeTargets(
@@ -166,8 +149,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         queue_shards=tuple(args.queue_shard or DEFAULT_SHARDS),
     )
     snapshot = collect_runtime_snapshot(ReadOnlyCommandRunner(), targets)
-    default_request_bytes, envelope_request_bytes, request_evidence = (
-        resolve_request_catalog(args, snapshot)
+    envelope_request_bytes, request_evidence = load_request_evidence(
+        args.request_evidence_json
     )
     node_policy = snapshot["node_budget"].get("policy") or {}
     reserved_bytes = sum(
@@ -182,7 +165,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     request_plan = build_candidate_request_plan(
         snapshot["tasks"],
         required_concurrency=int(args.required_concurrency),
-        default_request_bytes=default_request_bytes,
+        default_request_bytes=None,
         envelope_request_bytes=envelope_request_bytes,
         slot_capacity_by_partition=(
             snapshot.get("runner_slot_capacity_by_partition") or {}

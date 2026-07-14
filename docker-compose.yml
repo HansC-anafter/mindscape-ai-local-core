@@ -64,6 +64,9 @@ x-runner-environment: &runner-environment
   LOCAL_CORE_RUNNER_NODE_VM_OVERHEAD_PEAK_MB: ${LOCAL_CORE_RUNNER_NODE_VM_OVERHEAD_PEAK_MB:-}
   LOCAL_CORE_RUNNER_NODE_NON_BROWSER_PEAK_MB: ${LOCAL_CORE_RUNNER_NODE_NON_BROWSER_PEAK_MB:-}
   LOCAL_CORE_RUNNER_NODE_BROWSER_IDLE_PEAK_MB: ${LOCAL_CORE_RUNNER_NODE_BROWSER_IDLE_PEAK_MB:-}
+  # Observed 2026-07-13 single-task browser floor. Admission accounting only;
+  # this is not a cgroup/container memory limit.
+  LOCAL_CORE_RUNNER_BROWSER_UNMEASURED_RESERVATION_MB: ${LOCAL_CORE_RUNNER_BROWSER_UNMEASURED_RESERVATION_MB:-2304}
   MEETING_DYNAMIC_ROUTING_ENABLED: ${MEETING_DYNAMIC_ROUTING_ENABLED:-false}
   MEETING_DYNAMIC_ROUTING_TRACE_ENABLED: ${MEETING_DYNAMIC_ROUTING_TRACE_ENABLED:-false}
   MEETING_ROLE_PROFILES_ENABLED: ${MEETING_ROLE_PROFILES_ENABLED:-false}
@@ -99,10 +102,9 @@ x-runner-common: &runner-common
   logging: *default-logging
   environment: *runner-environment
   volumes: *runner-volumes
-  deploy:
-    resources:
-      limits:
-        memory: 6g
+  # Browser capacity is governed by measured node-budget reservations and
+  # startup-spacing gates. A shared 6 GiB cgroup cap can kill a third browser
+  # startup even while the node-wide byte gate still has measured headroom.
   networks:
     - mindscape-network
   depends_on:
@@ -256,10 +258,6 @@ services:
       # HuggingFace model cache (shared with host)
       - ${HF_HOME:-${HOME}/.cache/huggingface}:/root/.cache/huggingface:rw
 
-    deploy:
-      resources:
-        limits:
-          memory: 6g
     networks:
       - mindscape-network
     dns:
@@ -396,10 +394,6 @@ services:
       - "${LOCAL_CORE_LOGS_HOST_DIR:-./logs}:/app/logs:rw"
       - ./web-console:/app/web-console:rw
       - ${HF_HOME:-${HOME}/.cache/huggingface}:/root/.cache/huggingface:rw
-    deploy:
-      resources:
-        limits:
-          memory: 6g
     networks:
       - mindscape-network
     dns:
@@ -437,7 +431,8 @@ services:
       LOCAL_CORE_RUNNER_DISPLAY_NAME: ${LOCAL_CORE_RUNNER_DEFAULT_LOCAL_BROWSER_DISPLAY_NAME:-Default Local Browser Batch Runner}
       LOCAL_CORE_RUNNER_ACCEPTED_PARTITIONS: ${LOCAL_CORE_RUNNER_DEFAULT_LOCAL_BROWSER_ACCEPTED_PARTITIONS:-default_local_browser}
       LOCAL_CORE_RUNNER_ACCEPTED_RESOURCE_CLASSES: ${LOCAL_CORE_RUNNER_DEFAULT_LOCAL_BROWSER_ACCEPTED_RESOURCE_CLASSES:-browser}
-      LOCAL_CORE_RUNNER_MAX_INFLIGHT: ${LOCAL_CORE_RUNNER_DEFAULT_LOCAL_BROWSER_MAX_INFLIGHT:-3}
+      LOCAL_CORE_RUNNER_MAX_INFLIGHT: ${LOCAL_CORE_RUNNER_DEFAULT_LOCAL_BROWSER_MAX_INFLIGHT:-2}
+      LOCAL_CORE_RUNNER_REAP_INTERVAL_SECONDS: ${LOCAL_CORE_RUNNER_DEFAULT_LOCAL_BROWSER_REAP_INTERVAL_SECONDS:-2}
 
   runner-browser:
     <<: *runner-common
@@ -450,7 +445,8 @@ services:
       LOCAL_CORE_RUNNER_ACCEPTED_RESOURCE_CLASSES: ${LOCAL_CORE_RUNNER_BROWSER_ACCEPTED_RESOURCE_CLASSES:-browser}
       # Total browser-runner task cap. Keep this below the observed OOM threshold;
       # lock-specific concurrency still applies inside this ceiling.
-      LOCAL_CORE_RUNNER_MAX_INFLIGHT: ${LOCAL_CORE_RUNNER_BROWSER_MAX_INFLIGHT:-3}
+      LOCAL_CORE_RUNNER_MAX_INFLIGHT: ${LOCAL_CORE_RUNNER_BROWSER_MAX_INFLIGHT:-2}
+      LOCAL_CORE_RUNNER_REAP_INTERVAL_SECONDS: ${LOCAL_CORE_RUNNER_BROWSER_REAP_INTERVAL_SECONDS:-2}
 
   runner-browser-extra:
     <<: *runner-common
@@ -462,7 +458,25 @@ services:
       LOCAL_CORE_RUNNER_DISPLAY_NAME: ${LOCAL_CORE_RUNNER_BROWSER_EXTRA_DISPLAY_NAME:-Browser Local Extra Runner}
       LOCAL_CORE_RUNNER_ACCEPTED_PARTITIONS: ${LOCAL_CORE_RUNNER_BROWSER_EXTRA_ACCEPTED_PARTITIONS:-browser_local}
       LOCAL_CORE_RUNNER_ACCEPTED_RESOURCE_CLASSES: ${LOCAL_CORE_RUNNER_BROWSER_EXTRA_ACCEPTED_RESOURCE_CLASSES:-browser}
-      LOCAL_CORE_RUNNER_MAX_INFLIGHT: ${LOCAL_CORE_RUNNER_BROWSER_EXTRA_MAX_INFLIGHT:-3}
+      LOCAL_CORE_RUNNER_MAX_INFLIGHT: ${LOCAL_CORE_RUNNER_BROWSER_EXTRA_MAX_INFLIGHT:-2}
+      LOCAL_CORE_RUNNER_REAP_INTERVAL_SECONDS: ${LOCAL_CORE_RUNNER_BROWSER_EXTRA_REAP_INTERVAL_SECONDS:-2}
+
+  runner-browser-maintenance:
+    <<: *runner-common
+    container_name: mindscape-ai-local-core-runner-browser-maintenance
+    environment:
+      <<: *runner-environment
+      DB_APPLICATION_NAME: ${LOCAL_CORE_RUNNER_BROWSER_MAINTENANCE_DB_APPLICATION_NAME:-local-core-runner-browser-maintenance}
+      LOCAL_CORE_RUNNER_ID: ${LOCAL_CORE_RUNNER_BROWSER_MAINTENANCE_ID:-browser-maintenance}
+      LOCAL_CORE_RUNNER_PROFILE: browser_maintenance
+      LOCAL_CORE_RUNNER_DISPLAY_NAME: Browser Partition Maintenance Owner
+      LOCAL_CORE_RUNNER_ACCEPTED_PARTITIONS: browser_local,default_local_browser
+      LOCAL_CORE_RUNNER_ACCEPTED_RESOURCE_CLASSES: browser
+      LOCAL_CORE_RUNNER_MAX_INFLIGHT: 1
+      LOCAL_CORE_RUNNER_MAINTENANCE_ONLY: "true"
+      LOCAL_CORE_RUNNER_STARTUP_RECONCILE_ENABLED: "false"
+      LOCAL_CORE_RUNNER_READY_TARGET: ${LOCAL_CORE_RUNNER_BROWSER_MAINTENANCE_READY_TARGET:-128}
+      LOCAL_CORE_RUNNER_REAP_INTERVAL_SECONDS: ${LOCAL_CORE_RUNNER_BROWSER_MAINTENANCE_REAP_INTERVAL_SECONDS:-20}
 
   runner-vision:
     <<: *runner-common

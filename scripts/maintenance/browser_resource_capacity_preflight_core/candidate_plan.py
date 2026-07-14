@@ -95,6 +95,10 @@ def summarize_task_candidates(
         has_reservation_owner = any(
             task_id and task_id in owner_id for owner_id in owner_ids
         )
+        reservation_required = bool(
+            requirements.memory_reservation_source
+            or requirements.memory_mb > 0
+        )
         db_heartbeat_fresh = raw.get("heartbeat_fresh") is True
         live_owner = live_owner_catalog.get(task_id)
         if not isinstance(live_owner, Mapping):
@@ -124,11 +128,15 @@ def summarize_task_candidates(
                 "live_owner_fresh": live_owner_fresh,
                 "in_processing": in_processing,
                 "has_reservation_owner": has_reservation_owner,
+                "reservation_required": reservation_required,
                 "fresh_live": bool(
                     status == "running"
                     and live_owner_fresh
                     and in_processing
-                    and has_reservation_owner
+                    and (
+                        has_reservation_owner
+                        or not reservation_required
+                    )
                 ),
                 "resolved_requirements": requirements.to_dict(),
             }

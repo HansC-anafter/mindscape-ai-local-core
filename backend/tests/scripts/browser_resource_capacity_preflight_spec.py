@@ -14,6 +14,7 @@ from scripts.maintenance.browser_resource_capacity_preflight_core.cli import (
     load_request_evidence,
 )
 from scripts.maintenance.browser_resource_capacity_preflight_core.collectors import (
+    parse_cgroup_memory_limit,
     parse_meminfo,
     parse_memory_events,
     parse_runner_max_inflight,
@@ -156,12 +157,20 @@ def test_runtime_parsers_are_strict_and_unit_safe() -> None:
         "oom_kill": 2,
         "oom_group_kill": 1,
     }
+    assert parse_cgroup_memory_limit("6442450944\n") == 6442450944
+    assert parse_cgroup_memory_limit("max\n") is None
     env = (
         "LOCAL_CORE_RUNNER_ACCEPTED_PARTITIONS=browser_local,ig_browser\n"
         "LOCAL_CORE_RUNNER_MAX_INFLIGHT=3\n"
     )
     assert parse_runner_max_inflight(env) == 3
     assert parse_runner_partitions(env) == ("browser_local", "ig_browser")
+
+
+@pytest.mark.parametrize("raw", ["", "unlimited", "0", "-1"])
+def test_cgroup_memory_limit_rejects_invalid_values(raw: str) -> None:
+    with pytest.raises(ValueError):
+        parse_cgroup_memory_limit(raw)
 
 
 def _context(
@@ -549,6 +558,45 @@ def test_exact_live_owner_overrides_stale_db_heartbeat() -> None:
     assert summary["stale_running_count"] == 0
 
 
+def test_unmeasured_running_task_is_fresh_without_byte_reservation() -> None:
+    context = _context(
+        code="ig_analyze_following",
+        profile="/profiles/a",
+    )
+    summary = summarize_task_candidates(
+        {
+            "candidates": [
+                {
+                    **_candidate(
+                        "running-unmeasured",
+                        context,
+                        status="running",
+                        heartbeat_fresh=False,
+                    ),
+                    "runner_id": "runner-01",
+                }
+            ]
+        },
+        playbook_metadata=_metadata(),
+        processing_task_ids={"running-unmeasured"},
+        reservation_owner_ids=set(),
+        live_owners={
+            "running-unmeasured": {
+                "task_id": "running-unmeasured",
+                "runner_id": "runner-01",
+                "ttl_seconds_remaining": 60,
+            }
+        },
+    )
+
+    candidate = summary["task_candidates"][0]
+    assert candidate["reservation_required"] is False
+    assert candidate["has_reservation_owner"] is False
+    assert candidate["fresh_live"] is True
+    assert summary["fresh_live_running_count"] == 1
+    assert summary["stale_running_count"] == 0
+
+
 @pytest.mark.parametrize(
     ("live_owner", "processing_ids", "reservation_ids"),
     [
@@ -578,15 +626,6 @@ def test_exact_live_owner_overrides_stale_db_heartbeat() -> None:
             },
             set(),
             {"runner-01:running-01"},
-        ),
-        (
-            {
-                "task_id": "running-01",
-                "runner_id": "runner-01",
-                "ttl_seconds_remaining": 60,
-            },
-            {"running-01"},
-            set(),
         ),
     ],
 )
@@ -618,6 +657,50 @@ def test_live_owner_requires_exact_runtime_conjunction(
         live_owners={"running-01": live_owner},
     )
 
+    assert summary["fresh_live_running_count"] == 0
+    assert summary["stale_running_count"] == 1
+
+
+def test_measured_running_task_requires_byte_reservation() -> None:
+    context = _context(
+        code="ig_analyze_following",
+        profile="/profiles/a",
+    )
+    context["resource_requirements"] = {
+        "browser_contexts": 1,
+        "ig_profile_lock": "{user_data_dir}",
+        "memory_mb": 192,
+    }
+    summary = summarize_task_candidates(
+        {
+            "candidates": [
+                {
+                    **_candidate(
+                        "running-measured",
+                        context,
+                        status="running",
+                        heartbeat_fresh=True,
+                    ),
+                    "runner_id": "runner-01",
+                }
+            ]
+        },
+        playbook_metadata=_metadata(),
+        processing_task_ids={"running-measured"},
+        reservation_owner_ids=set(),
+        live_owners={
+            "running-measured": {
+                "task_id": "running-measured",
+                "runner_id": "runner-01",
+                "ttl_seconds_remaining": 60,
+            }
+        },
+    )
+
+    candidate = summary["task_candidates"][0]
+    assert candidate["reservation_required"] is True
+    assert candidate["has_reservation_owner"] is False
+    assert candidate["fresh_live"] is False
     assert summary["fresh_live_running_count"] == 0
     assert summary["stale_running_count"] == 1
 
