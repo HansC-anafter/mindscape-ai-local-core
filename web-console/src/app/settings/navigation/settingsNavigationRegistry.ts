@@ -23,6 +23,7 @@ export interface NavigationItem {
   provider?: string;
   model?: string;
   service?: string;
+  mobileOrder?: number;
   children?: NavigationItem[];
 }
 
@@ -40,6 +41,7 @@ export const navigationItems: NavigationItem[] = [
     label: 'basicSettings',
     icon: SettingsIcon,
     tab: 'basic',
+    mobileOrder: 0,
     children: [
       { id: 'backend-mode', label: 'backendMode', tab: 'basic', section: 'backend-mode' },
       { id: 'keyboard-shortcuts', label: 'keyboardShortcuts', tab: 'basic', section: 'keyboard-shortcuts' },
@@ -58,12 +60,13 @@ export const navigationItems: NavigationItem[] = [
     label: 'credentialsAndOAuth',
     icon: KeyRound,
     tab: 'credentials',
+    mobileOrder: 1,
     children: [
       { id: 'service-credentials', label: 'serviceCredentials', tab: 'credentials', section: 'service-credentials' },
       { id: 'oauth-integrations', label: 'oauthIntegration', tab: 'credentials', section: 'oauth-integrations' },
     ],
   },
-  { id: 'mindscape', label: 'mindscapeConfiguration', icon: Brain, tab: 'mindscape' },
+  { id: 'mindscape', label: 'mindscapeConfiguration', icon: Brain, tab: 'mindscape', mobileOrder: 2 },
   {
     id: 'ai-team-governance',
     label: 'aiTeamGovernance',
@@ -82,6 +85,7 @@ export const navigationItems: NavigationItem[] = [
     label: 'runtimeEnvironments',
     icon: PlayCircle,
     tab: 'runtime',
+    mobileOrder: 7,
     children: [
       { id: 'runtime-environments', label: 'runtimeEnvironments', tab: 'runtime', section: 'runtime-environments' },
       { id: 'device-link-readiness', label: 'Device Link', tab: 'runtime', section: 'device-link-readiness' },
@@ -95,6 +99,7 @@ export const navigationItems: NavigationItem[] = [
     label: 'remoteWorkbenchAccess',
     icon: ShieldCheck,
     tab: 'remote_workbench_access',
+    mobileOrder: 8,
   },
   {
     id: 'tools',
@@ -138,6 +143,7 @@ export const navigationItems: NavigationItem[] = [
     label: 'socialMediaIntegration',
     icon: Share2,
     tab: 'social_media',
+    mobileOrder: 3,
     children: [
       { id: 'twitter', label: 'twitterIntegration', tab: 'social_media', provider: 'twitter' },
       { id: 'facebook', label: 'facebookIntegration', tab: 'social_media', provider: 'facebook' },
@@ -152,6 +158,7 @@ export const navigationItems: NavigationItem[] = [
     label: 'localization',
     icon: Languages,
     tab: 'localization',
+    mobileOrder: 4,
     children: [
       { id: 'auto-translation', label: 'autoTranslation', tab: 'localization', section: 'auto-translation' },
       { id: 'translation-management', label: 'translationManagement', tab: 'localization', section: 'translation-management' },
@@ -162,6 +169,7 @@ export const navigationItems: NavigationItem[] = [
     label: 'governance',
     icon: ShieldCheck,
     tab: 'governance',
+    mobileOrder: 6,
     children: [
       { id: 'node-governance', label: 'nodeGovernance', tab: 'governance', section: 'node' },
       { id: 'preflight', label: 'preflight', tab: 'governance', section: 'preflight' },
@@ -175,13 +183,24 @@ export const navigationItems: NavigationItem[] = [
     label: 'capabilityPacks',
     icon: Package,
     tab: 'packs_status',
+    mobileOrder: 5,
     children: [
       { id: 'capability-packages', label: 'capabilityPackages', tab: 'packs_status', section: 'packages' },
       { id: 'capability-suites', label: 'capabilitySuites', tab: 'packs_status', section: 'suites' },
     ],
   },
-  { id: 'service_status', label: 'serviceStatus', icon: Activity, tab: 'service_status' },
+  { id: 'service_status', label: 'serviceStatus', icon: Activity, tab: 'service_status', mobileOrder: 9 },
 ];
+
+export const validSettingsTabs: readonly SettingsTab[] = navigationItems.map((item) => item.tab);
+
+function hasMobileOrder(item: NavigationItem): item is NavigationItem & { mobileOrder: number } {
+  return Number.isInteger(item.mobileOrder);
+}
+
+export const mobileNavigationItems: readonly NavigationItem[] = navigationItems
+  .filter(hasMobileOrder)
+  .sort((left, right) => left.mobileOrder - right.mobileOrder);
 
 export function navigationItemMatches(
   item: NavigationItem,

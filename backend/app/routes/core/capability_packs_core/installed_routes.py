@@ -229,14 +229,16 @@ def _load_runtime_ui_index(
     capability_code: str,
     *,
     strict: bool = False,
+    manifest_file: str | None = None,
 ) -> Dict[str, Any]:
     try:
         cached_payload = get_cached_runtime_ui_index(capability_code)
         if cached_payload is not None:
             return cached_payload
 
-        pack_meta = _get_pack_meta_by_code(capability_code)
-        manifest_file = pack_meta.get("_file_path") if pack_meta else None
+        if manifest_file is None:
+            pack_meta = _get_pack_meta_by_code(capability_code)
+            manifest_file = pack_meta.get("_file_path") if pack_meta else None
         if not manifest_file:
             return {}
         sidecar_path = Path(manifest_file).parent / "ui_runtime_assets.json"
@@ -270,10 +272,15 @@ def _get_runtime_ui_component(
     component_code: Any,
     *,
     strict: bool = False,
+    manifest_file: str | None = None,
 ) -> Dict[str, Any]:
     if not component_code:
         return {}
-    runtime_index = _load_runtime_ui_index(capability_code, strict=strict)
+    runtime_index = _load_runtime_ui_index(
+        capability_code,
+        strict=strict,
+        manifest_file=manifest_file,
+    )
     components = runtime_index.get("components", [])
     if not isinstance(components, list):
         return {}

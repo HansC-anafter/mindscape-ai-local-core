@@ -75,8 +75,18 @@ vi.mock('../components/CapabilityExtensionSlot', async () => {
       ownerContract?: { capabilityCode: string; componentCode: string };
     }) {
       ReactModule.useEffect(() => {
-        void fetch(`/api/v1/settings/extensions?section=${encodeURIComponent(section)}&workspace_id=${workspaceId}`);
-      }, [section, workspaceId]);
+        const params = new URLSearchParams({ section, workspace_id: workspaceId });
+        if (ownerContract) {
+          params.set('capability_code', ownerContract.capabilityCode);
+          params.set('component_code', ownerContract.componentCode);
+        }
+        void fetch(`/api/v1/settings/extensions?${params.toString()}`);
+      }, [
+        ownerContract?.capabilityCode,
+        ownerContract?.componentCode,
+        section,
+        workspaceId,
+      ]);
       return ReactModule.createElement(
         'div',
         {
@@ -381,7 +391,7 @@ describe('WorkspaceSettingsToolPanel', () => {
       );
     });
     expect(fetchMock).toHaveBeenCalledWith(
-      '/api/v1/settings/extensions?section=remote-workbench-workspace-access&workspace_id=ws_test',
+      '/api/v1/settings/extensions?section=remote-workbench-workspace-access&workspace_id=ws_test&capability_code=mindscape_cloud_integration&component_code=MindscapeRemoteWorkbenchWorkspaceAccessPanel',
     );
     expect(screen.getByTestId('mock-capability-extension-slot')).toHaveAttribute(
       'data-owner-capability',

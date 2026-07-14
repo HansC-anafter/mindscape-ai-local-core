@@ -89,7 +89,7 @@ describe('Remote Workbench Settings request budget', () => {
     });
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     expect(fetchMock.mock.calls[0][0]).toBe(
-      '/api/v1/settings/extensions?section=remote-workbench-global-access',
+      '/api/v1/settings/extensions?section=remote-workbench-global-access&capability_code=mindscape_cloud_integration&component_code=MindscapeRemoteWorkbenchGlobalAdministratorsPanel',
     );
 
     await act(async () => {

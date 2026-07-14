@@ -8,6 +8,10 @@ import { t } from '../../lib/i18n';
 import { SettingsNavigation } from './components/SettingsNavigation';
 import { SettingsConfigAssistant, type SettingsConfigAssistantHandle } from './components/SettingsConfigAssistant';
 import { SettingsNotificationContainer } from './hooks/useSettingsNotification';
+import {
+  mobileNavigationItems,
+  validSettingsTabs,
+} from './navigation/settingsNavigationRegistry';
 import type { SettingsTab } from './types';
 
 function SettingsPanelFallback() {
@@ -27,21 +31,6 @@ const SettingsContentHost = dynamic(
   { ssr: false, loading: SettingsPanelFallback }
 );
 
-const VALID_SETTINGS_TABS: SettingsTab[] = [
-  'tools',
-  'basic',
-  'credentials',
-  'mindscape',
-  'ai-team-governance',
-  'social_media',
-  'localization',
-  'service_status',
-  'packs_status',
-  'governance',
-  'runtime',
-  'remote_workbench_access',
-];
-
 interface SearchParamsReader {
   get(name: string): string | null;
 }
@@ -60,7 +49,7 @@ function resolveSettingsRoute(searchParams: SearchParamsReader | null): Settings
   const tabParam = searchParams?.get('tab');
   const sectionParam = searchParams?.get('section');
   const credentialsSections = new Set(['service-credentials', 'oauth-integrations', 'oauth']);
-  let activeTab = tabParam && VALID_SETTINGS_TABS.includes(tabParam as SettingsTab)
+  let activeTab = tabParam && validSettingsTabs.includes(tabParam as SettingsTab)
     ? tabParam as SettingsTab
     : 'basic';
 
@@ -186,29 +175,18 @@ export default function SettingsPage() {
       {/* Mobile Navigation (only on small screens) */}
       <div className="lg:hidden bg-surface-secondary dark:bg-gray-800 border-b border-default dark:border-gray-700 px-4 py-2 shrink-0">
         <div className="flex gap-2 overflow-x-auto">
-          {[
-            { id: 'basic' as SettingsTab, label: t('basicSettings' as any) },
-            { id: 'credentials' as SettingsTab, label: t('credentialsAndOAuth' as any) },
-            { id: 'mindscape' as SettingsTab, label: t('mindscapeConfiguration' as any) },
-            { id: 'social_media' as SettingsTab, label: t('socialMediaIntegration' as any) },
-            { id: 'localization' as SettingsTab, label: t('localization' as any) },
-            { id: 'packs_status' as SettingsTab, label: t('capabilityPacks' as any) },
-            { id: 'governance' as SettingsTab, label: t('governance' as any) },
-            { id: 'runtime' as SettingsTab, label: t('runtimeEnvironments' as any) },
-            { id: 'remote_workbench_access' as SettingsTab, label: t('remoteWorkbenchAccess' as any) },
-            { id: 'service_status' as SettingsTab, label: t('serviceStatus' as any) },
-          ].map((tab) => (
+          {mobileNavigationItems.map((tab) => (
             <button
-              key={tab.id}
+              key={tab.tab}
               type="button"
-              onClick={() => handleNavigate(tab.id)}
-              aria-current={activeTab === tab.id ? 'page' : undefined}
-              className={`px-3 py-1.5 text-sm font-medium whitespace-nowrap rounded-md ${activeTab === tab.id
+              onClick={() => handleNavigate(tab.tab)}
+              aria-current={activeTab === tab.tab ? 'page' : undefined}
+              className={`px-3 py-1.5 text-sm font-medium whitespace-nowrap rounded-md ${activeTab === tab.tab
                 ? 'bg-surface-secondary dark:bg-gray-800 text-primary dark:text-gray-300'
                 : 'text-secondary dark:text-gray-400 hover:bg-surface-secondary dark:hover:bg-gray-700'
                 }`}
             >
-              {tab.label}
+              {t(tab.label as any)}
             </button>
           ))}
         </div>

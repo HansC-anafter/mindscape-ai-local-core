@@ -216,8 +216,11 @@ test('strict JWT negative matrix denies before policy resolution', async (t) => 
     ['wrong kid', createSignedAccessJwt({ header: { kid: 'unknown-key' } }), createTestVerifier()],
     ['wrong issuer', createSignedAccessJwt({ claims: { iss: 'https://other.cloudflareaccess.com' } }), createTestVerifier()],
     ['wrong audience', createSignedAccessJwt({ claims: { aud: 'wrong-audience' } }), createTestVerifier()],
+    ['empty audiences', createSignedAccessJwt({ claims: { aud: [] } }), createTestVerifier()],
     ['multiple audiences', createSignedAccessJwt({ claims: { aud: [ACCESS_AUDIENCE, 'other'] } }), createTestVerifier()],
     ['duplicate audiences', createSignedAccessJwt({ claims: { aud: [ACCESS_AUDIENCE, ACCESS_AUDIENCE] } }), createTestVerifier()],
+    ['non-string audience', createSignedAccessJwt({ claims: { aud: 42 } }), createTestVerifier()],
+    ['HS256 algorithm', createSignedAccessJwt({ header: { alg: 'HS256' } }), createTestVerifier()],
     ['wrong type', createSignedAccessJwt({ claims: { type: 'org' } }), createTestVerifier()],
     ['missing exp', createSignedAccessJwt({ claims: { exp: undefined } }), createTestVerifier()],
     ['expired exp', createSignedAccessJwt({ claims: { exp: now - 60 } }), createTestVerifier()],
@@ -260,12 +263,21 @@ test('JWK timeout fails closed before policy resolution', async () => {
   assert.equal(resolverCalls, 0);
 });
 
-test('a strict valid token reaches the resolver once', async () => {
+test('a strict singleton-array audience token reaches the resolver once', async () => {
   const { result, resolverCalls } = await authorizeWith();
   assert.equal(result.allowed, true);
   assert.equal(result.verification_stage, 'principal_verified');
   assert.equal(resolverCalls, 1);
   assert.deepEqual(result.grant_sources, ['local_core_super_admin']);
+});
+
+test('a strict scalar audience token remains compatible', async () => {
+  const { result, resolverCalls } = await authorizeWith({
+    token: createSignedAccessJwt({ claims: { aud: ACCESS_AUDIENCE } }),
+  });
+  assert.equal(result.allowed, true);
+  assert.equal(result.verification_stage, 'principal_verified');
+  assert.equal(resolverCalls, 1);
 });
 
 test('unknown kid cooldown limits JWK refresh without a timer', async () => {

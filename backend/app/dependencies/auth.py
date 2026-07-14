@@ -4,9 +4,11 @@ Pluggable design: Local mode uses default_user, Cloud mode uses cloud-integratio
 """
 
 import logging
-from typing import Optional, List
 from dataclasses import dataclass, field
-from fastapi import Request, HTTPException
+from typing import List, Optional
+from urllib.parse import urlsplit
+
+from fastapi import HTTPException, Request
 
 from ..utils.cloud_integration import (
     get_cloud_integration_api_base,
@@ -16,6 +18,7 @@ from ..utils.cloud_integration import (
 logger = logging.getLogger(__name__)
 
 LOCAL_CONTROL_OPERATOR_USER_ID = "local-core-control-plane"
+_LOCAL_OPERATOR_HOSTNAMES = {"localhost", "127.0.0.1", "::1"}
 
 
 @dataclass
@@ -123,15 +126,61 @@ def _get_local_workspace_ids(user_id: str) -> List[str]:
         return []
 
 
+def _validate_local_operator_origin(request: Request) -> None:
+    """Reject browser policy traffic that did not originate on loopback."""
+    origin = request.headers.get("origin")
+    if origin is None:
+        origin = request.headers.get("Origin")
+    if origin is None:
+        return
+    if not isinstance(origin, str) or not origin or origin != origin.strip():
+        raise HTTPException(
+            status_code=403,
+            detail="local_operator_origin_forbidden",
+        )
+
+    try:
+        parsed = urlsplit(origin)
+        parsed_port = parsed.port
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=403,
+            detail="local_operator_origin_forbidden",
+        ) from exc
+
+    if (
+        parsed.scheme not in {"http", "https"}
+        or parsed.hostname not in _LOCAL_OPERATOR_HOSTNAMES
+        or not parsed.netloc
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.path
+        or parsed.query
+        or parsed.fragment
+        or (parsed_port is not None and not 1 <= parsed_port <= 65535)
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="local_operator_origin_forbidden",
+        )
+
+
 async def _get_authenticated_context(
     request: Request,
     *,
     include_local_workspace_ids: bool,
     local_user_id: Optional[str] = None,
+    allow_cloud_auth: bool = True,
+    enforce_local_operator_origin: bool = False,
 ) -> AuthContext:
-    """Resolve one authenticated identity with an optional local workspace projection."""
+    """Resolve an authenticated identity with an optional workspace projection."""
     # Cloud mode
     if is_cloud_mode():
+        if not allow_cloud_auth:
+            raise HTTPException(
+                status_code=403,
+                detail="cloud_operator_role_required",
+            )
         auth_header = request.headers.get("Authorization", "")
         if not auth_header.startswith("Bearer "):
             # R2: Cloud mode must have token
@@ -151,6 +200,8 @@ async def _get_authenticated_context(
         return auth
 
     # Local mode: use default_user
+    if enforce_local_operator_origin:
+        _validate_local_operator_origin(request)
     user_id = local_user_id or get_default_user_id()
 
     workspace_ids = (
@@ -183,9 +234,11 @@ async def get_current_user(request: Request) -> AuthContext:
 
 
 async def get_current_operator(request: Request) -> AuthContext:
-    """Authenticate control traffic without PostgreSQL-backed local identity reads."""
+    """Authenticate loopback control traffic without local identity reads."""
     return await _get_authenticated_context(
         request,
         include_local_workspace_ids=False,
         local_user_id=LOCAL_CONTROL_OPERATOR_USER_ID,
+        allow_cloud_auth=False,
+        enforce_local_operator_origin=True,
     )

@@ -47,7 +47,7 @@ export function createSignedAccessJwt({
   };
   const payload = {
     iss: ACCESS_ISSUER,
-    aud: ACCESS_AUDIENCE,
+    aud: [ACCESS_AUDIENCE],
     type: 'app',
     exp: nowEpochSeconds + 3600,
     nbf: nowEpochSeconds - 30,

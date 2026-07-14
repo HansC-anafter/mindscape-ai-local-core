@@ -56,10 +56,7 @@ describe('CapabilitySettingsExtensionSlot', () => {
     const fetchMock = vi.fn(async (_input: RequestInfo | URL) => ({
       ok: true,
       status: 200,
-      json: async () => [
-        descriptor('MindscapeRemoteWorkbenchGlobalAdministratorsPanel', false),
-        descriptor('MindscapeRemoteWorkbenchWorkspaceAccessPanel', true),
-      ],
+      json: async () => [descriptor('MindscapeRemoteWorkbenchWorkspaceAccessPanel', true)],
     }) as Response);
     vi.stubGlobal('fetch', fetchMock);
 
@@ -75,7 +72,7 @@ describe('CapabilitySettingsExtensionSlot', () => {
     expect(await screen.findByTestId('loaded-extension-panel')).toHaveTextContent('ws-1');
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock.mock.calls[0][0]).toBe(
-      'http://api.test/api/v1/settings/extensions?section=remote-workbench-workspace-access&workspace_id=ws-1',
+      'http://api.test/api/v1/settings/extensions?section=remote-workbench-workspace-access&workspace_id=ws-1&capability_code=mindscape_cloud_integration&component_code=MindscapeRemoteWorkbenchWorkspaceAccessPanel',
     );
     expect(loaderMock.create).toHaveBeenCalledTimes(1);
     expect(loaderMock.create).toHaveBeenCalledWith(
@@ -151,8 +148,78 @@ describe('CapabilitySettingsExtensionSlot', () => {
 
     expect(await screen.findByTestId('loaded-extension-panel')).toHaveTextContent('global');
     expect(fetchMock.mock.calls[0][0]).toBe(
-      'http://api.test/api/v1/settings/extensions?section=remote-workbench-global-access',
+      'http://api.test/api/v1/settings/extensions?section=remote-workbench-global-access&capability_code=mindscape_cloud_integration&component_code=MindscapeRemoteWorkbenchGlobalAdministratorsPanel',
     );
+  });
+
+  it('preserves the generic endpoint shape when no owner contract is supplied', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => [descriptor('GenericWorkspacePanel', true, 'generic_pack')],
+    }) as Response);
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(
+      <CapabilitySettingsExtensionSlot
+        section="runtime-environments"
+        workspaceId="ws-1"
+        workspaceScopedOnly
+      />,
+    );
+
+    expect(await screen.findByTestId('loaded-extension-panel')).toHaveTextContent('ws-1');
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      'http://api.test/api/v1/settings/extensions?section=runtime-environments&workspace_id=ws-1',
+    );
+  });
+
+  it('aborts the owner-scoped request on unmount without retrying', async () => {
+    let requestSignal: AbortSignal | undefined;
+    const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+      requestSignal = init?.signal || undefined;
+      return new Promise<Response>(() => undefined);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { unmount } = render(
+      <CapabilitySettingsExtensionSlot
+        section="remote-workbench-global-access"
+        ownerContract={globalOwner}
+      />,
+    );
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    unmount();
+
+    expect(requestSignal?.aborted).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('times out an owner-scoped request after ten seconds without retrying', async () => {
+    const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => (
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => {
+          reject(new DOMException('aborted', 'AbortError'));
+        });
+      })
+    ));
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(
+      <CapabilitySettingsExtensionSlot
+        section="remote-workbench-global-access"
+        ownerContract={globalOwner}
+      />,
+    );
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('request timed out');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('fails closed with the configured empty state when the exact owner is absent', async () => {

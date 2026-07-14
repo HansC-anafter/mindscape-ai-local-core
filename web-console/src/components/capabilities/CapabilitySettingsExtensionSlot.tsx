@@ -1,23 +1,15 @@
 'use client';
 
-import React, { Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import React, { Suspense, useMemo } from 'react';
 
 import { getApiBaseUrl } from '@/lib/api-url';
+import { createLazySettingsExtensionComponent } from '@/lib/settings-extension-component-loader';
 import {
-  createLazySettingsExtensionComponent,
-  type SettingsExtensionComponentDescriptor,
-} from '@/lib/settings-extension-component-loader';
+  useSettingsExtensionPanels,
+  type SettingsExtensionOwnerContract,
+} from './useSettingsExtensionPanels';
 
-interface SettingsExtensionPanel extends SettingsExtensionComponentDescriptor {
-  title: string;
-  requires_workspace_id?: boolean;
-  props_schema?: Record<string, unknown>;
-}
-
-export interface SettingsExtensionOwnerContract {
-  capabilityCode: string;
-  componentCode: string;
-}
+export type { SettingsExtensionOwnerContract } from './useSettingsExtensionPanels';
 
 interface CapabilitySettingsExtensionSlotProps {
   section: string;
@@ -27,8 +19,6 @@ interface CapabilitySettingsExtensionSlotProps {
   ownerContract?: SettingsExtensionOwnerContract;
 }
 
-const REQUEST_TIMEOUT_MS = 10_000;
-
 export default function CapabilitySettingsExtensionSlot({
   section,
   workspaceId,
@@ -36,92 +26,14 @@ export default function CapabilitySettingsExtensionSlot({
   emptyMessage,
   ownerContract,
 }: CapabilitySettingsExtensionSlotProps) {
-  const [panels, setPanels] = useState<SettingsExtensionPanel[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const apiBaseUrl = getApiBaseUrl();
-  const requestGenerationRef = useRef(0);
-  const ownerCapabilityCode = ownerContract?.capabilityCode;
-  const ownerComponentCode = ownerContract?.componentCode;
-
-  useEffect(() => {
-    const requestGeneration = ++requestGenerationRef.current;
-    const controller = new AbortController();
-    let mounted = true;
-    let timedOut = false;
-    const isCurrentRequest = () => (
-      mounted && requestGenerationRef.current === requestGeneration
-    );
-    const timeout = window.setTimeout(() => {
-      timedOut = true;
-      controller.abort();
-    }, REQUEST_TIMEOUT_MS);
-
-    const loadPanels = async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        const params = new URLSearchParams({ section });
-        if (workspaceId) {
-          params.set('workspace_id', workspaceId);
-        }
-        const response = await fetch(
-          `${apiBaseUrl}/api/v1/settings/extensions?${params.toString()}`,
-          { cache: 'no-store', signal: controller.signal },
-        );
-        if (!response.ok) {
-          throw new Error(`Settings extension request failed (${response.status})`);
-        }
-        const payload = await response.json() as SettingsExtensionPanel[];
-        if (timedOut || controller.signal.aborted) {
-          throw new DOMException('aborted', 'AbortError');
-        }
-        if (!isCurrentRequest()) {
-          return;
-        }
-        const scopedPanels = (Array.isArray(payload) ? payload : []).filter((panel) => (
-          !workspaceScopedOnly || panel.requires_workspace_id === true
-        ));
-        if (ownerCapabilityCode && ownerComponentCode && scopedPanels.length > 0) {
-          const exactOwner = scopedPanels.length === 1
-            && scopedPanels[0]?.capability_code === ownerCapabilityCode
-            && scopedPanels[0]?.component_code === ownerComponentCode;
-          if (!exactOwner) {
-            throw new Error('Settings extension owner contract mismatch');
-          }
-        }
-        setPanels(scopedPanels);
-      } catch (requestError) {
-        if (isCurrentRequest() && timedOut) {
-          setError('Settings extension request timed out');
-        } else if (
-          isCurrentRequest()
-          && !(requestError instanceof DOMException && requestError.name === 'AbortError')
-        ) {
-          setError(requestError instanceof Error ? requestError.message : 'Failed to load settings extensions');
-        }
-      } finally {
-        window.clearTimeout(timeout);
-        if (isCurrentRequest()) {
-          setLoading(false);
-        }
-      }
-    };
-
-    void loadPanels();
-    return () => {
-      mounted = false;
-      window.clearTimeout(timeout);
-      controller.abort();
-    };
-  }, [
+  const { panels, loading, error } = useSettingsExtensionPanels({
     apiBaseUrl,
-    ownerCapabilityCode,
-    ownerComponentCode,
     section,
     workspaceId,
     workspaceScopedOnly,
-  ]);
+    ownerContract,
+  });
 
   const lazyComponents = useMemo(() => panels.map((panel) => ({
     panel,

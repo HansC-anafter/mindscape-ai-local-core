@@ -5,6 +5,10 @@ from fastapi import HTTPException
 
 from backend.app.routes.core import settings_extensions
 from backend.app.routes.core.capability_packs_core import installed_routes
+from backend.app.routes.core.settings_extensions_core import (
+    manifest_catalog,
+    projection,
+)
 
 
 def _component(
@@ -27,11 +31,20 @@ def _component(
     }
 
 
-def _run(*, section: str, workspace_id: str | None, db=object()):
+def _run(
+    *,
+    section: str,
+    workspace_id: str | None,
+    capability_code: str | None = None,
+    component_code: str | None = None,
+    db=object(),
+):
     return asyncio.run(
         settings_extensions.get_settings_extensions(
             section=section,
             workspace_id=workspace_id,
+            capability_code=capability_code,
+            component_code=component_code,
             db=db,
         )
     )
@@ -50,29 +63,36 @@ def test_always_global_extension_avoids_db_reads_and_keeps_runtime_asset_metadat
             "service_codes": ["unused-service"],
         },
     )
-    monkeypatch.setattr(settings_extensions, "get_installed_capabilities", lambda: ["demo"])
     monkeypatch.setattr(
-        settings_extensions,
+        manifest_catalog,
+        "get_installed_capabilities",
+        lambda: ["demo"],
+    )
+    monkeypatch.setattr(
+        manifest_catalog,
         "load_manifest",
         lambda _code: {"ui_components": [component]},
     )
     runtime_reads = []
     service_reads = []
     monkeypatch.setattr(
-        settings_extensions,
+        projection,
         "get_registered_runtime_codes",
         lambda _db: runtime_reads.append(True) or [],
     )
     monkeypatch.setattr(
-        settings_extensions,
+        projection,
         "get_registered_service_codes",
         lambda _db: service_reads.append(True) or [],
     )
     monkeypatch.setattr(
-        settings_extensions,
+        projection,
         "_get_runtime_ui_component",
         lambda _code, _component, **_kwargs: {
-            "asset_url": "/api/v1/capability-packs/installed-capabilities/demo/ui-assets/1/panel.js",
+            "asset_url": (
+                "/api/v1/capability-packs/installed-capabilities/"
+                "demo/ui-assets/1/panel.js"
+            ),
             "integrity": "sha256-demo",
             "bytes": 123,
             "runtime": "mindscape-react-bridge-v1",
@@ -107,7 +127,10 @@ def test_always_global_extension_avoids_db_reads_and_keeps_runtime_asset_metadat
             },
             "props_schema": None,
             "legacy_context": None,
-            "asset_url": "/api/v1/capability-packs/installed-capabilities/demo/ui-assets/1/panel.js",
+            "asset_url": (
+                "/api/v1/capability-packs/installed-capabilities/"
+                "demo/ui-assets/1/panel.js"
+            ),
             "integrity": "sha256-demo",
             "bytes": 123,
             "runtime": "mindscape-react-bridge-v1",
@@ -131,13 +154,21 @@ def test_workspace_projection_excludes_global_extensions(monkeypatch):
             show_when={"always": True},
         ),
     ]
-    monkeypatch.setattr(settings_extensions, "get_installed_capabilities", lambda: ["demo"])
     monkeypatch.setattr(
-        settings_extensions,
+        manifest_catalog,
+        "get_installed_capabilities",
+        lambda: ["demo"],
+    )
+    monkeypatch.setattr(
+        manifest_catalog,
         "load_manifest",
         lambda _code: {"ui_components": components},
     )
-    monkeypatch.setattr(settings_extensions, "_get_runtime_ui_component", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(
+        projection,
+        "_get_runtime_ui_component",
+        lambda *_args, **_kwargs: {},
+    )
 
     payload = _run(section="runtime-environments", workspace_id="ws-1")
 
@@ -159,22 +190,30 @@ def test_show_when_queries_only_the_required_registries(monkeypatch):
             show_when={"service_codes": ["service-a"]},
         ),
     ]
-    monkeypatch.setattr(settings_extensions, "get_installed_capabilities", lambda: ["demo"])
     monkeypatch.setattr(
-        settings_extensions,
+        manifest_catalog,
+        "get_installed_capabilities",
+        lambda: ["demo"],
+    )
+    monkeypatch.setattr(
+        manifest_catalog,
         "load_manifest",
         lambda _code: {"ui_components": components},
     )
-    monkeypatch.setattr(settings_extensions, "_get_runtime_ui_component", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(
+        projection,
+        "_get_runtime_ui_component",
+        lambda *_args, **_kwargs: {},
+    )
     runtime_reads = []
     service_reads = []
     monkeypatch.setattr(
-        settings_extensions,
+        projection,
         "get_registered_runtime_codes",
         lambda _db: runtime_reads.append(True) or ["runtime-a"],
     )
     monkeypatch.setattr(
-        settings_extensions,
+        projection,
         "get_registered_service_codes",
         lambda _db: service_reads.append(True) or ["service-a"],
     )
@@ -199,22 +238,30 @@ def test_runtime_condition_does_not_read_the_ignored_service_registry(monkeypatc
             "service_codes": ["unused-service"],
         },
     )
-    monkeypatch.setattr(settings_extensions, "get_installed_capabilities", lambda: ["demo"])
     monkeypatch.setattr(
-        settings_extensions,
+        manifest_catalog,
+        "get_installed_capabilities",
+        lambda: ["demo"],
+    )
+    monkeypatch.setattr(
+        manifest_catalog,
         "load_manifest",
         lambda _code: {"ui_components": [component]},
     )
-    monkeypatch.setattr(settings_extensions, "_get_runtime_ui_component", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(
+        projection,
+        "_get_runtime_ui_component",
+        lambda *_args, **_kwargs: {},
+    )
     runtime_reads = []
     service_reads = []
     monkeypatch.setattr(
-        settings_extensions,
+        projection,
         "get_registered_runtime_codes",
         lambda _db: runtime_reads.append(True) or ["runtime-a"],
     )
     monkeypatch.setattr(
-        settings_extensions,
+        projection,
         "get_registered_service_codes",
         lambda _db: service_reads.append(True) or ["unused-service"],
     )
@@ -233,9 +280,13 @@ def test_unexpected_runtime_metadata_error_is_reported_as_5xx(monkeypatch):
         requires_workspace_id=False,
         show_when={"always": True},
     )
-    monkeypatch.setattr(settings_extensions, "get_installed_capabilities", lambda: ["demo"])
     monkeypatch.setattr(
-        settings_extensions,
+        manifest_catalog,
+        "get_installed_capabilities",
+        lambda: ["demo"],
+    )
+    monkeypatch.setattr(
+        manifest_catalog,
         "load_manifest",
         lambda _code: {"ui_components": [component]},
     )
@@ -243,7 +294,7 @@ def test_unexpected_runtime_metadata_error_is_reported_as_5xx(monkeypatch):
         raise RuntimeError("metadata unavailable")
 
     monkeypatch.setattr(
-        settings_extensions,
+        projection,
         "_get_runtime_ui_component",
         raise_metadata_error,
     )
@@ -269,12 +320,12 @@ def test_corrupt_runtime_sidecar_is_reported_as_5xx(monkeypatch, tmp_path):
     (pack_dir / "ui_runtime_assets.json").write_text("{broken", encoding="utf-8")
 
     monkeypatch.setattr(
-        settings_extensions,
+        manifest_catalog,
         "get_installed_capabilities",
         lambda: ["corrupt-sidecar"],
     )
     monkeypatch.setattr(
-        settings_extensions,
+        manifest_catalog,
         "load_manifest",
         lambda _code: {"ui_components": [component]},
     )
@@ -292,8 +343,12 @@ def test_corrupt_runtime_sidecar_is_reported_as_5xx(monkeypatch, tmp_path):
 
 
 def test_one_unreadable_manifest_isolated_as_no_descriptor(monkeypatch):
-    monkeypatch.setattr(settings_extensions, "get_installed_capabilities", lambda: ["broken"])
-    monkeypatch.setattr(settings_extensions, "load_manifest", lambda _code: None)
+    monkeypatch.setattr(
+        manifest_catalog,
+        "get_installed_capabilities",
+        lambda: ["broken"],
+    )
+    monkeypatch.setattr(manifest_catalog, "load_manifest", lambda _code: None)
 
     assert _run(section="runtime-environments", workspace_id=None) == []
 
@@ -310,22 +365,24 @@ def test_one_malformed_manifest_does_not_hide_a_valid_pack(monkeypatch):
         "valid": {"ui_components": [valid_component]},
     }
     monkeypatch.setattr(
-        settings_extensions,
+        manifest_catalog,
         "get_installed_capabilities",
         lambda: ["broken", "valid"],
     )
     monkeypatch.setattr(
-        settings_extensions,
+        manifest_catalog,
         "load_manifest",
         lambda code: manifests[code],
     )
-    monkeypatch.setattr(settings_extensions, "_get_runtime_ui_component", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(
+        projection,
+        "_get_runtime_ui_component",
+        lambda *_args, **_kwargs: {},
+    )
 
     payload = _run(section="runtime-environments", workspace_id=None)
 
     assert [panel["component_code"] for panel in payload] == ["ValidPanel"]
-
-
 def test_one_malformed_component_does_not_hide_a_valid_pack(monkeypatch):
     valid_component = _component(
         "ValidPanel",
@@ -338,17 +395,17 @@ def test_one_malformed_component_does_not_hide_a_valid_pack(monkeypatch):
         "valid": {"ui_components": [valid_component]},
     }
     monkeypatch.setattr(
-        settings_extensions,
+        manifest_catalog,
         "get_installed_capabilities",
         lambda: ["broken", "valid"],
     )
     monkeypatch.setattr(
-        settings_extensions,
+        manifest_catalog,
         "load_manifest",
         lambda code: manifests[code],
     )
     monkeypatch.setattr(
-        settings_extensions,
+        projection,
         "_get_runtime_ui_component",
         lambda *_args, **_kwargs: {},
     )
