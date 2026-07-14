@@ -31,7 +31,10 @@ from .shared import settings_store
 
 def _container_backup_root() -> Path:
     data_dir = Path(os.getenv("DATA_DIR") or "/app/data")
-    return Path(os.getenv("LOCAL_CORE_BACKUP_ROOT_CONTAINER") or data_dir / "backups" / "local-runtime")
+    return Path(
+        os.getenv("LOCAL_CORE_BACKUP_ROOT_CONTAINER")
+        or data_dir / "runtime" / "backup-catalog"
+    )
 
 
 def _host_project_root() -> str:

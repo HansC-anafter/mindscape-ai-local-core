@@ -103,7 +103,7 @@ def resolve_primary_root(output_dir: str | None) -> Path:
     env_root = resolve_path(os.environ.get("LOCAL_CORE_BACKUP_ROOT"))
     if env_root:
         return env_root
-    return resolve_data_host_dir() / "backups" / "local-runtime"
+    return resolve_data_host_dir().parent / "backups" / "local-runtime"
 
 
 def resolve_mirror_root(mirror_root: str | None) -> Path | None:

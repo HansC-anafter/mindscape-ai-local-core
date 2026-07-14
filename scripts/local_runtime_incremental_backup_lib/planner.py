@@ -27,6 +27,7 @@ from .filesystem import (
     latest_incremental_manifest,
     list_wal_segments,
     path_contains,
+    resolve_data_host_dir,
     resolve_mirror_root,
     resolve_primary_root,
     resolve_wal_archive_root,
@@ -107,6 +108,24 @@ def _policy_payload(config: dict[str, Any]) -> dict[str, Any]:
 def build_plan(args: argparse.Namespace) -> dict[str, Any]:
     config = build_config(args)
     policy = _policy_payload(config)
+    runtime_data_root = resolve_data_host_dir()
+    storage_topology = {
+        "runtime_data_root": str(runtime_data_root),
+        "backup_root": str(config["primary_root"]),
+        "isolated_from_runtime_bind": not path_contains(
+            runtime_data_root,
+            config["primary_root"],
+        ),
+    }
+    if not storage_topology["isolated_from_runtime_bind"]:
+        return {
+            "policy": policy,
+            "preflight_status": "topology_blocked",
+            "storage_topology": storage_topology,
+            "can_run": False,
+            "blocking_reasons": ["backup_root_inside_runtime_bind_mount"],
+            "warnings": [],
+        }
     runtime_admission = inspect_backup_runtime_admission(
         wal_archive_root=config["wal_archive_root"]
     )
@@ -114,6 +133,7 @@ def build_plan(args: argparse.Namespace) -> dict[str, Any]:
         return {
             "policy": policy,
             "preflight_status": "runtime_deferred",
+            "storage_topology": storage_topology,
             "runtime_admission": runtime_admission,
             "can_run": False,
             "blocking_reasons": list(runtime_admission["blocking_reasons"]),
@@ -197,6 +217,7 @@ def build_plan(args: argparse.Namespace) -> dict[str, Any]:
         "base_backup_age_hours": base_age,
         "base_backup_required": base_required,
         "latest_file_snapshot_id": latest_snapshot.get("backup_name") if latest_snapshot else "",
+        "storage_topology": storage_topology,
         "runtime_admission": runtime_admission,
         "can_run": not blocking_reasons,
         "blocking_reasons": blocking_reasons,

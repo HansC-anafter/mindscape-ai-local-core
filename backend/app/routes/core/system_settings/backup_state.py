@@ -11,7 +11,11 @@ from typing import Any, Dict, List, Optional
 import httpx
 from fastapi import HTTPException
 
-from .backup_config import _container_backup_root, _host_project_root
+from .backup_config import (
+    _container_backup_root,
+    _host_project_root,
+    _normalize_mirror_scopes,
+)
 from .backup_models import DEFAULT_MIRROR_SCOPES, GoogleDriveRuntimeSyncStatus, LocalRuntimeBackupConfig
 
 

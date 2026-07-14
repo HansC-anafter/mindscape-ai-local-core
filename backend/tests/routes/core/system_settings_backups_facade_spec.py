@@ -1,3 +1,4 @@
+from pathlib import Path
 from types import SimpleNamespace
 
 from backend.app.routes.core.system_settings import backup_config, backup_handlers, backup_models, backup_state, backups
@@ -19,6 +20,8 @@ def test_backups_facade_exports_models_and_helpers():
     assert backups._load_config is backup_config._load_config
     assert backups._latest_backup is backup_state._latest_backup
     assert backups._call_backup_job is backup_state._call_backup_job
+    assert backup_handlers.Path is Path
+    assert backup_state._normalize_mirror_scopes is backup_config._normalize_mirror_scopes
 
 
 def test_backup_config_helpers_keep_single_policy_path():

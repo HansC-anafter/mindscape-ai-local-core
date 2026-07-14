@@ -85,4 +85,4 @@ def resolve_backup_root(output_dir: str | None) -> Path:
         return Path(output_dir).expanduser()
     if os.environ.get("LOCAL_CORE_BACKUP_ROOT"):
         return Path(os.environ["LOCAL_CORE_BACKUP_ROOT"]).expanduser()
-    return resolve_data_host_dir() / "backups" / "local-runtime"
+    return resolve_data_host_dir().parent / "backups" / "local-runtime"
