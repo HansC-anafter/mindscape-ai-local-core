@@ -7,6 +7,7 @@ from .settings import (
     DEFAULT_API_RETRY_COUNT,
     DEFAULT_API_TIMEOUT_SEC,
     DEFAULT_CLOSEOUT_API_TIMEOUT_SEC,
+    DEFAULT_CONTROL_API_TIMEOUT_SEC,
     DEFAULT_ROLLUP_API_TIMEOUT_SEC,
     DEFAULT_APPEND_QUEUE_MAX_SIZE,
     DEFAULT_AVFOUNDATION_FRAMERATE,
@@ -86,6 +87,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--max-window-refs", type=int, default=100)
     parser.add_argument("--model-asset-path", default=str(DEFAULT_MODEL_ASSET_PATH))
     parser.add_argument("--api-timeout-sec", type=float, default=DEFAULT_API_TIMEOUT_SEC)
+    parser.add_argument(
+        "--control-api-timeout-sec",
+        type=float,
+        default=DEFAULT_CONTROL_API_TIMEOUT_SEC,
+    )
     parser.add_argument(
         "--rollup-api-timeout-sec",
         type=float,

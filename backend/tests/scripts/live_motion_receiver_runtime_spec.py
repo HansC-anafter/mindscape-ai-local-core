@@ -88,6 +88,7 @@ def test_descriptor_builds_formal_rtsps_receiver_args(
     assert args.source_kind == "phone_camera"
     assert args.capture_backend == "ffmpeg"
     assert args.api_timeout_sec == 5.0
+    assert args.control_api_timeout_sec == 30.0
     assert args.rollup_api_timeout_sec == 30.0
     assert args.rollup_every_sec == 0.0
     assert args.closeout_api_timeout_sec == 30.0
@@ -163,10 +164,12 @@ def test_formal_receiver_registration_restores_append_ownership_contract(
         state_path=tmp_path / "state.json",
     )
     payloads: list[dict] = []
+    call_options: list[dict] = []
     monkeypatch.setattr(
         api_client,
         "api_post",
-        lambda _base, _path, payload, **_kwargs: payloads.append(payload)
+        lambda _base, _path, payload, **kwargs: payloads.append(payload)
+        or call_options.append(kwargs)
         or {"live_session": {"live_session_id": "motion-one"}},
     )
     monkeypatch.setattr(api_client, "emit", lambda _event: None)
@@ -177,6 +180,7 @@ def test_formal_receiver_registration_restores_append_ownership_contract(
     assert metadata["capture_input_kind"] == "remote_webrtc"
     assert metadata["source_kind"] == "phone_camera"
     assert "append_owner_id" not in metadata
+    assert call_options[0]["timeout_sec"] == 30.0
 
 
 def test_receiver_state_emits_bounded_authenticated_event(

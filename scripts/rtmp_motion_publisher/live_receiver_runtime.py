@@ -162,6 +162,8 @@ def _build_receiver_args(
         "ffmpeg",
         "--api-timeout-sec",
         "5",
+        "--control-api-timeout-sec",
+        "30",
         "--rollup-api-timeout-sec",
         "30",
         "--rollup-every-sec",

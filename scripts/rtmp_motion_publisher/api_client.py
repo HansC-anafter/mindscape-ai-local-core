@@ -107,7 +107,9 @@ def register_live_session(args: argparse.Namespace) -> str:
         args.api_base,
         "/api/v1/capabilities/motion_runtime/analysis/live-sessions",
         payload,
-        timeout_sec=args.api_timeout_sec,
+        timeout_sec=float(
+            getattr(args, "control_api_timeout_sec", args.api_timeout_sec)
+        ),
         retry_count=args.api_retry_count,
         retry_backoff_sec=args.api_retry_backoff_sec,
     )

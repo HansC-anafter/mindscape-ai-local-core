@@ -20,8 +20,8 @@ class _SqliteTasksStore:
             conn.execute(
                 text(
                     """
-                    CREATE TABLE tasks (
-                        id TEXT PRIMARY KEY,
+                    CREATE TABLE task_summary_projection (
+                        task_id TEXT PRIMARY KEY,
                         task_type TEXT NOT NULL,
                         status TEXT NOT NULL,
                         blocked_reason TEXT,
@@ -44,8 +44,8 @@ class _SqliteTasksStore:
             conn.execute(
                 text(
                     """
-                    INSERT INTO tasks (
-                        id,
+                    INSERT INTO task_summary_projection (
+                        task_id,
                         task_type,
                         status,
                         blocked_reason,

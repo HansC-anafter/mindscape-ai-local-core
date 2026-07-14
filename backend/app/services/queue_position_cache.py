@@ -1,4 +1,5 @@
 import time
+import threading
 from datetime import datetime, timezone
 from typing import Any, Optional
 
@@ -13,11 +14,14 @@ from backend.app.services.runner_topology import (
 from backend.app.services.task_admission_service import ADMISSION_DEFERRED_REASON
 
 
+QUEUE_READ_STATEMENT_TIMEOUT_MS = 2_000
+
+
 _QUEUE_TOTALS_SQL = """
 SELECT queue_shard AS queue_shard,
        COUNT(*) AS pending_total,
        COUNT(*) AS eligible_total
-FROM tasks
+FROM task_summary_projection
 WHERE status = 'pending'
   AND task_type IN ('playbook_execution', 'tool_execution')
   AND frontier_state = 'ready'
@@ -26,9 +30,22 @@ WHERE status = 'pending'
 GROUP BY queue_shard
 """
 
+
+def _apply_queue_read_budget(conn: Any) -> None:
+    dialect_name = str(getattr(getattr(conn, "dialect", None), "name", ""))
+    if dialect_name != "postgresql":
+        return
+    conn.execute(
+        _sa_text(
+            "SELECT set_config('statement_timeout', :statement_timeout, true)"
+        ),
+        {"statement_timeout": f"{QUEUE_READ_STATEMENT_TIMEOUT_MS}ms"},
+    )
+
+
 _QUEUE_POSITION_ESTIMATE_SQL = """
 SELECT COUNT(*) AS ahead
-FROM tasks
+FROM task_summary_projection
 WHERE status = 'pending'
   AND task_type IN ('playbook_execution', 'tool_execution')
   AND __QUEUE_CLAUSE__
@@ -47,12 +64,22 @@ class QueuePositionCache:
         self._eligible_totals: dict[str, int] = {}
         self._pending_totals: dict[str, int] = {}
         self._updated: float = 0.0
+        self._refresh_lock = threading.Lock()
 
     def refresh_if_stale(self, tasks_store, max_age: float = 3.0) -> None:
         if time.monotonic() - self._updated < max_age:
             return
+        if self._updated <= 0.0:
+            acquired = self._refresh_lock.acquire(timeout=15.0)
+        else:
+            acquired = self._refresh_lock.acquire(blocking=False)
+        if not acquired:
+            return
         try:
+            if time.monotonic() - self._updated < max_age:
+                return
             with tasks_store.get_connection() as conn:
+                _apply_queue_read_budget(conn)
                 rows = conn.execute(
                     _sa_text(_QUEUE_TOTALS_SQL),
                     {
@@ -77,6 +104,8 @@ class QueuePositionCache:
                 self._updated = time.monotonic()
         except Exception:
             pass
+        finally:
+            self._refresh_lock.release()
 
     def get_position(self, tasks_store, task_obj: Any) -> Optional[int]:
         task_id = getattr(task_obj, "id", None)
@@ -114,6 +143,7 @@ class QueuePositionCache:
                 param_prefix="queue_partition",
             )
             with tasks_store.get_connection() as conn:
+                _apply_queue_read_budget(conn)
                 ahead = conn.execute(
                     _sa_text(
                         _QUEUE_POSITION_ESTIMATE_SQL.replace(
