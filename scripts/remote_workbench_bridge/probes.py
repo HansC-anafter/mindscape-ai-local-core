@@ -12,6 +12,10 @@ from pathlib import Path
 from typing import Any
 
 
+BRIDGE_USER_AGENT = "mindscape-bridge-monitor/1"
+CONNECTOR_RESPONSE_LIMIT_BYTES = 16_384
+
+
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(
         self,
@@ -54,11 +58,15 @@ class ProbeResult:
     ok: bool
     code: str
     detail: str | None = None
+    ready_connections: int | None = None
 
     def as_dict(self) -> dict[str, Any]:
         """Return a JSON-compatible representation."""
 
-        return asdict(self)
+        payload = asdict(self)
+        if self.ready_connections is None:
+            payload.pop("ready_connections")
+        return payload
 
 
 class BridgeProbes:
@@ -74,6 +82,7 @@ class BridgeProbes:
         public_origin_url: str,
         probe_timeout_seconds: float,
         public_timeout_seconds: float,
+        connector_minimum_ready_connections: int = 2,
     ) -> None:
         self.launcher_path = launcher_path
         self.docker_socket_path = docker_socket_path
@@ -82,6 +91,7 @@ class BridgeProbes:
         self.public_origin_url = public_origin_url
         self.probe_timeout_seconds = probe_timeout_seconds
         self.public_timeout_seconds = public_timeout_seconds
+        self.connector_minimum_ready_connections = connector_minimum_ready_connections
 
     def docker(self) -> ProbeResult:
         """Check whether the Docker API is available."""
@@ -138,22 +148,46 @@ class BridgeProbes:
             return ProbeResult(False, "tunnel_contract_mismatch")
         return ProbeResult(True, "ok")
 
-    def _http(self, url: str, *, timeout: float, allow_redirect: bool) -> ProbeResult:
+    def _http_response(
+        self,
+        url: str,
+        *,
+        timeout: float,
+        allow_redirect: bool,
+        body_limit_bytes: int = 0,
+    ) -> tuple[ProbeResult, bytes]:
         handlers: list[Any] = [urllib.request.ProxyHandler({})]
         if not allow_redirect:
             handlers.append(_NoRedirect())
         opener = urllib.request.build_opener(*handlers)
-        request = urllib.request.Request(url, method="GET")
+        request = urllib.request.Request(
+            url,
+            method="GET",
+            headers={"User-Agent": BRIDGE_USER_AGENT},
+        )
+        body = b""
         try:
             with opener.open(request, timeout=timeout) as response:
                 status = int(response.status)
+                if body_limit_bytes:
+                    body = response.read(body_limit_bytes + 1)
         except urllib.error.HTTPError as error:
             status = int(error.code)
         except (urllib.error.URLError, TimeoutError, OSError):
-            return ProbeResult(False, "http_unreachable")
+            return ProbeResult(False, "http_unreachable"), b""
+        if body_limit_bytes and len(body) > body_limit_bytes:
+            return ProbeResult(False, "http_response_oversized", str(status)), b""
         if 200 <= status < 400:
-            return ProbeResult(True, "ok", str(status))
-        return ProbeResult(False, "http_status", str(status))
+            return ProbeResult(True, "ok", str(status)), body
+        return ProbeResult(False, "http_status", str(status)), body
+
+    def _http(self, url: str, *, timeout: float, allow_redirect: bool) -> ProbeResult:
+        result, _body = self._http_response(
+            url,
+            timeout=timeout,
+            allow_redirect=allow_redirect,
+        )
+        return result
 
     def local_origin(self) -> ProbeResult:
         """Check dependency-light local frontend liveness."""
@@ -167,10 +201,37 @@ class BridgeProbes:
     def connector(self) -> ProbeResult:
         """Check the cloudflared connector readiness endpoint."""
 
-        return self._http(
+        result, body = self._http_response(
             self.connector_ready_url,
             timeout=self.probe_timeout_seconds,
             allow_redirect=False,
+            body_limit_bytes=CONNECTOR_RESPONSE_LIMIT_BYTES,
+        )
+        if not result.ok or not body.strip():
+            return result
+        try:
+            payload = json.loads(body)
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            return result
+        ready_connections = payload.get("readyConnections") if isinstance(payload, dict) else None
+        if (
+            not isinstance(ready_connections, int)
+            or isinstance(ready_connections, bool)
+            or ready_connections < 0
+        ):
+            return result
+        if ready_connections < self.connector_minimum_ready_connections:
+            return ProbeResult(
+                False,
+                "connector_capacity",
+                result.detail,
+                ready_connections,
+            )
+        return ProbeResult(
+            True,
+            result.code,
+            result.detail,
+            ready_connections,
         )
 
     def public_origin(self) -> ProbeResult:

@@ -43,6 +43,7 @@ class BridgeSupervisor:
         self.sleep = sleep
         self.monotonic = monotonic
         self.runtime = SupervisorRuntime()
+        self.stop_requested = False
 
     def _launcher(self, action: str) -> bool:
         try:
@@ -112,7 +113,7 @@ class BridgeSupervisor:
             )
         return status
 
-    def run_once(self) -> dict[str, Any]:
+    def run_once(self, *, repair: bool = True) -> dict[str, Any]:
         """Run one bounded monitor cycle without touching unrelated services."""
 
         maintenance = self.state_store.maintenance()
@@ -147,7 +148,7 @@ class BridgeSupervisor:
 
         if not tunnel.ok:
             repair_action = None
-            if self._repair_allowed():
+            if repair and self._repair_allowed():
                 repaired = self._launcher("ensure")
                 repair_action = "ensure" if repaired else "ensure_failed"
                 self.runtime.repair_failures = (
@@ -175,6 +176,7 @@ class BridgeSupervisor:
             if (
                 self.runtime.connector_failures
                 >= self.settings.connector_failure_threshold
+                and repair
                 and self._repair_allowed()
             ):
                 repaired = self._launcher("restart")
@@ -206,12 +208,21 @@ class BridgeSupervisor:
         self._clear_repair_gate()
         return self._persist(self._status(state="ready", ready=True, probes=probes))
 
-    def run_forever(self) -> None:
+    def request_stop(self, *_args: object) -> None:
+        """Request a graceful stop after the current bounded operation."""
+
+        self.stop_requested = True
+
+    def run_forever(self, *, repair: bool = True) -> None:
         """Run bounded monitor cycles until the host service stops the process."""
 
-        while True:
-            self.run_once()
+        while not self.stop_requested:
+            self.run_once(repair=repair)
             delay = self.settings.poll_interval_seconds
             if self.runtime.repair_failures:
                 delay = max(delay, self._repair_delay())
-            self.sleep(delay)
+            remaining = delay
+            while not self.stop_requested and remaining > 0:
+                interval = min(1.0, remaining)
+                self.sleep(interval)
+                remaining -= interval

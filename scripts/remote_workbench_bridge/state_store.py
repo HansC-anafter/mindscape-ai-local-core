@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import tempfile
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Iterator, Mapping
 
 
 def utc_now() -> str:
@@ -39,6 +41,38 @@ class BridgeStateStore:
             raise RuntimeError("Bridge state directory must not be a symbolic link")
         self.status_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         os.chmod(self.status_path.parent, 0o700)
+
+    @contextmanager
+    def supervisor_lock(self, path: Path, *, pid: int) -> Iterator[bool]:
+        """Hold the non-blocking single-instance supervisor lock."""
+
+        if path.parent != self.status_path.parent:
+            raise RuntimeError("Supervisor lock must stay in the bridge state directory")
+        self.ensure_directory()
+        if path.is_symlink():
+            raise RuntimeError("Supervisor lock must not be a symbolic link")
+        flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(path, flags, 0o600)
+        acquired = False
+        try:
+            os.fchmod(descriptor, 0o600)
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                yield False
+                return
+            acquired = True
+            with os.fdopen(descriptor, "r+", encoding="utf-8", closefd=False) as handle:
+                handle.seek(0)
+                handle.truncate()
+                handle.write(f"{pid}\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+            yield True
+        finally:
+            if acquired:
+                fcntl.flock(descriptor, fcntl.LOCK_UN)
+            os.close(descriptor)
 
     def _write_json(self, path: Path, payload: Mapping[str, Any]) -> None:
         self.ensure_directory()

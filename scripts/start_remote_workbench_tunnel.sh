@@ -201,6 +201,23 @@ restart_tunnel() {
   fi
 }
 
+recreate_tunnel() {
+  token_file_valid || fail "Cloudflared token file must be regular and operator-only"
+  ensure_state_dir
+  if ! remote_ingress_lock_valid; then
+    stop_tunnel
+    fail "Exact Cloudflare remote-ingress lock is unavailable or malformed"
+  fi
+  if container_exists; then
+    docker rm -f "$CONTAINER_NAME" >/dev/null
+  fi
+  create_container
+  if ! wait_remote_ingress_live; then
+    stop_tunnel
+    fail "Recreated connector did not activate the locked Cloudflare config version"
+  fi
+}
+
 supervisor_activation_json() {
   [[ -x "$BRIDGE_INSTALLER" && ! -L "$BRIDGE_INSTALLER" ]] || return 1
   "$BRIDGE_INSTALLER" verify --json
@@ -321,11 +338,21 @@ status_human() {
 }
 
 usage() {
-  printf 'Usage: %s ensure|restart|stop|status [--json]|supervisor verify --json|maintenance enter [reason]|maintenance exit\n' "$0" >&2
+  printf 'Usage: %s [ensure|restart|recreate|stop|status [--json]|supervisor verify --json|maintenance enter [reason]|maintenance exit|--restart|--recreate]\n' "$0" >&2
 }
 
 main() {
-  local action="${1:-}"
+  if [[ $# -eq 0 ]]; then
+    set -- ensure
+  elif [[ $# -eq 1 && "$1" == "--restart" ]]; then
+    set -- restart
+  elif [[ $# -eq 1 && "$1" == "--recreate" ]]; then
+    set -- recreate
+  elif [[ $# -eq 1 && ( "$1" == "--help" || "$1" == "-h" ) ]]; then
+    usage
+    return 0
+  fi
+  local action="$1"
   [[ "$STATE_DIR" == /* ]] || fail "Bridge state directory must be absolute"
   [[ "$TOKEN_PATH" == /* ]] || fail "Cloudflared token path must be absolute"
   [[ "$CONTAINER_NAME" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$ ]] || fail "Tunnel container name is malformed"
@@ -337,6 +364,10 @@ main() {
     restart)
       [[ $# -eq 1 ]] || fail "restart accepts no additional arguments"
       restart_tunnel
+      ;;
+    recreate)
+      [[ $# -eq 1 ]] || fail "recreate accepts no additional arguments"
+      recreate_tunnel
       ;;
     stop)
       [[ $# -eq 1 ]] || fail "stop accepts no additional arguments"

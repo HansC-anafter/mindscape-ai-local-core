@@ -103,7 +103,15 @@ install_service() {
   done
   "$LAUNCHCTL_BIN" print "$DOMAIN/$LABEL" >/dev/null 2>&1 && fail "Previous supervisor did not unload"
   "$LAUNCHER" maintenance enter supervisor_activation || fail "Canonical launcher could not enter activation maintenance"
-  "$LAUNCHCTL_BIN" bootstrap "$DOMAIN" "$PLIST_DESTINATION" >/dev/null || fail "Supervisor bootstrap failed"
+  local bootstrapped=false
+  for attempt in 1 2 3; do
+    if "$LAUNCHCTL_BIN" bootstrap "$DOMAIN" "$PLIST_DESTINATION" >/dev/null; then
+      bootstrapped=true
+      break
+    fi
+    sleep 2
+  done
+  [[ "$bootstrapped" == true ]] || fail "Supervisor bootstrap failed after three attempts"
   "$LAUNCHCTL_BIN" kickstart -k "$DOMAIN/$LABEL" >/dev/null || fail "Supervisor kickstart failed"
   for attempt in $(seq 1 30); do
     if verify_once >/dev/null 2>&1; then

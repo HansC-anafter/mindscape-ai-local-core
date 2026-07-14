@@ -44,6 +44,7 @@ def _settings(tmp_path: Path) -> BridgeSettings:
         probe_timeout_seconds=3.0,
         public_timeout_seconds=5.0,
         connector_failure_threshold=3,
+        connector_minimum_ready_connections=2,
         backoff_initial_seconds=5.0,
         backoff_max_seconds=120.0,
         event_log_max_bytes=65_536,

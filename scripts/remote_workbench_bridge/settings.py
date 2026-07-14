@@ -44,9 +44,16 @@ class BridgeSettings:
     probe_timeout_seconds: float
     public_timeout_seconds: float
     connector_failure_threshold: int
+    connector_minimum_ready_connections: int
     backoff_initial_seconds: float
     backoff_max_seconds: float
     event_log_max_bytes: int
+
+    @property
+    def lock_path(self) -> Path:
+        """Return the single-instance supervisor lock path."""
+
+        return self.state_dir / "supervisor.lock"
 
     @classmethod
     def from_environment(cls) -> "BridgeSettings":
@@ -107,6 +114,9 @@ class BridgeSettings:
             ),
             connector_failure_threshold=_bounded_int(
                 "REMOTE_WORKBENCH_CONNECTOR_FAILURE_THRESHOLD", 3, 2, 10
+            ),
+            connector_minimum_ready_connections=_bounded_int(
+                "REMOTE_WORKBENCH_BRIDGE_MINIMUM_READY_CONNECTIONS", 2, 1, 4
             ),
             backoff_initial_seconds=_bounded_float(
                 "REMOTE_WORKBENCH_BRIDGE_BACKOFF_INITIAL_SECONDS", 5.0, 1.0, 60.0
