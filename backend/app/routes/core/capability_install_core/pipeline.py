@@ -276,11 +276,7 @@ async def run_install_pipeline(
         hot_reload_performed = False
         activation_error: Optional[str] = None
         try:
-            from app.services.capability_registry import get_registry, load_capabilities
-            from app.services.capability_reload_manager import (
-                hot_reload_enabled,
-                reload_capability_routes,
-            )
+            from app.services.capability_registry import get_registry
 
             registry = get_registry()
             if hasattr(registry, "_capabilities_cache"):
@@ -288,40 +284,30 @@ async def run_install_pipeline(
             if hasattr(registry, "_tools_cache"):
                 registry._tools_cache.clear()
 
+            await reload_capability_registry_modules(
+                capability_code=capability_code,
+                run_in_threadpool_func=run_in_threadpool,
+            )
             if contract_lane_changed:
-                await reload_capability_registry_modules(
-                    run_in_threadpool_func=run_in_threadpool,
-                )
                 result.add_warning(
-                    "Contract import paths changed; skipping in-process hot reload and requiring a backend restart."
+                    "Contract import paths changed; the targeted registry metadata is refreshed and a backend restart is required."
                 )
                 logger.info(
-                    "Skipped in-process hot reload for %s because contract import paths changed",
+                    "Refreshed registry metadata for %s; contract imports require restart",
                     capability_code,
                 )
-            elif hot_reload_enabled():
-                pipeline.hot_reload_result = await run_in_threadpool(
-                    reload_capability_routes,
-                    fastapi_app,
-                    f"{source_label}:{capability_code}",
-                )
-                hot_reload_performed = True
-                logger.info(f"Hot reload completed for {capability_code}")
             else:
-                await reload_capability_registry_modules(
-                    run_in_threadpool_func=run_in_threadpool,
-                )
-                logger.info(f"Reloaded capability registry for {capability_code}")
+                hot_reload_performed = True
+                pipeline.hot_reload_result = {
+                    "enabled": True,
+                    "mode": "targeted_registry_reload",
+                    "capability_code": capability_code,
+                }
+                logger.info("Reloaded capability registry slice for %s", capability_code)
         except Exception as exc:
             activation_error = f"Failed to reload capability registry/routes: {exc}"
             logger.warning(f"Failed to reload capability registry/routes: {exc}")
             result.add_warning(activation_error)
-            try:
-                await reload_capability_registry_modules(
-                    run_in_threadpool_func=run_in_threadpool,
-                )
-            except Exception:
-                pass
 
         # 5. Restart decision
         restart_decision = build_install_restart_decision(

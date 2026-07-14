@@ -4,42 +4,30 @@ Loads and manages all capability pack manifests, provides tool lookup functional
 """
 
 import yaml
-import importlib
 import inspect
+import sys
 from pathlib import Path
 from typing import Dict, Optional, Callable, Any, List
 import logging
+import threading
 from app.services.runtime_pack_hygiene import is_ignored_runtime_pack_dir
 from app.services.pack_activation_service import PackActivationService
-from app.services.runtime_contract_paths import (
-    prepend_import_paths,
-    resolve_capability_runtime_import_roots,
+from app.services.capability_backend_loader import (
+    resolve_capability_backend_callable,
 )
 
 logger = logging.getLogger(__name__)
 
+# The backend is importable through both roots during the compatibility period.
+# Keep one module object so both import forms share the same registries and lock.
+_CURRENT_MODULE = sys.modules[__name__]
+sys.modules.setdefault("app.services.capability_registry", _CURRENT_MODULE)
+sys.modules.setdefault("backend.app.services.capability_registry", _CURRENT_MODULE)
+
 # Global capability registry
 CAPABILITY_REGISTRY: Dict[str, Dict] = {}
 TOOL_REGISTRY: Dict[str, Dict] = {}  # tool_name -> {capability, tool_info, backend}
-
-
-def _ensure_capability_import_paths(sys_path: list[str], capability_dir: Path) -> None:
-    """Expose canonical capability and transitional contract roots for pack imports."""
-    prepend_import_paths(
-        sys_path,
-        resolve_capability_runtime_import_roots(Path(capability_dir)),
-    )
-
-
-def _normalize_backend_module_path(module_path: str) -> str:
-    """Map manifest backend module IDs to the runtime package identity."""
-    if module_path.startswith("backend."):
-        return module_path
-    if module_path.startswith("app."):
-        return f"backend.{module_path}"
-    if module_path.startswith("capabilities."):
-        return f"backend.app.{module_path}"
-    return module_path
+_REGISTRY_LOCK = threading.RLock()
 
 
 class CapabilityRegistry:
@@ -62,58 +50,85 @@ class CapabilityRegistry:
             ):
                 continue
 
-            manifest_path = capability_dir / "manifest.yaml"
-            if not manifest_path.exists():
-                logger.debug(f"No manifest.yaml found in {capability_dir}, skipping")
-                continue
+            self.load_capability_from_directory(capability_dir)
 
-            try:
-                with open(manifest_path, 'r', encoding='utf-8') as f:
-                    manifest = yaml.safe_load(f)
+    def load_capability_from_directory(
+        self,
+        capability_dir: Path,
+        *,
+        expected_code: Optional[str] = None,
+    ) -> Optional[str]:
+        """Load one manifest and replace only that capability's registry entries."""
 
-                capability_code = manifest.get('code')
-                if not capability_code:
-                    logger.warning(f"Manifest in {capability_dir} missing 'code', skipping")
+        manifest_path = capability_dir / "manifest.yaml"
+        if not manifest_path.exists():
+            logger.debug(f"No manifest.yaml found in {capability_dir}, skipping")
+            return None
+        try:
+            with open(manifest_path, "r", encoding="utf-8") as manifest_file:
+                manifest = yaml.safe_load(manifest_file)
+            if not isinstance(manifest, dict):
+                raise ValueError("manifest_root_must_be_mapping")
+            capability_code = str(manifest.get("code") or "").strip()
+            if not capability_code:
+                raise ValueError("manifest_capability_code_missing")
+            if expected_code and capability_code != expected_code:
+                raise ValueError(
+                    f"manifest_capability_code_mismatch:{capability_code}:{expected_code}"
+                )
+
+            stale_tools = [
+                tool_name
+                for tool_name, tool_info in self.tools.items()
+                if tool_info.get("capability") == capability_code
+            ]
+            for tool_name in stale_tools:
+                self.tools.pop(tool_name, None)
+            self.capabilities[capability_code] = {
+                "manifest": manifest,
+                "directory": capability_dir,
+            }
+            for tool in manifest.get("tools", []):
+                if not isinstance(tool, dict):
                     continue
-
-                self.capabilities[capability_code] = {
-                    'manifest': manifest,
-                    'directory': capability_dir,
+                tool_name = str(tool.get("name") or "").strip()
+                if not tool_name:
+                    continue
+                self.tools[f"{capability_code}.{tool_name}"] = {
+                    "capability": capability_code,
+                    "tool_name": tool_name,
+                    "tool_info": tool,
+                    "backend": tool.get("backend"),
                 }
 
-                # Register all tools (prefix: capability_code.tool_name)
-                for tool in manifest.get('tools', []):
-                    tool_name = tool.get('name')
-                    if not tool_name:
-                        continue
-
-                    full_tool_name = f"{capability_code}.{tool_name}"
-                    self.tools[full_tool_name] = {
-                        'capability': capability_code,
-                        'tool_name': tool_name,
-                        'tool_info': tool,
-                        'backend': tool.get('backend'),
-                    }
-
-                try:
-                    PackActivationService().record_activation_succeeded(
-                        pack_id=capability_code,
-                        manifest=manifest,
-                        manifest_path=manifest_path if manifest_path.exists() else None,
-                        activation_mode="capability_registry_load",
-                        registered_prefixes=[],
-                    )
-                except Exception as activation_exc:
-                    logger.warning(
-                        "Failed to persist capability registry activation state for %s: %s",
-                        capability_code,
-                        activation_exc,
-                    )
-
-                logger.info(f"Loaded capability: {capability_code} ({len(manifest.get('tools', []))} tools)")
-
-            except Exception as e:
-                logger.error(f"Failed to load manifest from {capability_dir}: {e}", exc_info=True)
+            try:
+                PackActivationService().record_activation_succeeded(
+                    pack_id=capability_code,
+                    manifest=manifest,
+                    manifest_path=manifest_path,
+                    activation_mode="capability_registry_load",
+                    registered_prefixes=[],
+                )
+            except Exception as activation_exc:
+                logger.warning(
+                    "Failed to persist capability registry activation state for %s: %s",
+                    capability_code,
+                    activation_exc,
+                )
+            logger.info(
+                "Loaded capability: %s (%d tools)",
+                capability_code,
+                len(manifest.get("tools", [])),
+            )
+            return capability_code
+        except Exception as exc:
+            logger.error(
+                "Failed to load manifest from %s: %s",
+                capability_dir,
+                exc,
+                exc_info=True,
+            )
+            return None
 
     def get_tool(self, tool_name: str) -> Optional[Dict]:
         """Get tool definition by tool name"""
@@ -201,16 +216,61 @@ def load_capabilities(capabilities_dir: Optional[Path] = None, reset: bool = Fal
         app_dir = Path(__file__).parent.parent
         capabilities_dir = app_dir / "capabilities"
 
-    if reset:
-        _registry.capabilities.clear()
-        _registry.tools.clear()
-        CAPABILITY_REGISTRY.clear()
-        TOOL_REGISTRY.clear()
+    caller = inspect.stack(context=0)[1]
+    logger.info(
+        "Loading all capability manifests: reset=%s caller=%s:%s",
+        reset,
+        Path(caller.filename).name,
+        caller.lineno,
+    )
+    with _REGISTRY_LOCK:
+        if reset:
+            _registry.capabilities.clear()
+            _registry.tools.clear()
+            CAPABILITY_REGISTRY.clear()
+            TOOL_REGISTRY.clear()
 
-    _registry.load_from_directory(capabilities_dir)
-    CAPABILITY_REGISTRY.update(_registry.capabilities)
-    TOOL_REGISTRY.update(_registry.tools)
+        _registry.load_from_directory(capabilities_dir)
+        CAPABILITY_REGISTRY.update(_registry.capabilities)
+        TOOL_REGISTRY.update(_registry.tools)
     logger.info(f"Loaded {len(_registry.capabilities)} capabilities, {len(_registry.tools)} tools")
+
+
+def reload_capability(
+    capability_code: str,
+    capabilities_dir: Optional[Path] = None,
+) -> bool:
+    """Replace one capability manifest/tool slice without rebuilding all packs."""
+
+    normalized_code = str(capability_code or "").strip()
+    if not normalized_code:
+        raise ValueError("capability_code_required")
+    if capabilities_dir is None:
+        capabilities_dir = Path(__file__).parent.parent / "capabilities"
+    capability_dir = capabilities_dir / normalized_code
+    with _REGISTRY_LOCK:
+        loaded_code = _registry.load_capability_from_directory(
+            capability_dir,
+            expected_code=normalized_code,
+        )
+        if loaded_code is None:
+            return False
+        CAPABILITY_REGISTRY[normalized_code] = _registry.capabilities[normalized_code]
+        stale_global_tools = [
+            tool_name
+            for tool_name, tool_info in TOOL_REGISTRY.items()
+            if tool_info.get("capability") == normalized_code
+        ]
+        for tool_name in stale_global_tools:
+            TOOL_REGISTRY.pop(tool_name, None)
+        TOOL_REGISTRY.update(
+            {
+                tool_name: tool_info
+                for tool_name, tool_info in _registry.tools.items()
+                if tool_info.get("capability") == normalized_code
+            }
+        )
+    return True
 
 
 def get_tool_backend(capability: str, tool: str) -> Optional[str]:
@@ -234,8 +294,6 @@ def call_tool(capability: str, tool: str, **kwargs) -> Any:
     Returns:
         Tool execution result
     """
-    import sys
-
     tool_name = f"{capability}.{tool}"
     tool_info = _registry.get_tool(tool_name)
 
@@ -246,69 +304,14 @@ def call_tool(capability: str, tool: str, **kwargs) -> Any:
     if not backend_path:
         raise ValueError(f"Tool {tool_name} has no backend defined")
 
-    # Ensure capability directory is in sys.path for imports
     capability_info = _registry.get_capability(capability)
-    if capability_info:
-        capability_dir = capability_info.get('directory')
-        if capability_dir:
-            _ensure_capability_import_paths(sys.path, capability_dir)
-
-    # Parse backend path
-    # Format 1: 'module.path:function' - module-level function
-    # Format 2: 'module.path:Class.method' - class method
-    module_path, target = backend_path.rsplit(':', 1)
-
-    module_path = _normalize_backend_module_path(module_path)
+    capability_dir = capability_info.get("directory") if capability_info else None
 
     try:
-        # Try importing as module first
-        try:
-            module = importlib.import_module(module_path)
-        except (ImportError, ModuleNotFoundError) as import_error:
-            # If import fails (e.g., missing __init__.py), try loading file directly
-            capability_info = _registry.get_capability(capability)
-            if capability_info:
-                capability_dir = capability_info.get('directory')
-                if capability_dir:
-                    # Try to find the file based on backend path
-                    # backend path format: capabilities.xxx.tools.xxx_tools:function
-                    # Extract file path: capabilities/xxx/tools/xxx_tools.py
-                    parts = module_path.split('.')
-                    if len(parts) >= 2 and parts[0] == 'capabilities':
-                        # capabilities.xxx.tools.xxx_tools -> capabilities/xxx/tools/xxx_tools.py
-                        file_path = capability_dir
-                        for part in parts[1:]:  # Skip 'capabilities'
-                            file_path = file_path / part
-                        file_path = file_path.with_suffix('.py')
-
-                        if file_path.exists():
-                            import importlib.util as importlib_util
-                            spec = importlib_util.spec_from_file_location(module_path, file_path)
-                            if spec and spec.loader:
-                                module = importlib_util.module_from_spec(spec)
-                                spec.loader.exec_module(module)
-                                logger.debug(f"Loaded module {module_path} from file: {file_path}")
-                            else:
-                                raise import_error
-                        else:
-                            raise import_error
-                    else:
-                        raise import_error
-            else:
-                raise import_error
-
-        # Check if it's a class method (format: Class.method)
-        if '.' in target:
-            class_name, method_name = target.rsplit('.', 1)
-            # Get class
-            cls = getattr(module, class_name)
-            # Instantiate class (no-arg constructor)
-            instance = cls()
-            # Get method
-            func = getattr(instance, method_name)
-        else:
-            # Module-level function
-            func = getattr(module, target)
+        func = resolve_capability_backend_callable(
+            backend_path=backend_path,
+            capability_dir=Path(capability_dir) if capability_dir else None,
+        )
 
         # Check if it's an async function
 
@@ -337,8 +340,6 @@ async def call_tool_async(capability: str, tool: str, **kwargs) -> Any:
     """
     Asynchronously call capability pack tool
     """
-    import sys
-
     tool_name = f"{capability}.{tool}"
     tool_info = _registry.get_tool(tool_name)
 
@@ -349,69 +350,14 @@ async def call_tool_async(capability: str, tool: str, **kwargs) -> Any:
     if not backend_path:
         raise ValueError(f"Tool {tool_name} has no backend defined")
 
-    # Ensure capability directory is in sys.path for imports
     capability_info = _registry.get_capability(capability)
-    if capability_info:
-        capability_dir = capability_info.get('directory')
-        if capability_dir:
-            _ensure_capability_import_paths(sys.path, capability_dir)
-
-    # Parse backend path
-    # Format 1: 'module.path:function' - Module-level function
-    # Format 2: 'module.path:Class.method' - Class method
-    module_path, target = backend_path.rsplit(':', 1)
-
-    module_path = _normalize_backend_module_path(module_path)
+    capability_dir = capability_info.get("directory") if capability_info else None
 
     try:
-        # Try importing as module first
-        try:
-            module = importlib.import_module(module_path)
-        except (ImportError, ModuleNotFoundError) as import_error:
-            # If import fails (e.g., missing __init__.py), try loading file directly
-            capability_info = _registry.get_capability(capability)
-            if capability_info:
-                capability_dir = capability_info.get('directory')
-                if capability_dir:
-                    # Try to find the file based on backend path
-                    # backend path format: capabilities.xxx.tools.xxx_tools:function
-                    # Extract file path: capabilities/xxx/tools/xxx_tools.py
-                    parts = module_path.split('.')
-                    if len(parts) >= 2 and parts[0] == 'capabilities':
-                        # capabilities.xxx.tools.xxx_tools -> capabilities/xxx/tools/xxx_tools.py
-                        file_path = capability_dir
-                        for part in parts[1:]:  # Skip 'capabilities'
-                            file_path = file_path / part
-                        file_path = file_path.with_suffix('.py')
-
-                        if file_path.exists():
-                            import importlib.util as importlib_util
-                            spec = importlib_util.spec_from_file_location(module_path, file_path)
-                            if spec and spec.loader:
-                                module = importlib_util.module_from_spec(spec)
-                                spec.loader.exec_module(module)
-                                logger.debug(f"Loaded module {module_path} from file: {file_path}")
-                            else:
-                                raise import_error
-                        else:
-                            raise import_error
-                    else:
-                        raise import_error
-            else:
-                raise import_error
-
-        # Check if it's a class method (format: Class.method)
-        if '.' in target:
-            class_name, method_name = target.rsplit('.', 1)
-            # Get class
-            cls = getattr(module, class_name)
-            # Instantiate class (no-arg constructor)
-            instance = cls()
-            # Get method
-            func = getattr(instance, method_name)
-        else:
-            # Module-level function
-            func = getattr(module, target)
+        func = resolve_capability_backend_callable(
+            backend_path=backend_path,
+            capability_dir=Path(capability_dir) if capability_dir else None,
+        )
 
 
         logger.info(f"DEBUG CAPABILITY_REGISTRY calling {func} with kwargs keys: {list(kwargs.keys())}")

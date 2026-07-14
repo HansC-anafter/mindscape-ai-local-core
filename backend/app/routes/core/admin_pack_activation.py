@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Optional
 
@@ -30,7 +31,8 @@ async def activate_capability_runtime(
     payload: CapabilityRuntimeActivationRequest,
 ):
     try:
-        result = activate_installed_capability_routes(
+        result = await asyncio.to_thread(
+            activate_installed_capability_routes,
             app=request.app,
             capability_code=payload.capability_code,
             reason=payload.reason,

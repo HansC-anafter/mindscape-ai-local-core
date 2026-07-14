@@ -1,3 +1,7 @@
+from pathlib import Path
+
+from backend.app.services import capability_registry
+from backend.app.services.stores.installed_packs_store import InstalledPacksStore
 from backend.app.services.tools.workspace_database_tool import (
     WorkspaceQueryDatabaseTool as HelperWorkspaceQueryDatabaseTool,
 )
@@ -47,3 +51,43 @@ def test_workspace_tool_aliases_resolve_through_facade(monkeypatch):
     assert isinstance(underscore_picker, WorkspacePickRelevantExecutionTool)
     assert isinstance(dotted_database, WorkspaceQueryDatabaseTool)
     assert isinstance(underscore_database, WorkspaceQueryDatabaseTool)
+
+
+def test_workspace_database_catalog_reads_enabled_manifests_without_runtime_load(
+    tmp_path: Path,
+    monkeypatch,
+):
+    pack_dir = tmp_path / "demo_pack"
+    pack_dir.mkdir()
+    (pack_dir / "manifest.yaml").write_text(
+        (
+            "code: demo_pack\n"
+            "queryable_tables:\n"
+            "  - name: demo_rows\n"
+            "    workspace_scoped: true\n"
+            "  - global_lookup\n"
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        WorkspaceQueryDatabaseTool,
+        "_installed_capabilities_dir",
+        classmethod(lambda cls: tmp_path),
+    )
+    monkeypatch.setattr(
+        InstalledPacksStore,
+        "list_enabled_pack_ids",
+        lambda self: ["demo_pack"],
+    )
+    monkeypatch.setattr(
+        capability_registry,
+        "load_capabilities",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("workspace tool catalog must not load capability runtimes")
+        ),
+    )
+
+    allowed, scoped = WorkspaceQueryDatabaseTool._collect_tables_from_registry()
+
+    assert allowed == {"demo_rows", "global_lookup"}
+    assert scoped == {"demo_rows", "global_lookup"}

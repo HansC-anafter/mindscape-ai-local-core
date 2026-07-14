@@ -79,7 +79,7 @@ class ToolSlotResolver:
             # Local import to avoid import cycles during app bootstrap.
             from backend.app.services.capability_registry import (
                 get_registry,
-                load_capabilities,
+                reload_capability,
             )
 
             reg = get_registry()
@@ -87,10 +87,9 @@ class ToolSlotResolver:
             if tool:
                 return True
 
-            # Some runtime paths resolve tool slots before capability manifests
-            # have been preloaded into the global registry.
-            if not reg.list_tools():
-                load_capabilities()
+            # Resolve only the requested pack when its manifest has not been seen yet.
+            capability_code = tool_id.split(".", 1)[0]
+            if capability_code and reload_capability(capability_code):
                 reg = get_registry()
                 return bool(reg.get_tool(tool_id))
 

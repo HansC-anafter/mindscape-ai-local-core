@@ -2,7 +2,10 @@
 
 import logging
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict
+
+import yaml
 
 from backend.app.services.tools.base import MindscapeTool
 from backend.app.services.tools.schemas import (
@@ -48,23 +51,16 @@ class WorkspaceQueryDatabaseTool(MindscapeTool):
     _TABLE_SUMMARY_MAX_CHARS = 140
 
     @classmethod
+    def _installed_capabilities_dir(cls) -> Path:
+        return Path(__file__).resolve().parents[2] / "capabilities"
+
+    @classmethod
     def _collect_tables_from_registry(cls) -> tuple:
-        """Collect queryable_tables from enabled pack manifests only.
+        """Collect queryable tables from enabled pack manifest metadata only.
 
         Returns (allowed_tables, workspace_scoped_tables) as sets.
         """
         try:
-            from backend.app.services.capability_registry import (
-                get_registry,
-                load_capabilities,
-            )
-
-            registry = get_registry()
-            if not registry.capabilities:
-                load_capabilities()
-
-            # Only include tables from enabled packs
-            enabled_codes = set()
             try:
                 from backend.app.services.stores.installed_packs_store import (
                     InstalledPacksStore,
@@ -73,16 +69,27 @@ class WorkspaceQueryDatabaseTool(MindscapeTool):
                 store = InstalledPacksStore()
                 enabled_codes = set(store.list_enabled_pack_ids())
             except Exception as e:
-                # Strict fallback: if DB unreachable, allow no tables
                 logger.warning("Could not query enabled packs: %s", e)
-                enabled_codes = set()
+                return set(), set()
 
             allowed = set()
             scoped = set()
-            for cap_code, cap_info in registry.capabilities.items():
-                if cap_code not in enabled_codes:
+            capabilities_dir = cls._installed_capabilities_dir()
+            for cap_code in enabled_codes:
+                manifest_path = capabilities_dir / cap_code / "manifest.yaml"
+                if not manifest_path.is_file():
                     continue
-                manifest = cap_info.get("manifest", {})
+                try:
+                    manifest = yaml.safe_load(
+                        manifest_path.read_text(encoding="utf-8")
+                    ) or {}
+                except Exception as exc:
+                    logger.warning(
+                        "Could not read queryable tables for %s: %s",
+                        cap_code,
+                        exc,
+                    )
+                    continue
                 for table in manifest.get("queryable_tables", []):
                     if isinstance(table, dict):
                         name = table.get("name", "")
@@ -95,7 +102,7 @@ class WorkspaceQueryDatabaseTool(MindscapeTool):
                         scoped.add(table)  # default: workspace-scoped
             return allowed, scoped
         except Exception as e:
-            logger.warning("Failed to collect queryable_tables from registry: %s", e)
+            logger.warning("Failed to collect queryable_tables from manifests: %s", e)
             return set(), set()
 
     def __init__(self):

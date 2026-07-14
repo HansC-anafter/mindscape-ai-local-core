@@ -11,19 +11,12 @@ RunInThreadpool = Callable[..., Awaitable[T]]
 
 async def reload_capability_registry_modules(
     *,
+    capability_code: str,
     run_in_threadpool_func: RunInThreadpool,
 ) -> None:
-    """Reload both supported capability registry module identities."""
-    from app.services.capability_registry import load_capabilities as load_app_capabilities
+    """Reload one installed capability in the canonical shared registry."""
+    from app.services.capability_registry import reload_capability
 
-    await run_in_threadpool_func(load_app_capabilities, reset=True)
-
-    try:
-        from backend.app.services.capability_registry import (
-            load_capabilities as load_backend_capabilities,
-        )
-    except Exception:
-        return
-
-    if load_backend_capabilities is not load_app_capabilities:
-        await run_in_threadpool_func(load_backend_capabilities, reset=True)
+    loaded = await run_in_threadpool_func(reload_capability, capability_code)
+    if not loaded:
+        raise ValueError(f"capability_manifest_not_found:{capability_code}")

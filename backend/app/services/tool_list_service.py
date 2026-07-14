@@ -272,26 +272,10 @@ class ToolListService:
         try:
             from backend.app.services.capability_registry import (
                 get_registry,
-                load_capabilities,
             )
-            from pathlib import Path
 
             capability_registry = get_registry()
             capability_tool_names = capability_registry.list_tools()
-
-            # If no tools found, try reloading local capabilities only
-            # Note: Cloud capabilities should be accessed via API or installed to local-core
-            # through proper installer/configuration process. Direct file system access
-            # to cloud capabilities is prohibited to maintain architecture boundaries.
-            if len(capability_tool_names) == 0:
-                logger.debug(
-                    "ToolListService: No capability tools found, reloading local capabilities..."
-                )
-                app_dir = Path(__file__).parent.parent
-                capabilities_dir = app_dir / "capabilities"
-                if capabilities_dir.exists():
-                    load_capabilities(capabilities_dir)
-                    capability_tool_names = capability_registry.list_tools()
 
             result = []
             for tool_name in capability_tool_names:

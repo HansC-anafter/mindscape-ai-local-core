@@ -13,7 +13,7 @@ from backend.app.services.capability_registry import (
     call_tool_async,
     get_tool_backend,
     get_registry,
-    load_capabilities,
+    reload_capability,
 )
 
 logger = logging.getLogger(__name__)
@@ -26,7 +26,13 @@ class ToolExecutor:
         self.registry = get_registry()
         self._last_capability_reload_at = 0.0
 
-    def _maybe_reload_capability_registry(self, reason: str, min_interval_seconds: float = 5.0) -> None:
+    def _maybe_reload_capability_registry(
+        self,
+        *,
+        capability_code: str,
+        reason: str,
+        min_interval_seconds: float = 5.0,
+    ) -> None:
         """
         Best-effort hot reload for capability registry.
 
@@ -39,9 +45,14 @@ class ToolExecutor:
             return
         self._last_capability_reload_at = now
         try:
-            load_capabilities(reset=True)
+            if not reload_capability(capability_code):
+                raise ValueError(f"capability_manifest_not_found:{capability_code}")
             self.registry = get_registry()
-            logger.info(f"Reloaded capability registry ({reason})")
+            logger.info(
+                "Reloaded capability registry slice: capability=%s reason=%s",
+                capability_code,
+                reason,
+            )
         except Exception as e:
             logger.warning(f"Failed to reload capability registry ({reason}): {e}", exc_info=True)
 
@@ -111,7 +122,10 @@ class ToolExecutor:
                 if not tool_info:
                     # Hot-reload capability registry once if a capability tool is missing.
                     # This avoids requiring a backend restart after installing packs.
-                    self._maybe_reload_capability_registry(reason=f"capability tool miss: {tool_name}")
+                    self._maybe_reload_capability_registry(
+                        capability_code=tool_name.split(".", 1)[0],
+                        reason=f"capability tool miss: {tool_name}",
+                    )
                     tool_info = self.registry.get_tool(tool_name)
                 if tool_info:
                     logger.debug(f"Calling capability tool: {tool_name}")

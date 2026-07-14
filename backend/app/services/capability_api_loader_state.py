@@ -68,7 +68,7 @@ def _get_runtime_state(app: FastAPI) -> Dict[str, Any]:
             "prefixes_by_capability": {},
             "sorted_prefix_entries": [],
             "registered_descriptor_keys": set(),
-            "activation_lock": threading.Lock(),
+            "activation_lock": threading.RLock(),
             "seed_params": {},
         }
         setattr(app.state, _APP_STATE_KEY, state)
@@ -148,6 +148,18 @@ def _capability_registration_complete(app: FastAPI, capability_code: str) -> boo
         _descriptor_state_key(descriptor) in registered_descriptor_keys
         for descriptor in descriptors
     )
+
+
+def capability_api_registration_complete(
+    app: FastAPI,
+    capability_code: str,
+) -> bool:
+    """Return whether a seeded capability can serve requests without activation."""
+
+    state = _get_runtime_state(app)
+    return capability_code in state.get(
+        "activated_capabilities", set()
+    ) and _capability_registration_complete(app, capability_code)
 
 
 def load_manifest_for_descriptor(descriptor: CapabilityAPIDescriptor) -> Dict[str, Any]:
@@ -266,6 +278,7 @@ __all__ = [
     "_extract_registered_routes_from_app",
     "_remove_routes_for_prefixes",
     "_capability_registration_complete",
+    "capability_api_registration_complete",
     "load_manifest_for_descriptor",
     "build_descriptor_registered_prefixes",
     "seed_capability_api_descriptors",

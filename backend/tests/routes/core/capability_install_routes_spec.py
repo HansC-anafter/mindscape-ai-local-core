@@ -118,11 +118,9 @@ async def test_run_install_pipeline_offloads_blocking_phases(monkeypatch, tmp_pa
     def fake_get_registry():
         return FakeRegistry()
 
-    def fake_load_capabilities(reset=False):
-        return None
-
-    def fake_reload_capability_routes(*_args, **_kwargs):
-        return {"ok": True}
+    def fake_reload_capability(capability_code):
+        assert capability_code == "ig"
+        return True
 
     fake_modules = {
         "app.services.mindpack_extractor": types.SimpleNamespace(
@@ -148,11 +146,7 @@ async def test_run_install_pipeline_offloads_blocking_phases(monkeypatch, tmp_pa
         ),
         "app.services.capability_registry": types.SimpleNamespace(
             get_registry=fake_get_registry,
-            load_capabilities=fake_load_capabilities,
-        ),
-        "app.services.capability_reload_manager": types.SimpleNamespace(
-            hot_reload_enabled=lambda: True,
-            reload_capability_routes=fake_reload_capability_routes,
+            reload_capability=fake_reload_capability,
         ),
         "backend.app.services.model_route_slot_registry": types.SimpleNamespace(
             ModelRouteSlotRegistry=FakeModelRouteSlotRegistry,
@@ -260,12 +254,12 @@ async def test_run_install_pipeline_offloads_blocking_phases(monkeypatch, tmp_pa
     assert {
         "extract",
         "validate",
-        "_install_playbooks",
-        "install_all",
+            "_install_playbooks",
+            "install_all",
             "execute_migrations",
             "run_required_tasks",
             "_sync_install_time_registries",
-            "reload_capability_routes",
+            "reload_capability",
             "upsert_pack",
             "record_install_outcome",
     }.issubset(normalized)
@@ -353,11 +347,9 @@ async def test_run_install_pipeline_installs_capability_scripts(monkeypatch, tmp
     def fake_get_registry():
         return FakeRegistry()
 
-    def fake_load_capabilities(reset=False):
-        return None
-
-    def fake_reload_capability_routes(*_args, **_kwargs):
-        return {"ok": True}
+    def fake_reload_capability(capability_code):
+        assert capability_code == "ig"
+        return True
 
     fake_modules = {
         "app.services.mindpack_extractor": types.SimpleNamespace(
@@ -381,11 +373,7 @@ async def test_run_install_pipeline_installs_capability_scripts(monkeypatch, tmp
         ),
         "app.services.capability_registry": types.SimpleNamespace(
             get_registry=fake_get_registry,
-            load_capabilities=fake_load_capabilities,
-        ),
-        "app.services.capability_reload_manager": types.SimpleNamespace(
-            hot_reload_enabled=lambda: True,
-            reload_capability_routes=fake_reload_capability_routes,
+            reload_capability=fake_reload_capability,
         ),
         "backend.app.services.model_route_slot_registry": types.SimpleNamespace(
             ModelRouteSlotRegistry=FakeModelRouteSlotRegistry,

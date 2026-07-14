@@ -1,3 +1,4 @@
+import asyncio
 from pathlib import Path
 import sys
 from types import SimpleNamespace
@@ -137,6 +138,66 @@ async def test_seed_only_request_activation_uses_thread_bridge(tmp_path, monkeyp
     assert response is None
     assert len(calls) == 1
     assert calls[0][2]["capability_code"] == "sample_capability"
+
+
+@pytest.mark.asyncio
+async def test_request_activation_is_singleflight_and_skips_thread_after_ready(
+    tmp_path,
+    monkeypatch,
+):
+    _write_test_capability(tmp_path)
+    monkeypatch.setenv("CAPABILITY_API_ACTIVATION_POLICY", "seed_only")
+
+    app = FastAPI()
+    app.state.capability_activation_service = FakeActivationService()
+    seed_capability_api_descriptors(
+        app=app,
+        remote_capabilities_dir=tmp_path,
+        enable_all=True,
+    )
+    release = asyncio.Event()
+    calls = []
+
+    async def delayed_to_thread(func, *args, **kwargs):
+        calls.append((func, args, kwargs))
+        await release.wait()
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr(
+        capability_activation_middleware.asyncio,
+        "to_thread",
+        delayed_to_thread,
+    )
+    request = SimpleNamespace(
+        method="GET",
+        app=app,
+        url=SimpleNamespace(path="/lazy/sample/ping"),
+    )
+
+    waiters = [
+        asyncio.create_task(
+            capability_activation_middleware.ensure_capability_activation_for_request(
+                request
+            )
+        )
+        for _ in range(20)
+    ]
+    for _ in range(10):
+        await asyncio.sleep(0)
+        if calls:
+            break
+
+    assert len(calls) == 1
+    release.set()
+    assert await asyncio.gather(*waiters) == [None] * 20
+
+    assert (
+        await capability_activation_middleware.ensure_capability_activation_for_request(
+            request
+        )
+        is None
+    )
+    assert len(calls) == 1
 
 
 def test_activation_retries_when_descriptor_key_is_stale(tmp_path, monkeypatch):
