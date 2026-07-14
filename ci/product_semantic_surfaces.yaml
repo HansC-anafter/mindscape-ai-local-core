@@ -337,6 +337,8 @@ surfaces:
       - scripts/remote_workbench_remote_ingress_lock.py
       - backend/tests/scripts/remote_workbench_bridge_activation_spec.py
       - backend/tests/scripts/remote_workbench_origin_topology_spec.py
+      - backend/tests/scripts/remote_workbench_origin_reconcile_spec.py
+      - backend/tests/scripts/remote_workbench_origin_test_support.py
       - backend/tests/scripts/remote_workbench_remote_ingress_spec.py
       - backend/tests/scripts/remote_workbench_tunnel_token_identity_spec.py
 
