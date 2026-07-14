@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Protocol
+from urllib.parse import urlsplit
 
 
 MOTION_REFERENCE_PROFILE_ARTIFACT_CONTRACT = "motion_reference_profile_artifact.v1"
@@ -21,6 +23,10 @@ INDEPENDENT_REFERENCE_PROVENANCE = frozenset(
         "independent_reference_asset",
     }
 )
+BILIBILI_VIDEO_HOSTS = frozenset(
+    {"bilibili.com", "www.bilibili.com", "m.bilibili.com"}
+)
+BILIBILI_VIDEO_PATH = re.compile(r"^/video/(?P<bvid>BV[0-9A-Za-z]+)/?$")
 
 
 class MotionReferenceProfileArtifactError(RuntimeError):
@@ -76,6 +82,23 @@ def _required_text(value: Any, reason: str) -> str:
     text = str(value or "").strip()
     if not text:
         raise MotionReferenceProfileArtifactError(reason)
+    return text
+
+
+def canonical_motion_reference_source_ref(value: Any) -> str:
+    """Collapse provider tracking URLs into one stable media identity."""
+
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    try:
+        parsed = urlsplit(text)
+    except ValueError:
+        return text
+    hostname = str(parsed.hostname or "").lower()
+    path_match = BILIBILI_VIDEO_PATH.fullmatch(parsed.path)
+    if parsed.scheme in {"http", "https"} and hostname in BILIBILI_VIDEO_HOSTS and path_match:
+        return f"https://www.bilibili.com/video/{path_match.group('bvid')}/"
     return text
 
 
@@ -165,7 +188,7 @@ def _validate_profile(path: Path) -> tuple[str, str | None, int]:
             raise MotionReferenceProfileArtifactError(
                 "motion_reference_profile_features_invalid"
             )
-    source_ref = str(profile.get("source_ref") or "").strip() or None
+    source_ref = canonical_motion_reference_source_ref(profile.get("source_ref")) or None
     return profile_id, source_ref, len(chapters)
 
 
@@ -200,7 +223,7 @@ def resolve_motion_reference_profile_artifact(
         raise MotionReferenceProfileArtifactError(
             "motion_reference_profile_artifact_identity_mismatch"
         )
-    declared_source_ref = str(metadata.get("source_ref") or "").strip()
+    declared_source_ref = canonical_motion_reference_source_ref(metadata.get("source_ref"))
     if not declared_source_ref or declared_source_ref != source_ref:
         raise MotionReferenceProfileArtifactError(
             "motion_reference_profile_artifact_source_mismatch"
@@ -222,7 +245,7 @@ def resolve_selected_motion_reference_profile(
     source_ref: str | None,
 ) -> ResolvedMotionReferenceProfile | None:
     selected_artifact_id = str(artifact_id or "").strip()
-    selected_source_ref = str(source_ref or "").strip()
+    selected_source_ref = canonical_motion_reference_source_ref(source_ref)
     if selected_artifact_id:
         resolved = resolve_motion_reference_profile_artifact(
             artifact_store=artifact_store,
@@ -262,6 +285,7 @@ __all__ = [
     "MOTION_REFERENCE_PROFILE_ARTIFACT_CONTRACT",
     "MotionReferenceProfileArtifactError",
     "ResolvedMotionReferenceProfile",
+    "canonical_motion_reference_source_ref",
     "resolve_motion_reference_profile_artifact",
     "resolve_selected_motion_reference_profile",
 ]
