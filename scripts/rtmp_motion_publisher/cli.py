@@ -148,6 +148,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="0 means retry until the publisher is stopped.",
     )
     parser.add_argument(
+        "--source-wait-timeout-sec",
+        type=float,
+        default=0.0,
+        help="Maximum initial publisher wait; 0 is bounded only by explicit stop.",
+    )
+    parser.add_argument(
         "--stream-gap-holdover-sec",
         type=float,
         default=DEFAULT_STREAM_GAP_HOLDOVER_SEC,

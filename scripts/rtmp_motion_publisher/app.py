@@ -16,48 +16,15 @@ from .guidance import BackgroundMotionWindowSender, GuidanceSocket
 from .pose import PoseDetector, pose_sample_from_result
 from .reference_profile import load_motion_reference_profile
 from .reference_alignment import LiveReferenceAlignmentMatcher
+from .receiver_health import (
+    public_reference_alignment_status as _public_reference_alignment_status,
+    receiver_metrics as _receiver_metrics,
+)
 from .receiver_state import transition_receiver_state
+from .source_acquisition import acquire_initial_stream as _acquire_initial_stream
 from .source_uri import public_input_uri
 from .stream_cost import start_stream_cost_tracking
 from .windows import MotionWindowAccumulator, PendingMotionWindow, PoseSample
-
-
-def _public_reference_alignment_status(
-    summary: dict[str, Any] | None,
-) -> dict[str, Any] | None:
-    if not isinstance(summary, dict):
-        return None
-    metadata = summary.get("metadata")
-    if not isinstance(metadata, dict):
-        return None
-    alignment = metadata.get("reference_alignment")
-    if not isinstance(alignment, dict):
-        return None
-    allowed_keys = (
-        "chapter_id",
-        "reference_window_index",
-        "score",
-        "localization_score",
-        "confidence",
-        "verdict",
-        "localization_ready",
-        "selection_mode",
-        "sequence_history_size",
-        "global_candidate_chapter_id",
-        "global_candidate_score",
-        "full_sequence_candidate_chapter_id",
-        "full_sequence_candidate_score",
-        "local_candidate_chapter_id",
-        "local_candidate_score",
-        "previous_chapter_candidate_chapter_id",
-        "previous_chapter_candidate_score",
-        "ordered_transition_supported",
-        "pending_transition_chapter_id",
-        "pending_transition_count",
-        "pending_relock_chapter_id",
-        "pending_relock_count",
-    )
-    return {key: alignment[key] for key in allowed_keys if key in alignment}
 
 
 def _try_emit_rollup(
@@ -83,35 +50,6 @@ def _try_emit_rollup(
             }
         )
         return None
-
-
-def _receiver_metrics(
-    *,
-    attempted_windows: int,
-    sender_stats: dict[str, Any],
-    reconnect_attempts: int,
-    last_window_summary: dict[str, Any] | None,
-) -> dict[str, Any]:
-    alignment = _public_reference_alignment_status(last_window_summary)
-    return {
-        "attempted_windows": attempted_windows,
-        "accepted_windows": sender_stats.get("accepted_windows", 0),
-        "rejected_windows": sender_stats.get("rejected_windows", 0),
-        "failed_windows": sender_stats.get("failed_windows", 0),
-        "append_queue_pending": sender_stats.get("append_queue_pending", 0),
-        "reconnect_attempts": reconnect_attempts,
-        "last_window_end_ms": (
-            last_window_summary.get("ts_end_ms")
-            if last_window_summary is not None
-            else None
-        ),
-        "reference_chapter_id": (
-            alignment.get("chapter_id") if alignment is not None else None
-        ),
-        "reference_localization_ready": (
-            alignment.get("localization_ready") if alignment is not None else None
-        ),
-    }
 
 
 def run_receiver(args: Any) -> int:
@@ -151,23 +89,19 @@ def run_receiver(args: Any) -> int:
     signal.signal(signal.SIGINT, handle_stop)
     signal.signal(signal.SIGTERM, handle_stop)
 
-    capture = open_stream_capture(args)
+    initial_stream = _acquire_initial_stream(
+        args,
+        should_stop=lambda: stop_requested,
+        open_capture=open_stream_capture,
+        emit_event=emit,
+        transition_state=transition_receiver_state,
+        monotonic=time.monotonic,
+        sleep=time.sleep,
+    )
+    if initial_stream is None:
+        return 0 if stop_requested else 2
+    capture, first_frame, initial_reconnect_attempts = initial_stream
     input_uri = public_input_uri(args.rtmp_url)
-    if not capture.isOpened():
-        emit({"event": "stream_open_failed", "input_uri": input_uri})
-        capture.release()
-        return 2
-    first_frame_ok, first_frame = capture.read()
-    if not first_frame_ok:
-        emit(
-            {
-                "event": "stream_open_failed",
-                "input_uri": input_uri,
-                "reason": "initial_frame_unavailable",
-            }
-        )
-        capture.release()
-        return 2
     stream_cost_tracker = start_stream_cost_tracking(args, first_frame)
     emit(
         {
@@ -238,7 +172,7 @@ def run_receiver(args: Any) -> int:
     last_window_summary: dict[str, Any] | None = None
     last_rollup: dict[str, Any] | None = None
     consecutive_read_failures = 0
-    reconnect_attempts = 0
+    reconnect_attempts = initial_reconnect_attempts
     last_pose_sample: PoseSample | None = None
     last_real_frame_at: float | None = None
     pending_first_frame: Any | None = first_frame

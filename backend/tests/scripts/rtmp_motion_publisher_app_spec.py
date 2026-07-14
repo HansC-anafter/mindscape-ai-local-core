@@ -93,6 +93,7 @@ def _args() -> Namespace:
         stream_read_failure_threshold=3,
         stream_reconnect_backoff_sec=1.0,
         stream_reconnect_max_attempts=0,
+        source_wait_timeout_sec=0.0,
         stream_gap_holdover_sec=0.0,
         stream_gap_holdover_confidence_cap=0.0,
         disable_guidance_ws=True,
@@ -160,13 +161,21 @@ def test_public_reference_alignment_status_is_bounded() -> None:
 
 
 def test_stream_open_failure_does_not_register_live_session(monkeypatch) -> None:
-    capture = ClosedCapture()
+    captures: list[ClosedCapture] = []
     events: list[dict] = []
     registered: list[Namespace] = []
+    args = _args()
+    args.stream_reconnect_max_attempts = 1
+    args.stream_reconnect_backoff_sec = 0.0
 
-    monkeypatch.setattr(publisher_app, "parse_args", _args)
-    monkeypatch.setattr(publisher_app, "open_stream_capture", lambda _args: capture)
+    monkeypatch.setattr(publisher_app, "parse_args", lambda: args)
+    monkeypatch.setattr(
+        publisher_app,
+        "open_stream_capture",
+        lambda _args: captures.append(ClosedCapture()) or captures[-1],
+    )
     monkeypatch.setattr(publisher_app, "emit", events.append)
+    monkeypatch.setattr(publisher_app, "transition_receiver_state", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
         publisher_app,
         "register_live_session",
@@ -174,24 +183,33 @@ def test_stream_open_failure_does_not_register_live_session(monkeypatch) -> None
     )
 
     assert publisher_app.main() == 2
-    assert capture.released is True
+    assert len(captures) == 2
+    assert all(capture.released for capture in captures)
     assert registered == []
-    assert events == [
-        {
-            "event": "stream_open_failed",
-            "input_uri": "rtmp://example.invalid/external-camera",
-        }
+    assert [event["event"] for event in events] == [
+        "stream_open_failed",
+        "stream_reconnect_started",
+        "stream_open_failed",
+        "stream_reconnect_give_up",
     ]
 
 
 def test_initial_frame_failure_does_not_register_live_session(monkeypatch) -> None:
-    capture = StalledCapture()
+    captures: list[StalledCapture] = []
     events: list[dict] = []
     registered: list[Namespace] = []
+    args = _args()
+    args.stream_reconnect_max_attempts = 1
+    args.stream_reconnect_backoff_sec = 0.0
 
-    monkeypatch.setattr(publisher_app, "parse_args", _args)
-    monkeypatch.setattr(publisher_app, "open_stream_capture", lambda _args: capture)
+    monkeypatch.setattr(publisher_app, "parse_args", lambda: args)
+    monkeypatch.setattr(
+        publisher_app,
+        "open_stream_capture",
+        lambda _args: captures.append(StalledCapture()) or captures[-1],
+    )
     monkeypatch.setattr(publisher_app, "emit", events.append)
+    monkeypatch.setattr(publisher_app, "transition_receiver_state", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
         publisher_app,
         "register_live_session",
@@ -199,15 +217,61 @@ def test_initial_frame_failure_does_not_register_live_session(monkeypatch) -> No
     )
 
     assert publisher_app.main() == 2
-    assert capture.reads == 1
-    assert capture.released is True
+    assert len(captures) == 2
+    assert all(capture.reads == 1 for capture in captures)
+    assert all(capture.released for capture in captures)
     assert registered == []
-    assert events == [
-        {
-            "event": "stream_open_failed",
-            "input_uri": "rtmp://example.invalid/external-camera",
-            "reason": "initial_frame_unavailable",
-        }
+    assert [event["event"] for event in events] == [
+        "stream_open_failed",
+        "stream_reconnect_started",
+        "stream_open_failed",
+        "stream_reconnect_give_up",
+    ]
+
+
+def test_initial_stream_wait_recovers_when_publisher_arrives(monkeypatch) -> None:
+    stalled = StalledCapture()
+
+    class ReadyCapture:
+        def isOpened(self) -> bool:
+            return True
+
+        def read(self):
+            return True, "first-frame"
+
+        def release(self) -> None:
+            return None
+
+    ready = ReadyCapture()
+    captures = iter((stalled, ready))
+    args = _args()
+    args.stream_reconnect_backoff_sec = 0.0
+    events: list[dict] = []
+    states: list[str] = []
+    monkeypatch.setattr(publisher_app, "open_stream_capture", lambda _args: next(captures))
+    monkeypatch.setattr(publisher_app, "emit", events.append)
+    monkeypatch.setattr(
+        publisher_app,
+        "transition_receiver_state",
+        lambda _args, state, **_kwargs: states.append(state),
+    )
+
+    acquired = publisher_app._acquire_initial_stream(
+        args,
+        should_stop=lambda: False,
+        open_capture=publisher_app.open_stream_capture,
+        emit_event=publisher_app.emit,
+        transition_state=publisher_app.transition_receiver_state,
+        monotonic=publisher_app.time.monotonic,
+        sleep=publisher_app.time.sleep,
+    )
+
+    assert acquired == (ready, "first-frame", 1)
+    assert stalled.released is True
+    assert states == ["waiting_source"]
+    assert [event["event"] for event in events] == [
+        "stream_open_failed",
+        "stream_reconnect_started",
     ]
 
 
@@ -296,7 +360,7 @@ def test_receiver_flushes_partial_terminal_window_before_final_rollup(monkeypatc
         def cleanup_transient_frames(self) -> None:
             return None
 
-    ticks = iter((0.0, 0.6, 1.2, 1.8, 2.4, 3.0))
+    ticks = iter((0.0, 0.0, 0.6, 1.2, 1.8, 2.4, 3.0))
     args = _args()
     args.duration_sec = 1.5
     args.window_sec = 10.0

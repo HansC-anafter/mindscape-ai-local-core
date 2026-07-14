@@ -180,6 +180,8 @@ def _build_receiver_args(
         evidence_storage,
         "--stream-reconnect-max-attempts",
         "0",
+        "--source-wait-timeout-sec",
+        str(remaining_sec),
     ]
     reference_url = str(descriptor.get("reference_url") or "").strip()
     if reference_url:
