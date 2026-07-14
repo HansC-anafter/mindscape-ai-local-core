@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -153,15 +154,29 @@ def postgres_status() -> dict[str, Any]:
 
 def run_pg_basebackup(base_id: str, wal_root: Path, timeout_seconds: int) -> dict[str, Any]:
     container_base = f"{WAL_ARCHIVE_CONTAINER_DIR}/base_backups/{base_id}"
+    partial_base = f"{container_base}.partial"
+    client_pid_file = f"{partial_base}/.pg_basebackup-client.pid"
+    lock_file = f"{WAL_ARCHIVE_CONTAINER_DIR}/.pg_basebackup.lock"
     command = (
-        "set -e; "
-        f"rm -rf {container_base}.partial {container_base}; "
-        f"mkdir -p {container_base}.partial; "
-        f"pg_basebackup -U \"${{POSTGRES_USER:-mindscape}}\" -D {container_base}.partial -Fp -Xs -P -c fast; "
-        f"mv {container_base}.partial {container_base}"
+        "set -eu; "
+        "command -v flock >/dev/null; "
+        f"exec 9>{lock_file}; "
+        "flock -n 9 || { echo 'postgres_basebackup_already_running' >&2; exit 73; }; "
+        f"rm -rf {partial_base} {container_base}; "
+        f"mkdir -p {partial_base}; "
+        f"pg_basebackup -U \"${{POSTGRES_USER:-mindscape}}\" -D {partial_base} -Fp -Xs -P -c fast & "
+        "backup_client_pid=$!; "
+        f"printf '%s\\n' \"$backup_client_pid\" > {client_pid_file}; "
+        "wait \"$backup_client_pid\"; "
+        f"rm -f {client_pid_file}; "
+        f"mv {partial_base} {container_base}"
     )
     cmd = ["docker", "exec", "mindscape-ai-local-core-postgres", "sh", "-lc", command]
-    output = run_text(cmd, timeout=timeout_seconds)
+    try:
+        output = run_text(cmd, timeout=timeout_seconds)
+    except (KeyboardInterrupt, subprocess.TimeoutExpired):
+        _terminate_marked_basebackup_client(client_pid_file, partial_base)
+        raise
     host_base_dir = wal_root / "base_backups" / base_id
     manifest = {
         "base_backup_id": base_id,
@@ -175,6 +190,48 @@ def run_pg_basebackup(base_id: str, wal_root: Path, timeout_seconds: int) -> dic
     }
     write_json(base_manifest_path(host_base_dir), manifest)
     return manifest
+
+
+def _terminate_marked_basebackup_client(client_pid_file: str, partial_base: str) -> None:
+    """Terminate only the client PID written by this backup invocation.
+
+    PostgreSQL exposes a server-side base-backup backend with a similar process
+    name.  PID discovery from process listings can therefore terminate the
+    database itself.  Cleanup is deliberately marker-bound and validates the
+    marked process command before sending any signal.
+    """
+
+    cleanup = (
+        "set -eu; "
+        f"test -r {client_pid_file}; "
+        f"backup_client_pid=$(cat {client_pid_file}); "
+        "case \"$backup_client_pid\" in ''|*[!0-9]*) exit 64;; esac; "
+        "test -r \"/proc/$backup_client_pid/cmdline\"; "
+        "backup_client_cmd=$(tr '\\000' ' ' < \"/proc/$backup_client_pid/cmdline\"); "
+        "case \"$backup_client_cmd\" in pg_basebackup\\ *|*/pg_basebackup\\ *) ;; *) exit 65;; esac; "
+        "kill -TERM \"$backup_client_pid\"; "
+        "attempt=0; "
+        "while kill -0 \"$backup_client_pid\" 2>/dev/null && test \"$attempt\" -lt 10; do "
+        "sleep 1; attempt=$((attempt + 1)); "
+        "done; "
+        "if kill -0 \"$backup_client_pid\" 2>/dev/null; then "
+        "backup_client_cmd=$(tr '\\000' ' ' < \"/proc/$backup_client_pid/cmdline\"); "
+        "case \"$backup_client_cmd\" in pg_basebackup\\ *|*/pg_basebackup\\ *) "
+        "kill -KILL \"$backup_client_pid\";; *) exit 66;; esac; "
+        "fi; "
+        f"rm -rf {partial_base}"
+    )
+    run_text(
+        [
+            "docker",
+            "exec",
+            "mindscape-ai-local-core-postgres",
+            "sh",
+            "-lc",
+            cleanup,
+        ],
+        timeout=20,
+    )
 
 
 def switch_wal() -> None:
