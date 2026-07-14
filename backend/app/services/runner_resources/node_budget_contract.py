@@ -185,14 +185,17 @@ def resolve_browser_request_bytes(
         )
     except (TypeError, ValueError):
         startup_mb = 0
-    peak_mb = max(explicit_mb, startup_mb)
-    if peak_mb > 0:
-        request_source = (
-            "playbook_peak_profile"
-            if startup_mb > explicit_mb
-            else "playbook_profile"
-        )
-        return peak_mb * 1024 * 1024, request_source
+    # The VM-wide node budget owns bytes retained for the complete task
+    # lifetime.  A measured runtime profile is therefore the authoritative
+    # reservation when one exists.  The larger cold-start peak is transient
+    # and remains guarded independently by browser_startup_gate.
+    if explicit_mb > 0:
+        return explicit_mb * 1024 * 1024, "playbook_steady_profile"
+    if startup_mb > 0:
+        # Fail closed when the playbook has a startup measurement but no
+        # steady-state measurement: retaining the startup peak for the full
+        # lifetime is safer than inventing a smaller runtime reservation.
+        return startup_mb * 1024 * 1024, "playbook_startup_fallback"
 
     observed_floor_mb = _env_mb(
         "LOCAL_CORE_RUNNER_BROWSER_UNMEASURED_RESERVATION_MB",

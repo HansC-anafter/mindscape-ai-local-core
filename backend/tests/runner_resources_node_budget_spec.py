@@ -66,7 +66,7 @@ def test_unknown_browser_request_fails_closed_even_with_finite_limit():
     )
 
 
-def test_browser_request_reserves_playbook_peak_for_full_task_lifetime():
+def test_browser_request_reserves_playbook_steady_state_for_task_lifetime():
     requirements = SimpleNamespace(
         memory_mb=1920,
         browser_startup_memory_mb=3520,
@@ -75,7 +75,19 @@ def test_browser_request_reserves_playbook_peak_for_full_task_lifetime():
         requirements,
         _snapshot(limit_mb=None),
         environ={},
-    ) == (3520 * MIB, "playbook_peak_profile")
+    ) == (1920 * MIB, "playbook_steady_profile")
+
+
+def test_browser_request_uses_startup_peak_as_fail_closed_lifetime_fallback():
+    requirements = SimpleNamespace(
+        memory_mb=0,
+        browser_startup_memory_mb=3520,
+    )
+    assert resolve_browser_request_bytes(
+        requirements,
+        _snapshot(limit_mb=None),
+        environ={},
+    ) == (3520 * MIB, "playbook_startup_fallback")
 
 
 def test_unmeasured_browser_request_uses_observed_floor_when_configured():
@@ -136,6 +148,49 @@ async def test_budget_derives_active_count_from_bytes_and_is_idempotent():
     assert snapshot["active_reservations"] == 4
     assert snapshot["reserved_bytes"] == 12000 * MIB
     assert snapshot["policy_fingerprint"] == policy.fingerprint
+
+
+@pytest.mark.asyncio
+async def test_steady_state_budget_admits_five_post_detail_tasks_not_six():
+    policy = resolve_node_budget_policy(
+        _snapshot(limit_mb=None),
+        environ={
+            "LOCAL_CORE_RUNNER_NODE_VM_OVERHEAD_PEAK_MB": "1374",
+            "LOCAL_CORE_RUNNER_NODE_NON_BROWSER_PEAK_MB": "3221",
+            "LOCAL_CORE_RUNNER_NODE_BROWSER_IDLE_PEAK_MB": "1034",
+        },
+    )
+    request = resolve_browser_request_bytes(
+        SimpleNamespace(memory_mb=1920, browser_startup_memory_mb=3520),
+        _snapshot(limit_mb=None),
+        environ={},
+    )
+    assert request == (1920 * MIB, "playbook_steady_profile")
+    request_bytes, _request_source = request
+    store = InMemoryNodeBudgetStore(now_epoch=100)
+
+    decisions = []
+    for index in range(6):
+        decisions.append(
+            await store.acquire(
+                owner_id=f"runner-{index}:post-detail-{index}",
+                request_bytes=request_bytes,
+                policy=policy,
+                profile_fingerprint=f"post-detail-{index}",
+                ttl_seconds=30,
+            )
+        )
+
+    assert [item.allow for item in decisions] == [
+        True,
+        True,
+        True,
+        True,
+        True,
+        False,
+    ]
+    assert decisions[-1].reason == "node_budget_exhausted"
+    assert (await store.snapshot())["reserved_bytes"] == 5 * 1920 * MIB
 
 
 @pytest.mark.asyncio

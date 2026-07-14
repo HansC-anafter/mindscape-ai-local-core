@@ -332,9 +332,17 @@ async def acquire_task_resource_admission(
                     and resolved_request_source == "observed_unmeasured_floor"
                 )
                 else (
-                    "measured_peak_reservation"
-                    if node_reservation is not None
-                    else "unmeasured_no_reservation"
+                    "measured_startup_fallback_reservation"
+                    if (
+                        node_reservation is not None
+                        and resolved_request_source
+                        == "playbook_startup_fallback"
+                    )
+                    else (
+                        "measured_steady_reservation"
+                        if node_reservation is not None
+                        else "unmeasured_no_reservation"
+                    )
                 )
             ),
             "node_policy_fingerprint": (

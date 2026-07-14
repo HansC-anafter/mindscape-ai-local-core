@@ -78,10 +78,10 @@ def resolve_browser_startup_slot_count(
 ) -> int:
     """Resolve bounded VM-wide startup slots from measured byte headroom.
 
-    The node budget already reserves the full startup peak for the complete task
-    lifetime. These short-lived slots only prevent a same-second launch stampede;
-    they must not collapse every independently reserved browser task into one
-    global serial lane.
+    The node budget reserves measured steady-state bytes for the complete task
+    lifetime. These short-lived slots independently guard the transient startup
+    peak and prevent a same-second launch stampede; they must not collapse every
+    independently reserved browser task into one global serial lane.
     """
     source = environ if environ is not None else os.environ
     configured = _positive_int(
