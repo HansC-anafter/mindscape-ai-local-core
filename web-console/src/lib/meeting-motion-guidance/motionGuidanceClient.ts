@@ -92,6 +92,101 @@ function resolveHttpBase(apiBase: string): string {
   return trimTrailingSlash(apiBase || getBrowserOrigin()) || getBrowserOrigin();
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function readString(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function readNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+const COMPACT_GUIDANCE_METADATA_KEYS = [
+  'dwpose_node_deltas',
+  'sway_metrics',
+  'phase_metrics',
+] as const;
+
+const COMPACT_GUIDANCE_SEVERITY_WEIGHT: Record<string, number> = {
+  red: 4,
+  error: 4,
+  yellow: 3,
+  amber: 3,
+  warning: 3,
+  green: 1,
+  info: 1,
+};
+
+function compactGuidanceScore(record: Record<string, unknown>, index: number): number {
+  const severity = readString(record.severity).toLowerCase();
+  const severityScore = COMPACT_GUIDANCE_SEVERITY_WEIGHT[severity] || 0;
+  const deltaScore = readNumber(record.delta_score) || 0;
+  return severityScore * 10 + deltaScore - index / 1000;
+}
+
+function compactGuidanceText(record: Record<string, unknown>): string {
+  const guidance = readString(record.guidance);
+  const finding = readString(record.finding);
+  const text = guidance || finding;
+  if (!text) {
+    return '';
+  }
+  const label = readString(record.node_label)
+    || readString(record.axis)
+    || readString(record.phase);
+  return label ? `${label}: ${text}` : text;
+}
+
+function deriveCompactGuidanceFindings(summary: MotionWindowSummary): string[] {
+  const seen = new Set<string>();
+  const addUnique = (values: string[], value: string) => {
+    const trimmed = value.trim();
+    if (!trimmed || seen.has(trimmed)) {
+      return;
+    }
+    seen.add(trimmed);
+    values.push(trimmed);
+  };
+  const derived: Array<{ text: string; score: number }> = [];
+  let index = 0;
+  for (const key of COMPACT_GUIDANCE_METADATA_KEYS) {
+    const entries = summary.metadata[key];
+    if (!Array.isArray(entries)) {
+      continue;
+    }
+    for (const entry of entries) {
+      if (!isRecord(entry)) {
+        continue;
+      }
+      const text = compactGuidanceText(entry);
+      if (!text) {
+        continue;
+      }
+      derived.push({ text, score: compactGuidanceScore(entry, index) });
+      index += 1;
+    }
+  }
+  derived.sort((left, right) => right.score - left.score);
+
+  const findings: string[] = [];
+  for (const item of derived) {
+    addUnique(findings, item.text);
+    if (findings.length >= 5) {
+      return findings;
+    }
+  }
+  for (const finding of summary.findings) {
+    addUnique(findings, finding);
+    if (findings.length >= 5) {
+      break;
+    }
+  }
+  return findings;
+}
+
 export function buildMotionGuidanceWebSocketUrl({
   apiBase,
   workspaceId,
@@ -159,7 +254,7 @@ export function buildMotionGuidanceWindowEvent({
     liveSessionId,
     motionWindowRef,
     confidence: typeof meanConfidence === 'number' ? meanConfidence : null,
-    findings: summary.findings,
+    findings: deriveCompactGuidanceFindings(summary),
     summary,
   };
 }

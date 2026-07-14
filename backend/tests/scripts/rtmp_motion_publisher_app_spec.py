@@ -76,6 +76,7 @@ def _args() -> Namespace:
         max_window_refs=100,
         model_asset_path=None,
         api_timeout_sec=1.0,
+        rollup_api_timeout_sec=30.0,
         api_retry_count=1,
         api_retry_backoff_sec=0.0,
         append_queue_max_size=8,
@@ -147,5 +148,32 @@ def test_initial_frame_failure_does_not_register_live_session(monkeypatch) -> No
             "event": "stream_open_failed",
             "input_uri": "rtmp://example.invalid/external-camera",
             "reason": "initial_frame_unavailable",
+        }
+    ]
+
+
+def test_rollup_failure_is_reported_without_escaping_receiver(monkeypatch) -> None:
+    events: list[dict] = []
+    monkeypatch.setattr(publisher_app, "emit", events.append)
+    monkeypatch.setattr(
+        publisher_app,
+        "emit_rollup",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(TimeoutError("slow rollup")),
+    )
+
+    result = publisher_app._try_emit_rollup(
+        _args(),
+        "motion-one",
+        motion_reference_profile=None,
+        failure_event="periodic_rollup_failed",
+    )
+
+    assert result is None
+    assert events == [
+        {
+            "event": "periodic_rollup_failed",
+            "live_session_id": "motion-one",
+            "error_type": "TimeoutError",
+            "error": "slow rollup",
         }
     ]

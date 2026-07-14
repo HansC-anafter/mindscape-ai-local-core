@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import test from "node:test";
@@ -8,6 +8,7 @@ import test from "node:test";
 import {
     parseLiveMediaReceiverDescriptor,
     receiverStateAfterSpawn,
+    resolveMotionReferenceProfilePath,
     stopLiveMediaReceiver,
 } from "./live-media-receiver.js";
 
@@ -60,6 +61,57 @@ test("rejects expired credentials before spawning a process", () => {
     assert.throws(
         () => parseLiveMediaReceiverDescriptor(input),
         /receiver_descriptor_expired/,
+    );
+});
+
+test("maps a workspace-owned profile storage ref to the host data root", () => {
+    const dataRoot = mkdtempSync(path.join(tmpdir(), "live-media-reference-profile-"));
+    const previousDataRoot = process.env.LOCAL_CORE_DATA_HOST_DIR;
+    try {
+        process.env.LOCAL_CORE_DATA_HOST_DIR = dataRoot;
+        const profilePath = path.join(
+            dataRoot,
+            "workspaces/workspace-one/artifacts/yogacoach/reference-profiles/reference.json",
+        );
+        mkdirSync(path.dirname(profilePath), { recursive: true });
+        writeFileSync(profilePath, "{}\n");
+        const input = descriptor();
+        input.motion_reference_profile = {
+            artifact_id: "artifact-one",
+            storage_ref: (
+                "/app/data/workspaces/workspace-one/artifacts/yogacoach/"
+                + "reference-profiles/reference.json"
+            ),
+            reference_profile_id: "reference-one",
+        };
+
+        const parsed = parseLiveMediaReceiverDescriptor(input);
+
+        assert.equal(
+            resolveMotionReferenceProfilePath(process.cwd(), parsed),
+            realpathSync(profilePath),
+        );
+    } finally {
+        if (previousDataRoot === undefined) delete process.env.LOCAL_CORE_DATA_HOST_DIR;
+        else process.env.LOCAL_CORE_DATA_HOST_DIR = previousDataRoot;
+        rmSync(dataRoot, { recursive: true, force: true });
+    }
+});
+
+test("rejects a profile storage ref outside the receiver workspace", () => {
+    const input = descriptor();
+    input.motion_reference_profile = {
+        artifact_id: "artifact-one",
+        storage_ref: (
+            "/app/data/workspaces/workspace-other/artifacts/yogacoach/"
+            + "reference-profiles/reference.json"
+        ),
+        reference_profile_id: "reference-one",
+    };
+
+    assert.throws(
+        () => parseLiveMediaReceiverDescriptor(input),
+        /motion_reference_profile_storage_ref_invalid/,
     );
 });
 

@@ -110,4 +110,55 @@ describe('motionGuidanceClient', () => {
       findings: ['Shift weight back over the standing foot.'],
     });
   });
+
+  it('derives actionable guidance from compact motion metric metadata', () => {
+    const event = buildMotionGuidanceWindowEvent({
+      liveSessionId: 'lms_motion',
+      motionWindowRef: 'window_ref',
+      summary: {
+        window_id: 'window_2',
+        live_session_id: 'lms_motion',
+        ts_start_ms: 2000,
+        ts_end_ms: 4000,
+        skeleton_family: 'mediapipe_pose_33',
+        confidence_stats: { mean_confidence: 0.91 },
+        scores: {},
+        findings: [],
+        keypoint_frame_count: 20,
+        metadata: {
+          source: 'test',
+          dwpose_node_deltas: [
+            {
+              node_label: 'Shoulder line',
+              severity: 'green',
+              delta_score: 0.25,
+              finding: 'Shoulder line tilted with the right side lower than the left.',
+              guidance: 'Level both shoulders before holding the pose.',
+            },
+            {
+              node_label: 'Knee line',
+              severity: 'red',
+              delta_score: 1,
+              finding: 'Knee line tilted with the right side lower than the left.',
+              guidance: 'Re-balance both knees before moving to the next phase.',
+            },
+          ],
+          sway_metrics: [
+            {
+              axis: 'left_right',
+              severity: 'yellow',
+              delta_score: 0.5,
+              guidance: 'Keep the body center stacked over the base before continuing.',
+            },
+          ],
+        },
+      },
+    });
+
+    expect(event.findings).toEqual([
+      'Knee line: Re-balance both knees before moving to the next phase.',
+      'left_right: Keep the body center stacked over the base before continuing.',
+      'Shoulder line: Level both shoulders before holding the pose.',
+    ]);
+  });
 });

@@ -15,10 +15,36 @@ from .evidence import LearnerVisualEvidenceRecorder
 from .guidance import BackgroundMotionWindowSender, GuidanceSocket
 from .pose import PoseDetector, pose_sample_from_result
 from .reference_profile import load_motion_reference_profile
+from .reference_alignment import LiveReferenceAlignmentMatcher
 from .receiver_state import transition_receiver_state
 from .source_uri import public_input_uri
 from .stream_cost import start_stream_cost_tracking
 from .windows import MotionWindowAccumulator, PendingMotionWindow, PoseSample
+
+
+def _try_emit_rollup(
+    args: Any,
+    live_session_id: str,
+    *,
+    motion_reference_profile: dict[str, Any] | None,
+    failure_event: str,
+) -> dict[str, Any] | None:
+    try:
+        return emit_rollup(
+            args,
+            live_session_id,
+            motion_reference_profile=motion_reference_profile,
+        )
+    except Exception as exc:
+        emit(
+            {
+                "event": failure_event,
+                "live_session_id": live_session_id,
+                "error_type": type(exc).__name__,
+                "error": str(exc)[:1000],
+            }
+        )
+        return None
 
 
 def run_receiver(args: Any) -> int:
@@ -39,6 +65,16 @@ def run_receiver(args: Any) -> int:
                 ],
             }
         )
+    reference_matcher = (
+        LiveReferenceAlignmentMatcher(
+            motion_reference_profile,
+            artifact_id=str(
+                getattr(args, "motion_reference_profile_artifact_id", "") or ""
+            ),
+        )
+        if motion_reference_profile is not None
+        else None
+    )
     stop_requested = False
 
     def handle_stop(_signum: int, _frame: Any) -> None:
@@ -148,6 +184,8 @@ def run_receiver(args: Any) -> int:
         if summary is None:
             return
         attempted_windows += 1
+        if reference_matcher is not None:
+            reference_matcher.annotate(summary)
         last_window_summary = summary
         evidence_recorder.capture_window(frame, summary)
         if sender is None:
@@ -314,11 +352,14 @@ def run_receiver(args: Any) -> int:
                 )
                 next_status_at = now + args.status_every_sec
             if args.rollup_every_sec > 0 and now >= next_rollup_at:
-                last_rollup = emit_rollup(
+                rollup_probe = _try_emit_rollup(
                     args,
                     live_session_id,
                     motion_reference_profile=motion_reference_profile,
+                    failure_event="periodic_rollup_failed",
                 )
+                if rollup_probe is not None:
+                    last_rollup = rollup_probe
                 next_rollup_at = now + args.rollup_every_sec
     finally:
         if stream_cost_tracker is not None:
@@ -329,11 +370,28 @@ def run_receiver(args: Any) -> int:
         if sender is not None:
             sender.close()
 
-    last_rollup = emit_rollup(
+    final_rollup = _try_emit_rollup(
         args,
         live_session_id,
         motion_reference_profile=motion_reference_profile,
+        failure_event="final_rollup_failed",
     )
+    if final_rollup is None:
+        evidence_recorder.cleanup_transient_frames()
+        sender_stats = sender.stats()
+        emit(
+            {
+                "event": "publisher_finished",
+                "live_session_id": live_session_id,
+                "attempted_windows": attempted_windows,
+                **sender_stats,
+                "final_rollup_ref": None,
+                "yogacoach_closeout": None,
+                "failure_reason": "final_rollup_failed",
+            }
+        )
+        return publisher_exit_code or 4
+    last_rollup = final_rollup
     learner_visual_evidence = evidence_recorder.finalize(last_rollup)
     closeout_result = emit_yogacoach_closeout(
         args,

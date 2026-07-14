@@ -6,6 +6,7 @@ from backend.app.services.host_services import capture_relay_proxy
 from backend.app.services.host_services.capture_relay_proxy import (
     CaptureRelayRequest,
     CaptureRelayUnavailable,
+    call_capture_relay_arguments,
     call_capture_relay_control,
 )
 
@@ -180,3 +181,37 @@ async def test_call_capture_relay_control_rejects_non_json_text(monkeypatch):
         await call_capture_relay_control(CaptureRelayRequest(action="status"))
 
     assert exc_info.value.reason == "capture_relay_invalid_json"
+
+
+@pytest.mark.asyncio
+async def test_receiver_start_timeout_includes_runtime_preflight_budget(monkeypatch):
+    captured: dict[str, object] = {}
+
+    async def fake_post_device_node_mcp(*, arguments, timeout_seconds):
+        captured["arguments"] = arguments
+        captured["timeout_seconds"] = timeout_seconds
+        return {
+            "content": [
+                {
+                    "type": "text",
+                    "text": (
+                        '{"schema_version":"live_media_receiver_control.v1",'
+                        '"status":"active","state":"analyzing"}'
+                    ),
+                }
+            ]
+        }
+
+    monkeypatch.setattr(
+        capture_relay_proxy,
+        "_post_device_node_mcp",
+        fake_post_device_node_mcp,
+    )
+
+    result = await call_capture_relay_arguments(
+        {"action": "receiver_start", "timeout_ms": 10000},
+        timeout_ms=10000,
+    )
+
+    assert result["status"] == "active"
+    assert captured["timeout_seconds"] == 30.0

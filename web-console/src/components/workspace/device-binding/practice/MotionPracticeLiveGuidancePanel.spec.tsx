@@ -174,6 +174,33 @@ describe('MotionPracticeLiveGuidancePanel', () => {
     await act(async () => {
       instances[0].onmessage?.({
         data: JSON.stringify({
+          type: 'guidance_suppressed',
+          workspace_id: 'ws_motion',
+          meeting_id: 'mtg_motion',
+          practice_session_id: 'session_1:live_guidance',
+          state: 'active',
+          cue_text: 'Shift weight back over the standing foot.',
+          cue_priority: 'correction',
+          reason: 'duplicate_cue',
+          message: 'Duplicate cue suppressed for the active practice session.',
+          recoverable: true,
+          speakable: false,
+        }),
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.getByTestId('motion-guidance-last-cue')).toHaveTextContent(
+      'Shift weight back over the standing foot.',
+    );
+    expect(screen.getByTestId('motion-guidance-last-cue')).not.toHaveTextContent(
+      'Duplicate cue suppressed',
+    );
+    expect(mocks.synthesizeXttsSpeech).not.toHaveBeenCalled();
+
+    await act(async () => {
+      instances[0].onmessage?.({
+        data: JSON.stringify({
           type: 'guidance_cue',
           workspace_id: 'ws_motion',
           meeting_id: 'mtg_motion',
@@ -189,6 +216,33 @@ describe('MotionPracticeLiveGuidancePanel', () => {
     });
     expect(mocks.synthesizeXttsSpeech).toHaveBeenCalledTimes(1);
     expect(mocks.enqueue).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('motion-guidance-last-cue')).toHaveTextContent(
+      'Shift weight back over the standing foot.',
+    );
+
+    await act(async () => {
+      instances[0].onmessage?.({
+        data: JSON.stringify({
+          type: 'guidance_suppressed',
+          workspace_id: 'ws_motion',
+          meeting_id: 'mtg_motion',
+          practice_session_id: 'session_1:live_guidance',
+          state: 'active',
+          reason: 'duplicate_cue',
+          message: 'Duplicate cue suppressed for the active practice session.',
+          recoverable: true,
+        }),
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.getByTestId('motion-guidance-last-cue')).toHaveTextContent(
+      'Shift weight back over the standing foot.',
+    );
+    expect(screen.getByTestId('motion-guidance-last-cue')).not.toHaveTextContent(
+      'Duplicate cue suppressed',
+    );
+    expect(mocks.synthesizeXttsSpeech).toHaveBeenCalledTimes(1);
 
     fireEvent.click(screen.getByTestId('motion-guidance-interrupt-button'));
     expect(mocks.interrupt).toHaveBeenCalled();

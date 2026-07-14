@@ -18,6 +18,7 @@ type StartLiveMediaReceiverInput = {
   coachPack: 'yogacoach' | 'dance_motion_coach';
   practiceMode: string;
   referenceUrl?: string;
+  motionReferenceProfileArtifactId?: string;
   userGoal?: string;
   expectedDurationMs?: number;
 };
@@ -44,6 +45,8 @@ export async function startLiveMediaReceiver(
         coach_pack: input.coachPack,
         practice_mode: input.practiceMode,
         reference_url: input.referenceUrl?.trim() || null,
+        motion_reference_profile_artifact_id:
+          input.motionReferenceProfileArtifactId?.trim() || null,
         user_goal: input.userGoal?.trim() || null,
         expected_duration_ms: Math.max(0, input.expectedDurationMs || 0),
       }),

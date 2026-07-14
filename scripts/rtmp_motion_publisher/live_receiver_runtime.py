@@ -78,6 +78,35 @@ def _evidence_paths(descriptor: dict[str, Any]) -> tuple[str, str]:
     return str(host_path), str(storage_path)
 
 
+def _motion_reference_profile_path(descriptor: dict[str, Any]) -> str:
+    profile = descriptor.get("motion_reference_profile")
+    if profile is None:
+        return ""
+    if not isinstance(profile, dict):
+        raise ValueError("motion_reference_profile_ref_invalid")
+    for name in ("artifact_id", "storage_ref", "reference_profile_id"):
+        _required(profile, name)
+    raw_path = _required(descriptor, "motion_reference_profile_path")
+    profile_path = Path(raw_path).resolve(strict=True)
+    data_root = Path(
+        os.environ.get("LOCAL_CORE_DATA_HOST_DIR")
+        or Path(__file__).resolve().parents[2] / "data"
+    ).resolve()
+    allowed_root = (
+        data_root
+        / "workspaces"
+        / _required(descriptor, "workspace_id")
+        / "artifacts/yogacoach/reference-profiles"
+    ).resolve()
+    try:
+        profile_path.relative_to(allowed_root)
+    except ValueError as exc:
+        raise ValueError("motion_reference_profile_path_outside_workspace") from exc
+    if not profile_path.is_file():
+        raise ValueError("motion_reference_profile_file_not_found")
+    return str(profile_path)
+
+
 def _build_receiver_args(
     descriptor: dict[str, Any],
     *,
@@ -90,6 +119,7 @@ def _build_receiver_args(
         expected_duration_ms / 1000.0 if expected_duration_ms else remaining_sec,
     )
     evidence_output, evidence_storage = _evidence_paths(descriptor)
+    motion_reference_profile_path = _motion_reference_profile_path(descriptor)
     arguments = [
         "--input-url",
         _authenticated_input_url(
@@ -128,6 +158,8 @@ def _build_receiver_args(
         "opencv",
         "--api-timeout-sec",
         "5",
+        "--rollup-api-timeout-sec",
+        "30",
         "--api-retry-count",
         "2",
         "--api-retry-backoff-sec",
@@ -144,6 +176,17 @@ def _build_receiver_args(
     reference_url = str(descriptor.get("reference_url") or "").strip()
     if reference_url:
         arguments.extend(["--yogacoach-reference-url", reference_url])
+    if motion_reference_profile_path:
+        arguments.extend(
+            ["--motion-reference-profile-path", motion_reference_profile_path]
+        )
+        profile_ref = descriptor.get("motion_reference_profile") or {}
+        arguments.extend(
+            [
+                "--motion-reference-profile-artifact-id",
+                _required(profile_ref, "artifact_id"),
+            ]
+        )
     user_goal = str(descriptor.get("user_goal") or "").strip()
     if user_goal:
         arguments.extend(["--user-goal", user_goal])

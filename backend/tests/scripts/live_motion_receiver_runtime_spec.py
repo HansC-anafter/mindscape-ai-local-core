@@ -84,6 +84,7 @@ def test_descriptor_builds_formal_rtsps_receiver_args(
     assert args.source_kind == "phone_camera"
     assert args.capture_backend == "opencv"
     assert args.api_timeout_sec == 5.0
+    assert args.rollup_api_timeout_sec == 30.0
     assert args.api_retry_count == 2
     assert args.append_queue_max_size == 32
     assert args.rtmp_url.startswith("rtsps://media.example.test:8322/live/path?")
@@ -94,6 +95,40 @@ def test_descriptor_builds_formal_rtsps_receiver_args(
     assert args.emit_yogacoach_summary is True
     assert args.materialize_practice_diary is True
     assert str(tmp_path / "runtime-data") in args.learner_evidence_output_dir
+
+
+def test_descriptor_passes_only_device_node_resolved_reference_profile_path(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    data_root = tmp_path / "runtime-data"
+    profile_path = (
+        data_root
+        / "workspaces/workspace-one/artifacts/yogacoach/reference-profiles/reference.json"
+    )
+    profile_path.parent.mkdir(parents=True)
+    profile_path.write_text("{}\n", encoding="utf-8")
+    monkeypatch.setenv("LOCAL_CORE_DATA_HOST_DIR", str(data_root))
+    descriptor = _descriptor()
+    descriptor["motion_reference_profile"] = {
+        "artifact_id": "artifact-one",
+        "storage_ref": (
+            "/app/data/workspaces/workspace-one/artifacts/yogacoach/"
+            "reference-profiles/reference.json"
+        ),
+        "reference_profile_id": "reference-one",
+    }
+    descriptor["motion_reference_profile_path"] = str(profile_path)
+    path = tmp_path / "receiver-with-profile.json"
+    path.write_text(json.dumps(descriptor), encoding="utf-8")
+    path.chmod(0o600)
+
+    args = _build_receiver_args(
+        _load_descriptor(path),
+        state_path=tmp_path / "state.json",
+    )
+
+    assert args.motion_reference_profile_path == str(profile_path.resolve())
 
 
 def test_descriptor_rejects_group_readable_credentials(tmp_path: Path) -> None:

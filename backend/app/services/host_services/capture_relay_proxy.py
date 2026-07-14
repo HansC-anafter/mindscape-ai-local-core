@@ -10,6 +10,10 @@ import httpx
 from pydantic import BaseModel, Field
 
 
+DEVICE_NODE_RESPONSE_MARGIN_SECONDS = 5.0
+LIVE_MEDIA_RECEIVER_PREFLIGHT_BUDGET_SECONDS = 15.0
+
+
 class CaptureRelayUnavailable(Exception):
     """Raised when Device Node capture relay control is unavailable."""
 
@@ -163,9 +167,12 @@ async def call_capture_relay_arguments(
 ) -> dict[str, Any]:
     """Invoke the one Device Node facade with server-owned arguments."""
 
+    timeout_seconds = (timeout_ms / 1000) + DEVICE_NODE_RESPONSE_MARGIN_SECONDS
+    if arguments.get("action") == "receiver_start":
+        timeout_seconds += LIVE_MEDIA_RECEIVER_PREFLIGHT_BUDGET_SECONDS
     result = await _post_device_node_mcp(
         arguments=arguments,
-        timeout_seconds=(timeout_ms / 1000) + 5,
+        timeout_seconds=timeout_seconds,
     )
     return _parse_mcp_text_result(result)
 

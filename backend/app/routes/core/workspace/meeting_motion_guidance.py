@@ -21,6 +21,8 @@ from backend.app.services.orchestration.meeting.motion_guidance_service import (
 )
 
 router = APIRouter()
+GuidanceSessionKey = tuple[str, str, str]
+_GUIDANCE_CONNECTIONS: dict[GuidanceSessionKey, set[WebSocket]] = {}
 
 
 def get_motion_guidance_service() -> MeetingMotionGuidanceService:
@@ -31,6 +33,43 @@ def get_motion_guidance_service() -> MeetingMotionGuidanceService:
 
 async def _send_event(websocket: WebSocket, event: MeetingMotionGuidanceEvent) -> None:
     await websocket.send_text(json.dumps(event.model_dump(mode="json", exclude_none=True)))
+
+
+def _session_key(session: MotionGuidanceSession) -> GuidanceSessionKey:
+    return (session.workspace_id, session.meeting_id, session.practice_session_id)
+
+
+def _register_connection(session: MotionGuidanceSession, websocket: WebSocket) -> None:
+    _GUIDANCE_CONNECTIONS.setdefault(_session_key(session), set()).add(websocket)
+
+
+def _unregister_connection(session: MotionGuidanceSession, websocket: WebSocket) -> None:
+    key = _session_key(session)
+    peers = _GUIDANCE_CONNECTIONS.get(key)
+    if not peers:
+        return
+    peers.discard(websocket)
+    if not peers:
+        _GUIDANCE_CONNECTIONS.pop(key, None)
+
+
+def _should_broadcast_event(event: MeetingMotionGuidanceEvent) -> bool:
+    return event.type in {"guidance_cue", "guidance_suppressed", "interrupted"}
+
+
+async def _broadcast_event(
+    session: MotionGuidanceSession,
+    event: MeetingMotionGuidanceEvent,
+) -> None:
+    peers = list(_GUIDANCE_CONNECTIONS.get(_session_key(session), set()))
+    stale: list[WebSocket] = []
+    for peer in peers:
+        try:
+            await _send_event(peer, event)
+        except Exception:
+            stale.append(peer)
+    for peer in stale:
+        _unregister_connection(session, peer)
 
 
 def _error_event(
@@ -72,6 +111,7 @@ async def stream_motion_practice_guidance(
         meeting_id=meeting_id,
         practice_session_id=practice_session_id,
     )
+    _register_connection(session, websocket)
     close_sent = False
     try:
         while True:
@@ -122,7 +162,10 @@ async def stream_motion_practice_guidance(
 
             if event is None:
                 continue
-            await _send_event(websocket, event)
+            if _should_broadcast_event(event):
+                await _broadcast_event(session, event)
+            else:
+                await _send_event(websocket, event)
             if event.type == "session_closed":
                 close_sent = True
                 await websocket.close(code=1000, reason="session_closed")
@@ -131,6 +174,7 @@ async def stream_motion_practice_guidance(
         pass
     finally:
         session.state = "closed"
+        _unregister_connection(session, websocket)
         if not close_sent:
             try:
                 await websocket.close()

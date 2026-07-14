@@ -6,14 +6,17 @@ import {
     mkdirSync,
     openSync,
     readFileSync,
+    realpathSync,
     readdirSync,
     renameSync,
+    statSync,
     writeFileSync,
 } from "fs";
 import * as path from "path";
 
 import {
     dataHostRoot,
+    hostPathForContainerDataPath,
     projectRootCandidates,
     readDotenvValue,
 } from "../host-resource-lane-worker-paths.js";
@@ -48,6 +51,11 @@ interface ReceiverDescriptor {
     coach_pack: "yogacoach" | "dance_motion_coach";
     practice_mode: string;
     reference_url?: string | null;
+    motion_reference_profile?: {
+        artifact_id: string;
+        storage_ref: string;
+        reference_profile_id: string;
+    } | null;
     user_goal?: string | null;
     expected_duration_ms: number;
 }
@@ -75,6 +83,35 @@ function requireString(record: Record<string, unknown>, name: string): string {
     return value;
 }
 
+function parseMotionReferenceProfile(
+    value: unknown,
+    workspaceId: string,
+): ReceiverDescriptor["motion_reference_profile"] {
+    if (value === null || value === undefined) {
+        return null;
+    }
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+        throw new Error("motion_reference_profile_ref_invalid");
+    }
+    const record = value as Record<string, unknown>;
+    const storageRef = requireString(record, "storage_ref");
+    const expectedPrefix = (
+        `/app/data/workspaces/${workspaceId}`
+        + "/artifacts/yogacoach/reference-profiles/"
+    );
+    if (
+        !storageRef.startsWith(expectedPrefix)
+        || path.posix.normalize(storageRef) !== storageRef
+    ) {
+        throw new Error("motion_reference_profile_storage_ref_invalid");
+    }
+    return {
+        artifact_id: requireString(record, "artifact_id"),
+        storage_ref: storageRef,
+        reference_profile_id: requireString(record, "reference_profile_id"),
+    };
+}
+
 export function parseLiveMediaReceiverDescriptor(value: unknown): ReceiverDescriptor {
     if (!value || typeof value !== "object" || Array.isArray(value)) {
         throw new Error("receiver_descriptor_required");
@@ -99,9 +136,10 @@ export function parseLiveMediaReceiverDescriptor(value: unknown): ReceiverDescri
     if (coachPack !== "yogacoach" && coachPack !== "dance_motion_coach") {
         throw new Error("receiver_coach_pack_invalid");
     }
+    const workspaceId = requireString(record, "workspace_id");
     return {
         schema_version: "live_media_receiver.v1",
-        workspace_id: requireString(record, "workspace_id"),
+        workspace_id: workspaceId,
         device_session_id: requireString(record, "device_session_id"),
         media_session_id: requireString(record, "media_session_id"),
         live_motion_session_id: requireString(record, "live_motion_session_id"),
@@ -118,9 +156,42 @@ export function parseLiveMediaReceiverDescriptor(value: unknown): ReceiverDescri
         coach_pack: coachPack,
         practice_mode: requireString(record, "practice_mode"),
         reference_url: cleanString(record.reference_url) || null,
+        motion_reference_profile: parseMotionReferenceProfile(
+            record.motion_reference_profile,
+            workspaceId,
+        ),
         user_goal: cleanString(record.user_goal) || null,
         expected_duration_ms: Math.max(0, Number(record.expected_duration_ms) || 0),
     };
+}
+
+export function resolveMotionReferenceProfilePath(
+    root: string,
+    descriptor: ReceiverDescriptor,
+): string | null {
+    const profile = descriptor.motion_reference_profile;
+    if (!profile) {
+        return null;
+    }
+    const allowedRoot = realpathSync(
+        path.join(
+            dataHostRoot(root),
+            "workspaces",
+            descriptor.workspace_id,
+            "artifacts/yogacoach/reference-profiles",
+        ),
+    );
+    const candidate = realpathSync(
+        hostPathForContainerDataPath(root, profile.storage_ref),
+    );
+    const relative = path.relative(allowedRoot, candidate);
+    if (relative.startsWith("..") || path.isAbsolute(relative)) {
+        throw new Error("motion_reference_profile_path_outside_workspace");
+    }
+    if (!statSync(candidate).isFile()) {
+        throw new Error("motion_reference_profile_file_not_found");
+    }
+    return candidate;
 }
 
 function safeSlug(value: string): string {
@@ -303,6 +374,10 @@ export async function startLiveMediaReceiver(
     const descriptor = parseLiveMediaReceiverDescriptor(rawDescriptor);
     const runtime = findProjectRuntime();
     assertReceiverRuntime(runtime);
+    const motionReferenceProfilePath = resolveMotionReferenceProfilePath(
+        runtime.root,
+        descriptor,
+    );
     const paths = receiverPaths(runtime.root, descriptor.media_session_id);
     const existing = readState(paths.statePath);
     if (existing && pidIsRunning(existing.pid)) {
@@ -312,7 +387,10 @@ export async function startLiveMediaReceiver(
         return publicStatus("receiver_start", existing);
     }
     assertWorkspaceAvailable(paths.runtimeDir, descriptor);
-    atomicPrivateJson(paths.descriptorPath, descriptor);
+    atomicPrivateJson(paths.descriptorPath, {
+        ...descriptor,
+        motion_reference_profile_path: motionReferenceProfilePath,
+    });
     atomicPrivateJson(paths.statePath, {
         schema_version: "live_media_receiver_state.v1",
         workspace_id: descriptor.workspace_id,

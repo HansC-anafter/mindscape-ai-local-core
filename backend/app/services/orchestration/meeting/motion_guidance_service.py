@@ -59,6 +59,9 @@ class MotionGuidanceSession:
     cue_sequence: int = 0
     last_speakable_epoch: float | None = None
     last_cue_epoch_by_key: dict[str, float] = field(default_factory=dict)
+    last_cue_text_by_key: dict[str, str] = field(default_factory=dict)
+    last_cue_priority_by_key: dict[str, str] = field(default_factory=dict)
+    last_reference_chapter_id: str | None = None
 
 
 class MeetingMotionGuidanceService:
@@ -145,7 +148,24 @@ class MeetingMotionGuidanceService:
                 now_epoch=now_epoch,
             )
 
-        finding = self._first_finding(message)
+        reference_guidance = self._reference_guidance(message)
+        if reference_guidance.get("kind") == "suppressed":
+            return self._event(
+                session=session,
+                event_type="guidance_suppressed",
+                state="active",
+                event_id=message.event_id,
+                reason=str(reference_guidance.get("reason") or "reference_context_segment"),
+                message="The matched reference segment is context-only.",
+                recoverable=True,
+                motion_window_ref=message.motion_window_ref,
+                rollup_ref=message.rollup_ref,
+                command_ref=message.command_ref,
+            )
+
+        finding = str(reference_guidance.get("text") or "").strip() or self._first_finding(
+            message
+        )
         if not finding:
             return self._event(
                 session=session,
@@ -160,7 +180,37 @@ class MeetingMotionGuidanceService:
                 command_ref=message.command_ref,
             )
 
-        cue_key = self._cue_key(finding)
+        cue_key = str(reference_guidance.get("key") or "").strip() or self._cue_key(
+            finding
+        )
+        cue_priority = str(reference_guidance.get("priority") or "correction")
+        if cue_priority not in {"info", "warning", "correction"}:
+            cue_priority = "correction"
+        reference_alignment = message.metadata.get("reference_alignment")
+        chapter_id = (
+            str(reference_alignment.get("chapter_id") or "").strip()
+            if isinstance(reference_alignment, dict)
+            else ""
+        )
+        if reference_guidance.get("kind") == "confirmation" and chapter_id:
+            if session.last_reference_chapter_id == chapter_id:
+                return self._event(
+                    session=session,
+                    event_type="guidance_suppressed",
+                    state="active",
+                    event_id=message.event_id,
+                    cue_key=cue_key,
+                    reason="stable_reference_alignment",
+                    message="Stable alignment confirmation is already active for this chapter.",
+                    recoverable=True,
+                    cue_text=finding[:260],
+                    cue_priority="info",
+                    speakable=False,
+                    motion_window_ref=message.motion_window_ref,
+                    rollup_ref=message.rollup_ref,
+                    command_ref=message.command_ref,
+                )
+            session.last_reference_chapter_id = chapter_id
         last_duplicate_epoch = session.last_cue_epoch_by_key.get(cue_key)
         if (
             last_duplicate_epoch is not None
@@ -177,6 +227,9 @@ class MeetingMotionGuidanceService:
                 recoverable=True,
                 throttle_until_epoch=last_duplicate_epoch
                 + self.duplicate_suppression_seconds,
+                cue_text=session.last_cue_text_by_key.get(cue_key),
+                cue_priority=session.last_cue_priority_by_key.get(cue_key),
+                speakable=False,
                 motion_window_ref=message.motion_window_ref,
                 rollup_ref=message.rollup_ref,
                 command_ref=message.command_ref,
@@ -208,7 +261,7 @@ class MeetingMotionGuidanceService:
             message=message,
             cue_key=cue_key,
             cue_text=finding[:260],
-            cue_priority="correction",
+            cue_priority=cue_priority,
             speakable=True,
             now_epoch=now_epoch,
         )
@@ -226,6 +279,8 @@ class MeetingMotionGuidanceService:
     ) -> MeetingMotionGuidanceEvent:
         session.cue_sequence += 1
         session.last_cue_epoch_by_key[cue_key] = now_epoch
+        session.last_cue_text_by_key[cue_key] = cue_text
+        session.last_cue_priority_by_key[cue_key] = cue_priority
         if speakable:
             session.last_speakable_epoch = now_epoch
         return self._event(
@@ -283,6 +338,15 @@ class MeetingMotionGuidanceService:
             if isinstance(value, (int, float)):
                 return float(value)
         return None
+
+    @staticmethod
+    def _reference_guidance(
+        message: MeetingMotionGuidanceClientMessage,
+    ) -> dict[str, Any]:
+        value = message.metadata.get("reference_guidance")
+        if not isinstance(value, dict):
+            return {}
+        return value
 
     @staticmethod
     def _cue_key(text: str) -> str:

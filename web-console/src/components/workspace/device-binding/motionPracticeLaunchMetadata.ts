@@ -34,6 +34,54 @@ export function readInstructionSegmentGraphs(
   return graphs;
 }
 
+function uniqueInstructionText(
+  instructionRefs: MotionPracticeLaunchInput['instructionRefs'],
+  keys: string[],
+  conflictReason: string,
+): string | null {
+  const values = new Set<string>();
+  for (const ref of instructionRefs || []) {
+    if (!isRecord(ref)) continue;
+    for (const key of keys) {
+      const value = ref[key];
+      if (typeof value === 'string' && value.trim()) {
+        values.add(value.trim());
+      }
+    }
+  }
+  if (values.size > 1) {
+    throw new Error(conflictReason);
+  }
+  return values.values().next().value || null;
+}
+
+export function resolveMotionPracticeReference(input: MotionPracticeLaunchInput): {
+  sourceRef: string | null;
+  profileArtifactId: string | null;
+} {
+  const instructionSourceRef = uniqueInstructionText(
+    input.instructionRefs,
+    ['video_ref', 'media_ref', 'teacher_ref'],
+    'motion_reference_source_conflict',
+  );
+  const explicitSourceRef = input.expertLibraryRef?.trim() || null;
+  if (
+    explicitSourceRef
+    && instructionSourceRef
+    && explicitSourceRef !== instructionSourceRef
+  ) {
+    throw new Error('motion_reference_selection_conflict');
+  }
+  return {
+    sourceRef: instructionSourceRef || explicitSourceRef,
+    profileArtifactId: uniqueInstructionText(
+      input.instructionRefs,
+      ['motion_reference_profile_artifact_id'],
+      'motion_reference_profile_artifact_conflict',
+    ),
+  };
+}
+
 export function buildMotionSourceRef(session: DeviceSessionEntry): string {
   return `mindscape://device_binding/session/${encodeURIComponent(session.session_id)}`;
 }
@@ -51,7 +99,12 @@ export function buildMotionPracticeResourcePolicy(): Record<string, boolean | st
 export function buildMotionPracticeReferenceMetadata(
   input: MotionPracticeLaunchInput,
 ): Record<string, unknown> {
+  const selection = resolveMotionPracticeReference(input);
   return {
+    ...(selection.sourceRef ? { reference_source_ref: selection.sourceRef } : {}),
+    ...(selection.profileArtifactId
+      ? { motion_reference_profile_artifact_id: selection.profileArtifactId }
+      : {}),
     instruction_refs: input.instructionRefs || [],
     course_chapters: readInstructionCourseChapters(input.instructionRefs),
     reference_segment_graphs: readInstructionSegmentGraphs(input.instructionRefs),

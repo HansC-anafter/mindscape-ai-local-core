@@ -161,6 +161,7 @@ describe('motionPracticeLauncher', () => {
 
   it('preserves reference segment metadata for live motion runtime registration', () => {
     expect(buildMotionPracticeReferenceMetadata(baseInput)).toEqual({
+      reference_source_ref: 'mindscape://teacher/ref',
       instruction_refs: baseInput.instructionRefs,
       course_chapters: courseChapters,
       reference_segment_graphs: [segmentGraph],

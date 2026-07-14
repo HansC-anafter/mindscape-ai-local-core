@@ -72,7 +72,6 @@ export function MotionPracticeRailController({
   const [selectedSessionIdState, setSelectedSessionIdState] = useState<string>('');
   const [coachPack, setCoachPack] = useState<MotionPracticeCoachPack>(coachPackLock || 'yogacoach');
   const [practiceMode, setPracticeMode] = useState<MotionPracticeMode>(defaultPracticeMode);
-  const [expertLibraryRef, setExpertLibraryRef] = useState('');
   const [userGoal, setUserGoal] = useState('');
   const [instructionSource, setInstructionSource] =
     useState<MotionPracticeInstructionSourceState>(
@@ -120,7 +119,6 @@ export function MotionPracticeRailController({
           sourceSession: selectedSession,
           coachPack,
           practiceMode,
-          expertLibraryRef,
           instructionRefs,
           userGoal,
         })
@@ -128,7 +126,6 @@ export function MotionPracticeRailController({
   ), [
     apiUrl,
     coachPack,
-    expertLibraryRef,
     instructionRefs,
     practiceMode,
     selectedSession,
@@ -146,7 +143,6 @@ export function MotionPracticeRailController({
       sourceSession: selectedSession,
       coachPack,
       practiceMode,
-      expertLibraryRef,
       instructionRefs,
       userGoal,
     };
@@ -256,18 +252,6 @@ export function MotionPracticeRailController({
           <option value="teacher_assessment">Teacher assessment</option>
           <option value="live_guidance">Live guidance</option>
         </select>
-      </label>
-
-      <label className="block">
-        <span className="mb-1 block text-[11px] font-medium uppercase tracking-normal text-gray-500 dark:text-gray-400">
-          Teacher/video ref
-        </span>
-        <input
-          value={expertLibraryRef}
-          onChange={(event) => setExpertLibraryRef(event.target.value)}
-          placeholder="mindscape://yogacoach/teacher-library/..."
-          className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-xs text-gray-900 placeholder:text-gray-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
-        />
       </label>
 
       <MotionPracticeInstructionSourcePanel

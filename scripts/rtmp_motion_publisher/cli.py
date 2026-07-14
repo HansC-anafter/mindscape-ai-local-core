@@ -6,6 +6,7 @@ from .settings import (
     DEFAULT_API_RETRY_BACKOFF_SEC,
     DEFAULT_API_RETRY_COUNT,
     DEFAULT_API_TIMEOUT_SEC,
+    DEFAULT_ROLLUP_API_TIMEOUT_SEC,
     DEFAULT_APPEND_QUEUE_MAX_SIZE,
     DEFAULT_AVFOUNDATION_FRAMERATE,
     DEFAULT_CAPTURE_BACKEND,
@@ -84,6 +85,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--max-window-refs", type=int, default=100)
     parser.add_argument("--model-asset-path", default=str(DEFAULT_MODEL_ASSET_PATH))
     parser.add_argument("--api-timeout-sec", type=float, default=DEFAULT_API_TIMEOUT_SEC)
+    parser.add_argument(
+        "--rollup-api-timeout-sec",
+        type=float,
+        default=DEFAULT_ROLLUP_API_TIMEOUT_SEC,
+    )
     parser.add_argument("--api-retry-count", type=int, default=DEFAULT_API_RETRY_COUNT)
     parser.add_argument(
         "--api-retry-backoff-sec",
@@ -149,6 +155,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--emit-yogacoach-summary", action="store_true")
     parser.add_argument("--yogacoach-reference-url", default="")
     parser.add_argument("--motion-reference-profile-path", default="")
+    parser.add_argument("--motion-reference-profile-artifact-id", default="")
     parser.add_argument("--yogacoach-summary-output-dir", default="")
     parser.add_argument("--materialize-practice-diary", action="store_true")
     parser.add_argument("--practice-diary-reference-visual-evidence-path", default="")

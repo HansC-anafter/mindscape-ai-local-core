@@ -11,12 +11,14 @@ import {
 
 const SOURCE_LABELS: Record<MotionPracticeInstructionSourceKind, string> = {
   local_video_smoke_ref: 'Local video',
+  bilibili_instruction_ref: 'Bilibili video',
   youtube_instruction_ref: 'YouTube',
   manual_teacher_ref: 'Manual ref',
 };
 
 const SOURCE_PLACEHOLDERS: Record<MotionPracticeInstructionSourceKind, string> = {
   local_video_smoke_ref: 'mindscape://motion-video-smoke/session/...',
+  bilibili_instruction_ref: 'https://www.bilibili.com/video/BV...',
   youtube_instruction_ref: 'https://www.youtube.com/watch?v=...',
   manual_teacher_ref: 'mindscape://yogacoach/teacher-library/...',
 };
@@ -55,6 +57,7 @@ export function MotionPracticeInstructionSourcePanel({
             courseChapters: source.courseChapters,
             courseChaptersInput: source.courseChaptersInput,
             courseChaptersError: source.courseChaptersError,
+            motionReferenceProfileArtifactId: source.motionReferenceProfileArtifactId,
           })}
           className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-xs text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
           data-testid="motion-practice-instruction-source-kind"

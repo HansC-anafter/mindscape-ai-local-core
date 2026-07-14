@@ -2,6 +2,7 @@ import type { MotionPracticeInstructionRef } from '../motionPracticeLauncher';
 
 export type MotionPracticeInstructionSourceKind =
   | 'local_video_smoke_ref'
+  | 'bilibili_instruction_ref'
   | 'youtube_instruction_ref'
   | 'manual_teacher_ref';
 
@@ -11,7 +12,44 @@ export type MotionPracticeInstructionSourceState = {
   courseChapters?: Record<string, unknown>[];
   courseChaptersInput?: string;
   courseChaptersError?: string | null;
+  motionReferenceProfileArtifactId?: string;
 };
+
+export type MotionPracticeReferenceSegmentType =
+  | 'practice'
+  | 'demo'
+  | 'asana'
+  | 'flow'
+  | 'instruction'
+  | 'rest'
+  | 'chat'
+  | 'transition'
+  | 'unknown';
+
+const SCOREABLE_SEGMENT_TYPES = new Set<MotionPracticeReferenceSegmentType>([
+  'practice',
+  'demo',
+  'asana',
+  'flow',
+]);
+
+const NON_SCOREABLE_TITLE_HINTS: Array<[RegExp, MotionPracticeReferenceSegmentType]> = [
+  [/\b(rest|break|pause|relax|savasana)\b/i, 'rest'],
+  [/\b(chat|q\s*&\s*a|qa|talk|intro|outro)\b/i, 'chat'],
+  [/\b(instruction|explain|explanation|lecture|teach|cue)\b/i, 'instruction'],
+  [/\b(transition|setup|prepare)\b/i, 'transition'],
+  [/(休息|放鬆|停留|大休息)/, 'rest'],
+  [/(聊天|問答|閒聊|開場|結尾)/, 'chat'],
+  [/(講解|說明|教學|提示)/, 'instruction'],
+  [/(轉場|準備)/, 'transition'],
+];
+
+const SCOREABLE_TITLE_HINTS: Array<[RegExp, MotionPracticeReferenceSegmentType]> = [
+  [/\b(practice|drill|sequence|flow|vinyasa)\b/i, 'practice'],
+  [/\b(demo|demonstration)\b/i, 'demo'],
+  [/\b(asana|pose|posture)\b/i, 'asana'],
+  [/(練習|串聯|流動|體式|姿勢|示範|演示)/, 'practice'],
+];
 
 export const DEFAULT_MOTION_PRACTICE_INSTRUCTION_SOURCE: MotionPracticeInstructionSourceState = {
   kind: 'manual_teacher_ref',
@@ -57,6 +95,95 @@ function readTimeMs(
     return null;
   }
   return hasMillisecondValue ? Math.round(numericValue) : Math.round(numericValue * 1000);
+}
+
+function normalizeSegmentType(
+  value: unknown,
+  title: string,
+): MotionPracticeReferenceSegmentType {
+  if (typeof value === 'string' && value.trim()) {
+    const normalized = value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_');
+    if (SCOREABLE_SEGMENT_TYPES.has(normalized as MotionPracticeReferenceSegmentType)) {
+      return normalized as MotionPracticeReferenceSegmentType;
+    }
+    if (['instruction', 'rest', 'chat', 'transition'].includes(normalized)) {
+      return normalized as MotionPracticeReferenceSegmentType;
+    }
+  }
+  for (const [pattern, segmentType] of NON_SCOREABLE_TITLE_HINTS) {
+    if (pattern.test(title)) {
+      return segmentType;
+    }
+  }
+  for (const [pattern, segmentType] of SCOREABLE_TITLE_HINTS) {
+    if (pattern.test(title)) {
+      return segmentType;
+    }
+  }
+  return 'unknown';
+}
+
+function readScoreable(
+  chapter: Record<string, unknown>,
+  segmentType: MotionPracticeReferenceSegmentType,
+): boolean {
+  if (typeof chapter.scoreable === 'boolean') {
+    return chapter.scoreable;
+  }
+  if (typeof chapter.comparison_mode === 'string') {
+    const normalized = chapter.comparison_mode.trim().toLowerCase();
+    if (['context', 'ignore', 'suppress', 'non_scoreable'].includes(normalized)) {
+      return false;
+    }
+    if (['score', 'scoreable', 'motion', 'compare'].includes(normalized)) {
+      return true;
+    }
+  }
+  return segmentType === 'unknown' || SCOREABLE_SEGMENT_TYPES.has(segmentType);
+}
+
+function buildSegmentGraph(
+  chapters: Record<string, unknown>[],
+): Record<string, unknown> {
+  return {
+    graph_version: 'motion_reference_segment_graph.v1',
+    ordered_edges: chapters.slice(0, -1).map((chapter, index) => ({
+      from: chapter.chapter_id,
+      to: chapters[index + 1].chapter_id,
+      relation: 'next',
+    })),
+    scoreable_segment_ids: chapters
+      .filter((chapter) => chapter.scoreable === true)
+      .map((chapter) => chapter.chapter_id),
+    unordered_match_enabled: true,
+    resync_policy: {
+      ordered_prior_enabled: true,
+      unordered_fallback_enabled: true,
+      skip_non_scoreable_segments: true,
+    },
+  };
+}
+
+function normalizeCourseChapter(
+  chapter: Record<string, unknown>,
+): Record<string, unknown> {
+  const chapterId = readText(chapter, ['chapter_id', 'id']) || String(chapter.chapter_id || '');
+  const title = readText(chapter, ['title', 'display_label', 'label']) || String(chapter.title || '');
+  const startMs = readTimeMs(chapter, 'start_ms', 'start_time');
+  const endMs = readTimeMs(chapter, 'end_ms', 'end_time');
+  const segmentType = normalizeSegmentType(chapter.segment_type, title);
+  const scoreable = readScoreable(chapter, segmentType);
+  return {
+    ...chapter,
+    ...(chapterId ? { chapter_id: chapterId } : {}),
+    ...(title ? { title } : {}),
+    ...(startMs !== null ? { start_ms: startMs } : {}),
+    ...(endMs !== null ? { end_ms: endMs } : {}),
+    segment_type: segmentType,
+    scoreable,
+    match_role: scoreable ? 'instruction' : 'context',
+    guidance_mode: scoreable ? 'score' : 'suppress',
+  };
 }
 
 export function parseMotionPracticeCourseChaptersInput(
@@ -120,16 +247,36 @@ export function parseMotionPracticeCourseChaptersInput(
         error: `Chapter ${index + 1} end time must not be before start time.`,
       };
     }
-    courseChapters.push({
+    courseChapters.push(normalizeCourseChapter({
       ...rawChapter,
       chapter_id: chapterId,
       title,
       start_ms: startMs,
       end_ms: endMs,
-    });
+    }));
   }
 
   return { courseChapters, error: null };
+}
+
+function buildCourseMetadata(courseChapters: Record<string, unknown>[]) {
+  if (!courseChapters.length) {
+    return {};
+  }
+  const normalizedCourseChapters = courseChapters
+    .filter(isRecord)
+    .map((chapter) => normalizeCourseChapter(chapter));
+  return {
+    course_chapters: normalizedCourseChapters,
+    segment_graph: buildSegmentGraph(normalizedCourseChapters),
+  };
+}
+
+function buildReferenceProfileMetadata(source: MotionPracticeInstructionSourceState) {
+  const artifactId = source.motionReferenceProfileArtifactId?.trim();
+  return artifactId
+    ? { motion_reference_profile_artifact_id: artifactId }
+    : {};
 }
 
 export function buildMotionPracticeInstructionRefs(
@@ -139,6 +286,8 @@ export function buildMotionPracticeInstructionRefs(
   const courseChapters = Array.isArray(source.courseChapters)
     ? source.courseChapters
     : [];
+  const courseMetadata = buildCourseMetadata(courseChapters);
+  const referenceProfileMetadata = buildReferenceProfileMetadata(source);
   if (source.kind === 'local_video_smoke_ref') {
     return [
       {
@@ -147,7 +296,8 @@ export function buildMotionPracticeInstructionRefs(
         media_ref: value || 'mindscape://motion-video-smoke/current',
         frame_readable: false,
         motion_analysis_source: true,
-        ...(courseChapters.length ? { course_chapters: courseChapters } : {}),
+        ...referenceProfileMetadata,
+        ...courseMetadata,
       },
     ];
   }
@@ -162,7 +312,21 @@ export function buildMotionPracticeInstructionRefs(
         video_ref: value,
         frame_readable: false,
         motion_analysis_source: false,
-        ...(courseChapters.length ? { course_chapters: courseChapters } : {}),
+        ...referenceProfileMetadata,
+        ...courseMetadata,
+      },
+    ];
+  }
+  if (source.kind === 'bilibili_instruction_ref') {
+    return [
+      {
+        ref_type: 'video_instruction_ref',
+        source_provider: 'bilibili',
+        video_ref: value,
+        frame_readable: false,
+        motion_analysis_source: false,
+        ...referenceProfileMetadata,
+        ...courseMetadata,
       },
     ];
   }
@@ -173,7 +337,8 @@ export function buildMotionPracticeInstructionRefs(
       teacher_ref: value,
       frame_readable: false,
       motion_analysis_source: false,
-      ...(courseChapters.length ? { course_chapters: courseChapters } : {}),
+      ...referenceProfileMetadata,
+      ...courseMetadata,
     },
   ];
 }

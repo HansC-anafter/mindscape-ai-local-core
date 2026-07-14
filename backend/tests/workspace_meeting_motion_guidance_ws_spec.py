@@ -119,6 +119,9 @@ def test_motion_guidance_service_throttles_speakable_duplicate_cues() -> None:
     assert duplicate is not None
     assert duplicate.type == "guidance_suppressed"
     assert duplicate.reason == "duplicate_cue"
+    assert duplicate.cue_text == "Shift weight back over the standing foot."
+    assert duplicate.cue_priority == "correction"
+    assert duplicate.speakable is False
 
 
 def test_motion_guidance_service_low_confidence_is_not_speakable() -> None:
@@ -139,6 +142,84 @@ def test_motion_guidance_service_low_confidence_is_not_speakable() -> None:
     assert event.cue_priority == "warning"
     assert event.speakable is False
     assert "camera view" in str(event.cue_text)
+
+
+def test_motion_guidance_service_confirms_each_matched_reference_chapter_once() -> None:
+    service = MeetingMotionGuidanceService()
+    session = _session()
+    metadata = {
+        "reference_alignment": {
+            "chapter_id": "chapter-one",
+            "verdict": "high_match",
+            "score": 0.94,
+        },
+        "reference_guidance": {
+            "kind": "confirmation",
+            "key": "reference:chapter-one:aligned",
+            "text": "Movement matches the reference chapter: Downward dog.",
+            "priority": "info",
+        },
+    }
+
+    first = service.handle_message(
+        session=session,
+        message=_message(
+            type="motion_window",
+            motion_window_ref="window-reference-1",
+            confidence=0.9,
+            metadata=metadata,
+        ),
+        now_epoch=10.0,
+    )
+    repeated = service.handle_message(
+        session=session,
+        message=_message(
+            type="motion_window",
+            motion_window_ref="window-reference-2",
+            confidence=0.9,
+            metadata=metadata,
+        ),
+        now_epoch=30.0,
+    )
+
+    assert first is not None
+    assert first.type == "guidance_cue"
+    assert first.cue_priority == "info"
+    assert first.speakable is True
+    assert repeated is not None
+    assert repeated.type == "guidance_suppressed"
+    assert repeated.reason == "stable_reference_alignment"
+
+
+def test_motion_guidance_service_uses_structured_reference_correction() -> None:
+    service = MeetingMotionGuidanceService()
+    event = service.handle_message(
+        session=_session(),
+        message=_message(
+            type="motion_window",
+            motion_window_ref="window-reference-correction",
+            confidence=0.88,
+            findings=["internal_finding_code"],
+            metadata={
+                "reference_alignment": {
+                    "chapter_id": "chapter-one",
+                    "verdict": "partial_match",
+                },
+                "reference_guidance": {
+                    "kind": "correction",
+                    "key": "reference:chapter-one:shoulder",
+                    "text": "Match the reference by leveling your shoulder line.",
+                    "priority": "correction",
+                },
+            },
+        ),
+        now_epoch=10.0,
+    )
+
+    assert event is not None
+    assert event.type == "guidance_cue"
+    assert event.cue_text == "Match the reference by leveling your shoulder line."
+    assert event.cue_priority == "correction"
 
 
 def test_motion_guidance_service_rejects_raw_payload_keys() -> None:
@@ -189,3 +270,38 @@ def test_motion_guidance_ws_streams_bounded_cue_events() -> None:
 
         ws.send_json({"type": "session_close"})
         assert _receive(ws)["type"] == "session_closed"
+
+
+def test_motion_guidance_ws_broadcasts_cues_to_matching_practice_sessions() -> None:
+    module = _load_meeting_motion_guidance_module()
+    service = MeetingMotionGuidanceService()
+    client = TestClient(_build_app(module, service=service))
+    path = (
+        "/api/v1/workspaces/ws_motion/meetings/mtg_motion/"
+        "motion-guidance/practice_1/stream"
+    )
+
+    with client.websocket_connect(path) as observer:
+        observer.send_json({"type": "session_start"})
+        assert _receive(observer)["type"] == "session_ready"
+
+        with client.websocket_connect(path) as producer:
+            producer.send_json({"type": "session_start"})
+            assert _receive(producer)["type"] == "session_ready"
+
+            producer.send_json(
+                {
+                    "type": "motion_window",
+                    "event_id": "event_broadcast",
+                    "motion_window_ref": "window_broadcast",
+                    "confidence": 0.95,
+                    "top_findings": ["Keep the hips square to the mat."],
+                }
+            )
+
+            observer_cue = _receive(observer)
+            producer_cue = _receive(producer)
+            assert observer_cue["type"] == "guidance_cue"
+            assert producer_cue["type"] == "guidance_cue"
+            assert observer_cue["event_id"] == "event_broadcast"
+            assert producer_cue["motion_window_ref"] == "window_broadcast"

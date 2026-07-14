@@ -35,6 +35,7 @@ interface MotionPracticeLiveGuidancePanelProps {
 type GuidanceConnectionState = 'idle' | 'connecting' | 'ready' | 'closed' | 'error';
 type VoiceState = 'unknown' | 'available' | 'unavailable';
 type ClosureState = 'idle' | 'closing' | 'rolling_up' | 'submitted' | 'error';
+type GuidanceCueEvent = MotionGuidanceEvent & { type: 'guidance_cue' };
 
 function toGuidanceWindowEvent(
   appendEvent: MotionWindowAppendEvent,
@@ -62,7 +63,8 @@ export function MotionPracticeLiveGuidancePanel({
   const [state, setState] = useState<GuidanceConnectionState>('idle');
   const [muted, setMuted] = useState(false);
   const [voiceState, setVoiceState] = useState<VoiceState>('unknown');
-  const [lastCue, setLastCue] = useState<MotionGuidanceEvent | null>(null);
+  const [lastCue, setLastCue] = useState<GuidanceCueEvent | null>(null);
+  const [lastSuppression, setLastSuppression] = useState<MotionGuidanceEvent | null>(null);
   const [lastError, setLastError] = useState<string | null>(null);
   const [closureState, setClosureState] = useState<ClosureState>('idle');
   const [closureResult, setClosureResult] = useState<MotionPracticeClosureResult | null>(null);
@@ -165,9 +167,14 @@ export function MotionPracticeLiveGuidancePanel({
     if (event.type === 'interrupted') {
       playbackRef.current.interrupt();
     }
-    if (event.type === 'guidance_cue' || event.type === 'guidance_suppressed') {
-      setLastCue(event);
+    if (event.type === 'guidance_cue') {
+      setLastCue(event as GuidanceCueEvent);
+      setLastSuppression(null);
       void speakCue(event);
+      return;
+    }
+    if (event.type === 'guidance_suppressed') {
+      setLastSuppression(event);
     }
   }, [apiUrl, runClosureSummary, speakCue]);
 
@@ -267,9 +274,16 @@ export function MotionPracticeLiveGuidancePanel({
       {lastCue ? (
         <div className="rounded border border-sky-200 bg-white p-2 dark:border-sky-800 dark:bg-gray-950" data-testid="motion-guidance-last-cue">
           <div className="text-[11px] uppercase tracking-normal text-sky-600 dark:text-sky-300">
-            {lastCue.type === 'guidance_suppressed' ? lastCue.reason : lastCue.cue_priority}
+            {lastCue.cue_priority}
           </div>
           <div>{lastCue.cue_text || lastCue.message || 'Waiting for the next compact motion cue.'}</div>
+        </div>
+      ) : lastSuppression ? (
+        <div className="rounded border border-sky-200 bg-white p-2 dark:border-sky-800 dark:bg-gray-950" data-testid="motion-guidance-last-cue">
+          <div className="text-[11px] uppercase tracking-normal text-sky-600 dark:text-sky-300">
+            {lastSuppression.cue_priority || lastSuppression.reason}
+          </div>
+          <div>{lastSuppression.cue_text || lastSuppression.message || 'Waiting for the next compact motion cue.'}</div>
         </div>
       ) : (
         <div className="rounded border border-sky-200 bg-white p-2 dark:border-sky-800 dark:bg-gray-950">

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 from typing import Any
 
@@ -17,6 +18,11 @@ from backend.app.services.host_services.capture_relay_proxy import (
 from .live_media_session_service import (
     LiveMediaSessionService,
     LiveMediaSessionServiceError,
+)
+from .motion_reference_profile_artifact import (
+    ArtifactLookup,
+    MotionReferenceProfileArtifactError,
+    resolve_selected_motion_reference_profile,
 )
 
 
@@ -50,8 +56,24 @@ async def start_live_media_receiver(
     device_session_id: str,
     media_session_id: str,
     request: StartLiveMediaReceiverRequest,
+    artifact_store: ArtifactLookup | None = None,
 ) -> dict[str, Any]:
     try:
+        motion_reference_profile = None
+        if request.motion_reference_profile_artifact_id or (
+            request.coach_pack == "yogacoach" and request.reference_url
+        ):
+            if artifact_store is None:
+                raise LiveMediaReceiverControlError(
+                    "motion_reference_profile_artifact_store_unavailable"
+                )
+            motion_reference_profile = await asyncio.to_thread(
+                resolve_selected_motion_reference_profile,
+                artifact_store=artifact_store,
+                workspace_id=workspace_id,
+                artifact_id=request.motion_reference_profile_artifact_id,
+                source_ref=request.reference_url,
+            )
         access = media_service.receiver_access(
             workspace_id=workspace_id,
             device_session_id=device_session_id,
@@ -80,6 +102,11 @@ async def start_live_media_receiver(
                     "coach_pack": request.coach_pack,
                     "practice_mode": request.practice_mode,
                     "reference_url": request.reference_url,
+                    "motion_reference_profile": (
+                        motion_reference_profile.receiver_ref()
+                        if motion_reference_profile is not None
+                        else None
+                    ),
                     "user_goal": request.user_goal,
                     "expected_duration_ms": request.expected_duration_ms,
                 },
@@ -92,6 +119,11 @@ async def start_live_media_receiver(
         media_service.mark_receiver_started(media_session_id)
         return status
     except LiveMediaSessionServiceError as exc:
+        raise LiveMediaReceiverControlError(
+            exc.reason,
+            status_code=exc.status_code,
+        ) from exc
+    except MotionReferenceProfileArtifactError as exc:
         raise LiveMediaReceiverControlError(
             exc.reason,
             status_code=exc.status_code,

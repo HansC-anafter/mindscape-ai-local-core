@@ -84,4 +84,52 @@ describe('motionPracticeGraphSelection', () => {
 
     expect(handoff).toBeNull();
   });
+
+  it('preserves Bilibili provider as a video instruction handoff', () => {
+    const handoff = buildMotionPracticeLessonHandoffFromGraphSelection({
+      capabilityCode: 'yogacoach',
+      graphSelection: {
+        owner_pack: 'social_video_refs',
+        selection_kind: 'anchor',
+        anchors: [
+          {
+            uri: 'mindscape://social_video_refs/instruction_ref/ref_bili_001',
+            owner_pack: 'social_video_refs',
+            object_kind: 'instruction_ref',
+            object_id: 'ref_bili_001',
+            workspace_id: 'ws_motion',
+            selector: {
+              instruction_ref_id: 'ref_bili_001',
+              source_provider: 'bilibili',
+              canonical_url: 'https://www.bilibili.com/video/BV13g4y1u7di/',
+              start_seconds: 0,
+              end_seconds: 60,
+            },
+            source_surface: 'social_video_refs.refs',
+            label: 'Bilibili reference loop',
+            role: 'source',
+          },
+        ],
+        lens_code: 'instruction_memory',
+        relation_scope: ['instruction_memory', 'metadata_only_reference'],
+        node_limit: 8,
+        relation_limit: 8,
+        snapshot_budget: {
+          max_nodes: 8,
+          max_edges: 8,
+          max_prompt_chars: 1200,
+        },
+        source_surface: 'social_video_refs.refs',
+        governance_tags: ['reference_only', 'provider_neutral', 'no_media_download'],
+      },
+    });
+
+    expect(handoff).toMatchObject({
+      capabilityCode: 'yogacoach',
+      sourceKind: 'bilibili_instruction_ref',
+      sourceValue: 'https://www.bilibili.com/video/BV13g4y1u7di/',
+      sourceTitle: 'Bilibili reference loop',
+      sourceProvider: 'bilibili',
+    });
+  });
 });

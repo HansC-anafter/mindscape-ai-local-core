@@ -32,7 +32,18 @@ from backend.app.services.media_transport.live_media_receiver_service import (
     start_live_media_receiver,
     terminate_live_media_session,
 )
+from backend.app.services.media_transport.motion_reference_profile_artifact_store import (
+    MotionReferenceProfileArtifactStore,
+)
 router = APIRouter()
+_motion_reference_profile_artifact_store: MotionReferenceProfileArtifactStore | None = None
+
+
+def get_motion_reference_profile_artifact_store() -> MotionReferenceProfileArtifactStore:
+    global _motion_reference_profile_artifact_store
+    if _motion_reference_profile_artifact_store is None:
+        _motion_reference_profile_artifact_store = MotionReferenceProfileArtifactStore()
+    return _motion_reference_profile_artifact_store
 
 
 def get_live_media_session_route_service() -> LiveMediaSessionService:
@@ -197,6 +208,9 @@ async def start_live_media_session_receiver(
     workspace: Workspace = Depends(get_workspace),
     device_registry: DeviceBindingRegistry = Depends(get_device_binding_registry),
     media_service: LiveMediaSessionService = Depends(get_live_media_session_route_service),
+    artifact_store: MotionReferenceProfileArtifactStore = Depends(
+        get_motion_reference_profile_artifact_store
+    ),
 ) -> dict[str, Any]:
     """Start the one host receiver without returning its credentials."""
 
@@ -213,6 +227,7 @@ async def start_live_media_session_receiver(
             device_session_id=device_session_id,
             media_session_id=media_session_id,
             request=payload,
+            artifact_store=artifact_store,
         )
     except LiveMediaReceiverControlError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.reason) from exc

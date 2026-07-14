@@ -171,7 +171,9 @@ def emit_rollup(
             "max_top_findings": 8,
             "metadata": metadata,
         },
-        timeout_sec=args.api_timeout_sec,
+        timeout_sec=float(
+            getattr(args, "rollup_api_timeout_sec", args.api_timeout_sec)
+        ),
         retry_count=args.api_retry_count,
         retry_backoff_sec=args.api_retry_backoff_sec,
     )

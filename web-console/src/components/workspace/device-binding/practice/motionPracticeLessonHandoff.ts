@@ -19,6 +19,7 @@ export type MotionPracticeLessonHandoff = {
   sourceProvider?: string;
   thumbnailUrl?: string;
   courseChaptersInput?: string;
+  motionReferenceProfileArtifactId?: string;
 };
 
 const PARAM_KEYS = {
@@ -30,6 +31,7 @@ const PARAM_KEYS = {
   sourceProvider: 'motion_lesson_provider',
   thumbnailUrl: 'motion_lesson_thumbnail',
   courseChapters: 'motion_lesson_course_chapters',
+  motionReferenceProfileArtifactId: 'motion_reference_profile_artifact_id',
   handoffTarget: 'handoff_target',
   returnTo: 'return_to',
   provider: 'provider',
@@ -45,6 +47,7 @@ function isMotionCoachCapabilityCode(value: string): value is MotionCoachCapabil
 
 function isInstructionSourceKind(value: string): value is MotionPracticeInstructionSourceKind {
   return value === 'local_video_smoke_ref'
+    || value === 'bilibili_instruction_ref'
     || value === 'youtube_instruction_ref'
     || value === 'manual_teacher_ref';
 }
@@ -66,9 +69,14 @@ function clearLessonHandoffParams(searchParams: URLSearchParams) {
 export function resolveInstructionSourceKindForProvider(
   sourceProvider: string | null | undefined,
 ): MotionPracticeInstructionSourceKind {
-  return asString(sourceProvider).toLowerCase() === 'youtube'
-    ? 'youtube_instruction_ref'
-    : 'manual_teacher_ref';
+  const normalizedProvider = asString(sourceProvider).toLowerCase();
+  if (normalizedProvider === 'youtube') {
+    return 'youtube_instruction_ref';
+  }
+  if (normalizedProvider === 'bilibili') {
+    return 'bilibili_instruction_ref';
+  }
+  return 'manual_teacher_ref';
 }
 
 export function buildMotionCoachReferenceLibraryHref(input: {
@@ -95,6 +103,7 @@ export function buildMotionCoachLessonHandoffHref(input: {
   sourceProvider?: string;
   thumbnailUrl?: string;
   courseChaptersInput?: string;
+  motionReferenceProfileArtifactId?: string;
 }): string {
   const url = buildUrlWithBase(input.returnTo);
   clearLessonHandoffParams(url.searchParams);
@@ -113,6 +122,12 @@ export function buildMotionCoachLessonHandoffHref(input: {
   }
   if (asString(input.courseChaptersInput)) {
     url.searchParams.set(PARAM_KEYS.courseChapters, input.courseChaptersInput!.trim());
+  }
+  if (asString(input.motionReferenceProfileArtifactId)) {
+    url.searchParams.set(
+      PARAM_KEYS.motionReferenceProfileArtifactId,
+      input.motionReferenceProfileArtifactId!.trim(),
+    );
   }
   return buildRelativeUrl(url);
 }
@@ -134,6 +149,9 @@ export function parseMotionPracticeLessonHandoff(
   const sourceProvider = asString(searchParams.get(PARAM_KEYS.sourceProvider));
   const thumbnailUrl = asString(searchParams.get(PARAM_KEYS.thumbnailUrl));
   const courseChaptersInput = asString(searchParams.get(PARAM_KEYS.courseChapters));
+  const motionReferenceProfileArtifactId = asString(
+    searchParams.get(PARAM_KEYS.motionReferenceProfileArtifactId),
+  );
   return {
     capabilityCode,
     sourceKind,
@@ -142,6 +160,7 @@ export function parseMotionPracticeLessonHandoff(
     sourceProvider: sourceProvider || undefined,
     thumbnailUrl: thumbnailUrl || undefined,
     courseChaptersInput: courseChaptersInput || undefined,
+    motionReferenceProfileArtifactId: motionReferenceProfileArtifactId || undefined,
   };
 }
 
@@ -159,6 +178,7 @@ export function buildInstructionSourceStateFromLessonHandoff(
     courseChaptersInput,
     courseChapters: parseResult.courseChapters,
     courseChaptersError: parseResult.error,
+    motionReferenceProfileArtifactId: handoff.motionReferenceProfileArtifactId,
   };
 }
 

@@ -10,6 +10,7 @@ import {
   buildMotionSourceRef,
   isRecord,
   readInstructionSegmentGraphs,
+  resolveMotionPracticeReference,
 } from './motionPracticeLaunchMetadata';
 import {
   buildMotionPracticeIntentText as buildMotionPracticeIntentTextFromTarget,
@@ -179,6 +180,7 @@ async function registerLiveMotionSession(
   input: MotionPracticeLaunchInput,
   meetingId: string,
 ): Promise<Record<string, unknown>> {
+  const reference = resolveMotionPracticeReference(input);
   const payload = await fetchJson(
     input.apiUrl,
     '/api/v1/capabilities/motion_runtime/analysis/live-sessions',
@@ -189,7 +191,7 @@ async function registerLiveMotionSession(
         capture_session_id: input.sourceSession.session_id,
         device_profile_ref: buildMotionSourceRef(input.sourceSession),
         meeting_session_id: meetingId,
-        expert_library_ref: input.expertLibraryRef?.trim() || null,
+        expert_library_ref: reference.sourceRef,
         budget: {
           max_window_writes_per_sec: 2,
           max_meeting_summaries_per_5_sec: 1,
@@ -248,10 +250,11 @@ export function buildYogaLivePracticeRollup({
   liveSessionId: string | null;
 }): Record<string, unknown> {
   const sourceRef = buildMotionSourceRef(input.sourceSession);
+  const reference = resolveMotionPracticeReference(input);
   return {
     practice_session_id: buildMotionPracticeSessionIdFromTarget(input),
     workspace_id: input.workspaceId,
-    teacher_library_ref: input.expertLibraryRef?.trim() || null,
+    teacher_library_ref: reference.sourceRef,
     asana_refs: [],
     duration_ms: 0,
     window_count: 0,
@@ -286,11 +289,12 @@ function buildDancePracticeSession({
   input: MotionPracticeLaunchInput;
   liveSessionId: string | null;
 }): Record<string, unknown> {
+  const reference = resolveMotionPracticeReference(input);
   return {
     workspace_id: input.workspaceId,
     capture_session_id: input.sourceSession.session_id,
     live_motion_session_id: liveSessionId,
-    expert_library_ref: input.expertLibraryRef?.trim()
+    expert_library_ref: reference.sourceRef
       || 'mindscape://dance_motion_coach/expert-library/default',
     choreography_segment_ref: null,
     rhythm_rubric_ref: null,
@@ -335,6 +339,7 @@ export function buildMotionPracticeCommandParameters({
   liveSessionPayload: Record<string, unknown>;
 }): Record<string, unknown> {
   const liveSessionId = readLiveSessionId(liveSessionPayload);
+  const reference = resolveMotionPracticeReference(input);
   const livePracticeRollup = buildYogaLivePracticeRollup({
     input,
     meetingId,
@@ -347,7 +352,7 @@ export function buildMotionPracticeCommandParameters({
       capture_session_id: input.sourceSession.session_id,
       device_profile_ref: buildMotionSourceRef(input.sourceSession),
       source_types: input.sourceSession.source_types,
-      expert_library_ref: input.expertLibraryRef?.trim() || null,
+      expert_library_ref: reference.sourceRef,
       user_id: 'default-user',
       user_goal: input.userGoal?.trim() || '',
       coach_pack: input.coachPack,
@@ -366,7 +371,7 @@ export function buildMotionPracticeCommandParameters({
     capture_session_id: input.sourceSession.session_id,
     device_profile_ref: buildMotionSourceRef(input.sourceSession),
     source_types: input.sourceSession.source_types,
-    expert_library_ref: input.expertLibraryRef?.trim() || null,
+    expert_library_ref: reference.sourceRef,
     user_id: 'default-user',
     user_goal: input.userGoal?.trim() || '',
     coach_pack: input.coachPack,
@@ -381,6 +386,7 @@ export async function launchMotionPractice(
   input: MotionPracticeLaunchInput,
 ): Promise<MotionPracticeLaunchResult> {
   const target = resolveMotionPracticeTargetFromTarget(input.coachPack, input.practiceMode);
+  const reference = resolveMotionPracticeReference(input);
   if (!target.enabled) {
     throw new Error(target.blockedReason || 'motion_practice_target_not_ready');
   }
@@ -409,7 +415,8 @@ export async function launchMotionPractice(
     practiceSessionId: buildMotionPracticeSessionIdFromTarget(input),
     coachPack: input.coachPack,
     practiceMode: input.practiceMode,
-    referenceUrl: input.expertLibraryRef,
+    referenceUrl: reference.sourceRef || undefined,
+    motionReferenceProfileArtifactId: reference.profileArtifactId || undefined,
     userGoal: input.userGoal,
   });
 

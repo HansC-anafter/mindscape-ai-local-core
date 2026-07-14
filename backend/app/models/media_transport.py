@@ -219,6 +219,11 @@ class StartLiveMediaReceiverRequest(BaseModel):
     coach_pack: LiveMotionCoachPack
     practice_mode: str = Field(min_length=1, max_length=80)
     reference_url: Optional[str] = Field(default=None, max_length=4096)
+    motion_reference_profile_artifact_id: Optional[str] = Field(
+        default=None,
+        min_length=1,
+        max_length=160,
+    )
     user_goal: Optional[str] = Field(default=None, max_length=2000)
     expected_duration_ms: float = Field(default=0.0, ge=0.0)
 
