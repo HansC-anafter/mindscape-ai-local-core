@@ -208,6 +208,8 @@ def test_receiver_state_emits_bounded_authenticated_event(
         metrics={
             "attempted_windows": 7,
             "accepted_windows": 7,
+            "decoded_frames": 35,
+            "overwritten_frames": 4,
             "reference_chapter_id": "segment:010",
             "reference_localization_ready": True,
             "raw_frames": ["forbidden"],
@@ -227,6 +229,8 @@ def test_receiver_state_emits_bounded_authenticated_event(
         "failed_windows": 0,
         "append_queue_pending": 0,
         "reconnect_attempts": 0,
+        "decoded_frames": 35,
+        "overwritten_frames": 4,
         "reference_chapter_id": "segment:010",
         "reference_localization_ready": True,
     }

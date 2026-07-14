@@ -369,6 +369,7 @@ def run_receiver(args: Any) -> int:
                     metrics=_receiver_metrics(
                         attempted_windows=attempted_windows,
                         sender_stats=sender_stats,
+                        capture_stats=capture_stats,
                         reconnect_attempts=reconnect_attempts,
                         last_window_summary=last_window_summary,
                     ),
@@ -385,6 +386,9 @@ def run_receiver(args: Any) -> int:
                     last_rollup = rollup_probe
                 next_rollup_at = now + args.rollup_every_sec
     finally:
+        capture_stats = (
+            capture.stats() if callable(getattr(capture, "stats", None)) else {}
+        )
         terminal_end_ms = max(0.0, (time.monotonic() - start) * 1000.0)
         if args.duration_sec > 0:
             terminal_end_ms = min(terminal_end_ms, args.duration_sec * 1000.0)
@@ -409,6 +413,7 @@ def run_receiver(args: Any) -> int:
             args.receiver_final_metrics = _receiver_metrics(
                 attempted_windows=attempted_windows,
                 sender_stats=sender.stats(),
+                capture_stats=capture_stats,
                 reconnect_attempts=reconnect_attempts,
                 last_window_summary=last_window_summary,
             )

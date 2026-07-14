@@ -47,10 +47,12 @@ def receiver_metrics(
     *,
     attempted_windows: int,
     sender_stats: dict[str, Any],
+    capture_stats: dict[str, Any] | None,
     reconnect_attempts: int,
     last_window_summary: dict[str, Any] | None,
 ) -> dict[str, Any]:
     alignment = public_reference_alignment_status(last_window_summary)
+    capture = capture_stats or {}
     return {
         "attempted_windows": attempted_windows,
         "accepted_windows": sender_stats.get("accepted_windows", 0),
@@ -58,6 +60,8 @@ def receiver_metrics(
         "failed_windows": sender_stats.get("failed_windows", 0),
         "append_queue_pending": sender_stats.get("append_queue_pending", 0),
         "reconnect_attempts": reconnect_attempts,
+        "decoded_frames": capture.get("decoded_frames", 0),
+        "overwritten_frames": capture.get("overwritten_frames", 0),
         "last_window_end_ms": (
             last_window_summary.get("ts_end_ms")
             if last_window_summary is not None

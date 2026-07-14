@@ -250,6 +250,8 @@ class LiveMediaReceiverMetrics(BaseModel):
     failed_windows: int = Field(default=0, ge=0)
     append_queue_pending: int = Field(default=0, ge=0)
     reconnect_attempts: int = Field(default=0, ge=0)
+    decoded_frames: int = Field(default=0, ge=0)
+    overwritten_frames: int = Field(default=0, ge=0)
     last_window_end_ms: Optional[float] = Field(default=None, ge=0.0)
     reference_chapter_id: Optional[str] = Field(default=None, max_length=160)
     reference_localization_ready: Optional[bool] = None

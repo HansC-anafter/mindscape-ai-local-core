@@ -24,6 +24,8 @@ _METRIC_COUNTERS = (
     "failed_windows",
     "append_queue_pending",
     "reconnect_attempts",
+    "decoded_frames",
+    "overwritten_frames",
 )
 
 
