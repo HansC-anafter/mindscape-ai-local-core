@@ -29,6 +29,7 @@ sys.modules.setdefault(
 
 from rtmp_motion_publisher import app as publisher_app  # noqa: E402
 from rtmp_motion_publisher.capture import FfmpegRawFrameCapture  # noqa: E402
+from rtmp_motion_publisher.windows import PoseSample  # noqa: E402
 
 
 class ClosedCapture:
@@ -235,3 +236,113 @@ def test_rollup_failure_is_reported_without_escaping_receiver(monkeypatch) -> No
             "error": "slow rollup",
         }
     ]
+
+
+def test_receiver_flushes_partial_terminal_window_before_final_rollup(monkeypatch) -> None:
+    class Capture:
+        def isOpened(self) -> bool:
+            return True
+
+        def read(self):
+            return True, object()
+
+        def release(self) -> None:
+            return None
+
+    class Pose:
+        def process(self, _frame, _timestamp_ms):
+            return object()
+
+        def close(self) -> None:
+            return None
+
+    class Sender:
+        instance = None
+
+        def __init__(self, **_kwargs) -> None:
+            self.pending = []
+            self.closed = False
+            Sender.instance = self
+
+        def enqueue(self, pending) -> bool:
+            self.pending.append(pending)
+            return True
+
+        def close(self) -> None:
+            self.closed = True
+
+        def stats(self) -> dict:
+            return {
+                "accepted_windows": len(self.pending),
+                "rejected_windows": 0,
+                "failed_windows": 0,
+                "append_queue_pending": 0,
+                "last_append_error": None,
+                "guidance_reconnects": 0,
+                "guidance_failures": 0,
+                "last_guidance_error": None,
+            }
+
+    class Evidence:
+        def __init__(self, *_args) -> None:
+            return None
+
+        def capture_window(self, *_args) -> None:
+            return None
+
+        def finalize(self, _rollup):
+            return None
+
+        def cleanup_transient_frames(self) -> None:
+            return None
+
+    ticks = iter((0.0, 0.6, 1.2, 1.8, 2.4, 3.0))
+    args = _args()
+    args.duration_sec = 1.5
+    args.window_sec = 10.0
+    args.disable_learner_visual_evidence = True
+    args.learner_evidence_output_dir = ""
+    args.learner_evidence_storage_dir = ""
+    args.learner_evidence_max_windows = 10
+    args.learner_evidence_jpeg_quality = 78
+    events: list[dict] = []
+    monkeypatch.setattr(publisher_app.time, "monotonic", lambda: next(ticks))
+    monkeypatch.setattr(publisher_app, "open_stream_capture", lambda _args: Capture())
+    monkeypatch.setattr(publisher_app, "register_live_session", lambda _args: "motion-one")
+    monkeypatch.setattr(publisher_app, "BackgroundMotionWindowSender", Sender)
+    monkeypatch.setattr(
+        publisher_app.PoseDetector,
+        "create",
+        lambda _path: Pose(),
+    )
+    monkeypatch.setattr(publisher_app.cv2, "COLOR_BGR2RGB", 1, raising=False)
+    monkeypatch.setattr(publisher_app.cv2, "cvtColor", lambda frame, _code: frame, raising=False)
+    monkeypatch.setattr(
+        publisher_app,
+        "pose_sample_from_result",
+        lambda _result, timestamp_ms: PoseSample(
+            timestamp_ms=timestamp_ms,
+            confidence=0.9,
+            visible_point_count=30,
+            total_point_count=33,
+        ),
+    )
+    monkeypatch.setattr(publisher_app, "LearnerVisualEvidenceRecorder", Evidence)
+    monkeypatch.setattr(publisher_app, "start_stream_cost_tracking", lambda *_args: None)
+    monkeypatch.setattr(
+        publisher_app,
+        "emit_rollup",
+        lambda *_args, **_kwargs: {"motion_rollup_ref": "rollup-one"},
+    )
+    monkeypatch.setattr(publisher_app, "emit_yogacoach_closeout", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(publisher_app, "emit", events.append)
+
+    assert publisher_app.run_receiver(args) == 0
+
+    sender = Sender.instance
+    assert sender is not None
+    assert sender.closed is True
+    assert len(sender.pending) == 1
+    assert sender.pending[0].summary["ts_start_ms"] == 600.0
+    assert sender.pending[0].summary["ts_end_ms"] == 1500.0
+    assert any(event["event"] == "terminal_motion_window_flushed" for event in events)

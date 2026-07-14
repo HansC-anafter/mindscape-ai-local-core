@@ -91,13 +91,13 @@ export function createBuiltinTools(): ToolDefinition[] {
         },
         {
             name: "capture_relay_control",
-            description: "Control the local RTMP relay helper for external camera capture",
+            description: "Control the canonical host media relay and supervised receiver",
             inputSchema: {
                 type: "object",
                 properties: {
                     action: {
                         type: "string",
-                        enum: ["status", "install_mediamtx", "start", "stop", "open_obs", "configure_obs"],
+                        enum: ["status", "install_mediamtx", "start", "stop", "open_obs", "configure_obs", "receiver_start", "receiver_status", "receiver_stop"],
                         description: "Relay helper action",
                     },
                     stream_name: {
@@ -136,6 +136,18 @@ export function createBuiltinTools(): ToolDefinition[] {
                     timeout_ms: {
                         type: "number",
                         description: "Bounded relay readiness wait",
+                    },
+                    receiver_descriptor: {
+                        type: "object",
+                        description: "Server-issued live media receiver descriptor",
+                    },
+                    media_session_id: {
+                        type: "string",
+                        description: "Live media session identity for receiver status or stop",
+                    },
+                    receiver_identity: {
+                        type: "string",
+                        description: "Server-issued receiver ownership identity",
                     },
                 },
             },

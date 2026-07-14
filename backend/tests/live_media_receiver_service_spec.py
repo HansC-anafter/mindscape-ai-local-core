@@ -128,11 +128,30 @@ async def test_receiver_handoff_keeps_credentials_server_only(
     second_descriptor = calls[1]["arguments"]["receiver_descriptor"]
     assert first["status"] == "active"
     assert "access_token" not in first
+    assert "receiver_identity" not in first
     assert first_descriptor["access_token"]
     assert first_descriptor["append_owner_id"].startswith("append_")
     assert second_descriptor["append_owner_id"] == first_descriptor["append_owner_id"]
     assert second_descriptor["receiver_identity"] == first_descriptor["receiver_identity"]
     assert service.receiver_started(media_session_id) is True
+    assert service.get_active(
+        workspace_id="workspace-one",
+        device_session_id="device-one",
+    ).state == "waiting_for_publisher"
+
+
+def test_receiver_state_projects_without_releasing_reservation(tmp_path: Path) -> None:
+    service, media_session_id = _service(tmp_path)
+
+    analyzing = service.update_receiver_state(media_session_id, "analyzing")
+    completed = service.update_receiver_state(media_session_id, "completed")
+
+    assert analyzing.state == "ready"
+    assert completed.state == "ready"
+    assert service.get_active(
+        workspace_id="workspace-one",
+        device_session_id="device-one",
+    ).media_session_id == media_session_id
 
 
 @pytest.mark.asyncio

@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 import json
+import secrets
 from typing import Any, NoReturn
 
-from fastapi import APIRouter, Depends, HTTPException, Path, WebSocket
+from fastapi import APIRouter, Depends, Header, HTTPException, Path, WebSocket
 
 from backend.app.models.media_transport import (
     CreateLiveMediaSessionRequest,
     LiveMediaSessionAccess,
     LiveMediaSessionDescriptor,
+    LiveMediaReceiverEvent,
     MediaSignalEvent,
     StartLiveMediaReceiverRequest,
 )
@@ -221,7 +223,7 @@ async def start_live_media_session_receiver(
         device_session_id=device_session_id,
     )
     try:
-        return await start_live_media_receiver(
+        status = await start_live_media_receiver(
             media_service=media_service,
             workspace_id=workspace_id,
             device_session_id=device_session_id,
@@ -229,8 +231,84 @@ async def start_live_media_session_receiver(
             request=payload,
             artifact_store=artifact_store,
         )
+        device_registry.update_live_media_receiver_state(
+            workspace_id=workspace_id,
+            session_id=device_session_id,
+            media_session_id=media_session_id,
+            receiver_state=str(status.get("state") or "starting"),
+        )
     except LiveMediaReceiverControlError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.reason) from exc
+    except DeviceBindingRegistryError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.reason) from exc
+    await _broadcast_device_snapshot(
+        registry=device_registry,
+        workspace_id=workspace_id,
+    )
+    return status
+
+
+@router.post(
+    "/{workspace_id}/device-bindings/{device_session_id}/media-sessions/"
+    "{media_session_id}/receiver/events",
+)
+async def project_live_media_receiver_event(
+    payload: LiveMediaReceiverEvent,
+    workspace_id: str = Path(..., description="Workspace ID"),
+    device_session_id: str = Path(..., description="Bound source device session ID"),
+    media_session_id: str = Path(..., description="Live media session ID"),
+    authorization: str | None = Header(default=None),
+    workspace: Workspace = Depends(get_workspace),
+    device_registry: DeviceBindingRegistry = Depends(get_device_binding_registry),
+    media_service: LiveMediaSessionService = Depends(get_live_media_session_route_service),
+) -> dict[str, Any]:
+    """Project authenticated receiver events into the existing device socket."""
+
+    _ = workspace
+    _require_device_session(
+        registry=device_registry,
+        workspace_id=workspace_id,
+        device_session_id=device_session_id,
+    )
+    token = ""
+    if authorization and authorization.lower().startswith("bearer "):
+        token = authorization[7:].strip()
+    try:
+        binding = media_service.receiver_binding(
+            workspace_id=workspace_id,
+            device_session_id=device_session_id,
+            media_session_id=media_session_id,
+        )
+        if not token or not secrets.compare_digest(token, binding.append_owner_id):
+            raise HTTPException(status_code=401, detail="receiver_event_unauthorized")
+        descriptor = media_service.update_receiver_state(
+            media_session_id,
+            payload.state,
+            reason=payload.reason,
+        )
+        metrics = payload.metrics.model_dump(mode="json", exclude_none=True)
+        device_registry.update_live_media_receiver_state(
+            workspace_id=workspace_id,
+            session_id=device_session_id,
+            media_session_id=media_session_id,
+            receiver_state=payload.state,
+            metrics=metrics,
+        )
+    except LiveMediaSessionServiceError as exc:
+        _raise_live_media_error(exc)
+    except DeviceBindingRegistryError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.reason) from exc
+    await _broadcast_device_snapshot(
+        registry=device_registry,
+        workspace_id=workspace_id,
+    )
+    return {
+        "accepted": True,
+        "media_session_id": media_session_id,
+        "receiver_state": payload.state,
+        "media_state": descriptor.state,
+        "updated_at": payload.updated_at,
+    }
 
 
 @router.post(

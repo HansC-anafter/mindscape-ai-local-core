@@ -85,6 +85,35 @@ def _try_emit_rollup(
         return None
 
 
+def _receiver_metrics(
+    *,
+    attempted_windows: int,
+    sender_stats: dict[str, Any],
+    reconnect_attempts: int,
+    last_window_summary: dict[str, Any] | None,
+) -> dict[str, Any]:
+    alignment = _public_reference_alignment_status(last_window_summary)
+    return {
+        "attempted_windows": attempted_windows,
+        "accepted_windows": sender_stats.get("accepted_windows", 0),
+        "rejected_windows": sender_stats.get("rejected_windows", 0),
+        "failed_windows": sender_stats.get("failed_windows", 0),
+        "append_queue_pending": sender_stats.get("append_queue_pending", 0),
+        "reconnect_attempts": reconnect_attempts,
+        "last_window_end_ms": (
+            last_window_summary.get("ts_end_ms")
+            if last_window_summary is not None
+            else None
+        ),
+        "reference_chapter_id": (
+            alignment.get("chapter_id") if alignment is not None else None
+        ),
+        "reference_localization_ready": (
+            alignment.get("localization_ready") if alignment is not None else None
+        ),
+    }
+
+
 def run_receiver(args: Any) -> int:
     configure_event_log(args.event_log_path)
     motion_reference_profile = (
@@ -216,11 +245,11 @@ def run_receiver(args: Any) -> int:
     last_frame: Any = first_frame
     publisher_exit_code = 0
 
-    def enqueue_sample_window(sample: PoseSample, frame: Any | None = None) -> None:
+    def enqueue_window_summary(
+        summary: dict[str, Any],
+        frame: Any | None = None,
+    ) -> None:
         nonlocal attempted_windows, last_window_summary
-        summary = accumulator.push(sample)
-        if summary is None:
-            return
         attempted_windows += 1
         if reference_matcher is not None:
             reference_matcher.annotate(summary)
@@ -234,6 +263,11 @@ def run_receiver(args: Any) -> int:
                 received_at_ms=time.monotonic() * 1000.0,
             )
         )
+
+    def enqueue_sample_window(sample: PoseSample, frame: Any | None = None) -> None:
+        summary = accumulator.push(sample)
+        if summary is not None:
+            enqueue_window_summary(summary, frame)
 
     def holdover_active(now_monotonic: float) -> bool:
         return (
@@ -391,6 +425,16 @@ def run_receiver(args: Any) -> int:
                         ),
                     }
                 )
+                transition_receiver_state(
+                    args,
+                    "analyzing",
+                    metrics=_receiver_metrics(
+                        attempted_windows=attempted_windows,
+                        sender_stats=sender_stats,
+                        reconnect_attempts=reconnect_attempts,
+                        last_window_summary=last_window_summary,
+                    ),
+                )
                 next_status_at = now + args.status_every_sec
             if args.rollup_every_sec > 0 and now >= next_rollup_at:
                 rollup_probe = _try_emit_rollup(
@@ -403,6 +447,20 @@ def run_receiver(args: Any) -> int:
                     last_rollup = rollup_probe
                 next_rollup_at = now + args.rollup_every_sec
     finally:
+        terminal_end_ms = max(0.0, (time.monotonic() - start) * 1000.0)
+        if args.duration_sec > 0:
+            terminal_end_ms = min(terminal_end_ms, args.duration_sec * 1000.0)
+        terminal_summary = accumulator.flush(terminal_end_ms)
+        if terminal_summary is not None:
+            enqueue_window_summary(terminal_summary, last_frame)
+            emit(
+                {
+                    "event": "terminal_motion_window_flushed",
+                    "window_id": terminal_summary["window_id"],
+                    "start_ms": terminal_summary["ts_start_ms"],
+                    "end_ms": terminal_summary["ts_end_ms"],
+                }
+            )
         if stream_cost_tracker is not None:
             stream_cost_tracker.finish(last_frame)
         capture.release()
@@ -410,6 +468,12 @@ def run_receiver(args: Any) -> int:
             pose.close()
         if sender is not None:
             sender.close()
+            args.receiver_final_metrics = _receiver_metrics(
+                attempted_windows=attempted_windows,
+                sender_stats=sender.stats(),
+                reconnect_attempts=reconnect_attempts,
+                last_window_summary=last_window_summary,
+            )
 
     final_rollup = _try_emit_rollup(
         args,

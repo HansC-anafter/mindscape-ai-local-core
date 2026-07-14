@@ -189,7 +189,16 @@ export function PhoneSourcePreview({
     || notice
     || (waitingForFrames ? 'video_track_waiting_for_frames' : state);
   const analysisLabel = session.media_session_id
-    ? `media ${session.media_session_state || 'ready'} · Local Core analysis handoff`
+    ? [
+      `media ${session.media_session_state || 'ready'}`,
+      session.media_receiver_metrics?.attempted_windows !== undefined
+        ? `${session.media_receiver_metrics.accepted_windows || 0}`
+          + `/${session.media_receiver_metrics.attempted_windows} windows`
+        : 'Local Core analysis handoff',
+      session.media_receiver_metrics?.failed_windows
+        ? `${session.media_receiver_metrics.failed_windows} failed`
+        : null,
+    ].filter(Boolean).join(' · ')
     : 'media_session_pending';
   const fillAvailableHeight = className?.split(/\s+/).includes('h-full') ?? false;
 

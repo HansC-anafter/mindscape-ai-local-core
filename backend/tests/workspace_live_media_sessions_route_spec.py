@@ -165,6 +165,64 @@ def test_live_media_route_rejects_unknown_device_session(tmp_path: Path) -> None
     assert response.json()["detail"] == "unknown_device_session"
 
 
+def test_receiver_event_projects_authenticated_health_without_polling(
+    tmp_path: Path,
+) -> None:
+    client, registry, service = _client(tmp_path)
+    device_session_id, source_socket = _connect_device(client)
+    collection_url = (
+        "/api/v1/workspaces/ws_device/device-bindings/"
+        f"{device_session_id}/media-sessions"
+    )
+    created = client.post(
+        collection_url,
+        json={"source_kind": "phone_camera", "analysis_reserved": True},
+    ).json()
+    media_session_id = created["session"]["media_session_id"]
+    event_url = f"{collection_url}/{media_session_id}/receiver/events"
+    payload = {
+        "schema_version": "live_media_receiver_event.v1",
+        "state": "analyzing",
+        "updated_at": "2026-07-15T02:00:00+00:00",
+        "metrics": {
+            "attempted_windows": 12,
+            "accepted_windows": 12,
+            "failed_windows": 0,
+            "append_queue_pending": 0,
+            "reconnect_attempts": 0,
+            "last_window_end_ms": 61234.0,
+            "reference_chapter_id": "segment:010",
+            "reference_localization_ready": True,
+        },
+    }
+
+    unauthorized = client.post(event_url, json=payload)
+    binding = service.receiver_binding(
+        workspace_id="ws_device",
+        device_session_id=device_session_id,
+        media_session_id=media_session_id,
+    )
+    projected = client.post(
+        event_url,
+        json=payload,
+        headers={"Authorization": f"Bearer {binding.append_owner_id}"},
+    )
+
+    assert unauthorized.status_code == 401
+    assert projected.status_code == 200
+    assert projected.json()["media_state"] == "ready"
+    entry = registry.get_active_session(
+        workspace_id="ws_device",
+        session_id=device_session_id,
+    )
+    assert entry is not None
+    assert entry.media_session_state == "analyzing"
+    assert entry.media_receiver_metrics["accepted_windows"] == 12
+    assert entry.media_receiver_metrics["reference_chapter_id"] == "segment:010"
+    assert "append_owner" not in projected.text
+    source_socket.__exit__(None, None, None)
+
+
 def test_source_disconnect_releases_attached_media_reservation(tmp_path: Path) -> None:
     client, _, service = _client(tmp_path)
     device_session_id, source_socket = _connect_device(client)

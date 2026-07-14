@@ -11,7 +11,11 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from .app import run_receiver
 from .cli import parse_args
-from .receiver_state import safe_receiver_failure_reason, transition_receiver_state
+from .receiver_state import (
+    close_receiver_state_reporter,
+    safe_receiver_failure_reason,
+    transition_receiver_state,
+)
 
 
 def _required(record: dict[str, Any], name: str) -> str:
@@ -160,6 +164,8 @@ def _build_receiver_args(
         "5",
         "--rollup-api-timeout-sec",
         "30",
+        "--rollup-every-sec",
+        "0",
         "--closeout-api-timeout-sec",
         "30",
         "--api-retry-count",
@@ -211,7 +217,12 @@ def main() -> int:
         transition_receiver_state(receiver_args, "waiting_source")
         result = run_receiver(receiver_args)
         terminal_state = "completed" if result == 0 else "failed"
-        transition_receiver_state(receiver_args, terminal_state)
+        transition_receiver_state(
+            receiver_args,
+            terminal_state,
+            metrics=getattr(receiver_args, "receiver_final_metrics", None),
+        )
+        close_receiver_state_reporter()
         return result
     except Exception as exc:
         fallback = argparse.Namespace(
@@ -225,6 +236,7 @@ def main() -> int:
             "failed",
             reason=safe_receiver_failure_reason(exc),
         )
+        close_receiver_state_reporter()
         return 1
 
 

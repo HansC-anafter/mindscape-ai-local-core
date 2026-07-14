@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import os
-from typing import Any
+from typing import Any, cast
 
 from backend.app.models.media_transport import (
     LiveMediaSessionDescriptor,
+    LiveMediaReceiverStateName,
     StartLiveMediaReceiverRequest,
 )
 from backend.app.services.host_services.capture_relay_proxy import (
@@ -38,6 +39,17 @@ class LiveMediaReceiverControlError(RuntimeError):
 RECEIVER_CLOSEOUT_WAIT_SECONDS = 75.0
 RECEIVER_STATUS_POLL_INTERVAL_SECONDS = 0.5
 RECEIVER_TERMINAL_STATUSES = {"completed", "failed", "expired", "not_found"}
+RECEIVER_STATES = {
+    "starting",
+    "waiting_source",
+    "receiving",
+    "analyzing",
+    "degraded",
+    "stopping",
+    "completed",
+    "failed",
+    "expired",
+}
 
 
 def _host_api_base() -> str:
@@ -51,7 +63,16 @@ def _safe_status(result: dict[str, Any]) -> dict[str, Any]:
     forbidden = {"access_token", "append_owner_id", "receiver_token"}
     if forbidden.intersection(result):
         raise LiveMediaReceiverControlError("receiver_control_returned_secret")
-    return result
+    safe = dict(result)
+    safe.pop("receiver_identity", None)
+    return safe
+
+
+def _receiver_state(value: Any) -> LiveMediaReceiverStateName:
+    state = str(value or "").strip()
+    if state not in RECEIVER_STATES:
+        raise LiveMediaReceiverControlError("live_media_receiver_state_invalid")
+    return cast(LiveMediaReceiverStateName, state)
 
 
 async def start_live_media_receiver(
@@ -122,6 +143,11 @@ async def start_live_media_receiver(
         if status.get("status") != "active":
             raise LiveMediaReceiverControlError("live_media_receiver_not_active")
         media_service.mark_receiver_started(media_session_id)
+        media_service.update_receiver_state(
+            media_session_id,
+            _receiver_state(status.get("state")),
+            reason=str(status.get("reason") or "").strip() or None,
+        )
         return status
     except LiveMediaSessionServiceError as exc:
         raise LiveMediaReceiverControlError(

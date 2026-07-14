@@ -69,10 +69,18 @@ interface ReceiverState {
     state: ReceiverStateName;
     updated_at: string;
     reason?: string;
+    metrics?: Record<string, string | number | boolean | null>;
 }
 
 function cleanString(value: unknown): string {
     return String(value || "").trim();
+}
+
+export function publicReceiverFailureReason(value: unknown): string | undefined {
+    const reason = cleanString(value);
+    if (!reason) return undefined;
+    if (/^[a-z0-9][a-z0-9_.:-]{0,127}$/.test(reason)) return reason;
+    return "live_media_receiver_runtime_failed";
 }
 
 function requireString(record: Record<string, unknown>, name: string): string {
@@ -300,14 +308,17 @@ function publicStatus(action: string, state: ReceiverState): Record<string, unkn
     return {
         schema_version: "live_media_receiver_control.v1",
         action,
-        status: pidIsRunning(state.pid) ? "active" : state.state,
+        status: state.state === "stopping"
+            ? "stopping"
+            : pidIsRunning(state.pid) ? "active" : state.state,
         state: state.state,
         workspace_id: state.workspace_id,
         media_session_id: state.media_session_id,
         receiver_identity: state.receiver_identity,
         pid: state.pid,
         updated_at: state.updated_at,
-        reason: state.reason,
+        reason: publicReceiverFailureReason(state.reason),
+        metrics: state.metrics || {},
     };
 }
 
@@ -357,7 +368,10 @@ async function waitForReceiverReady(
             return state;
         }
         if (state && (state.state === "failed" || state.state === "expired")) {
-            throw new Error(state.reason || `live_media_receiver_${state.state}`);
+            throw new Error(
+                publicReceiverFailureReason(state.reason)
+                || `live_media_receiver_${state.state}`,
+            );
         }
         if (!pidIsRunning(pid)) {
             throw new Error("live_media_receiver_exited_before_ready");
@@ -469,7 +483,10 @@ export async function stopLiveMediaReceiver(
         await wait(100);
     }
     if (pidIsRunning(state.pid)) {
-        throw new Error("live_media_receiver_stop_timeout");
+        return publicStatus(
+            "receiver_stop",
+            readState(paths.statePath) || state,
+        );
     }
     const terminal = readState(paths.statePath) || state;
     if (terminal.state === "stopping") {

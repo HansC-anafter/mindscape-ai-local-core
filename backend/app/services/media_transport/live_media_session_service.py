@@ -8,8 +8,10 @@ from backend.app.models.device_binding import DeviceSessionEntry
 from backend.app.models.media_transport import (
     CreateLiveMediaSessionRequest,
     LiveMediaReceiverAccess,
+    LiveMediaReceiverBinding,
     LiveMediaSessionAccess,
     LiveMediaSessionDescriptor,
+    LiveMediaReceiverStateName,
 )
 
 from .live_media_config import LiveMediaConfig, LiveMediaConfigError
@@ -164,8 +166,46 @@ class LiveMediaSessionService:
                 status_code=exc.status_code,
             ) from exc
 
+    def receiver_binding(
+        self,
+        *,
+        workspace_id: str,
+        device_session_id: str,
+        media_session_id: str,
+    ) -> LiveMediaReceiverBinding:
+        try:
+            return self._registry.get_receiver_binding(
+                workspace_id=workspace_id,
+                device_session_id=device_session_id,
+                media_session_id=media_session_id,
+            )
+        except LiveMediaSessionRegistryError as exc:
+            raise LiveMediaSessionServiceError(
+                exc.reason,
+                status_code=exc.status_code,
+            ) from exc
+
     def receiver_started(self, media_session_id: str) -> bool:
         return self._registry.receiver_started(media_session_id)
+
+    def update_receiver_state(
+        self,
+        media_session_id: str,
+        state: LiveMediaReceiverStateName,
+        *,
+        reason: str | None = None,
+    ) -> LiveMediaSessionDescriptor:
+        try:
+            return self._registry.update_receiver_state(
+                media_session_id,
+                state,
+                reason=reason,
+            )
+        except LiveMediaSessionRegistryError as exc:
+            raise LiveMediaSessionServiceError(
+                exc.reason,
+                status_code=exc.status_code,
+            ) from exc
 
     def _access(
         self,

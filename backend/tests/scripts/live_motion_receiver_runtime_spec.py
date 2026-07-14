@@ -37,6 +37,10 @@ from rtmp_motion_publisher.live_receiver_runtime import (  # noqa: E402
     _load_descriptor,
 )
 from rtmp_motion_publisher import api_client  # noqa: E402
+from rtmp_motion_publisher.receiver_state import (  # noqa: E402
+    close_receiver_state_reporter,
+    transition_receiver_state,
+)
 
 
 def _descriptor() -> dict:
@@ -85,6 +89,7 @@ def test_descriptor_builds_formal_rtsps_receiver_args(
     assert args.capture_backend == "ffmpeg"
     assert args.api_timeout_sec == 5.0
     assert args.rollup_api_timeout_sec == 30.0
+    assert args.rollup_every_sec == 0.0
     assert args.closeout_api_timeout_sec == 30.0
     assert args.api_retry_count == 2
     assert args.append_queue_max_size == 32
@@ -172,3 +177,53 @@ def test_formal_receiver_registration_restores_append_ownership_contract(
     assert metadata["capture_input_kind"] == "remote_webrtc"
     assert metadata["source_kind"] == "phone_camera"
     assert "append_owner_id" not in metadata
+
+
+def test_receiver_state_emits_bounded_authenticated_event(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("LOCAL_CORE_DATA_HOST_DIR", str(tmp_path / "runtime-data"))
+    args = _build_receiver_args(
+        _load_descriptor(_write_descriptor(tmp_path)),
+        state_path=tmp_path / "state.json",
+    )
+    calls: list[dict] = []
+
+    class Response:
+        status_code = 200
+
+    monkeypatch.setattr(
+        "rtmp_motion_publisher.receiver_state.requests.post",
+        lambda url, **kwargs: calls.append({"url": url, **kwargs}) or Response(),
+    )
+
+    transition_receiver_state(
+        args,
+        "analyzing",
+        metrics={
+            "attempted_windows": 7,
+            "accepted_windows": 7,
+            "reference_chapter_id": "segment:010",
+            "reference_localization_ready": True,
+            "raw_frames": ["forbidden"],
+        },
+    )
+    close_receiver_state_reporter()
+
+    assert len(calls) == 1
+    assert calls[0]["url"].endswith(
+        "/media-sessions/media-one/receiver/events"
+    )
+    assert calls[0]["headers"]["Authorization"] == "Bearer append-one"
+    assert calls[0]["json"]["metrics"] == {
+        "attempted_windows": 7,
+        "accepted_windows": 7,
+        "rejected_windows": 0,
+        "failed_windows": 0,
+        "append_queue_pending": 0,
+        "reconnect_attempts": 0,
+        "reference_chapter_id": "segment:010",
+        "reference_localization_ready": True,
+    }
+    assert "append-one" not in json.dumps(calls[0]["json"])

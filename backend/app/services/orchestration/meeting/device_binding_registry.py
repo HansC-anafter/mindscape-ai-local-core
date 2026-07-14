@@ -341,6 +341,39 @@ class DeviceBindingRegistry:
         self._sessions[session_id] = entry
         return entry
 
+    def update_live_media_receiver_state(
+        self,
+        *,
+        workspace_id: str,
+        session_id: str,
+        media_session_id: str,
+        receiver_state: str,
+        metrics: dict[str, object] | None = None,
+    ) -> DeviceSessionEntry:
+        entry = self.get_active_session(
+            workspace_id=workspace_id,
+            session_id=session_id,
+        )
+        if entry is None:
+            raise DeviceBindingRegistryError(
+                reason="unknown_session",
+                message="No active device session exists for this workspace.",
+                status_code=404,
+                close_code=4404,
+            )
+        if entry.media_session_id != media_session_id:
+            raise DeviceBindingRegistryError(
+                reason="device_media_session_mismatch",
+                message="The media session does not belong to this device session.",
+                status_code=409,
+                close_code=4409,
+            )
+        entry.media_session_state = receiver_state
+        entry.media_receiver_metrics = dict(metrics or {})
+        entry.updated_at_epoch = time.time()
+        self._sessions[session_id] = entry
+        return entry
+
     def cleanup_expired(self, *, now_epoch: float | None = None) -> int:
         now = time.time() if now_epoch is None else now_epoch
         removed = 0

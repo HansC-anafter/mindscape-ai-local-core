@@ -12,12 +12,24 @@ from backend.app.models.media_transport import (
     LiveMediaReceiverBinding,
     LiveMediaSessionDescriptor,
     LiveMediaSessionEndpoints,
+    LiveMediaReceiverStateName,
 )
 
 from .live_media_config import LiveMediaConfig
 
 
 MAX_ACTIVE_MEDIA_SESSIONS_PER_WORKSPACE = 3
+RECEIVER_MEDIA_STATE = {
+    "starting": "waiting_for_publisher",
+    "waiting_source": "waiting_for_publisher",
+    "receiving": "publishing",
+    "analyzing": "ready",
+    "degraded": "degraded",
+    "stopping": "ready",
+    "completed": "ready",
+    "failed": "degraded",
+    "expired": "expired",
+}
 
 
 class LiveMediaSessionRegistryError(RuntimeError):
@@ -171,6 +183,34 @@ class LiveMediaSessionRegistry:
         with self._lock:
             return media_session_id in self._started_receivers
 
+    def update_receiver_state(
+        self,
+        media_session_id: str,
+        state: LiveMediaReceiverStateName,
+        *,
+        reason: str | None = None,
+    ) -> LiveMediaSessionDescriptor:
+        with self._lock:
+            descriptor = self._sessions.get(media_session_id)
+            if descriptor is None:
+                raise LiveMediaSessionRegistryError(
+                    "live_media_session_not_found",
+                    status_code=404,
+                )
+            projected_state = RECEIVER_MEDIA_STATE[state]
+            terminal_reason = descriptor.terminal_reason
+            if state in {"failed", "expired"}:
+                terminal_reason = reason or state
+            updated = descriptor.model_copy(
+                update={
+                    "state": projected_state,
+                    "updated_at_epoch": self._now(),
+                    "terminal_reason": terminal_reason,
+                }
+            )
+            self._sessions[media_session_id] = updated
+            return updated.model_copy(deep=True)
+
     def stop(
         self,
         *,
@@ -242,4 +282,5 @@ __all__ = [
     "LiveMediaSessionRegistry",
     "LiveMediaSessionRegistryError",
     "MAX_ACTIVE_MEDIA_SESSIONS_PER_WORKSPACE",
+    "RECEIVER_MEDIA_STATE",
 ]

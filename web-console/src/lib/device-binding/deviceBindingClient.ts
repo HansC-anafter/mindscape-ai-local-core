@@ -37,6 +37,17 @@ export type DeviceSessionEntry = {
   expires_at_epoch: number;
   media_session_id?: string | null;
   media_session_state?: string | null;
+  media_receiver_metrics?: {
+    attempted_windows?: number;
+    accepted_windows?: number;
+    rejected_windows?: number;
+    failed_windows?: number;
+    append_queue_pending?: number;
+    reconnect_attempts?: number;
+    last_window_end_ms?: number | null;
+    reference_chapter_id?: string | null;
+    reference_localization_ready?: boolean | null;
+  };
   media_session_expires_at_epoch?: number | null;
   terminal_reason?: string | null;
 };

@@ -28,6 +28,17 @@ LiveMediaSessionState = Literal[
     "expired",
 ]
 LiveMotionCoachPack = Literal["yogacoach", "dance_motion_coach"]
+LiveMediaReceiverStateName = Literal[
+    "starting",
+    "waiting_source",
+    "receiving",
+    "analyzing",
+    "degraded",
+    "stopping",
+    "completed",
+    "failed",
+    "expired",
+]
 
 MediaSignalMessageType = Literal[
     "workspace_join",
@@ -228,6 +239,34 @@ class StartLiveMediaReceiverRequest(BaseModel):
     expected_duration_ms: float = Field(default=0.0, ge=0.0)
 
 
+class LiveMediaReceiverMetrics(BaseModel):
+    """Bounded receiver health counters safe for workspace projection."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    attempted_windows: int = Field(default=0, ge=0)
+    accepted_windows: int = Field(default=0, ge=0)
+    rejected_windows: int = Field(default=0, ge=0)
+    failed_windows: int = Field(default=0, ge=0)
+    append_queue_pending: int = Field(default=0, ge=0)
+    reconnect_attempts: int = Field(default=0, ge=0)
+    last_window_end_ms: Optional[float] = Field(default=None, ge=0.0)
+    reference_chapter_id: Optional[str] = Field(default=None, max_length=160)
+    reference_localization_ready: Optional[bool] = None
+
+
+class LiveMediaReceiverEvent(BaseModel):
+    """Authenticated lifecycle event emitted by the supervised host receiver."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["live_media_receiver_event.v1"]
+    state: LiveMediaReceiverStateName
+    updated_at: str = Field(min_length=1, max_length=80)
+    reason: Optional[str] = Field(default=None, max_length=128)
+    metrics: LiveMediaReceiverMetrics = Field(default_factory=LiveMediaReceiverMetrics)
+
+
 class LiveMediaSessionAccess(BaseModel):
     """Explicit credential response for an active live media session."""
 
@@ -243,6 +282,9 @@ __all__ = [
     "LiveMediaCapability",
     "LiveMediaReceiverAccess",
     "LiveMediaReceiverBinding",
+    "LiveMediaReceiverEvent",
+    "LiveMediaReceiverMetrics",
+    "LiveMediaReceiverStateName",
     "LiveMediaRelayProfile",
     "LiveMediaSessionAccess",
     "LiveMediaSessionDescriptor",

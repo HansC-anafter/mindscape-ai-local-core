@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { once } from "node:events";
 import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
@@ -7,10 +8,24 @@ import test from "node:test";
 
 import {
     parseLiveMediaReceiverDescriptor,
+    publicReceiverFailureReason,
     receiverStateAfterSpawn,
     resolveMotionReferenceProfilePath,
     stopLiveMediaReceiver,
 } from "./live-media-receiver.js";
+
+test("redacts non-stable receiver failure details", () => {
+    assert.equal(
+        publicReceiverFailureReason(
+            "File name too long: rtsps://media.test/live?token=jwt-credential",
+        ),
+        "live_media_receiver_runtime_failed",
+    );
+    assert.equal(
+        publicReceiverFailureReason("receiver_descriptor_expired"),
+        "receiver_descriptor_expired",
+    );
+});
 
 function descriptor(): Record<string, unknown> {
     return {
@@ -176,6 +191,68 @@ test("confirms child exit before reporting receiver stop", async () => {
                 process.kill(child.pid, "SIGKILL");
             } catch {
                 // The expected path already stopped the child.
+            }
+        }
+        if (previousProjectRoot === undefined) delete process.env.LOCAL_CORE_PROJECT_ROOT;
+        else process.env.LOCAL_CORE_PROJECT_ROOT = previousProjectRoot;
+        if (previousPython === undefined) delete process.env.LOCAL_CORE_MOTION_RECEIVER_PYTHON;
+        else process.env.LOCAL_CORE_MOTION_RECEIVER_PYTHON = previousPython;
+        if (previousDataRoot === undefined) delete process.env.LOCAL_CORE_DATA_HOST_DIR;
+        else process.env.LOCAL_CORE_DATA_HOST_DIR = previousDataRoot;
+        rmSync(dataRoot, { recursive: true, force: true });
+    }
+});
+
+test("reports stopping while graceful receiver closeout is still running", async () => {
+    const dataRoot = mkdtempSync(path.join(tmpdir(), "live-media-receiver-closeout-"));
+    const previousProjectRoot = process.env.LOCAL_CORE_PROJECT_ROOT;
+    const previousPython = process.env.LOCAL_CORE_MOTION_RECEIVER_PYTHON;
+    const previousDataRoot = process.env.LOCAL_CORE_DATA_HOST_DIR;
+    const child = spawn(
+        process.execPath,
+        [
+            "-e",
+            "process.on('SIGTERM', () => {}); process.stdout.write('ready\\n'); setInterval(() => {}, 1000)",
+        ],
+        { stdio: ["ignore", "pipe", "ignore"] },
+    );
+    try {
+        assert.ok(child.pid);
+        assert.ok(child.stdout);
+        await once(child.stdout, "data");
+        process.env.LOCAL_CORE_PROJECT_ROOT = path.resolve(process.cwd(), "..");
+        process.env.LOCAL_CORE_MOTION_RECEIVER_PYTHON = process.execPath;
+        process.env.LOCAL_CORE_DATA_HOST_DIR = dataRoot;
+        const runtimeDir = path.join(dataRoot, "runtime/live-media-receivers");
+        mkdirSync(runtimeDir, { recursive: true });
+        writeFileSync(
+            path.join(runtimeDir, "media-closeout.state.json"),
+            JSON.stringify({
+                schema_version: "live_media_receiver_state.v1",
+                workspace_id: "workspace-closeout",
+                media_session_id: "media-closeout",
+                receiver_identity: "receiver-closeout",
+                pid: child.pid,
+                state: "analyzing",
+                updated_at: new Date().toISOString(),
+            }),
+        );
+
+        const result = await stopLiveMediaReceiver(
+            "media-closeout",
+            "receiver-closeout",
+            1000,
+        );
+
+        assert.equal(result.status, "stopping");
+        assert.equal(result.state, "stopping");
+        assert.doesNotThrow(() => process.kill(child.pid!, 0));
+    } finally {
+        if (child.pid) {
+            try {
+                process.kill(child.pid, "SIGKILL");
+            } catch {
+                // The cleanup target already exited.
             }
         }
         if (previousProjectRoot === undefined) delete process.env.LOCAL_CORE_PROJECT_ROOT;
