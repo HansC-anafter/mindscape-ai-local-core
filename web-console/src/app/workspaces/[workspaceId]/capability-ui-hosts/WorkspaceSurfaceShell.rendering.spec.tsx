@@ -182,7 +182,7 @@ describe('WorkspaceSurfaceShell', () => {
     expect(screen.getByText('inspect / review / item01')).toBeInTheDocument();
   });
 
-  it('keeps the restored host shell rail in one stable slot during mobile placement', async () => {
+  it('uses the shared host tool tray during mobile placement', async () => {
     vi.stubGlobal('matchMedia', vi.fn((query: string) => ({
       matches: query === '(max-width: 767px)',
       media: query,
@@ -210,18 +210,22 @@ describe('WorkspaceSurfaceShell', () => {
         'mobile',
       );
     });
-    expect(screen.getByTestId('capability-host-rail-slot')).toBeInTheDocument();
+    expect(screen.queryByTestId('capability-host-rail-slot')).toBeNull();
+    expect(screen.queryByTestId('workspace-global-tool-rail')).toBeNull();
+    expect(screen.getByTestId('workspace-mobile-host-rail-controls')).toBeInTheDocument();
+    expect(screen.getByTestId('workspace-global-tool-tray-toggle')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('workspace-global-tool-tray-toggle'));
+
     expect(screen.getByTestId('workspace-global-tool-rail')).toHaveAttribute(
       'data-workspace-tool-rail-placement',
-      'side',
+      'tray',
     );
     expect(screen.getByTestId('workspace-runs-tool')).toBeInTheDocument();
     expect(screen.getByTestId('workspace-settings-tool')).toBeInTheDocument();
     expect(screen.getByTestId('workspace-graph-tool')).toBeInTheDocument();
     expect(screen.getByTestId('workspace-pack-tool')).toBeInTheDocument();
     expect(screen.getByTestId('workspace-motion-source-tool')).toBeInTheDocument();
-    expect(screen.queryByTestId('capability-host-tool-tray-toggle')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('capability-host-mobile-rail-controls')).not.toBeInTheDocument();
   });
 
 });

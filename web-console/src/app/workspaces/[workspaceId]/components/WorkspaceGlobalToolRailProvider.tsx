@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { PanelRight, X } from 'lucide-react';
+import { X } from 'lucide-react';
 
 import {
   WorkspaceToolRail,
@@ -32,17 +32,15 @@ import {
   GROUP_ORDER,
   isActiveExecutionStatus,
   resolveVisibleContributions,
-  resolveVisibleMobileFloatingControls,
   shortcutOwnerForContribution,
   sortContributions,
   WORKSPACE_ACTIVE_PANEL_TOGGLE_BINDING_ID,
   WORKSPACE_TOOL_RAIL_COMMAND_ID,
 } from './workspaceGlobalToolRailModel';
 import {
-  CapabilityWorkbenchMobileFloatingControlsContext,
-  type CapabilityWorkbenchMobileFloatingControl,
-  useCapabilityWorkbenchMobileFloatingControlsBridgePublisher,
-} from '@/components/capabilities/workbench/useCapabilityWorkbenchMobileFloatingControls';
+  WorkspaceMobileHostToolTray,
+  useWorkspaceMobileHostToolTray,
+} from './WorkspaceMobileHostToolTray';
 
 interface WorkspaceGlobalToolRailProviderProps {
   workspaceId: string;
@@ -67,12 +65,8 @@ export default function WorkspaceGlobalToolRailProvider({
   const [activeToolKey, setActiveToolKey] = React.useState<string | null>(null);
   const [activeCapabilityCode, setActiveCapabilityCode] = React.useState<string | null>(null);
   const [lastPanelToolKey, setLastPanelToolKey] = React.useState<string | null>(null);
-  const [mobileTrayOpen, setMobileTrayOpen] = React.useState(false);
   const [registeredScopeContributions, setRegisteredScopeContributions] = React.useState<Record<string, WorkspaceGlobalToolContribution[]>>({});
-  const [registeredMobileFloatingControls, setRegisteredMobileFloatingControls] = React.useState<Record<string, CapabilityWorkbenchMobileFloatingControl[]>>({});
   const deepLinkedToolHrefRef = React.useRef<string | null>(null);
-  const mobileTrayAnchorRef = React.useRef<HTMLDivElement | null>(null);
-  const mobilePanelRef = React.useRef<HTMLElement | null>(null);
   const activeExecutionCount = (workspaceData?.executions || []).filter((execution) => (
     isActiveExecutionStatus(execution.status)
   )).length;
@@ -98,26 +92,6 @@ export default function WorkspaceGlobalToolRailProvider({
     };
   }, []);
 
-  const registerMobileFloatingControls = React.useCallback((
-    scopeId: string,
-    controls: CapabilityWorkbenchMobileFloatingControl[],
-  ) => {
-    setRegisteredMobileFloatingControls((current) => ({
-      ...current,
-      [scopeId]: controls,
-    }));
-    return () => {
-      setRegisteredMobileFloatingControls((current) => {
-        if (!Object.prototype.hasOwnProperty.call(current, scopeId)) {
-          return current;
-        }
-        const next = { ...current };
-        delete next[scopeId];
-        return next;
-      });
-    };
-  }, []);
-
   const coreContributions = useWorkspaceCoreToolContributions({
     activeCapabilityCode,
     activeExecutionCount,
@@ -133,7 +107,21 @@ export default function WorkspaceGlobalToolRailProvider({
     () => visibleContributions.find((contribution) => contribution.key === activeToolKey) || null,
     [activeToolKey, visibleContributions],
   );
-  const visibleMobileFloatingControls = React.useMemo(() => resolveVisibleMobileFloatingControls(registeredMobileFloatingControls), [registeredMobileFloatingControls]);
+  const dismissMobileTray = React.useCallback(() => {
+    setActiveToolKey(null);
+  }, []);
+  const {
+    anchorRef: mobileTrayAnchorRef,
+    panelRef: mobilePanelRef,
+    open: mobileTrayOpen,
+    close: closeMobileTray,
+    show: showMobileTray,
+    toggle: toggleMobileTray,
+  } = useWorkspaceMobileHostToolTray({
+    enabled: isMobilePlacement,
+    activePanelOpen: Boolean(activeContribution?.renderPanel),
+    onDismiss: dismissMobileTray,
+  });
 
   React.useEffect(() => {
     if (activeToolKey && (!activeContribution || !activeContribution.renderPanel)) {
@@ -150,16 +138,6 @@ export default function WorkspaceGlobalToolRailProvider({
       setLastPanelToolKey(activeContribution.key);
     }
   }, [activeContribution]);
-
-  React.useEffect(() => {
-    if (!isMobilePlacement) {
-      setMobileTrayOpen(false);
-      return;
-    }
-    if (activeContribution?.renderPanel) {
-      setMobileTrayOpen(true);
-    }
-  }, [activeContribution, isMobilePlacement]);
 
   React.useEffect(() => {
     if (typeof window === 'undefined') {
@@ -183,55 +161,25 @@ export default function WorkspaceGlobalToolRailProvider({
     setActiveToolKey(linkedContribution.key);
   }, [visibleContributions]);
 
-  React.useEffect(() => {
-    if (!isMobilePlacement || !mobileTrayOpen || typeof document === 'undefined') {
-      return undefined;
-    }
-
-    function dismissMobileTray(event?: Event) {
-      const target = event?.target;
-      if (target instanceof Node) {
-        if (
-          mobileTrayAnchorRef.current?.contains(target)
-          || mobilePanelRef.current?.contains(target)
-        ) {
-          return;
-        }
-      }
-
-      document.removeEventListener('click', dismissMobileTray, true);
-      document.removeEventListener('scroll', dismissMobileTray, true);
-      window.removeEventListener('scroll', dismissMobileTray, true);
-      setMobileTrayOpen(false);
-      setActiveToolKey(null);
-    }
-
-    document.addEventListener('click', dismissMobileTray, true);
-    document.addEventListener('scroll', dismissMobileTray, { capture: true, passive: true });
-    window.addEventListener('scroll', dismissMobileTray, { capture: true, passive: true });
-
-    return () => {
-      document.removeEventListener('click', dismissMobileTray, true);
-      document.removeEventListener('scroll', dismissMobileTray, true);
-      window.removeEventListener('scroll', dismissMobileTray, true);
-    };
-  }, [isMobilePlacement, mobileTrayOpen]);
-
   const activateContribution = React.useCallback((contribution: WorkspaceGlobalToolContribution) => {
     if (contribution.disabled) {
       return;
     }
     if (contribution.onSelect) {
       setActiveToolKey(null);
-      setMobileTrayOpen(false);
+      if (isMobilePlacement) {
+        closeMobileTray();
+      }
       contribution.onSelect();
       return;
     }
     if (contribution.renderPanel) {
-      setMobileTrayOpen(true);
+      if (isMobilePlacement) {
+        showMobileTray();
+      }
       setActiveToolKey((current) => (current === contribution.key ? null : contribution.key));
     }
-  }, []);
+  }, [closeMobileTray, isMobilePlacement, showMobileTray]);
   const handleContributionClick = activateContribution;
 
   React.useEffect(() => {
@@ -269,9 +217,11 @@ export default function WorkspaceGlobalToolRailProvider({
     if (!lastContribution) {
       return;
     }
-    setMobileTrayOpen(true);
+    if (isMobilePlacement) {
+      showMobileTray();
+    }
     setActiveToolKey(lastContribution.key);
-  }, [activeContribution, lastPanelToolKey, visibleContributions]);
+  }, [activeContribution, isMobilePlacement, lastPanelToolKey, showMobileTray, visibleContributions]);
 
   useToolRailPanelToggleShortcut({
     bindingId: WORKSPACE_ACTIVE_PANEL_TOGGLE_BINDING_ID,
@@ -335,9 +285,6 @@ export default function WorkspaceGlobalToolRailProvider({
     setActiveCapabilityCode,
     registerToolContributions,
   }), [activeCapabilityCode, activeToolKey, registerToolContributions]);
-  const mobileFloatingControlsContextValue = React.useMemo(() => ({ registerControls: registerMobileFloatingControls }), [registerMobileFloatingControls]);
-  useCapabilityWorkbenchMobileFloatingControlsBridgePublisher(mobileFloatingControlsContextValue);
-
   const workspaceToolRail = (
     <WorkspaceToolRail
       ariaLabel="Workspace tools"
@@ -346,48 +293,6 @@ export default function WorkspaceGlobalToolRailProvider({
       groups={groups}
     />
   );
-  const workspaceToolFloatingControl = React.useMemo<CapabilityWorkbenchMobileFloatingControl>(() => ({
-    key: 'workspace-global-tools',
-    order: 20,
-    render: () => (
-      <div
-        ref={mobileTrayAnchorRef}
-        className="flex flex-col items-end gap-2"
-        data-testid="workspace-global-tool-tray-anchor"
-      >
-        <button
-          type="button"
-          className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white/95 text-gray-700 shadow-lg backdrop-blur transition hover:bg-white dark:border-gray-800 dark:bg-gray-950/95 dark:text-gray-200"
-          aria-label={mobileTrayOpen ? 'Close workspace tools' : 'Open workspace tools'}
-          aria-pressed={mobileTrayOpen}
-          data-testid="workspace-global-tool-tray-toggle"
-          onClick={() => {
-            if (mobileTrayOpen) {
-              setMobileTrayOpen(false);
-              setActiveToolKey(null);
-              return;
-            }
-            setMobileTrayOpen(true);
-          }}
-        >
-          {mobileTrayOpen ? (
-            <X aria-hidden="true" className="h-4 w-4" />
-          ) : (
-            <PanelRight aria-hidden="true" className="h-4 w-4" />
-          )}
-        </button>
-        {mobileTrayOpen ? workspaceToolRail : null}
-      </div>
-    ),
-  }), [mobileTrayOpen, workspaceToolRail]);
-  const mobileFloatingControls = React.useMemo(() => (
-    isMobilePlacement
-      ? [...visibleMobileFloatingControls].sort((left, right) => (
-        left.order - right.order || left.key.localeCompare(right.key)
-      ))
-      : []
-  ), [isMobilePlacement, visibleMobileFloatingControls]);
-
   const workspaceToolPanel = activeContribution?.renderPanel ? (
     <aside
       ref={mobilePanelRef}
@@ -423,45 +328,29 @@ export default function WorkspaceGlobalToolRailProvider({
 
   return (
     <WorkspaceGlobalToolRailContext.Provider value={contextValue}>
-      <CapabilityWorkbenchMobileFloatingControlsContext.Provider value={mobileFloatingControlsContextValue}>
-        <div
-          className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden md:flex-row"
-          data-testid="workspace-global-tool-shell"
-          data-workbench-placement={placement}
-        >
-          <main className="order-1 flex h-full min-h-0 flex-1 overflow-hidden md:order-none">
-            {children}
-          </main>
-          {isMobilePlacement ? (
-            <>
-              {workspaceToolPanel}
-              <div
-                className="absolute right-2 top-[calc(0.5rem+env(safe-area-inset-top,0px))] z-50 flex flex-col items-end gap-2"
-                data-testid="workspace-mobile-host-rail-controls"
-              >
-                {workspaceToolFloatingControl.render()}
-              </div>
-              {mobileFloatingControls.length > 0 ? (
-                <div
-                  className="absolute left-2 top-[calc(0.5rem+env(safe-area-inset-top,0px))] z-50 flex flex-col items-start gap-2"
-                  data-testid="workspace-mobile-floating-controls"
-                >
-                  {mobileFloatingControls.map((control) => (
-                    <div key={control.key} className="shrink-0">
-                      {control.render()}
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-            </>
-          ) : (
-            <>
-              {workspaceToolPanel}
-              {workspaceToolRail}
-            </>
-          )}
-        </div>
-      </CapabilityWorkbenchMobileFloatingControlsContext.Provider>
+      <div
+        className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden md:flex-row"
+        data-testid="workspace-global-tool-shell"
+        data-workbench-placement={placement}
+      >
+        <main className="order-1 flex h-full min-h-0 flex-1 overflow-hidden md:order-none">
+          {children}
+        </main>
+        {isMobilePlacement ? (
+          <WorkspaceMobileHostToolTray
+            anchorRef={mobileTrayAnchorRef}
+            open={mobileTrayOpen}
+            onToggle={toggleMobileTray}
+            rail={workspaceToolRail}
+            panel={workspaceToolPanel}
+          />
+        ) : (
+          <>
+            {workspaceToolPanel}
+            {workspaceToolRail}
+          </>
+        )}
+      </div>
     </WorkspaceGlobalToolRailContext.Provider>
   );
 }

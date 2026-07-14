@@ -72,7 +72,6 @@ describe('WorkspaceGlobalToolRailProvider', () => {
 
   afterEach(() => {
     vi.clearAllMocks();
-    delete window.__MindscapeCapabilityWorkbenchMobileFloatingControlsBridge;
     vi.unstubAllGlobals();
   });
 
@@ -270,7 +269,7 @@ describe('WorkspaceGlobalToolRailProvider', () => {
     });
   });
 
-  it('publishes the mobile floating-controls bridge and uses a right-side host rail on mobile workbench frames', async () => {
+  it('uses the shared right-side host tray on mobile workbench frames', async () => {
     vi.stubGlobal('matchMedia', vi.fn(() => ({
       matches: true,
       media: '(max-width: 767px)',
@@ -288,10 +287,9 @@ describe('WorkspaceGlobalToolRailProvider', () => {
       expect(screen.getByTestId('workspace-global-tool-shell')).toHaveAttribute('data-workbench-placement', 'mobile');
       expect(screen.getByTestId('workspace-mobile-host-rail-controls')).toBeInTheDocument();
       expect(screen.getByTestId('workspace-mobile-host-rail-controls').className).toContain('right-2');
-      expect(screen.queryByTestId('workspace-mobile-floating-controls')).toBeNull();
+      expect(screen.getByTestId('workspace-mobile-host-rail-controls').className).toContain('top-1/2');
       expect(screen.queryByTestId('workspace-global-tool-rail')).toBeNull();
       expect(screen.getByTestId('workspace-global-tool-tray-toggle')).toBeInTheDocument();
-      expect(window.__MindscapeCapabilityWorkbenchMobileFloatingControlsBridge).not.toBeNull();
     });
 
     fireEvent.click(screen.getByTestId('workspace-global-tool-tray-toggle'));

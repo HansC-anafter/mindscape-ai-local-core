@@ -9,7 +9,6 @@ import {
   Smartphone,
 } from 'lucide-react';
 
-import type { CapabilityWorkbenchMobileFloatingControl } from '@/components/capabilities/workbench/useCapabilityWorkbenchMobileFloatingControls';
 import type {
   WorkspaceRightRegionGroup,
 } from '@/lib/workspace-right-region/workspace-right-region-contract';
@@ -73,18 +72,6 @@ export function resolveVisibleContributions(
       }
     });
   return [...contributionMap.values()].sort(sortContributions);
-}
-
-export function resolveVisibleMobileFloatingControls(
-  registeredControls: Record<string, CapabilityWorkbenchMobileFloatingControl[]>,
-): CapabilityWorkbenchMobileFloatingControl[] {
-  const controlMap = new Map<string, CapabilityWorkbenchMobileFloatingControl>();
-  Object.values(registeredControls).flat().forEach((control) => {
-    controlMap.set(control.key, control);
-  });
-  return [...controlMap.values()].sort((left, right) => (
-    left.order - right.order || left.key.localeCompare(right.key)
-  ));
 }
 
 export function bindingIdForContribution(contribution: WorkspaceGlobalToolContribution): string {

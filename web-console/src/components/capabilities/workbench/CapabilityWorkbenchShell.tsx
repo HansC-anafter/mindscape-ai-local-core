@@ -1,7 +1,6 @@
 'use client';
 
 import React from 'react';
-import { PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 
 import type { AddressableObjectHostBridge } from '@/lib/addressable-object-layer';
 import {
@@ -11,11 +10,6 @@ import {
   useCapabilityWorkbenchPlacement,
 } from './CapabilityWorkbenchResponsiveFrame';
 import { PackScopeToolRailHost } from './PackScopeToolRailHost';
-import {
-  useCapabilityWorkbenchMobileFloatingControlsRegistration,
-  useOptionalCapabilityWorkbenchMobileFloatingControls,
-  type CapabilityWorkbenchMobileFloatingControl,
-} from './useCapabilityWorkbenchMobileFloatingControls';
 import { usePackScopeToolContributions } from './usePackScopeToolContributions';
 
 interface CapabilityWorkbenchShellProps {
@@ -39,18 +33,11 @@ export function CapabilityWorkbenchShell({
 }: CapabilityWorkbenchShellProps) {
   const tools = usePackScopeToolContributions(capabilityCode);
   const placement = useCapabilityWorkbenchPlacement();
-  const mobileFloatingControls = useOptionalCapabilityWorkbenchMobileFloatingControls();
   const [navigationCollapsed, setNavigationCollapsed] = React.useState(false);
   const [navigationHoverOpen, setNavigationHoverOpen] = React.useState(false);
   const navigationEnabled = navigation !== null;
   const showNavigation = navigationEnabled && (!navigationCollapsed || navigationHoverOpen);
   const navigationState = showNavigation ? 'open' : 'closed';
-  const externalizeMobileNavigationToggle = (
-    placement === 'mobile'
-    && navigationEnabled
-    && Boolean(mobileFloatingControls)
-  );
-  const mobileNavigationControlScopeId = React.useId();
 
   React.useEffect(() => {
     if (placement === 'mobile') {
@@ -85,42 +72,6 @@ export function CapabilityWorkbenchShell({
     setNavigationCollapsed(true);
     setNavigationHoverOpen(false);
   }, [showNavigation]);
-
-  const toggleMobileNavigation = React.useCallback(() => {
-    handleNavigationCollapsedChange(showNavigation);
-  }, [handleNavigationCollapsedChange, showNavigation]);
-
-  const mobileNavigationControls = React.useMemo<CapabilityWorkbenchMobileFloatingControl[]>(() => {
-    if (!externalizeMobileNavigationToggle) {
-      return [];
-    }
-    return [{
-      key: `capability-navigation:${capabilityCode}`,
-      order: 10,
-      render: () => (
-        <button
-          type="button"
-          aria-label={showNavigation ? 'Collapse navigation' : 'Expand navigation'}
-          aria-pressed={showNavigation}
-          title={showNavigation ? 'Collapse navigation' : 'Expand navigation'}
-          data-testid="capability-workbench-mobile-nav-toggle"
-          onClick={toggleMobileNavigation}
-          className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white/95 text-gray-700 shadow-lg backdrop-blur transition hover:bg-white dark:border-gray-800 dark:bg-gray-950/95 dark:text-gray-200"
-        >
-          {showNavigation ? (
-            <PanelLeftClose aria-hidden className="h-4 w-4" />
-          ) : (
-            <PanelLeftOpen aria-hidden className="h-4 w-4" />
-          )}
-        </button>
-      ),
-    }];
-  }, [capabilityCode, externalizeMobileNavigationToggle, showNavigation, toggleMobileNavigation]);
-
-  useCapabilityWorkbenchMobileFloatingControlsRegistration(
-    mobileNavigationControlScopeId,
-    mobileNavigationControls,
-  );
 
   React.useEffect(() => {
     if (!showNavigation || typeof document === 'undefined') {
@@ -173,7 +124,7 @@ export function CapabilityWorkbenchShell({
           apiUrl={apiUrl}
           tools={tools}
           placement={placement}
-          navigationEnabled={navigationEnabled && !externalizeMobileNavigationToggle}
+          navigationEnabled={navigationEnabled}
           navigationCollapsed={!showNavigation}
           aolHost={aolHost}
           onNavigationCollapsedChange={handleNavigationCollapsedChange}
