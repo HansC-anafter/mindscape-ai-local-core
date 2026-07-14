@@ -128,6 +128,18 @@ def _require_env(
         _failure(f"{service_name}: expected {key}={expected!r}, got {actual!r}", failures)
 
 
+def _require_service_value(
+    service_name: str,
+    service: Mapping[str, Any],
+    key: str,
+    expected: Any,
+    failures: list[str],
+) -> None:
+    actual = service.get(key)
+    if actual != expected:
+        _failure(f"{service_name}: expected {key}={expected!r}, got {actual!r}", failures)
+
+
 def _require_env_contains(
     service_name: str,
     env: Mapping[str, str],
@@ -281,6 +293,23 @@ def validate_runner_pool(model: Mapping[str, Any]) -> list[str]:
         _require_env(service_name, env, "LOCAL_CORE_RUNNER_PROFILE", expectations["profile"], failures)
         _require_env(service_name, env, "LOCAL_CORE_RUNNER_ACCEPTED_PARTITIONS", expectations["accepted_partitions"], failures)
         _require_env(service_name, env, "LOCAL_CORE_RUNNER_MAX_INFLIGHT", expectations["max_inflight"], failures)
+        if "runner_id" in expectations:
+            _require_env(
+                service_name,
+                env,
+                "LOCAL_CORE_RUNNER_ID",
+                expectations["runner_id"],
+                failures,
+            )
+        for resource_key in ("mem_limit", "cpus", "pids_limit"):
+            if resource_key in expectations:
+                _require_service_value(
+                    service_name,
+                    runner,
+                    resource_key,
+                    expectations[resource_key],
+                    failures,
+                )
         _require_env(service_name, env, "DB_POOL_SIZE", expectations["pool_size"], failures)
         _require_env(service_name, env, "DB_MAX_OVERFLOW", expectations["max_overflow"], failures)
         if "maintenance_only" in expectations:

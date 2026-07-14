@@ -72,6 +72,27 @@ def _runner(
     return service
 
 
+def _bounded_default_browser_runner() -> dict[str, object]:
+    service = _runner(
+        env={
+            **_runner_env(
+                profile="default_local_browser",
+                accepted_partitions="default_local_browser",
+                max_inflight="1",
+            ),
+            "LOCAL_CORE_RUNNER_ID": "default-browser-bounded-one",
+        }
+    )
+    service.update(
+        {
+            "mem_limit": "6442450944",
+            "cpus": 4.0,
+            "pids_limit": 256,
+        }
+    )
+    return service
+
+
 def _service_templates() -> dict[str, dict[str, object]]:
     return {
         "postgres": {
@@ -124,13 +145,7 @@ def _service_templates() -> dict[str, dict[str, object]]:
             "depends_on": _depends("postgres"),
             "healthcheck": {"test": ["CMD-SHELL", "pg_isready -U mindscape"]},
         },
-        "runner-default-local-browser": _runner(
-            env=_runner_env(
-                profile="default_local_browser",
-                accepted_partitions="default_local_browser",
-                max_inflight="1",
-            )
-        ),
+        "runner-default-local-browser": _bounded_default_browser_runner(),
         "runner-browser": _runner(
             env=_runner_env(
                 profile="browser_local",
@@ -296,6 +311,22 @@ def test_compose_topology_validator_rejects_runner_healthcheck_enabled() -> None
     failures = _validate(models)
 
     assert any("runner-browser: runner healthcheck must remain disabled" in failure for failure in failures)
+
+
+def test_compose_topology_validator_rejects_default_browser_resource_drift() -> None:
+    models = _models()
+    runner = models["all-profiles"]["services"]["runner-default-local-browser"]
+    runner["environment"]["LOCAL_CORE_RUNNER_ID"] = "default-browser-steady-five"
+    runner["mem_limit"] = "25769803776"
+    runner["cpus"] = 8.0
+    runner["pids_limit"] = 1024
+
+    failures = _validate(models)
+
+    assert any("LOCAL_CORE_RUNNER_ID='default-browser-bounded-one'" in failure for failure in failures)
+    assert any("mem_limit='6442450944'" in failure for failure in failures)
+    assert any("cpus=4.0" in failure for failure in failures)
+    assert any("pids_limit=256" in failure for failure in failures)
 
 
 def test_compose_topology_validator_rejects_maintenance_role_drift() -> None:
