@@ -347,7 +347,7 @@ def test_managed_batch_runner_and_spillover_compose_semantics():
     assert "IG_THUMBNAIL_BROWSER_FALLBACK_MAX_INFLIGHT" not in compose_text
     assert "LOCAL_CORE_RUNNER_DEFAULT_LOCAL_BROWSER_ACCEPTED_CAPABILITY_CODES" not in compose_text
     assert "LOCAL_CORE_RUNNER_VISION_MLX_DEV_ACCEPTED_CAPABILITY_CODES" not in compose_text
-    assert "LOCAL_CORE_RUNNER_DEFAULT_LOCAL_BROWSER_MAX_INFLIGHT:-3" in compose_text
+    assert "LOCAL_CORE_RUNNER_DEFAULT_LOCAL_BROWSER_MAX_INFLIGHT:-1" in compose_text
     assert "LOCAL_CORE_RUNNER_SPILLOVER_PROFILE:-default_local" in compose_text
     assert "LOCAL_CORE_RUNNER_SPILLOVER_ACCEPTED_RESOURCE_CLASSES:-compute,api" in compose_text
     assert "LOCAL_CORE_RUNNER_SPILLOVER_MAX_INFLIGHT:-1" in compose_text

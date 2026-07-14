@@ -264,6 +264,38 @@ def test_workspace_device_control_restores_existing_sessions_and_observes_new_pa
                 ]
 
 
+def test_device_binding_sessions_route_lists_active_sources() -> None:
+    module = _load_device_bindings_module()
+    registry = DeviceBindingRegistry()
+    client = TestClient(_build_app(module, registry=registry))
+    pairing = client.post(
+        "/api/v1/workspaces/ws_device/device-bindings/pairing-codes",
+        json={},
+    ).json()
+    control_url = (
+        "/api/v1/workspaces/ws_device/device-bindings/"
+        f"{pairing['pairing_code']}/control"
+    )
+
+    with client.websocket_connect(control_url) as source_ws:
+        source_ws.send_json(
+            {
+                "type": "source_join",
+                "device_id": "obs_virtual",
+                "display_name": "OBS Virtual Camera",
+                "source_types": ["virtual_camera"],
+            }
+        )
+        paired = _receive(source_ws)
+
+        response = client.get("/api/v1/workspaces/ws_device/device-bindings/sessions")
+
+        assert response.status_code == 200
+        assert response.json()[0]["session_id"] == paired["session_id"]
+        assert response.json()[0]["display_name"] == "OBS Virtual Camera"
+        assert response.json()[0]["source_types"] == ["virtual_camera"]
+
+
 def test_device_binding_revoke_route_broadcasts_terminal_event() -> None:
     module = _load_device_bindings_module()
     registry = DeviceBindingRegistry()

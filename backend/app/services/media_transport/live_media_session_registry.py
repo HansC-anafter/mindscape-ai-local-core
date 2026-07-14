@@ -9,6 +9,7 @@ from typing import Callable
 
 from backend.app.models.media_transport import (
     CreateLiveMediaSessionRequest,
+    LiveMediaReceiverBinding,
     LiveMediaSessionDescriptor,
     LiveMediaSessionEndpoints,
 )
@@ -41,6 +42,8 @@ class LiveMediaSessionRegistry:
         self._now = now
         self._sessions: dict[str, LiveMediaSessionDescriptor] = {}
         self._device_sessions: dict[tuple[str, str], str] = {}
+        self._receiver_bindings: dict[str, LiveMediaReceiverBinding] = {}
+        self._started_receivers: set[str] = set()
         self._lock = threading.RLock()
 
     def create(
@@ -104,6 +107,10 @@ class LiveMediaSessionRegistry:
             )
             self._sessions[media_session_id] = descriptor
             self._device_sessions[device_key] = media_session_id
+            self._receiver_bindings[media_session_id] = LiveMediaReceiverBinding(
+                receiver_identity=f"receiver_{secrets.token_urlsafe(18)}",
+                append_owner_id=f"append_{secrets.token_urlsafe(24)}",
+            )
             return descriptor.model_copy(deep=True)
 
     def get_active(
@@ -130,6 +137,40 @@ class LiveMediaSessionRegistry:
                 )
             return descriptor.model_copy(deep=True)
 
+    def get_receiver_binding(
+        self,
+        *,
+        workspace_id: str,
+        device_session_id: str,
+        media_session_id: str,
+    ) -> LiveMediaReceiverBinding:
+        with self._lock:
+            self.get_active(
+                workspace_id=workspace_id,
+                device_session_id=device_session_id,
+                media_session_id=media_session_id,
+            )
+            binding = self._receiver_bindings.get(media_session_id)
+            if binding is None:
+                raise LiveMediaSessionRegistryError(
+                    "live_media_receiver_binding_not_found",
+                    status_code=404,
+                )
+            return binding.model_copy(deep=True)
+
+    def mark_receiver_started(self, media_session_id: str) -> None:
+        with self._lock:
+            if media_session_id not in self._receiver_bindings:
+                raise LiveMediaSessionRegistryError(
+                    "live_media_receiver_binding_not_found",
+                    status_code=404,
+                )
+            self._started_receivers.add(media_session_id)
+
+    def receiver_started(self, media_session_id: str) -> bool:
+        with self._lock:
+            return media_session_id in self._started_receivers
+
     def stop(
         self,
         *,
@@ -148,6 +189,8 @@ class LiveMediaSessionRegistry:
             descriptor.terminal_reason = reason
             descriptor.updated_at_epoch = self._now()
             self._sessions.pop(media_session_id, None)
+            self._receiver_bindings.pop(media_session_id, None)
+            self._started_receivers.discard(media_session_id)
             self._device_sessions.pop((workspace_id, device_session_id), None)
             return descriptor
 
@@ -170,6 +213,8 @@ class LiveMediaSessionRegistry:
             ]
             for media_session_id in expired_ids:
                 descriptor = self._sessions.pop(media_session_id)
+                self._receiver_bindings.pop(media_session_id, None)
+                self._started_receivers.discard(media_session_id)
                 self._device_sessions.pop(
                     (descriptor.workspace_id, descriptor.device_session_id),
                     None,

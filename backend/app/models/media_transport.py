@@ -27,6 +27,7 @@ LiveMediaSessionState = Literal[
     "stopped",
     "expired",
 ]
+LiveMotionCoachPack = Literal["yogacoach", "dance_motion_coach"]
 
 MediaSignalMessageType = Literal[
     "workspace_join",
@@ -180,13 +181,46 @@ class LiveMediaSessionDescriptor(BaseModel):
 
 
 class LiveMediaSessionTokens(BaseModel):
-    """Short-lived exact-path tokens returned only by create or refresh."""
+    """Source and preview tokens returned only by create or refresh."""
 
     model_config = ConfigDict(extra="forbid")
 
     publish: str = Field(repr=False)
     preview: str = Field(repr=False)
-    receiver: str = Field(repr=False)
+
+
+class LiveMediaReceiverBinding(BaseModel):
+    """Server-only identities that bind one receiver to one append writer."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    receiver_identity: str = Field(min_length=1, repr=False)
+    append_owner_id: str = Field(min_length=1, repr=False)
+
+
+class LiveMediaReceiverAccess(BaseModel):
+    """Server-only receiver access; never expose this model from a route."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    session: LiveMediaSessionDescriptor
+    binding: LiveMediaReceiverBinding = Field(repr=False)
+    receiver_token: str = Field(min_length=1, repr=False)
+
+
+class StartLiveMediaReceiverRequest(BaseModel):
+    """Credential-free practice context used to start the host receiver."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    live_motion_session_id: str = Field(min_length=1, max_length=160)
+    meeting_session_id: str = Field(min_length=1, max_length=160)
+    practice_session_id: str = Field(min_length=1, max_length=240)
+    coach_pack: LiveMotionCoachPack
+    practice_mode: str = Field(min_length=1, max_length=80)
+    reference_url: Optional[str] = Field(default=None, max_length=4096)
+    user_goal: Optional[str] = Field(default=None, max_length=2000)
+    expected_duration_ms: float = Field(default=0.0, ge=0.0)
 
 
 class LiveMediaSessionAccess(BaseModel):
@@ -202,12 +236,15 @@ __all__ = [
     "CreateLiveMediaSessionRequest",
     "FORBIDDEN_RAW_MEDIA_KEYS",
     "LiveMediaCapability",
+    "LiveMediaReceiverAccess",
+    "LiveMediaReceiverBinding",
     "LiveMediaRelayProfile",
     "LiveMediaSessionAccess",
     "LiveMediaSessionDescriptor",
     "LiveMediaSessionEndpoints",
     "LiveMediaSessionState",
     "LiveMediaSessionTokens",
+    "LiveMotionCoachPack",
     "MediaSignalEvent",
     "MediaSignalEventType",
     "MediaSignalMessage",
@@ -215,5 +252,6 @@ __all__ = [
     "MediaSignalParticipant",
     "MediaSourceKind",
     "MediaStreamRef",
+    "StartLiveMediaReceiverRequest",
     "contains_raw_media_payload",
 ]

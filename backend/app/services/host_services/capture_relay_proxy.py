@@ -150,9 +150,22 @@ def _parse_mcp_text_result(result: dict[str, Any]) -> dict[str, Any]:
 async def call_capture_relay_control(
     request: CaptureRelayRequest,
 ) -> dict[str, Any]:
+    return await call_capture_relay_arguments(
+        request.model_dump(mode="json"),
+        timeout_ms=request.timeout_ms,
+    )
+
+
+async def call_capture_relay_arguments(
+    arguments: dict[str, Any],
+    *,
+    timeout_ms: int,
+) -> dict[str, Any]:
+    """Invoke the one Device Node facade with server-owned arguments."""
+
     result = await _post_device_node_mcp(
-        arguments=request.model_dump(mode="json"),
-        timeout_seconds=(request.timeout_ms / 1000) + 5,
+        arguments=arguments,
+        timeout_seconds=(timeout_ms / 1000) + 5,
     )
     return _parse_mcp_text_result(result)
 
@@ -160,5 +173,6 @@ async def call_capture_relay_control(
 __all__ = [
     "CaptureRelayRequest",
     "CaptureRelayUnavailable",
+    "call_capture_relay_arguments",
     "call_capture_relay_control",
 ]

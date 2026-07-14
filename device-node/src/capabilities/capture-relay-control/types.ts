@@ -1,6 +1,15 @@
 import type { ChildProcess } from "child_process";
 
-export type CaptureRelayAction = "status" | "install_mediamtx" | "start" | "stop" | "open_obs" | "configure_obs";
+export type CaptureRelayAction =
+    | "status"
+    | "install_mediamtx"
+    | "start"
+    | "stop"
+    | "open_obs"
+    | "configure_obs"
+    | "receiver_start"
+    | "receiver_status"
+    | "receiver_stop";
 
 export interface CaptureRelayArgs {
     action?: string;
@@ -15,6 +24,9 @@ export interface CaptureRelayArgs {
     start_virtual_camera?: boolean;
     install_method?: string;
     timeout_ms?: number;
+    receiver_descriptor?: unknown;
+    media_session_id?: string;
+    receiver_identity?: string;
 }
 
 export interface ManagedRelayProcess {

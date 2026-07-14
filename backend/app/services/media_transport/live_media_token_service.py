@@ -70,8 +70,10 @@ class LiveMediaTokenService:
         return LiveMediaSessionTokens(
             publish=self._issue(descriptor, role="publisher", action="publish"),
             preview=self._issue(descriptor, role="preview", action="read"),
-            receiver=self._issue(descriptor, role="receiver", action="read"),
         )
+
+    def issue_receiver_token(self, descriptor: LiveMediaSessionDescriptor) -> str:
+        return self._issue(descriptor, role="receiver", action="read")
 
     def _issue(
         self,

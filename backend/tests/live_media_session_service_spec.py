@@ -96,7 +96,12 @@ def test_service_issues_exact_path_tokens_and_public_jwks(tmp_path: Path) -> Non
     assert access.session.expires_at_epoch == 4600
     publish_claims = jwt.get_unverified_claims(access.tokens.publish)
     preview_claims = jwt.get_unverified_claims(access.tokens.preview)
-    receiver_claims = jwt.get_unverified_claims(access.tokens.receiver)
+    receiver_access = service.receiver_access(
+        workspace_id="ws_one",
+        device_session_id="device_one",
+        media_session_id=access.session.media_session_id,
+    )
+    receiver_claims = jwt.get_unverified_claims(receiver_access.receiver_token)
     assert publish_claims["mediamtx_permissions"] == [
         {"action": "publish", "path": access.session.stream_path}
     ]
@@ -104,6 +109,8 @@ def test_service_issues_exact_path_tokens_and_public_jwks(tmp_path: Path) -> Non
         {"action": "read", "path": access.session.stream_path}
     ]
     assert receiver_claims["media_access_role"] == "receiver"
+    assert set(access.tokens.model_dump()) == {"publish", "preview"}
+    assert receiver_access.binding.append_owner_id.startswith("append_")
     assert publish_claims["aud"] == "mindscape-media-relay"
     assert jwt.get_unverified_header(access.tokens.publish)["kid"] == "media-2026-07"
     assert token_service.public_jwks()["keys"][0]["kid"] == "media-2026-07"

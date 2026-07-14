@@ -128,7 +128,7 @@ def test_live_media_routes_create_read_refresh_and_stop_without_get_token_leak(
 
     assert created.status_code == 200
     access = created.json()
-    assert set(access["tokens"]) == {"publish", "preview", "receiver"}
+    assert set(access["tokens"]) == {"publish", "preview"}
     media_session_id = access["session"]["media_session_id"]
     device_entry = registry.get_active_session(
         workspace_id="ws_device",

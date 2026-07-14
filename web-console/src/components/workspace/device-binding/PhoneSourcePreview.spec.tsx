@@ -40,7 +40,6 @@ vi.mock('@/lib/media-transport/liveMediaSessionClient', () => ({
     tokens: {
       publish: 'publish_token',
       preview: 'preview_token',
-      receiver: 'receiver_token',
     },
   })),
 }));

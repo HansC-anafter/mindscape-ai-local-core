@@ -8,6 +8,11 @@ import {
 import { configureObs } from "./capture-relay-control/obs-control.js";
 import { inferPublisherState } from "./capture-relay-control/publisher-state.js";
 import {
+    getLiveMediaReceiverStatus,
+    startLiveMediaReceiver,
+    stopLiveMediaReceiver,
+} from "./capture-relay-control/live-media-receiver.js";
+import {
     buildStatus,
     installMediaMtx,
     startRelay,
@@ -36,6 +41,9 @@ const SUPPORTED_ACTIONS: CaptureRelayAction[] = [
     "stop",
     "open_obs",
     "configure_obs",
+    "receiver_start",
+    "receiver_status",
+    "receiver_stop",
 ];
 
 export async function captureRelayControl(
@@ -69,6 +77,19 @@ export async function captureRelayControl(
     }
     if (action === "configure_obs") {
         return configureObs(args);
+    }
+    if (action === "receiver_start") {
+        return startLiveMediaReceiver(args.receiver_descriptor, Number(args.timeout_ms || 10000));
+    }
+    if (action === "receiver_status") {
+        return getLiveMediaReceiverStatus(String(args.media_session_id || ""));
+    }
+    if (action === "receiver_stop") {
+        return await stopLiveMediaReceiver(
+            String(args.media_session_id || ""),
+            String(args.receiver_identity || ""),
+            Number(args.timeout_ms || 10000),
+        );
     }
     return buildStatus("status", args);
 }
