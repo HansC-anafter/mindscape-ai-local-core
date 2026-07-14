@@ -64,7 +64,7 @@ test('effective policy and capability support use split cache keys and TTLs', as
     upstreamCapabilitySupportCalls: 2,
     upstreamInFlight: 0,
     upstreamRejected: 0,
-    maxUpstreamInFlight: 16,
+    maxUpstreamInFlight: 4,
     upstreamEffectivePolicyCalls: 1,
     upstreamCapabilitySupportCalls: 2,
   });
@@ -119,7 +119,7 @@ test('both caches remain bounded at 256 entries', async () => {
     upstreamCapabilitySupportCalls: 257,
     upstreamInFlight: 0,
     upstreamRejected: 0,
-    maxUpstreamInFlight: 16,
+    maxUpstreamInFlight: 4,
     upstreamEffectivePolicyCalls: 257,
     upstreamCapabilitySupportCalls: 257,
   });
@@ -149,7 +149,7 @@ test('timeout is absolute, has no retry, and evicts the failed cache entry', asy
     upstreamCapabilitySupportCalls: 1,
     upstreamInFlight: 0,
     upstreamRejected: 0,
-    maxUpstreamInFlight: 16,
+    maxUpstreamInFlight: 4,
     upstreamEffectivePolicyCalls: 1,
     upstreamCapabilitySupportCalls: 1,
   });

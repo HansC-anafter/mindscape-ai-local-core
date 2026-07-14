@@ -167,6 +167,11 @@ test('workspace media preview remains read-only and membership-gated', async () 
 
 test('public runtime/workspace policy, observability, control UI, and install paths are hidden', async () => {
   const paths = [
+    '/settings?tab=remote_workbench_access&workspace_id=workspace-a',
+    '/settings/remote-workbench-access?workspace_id=workspace-a',
+    '/api/v1/settings/extensions?section=remote-workbench-global-access',
+    '/api/v1/settings/extensions?section=remote-workbench-workspace-access&workspace_id=workspace-a',
+    '/api/v1/settings/extensions/unowned',
     '/api/v1/capabilities/mindscape_cloud_integration/mobile-workbench-gateway/runtime-policy',
     '/api/v1/capabilities/mindscape_cloud_integration/mobile-workbench-gateway/runtime-policy/',
     '/api/v1/capabilities/mindscape_cloud_integration/mobile-workbench-gateway/workspaces/workspace-a/policy',

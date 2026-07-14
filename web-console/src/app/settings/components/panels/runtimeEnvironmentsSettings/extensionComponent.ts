@@ -22,6 +22,13 @@ export function createRuntimeSettingsExtensionComponent(
       description: panel.description,
       export: panel.export || 'default',
       import_path: panel.importPath,
+      path: panel.path,
+      asset_url: panel.assetUrl,
+      integrity: panel.integrity,
+      runtime: panel.runtime,
+      legacy_context: panel.legacyContext,
+      bytes: panel.bytes,
+      asset_path: panel.assetPath,
     },
     getApiBaseUrl(),
   ) as React.ComponentType<RuntimeSettingsExtensionProps>;

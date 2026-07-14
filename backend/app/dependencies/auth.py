@@ -15,6 +15,8 @@ from ..utils.cloud_integration import (
 
 logger = logging.getLogger(__name__)
 
+LOCAL_CONTROL_OPERATOR_USER_ID = "local-core-control-plane"
+
 
 @dataclass
 class AuthContext:
@@ -108,14 +110,26 @@ async def get_auth_from_site_hub_token(token: str) -> Optional[AuthContext]:
     return await get_auth_from_cloud_integration_token(token)
 
 
-async def get_current_user(request: Request) -> AuthContext:
-    """
-    Get current user (FastAPI Dependency)
+def _get_local_workspace_ids(user_id: str) -> List[str]:
+    """Load local workspace scope only for callers that explicitly need it."""
+    try:
+        from ..services.mindscape_store import MindscapeStore
 
-    Hard rules:
-    - R1: Do not get user_id from query parameters
-    - R2: Cloud mode without valid token -> 401 (no fallback)
-    """
+        store = MindscapeStore()
+        workspaces = store.list_workspaces(owner_user_id=user_id, limit=200)
+        return [ws.id for ws in workspaces if not getattr(ws, 'is_system', False)]
+    except Exception as e:
+        logger.warning(f"Failed to get workspace_ids: {e}")
+        return []
+
+
+async def _get_authenticated_context(
+    request: Request,
+    *,
+    include_local_workspace_ids: bool,
+    local_user_id: Optional[str] = None,
+) -> AuthContext:
+    """Resolve one authenticated identity with an optional local workspace projection."""
     # Cloud mode
     if is_cloud_mode():
         auth_header = request.headers.get("Authorization", "")
@@ -137,17 +151,13 @@ async def get_current_user(request: Request) -> AuthContext:
         return auth
 
     # Local mode: use default_user
-    user_id = get_default_user_id()
+    user_id = local_user_id or get_default_user_id()
 
-    # Get user-accessible workspace IDs
-    workspace_ids = []
-    try:
-        from ..services.mindscape_store import MindscapeStore
-        store = MindscapeStore()
-        workspaces = store.list_workspaces(owner_user_id=user_id, limit=200)
-        workspace_ids = [ws.id for ws in workspaces if not getattr(ws, 'is_system', False)]
-    except Exception as e:
-        logger.warning(f"Failed to get workspace_ids: {e}")
+    workspace_ids = (
+        _get_local_workspace_ids(user_id)
+        if include_local_workspace_ids
+        else []
+    )
 
     return AuthContext(
         user_id=user_id,
@@ -155,4 +165,27 @@ async def get_current_user(request: Request) -> AuthContext:
         workspace_ids=workspace_ids,
         group_ids=[],
         is_cloud_mode=False,
+    )
+
+
+async def get_current_user(request: Request) -> AuthContext:
+    """
+    Get the current user with local workspace scope (FastAPI dependency).
+
+    Hard rules:
+    - R1: Do not get user_id from query parameters
+    - R2: Cloud mode without valid token -> 401 (no fallback)
+    """
+    return await _get_authenticated_context(
+        request,
+        include_local_workspace_ids=True,
+    )
+
+
+async def get_current_operator(request: Request) -> AuthContext:
+    """Authenticate control traffic without PostgreSQL-backed local identity reads."""
+    return await _get_authenticated_context(
+        request,
+        include_local_workspace_ids=False,
+        local_user_id=LOCAL_CONTROL_OPERATOR_USER_ID,
     )

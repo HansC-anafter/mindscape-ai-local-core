@@ -73,7 +73,7 @@ test('membership and capability allowlist are proven before support metadata is 
   assert.equal(resolver.stats().upstreamCapabilitySupportCalls, 1);
 });
 
-test('distinct-key concurrency fails closed instead of queueing unbounded upstream reads', async () => {
+test('sixteen distinct-key misses admit at most the four-request control-pool budget', async () => {
   let release;
   const gate = new Promise((resolve) => { release = resolve; });
   let fetchCalls = 0;
@@ -84,20 +84,60 @@ test('distinct-key concurrency fails closed instead of queueing unbounded upstre
     return jsonResponse(createEffectivePolicyPayload({
       workspaceId: decodeURIComponent(workspaceMatch[1]),
     }));
-  }, { maxUpstreamInFlight: 2 });
+  });
 
-  const reads = Array.from({ length: 10 }, (_, index) => (
+  const reads = Array.from({ length: 16 }, (_, index) => (
     resolver.resolveEffectivePolicy(`workspace-${index}`)
   ));
   const settledPromise = Promise.allSettled(reads);
   await new Promise((resolve) => setImmediate(resolve));
-  assert.equal(fetchCalls, 2);
-  assert.equal(resolver.stats().upstreamInFlight, 2);
-  assert.equal(resolver.stats().upstreamRejected, 8);
+  assert.equal(fetchCalls, 4);
+  assert.equal(resolver.stats().upstreamInFlight, 4);
+  assert.equal(resolver.stats().upstreamRejected, 12);
 
   release();
   const settled = await settledPromise;
-  assert.equal(settled.filter((result) => result.status === 'fulfilled').length, 2);
-  assert.equal(settled.filter((result) => result.status === 'rejected').length, 8);
+  assert.equal(settled.filter((result) => result.status === 'fulfilled').length, 4);
+  assert.equal(settled.filter((result) => result.status === 'rejected').length, 12);
+  assert.equal(resolver.stats().upstreamInFlight, 0);
+});
+
+test('policy and support misses share one four-request upstream pool', async () => {
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  let fetchCalls = 0;
+  const resolver = createResolver(async (url) => {
+    fetchCalls += 1;
+    await gate;
+    const requestUrl = String(url);
+    const workspaceMatch = /\/workspaces\/([^/]+)\/policy$/.exec(requestUrl);
+    if (workspaceMatch) {
+      return jsonResponse(createEffectivePolicyPayload({
+        workspaceId: decodeURIComponent(workspaceMatch[1]),
+      }));
+    }
+    const capabilityMatch = /\/installed-capabilities\/([^/]+)\/mobile-workbench-gateway-support$/.exec(requestUrl);
+    return jsonResponse(supportPayload(decodeURIComponent(capabilityMatch[1])));
+  });
+
+  const reads = [
+    resolver.resolveEffectivePolicy('workspace-a'),
+    resolver.resolveCapabilitySupport('capability-a'),
+    resolver.resolveEffectivePolicy('workspace-b'),
+    resolver.resolveCapabilitySupport('capability-b'),
+    resolver.resolveEffectivePolicy('workspace-rejected'),
+    resolver.resolveCapabilitySupport('capability-rejected'),
+  ];
+  const settledPromise = Promise.allSettled(reads);
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(fetchCalls, 4);
+  assert.equal(resolver.stats().upstreamInFlight, 4);
+  assert.equal(resolver.stats().upstreamRejected, 2);
+
+  release();
+  const settled = await settledPromise;
+  assert.equal(settled.filter((result) => result.status === 'fulfilled').length, 4);
+  assert.equal(settled.filter((result) => result.status === 'rejected').length, 2);
   assert.equal(resolver.stats().upstreamInFlight, 0);
 });

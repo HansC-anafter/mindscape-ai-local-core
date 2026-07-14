@@ -2,6 +2,7 @@ const CONTROL_EXACT_PATHS = new Set([
   '/api/v1/capability-packs/install-from-file',
   '/api/v1/capability-packs/install-from-cloud',
   '/api/v1/capability-packs/installed-capabilities',
+  '/api/v1/settings/extensions',
   '/api/v1/system-settings/restart',
 ]);
 
@@ -15,6 +16,8 @@ const CONTROL_PREFIXES = [
 ];
 
 const CONTROL_PATTERNS = [
+  /^\/api\/v1\/capabilities\/mindscape_cloud_integration\/mobile-workbench-gateway\/runtime-policy\/?$/,
+  /^\/api\/v1\/capabilities\/mindscape_cloud_integration\/mobile-workbench-gateway\/workspaces\/[^/]+\/policy\/?$/,
   /^\/api\/v1\/workspaces\/[^/]+\/agents\/bridge-service(?:\/|$)/,
   /^\/api\/v1\/workspaces\/[^/]+\/device-bindings(?:\/|$)/,
   /^\/api\/v1\/workspaces\/[^/]+\/projects\/[^/]+\/deploy(?:\/|$)/,

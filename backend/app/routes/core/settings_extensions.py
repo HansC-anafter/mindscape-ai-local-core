@@ -16,6 +16,7 @@ from sqlalchemy import text
 from backend.app.database.session import get_db_postgres as get_db
 from backend.app.models.runtime_environment import RuntimeEnvironment
 from app.services.runtime_pack_hygiene import is_ignored_runtime_pack_dir
+from .capability_packs_core.installed_routes import _get_runtime_ui_component
 
 logger = logging.getLogger(__name__)
 
@@ -215,10 +216,7 @@ async def get_settings_extensions(
 
     try:
         installed_capabilities = get_installed_capabilities()
-
-        # Pre-fetch registered codes for show_when logic
-        registered_runtimes = get_registered_runtime_codes(db)
-        registered_services = get_registered_service_codes(db)
+        candidates = []
 
         for capability_code in installed_capabilities:
             manifest = load_manifest(capability_code)
@@ -226,10 +224,22 @@ async def get_settings_extensions(
                 continue
 
             ui_components = manifest.get("ui_components", [])
+            if not isinstance(ui_components, list):
+                logger.warning(
+                    "Ignoring malformed ui_components for capability %s",
+                    capability_code,
+                )
+                continue
 
             for component in ui_components:
+                if not isinstance(component, dict):
+                    logger.warning(
+                        "Ignoring malformed settings component for capability %s",
+                        capability_code,
+                    )
+                    continue
                 settings_config = component.get("settings")
-                if not settings_config:
+                if not isinstance(settings_config, dict):
                     continue
 
                 component_section = settings_config.get("section")
@@ -237,65 +247,107 @@ async def get_settings_extensions(
                 if section and component_section != section:
                     continue
 
-                if settings_config.get("requires_workspace_id") and not workspace_id:
+                requires_workspace_id = bool(
+                    settings_config.get("requires_workspace_id")
+                )
+                if workspace_id and not requires_workspace_id:
+                    continue
+                if requires_workspace_id and not workspace_id:
                     continue
 
                 show_when = settings_config.get("show_when", {})
-                if not check_show_when(
-                    show_when, registered_runtimes, registered_services
-                ):
-                    continue
+                candidates.append(
+                    (capability_code, component, settings_config, show_when)
+                )
 
-                component_code = component.get("code")
-                component_path = component.get("path", "")
+        needs_runtime_codes = any(
+            not show_when.get("always") and show_when.get("runtime_codes")
+            for *_, show_when in candidates
+        )
+        needs_service_codes = any(
+            not show_when.get("always")
+            and not show_when.get("runtime_codes")
+            and show_when.get("service_codes")
+            for *_, show_when in candidates
+        )
+        registered_runtimes = (
+            get_registered_runtime_codes(db) if needs_runtime_codes else []
+        )
+        registered_services = (
+            get_registered_service_codes(db) if needs_service_codes else []
+        )
 
-                # Map manifest source path to installed path
-                # Per CAPABILITY_INSTALLATION_GUIDE.md:
-                #   ui/components/X.tsx -> components/X.tsx  (remove components/ prefix)
-                #   ui/X.tsx           -> components/X.tsx   (default to components/)
-                # Import path: @/app/capabilities/{code}/components/{Name}
-                if component_path.startswith("ui/components/"):
-                    # e.g. "ui/components/Panel.tsx" -> "components/Panel.tsx"
-                    installed_path = (
-                        "components/" + component_path[len("ui/components/") :]
-                    )
-                elif component_path.startswith("ui/"):
-                    # e.g. "ui/Panel.tsx" -> "components/Panel.tsx"
-                    installed_path = "components/" + component_path[len("ui/") :]
-                else:
-                    installed_path = component_path
+        for capability_code, component, settings_config, show_when in candidates:
+            if not check_show_when(
+                show_when, registered_runtimes, registered_services
+            ):
+                continue
 
-                import_path = f"@/app/capabilities/{capability_code}/{installed_path}"
-                # Strip .tsx/.ts extension per spec
-                for ext in (".tsx", ".ts", ".jsx", ".js"):
-                    if import_path.endswith(ext):
-                        import_path = import_path[: -len(ext)]
-                        break
+            component_code = component.get("code")
+            component_path = component.get("path", "")
+            component_section = settings_config.get("section")
 
-                extension = {
-                    "capability_code": capability_code,
-                    "component_code": component_code,
-                    "import_path": import_path,
-                    "export": component.get("export", "default"),
-                    "section": component_section,
-                    "title": settings_config.get("title", component_code),
-                    "description": settings_config.get("description")
-                    or component.get("description"),
-                    "order": settings_config.get("order", 100),
-                    "requires_workspace_id": settings_config.get(
-                        "requires_workspace_id", False
-                    ),
-                    "display_mode": settings_config.get("display_mode"),
-                    "show_when": show_when,
-                    "props_schema": settings_config.get("props_schema"),
-                }
+            # Map manifest source paths to installed capability component paths.
+            if component_path.startswith("ui/components/"):
+                installed_path = (
+                    "components/" + component_path[len("ui/components/") :]
+                )
+            elif component_path.startswith("ui/"):
+                installed_path = "components/" + component_path[len("ui/") :]
+            else:
+                installed_path = component_path
 
-                extensions.append(extension)
+            import_path = f"@/app/capabilities/{capability_code}/{installed_path}"
+            for ext in (".tsx", ".ts", ".jsx", ".js"):
+                if import_path.endswith(ext):
+                    import_path = import_path[: -len(ext)]
+                    break
+
+            extension = {
+                "capability_code": capability_code,
+                "component_code": component_code,
+                "path": component_path,
+                "import_path": import_path,
+                "export": component.get("export", "default"),
+                "section": component_section,
+                "title": settings_config.get("title", component_code),
+                "description": settings_config.get("description")
+                or component.get("description"),
+                "order": settings_config.get("order", 100),
+                "requires_workspace_id": bool(
+                    settings_config.get("requires_workspace_id")
+                ),
+                "display_mode": settings_config.get("display_mode"),
+                "show_when": show_when,
+                "props_schema": settings_config.get("props_schema"),
+                "legacy_context": component.get("legacy_context"),
+            }
+            runtime_component = _get_runtime_ui_component(
+                capability_code,
+                component_code,
+                strict=True,
+            )
+            for field_name in (
+                "asset_url",
+                "integrity",
+                "bytes",
+                "runtime",
+                "asset_path",
+            ):
+                if runtime_component.get(field_name) is not None:
+                    extension[field_name] = runtime_component[field_name]
+            if runtime_component.get("export"):
+                extension["export"] = runtime_component["export"]
+
+            extensions.append(extension)
 
         extensions.sort(key=lambda x: x["order"])
 
     except Exception as e:
         logger.error(f"Failed to get settings extensions: {e}", exc_info=True)
-        return []
+        raise HTTPException(
+            status_code=500,
+            detail="settings_extensions_unavailable",
+        ) from e
 
     return extensions

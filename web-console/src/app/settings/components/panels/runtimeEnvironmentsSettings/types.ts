@@ -30,6 +30,13 @@ export interface SettingsPanel {
   propsSchema?: Record<string, any>;
   importPath: string;
   export: string;
+  path?: string;
+  assetUrl?: string;
+  integrity?: string;
+  runtime?: string;
+  legacyContext?: boolean;
+  bytes?: number;
+  assetPath?: string;
 }
 
 export type RuntimeSettingsExtensionProps = Record<string, any> & {

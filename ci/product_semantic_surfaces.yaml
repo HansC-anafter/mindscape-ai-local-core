@@ -61,16 +61,21 @@ surfaces:
     semantics:
       - Runtime UI assets are served through explicit Local Core host/static lanes and dev-proxy shell contracts.
       - Pack UI runtime assets must not be treated as cloud source files or copied into tracked generated payloads.
+      - Settings extension descriptors preserve installed runtime asset metadata and do not poison the canonical component cache with incomplete source-path metadata.
+      - Corrupt installed runtime asset sidecars fail the settings descriptor explicitly instead of being projected as an empty or source-only component.
     path_globs:
       - backend/app/capabilities/**
       - backend/packs/**
+      - backend/app/routes/core/settings_extensions.py
       - web-console/dev-proxy/capability-host-shell/**
+      - web-console/src/components/capabilities/CapabilitySettingsExtensionSlot*
       - web-console/src/lib/capability-runtime-asset-url.ts
       - web-console/src/lib/capability-runtime-asset-url.spec.ts
       - web-console/src/lib/capability-static-hosts.ts
       - web-console/src/lib/capability-static-hosts.spec.ts
       - web-console/src/lib/capability-ui-loader*
       - web-console/src/lib/capability-ui-runtime-assets.ts
+      - web-console/src/lib/settings-extension-component-loader*
     content_assertions:
       - path: backend/app/routes/core/capability_packs_core/installed_routes.py
         required_text:
@@ -248,15 +253,23 @@ surfaces:
       - Data routes own an exact workspace_id in their URL; email, URL, Referer, token workspace claim, Host aliases, client ingress markers, and local resource administrators cannot grant membership.
       - Installed capability list is GET-only and projected by effective workspace allowlist intersected with embedded supported metadata; HEAD, OPTIONS, malformed, missing-support, oversized, or duplicate payloads fail closed without upstream bypass.
       - Remote workspace root and capability surfaces mount bounded data-only UI without local Header, Settings, Graph, full WorkspaceDataProvider, Link prefetch, timer polling, or hidden background requests.
+      - Public settings documents, descendants, policy APIs, and settings descriptor queries fail with the control-plane 404 before any workspace policy resolver read.
       - Public tunnel traffic reaches only the compose-internal remote listener; every host-published HTTP, preview, PostgreSQL, PgBouncer, Redis, OCR, media, XTTS, and Whisper port is loopback-only.
       - Authorization adds no worker, runner, queue key, DB audit, PgBouncer capacity, N-workspace fan-out, retry loop, or UX polling; caches, payloads, concurrency, latency, and file-backed observability are bounded.
       - Enrollment, enforcement, install, restore, policy write, origin reconcile, claim pause, and backout use the one receipt-safe cutover runner; succeeded reruns perform zero POST and indeterminate state remains closed.
+      - Core Settings is the only global administrator writer; Workspace Settings exposes one cold read-only effective-membership projection, while Pack Remote access remains the only workspace capability-code writer.
+      - Global and workspace settings use separate installed-pack sections, and workspace hosts exclude global descriptors so no second policy editor or hidden policy read is mounted.
+      - Policy control routes reuse host authentication through the audit-only local-core-control-plane actor without default-user or workspace reads; it grants no membership or resource role and preserves the one-statement effective-policy read budget.
     path_globs:
+      - backend/app/dependencies/auth.py
       - backend/app/routes/core/capability_packs_core/installed_routes.py
       - backend/app/routes/core/capability_packs_core/mobile_workbench_gateway_support.py
+      - backend/app/routes/core/settings_extensions.py
       - backend/app/services/host_resources/runner_claim_gate_bootstrap.py
       - backend/app/services/host_resources/runner_claim_gate_facade.py
       - backend/tests/capability_packs_mobile_workbench_support_spec.py
+      - backend/tests/core/auth_dependency_spec.py
+      - backend/tests/routes/core/settings_extensions_spec.py
       - backend/tests/scripts/remote_workbench_*.py
       - backend/tests/scripts/verify_remote_workbench_identity_workspace_authorization_spec.py
       - web-console/dev-proxy.mjs
@@ -266,9 +279,18 @@ surfaces:
       - web-console/src/app/workspaces/*/RemoteWorkspaceLanding*
       - web-console/src/app/workspaces/*/capability-ui-hosts/**
       - web-console/src/app/workspaces/*/capabilities/*/CapabilityLoadedComponents.tsx
+      - web-console/src/app/workspaces/*/components/CapabilityExtensionSlot*
+      - web-console/src/app/settings/page.tsx
+      - web-console/src/app/settings/types.ts
+      - web-console/src/app/settings/navigation/settingsNavigationRegistry.ts
+      - web-console/src/app/settings/components/SettingsContentHost.tsx
+      - web-console/src/app/settings/components/panels/RemoteWorkbenchAccessSettings*
+      - web-console/src/app/settings/components/panels/MobileWorkbenchGatewayPanel*
+      - web-console/src/components/capabilities/CapabilitySettingsExtensionSlot*
       - web-console/src/lib/capability-packs/installed-capabilities-cache*
       - web-console/src/lib/capability-runtime-asset-url*
       - web-console/src/lib/capability-ui-*.ts
+      - web-console/src/lib/settings-extension-component-loader*
       - web-console/src/lib/host-runtime-sessions.ts
       - web-console/src/lib/keyboard-shortcuts/**
       - web-console/src/lib/workspace-tools/workspace-tool-registry.ts

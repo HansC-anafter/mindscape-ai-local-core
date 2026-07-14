@@ -68,6 +68,8 @@ export function isRemoteControlPlanePath(requestUrl = '/') {
   return (
     isGatewayControlPolicyPath(pathname)
     || isGatewayControlObservabilityPath(pathname)
+    || /^\/settings(?:\/|$)/.test(pathname)
+    || /^\/api\/v1\/settings\/extensions(?:\/|$)/.test(pathname)
     || /^\/workspaces\/[^/]+\/capability-ui-hosts\/mindscape_cloud_integration(?:\/.*)?\/?$/.test(pathname)
     || /^\/api\/v1\/(?:admin|providers?|deploy)(?:\/|$)/.test(pathname)
     || /^\/api\/v1\/capability-packs\/(?:install|install-from-file|install-from-cloud|install-jobs)(?:\/|$)/.test(pathname)

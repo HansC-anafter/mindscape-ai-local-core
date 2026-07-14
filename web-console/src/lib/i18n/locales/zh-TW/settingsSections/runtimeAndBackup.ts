@@ -17,6 +17,8 @@ export const settingsZhTWRuntimeAndBackup = {
 
   runtimeEnvironments: '執行環境',
   runtimeEnvironmentsDescription: '配置 Playbook 和任務的執行環境',
+  remoteWorkbenchAccess: 'Remote Workbench 存取權限',
+  remoteWorkbenchAccessDescription: '管理所有工作區繼承的已驗證管理員',
   hostResources: '宿主資源',
   hostResourceObservability: '資源觀測',
   workspaceResourceAllocations: '工作區配額',

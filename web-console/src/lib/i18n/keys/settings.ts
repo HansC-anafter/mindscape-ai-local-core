@@ -302,6 +302,8 @@ export const settingsKeys = {
 
   runtimeEnvironments: true,
   runtimeEnvironmentsDescription: true,
+  remoteWorkbenchAccess: true,
+  remoteWorkbenchAccessDescription: true,
   hostResources: true,
   hostResourceObservability: true,
   workspaceResourceAllocations: true,

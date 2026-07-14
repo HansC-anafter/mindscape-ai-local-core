@@ -91,6 +91,12 @@ export const navigationItems: NavigationItem[] = [
     ],
   },
   {
+    id: 'remote-workbench-access',
+    label: 'remoteWorkbenchAccess',
+    icon: ShieldCheck,
+    tab: 'remote_workbench_access',
+  },
+  {
     id: 'tools',
     label: 'toolsAndIntegrations',
     icon: Wrench,

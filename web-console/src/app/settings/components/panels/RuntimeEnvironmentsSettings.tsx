@@ -82,6 +82,13 @@ export function RuntimeEnvironmentsSettings() {
           propsSchema: ext.props_schema,
           importPath: ext.import_path,
           export: ext.export || 'default',
+          path: ext.path,
+          assetUrl: ext.asset_url,
+          integrity: ext.integrity,
+          runtime: ext.runtime,
+          legacyContext: ext.legacy_context,
+          bytes: ext.bytes,
+          assetPath: ext.asset_path,
         }));
         setSettingsPanels(panels);
       } else {
@@ -114,6 +121,13 @@ export function RuntimeEnvironmentsSettings() {
           propsSchema: ext.props_schema,
           importPath: ext.import_path,
           export: ext.export || 'default',
+          path: ext.path,
+          assetUrl: ext.asset_url,
+          integrity: ext.integrity,
+          runtime: ext.runtime,
+          legacyContext: ext.legacy_context,
+          bytes: ext.bytes,
+          assetPath: ext.asset_path,
         }));
         setWorkflowPanels(panels);
       }

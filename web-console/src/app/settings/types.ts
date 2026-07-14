@@ -175,4 +175,4 @@ export interface PlaybookReadinessStatus {
   optional_tools: string[];
 }
 
-export type SettingsTab = 'basic' | 'credentials' | 'mindscape' | 'ai-team-governance' | 'social_media' | 'tools' | 'localization' | 'service_status' | 'packs_status' | 'governance' | 'runtime';
+export type SettingsTab = 'basic' | 'credentials' | 'mindscape' | 'ai-team-governance' | 'social_media' | 'tools' | 'localization' | 'service_status' | 'packs_status' | 'governance' | 'runtime' | 'remote_workbench_access';

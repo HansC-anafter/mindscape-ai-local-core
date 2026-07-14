@@ -8,6 +8,7 @@ import {
   Database,
   RefreshCw,
   Settings as SettingsIcon,
+  ShieldCheck,
   Share2,
   SlidersHorizontal,
 } from 'lucide-react';
@@ -17,6 +18,7 @@ import {
   ExecutionSection,
   SocialMediaSection,
   ToolEnginesSection,
+  RemoteAccessSection,
 } from './WorkspaceSettingsToolPanelSections';
 import { StatusSection } from './WorkspaceSettingsToolPanelStatus';
 import type {
@@ -32,6 +34,7 @@ const SECTIONS: Array<{ id: SettingsSection; icon: React.ReactNode }> = [
   { id: 'Tools', icon: <SlidersHorizontal aria-hidden="true" className="h-4 w-4" /> },
   { id: 'Social', icon: <Share2 aria-hidden="true" className="h-4 w-4" /> },
   { id: 'Data', icon: <Database aria-hidden="true" className="h-4 w-4" /> },
+  { id: 'Remote Access', icon: <ShieldCheck aria-hidden="true" className="h-4 w-4" /> },
 ];
 
 export default function WorkspaceSettingsToolPanel({
@@ -41,6 +44,7 @@ export default function WorkspaceSettingsToolPanel({
   const [openSections, setOpenSections] = useState<Record<SettingsSection, boolean>>({
     Status: true,
     Workspace: false,
+    'Remote Access': false,
     Execution: false,
     Tools: false,
     Social: false,
@@ -60,6 +64,9 @@ export default function WorkspaceSettingsToolPanel({
     }
     if (sectionId === 'Workspace') {
       return <WorkspaceSection apiUrl={apiUrl} />;
+    }
+    if (sectionId === 'Remote Access') {
+      return <RemoteAccessSection workspaceId={workspaceId} />;
     }
     if (sectionId === 'Execution') {
       return <ExecutionSection apiUrl={apiUrl} workspaceId={workspaceId} />;
@@ -82,7 +89,7 @@ export default function WorkspaceSettingsToolPanel({
         <div className="space-y-2" data-testid="workspace-settings-section-stack">
           {SECTIONS.map((section) => {
             const isOpen = openSections[section.id];
-            const sectionKey = section.id.toLowerCase();
+            const sectionKey = section.id.toLowerCase().replace(/\s+/g, '-');
             return (
               <section
                 key={section.id}

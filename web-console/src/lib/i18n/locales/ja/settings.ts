@@ -8,6 +8,8 @@ import { settingsJaCloudExtensionAndBackup } from './settingsSections/cloudExten
 
 export const settingsJa = {
   settings: '設定',
+  remoteWorkbenchAccess: 'Remote Workbench アクセス',
+  remoteWorkbenchAccessDescription: 'すべてのワークスペースが継承する検証済み管理者を管理します',
   backendConfiguration: 'エージェントバックエンド設定',
   backendDescription: 'エージェントの実行方法を設定します。ほとんどのユーザーには「ローカル LLM」を推奨します。リモートバックエンドは開発者向けの高度なオプションです。',
   backendMode: 'バックエンドモード',

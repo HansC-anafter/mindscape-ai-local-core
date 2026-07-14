@@ -1,34 +1,37 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import RefreshCw from 'lucide-react/dist/esm/icons/refresh-cw.js';
 import ShieldCheck from 'lucide-react/dist/esm/icons/shield-check.js';
+
 import { t } from '../../../../lib/i18n';
-import { settingsApi } from '../../utils/settingsApi';
+import { getApiBaseUrl } from '../../../../lib/api-url';
 import { Card } from '../Card';
 import { InlineAlert } from '../InlineAlert';
 import { Section } from '../Section';
 import { StatusPill } from '../StatusPill';
 
 interface GatewayConfigSummary {
-  enabled: boolean;
+  enabled?: boolean;
   reason?: string;
   errors?: string[];
-  allowed_prefix_rules?: string[];
-  allowed_regex_rules?: string[];
-  extra_allowed_rules?: string[];
-  extra_allowed_rules_count?: number;
-  allowlist_emails?: string[];
-  allowlist_groups?: string[];
-  workspace_allowlist?: string[];
   public_origin?: string | null;
-  jwt_audience?: string[];
-  jwt_issuer?: string[];
-  jwt_clock_skew_seconds?: number;
+  auth_config_source?: string | null;
+  auth_config_fingerprint?: string | null;
+  remote_access_state?: string | null;
+  runtime_policy_revision?: number | null;
+  startup_config_get_count?: number;
+  remote_listener_ready?: boolean;
   jwt_signature_verification_required?: boolean;
-  jwt_verify_enabled?: boolean;
-  jwt_public_key_configured?: boolean;
-  gateway_policy_enabled?: boolean;
+  jwt_issuer_ready?: boolean;
+  jwt_audience_ready?: boolean;
+  effective_policy_cache_entries?: number;
+  capability_support_cache_entries?: number;
+  upstream_effective_policy_calls?: number;
+  upstream_capability_support_calls?: number;
+  upstream_in_flight?: number;
+  upstream_rejected?: number;
+  max_upstream_in_flight?: number;
 }
 
 interface MobileWorkbenchGatewayHealth {
@@ -40,15 +43,22 @@ interface MobileWorkbenchGatewayHealth {
   gateway?: GatewayConfigSummary;
 }
 
-function formatList(values: string[] = [], fallback = '-') {
-  if (!values.length) {
-    return fallback;
+const HEALTH_PATH = '/api/v1/host/services/mobile-workbench-gateway/health';
+const REQUEST_TIMEOUT_MS = 10_000;
+
+function isGatewayHealthPayload(value: unknown): value is MobileWorkbenchGatewayHealth {
+  if (!value || typeof value !== 'object') {
+    return false;
   }
-  return values.join(', ');
+  const payload = value as Record<string, unknown>;
+  return typeof payload.status === 'string'
+    && typeof payload.enabled === 'boolean'
+    && (payload.gateway === undefined || Boolean(payload.gateway && typeof payload.gateway === 'object'));
 }
 
-function countLabel(count: number, singular: string, plural = `${singular}s`) {
-  return `${count} ${count === 1 ? singular : plural}`;
+function display(value: string | number | boolean | null | undefined): string {
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+  return value === null || value === undefined || value === '' ? '-' : String(value);
 }
 
 export function MobileWorkbenchGatewayPanel() {
@@ -56,60 +66,108 @@ export function MobileWorkbenchGatewayPanel() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const requestGenerationRef = useRef(0);
+  const activeControllerRef = useRef<AbortController | null>(null);
+  const mountedRef = useRef(true);
+  const apiBaseUrl = getApiBaseUrl().replace(/\/+$/, '');
 
   const loadHealth = useCallback(async () => {
+    const requestGeneration = ++requestGenerationRef.current;
+    activeControllerRef.current?.abort();
+    const controller = new AbortController();
+    activeControllerRef.current = controller;
+    let timedOut = false;
+    const timeoutId = window.setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, REQUEST_TIMEOUT_MS);
+    const isCurrentRequest = () => (
+      mountedRef.current && requestGenerationRef.current === requestGeneration
+    );
     setError(null);
     try {
-      const data = await settingsApi.get<MobileWorkbenchGatewayHealth>(
-        '/api/v1/host/services/mobile-workbench-gateway/health',
-        { silent: true },
-      );
-      setHealth(data);
-    } catch (err) {
-      setHealth(null);
-      setError(err instanceof Error ? err.message : 'Failed to load remote workbench gateway status');
+      const response = await fetch(`${apiBaseUrl}${HEALTH_PATH}`, {
+        cache: 'no-store',
+        signal: controller.signal,
+      });
+      let payload: unknown;
+      try {
+        payload = await response.json();
+      } catch {
+        throw new Error('Remote Workbench gateway returned malformed JSON');
+      }
+      if (timedOut || controller.signal.aborted) {
+        throw new DOMException('aborted', 'AbortError');
+      }
+      if (!isGatewayHealthPayload(payload)) {
+        throw new Error('Remote Workbench gateway returned a malformed health payload');
+      }
+      const expectedBlockedResponse = response.status === 503 && payload.status === 'blocked';
+      if (!response.ok && !expectedBlockedResponse) {
+        throw new Error(`Remote Workbench gateway health request failed (${response.status})`);
+      }
+      if (isCurrentRequest()) {
+        setHealth(payload);
+      }
+    } catch (requestError) {
+      if (isCurrentRequest()) {
+        setHealth(null);
+        setError(
+          timedOut
+            ? 'Remote Workbench gateway health request timed out after 10 seconds'
+            : requestError instanceof Error
+              ? requestError.message
+              : 'Failed to load Remote Workbench gateway status',
+        );
+      }
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      window.clearTimeout(timeoutId);
+      if (isCurrentRequest()) {
+        activeControllerRef.current = null;
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
-  }, []);
+  }, [apiBaseUrl]);
 
   useEffect(() => {
+    mountedRef.current = true;
     void loadHealth();
+    return () => {
+      mountedRef.current = false;
+      requestGenerationRef.current += 1;
+      activeControllerRef.current?.abort();
+      activeControllerRef.current = null;
+    };
   }, [loadHealth]);
 
-  const status = useMemo(() => {
-    if (!health) {
-      return { status: 'unavailable' as const, label: 'Unavailable' };
-    }
-    if (health.status === 'disabled' || health.enabled === false) {
-      return { status: 'disabled' as const, label: 'Disabled' };
-    }
-    if (health.status === 'ok' || health.enabled) {
-      return { status: 'enabled' as const, label: 'Enabled' };
-    }
-    return { status: 'unavailable' as const, label: health.status || 'Unavailable' };
-  }, [health]);
-
   const summary = health?.gateway;
-  const healthErrors = health?.errors || [];
-  const healthUnreachable = health?.status === 'unreachable';
-  const operatorGuardrailsConfigured = summary?.gateway_policy_enabled ?? false;
-  const operatorGuardrailCount =
-    (summary?.allowlist_emails || []).length
-    + (summary?.allowlist_groups || []).length
-    + (summary?.workspace_allowlist || []).length;
-  const pathRules = [
-    ...(summary?.allowed_prefix_rules || []),
-    ...(summary?.allowed_regex_rules || []),
-    ...(summary?.extra_allowed_rules || []),
-  ];
-  const showWarning = healthUnreachable || healthErrors.length > 0 || !operatorGuardrailsConfigured;
+  const healthErrors = [...(health?.errors || []), ...(summary?.errors || [])];
+  const strictReady = Boolean(
+    health?.status === 'ok'
+    && health.enabled === true
+    && summary?.enabled === true
+    && summary?.remote_listener_ready
+    && summary?.jwt_signature_verification_required
+    && summary?.jwt_issuer_ready
+    && summary?.jwt_audience_ready
+    && summary?.auth_config_source === 'runtime_policy'
+    && summary?.startup_config_get_count === 1
+    && healthErrors.length === 0
+  );
+  const status = useMemo(() => {
+    if (!health) return { status: 'unavailable' as const, label: 'Unavailable' };
+    if (health.status === 'blocked') return { status: 'unavailable' as const, label: 'Blocked' };
+    if (health.status === 'disabled' || health.enabled === false) return { status: 'disabled' as const, label: 'Disabled' };
+    return strictReady
+      ? { status: 'enabled' as const, label: 'Strict policy ready' }
+      : { status: 'unavailable' as const, label: 'Blocked' };
+  }, [health, strictReady]);
 
   return (
     <Section
-      title={t('developerIntegrations' as any) || 'Developer Integrations'}
-      description={t('developerIntegrationsDescription' as any) || 'Advanced integrations for external environments.'}
+      title="Remote Workbench Gateway Diagnostics"
+      description="Read-only runtime health. Access policy changes have one dedicated Core Settings owner."
       headerRight={(
         <button
           type="button"
@@ -117,184 +175,91 @@ export function MobileWorkbenchGatewayPanel() {
             setRefreshing(true);
             void loadHealth();
           }}
-          className="inline-flex items-center gap-2 rounded-md border border-default dark:border-gray-600 px-3 py-2 text-sm font-medium text-secondary dark:text-gray-300 hover:bg-surface-accent dark:hover:bg-gray-800 hover:text-primary dark:hover:text-gray-100"
+          className="inline-flex items-center gap-2 rounded-md border border-default px-3 py-2 text-sm font-medium text-secondary hover:bg-surface-accent dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
           aria-label="Refresh remote workbench gateway status"
-          title="Refresh remote workbench gateway status"
         >
           <RefreshCw className={refreshing ? 'h-4 w-4 animate-spin' : 'h-4 w-4'} />
           <span>{t('refresh' as any) || 'Refresh'}</span>
         </button>
       )}
     >
-      {loading && (
-        <div className="rounded-lg border border-default dark:border-gray-700 bg-surface-secondary dark:bg-gray-800 p-4 text-sm text-secondary dark:text-gray-400">
-          {t('loading' as any) || 'Loading...'}
+      {loading ? <div role="status" aria-live="polite" className="p-4 text-sm text-secondary">{t('loading' as any) || 'Loading...'}</div> : null}
+      {error ? (
+        <div role="alert">
+          <InlineAlert type="error" title="Remote Workbench Gateway" description={error} />
         </div>
-      )}
+      ) : null}
 
-      {error && (
-        <InlineAlert
-          type="error"
-          title="Remote Workbench Gateway"
-          description={error}
-        />
-      )}
-
-      {!loading && health && (
+      {!loading && health ? (
         <div className="space-y-4">
           <Card>
             <div className="flex items-start justify-between gap-4">
-              <div className="min-w-0">
+              <div>
                 <div className="flex items-center gap-2">
-                  <h3 className="text-base font-semibold text-primary dark:text-gray-100">
-                    Remote Workbench Gateway
-                  </h3>
+                  <h3 className="text-base font-semibold text-primary dark:text-gray-100">Gateway readiness</h3>
                   <ShieldCheck className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
                 </div>
-                <p className="mt-1 text-sm text-secondary dark:text-gray-400">
-                  {health.service || 'mobile-workbench-gateway'} health surface and policy summary.
-                </p>
+                <p className="mt-1 text-sm text-secondary dark:text-gray-400">{health.service || 'mobile-workbench-gateway'}</p>
               </div>
               <StatusPill status={status.status} label={status.label} icon="" />
             </div>
 
-            <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-              <div className="rounded-md border border-default dark:border-gray-700 bg-surface dark:bg-gray-900 p-3">
-                <div className="text-xs uppercase tracking-wide text-secondary dark:text-gray-400">Health</div>
-                <div className="mt-1 text-sm font-medium text-primary dark:text-gray-100">{health.status || 'unknown'}</div>
-                <div className="mt-1 text-xs text-secondary dark:text-gray-400">{health.reason || '-'}</div>
-              </div>
-              <div className="rounded-md border border-default dark:border-gray-700 bg-surface dark:bg-gray-900 p-3">
-                <div className="text-xs uppercase tracking-wide text-secondary dark:text-gray-400">Operator guardrails</div>
-                <div className="mt-1 text-sm font-medium text-primary dark:text-gray-100">
-                  {operatorGuardrailsConfigured ? 'Configured' : 'Not configured'}
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {[
+                ['Health', health.status],
+                ['Remote access state', summary?.remote_access_state],
+                ['Policy revision', summary?.runtime_policy_revision],
+                ['Policy source', summary?.auth_config_source],
+                ['Remote listener ready', summary?.remote_listener_ready],
+                ['Signature verification required', summary?.jwt_signature_verification_required],
+                ['Issuer ready', summary?.jwt_issuer_ready],
+                ['Audience ready', summary?.jwt_audience_ready],
+                ['Startup policy reads', summary?.startup_config_get_count],
+              ].map(([label, value]) => (
+                <div key={String(label)} className="rounded-md border border-default bg-surface p-3 dark:border-gray-700 dark:bg-gray-900">
+                  <div className="text-xs uppercase tracking-wide text-secondary dark:text-gray-400">{label}</div>
+                  <div className="mt-1 break-all text-sm font-medium text-primary dark:text-gray-100">{display(value)}</div>
                 </div>
-                <div className="mt-1 text-xs text-secondary dark:text-gray-400">
-                  {countLabel(operatorGuardrailCount, 'guardrail')}
-                </div>
-              </div>
-              <div className="rounded-md border border-default dark:border-gray-700 bg-surface dark:bg-gray-900 p-3">
-                <div className="text-xs uppercase tracking-wide text-secondary dark:text-gray-400">Public origin</div>
-                <div className="mt-1 break-all text-sm font-medium text-primary dark:text-gray-100">
-                  {summary?.public_origin || '-'}
-                </div>
-                <div className="mt-1 text-xs text-secondary dark:text-gray-400">
-                  Canonical browser hostname for remote workbench access.
-                </div>
-              </div>
-              <div className="rounded-md border border-default dark:border-gray-700 bg-surface dark:bg-gray-900 p-3">
-                <div className="text-xs uppercase tracking-wide text-secondary dark:text-gray-400">Signature</div>
-                <div className="mt-1 text-sm font-medium text-primary dark:text-gray-100">
-                  {summary?.jwt_signature_verification_required ? 'Required' : 'Optional'}
-                </div>
-                <div className="mt-1 text-xs text-secondary dark:text-gray-400">
-                  {summary?.jwt_verify_enabled ? 'Public key configured' : 'Public key not configured'}
-                </div>
-              </div>
+              ))}
             </div>
           </Card>
 
-          <div className="grid gap-4 xl:grid-cols-2">
-            <Card>
-              <h4 className="text-sm font-semibold text-primary dark:text-gray-100">Path rules</h4>
-              <div className="mt-3 text-sm text-secondary dark:text-gray-400">
-                {pathRules.length > 0 ? (
-                  <ul className="space-y-2">
-                    {pathRules.slice(0, 8).map((rule) => (
-                      <li key={rule} className="rounded-md border border-default dark:border-gray-700 bg-surface dark:bg-gray-900 px-3 py-2 font-mono text-xs text-primary dark:text-gray-200">
-                        {rule}
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  'No explicit rules configured.'
-                )}
-                {pathRules.length > 8 && (
-                  <div className="mt-2 text-xs text-secondary dark:text-gray-400">
-                    +{pathRules.length - 8} more rule(s)
-                  </div>
-                )}
-              </div>
-            </Card>
-
-            <Card>
-              <h4 className="text-sm font-semibold text-primary dark:text-gray-100">Identity / JWT</h4>
-              <div className="mt-3 space-y-3 text-sm">
-                <div>
-                  <div className="text-xs uppercase tracking-wide text-secondary dark:text-gray-400">Audience</div>
-                  <div className="mt-1 text-primary dark:text-gray-100 font-mono text-xs break-all">
-                    {formatList(summary?.jwt_audience)}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-xs uppercase tracking-wide text-secondary dark:text-gray-400">Issuer</div>
-                  <div className="mt-1 text-primary dark:text-gray-100 font-mono text-xs break-all">
-                    {formatList(summary?.jwt_issuer)}
-                  </div>
-                </div>
-                <div className="grid gap-3 sm:grid-cols-4">
-                  <div>
-                    <div className="text-xs uppercase tracking-wide text-secondary dark:text-gray-400">Emails</div>
-                    <div className="mt-1 text-primary dark:text-gray-100">{countLabel((summary?.allowlist_emails || []).length, 'email')}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs uppercase tracking-wide text-secondary dark:text-gray-400">Groups</div>
-                    <div className="mt-1 text-primary dark:text-gray-100">{countLabel((summary?.allowlist_groups || []).length, 'group')}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs uppercase tracking-wide text-secondary dark:text-gray-400">Workspace brakes</div>
-                    <div className="mt-1 text-primary dark:text-gray-100">{countLabel((summary?.workspace_allowlist || []).length, 'workspace')}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs uppercase tracking-wide text-secondary dark:text-gray-400">Clock skew</div>
-                    <div className="mt-1 text-primary dark:text-gray-100">{summary?.jwt_clock_skew_seconds ?? 0}s</div>
-                  </div>
-                </div>
-              </div>
-            </Card>
-          </div>
+          <Card>
+            <h4 className="text-sm font-semibold text-primary dark:text-gray-100">Canonical runtime evidence</h4>
+            <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
+              <div><dt className="text-secondary">Public origin</dt><dd className="break-all font-mono text-xs">{display(summary?.public_origin)}</dd></div>
+              <div><dt className="text-secondary">Configuration fingerprint</dt><dd className="break-all font-mono text-xs">{display(summary?.auth_config_fingerprint)}</dd></div>
+              <div><dt className="text-secondary">Policy cache entries</dt><dd>{display(summary?.effective_policy_cache_entries)}</dd></div>
+              <div><dt className="text-secondary">Support cache entries</dt><dd>{display(summary?.capability_support_cache_entries)}</dd></div>
+              <div><dt className="text-secondary">Upstream calls</dt><dd>{display((summary?.upstream_effective_policy_calls || 0) + (summary?.upstream_capability_support_calls || 0))}</dd></div>
+              <div><dt className="text-secondary">Upstream in flight / limit</dt><dd>{display(summary?.upstream_in_flight)} / {display(summary?.max_upstream_in_flight)}</dd></div>
+              <div><dt className="text-secondary">Fail-closed rejects</dt><dd>{display(summary?.upstream_rejected)}</dd></div>
+            </dl>
+          </Card>
 
           <Card>
-            <h4 className="text-sm font-semibold text-primary dark:text-gray-100">Workspace capability access</h4>
-            <div className="mt-3 space-y-2 text-sm text-secondary dark:text-gray-400" data-testid="mobile-workbench-gateway-workspace-access-note">
+            <h4 className="text-sm font-semibold text-primary dark:text-gray-100">Policy ownership</h4>
+            <div className="mt-3 space-y-2 text-sm text-secondary dark:text-gray-400" data-testid="mobile-workbench-gateway-policy-owner-note">
               <p>
-                Pack capability ingress is managed per workspace from the Pack panel through
-                {' '}
-                <span className="font-medium text-primary dark:text-gray-100">Gateway policy</span>
+                Global verified administrators are managed only from{' '}
+                <a className="font-medium text-blue-700 underline dark:text-blue-300" href="/settings?tab=remote_workbench_access">
+                  Remote Workbench Access
+                </a>
                 .
               </p>
-              <p>
-                This settings panel only reports service health, public origin, identity constraints, and operator workspace brakes.
-              </p>
+              <p>Workspace capability ingress remains managed from that workspace&apos;s Pack → Remote access page.</p>
             </div>
           </Card>
 
-          <Card>
-            <h4 className="text-sm font-semibold text-primary dark:text-gray-100">Configuration hint</h4>
-            <pre className="mt-3 overflow-x-auto rounded-md border border-default dark:border-gray-700 bg-gray-950 px-3 py-3 text-xs leading-6 text-gray-100">
-{`MOBILE_WORKBENCH_GATEWAY_ENABLED=1
-MOBILE_WORKBENCH_GATEWAY_PUBLIC_ORIGIN=https://remote-workbench.mindscapeai.app
-MOBILE_WORKBENCH_GATEWAY_JWT_AUDIENCE=remote-workbench
-MOBILE_WORKBENCH_GATEWAY_JWT_ISSUER=https://identity.example.com
-MOBILE_WORKBENCH_GATEWAY_REQUIRE_SIGNATURE_VERIFICATION=1`}
-            </pre>
-          </Card>
-
-          {showWarning && (
+          {!strictReady ? (
             <InlineAlert
               type="warning"
-              title="Gateway policy"
-              description={
-                healthUnreachable
-                  ? 'Health surface is unreachable.'
-                  : healthErrors.length > 0
-                  ? healthErrors.join('; ')
-                  : 'No local operator guardrails are configured. Capability ingress still depends on each workspace gateway policy.'
-              }
+              title="Gateway is not strict-policy ready"
+              description={healthErrors.length > 0 ? healthErrors.join('; ') : health.reason || 'Runtime policy readiness is incomplete.'}
             />
-          )}
+          ) : null}
         </div>
-      )}
+      ) : null}
     </Section>
   );
 }

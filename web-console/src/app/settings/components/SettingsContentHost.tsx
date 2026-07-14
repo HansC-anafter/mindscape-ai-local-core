@@ -16,7 +16,11 @@ interface SettingsContentHostProps {
 
 function SettingsContentFallback() {
   return (
-    <div className="rounded-lg border border-default dark:border-gray-700 bg-surface-secondary dark:bg-gray-800 p-4 text-sm text-secondary dark:text-gray-400">
+    <div
+      role="status"
+      aria-live="polite"
+      className="rounded-lg border border-default dark:border-gray-700 bg-surface-secondary dark:bg-gray-800 p-4 text-sm text-secondary dark:text-gray-400"
+    >
       Loading...
     </div>
   );
@@ -74,6 +78,15 @@ const HostResourcesPanel = dynamic(
   () => import('./panels/HostResourcesPanel').then((mod) => mod.HostResourcesPanel),
   { ssr: false, loading: SettingsContentFallback }
 );
+const RemoteWorkbenchAccessSettings = dynamic(
+  () => import('./panels/RemoteWorkbenchAccessSettings').then((mod) => mod.RemoteWorkbenchAccessSettings),
+  { ssr: false, loading: SettingsContentFallback }
+);
+
+function PacksSettingsContent({ activeSection }: { activeSection?: string }) {
+  const { getToolStatusForPack } = useTools();
+  return <PacksPanel getToolStatus={getToolStatusForPack} activeSection={activeSection || 'packages'} />;
+}
 
 export function SettingsContentHost({
   activeTab,
@@ -84,8 +97,6 @@ export function SettingsContentHost({
   onCredentialsNavigate,
   onSendToAssistant,
 }: SettingsContentHostProps) {
-  const { getToolStatusForPack } = useTools();
-
   switch (activeTab) {
     case 'basic':
       return (
@@ -123,12 +134,14 @@ export function SettingsContentHost({
         return <DeviceLinkReadinessPanel workspaceId={workspaceId} />;
       }
       return <RuntimeEnvironmentsSettings />;
+    case 'remote_workbench_access':
+      return <RemoteWorkbenchAccessSettings />;
     case 'localization':
       return <LocalizationPanel activeSection={activeSection} />;
     case 'service_status':
       return <ServiceStatusPanel />;
     case 'packs_status':
-      return <PacksPanel getToolStatus={getToolStatusForPack} activeSection={activeSection || 'packages'} />;
+      return <PacksSettingsContent activeSection={activeSection} />;
     case 'governance':
       return <GovernancePanel activeSection={activeSection} />;
     default:

@@ -1,5 +1,6 @@
 import {
   MAX_CLOCK_SKEW_SECONDS_DEFAULT,
+  MAX_POLICY_UPSTREAM_IN_FLIGHT,
   PUBLIC_ORIGIN_ENV,
   REMOTE_WORKBENCH_PUBLIC_ORIGIN,
   RUNTIME_ACCESS_POLICY_PATH,
@@ -157,6 +158,8 @@ export function formatMobileWorkbenchGatewayConfig(config, resolverStats = {}) {
     upstream_capability_support_calls: Number(resolverStats?.upstreamCapabilitySupportCalls || 0),
     upstream_in_flight: Number(resolverStats?.upstreamInFlight || 0),
     upstream_rejected: Number(resolverStats?.upstreamRejected || 0),
-    max_upstream_in_flight: Number(resolverStats?.maxUpstreamInFlight || 16),
+    max_upstream_in_flight: Number(
+      resolverStats?.maxUpstreamInFlight || MAX_POLICY_UPSTREAM_IN_FLIGHT
+    ),
   };
 }

@@ -119,6 +119,8 @@ export function SettingsNavigation({
       <div key={item.id}>
         <div className="flex items-center justify-between">
           <button
+            type="button"
+            aria-current={isActive && !hasChildren ? 'page' : undefined}
             onClick={() => {
               if (hasChildren && !isExpanded) {
                 toggleExpand(item.id);
@@ -142,10 +144,13 @@ export function SettingsNavigation({
             }}
           >
             {Icon && <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />}
-            <span>{t(item.label as any) || item.label}</span>
+            <span id={`settings-navigation-label-${item.id}`}>{t(item.label as any) || item.label}</span>
           </button>
           {hasChildren && (
             <button
+              type="button"
+              aria-labelledby={`settings-navigation-label-${item.id}`}
+              aria-expanded={isExpanded}
               onClick={(event) => {
                 event.stopPropagation();
                 toggleExpand(item.id);

@@ -3,6 +3,7 @@ import {
 } from './mobile-workbench-gateway-capability-rules.mjs';
 import {
   MAX_POLICY_CACHE_ENTRIES,
+  MAX_POLICY_UPSTREAM_IN_FLIGHT,
   MAX_SUPPORT_CACHE_ENTRIES,
   POLICY_TTL_MS,
   SUPPORT_TTL_MS,
@@ -75,7 +76,7 @@ export function createMobileWorkbenchGatewayPolicyResolver({
   supportTtlMs = SUPPORT_TTL_MS,
   maxPolicyEntries = MAX_POLICY_CACHE_ENTRIES,
   maxSupportEntries = MAX_SUPPORT_CACHE_ENTRIES,
-  maxUpstreamInFlight = 16,
+  maxUpstreamInFlight = MAX_POLICY_UPSTREAM_IN_FLIGHT,
 } = {}) {
   if (typeof buildInternalApiUrl !== 'function') {
     throw new Error('buildInternalApiUrl is required');
@@ -89,7 +90,7 @@ export function createMobileWorkbenchGatewayPolicyResolver({
   const upstreamCalls = { effectivePolicy: 0, capabilitySupport: 0 };
   const upstreamLimit = Number.isSafeInteger(maxUpstreamInFlight) && maxUpstreamInFlight > 0
     ? maxUpstreamInFlight
-    : 16;
+    : MAX_POLICY_UPSTREAM_IN_FLIGHT;
   let upstreamInFlight = 0;
   let upstreamRejected = 0;
 

@@ -48,6 +48,11 @@ describe('RuntimeEnvironmentsSettings extension loader', () => {
       description: 'Configure global runtime status',
       importPath: '@/app/capabilities/global_runtime_status/components/GlobalRuntimeStatusPanel.tsx',
       export: 'default',
+      path: 'ui/components/GlobalRuntimeStatusPanel.tsx',
+      assetUrl: '/api/v1/capabilities/global_runtime_status/ui/assets/runtime-settings.js',
+      integrity: 'sha256-runtime-settings',
+      runtime: 'module',
+      bytes: 2048,
     });
 
     render(
@@ -73,6 +78,7 @@ describe('RuntimeEnvironmentsSettings extension loader', () => {
       'global_runtime_status',
       'GlobalRuntimeStatusPanel',
       expect.any(String),
+      undefined,
     );
   });
 
@@ -100,6 +106,11 @@ describe('RuntimeEnvironmentsSettings extension loader', () => {
             props_schema: null,
             import_path: '@/app/capabilities/global_runtime_status/components/GlobalRuntimeStatusPanel.tsx',
             export: 'default',
+            path: 'ui/components/GlobalRuntimeStatusPanel.tsx',
+            asset_url: '/api/v1/capabilities/global_runtime_status/ui/assets/runtime-settings.js',
+            integrity: 'sha256-runtime-settings',
+            runtime: 'module',
+            bytes: 2048,
           }]),
         } as Response;
       }
@@ -123,6 +134,18 @@ describe('RuntimeEnvironmentsSettings extension loader', () => {
       'global_runtime_status',
       'GlobalRuntimeStatusPanel',
       expect.any(String),
+      undefined,
+    );
+    expect(registryMock.primeCapabilityUIComponentMetadata).toHaveBeenCalledWith(
+      'global_runtime_status',
+      [
+        expect.objectContaining({
+          code: 'GlobalRuntimeStatusPanel',
+          asset_url: '/api/v1/capabilities/global_runtime_status/ui/assets/runtime-settings.js',
+          integrity: 'sha256-runtime-settings',
+          bytes: 2048,
+        }),
+      ],
     );
   });
 });

@@ -225,7 +225,11 @@ def _runtime_ui_assets_root() -> Path:
     return Path(__file__).resolve().parents[5] / "data" / "capability-ui"
 
 
-def _load_runtime_ui_index(capability_code: str) -> Dict[str, Any]:
+def _load_runtime_ui_index(
+    capability_code: str,
+    *,
+    strict: bool = False,
+) -> Dict[str, Any]:
     try:
         cached_payload = get_cached_runtime_ui_index(capability_code)
         if cached_payload is not None:
@@ -239,27 +243,43 @@ def _load_runtime_ui_index(capability_code: str) -> Dict[str, Any]:
         if not sidecar_path.exists():
             return {}
         payload = json.loads(sidecar_path.read_text(encoding="utf-8"))
-        if isinstance(payload, dict):
-            set_cached_runtime_ui_index(capability_code, payload)
-            return payload
-        return {}
+        if not isinstance(payload, dict):
+            raise ValueError("runtime UI index must be an object")
+        components = payload.get("components", [])
+        if not isinstance(components, list) or any(
+            not isinstance(component, dict) for component in components
+        ):
+            raise ValueError("runtime UI index components must be a list of objects")
+        set_cached_runtime_ui_index(capability_code, payload)
+        return payload
     except Exception as exc:
         logger.warning(
             "Failed to load runtime UI index for %s: %s",
             capability_code,
             exc,
         )
+        if strict:
+            raise RuntimeError(
+                f"runtime UI index unavailable for {capability_code}"
+            ) from exc
         return {}
 
 
 def _get_runtime_ui_component(
     capability_code: str,
     component_code: Any,
+    *,
+    strict: bool = False,
 ) -> Dict[str, Any]:
     if not component_code:
         return {}
-    runtime_index = _load_runtime_ui_index(capability_code)
-    for component in runtime_index.get("components", []) or []:
+    runtime_index = _load_runtime_ui_index(capability_code, strict=strict)
+    components = runtime_index.get("components", [])
+    if not isinstance(components, list):
+        return {}
+    for component in components:
+        if not isinstance(component, dict):
+            continue
         if component.get("code") == component_code:
             return component
     return {}

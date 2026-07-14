@@ -68,16 +68,22 @@ vi.mock('../components/CapabilityExtensionSlot', async () => {
     default: function MockCapabilityExtensionSlot({
       section,
       workspaceId,
+      ownerContract,
     }: {
       section: string;
       workspaceId: string;
+      ownerContract?: { capabilityCode: string; componentCode: string };
     }) {
       ReactModule.useEffect(() => {
         void fetch(`/api/v1/settings/extensions?section=${encodeURIComponent(section)}&workspace_id=${workspaceId}`);
       }, [section, workspaceId]);
       return ReactModule.createElement(
         'div',
-        { 'data-testid': 'mock-capability-extension-slot' },
+        {
+          'data-testid': 'mock-capability-extension-slot',
+          'data-owner-capability': ownerContract?.capabilityCode,
+          'data-owner-component': ownerContract?.componentCode,
+        },
         section,
       );
     },
@@ -351,6 +357,40 @@ describe('WorkspaceSettingsToolPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Open Tool Overlay' }));
 
     expect(screen.getByTestId('mock-workspace-tool-overlay-floating-panel')).toHaveAttribute('data-workspace-id', 'ws_test');
+  });
+
+  it('adds Remote Access as the seventh cold section and mounts only its workspace slot', async () => {
+    const fetchMock = stubOkFetch();
+
+    render(<WorkspaceSettingsToolPanel workspaceId="ws_test" apiUrl="http://api.test" />);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4));
+    const stack = screen.getByTestId('workspace-settings-section-stack');
+    expect(stack.children).toHaveLength(7);
+    expect(stack.lastElementChild).toHaveAttribute(
+      'data-testid',
+      'workspace-settings-section-remote-access',
+    );
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/api/v1/settings/extensions'))).toBe(false);
+
+    fireEvent.click(screen.getByRole('button', { name: /Remote Access/ }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('mock-capability-extension-slot')).toHaveTextContent(
+        'remote-workbench-workspace-access',
+      );
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/v1/settings/extensions?section=remote-workbench-workspace-access&workspace_id=ws_test',
+    );
+    expect(screen.getByTestId('mock-capability-extension-slot')).toHaveAttribute(
+      'data-owner-capability',
+      'mindscape_cloud_integration',
+    );
+    expect(screen.getByTestId('mock-capability-extension-slot')).toHaveAttribute(
+      'data-owner-component',
+      'MindscapeRemoteWorkbenchWorkspaceAccessPanel',
+    );
   });
 
   it('loads workspace-scoped social media provider settings only from the Social section', async () => {

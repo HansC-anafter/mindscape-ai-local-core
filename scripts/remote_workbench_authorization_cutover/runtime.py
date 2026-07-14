@@ -329,13 +329,13 @@ class RuntimeGate:
 
     def _prewarm_backend(self, workspace_id: str) -> None:
         self.http.get_json(
-            f"http://localhost:8200{POLICY_PATH_PREFIX}/{workspace_id}/policy",
+            f"http://localhost:8220{POLICY_PATH_PREFIX}/{workspace_id}/policy",
             timeout_seconds=20.0,
             max_response_bytes=32_768,
         )
         for capability in EXPECTED_TARGET_CAPABILITIES:
             self.http.get_json(
-                "http://localhost:8200/api/v1/capability-packs/installed-capabilities/"
+                "http://localhost:8220/api/v1/capability-packs/installed-capabilities/"
                 f"{capability}/mobile-workbench-gateway-support",
                 timeout_seconds=20.0,
                 max_response_bytes=4_096,

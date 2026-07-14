@@ -27,6 +27,28 @@ describe('API route plane', () => {
     });
   });
 
+  it('routes settings descriptors and exact Remote Workbench policies to control', () => {
+    for (const path of [
+      '/api/v1/settings/extensions',
+      '/api/v1/settings/extensions?section=remote-workbench-global-access',
+      '/api/v1/capabilities/mindscape_cloud_integration/mobile-workbench-gateway/runtime-policy',
+      '/api/v1/capabilities/mindscape_cloud_integration/mobile-workbench-gateway/runtime-policy/',
+      '/api/v1/capabilities/mindscape_cloud_integration/mobile-workbench-gateway/workspaces/ws-1/policy',
+      '/api/v1/capabilities/mindscape_cloud_integration/mobile-workbench-gateway/workspaces/ws-1/policy/',
+    ]) {
+      expect(resolveApiRoutePlane(path)).toMatchObject({
+        plane: 'control',
+        serviceId: 'local_core.control_api',
+      });
+    }
+    expect(resolveApiRoutePlane(
+      '/api/v1/capabilities/mindscape_cloud_integration/workspace-runtime-config/ws-1',
+    )).toMatchObject({
+      plane: 'execution',
+      serviceId: 'local_core.execution_api',
+    });
+  });
+
   it('routes normal workspace and playbook APIs to the execution plane', () => {
     expect(resolveApiRoutePlane('/api/v1/workspaces/ws-1/summary')).toMatchObject({
       plane: 'execution',
