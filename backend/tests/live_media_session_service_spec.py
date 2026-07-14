@@ -10,6 +10,7 @@ from jose import jwt
 
 from backend.app.models.device_binding import DeviceSessionEntry
 from backend.app.models.media_transport import CreateLiveMediaSessionRequest
+from backend.app.services.media_transport import live_media_token_service
 from backend.app.services.media_transport.live_media_config import LiveMediaConfig
 from backend.app.services.media_transport.live_media_session_registry import (
     LiveMediaSessionRegistry,
@@ -115,6 +116,36 @@ def test_service_issues_exact_path_tokens_and_public_jwks(tmp_path: Path) -> Non
     assert jwt.get_unverified_header(access.tokens.publish)["kid"] == "media-2026-07"
     assert token_service.public_jwks()["keys"][0]["kid"] == "media-2026-07"
     assert len(access.tokens.publish) < 1024
+
+
+def test_token_service_passes_portable_pem_to_jose_encoder(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    key_path = tmp_path / "media-private.pem"
+    _write_private_key(key_path)
+    captured_keys: list[str] = []
+
+    def encode_with_probe(claims, key, *, algorithm, headers):
+        _ = claims, algorithm, headers
+        captured_keys.append(key)
+        return "signed-token"
+
+    monkeypatch.setattr(live_media_token_service.jwt, "encode", encode_with_probe)
+    service = LiveMediaSessionService(
+        _config(key_path),
+        token_service=LiveMediaTokenService(_config(key_path), now=lambda: 1000),
+    )
+
+    service.create(
+        device_session=_device_session("ws_one", "device_one"),
+        request=_request(),
+    )
+
+    assert len(captured_keys) == 2
+    assert all(isinstance(key, str) for key in captured_keys)
+    assert all(key.splitlines()[0].startswith("-----BEGIN ") for key in captured_keys)
+    assert all("PRIVATE KEY" in key.splitlines()[0] for key in captured_keys)
 
 
 def test_service_reuses_same_device_contract_without_creating_second_path(

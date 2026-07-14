@@ -13,6 +13,7 @@ from typing import Callable, Literal
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
 from jose import jwt
+from jose.exceptions import JWSError
 
 from backend.app.models.media_transport import (
     LiveMediaSessionDescriptor,
@@ -46,6 +47,11 @@ class LiveMediaTokenService:
         self._config = config
         self._now = now
         self._private_key = self._load_private_key(config.jwt_private_key_path)
+        self._signing_key_pem = self._private_key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption(),
+        ).decode("ascii")
 
     @staticmethod
     def _load_private_key(path: Path) -> RSAPrivateKey:
@@ -103,12 +109,15 @@ class LiveMediaTokenService:
                 {"action": action, "path": descriptor.stream_path}
             ],
         }
-        return jwt.encode(
-            claims,
-            self._private_key,
-            algorithm="RS256",
-            headers={"kid": self._config.jwt_key_id, "typ": "JWT"},
-        )
+        try:
+            return jwt.encode(
+                claims,
+                self._signing_key_pem,
+                algorithm="RS256",
+                headers={"kid": self._config.jwt_key_id, "typ": "JWT"},
+            )
+        except JWSError as exc:
+            raise LiveMediaTokenError("live_media_token_signing_failed") from exc
 
     def public_jwks(self) -> dict[str, list[dict[str, str]]]:
         public_numbers = self._private_key.public_key().public_numbers()
