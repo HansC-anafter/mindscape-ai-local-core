@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import argparse
 import os
+import queue
 import selectors
 import subprocess
+import threading
 import time
 from typing import Any
 
@@ -72,6 +74,13 @@ class FfmpegRawFrameCapture:
         self.frame_size = frame_width * frame_height * 3
         self.process: subprocess.Popen[bytes] | None = None
         self.selector: selectors.BaseSelector | None = None
+        self._frames: queue.Queue[np.ndarray] = queue.Queue(maxsize=1)
+        self._stop_reader = threading.Event()
+        self._reader_done = threading.Event()
+        self._reader_thread: threading.Thread | None = None
+        self._decoded_frames = 0
+        self._overwritten_frames = 0
+        self._reader_error: str | None = None
         self._open()
 
     def _input_args(self) -> list[str]:
@@ -139,44 +148,101 @@ class FfmpegRawFrameCapture:
         if self.process.stdout is not None:
             self.selector = selectors.DefaultSelector()
             self.selector.register(self.process.stdout, selectors.EVENT_READ)
+            self._reader_thread = threading.Thread(
+                target=self._drain_frames,
+                name="motion-media-frame-drain",
+                daemon=True,
+            )
+            self._reader_thread.start()
 
     def isOpened(self) -> bool:
-        return (
-            self.process is not None
-            and self.process.stdout is not None
-            and self.selector is not None
-            and self.process.poll() is None
+        if self.process is None or self.process.stdout is None or self.selector is None:
+            return False
+        return not self._frames.empty() or (
+            self.process.poll() is None and not self._reader_done.is_set()
         )
 
-    def read(self) -> tuple[bool, Any]:
-        if not self.isOpened() or self.process is None or self.process.stdout is None:
-            return False, None
+    def _read_frame_bytes(self) -> bytes | None:
+        if self.process is None or self.process.stdout is None:
+            return None
         chunks: list[bytes] = []
         remaining = self.frame_size
         deadline = time.monotonic() + max(1.0, self.read_timeout_sec)
         fd = self.process.stdout.fileno()
-        while remaining > 0:
+        while remaining > 0 and not self._stop_reader.is_set():
+            wait_sec = deadline - time.monotonic()
+            if wait_sec <= 0:
+                self._reader_error = "frame_read_timeout"
+                return None
+            try:
+                readable = self.selector is not None and self.selector.select(wait_sec)
+            except (OSError, ValueError):
+                return None
+            if not readable:
+                self._reader_error = "frame_read_timeout"
+                return None
+            try:
+                chunk = os.read(fd, remaining)
+            except OSError:
+                return None
+            if not chunk:
+                return None
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        if remaining > 0:
+            return None
+        return b"".join(chunks)
+
+    def _replace_latest_frame(self, frame: np.ndarray) -> None:
+        while not self._stop_reader.is_set():
+            try:
+                self._frames.put_nowait(frame)
+                return
+            except queue.Full:
+                try:
+                    self._frames.get_nowait()
+                except queue.Empty:
+                    continue
+                self._overwritten_frames += 1
+
+    def _drain_frames(self) -> None:
+        try:
+            while not self._stop_reader.is_set():
+                payload = self._read_frame_bytes()
+                if payload is None:
+                    return
+                frame = np.frombuffer(payload, dtype=np.uint8).reshape(
+                    (self.frame_height, self.frame_width, 3)
+                )
+                self._decoded_frames += 1
+                self._replace_latest_frame(frame.copy())
+        finally:
+            self._reader_done.set()
+
+    def read(self) -> tuple[bool, Any]:
+        if self.process is None:
+            return False, None
+        deadline = time.monotonic() + max(1.0, self.read_timeout_sec)
+        while True:
+            if self._reader_done.is_set() and self._frames.empty():
+                return False, None
             wait_sec = deadline - time.monotonic()
             if wait_sec <= 0:
                 return False, None
-            if self.selector is None or not self.selector.select(wait_sec):
-                return False, None
-            chunk = os.read(fd, remaining)
-            if not chunk:
-                return False, None
-            chunks.append(chunk)
-            remaining -= len(chunk)
-        frame = np.frombuffer(b"".join(chunks), dtype=np.uint8)
-        frame = frame.reshape((self.frame_height, self.frame_width, 3))
-        return True, frame.copy()
+            try:
+                return True, self._frames.get(timeout=min(0.1, wait_sec))
+            except queue.Empty:
+                continue
+
+    def stats(self) -> dict[str, int | str | None]:
+        return {
+            "decoded_frames": self._decoded_frames,
+            "overwritten_frames": self._overwritten_frames,
+            "reader_error": self._reader_error,
+        }
 
     def release(self) -> None:
-        if self.selector is not None:
-            try:
-                self.selector.close()
-            except Exception:
-                pass
-            self.selector = None
+        self._stop_reader.set()
         if self.process is None:
             return
         if self.process.poll() is None:
@@ -186,6 +252,15 @@ class FfmpegRawFrameCapture:
             except subprocess.TimeoutExpired:
                 self.process.kill()
                 self.process.wait(timeout=2)
+        if self._reader_thread is not None:
+            self._reader_thread.join(timeout=2)
+            self._reader_thread = None
+        if self.selector is not None:
+            try:
+                self.selector.close()
+            except Exception:
+                pass
+            self.selector = None
         self.process = None
 
 

@@ -338,12 +338,16 @@ def run_receiver(args: Any) -> int:
             enqueue_sample_window(sample, frame)
             if now >= next_status_at:
                 sender_stats = sender.stats()
+                capture_stats = (
+                    capture.stats() if callable(getattr(capture, "stats", None)) else {}
+                )
                 emit(
                     {
                         "event": "publisher_status",
                         "elapsed_sec": round(now - start, 3),
                         "attempted_windows": attempted_windows,
                         **sender_stats,
+                        "capture": capture_stats,
                         "last_confidence": (
                             last_window_summary["confidence_stats"]["mean_confidence"]
                             if last_window_summary is not None

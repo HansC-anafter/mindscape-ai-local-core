@@ -1,7 +1,10 @@
 from argparse import Namespace
 from pathlib import Path
+import queue
 import sys
 import types
+
+import numpy as np
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -120,6 +123,34 @@ def test_ffmpeg_rtsps_capture_uses_tcp_timeout_and_tls_verification() -> None:
         "-i",
         capture.rtmp_url,
     ]
+
+
+def test_ffmpeg_capture_handoff_keeps_only_latest_frame() -> None:
+    capture = object.__new__(FfmpegRawFrameCapture)
+    capture._frames = queue.Queue(maxsize=1)
+    capture._stop_reader = types.SimpleNamespace(is_set=lambda: False)
+    capture._overwritten_frames = 0
+
+    capture._replace_latest_frame(np.full((1, 1, 3), 1, dtype=np.uint8))
+    capture._replace_latest_frame(np.full((1, 1, 3), 2, dtype=np.uint8))
+
+    assert capture._frames.qsize() == 1
+    assert capture._frames.get_nowait().tolist() == [[[2, 2, 2]]]
+    assert capture._overwritten_frames == 1
+
+
+def test_ffmpeg_capture_read_returns_buffered_frame_after_reader_finishes() -> None:
+    capture = object.__new__(FfmpegRawFrameCapture)
+    capture.process = object()
+    capture.read_timeout_sec = 1.0
+    capture._frames = queue.Queue(maxsize=1)
+    capture._reader_done = types.SimpleNamespace(is_set=lambda: True)
+    capture._frames.put_nowait(np.full((1, 1, 3), 7, dtype=np.uint8))
+
+    ok, frame = capture.read()
+
+    assert ok is True
+    assert frame.tolist() == [[[7, 7, 7]]]
 
 
 def test_public_reference_alignment_status_is_bounded() -> None:
