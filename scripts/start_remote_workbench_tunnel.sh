@@ -7,7 +7,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 STATE_DIR="${REMOTE_WORKBENCH_BRIDGE_STATE_DIR:-$HOME/.mindscape/remote-workbench-bridge}"
 MAINTENANCE_FILE="$STATE_DIR/maintenance.json"
-STATUS_FILE="$STATE_DIR/status.json"
 INGRESS_LOCK_PATH="$STATE_DIR/remote-ingress-lock.json"
 CONTAINER_NAME="${REMOTE_WORKBENCH_TUNNEL_CONTAINER:-ig-workbench-cloudflared}"
 NETWORK_NAME="mindscape-network"
@@ -19,7 +18,6 @@ METRICS_HOST_PORT="2000"
 PYTHON_BIN="$PROJECT_ROOT/.venv/bin/python"
 INGRESS_LOCK_HELPER="$PROJECT_ROOT/scripts/remote_workbench_remote_ingress_lock.py"
 BRIDGE_INSTALLER="$PROJECT_ROOT/scripts/install-remote-workbench-bridge-macos.sh"
-STATUS_STALE_SECONDS="60"
 
 if [[ -z "${DOCKER_HOST:-}" && -S "$HOME/.docker/run/docker.sock" ]]; then
   export DOCKER_HOST="unix://$HOME/.docker/run/docker.sock"
@@ -49,16 +47,6 @@ file_mode() {
     return
   fi
   stat -c '%a' "$1" 2>/dev/null
-}
-
-file_mtime() {
-  local value
-  value="$(stat -f '%m' "$1" 2>/dev/null || true)"
-  if [[ "$value" =~ ^[0-9]+$ ]]; then
-    printf '%s\n' "$value"
-    return
-  fi
-  stat -c '%Y' "$1" 2>/dev/null
 }
 
 token_file_valid() {
@@ -135,9 +123,8 @@ container_contract_valid() {
 }
 
 create_container() {
-  token_file_valid || fail "Cloudflared token file must be regular and operator-only"
-  docker network inspect "$NETWORK_NAME" >/dev/null 2>&1 || fail "Docker network $NETWORK_NAME is unavailable"
   docker run -d \
+    --pull=never \
     --name "$CONTAINER_NAME" \
     --restart unless-stopped \
     --network "$NETWORK_NAME" \
@@ -149,13 +136,22 @@ create_container() {
   log "Pinned remotely-managed tunnel container created"
 }
 
-ensure_tunnel() {
-  token_file_valid || fail "Cloudflared token file must be regular and operator-only"
-  ensure_state_dir
+require_lifecycle_dependencies() {
+  if ! token_file_valid; then
+    stop_tunnel
+    fail "Cloudflared token file must be regular and operator-only"
+  fi
   if ! remote_ingress_lock_valid; then
     stop_tunnel
     fail "Exact Cloudflare remote-ingress lock is unavailable or malformed"
   fi
+  docker network inspect "$NETWORK_NAME" >/dev/null 2>&1 || fail "Docker network $NETWORK_NAME is unavailable"
+  docker image inspect "$CLOUDFLARED_IMAGE" >/dev/null 2>&1 || fail "Pinned cloudflared image is unavailable locally"
+}
+
+ensure_tunnel() {
+  ensure_state_dir
+  require_lifecycle_dependencies
   if container_exists && ! container_contract_valid; then
     log "Replacing tunnel container because its immutable local contract does not match"
     docker rm -f "$CONTAINER_NAME" >/dev/null
@@ -180,12 +176,8 @@ stop_tunnel() {
 }
 
 restart_tunnel() {
-  token_file_valid || fail "Cloudflared token file must be regular and operator-only"
   ensure_state_dir
-  if ! remote_ingress_lock_valid; then
-    stop_tunnel
-    fail "Exact Cloudflare remote-ingress lock is unavailable or malformed"
-  fi
+  require_lifecycle_dependencies
   if container_exists && ! container_contract_valid; then
     docker rm -f "$CONTAINER_NAME" >/dev/null
   fi
@@ -202,12 +194,8 @@ restart_tunnel() {
 }
 
 recreate_tunnel() {
-  token_file_valid || fail "Cloudflared token file must be regular and operator-only"
   ensure_state_dir
-  if ! remote_ingress_lock_valid; then
-    stop_tunnel
-    fail "Exact Cloudflare remote-ingress lock is unavailable or malformed"
-  fi
+  require_lifecycle_dependencies
   if container_exists; then
     docker rm -f "$CONTAINER_NAME" >/dev/null
   fi
@@ -289,6 +277,7 @@ status_json() {
   local maintenance=false
   local token=false
   local supervisor_fresh=false
+  local supervisor_activation_conformant=false
   local supervisor_ready=false
   local supervisor_state=unavailable
   local ready=false
@@ -304,32 +293,32 @@ status_json() {
     maintenance=true
   fi
   token_file_valid && token=true
-  if [[ -f "$STATUS_FILE" && ! -L "$STATUS_FILE" && "$(file_mode "$STATUS_FILE")" == "600" ]]; then
-    local checked age
-    checked="$(file_mtime "$STATUS_FILE" || true)"
-    if [[ "$checked" =~ ^[0-9]+$ ]]; then
-      age=$(( $(date +%s) - checked ))
-      if (( age >= 0 && age <= STATUS_STALE_SECONDS )); then
+  local activation candidate
+  if activation="$(supervisor_activation_json 2>/dev/null)" && (( ${#activation} <= 65536 )); then
+    for candidate in degraded_origin degraded_remote degraded_tunnel maintenance ready recovering_tunnel waiting_docker; do
+      if [[ "$activation" == *"\"state\":\"$candidate\""* ]]; then
+        supervisor_state="$candidate"
+        supervisor_activation_conformant=true
         supervisor_fresh=true
-        grep -Fq '"ready":true' "$STATUS_FILE" && supervisor_ready=true
-        supervisor_state="$(sed -n 's/.*"state":"\([A-Za-z0-9_]*\)".*/\1/p' "$STATUS_FILE")"
-        [[ -n "$supervisor_state" ]] || supervisor_state=malformed
-      else
-        supervisor_state=stale
+        break
       fi
-    else
-      supervisor_state=malformed
+    done
+    if [[ "$supervisor_activation_conformant" == true && "$activation" == *'"ready":true'* ]]; then
+      supervisor_ready=true
+    fi
+    if [[ "$supervisor_activation_conformant" == true && "$activation" == *'"maintenance":true'* ]]; then
+      maintenance=true
     fi
   fi
   if [[ "$maintenance" == true ]]; then
     supervisor_state=maintenance
     supervisor_ready=false
   fi
-  if [[ "$running" == true && "$contract" == true && "$supervisor_fresh" == true && "$supervisor_ready" == true && "$maintenance" == false ]]; then
+  if [[ "$running" == true && "$contract" == true && "$supervisor_activation_conformant" == true && "$supervisor_fresh" == true && "$supervisor_ready" == true && "$maintenance" == false ]]; then
     ready=true
   fi
-  printf '{"container":"%s","running":%s,"container_contract_conformant":%s,"remote_ingress_verified":%s,"contract_conformant":%s,"maintenance":%s,"token_file_valid":%s,"image":"%s","network":"%s","remote_config_source":"cloudflare","hostname":"%s","internal_target":"%s","supervisor_fresh":%s,"supervisor_state":"%s","ready":%s,"authorization_conformant":false}\n' \
-    "$CONTAINER_NAME" "$running" "$container_contract" "$remote_ingress" "$contract" "$maintenance" "$token" "$CLOUDFLARED_IMAGE" "$NETWORK_NAME" "$PUBLIC_HOSTNAME" "$INTERNAL_TARGET" "$supervisor_fresh" "$supervisor_state" "$ready"
+  printf '{"container":"%s","running":%s,"container_contract_conformant":%s,"remote_ingress_verified":%s,"contract_conformant":%s,"maintenance":%s,"token_file_valid":%s,"image":"%s","network":"%s","remote_config_source":"cloudflare","hostname":"%s","internal_target":"%s","supervisor_activation_conformant":%s,"supervisor_fresh":%s,"supervisor_state":"%s","ready":%s,"authorization_conformant":false}\n' \
+    "$CONTAINER_NAME" "$running" "$container_contract" "$remote_ingress" "$contract" "$maintenance" "$token" "$CLOUDFLARED_IMAGE" "$NETWORK_NAME" "$PUBLIC_HOSTNAME" "$INTERNAL_TARGET" "$supervisor_activation_conformant" "$supervisor_fresh" "$supervisor_state" "$ready"
   return 0
 }
 

@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import json
+import os
+import signal
 import subprocess
 import sys
+from dataclasses import replace
 from pathlib import Path
 from typing import Callable
 
@@ -15,9 +18,10 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
 import remote_workbench_bridge.probes as probes_module
+import remote_workbench_bridge.supervisor as supervisor_module
 import remote_workbench_bridge_monitor as monitor_module
 from remote_workbench_bridge.probes import BridgeProbes, ProbeResult
-from remote_workbench_bridge.settings import BridgeSettings
+from remote_workbench_bridge.settings import CLOUDFLARED_IMAGE, BridgeSettings
 from remote_workbench_bridge.state_store import BridgeStateStore
 from remote_workbench_bridge.supervisor import BridgeSupervisor
 
@@ -35,6 +39,9 @@ def _settings(tmp_path: Path) -> BridgeSettings:
         container_name="ig-workbench-cloudflared",
         network_name="mindscape-network",
         internal_target="http://mindscape-ai-local-core-frontend:3001",
+        token_path=tmp_path / "tunnel-token",
+        cloudflared_image=CLOUDFLARED_IMAGE,
+        metrics_host_port=2000,
         local_origin_url="http://127.0.0.1:8300/healthz",
         connector_ready_url="http://127.0.0.1:2000/ready",
         public_origin_url="https://remote-workbench.mindscapeai.app/",
@@ -55,6 +62,25 @@ def _store(settings: BridgeSettings) -> BridgeStateStore:
         events_path=settings.events_path,
         maintenance_path=settings.maintenance_path,
         event_log_max_bytes=settings.event_log_max_bytes,
+    )
+
+
+def _probes(settings: BridgeSettings) -> BridgeProbes:
+    return BridgeProbes(
+        docker_socket_path=settings.docker_socket_path,
+        container_name=settings.container_name,
+        network_name=settings.network_name,
+        token_path=settings.token_path,
+        cloudflared_image=settings.cloudflared_image,
+        metrics_host_port=settings.metrics_host_port,
+        local_origin_url=settings.local_origin_url,
+        connector_ready_url=settings.connector_ready_url,
+        public_origin_url=settings.public_origin_url,
+        probe_timeout_seconds=settings.probe_timeout_seconds,
+        public_timeout_seconds=settings.public_timeout_seconds,
+        connector_minimum_ready_connections=(
+            settings.connector_minimum_ready_connections
+        ),
     )
 
 
@@ -126,16 +152,7 @@ def test_connector_capacity_uses_one_bounded_request_with_fixed_user_agent(
         lambda *_handlers: Opener(),
     )
     settings = _settings(tmp_path)
-    probe = BridgeProbes(
-        launcher_path=settings.launcher_path,
-        docker_socket_path=settings.docker_socket_path,
-        local_origin_url=settings.local_origin_url,
-        connector_ready_url=settings.connector_ready_url,
-        public_origin_url=settings.public_origin_url,
-        probe_timeout_seconds=settings.probe_timeout_seconds,
-        public_timeout_seconds=settings.public_timeout_seconds,
-        connector_minimum_ready_connections=2,
-    )
+    probe = _probes(settings)
 
     result = probe.connector()
 
@@ -145,6 +162,41 @@ def test_connector_capacity_uses_one_bounded_request_with_fixed_user_agent(
         "limit": probes_module.CONNECTOR_RESPONSE_LIMIT_BYTES + 1,
         "user_agent": probes_module.BRIDGE_USER_AGENT,
     }
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        b"",
+        b"{",
+        b"{}",
+        b"[]",
+        b'{"readyConnections":true}',
+        b'{"readyConnections":-1}',
+        b'{"readyConnections":"2"}',
+        b'{"readyConnections":' + (b"9" * 5000) + b"}",
+    ],
+)
+def test_connector_malformed_payloads_fail_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, body: bytes
+) -> None:
+    probe = _probes(_settings(tmp_path))
+    monkeypatch.setattr(
+        probe,
+        "_http_response",
+        lambda *_args, **_kwargs: (ProbeResult(True, "ok", "200"), body),
+    )
+
+    assert probe.connector().code == "connector_readiness_malformed"
+
+
+@pytest.mark.parametrize("value", ["nan", "inf", "-inf"])
+def test_bridge_settings_reject_non_finite_polling_values(
+    monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    monkeypatch.setenv("REMOTE_WORKBENCH_BRIDGE_POLL_SECONDS", value)
+    with pytest.raises(ValueError, match="must be between"):
+        BridgeSettings.from_environment()
 
 
 def test_no_repair_mode_preserves_degraded_state_without_launcher_mutation(
@@ -169,6 +221,86 @@ def test_no_repair_mode_preserves_degraded_state_without_launcher_mutation(
     assert repairs == []
 
 
+def test_launcher_timeout_kills_the_complete_independent_process_group(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed: dict[str, object] = {}
+    real_popen = supervisor_module.subprocess.Popen
+    launcher_body = tmp_path / "leader-exits-child-ignores-term.sh"
+    launcher_body.write_text(
+        "trap 'exit 0' TERM\n"
+        "( trap '' TERM; sleep 30 ) &\n"
+        "wait\n",
+        encoding="utf-8",
+    )
+
+    def recording_popen(*args, **kwargs):  # noqa: ANN002, ANN003, ANN202
+        process = real_popen(*args, **kwargs)
+        observed.update({"process": process, "kwargs": kwargs})
+        return process
+
+    monkeypatch.setattr(supervisor_module.subprocess, "Popen", recording_popen)
+    settings = replace(_settings(tmp_path), launcher_path=Path("/bin/sh"))
+    supervisor = _supervisor(settings, _FakeProbes())
+    monkeypatch.setattr(supervisor_module, "LAUNCHER_DEADLINE_SECONDS", 0.1)
+    monkeypatch.setattr(supervisor_module, "LAUNCHER_TERMINATE_GRACE_SECONDS", 0.1)
+    monkeypatch.setattr(supervisor_module, "LAUNCHER_KILL_GRACE_SECONDS", 1.0)
+
+    assert supervisor._launcher(str(launcher_body)) is False
+    process = observed["process"]
+    assert observed["kwargs"]["start_new_session"] is True
+    assert process.poll() is not None
+    try:
+        with pytest.raises(ProcessLookupError):
+            os.killpg(process.pid, 0)
+    finally:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+
+
+def test_stubborn_launcher_escalates_from_term_to_kill_after_sixty_seconds(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    waits: list[float] = []
+    signals: list[int] = []
+    options: dict[str, object] = {}
+    group_alive = {"value": True}
+
+    class StubbornProcess:
+        pid = 424242
+
+        def wait(self, *, timeout: float) -> int:
+            waits.append(timeout)
+            if len(waits) < 3:
+                raise subprocess.TimeoutExpired("launcher", timeout)
+            return -signal.SIGKILL
+
+    def popen(_args, **kwargs):  # noqa: ANN001, ANN202
+        options.update(kwargs)
+        return StubbornProcess()
+
+    def killpg(_pid: int, signum: int) -> None:
+        if signum == 0:
+            if group_alive["value"]:
+                return
+            raise ProcessLookupError
+        signals.append(signum)
+        if signum == signal.SIGKILL:
+            group_alive["value"] = False
+
+    monkeypatch.setattr(supervisor_module.subprocess, "Popen", popen)
+    monkeypatch.setattr(supervisor_module.os, "killpg", killpg)
+
+    assert _supervisor(_settings(tmp_path), _FakeProbes())._launcher("restart") is False
+    assert waits[0] >= 60.0
+    assert signals == [signal.SIGTERM, signal.SIGKILL]
+    assert options["start_new_session"] is True
+
+
 def test_supervisor_lock_is_private_and_non_blocking(tmp_path: Path) -> None:
     settings = _settings(tmp_path)
     store = _store(settings)
@@ -179,6 +311,34 @@ def test_supervisor_lock_is_private_and_non_blocking(tmp_path: Path) -> None:
         assert settings.lock_path.stat().st_mode & 0o777 == 0o600
         with store.supervisor_lock(settings.lock_path, pid=4343) as second:
             assert second is False
+
+
+@pytest.mark.parametrize("once", [True, False])
+def test_run_and_once_fail_closed_before_building_or_writing_when_lock_is_held(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    once: bool,
+) -> None:
+    settings = _settings(tmp_path)
+    store = _store(settings)
+    builds: list[bool] = []
+    monkeypatch.setattr(monitor_module, "build_state_store", lambda _settings: store)
+    monkeypatch.setattr(
+        monitor_module,
+        "build_supervisor",
+        lambda *_args, **_kwargs: builds.append(True),
+    )
+
+    with store.supervisor_lock(settings.lock_path, pid=4242) as acquired:
+        assert acquired is True
+        result = monitor_module._run_locked_supervisor(
+            settings, build_id="test-build", once=once, repair=True
+        )
+
+    assert result == 3
+    assert builds == []
+    assert not settings.status_path.exists()
+    assert not settings.events_path.exists()
 
 
 def test_stop_request_ends_the_bounded_supervisor_loop(tmp_path: Path) -> None:
@@ -195,6 +355,65 @@ def test_stop_request_ends_the_bounded_supervisor_loop(tmp_path: Path) -> None:
 
     assert supervisor.stop_requested is True
     assert settings.status_path.is_file()
+
+
+def _run_recreate_shell(
+    tmp_path: Path, failed_dependency: str
+) -> tuple[subprocess.CompletedProcess[str], list[str]]:
+    events = tmp_path / "docker-events"
+    command = f"""
+source {json.dumps(str(REPO_ROOT / 'scripts/start_remote_workbench_tunnel.sh'))}
+ensure_state_dir() {{ :; }}
+stop_tunnel() {{ :; }}
+token_file_valid() {{ [[ "$FAIL_AT" != token ]]; }}
+remote_ingress_lock_valid() {{ [[ "$FAIL_AT" != lock ]]; }}
+container_exists() {{ return 0; }}
+wait_remote_ingress_live() {{ return 0; }}
+docker() {{
+  printf '%s\n' "$*" >> "$EVENTS"
+  if [[ "$FAIL_AT:${{1:-}}:${{2:-}}" == network:network:inspect || "$FAIL_AT:${{1:-}}:${{2:-}}" == image:image:inspect ]]; then
+    return 1
+  fi
+  return 0
+}}
+recreate_tunnel
+"""
+    environment = os.environ.copy()
+    environment.update({"EVENTS": str(events), "FAIL_AT": failed_dependency})
+    result = subprocess.run(
+        ["bash", "-c", command],
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    lines = events.read_text(encoding="utf-8").splitlines() if events.exists() else []
+    return result, lines
+
+
+@pytest.mark.parametrize("failed_dependency", ["token", "lock", "network", "image"])
+def test_recreate_dependency_failure_never_removes_or_creates(
+    tmp_path: Path, failed_dependency: str
+) -> None:
+    result, events = _run_recreate_shell(tmp_path, failed_dependency)
+
+    assert result.returncode != 0
+    assert not any(event.startswith(("rm ", "run ")) for event in events)
+
+
+def test_recreate_preflights_dependencies_before_remove_and_never_pulls(
+    tmp_path: Path,
+) -> None:
+    result, events = _run_recreate_shell(tmp_path, "none")
+
+    assert result.returncode == 0, result.stderr
+    assert events[0] == "network inspect mindscape-network"
+    assert events[1].startswith("image inspect cloudflare/cloudflared@sha256:")
+    assert events[2] == "rm -f ig-workbench-cloudflared"
+    assert events[3].startswith("run -d --pull=never --name ig-workbench-cloudflared")
+    launcher = (REPO_ROOT / "scripts/start_remote_workbench_tunnel.sh").read_text()
+    assert "file_mtime" not in launcher
+    assert "grep -Fq" not in launcher
 
 
 def test_launcher_legacy_flags_normalize_into_the_secure_canonical_actions() -> None:

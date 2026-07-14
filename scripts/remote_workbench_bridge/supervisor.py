@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import signal
 import subprocess
 import time
 from dataclasses import dataclass
@@ -10,6 +12,31 @@ from typing import Any, Callable
 from .probes import BridgeProbes, ProbeResult
 from .settings import BridgeSettings
 from .state_store import BridgeStateStore, utc_now
+
+
+LAUNCHER_DEADLINE_SECONDS = 60.0
+LAUNCHER_TERMINATE_GRACE_SECONDS = 5.0
+LAUNCHER_KILL_GRACE_SECONDS = 5.0
+
+
+def _process_group_exists(process_group: int) -> bool:
+    try:
+        os.killpg(process_group, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _wait_for_process_group_exit(process_group: int, timeout: float) -> bool:
+    deadline = time.monotonic() + timeout
+    while _process_group_exists(process_group):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return False
+        time.sleep(min(0.05, remaining))
+    return True
 
 
 @dataclass
@@ -47,16 +74,44 @@ class BridgeSupervisor:
 
     def _launcher(self, action: str) -> bool:
         try:
-            result = subprocess.run(
+            process = subprocess.Popen(
                 [str(self.settings.launcher_path), action],
-                check=False,
-                capture_output=True,
-                text=True,
-                timeout=max(15.0, self.settings.probe_timeout_seconds * 5),
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
             )
-        except (OSError, subprocess.TimeoutExpired):
+        except OSError:
             return False
-        return result.returncode == 0
+        try:
+            return process.wait(timeout=LAUNCHER_DEADLINE_SECONDS) == 0
+        except subprocess.TimeoutExpired:
+            pass
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        except OSError:
+            return False
+        try:
+            process.wait(timeout=LAUNCHER_TERMINATE_GRACE_SECONDS)
+        except subprocess.TimeoutExpired:
+            pass
+        if _process_group_exists(process.pid):
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            except OSError:
+                return False
+            try:
+                process.wait(timeout=LAUNCHER_KILL_GRACE_SECONDS)
+            except subprocess.TimeoutExpired:
+                return False
+        if not _wait_for_process_group_exit(
+            process.pid, LAUNCHER_KILL_GRACE_SECONDS
+        ):
+            return False
+        return False
 
     def _repair_delay(self) -> float:
         exponent = min(16, max(0, self.runtime.repair_failures - 1))
@@ -94,6 +149,7 @@ class BridgeSupervisor:
             "connector_failures": self.runtime.connector_failures,
             "supervisor_build_id": self.supervisor_build_id,
             "supervisor_pid": self.supervisor_pid,
+            "poll_interval_seconds": self.settings.poll_interval_seconds,
             "authorization_conformant": False,
         }
 

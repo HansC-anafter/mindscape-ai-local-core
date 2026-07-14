@@ -5,7 +5,7 @@ import os
 import plistlib
 import subprocess
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -176,6 +176,7 @@ def _activation_fixture(tmp_path: Path, *, extra_argument: str | None = None) ->
             {
                 "checked_at": NOW.isoformat(),
                 "maintenance": {"enabled": True},
+                "poll_interval_seconds": 20.0,
                 "ready": False,
                 "state": "maintenance",
                 "supervisor_build_id": build_id,
@@ -222,8 +223,11 @@ def test_activation_verifies_current_build_exact_argv_pid_and_maintenance(
         "live_build_id",
         "maintenance",
         "pid",
+        "poll_interval_seconds",
+        "ready",
         "state",
         "status_fresh",
+        "status_freshness_limit_seconds",
     }
     assert payload["activation_conformant"] is True
     assert payload["launchd_running"] is True
@@ -237,6 +241,15 @@ def test_activation_rejects_legacy_run_argument(tmp_path: Path) -> None:
         verify_activation(**_activation_fixture(tmp_path, extra_argument="run"))
 
 
+def test_activation_rejects_non_running_launchd_process(tmp_path: Path) -> None:
+    fixture = _activation_fixture(tmp_path)
+    fixture["launchd_output"] = fixture["launchd_output"].replace(
+        "state = running", "state = exited"
+    )
+    with pytest.raises(ActivationError, match="launchd_state_mismatch"):
+        verify_activation(**fixture)
+
+
 def test_activation_rejects_operational_maintenance_state_mismatch(
     tmp_path: Path,
 ) -> None:
@@ -248,6 +261,44 @@ def test_activation_rejects_operational_maintenance_state_mismatch(
     os.chmod(status_path, 0o600)
 
     with pytest.raises(ActivationError, match="supervisor_status_maintenance_mismatch"):
+        verify_activation(**fixture)
+
+
+def test_activation_freshness_uses_checked_at_and_actual_bounded_poll(
+    tmp_path: Path,
+) -> None:
+    fixture = _activation_fixture(tmp_path)
+    status_path = fixture["status_path"]
+    status = json.loads(status_path.read_text(encoding="utf-8"))
+    status["poll_interval_seconds"] = 300.0
+    status["checked_at"] = (NOW - timedelta(seconds=899)).isoformat()
+    status_path.write_text(json.dumps(status), encoding="utf-8")
+    os.chmod(status_path, 0o600)
+
+    assert verify_activation(**fixture)["status_freshness_limit_seconds"] == 900.0
+
+    status["checked_at"] = (NOW - timedelta(seconds=901)).isoformat()
+    status_path.write_text(json.dumps(status), encoding="utf-8")
+    os.chmod(status_path, 0o600)
+    with pytest.raises(ActivationError, match="supervisor_status_stale"):
+        verify_activation(**fixture)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("supervisor_build_id", "old-build"), ("supervisor_pid", 0)],
+)
+def test_activation_rejects_old_build_or_dead_status_pid(
+    tmp_path: Path, field: str, value: object
+) -> None:
+    fixture = _activation_fixture(tmp_path)
+    status_path = fixture["status_path"]
+    status = json.loads(status_path.read_text(encoding="utf-8"))
+    status[field] = value
+    status_path.write_text(json.dumps(status), encoding="utf-8")
+    os.chmod(status_path, 0o600)
+
+    with pytest.raises(ActivationError, match="supervisor_status_identity_mismatch"):
         verify_activation(**fixture)
 
 
@@ -273,7 +324,7 @@ import sys
 args = sys.argv[1:]
 if args[:2] == ["image", "inspect"]:
     if "{{json .Config.Env}}" in args:
-        print('["SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt"]')
+        print('["PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin","SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt"]')
     elif "{{.Config.User}}" in args:
         print("65532:65532")
     else:
@@ -291,7 +342,7 @@ if args[:2] == ["inspect", "-f"]:
         "{{json .HostConfig.PortBindings}}": '{"2000/tcp":[{"HostIp":"127.0.0.1","HostPort":"2000"}]}',
         "{{.Config.Image}}": "cloudflare/cloudflared@sha256:ba461b8aa9c042156dbd39c38657fe7431bafa063220eab8d5330a523863da9f",
         "{{.Image}}": "sha256:fixed-image-id",
-        "{{json .Config.Env}}": '["SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt"]',
+        "{{json .Config.Env}}": '["PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin","SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt"]',
         "{{.Config.User}}": "65532:65532",
         "{{.HostConfig.Privileged}}": "false",
         "{{json .Config.Entrypoint}}": '["cloudflared","--no-autoupdate"]',

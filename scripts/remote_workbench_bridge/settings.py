@@ -2,15 +2,22 @@
 
 from __future__ import annotations
 
+import math
 import os
 from dataclasses import dataclass
 from pathlib import Path
 
 
+CLOUDFLARED_IMAGE = (
+    "cloudflare/cloudflared@sha256:"
+    "ba461b8aa9c042156dbd39c38657fe7431bafa063220eab8d5330a523863da9f"
+)
+
+
 def _bounded_float(name: str, default: float, minimum: float, maximum: float) -> float:
     raw = os.getenv(name)
     value = default if raw is None else float(raw)
-    if value < minimum or value > maximum:
+    if not math.isfinite(value) or value < minimum or value > maximum:
         raise ValueError(f"{name} must be between {minimum} and {maximum}")
     return value
 
@@ -37,6 +44,9 @@ class BridgeSettings:
     container_name: str
     network_name: str
     internal_target: str
+    token_path: Path
+    cloudflared_image: str
+    metrics_host_port: int
     local_origin_url: str
     connector_ready_url: str
     public_origin_url: str
@@ -91,6 +101,14 @@ class BridgeSettings:
             ),
             network_name="mindscape-network",
             internal_target="http://mindscape-ai-local-core-frontend:3001",
+            token_path=Path(
+                os.getenv(
+                    "REMOTE_WORKBENCH_CLOUDFLARED_TOKEN_FILE",
+                    str(project_root / "data/cloudflared/tunnel-token"),
+                )
+            ).expanduser().resolve(),
+            cloudflared_image=CLOUDFLARED_IMAGE,
+            metrics_host_port=2000,
             local_origin_url=os.getenv(
                 "REMOTE_WORKBENCH_LOCAL_ORIGIN_URL",
                 "http://127.0.0.1:8300/healthz",

@@ -1,12 +1,12 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import socket
 import subprocess
 import sys
 import tempfile
-import time
 from pathlib import Path
 
 import pytest
@@ -19,7 +19,7 @@ import remote_workbench_bridge.probes as probes_module
 import remote_workbench_bridge_monitor as monitor_module
 from remote_workbench_bridge.activation import KNOWN_STATES
 from remote_workbench_bridge.probes import BridgeProbes, ProbeResult, _decode_chunked_body
-from remote_workbench_bridge.settings import BridgeSettings
+from remote_workbench_bridge.settings import CLOUDFLARED_IMAGE, BridgeSettings
 from remote_workbench_bridge.state_store import BridgeStateStore
 from remote_workbench_bridge.supervisor import BridgeSupervisor
 
@@ -37,6 +37,9 @@ def _settings(tmp_path: Path) -> BridgeSettings:
         container_name="ig-workbench-cloudflared",
         network_name="mindscape-network",
         internal_target="http://mindscape-ai-local-core-frontend:3001",
+        token_path=tmp_path / "tunnel-token",
+        cloudflared_image=CLOUDFLARED_IMAGE,
+        metrics_host_port=2000,
         local_origin_url="http://127.0.0.1:8300/healthz",
         connector_ready_url="http://127.0.0.1:2000/ready",
         public_origin_url="https://remote-workbench.mindscapeai.app/",
@@ -139,20 +142,50 @@ def test_launcher_uses_only_bounded_docker_desktop_socket_fallback(
         assert result.stdout == f"unix://{socket_path}"
 
 
-def test_docker_probe_uses_bounded_unix_socket_without_cli(
+def test_tunnel_probe_reuses_one_bounded_docker_container_read_without_launcher(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     observed: dict[str, object] = {}
+    settings = _settings(tmp_path)
+    payload = {
+        "Name": f"/{settings.container_name}",
+        "Image": f"sha256:{'a' * 64}",
+        "State": {"Running": True},
+        "HostConfig": {
+            "RestartPolicy": {"Name": "unless-stopped"},
+            "NetworkMode": settings.network_name,
+            "PortBindings": {
+                "2000/tcp": [{"HostIp": "127.0.0.1", "HostPort": "2000"}]
+            },
+            "Privileged": False,
+        },
+        "Mounts": [{
+            "Type": "bind",
+            "Source": str(settings.token_path),
+            "Destination": "/etc/cloudflared/tunnel-token",
+            "RW": False,
+        }],
+        "Config": {
+            "Image": settings.cloudflared_image,
+            "Env": probes_module.CLOUDFLARED_CONTAINER_ENVIRONMENT,
+            "User": probes_module.CLOUDFLARED_CONTAINER_USER,
+            "Entrypoint": probes_module.CLOUDFLARED_ENTRYPOINT,
+            "Cmd": probes_module.CLOUDFLARED_COMMAND,
+        },
+    }
+    body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    response = (
+        f"HTTP/1.1 200 OK\r\nContent-Length: {len(body)}\r\n\r\n".encode()
+        + body
+    )
 
     class FakeSocket:
         def __init__(self, family: int, kind: int) -> None:
             observed["family"] = family
             observed["kind"] = kind
-            self.responses = [
-                b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nOK",
-                b"",
-            ]
+            observed["socket_calls"] = int(observed.get("socket_calls", 0)) + 1
+            self.responses = [response, b""]
 
         def __enter__(self):
             return self
@@ -173,10 +206,13 @@ def test_docker_probe_uses_bounded_unix_socket_without_cli(
             return self.responses.pop(0)
 
     monkeypatch.setattr(probes_module.socket, "socket", FakeSocket)
-    settings = _settings(tmp_path)
     probe = BridgeProbes(
-        launcher_path=settings.launcher_path,
         docker_socket_path=settings.docker_socket_path,
+        container_name=settings.container_name,
+        network_name=settings.network_name,
+        token_path=settings.token_path,
+        cloudflared_image=settings.cloudflared_image,
+        metrics_host_port=settings.metrics_host_port,
         local_origin_url=settings.local_origin_url,
         connector_ready_url=settings.connector_ready_url,
         public_origin_url=settings.public_origin_url,
@@ -184,14 +220,22 @@ def test_docker_probe_uses_bounded_unix_socket_without_cli(
         public_timeout_seconds=settings.public_timeout_seconds,
     )
 
-    result = probe.docker()
+    docker = probe.docker()
+    tunnel = probe.tunnel()
 
-    assert result == ProbeResult(True, "ok")
+    assert docker == ProbeResult(True, "ok")
+    assert tunnel == ProbeResult(True, "ok")
+    assert observed["socket_calls"] == 1
     assert observed["family"] == socket.AF_UNIX
     assert observed["path"] == str(settings.docker_socket_path)
     assert observed["request"] == (
-        b"GET /_ping HTTP/1.1\r\nHost: docker\r\nConnection: close\r\n\r\n"
+        b"GET /containers/ig-workbench-cloudflared/json HTTP/1.1\r\n"
+        b"Host: docker\r\nConnection: close\r\n\r\n"
     )
+    assert not hasattr(probes_module, "subprocess")
+    payload["Config"]["Image"] = "cloudflare/cloudflared:latest"
+    probe._container_observation = (ProbeResult(True, "ok"), payload)
+    assert probe.tunnel() == ProbeResult(False, "tunnel_contract_mismatch")
 
 
 def test_docker_probe_decodes_bounded_chunked_ping_body() -> None:
@@ -224,8 +268,12 @@ def test_http_probes_disable_environment_proxies(
     monkeypatch.setattr(probes_module.urllib.request, "build_opener", build_opener)
     settings = _settings(tmp_path)
     probe = BridgeProbes(
-        launcher_path=settings.launcher_path,
         docker_socket_path=settings.docker_socket_path,
+        container_name=settings.container_name,
+        network_name=settings.network_name,
+        token_path=settings.token_path,
+        cloudflared_image=settings.cloudflared_image,
+        metrics_host_port=settings.metrics_host_port,
         local_origin_url=settings.local_origin_url,
         connector_ready_url=settings.connector_ready_url,
         public_origin_url=settings.public_origin_url,
@@ -288,27 +336,20 @@ def test_connector_degradation_is_distinct_before_bounded_restart(
     assert "degraded_tunnel" in KNOWN_STATES
 
 
-def test_stale_status_cannot_preserve_ready_claim(tmp_path: Path) -> None:
-    probes = FakeProbes()
-    supervisor = _supervisor(tmp_path, probes, monotonic=lambda: 0.0)
-
-    status = supervisor.run_once()
-
-    assert status["state"] == "ready"
-    assert status["ready"] is True
-    status_path = _settings(tmp_path).status_path
-    stale_at = time.time() - 65
-    os.utime(status_path, (stale_at, stale_at))
+def test_status_projection_only_accepts_activation_verifier_readback(
+    tmp_path: Path,
+) -> None:
     command = f"""
 source {REPO_ROOT / 'scripts/start_remote_workbench_tunnel.sh'}
 container_running() {{ return 0; }}
 container_contract_valid() {{ return 0; }}
 remote_ingress_live_json() {{ return 0; }}
 token_file_valid() {{ return 0; }}
+supervisor_activation_json() {{ printf '%s\n' '{{"activation_conformant":true,"maintenance":false,"ready":true,"state":"ready","status_fresh":true}}'; }}
 status_json
 """
     environment = os.environ.copy()
-    environment["REMOTE_WORKBENCH_BRIDGE_STATE_DIR"] = str(status_path.parent)
+    environment["REMOTE_WORKBENCH_BRIDGE_STATE_DIR"] = str(tmp_path / "state")
     result = subprocess.run(
         ["bash", "-c", command],
         env=environment,
@@ -318,9 +359,10 @@ status_json
     )
     projected = json.loads(result.stdout)
 
-    assert projected["supervisor_fresh"] is False
-    assert projected["supervisor_state"] == "stale"
-    assert projected["ready"] is False
+    assert projected["supervisor_activation_conformant"] is True
+    assert projected["supervisor_fresh"] is True
+    assert projected["supervisor_state"] == "ready"
+    assert projected["ready"] is True
 
 
 def test_origin_failure_never_repairs_the_tunnel(
@@ -401,6 +443,7 @@ def test_transition_events_are_sanitized_and_name_previous_state(tmp_path: Path)
 
 @pytest.mark.parametrize(("ready", "exit_code"), [(True, 0), (False, 2)])
 def test_monitor_once_exit_code_tracks_composite_readiness(
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
     ready: bool,
@@ -410,12 +453,21 @@ def test_monitor_once_exit_code_tracks_composite_readiness(
         def run_once(self) -> dict[str, object]:
             return {"ready": ready, "state": "ready" if ready else "degraded_remote"}
 
+    class StubStore:
+        def supervisor_lock(self, *_args, **_kwargs):  # noqa: ANN002, ANN003
+            return contextlib.nullcontext(True)
+
     monkeypatch.setattr(sys, "argv", ["remote_workbench_bridge_monitor.py", "--once"])
     monkeypatch.setattr(monitor_module, "source_build_id", lambda _root: "test-build")
     monkeypatch.setattr(
         monitor_module.BridgeSettings,
         "from_environment",
-        lambda: object(),
+        lambda: _settings(tmp_path),
+    )
+    monkeypatch.setattr(
+        monitor_module,
+        "build_state_store",
+        lambda _settings: StubStore(),
     )
     monkeypatch.setattr(
         monitor_module,

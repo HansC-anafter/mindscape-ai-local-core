@@ -41,8 +41,12 @@ def build_supervisor(
 
     store = state_store or build_state_store(settings)
     probes = BridgeProbes(
-        launcher_path=settings.launcher_path,
         docker_socket_path=settings.docker_socket_path,
+        container_name=settings.container_name,
+        network_name=settings.network_name,
+        token_path=settings.token_path,
+        cloudflared_image=settings.cloudflared_image,
+        metrics_host_port=settings.metrics_host_port,
         local_origin_url=settings.local_origin_url,
         connector_ready_url=settings.connector_ready_url,
         public_origin_url=settings.public_origin_url,
@@ -115,6 +119,47 @@ def _print_launcher_status(settings: BridgeSettings) -> int:
     return 0 if payload.get("ready") is True else 2
 
 
+def _run_locked_supervisor(
+    settings: BridgeSettings,
+    *,
+    build_id: str,
+    once: bool,
+    repair: bool,
+) -> int:
+    """Run either supervisor mode behind the one non-blocking writer lock."""
+
+    state_store = build_state_store(settings)
+    pid = os.getpid()
+    with state_store.supervisor_lock(settings.lock_path, pid=pid) as acquired:
+        if not acquired:
+            print(
+                "Remote Workbench bridge supervisor is already running.",
+                file=sys.stderr,
+            )
+            return 3
+        supervisor = build_supervisor(
+            settings,
+            build_id=build_id,
+            pid=pid,
+            state_store=state_store,
+        )
+        if once:
+            status = (
+                supervisor.run_once()
+                if repair
+                else supervisor.run_once(repair=False)
+            )
+            print(json.dumps(status, sort_keys=True))
+            return 0 if status.get("ready") is True else 2
+        signal.signal(signal.SIGTERM, supervisor.request_stop)
+        signal.signal(signal.SIGINT, supervisor.request_stop)
+        if repair:
+            supervisor.run_forever()
+        else:
+            supervisor.run_forever(repair=False)
+    return 0
+
+
 def main() -> int:
     """Run one probe cycle or the persistent supervisor loop."""
 
@@ -132,37 +177,12 @@ def main() -> int:
     settings = BridgeSettings.from_environment()
     if mode == "status":
         return _print_launcher_status(settings)
-    if mode == "once":
-        supervisor = build_supervisor(
-            settings,
-            build_id=build_id,
-            pid=os.getpid(),
-        )
-        status = (
-            supervisor.run_once(repair=False)
-            if args.no_repair
-            else supervisor.run_once()
-        )
-        print(json.dumps(status, sort_keys=True))
-        return 0 if status.get("ready") is True else 2
-    state_store = build_state_store(settings)
-    supervisor = build_supervisor(
+    return _run_locked_supervisor(
         settings,
         build_id=build_id,
-        pid=os.getpid(),
-        state_store=state_store,
+        once=mode == "once",
+        repair=not args.no_repair,
     )
-    signal.signal(signal.SIGTERM, supervisor.request_stop)
-    signal.signal(signal.SIGINT, supervisor.request_stop)
-    with state_store.supervisor_lock(settings.lock_path, pid=os.getpid()) as acquired:
-        if not acquired:
-            print("Remote Workbench bridge supervisor is already running.", file=sys.stderr)
-            return 0
-        if args.no_repair:
-            supervisor.run_forever(repair=False)
-        else:
-            supervisor.run_forever()
-    return 0
 
 
 if __name__ == "__main__":

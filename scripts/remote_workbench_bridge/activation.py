@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import plistlib
 import re
@@ -225,7 +226,18 @@ def verify_activation(
         age = (reference.astimezone(timezone.utc) - checked).total_seconds()
     except (TypeError, ValueError) as error:
         raise ActivationError("supervisor_status_timestamp_malformed") from error
-    if not 0 <= age <= stale_seconds:
+    poll_interval = status.get("poll_interval_seconds")
+    if (
+        isinstance(poll_interval, bool)
+        or not isinstance(poll_interval, (int, float))
+        or not math.isfinite(float(poll_interval))
+        or not 5.0 <= float(poll_interval) <= 300.0
+    ):
+        raise ActivationError("supervisor_status_poll_interval_malformed")
+    if not math.isfinite(stale_seconds) or stale_seconds != 60.0:
+        raise ActivationError("supervisor_status_stale_floor_malformed")
+    freshness_limit = max(stale_seconds, 3.0 * float(poll_interval))
+    if not 0 <= age <= freshness_limit:
         raise ActivationError("supervisor_status_stale")
     state = status.get("state")
     maintenance = status.get("maintenance")
@@ -234,6 +246,11 @@ def verify_activation(
     maintenance_enabled = maintenance.get("enabled") is True
     if (state == "maintenance") != maintenance_enabled:
         raise ActivationError("supervisor_status_maintenance_mismatch")
+    ready = status.get("ready")
+    if not isinstance(ready, bool) or ready != (
+        state == "ready" and not maintenance_enabled
+    ):
+        raise ActivationError("supervisor_status_readiness_mismatch")
     return {
         "activation_conformant": True,
         "argv": expected_argv,
@@ -243,8 +260,11 @@ def verify_activation(
         "live_build_id": live_build,
         "maintenance": maintenance_enabled,
         "pid": pid,
+        "poll_interval_seconds": float(poll_interval),
+        "ready": ready,
         "state": state,
         "status_fresh": True,
+        "status_freshness_limit_seconds": freshness_limit,
     }
 
 
