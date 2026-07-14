@@ -11,7 +11,7 @@ from typing import Any
 
 
 MODE = "incremental_runtime_backup"
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 VERIFY_SCRIPT = REPO_ROOT / "scripts" / "verify_local_runtime_backup.sh"
 BYTES_PER_GB = 1024**3
 WAL_ARCHIVE_CONTAINER_DIR = "/var/lib/postgresql/wal_archive"

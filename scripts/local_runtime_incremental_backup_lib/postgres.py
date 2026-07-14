@@ -155,20 +155,24 @@ def postgres_status() -> dict[str, Any]:
 def run_pg_basebackup(base_id: str, wal_root: Path, timeout_seconds: int) -> dict[str, Any]:
     container_base = f"{WAL_ARCHIVE_CONTAINER_DIR}/base_backups/{base_id}"
     partial_base = f"{container_base}.partial"
-    client_pid_file = f"{partial_base}/.pg_basebackup-client.pid"
-    lock_file = f"{WAL_ARCHIVE_CONTAINER_DIR}/.pg_basebackup.lock"
+    lock_dir = f"{WAL_ARCHIVE_CONTAINER_DIR}/.pg_basebackup.lock.d"
+    client_pid_file = f"{lock_dir}/client.pid"
     command = (
         "set -eu; "
-        "command -v flock >/dev/null; "
-        f"exec 9>{lock_file}; "
-        "flock -n 9 || { echo 'postgres_basebackup_already_running' >&2; exit 73; }; "
+        f"mkdir {lock_dir} 2>/dev/null || "
+        "{ echo 'postgres_basebackup_already_running' >&2; exit 73; }; "
+        f"printf '%s\\n' \"$$\" > {lock_dir}/owner.pid; "
+        f"cleanup_backup_lock() {{ rm -f {lock_dir}/owner.pid {client_pid_file}; rmdir {lock_dir} 2>/dev/null || true; }}; "
+        "trap cleanup_backup_lock EXIT INT TERM HUP; "
         f"rm -rf {partial_base} {container_base}; "
         f"mkdir -p {partial_base}; "
         f"pg_basebackup -U \"${{POSTGRES_USER:-mindscape}}\" -D {partial_base} -Fp -Xs -P -c fast & "
         "backup_client_pid=$!; "
         f"printf '%s\\n' \"$backup_client_pid\" > {client_pid_file}; "
-        "wait \"$backup_client_pid\"; "
+        "if wait \"$backup_client_pid\"; then backup_client_status=0; "
+        "else backup_client_status=$?; fi; "
         f"rm -f {client_pid_file}; "
+        f"if test \"$backup_client_status\" -ne 0; then rm -rf {partial_base}; exit \"$backup_client_status\"; fi; "
         f"mv {partial_base} {container_base}"
     )
     cmd = ["docker", "exec", "mindscape-ai-local-core-postgres", "sh", "-lc", command]
@@ -177,6 +181,16 @@ def run_pg_basebackup(base_id: str, wal_root: Path, timeout_seconds: int) -> dic
     except (KeyboardInterrupt, subprocess.TimeoutExpired):
         _terminate_marked_basebackup_client(client_pid_file, partial_base)
         raise
+    except subprocess.CalledProcessError as exc:
+        detail = "\n".join(
+            part.strip()
+            for part in (exc.stdout or "", exc.stderr or "")
+            if part and part.strip()
+        )
+        raise RuntimeError(
+            f"pg_basebackup exited with status {exc.returncode}: "
+            f"{detail or 'no stdout/stderr captured'}"
+        ) from exc
     host_base_dir = wal_root / "base_backups" / base_id
     manifest = {
         "base_backup_id": base_id,
@@ -201,9 +215,16 @@ def _terminate_marked_basebackup_client(client_pid_file: str, partial_base: str)
     marked process command before sending any signal.
     """
 
+    lock_dir = client_pid_file.rsplit("/", 1)[0]
     cleanup = (
         "set -eu; "
-        f"test -r {client_pid_file}; "
+        "marker_wait=0; "
+        f"while test ! -r {client_pid_file} && test -d {lock_dir} "
+        "&& test \"$marker_wait\" -lt 5; do "
+        "sleep 1; marker_wait=$((marker_wait + 1)); done; "
+        f"if test ! -r {client_pid_file}; then "
+        f"test ! -d {lock_dir} && {{ rm -rf {partial_base}; exit 0; }}; "
+        "exit 67; fi; "
         f"backup_client_pid=$(cat {client_pid_file}); "
         "case \"$backup_client_pid\" in ''|*[!0-9]*) exit 64;; esac; "
         "test -r \"/proc/$backup_client_pid/cmdline\"; "

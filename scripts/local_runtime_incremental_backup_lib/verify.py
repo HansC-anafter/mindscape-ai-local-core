@@ -81,6 +81,7 @@ def verify_incremental_dir(backup_dir: Path, *, restore_drill: bool = False) -> 
         "success": True,
         "backup_dir": str(backup_dir),
         "mode": MODE,
+        "scope_mode": str(files.get("scope_mode") or "runtime_snapshot"),
         "restore_drill": restore,
     }
 

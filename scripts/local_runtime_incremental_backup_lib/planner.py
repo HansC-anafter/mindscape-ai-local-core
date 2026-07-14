@@ -19,6 +19,7 @@ from .config import (
     parse_scopes,
 )
 from .filesystem import (
+    age_hours,
     command_exists,
     disk_free_bytes,
     disk_usage_bytes,
@@ -32,6 +33,7 @@ from .filesystem import (
     wal_archive_segment_size_mismatches,
 )
 from .postgres import postgres_status
+from .runtime_admission import inspect_backup_runtime_admission
 
 
 def build_config(args: argparse.Namespace) -> dict[str, Any]:
@@ -66,6 +68,7 @@ def build_config(args: argparse.Namespace) -> dict[str, Any]:
     mirror_scopes = parse_scopes(
         getattr(args, "mirror_scopes", None) or os.environ.get("LOCAL_CORE_BACKUP_MIRROR_SCOPES")
     )
+    postgres_only = bool(getattr(args, "postgres_only", False))
     return {
         "primary_root": primary_root,
         "mirror_root": mirror_root,
@@ -75,12 +78,47 @@ def build_config(args: argparse.Namespace) -> dict[str, Any]:
         "retention_mirror_count": mirror_retention,
         "base_interval_hours": base_interval_hours,
         "mirror_scopes": mirror_scopes,
+        "postgres_only": postgres_only,
         "wal_archive_root": resolve_wal_archive_root(primary_root),
+    }
+
+
+def _policy_payload(config: dict[str, Any]) -> dict[str, Any]:
+    primary_root = config["primary_root"]
+    mirror_root = config["mirror_root"]
+    return {
+        "mode": MODE,
+        "primary_root": str(primary_root),
+        "mirror_root": str(mirror_root) if mirror_root else "",
+        "retention_local_count": config["retention_local_count"],
+        "retention_mirror_count": config["retention_mirror_count"],
+        "min_free_gb": config["min_free_gb"],
+        "require_mirror": config["require_mirror"],
+        "base_interval_hours": config["base_interval_hours"],
+        "mirror_scopes": config["mirror_scopes"],
+        "backup_scope": (
+            "postgres_chain_only" if config["postgres_only"] else "runtime_snapshot_and_postgres_chain"
+        ),
+        "mirror_scope_definitions": MIRROR_SCOPE_DEFINITIONS,
+        "wal_archive_root": str(config["wal_archive_root"]),
     }
 
 
 def build_plan(args: argparse.Namespace) -> dict[str, Any]:
     config = build_config(args)
+    policy = _policy_payload(config)
+    runtime_admission = inspect_backup_runtime_admission(
+        wal_archive_root=config["wal_archive_root"]
+    )
+    if not runtime_admission["admitted"]:
+        return {
+            "policy": policy,
+            "preflight_status": "runtime_deferred",
+            "runtime_admission": runtime_admission,
+            "can_run": False,
+            "blocking_reasons": list(runtime_admission["blocking_reasons"]),
+            "warnings": [],
+        }
     primary_root = config["primary_root"]
     mirror_root = config["mirror_root"]
     wal_root = config["wal_archive_root"]
@@ -98,7 +136,9 @@ def build_plan(args: argparse.Namespace) -> dict[str, Any]:
         blocking_reasons.append("mirror_backup_root_below_min_free_space")
     if config["retention_mirror_count"] > config["retention_local_count"]:
         blocking_reasons.append("mirror_retention_exceeds_local_retention")
-    if not command_exists("rsync"):
+    if config["postgres_only"] and (mirror_root is not None or config["require_mirror"]):
+        blocking_reasons.append("postgres_only_requires_local_only")
+    if not config["postgres_only"] and not command_exists("rsync"):
         blocking_reasons.append("rsync_not_available")
 
     if not path_contains(primary_root, wal_root):
@@ -131,22 +171,9 @@ def build_plan(args: argparse.Namespace) -> dict[str, Any]:
         sample = ",".join(str(item["name"]) for item in wal_size_mismatches[:10])
         warnings.append(f"wal_archive_segment_size_mismatch:{sample}")
 
-    policy = {
-        "mode": MODE,
-        "primary_root": str(primary_root),
-        "mirror_root": str(mirror_root) if mirror_root else "",
-        "retention_local_count": config["retention_local_count"],
-        "retention_mirror_count": config["retention_mirror_count"],
-        "min_free_gb": config["min_free_gb"],
-        "require_mirror": config["require_mirror"],
-        "base_interval_hours": config["base_interval_hours"],
-        "mirror_scopes": config["mirror_scopes"],
-        "mirror_scope_definitions": MIRROR_SCOPE_DEFINITIONS,
-        "wal_archive_root": str(wal_root),
-    }
-
     return {
         "policy": policy,
+        "preflight_status": "completed",
         "primary_free_bytes": primary_free,
         "mirror_free_bytes": mirror_free,
         "min_free_bytes": min_free_bytes,
@@ -170,6 +197,7 @@ def build_plan(args: argparse.Namespace) -> dict[str, Any]:
         "base_backup_age_hours": base_age,
         "base_backup_required": base_required,
         "latest_file_snapshot_id": latest_snapshot.get("backup_name") if latest_snapshot else "",
+        "runtime_admission": runtime_admission,
         "can_run": not blocking_reasons,
         "blocking_reasons": blocking_reasons,
         "warnings": warnings,

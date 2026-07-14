@@ -35,6 +35,11 @@ def build_parser() -> argparse.ArgumentParser:
         subparser.add_argument("--require-mirror")
         subparser.add_argument("--base-interval-hours", type=int)
         subparser.add_argument("--mirror-scopes")
+        subparser.add_argument(
+            "--postgres-only",
+            action="store_true",
+            help="Use the explicit local-only PostgreSQL base/WAL recovery-chain scope.",
+        )
 
     plan = subparsers.add_parser("plan")
     add_policy_options(plan)

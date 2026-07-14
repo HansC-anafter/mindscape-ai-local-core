@@ -25,6 +25,7 @@ from .filesystem import (
 from .mirror import mirror_incremental_artifacts
 from .planner import build_config, build_plan, safe_name
 from .postgres import run_pg_basebackup, switch_wal
+from .runtime_admission import require_backup_runtime_admission
 from .snapshot import prune_incremental, refresh_manifest_wal_state, rsync_snapshot
 from .verify import verify_incremental_dir
 
@@ -60,13 +61,14 @@ def capacity_preflight(
     mirror_root = config["mirror_root"]
     wal_root = config["wal_archive_root"]
     min_free_bytes = int(config["min_free_gb"] * BYTES_PER_GB)
-    snapshot_transfer_bytes = estimate_snapshot_transfer_bytes(
+    postgres_only = bool(config.get("postgres_only"))
+    snapshot_transfer_bytes = 0 if postgres_only else estimate_snapshot_transfer_bytes(
         resolve_data_host_dir(),
         previous_snapshot,
         timeout_seconds,
     )
     mirror_snapshot_transfer_bytes = 0
-    if mirror_root:
+    if mirror_root and not postgres_only:
         mirror_snapshot_transfer_bytes = estimate_mirror_snapshot_transfer_bytes(
             resolve_data_host_dir(),
             previous_mirror_snapshot(mirror_root, previous_manifest),
@@ -80,7 +82,11 @@ def capacity_preflight(
     if wal_estimate_bytes <= 0:
         wal_estimate_bytes = disk_usage_bytes(wal_root)
     primary_estimated_required_bytes = snapshot_transfer_bytes + postgres_base_estimate_bytes
-    mirror_estimated_required_bytes = mirror_snapshot_transfer_bytes + postgres_base_estimate_bytes + wal_estimate_bytes
+    mirror_estimated_required_bytes = (
+        mirror_snapshot_transfer_bytes + postgres_base_estimate_bytes + wal_estimate_bytes
+        if mirror_root
+        else 0
+    )
     primary_free = disk_free_bytes(primary_root)
     mirror_free = disk_free_bytes(mirror_root) if mirror_root else None
 
@@ -101,6 +107,9 @@ def capacity_preflight(
         "primary_free_bytes": primary_free,
         "mirror_free_bytes": mirror_free,
         "mirror_scopes": config["mirror_scopes"],
+        "backup_scope": (
+            "postgres_chain_only" if postgres_only else "runtime_snapshot_and_postgres_chain"
+        ),
         "blocking_reasons": blocking_reasons,
     }
 
@@ -134,6 +143,10 @@ def run_policy(args: argparse.Namespace) -> dict[str, Any]:
     if capacity["blocking_reasons"]:
         raise SystemExit("Backup capacity preflight failed: " + ", ".join(capacity["blocking_reasons"]))
 
+    execution_admission = require_backup_runtime_admission(
+        wal_archive_root=config["wal_archive_root"]
+    )
+
     partial_dir.mkdir(parents=True, exist_ok=True)
 
     before_wal = list_wal_segments(wal_root)
@@ -149,7 +162,16 @@ def run_policy(args: argparse.Namespace) -> dict[str, Any]:
     new_wal = [name for name in after_wal if name not in before_wal]
 
     snapshot_dir = partial_dir / "app-data"
-    rsync_results = rsync_snapshot(resolve_data_host_dir(), snapshot_dir, previous_snapshot, timeout_seconds)
+    if config.get("postgres_only"):
+        snapshot_dir.mkdir(parents=True, exist_ok=True)
+        rsync_results = []
+    else:
+        rsync_results = rsync_snapshot(
+            resolve_data_host_dir(),
+            snapshot_dir,
+            previous_snapshot,
+            timeout_seconds,
+        )
 
     created_at = utc_now()
     base_dir = Path(str(active_base["host_base_dir"]))
@@ -177,9 +199,20 @@ def run_policy(args: argparse.Namespace) -> dict[str, Any]:
                 "archive_mode": plan["postgres_archive_mode"],
             },
             "files": {
+                "scope_mode": (
+                    "postgres_chain_only"
+                    if config.get("postgres_only")
+                    else "runtime_snapshot"
+                ),
                 "snapshot_relpath": "app-data",
-                "previous_snapshot_id": previous_manifest.get("backup_name") if previous_manifest else "",
-                "source_host_dir": str(resolve_data_host_dir()),
+                "previous_snapshot_id": (
+                    ""
+                    if config.get("postgres_only")
+                    else previous_manifest.get("backup_name") if previous_manifest else ""
+                ),
+                "source_host_dir": (
+                    "" if config.get("postgres_only") else str(resolve_data_host_dir())
+                ),
                 "bytes": dir_size_bytes(snapshot_dir),
                 "estimated_transfer_bytes": capacity["snapshot_transfer_bytes"],
                 "rsync_results": rsync_results,
@@ -187,12 +220,27 @@ def run_policy(args: argparse.Namespace) -> dict[str, Any]:
         },
         "total_bytes": dir_size_bytes(snapshot_dir) + dir_size_bytes(base_dir),
         "capacity_preflight": capacity,
+        "runtime_admission": {
+            "planning": plan["runtime_admission"],
+            "execution_barrier": execution_admission,
+        },
         "mirror": {
-            "scope_mode": "selected_data_scopes",
-            "scopes": config["mirror_scopes"],
+            "scope_mode": (
+                "disabled_local_postgres_rechain"
+                if config.get("postgres_only")
+                else "selected_data_scopes"
+            ),
+            "scopes": [] if config.get("postgres_only") else config["mirror_scopes"],
             "scope_definitions": MIRROR_SCOPE_DEFINITIONS,
         },
-        "verification": {"primary": "pending", "mirror": "pending"},
+        "verification": {
+            "primary": "pending",
+            "mirror": (
+                "not_requested_local_only"
+                if config.get("postgres_only")
+                else "pending"
+            ),
+        },
     }
     write_json(partial_dir / "manifest.json", manifest)
     partial_dir.rename(backup_dir)

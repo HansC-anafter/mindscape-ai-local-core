@@ -16,6 +16,7 @@ from local_runtime_incremental_backup_lib import mirror as _mirror
 from local_runtime_incremental_backup_lib import planner as _planner
 from local_runtime_incremental_backup_lib import policy as _policy
 from local_runtime_incremental_backup_lib import postgres as _postgres
+from local_runtime_incremental_backup_lib import runtime_admission as _runtime_admission
 from local_runtime_incremental_backup_lib import snapshot as _snapshot
 from local_runtime_incremental_backup_lib import verify as _verify
 
@@ -106,7 +107,16 @@ _PLAIN_SYNC_NAMES = (
     "command_exists",
     "resolve_data_host_dir",
 )
-_SYNC_MODULES = (_filesystem, _postgres, _planner, _snapshot, _verify, _mirror, _policy)
+_SYNC_MODULES = (
+    _filesystem,
+    _postgres,
+    _runtime_admission,
+    _planner,
+    _snapshot,
+    _verify,
+    _mirror,
+    _policy,
+)
 _FACADE_WRAPPERS = {}
 
 
@@ -119,6 +129,17 @@ def _sync_dependency_overrides() -> None:
         _postgres.postgres_status
         if globals()["postgres_status"] is _FACADE_WRAPPERS.get("postgres_status")
         else globals()["postgres_status"]
+    )
+    runtime_admission_override = globals()["inspect_backup_runtime_admission"]
+    runtime_admission_impl = (
+        _runtime_admission.inspect_backup_runtime_admission
+        if runtime_admission_override
+        is _FACADE_WRAPPERS.get("inspect_backup_runtime_admission")
+        else runtime_admission_override
+    )
+    _planner.inspect_backup_runtime_admission = runtime_admission_impl
+    _policy.require_backup_runtime_admission = (
+        _runtime_admission.require_backup_runtime_admission
     )
     _policy.estimate_snapshot_transfer_bytes = (
         _filesystem.estimate_snapshot_transfer_bytes
@@ -147,6 +168,18 @@ def estimate_mirror_snapshot_transfer_bytes(source, previous, scopes, timeout_se
 def postgres_status():
     _sync_dependency_overrides()
     return _postgres.postgres_status()
+
+
+def inspect_backup_runtime_admission(*, data_host_dir=None, wal_archive_root=None):
+    _sync_dependency_overrides()
+    return _runtime_admission.inspect_backup_runtime_admission(
+        data_host_dir=data_host_dir,
+        wal_archive_root=wal_archive_root,
+    )
+
+
+def inspect_live_media_receivers(data_host_dir, *, now=None):
+    return _runtime_admission.inspect_live_media_receivers(data_host_dir, now=now)
 
 
 def build_config(args):
@@ -229,5 +262,6 @@ _FACADE_WRAPPERS.update(
         "estimate_snapshot_transfer_bytes": estimate_snapshot_transfer_bytes,
         "estimate_mirror_snapshot_transfer_bytes": estimate_mirror_snapshot_transfer_bytes,
         "postgres_status": postgres_status,
+        "inspect_backup_runtime_admission": inspect_backup_runtime_admission,
     }
 )
