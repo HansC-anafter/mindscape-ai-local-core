@@ -8,8 +8,9 @@ import mediapipe  # noqa: F401
 import numpy  # noqa: F401
 import requests  # noqa: F401
 import websocket  # noqa: F401
+from mediapipe.tasks import python as mediapipe_python
+from mediapipe.tasks.python import vision
 
-from rtmp_motion_publisher.pose import PoseDetector
 from rtmp_motion_publisher.settings import DEFAULT_MODEL_ASSET_PATH
 
 
@@ -23,8 +24,11 @@ def main() -> int:
         raise RuntimeError("opencv_read_timeout_unavailable")
     if not DEFAULT_MODEL_ASSET_PATH.is_file() or DEFAULT_MODEL_ASSET_PATH.stat().st_size <= 0:
         raise RuntimeError("pose_model_asset_unavailable")
-    detector = PoseDetector.create(str(DEFAULT_MODEL_ASSET_PATH))
-    detector.close()
+    if not hasattr(mediapipe_python, "BaseOptions") or not hasattr(
+        vision,
+        "PoseLandmarker",
+    ):
+        raise RuntimeError("mediapipe_pose_runtime_unavailable")
     print(
         json.dumps(
             {

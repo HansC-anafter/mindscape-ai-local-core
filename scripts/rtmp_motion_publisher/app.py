@@ -113,7 +113,7 @@ def run_receiver(args: Any) -> int:
             "read_timeout_sec": args.stream_read_timeout_sec,
         }
     )
-    transition_receiver_state(args, "analyzing")
+    transition_receiver_state(args, "receiving")
 
     try:
         live_session_id = register_live_session(args)
@@ -149,6 +149,7 @@ def run_receiver(args: Any) -> int:
             guidance=guidance,
         )
         pose = PoseDetector.create(args.model_asset_path)
+        transition_receiver_state(args, "analyzing")
     except Exception:
         if stream_cost_tracker is not None:
             stream_cost_tracker.finish(first_frame)

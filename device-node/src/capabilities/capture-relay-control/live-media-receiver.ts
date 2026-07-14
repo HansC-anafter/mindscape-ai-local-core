@@ -387,11 +387,6 @@ export async function startLiveMediaReceiver(
 ): Promise<Record<string, unknown>> {
     const descriptor = parseLiveMediaReceiverDescriptor(rawDescriptor);
     const runtime = findProjectRuntime();
-    assertReceiverRuntime(runtime);
-    const motionReferenceProfilePath = resolveMotionReferenceProfilePath(
-        runtime.root,
-        descriptor,
-    );
     const paths = receiverPaths(runtime.root, descriptor.media_session_id);
     const existing = readState(paths.statePath);
     if (existing && pidIsRunning(existing.pid)) {
@@ -400,6 +395,11 @@ export async function startLiveMediaReceiver(
         }
         return publicStatus("receiver_start", existing);
     }
+    assertReceiverRuntime(runtime);
+    const motionReferenceProfilePath = resolveMotionReferenceProfilePath(
+        runtime.root,
+        descriptor,
+    );
     assertWorkspaceAvailable(paths.runtimeDir, descriptor);
     atomicPrivateJson(paths.descriptorPath, {
         ...descriptor,

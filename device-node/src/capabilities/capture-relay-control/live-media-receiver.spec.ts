@@ -11,6 +11,7 @@ import {
     publicReceiverFailureReason,
     receiverStateAfterSpawn,
     resolveMotionReferenceProfilePath,
+    startLiveMediaReceiver,
     stopLiveMediaReceiver,
 } from "./live-media-receiver.js";
 
@@ -146,6 +147,57 @@ test("does not overwrite a child ready state after spawn", () => {
         receiverStateAfterSpawn(childState, parsed, 4242),
         childState,
     );
+});
+
+test("idempotent start returns an active child before runtime preflight", async () => {
+    const dataRoot = mkdtempSync(path.join(tmpdir(), "live-media-receiver-start-"));
+    const previousProjectRoot = process.env.LOCAL_CORE_PROJECT_ROOT;
+    const previousPython = process.env.LOCAL_CORE_MOTION_RECEIVER_PYTHON;
+    const previousDataRoot = process.env.LOCAL_CORE_DATA_HOST_DIR;
+    const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+        stdio: "ignore",
+    });
+    try {
+        assert.ok(child.pid);
+        process.env.LOCAL_CORE_PROJECT_ROOT = path.resolve(process.cwd(), "..");
+        process.env.LOCAL_CORE_MOTION_RECEIVER_PYTHON = process.execPath;
+        process.env.LOCAL_CORE_DATA_HOST_DIR = dataRoot;
+        const runtimeDir = path.join(dataRoot, "runtime/live-media-receivers");
+        mkdirSync(runtimeDir, { recursive: true });
+        writeFileSync(
+            path.join(runtimeDir, "media-one.state.json"),
+            JSON.stringify({
+                schema_version: "live_media_receiver_state.v1",
+                workspace_id: "workspace-one",
+                media_session_id: "media-one",
+                receiver_identity: "receiver-one",
+                pid: child.pid,
+                state: "waiting_source",
+                updated_at: new Date().toISOString(),
+            }),
+        );
+
+        const result = await startLiveMediaReceiver(descriptor(), 1000);
+
+        assert.equal(result.status, "active");
+        assert.equal(result.state, "waiting_source");
+        assert.equal(result.pid, child.pid);
+    } finally {
+        if (child.pid) {
+            try {
+                process.kill(child.pid, "SIGKILL");
+            } catch {
+                // The test child already exited.
+            }
+        }
+        if (previousProjectRoot === undefined) delete process.env.LOCAL_CORE_PROJECT_ROOT;
+        else process.env.LOCAL_CORE_PROJECT_ROOT = previousProjectRoot;
+        if (previousPython === undefined) delete process.env.LOCAL_CORE_MOTION_RECEIVER_PYTHON;
+        else process.env.LOCAL_CORE_MOTION_RECEIVER_PYTHON = previousPython;
+        if (previousDataRoot === undefined) delete process.env.LOCAL_CORE_DATA_HOST_DIR;
+        else process.env.LOCAL_CORE_DATA_HOST_DIR = previousDataRoot;
+        rmSync(dataRoot, { recursive: true, force: true });
+    }
 });
 
 test("confirms child exit before reporting receiver stop", async () => {
