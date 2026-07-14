@@ -88,6 +88,9 @@ class DeviceSessionEntry(BaseModel):
     created_at_epoch: float
     updated_at_epoch: float
     expires_at_epoch: float
+    media_session_id: Optional[str] = None
+    media_session_state: Optional[str] = None
+    media_session_expires_at_epoch: Optional[float] = None
     terminal_reason: Optional[str] = None
     websocket: Any = Field(default=None, exclude=True)
 

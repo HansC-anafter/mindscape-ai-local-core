@@ -4,11 +4,12 @@ import {
   type DeviceControlSocket,
 } from '@/lib/device-binding/deviceBindingClient';
 import {
-  createLanPeerConnection,
-  openWebRTCSignalSocket,
-  type WebRTCSignalSocket,
-  type WebRTCSessionState,
-} from './webrtcSessionClient';
+  createLiveMediaSession,
+  stopLiveMediaSession,
+  type LiveMediaSessionAccess,
+} from './liveMediaSessionClient';
+import { startWhipPublisher, type WhipPublisherHandle } from './whipPublisherClient';
+import type { WebRTCSessionState } from './webrtcSessionTypes';
 
 export type ExternalProviderBridgeSessionState =
   | 'control_open'
@@ -46,7 +47,9 @@ function liveVideoTracks(stream: MediaStream): MediaStreamTrack[] {
   if (typeof stream.getVideoTracks === 'function') {
     return stream.getVideoTracks().filter((track) => track.readyState !== 'ended');
   }
-  return stream.getTracks().filter((track) => track.kind === 'video' && track.readyState !== 'ended');
+  return stream.getTracks().filter((track) => (
+    track.kind === 'video' && track.readyState !== 'ended'
+  ));
 }
 
 export function startExternalProviderBridgeSession(
@@ -58,10 +61,9 @@ export function startExternalProviderBridgeSession(
 
   let stopped = false;
   let deviceSessionId: string | null = null;
-  let mediaSessionId: string | null = null;
-  let mediaJoined = false;
-  let peerConnection: RTCPeerConnection | null = null;
-  let signalSocket: WebRTCSignalSocket | null = null;
+  let mediaAccess: LiveMediaSessionAccess | null = null;
+  let publisher: WhipPublisherHandle | null = null;
+  let mediaStartPromise: Promise<void> | null = null;
   let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
   const stopHeartbeat = () => {
@@ -81,93 +83,55 @@ export function startExternalProviderBridgeSession(
     }, intervalMs);
   };
 
-  const ensurePeerConnection = () => {
-    if (peerConnection) {
-      return peerConnection;
-    }
-    if (!signalSocket) {
-      throw new Error('external_provider_signal_socket_missing');
-    }
-    peerConnection = createLanPeerConnection({
-      onIceCandidate: (candidate) => signalSocket?.send({ type: 'ice_candidate', candidate }),
-      onConnectionStateChange: (state) => {
-        if (state === 'connected') {
-          input.onState?.('connected');
-        }
-      },
-    });
-    for (const track of input.stream.getTracks()) {
-      peerConnection.addTrack(track, input.stream);
-    }
-    return peerConnection;
-  };
-
-  const sendOffer = async () => {
-    if (!mediaJoined || stopped) {
-      return;
-    }
-    const peer = ensurePeerConnection();
-    const offer = await peer.createOffer();
-    await peer.setLocalDescription(offer);
-    signalSocket?.send({ type: 'offer', sdp: offer.sdp || '' });
-    input.onState?.('offer_sent');
-  };
-
-  const resendOfferIfNeeded = async () => {
-    const hasUnansweredOffer = peerConnection?.localDescription?.type === 'offer'
-      && !peerConnection.remoteDescription;
-    if (hasUnansweredOffer) {
-      return;
-    }
-    await sendOffer();
-  };
-
   const startMediaSession = (sessionId: string) => {
-    if (signalSocket || stopped) {
+    if (stopped || publisher || mediaStartPromise) {
       return;
     }
     deviceSessionId = sessionId;
-    mediaSessionId = sessionId;
-    signalSocket = openWebRTCSignalSocket({
-      apiBase: input.apiBase,
-      workspaceId: input.workspaceId,
-      deviceSessionId: sessionId,
-      mediaSessionId: sessionId,
-      onOpen: () => {
-        input.onState?.('signal_open');
-        signalSocket?.send({ type: 'source_join' });
-      },
-      onEvent: async (event) => {
-        if (event.type === 'participant_joined' && event.sender === 'source') {
-          mediaJoined = true;
-          input.onState?.('signal_joined');
-          await sendOffer();
+    mediaStartPromise = (async () => {
+      try {
+        const audioTracks = typeof input.stream.getAudioTracks === 'function'
+          ? input.stream.getAudioTracks()
+          : input.stream.getTracks().filter((track) => track.kind === 'audio');
+        const capabilities: Array<'video' | 'audio'> = audioTracks.length
+          ? ['video', 'audio']
+          : ['video'];
+        const access = await createLiveMediaSession({
+          apiBase: input.apiBase,
+          workspaceId: input.workspaceId,
+          deviceSessionId: sessionId,
+          sourceKind: 'external_provider_camera',
+          capabilities,
+          analysisReserved: true,
+        });
+        mediaAccess = access;
+        if (stopped) {
+          await stopLiveMediaSession({
+            apiBase: input.apiBase,
+            workspaceId: access.session.workspace_id,
+            deviceSessionId: access.session.device_session_id,
+            mediaSessionId: access.session.media_session_id,
+            keepalive: true,
+          }).catch(() => undefined);
           return;
         }
-        if (event.type === 'participant_joined' && event.sender === 'workspace') {
-          await resendOfferIfNeeded();
-          return;
-        }
-        if (event.type === 'answer' && event.sdp) {
-          const peer = ensurePeerConnection();
-          await peer.setRemoteDescription({ type: 'answer', sdp: event.sdp });
-          input.onState?.('answer_received');
-          return;
-        }
-        if (event.type === 'ice_candidate' && event.candidate) {
-          await ensurePeerConnection().addIceCandidate(event.candidate);
-          return;
-        }
-        if (event.type === 'close' || event.type === 'session_error') {
-          handle.stop();
-        }
-      },
-      onError: (error) => {
+        publisher = await startWhipPublisher({
+          endpoint: access.session.endpoints.whip_publish_url,
+          token: access.tokens.publish,
+          stream: input.stream,
+          onState: input.onState,
+          onError: input.onError,
+        });
+      } catch (error) {
+        const normalized = error instanceof Error
+          ? error
+          : new Error('external_provider_media_start_failed');
         input.onState?.('error');
-        input.onError?.(error);
-      },
-      onClose: () => input.onState?.('closed'),
-    });
+        input.onError?.(normalized);
+      } finally {
+        mediaStartPromise = null;
+      }
+    })();
   };
 
   const handle: ExternalProviderBridgeSessionHandle = {
@@ -177,19 +141,22 @@ export function startExternalProviderBridgeSession(
       }
       stopped = true;
       stopHeartbeat();
-      try {
-        signalSocket?.send({ type: 'close', reason: 'external_provider_bridge_stopped' });
-      } catch {
-        // Ignore shutdown races.
+      publisher?.stop();
+      if (mediaAccess) {
+        void stopLiveMediaSession({
+          apiBase: input.apiBase,
+          workspaceId: mediaAccess.session.workspace_id,
+          deviceSessionId: mediaAccess.session.device_session_id,
+          mediaSessionId: mediaAccess.session.media_session_id,
+          keepalive: true,
+        }).catch(() => undefined);
       }
       try {
         controlSocket.send({ type: 'session_close' });
       } catch {
         // Ignore shutdown races.
       }
-      signalSocket?.close();
       controlSocket.close();
-      peerConnection?.close();
       if (input.stopTracksOnStop) {
         for (const track of input.stream.getTracks()) {
           track.stop();
@@ -203,10 +170,10 @@ export function startExternalProviderBridgeSession(
       return deviceSessionId;
     },
     get mediaSessionId() {
-      return mediaSessionId;
+      return mediaAccess?.session.media_session_id || null;
     },
     get peerConnection() {
-      return peerConnection;
+      return publisher?.peerConnection || null;
     },
   };
 
@@ -238,7 +205,9 @@ export function startExternalProviderBridgeSession(
       }
       if (event.type === 'session_error' || event.type === 'session_rejected') {
         input.onState?.('error');
-        input.onError?.(new Error(event.reason || event.message || 'external_provider_bridge_rejected'));
+        input.onError?.(new Error(
+          event.reason || event.message || 'external_provider_bridge_rejected',
+        ));
       }
       if (event.type === 'session_closed' || event.type === 'session_expired' || event.type === 'session_revoked') {
         handle.stop();

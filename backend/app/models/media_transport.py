@@ -17,6 +17,17 @@ MediaSourceKind = Literal[
     "external_provider_camera",
 ]
 
+LiveMediaRelayProfile = Literal["public"]
+LiveMediaCapability = Literal["video", "audio"]
+LiveMediaSessionState = Literal[
+    "waiting_for_publisher",
+    "publishing",
+    "ready",
+    "degraded",
+    "stopped",
+    "expired",
+]
+
 MediaSignalMessageType = Literal[
     "workspace_join",
     "source_join",
@@ -116,8 +127,87 @@ class MediaStreamRef(BaseModel):
     started_at_epoch: float
 
 
+class CreateLiveMediaSessionRequest(BaseModel):
+    """Bounded input for one device-owned live media path."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    source_kind: MediaSourceKind
+    relay_profile: LiveMediaRelayProfile = "public"
+    capabilities: List[LiveMediaCapability] = Field(default_factory=lambda: ["video"])
+    analysis_reserved: bool = True
+
+    @model_validator(mode="after")
+    def normalize_capabilities(self) -> "CreateLiveMediaSessionRequest":
+        unique_capabilities = list(dict.fromkeys(self.capabilities))
+        if not unique_capabilities:
+            raise ValueError("media_capabilities_required")
+        self.capabilities = unique_capabilities
+        return self
+
+
+class LiveMediaSessionEndpoints(BaseModel):
+    """Credential-free endpoints derived from one opaque relay path."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    whip_publish_url: str
+    whep_preview_url: str
+    rtmps_publish_url: str
+    rtsps_receiver_url: str
+
+
+class LiveMediaSessionDescriptor(BaseModel):
+    """Credential-free identity and lifecycle for one live media path."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    workspace_id: str
+    device_session_id: str
+    media_session_id: str
+    stream_path: str
+    source_kind: MediaSourceKind
+    relay_profile: LiveMediaRelayProfile
+    capabilities: List[LiveMediaCapability]
+    analysis_reserved: bool
+    state: LiveMediaSessionState
+    endpoints: LiveMediaSessionEndpoints
+    receiver_descriptor_ref: str
+    created_at_epoch: float
+    updated_at_epoch: float
+    expires_at_epoch: float
+    terminal_reason: Optional[str] = None
+
+
+class LiveMediaSessionTokens(BaseModel):
+    """Short-lived exact-path tokens returned only by create or refresh."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    publish: str = Field(repr=False)
+    preview: str = Field(repr=False)
+    receiver: str = Field(repr=False)
+
+
+class LiveMediaSessionAccess(BaseModel):
+    """Explicit credential response for an active live media session."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    session: LiveMediaSessionDescriptor
+    tokens: LiveMediaSessionTokens = Field(repr=False)
+
+
 __all__ = [
+    "CreateLiveMediaSessionRequest",
     "FORBIDDEN_RAW_MEDIA_KEYS",
+    "LiveMediaCapability",
+    "LiveMediaRelayProfile",
+    "LiveMediaSessionAccess",
+    "LiveMediaSessionDescriptor",
+    "LiveMediaSessionEndpoints",
+    "LiveMediaSessionState",
+    "LiveMediaSessionTokens",
     "MediaSignalEvent",
     "MediaSignalEventType",
     "MediaSignalMessage",

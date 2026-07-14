@@ -275,6 +275,72 @@ class DeviceBindingRegistry:
             return None
         return entry
 
+    def attach_live_media_session(
+        self,
+        *,
+        workspace_id: str,
+        session_id: str,
+        media_session_id: str,
+        media_session_state: str,
+        media_session_expires_at_epoch: float,
+    ) -> DeviceSessionEntry:
+        entry = self.get_active_session(
+            workspace_id=workspace_id,
+            session_id=session_id,
+        )
+        if entry is None:
+            raise DeviceBindingRegistryError(
+                reason="unknown_session",
+                message="No active device session exists for this workspace.",
+                status_code=404,
+                close_code=4404,
+            )
+        if entry.media_session_id and entry.media_session_id != media_session_id:
+            raise DeviceBindingRegistryError(
+                reason="device_media_session_conflict",
+                message="This device already owns another active media session.",
+                status_code=409,
+                close_code=4409,
+            )
+        entry.media_session_id = media_session_id
+        entry.media_session_state = media_session_state
+        entry.media_session_expires_at_epoch = media_session_expires_at_epoch
+        entry.updated_at_epoch = time.time()
+        self._sessions[session_id] = entry
+        return entry
+
+    def detach_live_media_session(
+        self,
+        *,
+        workspace_id: str,
+        session_id: str,
+        media_session_id: str,
+    ) -> DeviceSessionEntry:
+        entry = self.get_active_session(
+            workspace_id=workspace_id,
+            session_id=session_id,
+        )
+        if entry is None:
+            raise DeviceBindingRegistryError(
+                reason="unknown_session",
+                message="No active device session exists for this workspace.",
+                status_code=404,
+                close_code=4404,
+            )
+        if entry.media_session_id != media_session_id:
+            raise DeviceBindingRegistryError(
+                reason="device_media_session_mismatch",
+                message="The media session does not belong to this device session.",
+                status_code=409,
+                close_code=4409,
+            )
+        entry.media_session_id = None
+        entry.media_session_state = "stopped"
+        entry.media_session_expires_at_epoch = None
+        entry.updated_at_epoch = time.time()
+        self._sessions[session_id] = entry
+        return entry
+
     def cleanup_expired(self, *, now_epoch: float | None = None) -> int:
         now = time.time() if now_epoch is None else now_epoch
         removed = 0

@@ -35,6 +35,9 @@ export type DeviceSessionEntry = {
   created_at_epoch: number;
   updated_at_epoch: number;
   expires_at_epoch: number;
+  media_session_id?: string | null;
+  media_session_state?: string | null;
+  media_session_expires_at_epoch?: number | null;
   terminal_reason?: string | null;
 };
 

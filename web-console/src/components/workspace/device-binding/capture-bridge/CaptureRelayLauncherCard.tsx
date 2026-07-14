@@ -8,7 +8,6 @@ import {
   type CaptureRelayAction,
   type CaptureRelayResponse,
 } from './captureRelayClient';
-import { PublicRtmpIngestPanel } from './PublicRtmpIngestPanel';
 
 interface CaptureRelayLauncherCardProps {
   apiBase: string;
@@ -321,11 +320,11 @@ export function CaptureRelayLauncherCard({
         <div>
           <div className="flex items-center gap-1 font-semibold text-gray-900 dark:text-gray-100">
             <RadioTower className="h-3.5 w-3.5 text-sky-500" aria-hidden="true" />
-            RTMP to OBS Virtual Camera
+            Local RTMP to OBS Virtual Camera
           </div>
           <div className="mt-1 text-[11px] leading-4 text-gray-500 dark:text-gray-400">
-            Use public RTMP push-stream first. Keep the local host relay helper as a fallback
-            when the camera app cannot reach the public relay.
+            This helper stays on the local/private adapter. Public publishing is issued as
+            session-scoped RTMPS by the paired provider bridge.
           </div>
         </div>
         <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${statusClassName(result)}`}>
@@ -345,17 +344,15 @@ export function CaptureRelayLauncherCard({
         />
       </label>
 
-      <PublicRtmpIngestPanel streamName={streamName} onCopy={copyValue} />
-
       <details
         className="mt-2 rounded border border-gray-200 bg-white p-2 dark:border-gray-800 dark:bg-gray-950"
         data-testid="local-rtmp-relay-fallback"
       >
         <summary className="cursor-pointer text-[11px] font-semibold text-gray-800 dark:text-gray-100">
-          Local host relay fallback
+          Local host relay
         </summary>
         <div className="mt-2 text-[11px] leading-4 text-gray-500 dark:text-gray-400">
-          Use this only when the camera app must push to this computer instead of the public RTMP relay.
+          Use this when the camera app must push to this computer on the private network.
           It can install/check/start a local MediaMTX relay through the existing host-services proxy.
         </div>
         <div className="mt-2 grid gap-2">
