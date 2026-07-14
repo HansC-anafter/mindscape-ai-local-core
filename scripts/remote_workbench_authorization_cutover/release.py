@@ -19,6 +19,7 @@ from .install_receipt import (
 from .install_attempt_state import ACTIVE_INSTALL_STATES
 from .io import CommandExecutor, CutoverError
 from .pack_release import PackReleaseGate
+from .pgbouncer_admin import pgbouncer_admin_csv_command
 from .pgbouncer_capacity import PgBouncerCapacityGate
 from .query_plan import QueryPlanGate
 
@@ -107,23 +108,7 @@ class ReleaseGate:
         if database not in {"false|off|off", "f|off|off"}:
             raise CutoverError("PostgreSQL is not writable")
         pools = self.executor.run(
-            [
-                "docker",
-                "exec",
-                "mindscape-ai-local-core-pgbouncer",
-                "psql",
-                "-U",
-                "mindscape",
-                "-h",
-                "127.0.0.1",
-                "-p",
-                "6432",
-                "-d",
-                "pgbouncer",
-                "--csv",
-                "-c",
-                "SHOW POOLS;",
-            ],
+            pgbouncer_admin_csv_command("SHOW POOLS;"),
             timeout_seconds=20.0,
         )
         rows = list(csv.DictReader(io.StringIO(pools)))

@@ -12,6 +12,9 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
 from remote_workbench_authorization_cutover.io import CutoverError
+from remote_workbench_authorization_cutover.pgbouncer_admin import (
+    pgbouncer_admin_csv_command,
+)
 from remote_workbench_authorization_cutover.pgbouncer_capacity import (
     CAPACITY_KEYS,
     PgBouncerCapacityGate,
@@ -77,6 +80,10 @@ def test_capacity_gate_persists_only_redacted_subset_and_matches(tmp_path: Path)
     assert "auth_file" not in str(first)
     assert (secure / "pgbouncer-capacity-before.json").stat().st_mode & 0o777 == 0o600
     assert len(executor.calls) == 2
+    assert executor.calls == [
+        pgbouncer_admin_csv_command("SHOW CONFIG;"),
+        pgbouncer_admin_csv_command("SHOW CONFIG;"),
+    ]
 
 
 def test_capacity_gate_rejects_larger_pool_even_without_waiter_signal(
@@ -128,10 +135,14 @@ def test_release_database_gate_persists_and_compares_capacity_evidence(
     )
 
     gate.verify_database_pools(secure, "preflight")
+    assert executor.calls[1] == pgbouncer_admin_csv_command("SHOW POOLS;")
+    assert executor.calls[2] == pgbouncer_admin_csv_command("SHOW CONFIG;")
     executor.values = {**BASELINE, "max_client_conn": "900"}
 
     with pytest.raises(CutoverError, match="drifted"):
         gate.verify_database_pools(secure, "post-origin")
+    assert executor.calls[4] == pgbouncer_admin_csv_command("SHOW POOLS;")
+    assert executor.calls[5] == pgbouncer_admin_csv_command("SHOW CONFIG;")
 
 
 @pytest.mark.parametrize(

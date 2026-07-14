@@ -20,6 +20,9 @@ from remote_workbench_authorization_cutover.install_attempt_state import (
     write_install_intent,
 )
 from remote_workbench_authorization_cutover.http import HttpResponse
+from remote_workbench_authorization_cutover.pgbouncer_admin import (
+    pgbouncer_admin_csv_command,
+)
 from remote_workbench_authorization_cutover.release import ReleaseGate
 
 
@@ -62,6 +65,7 @@ def test_database_gate_requires_recovery_transaction_and_default_read_only_off()
     assert "pg_is_in_recovery" in postgres_query
     assert "transaction_read_only" in postgres_query
     assert "default_transaction_read_only" in postgres_query
+    assert executor.calls[1] == pgbouncer_admin_csv_command("SHOW POOLS;")
 
 
 def test_database_gate_rejects_default_read_only_or_pgbouncer_waiter() -> None:

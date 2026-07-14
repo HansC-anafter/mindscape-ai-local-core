@@ -16,6 +16,7 @@ from .io import (
     assert_private_file,
     write_private_json,
 )
+from .pgbouncer_admin import pgbouncer_admin_csv_command
 
 
 CAPACITY_KEYS = (
@@ -52,24 +53,7 @@ class PgBouncerCapacityGate:
         """Read one bounded SHOW CONFIG projection without credentials."""
 
         raw = self.executor.run(
-            [
-                "docker",
-                "exec",
-                "mindscape-ai-local-core-pgbouncer",
-                "psql",
-                "-X",
-                "-U",
-                "mindscape",
-                "-h",
-                "127.0.0.1",
-                "-p",
-                "6432",
-                "-d",
-                "pgbouncer",
-                "--csv",
-                "-c",
-                "SHOW CONFIG;",
-            ],
+            pgbouncer_admin_csv_command("SHOW CONFIG;"),
             timeout_seconds=20.0,
         )
         rows = list(csv.DictReader(io.StringIO(raw)))

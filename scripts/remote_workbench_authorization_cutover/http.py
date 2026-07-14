@@ -13,6 +13,7 @@ from .io import CutoverError
 
 DEFAULT_RESPONSE_BYTES = 1_048_576
 MAX_RESPONSE_BYTES = 33_554_432
+CUTOVER_USER_AGENT = "Mindscape-Remote-Workbench-Cutover/1.0"
 
 
 def _read_bounded(stream: Any, limit: int) -> bytes:
@@ -75,6 +76,7 @@ class HttpClient:
 
         body = None
         request_headers = dict(headers or {})
+        request_headers["User-Agent"] = CUTOVER_USER_AGENT
         if payload is not None:
             body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
             request_headers["Content-Type"] = "application/json"
