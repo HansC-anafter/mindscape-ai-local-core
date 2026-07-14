@@ -128,28 +128,39 @@ def _service_templates() -> dict[str, dict[str, object]]:
             env=_runner_env(
                 profile="default_local_browser",
                 accepted_partitions="default_local_browser",
-                max_inflight="3",
+                max_inflight="1",
             )
         ),
         "runner-browser": _runner(
             env=_runner_env(
                 profile="browser_local",
                 accepted_partitions="browser_local",
-                max_inflight="3",
+                max_inflight="2",
             )
         ),
         "runner-browser-extra": _runner(
             env=_runner_env(
                 profile="browser_local",
                 accepted_partitions="browser_local",
-                max_inflight="3",
+                max_inflight="2",
             )
+        ),
+        "runner-browser-maintenance": _runner(
+            env={
+                **_runner_env(
+                    profile="browser_maintenance",
+                    accepted_partitions="browser_local,default_local_browser",
+                    max_inflight="1",
+                ),
+                "LOCAL_CORE_RUNNER_MAINTENANCE_ONLY": "true",
+                "LOCAL_CORE_RUNNER_STARTUP_RECONCILE_ENABLED": "false",
+            }
         ),
         "runner-vision": _runner(
             env=_runner_env(
                 profile="vision_local",
                 accepted_partitions="vision_local",
-                max_inflight="3",
+                max_inflight="1",
             )
         ),
         "runner-vision-mlx-dev": _runner(
@@ -285,6 +296,26 @@ def test_compose_topology_validator_rejects_runner_healthcheck_enabled() -> None
     failures = _validate(models)
 
     assert any("runner-browser: runner healthcheck must remain disabled" in failure for failure in failures)
+
+
+def test_compose_topology_validator_rejects_maintenance_role_drift() -> None:
+    models = _models()
+    runner = models["all-profiles"]["services"]["runner-browser-maintenance"]
+    runner["environment"]["LOCAL_CORE_RUNNER_MAINTENANCE_ONLY"] = "false"
+    runner["environment"]["LOCAL_CORE_RUNNER_STARTUP_RECONCILE_ENABLED"] = "true"
+
+    failures = _validate(models)
+
+    assert any(
+        "runner-browser-maintenance: expected LOCAL_CORE_RUNNER_MAINTENANCE_ONLY='true'"
+        in failure
+        for failure in failures
+    )
+    assert any(
+        "runner-browser-maintenance: expected "
+        "LOCAL_CORE_RUNNER_STARTUP_RECONCILE_ENABLED='false'" in failure
+        for failure in failures
+    )
 
 
 def test_compose_topology_validator_rejects_control_endpoint_drift() -> None:

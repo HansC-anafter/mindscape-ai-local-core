@@ -283,6 +283,22 @@ def validate_runner_pool(model: Mapping[str, Any]) -> list[str]:
         _require_env(service_name, env, "LOCAL_CORE_RUNNER_MAX_INFLIGHT", expectations["max_inflight"], failures)
         _require_env(service_name, env, "DB_POOL_SIZE", expectations["pool_size"], failures)
         _require_env(service_name, env, "DB_MAX_OVERFLOW", expectations["max_overflow"], failures)
+        if "maintenance_only" in expectations:
+            _require_env(
+                service_name,
+                env,
+                "LOCAL_CORE_RUNNER_MAINTENANCE_ONLY",
+                expectations["maintenance_only"],
+                failures,
+            )
+        if "startup_reconcile_enabled" in expectations:
+            _require_env(
+                service_name,
+                env,
+                "LOCAL_CORE_RUNNER_STARTUP_RECONCILE_ENABLED",
+                expectations["startup_reconcile_enabled"],
+                failures,
+            )
         _require_env_contains(service_name, env, "DATABASE_URL_CORE", "@pgbouncer:6432/mindscape_core", failures)
         _require_env_contains(service_name, env, "DATABASE_URL_CORE_SESSION", "@postgres:5432/mindscape_core", failures)
     return failures
