@@ -13,6 +13,9 @@ from backend.app.services.runner_resources import (
     release_acquired_resource_admission,
     release_acquired_resource_leases,
 )
+from backend.app.services.runner_resources.browser_startup_gate import (
+    browser_startup_slot_lease_key,
+)
 
 MIB = 1024 * 1024
 
@@ -476,12 +479,12 @@ async def test_browser_startup_spacing_allows_byte_reserved_parallel_claims():
     assert first.allow is True
     assert first.acquired_leases == []
     assert len(first.preclaim_leases) == 1
-    assert first.preclaim_leases[0].lease_key == BROWSER_STARTUP_LEASE_KEY
+    assert first.preclaim_leases[0].lease_key == browser_startup_slot_lease_key(2)
     assert first.execution_context_updates["runner_resource_leases"] == []
     assert second.allow is True
     assert first.execution_context_updates["resource_admission"][
         "browser_startup"
-    ]["slot_index"] == 0
+    ]["slot_index"] == 2
     assert second.execution_context_updates["resource_admission"][
         "browser_startup"
     ]["slot_index"] == 1
@@ -502,7 +505,7 @@ async def test_browser_startup_spacing_allows_byte_reserved_parallel_claims():
     assert third.allow is True
     assert third.execution_context_updates["resource_admission"][
         "browser_startup"
-    ]["slot_index"] == 2
+    ]["slot_index"] == 0
     snapshot_after_claims = await node_store.snapshot()
     assert snapshot_after_claims["active_reservations"] == 6
     assert snapshot_after_claims["reserved_bytes"] == 6 * 1024 * MIB

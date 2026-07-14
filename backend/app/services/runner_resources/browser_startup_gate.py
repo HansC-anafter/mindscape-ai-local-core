@@ -144,7 +144,11 @@ async def acquire_browser_startup_gate(
             None,
             None,
         )
-    for slot_index in range(slot_count):
+    # Larger startup requests can use only the low-index prefix of this
+    # nested slot set, while smaller requests can also use higher indexes.
+    # Prefer the highest eligible index so small requests do not starve large
+    # requests by consuming their scarce shared prefix first.
+    for slot_index in reversed(range(slot_count)):
         lease_key = browser_startup_slot_lease_key(slot_index)
         acquired = await lease_store.acquire(
             lease_key,

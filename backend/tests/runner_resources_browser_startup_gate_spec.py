@@ -126,8 +126,43 @@ async def test_measured_startup_uses_all_byte_safe_slots_before_spacing_defer():
         True,
         False,
     ]
-    assert [decision.slot_index for decision in decisions[:4]] == [0, 1, 2, 3]
-    assert decisions[0].lease_key == BROWSER_STARTUP_LEASE_KEY
-    assert decisions[1].lease_key == browser_startup_slot_lease_key(1)
+    assert [decision.slot_index for decision in decisions[:4]] == [3, 2, 1, 0]
+    assert decisions[0].lease_key == browser_startup_slot_lease_key(3)
+    assert decisions[-2].lease_key == BROWSER_STARTUP_LEASE_KEY
     assert decisions[-1].reason == "browser_startup_spacing_active"
     assert decisions[-1].slot_count == 4
+
+
+@pytest.mark.asyncio
+async def test_small_startups_preserve_low_index_slots_for_large_startups():
+    store = InMemoryResourceLeaseStore()
+    snapshot = {"available_bytes": 4 * 1024 * MIB}
+    small = SimpleNamespace(
+        browser_startup_memory_mb=512,
+        browser_startup_spacing_seconds=10,
+    )
+    large = SimpleNamespace(
+        browser_startup_memory_mb=2048,
+        browser_startup_spacing_seconds=10,
+    )
+
+    small_decisions = [
+        await acquire_browser_startup_gate(
+            requirements=small,
+            node_snapshot=snapshot,
+            lease_store=store,
+            owner_id=f"small-{index}",
+        )
+        for index in range(2)
+    ]
+    large_decision = await acquire_browser_startup_gate(
+        requirements=large,
+        node_snapshot=snapshot,
+        lease_store=store,
+        owner_id="large",
+    )
+
+    assert [decision.slot_index for decision in small_decisions] == [6, 5]
+    assert large_decision.allow is True
+    assert large_decision.slot_count == 2
+    assert large_decision.slot_index == 1
