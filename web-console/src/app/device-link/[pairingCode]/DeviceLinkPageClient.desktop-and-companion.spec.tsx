@@ -37,10 +37,13 @@ describe('DeviceLinkPageClient desktop and companion behavior', () => {
 
     expect(mocks.startDesktopBrowserSourceSession).toHaveBeenCalledWith(
       expect.objectContaining({
-        apiBase: 'http://api.test',
-        workspaceId: 'ws_device',
-        deviceSessionId: 'session_1',
-        mediaSessionId: 'session_1',
+        access: expect.objectContaining({
+          session: expect.objectContaining({
+            workspace_id: 'ws_device',
+            device_session_id: 'session_1',
+            media_session_id: 'lms_session_1',
+          }),
+        }),
         sourceKind: 'virtual_camera',
         deviceId: 'obs_1',
       }),

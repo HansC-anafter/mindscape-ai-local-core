@@ -18,6 +18,35 @@ const hoistedMocks = vi.hoisted(() => ({
   readiness: {
     allowed: true,
   } as any,
+  createLiveMediaSession: vi.fn(async (input) => ({
+    session: {
+      workspace_id: input.workspaceId,
+      device_session_id: input.deviceSessionId,
+      media_session_id: `lms_${input.deviceSessionId}`,
+      stream_path: `workspace/${input.workspaceId}/${input.deviceSessionId}`,
+      source_kind: input.sourceKind,
+      relay_profile: 'public',
+      capabilities: input.capabilities,
+      analysis_reserved: input.analysisReserved ?? true,
+      state: 'waiting_for_publisher',
+      endpoints: {
+        whip_publish_url: 'https://media.test/live/whip',
+        whep_preview_url: 'https://media.test/live/whep',
+        rtmps_publish_url: 'rtmps://media.test:1936/live',
+        rtsps_receiver_url: 'rtsps://media.test:8322/live',
+      },
+      receiver_descriptor_ref: 'receiver://test',
+      created_at_epoch: 1,
+      updated_at_epoch: 1,
+      expires_at_epoch: 3601,
+    },
+    tokens: {
+      publish: 'publish_token',
+      preview: 'preview_token',
+      receiver: 'receiver_token',
+    },
+  })),
+  stopLiveMediaSession: vi.fn(async () => ({ state: 'stopped' })),
   createStream: (label: string) => {
     const tracks = [
       {
@@ -90,15 +119,20 @@ vi.mock('@/lib/device-binding/deviceBindingClient', () => ({
   openDeviceControlSocket: hoistedMocks.openDeviceControlSocket,
 }));
 
-vi.mock('@/lib/media-transport/webrtcSessionClient', () => ({
-  buildPhoneVideoConstraints: (facingMode = 'environment') => ({
+vi.mock('@/lib/media-transport/liveMediaSessionClient', () => ({
+  createLiveMediaSession: hoistedMocks.createLiveMediaSession,
+  stopLiveMediaSession: hoistedMocks.stopLiveMediaSession,
+}));
+
+vi.mock('@/lib/media-transport/relayMediaSourceSession', () => ({
+  buildPhoneRelayVideoConstraints: (facingMode = 'environment') => ({
     facingMode: { ideal: facingMode },
     width: { ideal: 1280 },
     height: { ideal: 720 },
     frameRate: { max: 30 },
   }),
-  startPhoneBrowserSourceSession: hoistedMocks.startPhoneBrowserSourceSession,
-  startDesktopBrowserSourceSession: hoistedMocks.startDesktopBrowserSourceSession,
+  startPhoneRelayMediaSourceSession: hoistedMocks.startPhoneBrowserSourceSession,
+  startDesktopRelayMediaSourceSession: hoistedMocks.startDesktopBrowserSourceSession,
 }));
 
 vi.mock('@/components/workspace/device-binding/DesktopSourcePicker', () => ({

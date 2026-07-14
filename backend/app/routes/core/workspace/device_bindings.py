@@ -22,8 +22,47 @@ from backend.app.services.orchestration.meeting.device_binding_registry import (
     DeviceBindingRegistryError,
     get_device_binding_registry,
 )
+from backend.app.services.media_transport import (
+    LiveMediaSessionService,
+    LiveMediaSessionServiceError,
+    get_live_media_session_service,
+)
+from backend.app.services.orchestration.meeting.device_binding_events import (
+    broadcast_to_source_devices as _broadcast_to_source_devices,
+    broadcast_to_workspace_observers as _broadcast_to_workspace_observers,
+    broadcast_workspace_session_observers as _broadcast_workspace_session_observers,
+    build_entry_event as _entry_event,
+    build_error_event as _error_event,
+    send_device_control_event as _send_event,
+)
 
 router = APIRouter()
+
+
+def get_device_binding_live_media_service() -> LiveMediaSessionService | None:
+    """Resolve media lifecycle support only when the formal lane is configured."""
+
+    try:
+        return get_live_media_session_service()
+    except LiveMediaSessionServiceError:
+        return None
+
+
+def _stop_attached_live_media_session(
+    entry: DeviceSessionEntry,
+    media_service: LiveMediaSessionService | None,
+) -> None:
+    if media_service is None or not entry.media_session_id:
+        return
+    try:
+        media_service.stop(
+            workspace_id=entry.workspace_id,
+            device_session_id=entry.session_id,
+            media_session_id=entry.media_session_id,
+        )
+    except LiveMediaSessionServiceError as exc:
+        if exc.reason != "live_media_session_not_found":
+            raise
 
 
 class CreateDevicePairingCodeRequest(BaseModel):
@@ -33,106 +72,6 @@ class CreateDevicePairingCodeRequest(BaseModel):
 
     label: str | None = None
     expires_in_seconds: int | None = Field(default=None, ge=1, le=600)
-
-
-async def _send_event(websocket: WebSocket, event: DeviceControlEvent) -> None:
-    await websocket.send_text(json.dumps(event.model_dump(mode="json", exclude_none=True)))
-
-
-def _entry_event(
-    *,
-    event_type: str,
-    entry: DeviceSessionEntry,
-    active_sessions: list[DeviceSessionEntry] | None = None,
-    reason: str | None = None,
-    message: str | None = None,
-    recoverable: bool | None = None,
-) -> DeviceControlEvent:
-    return DeviceControlEvent(
-        type=event_type,
-        workspace_id=entry.workspace_id,
-        pairing_code=entry.pairing_code,
-        session_id=entry.session_id,
-        device_id=entry.device_id,
-        display_name=entry.display_name,
-        source_types=entry.source_types,
-        state=entry.state,
-        expires_at_epoch=entry.expires_at_epoch,
-        active_sessions=active_sessions or [],
-        reason=reason,
-        message=message,
-        recoverable=recoverable,
-    )
-
-
-def _error_event(
-    *,
-    workspace_id: str,
-    pairing_code: str,
-    reason: str,
-    message: str,
-    recoverable: bool,
-    active_sessions: list[DeviceSessionEntry] | None = None,
-) -> DeviceControlEvent:
-    return DeviceControlEvent(
-        type="session_error",
-        workspace_id=workspace_id,
-        pairing_code=pairing_code,
-        state="rejected",
-        active_sessions=active_sessions or [],
-        reason=reason,
-        message=message,
-        recoverable=recoverable,
-    )
-
-
-async def _broadcast_to_workspace_observers(
-    *,
-    registry: DeviceBindingRegistry,
-    pairing_code: str,
-    event: DeviceControlEvent,
-) -> None:
-    stale: list[WebSocket] = []
-    for observer in registry.workspace_observers(pairing_code=pairing_code):
-        try:
-            await _send_event(observer, event)
-        except RuntimeError:
-            stale.append(observer)
-    for observer in stale:
-        registry.detach_workspace_observer(
-            pairing_code=pairing_code,
-            websocket=observer,
-        )
-
-    stale_workspace_observers: list[WebSocket] = []
-    for observer in registry.workspace_session_observers(
-        workspace_id=event.workspace_id,
-    ):
-        try:
-            await _send_event(observer, event)
-        except RuntimeError:
-            stale_workspace_observers.append(observer)
-    for observer in stale_workspace_observers:
-        registry.detach_workspace_session_observer(
-            workspace_id=event.workspace_id,
-            websocket=observer,
-        )
-
-
-async def _broadcast_to_source_devices(
-    *,
-    registry: DeviceBindingRegistry,
-    workspace_id: str,
-    pairing_code: str,
-    event: DeviceControlEvent,
-) -> None:
-    for entry in registry.list_active_sessions(workspace_id=workspace_id):
-        if (pairing_code and entry.pairing_code != pairing_code) or entry.websocket is None:
-            continue
-        try:
-            await _send_event(entry.websocket, event)
-        except RuntimeError:
-            continue
 
 
 @router.post(
@@ -154,6 +93,21 @@ async def create_device_pairing_code(
     )
 
 
+@router.get(
+    "/{workspace_id}/device-bindings/sessions",
+    response_model=list[DeviceSessionEntry],
+)
+async def list_device_binding_sessions(
+    workspace_id: str = Path(..., description="Workspace ID"),
+    workspace: Workspace = Depends(get_workspace),
+    registry: DeviceBindingRegistry = Depends(get_device_binding_registry),
+) -> list[DeviceSessionEntry]:
+    """Return active source device sessions for workspace hydration."""
+
+    _ = workspace
+    return registry.list_active_sessions(workspace_id=workspace_id)
+
+
 @router.post(
     "/{workspace_id}/device-bindings/{session_id}/revoke",
     response_model=DeviceControlEvent,
@@ -163,6 +117,9 @@ async def revoke_device_binding_session(
     session_id: str = Path(..., description="Device session ID"),
     workspace: Workspace = Depends(get_workspace),
     registry: DeviceBindingRegistry = Depends(get_device_binding_registry),
+    media_service: LiveMediaSessionService | None = Depends(
+        get_device_binding_live_media_service
+    ),
 ) -> DeviceControlEvent:
     """Revoke one active device binding session."""
 
@@ -174,6 +131,7 @@ async def revoke_device_binding_session(
         )
     except DeviceBindingRegistryError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.reason) from exc
+    _stop_attached_live_media_session(entry, media_service)
 
     event = _entry_event(
         event_type="session_revoked",
@@ -266,25 +224,6 @@ async def control_workspace_device_sessions(
             )
 
 
-async def _broadcast_workspace_session_observers(
-    *,
-    registry: DeviceBindingRegistry,
-    workspace_id: str,
-    event: DeviceControlEvent,
-) -> None:
-    stale: list[WebSocket] = []
-    for observer in registry.workspace_session_observers(workspace_id=workspace_id):
-        try:
-            await _send_event(observer, event)
-        except RuntimeError:
-            stale.append(observer)
-    for observer in stale:
-        registry.detach_workspace_session_observer(
-            workspace_id=workspace_id,
-            websocket=observer,
-        )
-
-
 @router.websocket("/{workspace_id}/device-bindings/{pairing_code}/control")
 async def control_device_binding_session(
     websocket: WebSocket,
@@ -292,6 +231,9 @@ async def control_device_binding_session(
     pairing_code: str,
     workspace: Workspace = Depends(get_workspace),
     registry: DeviceBindingRegistry = Depends(get_device_binding_registry),
+    media_service: LiveMediaSessionService | None = Depends(
+        get_device_binding_live_media_service
+    ),
 ) -> None:
     """Run the workspace/source device binding control channel."""
 
@@ -374,6 +316,7 @@ async def control_device_binding_session(
             if message.type == "session_close":
                 closed = registry.close_session(session_id=entry.session_id)
                 if closed is not None:
+                    _stop_attached_live_media_session(closed, media_service)
                     event = _entry_event(
                         event_type="session_closed",
                         entry=closed,
@@ -415,6 +358,7 @@ async def control_device_binding_session(
         if entry is not None:
             closed = registry.close_session(session_id=entry.session_id)
             if closed is not None:
+                _stop_attached_live_media_session(closed, media_service)
                 await _broadcast_to_workspace_observers(
                     registry=registry,
                     pairing_code=pairing_code,

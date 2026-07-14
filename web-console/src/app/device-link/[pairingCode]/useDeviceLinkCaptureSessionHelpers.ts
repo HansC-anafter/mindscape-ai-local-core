@@ -1,4 +1,7 @@
-import type { WebRTCSessionState } from '@/lib/media-transport/webrtcSessionClient';
+import type {
+  CameraFacingMode,
+  WebRTCSessionState,
+} from '@/lib/media-transport/webrtcSessionTypes';
 import type { LinkState } from './useDeviceLinkCaptureSessionTypes';
 
 export function buildDeviceId(): string {
@@ -24,8 +27,22 @@ export function stopStreamTracks(stream: MediaStream | null) {
   }
 }
 
+export function phoneFacingModeMessage(mode: CameraFacingMode): string {
+  return mode === 'environment' ? 'Rear camera enabled.' : 'Front camera enabled.';
+}
+
 export function isActiveLinkState(state: LinkState): boolean {
   return state === 'connecting' || state === 'paired' || state === 'streaming';
+}
+
+export function canReconnectMediaTransport(
+  state: LinkState,
+  mediaState: WebRTCSessionState | 'idle' | 'error',
+  deviceSessionId: string | null,
+): boolean {
+  return Boolean(deviceSessionId)
+    && (state === 'paired' || state === 'streaming')
+    && (mediaState === 'closed' || mediaState === 'error');
 }
 
 export function connectionStatusLabel(state: LinkState, mediaState: WebRTCSessionState | 'idle' | 'error'): string {
@@ -33,9 +50,15 @@ export function connectionStatusLabel(state: LinkState, mediaState: WebRTCSessio
     return 'Connecting';
   }
   if (state === 'paired') {
+    if (mediaState === 'closed' || mediaState === 'error') {
+      return 'Media offline';
+    }
     return mediaState === 'connected' ? 'Connected' : 'Paired';
   }
   if (state === 'streaming') {
+    if (mediaState === 'closed' || mediaState === 'error') {
+      return 'Media offline';
+    }
     return mediaState === 'connected' ? 'Streaming' : 'Camera active';
   }
   if (state === 'secure_context_required') {
@@ -55,11 +78,17 @@ export function connectionStatusDetail(state: LinkState, mediaState: WebRTCSessi
     return 'Pairing with the workspace. Do not tap Connect again.';
   }
   if (state === 'paired') {
+    if (mediaState === 'closed' || mediaState === 'error') {
+      return 'Camera media disconnected. Reconnect source media without changing the pairing code.';
+    }
     return mediaState === 'connected'
       ? 'Workspace receiver connected. Keep this page open.'
       : 'Device paired. Keep this page open while the workspace starts the receiver.';
   }
   if (state === 'streaming') {
+    if (mediaState === 'closed' || mediaState === 'error') {
+      return 'Camera media disconnected. Reconnect source media without changing the pairing code.';
+    }
     return mediaState === 'connected'
       ? 'Live video is streaming to the workspace.'
       : 'Camera is active. Keep your full body in frame while the receiver connects.';
@@ -81,9 +110,15 @@ export function connectButtonLabel(state: LinkState, mediaState: WebRTCSessionSt
     return 'Connecting';
   }
   if (state === 'paired') {
+    if (mediaState === 'closed' || mediaState === 'error') {
+      return 'Reconnect';
+    }
     return mediaState === 'connected' ? 'Connected' : 'Paired';
   }
   if (state === 'streaming') {
+    if (mediaState === 'closed' || mediaState === 'error') {
+      return 'Reconnect';
+    }
     return 'Streaming';
   }
   if (state === 'closed' || state === 'error') {

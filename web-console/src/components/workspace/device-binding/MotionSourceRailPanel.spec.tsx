@@ -120,22 +120,16 @@ describe('MotionSourceRailPanel', () => {
       'USB webcam source',
     );
     expect(screen.getByTestId('external-provider-connection-guide')).toHaveTextContent(
-      'Public RTMP push-stream',
+      'Session RTMPS publisher',
     );
     expect(screen.getByTestId('external-provider-connection-guide')).toHaveTextContent(
       'Gimbal-mounted camera',
     );
     expect(screen.getByTestId('capture-relay-launcher-card')).toHaveTextContent(
-      'RTMP to OBS Virtual Camera',
-    );
-    expect(screen.getByTestId('public-rtmp-ingest-panel')).toHaveTextContent(
-      'rtmp://34.80.219.221:1935/external-camera',
-    );
-    expect(screen.getByTestId('public-rtmp-origin-input')).toHaveValue(
-      'rtmp://34.80.219.221:1935',
+      'Local RTMP to OBS Virtual Camera',
     );
     expect(screen.getByTestId('local-rtmp-relay-fallback')).toHaveTextContent(
-      'Local host relay fallback',
+      'Local host relay',
     );
     expect(screen.getByRole('link', { name: 'Open OBS Virtual Camera source' })).toHaveAttribute(
       'href',

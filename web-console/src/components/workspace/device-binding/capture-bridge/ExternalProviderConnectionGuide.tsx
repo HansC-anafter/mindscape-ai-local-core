@@ -6,8 +6,8 @@ const PROVIDER_CONNECTION_STEPS = [
     body: 'Use a camera that appears in the browser device list, then select Computer / OBS camera below.',
   },
   {
-    title: 'Public RTMP push-stream',
-    body: 'Send the camera livestream app to the public RTMP URL, add the same URL to OBS as a Media Source, then expose OBS Virtual Camera.',
+    title: 'Session RTMPS publisher',
+    body: 'Pair the provider bridge first. It receives an expiring RTMPS endpoint and publish token for one media path.',
   },
   {
     title: 'Gimbal-mounted camera',
@@ -31,8 +31,8 @@ export function ExternalProviderConnectionGuide() {
         ))}
       </ol>
       <div className="mt-2 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
-        Do not paste this code into a camera or gimbal. The code is only for a
-        bridge app or host tool that can publish a browser-compatible source.
+        Pairing codes are accepted only by a bridge app or host tool. Public plain RTMP is not
+        a supported product endpoint.
       </div>
     </div>
   );

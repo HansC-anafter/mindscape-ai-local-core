@@ -107,7 +107,7 @@ describe('MotionSourceRailPanel capture relay provider', () => {
 
     await waitForPairingFlow();
     openProviderSetup('external');
-    fireEvent.click(screen.getByText('Local host relay fallback'));
+    fireEvent.click(screen.getByText('Local RTMP to OBS Virtual Camera'));
     fireEvent.click(screen.getByRole('button', { name: 'Start local relay' }));
 
     await screen.findByText('rtmp://192.168.0.10/external-camera');
@@ -208,7 +208,7 @@ describe('MotionSourceRailPanel capture relay provider', () => {
 
     await waitForPairingFlow();
     openProviderSetup('external');
-    fireEvent.click(screen.getByText('Local host relay fallback'));
+    fireEvent.click(screen.getByText('Local RTMP to OBS Virtual Camera'));
     fireEvent.click(screen.getByRole('button', { name: 'Check local relay' }));
 
     await screen.findByText('rtmp://192.168.0.10/external-camera');
