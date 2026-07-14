@@ -308,6 +308,9 @@ async def test_unmeasured_browser_request_does_not_invent_reservation():
             "requested_bytes": 0,
             "request_source": "unmeasured_spacing_only",
             "spacing_seconds": 30,
+            "slot_count": 1,
+            "slot_index": 0,
+            "lease_key": BROWSER_STARTUP_LEASE_KEY,
         },
         "admitted_at": decision.execution_context_updates[
             "resource_admission"
@@ -419,11 +422,14 @@ async def test_measured_browser_request_without_startup_measurement_uses_spacing
         "requested_bytes": 0,
         "request_source": "unmeasured_spacing_only",
         "spacing_seconds": 30,
+        "slot_count": 1,
+        "slot_index": 0,
+        "lease_key": BROWSER_STARTUP_LEASE_KEY,
     }
 
 
 @pytest.mark.asyncio
-async def test_browser_startup_spacing_serializes_claims_without_durable_lease():
+async def test_browser_startup_spacing_allows_byte_reserved_parallel_claims():
     lease_store = InMemoryResourceLeaseStore(now_epoch=0.0)
     node_store = InMemoryNodeBudgetStore()
     requirements = ResourceRequirements(
@@ -466,30 +472,32 @@ async def test_browser_startup_spacing_serializes_claims_without_durable_lease()
     assert first.allow is True
     assert first.acquired_leases == []
     assert first.execution_context_updates["runner_resource_leases"] == []
-    assert second.allow is False
-    assert second.blocked_payload["reason"] == "browser_startup_spacing_active"
-    assert second.blocked_payload["startup_spacing_seconds"] == 10
-    assert (await node_store.snapshot())["active_reservations"] == 1
+    assert second.allow is True
+    assert first.execution_context_updates["resource_admission"][
+        "browser_startup"
+    ]["slot_index"] == 0
+    assert second.execution_context_updates["resource_admission"][
+        "browser_startup"
+    ]["slot_index"] == 1
+    assert (await node_store.snapshot())["active_reservations"] == 2
 
-    lease_store.advance(10)
     third = await acquire_task_resource_admission(
-        task=_task("task-start-2"),
+        task=_task("task-start-3"),
         requirements=requirements,
         runner_profile=_profile(),
         capacity=_capacity(3),
         lease_store=lease_store,
         node_budget_store=node_store,
         node_memory_snapshot=snapshot,
-        owner_id="runner-b:task-start-2",
+        owner_id="runner-c:task-start-3",
         ttl_seconds=30,
     )
 
     assert third.allow is True
-    assert BROWSER_STARTUP_LEASE_KEY not in [
-        item["lease_key"]
-        for item in third.execution_context_updates["runner_resource_leases"]
-    ]
-    assert (await node_store.snapshot())["active_reservations"] == 2
+    assert third.execution_context_updates["resource_admission"][
+        "browser_startup"
+    ]["slot_index"] == 2
+    assert (await node_store.snapshot())["active_reservations"] == 3
 
 
 @pytest.mark.asyncio

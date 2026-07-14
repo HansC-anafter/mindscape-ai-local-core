@@ -12,6 +12,8 @@ from .leases import ResourceLeaseStore
 DEFAULT_BROWSER_STARTUP_SPACING_SECONDS = 30
 MIN_BROWSER_STARTUP_SPACING_SECONDS = 5
 MAX_BROWSER_STARTUP_SPACING_SECONDS = 300
+DEFAULT_BROWSER_STARTUP_MAX_PARALLEL = 7
+MAX_BROWSER_STARTUP_MAX_PARALLEL = 7
 BROWSER_STARTUP_LEASE_KEY = build_resource_lease_key(
     "browser_startup",
     "docker_vm",
@@ -25,6 +27,9 @@ class BrowserStartupDecision:
     requested_bytes: int
     request_source: str | None
     spacing_seconds: int
+    slot_count: int
+    slot_index: int | None
+    lease_key: str | None
 
 
 def _positive_int(value: Any) -> int:
@@ -65,6 +70,52 @@ def resolve_browser_startup_spacing_seconds(
     )
 
 
+def resolve_browser_startup_slot_count(
+    requirements: Any,
+    node_snapshot: Mapping[str, Any],
+    *,
+    environ: Mapping[str, str] | None = None,
+) -> int:
+    """Resolve bounded VM-wide startup slots from measured byte headroom.
+
+    The node budget already reserves the full startup peak for the complete task
+    lifetime. These short-lived slots only prevent a same-second launch stampede;
+    they must not collapse every independently reserved browser task into one
+    global serial lane.
+    """
+    source = environ if environ is not None else os.environ
+    configured = _positive_int(
+        source.get("LOCAL_CORE_RUNNER_BROWSER_STARTUP_MAX_PARALLEL")
+    )
+    max_parallel = max(
+        1,
+        min(
+            configured or DEFAULT_BROWSER_STARTUP_MAX_PARALLEL,
+            MAX_BROWSER_STARTUP_MAX_PARALLEL,
+        ),
+    )
+    request = resolve_browser_startup_request_bytes(requirements, node_snapshot)
+    if request is None:
+        return 1
+    requested_bytes, _request_source = request
+    available_bytes = _positive_int(node_snapshot.get("available_bytes"))
+    if requested_bytes <= 0 or available_bytes < requested_bytes:
+        return 0
+    return max(1, min(max_parallel, available_bytes // requested_bytes))
+
+
+def browser_startup_slot_lease_key(slot_index: int) -> str:
+    normalized_index = max(0, int(slot_index))
+    if normalized_index == 0:
+        # Preserve the legacy key as slot zero so mixed-version blue/green
+        # promotion continues to observe the old global spacing lease.
+        return BROWSER_STARTUP_LEASE_KEY
+    return build_resource_lease_key(
+        "browser_startup",
+        f"docker_vm_slot_{normalized_index + 1}",
+    )
+
+
 async def acquire_browser_startup_gate(
     *,
     requirements: Any,
@@ -78,6 +129,10 @@ async def acquire_browser_startup_gate(
         request if request is not None else (0, "unmeasured_spacing_only")
     )
     available_bytes = _positive_int(node_snapshot.get("available_bytes"))
+    slot_count = resolve_browser_startup_slot_count(
+        requirements,
+        node_snapshot,
+    )
     if requested_bytes > 0 and available_bytes < requested_bytes:
         return BrowserStartupDecision(
             False,
@@ -85,26 +140,37 @@ async def acquire_browser_startup_gate(
             requested_bytes,
             request_source,
             spacing_seconds,
+            0,
+            None,
+            None,
         )
-    acquired = await lease_store.acquire(
-        BROWSER_STARTUP_LEASE_KEY,
-        owner_id,
-        spacing_seconds,
-    )
-    if not acquired:
-        return BrowserStartupDecision(
-            False,
-            "browser_startup_spacing_active",
-            requested_bytes,
-            request_source,
+    for slot_index in range(slot_count):
+        lease_key = browser_startup_slot_lease_key(slot_index)
+        acquired = await lease_store.acquire(
+            lease_key,
+            owner_id,
             spacing_seconds,
         )
+        if acquired:
+            return BrowserStartupDecision(
+                True,
+                None,
+                requested_bytes,
+                request_source,
+                spacing_seconds,
+                slot_count,
+                slot_index,
+                lease_key,
+            )
     return BrowserStartupDecision(
-        True,
-        None,
+        False,
+        "browser_startup_spacing_active",
         requested_bytes,
         request_source,
         spacing_seconds,
+        slot_count,
+        None,
+        None,
     )
 
 
@@ -112,6 +178,8 @@ __all__ = [
     "BROWSER_STARTUP_LEASE_KEY",
     "BrowserStartupDecision",
     "acquire_browser_startup_gate",
+    "browser_startup_slot_lease_key",
     "resolve_browser_startup_request_bytes",
+    "resolve_browser_startup_slot_count",
     "resolve_browser_startup_spacing_seconds",
 ]

@@ -304,6 +304,7 @@ async def acquire_task_resource_admission(
                     "startup_spacing_seconds": (
                         browser_startup_decision.spacing_seconds
                     ),
+                    "startup_slot_count": browser_startup_decision.slot_count,
                 },
             )
 
@@ -345,6 +346,9 @@ async def acquire_task_resource_admission(
                     "requested_bytes": browser_startup_decision.requested_bytes,
                     "request_source": browser_startup_decision.request_source,
                     "spacing_seconds": browser_startup_decision.spacing_seconds,
+                    "slot_count": browser_startup_decision.slot_count,
+                    "slot_index": browser_startup_decision.slot_index,
+                    "lease_key": browser_startup_decision.lease_key,
                 }
                 if browser_startup_decision is not None
                 else None
