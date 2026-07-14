@@ -44,6 +44,14 @@ export type DeviceSessionEntry = {
     failed_windows?: number;
     append_queue_pending?: number;
     reconnect_attempts?: number;
+    decoded_frames?: number;
+    overwritten_frames?: number;
+    decode_errors?: number;
+    pipe_bytes_read?: number;
+    pipe_buffered_bytes?: number;
+    pipe_high_watermark_bytes?: number;
+    pipe_discarded_bytes?: number;
+    pipe_overflow_count?: number;
     last_window_end_ms?: number | null;
     reference_chapter_id?: string | null;
     reference_localization_ready?: boolean | null;

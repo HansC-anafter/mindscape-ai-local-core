@@ -62,6 +62,12 @@ def receiver_metrics(
         "reconnect_attempts": reconnect_attempts,
         "decoded_frames": capture.get("decoded_frames", 0),
         "overwritten_frames": capture.get("overwritten_frames", 0),
+        "decode_errors": capture.get("decode_errors", 0),
+        "pipe_bytes_read": capture.get("pipe_bytes_read", 0),
+        "pipe_buffered_bytes": capture.get("pipe_buffered_bytes", 0),
+        "pipe_high_watermark_bytes": capture.get("pipe_high_watermark_bytes", 0),
+        "pipe_discarded_bytes": capture.get("pipe_discarded_bytes", 0),
+        "pipe_overflow_count": capture.get("pipe_overflow_count", 0),
         "last_window_end_ms": (
             last_window_summary.get("ts_end_ms")
             if last_window_summary is not None

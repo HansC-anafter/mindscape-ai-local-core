@@ -13,6 +13,11 @@ import cv2
 import numpy as np
 
 from .events import emit
+from .jpeg_pipe import BoundedJpegFrameParser
+
+
+JPEG_PIPE_READ_SIZE = 64 * 1024
+JPEG_PIPE_MAX_FRAME_BYTES = 2 * 1024 * 1024
 
 
 class OpenCvStreamCapture:
@@ -71,15 +76,19 @@ class FfmpegRawFrameCapture:
         self.read_timeout_sec = read_timeout_sec
         self.avfoundation_framerate = avfoundation_framerate
         self.ffmpeg_realtime_input = ffmpeg_realtime_input
-        self.frame_size = frame_width * frame_height * 3
         self.process: subprocess.Popen[bytes] | None = None
         self.selector: selectors.BaseSelector | None = None
         self._frames: queue.Queue[np.ndarray] = queue.Queue(maxsize=1)
+        self._jpeg_parser = BoundedJpegFrameParser(
+            max_frame_bytes=JPEG_PIPE_MAX_FRAME_BYTES
+        )
         self._stop_reader = threading.Event()
         self._reader_done = threading.Event()
         self._reader_thread: threading.Thread | None = None
         self._decoded_frames = 0
         self._overwritten_frames = 0
+        self._decode_errors = 0
+        self._pipe_bytes_read = 0
         self._reader_error: str | None = None
         self._open()
 
@@ -123,10 +132,12 @@ class FfmpegRawFrameCapture:
             "-an",
             "-vf",
             f"fps={fps},scale={self.frame_width}:{self.frame_height}",
-            "-pix_fmt",
-            "bgr24",
+            "-c:v",
+            "mjpeg",
+            "-q:v",
+            "4",
             "-f",
-            "rawvideo",
+            "image2pipe",
             "pipe:1",
         ]
         try:
@@ -165,11 +176,12 @@ class FfmpegRawFrameCapture:
     def _read_frame_bytes(self) -> bytes | None:
         if self.process is None or self.process.stdout is None:
             return None
-        chunks: list[bytes] = []
-        remaining = self.frame_size
         deadline = time.monotonic() + max(1.0, self.read_timeout_sec)
         fd = self.process.stdout.fileno()
-        while remaining > 0 and not self._stop_reader.is_set():
+        while not self._stop_reader.is_set():
+            encoded_frame = self._jpeg_parser.pop_frame()
+            if encoded_frame is not None:
+                return encoded_frame
             wait_sec = deadline - time.monotonic()
             if wait_sec <= 0:
                 self._reader_error = "frame_read_timeout"
@@ -182,16 +194,14 @@ class FfmpegRawFrameCapture:
                 self._reader_error = "frame_read_timeout"
                 return None
             try:
-                chunk = os.read(fd, remaining)
+                chunk = os.read(fd, JPEG_PIPE_READ_SIZE)
             except OSError:
                 return None
             if not chunk:
                 return None
-            chunks.append(chunk)
-            remaining -= len(chunk)
-        if remaining > 0:
-            return None
-        return b"".join(chunks)
+            self._pipe_bytes_read += len(chunk)
+            self._jpeg_parser.feed(chunk)
+        return None
 
     def _replace_latest_frame(self, frame: np.ndarray) -> None:
         while not self._stop_reader.is_set():
@@ -211,11 +221,18 @@ class FfmpegRawFrameCapture:
                 payload = self._read_frame_bytes()
                 if payload is None:
                     return
-                frame = np.frombuffer(payload, dtype=np.uint8).reshape(
-                    (self.frame_height, self.frame_width, 3)
+                frame = cv2.imdecode(
+                    np.frombuffer(payload, dtype=np.uint8),
+                    cv2.IMREAD_COLOR,
                 )
+                if frame is None or frame.shape[:2] != (
+                    self.frame_height,
+                    self.frame_width,
+                ):
+                    self._decode_errors += 1
+                    continue
                 self._decoded_frames += 1
-                self._replace_latest_frame(frame.copy())
+                self._replace_latest_frame(frame)
         finally:
             self._reader_done.set()
 
@@ -238,6 +255,12 @@ class FfmpegRawFrameCapture:
         return {
             "decoded_frames": self._decoded_frames,
             "overwritten_frames": self._overwritten_frames,
+            "decode_errors": self._decode_errors,
+            "pipe_bytes_read": self._pipe_bytes_read,
+            "pipe_buffered_bytes": self._jpeg_parser.buffered_bytes,
+            "pipe_high_watermark_bytes": self._jpeg_parser.high_watermark_bytes,
+            "pipe_discarded_bytes": self._jpeg_parser.discarded_bytes,
+            "pipe_overflow_count": self._jpeg_parser.overflow_count,
             "reader_error": self._reader_error,
         }
 

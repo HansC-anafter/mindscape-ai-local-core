@@ -192,6 +192,12 @@ def test_receiver_event_projects_authenticated_health_without_polling(
             "reconnect_attempts": 0,
             "decoded_frames": 60,
             "overwritten_frames": 3,
+            "decode_errors": 0,
+            "pipe_bytes_read": 480000,
+            "pipe_buffered_bytes": 64,
+            "pipe_high_watermark_bytes": 32000,
+            "pipe_discarded_bytes": 0,
+            "pipe_overflow_count": 0,
             "last_window_end_ms": 61234.0,
             "reference_chapter_id": "segment:010",
             "reference_localization_ready": True,
@@ -222,6 +228,9 @@ def test_receiver_event_projects_authenticated_health_without_polling(
     assert entry.media_receiver_metrics["accepted_windows"] == 12
     assert entry.media_receiver_metrics["decoded_frames"] == 60
     assert entry.media_receiver_metrics["overwritten_frames"] == 3
+    assert entry.media_receiver_metrics["pipe_bytes_read"] == 480000
+    assert entry.media_receiver_metrics["pipe_high_watermark_bytes"] == 32000
+    assert entry.media_receiver_metrics["pipe_overflow_count"] == 0
     assert entry.media_receiver_metrics["reference_chapter_id"] == "segment:010"
     assert "append_owner" not in projected.text
     source_socket.__exit__(None, None, None)

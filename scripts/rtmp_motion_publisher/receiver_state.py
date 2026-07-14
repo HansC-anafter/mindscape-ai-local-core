@@ -26,6 +26,12 @@ _METRIC_COUNTERS = (
     "reconnect_attempts",
     "decoded_frames",
     "overwritten_frames",
+    "decode_errors",
+    "pipe_bytes_read",
+    "pipe_buffered_bytes",
+    "pipe_high_watermark_bytes",
+    "pipe_discarded_bytes",
+    "pipe_overflow_count",
 )
 
 

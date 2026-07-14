@@ -1,6 +1,7 @@
 from argparse import Namespace
 from pathlib import Path
 import queue
+import subprocess
 import sys
 import types
 
@@ -123,6 +124,42 @@ def test_ffmpeg_rtsps_capture_uses_tcp_timeout_and_tls_verification() -> None:
         "-i",
         capture.rtmp_url,
     ]
+
+
+def test_ffmpeg_capture_uses_bounded_mjpeg_pipe(monkeypatch) -> None:
+    launched: dict[str, object] = {}
+
+    class Process:
+        stdout = None
+
+        @staticmethod
+        def poll() -> int:
+            return 0
+
+    def popen(command, **kwargs):
+        launched["command"] = command
+        launched["kwargs"] = kwargs
+        return Process()
+
+    monkeypatch.setattr("rtmp_motion_publisher.capture.subprocess.Popen", popen)
+    capture = FfmpegRawFrameCapture(
+        rtmp_url="rtsps://media.example.test/live/path",
+        ffmpeg_bin="/usr/bin/ffmpeg",
+        sample_fps=5.0,
+        frame_width=640,
+        frame_height=360,
+        read_timeout_sec=10.0,
+        avfoundation_framerate=60.0,
+        ffmpeg_realtime_input=False,
+    )
+
+    command = launched["command"]
+    assert isinstance(command, list)
+    assert command[command.index("-c:v") + 1] == "mjpeg"
+    assert command[command.index("-f") + 1] == "image2pipe"
+    assert "rawvideo" not in command
+    assert launched["kwargs"]["stderr"] is subprocess.DEVNULL
+    capture.release()
 
 
 def test_ffmpeg_capture_handoff_keeps_only_latest_frame() -> None:
