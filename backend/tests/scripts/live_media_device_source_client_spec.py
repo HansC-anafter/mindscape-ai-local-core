@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+import queue
 import stat
 
 from scripts.e2e.live_media_device_source_client import (
+    _DeviceControlReader,
     _control_ws_url,
     _create_source_session,
     _write_private_json,
@@ -28,6 +30,25 @@ class _Socket:
 
     def recv(self) -> str:
         return json.dumps({"type": "session_paired", "session_id": "device-one"})
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class _StreamingSocket:
+    def __init__(self, events: list[str]) -> None:
+        self.events = queue.Queue()
+        for event in events:
+            self.events.put(event)
+        self.closed = False
+        self.recv_calls = 0
+
+    def recv(self) -> str:
+        self.recv_calls += 1
+        try:
+            return self.events.get(timeout=1.0)
+        except queue.Empty:
+            return ""
 
     def close(self) -> None:
         self.closed = True
@@ -79,3 +100,38 @@ def test_private_state_writer_is_atomic_and_owner_only(tmp_path) -> None:
 
     assert json.loads(path.read_text(encoding="utf-8")) == {"status": "active"}
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
+
+
+def test_control_reader_drains_snapshots_before_heartbeat_ack() -> None:
+    socket = _StreamingSocket(
+        [
+            json.dumps({"type": "device_snapshot", "sequence": index})
+            for index in range(32)
+        ]
+        + [json.dumps({"type": "heartbeat_ack"})]
+    )
+    reader = _DeviceControlReader(socket)
+    reader.start()
+
+    assert reader.wait_for("heartbeat_ack", timeout=2.0) == {
+        "type": "heartbeat_ack"
+    }
+    assert socket.recv_calls >= 33
+
+    reader.close()
+    assert socket.closed is True
+
+
+def test_control_reader_reports_closed_socket_without_json_decode_noise() -> None:
+    socket = _StreamingSocket([""])
+    reader = _DeviceControlReader(socket)
+    reader.start()
+
+    try:
+        reader.wait_for("heartbeat_ack", timeout=2.0)
+    except RuntimeError as exc:
+        assert str(exc) == "device_source_socket_closed"
+    else:
+        raise AssertionError("closed control socket must fail")
+    finally:
+        reader.close()

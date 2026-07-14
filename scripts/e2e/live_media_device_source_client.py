@@ -6,7 +6,9 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import queue
 import signal
+import threading
 import time
 from pathlib import Path
 from typing import Any, Callable
@@ -50,6 +52,81 @@ def _receive_event(socket: Any, expected_type: str) -> dict[str, Any]:
         if event.get("type") == expected_type:
             return event
     raise RuntimeError(f"device_source_event_missing:{expected_type}")
+
+
+class _DeviceControlReader:
+    """Continuously drain control frames so websocket keepalives remain serviced."""
+
+    _FORWARDED_TYPES = frozenset(
+        {"error", "heartbeat_ack", "session_closed"}
+    )
+
+    def __init__(self, socket: Any) -> None:
+        self._socket = socket
+        self._events: queue.Queue[dict[str, Any]] = queue.Queue(maxsize=8)
+        self._stop = threading.Event()
+        self._thread = threading.Thread(
+            target=self._run,
+            name="live-media-device-control-reader",
+            daemon=True,
+        )
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def wait_for(self, expected_type: str, *, timeout: float = 15.0) -> dict[str, Any]:
+        deadline = time.monotonic() + timeout
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise RuntimeError(f"device_source_event_timeout:{expected_type}")
+            try:
+                event = self._events.get(timeout=remaining)
+            except queue.Empty as exc:
+                raise RuntimeError(
+                    f"device_source_event_timeout:{expected_type}"
+                ) from exc
+            event_type = str(event.get("type") or "")
+            if event_type in {"error", "reader_failed"}:
+                raise RuntimeError(str(event.get("reason") or "device_source_error"))
+            if event_type == expected_type:
+                return event
+
+    def close(self) -> None:
+        self._stop.set()
+        self._socket.close()
+        if self._thread.is_alive():
+            self._thread.join(timeout=2.0)
+
+    def _publish(self, event: dict[str, Any]) -> None:
+        try:
+            self._events.put_nowait(event)
+            return
+        except queue.Full:
+            pass
+        try:
+            self._events.get_nowait()
+        except queue.Empty:
+            pass
+        self._events.put_nowait(event)
+
+    def _run(self) -> None:
+        while not self._stop.is_set():
+            try:
+                raw = self._socket.recv()
+                if not raw:
+                    raise RuntimeError("device_source_socket_closed")
+                event = json.loads(raw)
+                if not isinstance(event, dict):
+                    continue
+                if event.get("type") in self._FORWARDED_TYPES:
+                    self._publish(event)
+            except Exception as exc:
+                if not self._stop.is_set():
+                    self._publish(
+                        {"type": "reader_failed", "reason": str(exc)[:160]}
+                    )
+                return
 
 
 def _create_source_session(
@@ -132,6 +209,7 @@ def main() -> int:
     signal.signal(signal.SIGINT, request_stop)
     signal.signal(signal.SIGTERM, request_stop)
     socket = None
+    reader = None
     state: dict[str, Any] = {
         "schema_version": "live_media_device_source_e2e.v1",
         "status": "starting",
@@ -146,6 +224,8 @@ def main() -> int:
             display_name=args.display_name,
         )
         _write_private_json(args.state_path, state)
+        reader = _DeviceControlReader(socket)
+        reader.start()
         next_heartbeat = time.monotonic()
         while not stop_requested:
             now = time.monotonic()
@@ -153,12 +233,12 @@ def main() -> int:
                 time.sleep(min(0.25, next_heartbeat - now))
                 continue
             socket.send('{"type":"heartbeat"}')
-            _receive_event(socket, "heartbeat_ack")
+            reader.wait_for("heartbeat_ack")
             state["last_heartbeat_at_epoch"] = time.time()
             _write_private_json(args.state_path, state)
             next_heartbeat = now + max(1.0, args.heartbeat_seconds)
         socket.send('{"type":"session_close"}')
-        _receive_event(socket, "session_closed")
+        reader.wait_for("session_closed")
         state["status"] = "closed"
         state["closed_at_epoch"] = time.time()
         _write_private_json(args.state_path, state)
@@ -170,7 +250,9 @@ def main() -> int:
         _write_private_json(args.state_path, state)
         return 1
     finally:
-        if socket is not None:
+        if reader is not None:
+            reader.close()
+        elif socket is not None:
             socket.close()
 
 
