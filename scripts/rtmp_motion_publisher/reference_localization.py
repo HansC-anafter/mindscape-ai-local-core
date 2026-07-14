@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from collections.abc import Callable
 from dataclasses import dataclass
 from statistics import mean
@@ -12,6 +13,8 @@ ORDERED_TRANSITION_CONFIRMATION_WINDOWS = 2
 ORDERED_TRANSITION_MARGIN = 0.03
 LOCAL_BACKTRACK_POINTS = 2
 LOCAL_FORWARD_POINTS = 7
+LOCAL_MIN_FORWARD_POINTS = 3
+MAX_ORDERED_TEMPO_RATIO = 2.0
 GLOBAL_RELOCK_HISTORY_SIZE = 3
 PARTIAL_MATCH_THRESHOLD = 0.65
 
@@ -23,6 +26,7 @@ class ReferencePoint:
     chapter_title: str
     chapter_start_ms: float
     chapter_end_ms: float
+    reference_time_ms: float
     match_role: str
     guidance_points: tuple[str, ...]
     features: dict[str, float]
@@ -51,6 +55,7 @@ class ReferenceSequenceLocalizer:
         self.pending_relock_count = 0
         self.pending_transition_chapter_id: str | None = None
         self.pending_transition_count = 0
+        self.previous_observed_at_ms: float | None = None
 
     def _sequence_score(
         self,
@@ -108,13 +113,51 @@ class ReferenceSequenceLocalizer:
             self.pending_transition_count = 1
         return self.pending_transition_count
 
-    def commit_selection(self, point_index: int, *, localization_ready: bool) -> None:
+    def commit_selection(
+        self,
+        point_index: int,
+        *,
+        localization_ready: bool,
+        observed_at_ms: float | None = None,
+    ) -> None:
         if self.previous_index is not None or localization_ready:
             self.previous_index = point_index
+            if observed_at_ms is not None:
+                self.previous_observed_at_ms = observed_at_ms
+
+    def _local_forward_points(self, observed_at_ms: float | None) -> int:
+        if (
+            self.previous_index is None
+            or self.previous_observed_at_ms is None
+            or observed_at_ms is None
+            or observed_at_ms <= self.previous_observed_at_ms
+        ):
+            return LOCAL_FORWARD_POINTS
+        previous_point = self.points[self.previous_index]
+        cadence_ms = 0.0
+        if self.previous_index + 1 < len(self.points):
+            next_point = self.points[self.previous_index + 1]
+            if next_point.chapter_id == previous_point.chapter_id:
+                cadence_ms = next_point.reference_time_ms - previous_point.reference_time_ms
+        if cadence_ms <= 0 and self.previous_index > 0:
+            prior_point = self.points[self.previous_index - 1]
+            if prior_point.chapter_id == previous_point.chapter_id:
+                cadence_ms = previous_point.reference_time_ms - prior_point.reference_time_ms
+        cadence_ms = max(1.0, cadence_ms)
+        observed_elapsed_ms = observed_at_ms - self.previous_observed_at_ms
+        paced_points = math.ceil(
+            observed_elapsed_ms * MAX_ORDERED_TEMPO_RATIO / cadence_ms
+        )
+        return min(
+            LOCAL_FORWARD_POINTS,
+            max(LOCAL_MIN_FORWARD_POINTS, paced_points + 1),
+        )
 
     def select(
         self,
         history: list[dict[str, float]],
+        *,
+        observed_at_ms: float | None = None,
     ) -> tuple[ReferencePoint, float, dict[str, Any]]:
         sequence_scores = [
             self._sequence_score(point.index, history) for point in self.points
@@ -133,11 +176,13 @@ class ReferenceSequenceLocalizer:
         local_index = full_sequence_index
         previous_chapter_index = full_sequence_index
         transition_supported = False
+        local_forward_points = LOCAL_FORWARD_POINTS
         if self.previous_index is not None:
+            local_forward_points = self._local_forward_points(observed_at_ms)
             local_indexes = list(
                 range(
                     max(0, self.previous_index - LOCAL_BACKTRACK_POINTS),
-                    min(len(self.points), self.previous_index + LOCAL_FORWARD_POINTS),
+                    min(len(self.points), self.previous_index + local_forward_points),
                 )
             ) or [full_sequence_index]
             local_index = max(local_indexes, key=sequence_scores.__getitem__)
@@ -227,6 +272,7 @@ class ReferenceSequenceLocalizer:
             local_index=local_index,
             previous_chapter_index=previous_chapter_index,
             transition_supported=transition_supported,
+            local_forward_points=local_forward_points,
         )
         selected_score = (
             relock_scores[selected_index]
@@ -265,6 +311,7 @@ class ReferenceSequenceLocalizer:
         local_index: int,
         previous_chapter_index: int,
         transition_supported: bool,
+        local_forward_points: int,
     ) -> dict[str, Any]:
         return {
             "selection_mode": selection_mode,
@@ -289,6 +336,8 @@ class ReferenceSequenceLocalizer:
                 sequence_scores[previous_chapter_index], 4
             ),
             "ordered_transition_supported": transition_supported,
+            "ordered_transition_local_forward_points": local_forward_points,
+            "ordered_transition_max_tempo_ratio": MAX_ORDERED_TEMPO_RATIO,
             "pending_transition_chapter_id": self.pending_transition_chapter_id,
             "pending_transition_count": self.pending_transition_count,
             "ordered_transition_confirmation_windows": (

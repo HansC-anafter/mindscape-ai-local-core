@@ -257,3 +257,56 @@ def test_supported_cross_chapter_transition_requires_consecutive_confirmation() 
     assert first_diagnostics["selection_mode"] == "ordered_chapter_transition_pending"
     assert second.chapter_id == "chapter-two"
     assert second_diagnostics["selection_mode"] == "confirmed_ordered_chapter_transition"
+
+
+def test_ordered_transition_rejects_reference_jump_faster_than_observed_time() -> None:
+    matcher = LiveReferenceAlignmentMatcher(_transition_profile())
+    matcher.localizer.previous_index = 3
+    matcher.localizer.previous_observed_at_ms = 10_000.0
+    full_history = [_features(0.9, 0.9, 0.1, 0.1, 0.1, 0.1)] * 6
+
+    def score(endpoint: int, history: list[dict[str, float]]) -> float:
+        if len(history) == 3:
+            return 0.94 if endpoint == 6 else 0.2
+        return {3: 0.80, 6: 0.95}.get(endpoint, 0.2)
+
+    matcher.localizer._sequence_score = score  # type: ignore[method-assign]
+
+    point, _, diagnostics = matcher.localizer.select(
+        full_history,
+        observed_at_ms=11_000.0,
+    )
+
+    assert point.chapter_id == "chapter-one"
+    assert diagnostics["local_candidate_chapter_id"] == "chapter-one"
+    assert diagnostics["ordered_transition_supported"] is False
+    assert diagnostics["ordered_transition_local_forward_points"] == 3
+    assert diagnostics["selection_mode"] == "global_relock_pending"
+
+
+def test_established_paced_local_prior_remains_scoreable_when_global_candidate_differs() -> None:
+    matcher = LiveReferenceAlignmentMatcher(_transition_profile())
+    chapter_one = _features(0.90, 0.95, 0.02, 0.01, 0.02, 0.10)
+    for start_ms in (0.0, 3_000.0, 6_000.0):
+        summary = _summary(chapter_one)
+        summary["ts_start_ms"] = start_ms
+        matcher.annotate(summary)
+    matcher.localizer.previous_index = 3
+    matcher.localizer.previous_observed_at_ms = 6_000.0
+
+    def score(endpoint: int, history: list[dict[str, float]]) -> float:
+        if len(history) == 3:
+            return 0.84 if endpoint == 6 else 0.2
+        return {3: 0.78, 6: 0.83}.get(endpoint, 0.2)
+
+    matcher.localizer._sequence_score = score  # type: ignore[method-assign]
+    summary = _summary(chapter_one)
+    summary["ts_start_ms"] = 9_000.0
+
+    alignment = matcher.annotate(summary)
+
+    assert alignment["chapter_id"] == "chapter-one"
+    assert alignment["selection_mode"] == "ordered_local_prior"
+    assert alignment["full_sequence_candidate_chapter_id"] == "chapter-two"
+    assert alignment["established_local_prior"] is True
+    assert alignment["localization_ready"] is True

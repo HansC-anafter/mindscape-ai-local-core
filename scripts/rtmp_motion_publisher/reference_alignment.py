@@ -139,7 +139,9 @@ class LiveReferenceAlignmentMatcher:
             series = chapter.get("feature_series")
             if not isinstance(series, list):
                 continue
-            for raw_features in series:
+            chapter_start_ms = max(0.0, _number(chapter.get("ts_start_ms")))
+            chapter_end_ms = max(0.0, _number(chapter.get("ts_end_ms")))
+            for series_index, raw_features in enumerate(series):
                 if not isinstance(raw_features, Mapping):
                     continue
                 features = {
@@ -154,8 +156,16 @@ class LiveReferenceAlignmentMatcher:
                         index=len(points),
                         chapter_id=chapter_id,
                         chapter_title=title,
-                        chapter_start_ms=max(0.0, _number(chapter.get("ts_start_ms"))),
-                        chapter_end_ms=max(0.0, _number(chapter.get("ts_end_ms"))),
+                        chapter_start_ms=chapter_start_ms,
+                        chapter_end_ms=chapter_end_ms,
+                        reference_time_ms=(
+                            chapter_start_ms
+                            if len(series) <= 1
+                            else chapter_start_ms
+                            + (chapter_end_ms - chapter_start_ms)
+                            * series_index
+                            / (len(series) - 1)
+                        ),
                         match_role=str(chapter.get("match_role") or "instruction"),
                         guidance_points=guidance_points,
                         features=features,
@@ -166,7 +176,15 @@ class LiveReferenceAlignmentMatcher:
     def annotate(self, summary: dict[str, Any]) -> dict[str, Any]:
         learner_features = compact_window_features(summary)
         self.history.append(learner_features)
-        point, score, localization = self.localizer.select(list(self.history))
+        observed_at_ms = (
+            _number(summary.get("ts_start_ms"))
+            if summary.get("ts_start_ms") is not None
+            else None
+        )
+        point, score, localization = self.localizer.select(
+            list(self.history),
+            observed_at_ms=observed_at_ms,
+        )
         previous_index = self.localizer.previous_index
         confidence_stats = _record(summary.get("confidence_stats"))
         pose_confidence = _number(confidence_stats.get("mean_confidence"))
@@ -179,17 +197,27 @@ class LiveReferenceAlignmentMatcher:
             0.0,
             min(1.0, min(score, pose_match_score) * pose_confidence),
         )
+        selection_mode = str(localization.get("selection_mode") or "")
+        established_local_prior = (
+            previous_index is not None
+            and selection_mode == "ordered_local_prior"
+            and point.chapter_id == self.points[previous_index].chapter_id
+            and score >= PARTIAL_MATCH_THRESHOLD
+        )
         localization_ready = (
             len(self.history) >= MIN_LOCALIZATION_HISTORY
-            and localization.get("selection_mode") != "global_relock_pending"
-            and localization.get("selection_mode")
-            != "ordered_chapter_transition_pending"
-            and point.chapter_id
-            == localization.get("full_sequence_candidate_chapter_id")
+            and (
+                point.chapter_id
+                == localization.get("full_sequence_candidate_chapter_id")
+                or established_local_prior
+                or selection_mode
+                in {"confirmed_global_relock", "confirmed_ordered_chapter_transition"}
+            )
         )
         self.localizer.commit_selection(
             point.index,
             localization_ready=localization_ready,
+            observed_at_ms=observed_at_ms,
         )
         if not localization_ready:
             verdict = "insufficient_alignment"
@@ -254,6 +282,7 @@ class LiveReferenceAlignmentMatcher:
             "guidance_points": list(point.guidance_points),
             "sequence_history_size": len(self.history),
             "localization_ready": localization_ready,
+            "established_local_prior": established_local_prior,
             "minimum_localization_history": MIN_LOCALIZATION_HISTORY,
             "localization_mode": (
                 "tempo_normalized_sequence_with_confirmed_transitions_and_global_relock"
