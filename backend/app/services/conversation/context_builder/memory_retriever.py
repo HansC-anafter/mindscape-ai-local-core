@@ -10,6 +10,41 @@ from typing import Optional, Any
 logger = logging.getLogger(__name__)
 
 
+def _format_document_locations(locations: list[dict[str, Any]]) -> str:
+    labels = []
+    for location in locations:
+        if location.get("page_or_slide") is not None:
+            label = f"page/slide {location['page_or_slide']}"
+        else:
+            label = str(location.get("logical_position") or "logical location")
+        bounds = location.get("bounds")
+        if isinstance(bounds, dict):
+            label += (
+                f" bbox({bounds.get('x')},{bounds.get('y')},"
+                f"{bounds.get('width')},{bounds.get('height')})"
+            )
+        if label not in labels:
+            labels.append(label)
+    return ", ".join(labels)
+
+
+def _format_document_hit(hit: dict[str, Any]) -> Optional[str]:
+    citation = hit.get("citation") or {}
+    text = str(hit.get("retrievable_text") or "").strip()
+    if not text or not citation.get("chunk_id"):
+        return None
+    source = str(hit.get("source_label") or citation.get("document_id") or "document")
+    heading_path = " > ".join(hit.get("heading_path") or [])
+    locations = _format_document_locations(citation.get("source_locations") or [])
+    labels = [source]
+    if heading_path:
+        labels.append(heading_path)
+    if locations:
+        labels.append(locations)
+    labels.append(f"chunk {citation['chunk_id']}")
+    return f"- [{' | '.join(labels)}] {text[:500]}"
+
+
 class MemoryRetriever:
     """Retrieves memory context from multiple scopes using vector search"""
 
@@ -199,6 +234,32 @@ class MemoryRetriever:
                         )
             except Exception as e:
                 logger.error(f"External docs search failed: {e}", exc_info=True)
+
+            # Canonical uploaded-document scope. Workspace and active-revision
+            # filters are applied in SQL before either candidate LIMIT.
+            try:
+                from backend.app.services.document_retrieval_facade import (
+                    DocumentRetrievalFacade,
+                )
+
+                document_results = await DocumentRetrievalFacade(
+                    vector_service=search_service
+                ).search(
+                    query=query,
+                    user_id=profile_id or "default_user",
+                    workspace_id=workspace_id,
+                    top_k=5,
+                )
+                formatted_documents = [
+                    formatted
+                    for hit in document_results
+                    if (formatted := _format_document_hit(hit))
+                ]
+                if formatted_documents:
+                    formatted_parts.append("\n## Workspace Documents:")
+                    formatted_parts.extend(formatted_documents)
+            except Exception as e:
+                logger.error(f"Document retrieval failed: {e}", exc_info=True)
 
             if formatted_parts:
                 return "\n".join(formatted_parts)

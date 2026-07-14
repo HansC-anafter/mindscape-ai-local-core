@@ -7,6 +7,15 @@ from .file_storage import (
     store_uploaded_file,
     write_analysis_sidecar,
 )
+from .document_ingestion_artifact_store import (
+    DocumentArtifactPointer,
+    DocumentIngestionArtifactStore,
+)
+from .document_ingestion_facade import (
+    DocumentIngestionHostFacade,
+    DocumentIngestionHostResult,
+    build_event_analysis_projection,
+)
 
 __all__ = [
     "FileHashResult",
@@ -14,4 +23,9 @@ __all__ = [
     "resolve_file_path_by_id",
     "store_uploaded_file",
     "write_analysis_sidecar",
+    "DocumentArtifactPointer",
+    "DocumentIngestionArtifactStore",
+    "DocumentIngestionHostFacade",
+    "DocumentIngestionHostResult",
+    "build_event_analysis_projection",
 ]
