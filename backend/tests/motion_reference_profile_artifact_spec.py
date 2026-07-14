@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
 from types import SimpleNamespace
 
 import pytest
@@ -11,6 +12,11 @@ from backend.app.services.media_transport.motion_reference_profile_artifact impo
     canonical_motion_reference_source_ref,
     resolve_motion_reference_profile_artifact,
     resolve_selected_motion_reference_profile,
+)
+from backend.app.services.media_transport.motion_reference_profile_artifact_store import (
+    MOTION_REFERENCE_PROFILE_ARTIFACT_TYPE,
+    MOTION_REFERENCE_PROFILE_OWNER_PLAYBOOK,
+    MotionReferenceProfileArtifactStore,
 )
 
 
@@ -151,6 +157,35 @@ def test_rejects_selected_source_without_materialized_profile() -> None:
             artifact_id=None,
             source_ref="https://example.test/reference",
         )
+
+
+def test_source_lookup_uses_indexed_owner_scope_before_text_json_cast(
+    monkeypatch,
+) -> None:
+    executions: list[tuple[str, dict]] = []
+
+    class FakeConnection:
+        def execute(self, statement, parameters):
+            executions.append((str(statement), dict(parameters)))
+            return SimpleNamespace(fetchall=lambda: [])
+
+    @contextmanager
+    def fake_connection():
+        yield FakeConnection()
+
+    store = object.__new__(MotionReferenceProfileArtifactStore)
+    monkeypatch.setattr(store, "get_connection", fake_connection)
+
+    assert store.find_by_source_ref(
+        workspace_id="workspace-one",
+        source_ref="https://example.test/reference",
+    ) == []
+    query, parameters = executions[0]
+    assert "playbook_code = :playbook_code" in query
+    assert "artifact_type = :artifact_type" in query
+    assert "metadata::jsonb ->> 'source_ref'" in query
+    assert parameters["playbook_code"] == MOTION_REFERENCE_PROFILE_OWNER_PLAYBOOK
+    assert parameters["artifact_type"] == MOTION_REFERENCE_PROFILE_ARTIFACT_TYPE
 
 
 def test_rejects_profile_path_outside_workspace_boundary(tmp_path, monkeypatch) -> None:

@@ -14,6 +14,9 @@ from .motion_reference_profile_artifact import (
     MOTION_REFERENCE_PROFILE_ARTIFACT_CONTRACT,
 )
 
+MOTION_REFERENCE_PROFILE_OWNER_PLAYBOOK = "yogacoach_reference_profile"
+MOTION_REFERENCE_PROFILE_ARTIFACT_TYPE = "data"
+
 
 @dataclass(frozen=True)
 class MotionReferenceProfileArtifactRecord:
@@ -78,14 +81,19 @@ class MotionReferenceProfileArtifactStore(PostgresStoreBase):
                     SELECT id, workspace_id, storage_ref, metadata
                     FROM artifacts
                     WHERE workspace_id = :workspace_id
-                      AND metadata ->> 'artifact_contract' = :artifact_contract
-                      AND metadata ->> 'source_ref' = :source_ref
-                    ORDER BY updated_at DESC, id ASC
+                      AND playbook_code = :playbook_code
+                      AND artifact_type = :artifact_type
+                      AND metadata IS NOT NULL
+                      AND metadata::jsonb ->> 'artifact_contract' = :artifact_contract
+                      AND metadata::jsonb ->> 'source_ref' = :source_ref
+                    ORDER BY updated_at DESC, id DESC
                     LIMIT :limit
                     """
                 ),
                 {
                     "workspace_id": workspace_id,
+                    "playbook_code": MOTION_REFERENCE_PROFILE_OWNER_PLAYBOOK,
+                    "artifact_type": MOTION_REFERENCE_PROFILE_ARTIFACT_TYPE,
                     "artifact_contract": MOTION_REFERENCE_PROFILE_ARTIFACT_CONTRACT,
                     "source_ref": source_ref,
                     "limit": bounded_limit,
@@ -95,6 +103,8 @@ class MotionReferenceProfileArtifactStore(PostgresStoreBase):
 
 
 __all__ = [
+    "MOTION_REFERENCE_PROFILE_ARTIFACT_TYPE",
+    "MOTION_REFERENCE_PROFILE_OWNER_PLAYBOOK",
     "MotionReferenceProfileArtifactRecord",
     "MotionReferenceProfileArtifactStore",
 ]
