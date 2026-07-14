@@ -15,7 +15,7 @@ from .motion_reference_profile_artifact import (
 )
 
 MOTION_REFERENCE_PROFILE_OWNER_PLAYBOOK = "yogacoach_reference_profile"
-MOTION_REFERENCE_PROFILE_ARTIFACT_TYPE = "data"
+MOTION_REFERENCE_PROFILE_ARTIFACT_TYPE = "file"
 
 
 @dataclass(frozen=True)
