@@ -122,6 +122,10 @@ class _DeviceControlReader:
                 if event.get("type") in self._FORWARDED_TYPES:
                     self._publish(event)
             except Exception as exc:
+                if isinstance(exc, TimeoutError) or type(exc).__name__ == (
+                    "WebSocketTimeoutException"
+                ):
+                    continue
                 if not self._stop.is_set():
                     self._publish(
                         {"type": "reader_failed", "reason": str(exc)[:160]}

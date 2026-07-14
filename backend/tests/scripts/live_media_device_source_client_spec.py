@@ -36,7 +36,7 @@ class _Socket:
 
 
 class _StreamingSocket:
-    def __init__(self, events: list[str]) -> None:
+    def __init__(self, events: list[object]) -> None:
         self.events = queue.Queue()
         for event in events:
             self.events.put(event)
@@ -46,9 +46,12 @@ class _StreamingSocket:
     def recv(self) -> str:
         self.recv_calls += 1
         try:
-            return self.events.get(timeout=1.0)
+            event = self.events.get(timeout=1.0)
         except queue.Empty:
             return ""
+        if isinstance(event, Exception):
+            raise event
+        return str(event)
 
     def close(self) -> None:
         self.closed = True
@@ -135,3 +138,18 @@ def test_control_reader_reports_closed_socket_without_json_decode_noise() -> Non
         raise AssertionError("closed control socket must fail")
     finally:
         reader.close()
+
+
+def test_control_reader_treats_idle_read_timeout_as_non_terminal() -> None:
+    socket = _StreamingSocket(
+        [TimeoutError("Connection timed out"), json.dumps({"type": "heartbeat_ack"})]
+    )
+    reader = _DeviceControlReader(socket)
+    reader.start()
+
+    assert reader.wait_for("heartbeat_ack", timeout=2.0) == {
+        "type": "heartbeat_ack"
+    }
+    assert socket.recv_calls >= 2
+
+    reader.close()
