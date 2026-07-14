@@ -43,6 +43,7 @@ class MultiAICollaborationService:
         profile_id: str,
         workspace_id: str,
         file_path: Optional[str] = None,
+        file_info_override: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
         Analyze file with multiple AI capabilities
@@ -53,14 +54,16 @@ class MultiAICollaborationService:
         - Content Drafting Pack
         """
         try:
-            file_info = await build_file_info(
-                file_processor=self.file_processor,
-                file_data=file_data,
-                file_name=file_name,
-                file_type=file_type,
-                file_size=file_size,
-                file_path=file_path,
-            )
+            file_info = file_info_override
+            if file_info is None:
+                file_info = await build_file_info(
+                    file_processor=self.file_processor,
+                    file_data=file_data,
+                    file_name=file_name,
+                    file_type=file_type,
+                    file_size=file_size,
+                    file_path=file_path,
+                )
 
             collaboration_results = {
                 "semantic_seeds": await self._analyze_semantic_seeds(

@@ -25,6 +25,8 @@ from backend.app.services.multi_ai_collaboration import MultiAICollaborationServ
 from backend.app.services.i18n_service import get_i18n_service
 from backend.app.shared.i18n_loader import get_locale_from_context
 from backend.app.services.file_analysis_service_core import (
+    DocumentIngestionHostFacade,
+    build_event_analysis_projection,
     calculate_file_hash_for_analysis,
     resolve_file_path_by_id,
     store_uploaded_file,
@@ -42,6 +44,7 @@ class FileAnalysisService:
         store: MindscapeStore,
         timeline_items_store: TimelineItemsStore,
         tasks_store: TasksStore,
+        document_ingestion_facade: Optional[DocumentIngestionHostFacade] = None,
     ):
         """
         Initialize FileAnalysisService
@@ -55,6 +58,7 @@ class FileAnalysisService:
         self.timeline_items_store = timeline_items_store
         self.tasks_store = tasks_store
         self.collaboration_service = MultiAICollaborationService()
+        self.document_ingestion_facade = document_ingestion_facade
 
     async def _get_i18n_message(
         self, workspace_id: str, module: str, key: str, **kwargs
@@ -144,25 +148,6 @@ class FileAnalysisService:
         if not file_path and file_id:
             file_path = resolve_file_path_by_id(file_id, log=logger)
 
-        logger.info(f"Calling collaboration_service.analyze_file for {file_name}")
-        try:
-            analysis_result = await self.collaboration_service.analyze_file(
-                file_data=file_data or file_id or "",
-                file_name=file_name,
-                file_type=file_type,
-                file_size=file_size,
-                profile_id=profile_id,
-                workspace_id=workspace_id,
-                file_path=file_path,
-            )
-            logger.info(f"Collaboration service analysis completed for {file_name}")
-        except Exception as e:
-            logger.error(
-                f"Failed to analyze file {file_name} with collaboration service: {e}",
-                exc_info=True,
-            )
-            raise
-
         hash_result = calculate_file_hash_for_analysis(
             file_path=file_path,
             file_data=file_data,
@@ -173,6 +158,51 @@ class FileAnalysisService:
         )
         file_hash = hash_result.file_hash
         file_path = hash_result.file_path
+
+        document_result = None
+        if (
+            file_path
+            and file_hash
+            and DocumentIngestionHostFacade.supports(file_name, file_type)
+        ):
+            document_facade = (
+                self.document_ingestion_facade or DocumentIngestionHostFacade()
+            )
+            document_result = await document_facade.compile_and_index(
+                workspace_id=workspace_id,
+                user_id=profile_id,
+                source_artifact_id=file_id or file_hash,
+                file_path=file_path,
+                file_name=file_name,
+                file_type=file_type,
+                file_size=file_size,
+                checksum=file_hash,
+            )
+
+        logger.info(f"Calling collaboration_service.analyze_file for {file_name}")
+        try:
+            analysis_result = await self.collaboration_service.analyze_file(
+                file_data=file_data or file_id or "",
+                file_name=file_name,
+                file_type=file_type,
+                file_size=file_size,
+                profile_id=profile_id,
+                workspace_id=workspace_id,
+                file_path=file_path,
+                file_info_override=(
+                    document_result.file_info_override if document_result else None
+                ),
+            )
+            logger.info(f"Collaboration service analysis completed for {file_name}")
+        except Exception as e:
+            logger.error(
+                f"Failed to analyze file {file_name} with collaboration service: {e}",
+                exc_info=True,
+            )
+            raise
+
+        if document_result:
+            analysis_result["document_ingestion"] = document_result.summary
 
         file_event = MindEvent(
             id=str(uuid.uuid4()),
@@ -191,7 +221,7 @@ class FileAnalysisService:
             },
             entity_ids=[],
             metadata={
-                "file_analysis": analysis_result,
+                "file_analysis": build_event_analysis_projection(analysis_result),
                 "should_embed": True,
                 "is_artifact": True,
                 "file_hash": file_hash,

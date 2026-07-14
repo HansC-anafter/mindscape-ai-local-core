@@ -23,6 +23,22 @@ from ....services.stores.tasks_store import TasksStore
 router = APIRouter()
 logger = logging.getLogger(__name__)
 store = MindscapeStore()
+MAX_DOCUMENT_UPLOAD_BYTES = 25 * 1024 * 1024
+DOCUMENT_UPLOAD_EXTENSIONS = {".pdf", ".docx", ".pptx"}
+DOCUMENT_UPLOAD_MEDIA_TYPES = {
+    "application/pdf",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+}
+
+
+def _is_document_upload(
+    file_name: Optional[str], file_type: Optional[str] = None
+) -> bool:
+    return (
+        Path(file_name or "").suffix.lower() in DOCUMENT_UPLOAD_EXTENSIONS
+        or str(file_type or "").lower() in DOCUMENT_UPLOAD_MEDIA_TYPES
+    )
 
 
 @router.post("/{workspace_id}/open-folder")
@@ -97,15 +113,28 @@ async def upload_file(
         tasks_store = TasksStore()
         file_service = FileAnalysisService(store, timeline_items_store, tasks_store)
 
+        actual_file_name = file_name or file.filename or "uploaded_file"
+        if (
+            _is_document_upload(actual_file_name, file_type or file.content_type)
+            and file_size is not None
+            and file_size > MAX_DOCUMENT_UPLOAD_BYTES
+        ):
+            raise HTTPException(status_code=413, detail="Document exceeds 25 MiB limit")
+
         # Read file content
         file_content = await file.read()
+
+        if (
+            _is_document_upload(actual_file_name, file_type or file.content_type)
+            and len(file_content) > MAX_DOCUMENT_UPLOAD_BYTES
+        ):
+            raise HTTPException(status_code=413, detail="Document exceeds 25 MiB limit")
 
         # Convert to base64 data URL
         file_base64 = base64.b64encode(file_content).decode("utf-8")
         file_data_url = f"data:{file.content_type or 'application/octet-stream'};base64,{file_base64}"
 
         # Use provided file_name or fallback to uploaded file name
-        actual_file_name = file_name or file.filename or "uploaded_file"
         actual_file_type = file_type or file.content_type
         actual_file_size = file_size or len(file_content)
 
@@ -169,6 +198,12 @@ async def analyze_file(
             )
         if not file_name:
             raise HTTPException(status_code=400, detail="file_name is required")
+        if (
+            _is_document_upload(file_name, file_type)
+            and file_size is not None
+            and file_size > MAX_DOCUMENT_UPLOAD_BYTES
+        ):
+            raise HTTPException(status_code=413, detail="Document exceeds 25 MiB limit")
 
         profile_id = workspace.owner_user_id
         result = await file_service.analyze_file(
@@ -188,6 +223,7 @@ async def analyze_file(
             "event_id": result.get("event_id"),
             "saved_file_path": result.get("file_path"),
             "collaboration_results": result.get("collaboration_results", {}),
+            "document_ingestion": result.get("document_ingestion"),
         }
     except HTTPException:
         raise

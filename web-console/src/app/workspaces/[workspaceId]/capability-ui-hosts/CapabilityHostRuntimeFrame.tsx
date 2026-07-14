@@ -10,11 +10,6 @@ import {
 } from '@/components/workspace/WorkspaceToolRail';
 import { useCapabilityWorkbenchPlacement } from '@/components/capabilities/workbench/CapabilityWorkbenchResponsiveFrame';
 import { useToolRailPanelToggleShortcut } from '@/components/capabilities/workbench/useToolRailPanelToggleShortcut';
-import {
-  CapabilityWorkbenchMobileFloatingControlsContext,
-  type CapabilityWorkbenchMobileFloatingControl,
-  useCapabilityWorkbenchMobileFloatingControlsBridgePublisher,
-} from '@/components/capabilities/workbench/useCapabilityWorkbenchMobileFloatingControls';
 import { ExecutionContextProvider } from '@/contexts/ExecutionContextContext';
 import {
   WorkspaceDataProvider,
@@ -33,6 +28,10 @@ import {
   type WorkspaceGlobalToolContribution,
 } from '../components/useWorkspaceGlobalToolRail';
 import {
+  WorkspaceMobileHostToolTray,
+  useWorkspaceMobileHostToolTray,
+} from '../components/WorkspaceMobileHostToolTray';
+import {
   GROUP_LABELS,
   WORKSPACE_ACTIVE_PANEL_TOGGLE_BINDING_ID,
   WORKSPACE_TOOL_RAIL_COMMAND_ID,
@@ -41,7 +40,6 @@ import {
   groupOrder,
   isActiveExecutionStatus,
   resolveVisibleContributions,
-  resolveVisibleMobileFloatingControls,
   shortcutOwnerForContribution,
   sortContributions,
 } from './capabilityHostRuntimeFrame/workspaceToolContributions';
@@ -85,8 +83,6 @@ function CapabilityHostToolRailProvider({
   const [activeCapabilityCode, setActiveCapabilityCode] = React.useState<string | null>(null);
   const [lastPanelToolKey, setLastPanelToolKey] = React.useState<string | null>(null);
   const [registeredScopeContributions, setRegisteredScopeContributions] = React.useState<Record<string, WorkspaceGlobalToolContribution[]>>({});
-  const [registeredMobileFloatingControls, setRegisteredMobileFloatingControls] = React.useState<Record<string, CapabilityWorkbenchMobileFloatingControl[]>>({});
-  const mobilePanelRef = React.useRef<HTMLElement | null>(null);
   const activeExecutionCount = (workspaceData?.executions || []).filter((execution) => (
     isActiveExecutionStatus(execution.status)
   )).length;
@@ -101,26 +97,6 @@ function CapabilityHostToolRailProvider({
     }));
     return () => {
       setRegisteredScopeContributions((current) => {
-        if (!Object.prototype.hasOwnProperty.call(current, scopeId)) {
-          return current;
-        }
-        const next = { ...current };
-        delete next[scopeId];
-        return next;
-      });
-    };
-  }, []);
-
-  const registerMobileFloatingControls = React.useCallback((
-    scopeId: string,
-    controls: CapabilityWorkbenchMobileFloatingControl[],
-  ) => {
-    setRegisteredMobileFloatingControls((current) => ({
-      ...current,
-      [scopeId]: controls,
-    }));
-    return () => {
-      setRegisteredMobileFloatingControls((current) => {
         if (!Object.prototype.hasOwnProperty.call(current, scopeId)) {
           return current;
         }
@@ -149,10 +125,21 @@ function CapabilityHostToolRailProvider({
     () => visibleContributions.find((contribution) => contribution.key === activeToolKey) || null,
     [activeToolKey, visibleContributions],
   );
-  const visibleMobileFloatingControls = React.useMemo(
-    () => resolveVisibleMobileFloatingControls(registeredMobileFloatingControls),
-    [registeredMobileFloatingControls],
-  );
+  const dismissMobileTray = React.useCallback(() => {
+    setActiveToolKey(null);
+  }, []);
+  const {
+    anchorRef: mobileTrayAnchorRef,
+    panelRef: mobilePanelRef,
+    open: mobileTrayOpen,
+    close: closeMobileTray,
+    show: showMobileTray,
+    toggle: toggleMobileTray,
+  } = useWorkspaceMobileHostToolTray({
+    enabled: isMobilePlacement,
+    activePanelOpen: Boolean(activeContribution?.renderPanel),
+    onDismiss: dismissMobileTray,
+  });
 
   React.useEffect(() => {
     if (activeToolKey && (!activeContribution || !activeContribution.renderPanel)) {
@@ -176,13 +163,19 @@ function CapabilityHostToolRailProvider({
     }
     if (contribution.onSelect) {
       setActiveToolKey(null);
+      if (isMobilePlacement) {
+        closeMobileTray();
+      }
       contribution.onSelect();
       return;
     }
     if (contribution.renderPanel) {
+      if (isMobilePlacement) {
+        showMobileTray();
+      }
       setActiveToolKey((current) => (current === contribution.key ? null : contribution.key));
     }
-  }, []);
+  }, [closeMobileTray, isMobilePlacement, showMobileTray]);
 
   React.useEffect(() => {
     const disposers = visibleContributions
@@ -217,9 +210,12 @@ function CapabilityHostToolRailProvider({
       && Boolean(contribution.renderPanel)
     ));
     if (lastContribution) {
+      if (isMobilePlacement) {
+        showMobileTray();
+      }
       setActiveToolKey(lastContribution.key);
     }
-  }, [activeContribution, lastPanelToolKey, visibleContributions]);
+  }, [activeContribution, isMobilePlacement, lastPanelToolKey, showMobileTray, visibleContributions]);
 
   useToolRailPanelToggleShortcut({
     bindingId: WORKSPACE_ACTIVE_PANEL_TOGGLE_BINDING_ID,
@@ -284,28 +280,14 @@ function CapabilityHostToolRailProvider({
     registerToolContributions,
   }), [activeCapabilityCode, activeToolKey, registerToolContributions]);
 
-  const mobileFloatingControlsContextValue = React.useMemo(
-    () => ({ registerControls: registerMobileFloatingControls }),
-    [registerMobileFloatingControls],
-  );
-  useCapabilityWorkbenchMobileFloatingControlsBridgePublisher(mobileFloatingControlsContextValue);
-
   const workspaceToolRail = (
     <WorkspaceToolRail
       ariaLabel="Capability host tools"
       testId="workspace-global-tool-rail"
-      placement="side"
+      placement={isMobilePlacement ? 'tray' : 'side'}
       groups={groups}
     />
   );
-
-  const mobileFloatingControls = React.useMemo(() => (
-    isMobilePlacement
-      ? [...visibleMobileFloatingControls].sort((left, right) => (
-        left.order - right.order || left.key.localeCompare(right.key)
-      ))
-      : []
-  ), [isMobilePlacement, visibleMobileFloatingControls]);
 
   const workspaceToolPanel = activeContribution?.renderPanel ? (
     <aside
@@ -342,36 +324,34 @@ function CapabilityHostToolRailProvider({
 
   return (
     <WorkspaceGlobalToolRailContext.Provider value={contextValue}>
-      <CapabilityWorkbenchMobileFloatingControlsContext.Provider value={mobileFloatingControlsContextValue}>
-        <div
-          className="relative flex h-full min-h-0 w-full min-w-0 flex-1 overflow-hidden"
-          data-testid="capability-host-tool-shell"
-          data-workbench-placement={placement}
-        >
-          <main className="flex h-full min-h-0 min-w-0 flex-1 overflow-hidden pr-10 md:pr-0">
-            {children}
-          </main>
-          {workspaceToolPanel}
-          {isMobilePlacement && mobileFloatingControls.length > 0 ? (
+      <div
+        className="relative flex h-full min-h-0 w-full min-w-0 flex-1 overflow-hidden"
+        data-testid="capability-host-tool-shell"
+        data-workbench-placement={placement}
+      >
+        <main className="flex h-full min-h-0 min-w-0 flex-1 overflow-hidden">
+          {children}
+        </main>
+        {isMobilePlacement ? (
+          <WorkspaceMobileHostToolTray
+            anchorRef={mobileTrayAnchorRef}
+            open={mobileTrayOpen}
+            onToggle={toggleMobileTray}
+            rail={workspaceToolRail}
+            panel={workspaceToolPanel}
+          />
+        ) : (
+          <>
+            {workspaceToolPanel}
             <div
-              className="absolute left-2 top-[calc(0.5rem+env(safe-area-inset-top,0px))] z-50 flex flex-col items-start gap-2"
-              data-testid="capability-host-mobile-floating-controls"
+              className="flex shrink-0"
+              data-testid="capability-host-rail-slot"
             >
-              {mobileFloatingControls.map((control) => (
-                <div key={control.key} className="shrink-0">
-                  {control.render()}
-                </div>
-              ))}
+              {workspaceToolRail}
             </div>
-          ) : null}
-          <div
-            className="absolute inset-y-0 right-0 z-50 flex shrink-0 md:static md:z-auto"
-            data-testid="capability-host-rail-slot"
-          >
-            {workspaceToolRail}
-          </div>
-        </div>
-      </CapabilityWorkbenchMobileFloatingControlsContext.Provider>
+          </>
+        )}
+      </div>
     </WorkspaceGlobalToolRailContext.Provider>
   );
 }

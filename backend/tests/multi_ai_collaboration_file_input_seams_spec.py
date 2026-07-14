@@ -9,6 +9,7 @@ from backend.app.services.multi_ai_collaboration_core import (
     infer_intents_from_filename,
     is_media_transcription_file,
 )
+from backend.app.services.multi_ai_collaboration import MultiAICollaborationService
 
 
 class FakeFileProcessor:
@@ -31,6 +32,38 @@ class FakeFileProcessor:
             "detected_type": "document",
             "processed": True,
         }
+
+
+@pytest.mark.asyncio
+async def test_collaboration_accepts_host_file_info_without_a_second_parse(monkeypatch):
+    processor = FakeFileProcessor()
+    service = MultiAICollaborationService(file_processor=processor)
+
+    async def fake_analysis(**_kwargs):
+        return {"enabled": False}
+
+    monkeypatch.setattr(service, "_analyze_semantic_seeds", fake_analysis)
+    monkeypatch.setattr(service, "_analyze_daily_planning", fake_analysis)
+    monkeypatch.setattr(service, "_analyze_content_drafting", fake_analysis)
+    override = {
+        "name": "sample.pdf",
+        "detected_type": "document",
+        "text_content": "compiled once",
+    }
+
+    result = await service.analyze_file(
+        file_data="file-1",
+        file_name="sample.pdf",
+        file_type="application/pdf",
+        file_size=100,
+        profile_id="user-1",
+        workspace_id="workspace-1",
+        file_path="/tmp/sample.pdf",
+        file_info_override=override,
+    )
+
+    assert processor.calls == []
+    assert result["file_info"] == override
 
 
 class FakeToolExecutor:

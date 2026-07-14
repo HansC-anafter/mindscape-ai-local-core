@@ -191,6 +191,8 @@ def write_analysis_sidecar(
         "file_type": file_type,
         "workspace_id": workspace_id,
     }
+    if analysis_result.get("document_ingestion") is not None:
+        sidecar_data["document_ingestion"] = analysis_result["document_ingestion"]
     sidecar_path.write_text(
         json.dumps(sidecar_data, ensure_ascii=False, default=str),
         encoding="utf-8",
@@ -206,6 +208,8 @@ def _extension_for_mime_type(file_type: Optional[str]) -> str:
         "image/png": ".png",
         "image/gif": ".gif",
         "application/pdf": ".pdf",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation": ".pptx",
         "text/plain": ".txt",
         "application/json": ".json",
     }
