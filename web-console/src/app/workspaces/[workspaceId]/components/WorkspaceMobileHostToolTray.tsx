@@ -100,7 +100,7 @@ export function WorkspaceMobileHostToolTray({
     <>
       {panel}
       <div
-        className="absolute right-2 top-1/2 z-50 flex -translate-y-1/2 flex-col items-end gap-2"
+        className="absolute right-2 top-40 z-50 flex flex-col items-end gap-2"
         data-testid="workspace-mobile-host-rail-controls"
       >
         <div

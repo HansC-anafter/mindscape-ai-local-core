@@ -107,7 +107,7 @@ surfaces:
     requires_product_semantic_declaration: true
     semantics:
       - Capability workbench mobile controls remain rendered by their semantic owner: pack navigation in the bottom pack rail, primary commands in the command header, and pack-module filters in that module's secondary header.
-      - Host-owned workspace tools use one shared mobile right-side vertically-centered tray across generic workspace and capability-host routes; its anchor is fixed at right 8px / top 50%, it must not overlap headers or the bottom rail, and capability routes must not render a persistent desktop right rail on mobile.
+      - Host-owned workspace tools use one shared mobile upper-right safe-slot tray across generic workspace and capability-host routes; its only anchor is right 8px / top 160px with no vertical transform, the trigger stays fixed while closed or open, it must sit below primary and pack headers without overlapping the secondary header or bottom rail, and capability routes must not render a persistent desktop right rail on mobile.
       - Local Core does not provide a generic window bridge that relocates pack-owned or module-owned controls into host viewport chrome.
       - Layout changes preserve the installed runtime asset lane and add no DB write, worker or queue work, PgBouncer pressure, background request, or UX polling path.
     path_globs:
