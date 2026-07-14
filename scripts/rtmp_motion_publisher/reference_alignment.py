@@ -2,28 +2,24 @@ from __future__ import annotations
 
 import math
 from collections import deque
-from dataclasses import dataclass
 from statistics import mean
 from typing import Any, Mapping
 
 from .reference_profile import compact_window_features
+from .reference_localization import (
+    GLOBAL_RELOCK_CONFIRMATION_WINDOWS,
+    GLOBAL_RELOCK_MARGIN,
+    ORDERED_TRANSITION_CONFIRMATION_WINDOWS,
+    ORDERED_TRANSITION_MARGIN,
+    PARTIAL_MATCH_THRESHOLD,
+    ReferencePoint,
+    ReferenceSequenceLocalizer,
+)
 
 
-HISTORY_SIZE = 4
+HISTORY_SIZE = 6
 HIGH_MATCH_THRESHOLD = 0.84
-PARTIAL_MATCH_THRESHOLD = 0.65
-
-
-@dataclass(frozen=True)
-class ReferencePoint:
-    index: int
-    chapter_id: str
-    chapter_title: str
-    chapter_start_ms: float
-    chapter_end_ms: float
-    match_role: str
-    guidance_points: tuple[str, ...]
-    features: dict[str, float]
+MIN_LOCALIZATION_HISTORY = 3
 
 
 def _record(value: Any) -> dict[str, Any]:
@@ -116,7 +112,11 @@ class LiveReferenceAlignmentMatcher:
                 buckets.setdefault(key, []).append(value)
         self.scales = {key: _feature_scale(key, values) for key, values in buckets.items()}
         self.history: deque[dict[str, float]] = deque(maxlen=HISTORY_SIZE)
-        self.previous_index: int | None = None
+        self.localizer = ReferenceSequenceLocalizer(
+            self.points,
+            self.scales,
+            _feature_similarity,
+        )
 
     @staticmethod
     def _flatten_points(profile: Mapping[str, Any]) -> list[ReferencePoint]:
@@ -163,46 +163,39 @@ class LiveReferenceAlignmentMatcher:
                 )
         return points
 
-    def _sequence_score(self, endpoint: int, history: list[dict[str, float]]) -> float:
-        count = min(len(history), endpoint + 1)
-        if count <= 0:
-            return 0.0
-        learner = history[-count:]
-        reference = self.points[endpoint - count + 1 : endpoint + 1]
-        return mean(
-            _feature_similarity(point.features, features, self.scales)
-            for point, features in zip(reference, learner)
-        )
-
-    def _select_point(self, history: list[dict[str, float]]) -> tuple[ReferencePoint, float]:
-        sequence_scores = [
-            self._sequence_score(point.index, history)
-            for point in self.points
-        ]
-        global_index = max(range(len(self.points)), key=sequence_scores.__getitem__)
-        selected_index = global_index
-        if self.previous_index is not None:
-            local_indexes = range(
-                max(0, self.previous_index - 2),
-                min(len(self.points), self.previous_index + 7),
-            )
-            local_index = max(local_indexes, key=sequence_scores.__getitem__)
-            if sequence_scores[local_index] >= sequence_scores[global_index] - 0.05:
-                selected_index = local_index
-        return self.points[selected_index], sequence_scores[selected_index]
-
     def annotate(self, summary: dict[str, Any]) -> dict[str, Any]:
         learner_features = compact_window_features(summary)
         self.history.append(learner_features)
-        point, score = self._select_point(list(self.history))
-        previous_index = self.previous_index
-        self.previous_index = point.index
+        point, score, localization = self.localizer.select(list(self.history))
+        previous_index = self.localizer.previous_index
         confidence_stats = _record(summary.get("confidence_stats"))
         pose_confidence = _number(confidence_stats.get("mean_confidence"))
-        alignment_confidence = max(0.0, min(1.0, score * pose_confidence))
-        if score >= HIGH_MATCH_THRESHOLD:
+        pose_match_score = _feature_similarity(
+            point.features,
+            learner_features,
+            self.scales,
+        )
+        alignment_confidence = max(
+            0.0,
+            min(1.0, min(score, pose_match_score) * pose_confidence),
+        )
+        localization_ready = (
+            len(self.history) >= MIN_LOCALIZATION_HISTORY
+            and localization.get("selection_mode") != "global_relock_pending"
+            and localization.get("selection_mode")
+            != "ordered_chapter_transition_pending"
+            and point.chapter_id
+            == localization.get("full_sequence_candidate_chapter_id")
+        )
+        self.localizer.commit_selection(
+            point.index,
+            localization_ready=localization_ready,
+        )
+        if not localization_ready:
+            verdict = "insufficient_alignment"
+        elif pose_match_score >= HIGH_MATCH_THRESHOLD:
             verdict = "high_match"
-        elif score >= PARTIAL_MATCH_THRESHOLD:
+        elif pose_match_score >= PARTIAL_MATCH_THRESHOLD:
             verdict = "partial_match"
         else:
             verdict = "insufficient_alignment"
@@ -253,13 +246,19 @@ class LiveReferenceAlignmentMatcher:
             "match_role": point.match_role,
             "reference_window_index": point.index,
             "previous_reference_window_index": previous_index,
-            "score": round(score, 4),
+            "score": round(pose_match_score, 4),
+            "localization_score": round(score, 4),
             "confidence": round(alignment_confidence, 4),
             "verdict": verdict,
             "feature_deltas": deltas[:8],
             "guidance_points": list(point.guidance_points),
             "sequence_history_size": len(self.history),
-            "localization_mode": "short_sequence_with_ordered_prior_and_global_relock",
+            "localization_ready": localization_ready,
+            "minimum_localization_history": MIN_LOCALIZATION_HISTORY,
+            "localization_mode": (
+                "tempo_normalized_sequence_with_confirmed_transitions_and_global_relock"
+            ),
+            **localization,
         }
         if point.match_role != "instruction":
             guidance_cue = {"kind": "suppressed", "reason": "reference_context_segment"}
@@ -295,6 +294,10 @@ class LiveReferenceAlignmentMatcher:
 
 __all__ = [
     "HIGH_MATCH_THRESHOLD",
+    "GLOBAL_RELOCK_CONFIRMATION_WINDOWS",
+    "GLOBAL_RELOCK_MARGIN",
     "LiveReferenceAlignmentMatcher",
+    "ORDERED_TRANSITION_CONFIRMATION_WINDOWS",
+    "ORDERED_TRANSITION_MARGIN",
     "PARTIAL_MATCH_THRESHOLD",
 ]

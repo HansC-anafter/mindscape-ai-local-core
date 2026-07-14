@@ -82,9 +82,10 @@ def test_descriptor_builds_formal_rtsps_receiver_args(
 
     assert args.transport_kind == "rtsps"
     assert args.source_kind == "phone_camera"
-    assert args.capture_backend == "opencv"
+    assert args.capture_backend == "ffmpeg"
     assert args.api_timeout_sec == 5.0
     assert args.rollup_api_timeout_sec == 30.0
+    assert args.closeout_api_timeout_sec == 30.0
     assert args.api_retry_count == 2
     assert args.append_queue_max_size == 32
     assert args.rtmp_url.startswith("rtsps://media.example.test:8322/live/path?")

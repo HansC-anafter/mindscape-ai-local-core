@@ -28,6 +28,7 @@ sys.modules.setdefault(
 )
 
 from rtmp_motion_publisher import app as publisher_app  # noqa: E402
+from rtmp_motion_publisher.capture import FfmpegRawFrameCapture  # noqa: E402
 
 
 class ClosedCapture:
@@ -77,6 +78,7 @@ def _args() -> Namespace:
         model_asset_path=None,
         api_timeout_sec=1.0,
         rollup_api_timeout_sec=30.0,
+        closeout_api_timeout_sec=30.0,
         api_retry_count=1,
         api_retry_backoff_sec=0.0,
         append_queue_max_size=8,
@@ -98,6 +100,62 @@ def _args() -> Namespace:
         materialize_practice_diary=False,
         practice_diary_reference_visual_evidence_path="",
     )
+
+
+def test_ffmpeg_rtsps_capture_uses_tcp_timeout_and_tls_verification() -> None:
+    capture = object.__new__(FfmpegRawFrameCapture)
+    capture.rtmp_url = "rtsps://media.example.test:8322/live/path?token=secret"
+    capture.read_timeout_sec = 7.5
+    capture.avfoundation_framerate = 60.0
+
+    assert capture._input_args() == [
+        "-rtsp_transport",
+        "tcp",
+        "-timeout",
+        "7500000",
+        "-tls_verify",
+        "1",
+        "-i",
+        capture.rtmp_url,
+    ]
+
+
+def test_public_reference_alignment_status_is_bounded() -> None:
+    status = publisher_app._public_reference_alignment_status(
+        {
+            "metadata": {
+                "reference_alignment": {
+                    "chapter_id": "segment:010",
+                    "reference_window_index": 233,
+                    "score": 0.91,
+                    "localization_score": 0.88,
+                    "selection_mode": "ordered_local_prior",
+                    "localization_ready": True,
+                    "ordered_transition_supported": False,
+                    "pending_transition_chapter_id": None,
+                    "pending_transition_count": 0,
+                    "pending_relock_chapter_id": "segment:009",
+                    "pending_relock_count": 1,
+                    "feature_deltas": [{"feature": "pose", "difference": 0.1}],
+                    "reference_source_ref": "private-source",
+                }
+            }
+        }
+    )
+
+    assert status == {
+        "chapter_id": "segment:010",
+        "reference_window_index": 233,
+        "score": 0.91,
+        "localization_score": 0.88,
+        "localization_ready": True,
+        "selection_mode": "ordered_local_prior",
+        "ordered_transition_supported": False,
+        "pending_transition_chapter_id": None,
+        "pending_transition_count": 0,
+        "pending_relock_chapter_id": "segment:009",
+        "pending_relock_count": 1,
+    }
 
 
 def test_stream_open_failure_does_not_register_live_session(monkeypatch) -> None:

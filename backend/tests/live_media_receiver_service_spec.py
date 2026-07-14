@@ -17,6 +17,7 @@ from backend.app.services.media_transport.live_media_receiver_service import (
     start_live_media_receiver,
     terminate_live_media_session,
 )
+from backend.app.services.media_transport import live_media_receiver_service
 from backend.app.services.host_services.capture_relay_proxy import CaptureRelayUnavailable
 from backend.app.services.media_transport.live_media_session_registry import (
     LiveMediaSessionRegistry,
@@ -80,7 +81,6 @@ def _request() -> StartLiveMediaReceiverRequest:
         practice_session_id="practice-one",
         coach_pack="yogacoach",
         practice_mode="live_guidance",
-        reference_url="https://example.test/reference",
     )
 
 
@@ -251,6 +251,11 @@ async def test_termination_preserves_reservation_until_stop_is_confirmed(
 ) -> None:
     service, media_session_id = _service(tmp_path)
     service.mark_receiver_started(media_session_id)
+    monkeypatch.setattr(
+        live_media_receiver_service,
+        "RECEIVER_CLOSEOUT_WAIT_SECONDS",
+        0.0,
+    )
 
     async def fake_call(_arguments: dict, *, timeout_ms: int) -> dict:
         _ = timeout_ms
@@ -276,3 +281,43 @@ async def test_termination_preserves_reservation_until_stop_is_confirmed(
         workspace_id="workspace-one",
         device_session_id="device-one",
     ).media_session_id == media_session_id
+
+
+@pytest.mark.asyncio
+async def test_termination_polls_stopping_receiver_until_closeout_completes(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    service, media_session_id = _service(tmp_path)
+    service.mark_receiver_started(media_session_id)
+    actions: list[str] = []
+
+    async def fake_call(arguments: dict, *, timeout_ms: int) -> dict:
+        _ = timeout_ms
+        action = str(arguments["action"])
+        actions.append(action)
+        if action == "receiver_stop":
+            return {"status": "stopping", "media_session_id": media_session_id}
+        return {"status": "completed", "media_session_id": media_session_id}
+
+    monkeypatch.setattr(
+        live_media_receiver_service,
+        "call_capture_relay_arguments",
+        fake_call,
+    )
+    monkeypatch.setattr(
+        live_media_receiver_service,
+        "RECEIVER_STATUS_POLL_INTERVAL_SECONDS",
+        0.0,
+    )
+
+    descriptor = await terminate_live_media_session(
+        media_service=service,
+        workspace_id="workspace-one",
+        device_session_id="device-one",
+        media_session_id=media_session_id,
+        reason="device_session_closed",
+    )
+
+    assert actions == ["receiver_stop", "receiver_status"]
+    assert descriptor.state == "stopped"

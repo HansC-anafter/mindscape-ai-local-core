@@ -35,6 +35,11 @@ class LiveMediaReceiverControlError(RuntimeError):
         self.status_code = status_code
 
 
+RECEIVER_CLOSEOUT_WAIT_SECONDS = 75.0
+RECEIVER_STATUS_POLL_INTERVAL_SECONDS = 0.5
+RECEIVER_TERMINAL_STATUSES = {"completed", "failed", "expired", "not_found"}
+
+
 def _host_api_base() -> str:
     return os.getenv(
         "LOCAL_CORE_HOST_API_BASE",
@@ -155,14 +160,25 @@ async def stop_live_media_receiver(
             timeout_ms=10000,
         )
         status = _safe_status(result)
-        if status.get("status") not in {
-            "completed",
-            "failed",
-            "expired",
-            "not_found",
-        }:
-            raise LiveMediaReceiverControlError(
-                "live_media_receiver_stop_not_confirmed"
+        deadline = asyncio.get_running_loop().time() + RECEIVER_CLOSEOUT_WAIT_SECONDS
+        while status.get("status") not in RECEIVER_TERMINAL_STATUSES:
+            if status.get("status") not in {"active", "stopping"}:
+                raise LiveMediaReceiverControlError(
+                    "live_media_receiver_stop_not_confirmed"
+                )
+            if asyncio.get_running_loop().time() >= deadline:
+                raise LiveMediaReceiverControlError(
+                    "live_media_receiver_stop_not_confirmed"
+                )
+            await asyncio.sleep(RECEIVER_STATUS_POLL_INTERVAL_SECONDS)
+            status = _safe_status(
+                await call_capture_relay_arguments(
+                    {
+                        "action": "receiver_status",
+                        "media_session_id": media_session_id,
+                    },
+                    timeout_ms=5000,
+                )
             )
         return status
     except LiveMediaSessionServiceError as exc:

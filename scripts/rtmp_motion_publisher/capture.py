@@ -85,6 +85,16 @@ class FfmpegRawFrameCapture:
                 "-i",
                 source,
             ]
+        if self.rtmp_url.startswith(("rtsp://", "rtsps://")):
+            input_args = [
+                "-rtsp_transport",
+                "tcp",
+                "-timeout",
+                str(max(1_000_000, int(self.read_timeout_sec * 1_000_000))),
+            ]
+            if self.rtmp_url.startswith("rtsps://"):
+                input_args.extend(["-tls_verify", "1"])
+            return [*input_args, "-i", self.rtmp_url]
         return ["-i", self.rtmp_url]
 
     def _open(self) -> None:

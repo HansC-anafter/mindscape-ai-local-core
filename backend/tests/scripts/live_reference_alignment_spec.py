@@ -11,6 +11,7 @@ if str(SCRIPTS_DIR) not in sys.path:
 
 from rtmp_motion_publisher.reference_alignment import (  # noqa: E402
     LiveReferenceAlignmentMatcher,
+    ORDERED_TRANSITION_CONFIRMATION_WINDOWS,
 )
 
 
@@ -67,6 +68,13 @@ def _profile() -> dict:
     }
 
 
+def _transition_profile() -> dict:
+    profile = _profile()
+    for chapter in profile["chapters"]:
+        chapter["feature_series"] = chapter["feature_series"] * 2
+    return profile
+
+
 def _summary(features: dict[str, float], findings=None) -> dict:
     return {
         "window_id": "window-one",
@@ -96,8 +104,11 @@ def _summary(features: dict[str, float], findings=None) -> dict:
 
 def test_exact_window_emits_high_match_confirmation_and_not_absolute_findings() -> None:
     matcher = LiveReferenceAlignmentMatcher(_profile(), artifact_id="artifact-one")
+    features = _features(0.90, 0.95, 0.02, 0.01, 0.02, 0.10)
+    matcher.annotate(_summary(features))
+    matcher.annotate(_summary(features))
     summary = _summary(
-        _features(0.90, 0.95, 0.02, 0.01, 0.02, 0.10),
+        features,
         findings=["shoulder_line_tilt"],
     )
 
@@ -113,6 +124,9 @@ def test_exact_window_emits_high_match_confirmation_and_not_absolute_findings() 
 
 def test_partial_match_emits_reference_delta_correction() -> None:
     matcher = LiveReferenceAlignmentMatcher(_profile())
+    exact = _features(0.90, 0.95, 0.02, 0.01, 0.02, 0.10)
+    matcher.annotate(_summary(exact))
+    matcher.annotate(_summary(exact))
     summary = _summary(_features(0.90, 0.95, 0.10, 0.01, 0.02, 0.10))
 
     alignment = matcher.annotate(summary)
@@ -135,3 +149,111 @@ def test_sequence_can_relock_after_non_linear_reference_jump() -> None:
 
     assert alignment["chapter_id"] == "chapter-two"
     assert alignment["localization_mode"].endswith("global_relock")
+
+
+def test_opening_single_point_cannot_override_a_complete_matching_sequence() -> None:
+    target_series = [
+        _features(0.88, 0.88, 0.04, 0.03, 0.01, 0.12),
+        _features(0.87, 0.89, 0.03, 0.02, 0.03, 0.13),
+        _features(0.86, 0.91, 0.02, 0.01, 0.02, 0.14),
+        _features(0.85, 0.92, 0.01, 0.01, 0.01, 0.15),
+        _features(0.84, 0.93, 0.02, 0.01, 0.02, 0.16),
+        _features(0.83, 0.94, 0.03, 0.02, 0.03, 0.17),
+    ]
+    profile = {
+        "schema_version": "motion_reference_profile.v1",
+        "reference_profile_id": "long-form-reference",
+        "source_ref": "https://example.test/long-form-reference",
+        "chapters": [
+            {
+                "chapter_id": "opening",
+                "title": "Opening",
+                "ts_start_ms": 0,
+                "ts_end_ms": 12000,
+                "match_role": "instruction",
+                "feature_series": [
+                    target_series[0],
+                    *[_features(0.0, 0.0, 0.0, 0.0, 0.0, 1.0) for _ in range(5)],
+                ],
+            },
+            {
+                "chapter_id": "target",
+                "title": "Target sequence",
+                "ts_start_ms": 12000,
+                "ts_end_ms": 30000,
+                "match_role": "instruction",
+                "feature_series": target_series,
+            },
+        ],
+        "metadata": {"comparison_provenance": "independent_reference_asset"},
+    }
+    matcher = LiveReferenceAlignmentMatcher(profile)
+
+    alignments = [matcher.annotate(_summary(features)) for features in target_series]
+
+    assert alignments[0]["verdict"] == "insufficient_alignment"
+    ready_alignments = [item for item in alignments if item["localization_ready"]]
+    assert {item["chapter_id"] for item in ready_alignments} == {"target"}
+    assert ready_alignments
+    assert alignments[-1]["sequence_history_size"] == 6
+    assert alignments[-1]["full_sequence_candidate_chapter_id"] == "target"
+    assert alignments[-1]["localization_mode"].startswith("tempo_normalized_sequence")
+
+
+def test_initialization_waits_for_sequence_evidence_before_setting_local_prior() -> None:
+    matcher = LiveReferenceAlignmentMatcher(_profile())
+    chapter_one = _features(0.90, 0.95, 0.02, 0.01, 0.02, 0.10)
+
+    first = matcher.annotate(_summary(chapter_one))
+    second = matcher.annotate(_summary(chapter_one))
+
+    assert first["localization_ready"] is False
+    assert second["localization_ready"] is False
+    assert matcher.localizer.previous_index is None
+
+    third = matcher.annotate(_summary(chapter_one))
+
+    assert third["localization_ready"] is True
+    assert matcher.localizer.previous_index == third["reference_window_index"]
+
+
+def test_cross_chapter_local_prior_is_rejected_when_sequence_evidence_disagrees() -> None:
+    matcher = LiveReferenceAlignmentMatcher(_transition_profile())
+    matcher.localizer.previous_index = 3
+    full_history = [_features(0.9, 0.9, 0.1, 0.1, 0.1, 0.1)] * 6
+
+    def score(endpoint: int, history: list[dict[str, float]]) -> float:
+        if len(history) == 3:
+            return {4: 0.76, 5: 0.74}.get(endpoint, 0.95 if endpoint == 0 else 0.2)
+        return {3: 0.80, 4: 0.85, 5: 0.82}.get(endpoint, 0.96 if endpoint == 0 else 0.2)
+
+    matcher.localizer._sequence_score = score  # type: ignore[method-assign]
+
+    point, _, diagnostics = matcher.localizer.select(full_history)
+
+    assert point.chapter_id == "chapter-one"
+    assert diagnostics["local_candidate_chapter_id"] == "chapter-two"
+    assert diagnostics["ordered_transition_supported"] is False
+    assert diagnostics["selection_mode"] == "ordered_chapter_transition_rejected"
+
+
+def test_supported_cross_chapter_transition_requires_consecutive_confirmation() -> None:
+    matcher = LiveReferenceAlignmentMatcher(_transition_profile())
+    matcher.localizer.previous_index = 3
+    full_history = [_features(0.9, 0.9, 0.1, 0.1, 0.1, 0.1)] * 6
+
+    def score(endpoint: int, history: list[dict[str, float]]) -> float:
+        if len(history) == 3:
+            return {4: 0.94, 5: 0.90}.get(endpoint, 0.2)
+        return {3: 0.78, 4: 0.95, 5: 0.92}.get(endpoint, 0.2)
+
+    matcher.localizer._sequence_score = score  # type: ignore[method-assign]
+
+    first, _, first_diagnostics = matcher.localizer.select(full_history)
+    second, _, second_diagnostics = matcher.localizer.select(full_history)
+
+    assert ORDERED_TRANSITION_CONFIRMATION_WINDOWS == 2
+    assert first.chapter_id == "chapter-one"
+    assert first_diagnostics["selection_mode"] == "ordered_chapter_transition_pending"
+    assert second.chapter_id == "chapter-two"
+    assert second_diagnostics["selection_mode"] == "confirmed_ordered_chapter_transition"

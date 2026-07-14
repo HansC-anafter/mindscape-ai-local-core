@@ -64,6 +64,7 @@ def test_materialize_uses_canonical_api_and_requires_diary_id(tmp_path, monkeypa
         user_goal="Practice accurately",
         api_base="http://localhost:8200",
         api_timeout_sec=5.0,
+        closeout_api_timeout_sec=30.0,
         api_retry_count=2,
         api_retry_backoff_sec=0.1,
         practice_diary_reference_visual_evidence_path=str(path),
@@ -84,3 +85,5 @@ def test_materialize_uses_canonical_api_and_requires_diary_id(tmp_path, monkeypa
     assert requests[0][1] == (
         "/api/v1/capabilities/yogacoach/practice-diaries/materialize"
     )
+    assert requests[0][3]["timeout_sec"] == 30.0
+    assert requests[0][3]["retry_count"] == 1

@@ -40,15 +40,22 @@ def _input_asset_kind(value: str) -> str:
     source = str(value or "").strip()
     if not source:
         return "unknown"
-    path = Path(source)
-    if path.exists():
-        return "bilibili_m4s_file" if "bilibili" in path.name.lower() else "file_replay"
     if source.startswith("rtmp://") or source.startswith("rtmps://"):
         return "rtmp_capture"
     if source.startswith("rtsp://") or source.startswith("rtsps://"):
         return "relay_capture"
     if source.startswith("avfoundation:"):
         return "avfoundation_capture"
+    path = Path(source)
+    try:
+        if path.exists():
+            return (
+                "bilibili_m4s_file"
+                if "bilibili" in path.name.lower()
+                else "file_replay"
+            )
+    except OSError:
+        return "stream_replay"
     return "stream_replay"
 
 

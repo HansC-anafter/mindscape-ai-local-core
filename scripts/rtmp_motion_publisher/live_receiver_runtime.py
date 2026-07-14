@@ -11,7 +11,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from .app import run_receiver
 from .cli import parse_args
-from .receiver_state import transition_receiver_state
+from .receiver_state import safe_receiver_failure_reason, transition_receiver_state
 
 
 def _required(record: dict[str, Any], name: str) -> str:
@@ -155,10 +155,12 @@ def _build_receiver_args(
         "--expected-duration-ms",
         str(expected_duration_ms),
         "--capture-backend",
-        "opencv",
+        "ffmpeg",
         "--api-timeout-sec",
         "5",
         "--rollup-api-timeout-sec",
+        "30",
+        "--closeout-api-timeout-sec",
         "30",
         "--api-retry-count",
         "2",
@@ -218,8 +220,12 @@ def main() -> int:
             media_session_id=(locals().get("descriptor") or {}).get("media_session_id", "unknown"),
             receiver_identity=(locals().get("descriptor") or {}).get("receiver_identity", "unknown"),
         )
-        transition_receiver_state(fallback, "failed", reason=str(exc))
-        raise
+        transition_receiver_state(
+            fallback,
+            "failed",
+            reason=safe_receiver_failure_reason(exc),
+        )
+        return 1
 
 
 __all__ = ["main"]

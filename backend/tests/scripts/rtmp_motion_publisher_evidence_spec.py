@@ -21,6 +21,9 @@ sys.modules.setdefault(
 
 from rtmp_motion_publisher import api_client, evidence  # noqa: E402
 from rtmp_motion_publisher.closeout import _input_asset_kind, _source_mode  # noqa: E402
+from rtmp_motion_publisher.receiver_state import (  # noqa: E402
+    safe_receiver_failure_reason,
+)
 
 
 class FakeCV2:
@@ -107,6 +110,25 @@ def test_closeout_source_mode_distinguishes_live_capture_from_file_replay(
     assert _source_mode(_input_asset_kind("rtmp://example.test/live")) == "live_capture"
     assert _input_asset_kind("rtsps://media.test:8322/live") == "relay_capture"
     assert _source_mode(_input_asset_kind("rtsps://media.test:8322/live")) == "live_capture"
+    assert _input_asset_kind(
+        "rtsps://media.test:8322/live?token=" + ("credential" * 80)
+    ) == "relay_capture"
+
+
+def test_receiver_failure_reason_never_persists_source_credentials() -> None:
+    error = OSError(
+        63,
+        "File name too long",
+        "rtsps://media.test/live?token=jwt-credential",
+    )
+
+    reason = safe_receiver_failure_reason(error)
+
+    assert reason == "live_media_receiver_os_error_63"
+    assert "jwt-credential" not in reason
+    assert safe_receiver_failure_reason(ValueError("receiver_descriptor_expired")) == (
+        "receiver_descriptor_expired"
+    )
 
 
 def test_persisted_evidence_removes_live_media_credentials(

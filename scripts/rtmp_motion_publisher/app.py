@@ -22,6 +22,44 @@ from .stream_cost import start_stream_cost_tracking
 from .windows import MotionWindowAccumulator, PendingMotionWindow, PoseSample
 
 
+def _public_reference_alignment_status(
+    summary: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if not isinstance(summary, dict):
+        return None
+    metadata = summary.get("metadata")
+    if not isinstance(metadata, dict):
+        return None
+    alignment = metadata.get("reference_alignment")
+    if not isinstance(alignment, dict):
+        return None
+    allowed_keys = (
+        "chapter_id",
+        "reference_window_index",
+        "score",
+        "localization_score",
+        "confidence",
+        "verdict",
+        "localization_ready",
+        "selection_mode",
+        "sequence_history_size",
+        "global_candidate_chapter_id",
+        "global_candidate_score",
+        "full_sequence_candidate_chapter_id",
+        "full_sequence_candidate_score",
+        "local_candidate_chapter_id",
+        "local_candidate_score",
+        "previous_chapter_candidate_chapter_id",
+        "previous_chapter_candidate_score",
+        "ordered_transition_supported",
+        "pending_transition_chapter_id",
+        "pending_transition_count",
+        "pending_relock_chapter_id",
+        "pending_relock_count",
+    )
+    return {key: alignment[key] for key in allowed_keys if key in alignment}
+
+
 def _try_emit_rollup(
     args: Any,
     live_session_id: str,
@@ -347,6 +385,9 @@ def run_receiver(args: Any) -> int:
                             last_window_summary["findings"]
                             if last_window_summary is not None
                             else []
+                        ),
+                        "reference_alignment": _public_reference_alignment_status(
+                            last_window_summary
                         ),
                     }
                 )

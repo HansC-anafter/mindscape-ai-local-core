@@ -2,9 +2,23 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+
+_STABLE_REASON = re.compile(r"^[a-z0-9][a-z0-9_.:-]{0,127}$")
+
+
+def safe_receiver_failure_reason(exc: Exception) -> str:
+    message = str(exc).strip()
+    if isinstance(exc, ValueError) and _STABLE_REASON.fullmatch(message):
+        return message
+    if isinstance(exc, OSError):
+        errno = exc.errno if isinstance(exc.errno, int) else "unknown"
+        return f"live_media_receiver_os_error_{errno}"
+    return "live_media_receiver_runtime_failed"
 
 
 def transition_receiver_state(
@@ -39,4 +53,4 @@ def transition_receiver_state(
     path.chmod(0o600)
 
 
-__all__ = ["transition_receiver_state"]
+__all__ = ["safe_receiver_failure_reason", "transition_receiver_state"]

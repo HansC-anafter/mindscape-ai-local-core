@@ -62,8 +62,11 @@ def materialize_practice_diary(
         args.api_base,
         "/api/v1/capabilities/yogacoach/practice-diaries/materialize",
         request,
-        timeout_sec=args.api_timeout_sec,
-        retry_count=args.api_retry_count,
+        timeout_sec=float(
+            getattr(args, "closeout_api_timeout_sec", args.api_timeout_sec)
+        ),
+        # A timed-out write may still commit server-side. Do not duplicate it.
+        retry_count=1,
         retry_backoff_sec=args.api_retry_backoff_sec,
     )
     summary = _record(response.get("summary"))
