@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Path, WebSocket, WebSocketDisconnect
@@ -27,6 +28,10 @@ from backend.app.services.media_transport import (
     LiveMediaSessionServiceError,
     get_live_media_session_service,
 )
+from backend.app.services.media_transport.live_media_receiver_service import (
+    LiveMediaReceiverControlError,
+    terminate_live_media_session,
+)
 from backend.app.services.orchestration.meeting.device_binding_events import (
     broadcast_to_source_devices as _broadcast_to_source_devices,
     broadcast_to_workspace_observers as _broadcast_to_workspace_observers,
@@ -37,6 +42,7 @@ from backend.app.services.orchestration.meeting.device_binding_events import (
 )
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def get_device_binding_live_media_service() -> LiveMediaSessionService | None:
@@ -48,17 +54,19 @@ def get_device_binding_live_media_service() -> LiveMediaSessionService | None:
         return None
 
 
-def _stop_attached_live_media_session(
+async def _stop_attached_live_media_session(
     entry: DeviceSessionEntry,
     media_service: LiveMediaSessionService | None,
 ) -> None:
     if media_service is None or not entry.media_session_id:
         return
     try:
-        media_service.stop(
+        await terminate_live_media_session(
+            media_service=media_service,
             workspace_id=entry.workspace_id,
             device_session_id=entry.session_id,
             media_session_id=entry.media_session_id,
+            reason=entry.terminal_reason or "device_session_closed",
         )
     except LiveMediaSessionServiceError as exc:
         if exc.reason != "live_media_session_not_found":
@@ -125,13 +133,26 @@ async def revoke_device_binding_session(
 
     _ = workspace
     try:
+        entry = registry.get_active_session(
+            workspace_id=workspace_id,
+            session_id=session_id,
+        )
+        if entry is None:
+            registry.revoke_session(
+                workspace_id=workspace_id,
+                session_id=session_id,
+            )
+            raise AssertionError("unreachable")
+        entry.terminal_reason = "revoked_by_workspace"
+        await _stop_attached_live_media_session(entry, media_service)
         entry = registry.revoke_session(
             workspace_id=workspace_id,
             session_id=session_id,
         )
     except DeviceBindingRegistryError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.reason) from exc
-    _stop_attached_live_media_session(entry, media_service)
+    except LiveMediaReceiverControlError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.reason) from exc
 
     event = _entry_event(
         event_type="session_revoked",
@@ -314,9 +335,29 @@ async def control_device_binding_session(
                 )
                 continue
             if message.type == "session_close":
-                closed = registry.close_session(session_id=entry.session_id)
+                entry.terminal_reason = "closed_by_source"
+                try:
+                    await _stop_attached_live_media_session(entry, media_service)
+                except LiveMediaReceiverControlError as exc:
+                    await _send_event(
+                        websocket,
+                        _error_event(
+                            workspace_id=workspace_id,
+                            pairing_code=pairing_code,
+                            reason=exc.reason,
+                            message="The live media receiver could not be stopped.",
+                            recoverable=True,
+                            active_sessions=registry.list_active_sessions(
+                                workspace_id=workspace_id,
+                            ),
+                        ),
+                    )
+                    continue
+                closed = registry.close_session(
+                    session_id=entry.session_id,
+                    reason="closed_by_source",
+                )
                 if closed is not None:
-                    _stop_attached_live_media_session(closed, media_service)
                     event = _entry_event(
                         event_type="session_closed",
                         entry=closed,
@@ -356,9 +397,21 @@ async def control_device_binding_session(
                 websocket=websocket,
             )
         if entry is not None:
+            try:
+                entry.terminal_reason = "socket_closed"
+                await _stop_attached_live_media_session(entry, media_service)
+            except LiveMediaReceiverControlError as exc:
+                logger.error(
+                    "live media receiver cleanup failed after source disconnect",
+                    extra={
+                        "workspace_id": entry.workspace_id,
+                        "device_session_id": entry.session_id,
+                        "media_session_id": entry.media_session_id,
+                        "reason": exc.reason,
+                    },
+                )
             closed = registry.close_session(session_id=entry.session_id)
             if closed is not None:
-                _stop_attached_live_media_session(closed, media_service)
                 await _broadcast_to_workspace_observers(
                     registry=registry,
                     pairing_code=pairing_code,

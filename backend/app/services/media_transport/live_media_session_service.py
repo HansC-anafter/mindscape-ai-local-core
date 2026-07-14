@@ -7,6 +7,7 @@ from functools import lru_cache
 from backend.app.models.device_binding import DeviceSessionEntry
 from backend.app.models.media_transport import (
     CreateLiveMediaSessionRequest,
+    LiveMediaReceiverAccess,
     LiveMediaSessionAccess,
     LiveMediaSessionDescriptor,
 )
@@ -108,18 +109,63 @@ class LiveMediaSessionService:
         workspace_id: str,
         device_session_id: str,
         media_session_id: str,
+        reason: str = "stopped_by_client",
     ) -> LiveMediaSessionDescriptor:
         try:
             return self._registry.stop(
                 workspace_id=workspace_id,
                 device_session_id=device_session_id,
                 media_session_id=media_session_id,
+                reason=reason,
             )
         except LiveMediaSessionRegistryError as exc:
             raise LiveMediaSessionServiceError(
                 exc.reason,
                 status_code=exc.status_code,
             ) from exc
+
+    def receiver_access(
+        self,
+        *,
+        workspace_id: str,
+        device_session_id: str,
+        media_session_id: str,
+    ) -> LiveMediaReceiverAccess:
+        try:
+            descriptor = self._registry.get_active(
+                workspace_id=workspace_id,
+                device_session_id=device_session_id,
+                media_session_id=media_session_id,
+            )
+            binding = self._registry.get_receiver_binding(
+                workspace_id=workspace_id,
+                device_session_id=device_session_id,
+                media_session_id=media_session_id,
+            )
+            return LiveMediaReceiverAccess(
+                session=descriptor,
+                binding=binding,
+                receiver_token=self._token_service.issue_receiver_token(descriptor),
+            )
+        except LiveMediaSessionRegistryError as exc:
+            raise LiveMediaSessionServiceError(
+                exc.reason,
+                status_code=exc.status_code,
+            ) from exc
+        except LiveMediaTokenError as exc:
+            raise LiveMediaSessionServiceError(str(exc), status_code=503) from exc
+
+    def mark_receiver_started(self, media_session_id: str) -> None:
+        try:
+            self._registry.mark_receiver_started(media_session_id)
+        except LiveMediaSessionRegistryError as exc:
+            raise LiveMediaSessionServiceError(
+                exc.reason,
+                status_code=exc.status_code,
+            ) from exc
+
+    def receiver_started(self, media_session_id: str) -> bool:
+        return self._registry.receiver_started(media_session_id)
 
     def _access(
         self,

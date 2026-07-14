@@ -1,7 +1,16 @@
 'use client';
 
 import type { DeviceSessionEntry } from '@/lib/device-binding/deviceBindingClient';
+import { startLiveMediaReceiver } from '@/lib/media-transport/liveMediaReceiverClient';
 import { submitMeetingCommandEnvelope } from '@/components/capabilities/meeting-workbench/meetingCommandLedger';
+import {
+  buildMotionPracticeCommandMetadata,
+  buildMotionPracticeReferenceMetadata,
+  buildMotionPracticeResourcePolicy,
+  buildMotionSourceRef,
+  isRecord,
+  readInstructionSegmentGraphs,
+} from './motionPracticeLaunchMetadata';
 import {
   buildMotionPracticeIntentText as buildMotionPracticeIntentTextFromTarget,
   buildMotionPracticeSessionId as buildMotionPracticeSessionIdFromTarget,
@@ -18,6 +27,12 @@ export {
   type MotionPracticeMode,
   type MotionPracticeTarget,
 } from './motionPracticeTargets';
+export {
+  buildMotionPracticeCommandMetadata,
+  buildMotionPracticeReferenceMetadata,
+  buildMotionPracticeResourcePolicy,
+  buildMotionSourceRef,
+} from './motionPracticeLaunchMetadata';
 
 export type MotionPracticeInstructionRef = Record<string, unknown>;
 
@@ -139,6 +154,7 @@ async function startMotionPracticeMeetingSession(
           motion_practice_launch: true,
           coach_pack: input.coachPack,
           practice_mode: input.practiceMode,
+          append_owner_required: true,
           capture_session_id: input.sourceSession.session_id,
         },
       }),
@@ -181,19 +197,17 @@ async function registerLiveMotionSession(
         },
         metadata: {
           source_surface: 'workspace_motion_source_practice_launcher',
+          append_owner_required: true,
           source_types: input.sourceSession.source_types,
           coach_pack: input.coachPack,
           practice_mode: input.practiceMode,
+          ...buildMotionPracticeReferenceMetadata(input),
           resource_policy: buildMotionPracticeResourcePolicy(),
         },
       }),
     },
   );
   return isRecord(payload) ? payload : {};
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function isMeetingSessionSummary(value: unknown): value is MeetingSessionSummary {
@@ -222,34 +236,6 @@ function readPlaybookExecutionId(
   return typeof executionId === 'string' && executionId.trim()
     ? executionId.trim()
     : null;
-}
-
-export function buildMotionSourceRef(session: DeviceSessionEntry): string {
-  return `mindscape://device_binding/session/${encodeURIComponent(session.session_id)}`;
-}
-
-export function buildMotionPracticeResourcePolicy(): Record<string, boolean | string> {
-  return {
-    raw_media_db_writes: false,
-    raw_frame_meeting_ledger_writes: false,
-    ux_polling: false,
-    worker_required_for_launch: false,
-    transport: 'webrtc_signal_and_peer_connection',
-  };
-}
-
-export function buildMotionPracticeCommandMetadata(
-  input: MotionPracticeLaunchInput,
-): Record<string, unknown> {
-  return {
-    dispatch_mode: 'route_playbook',
-    explicit_override: true,
-    motion_practice_launch: true,
-    motion_practice_command: true,
-    coach_pack: input.coachPack,
-    practice_mode: input.practiceMode,
-    resource_policy: buildMotionPracticeResourcePolicy(),
-  };
 }
 
 export function buildYogaLivePracticeRollup({
@@ -287,7 +273,7 @@ export function buildYogaLivePracticeRollup({
       source_surface: 'workspace_motion_source_practice_launcher',
       coach_pack: input.coachPack,
       practice_mode: input.practiceMode,
-      instruction_refs: input.instructionRefs || [],
+      ...buildMotionPracticeReferenceMetadata(input),
       resource_policy: buildMotionPracticeResourcePolicy(),
     },
   };
@@ -312,7 +298,7 @@ function buildDancePracticeSession({
     metadata: {
       source_surface: 'workspace_motion_source_practice_launcher',
       source_types: input.sourceSession.source_types,
-      instruction_refs: input.instructionRefs || [],
+      ...buildMotionPracticeReferenceMetadata(input),
       resource_policy: buildMotionPracticeResourcePolicy(),
     },
   };
@@ -335,7 +321,7 @@ function buildDanceMotionSummary({
     meeting_session_id: meetingId,
     scores: {},
     findings: ['More live motion windows are required before scoring.'],
-    instruction_refs: input.instructionRefs || [],
+    ...buildMotionPracticeReferenceMetadata(input),
   };
 }
 
@@ -406,6 +392,26 @@ export async function launchMotionPractice(
   );
   const liveSessionPayload = await registerLiveMotionSession(input, meeting.id);
   const liveSessionId = readLiveSessionId(liveSessionPayload);
+  const mediaSessionId = input.sourceSession.media_session_id?.trim();
+  if (!liveSessionId) {
+    throw new Error('motion_live_session_not_created');
+  }
+  if (!mediaSessionId) {
+    throw new Error('live_media_session_not_connected');
+  }
+  await startLiveMediaReceiver({
+    apiBase: input.apiUrl,
+    workspaceId: input.workspaceId,
+    deviceSessionId: input.sourceSession.session_id,
+    mediaSessionId,
+    liveMotionSessionId: liveSessionId,
+    meetingSessionId: meeting.id,
+    practiceSessionId: buildMotionPracticeSessionIdFromTarget(input),
+    coachPack: input.coachPack,
+    practiceMode: input.practiceMode,
+    referenceUrl: input.expertLibraryRef,
+    userGoal: input.userGoal,
+  });
 
   if (target.launchKind === 'live_guidance') {
     return {

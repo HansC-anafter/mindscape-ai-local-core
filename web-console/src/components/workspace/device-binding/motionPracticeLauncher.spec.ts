@@ -1,12 +1,26 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { DeviceSessionEntry } from '@/lib/device-binding/deviceBindingClient';
 import {
   buildMotionPracticeCommandMetadata,
   buildMotionPracticeCommandParameters,
+  buildMotionPracticeReferenceMetadata,
+  launchMotionPractice,
   resolveMotionPracticeTarget,
   type MotionPracticeLaunchInput,
 } from './motionPracticeLauncher';
+
+const mocks = vi.hoisted(() => ({
+  startLiveMediaReceiver: vi.fn(async (input) => ({
+    schema_version: 'live_media_receiver_control.v1',
+    status: 'active',
+    media_session_id: input.mediaSessionId,
+  })),
+}));
+
+vi.mock('@/lib/media-transport/liveMediaReceiverClient', () => ({
+  startLiveMediaReceiver: mocks.startLiveMediaReceiver,
+}));
 
 const sourceSession: DeviceSessionEntry = {
   session_id: 'session_1',
@@ -19,6 +33,41 @@ const sourceSession: DeviceSessionEntry = {
   created_at_epoch: 1,
   updated_at_epoch: 1,
   expires_at_epoch: 61,
+};
+
+const courseChapters = [
+  {
+    chapter_id: 'opening_chat',
+    title: 'Opening chat',
+    start_ms: 0,
+    end_ms: 180000,
+    segment_type: 'chat',
+    scoreable: false,
+    guidance_mode: 'suppress',
+  },
+  {
+    chapter_id: 'sun_flow',
+    title: 'Sun salutation flow',
+    start_ms: 180000,
+    end_ms: 480000,
+    segment_type: 'practice',
+    scoreable: true,
+    guidance_mode: 'score',
+  },
+];
+
+const segmentGraph = {
+  graph_version: 'motion_reference_segment_graph.v1',
+  ordered_edges: [
+    { from: 'opening_chat', to: 'sun_flow', relation: 'next' },
+  ],
+  scoreable_segment_ids: ['sun_flow'],
+  unordered_match_enabled: true,
+  resync_policy: {
+    ordered_prior_enabled: true,
+    unordered_fallback_enabled: true,
+    skip_non_scoreable_segments: true,
+  },
 };
 
 const baseInput: MotionPracticeLaunchInput = {
@@ -34,6 +83,8 @@ const baseInput: MotionPracticeLaunchInput = {
       video_id: 'dQw4w9WgXcQ',
       frame_readable: false,
       motion_analysis_source: false,
+      course_chapters: courseChapters,
+      segment_graph: segmentGraph,
     },
   ],
 };
@@ -64,6 +115,11 @@ function expectNoRawPayload(payload: unknown) {
 }
 
 describe('motionPracticeLauncher', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
   it('routes practice launch commands through explicit playbook dispatch', () => {
     const metadata = buildMotionPracticeCommandMetadata(baseInput);
 
@@ -79,7 +135,7 @@ describe('motionPracticeLauncher', () => {
         raw_frame_meeting_ledger_writes: false,
         ux_polling: false,
         worker_required_for_launch: false,
-        transport: 'webrtc_signal_and_peer_connection',
+        transport: 'whip_rtsps_supervised_receiver',
       },
     });
     expect(metadata).not.toHaveProperty('force_meeting_orchestration');
@@ -96,9 +152,19 @@ describe('motionPracticeLauncher', () => {
     expect(parameters.live_practice_rollup).toMatchObject({
       metadata: {
         instruction_refs: baseInput.instructionRefs,
+        course_chapters: courseChapters,
+        reference_segment_graphs: [segmentGraph],
       },
     });
     expectNoRawPayload(parameters);
+  });
+
+  it('preserves reference segment metadata for live motion runtime registration', () => {
+    expect(buildMotionPracticeReferenceMetadata(baseInput)).toEqual({
+      instruction_refs: baseInput.instructionRefs,
+      course_chapters: courseChapters,
+      reference_segment_graphs: [segmentGraph],
+    });
   });
 
   it('enables Dance record summary with compact refs only', () => {
@@ -126,6 +192,8 @@ describe('motionPracticeLauncher', () => {
     expect(parameters.motion_summary).toMatchObject({
       live_session_id: 'lms_motion',
       instruction_refs: baseInput.instructionRefs,
+      course_chapters: courseChapters,
+      reference_segment_graphs: [segmentGraph],
     });
     expectNoRawPayload(parameters);
   });
@@ -143,5 +211,42 @@ describe('motionPracticeLauncher', () => {
       playbookCode: null,
       launchKind: 'live_guidance',
     });
+  });
+
+  it('registers the formal motion session with append ownership before receiver start', async () => {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith('/meeting-sessions/active')) {
+        return { ok: true, status: 200, json: async () => ({ id: 'meeting-one' }) };
+      }
+      if (url.endsWith('/analysis/live-sessions')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ live_session: { live_session_id: 'motion-one' } }),
+        };
+      }
+      throw new Error(`unexpected fetch: ${url}:${init?.method || 'GET'}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await launchMotionPractice({
+      ...baseInput,
+      practiceMode: 'live_guidance',
+      sourceSession: {
+        ...sourceSession,
+        media_session_id: 'media-one',
+      },
+    });
+
+    const registration = fetchMock.mock.calls.find(([url]) => (
+      String(url).endsWith('/analysis/live-sessions')
+    ));
+    const registrationPayload = JSON.parse(String(registration?.[1]?.body));
+    expect(registrationPayload.metadata.append_owner_required).toBe(true);
+    expect(mocks.startLiveMediaReceiver).toHaveBeenCalledWith(expect.objectContaining({
+      mediaSessionId: 'media-one',
+      liveMotionSessionId: 'motion-one',
+      meetingSessionId: 'meeting-one',
+    }));
   });
 });

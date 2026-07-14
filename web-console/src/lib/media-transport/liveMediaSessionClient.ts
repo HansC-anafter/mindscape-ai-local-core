@@ -36,7 +36,6 @@ export type LiveMediaSessionAccess = {
   tokens: {
     publish: string;
     preview: string;
-    receiver: string;
   };
 };
 
