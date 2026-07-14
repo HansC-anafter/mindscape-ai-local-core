@@ -377,9 +377,10 @@ async def test_mixed_steady_and_observed_floor_blocks_unsafe_sixth_task(monkeypa
                 node_budget_store=store,
                 node_memory_snapshot=snapshot,
                 owner_id=f"runner-{index}:task-mixed-{index}",
-                ttl_seconds=30,
+                ttl_seconds=3600,
             )
         )
+        store.advance(31)
 
     assert [item.allow for item in decisions] == [True, True, True, True, True, False]
     observed = decisions[4].execution_context_updates["resource_admission"]
@@ -484,7 +485,7 @@ async def test_browser_startup_spacing_allows_byte_reserved_parallel_claims():
     assert second.execution_context_updates["resource_admission"][
         "browser_startup"
     ]["slot_index"] == 1
-    assert (await node_store.snapshot())["active_reservations"] == 2
+    assert (await node_store.snapshot())["active_reservations"] == 4
 
     third = await acquire_task_resource_admission(
         task=_task("task-start-3"),
@@ -502,7 +503,9 @@ async def test_browser_startup_spacing_allows_byte_reserved_parallel_claims():
     assert third.execution_context_updates["resource_admission"][
         "browser_startup"
     ]["slot_index"] == 2
-    assert (await node_store.snapshot())["active_reservations"] == 3
+    snapshot_after_claims = await node_store.snapshot()
+    assert snapshot_after_claims["active_reservations"] == 6
+    assert snapshot_after_claims["reserved_bytes"] == 6 * 1024 * MIB
 
 
 @pytest.mark.asyncio
@@ -520,7 +523,7 @@ async def test_failed_claim_rollback_releases_browser_startup_slot():
     snapshot = {
         "total_bytes": 4 * 1024 * MIB,
         "available_bytes": 2 * 1024 * MIB,
-        "cgroup_limit_bytes": 3 * 1024 * MIB,
+        "cgroup_limit_bytes": 4 * 1024 * MIB,
     }
 
     first = await acquire_task_resource_admission(
@@ -571,6 +574,58 @@ async def test_failed_claim_rollback_releases_browser_startup_slot():
 
     assert retry.allow is True
     assert retry.preclaim_leases[0].lease_key == BROWSER_STARTUP_LEASE_KEY
+
+
+@pytest.mark.asyncio
+async def test_successful_short_task_retains_transient_startup_bytes_until_expiry():
+    lease_store = InMemoryResourceLeaseStore(now_epoch=0.0)
+    node_store = InMemoryNodeBudgetStore(now_epoch=0.0)
+    requirements = ResourceRequirements(
+        resource_class="browser",
+        browser_contexts=1,
+        memory_mb=2048,
+        browser_startup_memory_mb=4096,
+        browser_startup_spacing_seconds=60,
+        memory_reservation_source="playbook_profile",
+    )
+    snapshot = {
+        "total_bytes": 6 * 1024 * MIB,
+        "available_bytes": 6 * 1024 * MIB,
+        "cgroup_limit_bytes": 6 * 1024 * MIB,
+    }
+
+    first = await acquire_task_resource_admission(
+        task=_task("task-short-start-1"),
+        requirements=requirements,
+        runner_profile=_profile(),
+        capacity=_capacity(3),
+        lease_store=lease_store,
+        node_budget_store=node_store,
+        node_memory_snapshot=snapshot,
+        owner_id="runner-a:task-short-start-1",
+        ttl_seconds=30,
+    )
+    assert first.allow is True
+    assert len(first.preclaim_node_budget_reservations) == 1
+    assert first.preclaim_node_budget_reservations[0].bytes == 2 * 1024 * MIB
+
+    await node_store.release(first.node_budget_reservation)
+    blocked = await acquire_task_resource_admission(
+        task=_task("task-short-start-2"),
+        requirements=requirements,
+        runner_profile=_profile(),
+        capacity=_capacity(3),
+        lease_store=lease_store,
+        node_budget_store=node_store,
+        node_memory_snapshot=snapshot,
+        owner_id="runner-b:task-short-start-2",
+        ttl_seconds=30,
+    )
+    assert blocked.allow is False
+    assert blocked.blocked_payload["reason"] == "browser_startup_spacing_active"
+    node_snapshot = await node_store.snapshot()
+    assert node_snapshot["active_reservations"] == 1
+    assert node_snapshot["reserved_bytes"] == 2 * 1024 * MIB
 
 
 @pytest.mark.asyncio

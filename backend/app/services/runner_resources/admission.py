@@ -13,7 +13,11 @@ from .leases import (
     ResourceLeaseStore,
     build_resource_lease_key,
 )
-from .browser_startup_gate import acquire_browser_startup_gate
+from .browser_startup_gate import (
+    acquire_browser_startup_gate,
+    resolve_browser_startup_request_bytes,
+    resolve_browser_startup_spacing_seconds,
+)
 from .requirements import ResourceRequirements
 from .node_budget import (
     NODE_BUDGET_CONTEXT_KEY,
@@ -38,6 +42,9 @@ class ResourceAdmissionDecision:
     acquired_leases: list[ResourceLease] = field(default_factory=list)
     preclaim_leases: list[ResourceLease] = field(default_factory=list)
     node_budget_reservation: Optional[NodeBudgetReservation] = None
+    preclaim_node_budget_reservations: list[NodeBudgetReservation] = field(
+        default_factory=list
+    )
     execution_context_updates: dict[str, Any] = field(default_factory=dict)
 
 
@@ -148,6 +155,7 @@ async def acquire_task_resource_admission(
     resolved_request_source = requirements.memory_reservation_source
     profile_fingerprint = ""
     browser_startup_decision = None
+    browser_startup_transient_reservations: list[NodeBudgetReservation] = []
     snapshot: dict[str, Any] = {}
     if is_browser:
         snapshot = node_memory_snapshot or current_node_memory_snapshot()
@@ -270,9 +278,77 @@ async def acquire_task_resource_admission(
         node_reservation = node_decision.reservation
 
     if is_browser:
+        startup_request = resolve_browser_startup_request_bytes(
+            requirements,
+            snapshot,
+        )
+        startup_requested_bytes = startup_request[0] if startup_request else 0
+        startup_transient_bytes = max(
+            0,
+            startup_requested_bytes - resolved_request_bytes,
+        )
+        if startup_transient_bytes > 0:
+            assert node_budget_store is not None
+            assert node_policy is not None
+            startup_spacing_seconds = resolve_browser_startup_spacing_seconds(
+                requirements
+            )
+            startup_budget_decision = await node_budget_store.acquire(
+                owner_id=f"{owner_id}:browser_startup",
+                request_bytes=startup_transient_bytes,
+                policy=node_policy,
+                profile_fingerprint=resource_profile_fingerprint(
+                    requirements,
+                    startup_requested_bytes,
+                ),
+                ttl_seconds=startup_spacing_seconds,
+            )
+            if (
+                not startup_budget_decision.allow
+                or startup_budget_decision.reservation is None
+            ):
+                await release_acquired_resource_leases(
+                    lease_store,
+                    acquired,
+                    owner_id=owner_id,
+                )
+                if node_reservation is not None:
+                    await node_budget_store.release(node_reservation)
+                return _blocked_decision(
+                    requirements=requirements,
+                    reason="browser_startup_node_budget_exhausted",
+                    delay_seconds=startup_spacing_seconds,
+                    now=base_now,
+                    task=task,
+                    runner_profile=runner_profile,
+                    extra_payload={
+                        "blocked_resource": "browser_startup_node_budget",
+                        "startup_requested_bytes": startup_requested_bytes,
+                        "startup_transient_bytes": startup_transient_bytes,
+                        "reserved_bytes": startup_budget_decision.reserved_bytes,
+                        "allocatable_bytes": node_policy.allocatable_bytes,
+                        "node_policy_fingerprint": node_policy.fingerprint,
+                    },
+                )
+            browser_startup_transient_reservations.append(
+                startup_budget_decision.reservation
+            )
+
+        startup_gate_snapshot = dict(snapshot)
+        if node_policy is not None:
+            try:
+                physical_available_bytes = int(
+                    startup_gate_snapshot.get("available_bytes") or 0
+                )
+            except (TypeError, ValueError):
+                physical_available_bytes = 0
+            startup_gate_snapshot["available_bytes"] = min(
+                physical_available_bytes,
+                node_policy.allocatable_bytes,
+            )
         browser_startup_decision = await acquire_browser_startup_gate(
             requirements=requirements,
-            node_snapshot=snapshot,
+            node_snapshot=startup_gate_snapshot,
             lease_store=lease_store,
             owner_id=owner_id,
         )
@@ -284,6 +360,9 @@ async def acquire_task_resource_admission(
             )
             if node_reservation is not None and node_budget_store is not None:
                 await node_budget_store.release(node_reservation)
+            if node_budget_store is not None:
+                for transient_reservation in browser_startup_transient_reservations:
+                    await node_budget_store.release(transient_reservation)
             return _blocked_decision(
                 requirements=requirements,
                 reason=(
@@ -385,6 +464,9 @@ async def acquire_task_resource_admission(
         acquired_leases=acquired,
         preclaim_leases=preclaim_leases,
         node_budget_reservation=node_reservation,
+        preclaim_node_budget_reservations=(
+            browser_startup_transient_reservations
+        ),
         execution_context_updates=context_updates,
     )
 
@@ -413,6 +495,9 @@ async def release_acquired_resource_admission(
     )
     if decision.node_budget_reservation is not None and node_budget_store is not None:
         await node_budget_store.release(decision.node_budget_reservation)
+    if node_budget_store is not None:
+        for reservation in decision.preclaim_node_budget_reservations:
+            await node_budget_store.release(reservation)
 
 
 def _blocked_decision(
