@@ -10,6 +10,7 @@ from backend.app.services.runner_resources import (
     ResourceRequirements,
     acquire_task_resource_admission,
     build_resource_wait_task_update,
+    release_acquired_resource_admission,
     release_acquired_resource_leases,
 )
 
@@ -473,6 +474,8 @@ async def test_browser_startup_spacing_allows_byte_reserved_parallel_claims():
 
     assert first.allow is True
     assert first.acquired_leases == []
+    assert len(first.preclaim_leases) == 1
+    assert first.preclaim_leases[0].lease_key == BROWSER_STARTUP_LEASE_KEY
     assert first.execution_context_updates["runner_resource_leases"] == []
     assert second.allow is True
     assert first.execution_context_updates["resource_admission"][
@@ -500,6 +503,74 @@ async def test_browser_startup_spacing_allows_byte_reserved_parallel_claims():
         "browser_startup"
     ]["slot_index"] == 2
     assert (await node_store.snapshot())["active_reservations"] == 3
+
+
+@pytest.mark.asyncio
+async def test_failed_claim_rollback_releases_browser_startup_slot():
+    lease_store = InMemoryResourceLeaseStore(now_epoch=0.0)
+    node_store = InMemoryNodeBudgetStore()
+    requirements = ResourceRequirements(
+        resource_class="browser",
+        browser_contexts=1,
+        memory_mb=1024,
+        browser_startup_memory_mb=2048,
+        browser_startup_spacing_seconds=60,
+        memory_reservation_source="playbook_profile",
+    )
+    snapshot = {
+        "total_bytes": 4 * 1024 * MIB,
+        "available_bytes": 2 * 1024 * MIB,
+        "cgroup_limit_bytes": 3 * 1024 * MIB,
+    }
+
+    first = await acquire_task_resource_admission(
+        task=_task("task-start-rollback-1"),
+        requirements=requirements,
+        runner_profile=_profile(),
+        capacity=_capacity(2),
+        lease_store=lease_store,
+        node_budget_store=node_store,
+        node_memory_snapshot=snapshot,
+        owner_id="runner-a:task-start-rollback-1",
+        ttl_seconds=30,
+    )
+    blocked = await acquire_task_resource_admission(
+        task=_task("task-start-rollback-2"),
+        requirements=requirements,
+        runner_profile=_profile(),
+        capacity=_capacity(2),
+        lease_store=lease_store,
+        node_budget_store=node_store,
+        node_memory_snapshot=snapshot,
+        owner_id="runner-b:task-start-rollback-2",
+        ttl_seconds=30,
+    )
+
+    assert first.allow is True
+    assert blocked.allow is False
+    assert blocked.blocked_payload["reason"] == "browser_startup_spacing_active"
+
+    await release_acquired_resource_admission(
+        lease_store=lease_store,
+        node_budget_store=node_store,
+        decision=first,
+        owner_id="runner-a:task-start-rollback-1",
+    )
+
+    retry = await acquire_task_resource_admission(
+        task=_task("task-start-rollback-3"),
+        requirements=requirements,
+        runner_profile=_profile(),
+        capacity=_capacity(2),
+        lease_store=lease_store,
+        node_budget_store=node_store,
+        node_memory_snapshot=snapshot,
+        owner_id="runner-c:task-start-rollback-3",
+        ttl_seconds=30,
+    )
+
+    assert retry.allow is True
+    assert retry.preclaim_leases[0].lease_key == BROWSER_STARTUP_LEASE_KEY
 
 
 @pytest.mark.asyncio

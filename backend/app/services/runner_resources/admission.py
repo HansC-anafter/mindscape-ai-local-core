@@ -36,6 +36,7 @@ class ResourceAdmissionDecision:
     blocked_payload: Optional[dict[str, Any]] = None
     next_eligible_at: Optional[datetime] = None
     acquired_leases: list[ResourceLease] = field(default_factory=list)
+    preclaim_leases: list[ResourceLease] = field(default_factory=list)
     node_budget_reservation: Optional[NodeBudgetReservation] = None
     execution_context_updates: dict[str, Any] = field(default_factory=dict)
 
@@ -308,6 +309,20 @@ async def acquire_task_resource_admission(
                 },
             )
 
+    preclaim_leases: list[ResourceLease] = []
+    if (
+        browser_startup_decision is not None
+        and browser_startup_decision.allow
+        and browser_startup_decision.lease_key
+    ):
+        preclaim_leases.append(
+            ResourceLease(
+                lease_key=browser_startup_decision.lease_key,
+                resource_type="browser_startup",
+                resource_id=f"slot_{browser_startup_decision.slot_index or 0}",
+            )
+        )
+
     context_updates: dict[str, Any] = {}
     if acquired or node_reservation is not None or is_browser:
         context_updates[LEASE_CONTEXT_KEY] = [
@@ -368,6 +383,7 @@ async def acquire_task_resource_admission(
         allow=True,
         requirements=requirements,
         acquired_leases=acquired,
+        preclaim_leases=preclaim_leases,
         node_budget_reservation=node_reservation,
         execution_context_updates=context_updates,
     )
@@ -392,7 +408,7 @@ async def release_acquired_resource_admission(
 ) -> None:
     await release_acquired_resource_leases(
         lease_store,
-        decision.acquired_leases,
+        [*decision.acquired_leases, *decision.preclaim_leases],
         owner_id=owner_id,
     )
     if decision.node_budget_reservation is not None and node_budget_store is not None:
