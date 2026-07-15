@@ -170,55 +170,50 @@ def append_workspace_identity(
 
 
 def build_asset_map_context(meeting: Any) -> str:
-    """Build workspace group asset map for cross-workspace dispatch routing."""
+    """Build one admission-pinned group asset map for dispatch routing."""
     workspace = getattr(meeting, "workspace", None)
     if not workspace:
         return ""
 
+    session = getattr(meeting, "session", None)
+    session_metadata = getattr(session, "metadata", None) or {}
+    snapshot_payload = session_metadata.get("workspace_group_snapshot")
+    if not isinstance(snapshot_payload, dict):
+        return ""
+
     try:
+        from backend.app.services.workspace_groups.contracts import (
+            WorkspaceGroupTopologySnapshot,
+        )
         from backend.app.services.stores.postgres.workspaces_store import (
             PostgresWorkspacesStore,
         )
 
         parts: List[str] = []
-        seen_workspace_ids = set()
         current_workspace_id = getattr(workspace, "id", None)
+        snapshot = WorkspaceGroupTopologySnapshot.model_validate(snapshot_payload)
+        current_role = snapshot.role_map.get(current_workspace_id)
+        if current_role is None:
+            return ""
 
-        group_id = getattr(workspace, "group_id", None)
-        if group_id:
-            from backend.app.services.stores.postgres.workspace_group_store import (
-                PostgresWorkspaceGroupStore,
-            )
-
-            group_store = PostgresWorkspaceGroupStore()
-            group = group_store.get(group_id)
-            if group:
-                parts.append(f"Workspace Group: {group.display_name} ({group.id})")
-                workspace_role = getattr(workspace, "workspace_role", None) or "cell"
-                parts.append(f"Current workspace role: {workspace_role}")
-
-                ws_store = PostgresWorkspacesStore()
-                for ws_id, role in group.role_map.items():
-                    seen_workspace_ids.add(ws_id)
-                    workspace_label = f"  [{role}] {ws_id}"
-                    if ws_id == current_workspace_id:
-                        workspace_label += " (current)"
-                    parts.append(workspace_label)
-                    append_workspace_identity(meeting, ws_store, ws_id, parts)
-
+        parts.append(
+            f"Workspace Group: {snapshot.display_name} "
+            f"({snapshot.group_id}, revision {snapshot.group_revision}, "
+            f"snapshot {snapshot.id})"
+        )
+        parts.append(f"Current workspace role: {current_role}")
         ws_store = PostgresWorkspacesStore()
-        discoverable = ws_store.list_discoverable_workspaces(visibility="discoverable")
-        extra = [
-            ws
-            for ws in discoverable
-            if ws.id not in seen_workspace_ids and ws.id != current_workspace_id
-        ]
-        if extra:
-            parts.append("")
-            parts.append("Discoverable Workspaces (outside group):")
-            for ws in extra:
-                parts.append(f"  [discoverable] {ws.id} — {ws.title}")
-                format_workspace_identity(ws, parts)
+        for member in snapshot.members:
+            workspace_label = f"  [{member.role}] {member.workspace_id}"
+            if member.workspace_id == current_workspace_id:
+                workspace_label += " (current)"
+            parts.append(workspace_label)
+            append_workspace_identity(
+                meeting,
+                ws_store,
+                member.workspace_id,
+                parts,
+            )
 
         return "\n".join(parts) if parts else ""
     except Exception as exc:

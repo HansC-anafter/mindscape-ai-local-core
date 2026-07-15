@@ -97,8 +97,8 @@ async def execute_plan(
             logger.info(
                 f"PlanExecutor: Processing task_plan {task_plan.pack_id}, "
                 f"side_effect_level={side_effect_level}, auto_execute={should_auto_execute}, "
-                "current_agent="
-                f"{orchestration_state.current_agent_id if orchestration_state.orchestrator else None}"
+                "eligible_agents="
+                f"{list(orchestration_state.eligible_agent_ids) if orchestration_state.orchestrator else []}"
             )
 
             if should_auto_execute and side_effect_level == SideEffectLevel.READONLY:

@@ -36,7 +36,6 @@ class PostgresWorkspacesStore(PostgresStoreBase):
                 """
                 INSERT INTO workspaces (
                     id, owner_user_id, title, description, workspace_type,
-                    group_id, workspace_role,
                     primary_project_id,
                     default_playbook_id, default_locale, mode, data_sources,
                     playbook_auto_execution_config, suggestion_history,
@@ -50,7 +49,6 @@ class PostgresWorkspacesStore(PostgresStoreBase):
                     created_at, updated_at
                 ) VALUES (
                     :id, :owner_user_id, :title, :description, :workspace_type,
-                    :group_id, :workspace_role,
                     :primary_project_id,
                     :default_playbook_id, :default_locale, :mode, :data_sources,
                     :playbook_auto_execution_config, :suggestion_history,
@@ -75,8 +73,6 @@ class PostgresWorkspacesStore(PostgresStoreBase):
                     if workspace.workspace_type
                     else "personal"
                 ),
-                "group_id": getattr(workspace, "group_id", None),
-                "workspace_role": getattr(workspace, "workspace_role", None) or "cell",
                 "primary_project_id": workspace.primary_project_id,
                 "default_playbook_id": workspace.default_playbook_id,
                 "default_locale": workspace.default_locale,
@@ -187,7 +183,7 @@ class PostgresWorkspacesStore(PostgresStoreBase):
                 """
                 SELECT
                     id, owner_user_id, title, description, workspace_type,
-                    group_id, workspace_role, primary_project_id,
+                    primary_project_id,
                     default_playbook_id, default_locale, mode,
                     storage_base_path, artifacts_dir, uploads_dir, storage_config,
                     playbook_storage_config, playbook_auto_execution_config,
@@ -215,6 +211,7 @@ class PostgresWorkspacesStore(PostgresStoreBase):
         owner_user_id: str,
         primary_project_id: Optional[str] = None,
         limit: int = 50,
+        group_id: Optional[str] = None,
     ) -> List[Workspace]:
         """List workspaces for a user."""
         with self.get_connection() as conn:
@@ -224,6 +221,13 @@ class PostgresWorkspacesStore(PostgresStoreBase):
             if primary_project_id:
                 query_str += " AND primary_project_id = :primary_project_id"
                 params["primary_project_id"] = primary_project_id
+
+            if group_id:
+                query_str += (
+                    " AND EXISTS (SELECT 1 FROM workspace_group_memberships wgm "
+                    "WHERE wgm.workspace_id = workspaces.id AND wgm.group_id = :group_id)"
+                )
+                params["group_id"] = group_id
 
             query_str += " ORDER BY updated_at DESC LIMIT :limit"
 
@@ -236,13 +240,14 @@ class PostgresWorkspacesStore(PostgresStoreBase):
         owner_user_id: str,
         primary_project_id: Optional[str] = None,
         limit: int = 50,
+        group_id: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """List workspaces without heavy configuration columns."""
         with self.get_connection() as conn:
             query_str = """
                 SELECT
                     id, owner_user_id, title, description, workspace_type,
-                    group_id, workspace_role, primary_project_id,
+                    primary_project_id,
                     default_playbook_id, default_locale, mode,
                     storage_base_path, artifacts_dir, uploads_dir, storage_config,
                     playbook_storage_config, playbook_auto_execution_config,
@@ -259,6 +264,13 @@ class PostgresWorkspacesStore(PostgresStoreBase):
                 query_str += " AND primary_project_id = :primary_project_id"
                 params["primary_project_id"] = primary_project_id
 
+            if group_id:
+                query_str += (
+                    " AND EXISTS (SELECT 1 FROM workspace_group_memberships wgm "
+                    "WHERE wgm.workspace_id = workspaces.id AND wgm.group_id = :group_id)"
+                )
+                params["group_id"] = group_id
+
             query_str += " ORDER BY updated_at DESC LIMIT :limit"
 
             result = conn.execute(text(query_str), params)
@@ -274,8 +286,6 @@ class PostgresWorkspacesStore(PostgresStoreBase):
                     title = :title,
                     description = :description,
                     workspace_type = :workspace_type,
-                    group_id = :group_id,
-                    workspace_role = :workspace_role,
                     primary_project_id = :primary_project_id,
                     default_playbook_id = :default_playbook_id,
                     default_locale = :default_locale,
@@ -315,8 +325,6 @@ class PostgresWorkspacesStore(PostgresStoreBase):
                     if workspace.workspace_type
                     else "personal"
                 ),
-                "group_id": getattr(workspace, "group_id", None),
-                "workspace_role": getattr(workspace, "workspace_role", None) or "cell",
                 "primary_project_id": workspace.primary_project_id,
                 "default_playbook_id": workspace.default_playbook_id,
                 "default_locale": workspace.default_locale,
@@ -463,12 +471,12 @@ class PostgresWorkspacesStore(PostgresStoreBase):
 
             raw_current = self.deserialize_json(row.data_sources) or {}
             current = {
-                key: self._compact_data_source_entry(value)
+                key: compact_data_source_entry(value)
                 for key, value in raw_current.items()
                 if isinstance(value, dict)
             }
             existing = current.get(pack_id, {})
-            entry = self._compact_data_source_entry(entry)
+            entry = compact_data_source_entry(entry)
 
             # Merge: increment total_runs, update last_run and last_result_summary
             existing["total_runs"] = existing.get("total_runs", 0) + 1
@@ -490,7 +498,3 @@ class PostgresWorkspacesStore(PostgresStoreBase):
                     "id": workspace_id,
                 },
             )
-
-    @staticmethod
-    def _compact_data_source_entry(entry: Dict[str, Any]) -> Dict[str, Any]:
-        return compact_data_source_entry(entry)

@@ -82,6 +82,7 @@ async def dispatch_phase(
         or getattr(orchestrator.session, "workspace_id", None)
         or ""
     )
+    target_ws = orchestrator._group_execution.validate_target(target_ws)
 
     if orchestrator._lens_injector:
         try:

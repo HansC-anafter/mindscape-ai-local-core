@@ -15,6 +15,14 @@ from backend.app.models.task_ir import (
 DeserializeJson = Callable[[Any], Any]
 
 
+def _optional_row_value(row: Any, key: str) -> Any:
+    if hasattr(row, "keys") and key in row.keys():
+        return row[key]
+    if isinstance(row, dict):
+        return row.get(key)
+    return None
+
+
 def row_to_task_ir(row: Dict[str, Any], *, deserialize_json: DeserializeJson) -> TaskIR:
     """Convert a task_irs row into a TaskIR model."""
     phases_data = deserialize_json(row["phases"])
@@ -26,6 +34,9 @@ def row_to_task_ir(row: Dict[str, Any], *, deserialize_json: DeserializeJson) ->
         intent_instance_id=row["intent_instance_id"],
         workspace_id=row["workspace_id"],
         actor_id=row["actor_id"],
+        workspace_group_snapshot_id=_optional_row_value(
+            row, "workspace_group_snapshot_id"
+        ),
         current_phase=row["current_phase"],
         status=row["status"],
         phases=[PhaseIR(**phase_data) for phase_data in phases_data],

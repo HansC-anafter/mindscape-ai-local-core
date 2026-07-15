@@ -27,6 +27,12 @@ vi.mock('@/contexts/ExecutionContextContext', () => ({
   ),
 }));
 
+vi.mock('@/contexts/WorkspaceGroupContext', () => ({
+  WorkspaceGroupContextProvider: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="workspace-group-context-provider">{children}</div>
+  ),
+}));
+
 vi.mock('next/navigation', () => ({
   useRouter: () => ({
     push: vi.fn(),
@@ -47,6 +53,7 @@ describe('WorkspaceRuntimeFrame', () => {
       'full',
     );
     expect(screen.getByTestId('execution-context-provider')).toBeInTheDocument();
+    expect(screen.getByTestId('workspace-group-context-provider')).toBeInTheDocument();
     expect(screen.getByRole('main')).not.toHaveClass('pr-10');
     expect(screen.queryByTestId('workspace-surface-shell')).toBeNull();
     expect(screen.queryByTestId('aol-shell-rail')).toBeNull();

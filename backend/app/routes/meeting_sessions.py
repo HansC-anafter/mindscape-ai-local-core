@@ -8,17 +8,27 @@ Provides REST endpoints for managing meeting session lifecycle:
 - GET session history for a workspace
 """
 
+import asyncio
 import logging
 import uuid
 from typing import Any, Dict, Optional, List
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from backend.app.models.meeting_session import MeetingSession
 from backend.app.models.mindscape import EventActor, EventType, MindEvent
 from backend.app.services.mindscape_store import MindscapeStore
 from backend.app.services.stores.meeting_session_store import MeetingSessionStore
+from backend.app.dependencies.auth import AuthContext, get_current_user
+from backend.app.services.workspace_groups.facade import WorkspaceGroupFacade
+from backend.app.services.workspace_groups.snapshot_service import (
+    WorkspaceGroupSnapshotService,
+)
+from backend.app.services.workspace_groups.topology_service import (
+    WorkspaceGroupAccessError,
+    WorkspaceGroupNotFoundError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +47,7 @@ class StartSessionRequest(BaseModel):
     max_rounds: Optional[int] = None
     lens_id: Optional[str] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
+    active_group_id: Optional[str] = None
 
 
 class EndSessionRequest(BaseModel):
@@ -214,9 +225,35 @@ async def get_active_session(
 async def start_session(
     workspace_id: str,
     body: StartSessionRequest,
+    x_group_id: Optional[str] = Header(None, alias="X-Group-ID"),
+    auth: AuthContext = Depends(get_current_user),
 ):
     """Start a new meeting session. Ends any existing active session first."""
     store = MeetingSessionStore()
+
+    if body.active_group_id and x_group_id and body.active_group_id != x_group_id:
+        raise HTTPException(status_code=400, detail="active group header/body mismatch")
+    active_group_id = body.active_group_id or x_group_id
+    group_context = None
+    group_snapshot = None
+    if active_group_id:
+        try:
+            group_context = await asyncio.to_thread(
+                WorkspaceGroupFacade().resolve_context,
+                active_group_id=active_group_id,
+                workspace_id=workspace_id,
+                actor_user_id=auth.user_id,
+                allowed_group_ids=auth.group_ids,
+            )
+        except WorkspaceGroupNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except WorkspaceGroupAccessError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        group_snapshot = await asyncio.to_thread(
+            WorkspaceGroupSnapshotService().get_or_create,
+            group_context,
+            actor_user_id=auth.user_id,
+        )
 
     # End any existing active session
     existing = store.get_active_session(workspace_id, body.project_id, body.thread_id)
@@ -257,6 +294,7 @@ async def start_session(
         project_id=body.project_id,
         thread_id=body.thread_id,
         lens_id=lens_id,
+        workspace_group_snapshot_id=(group_snapshot.id if group_snapshot else None),
         meeting_type=body.meeting_type,
         agenda=body.agenda,
         success_criteria=body.success_criteria,
@@ -264,6 +302,13 @@ async def start_session(
     )
     if body.metadata:
         new_session.metadata.update(body.metadata)
+    if group_context:
+        new_session.metadata["active_group_id"] = group_context.group_id
+        new_session.metadata["workspace_group_revision"] = group_context.revision
+        new_session.metadata["workspace_group_role"] = group_context.role
+        new_session.metadata["workspace_group_snapshot"] = group_snapshot.model_dump(
+            mode="json"
+        )
     new_session.start()
     store.create(new_session)
     logger.info(f"[MeetingSession] Started session {new_session.id}")

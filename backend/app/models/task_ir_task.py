@@ -23,6 +23,9 @@ class TaskIR(BaseModel):
     intent_instance_id: str = Field(..., description="Associated intent instance ID")
     workspace_id: str = Field(..., description="Workspace ID")
     actor_id: str = Field(..., description="Actor who initiated the task")
+    workspace_group_snapshot_id: Optional[str] = Field(
+        None, description="Admission-pinned Workspace Group topology snapshot ID"
+    )
 
     current_phase: Optional[str] = Field(
         None, description="ID of currently executing phase"

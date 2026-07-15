@@ -8,6 +8,9 @@ from collections import defaultdict
 from typing import Any, Dict, List, Optional, Set
 
 from backend.app.models.task_ir import PhaseIR, PhaseStatus, TaskIR
+from backend.app.services.orchestration.dispatch_orchestrator_core.group_synthesis import (
+    commit_group_synthesis,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -133,6 +136,11 @@ async def execute_task_ir(
             except Exception as exc:
                 logger.warning("Supervisor callback failed (non-fatal): %s", exc)
 
+    synthesis_receipt = await commit_group_synthesis(
+        orchestrator,
+        task_ir.task_id,
+    )
+
     total = len(phases)
     succeeded = len(completed_phases)
     failed = len(failed_phases)
@@ -208,4 +216,5 @@ async def execute_task_ir(
             }
             for pid in phase_map
         ],
+        "group_synthesis_receipt": synthesis_receipt,
     }

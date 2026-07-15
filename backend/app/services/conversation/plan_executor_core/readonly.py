@@ -53,6 +53,7 @@ async def execute_readonly_task(
                 "execution_id": None,
             }
 
+        task_id = task_plan.params.get("step_id") if task_plan.params else None
         plan_context = PlanContext(
             plan_summary=execution_plan.plan_summary or "",
             reasoning=execution_plan.reasoning or "",
@@ -63,12 +64,27 @@ async def execute_readonly_task(
             dependencies=(
                 task_plan.params.get("depends_on", []) if task_plan.params else []
             ),
+            eligible_agent_ids=(
+                list(orchestration_state.eligible_agent_ids)
+                if orchestration_state
+                else []
+            ),
+            agent_execution_units=(
+                orchestration_state.build_agent_execution_units(task_id)
+                if orchestration_state
+                else []
+            ),
         )
-        task_id = task_plan.params.get("step_id") if task_plan.params else None
+        playbook_inputs = dict(prepared_plan.playbook_inputs)
+        if plan_context.agent_execution_units:
+            playbook_inputs["_agent_execution"] = {
+                "eligible_agent_ids": plan_context.eligible_agent_ids,
+                "units": plan_context.agent_execution_units,
+            }
         try:
             launch_result = await executor.execution_launcher.launch(
                 playbook_code=resolved_playbook.code,
-                inputs=prepared_plan.playbook_inputs,
+                inputs=playbook_inputs,
                 ctx=ctx,
                 project_meta=prepared_plan.project_meta,
                 project_id=project_id,

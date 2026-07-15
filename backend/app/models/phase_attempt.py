@@ -87,6 +87,9 @@ class PhaseAttempt(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     task_ir_id: str = Field(..., description="Parent TaskIR ID")
     phase_id: str = Field(..., description="PhaseIR.id being dispatched")
+    workspace_group_snapshot_id: Optional[str] = Field(
+        None, description="Admission-pinned Workspace Group topology snapshot ID"
+    )
 
     attempt_number: int = Field(
         default=1, description="1-based attempt counter for this phase"

@@ -52,13 +52,10 @@ async def get_workspace_ids(scope_type: str, scope_id: str) -> List[str]:
     if scope_type == "workspace":
         return [scope_id]
 
-    from app.services.stores.postgres.workspace_group_store import (
-        PostgresWorkspaceGroupStore,
-    )
+    from backend.app.services.workspace_groups.facade import WorkspaceGroupFacade
 
-    store = PostgresWorkspaceGroupStore()
-    group = store.get(scope_id)
-    return group.workspace_ids if group else []
+    group = WorkspaceGroupFacade().get_explicit_topology(scope_id)
+    return [member.workspace_id for member in group.members] if group else []
 
 
 async def derive_from_timeline(

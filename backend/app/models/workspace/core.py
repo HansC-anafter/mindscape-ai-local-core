@@ -44,13 +44,19 @@ class Workspace(BaseModel):
         description="Workspace type: personal (default) | brand | team | course | research",
     )
 
-    # Workspace group membership
+    # Computed Workspace Group compatibility projection. These fields are never
+    # persisted on workspaces; routes populate them only from an authorized
+    # active group context.
     group_id: Optional[str] = Field(
-        None, description="ID of the workspace group this workspace belongs to"
+        None, description="Explicitly selected and authorized active group ID"
     )
     workspace_role: Optional[str] = Field(
-        default="cell",
-        description="Role in group: 'dispatch' (strategy hub) | 'cell' (execution worker)",
+        default=None,
+        description="Role in the explicitly selected active group",
+    )
+    group_memberships: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="All authorized normalized group memberships for this workspace",
     )
 
     # Owner and primary associations

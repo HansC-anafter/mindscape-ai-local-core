@@ -93,6 +93,7 @@ def row_to_session(row: Any, *, deserialize_json: DeserializeJson) -> MeetingSes
         project_id=data.get("project_id"),
         thread_id=data.get("thread_id"),
         lens_id=data.get("lens_id"),
+        workspace_group_snapshot_id=data.get("workspace_group_snapshot_id"),
         started_at=started_at,
         ended_at=ended_at,
         status=status,

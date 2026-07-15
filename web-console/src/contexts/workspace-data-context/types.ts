@@ -5,6 +5,14 @@ export interface Workspace {
   title: string;
   description?: string;
   workspace_type?: 'personal' | 'brand' | 'team';
+  group_id?: string | null;
+  workspace_role?: 'dispatch' | 'cell' | null;
+  group_memberships?: Array<{
+    group_id: string;
+    display_name: string;
+    role: 'dispatch' | 'cell';
+    revision: number;
+  }>;
   primary_project_id?: string;
   default_playbook_id?: string;
   default_locale?: string;

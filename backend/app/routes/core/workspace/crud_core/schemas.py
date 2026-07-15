@@ -2,7 +2,7 @@
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from backend.app.models.workspace import Workspace
 
@@ -14,6 +14,7 @@ class WorkspaceSummary(BaseModel):
     workspace_type: Optional[str] = None
     group_id: Optional[str] = None
     workspace_role: Optional[str] = None
+    group_memberships: List[Dict[str, Any]] = Field(default_factory=list)
     primary_project_id: Optional[str] = None
     default_playbook_id: Optional[str] = None
     default_locale: Optional[str] = None
@@ -54,6 +55,7 @@ def _workspace_to_summary(workspace: Workspace) -> WorkspaceSummary:
         workspace_type=getattr(workspace_type, "value", workspace_type),
         group_id=getattr(workspace, "group_id", None),
         workspace_role=getattr(workspace, "workspace_role", None),
+        group_memberships=getattr(workspace, "group_memberships", []) or [],
         primary_project_id=workspace.primary_project_id,
         default_playbook_id=workspace.default_playbook_id,
         default_locale=workspace.default_locale,

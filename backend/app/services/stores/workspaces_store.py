@@ -146,6 +146,7 @@ class WorkspacesStore(StoreBase):
         owner_user_id: str,
         primary_project_id: Optional[str] = None,
         limit: int = 50,
+        group_id: Optional[str] = None,
     ) -> List[Workspace]:
         """
         List workspaces for a user
@@ -158,6 +159,8 @@ class WorkspacesStore(StoreBase):
         Returns:
             List of Workspace objects, ordered by updated_at DESC
         """
+        if group_id:
+            raise RuntimeError("workspace groups require the PostgreSQL topology authority")
         with self.get_connection() as conn:
             cursor = conn.cursor()
             query = "SELECT * FROM workspaces WHERE owner_user_id = ?"

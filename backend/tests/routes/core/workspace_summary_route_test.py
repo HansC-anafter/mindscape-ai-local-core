@@ -4,18 +4,23 @@ import importlib
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from backend.app.dependencies.auth import AuthContext, get_current_user
+
 
 class FakeWorkspaceStore:
     def __init__(self):
         self.calls = []
         self.db_path = ":memory:"
 
-    def list_workspace_summaries(self, owner_user_id, primary_project_id=None, limit=50):
+    def list_workspace_summaries(
+        self, owner_user_id, primary_project_id=None, limit=50, group_id=None
+    ):
         self.calls.append(
             {
                 "owner_user_id": owner_user_id,
                 "primary_project_id": primary_project_id,
                 "limit": limit,
+                "group_id": group_id,
             }
         )
         now = datetime(2026, 5, 8, tzinfo=timezone.utc)
@@ -74,10 +79,18 @@ def test_workspace_summary_uses_lightweight_store_and_omits_heavy_fields(monkeyp
 
     monkeypatch.setattr(mindscape_store, "MindscapeStore", lambda: fake_store)
     crud = importlib.import_module("backend.app.routes.core.workspace.crud")
+    list_routes = importlib.import_module(
+        "backend.app.routes.core.workspace.crud_core.list_routes"
+    )
     monkeypatch.setattr(crud, "store", fake_store)
+    monkeypatch.setattr(list_routes, "store", fake_store)
 
     app = FastAPI()
     app.include_router(crud.router, prefix="/api/v1/workspaces")
+    app.dependency_overrides[get_current_user] = lambda: AuthContext(
+        user_id="default-user", tenant_id="local", workspace_ids=["ws-1"]
+    )
+    monkeypatch.setattr(list_routes.group_facade, "membership_refs", lambda ids: {})
     client = TestClient(app)
 
     response = client.get(
@@ -90,6 +103,7 @@ def test_workspace_summary_uses_lightweight_store_and_omits_heavy_fields(monkeyp
             "owner_user_id": "default-user",
             "primary_project_id": "project-1",
             "limit": 1,
+            "group_id": None,
         }
     ]
     body = response.json()
@@ -107,10 +121,18 @@ def test_single_workspace_summary_uses_lightweight_store_and_omits_heavy_fields(
 
     monkeypatch.setattr(mindscape_store, "MindscapeStore", lambda: fake_store)
     crud = importlib.import_module("backend.app.routes.core.workspace.crud")
+    list_routes = importlib.import_module(
+        "backend.app.routes.core.workspace.crud_core.list_routes"
+    )
     monkeypatch.setattr(crud, "store", fake_store)
+    monkeypatch.setattr(list_routes, "store", fake_store)
 
     app = FastAPI()
     app.include_router(crud.router, prefix="/api/v1/workspaces")
+    app.dependency_overrides[get_current_user] = lambda: AuthContext(
+        user_id="default-user", tenant_id="local", workspace_ids=["ws-1"]
+    )
+    monkeypatch.setattr(list_routes.group_facade, "membership_refs", lambda ids: {})
     client = TestClient(app)
 
     response = client.get("/api/v1/workspaces/ws-1/summary")

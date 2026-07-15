@@ -45,6 +45,7 @@ def create_attempt(
     attempt = PhaseAttempt(
         task_ir_id=task_ir_id,
         phase_id=phase.id,
+        workspace_group_snapshot_id=orchestrator._group_execution.snapshot_id,
         attempt_number=attempt_number,
         target_workspace_id=phase.target_workspace_id,
     )
