@@ -148,6 +148,126 @@ class MigrationOrchestrator:
                 "error": str(e)
             }
 
+    def plan_revision(self, db_type: str, revision: str) -> Dict:
+        """Resolve one exact revision target to its unapplied ancestry."""
+        if not revision or revision in {"head", "heads", "base"}:
+            return {
+                "status": "invalid_revision",
+                "error": "An exact revision ID is required; symbolic targets are not allowed.",
+            }
+
+        alembic_config = self.alembic_configs.get(db_type)
+        if alembic_config is None:
+            return {
+                "status": "unsupported_database",
+                "error": f"No Alembic configuration registered for {db_type}.",
+            }
+
+        script_dir = self._load_script_directory(db_type)
+        if script_dir is None:
+            return {
+                "status": "revision_catalog_unavailable",
+                "error": f"Could not load the {db_type} Alembic revision catalog.",
+            }
+
+        try:
+            target = script_dir.get_revision(revision)
+        except Exception as exc:
+            return {
+                "status": "invalid_revision",
+                "error": f"Could not resolve exact revision {revision}: {exc}",
+            }
+        if target is None or target.revision != revision:
+            return {
+                "status": "invalid_revision",
+                "error": f"Revision {revision} is not an exact runtime revision ID.",
+            }
+
+        current_revisions = set(self._get_current_revisions(db_type))
+        applied_revisions = self._get_applied_revisions(db_type, current_revisions)
+        if revision in applied_revisions:
+            return {
+                "status": "up_to_date",
+                "target_revision": revision,
+                "migrations_applied": 0,
+                "revisions": [],
+            }
+
+        try:
+            target_chain = [
+                item.revision
+                for item in script_dir.iterate_revisions(revision, "base")
+                if item.revision not in applied_revisions
+            ]
+        except Exception as exc:
+            return {
+                "status": "invalid_revision",
+                "error": f"Could not resolve ancestry for revision {revision}: {exc}",
+            }
+
+        return {
+            "status": "success",
+            "target_revision": revision,
+            "migrations_pending": len(target_chain),
+            "revisions": list(reversed(target_chain)),
+        }
+
+    def apply_revision(self, db_type: str, revision: str) -> Dict:
+        """Apply one exact Alembic revision target and only its unapplied ancestors."""
+        plan = self.plan_revision(db_type, revision)
+        if plan["status"] == "up_to_date":
+            return plan
+        if plan["status"] != "success":
+            return plan
+
+        try:
+            validation_results = self.validator.validate_environment(
+                db_type,
+                self._get_env_requirements(db_type),
+            )
+        except Exception as exc:
+            return {
+                "status": "validation_failed",
+                "failed_checks": ["environment_requirements"],
+                "validation_results": {},
+                "error": str(exc),
+            }
+        failed_validations = [
+            check for check, passed in validation_results.items() if not passed
+        ]
+        if failed_validations:
+            return {
+                "status": "validation_failed",
+                "failed_checks": failed_validations,
+                "validation_results": validation_results,
+            }
+
+        alembic_config = self.alembic_configs[db_type]
+        try:
+            completed = self._run_alembic_upgrade(alembic_config, revision)
+        except Exception as exc:
+            logger.error("Targeted migration execution failed: %s", exc)
+            return {
+                "status": "failed",
+                "target_revision": revision,
+                "migrations_applied": 0,
+                "error": str(exc),
+            }
+        if not completed:
+            return {
+                "status": "failed",
+                "target_revision": revision,
+                "migrations_applied": 0,
+                "error": "Alembic targeted upgrade failed",
+            }
+
+        return {
+            "status": "completed",
+            "target_revision": revision,
+            "migrations_applied": plan["migrations_pending"],
+            "revisions": plan["revisions"],
+        }
+
     def status(self, db_type: str) -> Dict:
         """Get migration status for a database type."""
         current_revisions = set(self._get_current_revisions(db_type))
