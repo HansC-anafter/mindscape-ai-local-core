@@ -1,6 +1,6 @@
 version: 1
 registry_id: mindscape.product-semantic-surfaces.local-core
-updated_at: "2026-07-14"
+updated_at: "2026-07-15"
 owner_review_handle: "@team-leads"
 
 declaration:
@@ -13,6 +13,53 @@ declaration:
     - breaking-product-semantics-approved-by
 
 surfaces:
+  - id: psc.local-core.workspace-group-dispatch-and-knowledge-projection.v1
+    tier: P0
+    owner: "@team-leads"
+    contract_doc: mindscape-ai-cloud/docs/internal/local-core/product-semantics/workspace-group-dispatch-and-knowledge-projection-contract-2026-07-15.zh-TW.md
+    requires_product_semantic_declaration: true
+    semantics:
+      - Workspace group definitions and normalized memberships are the only durable topology authority; legacy role maps are computed read projections and a workspace is never assigned to an arbitrary first group.
+      - Group execution requires an explicitly authorized active group and an immutable topology revision snapshot; no active group preserves the existing single-workspace path.
+      - The existing dispatch DAG remains the only execution scheduler, preserves the full eligible agent and workspace set, and hands results to exactly one canonical synthesis committer.
+      - Shared group knowledge and agent-scoped views derive from canonical MemoryItem, MemoryVersion, evidence, governance, and receipts; Markdown is a rebuildable projection or source asset, never shared-memory truth.
+      - Source intake separates owner-controlled fetch, immutable evidence, candidate memory, verified memory, and deterministic projections without adding a second credential store, database, scheduler, queue lane, or worker pool.
+      - Group list, snapshot, projection, and UI reads stay bounded, avoid N-plus-one queries, preserve PgBouncer and runner capacity, and add no topology or projection polling loop.
+      - Capability adapters consume the authorized host workspace-group contract and reach installed runtime only through the canonical capability-pack control-plane job and activation path.
+    path_globs:
+      - backend/app/models/workspace_group.py
+      - backend/app/models/workspace/core.py
+      - backend/app/models/workspace_resource_binding.py
+      - backend/app/models/meeting_session.py
+      - backend/app/models/task_ir*.py
+      - backend/app/services/workspace_groups/**
+      - backend/app/services/knowledge_projection/**
+      - backend/app/services/stores/postgres/workspace_group_store.py
+      - backend/app/services/stores/postgres/group_membership_store.py
+      - backend/app/services/stores/postgres/workspaces_store.py
+      - backend/app/routes/core/workspace/groups.py
+      - backend/app/routes/core/workspace/crud_core/list_routes.py
+      - backend/app/services/orchestration/meeting/prompt_context_core/basic_context.py
+      - backend/app/services/orchestration/meeting/prompt_core/turn_prompt_mixin.py
+      - backend/app/services/orchestration/dispatch_orchestrator_core/**
+      - backend/app/services/orchestration/multi_agent_orchestrator.py
+      - backend/app/services/orchestration/group_synthesis_committer.py
+      - backend/app/services/conversation/plan_executor_core/orchestration.py
+      - backend/app/services/governance/governance_context_read_model.py
+      - backend/app/services/governance/memory_packet_compiler.py
+      - backend/app/services/memory/writeback/**
+      - backend/app/services/mindscape_graph_derivation.py
+      - backend/app/capabilities/frontier_research/services/workspace_group_adapter.py
+      - backend/alembic_migrations/versions/*workspace*group*
+      - backend/alembic_migrations/postgres/versions/*workspace*group*
+      - backend/tests/*workspace*group*
+      - backend/tests/workspace_groups/**
+      - web-console/src/components/workspace/WorkspaceSelector.tsx
+      - web-console/src/app/workspaces/*/components/WorkspaceGroupIndicator.tsx
+      - web-console/src/app/workspaces/*/components/WorkspaceHeaderBar.tsx
+      - web-console/src/api/client.ts
+      - web-console/src/**/*workspace*group*
+
   - id: psc.local-core.capability-install-control-plane.v1
     tier: P0
     owner: "@team-leads"
