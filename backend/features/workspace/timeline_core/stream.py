@@ -1,263 +1,266 @@
-"""Workspace event stream helpers."""
+"""Single Redis-primary workspace lifecycle SSE coordinator."""
 
-import asyncio
+from __future__ import annotations
+
 import json
 import logging
 from collections.abc import Awaitable, Callable
-from datetime import datetime, timezone
-from typing import AsyncGenerator, List, Optional
+from datetime import datetime
+from typing import AsyncGenerator, Dict, List, Optional, Set, Tuple
 
 from backend.app.models.mindscape import EventType
 from backend.app.services.mindscape_store import MindscapeStore
+from backend.app.services.workspace_event_lifecycle import (
+    serialize_mind_event_cloud_event,
+    validate_workspace_lifecycle_event,
+)
 from backend.features.workspace.event_stream_lifecycle import should_stop_event_stream
+from backend.features.workspace.timeline_core.catchup import (
+    WorkspaceEventCatchup,
+    WorkspaceEventCursorInvalid,
+    load_workspace_event_catchup,
+)
+from backend.features.workspace.timeline_core.subscription import (
+    WorkspaceEventStreamUnavailable,
+    WorkspaceEventSubscription,
+)
+
 
 logger = logging.getLogger("backend.features.workspace.timeline")
-HEARTBEAT_INTERVAL = 30
+HEARTBEAT_INTERVAL = 15
+SSE_RETRY_MILLISECONDS = 15_000
 
 
-def _event_type_enums(event_types: Optional[List[str]]) -> Optional[list[EventType]]:
+def _event_type_values(event_types: Optional[List[str]]) -> Optional[Set[str]]:
     if not event_types:
         return None
     try:
-        return [EventType(event_type) for event_type in event_types]
-    except ValueError as e:
-        logger.warning(f"Invalid event type in filter: {e}")
+        return {EventType(event_type).value for event_type in event_types}
+    except ValueError as exc:
+        logger.warning("Invalid workspace event stream filter: %s", exc)
         return None
 
 
-async def _last_poll_time_from_resume(
+def _event_key(event: Dict) -> Tuple[str, str]:
+    return (str(event.get("source") or ""), str(event.get("id") or ""))
+
+
+def _matches_filters(
+    event: Dict,
     *,
-    workspace_id: str,
-    store: MindscapeStore,
-    last_event_id: Optional[str],
-    default_time: datetime,
-    seen_event_ids: set[str],
-) -> datetime:
-    if not last_event_id:
-        return default_time
+    event_types: Optional[Set[str]],
+    project_id: Optional[str],
+) -> bool:
+    data = event.get("data") if isinstance(event.get("data"), dict) else {}
+    if event_types and str(data.get("event_type") or "") not in event_types:
+        return False
+    if project_id and str(data.get("project_id") or "") != project_id:
+        return False
+    return True
 
-    resume_events = await asyncio.to_thread(
-        store.get_events_by_workspace,
-        workspace_id=workspace_id,
-        start_time=None,
-        limit=1000,
+
+def _sse_event(event: Dict) -> str:
+    return (
+        f"id: {event['id']}\n"
+        f"event: {event['type']}\n"
+        f"data: {json.dumps(event, ensure_ascii=False, default=str)}\n\n"
     )
-    for event in resume_events:
-        if event.id == last_event_id:
-            if isinstance(event.timestamp, datetime):
-                default_time = event.timestamp
-            seen_event_ids.add(event.id)
-            break
-        seen_event_ids.add(event.id)
-    return default_time
 
 
-async def _open_redis_listener(workspace_id: str):
+def _record_aggregate_version(event: Dict, versions: Dict[str, int]) -> bool:
+    aggregate_id = str(event.get("aggregateid") or "")
     try:
-        from backend.app.services.cache.async_redis import (
-            get_async_redis_client,
-            meeting_stream_channel,
-        )
-
-        redis_client = await get_async_redis_client()
-        if not redis_client:
-            return None
-
-        redis_listener = redis_client.pubsub(ignore_subscribe_messages=True)
-        await redis_listener.subscribe(meeting_stream_channel(workspace_id))
-        logger.info(
-            "[SSE] Redis meeting stream subscribed for ws=%s",
-            workspace_id[:8],
-        )
-        return redis_listener
-    except Exception as redis_exc:
-        logger.warning(
-            "[SSE] Redis meeting stream unavailable, degrading to DB-only: %s",
-            redis_exc,
-        )
-        return None
+        aggregate_version = int(event.get("aggregateversion") or 0)
+    except (TypeError, ValueError):
+        return False
+    if not aggregate_id or aggregate_version <= 0:
+        return False
+    previous = versions.get(aggregate_id)
+    versions[aggregate_id] = max(previous or 0, aggregate_version)
+    return previous is not None and aggregate_version > previous + 1
 
 
-def _serialize_stream_event(event) -> dict:
-    payload = event.payload if isinstance(event.payload, dict) else {}
-    entity_ids = event.entity_ids if isinstance(event.entity_ids, list) else []
-    metadata = event.metadata if isinstance(event.metadata, dict) else {}
-
-    return {
-        "id": event.id,
-        "type": (
-            event.event_type.value
-            if hasattr(event.event_type, "value")
-            else str(event.event_type)
-        ),
-        "timestamp": (
-            (
-                event.timestamp.isoformat() + "Z"
-                if event.timestamp.tzinfo is None
-                else event.timestamp.isoformat()
-            )
-            if event.timestamp
-            else None
-        ),
-        "actor": event.actor.value if hasattr(event.actor, "value") else str(event.actor),
-        "workspace_id": event.workspace_id,
-        "project_id": event.project_id,
-        "profile_id": event.profile_id,
-        "thread_id": getattr(event, "thread_id", None),
-        "payload": payload,
-        "entity_ids": entity_ids,
-        "metadata": metadata,
-    }
-
-
-def _advance_poll_time(current_time: datetime, event_timestamp) -> datetime:
-    if not isinstance(event_timestamp, datetime):
-        return current_time
-
-    now_utc = datetime.now(timezone.utc)
-    event_time = event_timestamp
-    if event_time.tzinfo is None:
-        event_time = event_time.replace(tzinfo=timezone.utc)
-    return min(event_time, now_utc)
-
-
-async def _drain_redis_listener(redis_listener) -> AsyncGenerator[str, None]:
+async def _catchup(
+    *,
+    store: MindscapeStore,
+    workspace_id: str,
+    after_id: Optional[str],
+    start_time: Optional[datetime],
+    subscription: WorkspaceEventSubscription,
+) -> tuple[WorkspaceEventCatchup, bool]:
+    cursor_reset = False
     try:
-        for _ in range(50):
-            msg = await redis_listener.get_message(
-                ignore_subscribe_messages=True,
-                timeout=0.01,
-            )
-            if not msg:
-                break
-            raw = msg.get("data")
-            if not raw or not isinstance(raw, str):
-                continue
-            try:
-                chunk_data = json.loads(raw)
-            except json.JSONDecodeError:
-                continue
-            chunk_type = chunk_data.get("type", "chunk")
-            yield f"event: {chunk_type}\n"
-            yield f"data: {json.dumps(chunk_data)}\n\n"
-    except Exception as drain_exc:
-        logger.warning(
-            "[SSE] Redis drain error (non-fatal): %s",
-            drain_exc,
+        result = await load_workspace_event_catchup(
+            store=store,
+            workspace_id=workspace_id,
+            after_id=after_id,
+            start_time=start_time,
         )
+    except WorkspaceEventCursorInvalid:
+        cursor_reset = True
+        result = await load_workspace_event_catchup(
+            store=store,
+            workspace_id=workspace_id,
+            after_id=None,
+            start_time=start_time or subscription.subscribed_at,
+        )
+    return result, cursor_reset
 
 
 async def event_stream_generator(
     workspace_id: str,
     store: MindscapeStore,
+    subscription: WorkspaceEventSubscription,
     event_types: Optional[List[str]] = None,
     project_id: Optional[str] = None,
     start_time: Optional[datetime] = None,
     last_event_id: Optional[str] = None,
     client_disconnected: Optional[Callable[[], Awaitable[bool]]] = None,
 ) -> AsyncGenerator[str, None]:
-    """
-    Generate SSE event stream for unified workspace events.
-    """
-    redis_listener = None
+    """Subscribe first, catch up once, then deliver Redis events without DB polling."""
+    seen: Set[Tuple[str, str]] = set()
+    aggregate_versions: Dict[str, int] = {}
+    filter_values = _event_type_values(event_types)
+    durable_cursor = str(last_event_id or "").strip() or None
+    initial_start = start_time or subscription.subscribed_at
     try:
-        yield f"data: {json.dumps({'type': 'connected', 'workspace_id': workspace_id})}\n\n"
-
-        event_type_enums = _event_type_enums(event_types)
-        last_poll_time = start_time or datetime.now(timezone.utc)
-        seen_event_ids: set[str] = set()
-        last_poll_time = await _last_poll_time_from_resume(
-            workspace_id=workspace_id,
-            store=store,
-            last_event_id=last_event_id,
-            default_time=last_poll_time,
-            seen_event_ids=seen_event_ids,
+        yield (
+            f"retry: {SSE_RETRY_MILLISECONDS}\n"
+            "event: connected\n"
+            f"data: {json.dumps({'type': 'connected', 'workspace_id': workspace_id})}\n\n"
         )
+        if await should_stop_event_stream(
+            client_disconnected,
+            logger=logger,
+            workspace_id=workspace_id,
+        ):
+            return
 
-        redis_listener = await _open_redis_listener(workspace_id)
-        poll_count = 0
-        heartbeat_counter = 0
+        catchup, cursor_reset = await _catchup(
+            store=store,
+            workspace_id=workspace_id,
+            after_id=durable_cursor,
+            start_time=initial_start,
+            subscription=subscription,
+        )
+        if cursor_reset:
+            yield (
+                "event: cursor_reset\n"
+                f"data: {json.dumps({'type': 'cursor_reset', 'reason': 'invalid_last_event_id'})}\n\n"
+            )
+        for mind_event in catchup.events:
+            event = validate_workspace_lifecycle_event(
+                serialize_mind_event_cloud_event(mind_event),
+                workspace_id=workspace_id,
+            )
+            durable_cursor = str(event["id"])
+            seen.add(_event_key(event))
+            _record_aggregate_version(event, aggregate_versions)
+            if _matches_filters(
+                event,
+                event_types=filter_values,
+                project_id=project_id,
+            ):
+                yield _sse_event(event)
+        if catchup.truncated:
+            yield (
+                "event: catchup_truncated\n"
+                f"data: {json.dumps({'type': 'catchup_truncated', 'retry': True})}\n\n"
+            )
+            return
 
         while True:
+            if await should_stop_event_stream(
+                client_disconnected,
+                logger=logger,
+                workspace_id=workspace_id,
+            ):
+                return
             try:
-                if await should_stop_event_stream(
-                    client_disconnected,
-                    logger=logger,
-                    workspace_id=workspace_id,
-                ):
-                    break
-
-                poll_count += 1
-                events = await asyncio.to_thread(
-                    store.get_events_by_workspace,
-                    workspace_id=workspace_id,
-                    start_time=last_poll_time,
-                    limit=100,
+                raw_event = await subscription.next_payload(
+                    timeout_seconds=HEARTBEAT_INTERVAL
                 )
-
-                if poll_count <= 3 or poll_count % 10 == 0:
-                    logger.info(
-                        f"[SSE-DEBUG] poll#{poll_count} ws={workspace_id[:8]} "
-                        f"start_time={last_poll_time} "
-                        f"raw_events={len(events)} "
-                        f"filter={[e.value for e in event_type_enums] if event_type_enums else 'none'} "
-                        f"seen={len(seen_event_ids)}"
-                    )
-
-                if event_type_enums:
-                    events = [event for event in events if event.event_type in event_type_enums]
-                if project_id:
-                    events = [event for event in events if event.project_id == project_id]
-
-                new_events = [event for event in events if event.id not in seen_event_ids]
-                if new_events:
-                    logger.info(
-                        f"[SSE-DEBUG] poll#{poll_count} FOUND {len(new_events)} new events! "
-                        f"types={[event.event_type.value for event in new_events]}"
-                    )
-
-                new_events.sort(
-                    key=lambda event: (
-                        event.timestamp
-                        if isinstance(event.timestamp, datetime)
-                        else datetime.min.replace(tzinfo=timezone.utc)
-                    )
+            except WorkspaceEventStreamUnavailable as exc:
+                logger.warning("Workspace event Redis subscription ended: %s", exc)
+                yield (
+                    "event: stream_unavailable\n"
+                    f"data: {json.dumps({'type': 'stream_unavailable', 'retry': True})}\n\n"
                 )
+                return
+            if raw_event is None:
+                yield ": heartbeat\n\n"
+                continue
 
-                for event in new_events:
-                    seen_event_ids.add(event.id)
-                    event_data = _serialize_stream_event(event)
-                    logger.info(
-                        f"[SSE-DEBUG] YIELDING event {event.id[:8]} type={event_data['type']}"
+            try:
+                event = validate_workspace_lifecycle_event(
+                    raw_event,
+                    workspace_id=workspace_id,
+                )
+            except ValueError as exc:
+                logger.warning("Invalid workspace lifecycle event: %s", exc)
+                gap, _cursor_reset = await _catchup(
+                    store=store,
+                    workspace_id=workspace_id,
+                    after_id=durable_cursor,
+                    start_time=initial_start,
+                    subscription=subscription,
+                )
+                for mind_event in gap.events:
+                    recovered = validate_workspace_lifecycle_event(
+                        serialize_mind_event_cloud_event(mind_event),
+                        workspace_id=workspace_id,
                     )
-                    yield f"id: {event.id}\n"
-                    yield f"event: {event_data['type']}\n"
-                    yield f"data: {json.dumps(event_data)}\n\n"
-                    last_poll_time = _advance_poll_time(last_poll_time, event.timestamp)
+                    durable_cursor = str(recovered["id"])
+                    if _event_key(recovered) in seen:
+                        continue
+                    seen.add(_event_key(recovered))
+                    _record_aggregate_version(recovered, aggregate_versions)
+                    if _matches_filters(
+                        recovered,
+                        event_types=filter_values,
+                        project_id=project_id,
+                    ):
+                        yield _sse_event(recovered)
+                continue
 
-                if redis_listener:
-                    async for chunk in _drain_redis_listener(redis_listener):
-                        yield chunk
-
-                heartbeat_counter += 1
-                if heartbeat_counter >= HEARTBEAT_INTERVAL:
-                    yield f": heartbeat\n\n"
-                    heartbeat_counter = 0
-
-                await asyncio.sleep(1)
-
-            except Exception as e:
-                logger.error(f"Error in event stream: {e}", exc_info=True)
-                yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
-                await asyncio.sleep(5)
-
-    except Exception as e:
-        logger.error(f"Fatal error in event stream: {e}", exc_info=True)
-        yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+            if _event_key(event) in seen:
+                continue
+            if _record_aggregate_version(event, aggregate_versions):
+                gap, _cursor_reset = await _catchup(
+                    store=store,
+                    workspace_id=workspace_id,
+                    after_id=durable_cursor,
+                    start_time=initial_start,
+                    subscription=subscription,
+                )
+                for mind_event in gap.events:
+                    recovered = validate_workspace_lifecycle_event(
+                        serialize_mind_event_cloud_event(mind_event),
+                        workspace_id=workspace_id,
+                    )
+                    durable_cursor = str(recovered["id"])
+                    if _event_key(recovered) in seen:
+                        continue
+                    seen.add(_event_key(recovered))
+                    _record_aggregate_version(recovered, aggregate_versions)
+                    if _matches_filters(
+                        recovered,
+                        event_types=filter_values,
+                        project_id=project_id,
+                    ):
+                        yield _sse_event(recovered)
+                if _event_key(event) in seen:
+                    continue
+            durable_cursor = str(event["id"])
+            seen.add(_event_key(event))
+            if _matches_filters(
+                event,
+                event_types=filter_values,
+                project_id=project_id,
+            ):
+                yield _sse_event(event)
     finally:
-        if redis_listener:
-            try:
-                await redis_listener.unsubscribe()
-                await redis_listener.close()
-            except Exception:
-                pass
+        await subscription.close()
+
+
+__all__ = ["HEARTBEAT_INTERVAL", "event_stream_generator"]

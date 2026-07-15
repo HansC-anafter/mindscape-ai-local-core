@@ -3,6 +3,9 @@ from datetime import datetime
 from sqlalchemy import text
 from backend.app.services.stores.postgres_base import PostgresStoreBase
 from backend.app.models.mindscape import MindEvent, EventType, EventActor
+from backend.app.services.workspace_event_lifecycle import (
+    publish_committed_workspace_event,
+)
 import logging
 import asyncio
 
@@ -43,6 +46,10 @@ class PostgresEventsStore(PostgresStoreBase):
         }
         with self.transaction() as conn:
             conn.execute(query, params)
+
+        # PostgreSQL is the durable truth. Redis receives only committed events
+        # and is never used as a second store or as transaction state.
+        publish_committed_workspace_event(event)
 
         # Generate embedding asynchronously (mirrors legacy behavior)
         if generate_embedding:
@@ -207,6 +214,51 @@ class PostgresEventsStore(PostgresStoreBase):
             result = conn.execute(text(base_query), params)
             rows = result.fetchall()
             return [self._row_to_event(row) for row in rows]
+
+    def get_events_after_cursor(
+        self,
+        workspace_id: str,
+        after_id: Optional[str] = None,
+        start_time: Optional[datetime] = None,
+        limit: int = 50,
+    ) -> List[MindEvent]:
+        """Read committed workspace events forward with a stable keyset cursor."""
+        base_query = "SELECT * FROM mind_events WHERE workspace_id = :workspace_id"
+        params: Dict[str, Any] = {"workspace_id": workspace_id}
+        if after_id:
+            base_query += """
+                AND (
+                    timestamp > (
+                        SELECT timestamp FROM mind_events
+                        WHERE id = :after_id AND workspace_id = :cursor_workspace_id
+                    )
+                    OR (
+                        timestamp = (
+                            SELECT timestamp FROM mind_events
+                            WHERE id = :after_id2 AND workspace_id = :cursor_workspace_id2
+                        )
+                        AND id > :after_id3
+                    )
+                )
+            """
+            params.update(
+                {
+                    "after_id": after_id,
+                    "after_id2": after_id,
+                    "after_id3": after_id,
+                    "cursor_workspace_id": workspace_id,
+                    "cursor_workspace_id2": workspace_id,
+                }
+            )
+        elif start_time:
+            base_query += " AND timestamp >= :start_time"
+            params["start_time"] = start_time
+        base_query += " ORDER BY timestamp ASC, id ASC LIMIT :limit"
+        params["limit"] = max(1, min(int(limit or 50), 50))
+
+        with self.get_connection() as conn:
+            result = conn.execute(text(base_query), params)
+            return [self._row_to_event(row) for row in result.fetchall()]
 
     def get_events_by_thread(
         self,

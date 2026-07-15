@@ -219,6 +219,25 @@ class RedisCacheService:
             logger.debug(f"Cache delete failed for {key}: {e}")
             return False
 
+    def publish(self, channel: str, payload: str) -> bool:
+        """Publish one bounded fan-out message through the shared Redis client."""
+        if not self.enabled:
+            return False
+        if not self._available or not self._client:
+            try:
+                self._connect()
+            except Exception:
+                return False
+        if not self._client:
+            return False
+        try:
+            self._client.publish(channel, payload)
+            return True
+        except Exception as exc:
+            self._available = False
+            logger.warning("Redis publish failed for %s: %s", channel, exc)
+            return False
+
     def delete_pattern(self, pattern: str) -> int:
         """
         Delete all keys matching pattern.
@@ -282,4 +301,3 @@ def get_cache_service() -> RedisCacheService:
     if _cache_instance is None:
         _cache_instance = RedisCacheService()
     return _cache_instance
-

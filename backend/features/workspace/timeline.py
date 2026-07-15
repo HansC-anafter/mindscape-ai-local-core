@@ -9,7 +9,7 @@ import logging
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query, Request
 from fastapi.responses import StreamingResponse
 
 from backend.app.models.workspace import Workspace
@@ -24,6 +24,10 @@ from backend.app.services.stores.timeline_items_store import TimelineItemsStore
 from backend.features.workspace.timeline_core.events import build_workspace_events_response
 from backend.features.workspace.timeline_core.items import build_workspace_timeline_response
 from backend.features.workspace.timeline_core.stream import event_stream_generator
+from backend.features.workspace.timeline_core.subscription import (
+    WorkspaceEventStreamUnavailable,
+    open_workspace_event_subscription,
+)
 
 router = APIRouter(prefix="/api/v1/workspaces", tags=["workspaces-timeline"])
 logger = logging.getLogger(__name__)
@@ -111,6 +115,11 @@ async def stream_workspace_events(
     last_event_id: Optional[str] = Query(
         None, description="Last event ID to resume from"
     ),
+    last_event_id_header: Optional[str] = Header(
+        None,
+        alias="Last-Event-ID",
+        description="Native EventSource resume cursor; takes priority over query",
+    ),
     workspace: Workspace = Depends(get_workspace),
     store: MindscapeStore = Depends(get_store),
 ):
@@ -134,14 +143,24 @@ async def stream_workspace_events(
                     detail="Invalid start_time format. Use ISO 8601 format.",
                 )
 
+        try:
+            subscription = await open_workspace_event_subscription(workspace_id)
+        except WorkspaceEventStreamUnavailable as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=str(exc),
+                headers={"Retry-After": "15"},
+            ) from exc
+
         return StreamingResponse(
             event_stream_generator(
                 workspace_id=workspace_id,
                 store=store,
+                subscription=subscription,
                 event_types=event_type_list,
                 project_id=project_id,
                 start_time=start_time_dt,
-                last_event_id=last_event_id,
+                last_event_id=last_event_id_header or last_event_id,
                 client_disconnected=request.is_disconnected,
             ),
             media_type="text/event-stream",

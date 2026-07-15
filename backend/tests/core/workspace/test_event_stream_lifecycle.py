@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime, timezone
 
 import pytest
 
@@ -51,8 +52,14 @@ async def test_should_stop_event_stream_keeps_stream_when_probe_fails():
 @pytest.mark.asyncio
 async def test_event_stream_generator_stops_before_db_poll_when_client_disconnected():
     class Store:
-        def get_events_by_workspace(self, **_kwargs):
+        def get_events_after_cursor(self, *_args, **_kwargs):
             raise AssertionError("disconnected streams must not poll the database")
+
+    class Subscription:
+        subscribed_at = datetime.now(timezone.utc)
+
+        async def close(self):
+            return None
 
     async def disconnected() -> bool:
         return True
@@ -60,6 +67,7 @@ async def test_event_stream_generator_stops_before_db_poll_when_client_disconnec
     stream = event_stream_generator(
         workspace_id="workspace-test",
         store=Store(),
+        subscription=Subscription(),
         client_disconnected=disconnected,
     )
 

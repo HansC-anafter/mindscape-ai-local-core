@@ -156,6 +156,21 @@ class MindscapeStoreEventMixin:
             before_id=before_id,
         )
 
+    def get_events_after_cursor(
+        self,
+        workspace_id: str,
+        after_id: Optional[str] = None,
+        start_time: Optional[datetime] = None,
+        limit: int = 50,
+    ) -> List[MindEvent]:
+        """Read forward in stable ``(timestamp, id)`` keyset order."""
+        return self.events.get_events_after_cursor(
+            workspace_id,
+            after_id=after_id,
+            start_time=start_time,
+            limit=limit,
+        )
+
     def get_events_by_meeting_session(
         self,
         meeting_session_id: str,
