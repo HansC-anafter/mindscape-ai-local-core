@@ -13,6 +13,17 @@ from .filesystem import read_json, run_capture
 from .snapshot import wal_manifest_entry_required
 
 
+def _resolve_relocated_dir(recorded_path: object, relocated_path: Path) -> Path:
+    """Resolve a moved backup root without rewriting its historical manifest."""
+
+    recorded = Path(str(recorded_path or ""))
+    if recorded.is_dir():
+        return recorded
+    if relocated_path.is_dir():
+        return relocated_path
+    return recorded
+
+
 def verify_incremental_dir(backup_dir: Path, *, restore_drill: bool = False) -> dict[str, Any]:
     manifest_path = backup_dir / "manifest.json"
     manifest = read_json(manifest_path)
@@ -31,13 +42,20 @@ def verify_incremental_dir(backup_dir: Path, *, restore_drill: bool = False) -> 
         if (snapshot_dir / excluded).exists():
             raise SystemExit(f"Excluded directory found in snapshot: {excluded}")
 
-    base_dir = Path(str(postgres.get("base_backup_dir") or ""))
+    wal_root_at_current_backup = backup_dir.parent / "postgres-wal-archive"
+    base_id = str(postgres.get("base_backup_id") or "")
+    base_dir = _resolve_relocated_dir(
+        postgres.get("base_backup_dir"),
+        wal_root_at_current_backup / "base_backups" / base_id,
+    )
     if not base_dir.is_dir():
         raise SystemExit(f"Base backup directory not found: {base_dir}")
     if not (base_dir / "PG_VERSION").is_file():
         raise SystemExit(f"Base backup PG_VERSION not found: {base_dir}")
 
-    wal_root = Path(str(postgres.get("wal_archive_dir") or ""))
+    wal_root = _resolve_relocated_dir(
+        postgres.get("wal_archive_dir"), wal_root_at_current_backup
+    )
     if not wal_root.is_dir():
         raise SystemExit(f"WAL archive directory not found: {wal_root}")
     required_start = str(postgres.get("base_backup_start_wal_segment") or "")

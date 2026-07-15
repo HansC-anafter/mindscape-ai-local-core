@@ -490,3 +490,38 @@ def test_verify_incremental_allows_pruned_wal_before_base_start(tmp_path):
     result = incremental.verify_incremental_dir(backup_dir)
 
     assert result["success"] is True
+
+
+def test_verify_incremental_resolves_relocated_backup_root(tmp_path):
+    current_root = tmp_path / "current"
+    backup_dir = current_root / "backup"
+    wal_root = current_root / "postgres-wal-archive"
+    base_id = "base_relocated"
+    base_dir = wal_root / "base_backups" / base_id
+    retained_segment = "000000010000000000000003"
+
+    (backup_dir / "app-data").mkdir(parents=True)
+    base_dir.mkdir(parents=True)
+    (base_dir / "PG_VERSION").write_text("16\n", encoding="utf-8")
+    (wal_root / retained_segment).write_bytes(b"\0" * incremental.WAL_SEGMENT_BYTES)
+    legacy_root = tmp_path / "legacy" / "postgres-wal-archive"
+    incremental.write_json(
+        backup_dir / "manifest.json",
+        {
+            "mode": "incremental_runtime_backup",
+            "components": {
+                "files": {"snapshot_relpath": "app-data"},
+                "postgres": {
+                    "base_backup_id": base_id,
+                    "base_backup_dir": str(legacy_root / "base_backups" / base_id),
+                    "base_backup_start_wal_segment": retained_segment,
+                    "wal_archive_dir": str(legacy_root),
+                    "wal_segments": [retained_segment],
+                },
+            },
+        },
+    )
+
+    result = incremental.verify_incremental_dir(backup_dir)
+
+    assert result["success"] is True
