@@ -114,6 +114,7 @@ def test_explicit_runtime_activation_refreshes_cached_capability_modules(
     assert client.get("/lazy/sample/ping").json() == {"label": "old"}
 
     _write_reloadable_capability(tmp_path, label="new_runtime_value")
+    app.openapi_schema = {"openapi": "stale"}
 
     result = capability_runtime_activation.activate_installed_capability_routes(
         app=app,
@@ -125,6 +126,7 @@ def test_explicit_runtime_activation_refreshes_cached_capability_modules(
     assert result["routes_removed"] >= 1
     assert result["modules_purged"] >= 1
     assert result["routers_registered"] == 1
+    assert app.openapi_schema is None
     refreshed_client = TestClient(app)
     assert refreshed_client.get("/lazy/sample/ping").json() == {
         "label": "new_runtime_value"

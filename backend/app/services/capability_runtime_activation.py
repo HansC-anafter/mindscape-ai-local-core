@@ -66,6 +66,8 @@ def activate_installed_capability_routes(
             activation_service=PackActivationService(),
             force_refresh=True,
         )
+        if routers:
+            app.openapi_schema = None
     duration_ms = round((time.monotonic() - started) * 1000, 2)
     if duration_ms >= 1000:
         logger.warning(
