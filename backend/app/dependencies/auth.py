@@ -18,6 +18,7 @@ from ..utils.cloud_integration import (
 logger = logging.getLogger(__name__)
 
 LOCAL_CONTROL_OPERATOR_USER_ID = "local-core-control-plane"
+DEFAULT_LOCAL_USER_ID = "default-user"
 _LOCAL_OPERATOR_HOSTNAMES = {"localhost", "127.0.0.1", "::1"}
 
 
@@ -46,7 +47,7 @@ def get_default_user_id() -> str:
 
     Priority:
     1. default_user_id from system settings
-    2. Hardcoded "default_user"
+    2. Canonical local profile "default-user"
     """
     try:
         from ..services.system_settings_store import SystemSettingsStore
@@ -61,7 +62,7 @@ def get_default_user_id() -> str:
     except Exception as e:
         logger.warning(f"Failed to get default_user_id: {e}")
 
-    return "default_user"
+    return DEFAULT_LOCAL_USER_ID
 
 
 async def get_auth_from_cloud_integration_token(token: str) -> Optional[AuthContext]:
