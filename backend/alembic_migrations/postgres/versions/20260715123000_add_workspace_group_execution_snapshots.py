@@ -16,6 +16,63 @@ branch_labels = None
 depends_on = None
 
 
+def _ensure_snapshot_reference(
+    *,
+    table_name: str,
+    constraint_name: str,
+    index_name: str,
+) -> None:
+    """Converge bootstrap-created TEXT columns into the canonical FK seam."""
+    column_name = "workspace_group_snapshot_id"
+    op.execute(
+        f"ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS "
+        f"{column_name} VARCHAR(64)"
+    )
+    op.execute(
+        f"""
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1 FROM {table_name}
+                WHERE length({column_name}) > 64
+            ) THEN
+                RAISE EXCEPTION
+                    '{table_name}.{column_name} contains values longer than 64 characters';
+            END IF;
+        END;
+        $$
+        """
+    )
+    op.execute(
+        f"ALTER TABLE {table_name} ALTER COLUMN {column_name} "
+        "TYPE VARCHAR(64) USING workspace_group_snapshot_id::VARCHAR(64)"
+    )
+    op.execute(
+        f"""
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1
+                FROM pg_constraint
+                WHERE conname = '{constraint_name}'
+                  AND conrelid = '{table_name}'::regclass
+            ) THEN
+                ALTER TABLE {table_name}
+                ADD CONSTRAINT {constraint_name}
+                FOREIGN KEY ({column_name})
+                REFERENCES workspace_group_topology_snapshots(id)
+                ON DELETE RESTRICT;
+            END IF;
+        END;
+        $$
+        """
+    )
+    op.execute(
+        f"CREATE INDEX IF NOT EXISTS {index_name} "
+        f"ON {table_name} ({column_name})"
+    )
+
+
 def upgrade() -> None:
     op.create_table(
         "workspace_group_topology_snapshots",
@@ -66,39 +123,15 @@ def upgrade() -> None:
         FOR EACH ROW EXECUTE FUNCTION reject_workspace_group_snapshot_update()
         """
     )
-    op.add_column(
-        "meeting_sessions",
-        sa.Column("workspace_group_snapshot_id", sa.String(64), nullable=True),
+    _ensure_snapshot_reference(
+        table_name="meeting_sessions",
+        constraint_name="fk_meeting_sessions_workspace_group_snapshot",
+        index_name="idx_meeting_sessions_workspace_group_snapshot",
     )
-    op.create_foreign_key(
-        "fk_meeting_sessions_workspace_group_snapshot",
-        "meeting_sessions",
-        "workspace_group_topology_snapshots",
-        ["workspace_group_snapshot_id"],
-        ["id"],
-        ondelete="RESTRICT",
-    )
-    op.create_index(
-        "idx_meeting_sessions_workspace_group_snapshot",
-        "meeting_sessions",
-        ["workspace_group_snapshot_id"],
-    )
-    op.add_column(
-        "task_irs",
-        sa.Column("workspace_group_snapshot_id", sa.String(64), nullable=True),
-    )
-    op.create_foreign_key(
-        "fk_task_irs_workspace_group_snapshot",
-        "task_irs",
-        "workspace_group_topology_snapshots",
-        ["workspace_group_snapshot_id"],
-        ["id"],
-        ondelete="RESTRICT",
-    )
-    op.create_index(
-        "idx_task_irs_workspace_group_snapshot",
-        "task_irs",
-        ["workspace_group_snapshot_id"],
+    _ensure_snapshot_reference(
+        table_name="task_irs",
+        constraint_name="fk_task_irs_workspace_group_snapshot",
+        index_name="idx_task_irs_workspace_group_snapshot",
     )
 
 
