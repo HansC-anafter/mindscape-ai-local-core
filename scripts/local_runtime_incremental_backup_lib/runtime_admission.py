@@ -80,6 +80,12 @@ SELECT
         FROM pg_stat_activity
         WHERE backend_type = 'walsender'
           AND query ~ '^BASE_BACKUP'
+    ),
+    (
+        SELECT COUNT(*)
+        FROM tasks
+        WHERE status = 'running'
+          AND heartbeat_at >= now() - interval '2 minutes'
     )
 """.strip()
 
@@ -107,11 +113,12 @@ def active_database_workload_counts() -> dict[str, int]:
     ).strip()
     lines = [line.strip() for line in output.splitlines() if line.strip()]
     parts = lines[-1].split("|") if lines else []
-    if len(parts) != 2 or any(not part.isdigit() for part in parts):
+    if len(parts) != 3 or any(not part.isdigit() for part in parts):
         raise RuntimeError("database_workload_counts_invalid")
     return {
         "active_meeting_sessions": int(parts[0]),
         "active_postgres_base_backups": int(parts[1]),
+        "active_runner_tasks": int(parts[2]),
     }
 
 
@@ -204,14 +211,17 @@ def inspect_backup_runtime_admission(
     if database_inspection_skipped:
         meeting_count = None
         base_backup_count = 1
+        runner_task_count = None
     else:
         try:
             database_workloads = active_database_workload_counts()
             meeting_count = database_workloads["active_meeting_sessions"]
             base_backup_count = database_workloads["active_postgres_base_backups"]
+            runner_task_count = database_workloads["active_runner_tasks"]
         except Exception as exc:
             meeting_count = None
             base_backup_count = None
+            runner_task_count = None
             errors.append(f"database_workload_inspection_failed:{type(exc).__name__}")
     try:
         receivers = inspect_live_media_receivers(data_host_dir or resolve_data_host_dir())
@@ -225,15 +235,18 @@ def inspect_backup_runtime_admission(
         blocking_reasons.append("active_meeting_sessions")
     if base_backup_count is not None and base_backup_count > 0:
         blocking_reasons.append("postgres_basebackup_already_running")
+    if runner_task_count is not None and runner_task_count > 0:
+        blocking_reasons.append("active_runner_tasks")
     if receivers["active"]:
         blocking_reasons.append("active_live_media_receivers")
     if errors:
         blocking_reasons.append("backup_runtime_admission_inspection_failed")
     return {
-        "schema_version": "backup_runtime_admission.v1",
+        "schema_version": "backup_runtime_admission.v2",
         "admitted": not blocking_reasons,
         "active_meeting_sessions": meeting_count,
         "active_postgres_base_backups": base_backup_count,
+        "active_runner_tasks": runner_task_count,
         "base_backup_lock_path": str(base_backup_lock),
         "database_inspection_skipped": database_inspection_skipped,
         "active_live_media_receivers": receivers["active"],

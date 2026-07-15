@@ -59,10 +59,11 @@ def _postgres_ok():
 
 def _runtime_admitted():
     return {
-        "schema_version": "backup_runtime_admission.v1",
+        "schema_version": "backup_runtime_admission.v2",
         "admitted": True,
         "active_meeting_sessions": 0,
         "active_postgres_base_backups": 0,
+        "active_runner_tasks": 0,
         "active_live_media_receivers": [],
         "receiver_state_root": "/runtime/live-media-receivers",
         "blocking_reasons": [],
@@ -187,13 +188,35 @@ def test_database_workload_probe_parses_meeting_and_basebackup_counts(monkeypatc
     monkeypatch.setattr(
         runtime_admission,
         "run_text",
-        lambda _cmd, timeout: "SET\n2|1\n",
+        lambda _cmd, timeout: "SET\n2|1|3\n",
     )
 
     assert runtime_admission.active_database_workload_counts() == {
         "active_meeting_sessions": 2,
         "active_postgres_base_backups": 1,
+        "active_runner_tasks": 3,
     }
+
+
+def test_admission_blocks_fresh_running_runner_tasks(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        runtime_admission,
+        "active_database_workload_counts",
+        lambda: {
+            "active_meeting_sessions": 0,
+            "active_postgres_base_backups": 0,
+            "active_runner_tasks": 2,
+        },
+    )
+
+    result = runtime_admission.inspect_backup_runtime_admission(
+        data_host_dir=tmp_path,
+        wal_archive_root=tmp_path / "postgres-wal-archive",
+    )
+
+    assert result["admitted"] is False
+    assert result["active_runner_tasks"] == 2
+    assert "active_runner_tasks" in result["blocking_reasons"]
 
 
 def test_receiver_admission_blocks_only_live_runtime_states(tmp_path):
@@ -235,6 +258,7 @@ def test_admission_fails_closed_when_meeting_inspection_fails(monkeypatch, tmp_p
 
     assert result["admitted"] is False
     assert result["active_meeting_sessions"] is None
+    assert result["active_runner_tasks"] is None
     assert "backup_runtime_admission_inspection_failed" in result["blocking_reasons"]
 
 
@@ -258,5 +282,6 @@ def test_basebackup_lock_short_circuits_database_probe(monkeypatch, tmp_path):
 
     assert result["admitted"] is False
     assert result["active_postgres_base_backups"] == 1
+    assert result["active_runner_tasks"] is None
     assert result["database_inspection_skipped"] is True
     assert "postgres_basebackup_already_running" in result["blocking_reasons"]

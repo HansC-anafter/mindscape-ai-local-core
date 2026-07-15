@@ -10,10 +10,11 @@ def stub_incremental_backup_runtime_admission(monkeypatch, request):
         incremental,
         "inspect_backup_runtime_admission",
         lambda **_kwargs: {
-            "schema_version": "backup_runtime_admission.v1",
+            "schema_version": "backup_runtime_admission.v2",
             "admitted": True,
             "active_meeting_sessions": 0,
             "active_postgres_base_backups": 0,
+            "active_runner_tasks": 0,
             "active_live_media_receivers": [],
             "receiver_state_root": "/runtime/live-media-receivers",
             "blocking_reasons": [],

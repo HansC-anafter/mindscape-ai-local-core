@@ -1,4 +1,6 @@
 import importlib.util
+import json
+import os
 import subprocess
 from argparse import Namespace
 from pathlib import Path
@@ -203,6 +205,111 @@ def test_estimate_temp_parent_uses_source_parent_without_previous_snapshot(tmp_p
     temp_parent = incremental.estimate_temp_parent(source, None)
 
     assert temp_parent == tmp_path / "runtime"
+
+
+def _write_incremental_manifest(
+    backup_dir: Path,
+    *,
+    backup_name: str,
+    scope_mode: str,
+    recorded_backup_dir: str,
+) -> None:
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    (backup_dir / "manifest.json").write_text(
+        json.dumps(
+            {
+                "mode": "incremental_runtime_backup",
+                "backup_name": backup_name,
+                "backup_dir": recorded_backup_dir,
+                "components": {
+                    "files": {
+                        "scope_mode": scope_mode,
+                        "snapshot_relpath": "app-data",
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def test_previous_snapshot_skips_postgres_only_and_resolves_relocated_runtime_snapshot(
+    tmp_path,
+):
+    primary = tmp_path / "primary"
+    runtime_dir = primary / "runtime-snapshot"
+    postgres_only_dir = primary / "newer-postgres-only"
+    (runtime_dir / "app-data").mkdir(parents=True)
+    (postgres_only_dir / "app-data").mkdir(parents=True)
+    _write_incremental_manifest(
+        runtime_dir,
+        backup_name="runtime-snapshot",
+        scope_mode="runtime_snapshot",
+        recorded_backup_dir="/relocated/old/path",
+    )
+    _write_incremental_manifest(
+        postgres_only_dir,
+        backup_name="newer-postgres-only",
+        scope_mode="postgres_chain_only",
+        recorded_backup_dir=str(postgres_only_dir),
+    )
+    os.utime(postgres_only_dir / "manifest.json", (2_000_000_000, 2_000_000_000))
+
+    manifest, snapshot = incremental.build_previous_snapshot(primary)
+
+    assert manifest["backup_name"] == "runtime-snapshot"
+    assert snapshot == runtime_dir / "app-data"
+
+
+def test_previous_snapshot_rejects_missing_runtime_snapshot_directory(tmp_path):
+    primary = tmp_path / "primary"
+    backup_dir = primary / "missing-files"
+    _write_incremental_manifest(
+        backup_dir,
+        backup_name="missing-files",
+        scope_mode="runtime_snapshot",
+        recorded_backup_dir=str(backup_dir),
+    )
+
+    assert incremental.build_previous_snapshot(primary) == (None, None)
+
+
+def test_plan_reports_only_usable_runtime_file_snapshot(monkeypatch, tmp_path):
+    primary = tmp_path / "primary"
+    wal_root = primary / "postgres-wal-archive"
+    runtime_dir = primary / "runtime-snapshot"
+    postgres_only_dir = primary / "newer-postgres-only"
+    (runtime_dir / "app-data").mkdir(parents=True)
+    (postgres_only_dir / "app-data").mkdir(parents=True)
+    _write_incremental_manifest(
+        runtime_dir,
+        backup_name="runtime-snapshot",
+        scope_mode="runtime_snapshot",
+        recorded_backup_dir="/relocated/old/path",
+    )
+    _write_incremental_manifest(
+        postgres_only_dir,
+        backup_name="newer-postgres-only",
+        scope_mode="postgres_chain_only",
+        recorded_backup_dir=str(postgres_only_dir),
+    )
+    os.utime(postgres_only_dir / "manifest.json", (2_000_000_000, 2_000_000_000))
+    monkeypatch.setenv("LOCAL_CORE_BACKUP_ROOT", str(primary))
+    monkeypatch.setenv("LOCAL_CORE_POSTGRES_WAL_ARCHIVE_HOST_DIR", str(wal_root))
+    monkeypatch.setenv("LOCAL_CORE_BACKUP_REQUIRE_MIRROR", "false")
+    monkeypatch.delenv("LOCAL_CORE_BACKUP_MIRROR_ROOT", raising=False)
+    monkeypatch.setattr(
+        incremental,
+        "disk_free_bytes",
+        lambda _path: 80 * incremental.BYTES_PER_GB,
+    )
+    monkeypatch.setattr(incremental, "command_exists", lambda _name: True)
+    monkeypatch.setattr(incremental, "postgres_status", _postgres_ok)
+
+    plan = incremental.build_plan(_args())
+
+    assert plan["can_run"] is True
+    assert plan["latest_file_snapshot_id"] == "runtime-snapshot"
 
 
 def test_estimate_snapshot_transfer_falls_back_when_link_dest_is_unusable(monkeypatch, tmp_path):

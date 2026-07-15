@@ -19,12 +19,9 @@ from .config import (
     parse_scopes,
 )
 from .filesystem import (
-    age_hours,
     command_exists,
     disk_free_bytes,
     disk_usage_bytes,
-    latest_base,
-    latest_incremental_manifest,
     list_wal_segments,
     path_contains,
     resolve_data_host_dir,
@@ -35,6 +32,7 @@ from .filesystem import (
 )
 from .postgres import postgres_status
 from .runtime_admission import inspect_backup_runtime_admission
+from .snapshot_index import age_hours, latest_base, latest_runtime_snapshot
 
 
 def build_config(args: argparse.Namespace) -> dict[str, Any]:
@@ -179,7 +177,7 @@ def build_plan(args: argparse.Namespace) -> dict[str, Any]:
         warnings.append(str(pg["error"]))
 
     latest_base_manifest = latest_base(primary_root)
-    latest_snapshot = latest_incremental_manifest(primary_root)
+    latest_snapshot, _latest_snapshot_path = latest_runtime_snapshot(primary_root)
     base_age = age_hours(str(latest_base_manifest.get("created_at"))) if latest_base_manifest else None
     base_required = latest_base_manifest is None or (
         base_age is not None and base_age >= config["base_interval_hours"]

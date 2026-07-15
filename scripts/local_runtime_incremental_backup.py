@@ -18,6 +18,7 @@ from local_runtime_incremental_backup_lib import policy as _policy
 from local_runtime_incremental_backup_lib import postgres as _postgres
 from local_runtime_incremental_backup_lib import runtime_admission as _runtime_admission
 from local_runtime_incremental_backup_lib import snapshot as _snapshot
+from local_runtime_incremental_backup_lib import snapshot_index as _snapshot_index
 from local_runtime_incremental_backup_lib import verify as _verify
 
 MODE = _config.MODE
@@ -80,9 +81,10 @@ scoped_source_size_bytes = _filesystem.scoped_source_size_bytes
 estimate_bytes_from_rsync_result = _filesystem.estimate_bytes_from_rsync_result
 use_rsync_dry_run_estimate = _filesystem.use_rsync_dry_run_estimate
 estimate_temp_parent = _filesystem.estimate_temp_parent
-latest_incremental_manifest = _filesystem.latest_incremental_manifest
-latest_base = _filesystem.latest_base
-age_hours = _filesystem.age_hours
+latest_incremental_manifest = _snapshot_index.latest_incremental_manifest
+latest_runtime_snapshot = _snapshot_index.latest_runtime_snapshot
+latest_base = _snapshot_index.latest_base
+age_hours = _snapshot_index.age_hours
 command_exists = _filesystem.command_exists
 
 safe_name = _planner.safe_name

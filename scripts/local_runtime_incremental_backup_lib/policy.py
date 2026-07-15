@@ -15,8 +15,6 @@ from .filesystem import (
     disk_usage_bytes,
     estimate_mirror_snapshot_transfer_bytes,
     estimate_snapshot_transfer_bytes,
-    latest_incremental_manifest,
-    latest_base,
     latest_pointer,
     list_wal_segments,
     resolve_data_host_dir,
@@ -26,17 +24,13 @@ from .mirror import mirror_incremental_artifacts
 from .planner import build_config, build_plan, safe_name
 from .postgres import run_pg_basebackup, switch_wal
 from .runtime_admission import require_backup_runtime_admission
+from .snapshot_index import latest_base, latest_runtime_snapshot
 from .snapshot import prune_incremental, refresh_manifest_wal_state, rsync_snapshot
 from .verify import verify_incremental_dir
 
 
 def build_previous_snapshot(primary_root: Path) -> tuple[dict[str, Any] | None, Path | None]:
-    previous_manifest = latest_incremental_manifest(primary_root)
-    if not previous_manifest:
-        return None, None
-    previous_backup_dir = Path(str(previous_manifest.get("backup_dir") or ""))
-    previous_rel = str(previous_manifest.get("components", {}).get("files", {}).get("snapshot_relpath") or "app-data")
-    return previous_manifest, previous_backup_dir / previous_rel
+    return latest_runtime_snapshot(primary_root)
 
 
 def previous_mirror_snapshot(mirror_root: Path | None, previous_manifest: dict[str, Any] | None) -> Path | None:
