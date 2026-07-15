@@ -46,6 +46,7 @@ async def install_from_file(
     allow_overwrite: str = Form("false"),
     overwrite_confirmation: str = Form(""),
     overwrite_review_confirmation: str = Form(""),
+    source_commit: str = Form(""),
     profile_id: str = Query(
         "default-user", description="User profile ID for role mapping"
     ),
@@ -75,6 +76,7 @@ async def install_from_file(
             allow_overwrite=overwrite,
             overwrite_review_confirmation=overwrite_review_confirmation,
             profile_id=profile_id,
+            source_commit=source_commit,
         )
         return {
             "success": True,

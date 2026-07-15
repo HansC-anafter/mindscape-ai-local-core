@@ -27,6 +27,7 @@ from backend.app.services.capability_install_job_payloads import (
     _pipeline_result_to_payload,
     _status_url,
 )
+from backend.app.services import capability_install_job_integrity as install_integrity
 from backend.app.services.capability_install_jobs_core.errors import (
     install_job_exception_message,
 )
@@ -64,6 +65,7 @@ class CapabilityInstallJobService:
         allow_overwrite: bool,
         overwrite_review_confirmation: str,
         profile_id: str,
+        source_commit: str = "",
     ) -> Dict[str, Any]:
         ensure_core_write_ready(operation="capability_install_job_create:file_upload")
         install_id = uuid.uuid4().hex
@@ -77,6 +79,8 @@ class CapabilityInstallJobService:
             source_payload={
                 "filename": filename,
                 "mindpack_path": str(mindpack_path),
+                "archive_sha256": install_integrity.sha256_bytes(content),
+                "source_commit": str(source_commit or "").strip(),
                 "allow_overwrite": allow_overwrite,
                 "overwrite_review_confirmation": overwrite_review_confirmation,
                 "profile_id": profile_id,
@@ -215,6 +219,10 @@ class CapabilityInstallJobService:
             )
             if runtime_activation:
                 payload["activation"] = runtime_activation
+            payload = install_integrity.attach_install_integrity_evidence(
+                job=job,
+                result_payload=payload,
+            )
             payload = self._refresh_restart_payload(
                 payload,
                 execution_activation=activation,
@@ -256,6 +264,7 @@ class CapabilityInstallJobService:
         }
         await asyncio.to_thread(wait_for_core_write_readiness, **readiness_kwargs)
         if source_kind == "file_upload":
+            install_integrity.verify_file_upload_archive(job)
             return await run_install_pipeline(
                 fastapi_app=fastapi_app,
                 mindpack_path=Path(payload["mindpack_path"]),
