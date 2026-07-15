@@ -35,6 +35,9 @@ class WorkspaceGroup(BaseModel):
     metadata: Optional[Dict] = Field(
         default_factory=dict, description="Extensible metadata"
     )
+    revision: int = Field(
+        default=1, description="Monotonic normalized topology revision"
+    )
 
     created_at: datetime = Field(
         default_factory=_utc_now, description="Creation timestamp"

@@ -45,6 +45,14 @@ class PlanContext(BaseModel):
     dependencies: List[str] = Field(
         default_factory=list, description="Dependencies: list of task IDs"
     )
+    eligible_agent_ids: List[str] = Field(
+        default_factory=list,
+        description="Complete agent eligibility set for the current DAG ready wave",
+    )
+    agent_execution_units: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="Typed agent units admitted through the existing execution DAG",
+    )
 
 
 class PlaybookInvocationContext(BaseModel):
@@ -76,4 +84,3 @@ class PlaybookInvocationContext(BaseModel):
     )
 
     model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
-

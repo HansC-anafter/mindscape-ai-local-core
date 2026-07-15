@@ -1,208 +1,112 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 
-interface WorkspaceGroupMember {
-    workspace_id: string;
-    role: string;
-    title?: string | null;
-    visibility?: string | null;
-    joined_at?: string | null;
-}
+import type { WorkspaceGroupTopology } from '@/contexts/WorkspaceGroupContext';
 
-interface WorkspaceGroupData {
-    id: string;
-    display_name: string;
-    members: WorkspaceGroupMember[];
-}
 
 interface WorkspaceGroupIndicatorProps {
-    groupId: string;
-    workspaceRole?: string | null;
-    apiUrl: string;
+  groups: WorkspaceGroupTopology[];
+  activeGroup: WorkspaceGroupTopology | null;
+  activeRole: 'dispatch' | 'cell' | null;
+  isLoading: boolean;
+  onSelect: (groupId: string | null) => void;
 }
 
-/**
- * Shows group membership indicator with a modal
- * that fetches real group topology from the API.
- */
+function roleStyle(role: string) {
+  return role === 'dispatch'
+    ? 'bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300'
+    : 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300';
+}
+
 export default function WorkspaceGroupIndicator({
-    groupId,
-    workspaceRole,
-    apiUrl,
+  groups,
+  activeGroup,
+  activeRole,
+  isLoading,
+  onSelect,
 }: WorkspaceGroupIndicatorProps) {
-    const [isModalOpen, setIsModalOpen] = useState(false);
-    const [groupData, setGroupData] = useState<WorkspaceGroupData | null>(null);
-    const [loading, setLoading] = useState(false);
-    const [error, setError] = useState<string | null>(null);
+  const [isOpen, setIsOpen] = useState(false);
 
-    // Fetch group data when modal opens
-    useEffect(() => {
-        if (!isModalOpen) return;
+  if (!isLoading && groups.length === 0) return null;
 
-        const fetchGroupData = async () => {
-            setLoading(true);
-            setError(null);
-            try {
-                const res = await fetch(`${apiUrl}/api/v1/workspace-groups/${groupId}`);
-                if (res.ok) {
-                    const data = await res.json();
-                    setGroupData(data);
-                } else if (res.status === 404) {
-                    setError('Group not found');
-                } else {
-                    setError(`Failed to load (${res.status})`);
-                }
-            } catch (err) {
-                console.error('[WorkspaceGroupIndicator] Error fetching group:', err);
-                setError('Network error');
-            } finally {
-                setLoading(false);
-            }
-        };
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setIsOpen(true)}
+        className="flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium bg-indigo-50 dark:bg-indigo-900/20 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 transition-colors"
+        title="Workspace Group context"
+      >
+        <span>GRP</span>
+        <span>{isLoading ? 'Loading' : activeGroup?.display_name || 'Single workspace'}</span>
+        {activeRole ? <span className="text-[10px] opacity-70">({activeRole})</span> : null}
+      </button>
 
-        fetchGroupData();
-    }, [isModalOpen, groupId, apiUrl]);
+      {isOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+          onClick={() => setIsOpen(false)}
+        >
+          <div
+            className="bg-white dark:bg-gray-900 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 w-full max-w-lg mx-4 p-6"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                  Workspace Group context
+                </h3>
+                <p className="text-xs text-gray-500 mt-1">
+                  Group mode starts only after an explicit selection.
+                </p>
+              </div>
+              <button type="button" onClick={() => setIsOpen(false)} aria-label="Close">×</button>
+            </div>
 
-    const roleIcon = (role: string) => {
-        switch (role) {
-            case 'dispatch': return 'DSP';
-            case 'cell': return 'CEL';
-            default: return 'GRP';
-        }
-    };
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={() => onSelect(null)}
+                className={`w-full text-left rounded-lg border p-3 ${!activeGroup ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-950/30' : 'border-gray-200 dark:border-gray-700'}`}
+              >
+                <div className="font-medium text-sm">Single workspace</div>
+                <div className="text-xs text-gray-500">No cross-workspace dispatch context</div>
+              </button>
 
-    const roleColor = (role: string) => {
-        switch (role) {
-            case 'dispatch': return 'bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300';
-            case 'cell': return 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300';
-            default: return 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300';
-        }
-    };
-
-    return (
-        <>
-            {/* Indicator pill */}
-            <button
-                onClick={() => setIsModalOpen(true)}
-                className="flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium
-                    bg-indigo-50 dark:bg-indigo-900/20 hover:bg-indigo-100 dark:hover:bg-indigo-900/40
-                    text-indigo-600 dark:text-indigo-400 transition-colors cursor-pointer select-none"
-                title="Workspace Group"
-            >
-                <span>GRP</span>
-                <span>Group</span>
-                {workspaceRole && (
-                    <span className="text-[10px] opacity-70">({workspaceRole})</span>
-                )}
-            </button>
-
-            {/* Modal overlay */}
-            {isModalOpen && (
-                <div
-                    className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
-                    onClick={() => setIsModalOpen(false)}
+              {groups.map((group) => (
+                <button
+                  type="button"
+                  key={group.id}
+                  onClick={() => onSelect(group.id)}
+                  className={`w-full text-left rounded-lg border p-3 ${activeGroup?.id === group.id ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-950/30' : 'border-gray-200 dark:border-gray-700'}`}
                 >
-                    <div
-                        className="bg-white dark:bg-gray-900 rounded-xl shadow-2xl border
-                            border-gray-200 dark:border-gray-700 w-full max-w-md mx-4 p-6
-                            animate-in fade-in zoom-in-95 duration-200"
-                        onClick={(e) => e.stopPropagation()}
-                    >
-                        {/* Header */}
-                        <div className="flex items-center justify-between mb-4">
-                            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
-                                <span>GRP</span>
-                                {groupData?.display_name || 'Workspace Group'}
-                            </h3>
-                            <button
-                                onClick={() => setIsModalOpen(false)}
-                                className="p-1 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-                            >
-                                <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                </svg>
-                            </button>
-                        </div>
-
-                        {/* Content */}
-                        <div className="space-y-3">
-                            {loading && (
-                                <div className="text-center py-4 text-gray-400 text-sm">
-                                    Loading...
-                                </div>
-                            )}
-
-                            {error && (
-                                <>
-                                    <div className="text-center py-2 text-amber-500 text-sm">
-                                        {error}
-                                    </div>
-                                    {/* Fallback: show raw group_id */}
-                                    <div className="flex items-center gap-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800/50">
-                                        <div className="text-sm">
-                                            <div className="text-gray-500 dark:text-gray-400 text-xs mb-1">Group ID</div>
-                                            <code className="text-xs font-mono text-gray-700 dark:text-gray-300 break-all">
-                                                {groupId}
-                                            </code>
-                                        </div>
-                                    </div>
-                                    {workspaceRole && (
-                                        <div className="flex items-center gap-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800/50">
-                                            <div className="text-sm">
-                                                <div className="text-gray-500 dark:text-gray-400 text-xs mb-1">Role</div>
-                                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${roleColor(workspaceRole)}`}>
-                                                    {roleIcon(workspaceRole)} {workspaceRole}
-                                                </span>
-                                            </div>
-                                        </div>
-                                    )}
-                                </>
-                            )}
-
-                            {!loading && !error && groupData && (
-                                <>
-                                    {/* Member list */}
-                                    <div className="text-xs text-gray-500 dark:text-gray-400 mb-2">
-                                        {groupData.members.length} workspace(s)
-                                    </div>
-                                    <div className="space-y-2 max-h-64 overflow-y-auto">
-                                        {groupData.members.map((member) => (
-                                            <div
-                                                key={member.workspace_id}
-                                                className="flex items-center gap-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800/50"
-                                            >
-                                                <span className="text-xs font-semibold flex-shrink-0">{roleIcon(member.role)}</span>
-                                                <div className="flex-1 min-w-0">
-                                                    <div className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
-                                                        {member.title || member.workspace_id}
-                                                    </div>
-                                                    <div className="flex items-center gap-2 mt-0.5">
-                                                        <span className={`inline-flex items-center px-1.5 py-0 rounded text-[10px] font-medium ${roleColor(member.role)}`}>
-                                                            {member.role}
-                                                        </span>
-                                                        {member.visibility && (
-                                                            <span className="text-[10px] text-gray-400">
-                                                                {member.visibility}
-                                                            </span>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-
-                                    {groupData.members.length === 0 && (
-                                        <div className="text-center py-4 text-gray-400 text-sm">
-                                            No members
-                                        </div>
-                                    )}
-                                </>
-                            )}
-                        </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="font-medium text-sm text-gray-900 dark:text-gray-100">
+                        {group.display_name}
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        revision {group.revision} · {group.members.length} workspace(s)
+                      </div>
                     </div>
-                </div>
-            )}
-        </>
-    );
+                    <span className={`rounded px-2 py-0.5 text-[10px] ${group.is_ready ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                      {group.is_ready ? 'ready' : 'setup'}
+                    </span>
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-1">
+                    {group.members.map((member) => (
+                      <span key={member.workspace_id} className={`rounded px-1.5 py-0.5 text-[10px] ${roleStyle(member.role)}`}>
+                        {member.title || member.workspace_id} · {member.role}
+                      </span>
+                    ))}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </>
+  );
 }

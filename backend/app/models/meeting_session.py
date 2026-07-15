@@ -38,6 +38,7 @@ class MeetingSession:
     project_id: Optional[str] = None
     thread_id: Optional[str] = None
     lens_id: Optional[str] = None
+    workspace_group_snapshot_id: Optional[str] = None
     started_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     ended_at: Optional[datetime] = None
 
@@ -70,6 +71,7 @@ class MeetingSession:
         project_id: Optional[str] = None,
         thread_id: Optional[str] = None,
         lens_id: Optional[str] = None,
+        workspace_group_snapshot_id: Optional[str] = None,
         state_before: Optional[Dict[str, Any]] = None,
         meeting_type: str = "general",
         agenda: Optional[List[str]] = None,
@@ -82,6 +84,7 @@ class MeetingSession:
             project_id=project_id,
             thread_id=thread_id,
             lens_id=lens_id,
+            workspace_group_snapshot_id=workspace_group_snapshot_id,
             state_before=state_before or {},
             meeting_type=meeting_type or "general",
             agenda=list(agenda or []),
@@ -146,6 +149,7 @@ class MeetingSession:
             "project_id": self.project_id,
             "thread_id": self.thread_id,
             "lens_id": self.lens_id,
+            "workspace_group_snapshot_id": self.workspace_group_snapshot_id,
             "started_at": self.started_at.isoformat(),
             "ended_at": self.ended_at.isoformat() if self.ended_at else None,
             "state_before": self.state_before,

@@ -151,6 +151,14 @@ class MeetingIRCompilerMixin:
         # Resolve actor ID from profile
         actor_id = getattr(self, "profile_id", "meeting_engine")
 
+        workspace_group_snapshot_id = getattr(
+            getattr(self, "session", None),
+            "workspace_group_snapshot_id",
+            None,
+        )
+        if not isinstance(workspace_group_snapshot_id, str):
+            workspace_group_snapshot_id = None
+
         task_ir = TaskIR(
             task_id=task_id,
             intent_instance_id=getattr(self, "session", None)
@@ -158,6 +166,7 @@ class MeetingIRCompilerMixin:
             or task_id,
             workspace_id=workspace_id,
             actor_id=actor_id,
+            workspace_group_snapshot_id=workspace_group_snapshot_id,
             current_phase=phases[0].id if phases else None,
             status=TaskStatus.PENDING,
             phases=phases,

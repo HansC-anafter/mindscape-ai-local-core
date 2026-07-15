@@ -84,6 +84,7 @@ class DispatchOrchestrator:
         lens_injector=None,
         handoff_registry_store=None,
         pack_dispatch_adapter=None,
+        group_synthesis_committer=None,
         available_playbooks_cache: str = "",
     ):
         self.execution_launcher = execution_launcher
@@ -114,6 +115,21 @@ class DispatchOrchestrator:
         self._known_playbook_codes = parse_playbook_codes(self._available_playbooks_cache)
         self._playbook_spec_cache: Dict[str, Optional[Dict[str, Any]]] = {}
         self._workspace_cache: Dict[str, Any] = {}
+        from backend.app.services.workspace_groups.execution_facade import (
+            GroupExecutionFacade,
+        )
+
+        self._group_execution = GroupExecutionFacade.from_session(session)
+        if group_synthesis_committer is not None:
+            self._group_synthesis_committer = group_synthesis_committer
+        elif self._group_execution.snapshot is not None:
+            from backend.app.services.knowledge_projection.synthesis import (
+                GroupSynthesisCommitter,
+            )
+
+            self._group_synthesis_committer = GroupSynthesisCommitter()
+        else:
+            self._group_synthesis_committer = None
 
     # ------------------------------------------------------------------
     # Public API

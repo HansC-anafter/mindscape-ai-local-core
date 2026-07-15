@@ -83,7 +83,9 @@ async def test_initialize_execution_orchestration_bootstraps_initial_agent(
 
     assert state.orchestrator is not None
     assert state.current_agent_id is None
+    assert state.eligible_agent_ids == ()
     assert state.orchestrator.state.current_agent == "researcher"
+    assert state.orchestrator.state.current_agents == ["researcher"]
     assert state.registered_execution_ids == ["msg_123"]
     assert clean_registry.get("msg_123") is state.orchestrator
 
@@ -119,10 +121,12 @@ async def test_execution_orchestration_advances_and_cleans_up(
 
     assert advance_execution_orchestration(state, 1) is True
     assert state.current_agent_id == "researcher"
+    assert state.eligible_agent_ids == ("researcher",)
     assert state.orchestrator.state.turn_count == 1
 
     assert advance_execution_orchestration(state, 2) is True
     assert state.current_agent_id == "writer"
+    assert state.eligible_agent_ids == ("writer",)
     assert state.orchestrator.state.turn_count == 2
 
     register_execution_with_orchestrator(state, "exec_123", "msg_123")
@@ -133,3 +137,44 @@ async def test_execution_orchestration_advances_and_cleans_up(
     cleanup_execution_orchestration(state)
     assert clean_registry.get("exec_123") is None
     assert clean_registry.get("msg_123") is None
+
+
+@pytest.mark.asyncio
+async def test_parallel_topology_preserves_complete_eligible_agent_wave(
+    clean_registry,
+    sample_agent_roster,
+):
+    runtime_profile = WorkspaceRuntimeProfile(
+        topology_routing=TopologyRouting(
+            agent_routing_rules={},
+            default_pattern="parallel",
+        ),
+        loop_budget=LoopBudget(max_tool_calls=3),
+    )
+    resolve_playbook = AsyncMock(
+        return_value=SimpleNamespace(
+            playbook=SimpleNamespace(agent_roster=sample_agent_roster)
+        )
+    )
+
+    state = await initialize_execution_orchestration(
+        execution_plan=SimpleNamespace(
+            tasks=[SimpleNamespace(pack_id="pack.alpha")]
+        ),
+        ctx=SimpleNamespace(),
+        workspace=SimpleNamespace(id="ws_123"),
+        runtime_profile=runtime_profile,
+        stop_conditions=runtime_profile.stop_conditions,
+        message_id="msg_parallel",
+        resolve_playbook=resolve_playbook,
+        event_store_factory=lambda: Mock(),
+    )
+
+    assert advance_execution_orchestration(state, 1) is True
+    assert state.current_agent_id is None
+    assert state.eligible_agent_ids == ("researcher", "writer")
+    assert state.orchestrator.state.current_agents == ["researcher", "writer"]
+    assert [
+        unit["agent_id"]
+        for unit in state.build_agent_execution_units("task_parallel")
+    ] == ["researcher", "writer"]

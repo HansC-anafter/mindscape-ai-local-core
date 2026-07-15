@@ -34,6 +34,7 @@ class OrchestrationState:
 
     def __init__(self):
         self.current_agent: Optional[str] = None
+        self.current_agents: List[str] = []
         self.iteration_count: int = 0
         self.turn_count: int = 0
         self.step_count: int = 0
@@ -147,13 +148,15 @@ class MultiAgentOrchestrator:
         """
         if current_agent_id is None:
             # Determine initial agent based on pattern
+            if self.topology.default_pattern == "parallel":
+                return list(self.agent_roster.keys())
             if self.topology.default_pattern == "hierarchical":
                 root_agent = self.topology.pattern_config.get("root_agent")
                 if root_agent and root_agent in self.agent_roster:
                     return [root_agent]
             # Default: return first agent in roster
             if self.agent_roster:
-                return [list(self.agent_roster.keys())[0]]
+                return [next(iter(self.agent_roster))]
             return []
 
         # Get next agents from routing rules
@@ -271,9 +274,18 @@ class MultiAgentOrchestrator:
 
     def set_current_agent(self, agent_id: str):
         """Set current agent"""
-        self.state.current_agent = agent_id
-        if agent_id not in self.state.visited_agents:
-            self.state.visited_agents.append(agent_id)
+        self.set_current_agents([agent_id])
+
+    def set_current_agents(self, agent_ids: List[str]):
+        """Set the complete eligible agent wave without truncating parallel routes."""
+        unique_agent_ids = list(dict.fromkeys(agent_ids))
+        self.state.current_agents = unique_agent_ids
+        self.state.current_agent = (
+            unique_agent_ids[0] if len(unique_agent_ids) == 1 else None
+        )
+        for agent_id in unique_agent_ids:
+            if agent_id not in self.state.visited_agents:
+                self.state.visited_agents.append(agent_id)
 
     def set_agent_result(self, agent_id: str, result: Any):
         """Set result for an agent"""
@@ -286,4 +298,3 @@ class MultiAgentOrchestrator:
     def get_agent_definition(self, agent_id: str) -> Optional[AgentDefinition]:
         """Get agent definition by ID"""
         return self.agent_roster.get(agent_id)
-

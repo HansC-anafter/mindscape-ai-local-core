@@ -82,5 +82,7 @@ async def test_dispatch_orchestrator_blocks_explicit_duplicate_idempotency_key()
         "task_demo",
     )
 
-    assert result == {"status": "skipped", "reason": "idempotency_conflict"}
+    assert result["status"] == "skipped"
+    assert result["reason"] == "idempotency_conflict"
+    assert result["dispatch_attempt_reason"]["attempt_status"] == "skipped"
     assert launcher.calls == []

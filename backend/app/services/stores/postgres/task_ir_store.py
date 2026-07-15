@@ -37,10 +37,12 @@ class PostgresTaskIRStore(PostgresStoreBase):
             """
             INSERT INTO task_irs (
                 task_id, intent_instance_id, workspace_id, actor_id,
+                workspace_group_snapshot_id,
                 current_phase, status, phases, artifacts, metadata,
                 created_at, updated_at, last_checkpoint_at
             ) VALUES (
                 :task_id, :intent_instance_id, :workspace_id, :actor_id,
+                :workspace_group_snapshot_id,
                 :current_phase, :status, :phases, :artifacts, :metadata,
                 :created_at, :updated_at, :last_checkpoint_at
             )
@@ -139,10 +141,12 @@ class PostgresTaskIRStore(PostgresStoreBase):
                 """
                 INSERT INTO task_irs (
                     task_id, intent_instance_id, workspace_id, actor_id,
+                    workspace_group_snapshot_id,
                     current_phase, status, phases, artifacts, metadata,
                     created_at, updated_at, last_checkpoint_at
                 ) VALUES (
                     :task_id, :intent_instance_id, :workspace_id, :actor_id,
+                    :workspace_group_snapshot_id,
                     :current_phase, :status, :phases, :artifacts, :metadata,
                     :created_at, :updated_at, :last_checkpoint_at
                 )
@@ -300,6 +304,7 @@ class PostgresTaskIRStore(PostgresStoreBase):
             "intent_instance_id": task_ir.intent_instance_id,
             "workspace_id": task_ir.workspace_id,
             "actor_id": task_ir.actor_id,
+            "workspace_group_snapshot_id": task_ir.workspace_group_snapshot_id,
             "current_phase": task_ir.current_phase,
             "status": task_ir.status,
             "phases": self.serialize_json(
@@ -333,6 +338,9 @@ class PostgresTaskIRStore(PostgresStoreBase):
             intent_instance_id=row.intent_instance_id,
             workspace_id=row.workspace_id,
             actor_id=row.actor_id,
+            workspace_group_snapshot_id=getattr(
+                row, "workspace_group_snapshot_id", None
+            ),
             current_phase=row.current_phase,
             status=row.status,
             phases=phases,

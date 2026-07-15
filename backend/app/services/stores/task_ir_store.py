@@ -56,6 +56,7 @@ class TaskIRStore(StoreBase):
                     intent_instance_id TEXT NOT NULL,
                     workspace_id TEXT NOT NULL,
                     actor_id TEXT NOT NULL,
+                    workspace_group_snapshot_id TEXT,
                     current_phase TEXT,
                     status TEXT NOT NULL,
                     phases TEXT NOT NULL,  -- JSON array of PhaseIR
@@ -67,6 +68,13 @@ class TaskIRStore(StoreBase):
                 )
             """
             )
+            cursor.execute("PRAGMA table_info(task_irs)")
+            if "workspace_group_snapshot_id" not in {
+                row[1] for row in cursor.fetchall()
+            }:
+                cursor.execute(
+                    "ALTER TABLE task_irs ADD COLUMN workspace_group_snapshot_id TEXT"
+                )
 
             # Indexes for efficient querying
             cursor.execute(
@@ -100,15 +108,17 @@ class TaskIRStore(StoreBase):
                 """
                 INSERT INTO task_irs (
                     task_id, intent_instance_id, workspace_id, actor_id,
+                    workspace_group_snapshot_id,
                     current_phase, status, phases, artifacts, metadata,
                     created_at, updated_at, last_checkpoint_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     task_ir.task_id,
                     task_ir.intent_instance_id,
                     task_ir.workspace_id,
                     task_ir.actor_id,
+                    task_ir.workspace_group_snapshot_id,
                     task_ir.current_phase,
                     task_ir.status,
                     self.serialize_json([p.model_dump() for p in task_ir.phases]),
@@ -264,15 +274,17 @@ class TaskIRStore(StoreBase):
                 """
                 INSERT INTO task_irs (
                     task_id, intent_instance_id, workspace_id, actor_id,
+                    workspace_group_snapshot_id,
                     current_phase, status, phases, artifacts, metadata,
                     created_at, updated_at, last_checkpoint_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     task_ir.task_id,
                     task_ir.intent_instance_id,
                     task_ir.workspace_id,
                     task_ir.actor_id,
+                    task_ir.workspace_group_snapshot_id,
                     task_ir.current_phase,
                     task_ir.status,
                     self.serialize_json([p.model_dump() for p in task_ir.phases]),

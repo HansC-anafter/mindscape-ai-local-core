@@ -98,12 +98,16 @@ export class MindscapeAPIClient {
       this.mergeHeaders(headers, customHeaders);
     }
 
-    // Cloud-specific headers
+    // Active Workspace Group applies in both Local and Cloud modes.
+    if (this.context.tags?.group_id) {
+      headers['X-Group-ID'] = this.context.tags.group_id;
+    }
+
+    // Cloud-specific authentication and tenant headers.
     if (this.context.tags?.mode === 'cloud') {
       const token = this.getAuthToken();
       if (token) headers['Authorization'] = `Bearer ${token}`;
       if (this.context.tags.tenant_id) headers['X-Tenant-ID'] = this.context.tags.tenant_id;
-      if (this.context.tags.group_id) headers['X-Group-ID'] = this.context.tags.group_id;
     }
 
     return headers;
@@ -119,11 +123,14 @@ export class MindscapeAPIClient {
       this.mergeHeaders(headers, customHeaders, /* skipContentType */ true);
     }
 
+    if (this.context.tags?.group_id) {
+      headers['X-Group-ID'] = this.context.tags.group_id;
+    }
+
     if (this.context.tags?.mode === 'cloud') {
       const token = this.getAuthToken();
       if (token) headers['Authorization'] = `Bearer ${token}`;
       if (this.context.tags.tenant_id) headers['X-Tenant-ID'] = this.context.tags.tenant_id;
-      if (this.context.tags.group_id) headers['X-Group-ID'] = this.context.tags.group_id;
     }
 
     return headers;

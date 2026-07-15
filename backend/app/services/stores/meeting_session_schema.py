@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS meeting_sessions (
     project_id       TEXT,
     thread_id        TEXT,
     lens_id          TEXT,
+    workspace_group_snapshot_id TEXT,
     started_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
     ended_at         TIMESTAMPTZ,
     status           TEXT NOT NULL DEFAULT 'planned',
@@ -43,6 +44,7 @@ CREATE TABLE IF NOT EXISTS meeting_decisions (
 MEETING_SESSION_ALTER_DDL = [
     "ALTER TABLE meeting_sessions ADD COLUMN IF NOT EXISTS project_id TEXT",
     "ALTER TABLE meeting_sessions ADD COLUMN IF NOT EXISTS lens_id TEXT",
+    "ALTER TABLE meeting_sessions ADD COLUMN IF NOT EXISTS workspace_group_snapshot_id TEXT",
     "ALTER TABLE meeting_sessions ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'planned'",
     "ALTER TABLE meeting_sessions ADD COLUMN IF NOT EXISTS meeting_type TEXT NOT NULL DEFAULT 'general'",
     "ALTER TABLE meeting_sessions ADD COLUMN IF NOT EXISTS agenda JSONB DEFAULT '[]'::jsonb",

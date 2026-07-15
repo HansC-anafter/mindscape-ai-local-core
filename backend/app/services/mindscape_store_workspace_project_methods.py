@@ -43,10 +43,14 @@ class MindscapeStoreWorkspaceProjectMixin:
         owner_user_id: str,
         primary_project_id: Optional[str] = None,
         limit: int = 50,
+        group_id: Optional[str] = None,
     ) -> List[Workspace]:
         """List workspaces for a user"""
         return self.workspaces.list_workspaces(
-            owner_user_id, primary_project_id=primary_project_id, limit=limit
+            owner_user_id,
+            primary_project_id=primary_project_id,
+            group_id=group_id,
+            limit=limit,
         )
 
     def list_workspace_summaries(
@@ -54,16 +58,23 @@ class MindscapeStoreWorkspaceProjectMixin:
         owner_user_id: str,
         primary_project_id: Optional[str] = None,
         limit: int = 50,
+        group_id: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """List lightweight workspace summaries for navigation."""
         if hasattr(self.workspaces, "list_workspace_summaries"):
             return self.workspaces.list_workspace_summaries(
-                owner_user_id, primary_project_id=primary_project_id, limit=limit
+                owner_user_id,
+                primary_project_id=primary_project_id,
+                group_id=group_id,
+                limit=limit,
             )
         return [
             workspace.model_dump()
             for workspace in self.workspaces.list_workspaces(
-                owner_user_id, primary_project_id=primary_project_id, limit=limit
+                owner_user_id,
+                primary_project_id=primary_project_id,
+                group_id=group_id,
+                limit=limit,
             )
         ]
 

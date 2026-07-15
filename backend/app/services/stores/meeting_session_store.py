@@ -64,6 +64,7 @@ class MeetingSessionStore(PostgresStoreBase):
                     """
                     INSERT INTO meeting_sessions (
                         id, workspace_id, project_id, thread_id, lens_id,
+                        workspace_group_snapshot_id,
                         started_at, ended_at,
                         status, meeting_type, agenda, success_criteria,
                         round_count, max_rounds, action_items, minutes_md,
@@ -71,6 +72,7 @@ class MeetingSessionStore(PostgresStoreBase):
                         intents_patched, metadata
                     ) VALUES (
                         :id, :workspace_id, :project_id, :thread_id, :lens_id,
+                        :workspace_group_snapshot_id,
                         :started_at, :ended_at,
                         :status, :meeting_type, :agenda, :success_criteria,
                         :round_count, :max_rounds, :action_items, :minutes_md,
@@ -85,6 +87,7 @@ class MeetingSessionStore(PostgresStoreBase):
                     "project_id": session.project_id,
                     "thread_id": session.thread_id,
                     "lens_id": session.lens_id,
+                    "workspace_group_snapshot_id": session.workspace_group_snapshot_id,
                     "started_at": session.started_at,
                     "ended_at": session.ended_at,
                     "status": (

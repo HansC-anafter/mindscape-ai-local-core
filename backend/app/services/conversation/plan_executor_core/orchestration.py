@@ -1,6 +1,6 @@
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable, Dict, List, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
 from backend.app.models.workspace_runtime_profile import StopConditions
 
@@ -10,13 +10,33 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ExecutionOrchestrationState:
     orchestrator: Optional[Any] = None
-    current_agent_id: Optional[str] = None
+    eligible_agent_ids: Tuple[str, ...] = ()
+    ready_wave_index: int = 0
     primary_execution_id: Optional[str] = None
     registered_execution_ids: List[str] = field(default_factory=list)
 
     def remember_primary_execution_id(self, execution_id: Optional[str]) -> None:
         if execution_id and self.primary_execution_id is None:
             self.primary_execution_id = execution_id
+
+    @property
+    def current_agent_id(self) -> Optional[str]:
+        """Compatibility projection; parallel waves intentionally have no singleton."""
+        if len(self.eligible_agent_ids) == 1:
+            return next(iter(self.eligible_agent_ids))
+        return None
+
+    def build_agent_execution_units(self, task_id: Optional[str]) -> List[Dict[str, Any]]:
+        """Build compact DAG-unit handoff records for the existing execution owner."""
+        node_id = task_id or "unassigned"
+        return [
+            {
+                "unit_id": f"{node_id}:wave-{self.ready_wave_index}:{agent_id}",
+                "agent_id": agent_id,
+                "ready_wave": self.ready_wave_index,
+            }
+            for agent_id in self.eligible_agent_ids
+        ]
 
 
 async def _collect_agent_roster(
@@ -124,10 +144,10 @@ async def initialize_execution_orchestration(
 
         initial_agents = state.orchestrator.get_next_agents(current_agent_id=None)
         if initial_agents:
-            state.orchestrator.set_current_agent(initial_agents[0])
+            state.orchestrator.set_current_agents(initial_agents)
             logger.info(
-                "MultiAgentOrchestrator: Starting with agent '%s'",
-                initial_agents[0],
+                "MultiAgentOrchestrator: Initial eligible agents=%s",
+                initial_agents,
             )
         else:
             logger.warning("MultiAgentOrchestrator: No initial agents found")
@@ -149,30 +169,35 @@ def advance_execution_orchestration(
     if not orchestrator:
         return True
 
-    next_agents = orchestrator.get_next_agents(current_agent_id=state.current_agent_id)
+    if not state.eligible_agent_ids:
+        next_agents = orchestrator.get_next_agents(current_agent_id=None)
+    else:
+        next_agents = []
+        for current_agent_id in state.eligible_agent_ids:
+            next_agents.extend(
+                orchestrator.get_next_agents(current_agent_id=current_agent_id)
+            )
+        next_agents = list(dict.fromkeys(next_agents))
+        if not next_agents:
+            next_agents = list(state.eligible_agent_ids)
 
-    if next_agents and state.current_agent_id != next_agents[0]:
-        new_agent_id = next_agents[0]
-        orchestrator.set_current_agent(new_agent_id)
-        state.current_agent_id = new_agent_id
+    next_wave = tuple(next_agents)
+    if next_wave and next_wave != state.eligible_agent_ids:
+        state.eligible_agent_ids = next_wave
+        state.ready_wave_index += 1
+        orchestrator.set_current_agents(list(next_wave))
         logger.info(
-            "MultiAgentOrchestrator: Transitioned to agent '%s'",
-            state.current_agent_id,
+            "MultiAgentOrchestrator: Eligible ready wave=%s",
+            list(next_wave),
         )
         orchestrator.record_turn()
-    elif state.current_agent_id is None and next_agents:
-        state.current_agent_id = next_agents[0]
-        orchestrator.set_current_agent(state.current_agent_id)
-        logger.info(
-            "MultiAgentOrchestrator: Starting with agent '%s'",
-            state.current_agent_id,
-        )
 
     if orchestrator.topology.default_pattern == "loop":
         if task_index == 1 or (
             task_index > 1
-            and state.current_agent_id
-            == orchestrator.state.visited_agents[0]
+            and state.eligible_agent_ids
+            and set(state.eligible_agent_ids)
+            == set(orchestrator.get_next_agents(current_agent_id=None))
             if orchestrator.state.visited_agents
             else False
         ):

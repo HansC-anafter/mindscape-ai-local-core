@@ -5,6 +5,7 @@ import { DeviceStatusIndicator } from '../../components/DeviceStatusIndicator';
 import TrainHeader from '../../../../components/execution/TrainHeader';
 import VisibilityBadge from './VisibilityBadge';
 import WorkspaceGroupIndicator from './WorkspaceGroupIndicator';
+import { useWorkspaceGroup } from '@/contexts/WorkspaceGroupContext';
 import type { WorkspaceVisibility } from '../workspace-page.types';
 
 interface WorkspaceHeaderBarProps {
@@ -31,6 +32,7 @@ export default function WorkspaceHeaderBar({
     executionState,
     onWorkspaceNameEdit,
 }: WorkspaceHeaderBarProps) {
+    const workspaceGroup = useWorkspaceGroup();
     return (
         <div className="relative">
             <TrainHeader
@@ -61,11 +63,13 @@ export default function WorkspaceHeaderBar({
                     visibility={workspace.visibility || 'private'}
                     apiUrl={apiUrl}
                 />
-                {workspace.group_id && (
+                {(workspaceGroup.isLoading || workspaceGroup.groups.length > 0) && (
                     <WorkspaceGroupIndicator
-                        groupId={workspace.group_id}
-                        workspaceRole={workspace.workspace_role}
-                        apiUrl={apiUrl}
+                        groups={workspaceGroup.groups}
+                        activeGroup={workspaceGroup.activeGroup}
+                        activeRole={workspaceGroup.activeRole}
+                        isLoading={workspaceGroup.isLoading}
+                        onSelect={workspaceGroup.selectGroup}
                     />
                 )}
             </div>

@@ -42,6 +42,12 @@ export interface Workspace {
     visibility?: WorkspaceVisibility;
     group_id?: string | null;
     workspace_role?: string | null;
+    group_memberships?: Array<{
+        group_id: string;
+        display_name: string;
+        role: 'dispatch' | 'cell';
+        revision: number;
+    }>;
     workspace_blueprint?: {
         instruction?: {
             persona?: string;
