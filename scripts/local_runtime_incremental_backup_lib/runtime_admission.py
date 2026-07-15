@@ -22,6 +22,38 @@ ACTIVE_RECEIVER_STATES = frozenset(
 )
 PENDING_RECEIVER_GRACE_SECONDS = 300
 
+_RUNNER_HEARTBEAT_COUNTS_LUA = """
+local cursor = '0'
+local count = 0
+local inflight = 0
+local capacity = 0
+local malformed = 0
+repeat
+    local page = redis.call(
+        'SCAN', cursor, 'MATCH',
+        'mindscape:runner_resources:heartbeat:v1:*', 'COUNT', 1000
+    )
+    cursor = page[1]
+    for _, key in ipairs(page[2]) do
+        count = count + 1
+        local raw = redis.call('GET', key)
+        local ok, value = pcall(cjson.decode, raw or '')
+        if not ok or type(value) ~= 'table' or type(value.capacity) ~= 'table' then
+            malformed = malformed + 1
+        else
+            inflight = inflight + tonumber(value.capacity.inflight or 0)
+            capacity = capacity + tonumber(value.capacity.max_inflight or 0)
+        end
+    end
+until cursor == '0'
+return cjson.encode({
+    count = count,
+    inflight = inflight,
+    capacity = capacity,
+    malformed = malformed
+})
+""".strip()
+
 
 _DATABASE_WORKLOAD_COUNTS_SQL = """
 WITH candidates AS (
@@ -120,6 +152,41 @@ def active_database_workload_counts() -> dict[str, int]:
         "active_postgres_base_backups": int(parts[1]),
         "active_runner_tasks": int(parts[2]),
     }
+
+
+def active_runner_heartbeat_counts() -> dict[str, int]:
+    """Read aggregate active-runner capacity without exposing runner keys."""
+
+    output = run_text(
+        [
+            "docker",
+            "exec",
+            "mindscape-ai-local-core-redis",
+            "redis-cli",
+            "--raw",
+            "EVAL",
+            _RUNNER_HEARTBEAT_COUNTS_LUA,
+            "0",
+        ],
+        timeout=10,
+    ).strip()
+    try:
+        payload = json.loads(output)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("runner_heartbeat_counts_invalid") from exc
+    expected = {"count", "inflight", "capacity", "malformed"}
+    if not isinstance(payload, dict) or set(payload) != expected:
+        raise RuntimeError("runner_heartbeat_counts_invalid")
+    if any(
+        isinstance(payload[key], bool)
+        or not isinstance(payload[key], int)
+        or payload[key] < 0
+        for key in expected
+    ):
+        raise RuntimeError("runner_heartbeat_counts_invalid")
+    if payload["malformed"]:
+        raise RuntimeError("runner_heartbeat_counts_malformed")
+    return {key: int(payload[key]) for key in expected}
 
 
 def _pid_is_running(pid: int) -> bool:
@@ -224,6 +291,16 @@ def inspect_backup_runtime_admission(
             runner_task_count = None
             errors.append(f"database_workload_inspection_failed:{type(exc).__name__}")
     try:
+        runner_heartbeats = active_runner_heartbeat_counts()
+    except Exception as exc:
+        runner_heartbeats = {
+            "count": None,
+            "inflight": None,
+            "capacity": None,
+            "malformed": None,
+        }
+        errors.append(f"runner_heartbeat_inspection_failed:{type(exc).__name__}")
+    try:
         receivers = inspect_live_media_receivers(data_host_dir or resolve_data_host_dir())
         errors.extend(receivers["errors"])
     except Exception as exc:
@@ -237,16 +314,24 @@ def inspect_backup_runtime_admission(
         blocking_reasons.append("postgres_basebackup_already_running")
     if runner_task_count is not None and runner_task_count > 0:
         blocking_reasons.append("active_runner_tasks")
+    if (
+        runner_heartbeats["inflight"] is not None
+        and runner_heartbeats["inflight"] > 0
+    ):
+        blocking_reasons.append("active_runner_inflight")
     if receivers["active"]:
         blocking_reasons.append("active_live_media_receivers")
     if errors:
         blocking_reasons.append("backup_runtime_admission_inspection_failed")
     return {
-        "schema_version": "backup_runtime_admission.v2",
+        "schema_version": "backup_runtime_admission.v3",
         "admitted": not blocking_reasons,
         "active_meeting_sessions": meeting_count,
         "active_postgres_base_backups": base_backup_count,
         "active_runner_tasks": runner_task_count,
+        "active_runner_heartbeats": runner_heartbeats["count"],
+        "active_runner_inflight": runner_heartbeats["inflight"],
+        "active_runner_capacity": runner_heartbeats["capacity"],
         "base_backup_lock_path": str(base_backup_lock),
         "database_inspection_skipped": database_inspection_skipped,
         "active_live_media_receivers": receivers["active"],

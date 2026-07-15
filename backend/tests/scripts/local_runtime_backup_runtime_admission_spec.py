@@ -10,6 +10,9 @@ import pytest
 from scripts.local_runtime_incremental_backup_lib import runtime_admission
 
 
+_ACTIVE_RUNNER_HEARTBEAT_COUNTS = runtime_admission.active_runner_heartbeat_counts
+
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
@@ -59,11 +62,14 @@ def _postgres_ok():
 
 def _runtime_admitted():
     return {
-        "schema_version": "backup_runtime_admission.v2",
+        "schema_version": "backup_runtime_admission.v3",
         "admitted": True,
         "active_meeting_sessions": 0,
         "active_postgres_base_backups": 0,
         "active_runner_tasks": 0,
+        "active_runner_heartbeats": 0,
+        "active_runner_inflight": 0,
+        "active_runner_capacity": 0,
         "active_live_media_receivers": [],
         "receiver_state_root": "/runtime/live-media-receivers",
         "blocking_reasons": [],
@@ -86,6 +92,15 @@ def _write_state(path: Path, *, state: str, pid: int) -> None:
             }
         ),
         encoding="utf-8",
+    )
+
+
+@pytest.fixture(autouse=True)
+def _idle_runner_heartbeats(monkeypatch):
+    monkeypatch.setattr(
+        runtime_admission,
+        "active_runner_heartbeat_counts",
+        lambda: {"count": 4, "inflight": 0, "capacity": 7, "malformed": 0},
     )
 
 
@@ -217,6 +232,78 @@ def test_admission_blocks_fresh_running_runner_tasks(monkeypatch, tmp_path):
     assert result["admitted"] is False
     assert result["active_runner_tasks"] == 2
     assert "active_runner_tasks" in result["blocking_reasons"]
+
+
+def test_runner_heartbeat_probe_parses_aggregate_without_keys(monkeypatch):
+    monkeypatch.setattr(
+        runtime_admission,
+        "active_runner_heartbeat_counts",
+        _ACTIVE_RUNNER_HEARTBEAT_COUNTS,
+    )
+    monkeypatch.setattr(
+        runtime_admission,
+        "run_text",
+        lambda _cmd, timeout: '{"count":4,"inflight":3,"capacity":7,"malformed":0}\n',
+    )
+
+    assert runtime_admission.active_runner_heartbeat_counts() == {
+        "count": 4,
+        "inflight": 3,
+        "capacity": 7,
+        "malformed": 0,
+    }
+
+
+def test_admission_blocks_runner_heartbeat_inflight(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        runtime_admission,
+        "active_database_workload_counts",
+        lambda: {
+            "active_meeting_sessions": 0,
+            "active_postgres_base_backups": 0,
+            "active_runner_tasks": 0,
+        },
+    )
+    monkeypatch.setattr(
+        runtime_admission,
+        "active_runner_heartbeat_counts",
+        lambda: {"count": 4, "inflight": 2, "capacity": 7, "malformed": 0},
+    )
+
+    result = runtime_admission.inspect_backup_runtime_admission(
+        data_host_dir=tmp_path,
+        wal_archive_root=tmp_path / "postgres-wal-archive",
+    )
+
+    assert result["admitted"] is False
+    assert result["active_runner_inflight"] == 2
+    assert "active_runner_inflight" in result["blocking_reasons"]
+
+
+def test_admission_fails_closed_for_malformed_runner_heartbeat(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        runtime_admission,
+        "active_database_workload_counts",
+        lambda: {
+            "active_meeting_sessions": 0,
+            "active_postgres_base_backups": 0,
+            "active_runner_tasks": 0,
+        },
+    )
+
+    def malformed():
+        raise RuntimeError("runner_heartbeat_counts_malformed")
+
+    monkeypatch.setattr(runtime_admission, "active_runner_heartbeat_counts", malformed)
+
+    result = runtime_admission.inspect_backup_runtime_admission(
+        data_host_dir=tmp_path,
+        wal_archive_root=tmp_path / "postgres-wal-archive",
+    )
+
+    assert result["admitted"] is False
+    assert result["active_runner_inflight"] is None
+    assert "backup_runtime_admission_inspection_failed" in result["blocking_reasons"]
 
 
 def test_receiver_admission_blocks_only_live_runtime_states(tmp_path):
