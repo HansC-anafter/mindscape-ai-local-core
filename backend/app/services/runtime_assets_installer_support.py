@@ -19,6 +19,7 @@ RUNTIME_NAMESPACE_DIRS = {
     "analysis",
     "core",
     "generation",
+    "repositories",
 }
 RUNTIME_MIRROR_DIRS = {
     *RUNTIME_NAMESPACE_DIRS,

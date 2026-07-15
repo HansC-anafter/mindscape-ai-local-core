@@ -27,10 +27,12 @@ from backend.app.services.runtime_assets_installer import (  # noqa: E402
 def _write_pack(cap_dir: Path) -> None:
     tools_dir = cap_dir / "tools"
     services_dir = cap_dir / "services"
+    repositories_dir = cap_dir / "repositories"
     helper_dir = tools_dir / "following_analyzer"
     core_dir = services_dir / "reference_catalog_store_core"
     helper_dir.mkdir(parents=True)
     core_dir.mkdir(parents=True)
+    repositories_dir.mkdir(parents=True)
 
     (cap_dir / "manifest.yaml").write_text(
         "code: ig\nversion: 1.2.3\n",
@@ -53,6 +55,10 @@ def _write_pack(cap_dir: Path) -> None:
     )
     (core_dir / "__init__.py").write_text("", encoding="utf-8")
     (core_dir / "writer.py").write_text("WRITER = True\n", encoding="utf-8")
+    (repositories_dir / "__init__.py").write_text("", encoding="utf-8")
+    (repositories_dir / "goal_repository.py").write_text(
+        "GOAL_REPOSITORY = True\n", encoding="utf-8"
+    )
 
 
 def _write_ui_dist(cap_dir: Path) -> None:
@@ -105,6 +111,8 @@ def test_runtime_assets_publish_complete_tree_from_staging(tmp_path: Path):
     assert (target / "tools" / "following_analyzer" / "browser_session.py").exists()
     assert (target / "services" / "reference_index.py").exists()
     assert (target / "services" / "reference_catalog_store_core" / "writer.py").exists()
+    assert (target / "repositories" / "goal_repository.py").exists()
+    assert "repositories" in result.installed["runtime_namespace_dirs"]
     assert not (capabilities_dir.parent / ".capability-install-staging").exists()
 
 
