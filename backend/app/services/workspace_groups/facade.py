@@ -7,9 +7,13 @@ from backend.app.services.workspace_groups.context_resolver import (
 )
 from backend.app.services.workspace_groups.contracts import (
     ActiveWorkspaceGroupContext,
+    SharedAssetScopeResolution,
     WorkspaceGroupCreate,
     WorkspaceGroupTopology,
     WorkspaceGroupUpdate,
+)
+from backend.app.services.workspace_groups.shared_asset_scope_resolver import (
+    SharedAssetScopeResolver,
 )
 from backend.app.services.workspace_groups.topology_service import (
     WorkspaceGroupTopologyService,
@@ -17,9 +21,16 @@ from backend.app.services.workspace_groups.topology_service import (
 
 
 class WorkspaceGroupFacade:
-    def __init__(self, topology_service: Optional[WorkspaceGroupTopologyService] = None):
+    def __init__(
+        self,
+        topology_service: Optional[WorkspaceGroupTopologyService] = None,
+        shared_asset_scope_resolver: Optional[SharedAssetScopeResolver] = None,
+    ):
         self.topology_service = topology_service or WorkspaceGroupTopologyService()
         self.context_resolver = WorkspaceGroupContextResolver(self.topology_service)
+        self.shared_asset_scope_resolver = (
+            shared_asset_scope_resolver or SharedAssetScopeResolver()
+        )
 
     def list_groups(
         self,
@@ -60,3 +71,21 @@ class WorkspaceGroupFacade:
     def get_explicit_topology(self, group_id: str) -> Optional[WorkspaceGroupTopology]:
         """Internal read for a caller whose scope already names one group ID."""
         return self.topology_service.repository.get(group_id)
+
+    def resolve_shared_asset_scopes(
+        self,
+        *,
+        workspace_id: str,
+        actor_user_id: str,
+        allowed_workspace_ids: Sequence[str] = (),
+        allowed_group_ids: Sequence[str] = (),
+        group_id: Optional[str] = None,
+    ) -> SharedAssetScopeResolution:
+        """Return every typed shared-asset read scope authorized for a workspace."""
+        return self.shared_asset_scope_resolver.resolve(
+            workspace_id=workspace_id,
+            actor_user_id=actor_user_id,
+            allowed_workspace_ids=allowed_workspace_ids,
+            allowed_group_ids=allowed_group_ids,
+            group_id=group_id,
+        )

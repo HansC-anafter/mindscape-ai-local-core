@@ -1,6 +1,6 @@
 version: 1
 registry_id: mindscape.product-semantic-surfaces.local-core
-updated_at: "2026-07-15"
+updated_at: "2026-07-16"
 owner_review_handle: "@team-leads"
 
 declaration:
@@ -59,6 +59,28 @@ surfaces:
       - web-console/src/app/workspaces/*/components/WorkspaceHeaderBar.tsx
       - web-console/src/api/client.ts
       - web-console/src/**/*workspace*group*
+
+  - id: psc.local-core.workspace-group-shared-asset-scope.v1
+    tier: P0
+    owner: "@team-leads"
+    contract_doc: mindscape-ai-cloud/docs/internal/local-core/product-semantics/ig-workspace-group-shared-source-projection-contract-2026-07-16.zh-TW.md
+    requires_product_semantic_declaration: true
+    semantics:
+      - A workspace-group shared-asset read scope is authorized only by matching source and consumer asset/read bindings plus valid membership and group topology; arbitrary override JSON or group display metadata is never authorization truth.
+      - The workspace-group facade returns all valid typed scopes for the active workspace, optionally narrowed by an explicit group filter, and never selects an arbitrary first group or changes explicit active-group execution semantics.
+      - Shared-scope resolution uses one bounded indexed repository read per request, fails closed per invalid scope without hiding workspace-owned data, and exposes stable binding and group-revision provenance to capability adapters.
+      - The host shared-asset seam adds no pack-specific table, second credential store, migration, worker, scheduler, queue lane, PgBouncer expansion, or UX polling path.
+    path_globs:
+      - backend/app/models/workspace_resource_binding.py
+      - backend/app/routes/core/workspace_resource_bindings.py
+      - backend/app/services/stores/workspace_resource_binding_store.py
+      - backend/app/services/workspace_resource_bindings/**
+      - backend/app/services/workspace_groups/contracts.py
+      - backend/app/services/workspace_groups/facade.py
+      - backend/app/services/workspace_groups/shared_asset_scope_repository.py
+      - backend/app/services/workspace_groups/shared_asset_scope_resolver.py
+      - backend/tests/*resource*binding*
+      - backend/tests/workspace_groups/*shared*asset*
 
   - id: psc.local-core.capability-install-control-plane.v1
     tier: P0
