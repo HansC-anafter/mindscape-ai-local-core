@@ -1,7 +1,7 @@
 """Converge workspace group topology on normalized memberships.
 
 Revision ID: 20260715120000
-Revises: 20260715010000
+Revises: None (independent Workspace Group knowledge foundation branch)
 Create Date: 2026-07-15 12:00:00.000000
 """
 
@@ -11,8 +11,8 @@ from sqlalchemy.dialects import postgresql
 
 
 revision = "20260715120000"
-down_revision = "20260715010000"
-branch_labels = None
+down_revision = None
+branch_labels = ("workspace_group_knowledge_foundation",)
 depends_on = None
 
 
