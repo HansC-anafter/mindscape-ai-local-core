@@ -71,6 +71,19 @@ class _Session:
         raise AssertionError("public append facade must not own commit")
 
 
+class _SyncSession:
+    def __init__(self, *results):
+        self.results = list(results)
+        self.calls = []
+
+    def execute(self, statement, params):
+        self.calls.append({"statement": str(statement), "params": params})
+        return self.results.pop(0)
+
+    def commit(self):
+        raise AssertionError("public append facade must not own commit")
+
+
 @pytest.mark.asyncio
 async def test_append_uses_caller_session_without_commit_or_publish(monkeypatch):
     monkeypatch.setattr(
@@ -86,6 +99,42 @@ async def test_append_uses_caller_session_without_commit_or_publish(monkeypatch)
     assert len(session.calls) == 1
     assert "FROM workspaces" in session.calls[0]["statement"]
     assert "ON CONFLICT (id) DO NOTHING" in session.calls[0]["statement"]
+
+
+def test_sync_append_uses_same_caller_transaction_without_commit_or_publish(monkeypatch):
+    monkeypatch.setattr(
+        lifecycle,
+        "_publish_committed_event",
+        lambda _event: (_ for _ in ()).throw(AssertionError("must not publish")),
+    )
+    session = _SyncSession(_Result(scalar=_event()["id"]))
+
+    receipt = lifecycle.append_workspace_cloud_event_sync(session, _event())
+
+    assert receipt["status"] == "inserted"
+    assert len(session.calls) == 1
+    assert session.calls[0]["statement"] is not None
+    assert "ON CONFLICT (id) DO NOTHING" in session.calls[0]["statement"]
+
+
+def test_sync_duplicate_identical_event_uses_shared_collision_verifier():
+    event = lifecycle.normalize_workspace_cloud_event(_event())
+    envelope = {key: value for key, value in event.items() if key != "data"}
+    session = _SyncSession(
+        _Result(scalar=None),
+        _Result(
+            row={
+                "workspace_id": WORKSPACE_ID,
+                "payload": json.dumps(event["data"]),
+                "metadata": json.dumps({"workspace_cloud_event": envelope}),
+            }
+        ),
+    )
+
+    receipt = lifecycle.append_workspace_cloud_event_sync(session, event)
+
+    assert receipt["status"] == "existing"
+    assert len(session.calls) == 2
 
 
 @pytest.mark.asyncio

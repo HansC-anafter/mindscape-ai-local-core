@@ -132,63 +132,60 @@ def _decode_json(value: Any) -> Any:
     return value
 
 
-async def append_workspace_cloud_event(
-    session: Any,
-    event: Mapping[str, Any],
-) -> dict[str, Any]:
-    """Append through the caller transaction without owning commit or fan-out."""
-    normalized = normalize_workspace_cloud_event(event)
-    event_id = normalized["id"]
-    workspace_id = normalized["workspaceid"]
-    metadata = _storage_metadata(normalized)
-    result = await session.execute(
-        text(
-            """
-            INSERT INTO mind_events (
-                id, timestamp, actor, channel, profile_id, project_id,
-                workspace_id, thread_id, event_type, payload, entity_ids, metadata
-            )
-            SELECT
-                :event_id, :occurred_at, 'system', 'capability_host',
-                workspaces.owner_user_id, NULL, workspaces.id, NULL,
-                'capability_event', :payload, '[]', :metadata
-            FROM workspaces
-            WHERE workspaces.id = :workspace_id
-            ON CONFLICT (id) DO NOTHING
-            RETURNING id
-            """
-        ),
-        {
-            "event_id": event_id,
-            "occurred_at": (
-                datetime.fromisoformat(normalized["time"].replace("Z", "+00:00"))
-                if normalized.get("time")
-                else datetime.now(timezone.utc)
-            ),
-            "workspace_id": workspace_id,
-            "payload": _canonical_json(normalized["data"]),
-            "metadata": _canonical_json(metadata),
-        },
+_INSERT_WORKSPACE_EVENT = text(
+    """
+    INSERT INTO mind_events (
+        id, timestamp, actor, channel, profile_id, project_id,
+        workspace_id, thread_id, event_type, payload, entity_ids, metadata
     )
-    inserted_id = result.scalar_one_or_none()
+    SELECT
+        :event_id, :occurred_at, 'system', 'capability_host',
+        workspaces.owner_user_id, NULL, workspaces.id, NULL,
+        'capability_event', :payload, '[]', :metadata
+    FROM workspaces
+    WHERE workspaces.id = :workspace_id
+    ON CONFLICT (id) DO NOTHING
+    RETURNING id
+    """
+)
+_SELECT_WORKSPACE_EVENT = text(
+    """
+    SELECT workspace_id, payload, metadata
+    FROM mind_events
+    WHERE id = :event_id
+    """
+)
+
+
+def _append_params(event: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "event_id": event["id"],
+        "occurred_at": (
+            datetime.fromisoformat(str(event["time"]).replace("Z", "+00:00"))
+            if event.get("time")
+            else datetime.now(timezone.utc)
+        ),
+        "workspace_id": event["workspaceid"],
+        "payload": _canonical_json(event["data"]),
+        "metadata": _canonical_json(_storage_metadata(event)),
+    }
+
+
+def _append_receipt(
+    event: Mapping[str, Any],
+    *,
+    inserted_id: Any,
+    existing_row: Any = None,
+) -> dict[str, Any]:
+    event_id = str(event["id"])
+    workspace_id = str(event["workspaceid"])
     if inserted_id:
         status = "inserted"
     else:
-        existing_result = await session.execute(
-            text(
-                """
-                SELECT workspace_id, payload, metadata
-                FROM mind_events
-                WHERE id = :event_id
-                """
-            ),
-            {"event_id": event_id},
-        )
-        row = existing_result.mappings().first()
-        if row is None:
+        if existing_row is None:
             raise ValueError("workspace_lifecycle_workspace_not_found")
-        existing_metadata = _decode_json(row["metadata"])
-        existing_payload = _decode_json(row["payload"])
+        existing_metadata = _decode_json(existing_row["metadata"])
+        existing_payload = _decode_json(existing_row["payload"])
         envelope = (
             existing_metadata.get("workspace_cloud_event")
             if isinstance(existing_metadata, dict)
@@ -200,9 +197,9 @@ async def append_workspace_cloud_event(
             {**envelope, "data": existing_payload}
         )
         if (
-            str(row["workspace_id"] or "") != workspace_id
+            str(existing_row["workspace_id"] or "") != workspace_id
             or workspace_cloud_event_checksum(existing_event)
-            != workspace_cloud_event_checksum(normalized)
+            != workspace_cloud_event_checksum(event)
         ):
             raise ValueError("workspace_lifecycle_event_id_collision")
         status = "existing"
@@ -210,9 +207,52 @@ async def append_workspace_cloud_event(
         "status": status,
         "event_id": event_id,
         "workspace_id": workspace_id,
-        "payload_checksum": normalized["payloadchecksum"],
-        "event_checksum": workspace_cloud_event_checksum(normalized),
+        "payload_checksum": event["payloadchecksum"],
+        "event_checksum": workspace_cloud_event_checksum(event),
     }
+
+
+async def append_workspace_cloud_event(
+    session: Any,
+    event: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Append through the caller transaction without owning commit or fan-out."""
+    normalized = normalize_workspace_cloud_event(event)
+    result = await session.execute(
+        _INSERT_WORKSPACE_EVENT,
+        _append_params(normalized),
+    )
+    inserted_id = result.scalar_one_or_none()
+    row = None
+    if not inserted_id:
+        existing_result = await session.execute(
+            _SELECT_WORKSPACE_EVENT,
+            {"event_id": normalized["id"]},
+        )
+        row = existing_result.mappings().first()
+    return _append_receipt(normalized, inserted_id=inserted_id, existing_row=row)
+
+
+def append_workspace_cloud_event_sync(
+    session: Any,
+    event: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Append through a caller-owned synchronous transaction."""
+
+    normalized = normalize_workspace_cloud_event(event)
+    result = session.execute(
+        _INSERT_WORKSPACE_EVENT,
+        _append_params(normalized),
+    )
+    inserted_id = result.scalar_one_or_none()
+    row = None
+    if not inserted_id:
+        existing_result = session.execute(
+            _SELECT_WORKSPACE_EVENT,
+            {"event_id": normalized["id"]},
+        )
+        row = existing_result.mappings().first()
+    return _append_receipt(normalized, inserted_id=inserted_id, existing_row=row)
 
 
 def publish_committed_workspace_cloud_event(event: Mapping[str, Any]) -> bool:
@@ -223,6 +263,7 @@ def publish_committed_workspace_cloud_event(event: Mapping[str, Any]) -> bool:
 __all__ = [
     "WORKSPACE_EVENT_ID_MAX_LENGTH",
     "append_workspace_cloud_event",
+    "append_workspace_cloud_event_sync",
     "normalize_workspace_cloud_event",
     "publish_committed_workspace_cloud_event",
     "workspace_cloud_event_checksum",
