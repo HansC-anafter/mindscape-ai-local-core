@@ -48,6 +48,7 @@ class StartSessionRequest(BaseModel):
     lens_id: Optional[str] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
     active_group_id: Optional[str] = None
+    expected_topology_snapshot_id: Optional[str] = None
 
 
 class EndSessionRequest(BaseModel):
@@ -253,6 +254,19 @@ async def start_session(
             WorkspaceGroupSnapshotService().get_or_create,
             group_context,
             actor_user_id=auth.user_id,
+        )
+        if (
+            body.expected_topology_snapshot_id
+            and group_snapshot.id != body.expected_topology_snapshot_id
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="workspace_group_snapshot_stale",
+            )
+    elif body.expected_topology_snapshot_id:
+        raise HTTPException(
+            status_code=422,
+            detail="expected_topology_snapshot_requires_active_group",
         )
 
     # End any existing active session
