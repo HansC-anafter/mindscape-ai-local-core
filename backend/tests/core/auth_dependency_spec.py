@@ -4,11 +4,51 @@ import pytest
 from fastapi import HTTPException
 
 from backend.app.dependencies import auth
+from backend.app.services import mindscape_store, system_settings_store
 
 
 class _Request:
     def __init__(self, headers=None):
         self.headers = headers or {}
+
+
+def test_default_user_fallback_matches_the_canonical_local_profile(monkeypatch):
+    class _Store:
+        db_path = "/tmp/test.db"
+
+    class _Settings:
+        def __init__(self, *, db_path):
+            assert db_path == _Store.db_path
+
+        def get_setting(self, key):
+            assert key == "default_user_id"
+            return None
+
+    monkeypatch.setattr(mindscape_store, "MindscapeStore", _Store)
+    monkeypatch.setattr(system_settings_store, "SystemSettingsStore", _Settings)
+
+    assert auth.get_default_user_id() == "default-user"
+
+
+def test_configured_default_user_keeps_precedence(monkeypatch):
+    class _Store:
+        db_path = "/tmp/test.db"
+
+    class _Setting:
+        value = "configured-local-user"
+
+    class _Settings:
+        def __init__(self, *, db_path):
+            assert db_path == _Store.db_path
+
+        def get_setting(self, key):
+            assert key == "default_user_id"
+            return _Setting()
+
+    monkeypatch.setattr(mindscape_store, "MindscapeStore", _Store)
+    monkeypatch.setattr(system_settings_store, "SystemSettingsStore", _Settings)
+
+    assert auth.get_default_user_id() == "configured-local-user"
 
 
 def test_current_operator_authenticates_without_listing_local_workspaces(monkeypatch):
