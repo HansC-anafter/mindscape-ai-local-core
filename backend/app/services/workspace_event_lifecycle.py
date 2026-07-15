@@ -36,7 +36,7 @@ def _event_time(value: Any) -> str:
     return value.isoformat().replace("+00:00", "Z")
 
 
-def _payload_checksum(payload: Dict[str, Any]) -> str:
+def workspace_event_payload_checksum(payload: Dict[str, Any]) -> str:
     encoded = json.dumps(
         payload,
         ensure_ascii=False,
@@ -53,6 +53,22 @@ def serialize_mind_event_cloud_event(event: Any) -> Dict[str, Any]:
     event_type = _enum_value(getattr(event, "event_type", "unknown"))
     metadata = getattr(event, "metadata", {})
     metadata = dict(metadata) if isinstance(metadata, dict) else {}
+    stored_envelope = metadata.get("workspace_cloud_event")
+    if isinstance(stored_envelope, dict):
+        stored_event = {
+            **stored_envelope,
+            "data": getattr(event, "payload", {})
+            if isinstance(getattr(event, "payload", {}), dict)
+            else {},
+        }
+        if _text(stored_event.get("id")) != event_id:
+            raise ValueError("workspace_lifecycle_event_storage_id_mismatch")
+        if _text(stored_event.get("workspaceid")) != workspace_id:
+            raise ValueError("workspace_lifecycle_event_storage_workspace_mismatch")
+        return validate_workspace_lifecycle_event(
+            stored_event,
+            workspace_id=workspace_id,
+        )
     aggregate_id = (
         _text(metadata.get("aggregate_id"))
         or _text(getattr(event, "thread_id", ""))
@@ -80,7 +96,7 @@ def serialize_mind_event_cloud_event(event: Any) -> Dict[str, Any]:
         else [],
         "metadata": metadata,
     }
-    checksum = _payload_checksum(domain_data)
+    checksum = workspace_event_payload_checksum(domain_data)
     source = f"mindscape://local-core/workspace/{workspace_id}/mind-events"
     return {
         "specversion": "1.0",
@@ -116,7 +132,7 @@ def validate_workspace_lifecycle_event(
     if event.get("workspaceid") != workspace_id:
         raise ValueError("workspace_lifecycle_event_workspace_mismatch")
     data = event.get("data") if isinstance(event.get("data"), dict) else {}
-    if event.get("payloadchecksum") != _payload_checksum(data):
+    if event.get("payloadchecksum") != workspace_event_payload_checksum(data):
         raise ValueError("workspace_lifecycle_event_checksum_mismatch")
     encoded = json.dumps(event, ensure_ascii=False, default=str).encode("utf-8")
     if len(encoded) >= MAX_WORKSPACE_EVENT_BYTES:
@@ -124,19 +140,16 @@ def validate_workspace_lifecycle_event(
     return event
 
 
-def publish_committed_workspace_event(event: Any) -> bool:
-    workspace_id = _text(getattr(event, "workspace_id", ""))
-    if not workspace_id:
-        return False
+def publish_committed_workspace_cloud_event(payload: Dict[str, Any]) -> bool:
+    workspace_id = _text(payload.get("workspaceid"))
     try:
-        payload = serialize_mind_event_cloud_event(event)
         validate_workspace_lifecycle_event(payload, workspace_id=workspace_id)
     except (TypeError, ValueError) as exc:
         logger.warning(
             "Committed workspace event is not eligible for live fan-out "
             "workspace=%s event=%s reason=%s",
             workspace_id[:8],
-            _text(getattr(event, "id", ""))[:8],
+            _text(payload.get("id"))[:8],
             exc,
         )
         return False
@@ -149,15 +162,35 @@ def publish_committed_workspace_event(event: Any) -> bool:
         logger.warning(
             "Committed workspace event fan-out unavailable workspace=%s event=%s",
             workspace_id[:8],
-            _text(getattr(event, "id", ""))[:8],
+            _text(payload.get("id"))[:8],
         )
     return published
 
 
+def publish_committed_workspace_event(event: Any) -> bool:
+    workspace_id = _text(getattr(event, "workspace_id", ""))
+    if not workspace_id:
+        return False
+    try:
+        payload = serialize_mind_event_cloud_event(event)
+    except (TypeError, ValueError) as exc:
+        logger.warning(
+            "Committed workspace event is not eligible for live fan-out "
+            "workspace=%s event=%s reason=%s",
+            workspace_id[:8],
+            _text(getattr(event, "id", ""))[:8],
+            exc,
+        )
+        return False
+    return publish_committed_workspace_cloud_event(payload)
+
+
 __all__ = [
     "MAX_WORKSPACE_EVENT_BYTES",
+    "publish_committed_workspace_cloud_event",
     "publish_committed_workspace_event",
     "serialize_mind_event_cloud_event",
     "validate_workspace_lifecycle_event",
+    "workspace_event_payload_checksum",
     "workspace_event_channel",
 ]

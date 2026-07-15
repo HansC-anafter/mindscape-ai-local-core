@@ -47,6 +47,7 @@ class EventType(str, Enum):
     INTENT_PATCHED = "intent_patched"
     STATE_VECTOR_COMPUTED = "state_vector_computed"
     MODE_TRANSITION = "mode_transition"
+    CAPABILITY_EVENT = "capability_event"
 
 
 class EventActor(str, Enum):
