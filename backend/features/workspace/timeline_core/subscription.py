@@ -11,6 +11,9 @@ from backend.app.services.cache.async_redis import get_async_redis_client
 from backend.app.services.workspace_event_lifecycle import workspace_event_channel
 
 
+_RECEIVE_DEADLINE_GRACE_SECONDS = 0.25
+
+
 class WorkspaceEventStreamUnavailable(RuntimeError):
     pass
 
@@ -36,10 +39,15 @@ class WorkspaceEventSubscription:
             if remaining <= 0:
                 return None
             try:
-                message = await self.listener.get_message(
-                    ignore_subscribe_messages=True,
-                    timeout=min(remaining, 5.0),
+                message = await asyncio.wait_for(
+                    self.listener.get_message(
+                        ignore_subscribe_messages=True,
+                        timeout=remaining,
+                    ),
+                    timeout=remaining + _RECEIVE_DEADLINE_GRACE_SECONDS,
                 )
+            except asyncio.TimeoutError:
+                return None
             except Exception as exc:
                 raise WorkspaceEventStreamUnavailable(
                     "workspace_event_subscription_receive_failed"

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import time
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
@@ -18,6 +20,7 @@ from backend.features.workspace.timeline_core.catchup import (
 from backend.features.workspace.timeline_core.stream import event_stream_generator
 from backend.features.workspace.timeline_core.subscription import (
     WorkspaceEventStreamUnavailable,
+    WorkspaceEventSubscription,
 )
 
 
@@ -133,6 +136,24 @@ async def test_idle_heartbeat_does_not_issue_periodic_db_queries():
     assert store.calls == 1
     await stream.aclose()
     assert subscription.closed is True
+
+
+@pytest.mark.asyncio
+async def test_subscription_enforces_heartbeat_deadline_when_redis_receive_overshoots():
+    class SlowListener:
+        async def get_message(self, **_kwargs):
+            await asyncio.sleep(1)
+            return None
+
+    subscription = WorkspaceEventSubscription(
+        workspace_id="workspace-deadline",
+        listener=SlowListener(),
+        subscribed_at=datetime.now(timezone.utc),
+    )
+    started_at = time.monotonic()
+
+    assert await subscription.next_payload(timeout_seconds=0.05) is None
+    assert time.monotonic() - started_at < 0.4
 
 
 @pytest.mark.asyncio
