@@ -22,14 +22,18 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def status_command(db_type: str):
-    """Check migration status for a database type."""
+def _build_orchestrator() -> MigrationOrchestrator:
+    """Facade seam for canonical runtime migration paths and configuration."""
     capabilities_root = backend_dir / "app" / "capabilities"
     alembic_configs = {
-        "postgres": backend_dir / "alembic.ini",
+        "postgres": backend_dir / "alembic.postgres.ini",
     }
+    return MigrationOrchestrator(capabilities_root, alembic_configs)
 
-    orchestrator = MigrationOrchestrator(capabilities_root, alembic_configs)
+
+def status_command(db_type: str):
+    """Check migration status for a database type."""
+    orchestrator = _build_orchestrator()
     result = orchestrator.status(db_type)
 
     print(f"\nMigration Status for {db_type.upper()}")
@@ -48,12 +52,7 @@ def status_command(db_type: str):
 
 def dry_run_command(db_type: str):
     """Perform a dry-run to show what migrations would be executed."""
-    capabilities_root = backend_dir / "app" / "capabilities"
-    alembic_configs = {
-        "postgres": backend_dir / "alembic.ini",
-    }
-
-    orchestrator = MigrationOrchestrator(capabilities_root, alembic_configs)
+    orchestrator = _build_orchestrator()
     result = orchestrator.dry_run(db_type)
 
     print(f"\nDry-Run for {db_type.upper()} Migrations")
@@ -77,19 +76,33 @@ def dry_run_command(db_type: str):
         print("No migrations found for this database type.")
 
 
-def apply_command(db_type: str, dry_run: bool = False):
+def apply_command(
+    db_type: str,
+    dry_run: bool = False,
+    revision: str | None = None,
+):
     """Apply pending migrations for a database type."""
-    capabilities_root = backend_dir / "app" / "capabilities"
-    alembic_configs = {
-        "postgres": backend_dir / "alembic.ini",
-    }
+    orchestrator = _build_orchestrator()
 
-    orchestrator = MigrationOrchestrator(capabilities_root, alembic_configs)
-
+    if dry_run and revision:
+        result = orchestrator.plan_revision(db_type, revision)
+        print(f"\nTargeted Dry-Run for {db_type.upper()} Migrations")
+        print("=" * 60)
+        print(f"Status: {result.get('status')}")
+        print(f"Target Revision: {result.get('target_revision', revision)}")
+        print(f"Pending Migrations: {result.get('migrations_pending', 0)}")
+        for pending_revision in result.get('revisions', []):
+            print(f"  - {pending_revision}")
+        if result.get('error'):
+            print(f"Error: {result.get('error')}")
+        return
     if dry_run:
         return dry_run_command(db_type)
 
-    result = orchestrator.apply(db_type, dry_run=False)
+    if revision:
+        result = orchestrator.apply_revision(db_type, revision)
+    else:
+        result = orchestrator.apply(db_type, dry_run=False)
 
     print(f"\nApply Migrations for {db_type.upper()}")
     print("=" * 60)
@@ -97,6 +110,8 @@ def apply_command(db_type: str, dry_run: bool = False):
 
     if result.get('status') == 'completed':
         print(f"Migrations Applied: {result.get('migrations_applied', 0)}")
+        if result.get('target_revision'):
+            print(f"Target Revision: {result.get('target_revision')}")
     elif result.get('status') == 'validation_failed':
         print(f"Validation Failed: {result.get('failed_checks')}")
         print(f"Validation Results: {result.get('validation_results')}")
@@ -104,6 +119,13 @@ def apply_command(db_type: str, dry_run: bool = False):
         print(f"Error: {result.get('error')}")
     elif result.get('status') == 'up_to_date':
         print("Database is up to date.")
+    elif result.get('status') in {
+        'invalid_revision',
+        'revision_catalog_unavailable',
+        'unsupported_database',
+        'failed',
+    }:
+        print(f"Error: {result.get('error')}")
 
 
 def main():
@@ -127,6 +149,10 @@ def main():
                              help='Database type')
     apply_parser.add_argument('--dry-run', action='store_true',
                              help='Perform dry-run instead of applying')
+    apply_parser.add_argument(
+        '--revision',
+        help='Apply one exact revision target and only its unapplied ancestors',
+    )
 
     args = parser.parse_args()
 
@@ -135,7 +161,7 @@ def main():
     elif args.command == 'dry-run':
         dry_run_command(args.db)
     elif args.command == 'apply':
-        apply_command(args.db, dry_run=args.dry_run)
+        apply_command(args.db, dry_run=args.dry_run, revision=args.revision)
     else:
         parser.print_help()
 

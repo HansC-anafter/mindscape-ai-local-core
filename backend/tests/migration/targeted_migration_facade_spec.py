@@ -1,0 +1,141 @@
+from pathlib import Path
+
+from backend.app.services.migrations import cli as migration_cli
+from backend.app.services.migrations.orchestrator import MigrationOrchestrator
+
+
+class _FakeRevision:
+    def __init__(self, revision: str):
+        self.revision = revision
+
+
+class _FakeScriptDirectory:
+    def iterate_revisions(self, head: str, _base: str):
+        assert head == "20260715130000"
+        return [
+            _FakeRevision("20260715130000"),
+            _FakeRevision("20260715120000"),
+        ]
+
+    def get_revision(self, revision: str):
+        return _FakeRevision(revision)
+
+
+def test_apply_revision_rejects_symbolic_heads(tmp_path: Path) -> None:
+    orchestrator = MigrationOrchestrator(
+        tmp_path,
+        {"postgres": tmp_path / "alembic.postgres.ini"},
+    )
+
+    result = orchestrator.apply_revision("postgres", "heads")
+
+    assert result["status"] == "invalid_revision"
+
+
+def test_apply_revision_runs_only_exact_target_chain(tmp_path: Path, monkeypatch) -> None:
+    orchestrator = MigrationOrchestrator(
+        tmp_path,
+        {"postgres": tmp_path / "alembic.postgres.ini"},
+    )
+    monkeypatch.setattr(
+        orchestrator.validator,
+        "validate_environment",
+        lambda _db_type, _requirements: {"database_connection": True},
+    )
+    monkeypatch.setattr(
+        orchestrator,
+        "_get_env_requirements",
+        lambda _db_type: {},
+    )
+    monkeypatch.setattr(
+        orchestrator,
+        "_load_script_directory",
+        lambda _db_type: _FakeScriptDirectory(),
+    )
+    monkeypatch.setattr(orchestrator, "_get_current_revisions", lambda _db_type: [])
+    monkeypatch.setattr(
+        orchestrator,
+        "_get_applied_revisions",
+        lambda _db_type, _heads: set(),
+    )
+    captured: dict[str, object] = {}
+
+    def _upgrade(config: Path, revision: str) -> bool:
+        captured["config"] = config
+        captured["revision"] = revision
+        return True
+
+    monkeypatch.setattr(orchestrator, "_run_alembic_upgrade", _upgrade)
+
+    result = orchestrator.apply_revision("postgres", "20260715130000")
+
+    assert result == {
+        "status": "completed",
+        "target_revision": "20260715130000",
+        "migrations_applied": 2,
+        "revisions": ["20260715120000", "20260715130000"],
+    }
+    assert captured == {
+        "config": tmp_path / "alembic.postgres.ini",
+        "revision": "20260715130000",
+    }
+
+
+def test_plan_revision_matches_apply_revision_chain(tmp_path: Path, monkeypatch) -> None:
+    orchestrator = MigrationOrchestrator(
+        tmp_path,
+        {"postgres": tmp_path / "alembic.postgres.ini"},
+    )
+    monkeypatch.setattr(
+        orchestrator,
+        "_load_script_directory",
+        lambda _db_type: _FakeScriptDirectory(),
+    )
+    monkeypatch.setattr(orchestrator, "_get_current_revisions", lambda _db_type: [])
+    monkeypatch.setattr(
+        orchestrator,
+        "_get_applied_revisions",
+        lambda _db_type, _heads: set(),
+    )
+
+    result = orchestrator.plan_revision("postgres", "20260715130000")
+
+    assert result == {
+        "status": "success",
+        "target_revision": "20260715130000",
+        "migrations_pending": 2,
+        "revisions": ["20260715120000", "20260715130000"],
+    }
+
+
+def test_cli_targeted_dry_run_uses_the_same_revision_plan(monkeypatch, capsys) -> None:
+    class _FakeOrchestrator:
+        def plan_revision(self, db_type: str, revision: str):
+            assert db_type == "postgres"
+            assert revision == "20260715130000"
+            return {
+                "status": "success",
+                "target_revision": revision,
+                "migrations_pending": 2,
+                "revisions": ["20260715120000", revision],
+            }
+
+        def apply_revision(self, _db_type: str, _revision: str):
+            raise AssertionError("targeted dry-run must not apply migrations")
+
+    monkeypatch.setattr(
+        migration_cli,
+        "_build_orchestrator",
+        lambda: _FakeOrchestrator(),
+    )
+
+    migration_cli.apply_command(
+        "postgres",
+        dry_run=True,
+        revision="20260715130000",
+    )
+
+    output = capsys.readouterr().out
+    assert "Targeted Dry-Run" in output
+    assert "20260715120000" in output
+    assert "20260715130000" in output
