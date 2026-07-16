@@ -13,7 +13,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator, Mapping, Optional
 
-from .models import IncidentCloseReceipt, IncidentReceipt, IncidentState
+from .models import (
+    IncidentCloseReceipt,
+    IncidentContainmentReceipt,
+    IncidentReceipt,
+    IncidentState,
+    _parse_timestamp,
+)
 
 
 DEFAULT_INCIDENT_DIRECTORY = Path("/app/data/runtime-database-incidents")
@@ -194,11 +200,25 @@ class RuntimeDatabaseIncidentJournal:
             self._write_current_unlocked(receipt)
             return receipt
 
-    def mark_contained(self, incident_id: str) -> IncidentReceipt:
+    def mark_contained(
+        self,
+        incident_id: str,
+        containment_receipt: IncidentContainmentReceipt,
+    ) -> IncidentReceipt:
+        containment_receipt.validate()
+        if _parse_timestamp(
+            containment_receipt.expires_at,
+            field_name="containment_expires_at",
+        ) <= datetime.now(timezone.utc):
+            raise ValueError("containment_receipt_expired")
         with self._lock():
             current = self._require_current_unlocked(incident_id)
             if current.state is IncidentState.CONTAINED_PENDING_SOAK:
-                return current
+                if current.containment_receipt == containment_receipt.to_dict():
+                    return current
+                raise IncidentTransitionError(
+                    f"Incident {incident_id} is already contained with another receipt"
+                )
             if current.state is not IncidentState.OPEN_UNATTRIBUTED:
                 raise IncidentTransitionError(
                     f"Incident {incident_id} cannot transition from {current.state.value} to contained"
@@ -208,10 +228,15 @@ class RuntimeDatabaseIncidentJournal:
                 current,
                 state=IncidentState.CONTAINED_PENDING_SOAK,
                 updated_at=event_time,
+                containment_receipt=containment_receipt.to_dict(),
             )
             self._append_event_unlocked(
                 incident_id=incident_id,
-                event={"event": "incident_contained", "at": event_time},
+                event={
+                    "event": "incident_contained",
+                    "at": event_time,
+                    "containment_receipt": containment_receipt.to_dict(),
+                },
             )
             self._write_current_unlocked(updated)
             return updated

@@ -14,6 +14,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from backend.app.services.runtime_database_incident_gate import (  # noqa: E402
     IncidentCloseReceipt,
+    IncidentContainmentReceipt,
     RuntimeDatabaseIncidentJournal,
     RuntimeDatabaseMutationGate,
 )
@@ -26,9 +27,11 @@ def _parser() -> argparse.ArgumentParser:
 
     status = commands.add_parser("status")
     status.add_argument("--operation", default="maintenance")
+    status.add_argument("--artifact-sha256", default="")
 
     evaluate = commands.add_parser("evaluate")
     evaluate.add_argument("operation")
+    evaluate.add_argument("--artifact-sha256", default="")
 
     open_command = commands.add_parser("open")
     open_command.add_argument("failure_code")
@@ -36,6 +39,14 @@ def _parser() -> argparse.ArgumentParser:
 
     contain = commands.add_parser("contain")
     contain.add_argument("incident_id")
+    contain.add_argument("--permit-id", required=True)
+    contain.add_argument("--trigger-classification", required=True)
+    contain.add_argument("--fix-commit", required=True)
+    contain.add_argument("--allowed-operation-key", action="append", required=True)
+    contain.add_argument("--test-evidence-path", action="append", required=True)
+    contain.add_argument("--restore-id", required=True)
+    contain.add_argument("--expires-at", required=True)
+    contain.add_argument("--owner", required=True)
 
     close = commands.add_parser("close")
     close.add_argument("incident_id")
@@ -55,7 +66,10 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "status":
         current = journal.current()
-        decision = gate.evaluate(args.operation)
+        decision = gate.evaluate(
+            args.operation,
+            {"artifact_sha256": args.artifact_sha256},
+        )
         payload = {
             "current": current.to_dict() if current else None,
             "decision": decision.to_dict(),
@@ -63,7 +77,10 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(payload, sort_keys=True))
         return 0 if decision.allowed else 2
     if args.command == "evaluate":
-        decision = gate.evaluate(args.operation)
+        decision = gate.evaluate(
+            args.operation,
+            {"artifact_sha256": args.artifact_sha256},
+        )
         print(json.dumps(decision.to_dict(), sort_keys=True))
         return 0 if decision.allowed else 2
     if args.command == "open":
@@ -72,7 +89,19 @@ def main(argv: list[str] | None = None) -> int:
             postmaster_start_time=args.postmaster_start_time,
         )
     elif args.command == "contain":
-        receipt = journal.mark_contained(args.incident_id)
+        receipt = journal.mark_contained(
+            args.incident_id,
+            IncidentContainmentReceipt(
+                permit_id=args.permit_id,
+                trigger_classification=args.trigger_classification,
+                fix_commit=args.fix_commit,
+                allowed_operation_keys=tuple(args.allowed_operation_key),
+                test_evidence_paths=tuple(args.test_evidence_path),
+                restore_id=args.restore_id,
+                expires_at=args.expires_at,
+                owner=args.owner,
+            ),
+        )
     elif args.command == "close":
         receipt = journal.close(
             args.incident_id,

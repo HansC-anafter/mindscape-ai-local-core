@@ -19,9 +19,13 @@ from backend.app.services.runtime_database_incident_core.journal import (
 )
 from backend.app.services.runtime_database_incident_core.models import (
     IncidentCloseReceipt,
+    IncidentContainmentReceipt,
     IncidentReceipt,
     IncidentState,
     MutationDecision,
+)
+from backend.app.services.runtime_database_incident_core.mutation_context import (
+    runtime_database_mutation_context,
 )
 
 
@@ -43,21 +47,27 @@ def record_database_failure(
 def evaluate_runtime_database_mutation(
     operation: str,
     *,
+    evidence: Optional[Mapping[str, str]] = None,
     journal_root: Optional[Path] = None,
 ) -> MutationDecision:
-    return RuntimeDatabaseMutationGate(journal_root).evaluate(operation)
+    return RuntimeDatabaseMutationGate(journal_root).evaluate(operation, evidence)
 
 
 def require_runtime_database_mutation_allowed(
     operation: str,
     *,
+    evidence: Optional[Mapping[str, str]] = None,
     journal_root: Optional[Path] = None,
 ) -> MutationDecision:
-    return RuntimeDatabaseMutationGate(journal_root).require_allowed(operation)
+    return RuntimeDatabaseMutationGate(journal_root).require_allowed(
+        operation,
+        evidence,
+    )
 
 
 __all__ = [
     "IncidentCloseReceipt",
+    "IncidentContainmentReceipt",
     "IncidentJournalUnavailable",
     "IncidentReceipt",
     "IncidentState",
@@ -69,4 +79,5 @@ __all__ = [
     "evaluate_runtime_database_mutation",
     "record_database_failure",
     "require_runtime_database_mutation_allowed",
+    "runtime_database_mutation_context",
 ]

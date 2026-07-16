@@ -1,3 +1,4 @@
+import hashlib
 import sys
 import types
 from pathlib import Path
@@ -13,11 +14,71 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from backend.app.routes.core import capability_install
+from backend.app.routes.core.capability_install_core import routes as install_routes
 from backend.app.routes.core.capability_install_core import pipeline as capability_install_pipeline
 from backend.app.services.install_result import InstallResult as RealInstallResult
 from backend.app.services import (
     runtime_assets_installer as runtime_assets_installer_module,
 )
+
+
+@pytest.mark.asyncio
+async def test_file_install_gate_receives_exact_archive_hash(monkeypatch):
+    content = b"exact containment artifact"
+    captured = []
+
+    class FakeUpload:
+        filename = "ig.mindpack"
+
+        async def read(self):
+            return content
+
+    class FakeJobService:
+        def create_file_upload_job(self, **kwargs):
+            assert kwargs["content"] == content
+            return {
+                "install_id": "install-1",
+                "state": "queued",
+                "status_url": "/api/v1/capability-packs/install-jobs/install-1",
+            }
+
+    monkeypatch.setattr(install_routes, "_require_control_plane_install", lambda _x: None)
+    monkeypatch.setattr(
+        install_routes,
+        "require_runtime_database_mutation_allowed",
+        lambda operation, *, evidence=None: captured.append((operation, evidence)),
+    )
+    monkeypatch.setattr(
+        install_routes,
+        "CapabilityInstallJobService",
+        FakeJobService,
+    )
+
+    result = await install_routes.install_from_file(
+        None,
+        FakeUpload(),
+        allow_overwrite="false",
+        overwrite_confirmation="",
+        overwrite_review_confirmation="",
+        source_commit="cec51d5a",
+        backout_from_install_id="",
+        backout_artifact_sha256="",
+        backout_target_version="",
+        backout_schema_compatibility_receipt="",
+        backout_owner_approval="",
+        profile_id="default-user",
+    )
+
+    assert result["install_id"] == "install-1"
+    assert captured == [
+        (
+            "capability_install_intake:file",
+            {
+                "artifact_sha256": hashlib.sha256(content).hexdigest(),
+                "source_commit": "cec51d5a",
+            },
+        )
+    ]
 
 
 @pytest.mark.asyncio

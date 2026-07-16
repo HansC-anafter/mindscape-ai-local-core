@@ -22,6 +22,7 @@ from backend.app.services.capability_install_jobs_core.errors import (
 from backend.app.services.runtime_database_incident_gate import (
     RuntimeDatabaseMutationBlocked,
     require_runtime_database_mutation_allowed,
+    runtime_database_mutation_context,
 )
 
 from .terminal_commit import (
@@ -69,50 +70,55 @@ async def execute_pipeline_job(
         timeout_seconds=1,
         poll_interval_seconds=0.2,
     )
-    if source_kind == "file_upload":
-        install_integrity.verify_file_upload_archive(dict(job))
-        return await run_install_pipeline(
-            fastapi_app=fastapi_app,
-            mindpack_path=Path(payload["mindpack_path"]),
-            allow_overwrite=bool(payload.get("allow_overwrite")),
-            overwrite_review_confirmation=payload.get(
-                "overwrite_review_confirmation", ""
-            ),
-            source_label="install-job:file-upload",
-            extra_metadata={
-                "installed_from_file": True,
-                "install_id": job["install_id"],
-                "archive_sha256": payload.get("archive_sha256"),
-                "backout_receipt": payload.get("backout_receipt"),
-            },
-        )
-    if source_kind == "cloud_provider_pack":
-        pack_file = await service._download_cloud_pack(dict(job))
-        try:
+    with runtime_database_mutation_context(
+        artifact_sha256=payload.get("archive_sha256"),
+        source_commit=payload.get("source_commit"),
+        install_id=job.get("install_id"),
+    ):
+        if source_kind == "file_upload":
+            install_integrity.verify_file_upload_archive(dict(job))
             return await run_install_pipeline(
                 fastapi_app=fastapi_app,
-                mindpack_path=pack_file,
+                mindpack_path=Path(payload["mindpack_path"]),
                 allow_overwrite=bool(payload.get("allow_overwrite")),
                 overwrite_review_confirmation=payload.get(
                     "overwrite_review_confirmation", ""
                 ),
-                source_label="install-job:cloud-provider-pack",
+                source_label="install-job:file-upload",
                 extra_metadata={
-                    "installed_from_cloud": True,
+                    "installed_from_file": True,
                     "install_id": job["install_id"],
-                    "provider_id": payload.get("provider_id"),
-                    "pack_ref": payload.get("pack_ref"),
-                    "bundle": payload.get("bundle"),
-                    "archive_sha256": install_integrity.sha256_file(pack_file),
+                    "archive_sha256": payload.get("archive_sha256"),
                     "backout_receipt": payload.get("backout_receipt"),
                 },
             )
-        finally:
+        if source_kind == "cloud_provider_pack":
+            pack_file = await service._download_cloud_pack(dict(job))
             try:
-                if pack_file.exists():
-                    pack_file.unlink()
-            except Exception as exc:
-                logger.warning("Failed to clean downloaded pack file: %s", exc)
+                return await run_install_pipeline(
+                    fastapi_app=fastapi_app,
+                    mindpack_path=pack_file,
+                    allow_overwrite=bool(payload.get("allow_overwrite")),
+                    overwrite_review_confirmation=payload.get(
+                        "overwrite_review_confirmation", ""
+                    ),
+                    source_label="install-job:cloud-provider-pack",
+                    extra_metadata={
+                        "installed_from_cloud": True,
+                        "install_id": job["install_id"],
+                        "provider_id": payload.get("provider_id"),
+                        "pack_ref": payload.get("pack_ref"),
+                        "bundle": payload.get("bundle"),
+                        "archive_sha256": install_integrity.sha256_file(pack_file),
+                        "backout_receipt": payload.get("backout_receipt"),
+                    },
+                )
+            finally:
+                try:
+                    if pack_file.exists():
+                        pack_file.unlink()
+                except Exception as exc:
+                    logger.warning("Failed to clean downloaded pack file: %s", exc)
     raise ValueError(f"Unsupported install job source_kind: {source_kind}")
 
 
@@ -141,10 +147,17 @@ async def run_next_job(
     if job is None:
         return None
     install_id = str(job["install_id"])
+    source_payload = dict(job.get("source_payload") or {})
     result = None
     try:
         require_runtime_database_mutation_allowed(
-            f"capability_install_job:{install_id}"
+            f"capability_install_job:{install_id}",
+            evidence={
+                "artifact_sha256": str(
+                    source_payload.get("archive_sha256") or ""
+                ),
+                "source_commit": str(source_payload.get("source_commit") or ""),
+            },
         )
         result = await execute_pipeline_job(service, job, fastapi_app=fastapi_app)
         payload = pipeline_payload(result)

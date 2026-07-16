@@ -1,5 +1,6 @@
+import hashlib
 import logging
-from typing import Any, Dict
+from typing import Any, Dict, Mapping, Optional
 
 from fastapi import (
     APIRouter,
@@ -43,9 +44,12 @@ def _raise_db_not_ready(exc: DatabaseWriteNotReadyError) -> None:
     )
 
 
-def _require_install_mutation_allowed(operation: str) -> None:
+def _require_install_mutation_allowed(
+    operation: str,
+    evidence: Optional[Mapping[str, str]] = None,
+) -> None:
     try:
-        require_runtime_database_mutation_allowed(operation)
+        require_runtime_database_mutation_allowed(operation, evidence=evidence)
     except RuntimeDatabaseMutationBlocked as exc:
         decision = exc.decision
         raise HTTPException(
@@ -83,7 +87,6 @@ async def install_from_file(
     Validates manifest, checks conflicts, and installs to capabilities directory.
     """
     _require_control_plane_install("install-from-file")
-    _require_install_mutation_allowed("capability_install_intake:file")
 
     if not file.filename.endswith(".mindpack"):
         raise HTTPException(status_code=400, detail="File must be a .mindpack file")
@@ -96,6 +99,14 @@ async def install_from_file(
 
     try:
         content = await file.read()
+        archive_sha256 = hashlib.sha256(content).hexdigest()
+        _require_install_mutation_allowed(
+            "capability_install_intake:file",
+            {
+                "artifact_sha256": archive_sha256,
+                "source_commit": source_commit,
+            },
+        )
         backout_values = {
             "backout_from_install_id": backout_from_install_id.strip(),
             "artifact_sha256": backout_artifact_sha256.strip().lower(),
