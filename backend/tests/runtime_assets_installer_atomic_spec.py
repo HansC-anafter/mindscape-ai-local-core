@@ -24,6 +24,18 @@ from backend.app.services.runtime_assets_installer import (  # noqa: E402
 )
 
 
+def _publish_test_candidate(installer, cap_dir, capability_code, manifest, result):
+    prepared = installer.prepare_staged_tree(
+        cap_dir,
+        capability_code,
+        manifest,
+        result,
+        install_id=f"test-{capability_code}",
+    )
+    installer.publish_candidate_retaining_previous(prepared)
+    installer.finalize_publish(prepared)
+
+
 def _write_pack(cap_dir: Path) -> None:
     tools_dir = cap_dir / "tools"
     services_dir = cap_dir / "services"
@@ -103,7 +115,7 @@ def test_runtime_assets_publish_complete_tree_from_staging(tmp_path: Path):
         local_core_root=root,
         capabilities_dir=capabilities_dir,
     )
-    installer.install_all(cap_dir, "ig", {"code": "ig", "version": "1.2.3"}, result)
+    _publish_test_candidate(installer, cap_dir, "ig", {"code": "ig", "version": "1.2.3"}, result)
 
     target = capabilities_dir / "ig"
     assert (target / "manifest.yaml").exists()
@@ -139,13 +151,13 @@ def test_runtime_assets_staging_root_stays_outside_watched_app_tree(
         local_core_root=root,
         capabilities_dir=capabilities_dir,
     )
-    installer.install_all(cap_dir, "ig", {"code": "ig", "version": "1.2.3"}, result)
+    _publish_test_candidate(installer, cap_dir, "ig", {"code": "ig", "version": "1.2.3"}, result)
 
     assert not (capabilities_dir.parent / ".capability-install-staging").exists()
     assert not staging_base.exists()
 
 
-def test_publish_staged_capability_tree_copies_across_filesystems(
+def test_publish_staged_capability_tree_rejects_cross_filesystem_copy_fallback(
     monkeypatch,
     tmp_path: Path,
 ):
@@ -171,15 +183,17 @@ def test_publish_staged_capability_tree_copies_across_filesystems(
         local_core_root=root,
         capabilities_dir=capabilities_dir,
     )
-    installer._publish_staged_capability_tree(
-        staging_cap_dir=staging,
-        target_cap_dir=target,
-        capability_code="ig",
-    )
+    with pytest.raises(OSError) as exc_info:
+        installer._publish_staged_capability_tree(
+            staging_cap_dir=staging,
+            target_cap_dir=target,
+            capability_code="ig",
+        )
 
-    assert (target / "tools" / "new.py").read_text(encoding="utf-8") == "NEW = True\n"
-    assert not (target / "tools" / "old.py").exists()
-    assert not staging.exists()
+    assert exc_info.value.errno == errno.EXDEV
+    assert (target / "tools" / "old.py").read_text(encoding="utf-8") == "OLD = True\n"
+    assert not (target / "tools" / "new.py").exists()
+    assert (staging / "tools" / "new.py").exists()
 
 
 def test_runtime_assets_failure_keeps_existing_live_tree(monkeypatch, tmp_path: Path):
@@ -208,7 +222,7 @@ def test_runtime_assets_failure_keeps_existing_live_tree(monkeypatch, tmp_path: 
     )
 
     with pytest.raises(RuntimeError, match="forced service install failure"):
-        installer.install_all(cap_dir, "ig", {"code": "ig", "version": "1.2.3"}, result)
+        _publish_test_candidate(installer, cap_dir, "ig", {"code": "ig", "version": "1.2.3"}, result)
 
     assert (live_tools / "ig_analyze_reference.py").read_text(
         encoding="utf-8"
@@ -280,7 +294,8 @@ def test_runtime_assets_install_all_preserves_ui_runtime_sidecar_after_prune(
         local_core_root=root,
         capabilities_dir=capabilities_dir,
     )
-    installer.install_all(
+    _publish_test_candidate(
+        installer,
         cap_dir,
         "ig",
         {

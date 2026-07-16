@@ -2,6 +2,15 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useExecutionStream, streamManager } from './useExecutionStream';
+import {
+    cancelExecutionPoll,
+    executionDocumentHidden,
+    scheduleExecutionPoll,
+} from './executionPollingCoordinator';
+import {
+    resolveExecutionPollingDelayMs,
+    retryAfterMsFromError,
+} from './executionPollingPolicy';
 
 let inflightCount = 0;
 const MAX_INFLIGHT = 3;
@@ -45,8 +54,8 @@ export interface UseExecutionPollingOptions {
     enableSSE?: boolean;
     enablePollingFallback?: boolean;
     sseDebounceMs?: number;
-    pollFn?: () => Promise<void> | void;
-    abortablePollFn?: (signal: AbortSignal) => Promise<void> | void;
+    pollFn?: () => Promise<unknown> | unknown;
+    abortablePollFn?: (signal: AbortSignal) => Promise<unknown> | unknown;
 }
 
 export interface UseExecutionPollingReturn {
@@ -106,6 +115,8 @@ export function useExecutionPolling(options: UseExecutionPollingOptions): UseExe
     const terminalRef = useRef(isTerminalExecutionStatus(executionStatus));
     const pollingInFlightRef = useRef(false);
     const abortControllerRef = useRef<AbortController | null>(null);
+    const consecutiveFailuresRef = useRef(0);
+    const retryAfterMsRef = useRef<number | null>(null);
     useEffect(() => { onUpdateRef.current = onUpdate; }, [onUpdate]);
     useEffect(() => { pollFnRef.current = pollFn; }, [pollFn]);
     useEffect(() => { abortablePollFnRef.current = abortablePollFn; }, [abortablePollFn]);
@@ -143,11 +154,22 @@ export function useExecutionPolling(options: UseExecutionPollingOptions): UseExe
         abortControllerRef.current = controller;
         pollingInFlightRef.current = true;
         try {
+            let result: unknown;
             if (abortablePollFnRef.current) {
-                await abortablePollFnRef.current(controller.signal);
+                result = await abortablePollFnRef.current(controller.signal);
             } else {
-                await pollFnRef.current?.();
+                result = await pollFnRef.current?.();
             }
+            const status = extractExecutionStatusFromUpdate(result);
+            if (isTerminalExecutionStatus(status)) {
+                terminalRef.current = true;
+            }
+            consecutiveFailuresRef.current = 0;
+            retryAfterMsRef.current = null;
+        } catch (error) {
+            consecutiveFailuresRef.current += 1;
+            retryAfterMsRef.current = retryAfterMsFromError(error);
+            throw error;
         } finally {
             if (abortControllerRef.current === controller) {
                 abortControllerRef.current = null;
@@ -171,6 +193,7 @@ export function useExecutionPolling(options: UseExecutionPollingOptions): UseExe
             return;
         }
 
+        if (executionDocumentHidden()) return;
         if (!pollFnRef.current && !abortablePollFnRef.current) return;
 
         const now = Date.now();
@@ -213,6 +236,19 @@ export function useExecutionPolling(options: UseExecutionPollingOptions): UseExe
         return unsubscribe;
     }, [executionId, enableSSE]);
 
+    useEffect(() => {
+        if (!executionId || !enableSSE || !sseConnected) return;
+        const handleVisibility = () => {
+            if (executionDocumentHidden()) {
+                abortControllerRef.current?.abort();
+                return;
+            }
+            if (!terminalRef.current) runPollSafely();
+        };
+        document.addEventListener('visibilitychange', handleVisibility);
+        return () => document.removeEventListener('visibilitychange', handleVisibility);
+    }, [enableSSE, executionId, runPollSafely, sseConnected]);
+
     const refresh = useCallback(() => {
         runPollSafely();
     }, [runPollSafely]);
@@ -230,9 +266,13 @@ export function useExecutionPolling(options: UseExecutionPollingOptions): UseExe
 
         const scheduleNext = () => {
             if (cancelled || terminalRef.current) return;
-            const hidden = typeof document !== 'undefined' && document.visibilityState === 'hidden';
-            const interval = resolveExecutionPollingIntervalMs(pollIntervalMs, hidden);
-            timer = setTimeout(async () => {
+            if (executionDocumentHidden()) return;
+            const interval = resolveExecutionPollingDelayMs({
+                baseIntervalMs: pollIntervalMs,
+                consecutiveFailures: consecutiveFailuresRef.current,
+                retryAfterMs: retryAfterMsRef.current,
+            });
+            timer = scheduleExecutionPoll(async () => {
                 try {
                     await runPoll();
                 } catch (error) {
@@ -242,12 +282,34 @@ export function useExecutionPolling(options: UseExecutionPollingOptions): UseExe
             }, interval);
         };
 
-        runPollSafely();
-        scheduleNext();
+        const pollAndSchedule = async () => {
+            try {
+                await runPoll();
+            } catch (error) {
+                console.warn('[useExecutionPolling] polling fallback failed:', error);
+            }
+            scheduleNext();
+        };
+
+        const resumeVisiblePolling = () => {
+            cancelExecutionPoll(timer);
+            timer = null;
+            if (executionDocumentHidden()) {
+                abortControllerRef.current?.abort();
+                return;
+            }
+            void pollAndSchedule();
+        };
+
+        if (!executionDocumentHidden()) {
+            void pollAndSchedule();
+        }
+        document.addEventListener('visibilitychange', resumeVisiblePolling);
 
         return () => {
             cancelled = true;
-            if (timer) clearTimeout(timer);
+            document.removeEventListener('visibilitychange', resumeVisiblePolling);
+            cancelExecutionPoll(timer);
             abortControllerRef.current?.abort();
         };
     }, [

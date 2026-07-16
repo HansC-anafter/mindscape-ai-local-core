@@ -1,9 +1,13 @@
-import errno
 import logging
+import os
 import shutil
 import uuid
 from pathlib import Path
 from typing import Dict, Optional
+
+from backend.app.routes.core.capability_install_core.install_commit_core.filesystem_saga import (
+    PreparedCapabilityTree,
+)
 
 from .install_result import InstallResult
 from .runtime_assets_installer_support import (
@@ -24,13 +28,42 @@ class RuntimeAssetsInstallerStagingMixin:
         manifest: Dict,
         result: InstallResult,
         temp_dir: Optional[Path] = None,
+        install_id: Optional[str] = None,
     ):
+        """Reject the former second publish path outside install coordinator."""
+        raise RuntimeError("runtime_assets_install_all_requires_install_commit_coordinator")
+
+    def prepare_staged_tree(
+        self,
+        cap_dir: Path,
+        capability_code: str,
+        manifest: Dict,
+        result: InstallResult,
+        temp_dir: Optional[Path] = None,
+        *,
+        install_id: Optional[str] = None,
+    ) -> PreparedCapabilityTree:
         target_cap_dir = self.capabilities_dir / capability_code
-        staging_root = _build_staging_root(capability_code)
-        staging_capabilities_dir = staging_root / "capabilities"
-        staging_cap_dir = staging_capabilities_dir / capability_code
+        normalized_install_id = str(install_id or "").strip() or uuid.uuid4().hex
+        staging_root = _build_staging_root(
+            capability_code,
+            install_id=normalized_install_id,
+            capabilities_dir=self.capabilities_dir,
+        )
+        staging_capabilities_dir = staging_root
+        staging_cap_dir = staging_root / capability_code
+        previous_root = (
+            self.capabilities_dir.parent
+            / ".capability-install-previous"
+            / normalized_install_id
+        )
+        previous_cap_dir = previous_root / capability_code
 
         try:
+            if staging_root.exists():
+                raise RuntimeError(
+                    f"Capability install staging already exists for {normalized_install_id}"
+                )
             staging_capabilities_dir.mkdir(parents=True, exist_ok=True)
             if target_cap_dir.exists():
                 shutil.copytree(
@@ -66,19 +99,23 @@ class RuntimeAssetsInstallerStagingMixin:
                 staging_cap_dir=staging_cap_dir,
                 capability_code=capability_code,
             )
-            self._publish_staged_capability_tree(
+            self._assert_same_publish_device(
                 staging_cap_dir=staging_cap_dir,
                 target_cap_dir=target_cap_dir,
-                capability_code=capability_code,
             )
-        finally:
+            return PreparedCapabilityTree(
+                install_id=normalized_install_id,
+                capability_code=capability_code,
+                staging_root=staging_root,
+                staging_cap_dir=staging_cap_dir,
+                target_cap_dir=target_cap_dir,
+                previous_root=previous_root,
+                previous_cap_dir=previous_cap_dir,
+            )
+        except Exception:
             if staging_root.exists():
                 shutil.rmtree(staging_root, ignore_errors=True)
-            staging_parent = staging_root.parent
-            try:
-                staging_parent.rmdir()
-            except OSError:
-                pass
+            raise
 
     def _install_all_into_current_capabilities(
         self,
@@ -174,6 +211,92 @@ class RuntimeAssetsInstallerStagingMixin:
                 f"missing=[{missing_sample}] mismatched=[{mismatched_sample}]"
             )
 
+    @staticmethod
+    def _assert_same_publish_device(
+        *,
+        staging_cap_dir: Path,
+        target_cap_dir: Path,
+    ) -> None:
+        target_cap_dir.parent.mkdir(parents=True, exist_ok=True)
+        staging_device = os.stat(staging_cap_dir).st_dev
+        target_device = os.stat(target_cap_dir.parent).st_dev
+        if staging_device != target_device:
+            raise OSError(
+                f"Capability candidate and live target are on different filesystems: "
+                f"candidate_device={staging_device} target_device={target_device}"
+            )
+
+    def publish_candidate_retaining_previous(
+        self,
+        prepared: PreparedCapabilityTree,
+    ) -> PreparedCapabilityTree:
+        if prepared.finalized:
+            raise RuntimeError("capability_publish_already_finalized")
+        if prepared.published:
+            return prepared
+        self._assert_same_publish_device(
+            staging_cap_dir=prepared.staging_cap_dir,
+            target_cap_dir=prepared.target_cap_dir,
+        )
+        publish_parent = prepared.target_cap_dir.parent
+        publish_parent.mkdir(parents=True, exist_ok=True)
+        prepared.previous_root.mkdir(parents=True, exist_ok=True)
+        if prepared.previous_cap_dir.exists():
+            raise RuntimeError("capability_previous_tree_already_exists")
+
+        moved_existing = False
+        try:
+            if prepared.target_cap_dir.exists():
+                prepared.target_cap_dir.rename(prepared.previous_cap_dir)
+                moved_existing = True
+            prepared.staging_cap_dir.rename(prepared.target_cap_dir)
+            prepared.published = True
+            return prepared
+        except Exception:
+            if (
+                not prepared.target_cap_dir.exists()
+                and moved_existing
+                and prepared.previous_cap_dir.exists()
+            ):
+                prepared.previous_cap_dir.rename(prepared.target_cap_dir)
+            raise
+
+    def restore_previous(
+        self,
+        prepared: PreparedCapabilityTree,
+    ) -> PreparedCapabilityTree:
+        if prepared.finalized or not prepared.published:
+            return prepared
+        prepared.staging_root.mkdir(parents=True, exist_ok=True)
+        if prepared.staging_cap_dir.exists():
+            raise RuntimeError("capability_candidate_staging_restore_conflict")
+        if prepared.target_cap_dir.exists():
+            prepared.target_cap_dir.rename(prepared.staging_cap_dir)
+        if prepared.previous_cap_dir.exists():
+            prepared.previous_cap_dir.rename(prepared.target_cap_dir)
+        prepared.published = False
+        return prepared
+
+    def finalize_publish(
+        self,
+        prepared: PreparedCapabilityTree,
+    ) -> PreparedCapabilityTree:
+        if prepared.finalized:
+            return prepared
+        if not prepared.published:
+            raise RuntimeError("capability_candidate_not_published")
+        if prepared.previous_root.exists():
+            shutil.rmtree(prepared.previous_root)
+        if prepared.staging_root.exists():
+            shutil.rmtree(prepared.staging_root)
+        for parent in (prepared.previous_root.parent, prepared.staging_root.parent):
+            try:
+                parent.rmdir()
+            except OSError:
+                pass
+        prepared.finalized = True
+        return prepared
+
     def _publish_staged_capability_tree(
         self,
         *,
@@ -181,25 +304,22 @@ class RuntimeAssetsInstallerStagingMixin:
         target_cap_dir: Path,
         capability_code: str,
     ) -> None:
-        publish_parent = target_cap_dir.parent
-        publish_parent.mkdir(parents=True, exist_ok=True)
-        backup_dir = publish_parent / f".{capability_code}.previous-{uuid.uuid4().hex}"
+        """Legacy leaf helper retained only for isolated compatibility tests."""
 
-        moved_existing = False
-        try:
-            if target_cap_dir.exists():
-                target_cap_dir.rename(backup_dir)
-                moved_existing = True
-            try:
-                staging_cap_dir.rename(target_cap_dir)
-            except OSError as exc:
-                if exc.errno != errno.EXDEV:
-                    raise
-                shutil.copytree(staging_cap_dir, target_cap_dir, symlinks=True)
-                shutil.rmtree(staging_cap_dir, ignore_errors=True)
-            if backup_dir.exists():
-                shutil.rmtree(backup_dir)
-        except Exception:
-            if not target_cap_dir.exists() and moved_existing and backup_dir.exists():
-                backup_dir.rename(target_cap_dir)
-            raise
+        staging_root = staging_cap_dir.parent
+        prepared = PreparedCapabilityTree(
+            install_id=staging_root.name,
+            capability_code=capability_code,
+            staging_root=staging_root,
+            staging_cap_dir=staging_cap_dir,
+            target_cap_dir=target_cap_dir,
+            previous_root=target_cap_dir.parent.parent
+            / ".capability-install-previous"
+            / staging_root.name,
+            previous_cap_dir=target_cap_dir.parent.parent
+            / ".capability-install-previous"
+            / staging_root.name
+            / capability_code,
+        )
+        self.publish_candidate_retaining_previous(prepared)
+        self.finalize_publish(prepared)

@@ -6,7 +6,9 @@ from backend.app.database.write_readiness import (
     DatabaseWriteReadiness,
 )
 from backend.app.services import capability_install_jobs
+from backend.app.services import pack_install_reconciliation
 from backend.app.services.capability_install_jobs import CapabilityInstallJobService
+from backend.app.services.capability_install_jobs_core import executor
 
 
 class _FakeStore:
@@ -73,6 +75,15 @@ class _ActivationService:
         return self.state if self.state.get("pack_id") == pack_id else None
 
 
+@pytest.fixture(autouse=True)
+def _no_committed_install_reconciliation(monkeypatch):
+    monkeypatch.setattr(
+        pack_install_reconciliation,
+        "poll_install_reconciliation_once",
+        lambda: None,
+    )
+
+
 @pytest.mark.asyncio
 async def test_install_job_enters_waiting_db_before_filesystem_promotion(monkeypatch):
     readiness = DatabaseWriteReadiness(
@@ -85,7 +96,7 @@ async def test_install_job_enters_waiting_db_before_filesystem_promotion(monkeyp
         raise DatabaseWriteNotReadyError(readiness)
 
     monkeypatch.setattr(
-        capability_install_jobs,
+        executor,
         "wait_for_core_write_readiness",
         fail_readiness,
     )
@@ -115,12 +126,12 @@ async def test_install_job_persists_http_exception_detail(monkeypatch):
         )
 
     monkeypatch.setattr(
-        capability_install_jobs,
+        executor,
         "wait_for_core_write_readiness",
         ready,
     )
     monkeypatch.setattr(
-        capability_install_jobs,
+        executor,
         "run_install_pipeline",
         fail_pipeline,
     )
@@ -135,7 +146,7 @@ async def test_install_job_persists_http_exception_detail(monkeypatch):
     assert store.failed == result
 
 
-def test_get_job_reconciles_pending_activation_when_runtime_pack_is_active():
+def test_get_job_never_promotes_pending_from_a_registry_projection():
     result_payload = {
         "capability_code": "ig",
         "activation": {"manifest_hash": "hash-1"},
@@ -157,23 +168,9 @@ def test_get_job_reconciles_pending_activation_when_runtime_pack_is_active():
 
     result = service.get_job("job-1")
 
-    assert result["state"] == "succeeded"
+    assert result["state"] == "pending_execution_activation"
     assert result["status_url"] == "/api/v1/capability-packs/install-jobs/job-1"
-    assert store.succeeded_payload["activation"] == activation_state
-    assert store.succeeded_payload["execution_activation"] == {
-        "state": "activated",
-        "source": "activation_state_reconcile",
-        "activation_state": "active",
-        "activation_mode": "capability_registry_load",
-        "updated_at": "2026-06-02T02:17:33Z",
-    }
-    assert store.succeeded_payload["restart_required"] is False
-    assert store.succeeded_payload["backend_process_restart_required"] is False
-    assert store.succeeded_payload["runner_restart_required"] is False
-    assert (
-        store.succeeded_payload["restart_semantics_version"]
-        == "install_restart_decision_v2"
-    )
+    assert store.succeeded_payload is None
 
 
 def test_get_job_keeps_pending_activation_when_manifest_hash_differs():

@@ -3,13 +3,25 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from scripts.maintenance.runtime_pressure_gate_core import (
+    collect_pgbouncer_metrics,
+    collect_postgres_metrics,
+    collect_runner_capacity,
+)
 
 
 DEFAULT_CONTAINERS = [
@@ -87,10 +99,23 @@ def fetch_url(url: str, timeout_seconds: float) -> dict[str, Any]:
         }
 
 
-def collect_task_status_counts(timeout_seconds: float) -> dict[str, Any]:
+def collect_task_status_counts(
+    timeout_seconds: float,
+    *,
+    max_running: int,
+    max_pending: int,
+) -> dict[str, Any]:
+    """Count only enough indexed rows to prove a threshold violation."""
+
+    running_limit = max(0, int(max_running)) + 1
+    pending_limit = max(0, int(max_pending)) + 1
     sql = (
-        "select status, count(*) from tasks "
-        "where status in ('running','pending') group by status order by status;"
+        "select status, count(*) from ("
+        "(select status from tasks where status = 'running' "
+        f"limit {running_limit}) union all "
+        "(select status from tasks where status = 'pending' "
+        f"limit {pending_limit})"
+        ") as bounded_statuses group by status order by status;"
     )
     result = run_command(
         [
@@ -160,6 +185,9 @@ def evaluate_gate(
     docker_stats: dict[str, Any],
     endpoint_checks: dict[str, dict[str, Any]],
     thresholds: Thresholds,
+    postgres_metrics: dict[str, Any] | None = None,
+    pgbouncer_metrics: dict[str, Any] | None = None,
+    runner_capacity: dict[str, Any] | None = None,
 ) -> list[str]:
     failures: list[str] = []
     counts = task_status.get("counts", {})
@@ -188,6 +216,35 @@ def evaluate_gate(
                 f"{label}_latency>{thresholds.max_endpoint_seconds}: "
                 f"{payload.get('elapsed_seconds')}"
             )
+    postgres_metrics = postgres_metrics or {"ok": False}
+    pgbouncer_metrics = pgbouncer_metrics or {"ok": False}
+    runner_capacity = runner_capacity or {"ok": False}
+    if not postgres_metrics.get("ok"):
+        failures.append("postgres_metrics_unavailable")
+    else:
+        metrics = postgres_metrics.get("metrics") or {}
+        if metrics.get("in_recovery"):
+            failures.append("postgres_in_recovery")
+        if metrics.get("read_only") != "off":
+            failures.append("postgres_read_only")
+        if int(metrics.get("invalid_indexes") or 0) > 0:
+            failures.append("postgres_invalid_indexes")
+        if int(metrics.get("failed_count") or 0) > 0:
+            failures.append("postgres_archive_failure")
+    if not pgbouncer_metrics.get("ok"):
+        failures.append("pgbouncer_metrics_unavailable")
+    else:
+        if int(pgbouncer_metrics.get("sample_count") or 0) < 3:
+            failures.append("pgbouncer_three_samples_required")
+        for pool in pgbouncer_metrics.get("rows") or []:
+            if int(pool.get("cl_waiting") or 0) > 0:
+                failures.append("pgbouncer_client_waiting")
+            if int(pool.get("maxwait") or 0) > 0 or int(pool.get("maxwait_us") or 0) > 0:
+                failures.append("pgbouncer_client_maxwait")
+    if not runner_capacity.get("ok"):
+        failures.append("runner_capacity_unavailable")
+    elif int(runner_capacity.get("aggregate_max_inflight") or 0) < 7:
+        failures.append("runner_capacity_below_7")
     return failures
 
 
@@ -203,6 +260,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-endpoint-seconds", type=float, default=5.0)
     parser.add_argument("--command-timeout-seconds", type=float, default=8.0)
     parser.add_argument("--endpoint-timeout-seconds", type=float, default=5.0)
+    parser.add_argument("--pgbouncer-samples", type=int, choices=(3,), default=3)
+    parser.add_argument(
+        "--pgbouncer-sample-interval-seconds",
+        type=float,
+        default=30.0,
+    )
+    parser.add_argument("--output-json", type=Path)
     return parser.parse_args()
 
 
@@ -215,7 +279,11 @@ def main() -> int:
         max_runner_cpu=args.max_runner_cpu,
         max_endpoint_seconds=args.max_endpoint_seconds,
     )
-    task_status = collect_task_status_counts(args.command_timeout_seconds)
+    task_status = collect_task_status_counts(
+        args.command_timeout_seconds,
+        max_running=thresholds.max_running,
+        max_pending=thresholds.max_pending,
+    )
     docker_stats = collect_docker_stats(
         DEFAULT_CONTAINERS,
         timeout_seconds=args.command_timeout_seconds,
@@ -231,11 +299,28 @@ def main() -> int:
             timeout_seconds=args.endpoint_timeout_seconds,
         ),
     }
+    postgres_metrics = collect_postgres_metrics(
+        run_command,
+        args.command_timeout_seconds,
+    )
+    pgbouncer_metrics = collect_pgbouncer_metrics(
+        run_command,
+        args.command_timeout_seconds,
+        sample_count=args.pgbouncer_samples,
+        sample_interval_seconds=args.pgbouncer_sample_interval_seconds,
+    )
+    runner_capacity = collect_runner_capacity(
+        run_command,
+        args.command_timeout_seconds,
+    )
     failures = evaluate_gate(
         task_status,
         docker_stats,
         endpoint_checks,
         thresholds,
+        postgres_metrics,
+        pgbouncer_metrics,
+        runner_capacity,
     )
     payload = {
         "ok": not failures,
@@ -244,8 +329,17 @@ def main() -> int:
         "task_status": task_status,
         "docker_stats": docker_stats,
         "endpoint_checks": endpoint_checks,
+        "postgres_metrics": postgres_metrics,
+        "pgbouncer_metrics": pgbouncer_metrics,
+        "runner_capacity": runner_capacity,
     }
-    print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
+    encoded = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
+    if args.output_json:
+        args.output_json.parent.mkdir(parents=True, exist_ok=True)
+        temporary = args.output_json.with_suffix(args.output_json.suffix + ".tmp")
+        temporary.write_text(encoded + "\n", encoding="utf-8")
+        os.replace(temporary, args.output_json)
+    print(encoded)
     return 0 if not failures else 2
 
 

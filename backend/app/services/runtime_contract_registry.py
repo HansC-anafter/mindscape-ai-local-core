@@ -79,6 +79,44 @@ class RuntimeContractRegistry:
             alias_modules=alias_modules,
         )
 
+    def preview_pack_contracts(
+        self,
+        capability_code: str,
+        manifest: Dict[str, Any],
+    ) -> RuntimeContractSyncResult:
+        """Calculate the committed projection delta without filesystem writes."""
+        previous_registry = self._load_registry()
+        exports = self._normalize_contract_exports(capability_code, manifest)
+        next_contracts = [
+            entry
+            for entry in previous_registry.get("contracts", [])
+            if entry.get("provider_pack") != capability_code
+        ] + exports
+        next_registry = {
+            "version": 1,
+            "contracts": sorted(
+                next_contracts,
+                key=lambda entry: (
+                    entry.get("provider_pack", ""),
+                    entry.get("contract_id", ""),
+                    entry.get("module", ""),
+                ),
+            ),
+        }
+        aliases = sorted(
+            alias
+            for entry in next_registry["contracts"]
+            for alias in (entry.get("legacy_aliases") or [])
+            if alias
+        )
+        changed = previous_registry != next_registry
+        return RuntimeContractSyncResult(
+            changed=changed,
+            requires_restart=changed,
+            registry_path=self.registry_path,
+            alias_modules=aliases,
+        )
+
     def _load_registry(self) -> Dict[str, Any]:
         if not self.registry_path.exists():
             return {"version": 1, "contracts": []}

@@ -129,21 +129,19 @@ class PlaybookJsonLoader:
         # Fallback to core playbooks directory (backward compatibility)
         base_dir = Path(__file__).parent.parent.parent.parent
 
-        possible_paths = [
+        possible_paths = PlaybookJsonLoader._build_capability_spec_paths(
+            base_dir=base_dir,
+            playbook_code=playbook_code,
+            capability_code=capability_code,
+        )
+        possible_paths.extend([
             base_dir / "playbooks" / "specs" / f"{playbook_code}.json",
             base_dir / "playbooks" / f"{playbook_code}.json",
-        ]
+        ])
         for locale in ['zh-TW', 'en', 'ja']:
             possible_paths.append(
                 base_dir / "i18n" / "playbooks" / locale / f"{playbook_code}.json"
             )
-        possible_paths.extend(
-            PlaybookJsonLoader._build_capability_spec_paths(
-                base_dir=base_dir,
-                playbook_code=playbook_code,
-                capability_code=capability_code,
-            )
-        )
 
         for playbook_json_path in possible_paths:
             if playbook_json_path.exists():

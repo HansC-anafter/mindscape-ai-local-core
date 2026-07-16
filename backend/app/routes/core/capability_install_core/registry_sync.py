@@ -106,6 +106,38 @@ def _sync_install_time_registries(
     return state
 
 
+def _preview_install_time_registries(
+    *,
+    local_core_root: Path,
+    capability_code: str,
+    manifest: Dict[str, Any],
+    result: Any,
+) -> InstallRegistrySyncState:
+    """Compute restart/metadata impact without exposing an uncommitted candidate."""
+    state = InstallRegistrySyncState()
+    try:
+        from app.services.runtime_contract_registry import RuntimeContractRegistry
+
+        contract = RuntimeContractRegistry(local_core_root).preview_pack_contracts(
+            capability_code,
+            manifest,
+        )
+        state.contract_lane_changed = contract.requires_restart
+    except Exception as exc:
+        result.add_error(f"Failed to preview runtime contract registry: {exc}")
+    try:
+        from app.services.object_catalog_registry import ObjectCatalogRegistry
+
+        objects = ObjectCatalogRegistry(local_core_root).preview_pack_objects(
+            capability_code,
+            manifest,
+        )
+        state.object_catalog_changed = objects.changed
+    except Exception as exc:
+        result.add_error(f"Failed to preview runtime object catalog registry: {exc}")
+    return state
+
+
 def _schedule_pack_validation_on_current_loop(
     *,
     pack_id: str,

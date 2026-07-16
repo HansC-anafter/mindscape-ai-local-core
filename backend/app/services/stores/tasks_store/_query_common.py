@@ -47,7 +47,7 @@ _EXECUTION_LIST_SELECT = """
         pack_id,
         task_type,
         status,
-        params,
+        NULL AS params,
         NULL AS result,
         CASE
             WHEN execution_context IS NULL THEN NULL
@@ -111,29 +111,7 @@ _TASK_SUMMARY_LIST_SELECT = """
                     'heartbeat_at', CASE
                         WHEN status = 'running' THEN COALESCE(heartbeat_at::text, execution_context->>'heartbeat_at')
                         ELSE heartbeat_at::text
-                    END,
-                    'target_username', COALESCE(
-                        execution_context->>'target_username',
-                        execution_context->'inputs'->>'target_username'
-                    ),
-                    'reference_id', COALESCE(
-                        execution_context->>'reference_id',
-                        execution_context->'inputs'->>'reference_id'
-                    ),
-                    'source_handle', COALESCE(
-                        execution_context->>'source_handle',
-                        execution_context->'inputs'->>'source_handle'
-                    ),
-                    'inputs', jsonb_strip_nulls(
-                        jsonb_build_object(
-                            'target_username', execution_context->'inputs'->>'target_username',
-                            'reference_id', execution_context->'inputs'->>'reference_id',
-                            'source_handle', execution_context->'inputs'->>'source_handle',
-                            'profile_id', execution_context->'inputs'->>'profile_id',
-                            'run_mode', execution_context->'inputs'->>'run_mode',
-                            'trigger', execution_context->'inputs'->>'trigger'
-                        )
-                    )
+                    END
                 )
             )
         END AS execution_context,

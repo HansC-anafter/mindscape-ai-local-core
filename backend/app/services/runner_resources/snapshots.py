@@ -27,6 +27,16 @@ def build_progress_snapshot_key(workspace_id: str, execution_id: str) -> str:
     )
 
 
+def build_progress_last_known_snapshot_key(
+    workspace_id: str,
+    execution_id: str,
+) -> str:
+    return (
+        f"{SNAPSHOT_KEY_PREFIX}:progress-last-known:"
+        f"{_normalize_key_part(workspace_id)}:{_normalize_key_part(execution_id)}"
+    )
+
+
 def build_status_snapshot_key(execution_id: str) -> str:
     return f"{SNAPSHOT_KEY_PREFIX}:status:{_normalize_key_part(execution_id)}"
 

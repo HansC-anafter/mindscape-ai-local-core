@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import logging
 import time
+import hashlib
+from pathlib import Path
 from typing import Any, Dict
 
 from fastapi import FastAPI
 
-from backend.app.services.pack_activation_service import PackActivationService
 from backend.app.services.capability_runtime_refresh import (
     prepare_capability_for_reactivation,
 )
@@ -24,6 +25,7 @@ def activate_installed_capability_routes(
     app: FastAPI,
     capability_code: str,
     reason: str,
+    expected_manifest_hash: str | None = None,
 ) -> Dict[str, Any]:
     """Refresh descriptors and activate one installed capability in this process."""
 
@@ -54,6 +56,22 @@ def activate_installed_capability_routes(
         )
         if not reload_capability(capability_code, capabilities_dir):
             raise ValueError(f"capability_manifest_not_found:{capability_code}")
+        manifest_path = (
+            matching_descriptors[0].manifest_path
+            if matching_descriptors
+            else Path(__file__).resolve().parent.parent
+            / "capabilities"
+            / capability_code
+            / "manifest.yaml"
+        )
+        if not manifest_path.exists():
+            raise ValueError(f"capability_manifest_not_found:{capability_code}")
+        actual_manifest_hash = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+        if (
+            expected_manifest_hash
+            and actual_manifest_hash != expected_manifest_hash
+        ):
+            raise ValueError("candidate_manifest_hash_readback_mismatch")
         refresh = prepare_capability_for_reactivation(
             app=app,
             capability_code=capability_code,
@@ -63,7 +81,7 @@ def activate_installed_capability_routes(
             app=app,
             capability_code=capability_code,
             activation_mode=f"explicit_install_activation:{reason}",
-            activation_service=PackActivationService(),
+            activation_service=None,
             force_refresh=True,
         )
         if routers:
@@ -83,4 +101,5 @@ def activate_installed_capability_routes(
         "routes_removed": refresh["removed_routes"],
         "modules_purged": refresh["purged_modules"],
         "duration_ms": duration_ms,
+        "manifest_hash": actual_manifest_hash,
     }

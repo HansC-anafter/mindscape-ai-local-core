@@ -31,6 +31,7 @@ class InstallResult:
     degradation_status: Optional[Dict[str, Any]] = None
     playbook_validation: Optional[Dict[str, Any]] = None
     migration_status: Optional[Dict[str, str]] = None
+    migration_receipts: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     bootstrap: List[str] = field(default_factory=list)
 
     def add_error(self, error: str):
@@ -79,6 +80,8 @@ class InstallResult:
             result["playbook_validation"] = self.playbook_validation
         if self.migration_status:
             result["migration_status"] = self.migration_status
+        if self.migration_receipts:
+            result["migration_receipts"] = self.migration_receipts
         if self.bootstrap:
             result["bootstrap"] = self.bootstrap
 
@@ -107,7 +110,7 @@ class InstallResult:
             degradation_status=data.get("degradation_status"),
             playbook_validation=data.get("playbook_validation"),
             migration_status=data.get("migration_status"),
+            migration_receipts=data.get("migration_receipts", {}),
             bootstrap=data.get("bootstrap", [])
         )
         return result
-

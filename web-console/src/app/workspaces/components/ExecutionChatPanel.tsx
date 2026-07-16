@@ -8,6 +8,7 @@ import { toTimestampMs } from '@/lib/time';
 import { ExecutionChatPanelView } from './executionChat/ExecutionChatPanelView';
 import { buildExecutionChatQuickPrompts } from './executionChat/quickPrompts';
 import type { ExecutionChatMessage, ExecutionChatPanelProps } from './executionChat/types';
+import { useExecutionStatusCoordinator } from './executionChat/useExecutionStatusCoordinator';
 
 export default function ExecutionChatPanel({
   executionId,
@@ -30,8 +31,12 @@ export default function ExecutionChatPanel({
   const [userScrolled, setUserScrolled] = useState(false);
   const [autoScroll, setAutoScroll] = useState(true);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
-  const [needsContinue, setNeedsContinue] = useState(false);
-  const [currentStepStatus, setCurrentStepStatus] = useState<string | null>(null);
+  const { needsContinue, currentStepStatus } = useExecutionStatusCoordinator({
+    executionId,
+    workspaceId,
+    apiUrl,
+    executionStatus,
+  });
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesScrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -62,67 +67,6 @@ export default function ExecutionChatPanel({
   useEffect(() => {
     scrollToBottomRef.current = scrollToBottom;
   }, [scrollToBottom]);
-
-  useEffect(() => {
-    const checkExecutionStatus = async () => {
-      try {
-        const execResponse = await fetch(
-          `${apiUrl}/api/v1/workspaces/${workspaceId}/executions/${executionId}`
-        );
-        if (!execResponse.ok) {
-          throw new Error(`Failed to fetch execution: ${execResponse.status}`);
-        }
-        const exec = await execResponse.json();
-
-        const stepsResponse = await fetch(
-          `${apiUrl}/api/v1/workspaces/${workspaceId}/executions/${executionId}/steps`
-        );
-
-        let currentStepStatus: string | null = null;
-        let currentStepRequiresConfirmation = false;
-        let currentStepConfirmationStatus: string | null = null;
-        if (stepsResponse.ok) {
-          const stepsData = await stepsResponse.json();
-          const stepsArray = stepsData.steps || [];
-
-          const currentStepIndex = exec.current_step_index ?? 0;
-          const currentStep = stepsArray.find((s: any) => s.step_index === currentStepIndex + 1);
-          if (currentStep) {
-            currentStepStatus = currentStep.status;
-            currentStepRequiresConfirmation = currentStep.requires_confirmation === true;
-            currentStepConfirmationStatus = currentStep.confirmation_status || null;
-          }
-        }
-
-        const execStatus = exec.status || exec.task?.status || executionStatus;
-        const pausedAt = exec.paused_at;
-        const executionContext = exec.task?.execution_context || exec.execution_context || {};
-        const pausedAtFromContext = executionContext.paused_at;
-
-        const shouldContinue =
-          execStatus === 'waiting_confirmation' ||
-          execStatus === 'paused' ||
-          pausedAt !== null ||
-          pausedAtFromContext !== null ||
-          currentStepStatus === 'waiting_confirmation' ||
-          (currentStepRequiresConfirmation && currentStepConfirmationStatus === 'pending');
-
-        setNeedsContinue(shouldContinue);
-        setCurrentStepStatus(currentStepStatus);
-      } catch (err) {
-        console.error('[ExecutionChatPanel] Failed to check execution status:', err);
-        const shouldContinue =
-          executionStatus === 'waiting_confirmation' ||
-          executionStatus === 'paused';
-        setNeedsContinue(shouldContinue);
-      }
-    };
-
-    checkExecutionStatus();
-
-    const interval = setInterval(checkExecutionStatus, 2000);
-    return () => clearInterval(interval);
-  }, [executionId, workspaceId, apiUrl, executionStatus]);
 
   useEffect(() => {
     if (!executionId || executionId === 'undefined') {

@@ -14,6 +14,7 @@ from backend.app.services.meeting_command_status_sync import (
     sync_meeting_command_from_task_safely,
 )
 from backend.app.services.task_payload_budget import apply_task_payload_budget
+from backend.app.services.task_projection_adapters import project_task_identity
 
 from ._crud_control import _publish_terminal_event
 from ._crud_helpers import (
@@ -75,7 +76,7 @@ class TasksStoreUpdateMixin:
         for key, value in kwargs.items():
             if key in ["params", "result", "storyline_tags", "blocked_payload"]:
                 updates.append(f"{key} = :{key}")
-                if key in ["params", "result", "blocked_payload"]:
+                if key in ["params", "result", "storyline_tags", "blocked_payload"]:
                     value = apply_task_payload_budget(key, value)
                 params[key] = self.serialize_json(value)
             elif key in ["status"]:
@@ -234,6 +235,22 @@ class TasksStoreUpdateMixin:
             if result_row.rowcount == 0:
                 raise StoreNotFoundError(f"Task not found: {task_id}")
 
+            identity_keys = {"params", "execution_context", "pack_id"}
+            identity_projection_changed = bool(
+                execution_context is not None or identity_keys.intersection(kwargs)
+            )
+            if identity_projection_changed:
+                identity_row = conn.execute(
+                    text("SELECT * FROM tasks WHERE id = :task_id"),
+                    {"task_id": task_id},
+                ).fetchone()
+                if identity_row is not None:
+                    project_task_identity(
+                        conn=conn,
+                        task=self._row_to_task(identity_row),
+                        reason="identity_changed",
+                    )
+
             # Sync playbook_executions status when task status is set.
             try:
                 status_val = kwargs.get("status")
@@ -269,6 +286,7 @@ class TasksStoreUpdateMixin:
             should_refresh_projection = (
                 project_id is not None
                 or bool(projection_keys.intersection(kwargs.keys()))
+                or identity_projection_changed
             )
             if status_val is not None and status_transition_changed:
                 status_raw = (
@@ -354,7 +372,11 @@ class TasksStoreUpdateMixin:
                     )
                     should_refresh_projection = True
             if should_refresh_projection:
-                self._refresh_task_projection(conn, task_id)
+                self._refresh_task_projection(
+                    conn,
+                    task_id,
+                    refresh_compact_inputs=identity_projection_changed,
+                )
 
             logger.debug("Updated task %s", task_id)
 

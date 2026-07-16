@@ -10,10 +10,12 @@ Composed from focused mixins:
 from ._base import TasksStoreCrudMixin
 from ._queries import TasksStoreQueryMixin
 from ._runner import TasksStoreRunnerMixin
+from ._progress_snapshot import TasksStoreProgressSnapshotMixin
 from app.services.stores.postgres_base import PostgresStoreBase
 
 
 class TasksStore(
+    TasksStoreProgressSnapshotMixin,
     TasksStoreRunnerMixin,
     TasksStoreQueryMixin,
     TasksStoreCrudMixin,

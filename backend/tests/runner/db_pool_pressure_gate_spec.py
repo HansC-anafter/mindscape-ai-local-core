@@ -62,6 +62,48 @@ def test_classify_open_when_no_clients_waiting():
     assert decision.reason == "pgbouncer_pressure_open"
 
 
+@pytest.mark.parametrize(
+    ("pool", "reason"),
+    [
+        (
+            {"database": "mindscape_core", "cl_waiting": 0, "maxwait": 1},
+            "pgbouncer_client_maxwait",
+        ),
+        (
+            {"database": "mindscape_core", "cl_waiting": 0, "sv_login": 1},
+            "pgbouncer_server_login_in_progress",
+        ),
+        (
+            {
+                "database": "mindscape_core",
+                "cl_waiting": 0,
+                "cl_active": 1,
+                "sv_active": 0,
+                "sv_idle": 0,
+                "sv_used": 0,
+                "sv_login": 0,
+            },
+            "pgbouncer_no_server_connection",
+        ),
+    ],
+)
+def test_composite_pool_state_pauses_without_changing_capacity(pool, reason):
+    decision = db_pool_pressure.classify_pgbouncer_pools([pool])
+
+    assert decision.paused is True
+    assert decision.reason == reason
+
+
+def test_database_recovery_pauses_even_when_pgbouncer_has_no_waiters():
+    decision = db_pool_pressure.classify_pgbouncer_pools(
+        [{"database": "mindscape_core", "cl_waiting": 0}],
+        database_state="postgres_startup_recovery",
+    )
+
+    assert decision.paused is True
+    assert decision.reason == "postgres_startup_recovery"
+
+
 @pytest.mark.asyncio
 async def test_redis_cache_prevents_duplicate_sampling(monkeypatch):
     monkeypatch.setenv("LOCAL_CORE_DB_PRESSURE_ENABLED", "true")

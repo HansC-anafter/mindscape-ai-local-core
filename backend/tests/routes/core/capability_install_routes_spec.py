@@ -41,6 +41,8 @@ async def test_run_install_pipeline_offloads_blocking_phases(monkeypatch, tmp_pa
             self.warnings = []
             self.errors = []
             self.migration_status = {"ig": "applied"}
+            self.migration_receipts = {}
+            self.installed = {}
 
         def add_warning(self, message):
             self.warnings.append(message)
@@ -79,14 +81,46 @@ async def test_run_install_pipeline_offloads_blocking_phases(monkeypatch, tmp_pa
             return None
 
     class FakeRuntimeInstaller:
-        def __init__(self, **_kwargs):
-            pass
+        def __init__(self, **kwargs):
+            self.capabilities_dir = kwargs["capabilities_dir"]
+            self.prepared = None
 
-        def install_all(self, *_args, **_kwargs):
-            return None
+        def prepare_staged_tree(self, *_args, **kwargs):
+            install_id = kwargs["install_id"]
+            self.cap_dir = _args[0]
+            self.prepared = types.SimpleNamespace(
+                install_id=install_id,
+                capability_code="ig",
+                staging_root=root / "staging" / install_id,
+                staging_cap_dir=root / "staging" / install_id / "ig",
+                target_cap_dir=self.capabilities_dir / "ig",
+                previous_root=root / "previous" / install_id,
+                previous_cap_dir=root / "previous" / install_id / "ig",
+                published=False,
+                finalized=False,
+                to_receipt=lambda: {"install_id": install_id},
+            )
+            return self.prepared
 
         def execute_migrations(self, *_args, **_kwargs):
             return None
+
+        def publish_candidate_retaining_previous(self, prepared):
+            prepared.target_cap_dir.mkdir(parents=True, exist_ok=True)
+            (prepared.target_cap_dir / "manifest.yaml").write_text(
+                (self.cap_dir / "manifest.yaml").read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+            prepared.published = True
+            return prepared
+
+        def restore_previous(self, prepared):
+            prepared.published = False
+            return prepared
+
+        def finalize_publish(self, prepared):
+            prepared.finalized = True
+            return prepared
 
     class FakePostInstallHandler:
         def __init__(self, **_kwargs):
@@ -109,6 +143,9 @@ async def test_run_install_pipeline_offloads_blocking_phases(monkeypatch, tmp_pa
             pass
 
         def sync_pack_contracts(self, *_args, **_kwargs):
+            return FakeContractSync()
+
+        def preview_pack_contracts(self, *_args, **_kwargs):
             return FakeContractSync()
 
     class FakeModelRouteSlotRegistry:
@@ -198,6 +235,7 @@ async def test_run_install_pipeline_offloads_blocking_phases(monkeypatch, tmp_pa
         capability_install_pipeline,
         "installed_packs_store",
         FakeInstalledPacksStore(),
+        raising=False,
     )
     monkeypatch.setattr(
         capability_install,
@@ -209,6 +247,7 @@ async def test_run_install_pipeline_offloads_blocking_phases(monkeypatch, tmp_pa
         capability_install_pipeline,
         "pack_activation_service",
         FakePackActivationService(),
+        raising=False,
     )
     monkeypatch.setattr(
         capability_install,
@@ -255,13 +294,12 @@ async def test_run_install_pipeline_offloads_blocking_phases(monkeypatch, tmp_pa
         "extract",
         "validate",
             "_install_playbooks",
-            "install_all",
-            "execute_migrations",
-            "run_required_tasks",
-            "_sync_install_time_registries",
+            "prepare",
+            "execute_candidate_migrations",
+            "publish",
+            "validate_atomic_install_requirements",
+            "_preview_install_time_registries",
             "reload_capability",
-            "upsert_pack",
-            "record_install_outcome",
     }.issubset(normalized)
 
 
@@ -338,6 +376,9 @@ async def test_run_install_pipeline_installs_capability_scripts(monkeypatch, tmp
             pass
 
         def sync_pack_contracts(self, *_args, **_kwargs):
+            return FakeContractSync()
+
+        def preview_pack_contracts(self, *_args, **_kwargs):
             return FakeContractSync()
 
     class FakeModelRouteSlotRegistry:
@@ -422,6 +463,7 @@ async def test_run_install_pipeline_installs_capability_scripts(monkeypatch, tmp
         capability_install_pipeline,
         "installed_packs_store",
         FakeInstalledPacksStore(),
+        raising=False,
     )
     monkeypatch.setattr(
         capability_install,
@@ -433,6 +475,7 @@ async def test_run_install_pipeline_installs_capability_scripts(monkeypatch, tmp
         capability_install_pipeline,
         "pack_activation_service",
         FakePackActivationService(),
+        raising=False,
     )
     monkeypatch.setattr(
         capability_install,

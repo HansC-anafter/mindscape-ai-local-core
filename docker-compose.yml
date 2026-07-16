@@ -1,3 +1,6 @@
+include:
+  - path: docker/compose/postgres-recovery-drill.yml
+
 x-runner-environment: &runner-environment
   ENVIRONMENT: development
   LOG_LEVEL: ${LOG_LEVEL:-INFO}

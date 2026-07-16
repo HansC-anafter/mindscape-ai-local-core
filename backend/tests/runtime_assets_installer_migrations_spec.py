@@ -32,7 +32,7 @@ class _FakeConnection:
         return False
 
     def execute(self, _query):
-        return []
+        return _FakeRows()
 
     def commit(self):
         return None
@@ -49,6 +49,11 @@ class _FakeEngine:
 class _FakeInspector:
     def get_table_names(self):
         return []
+
+
+class _FakeRows(list):
+    def fetchall(self):
+        return list(self)
 
 
 def test_pending_revisions_excludes_applied_ancestry():
@@ -418,12 +423,22 @@ def _prepare_demo_capability(tmp_path, *, include_migrations_yaml: bool):
 
 
 def _patch_migration_runtime(monkeypatch, calls):
+    class FakeScriptDirectory:
+        def get_revision(self, revision):
+            return object() if revision == "demo_rev" else None
+
+        def get_heads(self):
+            return ["demo_rev"]
+
     class FakeMigrationOrchestrator:
         def __init__(self, *_args, **_kwargs):
             pass
 
         def _get_applied_revisions(self, _db_type, _current_revisions):
             return set()
+
+        def _load_script_directory(self, _db_type):
+            return FakeScriptDirectory()
 
         def _run_alembic_upgrade(self, _alembic_config, revision):
             calls.append(revision)

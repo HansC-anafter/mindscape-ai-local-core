@@ -68,6 +68,33 @@ class ObjectCatalogRegistry:
             object_count=len(next_registry["objects"]),
         )
 
+    def preview_pack_objects(
+        self,
+        capability_code: str,
+        manifest: Dict[str, Any],
+    ) -> ObjectCatalogSyncResult:
+        """Calculate the committed projection delta without writing registry.json."""
+        previous_registry = self._load_registry()
+        exports = self._normalize_object_exports(capability_code, manifest)
+        objects = [
+            entry
+            for entry in previous_registry.get("objects", [])
+            if entry.get("owner_pack") != capability_code
+        ] + exports
+        objects = sorted(
+            objects,
+            key=lambda entry: (
+                entry.get("owner_pack", ""),
+                entry.get("object_kind", ""),
+                entry.get("display_name", ""),
+            ),
+        )
+        return ObjectCatalogSyncResult(
+            changed=previous_registry != {"version": 1, "objects": objects},
+            registry_path=self.registry_path,
+            object_count=len(objects),
+        )
+
     def read_registry(self) -> Dict[str, Any]:
         """Return the persisted runtime object catalog payload."""
         return self._with_core_entries(self._load_registry())

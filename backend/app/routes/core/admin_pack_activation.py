@@ -36,9 +36,10 @@ async def activate_capability_runtime(
             app=request.app,
             capability_code=payload.capability_code,
             reason=payload.reason,
+            expected_manifest_hash=payload.manifest_hash,
         )
         result["install_id"] = payload.install_id
-        result["manifest_hash"] = payload.manifest_hash
+        result["requested_manifest_hash"] = payload.manifest_hash
         return result
     except Exception as exc:
         logger.warning(

@@ -19,6 +19,7 @@ DEFAULT_TASK_PAYLOAD_LIMITS = {
     "params": HOT_TASK_JSON_WRITE_LIMIT_BYTES,
     "result": HOT_TASK_JSON_WRITE_LIMIT_BYTES,
     "execution_context": HOT_TASK_JSON_WRITE_LIMIT_BYTES,
+    "storyline_tags": HOT_TASK_JSON_WRITE_LIMIT_BYTES,
     "blocked_payload": HOT_TASK_JSON_WRITE_LIMIT_BYTES,
 }
 

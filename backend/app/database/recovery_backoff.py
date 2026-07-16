@@ -5,14 +5,54 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass
+from enum import Enum
 from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-_DB_RECOVERY_MARKERS = (
+class DatabaseFailureCode(str, Enum):
+    """Stable database failure codes shared by API, worker, and maintenance callers."""
+
+    POSTGRES_SERVER_CLOSED_UNEXPECTEDLY = "postgres_server_closed_unexpectedly"
+    POSTGRES_STARTUP_RECOVERY = "postgres_startup_recovery"
+    POSTGRES_READ_ONLY = "postgres_read_only"
+    PGBOUNCER_UNAVAILABLE = "pgbouncer_unavailable"
+    SQL_APPLICATION_ERROR = "sql_application_error"
+
+
+@dataclass(frozen=True)
+class DatabaseFailureClassification:
+    """Classification result without exposing raw exception text to callers."""
+
+    code: DatabaseFailureCode
+    recovery_related: bool
+    opens_incident: bool
+
+
+_UNEXPECTED_CLOSE_MARKERS = (
+    "server closed the connection unexpectedly",
+    "ssl syscall error: eof detected",
+    "connection reset by peer",
+)
+
+_STARTUP_RECOVERY_MARKERS = (
     "database system is in recovery mode",
     "database system is not yet accepting connections",
-    "Consistent recovery state has not been yet reached",
+    "consistent recovery state has not been yet reached",
+    "the database system is starting up",
+)
+
+_READ_ONLY_MARKERS = (
+    "cannot execute",
+    "in a read-only transaction",
+    "transaction_read_only",
+)
+
+_PGBOUNCER_MARKERS = (
+    "pgbouncer",
+    "query_wait_timeout",
+    "no more connections allowed",
+    "server login has been failing",
 )
 
 
@@ -27,9 +67,45 @@ def _exception_chain_text(exc: BaseException) -> str:
     return "\n".join(parts)
 
 
+def classify_database_error(exc: BaseException) -> DatabaseFailureClassification:
+    """Classify nested SQLAlchemy/driver failures using one stable code set."""
+
+    message = _exception_chain_text(exc).lower()
+    if any(marker in message for marker in _UNEXPECTED_CLOSE_MARKERS):
+        return DatabaseFailureClassification(
+            code=DatabaseFailureCode.POSTGRES_SERVER_CLOSED_UNEXPECTEDLY,
+            recovery_related=True,
+            opens_incident=True,
+        )
+    if any(marker in message for marker in _STARTUP_RECOVERY_MARKERS):
+        return DatabaseFailureClassification(
+            code=DatabaseFailureCode.POSTGRES_STARTUP_RECOVERY,
+            recovery_related=True,
+            opens_incident=False,
+        )
+    if all(marker in message for marker in _READ_ONLY_MARKERS[:2]) or (
+        _READ_ONLY_MARKERS[2] in message
+    ):
+        return DatabaseFailureClassification(
+            code=DatabaseFailureCode.POSTGRES_READ_ONLY,
+            recovery_related=True,
+            opens_incident=False,
+        )
+    if any(marker in message for marker in _PGBOUNCER_MARKERS):
+        return DatabaseFailureClassification(
+            code=DatabaseFailureCode.PGBOUNCER_UNAVAILABLE,
+            recovery_related=True,
+            opens_incident=False,
+        )
+    return DatabaseFailureClassification(
+        code=DatabaseFailureCode.SQL_APPLICATION_ERROR,
+        recovery_related=False,
+        opens_incident=False,
+    )
+
+
 def is_database_recovery_error(exc: BaseException) -> bool:
-    message = _exception_chain_text(exc)
-    return any(marker in message for marker in _DB_RECOVERY_MARKERS)
+    return classify_database_error(exc).recovery_related
 
 
 @dataclass
@@ -44,8 +120,20 @@ class DatabaseRecoveryBackoff:
         self._next_log_monotonic = 0.0
 
     def note_failure(self, exc: BaseException) -> bool:
-        if not is_database_recovery_error(exc):
+        classification = classify_database_error(exc)
+        if not classification.recovery_related:
             return False
+        if classification.opens_incident:
+            try:
+                from backend.app.services.runtime_database_incident_gate import (
+                    record_database_failure,
+                )
+
+                record_database_failure(classification.code.value)
+            except Exception:
+                logger.exception(
+                    "Unable to persist runtime database incident; mutation gate will fail closed"
+                )
         now = time.monotonic()
         self._until_monotonic = max(
             self._until_monotonic,
