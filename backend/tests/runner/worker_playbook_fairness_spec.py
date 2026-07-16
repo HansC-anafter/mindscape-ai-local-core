@@ -65,7 +65,7 @@ def test_worker_browser_fairness_keeps_following_available_to_general_browser_pr
     assert drain_wait is False
     assert queue.promoted == ["task-following"]
     assert tasks_store.requested_ids == ["task-following", "task-batch"]
-    assert queue.client.setex_calls[-1][2] == FOLLOWING_PLAYBOOK
+    assert queue.client.setex_calls == []
 
 
 def test_worker_browser_fairness_rotates_tied_lane_from_durable_cursor():
@@ -104,7 +104,7 @@ def test_worker_browser_fairness_rotates_tied_lane_from_durable_cursor():
     assert task_id == "task-alternate"
     assert queue_store is queue
     assert drain_wait is False
-    assert queue.client.setex_calls[-1][2] == alternate_playbook
+    assert queue.client.setex_calls == []
 
 
 def test_route_gate_policy_falls_back_when_only_same_playbook():

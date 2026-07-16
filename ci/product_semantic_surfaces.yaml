@@ -231,6 +231,8 @@ surfaces:
       - OOM correlation requires a failing child plus a cgroup v2 oom_kill or oom_group_kill counter delta; a plain SIGKILL remains unclassified.
       - Resource-blocked tasks remain cold and non-runnable until one explicit control action observes a changed node-policy or resource-profile fingerprint.
       - Runner startup and periodic maintenance execute only after the durable claim gate and one VM-wide leader; same-status task writes do not emit duplicate status transitions.
+      - Normal execution, startup reconciliation, and stale-task reaping release task resource leases and node reservations through one exact-owner service; terminal or requeued ownership does not wait on a long TTL during healthy operation.
+      - Browser lane fairness cursor commits only after the canonical PostgreSQL pending-to-running claim succeeds; queue promotion and every admission or claim denial leave that cursor unchanged.
     path_globs:
       - backend/app/runner/cgroup_memory_events.py
       - backend/app/runner/resource_failure_policy.py
@@ -238,7 +240,12 @@ surfaces:
       - backend/app/runner/task_executor_*.py
       - backend/app/runner/maintenance_leader.py
       - backend/app/runner/worker.py
+      - backend/app/runner/browser_fairness_cursor.py
+      - backend/app/runner/browser_claim_fairness.py
+      - backend/app/runner/worker_claim_policy.py
       - backend/app/runner/worker_dispatch.py
+      - backend/app/runner/reaper_stale_tasks.py
+      - backend/app/runner/reaper_resource_ownership.py
       - backend/app/runner/worker_loop.py
       - backend/app/runner/worker_maintenance.py
       - backend/app/runner/worker_startup.py
@@ -252,8 +259,14 @@ surfaces:
       - backend/tests/runner*resource*
       - backend/tests/runner/task_executor_resource_ownership_spec.py
       - backend/tests/runner/maintenance_leader_spec.py
+      - backend/tests/runner/browser_fairness_cursor_spec.py
+      - backend/tests/runner/browser_fairness_claim_commit_spec.py
+      - backend/tests/runner/reaper_resource_ownership_cleanup_spec.py
+      - backend/tests/runner_resources/task_resource_ownership_release_spec.py
+      - backend/tests/runner/default_local_browser_resource_budget_spec.py
       - backend/tests/runner/worker_entrypoint_maintenance_spec.py
       - backend/tests/runner/worker_maintenance_leader_spec.py
+      - backend/tests/runner/worker_playbook_fairness_spec.py
       - backend/tests/tasks_store_transition_idempotency_spec.py
       - docker-compose.yml
 

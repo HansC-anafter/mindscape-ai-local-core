@@ -5,9 +5,7 @@ from typing import Dict, Optional
 from backend.app.models.workspace import Task, TaskStatus
 from backend.app.services.runner_resources import (
     NodeBudgetReservation,
-    RedisNodeBudgetStore,
-    RedisResourceLeaseStore,
-    release_resource_lease_keys,
+    release_task_resource_ownership,
 )
 from backend.app.services.stores.redis.runner_queue_store import RedisRunnerQueueStore
 
@@ -37,19 +35,12 @@ async def _release_task_resource_leases(
 ) -> None:
     if not redis_queue or not (resource_lease_keys or node_budget_reservation):
         return
-    try:
-        if resource_lease_keys:
-            await release_resource_lease_keys(
-                RedisResourceLeaseStore(redis_queue),
-                resource_lease_keys,
-                owner_id=lock_owner_id,
-            )
-        if node_budget_reservation is not None:
-            await RedisNodeBudgetStore(redis_queue).release(
-                node_budget_reservation
-            )
-    except Exception:
-        pass
+    await release_task_resource_ownership(
+        redis_queue,
+        owner_id=lock_owner_id,
+        lease_keys=resource_lease_keys,
+        node_budget_reservation=node_budget_reservation,
+    )
 
 
 def _get_task_control_signal(task: Optional[Task]) -> Optional[Dict[str, str]]:

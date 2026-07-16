@@ -21,7 +21,6 @@ from backend.app.runner.browser_fair_candidate_scheduler import (
 )
 from backend.app.runner.browser_fairness_cursor import (
     read_browser_fairness_cursor,
-    write_browser_fairness_cursor,
 )
 from backend.app.runner.resource_pressure import is_browser_resource_profile
 from backend.app.runner.worker_transport import _normalize_task_id, _resolve_task_queue_shard
@@ -351,20 +350,6 @@ async def _dequeue_by_browser_fair_candidate_policy(
         visibility_timeout_sec=visibility_timeout_sec,
     )
     if moved:
-        if cursor_client is not None and fair_decision.selected_lane:
-            try:
-                await write_browser_fairness_cursor(
-                    cursor_client,
-                    queue_shard=queue_shard,
-                    lane_key=fair_decision.selected_lane,
-                )
-            except Exception as exc:
-                logger.warning(
-                    "[Worker] Failed to write browser fairness cursor queue=%s lane=%s: %s",
-                    queue_shard,
-                    fair_decision.selected_lane,
-                    exc,
-                )
         logger.info(
             "[Worker] Browser fair policy selected task %s lane=%s running_count=%s queue=%s",
             fair_decision.selected_task_id,

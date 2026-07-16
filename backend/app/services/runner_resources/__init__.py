@@ -43,6 +43,11 @@ from .leases import (
     release_resource_lease_keys,
     renew_resource_lease_keys,
 )
+from .ownership_release import (
+    TaskResourceOwnershipReleaseResult,
+    release_task_resource_ownership,
+    release_task_resource_ownership_from_context,
+)
 from .requirements import (
     DB_WRITE_BUDGETS,
     DURATION_CLASSES,
@@ -90,6 +95,7 @@ __all__ = [
     "NodeBudgetAcquireResult",
     "NodeBudgetPolicy",
     "NodeBudgetReservation",
+    "TaskResourceOwnershipReleaseResult",
     "acquire_task_resource_admission",
     "acquire_browser_startup_gate",
     "build_resource_lease_key",
@@ -105,6 +111,8 @@ __all__ = [
     "release_acquired_resource_leases",
     "release_acquired_resource_admission",
     "release_resource_lease_keys",
+    "release_task_resource_ownership",
+    "release_task_resource_ownership_from_context",
     "renew_resource_lease_keys",
     "resolve_resource_requirements",
     "resolve_browser_startup_request_bytes",

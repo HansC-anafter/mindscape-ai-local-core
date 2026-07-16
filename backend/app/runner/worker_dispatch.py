@@ -20,6 +20,9 @@ from backend.app.services.runner_topology import (
 from backend.app.services.stores.redis.runner_queue_store import RedisRunnerQueueStore
 from backend.app.services.stores.tasks_store import TasksStore
 from backend.app.runner.claim_admission import decide_runner_claim_admission
+from backend.app.runner.browser_claim_fairness import (
+    commit_browser_fairness_after_claim,
+)
 from backend.app.runner.concurrency import _resolve_lock_keys
 from backend.app.runner.database_backoff import RunnerDatabaseRecoveryBackoff
 from backend.app.runner.dependency_check import DependencyChecker
@@ -438,6 +441,12 @@ async def _dispatch_claimed_task(
                 )
             await task_queue.ack_task(task_id)
             return None
+
+        await commit_browser_fairness_after_claim(
+            t_data,
+            task_queue,
+            runner_profile=runner_profile,
+        )
 
         # Dispatch execution.
         task_coro = _run_single_task(
