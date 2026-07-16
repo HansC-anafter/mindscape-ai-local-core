@@ -6,6 +6,8 @@ import re
 from dataclasses import dataclass
 from typing import Iterable
 
+from backend.app.database.task_index_manifest import task_index_ownership
+
 
 TASK_JSON_PAYLOAD_COLUMNS = (
     "params",
@@ -51,6 +53,14 @@ def validate_task_index_definitions(
     for raw_name, raw_definition in definitions:
         name = str(raw_name)
         definition = str(raw_definition)
+        if task_index_ownership("tasks", name) is None:
+            violations.append(
+                TaskIndexContractViolation(
+                    index_name=name,
+                    reason="unregistered_tasks_index_owner_or_budget",
+                )
+            )
+            continue
         for pattern in FORBIDDEN_PACK_INDEX_PATTERNS:
             if pattern.search(definition):
                 violations.append(
