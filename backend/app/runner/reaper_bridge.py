@@ -27,6 +27,7 @@ from backend.app.runner.reaper_context import (
 from backend.app.runner.utils import _env_int, _utc_now
 
 _PIPELINE_BATCH = 100
+_BROWSER_LOCAL_RESOURCE_WAIT_RELEASE_MINIMUM = 4
 
 
 async def _refill_ready_frontier_from_db(
@@ -290,6 +291,11 @@ async def _reap_redis_queues(
         ready_depth += dependency_released_count
 
         release_limit = _blocked_release_limit(ready_target, ready_depth)
+        if redis_queue.pack_id == _BROWSER_LOCAL_QUEUE_SHARD:
+            release_limit = max(
+                release_limit,
+                _BROWSER_LOCAL_RESOURCE_WAIT_RELEASE_MINIMUM,
+            )
         resource_released_count = await release_resource_wait_tasks(
             tasks_store,
             redis_queue,

@@ -8,11 +8,8 @@ from typing import Iterable, Optional
 from backend.app.models.workspace import TaskStatus
 from backend.app.services.runner_resources import (
     NODE_BUDGET_CONTEXT_KEY,
-    RedisNodeBudgetStore,
-    RedisResourceLeaseStore,
     list_active_runner_resource_heartbeats,
-    reservation_from_context,
-    resource_lease_keys_from_context,
+    release_task_resource_ownership_from_context,
 )
 from backend.app.services.runner_live_state import RunnerLiveStateStore
 from backend.app.services.runner_topology import (
@@ -116,38 +113,24 @@ async def _release_orphaned_resource_admission(
         if isinstance(task.execution_context, dict)
         else {}
     )
-    expected_owner = f"{old_runner_id}:{task.id}"
-    reservation = reservation_from_context(context)
-    if reservation is not None:
-        if reservation.owner_id != expected_owner:
-            logger.warning(
-                "[Startup] Skipped mismatched node reservation task_id=%s "
-                "expected_owner=%s actual_owner=%s",
-                task.id,
-                expected_owner,
-                reservation.owner_id,
-            )
-        elif not await RedisNodeBudgetStore(redis_queue).release(reservation):
-            logger.warning(
-                "[Startup] Exact node reservation release was not applied "
-                "task_id=%s owner=%s revision=%s",
-                task.id,
-                expected_owner,
-                reservation.revision,
-            )
-
-    lease_keys = resource_lease_keys_from_context(context)
-    if lease_keys:
-        lease_store = RedisResourceLeaseStore(redis_queue)
-        for lease_key in lease_keys:
-            if not await lease_store.release(lease_key, expected_owner):
-                logger.warning(
-                    "[Startup] Exact resource lease release was not applied "
-                    "task_id=%s owner=%s lease_key=%s",
-                    task.id,
-                    expected_owner,
-                    lease_key,
-                )
+    result = await release_task_resource_ownership_from_context(
+        redis_queue,
+        task_id=str(task.id),
+        runner_id=old_runner_id,
+        execution_context=context,
+    )
+    if not result.complete:
+        logger.warning(
+            "[Startup] Exact resource ownership release incomplete "
+            "task_id=%s owner=%s unreleased=%s node_released=%s "
+            "node_owner_mismatch=%s errors=%s",
+            task.id,
+            result.owner_id,
+            list(result.unreleased_lease_keys),
+            result.node_reservation_released,
+            result.node_reservation_owner_mismatch,
+            list(result.errors),
+        )
 
 
 async def _reset_orphaned_running_tasks(
@@ -253,11 +236,6 @@ async def _reset_orphaned_running_tasks(
                 and not exact_live_owner
                 and runner_profile_can_claim_task(runner_profile, t)
             ):
-                await _release_orphaned_resource_admission(
-                    t,
-                    old_runner_id=old_runner,
-                    redis_queue=redis_queue,
-                )
                 ctx2 = dict(ctx)
                 ctx2.pop("runner_id", None)
                 ctx2.pop("heartbeat_at", None)
@@ -290,6 +268,11 @@ async def _reset_orphaned_running_tasks(
                 tasks_store.update_task(
                     t.id,
                     **update_kwargs,
+                )
+                await _release_orphaned_resource_admission(
+                    t,
+                    old_runner_id=old_runner,
+                    redis_queue=redis_queue,
                 )
                 reset_task_ids.add(str(t.id))
                 reset_count += 1

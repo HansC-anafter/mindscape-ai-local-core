@@ -169,9 +169,14 @@ def test_reap_zombie_tasks_keeps_running_task_with_fresh_live_heartbeat(monkeypa
     monkeypatch.setattr(runner_module, "RunnerLiveStateStore", FreshLiveStateStore)
 
     store = _FakeTasksStore([task])
+    reaped_tasks = []
 
-    assert store.reap_zombie_tasks(heartbeat_ttl_minutes=10) == []
+    assert store.reap_zombie_tasks(
+        heartbeat_ttl_minutes=10,
+        on_reaped=reaped_tasks.append,
+    ) == []
     assert store.status_updates == []
+    assert reaped_tasks == []
     assert task.status == runner_module.TaskStatus.RUNNING
 
 
@@ -188,11 +193,16 @@ def test_reap_zombie_tasks_fails_stale_task_without_live_heartbeat(monkeypatch):
     monkeypatch.setattr(runner_module, "RunnerLiveStateStore", MissingLiveStateStore)
 
     store = _FakeTasksStore([task])
+    reaped_tasks = []
 
-    assert store.reap_zombie_tasks(heartbeat_ttl_minutes=10) == ["task-stale"]
+    assert store.reap_zombie_tasks(
+        heartbeat_ttl_minutes=10,
+        on_reaped=reaped_tasks.append,
+    ) == ["task-stale"]
     assert store.status_updates[0]["task_id"] == "task-stale"
     assert store.status_updates[0]["status"] == runner_module.TaskStatus.FAILED
     assert "Zombie: heartbeat stale" in store.status_updates[0]["error"]
+    assert reaped_tasks == [task]
     assert task.status == runner_module.TaskStatus.FAILED
 
 

@@ -20,7 +20,9 @@ from backend.app.runner.reaper_context import (
     _task_runner_id,
     logger,
 )
-from backend.app.runner.reaper_transport import _force_release_lock
+from backend.app.runner.reaper_resource_ownership import (
+    release_reaped_task_ownership,
+)
 from backend.app.runner.utils import _env_int, _utc_now
 
 def _requeue_stale_queued_task(
@@ -66,12 +68,13 @@ def _requeue_stale_queued_task(
         frontier_enqueued_at=now,
         error=None,
     )
-    _force_release_lock(
+    release_reaped_task_ownership(
+        task,
         ctx,
-        task.pack_id,
-        redis_queue,
-        persisted_concurrency_key=getattr(task, "concurrency_key", None),
+        previous_runner_id=_task_runner_id(task, ctx),
+        redis_queue=redis_queue,
         event_loop=event_loop,
+        logger=logger,
     )
 
 def _reap_stale_running_tasks(
@@ -192,6 +195,14 @@ def _reap_stale_running_tasks(
                         new_state="FAILED",
                         reason=ctx2["error"],
                     )
+                    release_reaped_task_ownership(
+                        t,
+                        ctx,
+                        previous_runner_id=ctx_runner_id,
+                        redis_queue=redis_queue,
+                        event_loop=event_loop,
+                        logger=logger,
+                    )
                     logger.warning(
                         f"Failed task after {requeue_count} re-queues task_id={t.id} ({msg})"
                     )
@@ -228,6 +239,16 @@ def _reap_stale_running_tasks(
                 # ALWAYS ensure task reaches terminal state, regardless of hook result.
                 # Re-read to check if hook already marked it FAILED.
                 refreshed = tasks_store.get_task(t.id)
+                ownership_ended = bool(
+                    refreshed
+                    and refreshed.status
+                    in (
+                        TaskStatus.FAILED,
+                        TaskStatus.CANCELLED_BY_USER,
+                        TaskStatus.SUCCEEDED,
+                        TaskStatus.EXPIRED,
+                    )
+                )
                 if refreshed and refreshed.status not in (
                     TaskStatus.FAILED,
                     TaskStatus.CANCELLED_BY_USER,
@@ -255,12 +276,22 @@ def _reap_stale_running_tasks(
                         reason=msg,
                     )
                     logger.warning(f"Reaped stale running task task_id={t.id} ({msg})")
-                    _force_release_lock(
+                    ownership_ended = True
+                if ownership_ended:
+                    release_reaped_task_ownership(
+                        t,
                         ctx,
-                        t.pack_id,
-                        redis_queue,
-                        persisted_concurrency_key=getattr(t, "concurrency_key", None),
+                        previous_runner_id=ctx_runner_id,
+                        redis_queue=redis_queue,
                         event_loop=event_loop,
+                        logger=logger,
+                    )
+                else:
+                    logger.warning(
+                        "[Reaper] Preserved resource ownership because terminal "
+                        "task readback was unavailable task_id=%s owner=%s",
+                        t.id,
+                        ctx_runner_id,
                     )
             logger.info(
                 f"Reaper checked task_id={t.id} - status={t.status} - heartbeat_at={heartbeat_log} - Threshold={threshold.isoformat()}"

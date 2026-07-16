@@ -290,6 +290,28 @@ async def _release_resource_wait_tasks(
     now = _utc_now()
     released_task_ids: list[str] = []
     released_resource_keys: set[str] = set()
+    candidate_resource_keys: list[str] = []
+    for task in due_tasks:
+        raw_ctx = task.execution_context
+        ctx = raw_ctx if isinstance(raw_ctx, dict) else {}
+        candidate_resource_keys.extend(resource_wait_keys_from_context(ctx))
+    unique_candidate_keys = list(dict.fromkeys(candidate_resource_keys))
+    occupied_resource_keys: set[str] = set()
+    if unique_candidate_keys:
+        try:
+            raw_owners = await client.mget(unique_candidate_keys)
+        except Exception as exc:
+            logger.warning(
+                "[Bridge] Failed to read resource-wait ownership for shard %s: %s",
+                redis_queue.pack_id,
+                exc,
+            )
+            return 0
+        occupied_resource_keys = {
+            resource_key
+            for resource_key, owner in zip(unique_candidate_keys, raw_owners)
+            if owner not in (None, b"", "")
+        }
 
     for task in due_tasks:
         if len(released_task_ids) >= release_limit:
@@ -302,6 +324,10 @@ async def _release_resource_wait_tasks(
         resource_keys = resource_wait_keys_from_context(ctx)
         if resource_keys and any(
             resource_key in released_resource_keys for resource_key in resource_keys
+        ):
+            continue
+        if resource_keys and any(
+            resource_key in occupied_resource_keys for resource_key in resource_keys
         ):
             continue
         still_blocked = host_resource_wait_still_blocked(ctx)

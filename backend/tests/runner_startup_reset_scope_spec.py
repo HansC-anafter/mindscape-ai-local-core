@@ -223,32 +223,40 @@ async def test_startup_reset_releases_exact_dead_runner_resource_ownership(monke
             ],
         },
     )
-    node_store = _FakeNodeBudgetStore()
-    lease_store = _FakeResourceLeaseStore()
+    calls = []
+
+    async def fake_release(redis_queue, **kwargs):
+        calls.append((redis_queue, kwargs))
+        return SimpleNamespace(
+            complete=True,
+            owner_id="stale-browser-runner:browser-task",
+            unreleased_lease_keys=(),
+            node_reservation_released=True,
+            node_reservation_owner_mismatch=False,
+            errors=(),
+        )
+
     monkeypatch.setattr(
         worker_startup,
-        "RedisNodeBudgetStore",
-        lambda _queue: node_store,
+        "release_task_resource_ownership_from_context",
+        fake_release,
     )
-    monkeypatch.setattr(
-        worker_startup,
-        "RedisResourceLeaseStore",
-        lambda _queue: lease_store,
-    )
+    queue = SimpleNamespace()
 
     await worker_startup._release_orphaned_resource_admission(
         task,
         old_runner_id="stale-browser-runner",
-        redis_queue=SimpleNamespace(),
+        redis_queue=queue,
     )
 
-    assert [item.owner_id for item in node_store.released] == [
-        "stale-browser-runner:browser-task"
-    ]
-    assert lease_store.released == [
+    assert calls == [
         (
-            "mindscape:runner_resources:lease:v1:profile:one",
-            "stale-browser-runner:browser-task",
+            queue,
+            {
+                "task_id": "browser-task",
+                "runner_id": "stale-browser-runner",
+                "execution_context": task.execution_context,
+            },
         )
     ]
 

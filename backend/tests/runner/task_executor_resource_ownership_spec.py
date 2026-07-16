@@ -6,6 +6,7 @@ import pytest
 
 from backend.app.runner.task_executor_heartbeat import start_lease_renew_thread
 from backend.app.runner.task_executor_runtime_cleanup import handle_control_signal
+from backend.app.runner import task_executor_controls
 
 
 class _ImmediateFuture:
@@ -106,3 +107,38 @@ async def test_ownership_loss_fences_child_before_recording_block():
     )
 
     assert events == ["terminate", "join", "kill", "join", "mark_blocked"]
+
+
+@pytest.mark.asyncio
+async def test_executor_resource_release_delegates_to_canonical_service(monkeypatch):
+    calls = []
+
+    async def fake_release(redis_queue, **kwargs):
+        calls.append((redis_queue, kwargs))
+        return SimpleNamespace(complete=True)
+
+    monkeypatch.setattr(
+        task_executor_controls,
+        "release_task_resource_ownership",
+        fake_release,
+    )
+    queue = SimpleNamespace()
+    reservation = SimpleNamespace(owner_id="runner-a:task-1")
+
+    await task_executor_controls._release_task_resource_leases(
+        queue,
+        ["lease-a"],
+        "runner-a:task-1",
+        reservation,
+    )
+
+    assert calls == [
+        (
+            queue,
+            {
+                "owner_id": "runner-a:task-1",
+                "lease_keys": ["lease-a"],
+                "node_budget_reservation": reservation,
+            },
+        )
+    ]

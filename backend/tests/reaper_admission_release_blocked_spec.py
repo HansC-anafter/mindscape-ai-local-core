@@ -268,6 +268,31 @@ async def test_releases_one_due_resource_wait_task_per_resource_key():
 
 
 @pytest.mark.asyncio
+async def test_resource_wait_preserves_tasks_while_exact_resource_key_is_owned():
+    resource_key = "mindscape:runner_resources:lease:v1:ig_profile_lock:profile:hash"
+    store = _FakeTasksStore([_build_resource_wait_task(resource_key=resource_key)])
+    queue = _FakeRedisQueue("browser_local")
+    mget_calls = []
+
+    async def _occupied_mget(keys):
+        mget_calls.append(list(keys))
+        return ["runner-live:task-live" for _key in keys]
+
+    queue._client.mget = _occupied_mget
+
+    released = await reaper._release_resource_wait_tasks(
+        store,
+        queue,
+        release_limit=4,
+    )
+
+    assert released == 0
+    assert mget_calls == [[resource_key]]
+    assert queue._client.enqueued == []
+    assert store.updated == []
+
+
+@pytest.mark.asyncio
 async def test_releases_due_unblocked_cold_task_to_ready_queue():
     store = _FakeTasksStore([_build_unblocked_cold_task()])
     queue = _FakeRedisQueue("vision_local")

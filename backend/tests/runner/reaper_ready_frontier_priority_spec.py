@@ -184,3 +184,57 @@ async def test_browser_ready_refill_continues_bounded_blocked_release(monkeypatc
         ("dependency", 4),
         ("resource", 4),
     ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("pack_id", "expected_resource_limit"),
+    [
+        ("browser_local", 4),
+        ("default_local_browser", 0),
+        ("vision_local", 0),
+    ],
+)
+async def test_only_browser_local_saturated_frontier_checks_resource_wait(
+    monkeypatch,
+    pack_id,
+    expected_resource_limit,
+):
+    release_calls: list[tuple[str, int]] = []
+
+    async def _record_release(name, *_args, release_limit, **_kwargs):
+        release_calls.append((name, release_limit))
+        return 0
+
+    async def _concurrency(*args, **kwargs):
+        return await _record_release("concurrency", *args, **kwargs)
+
+    async def _dependency(*args, **kwargs):
+        return await _record_release("dependency", *args, **kwargs)
+
+    async def _resource(*args, **kwargs):
+        return await _record_release("resource", *args, **kwargs)
+
+    monkeypatch.setenv("LOCAL_CORE_RUNNER_READY_TARGET", "1")
+    monkeypatch.setattr(reaper, "_reconcile_temp_transport_items", _zero)
+    monkeypatch.setattr(reaper, "_scrub_processing_terminal_items", _zero)
+    monkeypatch.setattr(reaper, "_release_concurrency_locked_tasks", _concurrency)
+    monkeypatch.setattr(reaper, "_release_dependency_hold_tasks", _dependency)
+    monkeypatch.setattr(reaper, "_release_resource_wait_tasks", _resource)
+    monkeypatch.setattr(reaper, "_release_workspace_quota_tasks", _zero)
+    monkeypatch.setattr(reaper, "_release_admission_deferred_tasks", _zero)
+    monkeypatch.setattr(reaper, "_release_unblocked_cold_tasks", _zero)
+    monkeypatch.setattr(reaper, "_refill_browser_peer_frontier", _zero)
+
+    store = _FakeTasksStore([])
+    client = _FakeRedisClient()
+    client.pending_members = [f"ready-{index}" for index in range(20)]
+    queue = _FakeRedisQueue(client, pack_id=pack_id)
+
+    await reaper._reap_redis_queues(store, queue)
+
+    assert release_calls == [
+        ("concurrency", 0),
+        ("dependency", 0),
+        ("resource", expected_resource_limit),
+    ]
