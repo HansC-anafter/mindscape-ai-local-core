@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import logging
 from datetime import timezone
-from typing import List, Optional
+from typing import Callable, List, Optional
 
 from sqlalchemy import text
-from app.models.workspace import TaskStatus
+from app.models.workspace import Task, TaskStatus
 
 from ._base import _utc_now
 from ._runner_helpers import _effective_runner_heartbeat_at
@@ -98,6 +98,7 @@ class TasksStoreRunnerLifecycleMixin:
         self,
         heartbeat_ttl_minutes: int = 10,
         no_heartbeat_ttl_minutes: int = 30,
+        on_reaped: Optional[Callable[[Task], None]] = None,
     ) -> List[str]:
         """Reap zombie tasks that have stale or missing heartbeats.
 
@@ -168,6 +169,16 @@ class TasksStoreRunnerLifecycleMixin:
                         completed_at=now,
                     )
                     reaped_ids.append(task.id)
+                    if on_reaped is not None:
+                        try:
+                            on_reaped(task)
+                        except Exception as callback_error:
+                            logger.error(
+                                "Zombie task reaped but ownership callback failed "
+                                "task_id=%s error=%s",
+                                task.id,
+                                callback_error,
+                            )
                     logger.warning("Reaped zombie task %s: %s", task.id, reason)
                 except Exception as e:
                     logger.error("Failed to reap zombie task %s: %s", task.id, e)

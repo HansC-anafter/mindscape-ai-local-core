@@ -70,23 +70,34 @@ async def _start_compile_job_startup_services() -> None:
 
 def start_zombie_reaper() -> None:
     try:
-        from backend.app.services.stores.tasks_store import TasksStore as _ReaperStore
-
-        _reaper_store = _ReaperStore()
-        reaped = _reaper_store.reap_zombie_tasks()
-        if reaped:
-            logger.info(
-                "Startup zombie reaper: cleaned %d zombie tasks: %s",
-                len(reaped),
-                reaped[:5],
-            )
+        from backend.app.services.task_zombie_reaper import (
+            reap_zombie_tasks_with_resource_cleanup,
+        )
 
         async def _zombie_reaper_loop():
+            try:
+                result = await reap_zombie_tasks_with_resource_cleanup()
+                if result.task_ids:
+                    logger.info(
+                        "Startup zombie reaper: cleaned %d zombie tasks: %s "
+                        "resource_cleanup_complete=%s",
+                        len(result.task_ids),
+                        list(result.task_ids[:5]),
+                        result.cleanup_complete,
+                    )
+            except Exception as exc:
+                logger.warning("Startup zombie reaper error: %s", exc)
             while True:
                 await asyncio.sleep(300)
                 try:
-                    store = _ReaperStore()
-                    store.reap_zombie_tasks()
+                    result = await reap_zombie_tasks_with_resource_cleanup()
+                    if result.task_ids:
+                        logger.info(
+                            "Periodic zombie reaper: cleaned %d zombie tasks "
+                            "resource_cleanup_complete=%s",
+                            len(result.task_ids),
+                            result.cleanup_complete,
+                        )
                 except Exception as exc:
                     logger.warning("Periodic zombie reaper error: %s", exc)
 

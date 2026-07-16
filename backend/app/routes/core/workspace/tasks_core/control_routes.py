@@ -219,10 +219,16 @@ async def fix_task_status(
         )
 
         # Also run zombie reaper
-        tasks_store = TasksStore()
-        reaped_ids = tasks_store.reap_zombie_tasks()
-        result["zombie_tasks_reaped"] = len(reaped_ids)
-        result["zombie_task_ids"] = reaped_ids
+        from backend.app.services.task_zombie_reaper import (
+            reap_zombie_tasks_with_resource_cleanup,
+        )
+
+        zombie_result = await reap_zombie_tasks_with_resource_cleanup()
+        result["zombie_tasks_reaped"] = len(zombie_result.task_ids)
+        result["zombie_task_ids"] = list(zombie_result.task_ids)
+        result["zombie_resource_cleanup_complete"] = (
+            zombie_result.cleanup_complete
+        )
 
         return result
     except Exception as e:
