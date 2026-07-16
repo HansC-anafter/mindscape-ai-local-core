@@ -187,7 +187,19 @@ async def test_browser_ready_refill_continues_bounded_blocked_release(monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_browser_saturated_ready_frontier_still_checks_resource_wait(monkeypatch):
+@pytest.mark.parametrize(
+    ("pack_id", "expected_resource_limit"),
+    [
+        ("browser_local", 4),
+        ("default_local_browser", 0),
+        ("vision_local", 0),
+    ],
+)
+async def test_only_browser_local_saturated_frontier_checks_resource_wait(
+    monkeypatch,
+    pack_id,
+    expected_resource_limit,
+):
     release_calls: list[tuple[str, int]] = []
 
     async def _record_release(name, *_args, release_limit, **_kwargs):
@@ -217,12 +229,12 @@ async def test_browser_saturated_ready_frontier_still_checks_resource_wait(monke
     store = _FakeTasksStore([])
     client = _FakeRedisClient()
     client.pending_members = [f"ready-{index}" for index in range(20)]
-    queue = _FakeRedisQueue(client, pack_id="browser_local")
+    queue = _FakeRedisQueue(client, pack_id=pack_id)
 
     await reaper._reap_redis_queues(store, queue)
 
     assert release_calls == [
         ("concurrency", 0),
         ("dependency", 0),
-        ("resource", 4),
+        ("resource", expected_resource_limit),
     ]
