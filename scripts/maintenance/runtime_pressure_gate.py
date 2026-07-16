@@ -24,12 +24,16 @@ from scripts.maintenance.runtime_pressure_gate_core import (
 )
 
 
-DEFAULT_CONTAINERS = [
+BASE_CONTAINERS = [
     "mindscape-ai-local-core-backend",
     "mindscape-ai-local-core-postgres",
     "mindscape-ai-local-core-pgbouncer",
+]
+
+FALLBACK_RUNNER_CONTAINERS = [
     "mindscape-ai-local-core-runner-default-local-browser",
     "mindscape-ai-local-core-runner-browser",
+    "mindscape-ai-local-core-runner-browser-extra",
     "mindscape-ai-local-core-runner-vision",
 ]
 
@@ -105,7 +109,7 @@ def collect_task_status_counts(
     max_running: int,
     max_pending: int,
 ) -> dict[str, Any]:
-    """Count only enough indexed rows to prove a threshold violation."""
+    """Count only enough active frontier rows to prove a threshold violation."""
 
     running_limit = max(0, int(max_running)) + 1
     pending_limit = max(0, int(max_pending)) + 1
@@ -114,6 +118,9 @@ def collect_task_status_counts(
         "(select status from tasks where status = 'running' "
         f"limit {running_limit}) union all "
         "(select status from tasks where status = 'pending' "
+        "and task_type in ('playbook_execution', 'tool_execution') "
+        "and frontier_state = 'ready' "
+        "and (blocked_reason is null or blocked_reason = '') "
         f"limit {pending_limit})"
         ") as bounded_statuses group by status order by status;"
     )
@@ -144,6 +151,7 @@ def collect_task_status_counts(
     return {
         "ok": result["ok"],
         "counts": counts,
+        "pending_semantics": "ready_unblocked_execution_frontier",
         "elapsed_seconds": result["elapsed_seconds"],
         "error": result["stderr"].strip() if not result["ok"] else "",
     }
@@ -178,6 +186,21 @@ def collect_docker_stats(
         "elapsed_seconds": result["elapsed_seconds"],
         "error": result["stderr"].strip() if not result["ok"] else "",
     }
+
+
+def resolve_runtime_stat_containers(
+    runner_capacity: dict[str, Any],
+) -> list[str]:
+    """Return every discovered runner plus the fixed runtime dependencies."""
+
+    discovered = [
+        str(row.get("container") or "").strip()
+        for row in runner_capacity.get("rows") or []
+    ]
+    runner_containers = sorted(filter(None, discovered))
+    if not runner_containers:
+        runner_containers = list(FALLBACK_RUNNER_CONTAINERS)
+    return [*BASE_CONTAINERS, *runner_containers]
 
 
 def evaluate_gate(
@@ -284,8 +307,12 @@ def main() -> int:
         max_running=thresholds.max_running,
         max_pending=thresholds.max_pending,
     )
+    runner_capacity = collect_runner_capacity(
+        run_command,
+        args.command_timeout_seconds,
+    )
     docker_stats = collect_docker_stats(
-        DEFAULT_CONTAINERS,
+        resolve_runtime_stat_containers(runner_capacity),
         timeout_seconds=args.command_timeout_seconds,
     )
     api_base = args.api_base.rstrip("/")
@@ -308,10 +335,6 @@ def main() -> int:
         args.command_timeout_seconds,
         sample_count=args.pgbouncer_samples,
         sample_interval_seconds=args.pgbouncer_sample_interval_seconds,
-    )
-    runner_capacity = collect_runner_capacity(
-        run_command,
-        args.command_timeout_seconds,
     )
     failures = evaluate_gate(
         task_status,

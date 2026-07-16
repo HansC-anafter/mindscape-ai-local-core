@@ -3,6 +3,7 @@ from scripts.maintenance.runtime_pressure_gate import (
     Thresholds,
     collect_task_status_counts,
     evaluate_gate,
+    resolve_runtime_stat_containers,
 )
 from scripts.maintenance.runtime_pressure_gate_core.database import (
     collect_pgbouncer_metrics,
@@ -129,5 +130,59 @@ def test_task_backlog_probe_is_threshold_bounded(monkeypatch):
 
     sql = captured["command"][-1]
     assert "status = 'running' limit 1" in sql
-    assert "status = 'pending' limit 1001" in sql
+    assert "status = 'pending'" in sql
+    assert "task_type in ('playbook_execution', 'tool_execution')" in sql
+    assert "frontier_state = 'ready'" in sql
+    assert "(blocked_reason is null or blocked_reason = '')" in sql
+    assert "limit 1001" in sql
     assert result["counts"] == {"pending": 1001, "running": 1}
+    assert result["pending_semantics"] == "ready_unblocked_execution_frontier"
+
+
+def test_task_backlog_probe_does_not_count_cold_or_blocked_pending_rows(monkeypatch):
+    captured = {}
+
+    def _run(command, timeout_seconds):
+        captured["sql"] = command[-1]
+        return {
+            "ok": True,
+            "stdout": "pending,17\nrunning,0\n",
+            "stderr": "",
+            "elapsed_seconds": 0.01,
+        }
+
+    monkeypatch.setattr(runtime_pressure_gate, "run_command", _run)
+
+    result = collect_task_status_counts(
+        8.0,
+        max_running=0,
+        max_pending=1000,
+    )
+
+    assert "frontier_state = 'ready'" in captured["sql"]
+    assert "blocked_reason is null" in captured["sql"]
+    assert result["counts"]["pending"] == 17
+
+
+def test_runtime_stats_cover_every_discovered_runner():
+    containers = resolve_runtime_stat_containers(
+        {
+            "ok": True,
+            "rows": [
+                {"container": "mindscape-ai-local-core-runner-vision"},
+                {"container": "mindscape-ai-local-core-runner-browser-extra"},
+                {"container": "mindscape-ai-local-core-runner-browser"},
+            ],
+        }
+    )
+
+    assert containers[:3] == [
+        "mindscape-ai-local-core-backend",
+        "mindscape-ai-local-core-postgres",
+        "mindscape-ai-local-core-pgbouncer",
+    ]
+    assert containers[3:] == [
+        "mindscape-ai-local-core-runner-browser",
+        "mindscape-ai-local-core-runner-browser-extra",
+        "mindscape-ai-local-core-runner-vision",
+    ]
