@@ -21,6 +21,7 @@ from backend.app.services.install_integrity import (  # noqa: E402
 )
 from backend.app.services.runtime_assets_installer import (  # noqa: E402
     RuntimeAssetsInstaller,
+    _build_staging_root,
 )
 
 
@@ -143,6 +144,29 @@ def test_runtime_assets_staging_root_stays_outside_watched_app_tree(
 
     assert not (capabilities_dir.parent / ".capability-install-staging").exists()
     assert not staging_base.exists()
+
+
+def test_default_staging_root_uses_local_core_data_filesystem(
+    monkeypatch,
+    tmp_path: Path,
+):
+    monkeypatch.delenv(
+        "MINDSCAPE_CAPABILITY_INSTALL_STAGING_ROOT",
+        raising=False,
+    )
+    local_core_root = tmp_path / "local-core"
+
+    staging_root = _build_staging_root(
+        "ig",
+        local_core_root=local_core_root,
+    )
+
+    expected_parent = (
+        local_core_root / "data" / "mindscape-capability-install-staging"
+    )
+    assert staging_root.parent == expected_parent
+    assert staging_root.name.startswith("ig-")
+    assert not staging_root.is_relative_to(local_core_root / "backend" / "app")
 
 
 def test_publish_staged_capability_tree_copies_across_filesystems(
