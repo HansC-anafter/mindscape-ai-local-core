@@ -26,7 +26,10 @@ class RuntimeAssetsInstallerStagingMixin:
         temp_dir: Optional[Path] = None,
     ):
         target_cap_dir = self.capabilities_dir / capability_code
-        staging_root = _build_staging_root(capability_code)
+        staging_root = _build_staging_root(
+            capability_code,
+            local_core_root=self.local_core_root,
+        )
         staging_capabilities_dir = staging_root / "capabilities"
         staging_cap_dir = staging_capabilities_dir / capability_code
 

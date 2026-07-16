@@ -5,6 +5,7 @@ import shutil
 import tempfile
 import uuid
 from pathlib import Path
+from typing import Optional
 
 SCRIPT_DIR_EXCLUDES = {
     "__pycache__",
@@ -79,12 +80,29 @@ def _iter_runtime_mirror_files(root: Path):
         yield relative_path, file_path
 
 
-def _build_staging_root(capability_code: str) -> Path:
-    """Build a staging path outside watched application source trees."""
+def _build_staging_root(
+    capability_code: str,
+    *,
+    local_core_root: Optional[Path] = None,
+) -> Path:
+    """Build a staging path on the live tree filesystem by default.
+
+    The staged capability directory is renamed into ``backend/app/capabilities``
+    during publish. Keeping the default staging root under Local Core's data
+    directory makes that rename atomic without placing transient files in the
+    watched application tree. An explicit environment override remains
+    authoritative for deployments that provide an equivalent same-filesystem
+    location.
+    """
     configured_root = os.environ.get("MINDSCAPE_CAPABILITY_INSTALL_STAGING_ROOT")
-    base_dir = (
-        Path(configured_root)
-        if configured_root
-        else Path(tempfile.gettempdir()) / "mindscape-capability-install-staging"
-    )
+    if configured_root:
+        base_dir = Path(configured_root)
+    elif local_core_root is not None:
+        base_dir = (
+            Path(local_core_root)
+            / "data"
+            / "mindscape-capability-install-staging"
+        )
+    else:
+        base_dir = Path(tempfile.gettempdir()) / "mindscape-capability-install-staging"
     return base_dir / f"{capability_code}-{uuid.uuid4().hex}"
