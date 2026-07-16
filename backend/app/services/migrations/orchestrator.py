@@ -13,6 +13,10 @@ from alembic.script import ScriptDirectory
 
 from .scanner import MigrationScanner, MigrationMetadata
 from .dependency_resolver import DependencyResolver
+from .execution_policy import (
+    apply_migration_subprocess_policy,
+    require_migration_execution_allowed,
+)
 from .runtime_locations import (
     append_runtime_version_locations,
     configure_runtime_version_locations,
@@ -403,13 +407,7 @@ class MigrationOrchestrator:
 
     def _run_alembic_upgrade(self, alembic_config: Path, revision: str) -> bool:
         """Run Alembic upgrade to a specific revision or 'head'."""
-        from backend.app.services.runtime_database_incident_gate import (
-            require_runtime_database_mutation_allowed,
-        )
-
-        require_runtime_database_mutation_allowed(
-            f"alembic_upgrade:{alembic_config.name}:{revision}"
-        )
+        require_migration_execution_allowed(alembic_config, revision)
         backend_dir = alembic_config.parent
         backend_path = str(backend_dir)
         config_path = alembic_config.as_posix()
@@ -424,11 +422,7 @@ class MigrationOrchestrator:
         # Add backend only for app imports, but after site-packages
         pythonpath_parts.append(str(backend_dir))
         env['PYTHONPATH'] = ':'.join(pythonpath_parts)
-        existing_pgoptions = env.get('PGOPTIONS', '').strip()
-        env['PGOPTIONS'] = (
-            existing_pgoptions
-            + ' -c lock_timeout=5000 -c statement_timeout=120000'
-        ).strip()
+        apply_migration_subprocess_policy(env)
 
         # Use a Python script that properly sets up the environment
         script = f"""

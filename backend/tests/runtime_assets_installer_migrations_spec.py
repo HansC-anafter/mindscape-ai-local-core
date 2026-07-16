@@ -7,6 +7,9 @@ from backend.app.database.write_readiness import (
     DatabaseWriteNotReadyError,
     DatabaseWriteReadiness,
 )
+from backend.app.services.migrations.execution_policy import (
+    apply_migration_subprocess_policy,
+)
 
 
 class _FakeOrchestrator:
@@ -54,6 +57,17 @@ class _FakeInspector:
 class _FakeRows(list):
     def fetchall(self):
         return list(self)
+
+
+def test_migration_subprocess_policy_preserves_existing_options_and_adds_bounds():
+    environment = {"PGOPTIONS": "-c application_name=migration-test"}
+
+    apply_migration_subprocess_policy(environment)
+
+    assert environment["PGOPTIONS"] == (
+        "-c application_name=migration-test "
+        "-c lock_timeout=5000 -c statement_timeout=120000"
+    )
 
 
 def test_pending_revisions_excludes_applied_ancestry():
