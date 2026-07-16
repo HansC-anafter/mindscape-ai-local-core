@@ -95,6 +95,7 @@ async def ensure_capability_activation_for_request(
             capability_code=capability_code,
             activation_service=activation_service,
         )
+        request.app.openapi_schema = None
         elapsed_ms = int((time.monotonic() - started_at) * 1000)
         if elapsed_ms >= 1000:
             logger.info(

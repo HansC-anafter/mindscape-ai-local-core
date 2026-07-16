@@ -130,6 +130,8 @@ async def test_seed_only_request_activation_uses_thread_bridge(tmp_path, monkeyp
         app=app,
         url=SimpleNamespace(path="/lazy/sample/ping"),
     )
+    assert "/lazy/sample/ping" not in app.openapi()["paths"]
+    assert app.openapi_schema is not None
 
     response = await capability_activation_middleware.ensure_capability_activation_for_request(
         request
@@ -138,6 +140,8 @@ async def test_seed_only_request_activation_uses_thread_bridge(tmp_path, monkeyp
     assert response is None
     assert len(calls) == 1
     assert calls[0][2]["capability_code"] == "sample_capability"
+    assert app.openapi_schema is None
+    assert "/lazy/sample/ping" in app.openapi()["paths"]
 
 
 @pytest.mark.asyncio
