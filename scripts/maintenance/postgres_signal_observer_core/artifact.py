@@ -1,0 +1,32 @@
+"""Canonical digest for the exact signal-observer executable source."""
+
+from __future__ import annotations
+
+import hashlib
+from pathlib import Path
+
+
+OBSERVER_SOURCE_PATHS = (
+    "scripts/maintenance/postgres_signal_observer.py",
+    "scripts/maintenance/postgres_signal_observer_core/__init__.py",
+    "scripts/maintenance/postgres_signal_observer_core/artifact.py",
+    "scripts/maintenance/postgres_signal_observer_core/evidence.py",
+    "scripts/maintenance/postgres_signal_observer_core/events.py",
+    "scripts/maintenance/postgres_signal_observer_core/pgbouncer.py",
+    "scripts/maintenance/postgres_signal_observer_core/service.py",
+    "scripts/maintenance/postgres_signal_observer_core/tracefs.py",
+)
+
+
+def canonical_observer_artifact_sha256(repo_root: Path) -> str:
+    digest = hashlib.sha256()
+    root = Path(repo_root).resolve()
+    for relative in OBSERVER_SOURCE_PATHS:
+        path = root / relative
+        if path.is_symlink() or not path.is_file():
+            raise RuntimeError(f"observer_source_unavailable:{relative}")
+        digest.update(relative.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()

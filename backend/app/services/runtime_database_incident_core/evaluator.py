@@ -67,6 +67,46 @@ class RuntimeDatabaseMutationGate:
                 reason="allowed",
                 retry_after_seconds=0,
             )
+        if current.state is IncidentState.OPEN_UNATTRIBUTED:
+            diagnostic = dict(current.diagnostic_permit or {})
+            if diagnostic:
+                operation_key = self.operation_key(operation_name, evidence)
+                allowed_keys = set(diagnostic.get("allowed_operation_keys") or ())
+                expires_at = diagnostic.get("expires_at")
+                permit_active = False
+                if expires_at:
+                    try:
+                        permit_active = _parse_timestamp(
+                            str(expires_at),
+                            field_name="diagnostic_expires_at",
+                        ) > datetime.now(timezone.utc)
+                    except ValueError:
+                        permit_active = False
+                if operation_key in allowed_keys and permit_active:
+                    return MutationDecision(
+                        allowed=True,
+                        operation=operation_name,
+                        reason="incident_diagnostic_permit",
+                        incident_id=current.incident_id,
+                        retry_after_seconds=0,
+                        details={
+                            "incident_state": current.state.value,
+                            "permit_id": diagnostic.get("permit_id"),
+                            "operation_key": operation_key,
+                        },
+                    )
+                if operation_key in allowed_keys and not permit_active:
+                    return MutationDecision(
+                        allowed=False,
+                        operation=operation_name,
+                        reason="incident_diagnostic_permit_expired",
+                        incident_id=current.incident_id,
+                        details={
+                            "incident_state": current.state.value,
+                            "permit_id": diagnostic.get("permit_id"),
+                            "operation_key": operation_key,
+                        },
+                    )
         if current.state is IncidentState.CONTAINED_PENDING_SOAK:
             containment = dict(current.containment_receipt or {})
             operation_key = self.operation_key(operation_name, evidence)

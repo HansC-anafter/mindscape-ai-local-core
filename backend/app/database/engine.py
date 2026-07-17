@@ -7,6 +7,7 @@ from .config import (
     get_postgres_url_core,
     get_postgres_url_vector,
 )
+from .application_identity import application_name_for_role
 from .engine_factory import create_transaction_engine
 
 logger = logging.getLogger(__name__)
@@ -20,7 +21,10 @@ def _init_engine(role: str, url_provider):
                 f"PostgreSQL {role} engine not initialized (missing configuration)"
             )
             return None
-        engine = create_transaction_engine(postgres_url, f"local-core-{role}")
+        engine = create_transaction_engine(
+            postgres_url,
+            application_name_for_role(role),
+        )
         logger.info(f"PostgreSQL {role} engine initialized successfully")
         return engine
     except Exception as e:

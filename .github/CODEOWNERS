@@ -9,6 +9,9 @@
 /scripts/ci/validate_modular_entrypoints.py @team-leads
 /scripts/ci/validate_product_semantics.py @team-leads
 /backend/app/database/recovery_backoff.py @team-leads
+/backend/app/database/application_identity.py @team-leads
+/backend/app/database/query_failure_evidence.py @team-leads
+/backend/app/database/query_failure_evidence_core/ @team-leads
 /backend/app/database/task_control_contract.py @team-leads
 /backend/app/runner/db_pool_pressure.py @team-leads
 /backend/app/routes/core/workspace/tasks_core/progress_snapshot.py @team-leads
@@ -32,12 +35,17 @@
 /backend/alembic_migrations/versions/ @team-leads
 /backend/alembic_migrations/postgres/versions/ @team-leads
 /scripts/maintenance/postgres_incident_gate.py @team-leads
+/scripts/maintenance/postgres_signal_observer.py @team-leads
+/scripts/maintenance/postgres_signal_observer_core/ @team-leads
+/scripts/maintenance/postgres_signal_observer_preflight.py @team-leads
+/scripts/maintenance/postgres_signal_observer_preflight_core/ @team-leads
 /scripts/maintenance/postgres_recovery_drill.py @team-leads
 /scripts/postgres_recovery_drill_core/ @team-leads
 /scripts/maintenance/runtime_pressure_gate.py @team-leads
 /scripts/maintenance/check_runtime_read_path_budget.py @team-leads
 /docker-compose.yml @team-leads
 /docker/compose/postgres-recovery-drill.yml @team-leads
+/docker/compose/postgres-signal-observer.yml @team-leads
 /docker/postgres/ @team-leads
 /docker/pgbouncer/ @team-leads
 /web-console/src/hooks/useExecutionPolling.ts @team-leads

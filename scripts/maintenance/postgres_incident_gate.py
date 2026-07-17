@@ -15,6 +15,7 @@ if str(REPO_ROOT) not in sys.path:
 from backend.app.services.runtime_database_incident_gate import (  # noqa: E402
     IncidentCloseReceipt,
     IncidentContainmentReceipt,
+    IncidentDiagnosticPermit,
     RuntimeDatabaseIncidentJournal,
     RuntimeDatabaseMutationGate,
 )
@@ -47,6 +48,17 @@ def _parser() -> argparse.ArgumentParser:
     contain.add_argument("--restore-id", required=True)
     contain.add_argument("--expires-at", required=True)
     contain.add_argument("--owner", required=True)
+
+    diagnose = commands.add_parser("diagnose")
+    diagnose.add_argument("incident_id")
+    diagnose.add_argument("--permit-id", required=True)
+    diagnose.add_argument("--source-commit", required=True)
+    diagnose.add_argument("--allowed-operation-key", action="append", required=True)
+    diagnose.add_argument("--test-evidence-path", action="append", required=True)
+    diagnose.add_argument("--isolated-drill-id", required=True)
+    diagnose.add_argument("--budget-sha256", required=True)
+    diagnose.add_argument("--expires-at", required=True)
+    diagnose.add_argument("--owner", required=True)
 
     close = commands.add_parser("close")
     close.add_argument("incident_id")
@@ -87,6 +99,20 @@ def main(argv: list[str] | None = None) -> int:
         receipt = journal.open_incident(
             failure_code=args.failure_code,
             postmaster_start_time=args.postmaster_start_time,
+        )
+    elif args.command == "diagnose":
+        receipt = journal.record_diagnostic_permit(
+            args.incident_id,
+            IncidentDiagnosticPermit(
+                permit_id=args.permit_id,
+                source_commit=args.source_commit,
+                allowed_operation_keys=tuple(args.allowed_operation_key),
+                test_evidence_paths=tuple(args.test_evidence_path),
+                isolated_drill_id=args.isolated_drill_id,
+                budget_sha256=args.budget_sha256,
+                expires_at=args.expires_at,
+                owner=args.owner,
+            ),
         )
     elif args.command == "contain":
         receipt = journal.mark_contained(

@@ -16,6 +16,7 @@ from typing import Any, Iterator, Mapping, Optional
 from .models import (
     IncidentCloseReceipt,
     IncidentContainmentReceipt,
+    IncidentDiagnosticPermit,
     IncidentReceipt,
     IncidentState,
     _parse_timestamp,
@@ -159,11 +160,36 @@ class RuntimeDatabaseIncidentJournal:
             current = self._read_current_unlocked()
             event_time = utc_now()
             if current is not None and current.state is not IncidentState.CLOSED:
+                revoked_diagnostic = current.diagnostic_permit
+                revoked_containment = current.containment_receipt
                 updated = replace(
                     current,
+                    state=IncidentState.OPEN_UNATTRIBUTED,
                     updated_at=event_time,
                     evidence_count=current.evidence_count + 1,
+                    diagnostic_permit=None,
+                    containment_receipt=None,
                 )
+                if revoked_containment is not None:
+                    self._append_event_unlocked(
+                        incident_id=current.incident_id,
+                        event={
+                            "event": "containment_revoked_by_failure",
+                            "at": event_time,
+                            "permit_id": revoked_containment.get("permit_id"),
+                            "failure_code": failure_code,
+                        },
+                    )
+                elif revoked_diagnostic is not None:
+                    self._append_event_unlocked(
+                        incident_id=current.incident_id,
+                        event={
+                            "event": "diagnostic_permit_revoked_by_failure",
+                            "at": event_time,
+                            "permit_id": revoked_diagnostic.get("permit_id"),
+                            "failure_code": failure_code,
+                        },
+                    )
                 self._append_event_unlocked(
                     incident_id=current.incident_id,
                     event={
@@ -176,9 +202,7 @@ class RuntimeDatabaseIncidentJournal:
                 self._write_current_unlocked(updated)
                 return updated
 
-            incident_id = (
-                f"postgres:{postmaster_start_time or 'unknown'}:{failure_at}"
-            )
+            incident_id = f"postgres:{postmaster_start_time or 'unknown'}:{failure_at}"
             receipt = IncidentReceipt(
                 incident_id=incident_id,
                 state=IncidentState.OPEN_UNATTRIBUTED,
@@ -199,6 +223,56 @@ class RuntimeDatabaseIncidentJournal:
             )
             self._write_current_unlocked(receipt)
             return receipt
+
+    def record_diagnostic_permit(
+        self,
+        incident_id: str,
+        diagnostic_permit: IncidentDiagnosticPermit,
+    ) -> IncidentReceipt:
+        diagnostic_permit.validate()
+        with self._lock():
+            current = self._require_current_unlocked(incident_id)
+            if current.state is not IncidentState.OPEN_UNATTRIBUTED:
+                raise IncidentTransitionError(
+                    f"Incident {incident_id} must remain open for diagnostic permit"
+                )
+            payload = diagnostic_permit.to_dict()
+            if current.diagnostic_permit == payload:
+                return current
+            if current.diagnostic_permit is not None:
+                existing_expiry = _parse_timestamp(
+                    str(current.diagnostic_permit.get("expires_at") or ""),
+                    field_name="diagnostic_expires_at",
+                )
+                if existing_expiry > datetime.now(timezone.utc):
+                    raise IncidentTransitionError(
+                        f"Incident {incident_id} already has another diagnostic permit"
+                    )
+            event_time = utc_now()
+            if current.diagnostic_permit is not None:
+                self._append_event_unlocked(
+                    incident_id=incident_id,
+                    event={
+                        "event": "diagnostic_permit_expired",
+                        "at": event_time,
+                        "permit_id": current.diagnostic_permit.get("permit_id"),
+                    },
+                )
+            updated = replace(
+                current,
+                updated_at=event_time,
+                diagnostic_permit=payload,
+            )
+            self._append_event_unlocked(
+                incident_id=incident_id,
+                event={
+                    "event": "diagnostic_permit_recorded",
+                    "at": event_time,
+                    "diagnostic_permit": payload,
+                },
+            )
+            self._write_current_unlocked(updated)
+            return updated
 
     def mark_contained(
         self,
@@ -228,6 +302,7 @@ class RuntimeDatabaseIncidentJournal:
                 current,
                 state=IncidentState.CONTAINED_PENDING_SOAK,
                 updated_at=event_time,
+                diagnostic_permit=None,
                 containment_receipt=containment_receipt.to_dict(),
             )
             self._append_event_unlocked(

@@ -3,10 +3,14 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
-SCRIPT = Path(__file__).resolve().parents[3] / "scripts/maintenance/postgres_incident_gate.py"
+SCRIPT = (
+    Path(__file__).resolve().parents[3]
+    / "scripts/maintenance/postgres_incident_gate.py"
+)
 
 
 def _run(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -80,3 +84,54 @@ def test_cli_containment_requires_exact_artifact_operation_key(
     assert json.loads(allowed.stdout)["reason"] == "containment_repair_permit"
     assert blocked.returncode == 2
     assert json.loads(blocked.stdout)["reason"] == "runtime_database_incident_contained"
+
+
+def test_cli_records_exact_open_state_diagnostic_permit(tmp_path: Path) -> None:
+    opened = _run(tmp_path, "open", "postgres_server_closed_unexpectedly")
+    incident_id = json.loads(opened.stdout)["incident_id"]
+    artifact_sha256 = "b" * 64
+    operation_key = f"postgres_signal_observer_start@sha256:{artifact_sha256}"
+    expires_at = (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()
+
+    diagnosed = _run(
+        tmp_path,
+        "diagnose",
+        incident_id,
+        "--permit-id",
+        "diagnostic-001",
+        "--source-commit",
+        "0123456789abcdef",
+        "--allowed-operation-key",
+        operation_key,
+        "--test-evidence-path",
+        "evidence/observer-tests.json",
+        "--isolated-drill-id",
+        "signal-drill-001",
+        "--budget-sha256",
+        "c" * 64,
+        "--expires-at",
+        expires_at,
+        "--owner",
+        "team-leads",
+    )
+    allowed = _run(
+        tmp_path,
+        "evaluate",
+        "postgres_signal_observer_start",
+        "--artifact-sha256",
+        artifact_sha256,
+    )
+    v52 = _run(
+        tmp_path,
+        "evaluate",
+        "remote_live_practice_v52_diagnostic_retry",
+        "--artifact-sha256",
+        artifact_sha256,
+    )
+
+    assert diagnosed.returncode == 0
+    assert json.loads(diagnosed.stdout)["state"] == "open_unattributed"
+    assert allowed.returncode == 0
+    assert json.loads(allowed.stdout)["reason"] == "incident_diagnostic_permit"
+    assert v52.returncode == 2
+    assert json.loads(v52.stdout)["reason"] == "runtime_database_incident_open"

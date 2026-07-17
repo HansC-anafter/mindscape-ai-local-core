@@ -10,6 +10,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.pool import NullPool
 
 from app.database.config import get_engine_kwargs
+from backend.app.database.query_failure_evidence import attach_query_failure_evidence
 
 
 def _application_name(application_name: str | None) -> str:
@@ -54,7 +55,12 @@ def create_transaction_engine(
     kwargs = _with_connect_args(get_engine_kwargs(), connect_args)
     kwargs = _with_application_name(kwargs, application_name)
     kwargs.update(engine_options or {})
-    return create_engine(url, **kwargs)
+    engine = create_engine(url, **kwargs)
+    attach_query_failure_evidence(
+        engine,
+        application_name=_application_name(application_name),
+    )
+    return engine
 
 
 def create_readonly_transaction_engine(
@@ -94,7 +100,12 @@ def create_transient_transaction_engine(
         application_name,
     )
     kwargs.update(engine_options or {})
-    return create_engine(url, **kwargs)
+    engine = create_engine(url, **kwargs)
+    attach_query_failure_evidence(
+        engine,
+        application_name=_application_name(application_name),
+    )
+    return engine
 
 
 def create_session_semantics_engine(
@@ -118,4 +129,9 @@ def create_session_semantics_engine(
         application_name,
     )
     kwargs.update(engine_options or {})
-    return create_engine(url, **kwargs)
+    engine = create_engine(url, **kwargs)
+    attach_query_failure_evidence(
+        engine,
+        application_name=_application_name(application_name),
+    )
+    return engine

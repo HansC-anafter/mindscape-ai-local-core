@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -9,6 +10,7 @@ import pytest
 from backend.app.services.runtime_database_incident_gate import (
     IncidentCloseReceipt,
     IncidentContainmentReceipt,
+    IncidentDiagnosticPermit,
     IncidentState,
     IncidentTransitionError,
     RuntimeDatabaseIncidentJournal,
@@ -41,6 +43,25 @@ def _containment_receipt() -> IncidentContainmentReceipt:
         test_evidence_paths=("evidence/source-tests.json", "evidence/restore.json"),
         restore_id="restore-preflight-001",
         expires_at="2099-07-17T00:00:00Z",
+        owner="team-leads",
+    )
+
+
+def _diagnostic_permit(
+    *,
+    artifact_sha256: str = "b" * 64,
+) -> IncidentDiagnosticPermit:
+    expires_at = (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()
+    return IncidentDiagnosticPermit(
+        permit_id="diagnostic-001",
+        source_commit="0123456789abcdef",
+        allowed_operation_keys=(
+            f"postgres_signal_observer_start@sha256:{artifact_sha256}",
+        ),
+        test_evidence_paths=("evidence/observer-tests.json",),
+        isolated_drill_id="signal-drill-001",
+        budget_sha256="c" * 64,
+        expires_at=expires_at,
         owner="team-leads",
     )
 
@@ -161,6 +182,96 @@ def test_containment_receipt_rejects_wildcards_and_expiry(tmp_path: Path) -> Non
         )
 
 
+def test_open_incident_allows_only_exact_diagnostic_operation(
+    tmp_path: Path,
+) -> None:
+    journal = RuntimeDatabaseIncidentJournal(tmp_path)
+    incident = journal.open_incident(failure_code="unexpected_close")
+    permit = _diagnostic_permit()
+    current = journal.record_diagnostic_permit(incident.incident_id, permit)
+    gate = RuntimeDatabaseMutationGate(tmp_path)
+
+    allowed = gate.evaluate(
+        "postgres_signal_observer_start",
+        {"artifact_sha256": "b" * 64},
+    )
+    wrong_digest = gate.evaluate(
+        "postgres_signal_observer_start",
+        {"artifact_sha256": "d" * 64},
+    )
+    v52 = gate.evaluate(
+        "remote_live_practice_v52_diagnostic_retry",
+        {"artifact_sha256": "b" * 64},
+    )
+
+    assert current.state is IncidentState.OPEN_UNATTRIBUTED
+    assert current.diagnostic_permit == permit.to_dict()
+    assert allowed.allowed is True
+    assert allowed.reason == "incident_diagnostic_permit"
+    assert wrong_digest.allowed is False
+    assert wrong_digest.reason == "runtime_database_incident_open"
+    assert v52.allowed is False
+    assert v52.reason == "runtime_database_incident_open"
+
+
+def test_diagnostic_permit_rejects_non_observer_operation_and_long_duration() -> None:
+    permit = _diagnostic_permit()
+    with pytest.raises(ValueError, match="operation_key_not_allowed"):
+        IncidentDiagnosticPermit(
+            **{
+                **permit.__dict__,
+                "allowed_operation_keys": (
+                    "remote_live_practice_v52_diagnostic_retry@sha256:" + "b" * 64,
+                ),
+            }
+        ).validate()
+
+    with pytest.raises(ValueError, match="duration_exceeds_30_minutes"):
+        IncidentDiagnosticPermit(
+            **{
+                **permit.__dict__,
+                "expires_at": (
+                    datetime.now(timezone.utc) + timedelta(minutes=31)
+                ).isoformat(),
+            }
+        ).validate()
+
+
+def test_new_failure_revokes_diagnostic_and_containment_permits(
+    tmp_path: Path,
+) -> None:
+    journal = RuntimeDatabaseIncidentJournal(tmp_path)
+    incident = journal.open_incident(failure_code="unexpected_close")
+    journal.record_diagnostic_permit(incident.incident_id, _diagnostic_permit())
+
+    after_diagnostic_failure = journal.open_incident(
+        failure_code="postgres_server_closed_unexpectedly",
+        evidence={"source": "test"},
+    )
+    assert after_diagnostic_failure.state is IncidentState.OPEN_UNATTRIBUTED
+    assert after_diagnostic_failure.diagnostic_permit is None
+
+    journal.mark_contained(incident.incident_id, _containment_receipt())
+    after_contained_failure = journal.open_incident(
+        failure_code="postgres_server_closed_unexpectedly",
+        evidence={"source": "test"},
+    )
+    assert after_contained_failure.state is IncidentState.OPEN_UNATTRIBUTED
+    assert after_contained_failure.containment_receipt is None
+    assert (
+        RuntimeDatabaseMutationGate(tmp_path).evaluate("backend_restart").allowed
+        is False
+    )
+
+    events_path = next((tmp_path / "incidents").iterdir()) / "events.jsonl"
+    event_names = [
+        json.loads(line)["event"]
+        for line in events_path.read_text(encoding="utf-8").splitlines()
+    ]
+    assert "diagnostic_permit_revoked_by_failure" in event_names
+    assert "containment_revoked_by_failure" in event_names
+
+
 def test_close_rejects_unattributed_deep_trigger() -> None:
     with pytest.raises(ValueError, match="requires_attributed"):
         IncidentCloseReceipt(
@@ -194,7 +305,10 @@ def test_cross_caller_concurrency_appends_to_one_incident(tmp_path: Path) -> Non
     assert len(digest_dirs) == 1
     events = (digest_dirs[0] / "events.jsonl").read_text(encoding="utf-8").splitlines()
     assert len(events) == 24
-    assert all(json.loads(line)["event"] in {"incident_opened", "failure_observed"} for line in events)
+    assert all(
+        json.loads(line)["event"] in {"incident_opened", "failure_observed"}
+        for line in events
+    )
 
 
 def test_corrupt_current_receipt_fails_mutation_gate_closed(tmp_path: Path) -> None:
