@@ -13,7 +13,14 @@ from alembic.script import ScriptDirectory
 
 from .scanner import MigrationScanner, MigrationMetadata
 from .dependency_resolver import DependencyResolver
-from .runtime_locations import configure_runtime_version_locations
+from .execution_policy import (
+    apply_migration_subprocess_policy,
+    require_migration_execution_allowed,
+)
+from .runtime_locations import (
+    append_runtime_version_locations,
+    configure_runtime_version_locations,
+)
 from .validator import MigrationValidator
 
 logger = logging.getLogger(__name__)
@@ -29,7 +36,12 @@ class MigrationStatus(Enum):
 class MigrationOrchestrator:
     """Orchestrates migrations across multiple capabilities and databases."""
 
-    def __init__(self, capabilities_root: Path, alembic_configs: Dict[str, Path]):
+    def __init__(
+        self,
+        capabilities_root: Path,
+        alembic_configs: Dict[str, Path],
+        extra_version_locations: list[Path] | None = None,
+    ):
         """
         Args:
             capabilities_root: Root directory containing capabilities
@@ -40,6 +52,9 @@ class MigrationOrchestrator:
         self.scanner = MigrationScanner(capabilities_root)
         self.dependency_resolver = DependencyResolver()
         self.validator = MigrationValidator()
+        self.extra_version_locations = [
+            Path(path).resolve() for path in (extra_version_locations or [])
+        ]
 
     def dry_run(self, db_type: str) -> Dict:
         """Perform a dry-run to show what migrations would be executed."""
@@ -383,6 +398,7 @@ class MigrationOrchestrator:
                 capabilities_root=self.capabilities_root,
                 db_type=db_type,
             )
+            append_runtime_version_locations(config, self.extra_version_locations)
 
             return ScriptDirectory.from_config(config)
         except Exception as e:
@@ -391,6 +407,7 @@ class MigrationOrchestrator:
 
     def _run_alembic_upgrade(self, alembic_config: Path, revision: str) -> bool:
         """Run Alembic upgrade to a specific revision or 'head'."""
+        require_migration_execution_allowed(alembic_config, revision)
         backend_dir = alembic_config.parent
         backend_path = str(backend_dir)
         config_path = alembic_config.as_posix()
@@ -405,6 +422,7 @@ class MigrationOrchestrator:
         # Add backend only for app imports, but after site-packages
         pythonpath_parts.append(str(backend_dir))
         env['PYTHONPATH'] = ':'.join(pythonpath_parts)
+        apply_migration_subprocess_policy(env)
 
         # Use a Python script that properly sets up the environment
         script = f"""
@@ -434,7 +452,10 @@ os.chdir(backend_path)
 # Now import and execute
 from alembic.config import Config
 from alembic import command
-from app.services.migrations.runtime_locations import configure_runtime_version_locations
+from app.services.migrations.runtime_locations import (
+    append_runtime_version_locations,
+    configure_runtime_version_locations,
+)
 
 config = Config('{config_path}')
 script_location = config.get_main_option('script_location')
@@ -447,6 +468,10 @@ configure_runtime_version_locations(
     config,
     capabilities_root=Path('{capabilities_root}'),
     db_type='postgres',
+)
+append_runtime_version_locations(
+    config,
+    {repr([path.as_posix() for path in self.extra_version_locations])},
 )
 command.upgrade(config, '{revision}')
 """

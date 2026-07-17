@@ -13,9 +13,14 @@ Steps:
   3. Run Alembic migrations to create/update tables
 """
 import os
+import subprocess
 import sys
 import time
-import subprocess
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 
 def _parse_bool(value):
@@ -58,8 +63,10 @@ def ensure_databases():
     vector_db = os.getenv("POSTGRES_VECTOR_DB", "mindscape_vectors")
 
     if pg_host == "pgbouncer" or pg_port == 6432:
+        from backend.scripts.preflight_db_core import run_bounded_database_probe
+
         for db_name in [core_db, vector_db]:
-            try:
+            def _probe_database():
                 conn = psycopg2.connect(
                     host=pg_host,
                     port=pg_port,
@@ -72,12 +79,17 @@ def ensure_databases():
                 cur.execute("SELECT 1")
                 cur.close()
                 conn.close()
-                print(f"[preflight] Database '{db_name}' reachable via PgBouncer")
-            except Exception as exc:
+                return True
+
+            probe, _ = run_bounded_database_probe(_probe_database)
+            if probe.state.value != "ready":
                 print(
-                    f"[preflight] PgBouncer database check failed for {db_name}: {exc}"
+                    "[preflight] PgBouncer database check did not become ready: "
+                    f"database={db_name} state={probe.state.value} "
+                    f"attempts={probe.attempts} code={probe.failure_code}"
                 )
                 return False
+            print(f"[preflight] Database '{db_name}' reachable via PgBouncer")
 
         try:
             vconn = psycopg2.connect(
@@ -96,6 +108,7 @@ def ensure_databases():
             print("[preflight] pgvector extension verified")
         except Exception as ext_err:
             print(f"[preflight] pgvector extension check failed: {ext_err}")
+            return False
 
         print("[preflight] Database preflight check passed")
         return True
@@ -143,6 +156,7 @@ def ensure_databases():
                 print("[preflight] pgvector extension verified")
             except Exception as ext_err:
                 print(f"[preflight] pgvector extension check failed: {ext_err}")
+                return False
 
             print("[preflight] Database preflight check passed")
             return True
@@ -162,6 +176,20 @@ def ensure_databases():
 
 def run_migrations():
     """Run Alembic migrations to ensure all tables exist."""
+    from backend.app.services.runtime_database_incident_gate import (
+        RuntimeDatabaseMutationBlocked,
+        require_runtime_database_mutation_allowed,
+    )
+
+    try:
+        require_runtime_database_mutation_allowed("startup_alembic_migration")
+    except RuntimeDatabaseMutationBlocked as exc:
+        print(
+            "[preflight] Migration blocked by runtime database incident gate: "
+            f"reason={exc.decision.reason} incident_id={exc.decision.incident_id}"
+        )
+        return False
+
     # Determine paths inside Docker container
     backend_dir = "/app/backend"
     alembic_ini = os.path.join(backend_dir, "alembic.postgres.ini")
@@ -213,13 +241,24 @@ def run_migrations():
         return False
 
 
-def verify_critical_tables():
-    """Verify that critical PostgreSQL tables exist. Returns True if all OK."""
+def verify_critical_tables_state():
+    """Return a typed result; connection failure is never called schema missing."""
+    from backend.scripts.preflight_db_core import (
+        DatabaseProbeResult,
+        DatabaseProbeState,
+        run_bounded_database_probe,
+    )
+
     try:
         import psycopg2
     except ImportError:
         print("[preflight] psycopg2 not available, skipping table verification")
-        return True  # Can't verify, let startup_event handle it
+        return DatabaseProbeResult(
+            state=DatabaseProbeState.UNAVAILABLE,
+            attempts=0,
+            elapsed_seconds=0.0,
+            failure_code="psycopg2_unavailable",
+        )
 
     critical_tables = ["profiles", "workspaces", "system_settings", "user_configs"]
 
@@ -232,7 +271,7 @@ def verify_critical_tables():
     )
     core_db = os.getenv("POSTGRES_CORE_DB", "mindscape_core")
 
-    try:
+    def _probe_tables():
         conn = psycopg2.connect(
             host=pg_host,
             port=pg_port,
@@ -255,17 +294,33 @@ def verify_critical_tables():
                 missing.append(table)
         cur.close()
         conn.close()
+        return tuple(missing)
 
-        if missing:
-            print(f"[preflight] CRITICAL: Missing tables: {', '.join(missing)}")
-            return False
-        else:
-            print(f"[preflight] All {len(critical_tables)} critical tables verified")
-            return True
+    probe, missing = run_bounded_database_probe(_probe_tables)
+    if probe.state is not DatabaseProbeState.READY:
+        print(
+            "[preflight] Table catalog unavailable: "
+            f"state={probe.state.value} attempts={probe.attempts} "
+            f"code={probe.failure_code}"
+        )
+        return probe
+    if missing:
+        print(f"[preflight] CRITICAL: Missing tables: {', '.join(missing)}")
+        return DatabaseProbeResult(
+            state=DatabaseProbeState.SCHEMA_MISSING,
+            attempts=probe.attempts,
+            elapsed_seconds=probe.elapsed_seconds,
+            missing_tables=tuple(missing),
+        )
+    print(f"[preflight] All {len(critical_tables)} critical tables verified")
+    return probe
 
-    except Exception as e:
-        print(f"[preflight] Table verification failed: {e}")
-        return False
+
+def verify_critical_tables():
+    """Compatibility bool facade for callers that do not need typed exits."""
+    from backend.scripts.preflight_db_core import DatabaseProbeState
+
+    return verify_critical_tables_state().state is DatabaseProbeState.READY
 
 
 if __name__ == "__main__":
@@ -277,76 +332,27 @@ if __name__ == "__main__":
             migration_ok = run_migrations()
             if not migration_ok:
                 print("[preflight] WARNING: Alembic migration returned failure")
-                # Clean up stale alembic_version entries if tables are missing
-                # This handles the case where a previous failed migration left
-                # partial state (e.g. some tables created, version stamped, but
-                # subsequent migrations failed). Without cleanup, Alembic would
-                # skip already-stamped migrations and still fail.
-                try:
-                    import psycopg2
-                    from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
-
-                    pg_host = os.getenv(
-                        "POSTGRES_CORE_HOST", os.getenv("POSTGRES_HOST", "postgres")
-                    )
-                    pg_port = int(
-                        os.getenv("POSTGRES_CORE_PORT", os.getenv("POSTGRES_PORT", "5432"))
-                    )
-                    pg_user = os.getenv(
-                        "POSTGRES_CORE_USER", os.getenv("POSTGRES_USER", "mindscape")
-                    )
-                    pg_pass = os.getenv(
-                        "POSTGRES_CORE_PASSWORD",
-                        os.getenv("POSTGRES_PASSWORD", "mindscape_password"),
-                    )
-                    core_db = os.getenv("POSTGRES_CORE_DB", "mindscape_core")
-
-                    conn = psycopg2.connect(
-                        host=pg_host,
-                        port=pg_port,
-                        user=pg_user,
-                        password=pg_pass,
-                        dbname=core_db,
-                        connect_timeout=5,
-                    )
-                    conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
-                    cur = conn.cursor()
-
-                    # Check if alembic_version exists and has entries
-                    cur.execute(
-                        "SELECT EXISTS ("
-                        "  SELECT 1 FROM information_schema.tables"
-                        "  WHERE table_name = 'alembic_version' AND table_schema = 'public'"
-                        ")"
-                    )
-                    if cur.fetchone()[0]:
-                        cur.execute("SELECT version_num FROM alembic_version")
-                        versions = [r[0] for r in cur.fetchall()]
-                        if versions:
-                            print(
-                                f"[preflight] Cleaning stale alembic_version entries: {versions}"
-                            )
-                            cur.execute("DELETE FROM alembic_version")
-
-                    cur.close()
-                    conn.close()
-
-                    # Retry migration after cleanup
-                    print("[preflight] Retrying Alembic migration after cleanup...")
-                    migration_ok = run_migrations()
-                    if migration_ok:
-                        print("[preflight] Migration succeeded on retry")
-                except Exception as e:
-                    print(f"[preflight] Cleanup/retry failed: {e}")
+                print(
+                    "[preflight] Alembic history is append-only; diagnose the graph "
+                    "and apply a corrective revision before retrying."
+                )
     else:
         print("[preflight] Skipping migrations since database setup failed")
 
     # Verify critical tables exist regardless of migration result
-    tables_ok = verify_critical_tables()
-    if not tables_ok:
+    from backend.scripts.preflight_db_core import DatabaseProbeState
+
+    table_probe = verify_critical_tables_state()
+    if table_probe.state is DatabaseProbeState.SCHEMA_MISSING:
         print("[preflight] FATAL: Critical tables missing after migration!")
         print("[preflight] The application cannot start without these tables.")
         print("[preflight] Check PostgreSQL connection and Alembic configuration.")
         sys.exit(1)
+    if table_probe.state is not DatabaseProbeState.READY:
+        print(
+            "[preflight] FATAL: Database remained unavailable after bounded wait; "
+            f"state={table_probe.state.value} code={table_probe.failure_code}"
+        )
+        sys.exit(75)
 
     print("[preflight] Preflight complete, starting application...")

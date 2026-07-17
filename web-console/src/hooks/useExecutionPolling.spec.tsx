@@ -7,6 +7,7 @@ import {
   resolveExecutionPollingIntervalMs,
   useExecutionPolling,
 } from './useExecutionPolling';
+import { resolveExecutionPollingDelayMs } from './executionPollingPolicy';
 
 
 describe('useExecutionPolling helpers', () => {
@@ -26,6 +27,17 @@ describe('useExecutionPolling helpers', () => {
   it('backs off the fallback interval while the page is hidden', () => {
     expect(resolveExecutionPollingIntervalMs(1000, false)).toBe(1000);
     expect(resolveExecutionPollingIntervalMs(1000, true)).toBe(30000);
+  });
+
+  it('uses 10/20/30 second failure backoff and honors longer Retry-After', () => {
+    expect(resolveExecutionPollingDelayMs({ baseIntervalMs: 1000, consecutiveFailures: 1 })).toBe(10000);
+    expect(resolveExecutionPollingDelayMs({ baseIntervalMs: 1000, consecutiveFailures: 2 })).toBe(20000);
+    expect(resolveExecutionPollingDelayMs({ baseIntervalMs: 1000, consecutiveFailures: 4 })).toBe(30000);
+    expect(resolveExecutionPollingDelayMs({
+      baseIntervalMs: 1000,
+      consecutiveFailures: 2,
+      retryAfterMs: 45000,
+    })).toBe(45000);
   });
 });
 
@@ -66,7 +78,27 @@ describe('useExecutionPolling', () => {
     expect(pollFn).toHaveBeenCalledTimes(2);
   });
 
-  it('uses hidden-page backoff for fallback polling', async () => {
+  it('stops fallback polling when the poll result reports terminal status', async () => {
+    const pollFn = vi.fn(async () => ({ status: 'completed' }));
+
+    renderHook(() => useExecutionPolling({
+      executionId: 'exec-1',
+      workspaceId: 'workspace-1',
+      apiUrl: '',
+      onUpdate: vi.fn(),
+      executionStatus: 'running',
+      pollIntervalMs: 1000,
+      enableSSE: false,
+      enablePollingFallback: true,
+      pollFn,
+    }));
+
+    await act(async () => Promise.resolve());
+    await act(async () => vi.advanceTimersByTimeAsync(60_000));
+    expect(pollFn).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops fallback polling while hidden and probes once when visible', async () => {
     const originalVisibilityState = document.visibilityState;
     Object.defineProperty(document, 'visibilityState', {
       configurable: true,
@@ -86,12 +118,16 @@ describe('useExecutionPolling', () => {
       pollFn,
     }));
 
-    expect(pollFn).toHaveBeenCalledTimes(1);
-    await act(async () => vi.advanceTimersByTimeAsync(29999));
-    expect(pollFn).toHaveBeenCalledTimes(1);
+    expect(pollFn).toHaveBeenCalledTimes(0);
+    await act(async () => vi.advanceTimersByTimeAsync(60_000));
+    expect(pollFn).toHaveBeenCalledTimes(0);
 
-    await act(async () => vi.advanceTimersByTimeAsync(1));
-    expect(pollFn).toHaveBeenCalledTimes(2);
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      value: 'visible',
+    });
+    await act(async () => document.dispatchEvent(new Event('visibilitychange')));
+    expect(pollFn).toHaveBeenCalledTimes(1);
 
     Object.defineProperty(document, 'visibilityState', {
       configurable: true,

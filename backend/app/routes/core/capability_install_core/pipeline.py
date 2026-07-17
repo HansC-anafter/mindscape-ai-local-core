@@ -1,5 +1,6 @@
 import logging
 import os
+import uuid
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -12,35 +13,32 @@ from backend.app.database.write_readiness import (
     check_core_write_readiness,
     ensure_core_write_ready,
 )
-from app.services.pack_activation_service import PackActivationService
-from app.services.capability_pack_route_cache import (
-    clear_installed_capability_metadata_caches,
-)
-from app.services.stores.installed_packs_store import InstalledPacksStore
 from .paths import (
-    OVERWRITE_CONFIRMATION_PHRASE,
-    OVERWRITE_REVIEW_CONFIRMATION_PHRASE,
-    _build_dirty_overwrite_detail,
     _ensure_sys_path,
     _handle_dev_mode_reload_trigger,
     _resolve_local_core_root,
-    _utc_now,
+)
+from .install_commit_core.dirty_state import validate_existing_install_dirty_state
+from .install_commit_coordinator import InstallCommitCoordinator
+from .install_commit_core.candidate_metadata import build_candidate_metadata
+from .install_commit_core.requirement_preflight import (
+    validate_atomic_install_requirements,
 )
 from .pipeline_followup import run_post_install_followups
 from .pipeline_registry_reload import reload_capability_registry_modules
 from .registry_sync import (
     _defer_restart_webhook_if_blocked,
-    _sync_install_time_registries,
+    _preview_install_time_registries,
 )
 from .restart_policy import (
-    apply_restart_decision_to_payload,
     build_install_restart_decision,
 )
 from .schemas import InstallPipelineResult
+from backend.app.services.pack_install_version_preflight import (
+    validate_existing_pack_version_truth,
+)
 
 logger = logging.getLogger(__name__)
-installed_packs_store = InstalledPacksStore()
-pack_activation_service = PackActivationService()
 
 
 async def run_install_pipeline(
@@ -59,18 +57,14 @@ async def run_install_pipeline(
     from app.services.manifest_validator import ManifestValidator
     from app.services.playbook_installer import PlaybookInstaller
     from app.services.runtime_assets_installer import RuntimeAssetsInstaller
-    from app.services.post_install import PostInstallHandler
     from app.services.install_result import InstallResult
-    from backend.app.services.model_route_slot_registry import (
-        ModelRouteSlotRegistry,
-    )
-
     local_core_root = _resolve_local_core_root()
     capabilities_dir = local_core_root / "backend" / "app" / "capabilities"
     specs_dir = local_core_root / "backend" / "playbooks" / "specs"
     i18n_base_dir = local_core_root / "backend" / "i18n" / "playbooks"
 
     pipeline = InstallPipelineResult()
+    commit_coordinator: Optional[InstallCommitCoordinator] = None
 
     # 1. Extract mindpack
     extractor = MindpackExtractor(local_core_root)
@@ -119,87 +113,70 @@ async def run_install_pipeline(
                 detail=f"Manifest validation failed: {validation_errors}",
             )
 
-        # 2.5. Dirty-state check
         existing_cap_dir = capabilities_dir / capability_code
+        await validate_existing_install_dirty_state(
+            existing_cap_dir=existing_cap_dir,
+            candidate_cap_dir=cap_dir,
+            capability_code=capability_code,
+            incoming_version=pipeline.version,
+            allow_overwrite=allow_overwrite,
+            overwrite_review_confirmation=overwrite_review_confirmation,
+            run_in_threadpool_func=run_in_threadpool,
+        )
         if existing_cap_dir.exists():
-            try:
-                from app.services.install_integrity import (
-                    build_dirty_review_payload,
-                    check_dirty_state,
+            await run_in_threadpool(
+                validate_existing_pack_version_truth,
+                capability_code=capability_code,
+                candidate_manifest_path=manifest_path,
+                live_manifest_path=existing_cap_dir / "manifest.yaml",
+                artifact_sha256=str(
+                    (extra_metadata or {}).get("archive_sha256") or ""
                 )
+                or None,
+                backout=(extra_metadata or {}).get("backout_receipt"),
+            )
 
-                dirty = await run_in_threadpool(check_dirty_state, existing_cap_dir)
-                if dirty.is_dirty:
-                    review_payload = await run_in_threadpool(
-                        build_dirty_review_payload,
-                        existing_cap_dir,
-                        cap_dir,
-                        dirty,
-                    )
-                    if not allow_overwrite:
-                        raise HTTPException(
-                            status_code=409,
-                            detail=_build_dirty_overwrite_detail(
-                                dirty=dirty,
-                                incoming_version=pipeline.version,
-                                review_payload=review_payload,
-                                error="local_modifications_detected",
-                                message=(
-                                    f"{capability_code}: {len(dirty.modified)} modified, "
-                                    f"{len(dirty.added)} added, {len(dirty.deleted)} deleted "
-                                    f"since v{dirty.installed_version} install"
-                                ),
-                                hint=(
-                                    "Review the per-file diffs first. Only if every local change "
-                                    "is already reflected in cloud source, resubmit with "
-                                    "allow_overwrite=true, "
-                                    f"overwrite_confirmation={OVERWRITE_CONFIRMATION_PHRASE}, and "
-                                    "overwrite_review_confirmation="
-                                    f"{OVERWRITE_REVIEW_CONFIRMATION_PHRASE}."
-                                ),
-                            ),
-                        )
-                    if (
-                        str(overwrite_review_confirmation or "").strip()
-                        != OVERWRITE_REVIEW_CONFIRMATION_PHRASE
-                    ):
-                        raise HTTPException(
-                            status_code=409,
-                            detail=_build_dirty_overwrite_detail(
-                                dirty=dirty,
-                                incoming_version=pipeline.version,
-                                review_payload=review_payload,
-                                error="overwrite_review_confirmation_required",
-                                message=(
-                                    "Force overwrite is blocked until local modification diffs "
-                                    "are reviewed."
-                                ),
-                                hint=(
-                                    "Inspect each diff item. If the incoming pack does not omit "
-                                    "required local-core fixes, resubmit with "
-                                    "allow_overwrite=true, "
-                                    f"overwrite_confirmation={OVERWRITE_CONFIRMATION_PHRASE}, and "
-                                    "overwrite_review_confirmation="
-                                    f"{OVERWRITE_REVIEW_CONFIRMATION_PHRASE}."
-                                ),
-                            ),
-                        )
-                    logger.warning(
-                        "Force overwriting %s with local modifications: %s",
-                        capability_code,
-                        dirty.summary(),
-                    )
-            except ImportError:
-                logger.warning(
-                    "install_integrity module not available, skipping dirty check"
-                )
+        requirement_blockers = await run_in_threadpool(
+            validate_atomic_install_requirements,
+            local_core_root=local_core_root,
+            candidate_dir=cap_dir,
+            manifest=manifest,
+        )
+        if requirement_blockers:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error_code": "pack_atomic_requirement_preflight_failed",
+                    "blockers": requirement_blockers,
+                },
+            )
 
         # 3. Install playbooks + runtime
         result = InstallResult(capability_code=capability_code)
         result.warnings.extend(validation_warnings)
 
+        runtime_installer = RuntimeAssetsInstaller(
+            local_core_root=local_core_root, capabilities_dir=capabilities_dir
+        )
+        install_id = str((extra_metadata or {}).get("install_id") or uuid.uuid4().hex)
+        commit_coordinator = InstallCommitCoordinator(
+            install_id=install_id,
+            capability_code=capability_code,
+            runtime_installer=runtime_installer,
+        )
+        prepared = await run_in_threadpool(
+            commit_coordinator.prepare,
+            cap_dir=cap_dir,
+            manifest=manifest,
+            result=result,
+            temp_dir=temp_dir,
+        )
+
+        # Validate and materialize playbooks only inside the retained candidate.
+        # Global legacy paths are non-authoritative and must never be mutated
+        # before the single install truth commit.
         playbook_installer = PlaybookInstaller()
-        playbook_installer.capabilities_dir = capabilities_dir
+        playbook_installer.capabilities_dir = prepared.staging_cap_dir.parent
         playbook_installer.specs_dir = specs_dir
         playbook_installer.i18n_base_dir = i18n_base_dir
         playbook_installer.local_core_root = local_core_root
@@ -209,24 +186,11 @@ async def run_install_pipeline(
             capability_code,
             manifest,
             result,
+            write_legacy_compatibility=False,
         )
 
-        runtime_installer = RuntimeAssetsInstaller(
-            local_core_root=local_core_root, capabilities_dir=capabilities_dir
-        )
         await run_in_threadpool(
-            runtime_installer.install_all,
-            cap_dir,
-            capability_code,
-            manifest,
-            result,
-            temp_dir,
-        )
-
-        # Migrations
-        await run_in_threadpool(
-            runtime_installer.execute_migrations,
-            capability_code,
+            commit_coordinator.execute_candidate_migrations,
             result,
         )
         if hasattr(result, "migration_status") and result.migration_status:
@@ -237,7 +201,7 @@ async def run_install_pipeline(
                         operation=f"capability_pack_migration:{capability_code}"
                     )
                 )
-            if mig in ("failed", "error"):
+            if mig in ("failed", "error", "waiting_db_incident"):
                 result.add_error(
                     f"Migration execution failed for {capability_code}: {mig}"
                 )
@@ -245,26 +209,15 @@ async def run_install_pipeline(
                 logger.info(f"Successfully executed migrations for {capability_code}")
         else:
             logger.warning(f"Migration status not available for {capability_code}")
-
-        # Post-install hooks required for pack readiness. Playbook validation
-        # runs as a resumable background task so install responses do not block
-        # on every validation subprocess.
-        post_handler = PostInstallHandler(
-            local_core_root=local_core_root,
-            capabilities_dir=capabilities_dir,
-            specs_dir=specs_dir,
-            validate_tools_direct_call_func=playbook_installer._validate_tools_direct_call,
-        )
-        await run_in_threadpool(
-            post_handler.run_required_tasks,
-            cap_dir,
-            capability_code,
-            manifest,
-            result,
-        )
+        if result.has_errors():
+            raise HTTPException(
+                status_code=400,
+                detail=result.errors[0],
+            )
+        await run_in_threadpool(commit_coordinator.publish)
 
         registry_sync_state = await run_in_threadpool(
-            _sync_install_time_registries,
+            _preview_install_time_registries,
             local_core_root=local_core_root,
             capability_code=capability_code,
             manifest=manifest,
@@ -348,110 +301,50 @@ async def run_install_pipeline(
         # 6. Register in installed_packs table
         correct_backend = local_core_root / "backend"
         target_dir = correct_backend / "app" / "capabilities" / capability_code
-
-        pack_metadata = {"version": pipeline.version}
-        if extra_metadata:
-            pack_metadata.update(extra_metadata)
-        pack_metadata = apply_restart_decision_to_payload(
-            pack_metadata,
-            pipeline.restart_decision,
-        )
-
         installed_manifest_path = target_dir / "manifest.yaml"
-        if installed_manifest_path.exists():
-            try:
-                with open(installed_manifest_path, "r", encoding="utf-8") as f:
-                    inst_manifest = yaml.safe_load(f)
-                pack_metadata["side_effect_level"] = inst_manifest.get(
-                    "side_effect_level"
-                )
-                pack_metadata["version"] = inst_manifest.get(
-                    "version", pipeline.version
-                )
-            except Exception:
-                pass
-
-        try:
-            route_slots = ModelRouteSlotRegistry().extract_pack_slots_from_manifest(
-                pack_id=capability_code,
-                pack_meta=manifest,
-                manifest_path=(
-                    str(installed_manifest_path)
-                    if installed_manifest_path.exists()
-                    else str(manifest_path)
-                ),
-                installed=True,
-                enabled=True,
-            )
-            pack_metadata["model_route_slots"] = route_slots
-            pack_metadata["model_route_slot_count"] = len(route_slots)
-        except Exception as exc:
-            logger.warning(
-                "Failed to register model route slots for %s: %s",
-                capability_code,
-                exc,
-            )
-            result.add_warning(f"Failed to register model route slots: {exc}")
-
-        validation_state = None
-        if manifest.get("playbooks"):
-            from app.services.pack_validation_background import (
-                build_validation_status_payload,
-            )
-
-            validation_state = build_validation_status_payload(
-                "pending",
-                mode="background",
-            )
-            pack_metadata["validation"] = validation_state
-
-        try:
-            await run_in_threadpool(
-                installed_packs_store.upsert_pack,
-                pack_id=capability_code,
-                installed_at=_utc_now(),
-                enabled=True,
-                metadata=pack_metadata,
-            )
-        except Exception as exc:
-            logger.warning(f"Failed to register pack in database: {exc}")
-            result.add_warning(f"Failed to register pack in database: {exc}")
-
-        clear_installed_capability_metadata_caches(
+        pack_metadata, validation_state = await run_in_threadpool(
+            build_candidate_metadata,
             capability_code=capability_code,
-            reason="install_pipeline_registered",
+            version=str(pipeline.version),
+            manifest=manifest,
+            installed_manifest_path=installed_manifest_path,
+            restart_decision=pipeline.restart_decision,
+            extra_metadata=extra_metadata,
         )
+        from app.services.pack_activation_service import PackActivationService
 
-        try:
-            pipeline.activation = await run_in_threadpool(
-                pack_activation_service.record_install_outcome,
-                pack_id=capability_code,
-                manifest=manifest,
-                install_result=result,
-                enabled=True,
-                hot_reload_performed=hot_reload_performed,
-                restart_required=pipeline.restart_required,
-                restart_decision=pipeline.restart_decision,
-                manifest_path=installed_manifest_path
-                if installed_manifest_path.exists()
-                else None,
-                activation_error=activation_error,
-            )
-            if validation_state is not None:
-                pipeline.activation = await run_in_threadpool(
-                    pack_activation_service.record_validation_pending,
-                    pack_id=capability_code,
-                    manifest=manifest,
-                    manifest_path=installed_manifest_path
-                    if installed_manifest_path.exists()
-                    else None,
-                )
-        except Exception as exc:
-            logger.warning("Failed to persist pack activation state: %s", exc)
-            result.add_warning(f"Failed to persist pack activation state: {exc}")
+        activation_record = PackActivationService(store=object()).build_install_record(
+            pack_id=capability_code,
+            manifest=manifest,
+            install_result=result,
+            enabled=True,
+            hot_reload_performed=hot_reload_performed,
+            restart_required=pipeline.restart_required,
+            restart_decision=pipeline.restart_decision,
+            manifest_path=installed_manifest_path,
+            activation_error=activation_error,
+        )
+        pipeline.activation_candidate = activation_record.to_store_payload()
+        pipeline.activation = {
+            **pipeline.activation_candidate,
+            "commit_state": "candidate_pending_execution_activation",
+        }
 
         pipeline.pack_metadata = pack_metadata
+        pipeline.pack_metadata["install_projection_manifest"] = {
+            key: manifest.get(key, [])
+            for key in (
+                "contract_exports",
+                "object_exports",
+                "object_resolvers",
+                "meeting_projections",
+                "materializers",
+                "graph_projections",
+                "affordances",
+            )
+        }
         pipeline.validation = validation_state
+        pipeline.migration_receipts = dict(result.migration_receipts)
         await run_post_install_followups(
             pipeline=pipeline,
             result=result,
@@ -466,8 +359,29 @@ async def run_install_pipeline(
 
         pipeline.success = True
         pipeline.warnings = result.warnings
+        pipeline.install_commit_coordinator = commit_coordinator
+        pipeline.install_commit_receipt = commit_coordinator.receipt()
         return pipeline
 
+    except Exception:
+        if commit_coordinator is not None:
+            was_published = bool(
+                commit_coordinator.prepared
+                and commit_coordinator.prepared.published
+            )
+            await run_in_threadpool(commit_coordinator.restore_previous)
+            if was_published:
+                try:
+                    await reload_capability_registry_modules(
+                        capability_code=capability_code,
+                        run_in_threadpool_func=run_in_threadpool,
+                    )
+                except Exception:
+                    logger.exception(
+                        "Failed to reload previous capability after candidate restore: %s",
+                        capability_code,
+                    )
+        raise
     finally:
         if temp_dir and temp_dir.exists():
             import shutil

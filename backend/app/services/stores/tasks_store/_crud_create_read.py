@@ -16,6 +16,7 @@ from backend.app.services.task_admission_service import (
     TASK_ADMISSION_SERVICE,
 )
 from backend.app.services.task_payload_budget import apply_task_payload_budget
+from backend.app.services.task_projection_adapters import project_task_identity
 
 from ._crud_helpers import _derive_scheduler_fields, _enrich_runner_task_context
 
@@ -102,6 +103,10 @@ class TasksStoreCreateReadMixin:
                 "blocked_payload",
                 task.blocked_payload,
             )
+            task_storyline_tags = apply_task_payload_budget(
+                "storyline_tags",
+                task.storyline_tags,
+            )
 
             params = {
                 "id": task.id,
@@ -121,7 +126,7 @@ class TasksStoreCreateReadMixin:
                     else None
                 ),
                 "meeting_session_id": task.meeting_session_id,
-                "storyline_tags": self.serialize_json(task.storyline_tags),
+                "storyline_tags": self.serialize_json(task_storyline_tags),
                 "created_at": task.created_at,
                 "next_eligible_at": task.next_eligible_at,
                 "blocked_reason": task.blocked_reason,
@@ -135,6 +140,7 @@ class TasksStoreCreateReadMixin:
                 "error": task.error,
             }
             conn.execute(query, params)
+            project_task_identity(conn=conn, task=task, reason="created")
             if task.task_type in ("playbook_execution", "tool_execution"):
                 self._sync_playbook_execution_status(
                     conn,
@@ -159,7 +165,11 @@ class TasksStoreCreateReadMixin:
                 idempotency_key=f"task:{task.id}:created",
                 occurred_at=task.created_at,
             )
-            self._refresh_task_projection(conn, task.id)
+            self._refresh_task_projection(
+                conn,
+                task.id,
+                refresh_compact_inputs=True,
+            )
             logger.info(
                 "Created task: %s (workspace: %s, pack: %s)",
                 task.id,

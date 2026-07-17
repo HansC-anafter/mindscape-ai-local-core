@@ -79,12 +79,23 @@ def _iter_runtime_mirror_files(root: Path):
         yield relative_path, file_path
 
 
-def _build_staging_root(capability_code: str) -> Path:
-    """Build a staging path outside watched application source trees."""
+def _build_staging_root(
+    capability_code: str,
+    *,
+    install_id: str | None = None,
+    capabilities_dir: Path | None = None,
+) -> Path:
+    """Build an install-id-scoped staging path on the capability filesystem."""
     configured_root = os.environ.get("MINDSCAPE_CAPABILITY_INSTALL_STAGING_ROOT")
-    base_dir = (
-        Path(configured_root)
-        if configured_root
-        else Path(tempfile.gettempdir()) / "mindscape-capability-install-staging"
-    )
-    return base_dir / f"{capability_code}-{uuid.uuid4().hex}"
+    if configured_root:
+        base_dir = Path(configured_root)
+    elif capabilities_dir is not None:
+        base_dir = capabilities_dir.parent / ".capability-install-staging"
+    else:
+        base_dir = Path(tempfile.gettempdir()) / "mindscape-capability-install-staging"
+    normalized_install_id = str(install_id or uuid.uuid4().hex).strip()
+    if not normalized_install_id or any(
+        part in normalized_install_id for part in ("/", "\\", "..")
+    ):
+        raise ValueError("invalid_capability_install_id")
+    return base_dir / normalized_install_id

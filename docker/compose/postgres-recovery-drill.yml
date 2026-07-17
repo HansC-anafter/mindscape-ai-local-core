@@ -1,0 +1,144 @@
+services:
+  postgres-recovery-drill-primary:
+    profiles: ["postgres-recovery-drill"]
+    image: mindscape-ai-local-core-postgres:pg16
+    labels:
+      com.mindscape.recovery-drill: "true"
+      com.mindscape.recovery-role: "primary"
+    environment:
+      POSTGRES_USER: mindscape
+      POSTGRES_PASSWORD: ${POSTGRES_CORE_PASSWORD:-mindscape_password}
+      POSTGRES_DB: mindscape_core
+      PGDATA: /var/lib/postgresql/data/pgdata
+    command:
+      - postgres
+      - -c
+      - wal_level=replica
+      - -c
+      - max_wal_senders=5
+      - -c
+      - max_replication_slots=5
+      - -c
+      - wal_keep_size=512MB
+    volumes:
+      - postgres-recovery-drill-primary-data:/var/lib/postgresql/data
+      - postgres-recovery-drill-receipts:/var/lib/mindscape/recovery-drill
+    networks: [postgres-recovery-drill]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mindscape -d mindscape_core"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  postgres-recovery-drill-standby:
+    profiles: ["postgres-recovery-drill"]
+    image: mindscape-ai-local-core-postgres:pg16
+    labels:
+      com.mindscape.recovery-drill: "true"
+      com.mindscape.recovery-role: "standby"
+    environment:
+      POSTGRES_USER: mindscape
+      POSTGRES_PASSWORD: ${POSTGRES_CORE_PASSWORD:-mindscape_password}
+      PGDATA: /var/lib/postgresql/data/pgdata
+      DRILL_PRIMARY_HOST: postgres-recovery-drill-primary
+      DRILL_SLOT_NAME: mindscape_recovery_drill_slot
+    entrypoint: ["sh", "/usr/local/bin/recovery-drill-standby.sh"]
+    volumes:
+      - postgres-recovery-drill-standby-data:/var/lib/postgresql/data
+      - ../postgres/recovery-drill-standby.sh:/usr/local/bin/recovery-drill-standby.sh:ro
+      - postgres-recovery-drill-receipts:/var/lib/mindscape/recovery-drill
+    networks: [postgres-recovery-drill]
+    depends_on:
+      postgres-recovery-drill-primary:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mindscape -d mindscape_core"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  pgbouncer-recovery-drill:
+    profiles: ["postgres-recovery-drill"]
+    image: mindscape-ai-local-core-postgres:pg16
+    labels:
+      com.mindscape.recovery-drill: "true"
+      com.mindscape.recovery-role: "pooler"
+    user: postgres
+    command:
+      - sh
+      - -lc
+      - |
+        printf '"mindscape" "%s"\n' "$$POSTGRES_PASSWORD" > /tmp/pgbouncer-userlist.txt
+        cp /bootstrap/recovery-drill-primary.ini /tmp/pgbouncer.ini
+        exec /usr/sbin/pgbouncer /tmp/pgbouncer.ini
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_CORE_PASSWORD:-mindscape_password}
+    volumes:
+      - ../pgbouncer:/bootstrap:ro
+      - postgres-recovery-drill-receipts:/var/lib/mindscape/recovery-drill
+    networks: [postgres-recovery-drill]
+    depends_on:
+      postgres-recovery-drill-primary:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 6432 -U mindscape -d mindscape_core"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  postgres-recovery-restore:
+    profiles: ["postgres-recovery-drill"]
+    image: mindscape-ai-local-core-postgres:pg16
+    labels:
+      com.mindscape.recovery-drill: "true"
+      com.mindscape.recovery-role: "disposable-restore"
+    environment:
+      POSTGRES_USER: mindscape
+      POSTGRES_PASSWORD: ${POSTGRES_CORE_PASSWORD:-mindscape_password}
+      POSTGRES_DB: mindscape_core
+      PGDATA: /var/lib/postgresql/data/pgdata
+      RECOVERY_TARGET_TIME: ${MINDSCAPE_RECOVERY_TARGET_TIME:-}
+    entrypoint: ["sh", "/usr/local/bin/recovery-drill-restore.sh"]
+    volumes:
+      - postgres-recovery-restore-data:/var/lib/postgresql/data
+      - ${MINDSCAPE_RECOVERY_RESTORE_BASE_DIR:-./data/recovery-restore/unset-base}:/restore/base:ro
+      - ${MINDSCAPE_RECOVERY_RESTORE_WAL_DIR:-./data/recovery-restore/unset-wal}:/restore/wal:ro
+      - ../postgres/recovery-drill-restore.sh:/usr/local/bin/recovery-drill-restore.sh:ro
+      - postgres-recovery-drill-receipts:/var/lib/mindscape/recovery-drill
+    networks: [postgres-recovery-drill]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mindscape -d mindscape_core"]
+      interval: 5s
+      timeout: 3s
+      retries: 720
+
+  postgres-recovery-restore-app-probe:
+    profiles: ["postgres-recovery-drill"]
+    image: ${LOCAL_CORE_BACKEND_IMAGE:-mindscape-ai-local-core-backend}
+    labels:
+      com.mindscape.recovery-drill: "true"
+      com.mindscape.recovery-role: "disposable-restore-app-probe"
+    environment:
+      PYTHONPATH: /app:/app/backend:/app/backend/app
+      REDIS_ENABLED: "false"
+      MINDSCAPE_CONTROL_PLANE_SKIP_MIGRATIONS: "1"
+      MINDSCAPE_POST_READY_RUNTIME_MIGRATIONS: "0"
+      DATABASE_URL_CORE: postgresql://mindscape:${POSTGRES_CORE_PASSWORD:-mindscape_password}@postgres-recovery-restore:5432/mindscape_core?options=-cdefault_transaction_read_only%3Don
+      DATABASE_URL: postgresql://mindscape:${POSTGRES_CORE_PASSWORD:-mindscape_password}@postgres-recovery-restore:5432/mindscape_core?options=-cdefault_transaction_read_only%3Don
+    entrypoint: ["python", "/app/backend/scripts/postgres_disposable_restore_application_probe.py"]
+    volumes:
+      - ../../backend:/app/backend:ro
+    networks: [postgres-recovery-drill]
+    depends_on:
+      postgres-recovery-restore:
+        condition: service_healthy
+
+networks:
+  postgres-recovery-drill:
+    internal: true
+
+volumes:
+  postgres-recovery-drill-primary-data:
+  postgres-recovery-drill-standby-data:
+  postgres-recovery-drill-receipts:
+  postgres-recovery-restore-data:

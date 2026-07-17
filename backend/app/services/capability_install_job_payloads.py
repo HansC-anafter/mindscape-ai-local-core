@@ -25,7 +25,10 @@ def _pipeline_result_to_payload(result: Any) -> Dict[str, Any]:
         "webhook": getattr(result, "webhook_result", None),
         "activation": getattr(result, "activation", None),
         "validation": getattr(result, "validation", None),
+        "migration_receipts": getattr(result, "migration_receipts", {}) or {},
         "pack_metadata": getattr(result, "pack_metadata", {}) or {},
+        "install_commit_receipt": getattr(result, "install_commit_receipt", {}) or {},
+        "activation_candidate": getattr(result, "activation_candidate", {}) or {},
     }
     return apply_restart_decision_to_payload(
         payload,

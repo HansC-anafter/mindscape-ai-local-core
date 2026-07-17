@@ -7,6 +7,9 @@ from backend.app.database.write_readiness import (
     DatabaseWriteNotReadyError,
     DatabaseWriteReadiness,
 )
+from backend.app.services.migrations.execution_policy import (
+    apply_migration_subprocess_policy,
+)
 
 
 class _FakeOrchestrator:
@@ -32,7 +35,7 @@ class _FakeConnection:
         return False
 
     def execute(self, _query):
-        return []
+        return _FakeRows()
 
     def commit(self):
         return None
@@ -49,6 +52,22 @@ class _FakeEngine:
 class _FakeInspector:
     def get_table_names(self):
         return []
+
+
+class _FakeRows(list):
+    def fetchall(self):
+        return list(self)
+
+
+def test_migration_subprocess_policy_preserves_existing_options_and_adds_bounds():
+    environment = {"PGOPTIONS": "-c application_name=migration-test"}
+
+    apply_migration_subprocess_policy(environment)
+
+    assert environment["PGOPTIONS"] == (
+        "-c application_name=migration-test "
+        "-c lock_timeout=5000 -c statement_timeout=120000"
+    )
 
 
 def test_pending_revisions_excludes_applied_ancestry():
@@ -418,12 +437,22 @@ def _prepare_demo_capability(tmp_path, *, include_migrations_yaml: bool):
 
 
 def _patch_migration_runtime(monkeypatch, calls):
+    class FakeScriptDirectory:
+        def get_revision(self, revision):
+            return object() if revision == "demo_rev" else None
+
+        def get_heads(self):
+            return ["demo_rev"]
+
     class FakeMigrationOrchestrator:
         def __init__(self, *_args, **_kwargs):
             pass
 
         def _get_applied_revisions(self, _db_type, _current_revisions):
             return set()
+
+        def _load_script_directory(self, _db_type):
+            return FakeScriptDirectory()
 
         def _run_alembic_upgrade(self, _alembic_config, revision):
             calls.append(revision)

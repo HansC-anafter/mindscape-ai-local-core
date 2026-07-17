@@ -2,88 +2,31 @@
 
 from __future__ import annotations
 
+import json
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy import text
 
 from app.services.stores.postgres_base import PostgresStoreBase
+from backend.app.services.task_projection_adapters import build_task_display_inputs
 
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-COMPACT_INPUTS_SQL = """
-jsonb_strip_nulls(
-    jsonb_build_object(
-        'post_path', COALESCE(
-            tasks.execution_context::jsonb->'inputs'->>'post_path',
-            tasks.params::jsonb->>'post_path'
-        ),
-        'profile_name', COALESCE(
-            tasks.execution_context::jsonb->'inputs'->>'profile_name',
-            tasks.params::jsonb->>'profile_name'
-        ),
-        'reference_id', COALESCE(
-            tasks.execution_context::jsonb->'inputs'->>'reference_id',
-            tasks.execution_context::jsonb->>'reference_id',
-            tasks.params::jsonb->>'reference_id'
-        ),
-        'run_mode', COALESCE(
-            tasks.execution_context::jsonb->'inputs'->>'run_mode',
-            tasks.execution_context::jsonb->>'run_mode',
-            tasks.params::jsonb->>'run_mode'
-        ),
-        'seed', COALESCE(
-            tasks.execution_context::jsonb->'inputs'->>'seed',
-            tasks.params::jsonb->>'seed'
-        ),
-        'source_handle', COALESCE(
-            tasks.execution_context::jsonb->'inputs'->>'source_handle',
-            tasks.execution_context::jsonb->>'source_handle',
-            tasks.params::jsonb->>'source_handle'
-        ),
-        'shortcode', COALESCE(
-            tasks.execution_context::jsonb->'inputs'->>'shortcode',
-            tasks.params::jsonb->>'shortcode'
-        ),
-        'shortcodes', COALESCE(
-            tasks.execution_context::jsonb->'inputs'->'shortcodes',
-            tasks.params::jsonb->'shortcodes'
-        ),
-        'tags', COALESCE(
-            tasks.execution_context::jsonb->'inputs'->'tags',
-            tasks.params::jsonb->'tags'
-        ),
-        'target_handle', COALESCE(
-            tasks.execution_context::jsonb->'inputs'->>'target_handle',
-            tasks.execution_context::jsonb->>'target_handle',
-            tasks.params::jsonb->>'target_handle'
-        ),
-        'target_username', COALESCE(
-            tasks.execution_context::jsonb->'inputs'->>'target_username',
-            tasks.execution_context::jsonb->>'target_username',
-            tasks.params::jsonb->>'target_username'
-        ),
-        'trigger', COALESCE(
-            tasks.execution_context::jsonb->'inputs'->>'trigger',
-            tasks.execution_context::jsonb->>'trigger',
-            tasks.params::jsonb->>'trigger'
-        ),
-        'user_data_dir', COALESCE(
-            tasks.execution_context::jsonb->'inputs'->>'user_data_dir',
-            tasks.execution_context::jsonb->>'user_data_dir',
-            tasks.params::jsonb->>'user_data_dir'
-        ),
-        'visit_account_pages', COALESCE(
-            tasks.execution_context::jsonb->'inputs'->'visit_account_pages',
-            tasks.execution_context::jsonb->'visit_account_pages',
-            tasks.params::jsonb->'visit_account_pages'
-        )
-    )
-)
-"""
+def _mapping(value) -> dict:
+    if isinstance(value, Mapping):
+        return dict(value)
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except ValueError:
+            return {}
+        return dict(parsed) if isinstance(parsed, Mapping) else {}
+    return {}
 
 
 class TaskProjectionBuilder(PostgresStoreBase):
@@ -94,8 +37,45 @@ class TaskProjectionBuilder(PostgresStoreBase):
         task_id: str,
         *,
         conn=None,
+        refresh_compact_inputs: bool = False,
     ) -> bool:
-        params = {"task_id": task_id, "updated_at": _utc_now()}
+        if conn is None and refresh_compact_inputs:
+            with self.transaction() as owned_conn:
+                return self.upsert_task_summary_from_task_id(
+                    task_id,
+                    conn=owned_conn,
+                    refresh_compact_inputs=True,
+                )
+        compact_inputs: dict = {}
+        active_conn = conn
+        if refresh_compact_inputs:
+
+            def _load(source_conn):
+                row = source_conn.execute(
+                    text(
+                        """
+                        SELECT id, workspace_id, pack_id, params, execution_context, created_at
+                        FROM tasks
+                        WHERE id = :task_id
+                        """
+                    ),
+                    {"task_id": task_id},
+                ).mappings().first()
+                if row is None:
+                    return {}
+                task = dict(row)
+                task["params"] = _mapping(task.get("params"))
+                task["execution_context"] = _mapping(task.get("execution_context"))
+                return build_task_display_inputs(task=task)
+
+            if active_conn is not None:
+                compact_inputs = _load(active_conn)
+        params = {
+            "task_id": task_id,
+            "updated_at": _utc_now(),
+            "compact_inputs": json.dumps(compact_inputs, ensure_ascii=False),
+            "refresh_compact_inputs": bool(refresh_compact_inputs),
+        }
         query = text(
             f"""
             INSERT INTO task_summary_projection (
@@ -138,7 +118,7 @@ class TaskProjectionBuilder(PostgresStoreBase):
                 tasks.concurrency_key,
                 NULL,
                 tasks.error,
-                {COMPACT_INPUTS_SQL},
+                CAST(:compact_inputs AS JSONB),
                 tasks.created_at,
                 tasks.next_eligible_at,
                 tasks.blocked_reason,
@@ -172,7 +152,11 @@ class TaskProjectionBuilder(PostgresStoreBase):
                 dedupe_key = EXCLUDED.dedupe_key,
                 summary = EXCLUDED.summary,
                 error_summary = EXCLUDED.error_summary,
-                compact_inputs = EXCLUDED.compact_inputs,
+                compact_inputs = CASE
+                    WHEN :refresh_compact_inputs
+                    THEN EXCLUDED.compact_inputs
+                    ELSE task_summary_projection.compact_inputs
+                END,
                 created_at = EXCLUDED.created_at,
                 next_eligible_at = EXCLUDED.next_eligible_at,
                 blocked_reason = EXCLUDED.blocked_reason,
@@ -185,7 +169,6 @@ class TaskProjectionBuilder(PostgresStoreBase):
                 schema_version = EXCLUDED.schema_version
             """
         )
-        active_conn = conn
         if active_conn is not None:
             result = active_conn.execute(query, params)
             return result.rowcount > 0
@@ -312,7 +295,14 @@ class TaskProjectionBuilder(PostgresStoreBase):
                 tasks.concurrency_key,
                 NULL,
                 tasks.error,
-                {COMPACT_INPUTS_SQL},
+                COALESCE(
+                    (
+                        SELECT existing.compact_inputs
+                        FROM task_summary_projection AS existing
+                        WHERE existing.task_id = tasks.id
+                    ),
+                    '{{}}'::jsonb
+                ),
                 tasks.created_at,
                 tasks.next_eligible_at,
                 tasks.blocked_reason,
@@ -346,7 +336,7 @@ class TaskProjectionBuilder(PostgresStoreBase):
                 dedupe_key = EXCLUDED.dedupe_key,
                 summary = EXCLUDED.summary,
                 error_summary = EXCLUDED.error_summary,
-                compact_inputs = EXCLUDED.compact_inputs,
+                compact_inputs = task_summary_projection.compact_inputs,
                 created_at = EXCLUDED.created_at,
                 next_eligible_at = EXCLUDED.next_eligible_at,
                 blocked_reason = EXCLUDED.blocked_reason,

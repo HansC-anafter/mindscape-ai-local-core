@@ -73,6 +73,7 @@ class DbPoolPressureDecision:
     wait_seconds: int = field(default_factory=pressure_wait_seconds)
     checked_at_epoch: float = field(default_factory=time.time)
     pools: list[dict[str, Any]] = field(default_factory=list)
+    database_state: str = "write_ready"
 
     @property
     def paused(self) -> bool:
@@ -88,6 +89,7 @@ class DbPoolPressureDecision:
         reason: str = "pgbouncer_pressure_open",
         checked_at_epoch: float | None = None,
         pools: list[dict[str, Any]] | None = None,
+        database_state: str = "write_ready",
     ) -> "DbPoolPressureDecision":
         return cls(
             state="open",
@@ -95,6 +97,7 @@ class DbPoolPressureDecision:
             wait_seconds=0,
             checked_at_epoch=time.time() if checked_at_epoch is None else checked_at_epoch,
             pools=pools or [],
+            database_state=database_state,
         )
 
     @classmethod
@@ -104,6 +107,7 @@ class DbPoolPressureDecision:
         *,
         checked_at_epoch: float | None = None,
         pools: list[dict[str, Any]] | None = None,
+        database_state: str = "unknown",
     ) -> "DbPoolPressureDecision":
         return cls(
             state="paused",
@@ -111,6 +115,7 @@ class DbPoolPressureDecision:
             wait_seconds=pressure_wait_seconds(),
             checked_at_epoch=time.time() if checked_at_epoch is None else checked_at_epoch,
             pools=pools or [],
+            database_state=database_state,
         )
 
 
@@ -134,6 +139,7 @@ def classify_pgbouncer_pools(
     *,
     watched_databases: set[str] | frozenset[str] = WATCHED_DATABASES,
     checked_at_epoch: float | None = None,
+    database_state: str = "write_ready",
 ) -> DbPoolPressureDecision:
     pools: list[dict[str, Any]] = []
     for row in rows:
@@ -148,6 +154,10 @@ def classify_pgbouncer_pools(
             "cl_active": _int_value(pool.get("cl_active")),
             "sv_active": _int_value(pool.get("sv_active")),
             "sv_idle": _int_value(pool.get("sv_idle")),
+            "sv_used": _int_value(pool.get("sv_used")),
+            "sv_login": _int_value(pool.get("sv_login")),
+            "maxwait": _int_value(pool.get("maxwait")),
+            "maxwait_us": _int_value(pool.get("maxwait_us")),
             "pool_mode": str(pool.get("pool_mode") or "").strip(),
         }
         pools.append(normalized)
@@ -157,10 +167,50 @@ def classify_pgbouncer_pools(
             "pgbouncer_client_waiting",
             checked_at_epoch=checked_at_epoch,
             pools=pools,
+            database_state=database_state,
+        )
+    if any(pool["maxwait"] > 0 or pool["maxwait_us"] > 0 for pool in pools):
+        return DbPoolPressureDecision.paused_for(
+            "pgbouncer_client_maxwait",
+            checked_at_epoch=checked_at_epoch,
+            pools=pools,
+            database_state=database_state,
+        )
+    if any(pool["sv_login"] > 0 for pool in pools):
+        return DbPoolPressureDecision.paused_for(
+            "pgbouncer_server_login_in_progress",
+            checked_at_epoch=checked_at_epoch,
+            pools=pools,
+            database_state=database_state,
+        )
+    if any(
+        pool["cl_active"] > 0
+        and (
+            pool["sv_active"]
+            + pool["sv_idle"]
+            + pool["sv_used"]
+            + pool["sv_login"]
+        )
+        == 0
+        for pool in pools
+    ):
+        return DbPoolPressureDecision.paused_for(
+            "pgbouncer_no_server_connection",
+            checked_at_epoch=checked_at_epoch,
+            pools=pools,
+            database_state=database_state,
+        )
+    if database_state != "write_ready":
+        return DbPoolPressureDecision.paused_for(
+            database_state,
+            checked_at_epoch=checked_at_epoch,
+            pools=pools,
+            database_state=database_state,
         )
     return DbPoolPressureDecision.open(
         checked_at_epoch=checked_at_epoch,
         pools=pools,
+        database_state=database_state,
     )
 
 
@@ -191,7 +241,17 @@ def sample_pgbouncer_pressure() -> DbPoolPressureDecision:
             ]
         finally:
             cursor.close()
-        return classify_pgbouncer_pools(rows, checked_at_epoch=time.time())
+        from backend.app.database.write_readiness import check_core_write_readiness
+
+        readiness = check_core_write_readiness(
+            operation="runner_pgbouncer_pressure_probe"
+        )
+        database_state = "write_ready" if readiness.ready else readiness.reason
+        return classify_pgbouncer_pools(
+            rows,
+            checked_at_epoch=time.time(),
+            database_state=database_state,
+        )
     except Exception as exc:
         logger.warning("PgBouncer pressure probe failed: %s", exc)
         return DbPoolPressureDecision.paused_for("pgbouncer_pressure_probe_failed")
@@ -221,6 +281,7 @@ def _decode_cached_decision(
             wait_seconds=_int_value(payload.get("wait_seconds")) or pressure_wait_seconds(),
             checked_at_epoch=checked_at,
             pools=list(payload.get("pools") or []),
+            database_state=str(payload.get("database_state") or "unknown"),
         )
     except Exception:
         return None
@@ -235,11 +296,13 @@ def _refresh_in_progress_decision(
             reason,
             checked_at_epoch=decision.checked_at_epoch,
             pools=decision.pools,
+            database_state=decision.database_state,
         )
     return DbPoolPressureDecision.open(
         reason=reason,
         checked_at_epoch=decision.checked_at_epoch,
         pools=decision.pools,
+        database_state=decision.database_state,
     )
 
 

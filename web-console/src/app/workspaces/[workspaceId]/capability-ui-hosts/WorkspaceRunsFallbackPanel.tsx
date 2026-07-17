@@ -4,7 +4,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 
 import { RunnerTaskCard } from '@/components/runner/RunnerTaskCard';
 import { useWorkspaceDataOptional } from '@/contexts/WorkspaceDataContext';
-import { isDocumentHidden } from '@/lib/page-visibility';
+import { startVisibilityAwarePollingLoop } from '@/hooks/executionPollingCoordinator';
 import { sharedGetFetch } from '@/lib/resilient-fetch';
 
 type WorkspaceExecutionLike = Record<string, any>;
@@ -170,21 +170,20 @@ function useWorkspaceRunsFallbackExecutions(params: {
     }
 
     let cancelled = false;
-    let intervalId: ReturnType<typeof setInterval> | null = null;
-    let activeController: AbortController | null = null;
-
-    const load = async () => {
-      if (isDocumentHidden()) return;
-      activeController?.abort();
-      const controller = new AbortController();
-      activeController = controller;
-      const timeoutId = setTimeout(() => controller.abort(), WORKSPACE_RUNS_FALLBACK_TIMEOUT_MS);
+    const load = async (signal: AbortSignal) => {
+      const timeoutController = new AbortController();
+      const abortFromLoop = () => timeoutController.abort();
+      signal.addEventListener('abort', abortFromLoop, { once: true });
+      const timeoutId = setTimeout(
+        () => timeoutController.abort(),
+        WORKSPACE_RUNS_FALLBACK_TIMEOUT_MS,
+      );
       setIsLoading(true);
       try {
         const nextExecutions = await fetchWorkspaceRunsFallbackExecutions({
           apiUrl: params.apiUrl,
           workspaceId: params.workspaceId,
-          signal: controller.signal,
+          signal: timeoutController.signal,
         });
         if (!cancelled) {
           setExecutions(nextExecutions);
@@ -196,19 +195,21 @@ function useWorkspaceRunsFallbackExecutions(params: {
         }
       } finally {
         clearTimeout(timeoutId);
+        signal.removeEventListener('abort', abortFromLoop);
         if (!cancelled) {
           setIsLoading(false);
         }
       }
     };
 
-    void load();
-    intervalId = setInterval(load, WORKSPACE_RUNS_FALLBACK_POLL_MS);
+    const stopPolling = startVisibilityAwarePollingLoop({
+      baseIntervalMs: WORKSPACE_RUNS_FALLBACK_POLL_MS,
+      run: load,
+    });
 
     return () => {
       cancelled = true;
-      activeController?.abort();
-      if (intervalId) clearInterval(intervalId);
+      stopPolling();
     };
   }, [params.apiUrl, params.enabled, params.workspaceId]);
 

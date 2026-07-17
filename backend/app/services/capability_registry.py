@@ -11,7 +11,6 @@ from typing import Dict, Optional, Callable, Any, List
 import logging
 import threading
 from app.services.runtime_pack_hygiene import is_ignored_runtime_pack_dir
-from app.services.pack_activation_service import PackActivationService
 from app.services.capability_backend_loader import (
     resolve_capability_backend_callable,
 )
@@ -88,6 +87,9 @@ class CapabilityRegistry:
                 "manifest": manifest,
                 "directory": capability_dir,
             }
+            from backend.app.services.task_projection_adapters import register_manifest
+
+            register_manifest(capability_code, manifest, capability_dir)
             for tool in manifest.get("tools", []):
                 if not isinstance(tool, dict):
                     continue
@@ -101,20 +103,6 @@ class CapabilityRegistry:
                     "backend": tool.get("backend"),
                 }
 
-            try:
-                PackActivationService().record_activation_succeeded(
-                    pack_id=capability_code,
-                    manifest=manifest,
-                    manifest_path=manifest_path,
-                    activation_mode="capability_registry_load",
-                    registered_prefixes=[],
-                )
-            except Exception as activation_exc:
-                logger.warning(
-                    "Failed to persist capability registry activation state for %s: %s",
-                    capability_code,
-                    activation_exc,
-                )
             logger.info(
                 "Loaded capability: %s (%d tools)",
                 capability_code,

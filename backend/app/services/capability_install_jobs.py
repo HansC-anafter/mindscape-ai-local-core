@@ -11,15 +11,12 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from backend.app.database.write_readiness import (
-    DatabaseWriteNotReadyError,
     ensure_core_write_ready,
-    wait_for_core_write_readiness,
 )
 from backend.app.routes.core.capability_install_core.paths import (
     _ensure_sys_path,
     _resolve_local_core_root,
 )
-from backend.app.routes.core.capability_install_core.pipeline import run_install_pipeline
 from backend.app.routes.core.capability_install_core.restart_policy import (
     refresh_restart_decision_after_execution,
 )
@@ -28,9 +25,6 @@ from backend.app.services.capability_install_job_payloads import (
     _status_url,
 )
 from backend.app.services import capability_install_job_integrity as install_integrity
-from backend.app.services.capability_install_jobs_core.errors import (
-    install_job_exception_message,
-)
 from backend.app.services.pack_activation_service import PackActivationService
 from backend.app.services.stores.capability_install_job_store import (
     CapabilityInstallJobStore,
@@ -66,6 +60,7 @@ class CapabilityInstallJobService:
         overwrite_review_confirmation: str,
         profile_id: str,
         source_commit: str = "",
+        backout_receipt: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         ensure_core_write_ready(operation="capability_install_job_create:file_upload")
         install_id = uuid.uuid4().hex
@@ -84,6 +79,7 @@ class CapabilityInstallJobService:
                 "allow_overwrite": allow_overwrite,
                 "overwrite_review_confirmation": overwrite_review_confirmation,
                 "profile_id": profile_id,
+                "backout_receipt": backout_receipt,
             },
         )
         job["status_url"] = _status_url(install_id)
@@ -101,6 +97,7 @@ class CapabilityInstallJobService:
         bundle: Optional[str] = None,
         pack_code: Optional[str] = None,
         download_url: Optional[str] = None,
+        backout_receipt: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         ensure_core_write_ready(operation="capability_install_job_create:cloud_pack")
         install_id = uuid.uuid4().hex
@@ -118,6 +115,7 @@ class CapabilityInstallJobService:
                 "bundle": bundle,
                 "pack_code": pack_code,
                 "download_url": download_url,
+                "backout_receipt": backout_receipt,
             },
         )
         job["status_url"] = _status_url(install_id)
@@ -126,8 +124,22 @@ class CapabilityInstallJobService:
     def get_job(self, install_id: str) -> Optional[Dict[str, Any]]:
         job = self.store.get_job(install_id)
         if job is not None:
-            job = self._reconcile_pending_execution_activation(job)
             job = self._normalize_job_restart_semantics(job)
+            if (job.get("result_payload") or {}).get("commit_receipt"):
+                try:
+                    from backend.app.services.pack_install_reconciliation import (
+                        PackInstallReconciliationStore,
+                    )
+
+                    job["commit_reconciliation"] = PackInstallReconciliationStore(
+                        db_role=getattr(self.store, "db_role", "core")
+                    ).get(install_id)
+                except Exception:
+                    logger.debug(
+                        "Pack install reconciliation is not available for %s",
+                        install_id,
+                        exc_info=True,
+                    )
             job["status_url"] = _status_url(install_id)
         return job
 
@@ -136,171 +148,19 @@ class CapabilityInstallJobService:
             self._activation_service = PackActivationService()
         return self._activation_service
 
-    def _reconcile_pending_execution_activation(
-        self,
-        job: Dict[str, Any],
-    ) -> Dict[str, Any]:
-        if job.get("state") != "pending_execution_activation":
-            return job
-        result_payload = job.get("result_payload") or {}
-        capability_code = result_payload.get("capability_code")
-        if not capability_code:
-            return job
-        try:
-            activation = self._get_activation_service().get_state(capability_code)
-        except Exception as exc:
-            logger.warning(
-                "Failed to reconcile capability install activation for %s: %s",
-                capability_code,
-                exc,
-                exc_info=True,
-            )
-            return job
-        if not self._activation_matches_pending_job(
-            capability_code=capability_code,
-            result_payload=result_payload,
-            activation=activation,
-        ):
-            return job
-        next_payload = dict(result_payload)
-        next_payload["activation"] = activation
-        next_payload["execution_activation"] = {
-            "state": "activated",
-            "source": "activation_state_reconcile",
-            "activation_state": activation.get("activation_state"),
-            "activation_mode": activation.get("activation_mode"),
-            "updated_at": activation.get("updated_at"),
-        }
-        next_payload = self._refresh_restart_payload(
-            next_payload,
-            execution_activation=next_payload["execution_activation"],
-            activation=activation,
-        )
-        reconciled = self.store.mark_succeeded(
-            job["install_id"],
-            result_payload=next_payload,
-        )
-        return reconciled or job
-
-    @staticmethod
-    def _activation_matches_pending_job(
-        *,
-        capability_code: str,
-        result_payload: Dict[str, Any],
-        activation: Optional[Dict[str, Any]],
-    ) -> bool:
-        if not activation:
-            return False
-        if activation.get("pack_id") != capability_code:
-            return False
-        if activation.get("install_state") != "installed":
-            return False
-        if activation.get("activation_state") != "active":
-            return False
-        pending_hash = (result_payload.get("activation") or {}).get("manifest_hash")
-        current_hash = activation.get("manifest_hash")
-        return bool(pending_hash and current_hash and pending_hash == current_hash)
-
     async def run_next_job(self, *, fastapi_app: Any) -> Optional[Dict[str, Any]]:
-        job = self.store.claim_next_job()
-        if job is None:
-            return None
-        install_id = job["install_id"]
-        try:
-            result = await self._execute_job(job, fastapi_app=fastapi_app)
-            payload = _pipeline_result_to_payload(result)
-            activation = await self._notify_execution_activation(
-                install_id=install_id,
-                pipeline_payload=payload,
-            )
-            payload["execution_activation"] = activation
-            runtime_activation = self._safe_get_activation_state(
-                payload.get("capability_code")
-            )
-            if runtime_activation:
-                payload["activation"] = runtime_activation
-            payload = install_integrity.attach_install_integrity_evidence(
-                job=job,
-                result_payload=payload,
-            )
-            payload = self._refresh_restart_payload(
-                payload,
-                execution_activation=activation,
-                activation=runtime_activation,
-            )
-            if activation.get("state") == "pending_execution_activation":
-                return self.store.mark_pending_execution_activation(
-                    install_id,
-                    result_payload=payload,
-                    error=activation.get("error"),
-                )
-            return self.store.mark_succeeded(install_id, result_payload=payload)
-        except DatabaseWriteNotReadyError as exc:
-            readiness = exc.readiness
-            return self.store.mark_waiting_db(
-                install_id,
-                reason=readiness.reason,
-                retry_after_seconds=readiness.retry_after_seconds,
-            )
-        except Exception as exc:
-            logger.error(
-                "Capability install job failed: install_id=%s error=%s",
-                install_id,
-                exc,
-                exc_info=True,
-            )
-            return self.store.mark_failed(
-                install_id,
-                error=install_job_exception_message(exc),
-            )
+        from backend.app.services.capability_install_jobs_core.executor import (
+            run_next_job,
+        )
+
+        return await run_next_job(self, fastapi_app=fastapi_app)
 
     async def _execute_job(self, job: Dict[str, Any], *, fastapi_app: Any):
-        payload = job.get("source_payload") or {}
-        source_kind = job.get("source_kind")
-        readiness_kwargs = {
-            "operation": f"capability_install_job:{job['install_id']}",
-            "timeout_seconds": 1,
-            "poll_interval_seconds": 0.2,
-        }
-        await asyncio.to_thread(wait_for_core_write_readiness, **readiness_kwargs)
-        if source_kind == "file_upload":
-            install_integrity.verify_file_upload_archive(job)
-            return await run_install_pipeline(
-                fastapi_app=fastapi_app,
-                mindpack_path=Path(payload["mindpack_path"]),
-                allow_overwrite=bool(payload.get("allow_overwrite")),
-                overwrite_review_confirmation=payload.get(
-                    "overwrite_review_confirmation", ""
-                ),
-                source_label="install-job:file-upload",
-                extra_metadata={"installed_from_file": True, "install_id": job["install_id"]},
-            )
-        if source_kind == "cloud_provider_pack":
-            pack_file = await self._download_cloud_pack(job)
-            try:
-                return await run_install_pipeline(
-                    fastapi_app=fastapi_app,
-                    mindpack_path=pack_file,
-                    allow_overwrite=bool(payload.get("allow_overwrite")),
-                    overwrite_review_confirmation=payload.get(
-                        "overwrite_review_confirmation", ""
-                    ),
-                    source_label="install-job:cloud-provider-pack",
-                    extra_metadata={
-                        "installed_from_cloud": True,
-                        "install_id": job["install_id"],
-                        "provider_id": payload.get("provider_id"),
-                        "pack_ref": payload.get("pack_ref"),
-                        "bundle": payload.get("bundle"),
-                    },
-                )
-            finally:
-                try:
-                    if pack_file.exists():
-                        pack_file.unlink()
-                except Exception as exc:
-                    logger.warning("Failed to clean downloaded pack file: %s", exc)
-        raise ValueError(f"Unsupported install job source_kind: {source_kind}")
+        from backend.app.services.capability_install_jobs_core.executor import (
+            execute_pipeline_job,
+        )
+
+        return await execute_pipeline_job(self, job, fastapi_app=fastapi_app)
 
     async def _download_cloud_pack(self, job: Dict[str, Any]) -> Path:
         _ensure_sys_path()
@@ -396,6 +256,17 @@ class CapabilityInstallJobService:
                     "error": data.get("error") or data,
                 }
             response.raise_for_status()
+            expected_hash = (
+                (pipeline_payload.get("activation_candidate") or {}).get(
+                    "manifest_hash"
+                )
+                or (pipeline_payload.get("activation") or {}).get("manifest_hash")
+            )
+            if expected_hash and data.get("manifest_hash") != expected_hash:
+                return {
+                    "state": "pending_execution_activation",
+                    "error": "candidate_manifest_hash_readback_mismatch",
+                }
             return data
         except Exception as exc:
             return {
@@ -484,7 +355,12 @@ async def run_capability_install_job_worker_loop(
             if result is None:
                 await asyncio.sleep(poll_interval_seconds)
             else:
-                await asyncio.sleep(0)
+                retry_after = float(result.get("retry_after_seconds") or 0)
+                await asyncio.sleep(
+                    min(max(retry_after, 0), 30)
+                    if retry_after > 0
+                    else 0
+                )
         except asyncio.CancelledError:
             raise
         except Exception as exc:

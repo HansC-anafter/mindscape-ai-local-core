@@ -1,6 +1,8 @@
 import sys
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BACKEND_ROOT = REPO_ROOT / "backend"
 
@@ -143,7 +145,7 @@ def test_install_services_replaces_existing_runtime_tree(tmp_path):
     assert not (target_services_dir / "variant_projection_service.py").exists()
 
 
-def test_install_all_copies_runtime_namespace_dirs(tmp_path):
+def test_atomic_candidate_copies_runtime_namespace_dirs(tmp_path):
     local_core_root = tmp_path / "local-core"
     capabilities_dir = local_core_root / "backend" / "app" / "capabilities"
     capabilities_dir.mkdir(parents=True)
@@ -178,12 +180,15 @@ def test_install_all_copies_runtime_namespace_dirs(tmp_path):
     )
     result = InstallResult(capability_code="motion_runtime")
 
-    installer.install_all(
+    prepared = installer.prepare_staged_tree(
         cap_dir,
         "motion_runtime",
         {"code": "motion_runtime", "version": "0.1.0"},
         result,
+        install_id="test-motion-runtime",
     )
+    installer.publish_candidate_retaining_previous(prepared)
+    installer.finalize_publish(prepared)
 
     target_dir = capabilities_dir / "motion_runtime"
     for dirname in ("core", "analysis", "generation"):
@@ -200,6 +205,24 @@ def test_install_all_copies_runtime_namespace_dirs(tmp_path):
         "core",
         "generation",
     }
+
+
+def test_install_all_rejects_non_atomic_publish_entrypoint(tmp_path):
+    installer = RuntimeAssetsInstaller(
+        local_core_root=tmp_path / "local-core",
+        capabilities_dir=tmp_path / "local-core" / "backend" / "app" / "capabilities",
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="runtime_assets_install_all_requires_install_commit_coordinator",
+    ):
+        installer.install_all(
+            tmp_path / "pack",
+            "motion_runtime",
+            {"code": "motion_runtime", "version": "0.1.0"},
+            InstallResult(capability_code="motion_runtime"),
+        )
 
 
 def test_install_capability_models_copies_runtime_assets(tmp_path):

@@ -254,10 +254,17 @@ class TasksStoreControlMixin:
             conn=conn,
         )
 
-    def _refresh_task_projection(self, conn, task_id: str) -> None:
+    def _refresh_task_projection(
+        self,
+        conn,
+        task_id: str,
+        *,
+        refresh_compact_inputs: bool = False,
+    ) -> None:
         self._task_projection_builder().upsert_task_summary_from_task_id(
             task_id,
             conn=conn,
+            refresh_compact_inputs=refresh_compact_inputs,
         )
 
     def _record_latest_attempt_completion(

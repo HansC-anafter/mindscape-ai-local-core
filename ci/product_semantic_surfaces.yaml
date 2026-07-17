@@ -1,6 +1,6 @@
 version: 1
 registry_id: mindscape.product-semantic-surfaces.local-core
-updated_at: "2026-07-14"
+updated_at: "2026-07-16"
 owner_review_handle: "@team-leads"
 
 declaration:
@@ -13,6 +13,69 @@ declaration:
     - breaking-product-semantics-approved-by
 
 surfaces:
+  - id: psc.local-core.runtime-database-resilience-and-pack-install-atomicity.v1
+    tier: P0
+    owner: "@team-leads"
+    contract_doc: mindscape-ai-cloud/docs/internal/local-core/product-semantics/runtime-database-resilience-and-pack-install-atomicity-contract-2026-07-16.zh-TW.md
+    requires_product_semantic_declaration: true
+    semantics:
+      - The tasks table remains bounded task-control authority; a single adapter facade writes pack-owned typed identity projections only for create or identity changes, and both generic task tables retire pack-specific indexes to zero.
+      - Every abnormal database close opens one durable incident and mutation gate; schema mutation, index retirement, backfill, pack migration, restart, and failover require an explicit gate receipt.
+      - Capability-pack install retains the candidate and previous active runtime until migration and verification succeed, then commits filesystem activation, activation state, installed metadata, and registry projections from one durable receipt.
+      - Alembic revision history is append-only operational truth; recovery uses graph diagnosis and corrective revisions and never deletes revision rows to force convergence.
+      - Progress reads return one compact current or stale-known snapshot, or a redacted 503 with Retry-After; frontend polling obeys bounded 10, 20, and 30 second intervals and stops when hidden or terminal.
+      - Runtime repair preserves seven runner slots and existing queue visibility, does not expand PgBouncer pools as a workaround, and may claim only isolated recovery or controlled-switchover drill readiness; production high availability requires a separate failure-domain and controller decision.
+    path_globs:
+      - backend/app/database/recovery_backoff.py
+      - backend/app/database/task_control_contract.py
+      - backend/app/runner/db_pool_pressure.py
+      - backend/app/routes/core/workspace/tasks_core/progress_snapshot.py
+      - backend/app/routes/core/workspace/tasks_core/progress_snapshot_routes.py
+      - backend/features/workspace/executions_core/progress_snapshot.py
+      - backend/app/services/runtime_database_incident_*.py
+      - backend/app/services/runtime_database_incident_core/**
+      - backend/app/services/stores/tasks_store/**
+      - backend/app/services/task_projection_builder.py
+      - backend/app/services/task_projection_adapters.py
+      - backend/app/services/task_projection_adapter_core/**
+      - backend/app/routes/core/capability_install_core/**
+      - backend/app/services/capability_install_jobs.py
+      - backend/app/services/capability_install_jobs_core/**
+      - backend/app/services/runtime_assets_installer*.py
+      - backend/app/services/runtime_assets_installer_core/**
+      - backend/app/services/pack_activation*.py
+      - backend/app/services/playbook_registry.py
+      - backend/app/services/deprecated/capability_installer.py
+      - backend/scripts/preflight_db.py
+      - backend/alembic_migrations/postgres/versions/**
+      - scripts/maintenance/postgres_incident_gate.py
+      - scripts/maintenance/postgres_recovery_drill.py
+      - scripts/postgres_recovery_drill_core/**
+      - scripts/maintenance/runtime_pressure_gate.py
+      - scripts/maintenance/check_runtime_read_path_budget.py
+      - docker-compose.yml
+      - docker/compose/postgres-recovery-drill.yml
+      - docker/postgres/**
+      - docker/pgbouncer/**
+      - backend/tests/runtime_database_incident_gate_spec.py
+      - backend/tests/database_recovery_backoff_spec.py
+      - backend/tests/postgres_task_control_budget_spec.py
+      - backend/tests/task_projection_adapters_spec.py
+      - backend/tests/capability_install_atomic_commit_spec.py
+      - backend/tests/capability_install_version_policy_spec.py
+      - backend/tests/runtime_assets_installer_*_spec.py
+      - backend/tests/pack_activation_commit_receipt_spec.py
+      - backend/tests/preflight_db_recovery_state_spec.py
+      - backend/tests/db_pool_pressure_spec.py
+      - backend/tests/progress_snapshot_degraded_state_spec.py
+      - backend/tests/scripts/postgres_incident_gate_spec.py
+      - backend/tests/scripts/postgres_recovery_drill_spec.py
+      - web-console/src/hooks/useExecutionPolling.ts
+      - web-console/src/hooks/useExecutionPolling.spec.tsx
+      - web-console/src/hooks/executionPollingPolicy.ts
+      - web-console/src/hooks/executionPollingCoordinator.ts
+      - web-console/src/app/workspaces/components/ExecutionChatPanel.tsx
+
   - id: psc.local-core.capability-install-control-plane.v1
     tier: P0
     owner: "@team-leads"

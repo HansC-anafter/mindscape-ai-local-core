@@ -1,5 +1,6 @@
+import hashlib
 import logging
-from typing import Any, Dict
+from typing import Any, Dict, Mapping, Optional
 
 from fastapi import (
     APIRouter,
@@ -13,6 +14,10 @@ from fastapi import (
 
 from backend.app.database.write_readiness import DatabaseWriteNotReadyError
 from backend.app.services.capability_install_jobs import CapabilityInstallJobService
+from backend.app.services.runtime_database_incident_gate import (
+    RuntimeDatabaseMutationBlocked,
+    require_runtime_database_mutation_allowed,
+)
 
 from .paths import (
     OVERWRITE_CONFIRMATION_PHRASE,
@@ -39,6 +44,25 @@ def _raise_db_not_ready(exc: DatabaseWriteNotReadyError) -> None:
     )
 
 
+def _require_install_mutation_allowed(
+    operation: str,
+    evidence: Optional[Mapping[str, str]] = None,
+) -> None:
+    try:
+        require_runtime_database_mutation_allowed(operation, evidence=evidence)
+    except RuntimeDatabaseMutationBlocked as exc:
+        decision = exc.decision
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": decision.reason,
+                "incident_id": decision.incident_id,
+                "retry_after_seconds": decision.retry_after_seconds,
+            },
+            headers={"Retry-After": str(decision.retry_after_seconds)},
+        ) from exc
+
+
 @router.post("/install-from-file", response_model=Dict[str, Any])
 async def install_from_file(
     fastapi_request: Request,
@@ -47,6 +71,11 @@ async def install_from_file(
     overwrite_confirmation: str = Form(""),
     overwrite_review_confirmation: str = Form(""),
     source_commit: str = Form(""),
+    backout_from_install_id: str = Form(""),
+    backout_artifact_sha256: str = Form(""),
+    backout_target_version: str = Form(""),
+    backout_schema_compatibility_receipt: str = Form(""),
+    backout_owner_approval: str = Form(""),
     profile_id: str = Query(
         "default-user", description="User profile ID for role mapping"
     ),
@@ -70,6 +99,37 @@ async def install_from_file(
 
     try:
         content = await file.read()
+        archive_sha256 = hashlib.sha256(content).hexdigest()
+        _require_install_mutation_allowed(
+            "capability_install_intake:file",
+            {
+                "artifact_sha256": archive_sha256,
+                "source_commit": source_commit,
+            },
+        )
+        backout_values = {
+            "backout_from_install_id": backout_from_install_id.strip(),
+            "artifact_sha256": backout_artifact_sha256.strip().lower(),
+            "target_version": backout_target_version.strip(),
+            "schema_compatibility_receipt": (
+                backout_schema_compatibility_receipt.strip()
+            ),
+            "owner_approval": backout_owner_approval.strip(),
+        }
+        supplied = [bool(value) for value in backout_values.values()]
+        if any(supplied) and not all(supplied):
+            raise HTTPException(
+                status_code=400,
+                detail="complete_backout_receipt_required",
+            )
+        if backout_values["artifact_sha256"] and (
+            len(backout_values["artifact_sha256"]) != 64
+            or any(
+                char not in "0123456789abcdef"
+                for char in backout_values["artifact_sha256"]
+            )
+        ):
+            raise HTTPException(status_code=400, detail="invalid_backout_artifact_sha256")
         job = CapabilityInstallJobService().create_file_upload_job(
             filename=file.filename,
             content=content,
@@ -77,6 +137,7 @@ async def install_from_file(
             overwrite_review_confirmation=overwrite_review_confirmation,
             profile_id=profile_id,
             source_commit=source_commit,
+            backout_receipt=backout_values if all(supplied) else None,
         )
         return {
             "success": True,
@@ -133,6 +194,7 @@ async def install_from_cloud(
     """
     try:
         _require_control_plane_install("install-from-cloud")
+        _require_install_mutation_allowed("capability_install_intake:cloud")
 
         overwrite = _parse_bool_flag(allow_overwrite)
         _require_explicit_overwrite_confirmation(
@@ -171,6 +233,11 @@ async def install_from_cloud(
             allow_overwrite=overwrite,
             overwrite_review_confirmation=overwrite_review_confirmation,
             profile_id=profile_id,
+            backout_receipt=(
+                request.backout_receipt.model_dump()
+                if request.backout_receipt is not None
+                else None
+            ),
         )
         return {
             "success": True,

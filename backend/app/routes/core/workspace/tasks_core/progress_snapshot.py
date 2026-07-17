@@ -4,14 +4,10 @@ from fastapi import HTTPException
 
 from backend.app.models.workspace import TaskStatus
 from backend.app.services.json_safety import json_value_without_nul
-from backend.app.services.mindscape_store import MindscapeStore
 from backend.app.services.queue_position_cache import QUEUE_CACHE as _QUEUE_CACHE
 from backend.app.services.runner_live_state import RunnerLiveStateStore
 from backend.app.services.stores.tasks_store import TasksStore
 from .streaming import _build_admission_state, _extract_artifact_progress_from_content
-
-store = MindscapeStore()
-
 
 def _is_running_status(status: Any) -> bool:
     value = getattr(status, "value", status)
@@ -77,9 +73,7 @@ def load_execution_progress_snapshot_payload(
     from sqlalchemy import text
 
     tasks_store = TasksStore()
-    task = tasks_store.get_task_by_execution_id(execution_id)
-    if not task:
-        task = tasks_store.get_task(execution_id)
+    task = tasks_store.get_progress_task_control(execution_id)
     if not task:
         raise HTTPException(status_code=404, detail="Execution not found")
     if task.workspace_id != workspace_id:
@@ -93,9 +87,8 @@ def load_execution_progress_snapshot_payload(
     artifact_metadata = {}
     content_metadata = {}
 
-    try:
-        with tasks_store.get_connection() as conn:
-            rows = conn.execute(
+    with tasks_store.get_connection() as conn:
+        rows = conn.execute(
                 text(
                     """
                     SELECT
@@ -117,32 +110,19 @@ def load_execution_progress_snapshot_payload(
                     "execution_id": execution_id,
                 },
             ).fetchall()
-        for row in rows:
-            row_progress, row_content_metadata = _extract_artifact_progress_from_content(
-                row.content
-            )
-            if not isinstance(row_progress, dict):
-                continue
-            artifact_id = str(row.id)
-            ts = row.updated_at or row.created_at
-            artifact_updated_at = ts.isoformat() if ts else None
-            artifact_metadata = json_value_without_nul(row.metadata, {}) or {}
-            progress = row_progress
-            content_metadata = row_content_metadata
-            break
-    except Exception:
-        artifact = store.artifacts.get_by_execution_id(execution_id)
-        if artifact and artifact.workspace_id == workspace_id:
-            content = artifact.content or {}
-            artifact_id = artifact.id
-            ts = artifact.updated_at or artifact.created_at
-            artifact_updated_at = ts.isoformat() if ts else None
-            artifact_metadata = artifact.metadata or {}
-            if isinstance(content, dict):
-                p = content.get("progress")
-                progress = p if isinstance(p, dict) else {}
-                cm = content.get("metadata")
-                content_metadata = cm if isinstance(cm, dict) else {}
+    for row in rows:
+        row_progress, row_content_metadata = _extract_artifact_progress_from_content(
+            row.content
+        )
+        if not isinstance(row_progress, dict):
+            continue
+        artifact_id = str(row.id)
+        ts = row.updated_at or row.created_at
+        artifact_updated_at = ts.isoformat() if ts else None
+        artifact_metadata = json_value_without_nul(row.metadata, {}) or {}
+        progress = row_progress
+        content_metadata = row_content_metadata
+        break
 
     ctx = task.execution_context if isinstance(task.execution_context, dict) else {}
     _QUEUE_CACHE.refresh_if_stale(tasks_store)
@@ -170,7 +150,6 @@ def load_execution_progress_snapshot_payload(
             "heartbeat_at": runner_live_context["heartbeat_at"],
             "runner_id": runner_live_context["runner_id"],
             "execution_backend_hint": ctx.get("execution_backend_hint"),
-            "inputs": ctx.get("inputs") if isinstance(ctx.get("inputs"), dict) else {},
             "dependency_hold": ctx.get("dependency_hold"),
             "admission_policy": (
                 ctx.get("admission_policy")

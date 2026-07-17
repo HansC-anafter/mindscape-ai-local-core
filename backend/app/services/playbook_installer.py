@@ -44,7 +44,13 @@ class PlaybookInstaller:
         self.i18n_base_dir = i18n_dir or (backend_dir / "i18n" / "playbooks")
 
     def _install_playbooks(
-        self, cap_dir: Path, capability_code: str, manifest: Dict, result: InstallResult
+        self,
+        cap_dir: Path,
+        capability_code: str,
+        manifest: Dict,
+        result: InstallResult,
+        *,
+        write_legacy_compatibility: bool = True,
     ):
         """Install playbook specs and markdown files"""
         playbooks_config = manifest.get("playbooks", [])
@@ -74,10 +80,10 @@ class PlaybookInstaller:
                     continue
 
 
-                # Install to backend/playbooks/specs/ (backward compatibility)
-                target_spec = self.specs_dir / f"{playbook_code}.json"
-                self.specs_dir.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(spec_path, target_spec)
+                if write_legacy_compatibility:
+                    target_spec = self.specs_dir / f"{playbook_code}.json"
+                    self.specs_dir.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(spec_path, target_spec)
                 result.add_installed("playbooks", playbook_code)
                 logger.debug(f"Installed spec: {playbook_code}.json")
 
@@ -104,11 +110,11 @@ class PlaybookInstaller:
             for locale in locales:
                 md_path = cap_dir / md_path_template.format(locale=locale)
                 if md_path.exists():
-                    # Install to backend/i18n/playbooks/{locale}/ (backward compatibility)
-                    target_md_dir = self.i18n_base_dir / locale
-                    target_md_dir.mkdir(parents=True, exist_ok=True)
-                    target_md = target_md_dir / f"{playbook_code}.md"
-                    shutil.copy2(md_path, target_md)
+                    if write_legacy_compatibility:
+                        target_md_dir = self.i18n_base_dir / locale
+                        target_md_dir.mkdir(parents=True, exist_ok=True)
+                        target_md = target_md_dir / f"{playbook_code}.md"
+                        shutil.copy2(md_path, target_md)
                     logger.debug(f"Installed markdown: {playbook_code}.md ({locale})")
 
                     # Also install to capabilities/{code}/playbooks/{locale}/ (correct location)

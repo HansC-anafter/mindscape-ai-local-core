@@ -177,3 +177,19 @@ def configure_runtime_version_locations(
     if merged_locations:
         config.set_main_option("version_locations", os.pathsep.join(merged_locations))
     return merged_locations
+
+
+def append_runtime_version_locations(
+    config: Config,
+    locations: Iterable[str | Path],
+) -> list[str]:
+    """Append exact candidate paths without replacing installed graph locations."""
+
+    merged = list(_resolve_declared_version_locations(config))
+    for location in locations:
+        resolved = Path(location).resolve().as_posix()
+        if resolved not in merged:
+            merged.append(resolved)
+    if merged:
+        config.set_main_option("version_locations", os.pathsep.join(merged))
+    return merged

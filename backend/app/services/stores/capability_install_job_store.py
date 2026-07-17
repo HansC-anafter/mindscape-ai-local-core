@@ -127,10 +127,25 @@ class CapabilityInstallJobStore(PostgresStoreBase):
                             SELECT install_id
                             FROM capability_install_jobs
                             WHERE
-                                state = 'queued'
-                                OR (
-                                    state = 'waiting_db'
-                                    AND (not_before IS NULL OR not_before <= now())
+                                NOT EXISTS (
+                                    SELECT 1
+                                    FROM pack_install_commit_receipts
+                                    WHERE projection_state <> 'succeeded'
+                                       OR filesystem_cleanup_state <> 'succeeded'
+                                )
+                                AND (
+                                    state = 'queued'
+                                    OR (
+                                        state IN (
+                                            'waiting_db',
+                                            'waiting_db_incident',
+                                            'pending_execution_activation'
+                                        )
+                                        AND (
+                                            not_before IS NULL
+                                            OR not_before <= now()
+                                        )
+                                    )
                                 )
                             ORDER BY created_at ASC
                             FOR UPDATE SKIP LOCKED
@@ -187,6 +202,43 @@ class CapabilityInstallJobStore(PostgresStoreBase):
             )
         return self._row_to_dict(row) if row else None
 
+    def mark_waiting_db_incident(
+        self,
+        install_id: str,
+        *,
+        incident_id: Optional[str],
+        retry_after_seconds: int,
+    ) -> Optional[Dict[str, Any]]:
+        with self.transaction() as conn:
+            row = (
+                conn.execute(
+                    text(
+                        """
+                        UPDATE capability_install_jobs
+                        SET state = 'waiting_db_incident',
+                            error = :reason,
+                            retry_after_seconds = :retry_after_seconds,
+                            not_before = now() + (:retry_after_seconds || ' seconds')::interval,
+                            updated_at = now()
+                        WHERE install_id = :install_id
+                        RETURNING *
+                        """
+                    ),
+                    {
+                        "install_id": install_id,
+                        "reason": (
+                            f"runtime_database_incident_open:{incident_id}"
+                            if incident_id
+                            else "runtime_database_incident_open"
+                        ),
+                        "retry_after_seconds": retry_after_seconds,
+                    },
+                )
+                .mappings()
+                .first()
+            )
+        return self._row_to_dict(row) if row else None
+
     def mark_succeeded(
         self,
         install_id: str,
@@ -207,12 +259,35 @@ class CapabilityInstallJobStore(PostgresStoreBase):
         result_payload: Dict[str, Any],
         error: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
-        return self._mark_terminal(
-            install_id,
-            state="pending_execution_activation",
-            result_payload=result_payload,
-            error=error,
-        )
+        retry_after_seconds = 10
+        with self.transaction() as conn:
+            row = (
+                conn.execute(
+                    text(
+                        """
+                        UPDATE capability_install_jobs
+                        SET state = 'pending_execution_activation',
+                            result_payload = CAST(:result_payload AS JSONB),
+                            error = :error,
+                            retry_after_seconds = :retry_after_seconds,
+                            not_before = now() + (:retry_after_seconds || ' seconds')::interval,
+                            finished_at = NULL,
+                            updated_at = now()
+                        WHERE install_id = :install_id
+                        RETURNING *
+                        """
+                    ),
+                    {
+                        "install_id": install_id,
+                        "result_payload": self.serialize_json(result_payload),
+                        "error": error,
+                        "retry_after_seconds": retry_after_seconds,
+                    },
+                )
+                .mappings()
+                .first()
+            )
+        return self._row_to_dict(row) if row else None
 
     def mark_failed(
         self,

@@ -1,6 +1,9 @@
 """Migration execution facade for runtime assets."""
 
+import ast
+import hashlib
 import logging
+import time
 from pathlib import Path
 
 import yaml
@@ -8,6 +11,11 @@ import yaml
 from backend.app.database.write_readiness import (
     DatabaseWriteNotReadyError,
     check_core_write_readiness,
+)
+from backend.app.services.runtime_database_incident_gate import (
+    RuntimeDatabaseMutationBlocked,
+    record_database_failure,
+    require_runtime_database_mutation_allowed,
 )
 from ..install_result import InstallResult
 from .migrations_install import install_migrations
@@ -61,6 +69,62 @@ def _should_use_branch_scoped_upgrade(
     return branch_auto_discover and not revisions
 
 
+_DESTRUCTIVE_MIGRATION_MARKERS = (
+    "op.drop_table(",
+    "op.drop_column(",
+    "op.drop_constraint(",
+    "drop table ",
+    "drop column ",
+    "alter column ",
+)
+
+
+def _validate_expand_compatible_migrations(files: list[Path]) -> str:
+    digest = hashlib.sha256()
+    for path in sorted(files):
+        content = path.read_text(encoding="utf-8")
+        tree = ast.parse(content, filename=path.as_posix())
+        upgrade = next(
+            (
+                node
+                for node in tree.body
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and node.name == "upgrade"
+            ),
+            None,
+        )
+        if upgrade is None:
+            raise RuntimeError(f"candidate_migration_upgrade_missing:{path.name}")
+        upgrade_source = ast.get_source_segment(content, upgrade) or ""
+        lowered = upgrade_source.lower()
+        marker = next(
+            (item for item in _DESTRUCTIVE_MIGRATION_MARKERS if item in lowered),
+            None,
+        )
+        if marker:
+            raise RuntimeError(
+                f"candidate_migration_not_expand_compatible:{path.name}:{marker.strip()}"
+            )
+        digest.update(path.name.encode("utf-8"))
+        digest.update(content.encode("utf-8"))
+    return digest.hexdigest()
+
+
+def _validate_resolvable_graph(
+    orchestrator,
+    *,
+    current_heads: set[str],
+    declared_revisions: list[str],
+) -> list[str]:
+    script_dir = orchestrator._load_script_directory("postgres")
+    if script_dir is None:
+        raise RuntimeError("candidate_migration_graph_unavailable")
+    for revision in sorted(current_heads | set(declared_revisions)):
+        if script_dir.get_revision(str(revision)) is None:
+            raise RuntimeError(f"candidate_migration_revision_unresolvable:{revision}")
+    return sorted(str(head) for head in script_dir.get_heads())
+
+
 def execute_migrations(
     local_core_root: Path,
     capabilities_dir: Path,
@@ -80,7 +144,21 @@ def execute_migrations(
 
     engine = None
     try:
+        migration_started = time.monotonic()
         logger.info(f"Executing database migrations for {capability_code}...")
+        try:
+            require_runtime_database_mutation_allowed(
+                f"capability_migration:{capability_code}"
+            )
+        except RuntimeDatabaseMutationBlocked as exc:
+            if result.migration_status is None:
+                result.migration_status = {}
+            result.migration_status[capability_code] = "waiting_db_incident"
+            result.add_error(
+                "Migration blocked by runtime database incident gate: "
+                f"{exc.decision.incident_id or exc.decision.reason}"
+            )
+            return
 
         capability_dir = capabilities_dir / capability_code
         migrations_yaml = capability_dir / "migrations.yaml"
@@ -115,8 +193,12 @@ def execute_migrations(
                     "but they are NOT declared in migrations.yaml. "
                     "These migrations will NOT be executed until added to the revisions list."
                 )
-                logger.warning(drift_message)
-                result.add_warning(drift_message)
+                logger.error(drift_message)
+                result.add_error(drift_message)
+                if result.migration_status is None:
+                    result.migration_status = {}
+                result.migration_status[capability_code] = "failed"
+                return
         else:
             current_migration_files = _collect_migration_files(
                 capability_dir,
@@ -189,7 +271,17 @@ def execute_migrations(
 
         capabilities_root = local_core_root / "backend" / "app" / "capabilities"
         alembic_configs = {"postgres": alembic_config}
-        orchestrator = MigrationOrchestrator(capabilities_root, alembic_configs)
+        candidate_version_locations = sorted(
+            {path.parent for path in current_migration_files}
+        )
+        orchestrator = MigrationOrchestrator(
+            capabilities_root,
+            alembic_configs,
+            extra_version_locations=candidate_version_locations,
+        )
+        ddl_checksum = _validate_expand_compatible_migrations(
+            current_migration_files
+        )
 
         engine = create_session_semantics_engine(
             get_postgres_url_core_session(),
@@ -200,11 +292,11 @@ def execute_migrations(
         existing_tables = set(inspector.get_table_names())
 
         for revision in revisions:
-            migration_files = list(
-                (local_core_root / "backend" / "alembic" / "postgres" / "versions").glob(
-                    f"{revision}_*.py"
-                )
-            )
+            migration_files = [
+                path
+                for path in current_migration_files
+                if extract_revision_id(path) == str(revision)
+            ]
             expected_tables = []
             for migration_file in migration_files:
                 try:
@@ -224,6 +316,11 @@ def execute_migrations(
         with engine.connect() as connection:
             result_query = connection.execute(text("SELECT version_num FROM alembic_version"))
             current_revisions = {str(row[0]) for row in result_query}
+            graph_heads_before = _validate_resolvable_graph(
+                orchestrator,
+                current_heads=current_revisions,
+                declared_revisions=[str(revision) for revision in revisions],
+            )
             applied_revisions = _resolve_applied_revisions(
                 orchestrator,
                 current_revisions,
@@ -240,22 +337,25 @@ def execute_migrations(
                 ]
                 if not missing_tables:
                     continue
-                logger.warning(
-                    f"Revision {revision} is marked as applied but tables are missing: {missing_tables}"
+                message = (
+                    f"Revision {revision} is marked as applied but expected tables are missing: "
+                    f"{sorted(missing_tables)}. Alembic history is append-only; "
+                    "a corrective revision is required."
                 )
-                logger.info(
-                    f"Removing revision {revision} from alembic_version to allow re-execution"
+                logger.error(message)
+                record_database_failure(
+                    "alembic_applied_revision_schema_mismatch",
+                    evidence={
+                        "capability_code": capability_code,
+                        "revision": str(revision),
+                        "missing_table_count": str(len(missing_tables)),
+                    },
                 )
-                connection.execute(
-                    text(
-                        f"DELETE FROM alembic_version WHERE version_num = '{revision}'"
-                    )
-                )
-                connection.commit()
-                applied_revisions.discard(str(revision))
-                logger.info(
-                    f"Removed revision {revision}, will re-execute migration"
-                )
+                result.add_error(message)
+                if result.migration_status is None:
+                    result.migration_status = {}
+                result.migration_status[capability_code] = "failed"
+                return
 
         pending_revisions = _pending_revisions(revisions, applied_revisions)
 
@@ -363,6 +463,23 @@ def execute_migrations(
         if result.migration_status is None:
             result.migration_status = {}
         result.migration_status[capability_code] = "applied"
+        with engine.connect() as connection:
+            after_rows = connection.execute(
+                text("SELECT version_num FROM alembic_version")
+            ).fetchall()
+        result.migration_receipts[capability_code] = {
+            "before_heads": sorted(current_revisions),
+            "graph_heads_before": graph_heads_before,
+            "target_revisions": [str(revision) for revision in revisions],
+            "after_heads": sorted(str(row[0]) for row in after_rows),
+            "ddl_checksum": ddl_checksum,
+            "duration_ms": round(
+                (time.monotonic() - migration_started) * 1000,
+                2,
+            ),
+            "lock_timeout_ms": 5000,
+            "statement_timeout_ms": 120000,
+        }
     except DatabaseWriteNotReadyError:
         raise
     except Exception as exc:

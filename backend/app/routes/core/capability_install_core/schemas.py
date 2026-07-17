@@ -21,12 +21,26 @@ class InstallPipelineResult:
     pack_metadata: Dict[str, Any] = field(default_factory=dict)
     activation: Optional[Dict[str, Any]] = None
     validation: Optional[Dict[str, Any]] = None
+    migration_receipts: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    install_commit_receipt: Dict[str, Any] = field(default_factory=dict)
+    activation_candidate: Dict[str, Any] = field(default_factory=dict)
+    install_commit_coordinator: Any = field(default=None, repr=False)
 
 
 @dataclass
 class InstallRegistrySyncState:
     contract_lane_changed: bool = False
     object_catalog_changed: bool = False
+
+
+class PackBackoutRequest(BaseModel):
+    """Exact authorization for installing a version below committed truth."""
+
+    backout_from_install_id: str = Field(..., min_length=1)
+    artifact_sha256: str = Field(..., pattern=r"^[0-9a-f]{64}$")
+    target_version: str = Field(..., min_length=1)
+    schema_compatibility_receipt: str = Field(..., min_length=1)
+    owner_approval: str = Field(..., min_length=1)
 
 
 class InstallFromCloudRequest(BaseModel):
@@ -37,4 +51,4 @@ class InstallFromCloudRequest(BaseModel):
     )
     provider_id: str = Field(..., description="Provider ID to download from")
     verify_checksum: bool = Field(True, description="Whether to verify SHA256 checksum")
-
+    backout_receipt: Optional[PackBackoutRequest] = None

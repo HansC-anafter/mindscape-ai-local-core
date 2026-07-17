@@ -78,7 +78,7 @@ def test_workspace_execution_activity_service_uses_projection_only():
     assert "CASE LOWER(status)" in service_source
 
 
-def test_workspace_execution_activity_post_detail_hydration_is_bounded():
+def test_workspace_execution_activity_hydration_delegates_to_pack_facade():
     service_source = (
         _backend_root()
         / "app/services/workspace_execution_activity.py"
@@ -89,12 +89,11 @@ def test_workspace_execution_activity_post_detail_hydration_is_bounded():
     ).read_text(encoding="utf-8")
 
     assert "hydrate_missing_execution_inputs" in service_source
-    assert "ig_pin_post_detail" in hydration_source
-    assert "FROM tasks" in hydration_source
-    assert "WHERE id IN :task_ids" in hydration_source
-    assert "pack_id = :pack_id" in hydration_source
-    assert "shortcodes" in hydration_source
-    assert "tags" in hydration_source
+    assert "load_task_display_input_overlays" in hydration_source
+    assert "FROM tasks" not in hydration_source
+    assert "ig_pin_post_detail" not in hydration_source
+    assert "shortcodes" not in hydration_source
+    assert "tags" not in hydration_source
 
 
 def test_projection_read_indexes_are_nonblocking_and_reversible():
@@ -169,6 +168,7 @@ def test_projection_compact_inputs_are_schema_managed():
     assert "compact_inputs" in migration_source
     assert "task_summary_projection" in migration_source
     assert "compact_inputs" in projection_builder_source
-    assert "tasks.params::jsonb" in projection_builder_source
-    assert "'shortcodes'" in projection_builder_source
-    assert "'tags'" in projection_builder_source
+    assert "build_task_display_inputs" in projection_builder_source
+    assert "tasks.params::jsonb" not in projection_builder_source
+    assert "'shortcodes'" not in projection_builder_source
+    assert "'tags'" not in projection_builder_source

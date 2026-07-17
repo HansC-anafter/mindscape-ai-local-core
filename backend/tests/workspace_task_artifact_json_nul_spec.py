@@ -33,6 +33,8 @@ def test_progress_snapshot_queries_do_not_cast_artifact_content_to_jsonb():
     ).read_text(encoding="utf-8")
 
     assert "content::jsonb" not in source
+    assert "content ->" not in source
+    assert "_extract_artifact_progress_from_content(\n            row.content\n        )" in source
     assert "json_value_without_nul" in source
 
 
