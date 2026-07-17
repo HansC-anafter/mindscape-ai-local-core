@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from backend.app.services.runtime_database_incident_gate import (
+    IncidentDiagnosticPermit,
     RuntimeDatabaseIncidentJournal,
 )
 from scripts.maintenance.postgres_signal_observer_core import (
@@ -20,6 +22,7 @@ from scripts.maintenance.postgres_signal_observer_core import (
     parse_signal_generate_line,
     read_namespace_pids,
 )
+from scripts.maintenance.postgres_signal_observer import _healthcheck
 
 
 TRACE_LINE = (
@@ -250,3 +253,77 @@ def test_observer_refuses_tracefs_before_exact_incident_permit(
     health = ObserverEvidenceStore(config.evidence_root).read_health()
     assert health["ready"] is False
     assert health["state"] == "fail_closed_observer_error"
+
+
+def test_observer_persists_starting_health_before_tracefs_prepare(
+    tmp_path: Path,
+) -> None:
+    config = _config(tmp_path)
+    journal = RuntimeDatabaseIncidentJournal(config.journal_root)
+    incident = journal.open_incident(failure_code="isolated_observer_startup_test")
+    journal.record_diagnostic_permit(
+        incident.incident_id,
+        IncidentDiagnosticPermit(
+            permit_id="diagnostic-startup-health",
+            source_commit=config.source_commit,
+            allowed_operation_keys=(
+                "postgres_signal_observer_start@sha256:"
+                + config.artifact_sha256,
+            ),
+            test_evidence_paths=("evidence/observer-startup.json",),
+            isolated_drill_id="observer-startup-health-test",
+            budget_sha256="b" * 64,
+            expires_at=(
+                datetime.now(timezone.utc) + timedelta(minutes=10)
+            ).isoformat(),
+            owner="runtime-db-incident-owner",
+        ),
+    )
+    store = ObserverEvidenceStore(config.evidence_root)
+    startup_receipts = []
+
+    class _BlockedTrace:
+        instance_name = "test"
+
+        def prepare(self):
+            startup_receipts.append(store.read_health())
+            raise RuntimeError("fixture_tracefs_prepare_blocked")
+
+        def cleanup(self):
+            pass
+
+    observer = PostgresSignalObserver(
+        config,
+        store=store,
+        trace=_BlockedTrace(),
+        correlation=SimpleNamespace(),
+    )
+
+    assert observer.run() == 2
+    assert startup_receipts[0]["ready"] is False
+    assert startup_receipts[0]["state"] == "starting"
+    assert startup_receipts[0]["startup_phase"] == "tracefs_prepare"
+    terminal = store.read_health()
+    assert terminal["ready"] is False
+    assert terminal["state"] == "fail_closed_observer_error"
+
+
+def test_docker_healthcheck_reads_only_matching_canonical_journal(
+    tmp_path: Path,
+) -> None:
+    config = _config(tmp_path)
+    store = ObserverEvidenceStore(config.evidence_root)
+    canonical = {
+        "ready": True,
+        "state": "ready",
+        "artifact_sha256": config.artifact_sha256,
+        "source_commit": config.source_commit,
+        "image_digest": config.image_digest,
+        "filter": 'sig == 3 && comm == "postgres"',
+    }
+
+    store.write_health(canonical)
+    assert _healthcheck(config, 30) == 0
+
+    store.write_health({**canonical, "artifact_sha256": "0" * 64})
+    assert _healthcheck(config, 30) == 2

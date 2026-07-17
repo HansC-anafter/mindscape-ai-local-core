@@ -19,6 +19,7 @@ from scripts.maintenance.postgres_signal_observer_core import (  # noqa: E402
     ObserverConfig,
     ObserverEvidenceStore,
     PostgresSignalObserver,
+    SIGNAL_FILTER,
     canonical_observer_artifact_sha256,
 )
 
@@ -42,6 +43,10 @@ def _healthcheck(config: ObserverConfig, max_age_seconds: int) -> int:
         healthy = (
             payload.get("ready") is True
             and payload.get("state") == "ready"
+            and payload.get("artifact_sha256") == config.artifact_sha256
+            and payload.get("source_commit") == config.source_commit
+            and payload.get("image_digest") == config.image_digest
+            and payload.get("filter") == SIGNAL_FILTER
             and age <= max(5, int(max_age_seconds))
         )
     except Exception:

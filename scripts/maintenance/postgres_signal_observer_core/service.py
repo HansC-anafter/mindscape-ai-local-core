@@ -190,6 +190,15 @@ class PostgresSignalObserver:
 
     def run(self) -> int:
         try:
+            # Persist a bounded startup receipt before any tracefs operation.  The
+            # launcher can then distinguish an observer that is still starting
+            # from an inherited or missing container healthcheck, and enforce
+            # its fixed startup deadline without querying PostgreSQL/PgBouncer.
+            self._health(
+                ready=False,
+                state="starting",
+                startup_phase="config_and_permit_validation",
+            )
             self.config.validate()
             decision = require_runtime_database_mutation_allowed(
                 "postgres_signal_observer_start",
@@ -198,6 +207,11 @@ class PostgresSignalObserver:
             )
             if decision.reason != "incident_diagnostic_permit":
                 raise RuntimeError("incident_diagnostic_permit_required")
+            self._health(
+                ready=False,
+                state="starting",
+                startup_phase="tracefs_prepare",
+            )
             actual_filter = self.trace.prepare()
             self._health(
                 ready=True,

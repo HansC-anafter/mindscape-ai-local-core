@@ -6,6 +6,10 @@ from .drill import (
     DisposableDrillClientConfig,
     launch_disposable_drill_client,
 )
+from .drill_observer import (
+    DisposableDrillObserverConfig,
+    launch_disposable_drill_observer,
+)
 from .evidence import EvidenceBudget, EvidenceCapacityExhausted, ObserverEvidenceStore
 from .events import SignalGenerateEvent, parse_signal_generate_line, read_namespace_pids
 from .pgbouncer import PgBouncerCorrelationClient
@@ -17,6 +21,7 @@ __all__ = [
     "EvidenceCapacityExhausted",
     "DRILL_APPLICATION_NAME",
     "DisposableDrillClientConfig",
+    "DisposableDrillObserverConfig",
     "ObserverConfig",
     "ObserverEvidenceStore",
     "PgBouncerCorrelationClient",
@@ -26,6 +31,7 @@ __all__ = [
     "TraceFsInstance",
     "canonical_observer_artifact_sha256",
     "launch_disposable_drill_client",
+    "launch_disposable_drill_observer",
     "parse_signal_generate_line",
     "read_namespace_pids",
 ]
