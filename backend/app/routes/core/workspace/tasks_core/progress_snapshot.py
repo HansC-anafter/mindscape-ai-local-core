@@ -89,27 +89,27 @@ def load_execution_progress_snapshot_payload(
 
     with tasks_store.get_connection() as conn:
         rows = conn.execute(
-                text(
-                    """
-                    SELECT
-                        id,
-                        updated_at,
-                        created_at,
-                        metadata,
-                        content
-                    FROM artifacts
-                    WHERE workspace_id = :workspace_id
-                      AND execution_id = :execution_id
-                      AND content IS NOT NULL
-                    ORDER BY updated_at DESC
-                    LIMIT 5
-                    """
-                ),
-                {
-                    "workspace_id": workspace_id,
-                    "execution_id": execution_id,
-                },
-            ).fetchall()
+            text(
+                """
+                SELECT
+                    id,
+                    updated_at,
+                    created_at,
+                    metadata,
+                    content
+                FROM artifacts
+                WHERE workspace_id = :workspace_id
+                  AND execution_id = :execution_id
+                  AND content IS NOT NULL
+                ORDER BY updated_at DESC
+                LIMIT 5
+                """
+            ),
+            {
+                "workspace_id": workspace_id,
+                "execution_id": execution_id,
+            },
+        ).fetchall()
     for row in rows:
         row_progress, row_content_metadata = _extract_artifact_progress_from_content(
             row.content
