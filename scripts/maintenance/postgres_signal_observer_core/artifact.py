@@ -17,6 +17,9 @@ OBSERVER_SOURCE_PATHS = (
     "scripts/maintenance/postgres_signal_observer_core/pgbouncer.py",
     "scripts/maintenance/postgres_signal_observer_core/service.py",
     "scripts/maintenance/postgres_signal_observer_core/tracefs.py",
+    "scripts/maintenance/postgres_signal_observer_preflight.py",
+    "scripts/maintenance/postgres_signal_observer_preflight_core/__init__.py",
+    "scripts/maintenance/postgres_signal_observer_preflight_core/preflight.py",
 )
 
 

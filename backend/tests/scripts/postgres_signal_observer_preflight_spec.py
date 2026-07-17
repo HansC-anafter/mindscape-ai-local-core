@@ -45,8 +45,11 @@ def _compose_payload() -> str:
     )
 
 
-def _command(*, active_install_jobs: int = 0):
+def _command(*, active_install_jobs: int = 0, lifecycle_changed: bool = False):
+    lifecycle_calls = 0
+
     def run(args: list[str], timeout: float):
+        nonlocal lifecycle_calls
         joined = " ".join(args)
         if "docker compose" in joined:
             return {"ok": True, "stdout": _compose_payload()}
@@ -75,6 +78,28 @@ def _command(*, active_install_jobs: int = 0):
                 "ok": True,
                 "stdout": "mindscape-ai-local-core-runner-a\n",
             }
+        if ".State.StartedAt" in joined:
+            lifecycle_calls += 1
+            runner_started_at = (
+                "2026-07-17T21:00:30Z"
+                if lifecycle_changed and lifecycle_calls > 1
+                else "2026-07-17T21:00:00Z"
+            )
+            rows = [
+                "/mindscape-ai-local-core-postgres|2026-07-17T04:03:11Z|0|true",
+                "/mindscape-ai-local-core-pgbouncer|2026-07-17T04:03:11Z|0|true",
+                "/mindscape-ai-local-core-backend|2026-07-17T04:03:11Z|0|true",
+                "/mindscape-ai-local-core-backend-control|2026-07-17T18:05:45Z|0|true",
+                "/mindscape-ai-local-core-frontend|2026-07-17T04:03:11Z|0|true",
+                "/mindscape-ai-local-core-runner-a|"
+                + runner_started_at
+                + (
+                    "|3|true"
+                    if lifecycle_calls > 1 and lifecycle_changed
+                    else "|2|true"
+                ),
+            ]
+            return {"ok": True, "stdout": "\n".join(rows) + "\n"}
         if "docker inspect" in joined:
             return {"ok": True, "stdout": "LOCAL_CORE_RUNNER_MAX_INFLIGHT=8\n"}
         if "postgres-signal-observer" in joined and "docker ps" in joined:
@@ -119,7 +144,9 @@ def test_qualification_passes_without_claiming_mutation_permit(tmp_path: Path) -
     assert receipt["mutation_permit"] is False
     assert receipt["quiet_window_owned"] is False
     assert receipt["execution_frontier_queried"] is False
+    assert receipt["parallel_runtime_mutation_detected"] is False
     assert receipt["checks"]["pgbouncer"]["sample_count"] == 3
+    assert receipt["checks"]["runtime_lifecycle"]["stable"] is True
 
 
 def test_terminal_requires_exact_diagnostic_permit(tmp_path: Path) -> None:
@@ -200,3 +227,24 @@ def test_observer_source_has_no_database_query_or_unbounded_privilege() -> None:
     assert "privileged: true" not in compose
     assert "SYS_PTRACE" not in compose
     assert "seccomp=unconfined" not in compose
+
+
+def test_runner_restart_during_full_window_fails_parallel_mutation_gate(
+    tmp_path: Path,
+) -> None:
+    config = _config(tmp_path, phase="qualification")
+
+    receipt = collect_observer_preflight(
+        config,
+        command=_command(lifecycle_changed=True),
+        fetch=_fetch,
+        sleep=lambda _: None,
+    )
+
+    assert receipt["gate_pass"] is False
+    assert receipt["first_failure"] == "runtime_lifecycle_changed_during_preflight"
+    assert receipt["parallel_runtime_mutation_detected"] is True
+    before = receipt["checks"]["runtime_lifecycle"]["before"]["rows"][-1]
+    after = receipt["checks"]["runtime_lifecycle"]["after"]["rows"][-1]
+    assert before["restart_count"] == 2
+    assert after["restart_count"] == 3

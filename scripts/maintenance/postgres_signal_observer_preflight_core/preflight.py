@@ -27,6 +27,15 @@ RunCommand = Callable[[list[str], float], dict[str, Any]]
 FetchUrl = Callable[[str, float], dict[str, Any]]
 
 
+_RUNTIME_CONTAINER_NAMES = (
+    "mindscape-ai-local-core-postgres",
+    "mindscape-ai-local-core-pgbouncer",
+    "mindscape-ai-local-core-backend",
+    "mindscape-ai-local-core-backend-control",
+    "mindscape-ai-local-core-frontend",
+)
+
+
 @dataclass(frozen=True)
 class ObserverPreflightConfig:
     repo_root: Path
@@ -268,6 +277,85 @@ def _observer_running(command: RunCommand, timeout_seconds: float) -> dict[str, 
     }
 
 
+def _runtime_lifecycle_snapshot(
+    command: RunCommand,
+    timeout_seconds: float,
+) -> dict[str, Any]:
+    listed = command(
+        [
+            "docker",
+            "ps",
+            "--filter",
+            "name=mindscape-ai-local-core-runner",
+            "--format",
+            "{{.Names}}",
+        ],
+        timeout_seconds,
+    )
+    if not listed.get("ok"):
+        return {"ok": False, "error_code": "runner_lifecycle_list_unavailable"}
+    runner_names = sorted(
+        name.strip()
+        for name in str(listed.get("stdout") or "").splitlines()
+        if name.strip()
+    )
+    if not runner_names:
+        return {"ok": False, "error_code": "runner_lifecycle_empty"}
+    container_names = [*_RUNTIME_CONTAINER_NAMES, *runner_names]
+    inspected = command(
+        [
+            "docker",
+            "inspect",
+            "--format",
+            "{{.Name}}|{{.State.StartedAt}}|{{.RestartCount}}|{{.State.Running}}",
+            *container_names,
+        ],
+        timeout_seconds,
+    )
+    if not inspected.get("ok"):
+        return {"ok": False, "error_code": "runtime_lifecycle_inspect_unavailable"}
+    rows: list[dict[str, Any]] = []
+    try:
+        for line in str(inspected.get("stdout") or "").splitlines():
+            name, started_at, restart_count, running = line.strip().split("|", 3)
+            rows.append(
+                {
+                    "container": name.removeprefix("/"),
+                    "started_at": started_at,
+                    "restart_count": int(restart_count),
+                    "running": running.lower() == "true",
+                }
+            )
+    except (TypeError, ValueError):
+        return {"ok": False, "error_code": "runtime_lifecycle_inspect_invalid"}
+    rows.sort(key=lambda row: str(row["container"]))
+    if {str(row["container"]) for row in rows} != set(container_names):
+        return {"ok": False, "error_code": "runtime_lifecycle_inventory_mismatch"}
+    return {
+        "ok": all(bool(row["running"]) for row in rows),
+        "runner_containers": runner_names,
+        "rows": rows,
+    }
+
+
+def _database_state_matches(
+    before: dict[str, Any],
+    after: dict[str, Any],
+) -> bool:
+    fields = (
+        "in_recovery",
+        "read_only",
+        "lock_waits",
+        "active_install_jobs",
+        "incomplete_commit_receipts",
+    )
+    return bool(
+        before.get("ok")
+        and after.get("ok")
+        and all(before.get(field) == after.get(field) for field in fields)
+    )
+
+
 def _evaluate_failures(
     checks: dict[str, Any], config: ObserverPreflightConfig
 ) -> list[str]:
@@ -293,6 +381,13 @@ def _evaluate_failures(
             failures.append("postgres_read_only")
         if int(database.get("lock_waits") or 0) != 0:
             failures.append(f"postgres_lock_waits_nonzero:{database.get('lock_waits')}")
+    lifecycle = checks["runtime_lifecycle"]
+    if not lifecycle["before"].get("ok") or not lifecycle["after"].get("ok"):
+        failures.append("runtime_lifecycle_unavailable")
+    elif not lifecycle.get("stable"):
+        failures.append("runtime_lifecycle_changed_during_preflight")
+    if not checks.get("database_state_stable"):
+        failures.append("database_state_changed_during_preflight")
     pools = checks["pgbouncer"]
     if not pools.get("ok") or pools.get("sample_count") != 3:
         failures.append("pgbouncer_three_samples_unavailable")
@@ -340,32 +435,57 @@ def collect_observer_preflight(
         journal_root=config.journal_root,
     )
     actual_artifact_sha256 = canonical_observer_artifact_sha256(config.repo_root)
+    runtime_lifecycle_before = _runtime_lifecycle_snapshot(
+        command, config.timeout_seconds
+    )
+    database_before = _database_checks(command, config.timeout_seconds)
+    pgbouncer = collect_pgbouncer_metrics(
+        command,
+        config.timeout_seconds,
+        sample_count=3,
+        sample_interval_seconds=config.pgbouncer_sample_interval_seconds,
+        sleep=sleep,
+    )
+    runner_capacity = collect_runner_capacity(command, config.timeout_seconds)
+    endpoints = {
+        "execution_8200": fetch(
+            "http://127.0.0.1:8200/healthz", config.timeout_seconds
+        ),
+        "control_8220": fetch("http://127.0.0.1:8220/healthz", config.timeout_seconds),
+        "frontend_8300": fetch("http://127.0.0.1:8300", config.timeout_seconds),
+    }
+    compose_policy = _compose_policy(command, config)
+    observer_process = _observer_running(command, config.timeout_seconds)
+    database_after = _database_checks(command, config.timeout_seconds)
+    runtime_lifecycle_after = _runtime_lifecycle_snapshot(
+        command, config.timeout_seconds
+    )
+    lifecycle_stable = bool(
+        runtime_lifecycle_before.get("ok")
+        and runtime_lifecycle_after.get("ok")
+        and runtime_lifecycle_before.get("rows") == runtime_lifecycle_after.get("rows")
+    )
     checks = {
         "source_artifact": {
             "expected_sha256": config.artifact_sha256,
             "actual_sha256": actual_artifact_sha256,
             "matches": actual_artifact_sha256 == config.artifact_sha256,
         },
-        "database": _database_checks(command, config.timeout_seconds),
-        "pgbouncer": collect_pgbouncer_metrics(
-            command,
-            config.timeout_seconds,
-            sample_count=3,
-            sample_interval_seconds=config.pgbouncer_sample_interval_seconds,
-            sleep=sleep,
+        "database": database_after,
+        "database_before": database_before,
+        "database_state_stable": _database_state_matches(
+            database_before, database_after
         ),
-        "runner_capacity": collect_runner_capacity(command, config.timeout_seconds),
-        "endpoints": {
-            "execution_8200": fetch(
-                "http://127.0.0.1:8200/healthz", config.timeout_seconds
-            ),
-            "control_8220": fetch(
-                "http://127.0.0.1:8220/healthz", config.timeout_seconds
-            ),
-            "frontend_8300": fetch("http://127.0.0.1:8300", config.timeout_seconds),
+        "runtime_lifecycle": {
+            "before": runtime_lifecycle_before,
+            "after": runtime_lifecycle_after,
+            "stable": lifecycle_stable,
         },
-        "compose_policy": _compose_policy(command, config),
-        "observer_process": _observer_running(command, config.timeout_seconds),
+        "pgbouncer": pgbouncer,
+        "runner_capacity": runner_capacity,
+        "endpoints": endpoints,
+        "compose_policy": compose_policy,
+        "observer_process": observer_process,
         "incident_decision": decision.to_dict(),
     }
     failures = _evaluate_failures(checks, config)
@@ -386,6 +506,9 @@ def collect_observer_preflight(
         "owner": config.owner,
         "artifact_sha256": config.artifact_sha256,
         "execution_frontier_queried": False,
+        "parallel_runtime_mutation_detected": not bool(
+            lifecycle_stable and checks["database_state_stable"]
+        ),
         "queue_runner_pool_capacity_mutation": False,
         "checks": checks,
     }
