@@ -164,13 +164,51 @@ async def test_progress_snapshot_returns_stable_503_without_raw_sql(monkeypatch)
     assert "SELECT" not in str(raised.value.detail)
 
 
+@pytest.mark.asyncio
+async def test_progress_snapshot_does_not_mislabel_query_defects_as_db_outages(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        progress_snapshot_route,
+        "_load_execution_progress_snapshot_payload",
+        lambda *_args: (_ for _ in ()).throw(
+            RuntimeError(
+                "operator does not exist: text -> unknown [SQL: SELECT content -> 'progress']"
+            )
+        ),
+    )
+
+    with pytest.raises(HTTPException) as raised:
+        await progress_snapshot_route.get_execution_progress_snapshot(
+            "ws-1", "exec-1"
+        )
+
+    assert raised.value.status_code == 500
+    assert raised.value.detail == {"error_code": "progress_snapshot_query_failed"}
+    assert "SELECT" not in str(raised.value.detail)
+
+
 def test_progress_snapshot_payload_overlays_live_task_heartbeat(monkeypatch):
     class _FakeResult:
         def fetchall(self):
-            return []
+            return [
+                SimpleNamespace(
+                    id="artifact-1",
+                    updated_at=None,
+                    created_at=None,
+                    metadata='{"artifact_kind":"ig_following_progress"}',
+                    content=(
+                        '{"progress":{"stage":"scrolling","saved_dedup_targets":12},'
+                        '"metadata":{"target_username":"demo"}}'
+                    ),
+                )
+            ]
 
     class _FakeConnection:
         def execute(self, query, params):
+            query_text = str(query)
+            assert "content ->" not in query_text
+            assert "content" in query_text
             return _FakeResult()
 
     class _FakeConnectionContext:
@@ -242,3 +280,8 @@ def test_progress_snapshot_payload_overlays_live_task_heartbeat(monkeypatch):
         "2026-05-29T10:18:41.490662+00:00"
     )
     assert payload["execution_context"]["runner_id"] == "runner-live"
+    assert payload["progress"] == {
+        "stage": "scrolling",
+        "saved_dedup_targets": 12,
+    }
+    assert payload["content_metadata"] == {"target_username": "demo"}

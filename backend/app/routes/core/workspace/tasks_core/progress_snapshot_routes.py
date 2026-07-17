@@ -192,6 +192,11 @@ async def get_execution_progress_snapshot(
             incident_id,
             exc_info=True,
         )
+        if not classification.recovery_related:
+            raise HTTPException(
+                status_code=500,
+                detail={"error_code": "progress_snapshot_query_failed"},
+            )
         last_known = await _read_progress_snapshot_last_known(
             workspace_id,
             execution_id,

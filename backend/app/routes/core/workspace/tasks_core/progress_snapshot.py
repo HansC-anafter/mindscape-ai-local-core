@@ -96,8 +96,7 @@ def load_execution_progress_snapshot_payload(
                         updated_at,
                         created_at,
                         metadata,
-                        content -> 'progress' AS progress,
-                        content -> 'metadata' AS content_metadata
+                        content
                     FROM artifacts
                     WHERE workspace_id = :workspace_id
                       AND execution_id = :execution_id
@@ -112,8 +111,9 @@ def load_execution_progress_snapshot_payload(
                 },
             ).fetchall()
     for row in rows:
-        row_progress = json_value_without_nul(row.progress, {})
-        row_content_metadata = json_value_without_nul(row.content_metadata, {})
+        row_progress, row_content_metadata = _extract_artifact_progress_from_content(
+            row.content
+        )
         if not isinstance(row_progress, dict):
             continue
         artifact_id = str(row.id)
