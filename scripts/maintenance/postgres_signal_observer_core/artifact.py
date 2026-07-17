@@ -8,8 +8,10 @@ from pathlib import Path
 
 OBSERVER_SOURCE_PATHS = (
     "scripts/maintenance/postgres_signal_observer.py",
+    "scripts/maintenance/postgres_signal_observer_drill.py",
     "scripts/maintenance/postgres_signal_observer_core/__init__.py",
     "scripts/maintenance/postgres_signal_observer_core/artifact.py",
+    "scripts/maintenance/postgres_signal_observer_core/drill.py",
     "scripts/maintenance/postgres_signal_observer_core/evidence.py",
     "scripts/maintenance/postgres_signal_observer_core/events.py",
     "scripts/maintenance/postgres_signal_observer_core/pgbouncer.py",

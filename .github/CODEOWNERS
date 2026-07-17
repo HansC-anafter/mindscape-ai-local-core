@@ -36,6 +36,7 @@
 /backend/alembic_migrations/postgres/versions/ @team-leads
 /scripts/maintenance/postgres_incident_gate.py @team-leads
 /scripts/maintenance/postgres_signal_observer.py @team-leads
+/scripts/maintenance/postgres_signal_observer_drill.py @team-leads
 /scripts/maintenance/postgres_signal_observer_core/ @team-leads
 /scripts/maintenance/postgres_signal_observer_preflight.py @team-leads
 /scripts/maintenance/postgres_signal_observer_preflight_core/ @team-leads
