@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import hashlib
-import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 from .drill_names import (
     DRILL_SUFFIX_PATTERN,
@@ -18,6 +17,7 @@ from .drill_images import (
     validate_drill_image_ref,
 )
 from .drill_docker_runtime import canonical_docker_argv
+from .drill_readback_projection import container_readback_argv
 
 
 POSTGRES_DATA_TMPFS = "/var/lib/postgresql/data:rw,nosuid,size=192m"
@@ -188,18 +188,18 @@ class DisposableDrillBootstrapConfig:
             "network_inspect": canonical_docker_argv(
                 "network", "inspect", self.network_name
             ),
-            "network_remove": canonical_docker_argv(
-                "network", "rm", self.network_name
-            ),
+            "network_remove": canonical_docker_argv("network", "rm", self.network_name),
         }
-        for role, container_name in {
-            "postgres": self.postgres_container_name,
-            "pgbouncer": self.pgbouncer_container_name,
-            "observer": self.observer_container_name,
-            "client": self.client_container_name,
-        }.items():
-            operations[f"{role}_inspect"] = canonical_docker_argv(
-                "inspect", container_name
+        for role, container_name, attached_network_name in (
+            ("postgres", self.postgres_container_name, self.network_name),
+            ("pgbouncer", self.pgbouncer_container_name, self.network_name),
+            ("observer", self.observer_container_name, None),
+            ("client", self.client_container_name, self.network_name),
+        ):
+            operations[f"{role}_inspect"] = container_readback_argv(
+                role=role,
+                container_name=container_name,
+                attached_network_name=attached_network_name,
             )
             operations[f"{role}_stop"] = canonical_docker_argv(
                 "stop", "--time", "5", container_name
@@ -265,105 +265,4 @@ class DisposableDrillBootstrapConfig:
                 "path_used_by_pgbouncer": False,
             },
             "shell": False,
-        }
-
-    def validate_pgbouncer_readback(
-        self,
-        source: Mapping[str, Any],
-    ) -> dict[str, Any]:
-        """Fail closed on any identity, mount, or tmpfs contract drift."""
-
-        self.validate()
-        failures: list[str] = []
-        expected_name = f"/{self.pgbouncer_container_name}"
-        expected_entrypoint = ["pgbouncer"]
-        expected_command = ["/etc/pgbouncer/pgbouncer.ini"]
-        expected_security = ["no-new-privileges:true"]
-        expected_tmpfs = {
-            "/tmp": "rw,noexec,nosuid,size=4m",
-            "/var/lib/postgresql/data": "rw,noexec,nosuid,size=1m",
-        }
-        expected_mounts = [
-            {
-                "type": "bind",
-                "source": str(self.pgbouncer_config_path),
-                "destination": "/etc/pgbouncer/pgbouncer.ini",
-                "rw": False,
-            },
-            {
-                "type": "bind",
-                "source": str(self.pgbouncer_userlist_path),
-                "destination": "/etc/pgbouncer/userlist.txt",
-                "rw": False,
-            },
-        ]
-        identity_ok = bool(
-            source.get("name") == expected_name
-            and source.get("config_image") == self.postgres_image_ref
-            and source.get("image_id") == self.image_digest
-            and source.get("user") == "postgres"
-            and source.get("entrypoint") == expected_entrypoint
-            and source.get("cmd") == expected_command
-        )
-        if not identity_ok:
-            failures.append("pgbouncer_bootstrap_identity_mismatch")
-        resources_ok = bool(
-            source.get("nano_cpus") == 100000000
-            and source.get("memory_bytes") == 33554432
-            and source.get("pids_limit") == 16
-        )
-        if not resources_ok:
-            failures.append("pgbouncer_bootstrap_resource_budget_mismatch")
-        isolation_ok = bool(
-            source.get("read_only_rootfs") is True
-            and source.get("security_opt") == expected_security
-        )
-        if not isolation_ok:
-            failures.append("pgbouncer_bootstrap_isolation_mismatch")
-        tmpfs = source.get("tmpfs")
-        if not isinstance(tmpfs, Mapping) or ("/var/lib/postgresql/data" not in tmpfs):
-            failures.append("pgbouncer_declared_volume_neutralization_missing")
-        elif dict(tmpfs) != expected_tmpfs:
-            failures.append("pgbouncer_declared_volume_neutralization_drift")
-        mounts = source.get("mounts")
-        if isinstance(mounts, list) and any(
-            item.get("type") == "volume" for item in mounts
-        ):
-            failures.append("pgbouncer_bootstrap_anonymous_volume_detected")
-        if not isinstance(mounts, list) or mounts != expected_mounts:
-            failures.append("pgbouncer_bootstrap_mount_contract_mismatch")
-        networks = source.get("networks")
-        network_ok = bool(
-            isinstance(networks, list)
-            and len(networks) == 1
-            and networks[0].get("name") == self.network_name
-        )
-        if not network_ok:
-            failures.append("pgbouncer_bootstrap_network_mismatch")
-        state = source.get("state")
-        state_ok = bool(
-            isinstance(state, Mapping)
-            and state.get("running") is True
-            and state.get("exit_code") == 0
-            and state.get("restarting") is False
-            and state.get("restart_count") == 0
-        )
-        if not state_ok:
-            failures.append("pgbouncer_bootstrap_state_unready")
-        return {
-            "validation_passed": not failures,
-            "first_failure": failures[0] if failures else None,
-            "failures": failures,
-            "declared_volume_neutralized": not any(
-                failure.startswith("pgbouncer_declared_volume_neutralization")
-                or failure == "pgbouncer_bootstrap_anonymous_volume_detected"
-                for failure in failures
-            ),
-            "expected_spec_sha256": hashlib.sha256(
-                json.dumps(
-                    self.redacted_spec(),
-                    sort_keys=True,
-                    separators=(",", ":"),
-                ).encode("utf-8")
-            ).hexdigest(),
         }

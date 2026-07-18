@@ -242,49 +242,6 @@ def _option_values(argv: tuple[str, ...], option: str) -> list[str]:
     return [argv[index + 1] for index, value in enumerate(argv) if value == option]
 
 
-def _valid_pgbouncer_readback(
-    config: DisposableDrillBootstrapConfig,
-) -> dict[str, object]:
-    return {
-        "name": f"/{config.pgbouncer_container_name}",
-        "config_image": config.postgres_image_ref,
-        "image_id": config.image_digest,
-        "user": "postgres",
-        "entrypoint": ["pgbouncer"],
-        "cmd": ["/etc/pgbouncer/pgbouncer.ini"],
-        "nano_cpus": 100000000,
-        "memory_bytes": 33554432,
-        "pids_limit": 16,
-        "read_only_rootfs": True,
-        "security_opt": ["no-new-privileges:true"],
-        "tmpfs": {
-            "/tmp": "rw,noexec,nosuid,size=4m",
-            "/var/lib/postgresql/data": "rw,noexec,nosuid,size=1m",
-        },
-        "mounts": [
-            {
-                "type": "bind",
-                "source": str(config.pgbouncer_config_path),
-                "destination": "/etc/pgbouncer/pgbouncer.ini",
-                "rw": False,
-            },
-            {
-                "type": "bind",
-                "source": str(config.pgbouncer_userlist_path),
-                "destination": "/etc/pgbouncer/userlist.txt",
-                "rw": False,
-            },
-        ],
-        "networks": [{"name": config.network_name}],
-        "state": {
-            "running": True,
-            "exit_code": 0,
-            "restarting": False,
-            "restart_count": 0,
-        },
-    }
-
-
 def test_bootstrap_spec_neutralizes_declared_volume_and_preserves_budgets(
     bootstrap_config: DisposableDrillBootstrapConfig,
 ) -> None:
@@ -546,87 +503,6 @@ def test_formal_postgres_envelope_rejects_duplicate_or_unexpected_assignment(
     assert "secret" not in str(failure.value)
 
 
-def test_pgbouncer_readback_accepts_only_exact_neutralized_mount_contract(
-    bootstrap_config: DisposableDrillBootstrapConfig,
-) -> None:
-    receipt = bootstrap_config.validate_pgbouncer_readback(
-        _valid_pgbouncer_readback(bootstrap_config)
-    )
-
-    assert receipt["validation_passed"] is True
-    assert receipt["first_failure"] is None
-    assert receipt["declared_volume_neutralized"] is True
-
-
-def test_pgbouncer_readback_rejects_image_declared_anonymous_volume(
-    bootstrap_config: DisposableDrillBootstrapConfig,
-) -> None:
-    readback = _valid_pgbouncer_readback(bootstrap_config)
-    readback["mounts"].append(
-        {
-            "type": "volume",
-            "source": "anonymous-volume-id",
-            "destination": "/var/lib/postgresql/data",
-            "rw": True,
-        }
-    )
-
-    receipt = bootstrap_config.validate_pgbouncer_readback(readback)
-
-    assert receipt["validation_passed"] is False
-    assert receipt["first_failure"] == ("pgbouncer_bootstrap_anonymous_volume_detected")
-    assert receipt["declared_volume_neutralized"] is False
-
-
-@pytest.mark.parametrize(
-    ("tmpfs", "failure"),
-    [
-        (
-            {"/tmp": "rw,noexec,nosuid,size=4m"},
-            "pgbouncer_declared_volume_neutralization_missing",
-        ),
-        (
-            {
-                "/tmp": "rw,noexec,nosuid,size=4m",
-                "/var/lib/postgresql/data": "rw,nosuid,size=2m",
-            },
-            "pgbouncer_declared_volume_neutralization_drift",
-        ),
-    ],
-)
-def test_pgbouncer_readback_rejects_missing_or_drifted_tmpfs(
-    bootstrap_config: DisposableDrillBootstrapConfig,
-    tmpfs: dict[str, str],
-    failure: str,
-) -> None:
-    readback = _valid_pgbouncer_readback(bootstrap_config)
-    readback["tmpfs"] = tmpfs
-
-    receipt = bootstrap_config.validate_pgbouncer_readback(readback)
-
-    assert receipt["validation_passed"] is False
-    assert receipt["first_failure"] == failure
-
-
-def test_pgbouncer_readback_rejects_any_extra_mount(
-    bootstrap_config: DisposableDrillBootstrapConfig,
-) -> None:
-    readback = _valid_pgbouncer_readback(bootstrap_config)
-    readback["mounts"].append(
-        {
-            "type": "bind",
-            "source": "/tmp/extra",
-            "destination": "/tmp/extra",
-            "rw": False,
-        }
-    )
-
-    receipt = bootstrap_config.validate_pgbouncer_readback(readback)
-
-    assert receipt["validation_passed"] is False
-    assert receipt["first_failure"] == "pgbouncer_bootstrap_mount_contract_mismatch"
-
-
 def test_drill_facade_is_the_single_bootstrap_spec_entrypoint(
     bootstrap_config: DisposableDrillBootstrapConfig,
     capsys: pytest.CaptureFixture[str],
@@ -783,38 +659,6 @@ def test_drill_facade_executes_postgres_through_single_atomic_envelope(
     ]
 
 
-def test_drill_facade_validates_redacted_pgbouncer_readback(
-    bootstrap_config: DisposableDrillBootstrapConfig,
-    tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    readback_path = tmp_path / "pgbouncer-readback.json"
-    readback_path.write_text(
-        json.dumps(_valid_pgbouncer_readback(bootstrap_config)),
-        encoding="utf-8",
-    )
-
-    exit_code = drill_facade_main(
-        [
-            "--validate-pgbouncer-readback",
-            str(readback_path),
-            "--drill-suffix",
-            bootstrap_config.drill_suffix,
-            "--temp-root",
-            str(bootstrap_config.temp_root),
-            "--postgres-drill-image-ref",
-            bootstrap_config.postgres_image_ref,
-            "--observer-backend-image-ref",
-            OBSERVER_IMAGE_REF,
-        ]
-    )
-    payload = json.loads(capsys.readouterr().out)
-
-    assert exit_code == 0
-    assert payload["validation_passed"] is True
-    assert payload["declared_volume_neutralized"] is True
-
-
 def test_bootstrap_contract_has_one_facade_and_no_second_launcher() -> None:
     repo_root = Path(__file__).resolve().parents[3]
     maintenance_root = repo_root / "scripts/maintenance"
@@ -955,10 +799,10 @@ def test_precondition_readback_failure_cleans_all_staged_files(
                 bootstrap_config.drill_suffix,
                 "--temp-root",
                 str(bootstrap_config.temp_root),
-            "--postgres-drill-image-ref",
-            bootstrap_config.postgres_image_ref,
-            "--observer-backend-image-ref",
-            OBSERVER_IMAGE_REF,
+                "--postgres-drill-image-ref",
+                bootstrap_config.postgres_image_ref,
+                "--observer-backend-image-ref",
+                OBSERVER_IMAGE_REF,
             ]
         )
 

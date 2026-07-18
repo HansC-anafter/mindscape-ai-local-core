@@ -4,11 +4,9 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import secrets
-import stat
 import sys
 from pathlib import Path
 
@@ -22,6 +20,7 @@ from backend.app.services.runtime_database_incident_gate import (  # noqa: E402
 from scripts.maintenance.postgres_signal_observer_core import (  # noqa: E402
     DisposableDrillBootstrapConfig,
     DisposableDrillClientConfig,
+    DisposableDrillContainerReadbackContract,
     DisposableDrillImageContract,
     DisposableDrillObserverConfig,
     DisposableDrillObserverEnvironment,
@@ -33,12 +32,15 @@ from scripts.maintenance.postgres_signal_observer_core import (  # noqa: E402
     canonical_disposable_drill_name,
     canonical_observer_artifact_sha256,
     execute_formal_postgres_bootstrap,
+    execute_disposable_container_readback,
     launch_disposable_drill_client,
     launch_disposable_drill_observer,
     send_disposable_drill_signal,
     serialize_disposable_pgbouncer_config,
     serialize_disposable_pgbouncer_userlist,
     serialize_postgres_bootstrap_environment,
+    secure_create_precondition as _secure_create_precondition,
+    secure_precondition_readback as _secure_precondition_readback,
     validate_formal_exec_result,
 )
 
@@ -53,7 +55,10 @@ def _parser() -> argparse.ArgumentParser:
     mode.add_argument("--print-bootstrap-spec", action="store_true")
     mode.add_argument("--prepare-bootstrap-preconditions", action="store_true")
     mode.add_argument("--execute-postgres-bootstrap", action="store_true")
-    mode.add_argument("--validate-pgbouncer-readback", type=Path)
+    mode.add_argument(
+        "--execute-container-readback",
+        choices=("postgres", "pgbouncer", "observer", "client"),
+    )
     mode.add_argument("--validate-formal-exec-result", type=Path)
     mode.add_argument("--print-signal-spec", action="store_true")
     mode.add_argument("--send-synthetic-signal", action="store_true")
@@ -98,84 +103,51 @@ def _with_image_contract(
     }
 
 
-def _secure_create_precondition(path: Path, content: bytes) -> None:
-    """Create one exclusive 0600 regular file without following symlinks."""
+def _container_readback_run_argv(
+    args: argparse.Namespace,
+    *,
+    image_contract: DisposableDrillImageContract,
+    artifact_sha256: str,
+) -> tuple[tuple[str, ...], str]:
+    """Return one role's source-owned run argv for exact readback validation."""
 
-    nofollow = getattr(os, "O_NOFOLLOW", None)
-    if not isinstance(nofollow, int):
-        raise RuntimeError("drill_precondition_nofollow_unavailable")
-    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | nofollow
-    cloexec = getattr(os, "O_CLOEXEC", None)
-    if isinstance(cloexec, int):
-        flags |= cloexec
-    descriptor = os.open(path, flags, 0o600)
-    try:
-        try:
-            metadata = os.fstat(descriptor)
-            if (
-                not stat.S_ISREG(metadata.st_mode)
-                or stat.S_IMODE(metadata.st_mode) != 0o600
-            ):
-                raise RuntimeError("drill_precondition_file_contract_invalid")
-            view = memoryview(content)
-            while view:
-                written = os.write(descriptor, view)
-                if written <= 0:
-                    raise RuntimeError("drill_precondition_write_incomplete")
-                view = view[written:]
-            os.fsync(descriptor)
-        finally:
-            os.close(descriptor)
-    except BaseException:
-        path.unlink(missing_ok=True)
-        raise
-
-
-def _secure_precondition_readback(path: Path) -> dict[str, object]:
-    """Read one staged precondition through a verified no-follow fd."""
-
-    nofollow = getattr(os, "O_NOFOLLOW", None)
-    if not isinstance(nofollow, int):
-        raise RuntimeError("drill_precondition_nofollow_unavailable")
-    before = path.lstat()
-    if stat.S_ISLNK(before.st_mode) or not stat.S_ISREG(before.st_mode):
-        raise RuntimeError("drill_precondition_file_contract_invalid")
-    flags = os.O_RDONLY | nofollow
-    cloexec = getattr(os, "O_CLOEXEC", None)
-    if isinstance(cloexec, int):
-        flags |= cloexec
-    descriptor = os.open(path, flags)
-    try:
-        metadata = os.fstat(descriptor)
-        if (
-            not stat.S_ISREG(metadata.st_mode)
-            or stat.S_IMODE(metadata.st_mode) != 0o600
-            or (metadata.st_dev, metadata.st_ino) != (before.st_dev, before.st_ino)
-            or metadata.st_size > 65_536
-        ):
-            raise RuntimeError("drill_precondition_file_contract_invalid")
-        chunks: list[bytes] = []
-        remaining = 65_537
-        while remaining > 0:
-            chunk = os.read(descriptor, remaining)
-            if not chunk:
-                break
-            chunks.append(chunk)
-            remaining -= len(chunk)
-        content = b"".join(chunks)
-        if len(content) > 65_536:
-            raise RuntimeError("drill_precondition_file_contract_invalid")
-    finally:
-        os.close(descriptor)
-    return {
-        "path": str(path),
-        "mode": f"{stat.S_IMODE(metadata.st_mode):04o}",
-        "bytes": len(content),
-        "sha256": hashlib.sha256(content).hexdigest(),
-        "regular_file": True,
-        "symlink": False,
-        "content_or_value_disclosed": False,
-    }
+    role = str(args.execute_container_readback)
+    drill_suffix = str(_required(args.drill_suffix, "--drill-suffix"))
+    postgres_image_ref = image_contract.image_ref_for(POSTGRES_DRILL_IMAGE_ROLE)
+    bootstrap = DisposableDrillBootstrapConfig(
+        drill_suffix=drill_suffix,
+        temp_root=Path(_required(args.temp_root, "--temp-root")),
+        postgres_image_ref=postgres_image_ref,
+    )
+    if role == "postgres":
+        return bootstrap.postgres_docker_argv(), postgres_image_ref
+    if role == "pgbouncer":
+        return bootstrap.pgbouncer_docker_argv(), postgres_image_ref
+    if role == "observer":
+        if args.journal_root is None:
+            raise SystemExit("--journal-root is required for observer readback")
+        observer_image_ref = image_contract.image_ref_for(OBSERVER_BACKEND_IMAGE_ROLE)
+        config = DisposableDrillObserverConfig(
+            container_name=bootstrap.observer_container_name,
+            pgbouncer_container_name=bootstrap.pgbouncer_container_name,
+            observer_image_ref=observer_image_ref,
+            journal_host_root=args.journal_root,
+            repo_root=REPO_ROOT,
+            artifact_sha256=artifact_sha256,
+            source_commit=str(_required(args.source_commit, "--source-commit")),
+        )
+        return config.docker_argv(), observer_image_ref
+    config = DisposableDrillClientConfig(
+        container_name=bootstrap.client_container_name,
+        network_name=bootstrap.network_name,
+        postgres_image_ref=postgres_image_ref,
+        pgbouncer_host=bootstrap.pgbouncer_container_name,
+        pgbouncer_port=args.pgbouncer_port,
+        database_user=str(_required(args.database_user, "--database-user")),
+        database_name=str(_required(args.database_name, "--database-name")),
+        sleep_seconds=args.sleep_seconds,
+    )
+    return config.docker_argv(), postgres_image_ref
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -243,18 +215,41 @@ def main(argv: list[str] | None = None) -> int:
         if payload.get("delivery_allowed") is True:
             return 0
         return 3 if payload.get("poll_required") is True else 2
+    if args.execute_container_readback:
+        run_argv, selected_image_ref = _container_readback_run_argv(
+            args,
+            image_contract=image_contract,
+            artifact_sha256=artifact_sha256,
+        )
+        readback_contract = DisposableDrillContainerReadbackContract(
+            role=str(args.execute_container_readback),
+            run_argv=run_argv,
+            image_ref=selected_image_ref,
+        )
+        payload = execute_disposable_container_readback(readback_contract)
+        payload["artifact_sha256"] = artifact_sha256
+        payload = _with_image_contract(
+            payload,
+            image_contract=image_contract,
+            docker_runtime_contract=docker_runtime_contract,
+            runtime_contract=runtime_contract,
+            selected_role=(
+                OBSERVER_BACKEND_IMAGE_ROLE
+                if args.execute_container_readback == "observer"
+                else POSTGRES_DRILL_IMAGE_ROLE
+            ),
+        )
+        print(json.dumps(payload, sort_keys=True))
+        return 0 if payload.get("validation_passed") is True else 2
     if (
         args.print_bootstrap_spec
         or args.prepare_bootstrap_preconditions
         or args.execute_postgres_bootstrap
-        or args.validate_pgbouncer_readback
     ):
         bootstrap_config = DisposableDrillBootstrapConfig(
             drill_suffix=str(_required(args.drill_suffix, "--drill-suffix")),
             temp_root=Path(_required(args.temp_root, "--temp-root")),
-            postgres_image_ref=image_contract.image_ref_for(
-                POSTGRES_DRILL_IMAGE_ROLE
-            ),
+            postgres_image_ref=image_contract.image_ref_for(POSTGRES_DRILL_IMAGE_ROLE),
         )
         if args.print_bootstrap_spec:
             payload = bootstrap_config.redacted_spec()
@@ -322,30 +317,10 @@ def main(argv: list[str] | None = None) -> int:
                 bootstrap_config.postgres_docker_argv(),
                 environment_path=bootstrap_config.postgres_environment_path,
             )
-        readback_path = Path(args.validate_pgbouncer_readback)
-        if readback_path.is_symlink() or not readback_path.is_file():
-            raise SystemExit("--validate-pgbouncer-readback must be a regular file")
-        try:
-            readback = json.loads(readback_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
-            raise SystemExit("pgbouncer readback is unavailable or invalid") from exc
-        payload = bootstrap_config.validate_pgbouncer_readback(readback)
-        payload["artifact_sha256"] = artifact_sha256
-        payload = _with_image_contract(
-            payload,
-            image_contract=image_contract,
-            docker_runtime_contract=docker_runtime_contract,
-            runtime_contract=runtime_contract,
-            selected_role=POSTGRES_DRILL_IMAGE_ROLE,
-        )
-        print(json.dumps(payload, sort_keys=True))
-        return 0 if payload.get("validation_passed") is True else 2
     if args.print_signal_spec or args.send_synthetic_signal:
         signal_config = DisposableDrillSignalConfig(
             drill_suffix=str(_required(args.drill_suffix, "--drill-suffix")),
-            postgres_image_ref=image_contract.image_ref_for(
-                POSTGRES_DRILL_IMAGE_ROLE
-            ),
+            postgres_image_ref=image_contract.image_ref_for(POSTGRES_DRILL_IMAGE_ROLE),
             target_postgres_pid=int(
                 _required(args.target_postgres_pid, "--target-postgres-pid")
             ),
@@ -424,9 +399,7 @@ def main(argv: list[str] | None = None) -> int:
         bootstrap_config = DisposableDrillBootstrapConfig(
             drill_suffix=drill_suffix,
             temp_root=Path(_required(args.temp_root, "--temp-root")),
-            postgres_image_ref=image_contract.image_ref_for(
-                POSTGRES_DRILL_IMAGE_ROLE
-            ),
+            postgres_image_ref=image_contract.image_ref_for(POSTGRES_DRILL_IMAGE_ROLE),
         )
         observer_environment = (
             DisposableDrillObserverEnvironment.from_isolated_preconditions(
