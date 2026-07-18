@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os
 import subprocess
-from pathlib import Path
 from typing import Any, Callable, Mapping
 
 from backend.app.services.runtime_database_incident_core.journal import (
@@ -27,7 +26,13 @@ from .drill_formal_sequence import (
     execute_formal_drill_sequence,
     materialize_formal_signal_envelope,
 )
-from .drill_formal_terminal import prepare_formal_preconditions, terminal_finalize
+from .drill_formal_terminal import (
+    FORMAL_MATERIALIZED_PRECONDITION_VALIDATION_FAILED,
+    FormalPreconditionFailure,
+    FormalPreconditionState,
+    prepare_formal_preconditions,
+    terminal_finalize,
+)
 
 
 FORMAL_FULL_SEQUENCE_ENTRY = "execute_formal_drill_sequence"
@@ -51,11 +56,13 @@ def execute_canonical_formal_drill(
         raise RuntimeError("incident_diagnostic_permit_required")
     incident_id = decision.incident_id
     executor = FormalDockerSubprocessExecutor(run=run)
-    paths: list[Path] = []
+    preconditions = FormalPreconditionState()
     try:
-        paths = prepare_formal_preconditions(config)
+        preconditions = prepare_formal_preconditions(config)
         config.validate_materialized()
-        executor.bootstrap_environment = load_postgres_bootstrap_environment(paths[0])
+        executor.bootstrap_environment = load_postgres_bootstrap_environment(
+            preconditions.files[0]
+        )
         executor.client_environment = {
             **os.environ,
             "PGPASSWORD": executor.bootstrap_environment["POSTGRES_PASSWORD"],
@@ -66,7 +73,16 @@ def execute_canonical_formal_drill(
                 base_environment=os.environ,
             )
         )
-    except BaseException:
+    except BaseException as error:
+        if isinstance(error, FormalPreconditionFailure):
+            preconditions = error.state
+            failure_detail_code = error.detail_code
+            initial_cleanup_completed = error.cleanup_completed
+        else:
+            failure_detail_code = (
+                FORMAL_MATERIALIZED_PRECONDITION_VALIDATION_FAILED
+            )
+            initial_cleanup_completed = False
         revocation_completed = False
         try:
             RuntimeDatabaseIncidentJournal(
@@ -83,13 +99,34 @@ def execute_canonical_formal_drill(
         postflight = terminal_finalize(
             config,
             executor,
-            paths,
+            preconditions,
             incident_id=incident_id,
             terminal_reason="formal_drill_precondition_failed",
         )
         return {
             "validation_passed": False,
             "first_failure": "formal_drill_precondition_failed",
+            "failure_detail_code": failure_detail_code,
+            "precondition_receipt": {
+                "validation_passed": False,
+                "detail_code": failure_detail_code,
+                "initial_cleanup_completed": initial_cleanup_completed,
+                "created_directory_count": len(
+                    preconditions.owned_directories
+                ),
+                "unverified_created_path_count": len(
+                    preconditions.unverified_created_paths
+                ),
+                "secret_files_created": len(preconditions.owned_files),
+                "secret_files_remaining": (
+                    0 if postflight["local_staging_removed"] else None
+                ),
+                "network_mutation_attempted": False,
+                "container_mutation_attempted": False,
+                "downstream_mutation_attempted": False,
+                "exception_payload_persisted": False,
+                "path_payload_persisted": False,
+            },
             "permit_revocation_completed": revocation_completed,
             "ownership_handed_back": postflight["handed_back"],
             **postflight,
@@ -108,7 +145,7 @@ def execute_canonical_formal_drill(
         return terminal_finalize(
             config,
             executor,
-            paths,
+            preconditions,
             incident_id=incident_id,
             terminal_reason=(first_failure or "formal_drill_sequence_terminal_complete"),
         )
