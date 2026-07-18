@@ -20,6 +20,13 @@ from scripts.maintenance.postgres_signal_observer_core import (
 from scripts.maintenance.postgres_signal_observer_core.drill_escalation import (
     terminal_capture_metadata,
 )
+from scripts.maintenance.postgres_signal_observer_core.drill_readback import (
+    CONTAINER_READBACK_TERMINAL_DEADLINE_SECONDS,
+)
+from scripts.maintenance.postgres_signal_observer_core.drill_readback_projection import (
+    CONTAINER_READBACK_MAX_BYTES,
+    CONTAINER_READBACK_SCHEMA_VERSION,
+)
 
 
 POSTGRES_IMAGE_REF = "mindscape-ai-local-core-postgres:pg16@sha256:" + "a" * 64
@@ -94,7 +101,15 @@ def _gate(name: str, *, fail: str | None = None) -> dict[str, object]:
             "attempt_count": 1,
             "success_count": 1,
             "passed": True,
-            "last_result": {"status": "validated", "detail_code": None},
+            "last_result": {
+                "status": "validated",
+                "detail_code": None,
+                "projection_schema_version": CONTAINER_READBACK_SCHEMA_VERSION,
+                "projection_max_bytes": CONTAINER_READBACK_MAX_BYTES,
+                "terminal_deadline_seconds": (
+                    CONTAINER_READBACK_TERMINAL_DEADLINE_SECONDS
+                ),
+            },
         },
         "pg_isready": {
             "attempted": True,
@@ -289,6 +304,73 @@ def test_sequence_projects_exact_postgres_readiness_subreceipt_without_payload(
     assert stderr.decode("ascii") not in serialized
 
 
+def test_sequence_preserves_container_leaf_failure_and_terminal_cleanup(
+    tmp_path: Path,
+) -> None:
+    gate = _gate("postgres_readiness", fail="postgres_readiness")
+    gate["detail_code"] = "formal_postgres_container_readback_failed"
+    gate["stages"]["container_readback"] = {
+        "attempted": True,
+        "attempt_count": 1,
+        "success_count": 0,
+        "passed": False,
+        "last_result": {
+            "status": "validation_failed",
+            "detail_code": "formal_postgres_container_readback_failed",
+            "projection_schema_version": CONTAINER_READBACK_SCHEMA_VERSION,
+            "projection_max_bytes": CONTAINER_READBACK_MAX_BYTES,
+            "terminal_deadline_seconds": (
+                CONTAINER_READBACK_TERMINAL_DEADLINE_SECONDS
+            ),
+            "leaf_failure_schema_version": 1,
+            "leaf_failure_code": "postgres_container_readback_state_unready",
+            "leaf_failure_count": 2,
+            "leaf_failure_codes": [
+                "postgres_container_readback_state_unready",
+                "postgres_container_readback_health_mismatch",
+            ],
+            "raw_projection": {"Config.Env": ["POSTGRES_PASSWORD=sentinel"]},
+            "inspect_argv": ["private-inspect-argv"],
+        },
+    }
+    gate["stages"]["pg_isready"] = {
+        "attempted": False,
+        "attempt_count": 0,
+        "success_count": 0,
+        "passed": False,
+        "last_result": None,
+    }
+    gate["stages"]["psql_select_one"] = {
+        "attempted": False,
+        "attempt_count": 0,
+        "success_count": 0,
+        "passed": False,
+        "last_result": None,
+    }
+    revocations: list[str] = []
+
+    receipt = _execute(
+        _configs(tmp_path),
+        execute_docker=_docker_success,
+        evaluate_gate=lambda name: gate if name == "postgres_readiness" else _gate(name),
+        revoke_permit=revocations.append,
+        finalize_cleanup=lambda _failure: _postflight(),
+    )
+
+    projected = receipt["step_receipts"][2]
+    leaf = projected["stages"]["container_readback"]["last_result"]
+    assert leaf["leaf_failure_code"] == "postgres_container_readback_state_unready"
+    assert leaf["leaf_failure_count"] == 2
+    assert "raw_projection" not in leaf
+    assert "inspect_argv" not in leaf
+    assert "POSTGRES_PASSWORD=sentinel" not in json.dumps(receipt, sort_keys=True)
+    assert receipt["first_failure"] == "formal_postgres_readiness_failed"
+    assert revocations == ["formal_postgres_readiness_failed"]
+    assert receipt["remaining_resources_verified"] is True
+    assert receipt["ownership_handed_back"] is True
+    assert receipt["validation_passed"] is False
+
+
 def test_sequence_rejects_forged_readiness_success_and_capture_shape(
     tmp_path: Path,
 ) -> None:
@@ -358,6 +440,112 @@ def test_sequence_rejects_forged_readiness_success_and_capture_shape(
         "error_code": "formal_postgres_readiness_capture_invalid",
     }
 
+    unallowlisted_container_leaf = _gate(
+        "postgres_readiness", fail="postgres_readiness"
+    )
+    unallowlisted_container_leaf["detail_code"] = (
+        "formal_postgres_container_readback_failed"
+    )
+    unallowlisted_container_leaf["stages"]["container_readback"] = {
+        "attempted": True,
+        "attempt_count": 1,
+        "success_count": 0,
+        "passed": False,
+        "last_result": {
+            "status": "validation_failed",
+            "detail_code": "formal_postgres_container_readback_failed",
+            "projection_schema_version": CONTAINER_READBACK_SCHEMA_VERSION,
+            "projection_max_bytes": CONTAINER_READBACK_MAX_BYTES,
+            "terminal_deadline_seconds": (
+                CONTAINER_READBACK_TERMINAL_DEADLINE_SECONDS
+            ),
+            "leaf_failure_schema_version": 1,
+            "leaf_failure_code": "private-unallowlisted-code",
+            "leaf_failure_count": 1,
+            "leaf_failure_codes": ["private-unallowlisted-code"],
+        },
+    }
+    unallowlisted_container_leaf["stages"]["pg_isready"] = {
+        "attempted": False,
+        "attempt_count": 0,
+        "success_count": 0,
+        "passed": False,
+        "last_result": None,
+    }
+
+    contradictory_container_leaf_count = _gate(
+        "postgres_readiness", fail="postgres_readiness"
+    )
+    contradictory_container_leaf_count["detail_code"] = (
+        "formal_postgres_container_readback_failed"
+    )
+    contradictory_container_leaf_count["stages"]["container_readback"] = {
+        "attempted": True,
+        "attempt_count": 1,
+        "success_count": 0,
+        "passed": False,
+        "last_result": {
+            "status": "validation_failed",
+            "detail_code": "formal_postgres_container_readback_failed",
+            "projection_schema_version": CONTAINER_READBACK_SCHEMA_VERSION,
+            "projection_max_bytes": CONTAINER_READBACK_MAX_BYTES,
+            "terminal_deadline_seconds": (
+                CONTAINER_READBACK_TERMINAL_DEADLINE_SECONDS
+            ),
+            "leaf_failure_schema_version": 1,
+            "leaf_failure_code": "postgres_container_readback_state_unready",
+            "leaf_failure_count": 2,
+            "leaf_failure_codes": ["postgres_container_readback_state_unready"],
+        },
+    }
+    contradictory_container_leaf_count["stages"]["pg_isready"] = {
+        "attempted": False,
+        "attempt_count": 0,
+        "success_count": 0,
+        "passed": False,
+        "last_result": None,
+    }
+
+    boolean_container_leaf_schema = _gate(
+        "postgres_readiness", fail="postgres_readiness"
+    )
+    boolean_container_leaf_schema["detail_code"] = (
+        "formal_postgres_container_readback_failed"
+    )
+    boolean_container_leaf_schema["stages"]["container_readback"] = {
+        **contradictory_container_leaf_count["stages"]["container_readback"],
+        "last_result": {
+            **contradictory_container_leaf_count["stages"]["container_readback"][
+                "last_result"
+            ],
+            "leaf_failure_schema_version": True,
+            "leaf_failure_count": 1,
+        },
+    }
+    boolean_container_leaf_schema["stages"]["pg_isready"] = {
+        **contradictory_container_leaf_count["stages"]["pg_isready"]
+    }
+
+    boolean_container_leaf_count = _gate(
+        "postgres_readiness", fail="postgres_readiness"
+    )
+    boolean_container_leaf_count["detail_code"] = (
+        "formal_postgres_container_readback_failed"
+    )
+    boolean_container_leaf_count["stages"]["container_readback"] = {
+        **boolean_container_leaf_schema["stages"]["container_readback"],
+        "last_result": {
+            **boolean_container_leaf_schema["stages"]["container_readback"][
+                "last_result"
+            ],
+            "leaf_failure_schema_version": 1,
+            "leaf_failure_count": True,
+        },
+    }
+    boolean_container_leaf_count["stages"]["pg_isready"] = {
+        **contradictory_container_leaf_count["stages"]["pg_isready"]
+    }
+
     for index, gate in enumerate(
         (
             forged_success,
@@ -370,6 +558,10 @@ def test_sequence_rejects_forged_readiness_success_and_capture_shape(
             non_string_sha,
             zero_without_success,
             invalid_last_result_after_success,
+            unallowlisted_container_leaf,
+            contradictory_container_leaf_count,
+            boolean_container_leaf_schema,
+            boolean_container_leaf_count,
         )
     ):
         case_root = tmp_path / str(index)

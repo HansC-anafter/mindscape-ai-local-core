@@ -538,7 +538,18 @@ class _FakeClock:
 
 
 def _container_readback_pass(*_args, **_kwargs):
-    return {"validation_passed": True}
+    return {
+        "validation_passed": True,
+        "first_failure": None,
+        "failures": [],
+        "projection_schema_version": (
+            drill_formal_gates.CONTAINER_READBACK_SCHEMA_VERSION
+        ),
+        "projection_max_bytes": drill_formal_gates.CONTAINER_READBACK_MAX_BYTES,
+        "terminal_deadline_seconds": (
+            drill_formal_gates.CONTAINER_READBACK_TERMINAL_DEADLINE_SECONDS
+        ),
+    }
 
 
 def test_postgres_readiness_container_failure_blocks_all_child_commands(
@@ -556,7 +567,17 @@ def test_postgres_readiness_container_failure_blocks_all_child_commands(
         "execute_disposable_container_readback",
         lambda *_args, **_kwargs: {
             "validation_passed": False,
-            "first_failure": "sentinel-unpersisted-source-detail",
+            "first_failure": "postgres_container_readback_state_unready",
+            "failures": ["postgres_container_readback_state_unready"],
+            "projection_schema_version": (
+                drill_formal_gates.CONTAINER_READBACK_SCHEMA_VERSION
+            ),
+            "projection_max_bytes": drill_formal_gates.CONTAINER_READBACK_MAX_BYTES,
+            "terminal_deadline_seconds": (
+                drill_formal_gates.CONTAINER_READBACK_TERMINAL_DEADLINE_SECONDS
+            ),
+            "projection": {"Config.Env": ["POSTGRES_PASSWORD=sentinel-secret"]},
+            "inspect_argv": ["private-inspect-argv"],
         },
     )
     receipt = drill_formal_gates.FormalDrillGateOwner(config, Executor()).evaluate(
@@ -566,9 +587,254 @@ def test_postgres_readiness_container_failure_blocks_all_child_commands(
     assert receipt["passed"] is False
     assert receipt["detail_code"] == "formal_postgres_container_readback_failed"
     assert receipt["stages"]["container_readback"]["attempt_count"] == 1
+    assert receipt["stages"]["container_readback"]["last_result"] == {
+        "status": "validation_failed",
+        "detail_code": "formal_postgres_container_readback_failed",
+        "projection_schema_version": (
+            drill_formal_gates.CONTAINER_READBACK_SCHEMA_VERSION
+        ),
+        "projection_max_bytes": drill_formal_gates.CONTAINER_READBACK_MAX_BYTES,
+        "terminal_deadline_seconds": (
+            drill_formal_gates.CONTAINER_READBACK_TERMINAL_DEADLINE_SECONDS
+        ),
+        "leaf_failure_schema_version": 1,
+        "leaf_failure_code": "postgres_container_readback_state_unready",
+        "leaf_failure_count": 1,
+        "leaf_failure_codes": ["postgres_container_readback_state_unready"],
+    }
     assert receipt["stages"]["pg_isready"]["attempted"] is False
     assert receipt["stages"]["psql_select_one"]["attempted"] is False
     assert "sentinel" not in repr(receipt)
+    assert "private-inspect-argv" not in repr(receipt)
+
+
+@pytest.mark.parametrize(
+    ("first_failure", "failures"),
+    [
+        (
+            "postgres_container_readback_state_unready",
+            ["postgres_container_readback_state_unready"],
+        ),
+        (
+            "postgres_container_readback_user_mismatch",
+            [
+                "postgres_container_readback_user_mismatch",
+                "postgres_container_readback_state_unready",
+            ],
+        ),
+        (
+            "formal_postgres_readback_failed",
+            ["formal_postgres_readback_failed"],
+        ),
+        (
+            "formal_postgres_readback_projection_invalid",
+            ["formal_postgres_readback_projection_invalid"],
+        ),
+    ],
+)
+def test_postgres_readiness_projects_exact_allowlisted_readback_leaf_failures(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    first_failure: str,
+    failures: list[str],
+) -> None:
+    config = _config(tmp_path)
+
+    class Executor:
+        def run(self, _argv, **_kwargs):
+            raise AssertionError("readiness child command must not run")
+
+    monkeypatch.setattr(
+        drill_formal_gates,
+        "execute_disposable_container_readback",
+        lambda *_args, **_kwargs: {
+            "validation_passed": False,
+            "first_failure": first_failure,
+            "failures": failures,
+            "projection_schema_version": (
+                drill_formal_gates.CONTAINER_READBACK_SCHEMA_VERSION
+            ),
+            "projection_max_bytes": drill_formal_gates.CONTAINER_READBACK_MAX_BYTES,
+            "terminal_deadline_seconds": (
+                drill_formal_gates.CONTAINER_READBACK_TERMINAL_DEADLINE_SECONDS
+            ),
+            "projection": {"Config.Env": ["POSTGRES_PASSWORD=sentinel-secret"]},
+            "inspect_argv": ["private-inspect-argv"],
+            "raw_exception": "private-exception-payload",
+        },
+    )
+
+    source = drill_formal_gates.FormalDrillGateOwner(config, Executor()).evaluate(
+        "postgres_readiness"
+    )
+    projected = project_formal_gate_receipt("postgres_readiness", source)
+    leaf = projected["stages"]["container_readback"]["last_result"]
+
+    assert projected["passed"] is False
+    assert projected["detail_code"] == "formal_postgres_container_readback_failed"
+    assert leaf["leaf_failure_code"] == first_failure
+    assert leaf["leaf_failure_codes"] == failures
+    assert leaf["leaf_failure_count"] == len(failures)
+    assert projected["stages"]["pg_isready"]["attempt_count"] == 0
+    assert projected["stages"]["psql_select_one"]["attempt_count"] == 0
+    assert "POSTGRES_PASSWORD" not in repr(projected)
+    assert "private-inspect-argv" not in repr(projected)
+    assert "private-exception-payload" not in repr(projected)
+
+
+@pytest.mark.parametrize(
+    ("first_failure", "failures"),
+    [
+        ("unallowlisted-private-code", ["unallowlisted-private-code"]),
+        (
+            "postgres_container_readback_state_unready",
+            ["postgres_container_readback_user_mismatch"],
+        ),
+        (
+            "postgres_container_readback_state_unready",
+            [
+                "postgres_container_readback_state_unready",
+                "postgres_container_readback_state_unready",
+            ],
+        ),
+    ],
+)
+def test_postgres_readiness_malformed_readback_leaf_fails_receipt_closed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    first_failure: str,
+    failures: list[str],
+) -> None:
+    config = _config(tmp_path)
+
+    class Executor:
+        def run(self, _argv, **_kwargs):
+            raise AssertionError("readiness child command must not run")
+
+    monkeypatch.setattr(
+        drill_formal_gates,
+        "execute_disposable_container_readback",
+        lambda *_args, **_kwargs: {
+            "validation_passed": False,
+            "first_failure": first_failure,
+            "failures": failures,
+            "projection_schema_version": (
+                drill_formal_gates.CONTAINER_READBACK_SCHEMA_VERSION
+            ),
+            "projection_max_bytes": drill_formal_gates.CONTAINER_READBACK_MAX_BYTES,
+            "terminal_deadline_seconds": (
+                drill_formal_gates.CONTAINER_READBACK_TERMINAL_DEADLINE_SECONDS
+            ),
+        },
+    )
+
+    source = drill_formal_gates.FormalDrillGateOwner(config, Executor()).evaluate(
+        "postgres_readiness"
+    )
+
+    assert project_formal_gate_receipt("postgres_readiness", source) == {
+        "name": "postgres_readiness",
+        "kind": "gate",
+        "passed": False,
+        "detail_code": "formal_postgres_readiness_receipt_invalid",
+    }
+    assert source["stages"]["pg_isready"]["attempt_count"] == 0
+    assert source["stages"]["psql_select_one"]["attempt_count"] == 0
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        {"projection_schema_version": 1},
+        {"projection_schema_version": "wrong-schema"},
+        {"projection_schema_version": None},
+        {"terminal_deadline_seconds": 10},
+        {"terminal_deadline_seconds": 9.0},
+        {"terminal_deadline_seconds": None},
+        {"projection_max_bytes": True},
+        {"projection_max_bytes": 32_768.0},
+        {"projection_max_bytes": 1},
+    ],
+)
+def test_postgres_readiness_rejects_readback_metadata_drift_before_child_commands(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mutation: dict[str, object],
+) -> None:
+    config = _config(tmp_path)
+    source_receipt = {
+        "validation_passed": False,
+        "first_failure": "postgres_container_readback_state_unready",
+        "failures": ["postgres_container_readback_state_unready"],
+        "projection_schema_version": (
+            drill_formal_gates.CONTAINER_READBACK_SCHEMA_VERSION
+        ),
+        "projection_max_bytes": drill_formal_gates.CONTAINER_READBACK_MAX_BYTES,
+        "terminal_deadline_seconds": (
+            drill_formal_gates.CONTAINER_READBACK_TERMINAL_DEADLINE_SECONDS
+        ),
+        **mutation,
+    }
+
+    class Executor:
+        def run(self, _argv, **_kwargs):
+            raise AssertionError("readiness child command must not run")
+
+    monkeypatch.setattr(
+        drill_formal_gates,
+        "execute_disposable_container_readback",
+        lambda *_args, **_kwargs: source_receipt,
+    )
+
+    raw = drill_formal_gates.FormalDrillGateOwner(config, Executor()).evaluate(
+        "postgres_readiness"
+    )
+    projected = project_formal_gate_receipt("postgres_readiness", raw)
+
+    assert projected["detail_code"] == "formal_postgres_readiness_receipt_invalid"
+    assert raw["stages"]["pg_isready"]["attempt_count"] == 0
+    assert raw["stages"]["psql_select_one"]["attempt_count"] == 0
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        {
+            "first_failure": "postgres_container_readback_state_unready",
+            "failures": ["postgres_container_readback_state_unready"],
+        },
+        {"failures": "wrong-type"},
+        {"projection_schema_version": "wrong-schema"},
+        {"terminal_deadline_seconds": 11.0},
+    ],
+)
+def test_postgres_readiness_rejects_contradictory_success_before_child_commands(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mutation: dict[str, object],
+) -> None:
+    config = _config(tmp_path)
+    source_receipt = {**_container_readback_pass(), **mutation}
+
+    class Executor:
+        def run(self, _argv, **_kwargs):
+            raise AssertionError("readiness child command must not run")
+
+    monkeypatch.setattr(
+        drill_formal_gates,
+        "execute_disposable_container_readback",
+        lambda *_args, **_kwargs: source_receipt,
+    )
+
+    raw = drill_formal_gates.FormalDrillGateOwner(config, Executor()).evaluate(
+        "postgres_readiness"
+    )
+
+    assert project_formal_gate_receipt("postgres_readiness", raw)[
+        "detail_code"
+    ] == "formal_postgres_readiness_receipt_invalid"
+    assert raw["stages"]["pg_isready"]["attempt_count"] == 0
+    assert raw["stages"]["psql_select_one"]["attempt_count"] == 0
 
 
 def test_postgres_readiness_polls_to_success_with_fresh_remaining_timeouts(
@@ -757,6 +1023,9 @@ def test_postgres_readiness_container_readback_exception_is_stable(
     )
 
     assert receipt["detail_code"] == "formal_postgres_container_readback_failed"
+    assert receipt["stages"]["container_readback"]["last_result"][
+        "leaf_failure_code"
+    ] == "formal_postgres_readback_unavailable"
     assert receipt["stages"]["pg_isready"]["attempted"] is False
     assert "private readback error" not in repr(receipt)
 

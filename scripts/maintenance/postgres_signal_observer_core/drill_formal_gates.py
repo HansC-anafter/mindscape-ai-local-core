@@ -10,14 +10,20 @@ from typing import TYPE_CHECKING, Any, Callable, Mapping
 from .drill import DisposableDrillSignalConfig
 from .drill_docker_runtime import canonical_docker_argv
 from .drill_formal_contract import FormalDrillCliConfig
+from .drill_gate_receipt import project_postgres_container_readback_outcome
 from .drill_escalation import (
     FORMAL_POSTGRES_STARTUP_DEADLINE_SECONDS,
     FORMAL_POSTGRES_STARTUP_POLL_SECONDS,
     terminal_capture_metadata,
 )
 from .drill_readback import (
+    CONTAINER_READBACK_TERMINAL_DEADLINE_SECONDS,
     DisposableDrillContainerReadbackContract,
     execute_disposable_container_readback,
+)
+from .drill_readback_projection import (
+    CONTAINER_READBACK_MAX_BYTES,
+    CONTAINER_READBACK_SCHEMA_VERSION,
 )
 from .evidence import ObserverEvidenceStore
 
@@ -129,21 +135,33 @@ class FormalDrillGateOwner:
                 bootstrap.postgres_image_ref,
             )
         except (OSError, RuntimeError):
-            container_receipt = {"validation_passed": False}
-        container_passed = container_receipt.get("validation_passed") is True
+            container_receipt = {
+                "validation_passed": False,
+                "first_failure": "formal_postgres_readback_unavailable",
+                "failures": ["formal_postgres_readback_unavailable"],
+                "projection_schema_version": CONTAINER_READBACK_SCHEMA_VERSION,
+                "projection_max_bytes": CONTAINER_READBACK_MAX_BYTES,
+                "terminal_deadline_seconds": CONTAINER_READBACK_TERMINAL_DEADLINE_SECONDS,
+            }
+        container_outcome = project_postgres_container_readback_outcome(
+            container_receipt
+        )
+        container_passed = bool(
+            container_outcome is not None and container_outcome["passed"] is True
+        )
         stages["container_readback"] = {
             "attempted": True,
             "attempt_count": 1,
             "success_count": int(container_passed),
             "passed": container_passed,
-            "last_result": {
-                "status": "validated" if container_passed else "validation_failed",
-                "detail_code": (
-                    None
-                    if container_passed
-                    else "formal_postgres_container_readback_failed"
-                ),
-            },
+            "last_result": (
+                container_outcome["last_result"]
+                if container_outcome is not None
+                else {
+                    "status": "validation_failed",
+                    "detail_code": "formal_postgres_container_readback_failed",
+                }
+            ),
         }
         if not container_passed:
             return {

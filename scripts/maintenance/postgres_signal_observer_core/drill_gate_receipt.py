@@ -9,6 +9,11 @@ from .drill_escalation import (
     FORMAL_POSTGRES_STARTUP_DEADLINE_SECONDS,
     FORMAL_POSTGRES_STARTUP_POLL_SECONDS,
 )
+from .drill_readback import CONTAINER_READBACK_TERMINAL_DEADLINE_SECONDS
+from .drill_readback_projection import (
+    CONTAINER_READBACK_MAX_BYTES,
+    CONTAINER_READBACK_SCHEMA_VERSION,
+)
 
 
 _DETAIL_CODES = frozenset(
@@ -28,6 +33,40 @@ _RESULT_INVALID_CODES = frozenset(
     }
 )
 _STAGES = ("container_readback", "pg_isready", "psql_select_one")
+_CONTAINER_FAILURE_SCHEMA_VERSION = 1
+_CONTAINER_FAILURE_CODES = frozenset(
+    {
+        "formal_postgres_readback_terminal_deadline_exceeded",
+        "formal_postgres_readback_unavailable",
+        "formal_postgres_readback_result_invalid",
+        "formal_postgres_readback_failed",
+        "formal_postgres_readback_projection_invalid",
+        "postgres_container_readback_role_mismatch",
+        "postgres_container_readback_name_mismatch",
+        "postgres_container_readback_config_image_mismatch",
+        "postgres_container_readback_image_id_mismatch",
+        "postgres_container_readback_user_mismatch",
+        "postgres_container_readback_entrypoint_mismatch",
+        "postgres_container_readback_cmd_mismatch",
+        "postgres_container_readback_nano_cpus_mismatch",
+        "postgres_container_readback_memory_bytes_mismatch",
+        "postgres_container_readback_pids_limit_mismatch",
+        "postgres_container_readback_read_only_rootfs_mismatch",
+        "postgres_container_readback_security_opt_mismatch",
+        "postgres_container_readback_tmpfs_mismatch",
+        "postgres_container_readback_mounts_mismatch",
+        "postgres_container_readback_cap_add_mismatch",
+        "postgres_container_readback_cap_drop_mismatch",
+        "postgres_container_readback_privileged_mismatch",
+        "postgres_container_readback_pid_mode_mismatch",
+        "postgres_container_readback_network_mode_mismatch",
+        "postgres_container_readback_network_identity_mismatch",
+        "postgres_container_readback_id_invalid",
+        "postgres_container_readback_state_unready",
+        "postgres_container_readback_health_mismatch",
+    }
+)
+_CONTAINER_FAILURE_LIMIT = len(_CONTAINER_FAILURE_CODES)
 _STAGE_ERRORS = {
     "pg_isready": {
         "timeout": "formal_postgres_pg_isready_deadline_exceeded",
@@ -42,6 +81,107 @@ _CAPTURE_KEYS = (
     "terminal exit_code stdout_present stdout_bytes stdout_sha256 stderr_present "
     "stderr_bytes stderr_sha256 captures_truncated hash_input output_disclosed"
 ).split()
+
+
+def _project_container_metadata(source: Mapping[str, Any]) -> dict[str, Any] | None:
+    schema_version = source.get("projection_schema_version")
+    max_bytes = source.get("projection_max_bytes")
+    terminal_deadline = source.get("terminal_deadline_seconds")
+    if (
+        type(schema_version) is not str
+        or schema_version != CONTAINER_READBACK_SCHEMA_VERSION
+        or type(max_bytes) is not int
+        or max_bytes != CONTAINER_READBACK_MAX_BYTES
+        or type(terminal_deadline) is not float
+        or terminal_deadline != CONTAINER_READBACK_TERMINAL_DEADLINE_SECONDS
+    ):
+        return None
+    return {
+        "projection_schema_version": CONTAINER_READBACK_SCHEMA_VERSION,
+        "projection_max_bytes": CONTAINER_READBACK_MAX_BYTES,
+        "terminal_deadline_seconds": CONTAINER_READBACK_TERMINAL_DEADLINE_SECONDS,
+    }
+
+
+def project_postgres_container_readback_outcome(
+    source: object,
+) -> dict[str, Any] | None:
+    """Project one exact, payload-free PostgreSQL readback outcome."""
+
+    if not isinstance(source, Mapping):
+        return None
+    metadata = _project_container_metadata(source)
+    if metadata is None:
+        return None
+    validation_passed = source.get("validation_passed")
+    first_failure = source.get("first_failure")
+    failures = source.get("failures")
+    if (
+        validation_passed is True
+        and first_failure is None
+        and type(failures) is list
+        and not failures
+    ):
+        return {
+            "passed": True,
+            "last_result": {
+                "status": "validated",
+                "detail_code": None,
+                **metadata,
+            },
+        }
+    if (
+        validation_passed is not False
+        or type(first_failure) is not str
+        or first_failure not in _CONTAINER_FAILURE_CODES
+        or type(failures) is not list
+        or not 1 <= len(failures) <= _CONTAINER_FAILURE_LIMIT
+        or failures[0] != first_failure
+        or any(type(code) is not str for code in failures)
+        or any(code not in _CONTAINER_FAILURE_CODES for code in failures)
+        or len(set(failures)) != len(failures)
+    ):
+        return None
+    return {
+        "passed": False,
+        "last_result": {
+            "status": "validation_failed",
+            "detail_code": "formal_postgres_container_readback_failed",
+            **metadata,
+            "leaf_failure_schema_version": _CONTAINER_FAILURE_SCHEMA_VERSION,
+            "leaf_failure_code": first_failure,
+            "leaf_failure_count": len(failures),
+            "leaf_failure_codes": list(failures),
+        },
+    }
+
+
+def _project_container_failure(source: Mapping[str, Any]) -> dict[str, Any] | None:
+    outcome = project_postgres_container_readback_outcome(
+        {
+            "validation_passed": False,
+            "first_failure": source.get("leaf_failure_code"),
+            "failures": source.get("leaf_failure_codes"),
+            "projection_schema_version": source.get("projection_schema_version"),
+            "projection_max_bytes": source.get("projection_max_bytes"),
+            "terminal_deadline_seconds": source.get("terminal_deadline_seconds"),
+        }
+    )
+    projection = outcome.get("last_result") if outcome is not None else None
+    if (
+        projection is None
+        or type(source.get("leaf_failure_schema_version")) is not int
+        or source.get("leaf_failure_schema_version")
+        != _CONTAINER_FAILURE_SCHEMA_VERSION
+        or type(source.get("leaf_failure_count")) is not int
+        or source.get("leaf_failure_count") != projection.get("leaf_failure_count")
+    ):
+        return None
+    return {
+        key: value
+        for key, value in projection.items()
+        if key not in {"status", "detail_code"}
+    }
 
 
 def _project_capture(source: object) -> dict[str, Any] | None:
@@ -91,11 +231,19 @@ def _project_result(stage_name: str, source: object) -> dict[str, Any] | None:
             return None
         return {"status": status, "exit_code": exit_code, "terminal_capture": capture}
     if status == "validated" and stage_name == "container_readback":
-        return {"status": status, "detail_code": None}
+        metadata = _project_container_metadata(source)
+        if source.get("detail_code") is None and metadata is not None:
+            return {"status": status, "detail_code": None, **metadata}
+        return None
     if status == "validation_failed" and stage_name == "container_readback":
         detail = source.get("detail_code")
-        if detail == "formal_postgres_container_readback_failed":
-            return {"status": status, "detail_code": detail}
+        leaf_failure = _project_container_failure(source)
+        if detail == "formal_postgres_container_readback_failed" and leaf_failure:
+            return {
+                "status": status,
+                "detail_code": detail,
+                **leaf_failure,
+            }
         return None
     if status in {"timeout", "exec_error"}:
         expected = _STAGE_ERRORS.get(stage_name, {}).get(status)
