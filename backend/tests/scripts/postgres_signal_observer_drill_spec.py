@@ -33,6 +33,7 @@ from scripts.maintenance.postgres_signal_observer_drill import main as drill_fac
 from scripts.maintenance.postgres_signal_observer_core.drill_observer import (
     OBSERVER_DOCKER_TERMINAL_DEADLINE_SECONDS,
     OBSERVER_HEALTH_COMMAND,
+    OBSERVER_HEALTH_POLL_SECONDS,
     OBSERVER_STARTUP_DEADLINE_SECONDS,
 )
 from scripts.maintenance.postgres_signal_observer_core.evidence import EvidenceBudget
@@ -1059,6 +1060,7 @@ def test_observer_spec_overrides_image_healthcheck_and_preserves_budgets(
     assert argv[-1] == "/app/scripts/maintenance/postgres_signal_observer.py"
     assert observer_config.redacted_spec()["docker_terminal_deadline_seconds"] == 60.0
     assert observer_config.redacted_spec()["startup_deadline_seconds"] == 10.0
+    assert observer_config.redacted_spec()["health_poll_seconds"] == 0.25
 
 
 def test_observer_launcher_terminal_deadline_is_independent_and_fail_closed(
@@ -1147,10 +1149,12 @@ def test_observer_launcher_preserves_oserror_and_nonzero_failure_classes(
     ]
 
 
-def test_observer_launcher_accepts_only_ready_canonical_health_journal(
+def test_observer_launcher_accepts_ready_on_final_deadline_boundary_read(
     observer_config: DisposableDrillObserverConfig,
 ) -> None:
     calls = []
+    sleeps = []
+    health_reads = []
     health = iter(
         [
             {"ready": False, "state": "starting"},
@@ -1171,19 +1175,30 @@ def test_observer_launcher_accepts_only_ready_canonical_health_journal(
         calls.append((argv, kwargs))
         return SimpleNamespace(returncode=0, stdout="d" * 64, stderr="")
 
+    def read_health():
+        health_reads.append(True)
+        return next(health)
+
     receipt = launch_disposable_drill_observer(
         observer_config,
         environment={"PGBOUNCER_ADMIN_URL": "postgresql://fixture-only"},
         run=fake_run,
-        read_health=lambda: next(health),
-        monotonic=iter([0.0, 0.0, 0.25, 0.25]).__next__,
-        sleep=lambda _: None,
+        read_health=read_health,
+        monotonic=iter(
+            [
+                0.0,
+                OBSERVER_STARTUP_DEADLINE_SECONDS - OBSERVER_HEALTH_POLL_SECONDS,
+            ]
+        ).__next__,
+        sleep=sleeps.append,
     )
     serialized = json.dumps(receipt, sort_keys=True)
 
     assert receipt["launched"] is True
     assert receipt["ready"] is True
     assert receipt["health_journal_observed"] is True
+    assert len(health_reads) == 2
+    assert sleeps == [OBSERVER_HEALTH_POLL_SECONDS]
     assert len(calls) == 1
     assert calls[0][1]["shell"] is False
     assert "postgresql://fixture-only" not in "\0".join(calls[0][0])
@@ -1194,34 +1209,40 @@ def test_observer_launcher_cleans_up_at_existing_ten_second_deadline(
     observer_config: DisposableDrillObserverConfig,
 ) -> None:
     calls = []
+    sleeps = []
+    health_reads = []
 
     def fake_run(argv, **kwargs):
         calls.append((argv, kwargs))
         stdout = "e" * 64 if argv[:3] == ["docker", "run", "-d"] else ""
         return SimpleNamespace(returncode=0, stdout=stdout, stderr="")
 
+    def read_health():
+        health_reads.append(True)
+        return {"ready": False, "state": "starting"}
+
     receipt = launch_disposable_drill_observer(
         observer_config,
         environment={"PGBOUNCER_ADMIN_URL": "postgresql://fixture-only"},
         run=fake_run,
-        read_health=lambda: (_ for _ in ()).throw(
-            RuntimeError("observer_health_unavailable")
-        ),
+        read_health=read_health,
         monotonic=iter(
             [
                 0.0,
-                0.0,
-                OBSERVER_STARTUP_DEADLINE_SECONDS,
+                OBSERVER_STARTUP_DEADLINE_SECONDS - OBSERVER_HEALTH_POLL_SECONDS,
                 OBSERVER_STARTUP_DEADLINE_SECONDS,
             ]
         ).__next__,
-        sleep=lambda _: None,
+        sleep=sleeps.append,
     )
 
     assert receipt["launched"] is False
     assert receipt["ready"] is False
     assert receipt["first_failure"] == "observer_health_startup_deadline_exceeded"
-    assert receipt["health_journal_observed"] is False
+    assert receipt["health_journal_observed"] is True
+    assert receipt["health_state"] == "starting"
+    assert len(health_reads) == 2
+    assert sleeps == [OBSERVER_HEALTH_POLL_SECONDS]
     assert receipt["cleanup"] == {
         "stop_succeeded": True,
         "remove_succeeded": True,
@@ -1265,3 +1286,34 @@ def test_observer_launcher_rejects_ready_journal_with_wrong_identity(
     assert receipt["first_failure"] == "observer_health_identity_mismatch"
     assert receipt["ready"] is False
     assert receipt["cleanup"]["remove_succeeded"] is True
+
+
+def test_observer_launcher_rejects_fail_closed_health_without_waiting(
+    observer_config: DisposableDrillObserverConfig,
+) -> None:
+    calls = []
+    sleeps = []
+
+    def fake_run(argv, **kwargs):
+        calls.append((argv, kwargs))
+        stdout = "a" * 64 if argv[:3] == ["docker", "run", "-d"] else ""
+        return SimpleNamespace(returncode=0, stdout=stdout, stderr="")
+
+    receipt = launch_disposable_drill_observer(
+        observer_config,
+        environment={"PGBOUNCER_ADMIN_URL": "postgresql://fixture-only"},
+        run=fake_run,
+        read_health=lambda: {"ready": False, "state": "fail_closed_tracefs"},
+        monotonic=iter([0.0]).__next__,
+        sleep=sleeps.append,
+    )
+
+    assert receipt["first_failure"] == "fail_closed_tracefs"
+    assert receipt["ready"] is False
+    assert receipt["cleanup"]["remove_succeeded"] is True
+    assert sleeps == []
+    assert [call[0][:2] for call in calls] == [
+        ["docker", "run"],
+        ["docker", "stop"],
+        ["docker", "rm"],
+    ]

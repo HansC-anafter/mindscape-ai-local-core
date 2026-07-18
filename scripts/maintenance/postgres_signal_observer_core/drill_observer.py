@@ -336,7 +336,7 @@ def launch_disposable_drill_observer(
     deadline = monotonic() + OBSERVER_STARTUP_DEADLINE_SECONDS
     health_state = "health_unavailable"
     health_journal_observed = False
-    while monotonic() < deadline:
+    while True:
         try:
             health = dict(health_reader())
             health_journal_observed = True
@@ -381,8 +381,9 @@ def launch_disposable_drill_observer(
         except RuntimeError:
             health_state = "health_unavailable"
         remaining = deadline - monotonic()
-        if remaining > 0:
-            sleep(min(OBSERVER_HEALTH_POLL_SECONDS, remaining))
+        if remaining <= 0:
+            break
+        sleep(min(OBSERVER_HEALTH_POLL_SECONDS, remaining))
 
     cleanup = _cleanup_disposable_observer(
         config.container_name,
