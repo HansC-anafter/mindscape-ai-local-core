@@ -11,6 +11,10 @@ from .drill_bootstrap import (
     POSTGRES_DATA_TMPFS,
     DisposableDrillBootstrapConfig,
 )
+from .drill_escalation import (
+    FORMAL_DOCKER_OPERATION_CLASSES,
+    validate_formal_exec_result,
+)
 from .drill_observer import (
     DisposableDrillObserverConfig,
     launch_disposable_drill_observer,
@@ -24,6 +28,7 @@ from .tracefs import SIGNAL_FILTER, TraceFsInstance
 __all__ = [
     "EvidenceBudget",
     "EvidenceCapacityExhausted",
+    "FORMAL_DOCKER_OPERATION_CLASSES",
     "DRILL_APPLICATION_NAME",
     "DisposableDrillBootstrapConfig",
     "DisposableDrillClientConfig",
@@ -42,4 +47,5 @@ __all__ = [
     "launch_disposable_drill_observer",
     "parse_signal_generate_line",
     "read_namespace_pids",
+    "validate_formal_exec_result",
 ]

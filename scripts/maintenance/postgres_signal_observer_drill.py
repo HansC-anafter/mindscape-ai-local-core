@@ -22,6 +22,7 @@ from scripts.maintenance.postgres_signal_observer_core import (  # noqa: E402
     canonical_observer_artifact_sha256,
     launch_disposable_drill_client,
     launch_disposable_drill_observer,
+    validate_formal_exec_result,
 )
 
 
@@ -34,12 +35,14 @@ def _parser() -> argparse.ArgumentParser:
     mode.add_argument("--launch-observer", action="store_true")
     mode.add_argument("--print-bootstrap-spec", action="store_true")
     mode.add_argument("--validate-pgbouncer-readback", type=Path)
+    mode.add_argument("--validate-formal-exec-result", type=Path)
     parser.add_argument("--journal-root", type=Path)
     parser.add_argument("--container-name")
     parser.add_argument("--drill-suffix")
     parser.add_argument("--temp-root", type=Path)
     parser.add_argument("--network-name")
-    parser.add_argument("--image-ref", required=True)
+    parser.add_argument("--image-ref")
+    parser.add_argument("--formal-operation-class")
     parser.add_argument("--pgbouncer-host")
     parser.add_argument("--pgbouncer-container-name")
     parser.add_argument("--pgbouncer-port", type=int, default=6432)
@@ -59,11 +62,32 @@ def _required(value: object, option: str) -> object:
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     artifact_sha256 = canonical_observer_artifact_sha256(REPO_ROOT)
+    if args.validate_formal_exec_result:
+        result_path = Path(args.validate_formal_exec_result)
+        if result_path.is_symlink() or not result_path.is_file():
+            raise SystemExit("--validate-formal-exec-result must be a regular file")
+        try:
+            source = json.loads(result_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise SystemExit("formal exec result is unavailable or invalid") from exc
+        if not isinstance(source, dict):
+            raise SystemExit("formal exec result must be a JSON object")
+        payload = validate_formal_exec_result(
+            source,
+            operation_class=str(
+                _required(args.formal_operation_class, "--formal-operation-class")
+            ),
+        )
+        payload["artifact_sha256"] = artifact_sha256
+        print(json.dumps(payload, sort_keys=True))
+        if payload.get("delivery_allowed") is True:
+            return 0
+        return 3 if payload.get("poll_required") is True else 2
     if args.print_bootstrap_spec or args.validate_pgbouncer_readback:
         bootstrap_config = DisposableDrillBootstrapConfig(
             drill_suffix=str(_required(args.drill_suffix, "--drill-suffix")),
             temp_root=Path(_required(args.temp_root, "--temp-root")),
-            image_ref=args.image_ref,
+            image_ref=str(_required(args.image_ref, "--image-ref")),
         )
         if args.print_bootstrap_spec:
             payload = bootstrap_config.redacted_spec()
@@ -89,7 +113,7 @@ def main(argv: list[str] | None = None) -> int:
             pgbouncer_container_name=str(
                 _required(args.pgbouncer_container_name, "--pgbouncer-container-name")
             ),
-            image_ref=args.image_ref,
+            image_ref=str(_required(args.image_ref, "--image-ref")),
             journal_host_root=args.journal_root,
             repo_root=REPO_ROOT,
             artifact_sha256=artifact_sha256,
@@ -115,7 +139,7 @@ def main(argv: list[str] | None = None) -> int:
     config = DisposableDrillClientConfig(
         container_name=str(_required(args.container_name, "--container-name")),
         network_name=str(_required(args.network_name, "--network-name")),
-        image_ref=args.image_ref,
+        image_ref=str(_required(args.image_ref, "--image-ref")),
         pgbouncer_host=str(_required(args.pgbouncer_host, "--pgbouncer-host")),
         pgbouncer_port=args.pgbouncer_port,
         database_user=str(_required(args.database_user, "--database-user")),

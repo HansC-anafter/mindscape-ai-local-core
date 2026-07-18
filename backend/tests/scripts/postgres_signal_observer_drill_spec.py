@@ -18,6 +18,7 @@ from scripts.maintenance.postgres_signal_observer_core import (
     canonical_observer_artifact_sha256,
     launch_disposable_drill_client,
     launch_disposable_drill_observer,
+    validate_formal_exec_result,
 )
 from scripts.maintenance.postgres_signal_observer_drill import main as drill_facade_main
 from scripts.maintenance.postgres_signal_observer_core.drill_observer import (
@@ -398,6 +399,95 @@ def test_bootstrap_contract_has_one_facade_and_no_second_launcher() -> None:
 
     assert facade_hits == ["scripts/maintenance/postgres_signal_observer_drill.py"]
     assert launcher_hits == []
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        {"session_id": 8418, "output": "a" * 64},
+        {"session_id": 8418, "output": "a" * 65_537},
+        {"output": "a" * 64},
+        {"session_id": None, "exit_code": 0, "output": "a" * 64},
+    ],
+)
+def test_formal_exec_gate_requires_terminal_result_before_id_delivery(
+    source: dict[str, object],
+) -> None:
+    receipt = validate_formal_exec_result(
+        source,
+        operation_class="docker_run_disposable_isolated_postgresql_bootstrap",
+    )
+
+    assert receipt["terminal"] is False
+    assert receipt["poll_required"] is True
+    assert receipt["delivery_allowed"] is False
+    assert receipt["first_failure"] == "formal_escalation_cli_nonterminal_result"
+    assert "container_id" not in receipt
+
+
+def test_formal_exec_gate_fails_closed_on_nonzero_terminal_exit() -> None:
+    exact_output = (
+        "docker: Error response from daemon: No such container: " + "a" * 64
+    )
+    receipt = validate_formal_exec_result(
+        {"exit_code": 125, "output": exact_output},
+        operation_class="docker_run_disposable_isolated_postgresql_bootstrap",
+    )
+
+    assert receipt["terminal"] is True
+    assert receipt["poll_required"] is False
+    assert receipt["delivery_allowed"] is False
+    assert receipt["exit_code"] == 125
+    assert receipt["first_failure"] == "formal_escalation_cli_terminal_failure"
+    assert exact_output not in json.dumps(receipt, sort_keys=True)
+    assert "container_id" not in receipt
+
+
+def test_formal_exec_gate_delivers_id_only_after_zero_terminal_exit() -> None:
+    container_id = "b" * 64
+    receipt = validate_formal_exec_result(
+        {"exit_code": 0, "output": container_id + "\n"},
+        operation_class="docker_run_disposable_isolated_pgbouncer_bootstrap",
+    )
+
+    assert receipt["terminal"] is True
+    assert receipt["poll_required"] is False
+    assert receipt["delivery_allowed"] is True
+    assert receipt["container_id"] == container_id
+    assert receipt["first_failure"] is None
+
+
+def test_drill_facade_is_single_formal_exec_result_gate(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    result_path = tmp_path / "formal-result.json"
+    result_path.write_text(
+        json.dumps({"session_id": 8418, "output": "c" * 64}),
+        encoding="utf-8",
+    )
+
+    exit_code = drill_facade_main(
+        [
+            "--validate-formal-exec-result",
+            str(result_path),
+            "--formal-operation-class",
+            "docker_run_disposable_isolated_postgresql_bootstrap",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 3
+    assert payload["poll_required"] is True
+    assert payload["delivery_allowed"] is False
+    assert "container_id" not in payload
+    repo_root = Path(__file__).resolve().parents[3]
+    facade_hits = [
+        path.relative_to(repo_root).as_posix()
+        for path in (repo_root / "scripts/maintenance").rglob("*.py")
+        if "--validate-formal-exec-result" in path.read_text(encoding="utf-8")
+    ]
+    assert facade_hits == ["scripts/maintenance/postgres_signal_observer_drill.py"]
 
 
 @pytest.fixture
