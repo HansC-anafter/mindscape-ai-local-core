@@ -238,42 +238,22 @@ def test_formal_facade_uses_single_precondition_derived_environment_contract(
     journal_root = tmp_path / "journal"
     journal_root.mkdir()
     captured: dict[str, object] = {}
-    contract = DisposableDrillObserverEnvironment.from_isolated_preconditions(
-        bootstrap_config,
-        base_environment={"PATH": "/usr/bin"},
-    )
+    marker = object()
 
-    def derive(cls, config, *, base_environment):
-        captured["bootstrap_config"] = config
-        captured["base_environment_identity"] = base_environment is os.environ
-        return contract
+    def build(**kwargs):
+        captured["build"] = kwargs
+        return marker
 
-    def launch(config, *, environment_contract):
-        captured["observer_config"] = config
-        captured["environment_contract"] = environment_contract
-        return {
-            "ready": True,
-            "pgbouncer_admin_environment": environment_contract.redacted_spec(),
-        }
+    def execute(config):
+        captured["execute"] = config
+        return {"validation_passed": True, "secret_value_disclosed": False}
 
-    monkeypatch.setattr(
-        drill_facade.DisposableDrillObserverEnvironment,
-        "from_isolated_preconditions",
-        classmethod(derive),
-    )
-    monkeypatch.setattr(
-        drill_facade,
-        "require_runtime_database_mutation_allowed",
-        lambda *_args, **_kwargs: SimpleNamespace(
-            reason="incident_diagnostic_permit",
-            incident_id="incident-fixture",
-        ),
-    )
-    monkeypatch.setattr(drill_facade, "launch_disposable_drill_observer", launch)
+    monkeypatch.setattr(drill_facade, "build_formal_drill_cli_config", build)
+    monkeypatch.setattr(drill_facade, "execute_canonical_formal_drill", execute)
 
     exit_code = drill_facade.main(
         [
-            "--launch-observer",
+            "--execute-formal-drill-sequence",
             "--journal-root",
             str(journal_root),
             "--drill-suffix",
@@ -286,16 +266,18 @@ def test_formal_facade_uses_single_precondition_derived_environment_contract(
             OBSERVER_IMAGE_REF,
             "--source-commit",
             "0123456789abcdef",
+            "--database-user",
+            "mindscape",
+            "--database-name",
+            "mindscape_core",
         ]
     )
     payload = json.loads(capsys.readouterr().out)
 
     assert exit_code == 0
-    assert captured["bootstrap_config"] == bootstrap_config
-    assert captured["base_environment_identity"] is True
-    assert captured["environment_contract"] is contract
-    assert payload["ready"] is True
-    assert payload["pgbouncer_admin_environment"]["environment_key_present"] is True
+    assert captured["build"]["drill_suffix"] == DRILL_SUFFIX
+    assert captured["execute"] is marker
+    assert payload["validation_passed"] is True
     assert "postgresql://" not in json.dumps(payload, sort_keys=True)
 
 
@@ -307,11 +289,15 @@ def test_single_launcher_has_no_host_environment_or_second_provisioning_path() -
     facade_source = (
         repo_root / "scripts/maintenance/postgres_signal_observer_drill.py"
     ).read_text(encoding="utf-8")
+    formal_cli_source = (
+        repo_root
+        / "scripts/maintenance/postgres_signal_observer_core/drill_formal_cli.py"
+    ).read_text(encoding="utf-8")
 
     assert "os.environ" not in observer_source
     assert observer_source.count("def launch_disposable_drill_observer(") == 1
-    assert facade_source.count(
+    assert formal_cli_source.count(
         "DisposableDrillObserverEnvironment.from_isolated_preconditions("
     ) == 1
-    assert "PGBOUNCER_ADMIN_URL=" not in facade_source
-    assert "shell=True" not in facade_source
+    assert "PGBOUNCER_ADMIN_URL=" not in facade_source + formal_cli_source
+    assert "shell=True" not in facade_source + formal_cli_source

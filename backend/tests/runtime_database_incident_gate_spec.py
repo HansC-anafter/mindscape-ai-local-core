@@ -272,6 +272,62 @@ def test_new_failure_revokes_diagnostic_and_containment_permits(
     assert "containment_revoked_by_failure" in event_names
 
 
+def test_terminal_diagnostic_permit_consumption_and_ownership_handback_are_distinct(
+    tmp_path: Path,
+) -> None:
+    journal = RuntimeDatabaseIncidentJournal(tmp_path)
+    incident = journal.open_incident(failure_code="unexpected_close")
+    journal.record_diagnostic_permit(incident.incident_id, _diagnostic_permit())
+
+    consumed = journal.revoke_diagnostic_permit(
+        incident.incident_id,
+        terminal_reason="formal_drill_sequence_terminal_complete",
+    )
+    assert consumed.diagnostic_permit is None
+
+    handback = journal.record_diagnostic_ownership_handback(
+        incident.incident_id,
+        owner="runtime-db-incident-owner",
+        terminal_reason="formal_drill_sequence_terminal_complete",
+        remaining_resources_verified=True,
+    )
+    assert handback["owner_before"] == "runtime-db-incident-owner"
+    assert handback["owner_after"] == "none"
+
+    events_path = next((tmp_path / "incidents").iterdir()) / "events.jsonl"
+    event_names = [
+        json.loads(line)["event"]
+        for line in events_path.read_text(encoding="utf-8").splitlines()
+    ]
+    assert event_names[-2:] == [
+        "diagnostic_permit_consumed_terminal",
+        "diagnostic_observer_ownership_handed_back",
+    ]
+
+
+def test_ownership_handback_rejects_active_permit_or_unverified_resources(
+    tmp_path: Path,
+) -> None:
+    journal = RuntimeDatabaseIncidentJournal(tmp_path)
+    incident = journal.open_incident(failure_code="unexpected_close")
+    journal.record_diagnostic_permit(incident.incident_id, _diagnostic_permit())
+
+    with pytest.raises(IncidentTransitionError, match="still active"):
+        journal.record_diagnostic_ownership_handback(
+            incident.incident_id,
+            owner="runtime-db-incident-owner",
+            terminal_reason="fixture",
+            remaining_resources_verified=True,
+        )
+    with pytest.raises(ValueError, match="resources_not_verified"):
+        journal.record_diagnostic_ownership_handback(
+            incident.incident_id,
+            owner="runtime-db-incident-owner",
+            terminal_reason="fixture",
+            remaining_resources_verified=False,
+        )
+
+
 def test_close_rejects_unattributed_deep_trigger() -> None:
     with pytest.raises(ValueError, match="requires_attributed"):
         IncidentCloseReceipt(

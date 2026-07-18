@@ -274,6 +274,85 @@ class RuntimeDatabaseIncidentJournal:
             self._write_current_unlocked(updated)
             return updated
 
+    def revoke_diagnostic_permit(
+        self,
+        incident_id: str,
+        *,
+        terminal_reason: str,
+        failure_code: Optional[str] = None,
+    ) -> IncidentReceipt:
+        """Atomically consume one diagnostic permit on every terminal path."""
+
+        reason = str(terminal_reason).strip()
+        failure = str(failure_code or "").strip()
+        if not reason:
+            raise ValueError("diagnostic_permit_terminal_reason_required")
+        with self._lock():
+            current = self._require_current_unlocked(incident_id)
+            if current.diagnostic_permit is None:
+                raise IncidentTransitionError(
+                    f"Incident {incident_id} has no diagnostic permit to revoke"
+                )
+            event_time = utc_now()
+            permit_id = current.diagnostic_permit.get("permit_id")
+            updated = replace(
+                current,
+                updated_at=event_time,
+                evidence_count=current.evidence_count + (1 if failure else 0),
+                diagnostic_permit=None,
+                containment_receipt=None if failure else current.containment_receipt,
+            )
+            event = {
+                "event": (
+                    "diagnostic_permit_revoked_by_failure"
+                    if failure
+                    else "diagnostic_permit_consumed_terminal"
+                ),
+                "at": event_time,
+                "permit_id": permit_id,
+                "terminal_reason": reason,
+            }
+            if failure:
+                event["failure_code"] = failure
+            self._append_event_unlocked(incident_id=incident_id, event=event)
+            self._write_current_unlocked(updated)
+            return updated
+
+    def record_diagnostic_ownership_handback(
+        self,
+        incident_id: str,
+        *,
+        owner: str,
+        terminal_reason: str,
+        remaining_resources_verified: bool,
+    ) -> Mapping[str, Any]:
+        """Persist ownership release separately from diagnostic permit state."""
+
+        exact_owner = str(owner).strip()
+        reason = str(terminal_reason).strip()
+        if exact_owner != "runtime-db-incident-owner":
+            raise ValueError("diagnostic_ownership_handback_owner_invalid")
+        if not reason:
+            raise ValueError("diagnostic_ownership_handback_reason_required")
+        if remaining_resources_verified is not True:
+            raise ValueError("diagnostic_ownership_handback_resources_not_verified")
+        with self._lock():
+            current = self._require_current_unlocked(incident_id)
+            if current.diagnostic_permit is not None:
+                raise IncidentTransitionError(
+                    f"Incident {incident_id} diagnostic permit is still active"
+                )
+            event = {
+                "event": "diagnostic_observer_ownership_handed_back",
+                "at": utc_now(),
+                "owner_before": exact_owner,
+                "owner_after": "none",
+                "terminal_reason": reason,
+                "remaining_resources_verified": True,
+            }
+            self._append_event_unlocked(incident_id=incident_id, event=event)
+            return event
+
     def mark_contained(
         self,
         incident_id: str,

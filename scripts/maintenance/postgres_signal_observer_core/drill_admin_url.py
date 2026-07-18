@@ -43,6 +43,7 @@ def serialize_disposable_pgbouncer_config(
         "[pgbouncer]\n"
         "listen_addr = 0.0.0.0\n"
         f"listen_port = {PGBOUNCER_ADMIN_PORT}\n"
+        f"admin_users = {username}\n"
         "auth_type = plain\n"
         "auth_file = /etc/pgbouncer/userlist.txt\n"
         "pool_mode = session\n"

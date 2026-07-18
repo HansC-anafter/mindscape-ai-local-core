@@ -16,12 +16,24 @@ from .drill_docker_runtime import (
 )
 
 
-FORMAL_DOCKER_OPERATION_CLASSES = frozenset(
-    {
-        "docker_run_disposable_isolated_postgresql_bootstrap",
-        "docker_run_disposable_isolated_pgbouncer_bootstrap",
-    }
-)
+FORMAL_DOCKER_OPERATION_RESULT_KINDS = {
+    "docker_create_disposable_isolated_network": "identifier",
+    "docker_run_disposable_isolated_postgresql_bootstrap": "identifier",
+    "docker_run_disposable_isolated_pgbouncer_bootstrap": "identifier",
+    "docker_run_disposable_isolated_observer": "identifier",
+    "docker_run_disposable_isolated_client": "identifier",
+    "docker_exec_disposable_isolated_signal_sender": "terminal_zero",
+    "docker_stop_disposable_isolated_client": "terminal_zero",
+    "docker_remove_disposable_isolated_client": "terminal_zero",
+    "docker_stop_disposable_isolated_observer": "terminal_zero",
+    "docker_remove_disposable_isolated_observer": "terminal_zero",
+    "docker_stop_disposable_isolated_pgbouncer": "terminal_zero",
+    "docker_remove_disposable_isolated_pgbouncer": "terminal_zero",
+    "docker_stop_disposable_isolated_postgresql": "terminal_zero",
+    "docker_remove_disposable_isolated_postgresql": "terminal_zero",
+    "docker_remove_disposable_isolated_network": "terminal_zero",
+}
+FORMAL_DOCKER_OPERATION_CLASSES = frozenset(FORMAL_DOCKER_OPERATION_RESULT_KINDS)
 MAX_FORMAL_EXEC_OUTPUT_BYTES = 65_536
 _CONTAINER_ID = re.compile(r"^[0-9a-f]{64}$")
 _CANONICAL_ENV_VALUE = re.compile(r"^[A-Za-z0-9._~:/+@%-]+$")
@@ -229,18 +241,41 @@ def validate_formal_exec_result(
     receipt["terminal"] = True
     receipt["exit_code"] = exit_code
     if exit_code != 0:
+        capture = source.get("terminal_nonzero_capture")
+        if isinstance(capture, Mapping):
+            allowed_capture_keys = {
+                "terminal",
+                "exit_code",
+                "stdout_present",
+                "stdout_bytes",
+                "stdout_sha256",
+                "stderr_present",
+                "stderr_bytes",
+                "stderr_sha256",
+                "captures_truncated",
+                "hash_input",
+                "output_disclosed",
+            }
+            exact_capture = dict(capture)
+            if (
+                set(exact_capture) == allowed_capture_keys
+                and exact_capture.get("terminal") is True
+                and exact_capture.get("exit_code") == exit_code
+                and exact_capture.get("output_disclosed") is False
+                and exact_capture.get("hash_input")
+                == "full_raw_subprocess_capture_bytes"
+            ):
+                receipt["terminal_nonzero_capture"] = exact_capture
         receipt["first_failure"] = "formal_escalation_cli_terminal_failure"
         return receipt
-    container_id = output_text.strip()
-    if not _CONTAINER_ID.fullmatch(container_id):
-        receipt["first_failure"] = "formal_escalation_container_id_invalid"
-        return receipt
-    receipt.update(
-        {
-            "delivery_allowed": True,
-            "container_id": container_id,
-        }
-    )
+    result_kind = FORMAL_DOCKER_OPERATION_RESULT_KINDS[operation_class]
+    if result_kind == "identifier":
+        container_id = output_text.strip()
+        if not _CONTAINER_ID.fullmatch(container_id):
+            receipt["first_failure"] = "formal_escalation_container_id_invalid"
+            return receipt
+        receipt["container_id"] = container_id
+    receipt["delivery_allowed"] = True
     return receipt
 
 

@@ -5,8 +5,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
-import secrets
 import sys
 from pathlib import Path
 
@@ -14,33 +12,23 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from backend.app.services.runtime_database_incident_gate import (  # noqa: E402
-    require_runtime_database_mutation_allowed,
-)
 from scripts.maintenance.postgres_signal_observer_core import (  # noqa: E402
     DisposableDrillBootstrapConfig,
     DisposableDrillClientConfig,
     DisposableDrillContainerReadbackContract,
     DisposableDrillImageContract,
     DisposableDrillObserverConfig,
-    DisposableDrillObserverEnvironment,
     DisposableDrillSignalConfig,
     FormalExecutorDockerRuntimeContract,
     FormalExecutorPythonRuntimeContract,
+    LEGACY_FORMAL_MUTATION_ENTRY_FAILURE,
     OBSERVER_BACKEND_IMAGE_ROLE,
     POSTGRES_DRILL_IMAGE_ROLE,
     canonical_disposable_drill_name,
     canonical_observer_artifact_sha256,
-    execute_formal_postgres_bootstrap,
+    build_formal_drill_cli_config,
+    execute_canonical_formal_drill,
     execute_disposable_container_readback,
-    launch_disposable_drill_client,
-    launch_disposable_drill_observer,
-    send_disposable_drill_signal,
-    serialize_disposable_pgbouncer_config,
-    serialize_disposable_pgbouncer_userlist,
-    serialize_postgres_bootstrap_environment,
-    secure_create_precondition as _secure_create_precondition,
-    secure_precondition_readback as _secure_precondition_readback,
     validate_formal_exec_result,
 )
 
@@ -63,6 +51,7 @@ def _parser() -> argparse.ArgumentParser:
     mode.add_argument("--print-signal-spec", action="store_true")
     mode.add_argument("--send-synthetic-signal", action="store_true")
     mode.add_argument("--print-formal-runtime-spec", action="store_true")
+    mode.add_argument("--execute-formal-drill-sequence", action="store_true")
     parser.add_argument("--journal-root", type=Path)
     parser.add_argument("--drill-suffix")
     parser.add_argument("--temp-root", type=Path)
@@ -171,6 +160,34 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
     artifact_sha256 = canonical_observer_artifact_sha256(REPO_ROOT)
+    if any(
+        (
+            args.launch_client,
+            args.launch_observer,
+            args.prepare_bootstrap_preconditions,
+            args.execute_postgres_bootstrap,
+            args.send_synthetic_signal,
+        )
+    ):
+        raise SystemExit(LEGACY_FORMAL_MUTATION_ENTRY_FAILURE)
+    if args.execute_formal_drill_sequence:
+        config = build_formal_drill_cli_config(
+            drill_suffix=str(_required(args.drill_suffix, "--drill-suffix")),
+            temp_root=Path(_required(args.temp_root, "--temp-root")),
+            journal_root=Path(_required(args.journal_root, "--journal-root")),
+            postgres_image_ref=image_contract.image_ref_for(POSTGRES_DRILL_IMAGE_ROLE),
+            observer_image_ref=image_contract.image_ref_for(OBSERVER_BACKEND_IMAGE_ROLE),
+            repo_root=REPO_ROOT,
+            artifact_sha256=artifact_sha256,
+            source_commit=str(_required(args.source_commit, "--source-commit")),
+            database_user=str(_required(args.database_user, "--database-user")),
+            database_name=str(_required(args.database_name, "--database-name")),
+            pgbouncer_port=args.pgbouncer_port,
+            sleep_seconds=args.sleep_seconds,
+        )
+        payload = execute_canonical_formal_drill(config)
+        print(json.dumps(payload, sort_keys=True))
+        return 0 if payload.get("validation_passed") is True else 2
     if args.print_formal_runtime_spec:
         payload = _with_image_contract(
             {
@@ -241,83 +258,24 @@ def main(argv: list[str] | None = None) -> int:
         )
         print(json.dumps(payload, sort_keys=True))
         return 0 if payload.get("validation_passed") is True else 2
-    if (
-        args.print_bootstrap_spec
-        or args.prepare_bootstrap_preconditions
-        or args.execute_postgres_bootstrap
-    ):
+    if args.print_bootstrap_spec:
         bootstrap_config = DisposableDrillBootstrapConfig(
             drill_suffix=str(_required(args.drill_suffix, "--drill-suffix")),
             temp_root=Path(_required(args.temp_root, "--temp-root")),
             postgres_image_ref=image_contract.image_ref_for(POSTGRES_DRILL_IMAGE_ROLE),
         )
-        if args.print_bootstrap_spec:
-            payload = bootstrap_config.redacted_spec()
-            payload["artifact_sha256"] = artifact_sha256
-            payload = _with_image_contract(
-                payload,
-                image_contract=image_contract,
-                docker_runtime_contract=docker_runtime_contract,
-                runtime_contract=runtime_contract,
-                selected_role=POSTGRES_DRILL_IMAGE_ROLE,
-            )
-            print(json.dumps(payload, sort_keys=True))
-            return 0
-        if args.prepare_bootstrap_preconditions:
-            paths = (
-                bootstrap_config.postgres_environment_path,
-                bootstrap_config.pgbouncer_config_path,
-                bootstrap_config.pgbouncer_userlist_path,
-            )
-            if any(path.exists() or path.is_symlink() for path in paths):
-                raise RuntimeError("drill_precondition_path_already_exists")
-            password = secrets.token_hex(16)
-            assignments = {
-                "POSTGRES_USER": "mindscape",
-                "POSTGRES_PASSWORD": password,
-                "POSTGRES_DB": "mindscape_core",
-            }
-            environment_payload = serialize_postgres_bootstrap_environment(assignments)
-            payloads = (
-                environment_payload,
-                serialize_disposable_pgbouncer_config(assignments),
-                serialize_disposable_pgbouncer_userlist(assignments),
-            )
-            created: list[Path] = []
-            try:
-                for path, content in zip(paths, payloads, strict=True):
-                    _secure_create_precondition(path, content)
-                    created.append(path)
-                file_receipts = [_secure_precondition_readback(path) for path in paths]
-                payload = _with_image_contract(
-                    {
-                        "artifact_sha256": artifact_sha256,
-                        "validation_passed": True,
-                        "first_failure": None,
-                        "serializer": ("serialize_postgres_bootstrap_environment"),
-                        "serializer_invocation": "one_exact_mapping",
-                        "materialization": "o_excl_fail_closed_staged_creation",
-                        "files": file_receipts,
-                        "secret_values_in_argv_or_receipt": False,
-                        "shell": False,
-                    },
-                    image_contract=image_contract,
-                    docker_runtime_contract=docker_runtime_contract,
-                    runtime_contract=runtime_contract,
-                    selected_role=POSTGRES_DRILL_IMAGE_ROLE,
-                )
-                print(json.dumps(payload, sort_keys=True))
-            except BaseException:
-                for path in reversed(created):
-                    path.unlink(missing_ok=True)
-                raise
-            return 0
-        if args.execute_postgres_bootstrap:
-            return execute_formal_postgres_bootstrap(
-                bootstrap_config.postgres_docker_argv(),
-                environment_path=bootstrap_config.postgres_environment_path,
-            )
-    if args.print_signal_spec or args.send_synthetic_signal:
+        payload = bootstrap_config.redacted_spec()
+        payload["artifact_sha256"] = artifact_sha256
+        payload = _with_image_contract(
+            payload,
+            image_contract=image_contract,
+            docker_runtime_contract=docker_runtime_contract,
+            runtime_contract=runtime_contract,
+            selected_role=POSTGRES_DRILL_IMAGE_ROLE,
+        )
+        print(json.dumps(payload, sort_keys=True))
+        return 0
+    if args.print_signal_spec:
         signal_config = DisposableDrillSignalConfig(
             drill_suffix=str(_required(args.drill_suffix, "--drill-suffix")),
             postgres_image_ref=image_contract.image_ref_for(POSTGRES_DRILL_IMAGE_ROLE),
@@ -325,44 +283,18 @@ def main(argv: list[str] | None = None) -> int:
                 _required(args.target_postgres_pid, "--target-postgres-pid")
             ),
         )
-        if args.print_signal_spec:
-            payload = signal_config.redacted_spec()
-            payload["artifact_sha256"] = artifact_sha256
-            payload = _with_image_contract(
-                payload,
-                image_contract=image_contract,
-                docker_runtime_contract=docker_runtime_contract,
-                runtime_contract=runtime_contract,
-                selected_role=POSTGRES_DRILL_IMAGE_ROLE,
-            )
-            print(json.dumps(payload, sort_keys=True))
-            return 0
-        if args.journal_root is None:
-            raise SystemExit("--journal-root is required with --send-synthetic-signal")
-        decision = require_runtime_database_mutation_allowed(
-            "postgres_signal_observer_start",
-            evidence={
-                "artifact_sha256": artifact_sha256,
-                "signal_spec_sha256": signal_config.redacted_spec()["argv_sha256"],
-            },
-            journal_root=args.journal_root,
-        )
-        if decision.reason != "incident_diagnostic_permit":
-            raise RuntimeError("incident_diagnostic_permit_required")
-        receipt = send_disposable_drill_signal(signal_config)
-        receipt["artifact_sha256"] = artifact_sha256
-        receipt["incident_id"] = decision.incident_id
-        receipt["admission_reason"] = decision.reason
-        receipt = _with_image_contract(
-            receipt,
+        payload = signal_config.redacted_spec()
+        payload["artifact_sha256"] = artifact_sha256
+        payload = _with_image_contract(
+            payload,
             image_contract=image_contract,
             docker_runtime_contract=docker_runtime_contract,
             runtime_contract=runtime_contract,
             selected_role=POSTGRES_DRILL_IMAGE_ROLE,
         )
-        print(json.dumps(receipt, sort_keys=True))
-        return 0 if receipt.get("signal_sent") is True else 2
-    if args.print_observer_spec or args.launch_observer:
+        print(json.dumps(payload, sort_keys=True))
+        return 0
+    if args.print_observer_spec:
         if args.journal_root is None:
             raise SystemExit("--journal-root is required for observer modes")
         drill_suffix = str(_required(args.drill_suffix, "--drill-suffix"))
@@ -379,50 +311,15 @@ def main(argv: list[str] | None = None) -> int:
             artifact_sha256=artifact_sha256,
             source_commit=str(_required(args.source_commit, "--source-commit")),
         )
-        if args.print_observer_spec:
-            payload = _with_image_contract(
-                observer_config.redacted_spec(),
-                image_contract=image_contract,
-                docker_runtime_contract=docker_runtime_contract,
-                runtime_contract=runtime_contract,
-                selected_role=OBSERVER_BACKEND_IMAGE_ROLE,
-            )
-            print(json.dumps(payload, sort_keys=True))
-            return 0
-        decision = require_runtime_database_mutation_allowed(
-            "postgres_signal_observer_start",
-            evidence={"artifact_sha256": artifact_sha256},
-            journal_root=args.journal_root,
-        )
-        if decision.reason != "incident_diagnostic_permit":
-            raise RuntimeError("incident_diagnostic_permit_required")
-        bootstrap_config = DisposableDrillBootstrapConfig(
-            drill_suffix=drill_suffix,
-            temp_root=Path(_required(args.temp_root, "--temp-root")),
-            postgres_image_ref=image_contract.image_ref_for(POSTGRES_DRILL_IMAGE_ROLE),
-        )
-        observer_environment = (
-            DisposableDrillObserverEnvironment.from_isolated_preconditions(
-                bootstrap_config,
-                base_environment=os.environ,
-            )
-        )
-        receipt = launch_disposable_drill_observer(
-            observer_config,
-            environment_contract=observer_environment,
-        )
-        receipt["artifact_sha256"] = artifact_sha256
-        receipt["incident_id"] = decision.incident_id
-        receipt["admission_reason"] = decision.reason
-        receipt = _with_image_contract(
-            receipt,
+        payload = _with_image_contract(
+            observer_config.redacted_spec(),
             image_contract=image_contract,
             docker_runtime_contract=docker_runtime_contract,
             runtime_contract=runtime_contract,
             selected_role=OBSERVER_BACKEND_IMAGE_ROLE,
         )
-        print(json.dumps(receipt, sort_keys=True))
-        return 0 if receipt.get("ready") is True else 2
+        print(json.dumps(payload, sort_keys=True))
+        return 0
 
     drill_suffix = str(_required(args.drill_suffix, "--drill-suffix"))
     config = DisposableDrillClientConfig(
@@ -445,28 +342,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         print(json.dumps(payload, sort_keys=True))
         return 0
-    if args.journal_root is None:
-        raise SystemExit("--journal-root is required with --launch-client")
-    decision = require_runtime_database_mutation_allowed(
-        "postgres_signal_observer_start",
-        evidence={"artifact_sha256": artifact_sha256},
-        journal_root=args.journal_root,
-    )
-    if decision.reason != "incident_diagnostic_permit":
-        raise RuntimeError("incident_diagnostic_permit_required")
-    receipt = launch_disposable_drill_client(config)
-    receipt["artifact_sha256"] = artifact_sha256
-    receipt["incident_id"] = decision.incident_id
-    receipt["admission_reason"] = decision.reason
-    receipt = _with_image_contract(
-        receipt,
-        image_contract=image_contract,
-        docker_runtime_contract=docker_runtime_contract,
-        runtime_contract=runtime_contract,
-        selected_role=POSTGRES_DRILL_IMAGE_ROLE,
-    )
-    print(json.dumps(receipt, sort_keys=True))
-    return 0
+    raise SystemExit("selected mode is unsupported")
 
 
 if __name__ == "__main__":

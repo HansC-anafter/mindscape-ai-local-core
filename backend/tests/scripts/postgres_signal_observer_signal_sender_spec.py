@@ -103,6 +103,60 @@ def test_artifact_digest_changes_with_the_postgres_image_contract(
 
 
 @pytest.mark.parametrize(
+    "relative",
+    (
+        "backend/app/services/runtime_database_incident_gate.py",
+        "backend/app/services/runtime_database_incident_core/evaluator.py",
+        "backend/app/services/runtime_database_incident_core/journal.py",
+        "backend/app/services/runtime_database_incident_core/models.py",
+        "backend/app/services/runtime_database_incident_core/mutation_context.py",
+    ),
+)
+def test_artifact_digest_binds_incident_admission_and_terminal_owners(
+    tmp_path: Path,
+    relative: str,
+) -> None:
+    repo_root = Path(__file__).resolve().parents[3]
+    mirror = tmp_path / "repo"
+    for source_relative in OBSERVER_SOURCE_PATHS:
+        source = repo_root / source_relative
+        target = mirror / source_relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source, target)
+
+    baseline = canonical_observer_artifact_sha256(mirror)
+    owner = mirror / relative
+    owner.write_bytes(owner.read_bytes() + b"\n# artifact owner fixture\n")
+
+    assert canonical_observer_artifact_sha256(mirror) != baseline
+
+
+@pytest.mark.parametrize(
+    "relative",
+    (
+        "backend/app/services/runtime_database_incident_gate.py",
+        "backend/app/services/runtime_database_incident_core/journal.py",
+    ),
+)
+def test_artifact_digest_fails_closed_when_incident_owner_is_missing(
+    tmp_path: Path,
+    relative: str,
+) -> None:
+    repo_root = Path(__file__).resolve().parents[3]
+    mirror = tmp_path / "repo"
+    for source_relative in OBSERVER_SOURCE_PATHS:
+        source = repo_root / source_relative
+        target = mirror / source_relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source, target)
+
+    (mirror / relative).unlink()
+
+    with pytest.raises(RuntimeError, match=f"observer_source_unavailable:{relative}"):
+        canonical_observer_artifact_sha256(mirror)
+
+
+@pytest.mark.parametrize(
     "pid",
     [0, -1, POSTGRES_BACKEND_PID_MAX + 1, True],
 )
@@ -237,7 +291,6 @@ def test_signal_sender_timeout_and_unavailable_are_bounded_and_redacted(
 
 
 def test_facade_print_spec_redacts_pid_and_send_requires_permit(
-    monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
     tmp_path: Path,
 ) -> None:
@@ -261,22 +314,10 @@ def test_facade_print_spec_redacts_pid_and_send_requires_permit(
     assert "target_postgres_pid" not in payload
     assert "argv" not in payload
 
-    sent = False
-
-    def forbidden_send(_config):
-        nonlocal sent
-        sent = True
-        raise AssertionError("sender must not run without a permit")
-
-    monkeypatch.setattr(drill_facade, "send_disposable_drill_signal", forbidden_send)
-    monkeypatch.setattr(
-        drill_facade,
-        "require_runtime_database_mutation_allowed",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            RuntimeError("incident_diagnostic_permit_required")
-        ),
-    )
-    with pytest.raises(RuntimeError, match="incident_diagnostic_permit_required"):
+    with pytest.raises(
+        SystemExit,
+        match="formal_drill_full_sequence_entry_required",
+    ):
         drill_facade.main(
             [
                 "--send-synthetic-signal",
@@ -292,7 +333,6 @@ def test_facade_print_spec_redacts_pid_and_send_requires_permit(
                 str(TARGET_PID),
             ]
         )
-    assert sent is False
 
 
 def test_facade_and_core_expose_one_sender_without_fallback() -> None:
@@ -303,9 +343,14 @@ def test_facade_and_core_expose_one_sender_without_fallback() -> None:
     core_source = (
         repo_root / "scripts/maintenance/postgres_signal_observer_core/drill.py"
     ).read_text(encoding="utf-8")
-    combined = facade_source + core_source
+    executor_source = (
+        repo_root
+        / "scripts/maintenance/postgres_signal_observer_core/drill_formal_executor.py"
+    ).read_text(encoding="utf-8")
+    combined = facade_source + core_source + executor_source
 
-    assert facade_source.count("send_disposable_drill_signal(signal_config)") == 1
+    assert "send_disposable_drill_signal" not in facade_source
+    assert executor_source.count("send_disposable_drill_signal(") == 1
     assert core_source.count("def send_disposable_drill_signal(") == 1
     assert "docker kill" not in combined
     assert "os.kill" not in combined

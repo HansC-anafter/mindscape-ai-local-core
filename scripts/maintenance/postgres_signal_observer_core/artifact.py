@@ -7,6 +7,11 @@ from pathlib import Path
 
 
 OBSERVER_SOURCE_PATHS = (
+    "backend/app/services/runtime_database_incident_gate.py",
+    "backend/app/services/runtime_database_incident_core/evaluator.py",
+    "backend/app/services/runtime_database_incident_core/journal.py",
+    "backend/app/services/runtime_database_incident_core/models.py",
+    "backend/app/services/runtime_database_incident_core/mutation_context.py",
     "docker/postgres/Dockerfile",
     "scripts/maintenance/postgres_incident_gate.py",
     "scripts/maintenance/postgres_signal_observer.py",
@@ -18,6 +23,12 @@ OBSERVER_SOURCE_PATHS = (
     "scripts/maintenance/postgres_signal_observer_core/drill_bootstrap.py",
     "scripts/maintenance/postgres_signal_observer_core/drill_docker_runtime.py",
     "scripts/maintenance/postgres_signal_observer_core/drill_escalation.py",
+    "scripts/maintenance/postgres_signal_observer_core/drill_formal_cli.py",
+    "scripts/maintenance/postgres_signal_observer_core/drill_formal_contract.py",
+    "scripts/maintenance/postgres_signal_observer_core/drill_formal_executor.py",
+    "scripts/maintenance/postgres_signal_observer_core/drill_formal_gates.py",
+    "scripts/maintenance/postgres_signal_observer_core/drill_formal_sequence.py",
+    "scripts/maintenance/postgres_signal_observer_core/drill_formal_terminal.py",
     "scripts/maintenance/postgres_signal_observer_core/drill_images.py",
     "scripts/maintenance/postgres_signal_observer_core/drill_names.py",
     "scripts/maintenance/postgres_signal_observer_core/drill_observer.py",
