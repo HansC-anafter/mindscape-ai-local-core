@@ -23,6 +23,7 @@ ReadHealth = Callable[[], Mapping[str, Any]]
 
 OBSERVER_STARTUP_DEADLINE_SECONDS = 10.0
 OBSERVER_HEALTH_POLL_SECONDS = 0.25
+OBSERVER_DOCKER_TERMINAL_DEADLINE_SECONDS = 60.0
 OBSERVER_HEALTH_COMMAND = (
     "python /app/scripts/maintenance/postgres_signal_observer.py "
     "--healthcheck --max-health-age-seconds 30"
@@ -174,6 +175,9 @@ class DisposableDrillObserverConfig:
             "source_commit": self.source_commit,
             "image_digest": self.image_digest,
             "health_command": OBSERVER_HEALTH_COMMAND,
+            "docker_terminal_deadline_seconds": (
+                OBSERVER_DOCKER_TERMINAL_DEADLINE_SECONDS
+            ),
             "startup_deadline_seconds": OBSERVER_STARTUP_DEADLINE_SECONDS,
             "health_poll_seconds": OBSERVER_HEALTH_POLL_SECONDS,
             "secret_environment_keys": ["PGBOUNCER_ADMIN_URL"],
@@ -278,18 +282,24 @@ def launch_disposable_drill_observer(
             check=False,
             capture_output=True,
             text=True,
-            timeout=15,
+            timeout=OBSERVER_DOCKER_TERMINAL_DEADLINE_SECONDS,
             shell=False,
             env=inherited,
         )
-    except (OSError, subprocess.TimeoutExpired):
+    except subprocess.TimeoutExpired:
+        launch_failure = "disposable_drill_observer_launch_terminal_deadline_exceeded"
+    except OSError:
+        launch_failure = "disposable_drill_observer_launch_unavailable"
+    else:
+        launch_failure = None
+    if launch_failure is not None:
         cleanup = _cleanup_disposable_observer(
             config.container_name, run=run, environment=inherited
         )
         return _failure_receipt(
             config,
             container_id=None,
-            first_failure="disposable_drill_observer_launch_unavailable",
+            first_failure=launch_failure,
             health_journal_observed=False,
             health_state="health_unavailable",
             cleanup=cleanup,

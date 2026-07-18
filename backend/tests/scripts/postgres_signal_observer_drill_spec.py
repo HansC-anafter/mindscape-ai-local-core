@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 import re
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -30,6 +31,7 @@ from scripts.maintenance.postgres_signal_observer_core import (
 from scripts.maintenance import postgres_signal_observer_drill as drill_facade
 from scripts.maintenance.postgres_signal_observer_drill import main as drill_facade_main
 from scripts.maintenance.postgres_signal_observer_core.drill_observer import (
+    OBSERVER_DOCKER_TERMINAL_DEADLINE_SECONDS,
     OBSERVER_HEALTH_COMMAND,
     OBSERVER_STARTUP_DEADLINE_SECONDS,
 )
@@ -1055,7 +1057,94 @@ def test_observer_spec_overrides_image_healthcheck_and_preserves_budgets(
     assert "PGBOUNCER_ADMIN_URL" in argv
     assert "postgresql://" not in joined
     assert argv[-1] == "/app/scripts/maintenance/postgres_signal_observer.py"
+    assert observer_config.redacted_spec()["docker_terminal_deadline_seconds"] == 60.0
     assert observer_config.redacted_spec()["startup_deadline_seconds"] == 10.0
+
+
+def test_observer_launcher_terminal_deadline_is_independent_and_fail_closed(
+    observer_config: DisposableDrillObserverConfig,
+) -> None:
+    calls = []
+
+    def fake_run(argv, **kwargs):
+        calls.append((argv, kwargs))
+        if argv[:3] == ["docker", "run", "-d"]:
+            raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    receipt = launch_disposable_drill_observer(
+        observer_config,
+        environment={"PGBOUNCER_ADMIN_URL": "postgresql://fixture-only"},
+        run=fake_run,
+        read_health=lambda: (_ for _ in ()).throw(
+            AssertionError("health gate must not run before Docker is terminal")
+        ),
+    )
+    serialized = json.dumps(receipt, sort_keys=True)
+
+    assert receipt["first_failure"] == (
+        "disposable_drill_observer_launch_terminal_deadline_exceeded"
+    )
+    assert receipt["container_id"] is None
+    assert receipt["health_journal_observed"] is False
+    assert receipt["cleanup"] == {
+        "stop_succeeded": True,
+        "remove_succeeded": True,
+    }
+    assert calls[0][1]["timeout"] == OBSERVER_DOCKER_TERMINAL_DEADLINE_SECONDS
+    assert calls[0][1]["timeout"] == 60.0
+    assert receipt["spec"]["startup_deadline_seconds"] == 10.0
+    assert [call[0][:2] for call in calls] == [
+        ["docker", "run"],
+        ["docker", "stop"],
+        ["docker", "rm"],
+    ]
+    assert all("client" not in "\0".join(call[0]) for call in calls)
+    assert "postgresql://fixture-only" not in serialized
+
+
+@pytest.mark.parametrize(
+    ("launch_result", "expected_failure"),
+    [
+        (
+            OSError("fixture launcher unavailable"),
+            "disposable_drill_observer_launch_unavailable",
+        ),
+        (
+            SimpleNamespace(returncode=125, stdout="", stderr="fixture"),
+            "disposable_drill_observer_launch_failed",
+        ),
+    ],
+)
+def test_observer_launcher_preserves_oserror_and_nonzero_failure_classes(
+    observer_config: DisposableDrillObserverConfig,
+    launch_result,
+    expected_failure: str,
+) -> None:
+    calls = []
+
+    def fake_run(argv, **kwargs):
+        calls.append((argv, kwargs))
+        if argv[:3] == ["docker", "run", "-d"]:
+            if isinstance(launch_result, BaseException):
+                raise launch_result
+            return launch_result
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    receipt = launch_disposable_drill_observer(
+        observer_config,
+        environment={"PGBOUNCER_ADMIN_URL": "postgresql://fixture-only"},
+        run=fake_run,
+    )
+
+    assert receipt["first_failure"] == expected_failure
+    assert receipt["container_id"] is None
+    assert calls[0][1]["timeout"] == 60.0
+    assert [call[0][:2] for call in calls] == [
+        ["docker", "run"],
+        ["docker", "stop"],
+        ["docker", "rm"],
+    ]
 
 
 def test_observer_launcher_accepts_only_ready_canonical_health_journal(
