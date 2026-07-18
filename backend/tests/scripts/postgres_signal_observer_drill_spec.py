@@ -1141,6 +1141,9 @@ def test_observer_launcher_preserves_oserror_and_nonzero_failure_classes(
 
     assert receipt["first_failure"] == expected_failure
     assert receipt["container_id"] is None
+    assert receipt["container_started"] is False
+    assert receipt["launched"] is False
+    assert receipt["ready"] is False
     assert calls[0][1]["timeout"] == 60.0
     assert [call[0][:2] for call in calls] == [
         ["docker", "run"],
@@ -1195,6 +1198,7 @@ def test_observer_launcher_accepts_ready_on_final_deadline_boundary_read(
     serialized = json.dumps(receipt, sort_keys=True)
 
     assert receipt["launched"] is True
+    assert receipt["container_started"] is True
     assert receipt["ready"] is True
     assert receipt["health_journal_observed"] is True
     assert len(health_reads) == 2
@@ -1237,6 +1241,7 @@ def test_observer_launcher_cleans_up_at_existing_ten_second_deadline(
     )
 
     assert receipt["launched"] is False
+    assert receipt["container_started"] is True
     assert receipt["ready"] is False
     assert receipt["first_failure"] == "observer_health_startup_deadline_exceeded"
     assert receipt["health_journal_observed"] is True
@@ -1284,6 +1289,7 @@ def test_observer_launcher_rejects_ready_journal_with_wrong_identity(
     )
 
     assert receipt["first_failure"] == "observer_health_identity_mismatch"
+    assert receipt["container_started"] is True
     assert receipt["ready"] is False
     assert receipt["cleanup"]["remove_succeeded"] is True
 
@@ -1303,13 +1309,23 @@ def test_observer_launcher_rejects_fail_closed_health_without_waiting(
         observer_config,
         environment={"PGBOUNCER_ADMIN_URL": "postgresql://fixture-only"},
         run=fake_run,
-        read_health=lambda: {"ready": False, "state": "fail_closed_tracefs"},
+        read_health=lambda: {
+            "ready": False,
+            "state": "fail_closed_tracefs",
+            "failure_detail_code": "tracefs_mount_or_signal_event_unavailable",
+        },
         monotonic=iter([0.0]).__next__,
         sleep=sleeps.append,
     )
 
     assert receipt["first_failure"] == "fail_closed_tracefs"
+    assert receipt["launched"] is False
+    assert receipt["container_started"] is True
     assert receipt["ready"] is False
+    assert (
+        receipt["health_failure_detail_code"]
+        == "tracefs_mount_or_signal_event_unavailable"
+    )
     assert receipt["cleanup"]["remove_succeeded"] is True
     assert sleeps == []
     assert [call[0][:2] for call in calls] == [
@@ -1317,3 +1333,29 @@ def test_observer_launcher_rejects_fail_closed_health_without_waiting(
         ["docker", "stop"],
         ["docker", "rm"],
     ]
+
+
+def test_observer_launcher_rejects_regex_valid_but_unallowlisted_detail_code(
+    observer_config: DisposableDrillObserverConfig,
+) -> None:
+    def fake_run(argv, **kwargs):
+        stdout = "c" * 64 if argv[:3] == ["docker", "run", "-d"] else ""
+        return SimpleNamespace(returncode=0, stdout=stdout, stderr="")
+
+    receipt = launch_disposable_drill_observer(
+        observer_config,
+        environment={"PGBOUNCER_ADMIN_URL": "postgresql://fixture-only"},
+        run=fake_run,
+        read_health=lambda: {
+            "ready": False,
+            "state": "fail_closed_observer_error",
+            "failure_detail_code": "unexpected_but_regex_valid",
+        },
+        monotonic=iter([0.0]).__next__,
+        sleep=lambda _: None,
+    )
+
+    assert receipt["container_started"] is True
+    assert receipt["launched"] is False
+    assert receipt["ready"] is False
+    assert receipt["health_failure_detail_code"] == "observer_error_unclassified"

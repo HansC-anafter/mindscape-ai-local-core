@@ -13,11 +13,11 @@ from typing import Any, Callable, Mapping
 
 from .evidence import EvidenceBudget, ObserverEvidenceStore
 from .drill_names import validate_disposable_drill_name
+from .service import canonical_observer_failure_detail_code
 from .tracefs import INSTANCE_NAME, SIGNAL_FILTER
 
 
 _PINNED_IMAGE = re.compile(r"^[A-Za-z0-9_./:-]+@sha256:[0-9a-f]{64}$")
-
 RunCommand = Callable[..., Any]
 ReadHealth = Callable[[], Mapping[str, Any]]
 
@@ -246,12 +246,19 @@ def _failure_receipt(
     health_journal_observed: bool,
     health_state: str,
     cleanup: Mapping[str, bool],
+    health_failure_detail_code: str | None = None,
 ) -> dict[str, Any]:
+    container_started = container_id is not None
     return {
+        # Compatibility: `launched` means the canonical ready/health gate
+        # passed. `container_started` separately records a terminal Docker
+        # start that subsequently entered the fail-closed cleanup path.
         "launched": False,
+        "container_started": container_started,
         "ready": False,
         "container_id": container_id,
         "first_failure": first_failure,
+        "health_failure_detail_code": health_failure_detail_code,
         "health_journal_observed": health_journal_observed,
         "health_state": health_state,
         "cleanup": dict(cleanup),
@@ -358,13 +365,18 @@ def launch_disposable_drill_observer(
                     )
                 return {
                     "launched": True,
+                    "container_started": True,
                     "ready": True,
                     "container_id": container_id,
                     "health_journal_observed": True,
                     "health_state": health_state,
+                    "health_failure_detail_code": None,
                     "spec": config.redacted_spec(),
                 }
             if health_state.startswith("fail_closed_"):
+                failure_detail_code = canonical_observer_failure_detail_code(
+                    health.get("failure_detail_code") or "observer_error_unclassified"
+                )
                 cleanup = _cleanup_disposable_observer(
                     config.container_name,
                     run=run,
@@ -377,6 +389,7 @@ def launch_disposable_drill_observer(
                     health_journal_observed=True,
                     health_state=health_state,
                     cleanup=cleanup,
+                    health_failure_detail_code=failure_detail_code,
                 )
         except RuntimeError:
             health_state = "health_unavailable"

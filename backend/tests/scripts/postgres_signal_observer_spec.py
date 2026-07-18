@@ -267,15 +267,12 @@ def test_observer_persists_starting_health_before_tracefs_prepare(
             permit_id="diagnostic-startup-health",
             source_commit=config.source_commit,
             allowed_operation_keys=(
-                "postgres_signal_observer_start@sha256:"
-                + config.artifact_sha256,
+                "postgres_signal_observer_start@sha256:" + config.artifact_sha256,
             ),
             test_evidence_paths=("evidence/observer-startup.json",),
             isolated_drill_id="observer-startup-health-test",
             budget_sha256="b" * 64,
-            expires_at=(
-                datetime.now(timezone.utc) + timedelta(minutes=10)
-            ).isoformat(),
+            expires_at=(datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat(),
             owner="runtime-db-incident-owner",
         ),
     )
@@ -287,7 +284,7 @@ def test_observer_persists_starting_health_before_tracefs_prepare(
 
         def prepare(self):
             startup_receipts.append(store.read_health())
-            raise RuntimeError("fixture_tracefs_prepare_blocked")
+            raise RuntimeError("tracefs_mount_or_signal_event_unavailable")
 
         def cleanup(self):
             pass
@@ -306,6 +303,54 @@ def test_observer_persists_starting_health_before_tracefs_prepare(
     terminal = store.read_health()
     assert terminal["ready"] is False
     assert terminal["state"] == "fail_closed_observer_error"
+    assert terminal["error_code"] == "RuntimeError"
+    assert terminal["error_class"] == "RuntimeError"
+    assert (
+        terminal["failure_detail_code"] == "tracefs_mount_or_signal_event_unavailable"
+    )
+
+
+def test_observer_health_redacts_unclassified_exception_detail(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    journal = RuntimeDatabaseIncidentJournal(config.journal_root)
+    incident = journal.open_incident(failure_code="isolated_observer_redaction_test")
+    journal.record_diagnostic_permit(
+        incident.incident_id,
+        IncidentDiagnosticPermit(
+            permit_id="diagnostic-observer-redaction",
+            source_commit=config.source_commit,
+            allowed_operation_keys=(
+                "postgres_signal_observer_start@sha256:" + config.artifact_sha256,
+            ),
+            test_evidence_paths=("evidence/observer-redaction.json",),
+            isolated_drill_id="observer-redaction-test",
+            budget_sha256="b" * 64,
+            expires_at=(datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat(),
+            owner="runtime-db-incident-owner",
+        ),
+    )
+
+    class _SensitiveFailureTrace:
+        instance_name = "test"
+
+        def prepare(self):
+            raise RuntimeError("password=fixture-secret")
+
+        def cleanup(self):
+            pass
+
+    observer = PostgresSignalObserver(
+        config,
+        trace=_SensitiveFailureTrace(),
+        correlation=SimpleNamespace(),
+    )
+
+    assert observer.run() == 2
+    terminal = ObserverEvidenceStore(config.evidence_root).read_health()
+    assert terminal["error_code"] == "RuntimeError"
+    assert terminal["error_class"] == "RuntimeError"
+    assert terminal["failure_detail_code"] == "observer_error_unclassified"
+    assert "fixture-secret" not in json.dumps(terminal, sort_keys=True)
 
 
 def test_docker_healthcheck_reads_only_matching_canonical_journal(

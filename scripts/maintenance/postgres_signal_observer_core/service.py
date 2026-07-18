@@ -27,6 +27,38 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
+_STABLE_OBSERVER_FAILURE_CODES = frozenset(
+    {
+        "incident_diagnostic_permit_required",
+        "observer_artifact_sha256_invalid",
+        "observer_artifact_sha256_missing",
+        "observer_artifact_sha256_readback_mismatch",
+        "observer_image_digest_invalid",
+        "observer_image_digest_missing",
+        "observer_pgbouncer_admin_url_missing",
+        "observer_source_commit_invalid",
+        "observer_source_commit_missing",
+        "signal_event_correlation_unavailable",
+        "trace_pipe_closed",
+        "tracefs_control_write_failed",
+        "tracefs_filter_readback_mismatch",
+        "tracefs_mount_or_signal_event_unavailable",
+        "tracefs_trace_pipe_unavailable",
+    }
+)
+
+
+def canonical_observer_failure_detail_code(value: object) -> str:
+    """Return one exact allowlisted code without serializing error payloads."""
+
+    candidate = str(value)
+    if candidate in _STABLE_OBSERVER_FAILURE_CODES:
+        return candidate
+    if candidate.startswith("tracefs_control_write_failed:"):
+        return "tracefs_control_write_failed"
+    return "observer_error_unclassified"
+
+
 @dataclass(frozen=True)
 class ObserverConfig:
     evidence_root: Path
@@ -258,6 +290,8 @@ class PostgresSignalObserver:
                 ready=False,
                 state="fail_closed_observer_error",
                 error_code=type(exc).__name__,
+                error_class=type(exc).__name__,
+                failure_detail_code=canonical_observer_failure_detail_code(exc),
             )
             return 2
         finally:
