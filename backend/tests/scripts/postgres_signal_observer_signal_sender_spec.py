@@ -77,6 +77,7 @@ def test_postgres_image_build_contract_pins_pg_major_and_pg_ctl_executable() -> 
     assert 'test "${PG_MAJOR}" = "16"' in dockerfile
     assert 'test -x "/usr/lib/postgresql/${PG_MAJOR}/bin/pg_ctl"' in dockerfile
     assert "docker/postgres/Dockerfile" in OBSERVER_SOURCE_PATHS
+    assert "scripts/maintenance/postgres_incident_gate.py" in OBSERVER_SOURCE_PATHS
 
 
 def test_artifact_digest_changes_with_the_postgres_image_contract(

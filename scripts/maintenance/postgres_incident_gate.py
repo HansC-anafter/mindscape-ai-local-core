@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -18,6 +19,13 @@ from backend.app.services.runtime_database_incident_gate import (  # noqa: E402
     IncidentDiagnosticPermit,
     RuntimeDatabaseIncidentJournal,
     RuntimeDatabaseMutationGate,
+)
+
+
+_ARTIFACT_SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+_DIAGNOSTIC_OPERATIONS = (
+    "postgres_signal_observer_start",
+    "postgres_identity_logging_reload",
 )
 
 
@@ -53,7 +61,12 @@ def _parser() -> argparse.ArgumentParser:
     diagnose.add_argument("incident_id")
     diagnose.add_argument("--permit-id", required=True)
     diagnose.add_argument("--source-commit", required=True)
-    diagnose.add_argument("--allowed-operation-key", action="append", required=True)
+    diagnose.add_argument(
+        "--diagnostic-operation",
+        choices=_DIAGNOSTIC_OPERATIONS,
+        required=True,
+    )
+    diagnose.add_argument("--artifact-sha256", required=True)
     diagnose.add_argument("--test-evidence-path", action="append", required=True)
     diagnose.add_argument("--isolated-drill-id", required=True)
     diagnose.add_argument("--budget-sha256", required=True)
@@ -101,12 +114,19 @@ def main(argv: list[str] | None = None) -> int:
             postmaster_start_time=args.postmaster_start_time,
         )
     elif args.command == "diagnose":
+        artifact_sha256 = str(args.artifact_sha256).strip()
+        if not _ARTIFACT_SHA256_PATTERN.fullmatch(artifact_sha256):
+            raise SystemExit("diagnostic_artifact_sha256_invalid")
+        operation_key = gate.operation_key(
+            args.diagnostic_operation,
+            {"artifact_sha256": artifact_sha256},
+        )
         receipt = journal.record_diagnostic_permit(
             args.incident_id,
             IncidentDiagnosticPermit(
                 permit_id=args.permit_id,
                 source_commit=args.source_commit,
-                allowed_operation_keys=tuple(args.allowed_operation_key),
+                allowed_operation_keys=(operation_key,),
                 test_evidence_paths=tuple(args.test_evidence_path),
                 isolated_drill_id=args.isolated_drill_id,
                 budget_sha256=args.budget_sha256,
