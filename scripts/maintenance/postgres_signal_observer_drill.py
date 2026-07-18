@@ -24,6 +24,7 @@ from scripts.maintenance.postgres_signal_observer_core import (  # noqa: E402
     DisposableDrillClientConfig,
     DisposableDrillImageContract,
     DisposableDrillObserverConfig,
+    DisposableDrillObserverEnvironment,
     DisposableDrillSignalConfig,
     FormalExecutorPythonRuntimeContract,
     OBSERVER_BACKEND_IMAGE_ROLE,
@@ -34,6 +35,8 @@ from scripts.maintenance.postgres_signal_observer_core import (  # noqa: E402
     launch_disposable_drill_client,
     launch_disposable_drill_observer,
     send_disposable_drill_signal,
+    serialize_disposable_pgbouncer_config,
+    serialize_disposable_pgbouncer_userlist,
     serialize_postgres_bootstrap_environment,
     validate_formal_exec_result,
 )
@@ -255,22 +258,8 @@ def main(argv: list[str] | None = None) -> int:
             environment_payload = serialize_postgres_bootstrap_environment(assignments)
             payloads = (
                 environment_payload,
-                (
-                    "[databases]\n"
-                    "mindscape_core = host=runtime-db-observer-drill-postgres "
-                    "port=5432 dbname=mindscape_core user=mindscape "
-                    f"password={password}\n\n"
-                    "[pgbouncer]\n"
-                    "listen_addr = 0.0.0.0\nlisten_port = 6432\n"
-                    "auth_type = plain\n"
-                    "auth_file = /etc/pgbouncer/userlist.txt\n"
-                    "pool_mode = session\nmax_client_conn = 8\n"
-                    "default_pool_size = 2\nmin_pool_size = 0\n"
-                    "reserve_pool_size = 0\n"
-                    "server_reset_query = DISCARD ALL\n"
-                    "ignore_startup_parameters = extra_float_digits\n"
-                ).encode("utf-8"),
-                f'"mindscape" "{password}"\n'.encode("utf-8"),
+                serialize_disposable_pgbouncer_config(assignments),
+                serialize_disposable_pgbouncer_userlist(assignments),
             )
             created: list[Path] = []
             try:
@@ -400,7 +389,23 @@ def main(argv: list[str] | None = None) -> int:
         )
         if decision.reason != "incident_diagnostic_permit":
             raise RuntimeError("incident_diagnostic_permit_required")
-        receipt = launch_disposable_drill_observer(observer_config)
+        bootstrap_config = DisposableDrillBootstrapConfig(
+            drill_suffix=drill_suffix,
+            temp_root=Path(_required(args.temp_root, "--temp-root")),
+            postgres_image_ref=image_contract.image_ref_for(
+                POSTGRES_DRILL_IMAGE_ROLE
+            ),
+        )
+        observer_environment = (
+            DisposableDrillObserverEnvironment.from_isolated_preconditions(
+                bootstrap_config,
+                base_environment=os.environ,
+            )
+        )
+        receipt = launch_disposable_drill_observer(
+            observer_config,
+            environment_contract=observer_environment,
+        )
         receipt["artifact_sha256"] = artifact_sha256
         receipt["incident_id"] = decision.incident_id
         receipt["admission_reason"] = decision.reason

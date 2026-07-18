@@ -15,6 +15,7 @@ from scripts.maintenance.postgres_signal_observer_core import (
     DisposableDrillClientConfig,
     DisposableDrillImageContract,
     DisposableDrillObserverConfig,
+    DisposableDrillObserverEnvironment,
     DisposableDrillSignalConfig,
     canonical_observer_artifact_sha256,
     launch_disposable_drill_observer,
@@ -25,6 +26,20 @@ from scripts.maintenance.postgres_signal_observer_core import (
 DRILL_SUFFIX = "20260718T103518Z"
 POSTGRES_IMAGE_REF = "mindscape-ai-local-core-postgres:pg16@sha256:" + "a" * 64
 OBSERVER_IMAGE_REF = "mindscape-ai-local-core-backend@sha256:" + "b" * 64
+
+
+def _test_observer_environment(
+    config: DisposableDrillObserverConfig,
+) -> DisposableDrillObserverEnvironment:
+    return DisposableDrillObserverEnvironment(
+        environment={"PGBOUNCER_ADMIN_URL": "postgresql://fixture-only"},
+        pgbouncer_container_name=config.pgbouncer_container_name,
+        redacted_spec={
+            "environment_key": "PGBOUNCER_ADMIN_URL",
+            "environment_key_present": True,
+            "url_or_credential_disclosed": False,
+        },
+    )
 
 
 def _image_args() -> list[str]:
@@ -311,7 +326,7 @@ def test_observer_failure_receipt_keeps_observer_role_spec(tmp_path: Path) -> No
 
     receipt = launch_disposable_drill_observer(
         config,
-        environment={"PGBOUNCER_ADMIN_URL": "postgresql://fixture-only"},
+        environment_contract=_test_observer_environment(config),
         run=fake_run,
     )
     serialized = json.dumps(receipt, sort_keys=True)

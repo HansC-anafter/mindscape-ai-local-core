@@ -18,6 +18,7 @@ from scripts.maintenance.postgres_signal_observer_core import (
     DisposableDrillBootstrapConfig,
     DisposableDrillClientConfig,
     DisposableDrillObserverConfig,
+    DisposableDrillObserverEnvironment,
     POSTGRES_BOOTSTRAP_ENVIRONMENT_KEYS,
     canonical_disposable_drill_name,
     canonical_observer_artifact_sha256,
@@ -47,6 +48,20 @@ from scripts.maintenance.postgres_signal_observer_core.tracefs import (
 POSTGRES_IMAGE_REF = "mindscape-ai-local-core-postgres:pg16@sha256:" + "a" * 64
 OBSERVER_IMAGE_REF = "mindscape-ai-local-core-backend@sha256:" + "c" * 64
 DRILL_SUFFIX = "20260717T233540Z"
+
+
+def _test_observer_environment(
+    config: DisposableDrillObserverConfig,
+) -> DisposableDrillObserverEnvironment:
+    return DisposableDrillObserverEnvironment(
+        environment={"PGBOUNCER_ADMIN_URL": "postgresql://fixture-only"},
+        pgbouncer_container_name=config.pgbouncer_container_name,
+        redacted_spec={
+            "environment_key": "PGBOUNCER_ADMIN_URL",
+            "environment_key_present": True,
+            "url_or_credential_disclosed": False,
+        },
+    )
 
 
 def test_disposable_drill_names_use_one_exact_lowercase_suffix_seam() -> None:
@@ -1098,7 +1113,7 @@ def test_observer_launcher_terminal_deadline_is_independent_and_fail_closed(
 
     receipt = launch_disposable_drill_observer(
         observer_config,
-        environment={"PGBOUNCER_ADMIN_URL": "postgresql://fixture-only"},
+        environment_contract=_test_observer_environment(observer_config),
         run=fake_run,
         read_health=lambda: (_ for _ in ()).throw(
             AssertionError("health gate must not run before Docker is terminal")
@@ -1162,7 +1177,7 @@ def test_observer_launcher_preserves_oserror_and_nonzero_failure_classes(
 
     receipt = launch_disposable_drill_observer(
         observer_config,
-        environment={"PGBOUNCER_ADMIN_URL": "postgresql://fixture-only"},
+        environment_contract=_test_observer_environment(observer_config),
         run=fake_run,
     )
 
@@ -1214,7 +1229,7 @@ def test_observer_launcher_hashes_empty_terminal_nonzero_captures(
 
     receipt = launch_disposable_drill_observer(
         observer_config,
-        environment={"PGBOUNCER_ADMIN_URL": "postgresql://fixture-only"},
+        environment_contract=_test_observer_environment(observer_config),
         run=fake_run,
     )
 
@@ -1247,7 +1262,7 @@ def test_observer_launcher_hashes_non_utf8_terminal_nonzero_captures(
 
     receipt = launch_disposable_drill_observer(
         observer_config,
-        environment={"PGBOUNCER_ADMIN_URL": "postgresql://fixture-only"},
+        environment_contract=_test_observer_environment(observer_config),
         run=fake_run,
     )
     terminal_result = receipt["docker_terminal_result"]
@@ -1295,7 +1310,7 @@ def test_observer_launcher_accepts_ready_on_final_deadline_boundary_read(
 
     receipt = launch_disposable_drill_observer(
         observer_config,
-        environment={"PGBOUNCER_ADMIN_URL": "postgresql://fixture-only"},
+        environment_contract=_test_observer_environment(observer_config),
         run=fake_run,
         read_health=read_health,
         monotonic=iter(
@@ -1341,7 +1356,7 @@ def test_observer_launcher_cleans_up_at_existing_ten_second_deadline(
 
     receipt = launch_disposable_drill_observer(
         observer_config,
-        environment={"PGBOUNCER_ADMIN_URL": "postgresql://fixture-only"},
+        environment_contract=_test_observer_environment(observer_config),
         run=fake_run,
         read_health=read_health,
         monotonic=iter(
@@ -1386,7 +1401,7 @@ def test_observer_launcher_rejects_ready_journal_with_wrong_identity(
 
     receipt = launch_disposable_drill_observer(
         observer_config,
-        environment={"PGBOUNCER_ADMIN_URL": "postgresql://fixture-only"},
+        environment_contract=_test_observer_environment(observer_config),
         run=fake_run,
         read_health=lambda: {
             "ready": True,
@@ -1421,7 +1436,7 @@ def test_observer_launcher_rejects_fail_closed_health_without_waiting(
 
     receipt = launch_disposable_drill_observer(
         observer_config,
-        environment={"PGBOUNCER_ADMIN_URL": "postgresql://fixture-only"},
+        environment_contract=_test_observer_environment(observer_config),
         run=fake_run,
         read_health=lambda: {
             "ready": False,
@@ -1458,7 +1473,7 @@ def test_observer_launcher_rejects_regex_valid_but_unallowlisted_detail_code(
 
     receipt = launch_disposable_drill_observer(
         observer_config,
-        environment={"PGBOUNCER_ADMIN_URL": "postgresql://fixture-only"},
+        environment_contract=_test_observer_environment(observer_config),
         run=fake_run,
         read_health=lambda: {
             "ready": False,

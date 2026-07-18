@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import os
 import re
 import subprocess
 import time
@@ -12,6 +11,10 @@ from pathlib import Path
 from typing import Any, Callable, Mapping
 
 from .evidence import EvidenceBudget, ObserverEvidenceStore
+from .drill_admin_url import (
+    DisposableDrillObserverEnvironment,
+    PGBOUNCER_ADMIN_ENVIRONMENT_KEY,
+)
 from .drill_escalation import terminal_nonzero_capture_metadata
 from .drill_names import validate_disposable_drill_name
 from .drill_images import (
@@ -190,7 +193,13 @@ class DisposableDrillObserverConfig:
             ),
             "startup_deadline_seconds": OBSERVER_STARTUP_DEADLINE_SECONDS,
             "health_poll_seconds": OBSERVER_HEALTH_POLL_SECONDS,
-            "secret_environment_keys": ["PGBOUNCER_ADMIN_URL"],
+            "secret_environment_keys": [PGBOUNCER_ADMIN_ENVIRONMENT_KEY],
+            "pgbouncer_admin_environment_contract": {
+                "source": "canonical_isolated_preconditions",
+                "child_environment_only": True,
+                "host_environment_value_inherited": False,
+                "url_or_credential_disclosed": False,
+            },
             "shell": False,
             "argv_sha256": hashlib.sha256("\0".join(argv).encode("utf-8")).hexdigest(),
         }
@@ -256,6 +265,7 @@ def _failure_receipt(
     health_journal_observed: bool,
     health_state: str,
     cleanup: Mapping[str, bool],
+    environment_contract_spec: Mapping[str, Any],
     health_failure_detail_code: str | None = None,
     docker_terminal_result: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -273,6 +283,7 @@ def _failure_receipt(
         "health_journal_observed": health_journal_observed,
         "health_state": health_state,
         "cleanup": dict(cleanup),
+        "pgbouncer_admin_environment": dict(environment_contract_spec),
         "spec": config.redacted_spec(),
     }
     if docker_terminal_result is not None:
@@ -283,7 +294,7 @@ def _failure_receipt(
 def launch_disposable_drill_observer(
     config: DisposableDrillObserverConfig,
     *,
-    environment: Mapping[str, str] | None = None,
+    environment_contract: DisposableDrillObserverEnvironment,
     run: RunCommand = subprocess.run,
     read_health: ReadHealth | None = None,
     monotonic: Callable[[], float] = time.monotonic,
@@ -292,9 +303,12 @@ def launch_disposable_drill_observer(
     """Launch once, wait only on the local journal, and clean up on first failure."""
 
     config.validate()
-    inherited = dict(os.environ if environment is None else environment)
-    if not str(inherited.get("PGBOUNCER_ADMIN_URL") or ""):
-        raise ValueError("drill_observer_pgbouncer_admin_url_environment_missing")
+    if not isinstance(environment_contract, DisposableDrillObserverEnvironment):
+        raise TypeError("drill_observer_environment_contract_required")
+    environment_contract.validate_for(config.pgbouncer_container_name)
+    observer_environment = environment_contract.subprocess_environment()
+    executor_environment = environment_contract.executor_environment()
+    environment_contract_spec = environment_contract.redacted_spec()
     if config.evidence_host_root.exists() and any(config.evidence_host_root.iterdir()):
         raise ValueError("drill_observer_evidence_root_not_empty")
     try:
@@ -305,7 +319,7 @@ def launch_disposable_drill_observer(
             text=False,
             timeout=OBSERVER_DOCKER_TERMINAL_DEADLINE_SECONDS,
             shell=False,
-            env=inherited,
+            env=observer_environment,
         )
     except subprocess.TimeoutExpired:
         launch_failure = "disposable_drill_observer_launch_terminal_deadline_exceeded"
@@ -315,7 +329,7 @@ def launch_disposable_drill_observer(
         launch_failure = None
     if launch_failure is not None:
         cleanup = _cleanup_disposable_observer(
-            config.container_name, run=run, environment=inherited
+            config.container_name, run=run, environment=executor_environment
         )
         return _failure_receipt(
             config,
@@ -324,6 +338,7 @@ def launch_disposable_drill_observer(
             health_journal_observed=False,
             health_state="health_unavailable",
             cleanup=cleanup,
+            environment_contract_spec=environment_contract_spec,
         )
     if completed.returncode != 0:
         docker_terminal_result = terminal_nonzero_capture_metadata(
@@ -332,7 +347,7 @@ def launch_disposable_drill_observer(
             exit_code=completed.returncode,
         )
         cleanup = _cleanup_disposable_observer(
-            config.container_name, run=run, environment=inherited
+            config.container_name, run=run, environment=executor_environment
         )
         return _failure_receipt(
             config,
@@ -341,6 +356,7 @@ def launch_disposable_drill_observer(
             health_journal_observed=False,
             health_state="health_unavailable",
             cleanup=cleanup,
+            environment_contract_spec=environment_contract_spec,
             docker_terminal_result=docker_terminal_result,
         )
     raw_container_id = getattr(completed, "stdout", None)
@@ -354,7 +370,7 @@ def launch_disposable_drill_observer(
         container_id = ""
     if not re.fullmatch(r"[0-9a-f]{12,64}", container_id):
         cleanup = _cleanup_disposable_observer(
-            config.container_name, run=run, environment=inherited
+            config.container_name, run=run, environment=executor_environment
         )
         return _failure_receipt(
             config,
@@ -363,6 +379,7 @@ def launch_disposable_drill_observer(
             health_journal_observed=False,
             health_state="health_unavailable",
             cleanup=cleanup,
+            environment_contract_spec=environment_contract_spec,
         )
 
     health_reader = (
@@ -381,7 +398,7 @@ def launch_disposable_drill_observer(
                     cleanup = _cleanup_disposable_observer(
                         config.container_name,
                         run=run,
-                        environment=inherited,
+                        environment=executor_environment,
                     )
                     return _failure_receipt(
                         config,
@@ -390,6 +407,7 @@ def launch_disposable_drill_observer(
                         health_journal_observed=True,
                         health_state=health_state,
                         cleanup=cleanup,
+                        environment_contract_spec=environment_contract_spec,
                     )
                 return {
                     "launched": True,
@@ -400,6 +418,7 @@ def launch_disposable_drill_observer(
                     "health_state": health_state,
                     "health_failure_detail_code": None,
                     "spec": config.redacted_spec(),
+                    "pgbouncer_admin_environment": environment_contract_spec,
                 }
             if health_state.startswith("fail_closed_"):
                 failure_detail_code = canonical_observer_failure_detail_code(
@@ -408,7 +427,7 @@ def launch_disposable_drill_observer(
                 cleanup = _cleanup_disposable_observer(
                     config.container_name,
                     run=run,
-                    environment=inherited,
+                    environment=executor_environment,
                 )
                 return _failure_receipt(
                     config,
@@ -417,6 +436,7 @@ def launch_disposable_drill_observer(
                     health_journal_observed=True,
                     health_state=health_state,
                     cleanup=cleanup,
+                    environment_contract_spec=environment_contract_spec,
                     health_failure_detail_code=failure_detail_code,
                 )
         except RuntimeError:
@@ -429,7 +449,7 @@ def launch_disposable_drill_observer(
     cleanup = _cleanup_disposable_observer(
         config.container_name,
         run=run,
-        environment=inherited,
+        environment=executor_environment,
     )
     return _failure_receipt(
         config,
@@ -438,4 +458,5 @@ def launch_disposable_drill_observer(
         health_journal_observed=health_journal_observed,
         health_state=health_state,
         cleanup=cleanup,
+        environment_contract_spec=environment_contract_spec,
     )

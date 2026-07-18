@@ -50,7 +50,7 @@ def serialize_postgres_bootstrap_environment(
     return ("\n".join(lines) + "\n").encode("utf-8")
 
 
-def _load_postgres_bootstrap_environment(path: Path) -> dict[str, str]:
+def load_postgres_bootstrap_environment(path: Path) -> dict[str, str]:
     """Open once, verify the fd, and load exact assignments without a shell."""
 
     candidate = Path(path)
@@ -150,7 +150,7 @@ def execute_formal_postgres_bootstrap(
     )
     if environment_keys != POSTGRES_BOOTSTRAP_ENVIRONMENT_KEYS:
         raise RuntimeError("formal_escalation_postgres_argv_environment_drift")
-    loaded = _load_postgres_bootstrap_environment(Path(environment_path))
+    loaded = load_postgres_bootstrap_environment(Path(environment_path))
     environment = dict(base_environment if base_environment is not None else os.environ)
     environment.update(loaded)
     completed = run(

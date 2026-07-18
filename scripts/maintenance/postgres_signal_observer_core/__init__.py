@@ -18,6 +18,12 @@ from .drill_bootstrap import (
     POSTGRES_DATA_TMPFS,
     DisposableDrillBootstrapConfig,
 )
+from .drill_admin_url import (
+    DisposableDrillObserverEnvironment,
+    PGBOUNCER_ADMIN_ENVIRONMENT_KEY,
+    serialize_disposable_pgbouncer_config,
+    serialize_disposable_pgbouncer_userlist,
+)
 from .drill_escalation import (
     FORMAL_DOCKER_OPERATION_CLASSES,
     POSTGRES_BOOTSTRAP_ENVIRONMENT_KEYS,
@@ -62,6 +68,7 @@ __all__ = [
     "DisposableDrillImageContract",
     "DisposableDrillSignalConfig",
     "DisposableDrillObserverConfig",
+    "DisposableDrillObserverEnvironment",
     "DISPOSABLE_DRILL_NAME_PATTERN",
     "DRILL_SUFFIX_PATTERN",
     "ObserverConfig",
@@ -69,6 +76,7 @@ __all__ = [
     "ObserverEvidenceStore",
     "PgBouncerCorrelationClient",
     "PGBOUNCER_DECLARED_VOLUME_TMPFS",
+    "PGBOUNCER_ADMIN_ENVIRONMENT_KEY",
     "POSTGRES_DATA_TMPFS",
     "POSTGRES_DRILL_IMAGE_ROLE",
     "POSTGRES_BACKEND_PID_MAX",
@@ -91,6 +99,8 @@ __all__ = [
     "normalize_disposable_drill_suffix",
     "read_namespace_pids",
     "serialize_postgres_bootstrap_environment",
+    "serialize_disposable_pgbouncer_config",
+    "serialize_disposable_pgbouncer_userlist",
     "validate_formal_exec_result",
     "validate_disposable_drill_name",
     "validate_drill_image_ref",
