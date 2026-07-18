@@ -170,7 +170,7 @@ def test_launcher_injects_url_only_in_child_environment_and_receipt_is_redacted(
 
     def run(argv, **kwargs):
         calls.append((list(argv), kwargs))
-        if argv[:3] == ["docker", "run", "-d"]:
+        if argv[1:3] == ["run", "-d"]:
             return SimpleNamespace(returncode=125, stdout=b"", stderr=b"")
         return SimpleNamespace(returncode=0, stdout=b"", stderr=b"")
 

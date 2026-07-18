@@ -26,6 +26,7 @@ from scripts.maintenance.postgres_signal_observer_core import (  # noqa: E402
     DisposableDrillObserverConfig,
     DisposableDrillObserverEnvironment,
     DisposableDrillSignalConfig,
+    FormalExecutorDockerRuntimeContract,
     FormalExecutorPythonRuntimeContract,
     OBSERVER_BACKEND_IMAGE_ROLE,
     POSTGRES_DRILL_IMAGE_ROLE,
@@ -56,6 +57,7 @@ def _parser() -> argparse.ArgumentParser:
     mode.add_argument("--validate-formal-exec-result", type=Path)
     mode.add_argument("--print-signal-spec", action="store_true")
     mode.add_argument("--send-synthetic-signal", action="store_true")
+    mode.add_argument("--print-formal-runtime-spec", action="store_true")
     parser.add_argument("--journal-root", type=Path)
     parser.add_argument("--drill-suffix")
     parser.add_argument("--temp-root", type=Path)
@@ -81,6 +83,7 @@ def _with_image_contract(
     payload: dict[str, object],
     *,
     image_contract: DisposableDrillImageContract,
+    docker_runtime_contract: FormalExecutorDockerRuntimeContract,
     runtime_contract: FormalExecutorPythonRuntimeContract,
     selected_role: str,
 ) -> dict[str, object]:
@@ -88,6 +91,7 @@ def _with_image_contract(
 
     return {
         **payload,
+        "formal_executor_docker_runtime": docker_runtime_contract.redacted_spec(),
         "formal_executor_python_runtime": runtime_contract.redacted_spec(),
         "selected_image_role": selected_role,
         "image_contract": image_contract.redacted_spec(),
@@ -189,7 +193,28 @@ def main(argv: list[str] | None = None) -> int:
         runtime_contract.validate()
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
+    docker_runtime_contract = FormalExecutorDockerRuntimeContract()
+    try:
+        docker_runtime_contract.validate()
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
     artifact_sha256 = canonical_observer_artifact_sha256(REPO_ROOT)
+    if args.print_formal_runtime_spec:
+        payload = _with_image_contract(
+            {
+                "artifact_sha256": artifact_sha256,
+                "validation_passed": True,
+                "first_failure": None,
+                "mutation_permit": False,
+                "runtime_mutation": False,
+            },
+            image_contract=image_contract,
+            docker_runtime_contract=docker_runtime_contract,
+            runtime_contract=runtime_contract,
+            selected_role="formal_executor_runtime",
+        )
+        print(json.dumps(payload, sort_keys=True))
+        return 0
     if args.validate_formal_exec_result:
         result_path = Path(args.validate_formal_exec_result)
         if result_path.is_symlink() or not result_path.is_file():
@@ -210,6 +235,7 @@ def main(argv: list[str] | None = None) -> int:
         payload = _with_image_contract(
             payload,
             image_contract=image_contract,
+            docker_runtime_contract=docker_runtime_contract,
             runtime_contract=runtime_contract,
             selected_role=POSTGRES_DRILL_IMAGE_ROLE,
         )
@@ -236,6 +262,7 @@ def main(argv: list[str] | None = None) -> int:
             payload = _with_image_contract(
                 payload,
                 image_contract=image_contract,
+                docker_runtime_contract=docker_runtime_contract,
                 runtime_contract=runtime_contract,
                 selected_role=POSTGRES_DRILL_IMAGE_ROLE,
             )
@@ -280,6 +307,7 @@ def main(argv: list[str] | None = None) -> int:
                         "shell": False,
                     },
                     image_contract=image_contract,
+                    docker_runtime_contract=docker_runtime_contract,
                     runtime_contract=runtime_contract,
                     selected_role=POSTGRES_DRILL_IMAGE_ROLE,
                 )
@@ -306,6 +334,7 @@ def main(argv: list[str] | None = None) -> int:
         payload = _with_image_contract(
             payload,
             image_contract=image_contract,
+            docker_runtime_contract=docker_runtime_contract,
             runtime_contract=runtime_contract,
             selected_role=POSTGRES_DRILL_IMAGE_ROLE,
         )
@@ -327,6 +356,7 @@ def main(argv: list[str] | None = None) -> int:
             payload = _with_image_contract(
                 payload,
                 image_contract=image_contract,
+                docker_runtime_contract=docker_runtime_contract,
                 runtime_contract=runtime_contract,
                 selected_role=POSTGRES_DRILL_IMAGE_ROLE,
             )
@@ -351,6 +381,7 @@ def main(argv: list[str] | None = None) -> int:
         receipt = _with_image_contract(
             receipt,
             image_contract=image_contract,
+            docker_runtime_contract=docker_runtime_contract,
             runtime_contract=runtime_contract,
             selected_role=POSTGRES_DRILL_IMAGE_ROLE,
         )
@@ -377,6 +408,7 @@ def main(argv: list[str] | None = None) -> int:
             payload = _with_image_contract(
                 observer_config.redacted_spec(),
                 image_contract=image_contract,
+                docker_runtime_contract=docker_runtime_contract,
                 runtime_contract=runtime_contract,
                 selected_role=OBSERVER_BACKEND_IMAGE_ROLE,
             )
@@ -412,6 +444,7 @@ def main(argv: list[str] | None = None) -> int:
         receipt = _with_image_contract(
             receipt,
             image_contract=image_contract,
+            docker_runtime_contract=docker_runtime_contract,
             runtime_contract=runtime_contract,
             selected_role=OBSERVER_BACKEND_IMAGE_ROLE,
         )
@@ -433,6 +466,7 @@ def main(argv: list[str] | None = None) -> int:
         payload = _with_image_contract(
             config.redacted_spec(),
             image_contract=image_contract,
+            docker_runtime_contract=docker_runtime_contract,
             runtime_contract=runtime_contract,
             selected_role=POSTGRES_DRILL_IMAGE_ROLE,
         )
@@ -454,6 +488,7 @@ def main(argv: list[str] | None = None) -> int:
     receipt = _with_image_contract(
         receipt,
         image_contract=image_contract,
+        docker_runtime_contract=docker_runtime_contract,
         runtime_contract=runtime_contract,
         selected_role=POSTGRES_DRILL_IMAGE_ROLE,
     )

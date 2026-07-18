@@ -47,7 +47,7 @@ def test_signal_sender_uses_one_exact_postgres_16_pg_ctl_argv(
     argv = signal_config.docker_argv()
 
     assert argv == (
-        "docker",
+        "/usr/local/bin/docker",
         "exec",
         canonical_disposable_drill_name("postgres", DRILL_SUFFIX),
         "/usr/lib/postgresql/16/bin/pg_ctl",

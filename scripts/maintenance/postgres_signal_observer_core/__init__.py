@@ -31,6 +31,13 @@ from .drill_escalation import (
     serialize_postgres_bootstrap_environment,
     validate_formal_exec_result,
 )
+from .drill_docker_runtime import (
+    CANONICAL_DOCKER_CLI_ENTRY_PATH,
+    CANONICAL_DOCKER_CLI_TARGET_PATH,
+    FormalExecutorDockerRuntimeContract,
+    canonical_docker_argv,
+    validate_canonical_docker_argv,
+)
 from .drill_images import (
     OBSERVER_BACKEND_IMAGE_ROLE,
     POSTGRES_DRILL_IMAGE_ROLE,
@@ -60,6 +67,7 @@ __all__ = [
     "EvidenceBudget",
     "EvidenceCapacityExhausted",
     "FORMAL_DOCKER_OPERATION_CLASSES",
+    "FormalExecutorDockerRuntimeContract",
     "FormalExecutorPythonRuntimeContract",
     "POSTGRES_BOOTSTRAP_ENVIRONMENT_KEYS",
     "DRILL_APPLICATION_NAME",
@@ -84,11 +92,14 @@ __all__ = [
     "POSTGRES_SIGNAL_OUTPUT_BUDGET_BYTES",
     "POSTGRES_SIGNAL_SENDER_EXECUTABLE",
     "POSTGRES_SIGNAL_TERMINAL_DEADLINE_SECONDS",
+    "CANONICAL_DOCKER_CLI_ENTRY_PATH",
+    "CANONICAL_DOCKER_CLI_TARGET_PATH",
     "PostgresSignalObserver",
     "SIGNAL_FILTER",
     "SignalGenerateEvent",
     "TraceFsInstance",
     "canonical_observer_artifact_sha256",
+    "canonical_docker_argv",
     "canonical_disposable_drill_name",
     "drill_image_digest",
     "execute_formal_postgres_bootstrap",
@@ -102,6 +113,7 @@ __all__ = [
     "serialize_disposable_pgbouncer_config",
     "serialize_disposable_pgbouncer_userlist",
     "validate_formal_exec_result",
+    "validate_canonical_docker_argv",
     "validate_disposable_drill_name",
     "validate_drill_image_ref",
 ]

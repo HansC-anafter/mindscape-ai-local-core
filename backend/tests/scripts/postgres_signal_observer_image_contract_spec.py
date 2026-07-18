@@ -320,7 +320,7 @@ def test_observer_failure_receipt_keeps_observer_role_spec(tmp_path: Path) -> No
     )
 
     def fake_run(argv, **_kwargs):
-        if argv[:3] == ["docker", "run", "-d"]:
+        if argv[1:3] == ["run", "-d"]:
             return SimpleNamespace(returncode=127, stdout=b"opaque", stderr=b"hidden")
         return SimpleNamespace(returncode=0, stdout=b"", stderr=b"")
 

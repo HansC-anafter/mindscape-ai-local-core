@@ -1107,7 +1107,7 @@ def test_observer_launcher_terminal_deadline_is_independent_and_fail_closed(
 
     def fake_run(argv, **kwargs):
         calls.append((argv, kwargs))
-        if argv[:3] == ["docker", "run", "-d"]:
+        if argv[1:3] == ["run", "-d"]:
             raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
@@ -1135,9 +1135,9 @@ def test_observer_launcher_terminal_deadline_is_independent_and_fail_closed(
     assert receipt["spec"]["startup_deadline_seconds"] == 10.0
     assert "docker_terminal_result" not in receipt
     assert [call[0][:2] for call in calls] == [
-        ["docker", "run"],
-        ["docker", "stop"],
-        ["docker", "rm"],
+        ["/usr/local/bin/docker", "run"],
+        ["/usr/local/bin/docker", "stop"],
+        ["/usr/local/bin/docker", "rm"],
     ]
     assert all("client" not in "\0".join(call[0]) for call in calls)
     assert "postgresql://fixture-only" not in serialized
@@ -1169,7 +1169,7 @@ def test_observer_launcher_preserves_oserror_and_nonzero_failure_classes(
 
     def fake_run(argv, **kwargs):
         calls.append((argv, kwargs))
-        if argv[:3] == ["docker", "run", "-d"]:
+        if argv[1:3] == ["run", "-d"]:
             if isinstance(launch_result, BaseException):
                 raise launch_result
             return launch_result
@@ -1213,9 +1213,9 @@ def test_observer_launcher_preserves_oserror_and_nonzero_failure_classes(
     assert calls[0][1]["timeout"] == 60.0
     assert calls[0][1]["text"] is False
     assert [call[0][:2] for call in calls] == [
-        ["docker", "run"],
-        ["docker", "stop"],
-        ["docker", "rm"],
+        ["/usr/local/bin/docker", "run"],
+        ["/usr/local/bin/docker", "stop"],
+        ["/usr/local/bin/docker", "rm"],
     ]
 
 
@@ -1223,7 +1223,7 @@ def test_observer_launcher_hashes_empty_terminal_nonzero_captures(
     observer_config: DisposableDrillObserverConfig,
 ) -> None:
     def fake_run(argv, **kwargs):
-        if argv[:3] == ["docker", "run", "-d"]:
+        if argv[1:3] == ["run", "-d"]:
             return SimpleNamespace(returncode=125, stdout=b"", stderr=b"")
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
@@ -1256,7 +1256,7 @@ def test_observer_launcher_hashes_non_utf8_terminal_nonzero_captures(
     stderr = b"\x80\xfefailure-detail"
 
     def fake_run(argv, **kwargs):
-        if argv[:3] == ["docker", "run", "-d"]:
+        if argv[1:3] == ["run", "-d"]:
             return SimpleNamespace(returncode=125, stdout=stdout, stderr=stderr)
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
@@ -1347,7 +1347,7 @@ def test_observer_launcher_cleans_up_at_existing_ten_second_deadline(
 
     def fake_run(argv, **kwargs):
         calls.append((argv, kwargs))
-        stdout = b"e" * 64 if argv[:3] == ["docker", "run", "-d"] else ""
+        stdout = b"e" * 64 if argv[1:3] == ["run", "-d"] else ""
         return SimpleNamespace(returncode=0, stdout=stdout, stderr="")
 
     def read_health():
@@ -1382,9 +1382,9 @@ def test_observer_launcher_cleans_up_at_existing_ten_second_deadline(
         "remove_succeeded": True,
     }
     assert [call[0][:2] for call in calls] == [
-        ["docker", "run"],
-        ["docker", "stop"],
-        ["docker", "rm"],
+        ["/usr/local/bin/docker", "run"],
+        ["/usr/local/bin/docker", "stop"],
+        ["/usr/local/bin/docker", "rm"],
     ]
     assert calls[2][0][2] == "--force"
 
@@ -1396,7 +1396,7 @@ def test_observer_launcher_rejects_ready_journal_with_wrong_identity(
 
     def fake_run(argv, **kwargs):
         calls.append((argv, kwargs))
-        stdout = b"f" * 64 if argv[:3] == ["docker", "run", "-d"] else ""
+        stdout = b"f" * 64 if argv[1:3] == ["run", "-d"] else ""
         return SimpleNamespace(returncode=0, stdout=stdout, stderr="")
 
     receipt = launch_disposable_drill_observer(
@@ -1431,7 +1431,7 @@ def test_observer_launcher_rejects_fail_closed_health_without_waiting(
 
     def fake_run(argv, **kwargs):
         calls.append((argv, kwargs))
-        stdout = b"a" * 64 if argv[:3] == ["docker", "run", "-d"] else ""
+        stdout = b"a" * 64 if argv[1:3] == ["run", "-d"] else ""
         return SimpleNamespace(returncode=0, stdout=stdout, stderr="")
 
     receipt = launch_disposable_drill_observer(
@@ -1458,9 +1458,9 @@ def test_observer_launcher_rejects_fail_closed_health_without_waiting(
     assert receipt["cleanup"]["remove_succeeded"] is True
     assert sleeps == []
     assert [call[0][:2] for call in calls] == [
-        ["docker", "run"],
-        ["docker", "stop"],
-        ["docker", "rm"],
+        ["/usr/local/bin/docker", "run"],
+        ["/usr/local/bin/docker", "stop"],
+        ["/usr/local/bin/docker", "rm"],
     ]
 
 
@@ -1468,7 +1468,7 @@ def test_observer_launcher_rejects_regex_valid_but_unallowlisted_detail_code(
     observer_config: DisposableDrillObserverConfig,
 ) -> None:
     def fake_run(argv, **kwargs):
-        stdout = b"c" * 64 if argv[:3] == ["docker", "run", "-d"] else ""
+        stdout = b"c" * 64 if argv[1:3] == ["run", "-d"] else ""
         return SimpleNamespace(returncode=0, stdout=stdout, stderr="")
 
     receipt = launch_disposable_drill_observer(

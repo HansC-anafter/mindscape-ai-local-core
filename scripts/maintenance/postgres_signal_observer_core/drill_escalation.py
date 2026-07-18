@@ -10,6 +10,11 @@ import subprocess
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
+from .drill_docker_runtime import (
+    CANONICAL_DOCKER_CLI_ENTRY_PATH,
+    validate_canonical_docker_argv,
+)
+
 
 FORMAL_DOCKER_OPERATION_CLASSES = frozenset(
     {
@@ -140,8 +145,15 @@ def execute_formal_postgres_bootstrap(
 ) -> int:
     """Atomically load the 0600 precondition into one shell-free child env."""
 
-    exact_argv = tuple(str(value) for value in argv)
-    if not exact_argv or exact_argv[:3] != ("docker", "run", "-d"):
+    try:
+        exact_argv = validate_canonical_docker_argv(argv)
+    except ValueError as exc:
+        raise RuntimeError("formal_escalation_postgres_argv_invalid") from exc
+    if exact_argv[:3] != (
+        str(CANONICAL_DOCKER_CLI_ENTRY_PATH),
+        "run",
+        "-d",
+    ):
         raise RuntimeError("formal_escalation_postgres_argv_invalid")
     environment_keys = tuple(
         exact_argv[index + 1]

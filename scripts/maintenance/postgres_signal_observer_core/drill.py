@@ -18,6 +18,7 @@ from .drill_images import (
     drill_image_digest,
     validate_drill_image_ref,
 )
+from .drill_docker_runtime import canonical_docker_argv
 
 
 DRILL_APPLICATION_NAME = "postgres-signal-observer-drill-client"
@@ -79,8 +80,7 @@ class DisposableDrillClientConfig:
         """Return argv only; no shell and no credential value is accepted."""
 
         self.validate()
-        return (
-            "docker",
+        return canonical_docker_argv(
             "run",
             "-d",
             "--name",
@@ -214,8 +214,7 @@ class DisposableDrillSignalConfig:
         """Return one shell-free pg_ctl kill command for the target backend."""
 
         self.validate()
-        return (
-            "docker",
+        return canonical_docker_argv(
             "exec",
             self.container_name,
             POSTGRES_SIGNAL_SENDER_EXECUTABLE,

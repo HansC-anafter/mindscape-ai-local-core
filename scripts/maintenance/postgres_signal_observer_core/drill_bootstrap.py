@@ -17,6 +17,7 @@ from .drill_images import (
     drill_image_digest,
     validate_drill_image_ref,
 )
+from .drill_docker_runtime import canonical_docker_argv
 
 
 POSTGRES_DATA_TMPFS = "/var/lib/postgresql/data:rw,nosuid,size=192m"
@@ -103,8 +104,7 @@ class DisposableDrillBootstrapConfig:
 
     def postgres_docker_argv(self) -> tuple[str, ...]:
         self.validate()
-        return (
-            "docker",
+        return canonical_docker_argv(
             "run",
             "-d",
             "--name",
@@ -141,8 +141,7 @@ class DisposableDrillBootstrapConfig:
         """Neutralize the image VOLUME with one bounded unused tmpfs."""
 
         self.validate()
-        return (
-            "docker",
+        return canonical_docker_argv(
             "run",
             "-d",
             "--name",
@@ -178,9 +177,42 @@ class DisposableDrillBootstrapConfig:
             "/etc/pgbouncer/pgbouncer.ini",
         )
 
+    def lifecycle_docker_argv(self) -> dict[str, tuple[str, ...]]:
+        """Return every source-owned network and container lifecycle argv."""
+
+        self.validate()
+        operations = {
+            "network_create": canonical_docker_argv(
+                "network", "create", self.network_name
+            ),
+            "network_inspect": canonical_docker_argv(
+                "network", "inspect", self.network_name
+            ),
+            "network_remove": canonical_docker_argv(
+                "network", "rm", self.network_name
+            ),
+        }
+        for role, container_name in {
+            "postgres": self.postgres_container_name,
+            "pgbouncer": self.pgbouncer_container_name,
+            "observer": self.observer_container_name,
+            "client": self.client_container_name,
+        }.items():
+            operations[f"{role}_inspect"] = canonical_docker_argv(
+                "inspect", container_name
+            )
+            operations[f"{role}_stop"] = canonical_docker_argv(
+                "stop", "--time", "5", container_name
+            )
+            operations[f"{role}_remove"] = canonical_docker_argv(
+                "rm", "--force", container_name
+            )
+        return operations
+
     def redacted_spec(self) -> dict[str, Any]:
         postgres_argv = self.postgres_docker_argv()
         pgbouncer_argv = self.pgbouncer_docker_argv()
+        lifecycle_argv = self.lifecycle_docker_argv()
         return {
             "network_name": self.network_name,
             "postgres_container_name": self.postgres_container_name,
@@ -194,6 +226,14 @@ class DisposableDrillBootstrapConfig:
             "postgres_argv_sha256": _argv_sha256(postgres_argv),
             "pgbouncer_argv": list(pgbouncer_argv),
             "pgbouncer_argv_sha256": _argv_sha256(pgbouncer_argv),
+            "lifecycle_argv": {
+                operation: list(argv)
+                for operation, argv in sorted(lifecycle_argv.items())
+            },
+            "lifecycle_argv_sha256": {
+                operation: _argv_sha256(argv)
+                for operation, argv in sorted(lifecycle_argv.items())
+            },
             "postgres_secret_environment_keys": [
                 "POSTGRES_USER",
                 "POSTGRES_PASSWORD",

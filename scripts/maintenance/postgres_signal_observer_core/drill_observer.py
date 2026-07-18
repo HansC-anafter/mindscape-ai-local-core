@@ -22,6 +22,7 @@ from .drill_images import (
     drill_image_digest,
     validate_drill_image_ref,
 )
+from .drill_docker_runtime import canonical_docker_argv
 from .service import canonical_observer_failure_detail_code
 from .tracefs import INSTANCE_NAME, SIGNAL_FILTER
 
@@ -102,8 +103,7 @@ class DisposableDrillObserverConfig:
         backend_root = (self.repo_root / "backend").resolve()
         scripts_root = (self.repo_root / "scripts").resolve()
         journal_root = self.journal_host_root.resolve()
-        return (
-            "docker",
+        return canonical_docker_argv(
             "run",
             "-d",
             "--name",
@@ -213,7 +213,7 @@ def _cleanup_disposable_observer(
 ) -> dict[str, bool]:
     try:
         stopped = run(
-            ["docker", "stop", "--time", "5", container_name],
+            list(canonical_docker_argv("stop", "--time", "5", container_name)),
             check=False,
             capture_output=True,
             text=True,
@@ -226,7 +226,7 @@ def _cleanup_disposable_observer(
         stop_succeeded = False
     try:
         removed = run(
-            ["docker", "rm", "--force", container_name],
+            list(canonical_docker_argv("rm", "--force", container_name)),
             check=False,
             capture_output=True,
             text=True,
