@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Callable, Mapping
 
 from .evidence import EvidenceBudget, ObserverEvidenceStore
+from .drill_escalation import terminal_nonzero_capture_metadata
 from .drill_names import validate_disposable_drill_name
 from .service import canonical_observer_failure_detail_code
 from .tracefs import INSTANCE_NAME, SIGNAL_FILTER
@@ -247,9 +248,10 @@ def _failure_receipt(
     health_state: str,
     cleanup: Mapping[str, bool],
     health_failure_detail_code: str | None = None,
+    docker_terminal_result: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     container_started = container_id is not None
-    return {
+    receipt = {
         # Compatibility: `launched` means the canonical ready/health gate
         # passed. `container_started` separately records a terminal Docker
         # start that subsequently entered the fail-closed cleanup path.
@@ -264,6 +266,9 @@ def _failure_receipt(
         "cleanup": dict(cleanup),
         "spec": config.redacted_spec(),
     }
+    if docker_terminal_result is not None:
+        receipt["docker_terminal_result"] = dict(docker_terminal_result)
+    return receipt
 
 
 def launch_disposable_drill_observer(
@@ -288,7 +293,7 @@ def launch_disposable_drill_observer(
             list(config.docker_argv()),
             check=False,
             capture_output=True,
-            text=True,
+            text=False,
             timeout=OBSERVER_DOCKER_TERMINAL_DEADLINE_SECONDS,
             shell=False,
             env=inherited,
@@ -312,6 +317,11 @@ def launch_disposable_drill_observer(
             cleanup=cleanup,
         )
     if completed.returncode != 0:
+        docker_terminal_result = terminal_nonzero_capture_metadata(
+            getattr(completed, "stdout", None),
+            getattr(completed, "stderr", None),
+            exit_code=completed.returncode,
+        )
         cleanup = _cleanup_disposable_observer(
             config.container_name, run=run, environment=inherited
         )
@@ -322,8 +332,17 @@ def launch_disposable_drill_observer(
             health_journal_observed=False,
             health_state="health_unavailable",
             cleanup=cleanup,
+            docker_terminal_result=docker_terminal_result,
         )
-    container_id = str(completed.stdout or "").strip()
+    raw_container_id = getattr(completed, "stdout", None)
+    try:
+        container_id = (
+            raw_container_id.strip().decode("ascii")
+            if isinstance(raw_container_id, bytes)
+            else ""
+        )
+    except UnicodeDecodeError:
+        container_id = ""
     if not re.fullmatch(r"[0-9a-f]{12,64}", container_id):
         cleanup = _cleanup_disposable_observer(
             config.container_name, run=run, environment=inherited

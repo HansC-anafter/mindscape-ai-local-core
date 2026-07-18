@@ -230,3 +230,38 @@ def validate_formal_exec_result(
         }
     )
     return receipt
+
+
+def terminal_nonzero_capture_metadata(
+    stdout: object,
+    stderr: object,
+    *,
+    exit_code: int,
+) -> dict[str, Any]:
+    """Hash full raw binary captures from one terminal nonzero result."""
+
+    if type(exit_code) is not int or exit_code == 0:
+        raise ValueError("formal_escalation_terminal_nonzero_exit_code_invalid")
+
+    def as_bytes(value: object) -> bytes:
+        if value is None:
+            return b""
+        if isinstance(value, bytes):
+            return value
+        raise ValueError("formal_escalation_terminal_capture_type_invalid")
+
+    stdout_bytes = as_bytes(stdout)
+    stderr_bytes = as_bytes(stderr)
+    return {
+        "terminal": True,
+        "exit_code": exit_code,
+        "stdout_present": bool(stdout_bytes),
+        "stdout_bytes": len(stdout_bytes),
+        "stdout_sha256": hashlib.sha256(stdout_bytes).hexdigest(),
+        "stderr_present": bool(stderr_bytes),
+        "stderr_bytes": len(stderr_bytes),
+        "stderr_sha256": hashlib.sha256(stderr_bytes).hexdigest(),
+        "captures_truncated": False,
+        "hash_input": "full_raw_subprocess_capture_bytes",
+        "output_disclosed": False,
+    }

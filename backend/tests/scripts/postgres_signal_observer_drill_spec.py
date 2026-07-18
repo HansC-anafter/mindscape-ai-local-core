@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -1096,6 +1097,7 @@ def test_observer_launcher_terminal_deadline_is_independent_and_fail_closed(
     assert calls[0][1]["timeout"] == OBSERVER_DOCKER_TERMINAL_DEADLINE_SECONDS
     assert calls[0][1]["timeout"] == 60.0
     assert receipt["spec"]["startup_deadline_seconds"] == 10.0
+    assert "docker_terminal_result" not in receipt
     assert [call[0][:2] for call in calls] == [
         ["docker", "run"],
         ["docker", "stop"],
@@ -1113,7 +1115,11 @@ def test_observer_launcher_terminal_deadline_is_independent_and_fail_closed(
             "disposable_drill_observer_launch_unavailable",
         ),
         (
-            SimpleNamespace(returncode=125, stdout="", stderr="fixture"),
+            SimpleNamespace(
+                returncode=125,
+                stdout=b"opaque-stdout-fixture",
+                stderr=b"opaque-stderr-fixture",
+            ),
             "disposable_drill_observer_launch_failed",
         ),
     ],
@@ -1144,12 +1150,96 @@ def test_observer_launcher_preserves_oserror_and_nonzero_failure_classes(
     assert receipt["container_started"] is False
     assert receipt["launched"] is False
     assert receipt["ready"] is False
+    if isinstance(launch_result, OSError):
+        assert "docker_terminal_result" not in receipt
+    else:
+        terminal_result = receipt["docker_terminal_result"]
+        assert terminal_result["terminal"] is True
+        assert terminal_result["exit_code"] == 125
+        assert terminal_result["stdout_present"] is True
+        assert terminal_result["stdout_bytes"] == len(b"opaque-stdout-fixture")
+        assert (
+            terminal_result["stdout_sha256"]
+            == hashlib.sha256(b"opaque-stdout-fixture").hexdigest()
+        )
+        assert terminal_result["stderr_present"] is True
+        assert terminal_result["stderr_bytes"] == len(b"opaque-stderr-fixture")
+        assert (
+            terminal_result["stderr_sha256"]
+            == hashlib.sha256(b"opaque-stderr-fixture").hexdigest()
+        )
+        assert terminal_result["captures_truncated"] is False
+        assert terminal_result["hash_input"] == "full_raw_subprocess_capture_bytes"
+        serialized = json.dumps(receipt, sort_keys=True)
+        assert "opaque-stdout-fixture" not in serialized
+        assert "opaque-stderr-fixture" not in serialized
+        assert terminal_result["output_disclosed"] is False
     assert calls[0][1]["timeout"] == 60.0
+    assert calls[0][1]["text"] is False
     assert [call[0][:2] for call in calls] == [
         ["docker", "run"],
         ["docker", "stop"],
         ["docker", "rm"],
     ]
+
+
+def test_observer_launcher_hashes_empty_terminal_nonzero_captures(
+    observer_config: DisposableDrillObserverConfig,
+) -> None:
+    def fake_run(argv, **kwargs):
+        if argv[:3] == ["docker", "run", "-d"]:
+            return SimpleNamespace(returncode=125, stdout=b"", stderr=b"")
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    receipt = launch_disposable_drill_observer(
+        observer_config,
+        environment={"PGBOUNCER_ADMIN_URL": "postgresql://fixture-only"},
+        run=fake_run,
+    )
+
+    assert receipt["first_failure"] == "disposable_drill_observer_launch_failed"
+    assert receipt["docker_terminal_result"] == {
+        "terminal": True,
+        "exit_code": 125,
+        "stdout_present": False,
+        "stdout_bytes": 0,
+        "stdout_sha256": hashlib.sha256(b"").hexdigest(),
+        "stderr_present": False,
+        "stderr_bytes": 0,
+        "stderr_sha256": hashlib.sha256(b"").hexdigest(),
+        "captures_truncated": False,
+        "hash_input": "full_raw_subprocess_capture_bytes",
+        "output_disclosed": False,
+    }
+
+
+def test_observer_launcher_hashes_non_utf8_terminal_nonzero_captures(
+    observer_config: DisposableDrillObserverConfig,
+) -> None:
+    stdout = b"\xff\x00sensitive-binary"
+    stderr = b"\x80\xfefailure-detail"
+
+    def fake_run(argv, **kwargs):
+        if argv[:3] == ["docker", "run", "-d"]:
+            return SimpleNamespace(returncode=125, stdout=stdout, stderr=stderr)
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    receipt = launch_disposable_drill_observer(
+        observer_config,
+        environment={"PGBOUNCER_ADMIN_URL": "postgresql://fixture-only"},
+        run=fake_run,
+    )
+    terminal_result = receipt["docker_terminal_result"]
+
+    assert receipt["first_failure"] == "disposable_drill_observer_launch_failed"
+    assert terminal_result["stdout_bytes"] == len(stdout)
+    assert terminal_result["stdout_sha256"] == hashlib.sha256(stdout).hexdigest()
+    assert terminal_result["stderr_bytes"] == len(stderr)
+    assert terminal_result["stderr_sha256"] == hashlib.sha256(stderr).hexdigest()
+    assert terminal_result["captures_truncated"] is False
+    assert terminal_result["hash_input"] == "full_raw_subprocess_capture_bytes"
+    assert "sensitive-binary" not in json.dumps(receipt, sort_keys=True)
+    assert "failure-detail" not in json.dumps(receipt, sort_keys=True)
 
 
 def test_observer_launcher_accepts_ready_on_final_deadline_boundary_read(
@@ -1176,7 +1266,7 @@ def test_observer_launcher_accepts_ready_on_final_deadline_boundary_read(
 
     def fake_run(argv, **kwargs):
         calls.append((argv, kwargs))
-        return SimpleNamespace(returncode=0, stdout="d" * 64, stderr="")
+        return SimpleNamespace(returncode=0, stdout=b"d" * 64, stderr=b"")
 
     def read_health():
         health_reads.append(True)
@@ -1200,11 +1290,14 @@ def test_observer_launcher_accepts_ready_on_final_deadline_boundary_read(
     assert receipt["launched"] is True
     assert receipt["container_started"] is True
     assert receipt["ready"] is True
+    assert receipt["container_id"] == "d" * 64
+    assert "docker_terminal_result" not in receipt
     assert receipt["health_journal_observed"] is True
     assert len(health_reads) == 2
     assert sleeps == [OBSERVER_HEALTH_POLL_SECONDS]
     assert len(calls) == 1
     assert calls[0][1]["shell"] is False
+    assert calls[0][1]["text"] is False
     assert "postgresql://fixture-only" not in "\0".join(calls[0][0])
     assert "postgresql://fixture-only" not in serialized
 
@@ -1218,7 +1311,7 @@ def test_observer_launcher_cleans_up_at_existing_ten_second_deadline(
 
     def fake_run(argv, **kwargs):
         calls.append((argv, kwargs))
-        stdout = "e" * 64 if argv[:3] == ["docker", "run", "-d"] else ""
+        stdout = b"e" * 64 if argv[:3] == ["docker", "run", "-d"] else ""
         return SimpleNamespace(returncode=0, stdout=stdout, stderr="")
 
     def read_health():
@@ -1267,7 +1360,7 @@ def test_observer_launcher_rejects_ready_journal_with_wrong_identity(
 
     def fake_run(argv, **kwargs):
         calls.append((argv, kwargs))
-        stdout = "f" * 64 if argv[:3] == ["docker", "run", "-d"] else ""
+        stdout = b"f" * 64 if argv[:3] == ["docker", "run", "-d"] else ""
         return SimpleNamespace(returncode=0, stdout=stdout, stderr="")
 
     receipt = launch_disposable_drill_observer(
@@ -1302,7 +1395,7 @@ def test_observer_launcher_rejects_fail_closed_health_without_waiting(
 
     def fake_run(argv, **kwargs):
         calls.append((argv, kwargs))
-        stdout = "a" * 64 if argv[:3] == ["docker", "run", "-d"] else ""
+        stdout = b"a" * 64 if argv[:3] == ["docker", "run", "-d"] else ""
         return SimpleNamespace(returncode=0, stdout=stdout, stderr="")
 
     receipt = launch_disposable_drill_observer(
@@ -1339,7 +1432,7 @@ def test_observer_launcher_rejects_regex_valid_but_unallowlisted_detail_code(
     observer_config: DisposableDrillObserverConfig,
 ) -> None:
     def fake_run(argv, **kwargs):
-        stdout = "c" * 64 if argv[:3] == ["docker", "run", "-d"] else ""
+        stdout = b"c" * 64 if argv[:3] == ["docker", "run", "-d"] else ""
         return SimpleNamespace(returncode=0, stdout=stdout, stderr="")
 
     receipt = launch_disposable_drill_observer(
