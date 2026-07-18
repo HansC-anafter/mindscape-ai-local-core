@@ -24,14 +24,14 @@ _MOUNTS_TEMPLATE = (
 )
 
 _PROJECTION_TOKENS = {
-    "{{json .Id}}": "container_id",
+    "{{json .ID}}": "container_id",
     "{{json .Name}}": "name",
     "{{json .Config.Image}}": "config_image",
     "{{json .Image}}": "image_id",
     "{{json .Config.User}}": "user",
     "{{json .Config.Entrypoint}}": "entrypoint",
     "{{json .Config.Cmd}}": "cmd",
-    "{{json .HostConfig.NanoCpus}}": "nano_cpus",
+    "{{json .HostConfig.NanoCPUs}}": "nano_cpus",
     "{{json .HostConfig.Memory}}": "memory_bytes",
     "{{json .HostConfig.PidsLimit}}": "pids_limit",
     "{{json .HostConfig.ReadonlyRootfs}}": "read_only_rootfs",
@@ -52,6 +52,22 @@ _PROJECTION_TOKENS = {
     "{{json .State.Dead}}": "dead",
     "{{json .State.OOMKilled}}": "oom_killed",
 }
+
+_TYPED_FIELD_TOKENS = (
+    "{{json .ID}}",
+    "{{json .HostConfig.NanoCPUs}}",
+)
+_JSON_TAG_FIELD_TOKENS = (
+    "{{json .Id}}",
+    "{{json .HostConfig.NanoCpus}}",
+)
+
+
+def _assert_typed_field_contract(projection: str) -> None:
+    for token in _TYPED_FIELD_TOKENS:
+        assert token in projection
+    for token in _JSON_TAG_FIELD_TOKENS:
+        assert token not in projection
 
 
 def _fixture(role: str, attached_network_name: str | None) -> dict[str, object]:
@@ -145,6 +161,7 @@ def test_production_projection_argv_and_parser_parity(
     assert "{{json .Config}}" not in projection
     assert "{{json .State}}" not in projection
     assert SENTINEL_SECRET not in projection
+    _assert_typed_field_contract(projection)
 
     fixture = _fixture(role, attached_network_name)
     rendered = _render_production_template(
@@ -156,3 +173,21 @@ def test_production_projection_argv_and_parser_parity(
     assert b"{{" not in rendered
     assert parse_container_readback_projection(rendered) == fixture
 
+
+@pytest.mark.parametrize(
+    ("typed_token", "json_tag_token"),
+    zip(_TYPED_FIELD_TOKENS, _JSON_TAG_FIELD_TOKENS, strict=True),
+)
+def test_typed_projection_contract_rejects_json_tag_spelling(
+    typed_token: str,
+    json_tag_token: str,
+) -> None:
+    projection = container_readback_argv(
+        role="postgres",
+        container_name=f"runtime-db-observer-drill-postgres-{DRILL_SUFFIX}",
+        attached_network_name=NETWORK_NAME,
+    )[5]
+    forged_projection = projection.replace(typed_token, json_tag_token)
+
+    with pytest.raises(AssertionError):
+        _assert_typed_field_contract(forged_projection)
