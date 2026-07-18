@@ -452,7 +452,9 @@ def collect_observer_preflight(
             "http://127.0.0.1:8200/healthz", config.timeout_seconds
         ),
         "control_8220": fetch("http://127.0.0.1:8220/healthz", config.timeout_seconds),
-        "frontend_8300": fetch("http://127.0.0.1:8300", config.timeout_seconds),
+        "frontend_8300_liveness": fetch(
+            "http://127.0.0.1:8300/healthz", config.timeout_seconds
+        ),
     }
     compose_policy = _compose_policy(command, config)
     observer_process = _observer_running(command, config.timeout_seconds)

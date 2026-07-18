@@ -149,6 +149,71 @@ def test_qualification_passes_without_claiming_mutation_permit(tmp_path: Path) -
     assert receipt["checks"]["runtime_lifecycle"]["stable"] is True
 
 
+def test_liveness_endpoints_are_exact_bounded_and_single_shot(
+    tmp_path: Path,
+) -> None:
+    calls: list[tuple[str, float]] = []
+
+    def fetch(url: str, timeout: float) -> dict[str, object]:
+        calls.append((url, timeout))
+        return {"ok": True, "status": 200, "elapsed_seconds": 0.01}
+
+    receipt = collect_observer_preflight(
+        _config(tmp_path, phase="qualification"),
+        command=_command(),
+        fetch=fetch,
+        sleep=lambda _: None,
+    )
+
+    assert calls == [
+        ("http://127.0.0.1:8200/healthz", 10.0),
+        ("http://127.0.0.1:8220/healthz", 10.0),
+        ("http://127.0.0.1:8300/healthz", 10.0),
+    ]
+    assert set(receipt["checks"]["endpoints"]) == {
+        "execution_8200",
+        "control_8220",
+        "frontend_8300_liveness",
+    }
+    assert "frontend_8300" not in receipt["checks"]["endpoints"]
+    assert ("http://127.0.0.1:8300", 10.0) not in calls
+
+
+def test_frontend_liveness_failure_uses_exact_label_without_retry(
+    tmp_path: Path,
+) -> None:
+    calls: list[tuple[str, float]] = []
+
+    def fetch(url: str, timeout: float) -> dict[str, object]:
+        calls.append((url, timeout))
+        if url == "http://127.0.0.1:8300/healthz":
+            return {
+                "ok": False,
+                "status": None,
+                "error_code": "TimeoutError",
+                "elapsed_seconds": timeout,
+            }
+        return {"ok": True, "status": 200, "elapsed_seconds": 0.01}
+
+    receipt = collect_observer_preflight(
+        _config(tmp_path, phase="qualification"),
+        command=_command(),
+        fetch=fetch,
+        sleep=lambda _: None,
+    )
+
+    assert receipt["gate_pass"] is False
+    assert receipt["first_failure"] == (
+        "endpoint_frontend_8300_liveness_unavailable"
+    )
+    assert receipt["failures"] == [
+        "endpoint_frontend_8300_liveness_unavailable"
+    ]
+    assert calls.count(("http://127.0.0.1:8300/healthz", 10.0)) == 1
+    assert len(calls) == 3
+    assert ("http://127.0.0.1:8300", 10.0) not in calls
+
+
 def test_terminal_requires_exact_diagnostic_permit(tmp_path: Path) -> None:
     config = _config(tmp_path, phase="terminal")
     journal = RuntimeDatabaseIncidentJournal(config.journal_root)
