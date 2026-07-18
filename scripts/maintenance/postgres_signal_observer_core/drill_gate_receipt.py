@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 from typing import Any, Mapping
 
@@ -81,6 +82,7 @@ _CAPTURE_KEYS = (
     "terminal exit_code stdout_present stdout_bytes stdout_sha256 stderr_present "
     "stderr_bytes stderr_sha256 captures_truncated hash_input output_disclosed"
 ).split()
+_EMPTY_CAPTURE_SHA256 = hashlib.sha256(b"").hexdigest()
 
 
 def _project_container_metadata(source: Mapping[str, Any]) -> dict[str, Any] | None:
@@ -122,6 +124,8 @@ def project_postgres_container_readback_outcome(
         and type(failures) is list
         and not failures
     ):
+        if "exit_code" in source or "terminal_nonzero_capture" in source:
+            return None
         return {
             "passed": True,
             "last_result": {
@@ -142,6 +146,31 @@ def project_postgres_container_readback_outcome(
         or len(set(failures)) != len(failures)
     ):
         return None
+    failure_projection: dict[str, Any] = {}
+    if first_failure == "formal_postgres_readback_failed":
+        if failures != ["formal_postgres_readback_failed"]:
+            return None
+        exit_code = source.get("exit_code")
+        capture_source = source.get("terminal_nonzero_capture")
+        capture = (
+            _project_capture(capture_source)
+            if isinstance(capture_source, Mapping)
+            and set(capture_source) == set(_CAPTURE_KEYS)
+            else None
+        )
+        if (
+            type(exit_code) is not int
+            or exit_code == 0
+            or capture is None
+            or capture["exit_code"] != exit_code
+        ):
+            return None
+        failure_projection = {
+            "exit_code": exit_code,
+            "terminal_nonzero_capture": capture,
+        }
+    elif "exit_code" in source or "terminal_nonzero_capture" in source:
+        return None
     return {
         "passed": False,
         "last_result": {
@@ -152,21 +181,27 @@ def project_postgres_container_readback_outcome(
             "leaf_failure_code": first_failure,
             "leaf_failure_count": len(failures),
             "leaf_failure_codes": list(failures),
+            **failure_projection,
         },
     }
 
 
 def _project_container_failure(source: Mapping[str, Any]) -> dict[str, Any] | None:
-    outcome = project_postgres_container_readback_outcome(
-        {
-            "validation_passed": False,
-            "first_failure": source.get("leaf_failure_code"),
-            "failures": source.get("leaf_failure_codes"),
-            "projection_schema_version": source.get("projection_schema_version"),
-            "projection_max_bytes": source.get("projection_max_bytes"),
-            "terminal_deadline_seconds": source.get("terminal_deadline_seconds"),
-        }
-    )
+    readback_source = {
+        "validation_passed": False,
+        "first_failure": source.get("leaf_failure_code"),
+        "failures": source.get("leaf_failure_codes"),
+        "projection_schema_version": source.get("projection_schema_version"),
+        "projection_max_bytes": source.get("projection_max_bytes"),
+        "terminal_deadline_seconds": source.get("terminal_deadline_seconds"),
+    }
+    if "exit_code" in source:
+        readback_source["exit_code"] = source.get("exit_code")
+    if "terminal_nonzero_capture" in source:
+        readback_source["terminal_nonzero_capture"] = source.get(
+            "terminal_nonzero_capture"
+        )
+    outcome = project_postgres_container_readback_outcome(readback_source)
     projection = outcome.get("last_result") if outcome is not None else None
     if (
         projection is None
@@ -199,13 +234,22 @@ def _project_capture(source: object) -> dict[str, Any] | None:
         or capture["stdout_present"] != (stdout_bytes > 0)
         or type(capture["stdout_sha256"]) is not str
         or not re.fullmatch(r"[0-9a-f]{64}", capture["stdout_sha256"])
+        or (
+            stdout_bytes == 0
+            and capture["stdout_sha256"] != _EMPTY_CAPTURE_SHA256
+        )
         or type(capture["stderr_present"]) is not bool
         or type(stderr_bytes) is not int
         or stderr_bytes < 0
         or capture["stderr_present"] != (stderr_bytes > 0)
         or type(capture["stderr_sha256"]) is not str
         or not re.fullmatch(r"[0-9a-f]{64}", capture["stderr_sha256"])
+        or (
+            stderr_bytes == 0
+            and capture["stderr_sha256"] != _EMPTY_CAPTURE_SHA256
+        )
         or capture["captures_truncated"] is not False
+        or type(capture["hash_input"]) is not str
         or capture["hash_input"] != "full_raw_subprocess_capture_bytes"
         or capture["output_disclosed"] is not False
     ):

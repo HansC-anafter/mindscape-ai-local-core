@@ -18,6 +18,9 @@ from scripts.maintenance.postgres_signal_observer_core import drill_formal_gates
 from scripts.maintenance.postgres_signal_observer_core.drill_formal_executor import (
     FormalDockerSubprocessExecutor,
 )
+from scripts.maintenance.postgres_signal_observer_core.drill_escalation import (
+    terminal_nonzero_capture_metadata,
+)
 from scripts.maintenance.postgres_signal_observer_core.drill_formal_terminal import (
     FORMAL_OBSERVER_EVIDENCE_ROOT_MATERIALIZATION_FAILED,
     FORMAL_OBSERVER_JOURNAL_PARENT_MATERIALIZATION_FAILED,
@@ -38,6 +41,13 @@ from scripts.maintenance.postgres_signal_observer_core import drill_formal_termi
 
 POSTGRES_IMAGE = "mindscape-ai-local-core-postgres:pg16@sha256:" + "a" * 64
 OBSERVER_IMAGE = "mindscape-ai-local-core-backend@sha256:" + "b" * 64
+
+
+class _EqualToCaptureHashInput:
+    def __eq__(self, other: object) -> bool:
+        return other == "full_raw_subprocess_capture_bytes"
+
+
 def _config(tmp_path: Path):
     suffix_tail = int(
         hashlib.sha256(str(tmp_path).encode("utf-8")).hexdigest(), 16
@@ -623,10 +633,6 @@ def test_postgres_readiness_container_failure_blocks_all_child_commands(
             ],
         ),
         (
-            "formal_postgres_readback_failed",
-            ["formal_postgres_readback_failed"],
-        ),
-        (
             "formal_postgres_readback_projection_invalid",
             ["formal_postgres_readback_projection_invalid"],
         ),
@@ -680,6 +686,195 @@ def test_postgres_readiness_projects_exact_allowlisted_readback_leaf_failures(
     assert "POSTGRES_PASSWORD" not in repr(projected)
     assert "private-inspect-argv" not in repr(projected)
     assert "private-exception-payload" not in repr(projected)
+
+
+def test_postgres_readiness_projects_exact_readback_terminal_nonzero_capture(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _config(tmp_path)
+    stdout = b"private-readback-output\xff"
+    stderr = b"private-readback-error\x80"
+    capture = terminal_nonzero_capture_metadata(stdout, stderr, exit_code=17)
+
+    class Executor:
+        def run(self, _argv, **_kwargs):
+            raise AssertionError("readiness child command must not run")
+
+    monkeypatch.setattr(
+        drill_formal_gates,
+        "execute_disposable_container_readback",
+        lambda *_args, **_kwargs: {
+            "validation_passed": False,
+            "first_failure": "formal_postgres_readback_failed",
+            "failures": ["formal_postgres_readback_failed"],
+            "projection_schema_version": (
+                drill_formal_gates.CONTAINER_READBACK_SCHEMA_VERSION
+            ),
+            "projection_max_bytes": drill_formal_gates.CONTAINER_READBACK_MAX_BYTES,
+            "terminal_deadline_seconds": (
+                drill_formal_gates.CONTAINER_READBACK_TERMINAL_DEADLINE_SECONDS
+            ),
+            "exit_code": 17,
+            "terminal_nonzero_capture": capture,
+            "raw_output": stdout,
+            "inspect_argv": ["private-inspect-argv"],
+        },
+    )
+
+    source = drill_formal_gates.FormalDrillGateOwner(config, Executor()).evaluate(
+        "postgres_readiness"
+    )
+    projected = project_formal_gate_receipt("postgres_readiness", source)
+    result = projected["stages"]["container_readback"]["last_result"]
+
+    assert result["leaf_failure_code"] == "formal_postgres_readback_failed"
+    assert result["exit_code"] == 17
+    assert result["terminal_nonzero_capture"] == capture
+    assert projected["stages"]["pg_isready"]["attempt_count"] == 0
+    assert projected["stages"]["psql_select_one"]["attempt_count"] == 0
+    serialized = repr(projected)
+    assert "private-readback-output" not in serialized
+    assert "private-readback-error" not in serialized
+    assert "private-inspect-argv" not in serialized
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        {"stdout_sha256": "invalid"},
+        {"exit_code": 18},
+        {"exit_code": True},
+        {"stdout_present": False},
+        {"stdout_bytes": True},
+        {
+            "stdout_present": False,
+            "stdout_bytes": 0,
+            "stdout_sha256": "0" * 64,
+        },
+        {"hash_input": _EqualToCaptureHashInput()},
+        {"output_disclosed": True},
+        {"captures_truncated": True},
+        {"raw_payload": "private"},
+    ],
+)
+def test_postgres_readiness_rejects_malformed_readback_terminal_capture(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mutation: dict[str, object],
+) -> None:
+    config = _config(tmp_path)
+    capture = terminal_nonzero_capture_metadata(b"private", b"error", exit_code=17)
+    capture.update(mutation)
+
+    class Executor:
+        def run(self, _argv, **_kwargs):
+            raise AssertionError("readiness child command must not run")
+
+    monkeypatch.setattr(
+        drill_formal_gates,
+        "execute_disposable_container_readback",
+        lambda *_args, **_kwargs: {
+            "validation_passed": False,
+            "first_failure": "formal_postgres_readback_failed",
+            "failures": ["formal_postgres_readback_failed"],
+            "projection_schema_version": (
+                drill_formal_gates.CONTAINER_READBACK_SCHEMA_VERSION
+            ),
+            "projection_max_bytes": drill_formal_gates.CONTAINER_READBACK_MAX_BYTES,
+            "terminal_deadline_seconds": (
+                drill_formal_gates.CONTAINER_READBACK_TERMINAL_DEADLINE_SECONDS
+            ),
+            "exit_code": 17,
+            "terminal_nonzero_capture": capture,
+        },
+    )
+
+    source = drill_formal_gates.FormalDrillGateOwner(config, Executor()).evaluate(
+        "postgres_readiness"
+    )
+
+    assert project_formal_gate_receipt("postgres_readiness", source) == {
+        "name": "postgres_readiness",
+        "kind": "gate",
+        "passed": False,
+        "detail_code": "formal_postgres_readiness_receipt_invalid",
+    }
+    assert source["stages"]["pg_isready"]["attempt_count"] == 0
+    assert source["stages"]["psql_select_one"]["attempt_count"] == 0
+
+
+@pytest.mark.parametrize(
+    ("first_failure", "failures", "include_capture"),
+    [
+        (
+            "formal_postgres_readback_failed",
+            [
+                "formal_postgres_readback_failed",
+                "postgres_container_readback_state_unready",
+            ],
+            True,
+        ),
+        (
+            "postgres_container_readback_state_unready",
+            ["postgres_container_readback_state_unready"],
+            True,
+        ),
+        (
+            "formal_postgres_readback_failed",
+            ["formal_postgres_readback_failed"],
+            False,
+        ),
+    ],
+)
+def test_readback_capture_requires_exact_singleton_terminal_failure_leaf(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    first_failure: str,
+    failures: list[str],
+    include_capture: bool,
+) -> None:
+    config = _config(tmp_path)
+    readback = {
+        "validation_passed": False,
+        "first_failure": first_failure,
+        "failures": failures,
+        "projection_schema_version": (
+            drill_formal_gates.CONTAINER_READBACK_SCHEMA_VERSION
+        ),
+        "projection_max_bytes": drill_formal_gates.CONTAINER_READBACK_MAX_BYTES,
+        "terminal_deadline_seconds": (
+            drill_formal_gates.CONTAINER_READBACK_TERMINAL_DEADLINE_SECONDS
+        ),
+    }
+    if include_capture:
+        readback["exit_code"] = 17
+        readback["terminal_nonzero_capture"] = terminal_nonzero_capture_metadata(
+            b"private", b"error", exit_code=17
+        )
+
+    class Executor:
+        def run(self, _argv, **_kwargs):
+            raise AssertionError("readiness child command must not run")
+
+    monkeypatch.setattr(
+        drill_formal_gates,
+        "execute_disposable_container_readback",
+        lambda *_args, **_kwargs: readback,
+    )
+
+    source = drill_formal_gates.FormalDrillGateOwner(config, Executor()).evaluate(
+        "postgres_readiness"
+    )
+
+    assert project_formal_gate_receipt("postgres_readiness", source) == {
+        "name": "postgres_readiness",
+        "kind": "gate",
+        "passed": False,
+        "detail_code": "formal_postgres_readiness_receipt_invalid",
+    }
+    assert source["stages"]["pg_isready"]["attempt_count"] == 0
+    assert source["stages"]["psql_select_one"]["attempt_count"] == 0
 
 
 @pytest.mark.parametrize(

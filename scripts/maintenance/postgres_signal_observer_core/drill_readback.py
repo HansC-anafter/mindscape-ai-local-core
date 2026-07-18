@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Any, Mapping
 
 from .drill_docker_runtime import validate_canonical_docker_argv
+from .drill_escalation import terminal_nonzero_capture_metadata
 from .drill_images import (
     OBSERVER_BACKEND_IMAGE_ROLE,
     POSTGRES_DRILL_IMAGE_ROLE,
@@ -326,7 +327,22 @@ def execute_disposable_container_readback(
         return {**base, "first_failure": failure, "failures": [failure]}
     if completed.returncode != 0:
         failure = f"formal_{contract.role}_readback_failed"
-        return {**base, "first_failure": failure, "failures": [failure]}
+        try:
+            capture = terminal_nonzero_capture_metadata(
+                getattr(completed, "stdout", None),
+                getattr(completed, "stderr", None),
+                exit_code=completed.returncode,
+            )
+        except ValueError:
+            invalid = f"formal_{contract.role}_readback_result_invalid"
+            return {**base, "first_failure": invalid, "failures": [invalid]}
+        return {
+            **base,
+            "first_failure": failure,
+            "failures": [failure],
+            "exit_code": completed.returncode,
+            "terminal_nonzero_capture": capture,
+        }
     raw_output = getattr(completed, "stdout", None)
     try:
         projection = parse_container_readback_projection(raw_output)

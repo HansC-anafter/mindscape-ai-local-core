@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -314,6 +316,8 @@ def test_formal_executor_persists_only_allowlisted_projection(
     assert receipt["raw_inspect_json_captured"] is False
     assert receipt["config_env_captured"] is False
     assert receipt["secret_value_or_hash_persisted"] is False
+    assert "exit_code" not in receipt
+    assert "terminal_nonzero_capture" not in receipt
     assert calls[0][1]["shell"] is False
     assert calls[0][1]["text"] is False
     assert SENTINEL_SECRET not in json.dumps(receipt, sort_keys=True)
@@ -337,8 +341,86 @@ def test_projection_failure_is_terminal_without_retry_or_payload() -> None:
     assert len(calls) == 1
     assert receipt["validation_passed"] is False
     assert receipt["first_failure"] == "formal_postgres_readback_projection_invalid"
+    assert "exit_code" not in receipt
+    assert "terminal_nonzero_capture" not in receipt
     assert "Config.Env" not in json.dumps(receipt, sort_keys=True)
     assert "sentinel" not in json.dumps(receipt, sort_keys=True)
+
+
+def test_terminal_nonzero_preserves_only_exit_and_raw_capture_metadata() -> None:
+    contract = _contracts()["postgres"]
+    stdout = b"private-readback-output\xff"
+    stderr = b"private-readback-error\x80"
+
+    receipt = execute_disposable_container_readback(
+        contract,
+        run=lambda *_args, **_kwargs: SimpleNamespace(
+            returncode=17,
+            stdout=stdout,
+            stderr=stderr,
+        ),
+    )
+
+    assert receipt["first_failure"] == "formal_postgres_readback_failed"
+    assert receipt["exit_code"] == 17
+    assert receipt["terminal_nonzero_capture"] == {
+        "terminal": True,
+        "exit_code": 17,
+        "stdout_present": True,
+        "stdout_bytes": len(stdout),
+        "stdout_sha256": hashlib.sha256(stdout).hexdigest(),
+        "stderr_present": True,
+        "stderr_bytes": len(stderr),
+        "stderr_sha256": hashlib.sha256(stderr).hexdigest(),
+        "captures_truncated": False,
+        "hash_input": "full_raw_subprocess_capture_bytes",
+        "output_disclosed": False,
+    }
+    serialized = json.dumps(receipt, sort_keys=True)
+    assert "private-readback-output" not in serialized
+    assert "private-readback-error" not in serialized
+
+
+@pytest.mark.parametrize(
+    "result",
+    [
+        subprocess.TimeoutExpired(["docker"], 10.0, output=b"private"),
+        OSError("private unavailable"),
+    ],
+)
+def test_timeout_and_unavailable_never_fabricate_terminal_capture(result) -> None:
+    contract = _contracts()["postgres"]
+
+    def fail(*_args, **_kwargs):
+        raise result
+
+    receipt = execute_disposable_container_readback(contract, run=fail)
+
+    assert "exit_code" not in receipt
+    assert "terminal_nonzero_capture" not in receipt
+    assert "private" not in json.dumps(receipt, sort_keys=True)
+
+
+@pytest.mark.parametrize(
+    "completed",
+    [
+        SimpleNamespace(returncode=True, stdout=b"", stderr=b""),
+        SimpleNamespace(returncode="17", stdout=b"", stderr=b""),
+        SimpleNamespace(returncode=17, stdout="not-bytes", stderr=b""),
+        SimpleNamespace(returncode=17, stdout=b"", stderr="not-bytes"),
+    ],
+)
+def test_invalid_terminal_result_never_raises_or_fabricates_capture(completed) -> None:
+    contract = _contracts()["postgres"]
+
+    receipt = execute_disposable_container_readback(
+        contract,
+        run=lambda *_args, **_kwargs: completed,
+    )
+
+    assert receipt["first_failure"] == "formal_postgres_readback_result_invalid"
+    assert "exit_code" not in receipt
+    assert "terminal_nonzero_capture" not in receipt
 
 
 def test_facade_routes_postgres_readback_through_single_projection_owner(

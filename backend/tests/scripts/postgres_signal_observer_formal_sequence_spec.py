@@ -4,6 +4,8 @@ import hashlib
 import json
 from pathlib import Path
 
+import pytest
+
 from scripts.maintenance.postgres_signal_observer_core import (
     DRILL_APPLICATION_NAME,
     FORMAL_DRILL_SEQUENCE_ORDER,
@@ -32,6 +34,11 @@ from scripts.maintenance.postgres_signal_observer_core.drill_readback_projection
 POSTGRES_IMAGE_REF = "mindscape-ai-local-core-postgres:pg16@sha256:" + "a" * 64
 OBSERVER_IMAGE_REF = "mindscape-ai-local-core-backend@sha256:" + "b" * 64
 DRILL_SUFFIX = "20260718T151758Z"
+
+
+class _EqualToCaptureHashInput:
+    def __eq__(self, other: object) -> bool:
+        return other == "full_raw_subprocess_capture_bytes"
 
 
 def _configs(tmp_path: Path) -> tuple[object, object, object, object]:
@@ -369,6 +376,172 @@ def test_sequence_preserves_container_leaf_failure_and_terminal_cleanup(
     assert receipt["remaining_resources_verified"] is True
     assert receipt["ownership_handed_back"] is True
     assert receipt["validation_passed"] is False
+
+
+def test_sequence_preserves_readback_terminal_nonzero_capture_and_cleanup(
+    tmp_path: Path,
+) -> None:
+    stdout = b"private-readback-output\xff"
+    stderr = b"private-readback-error\x80"
+    capture = terminal_capture_metadata(stdout, stderr, exit_code=17)
+    gate = _gate("postgres_readiness", fail="postgres_readiness")
+    gate["detail_code"] = "formal_postgres_container_readback_failed"
+    gate["stages"]["container_readback"] = {
+        "attempted": True,
+        "attempt_count": 1,
+        "success_count": 0,
+        "passed": False,
+        "last_result": {
+            "status": "validation_failed",
+            "detail_code": "formal_postgres_container_readback_failed",
+            "projection_schema_version": CONTAINER_READBACK_SCHEMA_VERSION,
+            "projection_max_bytes": CONTAINER_READBACK_MAX_BYTES,
+            "terminal_deadline_seconds": (
+                CONTAINER_READBACK_TERMINAL_DEADLINE_SECONDS
+            ),
+            "leaf_failure_schema_version": 1,
+            "leaf_failure_code": "formal_postgres_readback_failed",
+            "leaf_failure_count": 1,
+            "leaf_failure_codes": ["formal_postgres_readback_failed"],
+            "exit_code": 17,
+            "terminal_nonzero_capture": capture,
+            "raw_output": stdout,
+        },
+    }
+    gate["stages"]["pg_isready"] = {
+        "attempted": False,
+        "attempt_count": 0,
+        "success_count": 0,
+        "passed": False,
+        "last_result": None,
+    }
+    gate["stages"]["psql_select_one"] = {
+        "attempted": False,
+        "attempt_count": 0,
+        "success_count": 0,
+        "passed": False,
+        "last_result": None,
+    }
+    revocations: list[str] = []
+
+    receipt = _execute(
+        _configs(tmp_path),
+        execute_docker=_docker_success,
+        evaluate_gate=lambda name: gate if name == "postgres_readiness" else _gate(name),
+        revoke_permit=revocations.append,
+        finalize_cleanup=lambda _failure: _postflight(),
+    )
+
+    result = receipt["step_receipts"][2]["stages"]["container_readback"][
+        "last_result"
+    ]
+    assert result["exit_code"] == 17
+    assert result["terminal_nonzero_capture"] == capture
+    assert receipt["first_failure"] == "formal_postgres_readiness_failed"
+    assert revocations == ["formal_postgres_readiness_failed"]
+    assert receipt["downstream_operation_attempts"] == {
+        "postgres": 1,
+        "pgbouncer": 0,
+        "observer": 0,
+        "client": 0,
+        "signal": 0,
+    }
+    assert receipt["remaining_resources_verified"] is True
+    assert receipt["ownership_handed_back"] is True
+    serialized = json.dumps(receipt, sort_keys=True)
+    assert "private-readback-output" not in serialized
+    assert "private-readback-error" not in serialized
+
+
+@pytest.mark.parametrize(
+    "invalid_kind",
+    [
+        "capture_hash",
+        "capture_empty_hash",
+        "capture_hash_input_type",
+        "mixed_failure_leaves",
+    ],
+)
+def test_sequence_rejects_malformed_readback_capture_without_downstream(
+    tmp_path: Path,
+    invalid_kind: str,
+) -> None:
+    capture = terminal_capture_metadata(b"private", b"error", exit_code=17)
+    if invalid_kind == "capture_hash":
+        capture["stdout_sha256"] = "invalid"
+    if invalid_kind == "capture_empty_hash":
+        capture["stdout_present"] = False
+        capture["stdout_bytes"] = 0
+        capture["stdout_sha256"] = "0" * 64
+    if invalid_kind == "capture_hash_input_type":
+        capture["hash_input"] = _EqualToCaptureHashInput()
+    failure_codes = ["formal_postgres_readback_failed"]
+    if invalid_kind == "mixed_failure_leaves":
+        failure_codes.append("formal_postgres_readback_projection_invalid")
+    gate = _gate("postgres_readiness", fail="postgres_readiness")
+    gate["detail_code"] = "formal_postgres_container_readback_failed"
+    gate["stages"]["container_readback"] = {
+        "attempted": True,
+        "attempt_count": 1,
+        "success_count": 0,
+        "passed": False,
+        "last_result": {
+            "status": "validation_failed",
+            "detail_code": "formal_postgres_container_readback_failed",
+            "projection_schema_version": CONTAINER_READBACK_SCHEMA_VERSION,
+            "projection_max_bytes": CONTAINER_READBACK_MAX_BYTES,
+            "terminal_deadline_seconds": (
+                CONTAINER_READBACK_TERMINAL_DEADLINE_SECONDS
+            ),
+            "leaf_failure_schema_version": 1,
+            "leaf_failure_code": "formal_postgres_readback_failed",
+            "leaf_failure_count": len(failure_codes),
+            "leaf_failure_codes": failure_codes,
+            "exit_code": 17,
+            "terminal_nonzero_capture": capture,
+        },
+    }
+    gate["stages"]["pg_isready"] = {
+        "attempted": False,
+        "attempt_count": 0,
+        "success_count": 0,
+        "passed": False,
+        "last_result": None,
+    }
+    gate["stages"]["psql_select_one"] = {
+        "attempted": False,
+        "attempt_count": 0,
+        "success_count": 0,
+        "passed": False,
+        "last_result": None,
+    }
+    revocations: list[str] = []
+
+    receipt = _execute(
+        _configs(tmp_path),
+        execute_docker=_docker_success,
+        evaluate_gate=lambda name: gate if name == "postgres_readiness" else _gate(name),
+        revoke_permit=revocations.append,
+        finalize_cleanup=lambda _failure: _postflight(),
+    )
+
+    assert receipt["step_receipts"][2] == {
+        "name": "postgres_readiness",
+        "kind": "gate",
+        "passed": False,
+        "detail_code": "formal_postgres_readiness_receipt_invalid",
+    }
+    assert receipt["first_failure"] == "formal_postgres_readiness_failed"
+    assert revocations == ["formal_postgres_readiness_failed"]
+    assert receipt["downstream_operation_attempts"] == {
+        "postgres": 1,
+        "pgbouncer": 0,
+        "observer": 0,
+        "client": 0,
+        "signal": 0,
+    }
+    assert receipt["remaining_resources_verified"] is True
+    assert receipt["ownership_handed_back"] is True
 
 
 def test_sequence_rejects_forged_readiness_success_and_capture_shape(
