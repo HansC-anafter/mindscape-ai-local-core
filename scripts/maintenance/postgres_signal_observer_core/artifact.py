@@ -7,6 +7,7 @@ from pathlib import Path
 
 
 OBSERVER_SOURCE_PATHS = (
+    "docker/postgres/Dockerfile",
     "scripts/maintenance/postgres_signal_observer.py",
     "scripts/maintenance/postgres_signal_observer_drill.py",
     "scripts/maintenance/postgres_signal_observer_core/__init__.py",

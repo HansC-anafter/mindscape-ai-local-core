@@ -23,11 +23,13 @@ from scripts.maintenance.postgres_signal_observer_core import (  # noqa: E402
     DisposableDrillBootstrapConfig,
     DisposableDrillClientConfig,
     DisposableDrillObserverConfig,
+    DisposableDrillSignalConfig,
     canonical_disposable_drill_name,
     canonical_observer_artifact_sha256,
     execute_formal_postgres_bootstrap,
     launch_disposable_drill_client,
     launch_disposable_drill_observer,
+    send_disposable_drill_signal,
     serialize_postgres_bootstrap_environment,
     validate_formal_exec_result,
 )
@@ -45,6 +47,8 @@ def _parser() -> argparse.ArgumentParser:
     mode.add_argument("--execute-postgres-bootstrap", action="store_true")
     mode.add_argument("--validate-pgbouncer-readback", type=Path)
     mode.add_argument("--validate-formal-exec-result", type=Path)
+    mode.add_argument("--print-signal-spec", action="store_true")
+    mode.add_argument("--send-synthetic-signal", action="store_true")
     parser.add_argument("--journal-root", type=Path)
     parser.add_argument("--drill-suffix")
     parser.add_argument("--temp-root", type=Path)
@@ -55,6 +59,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--database-name")
     parser.add_argument("--source-commit")
     parser.add_argument("--sleep-seconds", type=int, default=120)
+    parser.add_argument("--target-postgres-pid", type=int)
     return parser
 
 
@@ -261,6 +266,37 @@ def main(argv: list[str] | None = None) -> int:
         payload["artifact_sha256"] = artifact_sha256
         print(json.dumps(payload, sort_keys=True))
         return 0 if payload.get("validation_passed") is True else 2
+    if args.print_signal_spec or args.send_synthetic_signal:
+        signal_config = DisposableDrillSignalConfig(
+            drill_suffix=str(_required(args.drill_suffix, "--drill-suffix")),
+            image_ref=str(_required(args.image_ref, "--image-ref")),
+            target_postgres_pid=int(
+                _required(args.target_postgres_pid, "--target-postgres-pid")
+            ),
+        )
+        if args.print_signal_spec:
+            payload = signal_config.redacted_spec()
+            payload["artifact_sha256"] = artifact_sha256
+            print(json.dumps(payload, sort_keys=True))
+            return 0
+        if args.journal_root is None:
+            raise SystemExit("--journal-root is required with --send-synthetic-signal")
+        decision = require_runtime_database_mutation_allowed(
+            "postgres_signal_observer_start",
+            evidence={
+                "artifact_sha256": artifact_sha256,
+                "signal_spec_sha256": signal_config.redacted_spec()["argv_sha256"],
+            },
+            journal_root=args.journal_root,
+        )
+        if decision.reason != "incident_diagnostic_permit":
+            raise RuntimeError("incident_diagnostic_permit_required")
+        receipt = send_disposable_drill_signal(signal_config)
+        receipt["artifact_sha256"] = artifact_sha256
+        receipt["incident_id"] = decision.incident_id
+        receipt["admission_reason"] = decision.reason
+        print(json.dumps(receipt, sort_keys=True))
+        return 0 if receipt.get("signal_sent") is True else 2
     if args.print_observer_spec or args.launch_observer:
         if args.journal_root is None:
             raise SystemExit("--journal-root is required for observer modes")

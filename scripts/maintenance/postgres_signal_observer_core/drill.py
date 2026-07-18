@@ -9,12 +9,20 @@ import subprocess
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping
 
-from .drill_names import validate_disposable_drill_name
+from .drill_names import (
+    canonical_disposable_drill_name,
+    validate_disposable_drill_name,
+)
 
 
 DRILL_APPLICATION_NAME = "postgres-signal-observer-drill-client"
 _IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_.-]{0,62}$")
 _PINNED_IMAGE = re.compile(r"^[A-Za-z0-9_./:-]+@sha256:[0-9a-f]{64}$")
+POSTGRES_SIGNAL_SENDER_EXECUTABLE = "/usr/lib/postgresql/16/bin/pg_ctl"
+POSTGRES_SIGNAL_NAME = "QUIT"
+POSTGRES_SIGNAL_TERMINAL_DEADLINE_SECONDS = 10.0
+POSTGRES_SIGNAL_OUTPUT_BUDGET_BYTES = 4_096
+POSTGRES_BACKEND_PID_MAX = 4_194_304
 
 
 RunCommand = Callable[..., Any]
@@ -164,3 +172,165 @@ def launch_disposable_drill_client(
         "container_id": container_id,
         "spec": config.redacted_spec(),
     }
+
+
+@dataclass(frozen=True)
+class DisposableDrillSignalConfig:
+    """Build the only permitted synthetic SIGQUIT sender command."""
+
+    drill_suffix: str
+    image_ref: str
+    target_postgres_pid: int
+
+    def validate(self) -> None:
+        canonical_disposable_drill_name("postgres", self.drill_suffix)
+        if not _PINNED_IMAGE.fullmatch(str(self.image_ref)):
+            raise ValueError("drill_signal_image_must_be_pinned_by_sha256")
+        image_name = self.image_ref.rpartition("@sha256:")[0].rsplit("/", 1)[-1]
+        if image_name not in {
+            "mindscape-ai-local-core-postgres",
+            "mindscape-ai-local-core-postgres:pg16",
+        }:
+            raise ValueError("drill_signal_postgres_16_image_contract_invalid")
+        if (
+            type(self.target_postgres_pid) is not int
+            or not 1 <= self.target_postgres_pid <= POSTGRES_BACKEND_PID_MAX
+        ):
+            raise ValueError("drill_signal_target_postgres_pid_invalid")
+
+    @property
+    def container_name(self) -> str:
+        self.validate()
+        return canonical_disposable_drill_name("postgres", self.drill_suffix)
+
+    def docker_argv(self) -> tuple[str, ...]:
+        """Return one shell-free pg_ctl kill command for the target backend."""
+
+        self.validate()
+        return (
+            "docker",
+            "exec",
+            self.container_name,
+            POSTGRES_SIGNAL_SENDER_EXECUTABLE,
+            "kill",
+            POSTGRES_SIGNAL_NAME,
+            str(self.target_postgres_pid),
+        )
+
+    def redacted_spec(self) -> dict[str, Any]:
+        """Return the command contract without persisting the target PID."""
+
+        argv = self.docker_argv()
+        return {
+            "container_name": self.container_name,
+            "image_ref": self.image_ref,
+            "postgres_major": 16,
+            "sender_executable": POSTGRES_SIGNAL_SENDER_EXECUTABLE,
+            "signal_name": POSTGRES_SIGNAL_NAME,
+            "target_postgres_pid_sha256": hashlib.sha256(
+                str(self.target_postgres_pid).encode("ascii")
+            ).hexdigest(),
+            "target_postgres_pid_disclosed": False,
+            "terminal_deadline_seconds": POSTGRES_SIGNAL_TERMINAL_DEADLINE_SECONDS,
+            "output_budget_bytes": POSTGRES_SIGNAL_OUTPUT_BUDGET_BYTES,
+            "argv_sha256": hashlib.sha256("\0".join(argv).encode("utf-8")).hexdigest(),
+            "shell": False,
+        }
+
+
+def _signal_output_metadata(
+    stdout: object,
+    stderr: object,
+) -> tuple[dict[str, object], bool]:
+    def as_bytes(value: object) -> bytes:
+        if value is None:
+            return b""
+        if isinstance(value, bytes):
+            return value
+        return str(value).encode("utf-8", errors="replace")
+
+    stdout_bytes = as_bytes(stdout)
+    stderr_bytes = as_bytes(stderr)
+    over_budget = bool(
+        len(stdout_bytes) > POSTGRES_SIGNAL_OUTPUT_BUDGET_BYTES
+        or len(stderr_bytes) > POSTGRES_SIGNAL_OUTPUT_BUDGET_BYTES
+    )
+    return (
+        {
+            "stdout_bytes": len(stdout_bytes),
+            "stdout_sha256": hashlib.sha256(stdout_bytes).hexdigest(),
+            "stderr_bytes": len(stderr_bytes),
+            "stderr_sha256": hashlib.sha256(stderr_bytes).hexdigest(),
+            "output_disclosed": False,
+            "output_budget_exceeded": over_budget,
+        },
+        over_budget,
+    )
+
+
+def send_disposable_drill_signal(
+    config: DisposableDrillSignalConfig,
+    *,
+    run: RunCommand = subprocess.run,
+) -> dict[str, Any]:
+    """Send SIGQUIT only after one bounded shell-free terminal result."""
+
+    argv = config.docker_argv()
+    base_receipt: dict[str, Any] = {
+        "signal_sent": False,
+        "first_failure": None,
+        "terminal": False,
+        "target_postgres_pid": config.target_postgres_pid,
+        "target_postgres_pid_scope": "required_sender_correlation_receipt",
+        "spec": config.redacted_spec(),
+    }
+    try:
+        completed = run(
+            list(argv),
+            check=False,
+            capture_output=True,
+            text=False,
+            timeout=POSTGRES_SIGNAL_TERMINAL_DEADLINE_SECONDS,
+            shell=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        output, _ = _signal_output_metadata(exc.stdout, exc.stderr)
+        return {
+            **base_receipt,
+            **output,
+            "first_failure": (
+                "disposable_drill_signal_sender_terminal_deadline_exceeded"
+            ),
+        }
+    except OSError:
+        output, _ = _signal_output_metadata(None, None)
+        return {
+            **base_receipt,
+            **output,
+            "first_failure": "disposable_drill_signal_sender_unavailable",
+        }
+
+    output, over_budget = _signal_output_metadata(
+        getattr(completed, "stdout", None),
+        getattr(completed, "stderr", None),
+    )
+    return_code = getattr(completed, "returncode", None)
+    receipt = {
+        **base_receipt,
+        **output,
+        "terminal": True,
+    }
+    if type(return_code) is not int:
+        receipt["first_failure"] = "disposable_drill_signal_sender_result_invalid"
+        return receipt
+    receipt["terminal_exit_code"] = return_code
+    if over_budget:
+        receipt[
+            "first_failure"
+        ] = "disposable_drill_signal_sender_output_budget_exceeded"
+        return receipt
+    if return_code != 0:
+        receipt["first_failure"] = "disposable_drill_signal_sender_terminal_failure"
+        return receipt
+    receipt["signal_sent"] = True
+    return receipt

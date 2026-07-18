@@ -85,6 +85,7 @@ surfaces:
       - backend/tests/scripts/postgres_recovery_drill_spec.py
       - backend/tests/scripts/postgres_signal_observer_spec.py
       - backend/tests/scripts/postgres_signal_observer_drill_spec.py
+      - backend/tests/scripts/postgres_signal_observer_signal_sender_spec.py
       - backend/tests/scripts/postgres_signal_observer_preflight_spec.py
       - web-console/src/hooks/useExecutionPolling.ts
       - web-console/src/hooks/useExecutionPolling.spec.tsx
