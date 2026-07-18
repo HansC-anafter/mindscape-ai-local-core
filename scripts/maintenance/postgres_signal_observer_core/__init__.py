@@ -25,6 +25,13 @@ from .drill_escalation import (
     serialize_postgres_bootstrap_environment,
     validate_formal_exec_result,
 )
+from .drill_images import (
+    OBSERVER_BACKEND_IMAGE_ROLE,
+    POSTGRES_DRILL_IMAGE_ROLE,
+    DisposableDrillImageContract,
+    drill_image_digest,
+    validate_drill_image_ref,
+)
 from .drill_observer import (
     DisposableDrillObserverConfig,
     launch_disposable_drill_observer,
@@ -50,15 +57,18 @@ __all__ = [
     "DRILL_APPLICATION_NAME",
     "DisposableDrillBootstrapConfig",
     "DisposableDrillClientConfig",
+    "DisposableDrillImageContract",
     "DisposableDrillSignalConfig",
     "DisposableDrillObserverConfig",
     "DISPOSABLE_DRILL_NAME_PATTERN",
     "DRILL_SUFFIX_PATTERN",
     "ObserverConfig",
+    "OBSERVER_BACKEND_IMAGE_ROLE",
     "ObserverEvidenceStore",
     "PgBouncerCorrelationClient",
     "PGBOUNCER_DECLARED_VOLUME_TMPFS",
     "POSTGRES_DATA_TMPFS",
+    "POSTGRES_DRILL_IMAGE_ROLE",
     "POSTGRES_BACKEND_PID_MAX",
     "POSTGRES_SIGNAL_NAME",
     "POSTGRES_SIGNAL_OUTPUT_BUDGET_BYTES",
@@ -70,6 +80,7 @@ __all__ = [
     "TraceFsInstance",
     "canonical_observer_artifact_sha256",
     "canonical_disposable_drill_name",
+    "drill_image_digest",
     "execute_formal_postgres_bootstrap",
     "launch_disposable_drill_client",
     "launch_disposable_drill_observer",
@@ -80,4 +91,5 @@ __all__ = [
     "serialize_postgres_bootstrap_environment",
     "validate_formal_exec_result",
     "validate_disposable_drill_name",
+    "validate_drill_image_ref",
 ]

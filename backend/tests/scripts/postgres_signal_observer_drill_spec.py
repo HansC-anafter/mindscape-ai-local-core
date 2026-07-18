@@ -44,7 +44,8 @@ from scripts.maintenance.postgres_signal_observer_core.tracefs import (
 )
 
 
-IMAGE_REF = "mindscape-ai-local-core-postgres@sha256:" + "a" * 64
+POSTGRES_IMAGE_REF = "mindscape-ai-local-core-postgres:pg16@sha256:" + "a" * 64
+OBSERVER_IMAGE_REF = "mindscape-ai-local-core-backend@sha256:" + "c" * 64
 DRILL_SUFFIX = "20260717T233540Z"
 
 
@@ -114,7 +115,7 @@ def client_config() -> DisposableDrillClientConfig:
     return DisposableDrillClientConfig(
         container_name="postgres-signal-observer-drill-client-1",
         network_name="postgres-signal-observer-drill-network-1",
-        image_ref=IMAGE_REF,
+        postgres_image_ref=POSTGRES_IMAGE_REF,
         pgbouncer_host="postgres-signal-observer-drill-pgbouncer",
         pgbouncer_port=6432,
         database_user="drill_user",
@@ -124,7 +125,7 @@ def client_config() -> DisposableDrillClientConfig:
 
 
 def _parse_psql_argv(argv: tuple[str, ...]) -> argparse.Namespace:
-    image_index = argv.index(IMAGE_REF)
+    image_index = argv.index(POSTGRES_IMAGE_REF)
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("-X", action="store_true")
     parser.add_argument("-h")
@@ -210,7 +211,7 @@ def bootstrap_config(
     config = DisposableDrillBootstrapConfig(
         drill_suffix=DRILL_SUFFIX,
         temp_root=Path(f"/private/tmp/mindscape-postgres-signal-drill-{DRILL_SUFFIX}"),
-        image_ref=IMAGE_REF,
+        postgres_image_ref=POSTGRES_IMAGE_REF,
     )
 
     def cleanup() -> None:
@@ -231,7 +232,7 @@ def _valid_pgbouncer_readback(
 ) -> dict[str, object]:
     return {
         "name": f"/{config.pgbouncer_container_name}",
-        "config_image": config.image_ref,
+        "config_image": config.postgres_image_ref,
         "image_id": config.image_digest,
         "user": "postgres",
         "entrypoint": ["pgbouncer"],
@@ -295,7 +296,7 @@ def test_bootstrap_spec_neutralizes_declared_volume_and_preserves_budgets(
     assert len(pgbouncer_mounts) == 2
     assert all(value.endswith(",readonly") for value in pgbouncer_mounts)
     assert all("/var/lib/postgresql/data" not in value for value in pgbouncer_mounts)
-    assert postgres_argv[-1] == pgbouncer_argv[-2] == IMAGE_REF
+    assert postgres_argv[-1] == pgbouncer_argv[-2] == POSTGRES_IMAGE_REF
 
 
 def test_bootstrap_spec_never_serializes_secret_values(
@@ -622,8 +623,10 @@ def test_drill_facade_is_the_single_bootstrap_spec_entrypoint(
             bootstrap_config.drill_suffix,
             "--temp-root",
             str(bootstrap_config.temp_root),
-            "--image-ref",
-            bootstrap_config.image_ref,
+            "--postgres-drill-image-ref",
+            bootstrap_config.postgres_image_ref,
+            "--observer-backend-image-ref",
+            OBSERVER_IMAGE_REF,
         ]
     )
     payload = json.loads(capsys.readouterr().out)
@@ -642,8 +645,6 @@ def test_drill_facade_derives_observer_and_client_names_from_suffix_only(
 ) -> None:
     journal_root = tmp_path / "journal"
     journal_root.mkdir()
-    backend_image = "mindscape-ai-local-core-backend@sha256:" + "c" * 64
-
     observer_exit = drill_facade_main(
         [
             "--print-observer-spec",
@@ -651,8 +652,10 @@ def test_drill_facade_derives_observer_and_client_names_from_suffix_only(
             DRILL_SUFFIX,
             "--journal-root",
             str(journal_root),
-            "--image-ref",
-            backend_image,
+            "--postgres-drill-image-ref",
+            POSTGRES_IMAGE_REF,
+            "--observer-backend-image-ref",
+            OBSERVER_IMAGE_REF,
             "--source-commit",
             "0123456789abcdef",
         ]
@@ -664,8 +667,10 @@ def test_drill_facade_derives_observer_and_client_names_from_suffix_only(
             "--print-client-spec",
             "--drill-suffix",
             DRILL_SUFFIX,
-            "--image-ref",
-            IMAGE_REF,
+            "--postgres-drill-image-ref",
+            POSTGRES_IMAGE_REF,
+            "--observer-backend-image-ref",
+            OBSERVER_IMAGE_REF,
             "--database-user",
             "drill_user",
             "--database-name",
@@ -710,8 +715,10 @@ def test_drill_facade_rejects_caller_owned_name_inputs(
                 "--print-client-spec",
                 "--drill-suffix",
                 DRILL_SUFFIX,
-                "--image-ref",
-                IMAGE_REF,
+                "--postgres-drill-image-ref",
+                POSTGRES_IMAGE_REF,
+                "--observer-backend-image-ref",
+                OBSERVER_IMAGE_REF,
                 "--database-user",
                 "drill_user",
                 "--database-name",
@@ -745,8 +752,10 @@ def test_drill_facade_executes_postgres_through_single_atomic_envelope(
             bootstrap_config.drill_suffix,
             "--temp-root",
             str(bootstrap_config.temp_root),
-            "--image-ref",
-            bootstrap_config.image_ref,
+            "--postgres-drill-image-ref",
+            bootstrap_config.postgres_image_ref,
+            "--observer-backend-image-ref",
+            OBSERVER_IMAGE_REF,
         ]
     )
 
@@ -778,8 +787,10 @@ def test_drill_facade_validates_redacted_pgbouncer_readback(
             bootstrap_config.drill_suffix,
             "--temp-root",
             str(bootstrap_config.temp_root),
-            "--image-ref",
-            bootstrap_config.image_ref,
+            "--postgres-drill-image-ref",
+            bootstrap_config.postgres_image_ref,
+            "--observer-backend-image-ref",
+            OBSERVER_IMAGE_REF,
         ]
     )
     payload = json.loads(capsys.readouterr().out)
@@ -832,8 +843,10 @@ def test_facade_precondition_caller_uses_one_exact_mapping_and_redacts_secret(
             bootstrap_config.drill_suffix,
             "--temp-root",
             str(bootstrap_config.temp_root),
-            "--image-ref",
-            bootstrap_config.image_ref,
+            "--postgres-drill-image-ref",
+            bootstrap_config.postgres_image_ref,
+            "--observer-backend-image-ref",
+            OBSERVER_IMAGE_REF,
         ]
     )
     output = capsys.readouterr().out
@@ -889,8 +902,10 @@ def test_serializer_rejects_three_scalar_positionals_and_failure_writes_nothing(
                 bootstrap_config.drill_suffix,
                 "--temp-root",
                 str(bootstrap_config.temp_root),
-                "--image-ref",
-                bootstrap_config.image_ref,
+                "--postgres-drill-image-ref",
+                bootstrap_config.postgres_image_ref,
+                "--observer-backend-image-ref",
+                OBSERVER_IMAGE_REF,
             ]
         )
     assert not bootstrap_config.postgres_environment_path.exists()
@@ -925,8 +940,10 @@ def test_precondition_readback_failure_cleans_all_staged_files(
                 bootstrap_config.drill_suffix,
                 "--temp-root",
                 str(bootstrap_config.temp_root),
-                "--image-ref",
-                bootstrap_config.image_ref,
+            "--postgres-drill-image-ref",
+            bootstrap_config.postgres_image_ref,
+            "--observer-backend-image-ref",
+            OBSERVER_IMAGE_REF,
             ]
         )
 
@@ -1007,6 +1024,10 @@ def test_drill_facade_is_single_formal_exec_result_gate(
             str(result_path),
             "--formal-operation-class",
             "docker_run_disposable_isolated_postgresql_bootstrap",
+            "--postgres-drill-image-ref",
+            POSTGRES_IMAGE_REF,
+            "--observer-backend-image-ref",
+            OBSERVER_IMAGE_REF,
         ]
     )
     payload = json.loads(capsys.readouterr().out)
@@ -1032,7 +1053,7 @@ def observer_config(tmp_path: Path) -> DisposableDrillObserverConfig:
     return DisposableDrillObserverConfig(
         container_name="postgres-signal-observer-drill-observer-1",
         pgbouncer_container_name="postgres-signal-observer-drill-pgbouncer-1",
-        image_ref="mindscape-ai-local-core-backend@sha256:" + "c" * 64,
+        observer_image_ref=OBSERVER_IMAGE_REF,
         journal_host_root=journal_root,
         repo_root=repo_root,
         artifact_sha256=canonical_observer_artifact_sha256(repo_root),

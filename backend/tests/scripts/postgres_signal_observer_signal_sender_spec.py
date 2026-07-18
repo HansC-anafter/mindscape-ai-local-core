@@ -27,7 +27,8 @@ from scripts.maintenance.postgres_signal_observer_core.artifact import (
 
 
 DRILL_SUFFIX = "20260718T055442Z"
-IMAGE_REF = "mindscape-ai-local-core-postgres@sha256:" + "a" * 64
+POSTGRES_IMAGE_REF = "mindscape-ai-local-core-postgres:pg16@sha256:" + "a" * 64
+OBSERVER_IMAGE_REF = "mindscape-ai-local-core-backend@sha256:" + "c" * 64
 TARGET_PID = 96
 
 
@@ -35,7 +36,7 @@ TARGET_PID = 96
 def signal_config() -> DisposableDrillSignalConfig:
     return DisposableDrillSignalConfig(
         drill_suffix=DRILL_SUFFIX,
-        image_ref=IMAGE_REF,
+        postgres_image_ref=POSTGRES_IMAGE_REF,
         target_postgres_pid=TARGET_PID,
     )
 
@@ -108,7 +109,7 @@ def test_artifact_digest_changes_with_the_postgres_image_contract(
 def test_signal_sender_rejects_unbounded_or_non_integer_pid(pid: object) -> None:
     config = DisposableDrillSignalConfig(
         drill_suffix=DRILL_SUFFIX,
-        image_ref=IMAGE_REF,
+        postgres_image_ref=POSTGRES_IMAGE_REF,
         target_postgres_pid=pid,  # type: ignore[arg-type]
     )
 
@@ -120,13 +121,13 @@ def test_signal_sender_rejects_name_or_image_contract_drift() -> None:
     with pytest.raises(ValueError, match="disposable_drill_suffix_invalid"):
         DisposableDrillSignalConfig(
             drill_suffix="20260718t055442z",
-            image_ref=IMAGE_REF,
+            postgres_image_ref=POSTGRES_IMAGE_REF,
             target_postgres_pid=TARGET_PID,
         ).docker_argv()
-    with pytest.raises(ValueError, match="postgres_16_image_contract_invalid"):
+    with pytest.raises(ValueError, match="postgres_drill_pg16_image_owner_mismatch"):
         DisposableDrillSignalConfig(
             drill_suffix=DRILL_SUFFIX,
-            image_ref="unrelated-postgres@sha256:" + "b" * 64,
+            postgres_image_ref="unrelated-postgres:pg16@sha256:" + "b" * 64,
             target_postgres_pid=TARGET_PID,
         ).docker_argv()
 
@@ -245,8 +246,10 @@ def test_facade_print_spec_redacts_pid_and_send_requires_permit(
             "--print-signal-spec",
             "--drill-suffix",
             DRILL_SUFFIX,
-            "--image-ref",
-            IMAGE_REF,
+            "--postgres-drill-image-ref",
+            POSTGRES_IMAGE_REF,
+            "--observer-backend-image-ref",
+            OBSERVER_IMAGE_REF,
             "--target-postgres-pid",
             str(TARGET_PID),
         ]
@@ -281,8 +284,10 @@ def test_facade_print_spec_redacts_pid_and_send_requires_permit(
                 str(tmp_path),
                 "--drill-suffix",
                 DRILL_SUFFIX,
-                "--image-ref",
-                IMAGE_REF,
+                "--postgres-drill-image-ref",
+                POSTGRES_IMAGE_REF,
+                "--observer-backend-image-ref",
+                OBSERVER_IMAGE_REF,
                 "--target-postgres-pid",
                 str(TARGET_PID),
             ]

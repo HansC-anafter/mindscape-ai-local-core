@@ -14,11 +14,15 @@ from typing import Any, Callable, Mapping
 from .evidence import EvidenceBudget, ObserverEvidenceStore
 from .drill_escalation import terminal_nonzero_capture_metadata
 from .drill_names import validate_disposable_drill_name
+from .drill_images import (
+    OBSERVER_BACKEND_IMAGE_ROLE,
+    drill_image_digest,
+    validate_drill_image_ref,
+)
 from .service import canonical_observer_failure_detail_code
 from .tracefs import INSTANCE_NAME, SIGNAL_FILTER
 
 
-_PINNED_IMAGE = re.compile(r"^[A-Za-z0-9_./:-]+@sha256:[0-9a-f]{64}$")
 RunCommand = Callable[..., Any]
 ReadHealth = Callable[[], Mapping[str, Any]]
 
@@ -37,7 +41,7 @@ class DisposableDrillObserverConfig:
 
     container_name: str
     pgbouncer_container_name: str
-    image_ref: str
+    observer_image_ref: str
     journal_host_root: Path
     repo_root: Path
     artifact_sha256: str
@@ -52,8 +56,10 @@ class DisposableDrillObserverConfig:
                 validate_disposable_drill_name(str(value))
             except ValueError:
                 raise ValueError(f"drill_observer_{field_name}_invalid")
-        if not _PINNED_IMAGE.fullmatch(str(self.image_ref)):
-            raise ValueError("drill_observer_image_must_be_pinned_by_sha256")
+        validate_drill_image_ref(
+            self.observer_image_ref,
+            role=OBSERVER_BACKEND_IMAGE_ROLE,
+        )
         if not re.fullmatch(r"[0-9a-f]{64}", str(self.artifact_sha256)):
             raise ValueError("drill_observer_artifact_sha256_invalid")
         if not re.fullmatch(r"[0-9a-f]{8,64}", str(self.source_commit)):
@@ -77,8 +83,10 @@ class DisposableDrillObserverConfig:
 
     @property
     def image_digest(self) -> str:
-        self.validate()
-        return "sha256:" + self.image_ref.rpartition("@sha256:")[2]
+        return drill_image_digest(
+            self.observer_image_ref,
+            role=OBSERVER_BACKEND_IMAGE_ROLE,
+        )
 
     @property
     def evidence_host_root(self) -> Path:
@@ -162,7 +170,7 @@ class DisposableDrillObserverConfig:
             "PGBOUNCER_ADMIN_URL",
             "--entrypoint",
             "python",
-            self.image_ref,
+            self.observer_image_ref,
             "/app/scripts/maintenance/postgres_signal_observer.py",
         )
 
@@ -171,7 +179,8 @@ class DisposableDrillObserverConfig:
         return {
             "container_name": self.container_name,
             "pgbouncer_container_name": self.pgbouncer_container_name,
-            "image_ref": self.image_ref,
+            "image_role": OBSERVER_BACKEND_IMAGE_ROLE,
+            "image_ref": self.observer_image_ref,
             "artifact_sha256": self.artifact_sha256,
             "source_commit": self.source_commit,
             "image_digest": self.image_digest,

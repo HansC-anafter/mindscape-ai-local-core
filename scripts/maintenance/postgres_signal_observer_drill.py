@@ -22,8 +22,11 @@ from backend.app.services.runtime_database_incident_gate import (  # noqa: E402
 from scripts.maintenance.postgres_signal_observer_core import (  # noqa: E402
     DisposableDrillBootstrapConfig,
     DisposableDrillClientConfig,
+    DisposableDrillImageContract,
     DisposableDrillObserverConfig,
     DisposableDrillSignalConfig,
+    OBSERVER_BACKEND_IMAGE_ROLE,
+    POSTGRES_DRILL_IMAGE_ROLE,
     canonical_disposable_drill_name,
     canonical_observer_artifact_sha256,
     execute_formal_postgres_bootstrap,
@@ -52,7 +55,8 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--journal-root", type=Path)
     parser.add_argument("--drill-suffix")
     parser.add_argument("--temp-root", type=Path)
-    parser.add_argument("--image-ref")
+    parser.add_argument("--postgres-drill-image-ref", required=True)
+    parser.add_argument("--observer-backend-image-ref", required=True)
     parser.add_argument("--formal-operation-class")
     parser.add_argument("--pgbouncer-port", type=int, default=6432)
     parser.add_argument("--database-user")
@@ -67,6 +71,21 @@ def _required(value: object, option: str) -> object:
     if value is None or not str(value).strip():
         raise SystemExit(f"{option} is required for the selected mode")
     return value
+
+
+def _with_image_contract(
+    payload: dict[str, object],
+    *,
+    image_contract: DisposableDrillImageContract,
+    selected_role: str,
+) -> dict[str, object]:
+    """Bind every facade receipt to both validated image owners."""
+
+    return {
+        **payload,
+        "selected_image_role": selected_role,
+        "image_contract": image_contract.redacted_spec(),
+    }
 
 
 def _secure_create_precondition(path: Path, content: bytes) -> None:
@@ -151,6 +170,14 @@ def _secure_precondition_readback(path: Path) -> dict[str, object]:
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    image_contract = DisposableDrillImageContract(
+        postgres_image_ref=args.postgres_drill_image_ref,
+        observer_image_ref=args.observer_backend_image_ref,
+    )
+    try:
+        image_contract.validate()
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
     artifact_sha256 = canonical_observer_artifact_sha256(REPO_ROOT)
     if args.validate_formal_exec_result:
         result_path = Path(args.validate_formal_exec_result)
@@ -169,6 +196,11 @@ def main(argv: list[str] | None = None) -> int:
             ),
         )
         payload["artifact_sha256"] = artifact_sha256
+        payload = _with_image_contract(
+            payload,
+            image_contract=image_contract,
+            selected_role=POSTGRES_DRILL_IMAGE_ROLE,
+        )
         print(json.dumps(payload, sort_keys=True))
         if payload.get("delivery_allowed") is True:
             return 0
@@ -182,11 +214,18 @@ def main(argv: list[str] | None = None) -> int:
         bootstrap_config = DisposableDrillBootstrapConfig(
             drill_suffix=str(_required(args.drill_suffix, "--drill-suffix")),
             temp_root=Path(_required(args.temp_root, "--temp-root")),
-            image_ref=str(_required(args.image_ref, "--image-ref")),
+            postgres_image_ref=image_contract.image_ref_for(
+                POSTGRES_DRILL_IMAGE_ROLE
+            ),
         )
         if args.print_bootstrap_spec:
             payload = bootstrap_config.redacted_spec()
             payload["artifact_sha256"] = artifact_sha256
+            payload = _with_image_contract(
+                payload,
+                image_contract=image_contract,
+                selected_role=POSTGRES_DRILL_IMAGE_ROLE,
+            )
             print(json.dumps(payload, sort_keys=True))
             return 0
         if args.prepare_bootstrap_preconditions:
@@ -229,22 +268,22 @@ def main(argv: list[str] | None = None) -> int:
                     _secure_create_precondition(path, content)
                     created.append(path)
                 file_receipts = [_secure_precondition_readback(path) for path in paths]
-                print(
-                    json.dumps(
-                        {
-                            "artifact_sha256": artifact_sha256,
-                            "validation_passed": True,
-                            "first_failure": None,
-                            "serializer": ("serialize_postgres_bootstrap_environment"),
-                            "serializer_invocation": "one_exact_mapping",
-                            "materialization": "o_excl_fail_closed_staged_creation",
-                            "files": file_receipts,
-                            "secret_values_in_argv_or_receipt": False,
-                            "shell": False,
-                        },
-                        sort_keys=True,
-                    )
+                payload = _with_image_contract(
+                    {
+                        "artifact_sha256": artifact_sha256,
+                        "validation_passed": True,
+                        "first_failure": None,
+                        "serializer": ("serialize_postgres_bootstrap_environment"),
+                        "serializer_invocation": "one_exact_mapping",
+                        "materialization": "o_excl_fail_closed_staged_creation",
+                        "files": file_receipts,
+                        "secret_values_in_argv_or_receipt": False,
+                        "shell": False,
+                    },
+                    image_contract=image_contract,
+                    selected_role=POSTGRES_DRILL_IMAGE_ROLE,
                 )
+                print(json.dumps(payload, sort_keys=True))
             except BaseException:
                 for path in reversed(created):
                     path.unlink(missing_ok=True)
@@ -264,12 +303,19 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit("pgbouncer readback is unavailable or invalid") from exc
         payload = bootstrap_config.validate_pgbouncer_readback(readback)
         payload["artifact_sha256"] = artifact_sha256
+        payload = _with_image_contract(
+            payload,
+            image_contract=image_contract,
+            selected_role=POSTGRES_DRILL_IMAGE_ROLE,
+        )
         print(json.dumps(payload, sort_keys=True))
         return 0 if payload.get("validation_passed") is True else 2
     if args.print_signal_spec or args.send_synthetic_signal:
         signal_config = DisposableDrillSignalConfig(
             drill_suffix=str(_required(args.drill_suffix, "--drill-suffix")),
-            image_ref=str(_required(args.image_ref, "--image-ref")),
+            postgres_image_ref=image_contract.image_ref_for(
+                POSTGRES_DRILL_IMAGE_ROLE
+            ),
             target_postgres_pid=int(
                 _required(args.target_postgres_pid, "--target-postgres-pid")
             ),
@@ -277,6 +323,11 @@ def main(argv: list[str] | None = None) -> int:
         if args.print_signal_spec:
             payload = signal_config.redacted_spec()
             payload["artifact_sha256"] = artifact_sha256
+            payload = _with_image_contract(
+                payload,
+                image_contract=image_contract,
+                selected_role=POSTGRES_DRILL_IMAGE_ROLE,
+            )
             print(json.dumps(payload, sort_keys=True))
             return 0
         if args.journal_root is None:
@@ -295,6 +346,11 @@ def main(argv: list[str] | None = None) -> int:
         receipt["artifact_sha256"] = artifact_sha256
         receipt["incident_id"] = decision.incident_id
         receipt["admission_reason"] = decision.reason
+        receipt = _with_image_contract(
+            receipt,
+            image_contract=image_contract,
+            selected_role=POSTGRES_DRILL_IMAGE_ROLE,
+        )
         print(json.dumps(receipt, sort_keys=True))
         return 0 if receipt.get("signal_sent") is True else 2
     if args.print_observer_spec or args.launch_observer:
@@ -306,14 +362,21 @@ def main(argv: list[str] | None = None) -> int:
             pgbouncer_container_name=canonical_disposable_drill_name(
                 "pgbouncer", drill_suffix
             ),
-            image_ref=str(_required(args.image_ref, "--image-ref")),
+            observer_image_ref=image_contract.image_ref_for(
+                OBSERVER_BACKEND_IMAGE_ROLE
+            ),
             journal_host_root=args.journal_root,
             repo_root=REPO_ROOT,
             artifact_sha256=artifact_sha256,
             source_commit=str(_required(args.source_commit, "--source-commit")),
         )
         if args.print_observer_spec:
-            print(json.dumps(observer_config.redacted_spec(), sort_keys=True))
+            payload = _with_image_contract(
+                observer_config.redacted_spec(),
+                image_contract=image_contract,
+                selected_role=OBSERVER_BACKEND_IMAGE_ROLE,
+            )
+            print(json.dumps(payload, sort_keys=True))
             return 0
         decision = require_runtime_database_mutation_allowed(
             "postgres_signal_observer_start",
@@ -326,6 +389,11 @@ def main(argv: list[str] | None = None) -> int:
         receipt["artifact_sha256"] = artifact_sha256
         receipt["incident_id"] = decision.incident_id
         receipt["admission_reason"] = decision.reason
+        receipt = _with_image_contract(
+            receipt,
+            image_contract=image_contract,
+            selected_role=OBSERVER_BACKEND_IMAGE_ROLE,
+        )
         print(json.dumps(receipt, sort_keys=True))
         return 0 if receipt.get("ready") is True else 2
 
@@ -333,7 +401,7 @@ def main(argv: list[str] | None = None) -> int:
     config = DisposableDrillClientConfig(
         container_name=canonical_disposable_drill_name("client", drill_suffix),
         network_name=canonical_disposable_drill_name("network", drill_suffix),
-        image_ref=str(_required(args.image_ref, "--image-ref")),
+        postgres_image_ref=image_contract.image_ref_for(POSTGRES_DRILL_IMAGE_ROLE),
         pgbouncer_host=canonical_disposable_drill_name("pgbouncer", drill_suffix),
         pgbouncer_port=args.pgbouncer_port,
         database_user=str(_required(args.database_user, "--database-user")),
@@ -341,7 +409,12 @@ def main(argv: list[str] | None = None) -> int:
         sleep_seconds=args.sleep_seconds,
     )
     if args.print_client_spec:
-        print(json.dumps(config.redacted_spec(), sort_keys=True))
+        payload = _with_image_contract(
+            config.redacted_spec(),
+            image_contract=image_contract,
+            selected_role=POSTGRES_DRILL_IMAGE_ROLE,
+        )
+        print(json.dumps(payload, sort_keys=True))
         return 0
     if args.journal_root is None:
         raise SystemExit("--journal-root is required with --launch-client")
@@ -356,6 +429,11 @@ def main(argv: list[str] | None = None) -> int:
     receipt["artifact_sha256"] = artifact_sha256
     receipt["incident_id"] = decision.incident_id
     receipt["admission_reason"] = decision.reason
+    receipt = _with_image_contract(
+        receipt,
+        image_contract=image_contract,
+        selected_role=POSTGRES_DRILL_IMAGE_ROLE,
+    )
     print(json.dumps(receipt, sort_keys=True))
     return 0
 

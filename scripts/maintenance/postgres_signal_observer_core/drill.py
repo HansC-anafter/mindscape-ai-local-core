@@ -13,11 +13,15 @@ from .drill_names import (
     canonical_disposable_drill_name,
     validate_disposable_drill_name,
 )
+from .drill_images import (
+    POSTGRES_DRILL_IMAGE_ROLE,
+    drill_image_digest,
+    validate_drill_image_ref,
+)
 
 
 DRILL_APPLICATION_NAME = "postgres-signal-observer-drill-client"
 _IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_.-]{0,62}$")
-_PINNED_IMAGE = re.compile(r"^[A-Za-z0-9_./:-]+@sha256:[0-9a-f]{64}$")
 POSTGRES_SIGNAL_SENDER_EXECUTABLE = "/usr/lib/postgresql/16/bin/pg_ctl"
 POSTGRES_SIGNAL_NAME = "QUIT"
 POSTGRES_SIGNAL_TERMINAL_DEADLINE_SECONDS = 10.0
@@ -34,7 +38,7 @@ class DisposableDrillClientConfig:
 
     container_name: str
     network_name: str
-    image_ref: str
+    postgres_image_ref: str
     pgbouncer_host: str
     pgbouncer_port: int
     database_user: str
@@ -57,8 +61,10 @@ class DisposableDrillClientConfig:
         }.items():
             if not _IDENTIFIER.fullmatch(str(value)):
                 raise ValueError(f"drill_{field_name}_invalid")
-        if not _PINNED_IMAGE.fullmatch(str(self.image_ref)):
-            raise ValueError("drill_image_must_be_pinned_by_sha256")
+        validate_drill_image_ref(
+            self.postgres_image_ref,
+            role=POSTGRES_DRILL_IMAGE_ROLE,
+        )
         if not 1 <= int(self.pgbouncer_port) <= 65535:
             raise ValueError("drill_pgbouncer_port_invalid")
         if not 1 <= int(self.sleep_seconds) <= 180:
@@ -98,7 +104,7 @@ class DisposableDrillClientConfig:
             "PGPASSWORD",
             "--entrypoint",
             "psql",
-            self.image_ref,
+            self.postgres_image_ref,
             "-X",
             "-h",
             self.pgbouncer_host,
@@ -121,7 +127,12 @@ class DisposableDrillClientConfig:
         return {
             "container_name": self.container_name,
             "network_name": self.network_name,
-            "image_ref": self.image_ref,
+            "image_role": POSTGRES_DRILL_IMAGE_ROLE,
+            "image_ref": self.postgres_image_ref,
+            "image_digest": drill_image_digest(
+                self.postgres_image_ref,
+                role=POSTGRES_DRILL_IMAGE_ROLE,
+            ),
             "application_name": DRILL_APPLICATION_NAME,
             "pgbouncer_host": self.pgbouncer_host,
             "pgbouncer_port": int(self.pgbouncer_port),
@@ -179,19 +190,15 @@ class DisposableDrillSignalConfig:
     """Build the only permitted synthetic SIGQUIT sender command."""
 
     drill_suffix: str
-    image_ref: str
+    postgres_image_ref: str
     target_postgres_pid: int
 
     def validate(self) -> None:
         canonical_disposable_drill_name("postgres", self.drill_suffix)
-        if not _PINNED_IMAGE.fullmatch(str(self.image_ref)):
-            raise ValueError("drill_signal_image_must_be_pinned_by_sha256")
-        image_name = self.image_ref.rpartition("@sha256:")[0].rsplit("/", 1)[-1]
-        if image_name not in {
-            "mindscape-ai-local-core-postgres",
-            "mindscape-ai-local-core-postgres:pg16",
-        }:
-            raise ValueError("drill_signal_postgres_16_image_contract_invalid")
+        validate_drill_image_ref(
+            self.postgres_image_ref,
+            role=POSTGRES_DRILL_IMAGE_ROLE,
+        )
         if (
             type(self.target_postgres_pid) is not int
             or not 1 <= self.target_postgres_pid <= POSTGRES_BACKEND_PID_MAX
@@ -223,7 +230,12 @@ class DisposableDrillSignalConfig:
         argv = self.docker_argv()
         return {
             "container_name": self.container_name,
-            "image_ref": self.image_ref,
+            "image_role": POSTGRES_DRILL_IMAGE_ROLE,
+            "image_ref": self.postgres_image_ref,
+            "image_digest": drill_image_digest(
+                self.postgres_image_ref,
+                role=POSTGRES_DRILL_IMAGE_ROLE,
+            ),
             "postgres_major": 16,
             "sender_executable": POSTGRES_SIGNAL_SENDER_EXECUTABLE,
             "signal_name": POSTGRES_SIGNAL_NAME,

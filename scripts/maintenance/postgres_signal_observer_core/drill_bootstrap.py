@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
@@ -13,9 +12,12 @@ from .drill_names import (
     DRILL_SUFFIX_PATTERN,
     canonical_disposable_drill_name,
 )
+from .drill_images import (
+    POSTGRES_DRILL_IMAGE_ROLE,
+    drill_image_digest,
+    validate_drill_image_ref,
+)
 
-
-_PINNED_IMAGE = re.compile(r"^[a-zA-Z0-9_./-]+@sha256:[0-9a-f]{64}$")
 
 POSTGRES_DATA_TMPFS = "/var/lib/postgresql/data:rw,nosuid,size=192m"
 PGBOUNCER_DECLARED_VOLUME_TMPFS = "/var/lib/postgresql/data:rw,noexec,nosuid,size=1m"
@@ -32,7 +34,7 @@ class DisposableDrillBootstrapConfig:
 
     drill_suffix: str
     temp_root: Path
-    image_ref: str
+    postgres_image_ref: str
 
     def validate(self) -> None:
         if not DRILL_SUFFIX_PATTERN.fullmatch(str(self.drill_suffix)):
@@ -47,8 +49,10 @@ class DisposableDrillBootstrapConfig:
             or candidate.is_symlink()
         ):
             raise ValueError("drill_bootstrap_temp_root_invalid")
-        if not _PINNED_IMAGE.fullmatch(str(self.image_ref)):
-            raise ValueError("drill_bootstrap_image_must_be_pinned_by_sha256")
+        validate_drill_image_ref(
+            self.postgres_image_ref,
+            role=POSTGRES_DRILL_IMAGE_ROLE,
+        )
 
     @property
     def network_name(self) -> str:
@@ -77,8 +81,10 @@ class DisposableDrillBootstrapConfig:
 
     @property
     def image_digest(self) -> str:
-        self.validate()
-        return "sha256:" + self.image_ref.rpartition("@sha256:")[2]
+        return drill_image_digest(
+            self.postgres_image_ref,
+            role=POSTGRES_DRILL_IMAGE_ROLE,
+        )
 
     @property
     def pgbouncer_config_path(self) -> Path:
@@ -128,7 +134,7 @@ class DisposableDrillBootstrapConfig:
             "POSTGRES_PASSWORD",
             "--env",
             "POSTGRES_DB",
-            self.image_ref,
+            self.postgres_image_ref,
         )
 
     def pgbouncer_docker_argv(self) -> tuple[str, ...]:
@@ -168,7 +174,7 @@ class DisposableDrillBootstrapConfig:
             "dst=/etc/pgbouncer/userlist.txt,readonly",
             "--entrypoint",
             "pgbouncer",
-            self.image_ref,
+            self.postgres_image_ref,
             "/etc/pgbouncer/pgbouncer.ini",
         )
 
@@ -181,7 +187,8 @@ class DisposableDrillBootstrapConfig:
             "pgbouncer_container_name": self.pgbouncer_container_name,
             "observer_container_name": self.observer_container_name,
             "client_container_name": self.client_container_name,
-            "image_ref": self.image_ref,
+            "image_role": POSTGRES_DRILL_IMAGE_ROLE,
+            "image_ref": self.postgres_image_ref,
             "image_digest": self.image_digest,
             "postgres_argv": list(postgres_argv),
             "postgres_argv_sha256": _argv_sha256(postgres_argv),
@@ -252,7 +259,7 @@ class DisposableDrillBootstrapConfig:
         ]
         identity_ok = bool(
             source.get("name") == expected_name
-            and source.get("config_image") == self.image_ref
+            and source.get("config_image") == self.postgres_image_ref
             and source.get("image_id") == self.image_digest
             and source.get("user") == "postgres"
             and source.get("entrypoint") == expected_entrypoint
