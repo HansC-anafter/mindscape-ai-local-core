@@ -208,9 +208,13 @@ def bootstrap_config(
         temp_root=Path(f"/private/tmp/mindscape-postgres-signal-drill-{DRILL_SUFFIX}"),
         image_ref=IMAGE_REF,
     )
-    request.addfinalizer(
-        lambda: config.postgres_environment_path.unlink(missing_ok=True)
-    )
+
+    def cleanup() -> None:
+        config.postgres_environment_path.unlink(missing_ok=True)
+        config.pgbouncer_config_path.unlink(missing_ok=True)
+        config.pgbouncer_userlist_path.unlink(missing_ok=True)
+
+    request.addfinalizer(cleanup)
     return config
 
 
@@ -796,6 +800,137 @@ def test_bootstrap_contract_has_one_facade_and_no_second_launcher() -> None:
 
     assert facade_hits == ["scripts/maintenance/postgres_signal_observer_drill.py"]
     assert launcher_hits == []
+
+
+def test_facade_precondition_caller_uses_one_exact_mapping_and_redacts_secret(
+    bootstrap_config: DisposableDrillBootstrapConfig,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    secret = "fixture-only-secret"
+    calls: list[dict[str, str]] = []
+
+    def serialize(assignments):
+        calls.append(dict(assignments))
+        return serialize_postgres_bootstrap_environment(assignments)
+
+    monkeypatch.setattr(drill_facade.secrets, "token_hex", lambda _: secret)
+    monkeypatch.setattr(
+        drill_facade,
+        "serialize_postgres_bootstrap_environment",
+        serialize,
+    )
+
+    exit_code = drill_facade_main(
+        [
+            "--prepare-bootstrap-preconditions",
+            "--drill-suffix",
+            bootstrap_config.drill_suffix,
+            "--temp-root",
+            str(bootstrap_config.temp_root),
+            "--image-ref",
+            bootstrap_config.image_ref,
+        ]
+    )
+    output = capsys.readouterr().out
+    receipt = json.loads(output)
+
+    assert exit_code == 0
+    assert calls == [
+        {
+            "POSTGRES_USER": "mindscape",
+            "POSTGRES_PASSWORD": secret,
+            "POSTGRES_DB": "mindscape_core",
+        }
+    ]
+    assert receipt["validation_passed"] is True
+    assert receipt["serializer_invocation"] == "one_exact_mapping"
+    assert receipt["materialization"] == "o_excl_fail_closed_staged_creation"
+    assert [item["mode"] for item in receipt["files"]] == ["0600"] * 3
+    assert all(item["regular_file"] is True for item in receipt["files"])
+    assert all(item["symlink"] is False for item in receipt["files"])
+    assert secret not in output
+    assert secret not in "\0".join(bootstrap_config.postgres_docker_argv())
+    assert secret not in "\0".join(bootstrap_config.pgbouncer_docker_argv())
+    assert bootstrap_config.postgres_environment_path.read_bytes() == (
+        serialize_postgres_bootstrap_environment(
+            {
+                "POSTGRES_USER": "mindscape",
+                "POSTGRES_PASSWORD": secret,
+                "POSTGRES_DB": "mindscape_core",
+            }
+        )
+    )
+
+
+def test_serializer_rejects_three_scalar_positionals_and_failure_writes_nothing(
+    bootstrap_config: DisposableDrillBootstrapConfig,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with pytest.raises(TypeError):
+        serialize_postgres_bootstrap_environment(  # type: ignore[call-arg]
+            "mindscape", "fixture-only-secret", "mindscape_core"
+        )
+
+    monkeypatch.setattr(
+        drill_facade,
+        "serialize_postgres_bootstrap_environment",
+        lambda _: (_ for _ in ()).throw(RuntimeError("fixture-only")),
+    )
+    with pytest.raises(RuntimeError, match="fixture-only"):
+        drill_facade_main(
+            [
+                "--prepare-bootstrap-preconditions",
+                "--drill-suffix",
+                bootstrap_config.drill_suffix,
+                "--temp-root",
+                str(bootstrap_config.temp_root),
+                "--image-ref",
+                bootstrap_config.image_ref,
+            ]
+        )
+    assert not bootstrap_config.postgres_environment_path.exists()
+    assert not bootstrap_config.pgbouncer_config_path.exists()
+    assert not bootstrap_config.pgbouncer_userlist_path.exists()
+
+
+def test_precondition_readback_failure_cleans_all_staged_files(
+    bootstrap_config: DisposableDrillBootstrapConfig,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = 0
+    exact_readback = drill_facade._secure_precondition_readback
+
+    def fail_after_one_success(path: Path) -> dict[str, object]:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise RuntimeError("fixture-readback-failure")
+        return exact_readback(path)
+
+    monkeypatch.setattr(
+        drill_facade,
+        "_secure_precondition_readback",
+        fail_after_one_success,
+    )
+    with pytest.raises(RuntimeError, match="fixture-readback-failure"):
+        drill_facade_main(
+            [
+                "--prepare-bootstrap-preconditions",
+                "--drill-suffix",
+                bootstrap_config.drill_suffix,
+                "--temp-root",
+                str(bootstrap_config.temp_root),
+                "--image-ref",
+                bootstrap_config.image_ref,
+            ]
+        )
+
+    assert calls == 2
+    assert not bootstrap_config.postgres_environment_path.exists()
+    assert not bootstrap_config.pgbouncer_config_path.exists()
+    assert not bootstrap_config.pgbouncer_userlist_path.exists()
+    assert not list(bootstrap_config.temp_root.glob("*.part"))
 
 
 @pytest.mark.parametrize(

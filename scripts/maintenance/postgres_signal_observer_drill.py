@@ -4,7 +4,11 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import os
+import secrets
+import stat
 import sys
 from pathlib import Path
 
@@ -24,6 +28,7 @@ from scripts.maintenance.postgres_signal_observer_core import (  # noqa: E402
     execute_formal_postgres_bootstrap,
     launch_disposable_drill_client,
     launch_disposable_drill_observer,
+    serialize_postgres_bootstrap_environment,
     validate_formal_exec_result,
 )
 
@@ -36,6 +41,7 @@ def _parser() -> argparse.ArgumentParser:
     mode.add_argument("--print-observer-spec", action="store_true")
     mode.add_argument("--launch-observer", action="store_true")
     mode.add_argument("--print-bootstrap-spec", action="store_true")
+    mode.add_argument("--prepare-bootstrap-preconditions", action="store_true")
     mode.add_argument("--execute-postgres-bootstrap", action="store_true")
     mode.add_argument("--validate-pgbouncer-readback", type=Path)
     mode.add_argument("--validate-formal-exec-result", type=Path)
@@ -56,6 +62,86 @@ def _required(value: object, option: str) -> object:
     if value is None or not str(value).strip():
         raise SystemExit(f"{option} is required for the selected mode")
     return value
+
+
+def _secure_create_precondition(path: Path, content: bytes) -> None:
+    """Create one exclusive 0600 regular file without following symlinks."""
+
+    nofollow = getattr(os, "O_NOFOLLOW", None)
+    if not isinstance(nofollow, int):
+        raise RuntimeError("drill_precondition_nofollow_unavailable")
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | nofollow
+    cloexec = getattr(os, "O_CLOEXEC", None)
+    if isinstance(cloexec, int):
+        flags |= cloexec
+    descriptor = os.open(path, flags, 0o600)
+    try:
+        try:
+            metadata = os.fstat(descriptor)
+            if (
+                not stat.S_ISREG(metadata.st_mode)
+                or stat.S_IMODE(metadata.st_mode) != 0o600
+            ):
+                raise RuntimeError("drill_precondition_file_contract_invalid")
+            view = memoryview(content)
+            while view:
+                written = os.write(descriptor, view)
+                if written <= 0:
+                    raise RuntimeError("drill_precondition_write_incomplete")
+                view = view[written:]
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+    except BaseException:
+        path.unlink(missing_ok=True)
+        raise
+
+
+def _secure_precondition_readback(path: Path) -> dict[str, object]:
+    """Read one staged precondition through a verified no-follow fd."""
+
+    nofollow = getattr(os, "O_NOFOLLOW", None)
+    if not isinstance(nofollow, int):
+        raise RuntimeError("drill_precondition_nofollow_unavailable")
+    before = path.lstat()
+    if stat.S_ISLNK(before.st_mode) or not stat.S_ISREG(before.st_mode):
+        raise RuntimeError("drill_precondition_file_contract_invalid")
+    flags = os.O_RDONLY | nofollow
+    cloexec = getattr(os, "O_CLOEXEC", None)
+    if isinstance(cloexec, int):
+        flags |= cloexec
+    descriptor = os.open(path, flags)
+    try:
+        metadata = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(metadata.st_mode)
+            or stat.S_IMODE(metadata.st_mode) != 0o600
+            or (metadata.st_dev, metadata.st_ino) != (before.st_dev, before.st_ino)
+            or metadata.st_size > 65_536
+        ):
+            raise RuntimeError("drill_precondition_file_contract_invalid")
+        chunks: list[bytes] = []
+        remaining = 65_537
+        while remaining > 0:
+            chunk = os.read(descriptor, remaining)
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        content = b"".join(chunks)
+        if len(content) > 65_536:
+            raise RuntimeError("drill_precondition_file_contract_invalid")
+    finally:
+        os.close(descriptor)
+    return {
+        "path": str(path),
+        "mode": f"{stat.S_IMODE(metadata.st_mode):04o}",
+        "bytes": len(content),
+        "sha256": hashlib.sha256(content).hexdigest(),
+        "regular_file": True,
+        "symlink": False,
+        "content_or_value_disclosed": False,
+    }
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -84,6 +170,7 @@ def main(argv: list[str] | None = None) -> int:
         return 3 if payload.get("poll_required") is True else 2
     if (
         args.print_bootstrap_spec
+        or args.prepare_bootstrap_preconditions
         or args.execute_postgres_bootstrap
         or args.validate_pgbouncer_readback
     ):
@@ -96,6 +183,67 @@ def main(argv: list[str] | None = None) -> int:
             payload = bootstrap_config.redacted_spec()
             payload["artifact_sha256"] = artifact_sha256
             print(json.dumps(payload, sort_keys=True))
+            return 0
+        if args.prepare_bootstrap_preconditions:
+            paths = (
+                bootstrap_config.postgres_environment_path,
+                bootstrap_config.pgbouncer_config_path,
+                bootstrap_config.pgbouncer_userlist_path,
+            )
+            if any(path.exists() or path.is_symlink() for path in paths):
+                raise RuntimeError("drill_precondition_path_already_exists")
+            password = secrets.token_hex(16)
+            assignments = {
+                "POSTGRES_USER": "mindscape",
+                "POSTGRES_PASSWORD": password,
+                "POSTGRES_DB": "mindscape_core",
+            }
+            environment_payload = serialize_postgres_bootstrap_environment(assignments)
+            payloads = (
+                environment_payload,
+                (
+                    "[databases]\n"
+                    "mindscape_core = host=runtime-db-observer-drill-postgres "
+                    "port=5432 dbname=mindscape_core user=mindscape "
+                    f"password={password}\n\n"
+                    "[pgbouncer]\n"
+                    "listen_addr = 0.0.0.0\nlisten_port = 6432\n"
+                    "auth_type = plain\n"
+                    "auth_file = /etc/pgbouncer/userlist.txt\n"
+                    "pool_mode = session\nmax_client_conn = 8\n"
+                    "default_pool_size = 2\nmin_pool_size = 0\n"
+                    "reserve_pool_size = 0\n"
+                    "server_reset_query = DISCARD ALL\n"
+                    "ignore_startup_parameters = extra_float_digits\n"
+                ).encode("utf-8"),
+                f'"mindscape" "{password}"\n'.encode("utf-8"),
+            )
+            created: list[Path] = []
+            try:
+                for path, content in zip(paths, payloads, strict=True):
+                    _secure_create_precondition(path, content)
+                    created.append(path)
+                file_receipts = [_secure_precondition_readback(path) for path in paths]
+                print(
+                    json.dumps(
+                        {
+                            "artifact_sha256": artifact_sha256,
+                            "validation_passed": True,
+                            "first_failure": None,
+                            "serializer": ("serialize_postgres_bootstrap_environment"),
+                            "serializer_invocation": "one_exact_mapping",
+                            "materialization": "o_excl_fail_closed_staged_creation",
+                            "files": file_receipts,
+                            "secret_values_in_argv_or_receipt": False,
+                            "shell": False,
+                        },
+                        sort_keys=True,
+                    )
+                )
+            except BaseException:
+                for path in reversed(created):
+                    path.unlink(missing_ok=True)
+                raise
             return 0
         if args.execute_postgres_bootstrap:
             return execute_formal_postgres_bootstrap(
