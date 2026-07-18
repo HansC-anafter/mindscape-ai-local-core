@@ -13,6 +13,9 @@ from .drill_bootstrap import (
 )
 from .drill_escalation import (
     FORMAL_DOCKER_OPERATION_CLASSES,
+    POSTGRES_BOOTSTRAP_ENVIRONMENT_KEYS,
+    execute_formal_postgres_bootstrap,
+    serialize_postgres_bootstrap_environment,
     validate_formal_exec_result,
 )
 from .drill_observer import (
@@ -29,6 +32,7 @@ __all__ = [
     "EvidenceBudget",
     "EvidenceCapacityExhausted",
     "FORMAL_DOCKER_OPERATION_CLASSES",
+    "POSTGRES_BOOTSTRAP_ENVIRONMENT_KEYS",
     "DRILL_APPLICATION_NAME",
     "DisposableDrillBootstrapConfig",
     "DisposableDrillClientConfig",
@@ -43,9 +47,11 @@ __all__ = [
     "SignalGenerateEvent",
     "TraceFsInstance",
     "canonical_observer_artifact_sha256",
+    "execute_formal_postgres_bootstrap",
     "launch_disposable_drill_client",
     "launch_disposable_drill_observer",
     "parse_signal_generate_line",
     "read_namespace_pids",
+    "serialize_postgres_bootstrap_environment",
     "validate_formal_exec_result",
 ]

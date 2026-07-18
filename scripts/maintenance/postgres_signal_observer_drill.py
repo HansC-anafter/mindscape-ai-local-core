@@ -20,6 +20,7 @@ from scripts.maintenance.postgres_signal_observer_core import (  # noqa: E402
     DisposableDrillClientConfig,
     DisposableDrillObserverConfig,
     canonical_observer_artifact_sha256,
+    execute_formal_postgres_bootstrap,
     launch_disposable_drill_client,
     launch_disposable_drill_observer,
     validate_formal_exec_result,
@@ -34,6 +35,7 @@ def _parser() -> argparse.ArgumentParser:
     mode.add_argument("--print-observer-spec", action="store_true")
     mode.add_argument("--launch-observer", action="store_true")
     mode.add_argument("--print-bootstrap-spec", action="store_true")
+    mode.add_argument("--execute-postgres-bootstrap", action="store_true")
     mode.add_argument("--validate-pgbouncer-readback", type=Path)
     mode.add_argument("--validate-formal-exec-result", type=Path)
     parser.add_argument("--journal-root", type=Path)
@@ -83,7 +85,11 @@ def main(argv: list[str] | None = None) -> int:
         if payload.get("delivery_allowed") is True:
             return 0
         return 3 if payload.get("poll_required") is True else 2
-    if args.print_bootstrap_spec or args.validate_pgbouncer_readback:
+    if (
+        args.print_bootstrap_spec
+        or args.execute_postgres_bootstrap
+        or args.validate_pgbouncer_readback
+    ):
         bootstrap_config = DisposableDrillBootstrapConfig(
             drill_suffix=str(_required(args.drill_suffix, "--drill-suffix")),
             temp_root=Path(_required(args.temp_root, "--temp-root")),
@@ -94,6 +100,11 @@ def main(argv: list[str] | None = None) -> int:
             payload["artifact_sha256"] = artifact_sha256
             print(json.dumps(payload, sort_keys=True))
             return 0
+        if args.execute_postgres_bootstrap:
+            return execute_formal_postgres_bootstrap(
+                bootstrap_config.postgres_docker_argv(),
+                environment_path=bootstrap_config.postgres_environment_path,
+            )
         readback_path = Path(args.validate_pgbouncer_readback)
         if readback_path.is_symlink() or not readback_path.is_file():
             raise SystemExit("--validate-pgbouncer-readback must be a regular file")

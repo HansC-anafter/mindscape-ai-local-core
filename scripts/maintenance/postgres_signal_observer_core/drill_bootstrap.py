@@ -74,6 +74,11 @@ class DisposableDrillBootstrapConfig:
         return self.temp_root / "pgbouncer.ini"
 
     @property
+    def postgres_environment_path(self) -> Path:
+        self.validate()
+        return self.temp_root / "synthetic-postgres.env"
+
+    @property
     def pgbouncer_userlist_path(self) -> Path:
         self.validate()
         return self.temp_root / "userlist.txt"
@@ -173,7 +178,21 @@ class DisposableDrillBootstrapConfig:
                 "POSTGRES_PASSWORD",
                 "POSTGRES_DB",
             ],
+            "postgres_environment_precondition": {
+                "path": str(self.postgres_environment_path),
+                "mode": "0600",
+                "grammar": "exact_unquoted_key_value_v1",
+                "shell_source": False,
+                "atomic_load": "open_once_o_nofollow_fstat_bounded_fd_read",
+                "required_keys": [
+                    "POSTGRES_USER",
+                    "POSTGRES_PASSWORD",
+                    "POSTGRES_DB",
+                ],
+                "values_serialized": False,
+            },
             "secret_file_paths": [
+                str(self.postgres_environment_path),
                 str(self.pgbouncer_config_path),
                 str(self.pgbouncer_userlist_path),
             ],

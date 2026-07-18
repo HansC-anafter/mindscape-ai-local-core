@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 from pathlib import Path
 from types import SimpleNamespace
@@ -15,11 +16,15 @@ from scripts.maintenance.postgres_signal_observer_core import (
     DisposableDrillBootstrapConfig,
     DisposableDrillClientConfig,
     DisposableDrillObserverConfig,
+    POSTGRES_BOOTSTRAP_ENVIRONMENT_KEYS,
     canonical_observer_artifact_sha256,
+    execute_formal_postgres_bootstrap,
     launch_disposable_drill_client,
     launch_disposable_drill_observer,
+    serialize_postgres_bootstrap_environment,
     validate_formal_exec_result,
 )
+from scripts.maintenance import postgres_signal_observer_drill as drill_facade
 from scripts.maintenance.postgres_signal_observer_drill import main as drill_facade_main
 from scripts.maintenance.postgres_signal_observer_core.drill_observer import (
     OBSERVER_HEALTH_COMMAND,
@@ -131,14 +136,20 @@ def test_client_config_rejects_payload_injection_and_missing_secret(
 
 
 @pytest.fixture
-def bootstrap_config() -> DisposableDrillBootstrapConfig:
-    return DisposableDrillBootstrapConfig(
+def bootstrap_config(
+    request: pytest.FixtureRequest,
+) -> DisposableDrillBootstrapConfig:
+    config = DisposableDrillBootstrapConfig(
         drill_suffix=DRILL_SUFFIX,
         temp_root=Path(
             f"/private/tmp/mindscape-postgres-signal-drill-{DRILL_SUFFIX}"
         ),
         image_ref=IMAGE_REF,
     )
+    request.addfinalizer(
+        lambda: config.postgres_environment_path.unlink(missing_ok=True)
+    )
+    return config
 
 
 def _option_values(argv: tuple[str, ...], option: str) -> list[str]:
@@ -231,7 +242,17 @@ def test_bootstrap_spec_never_serializes_secret_values(
         "POSTGRES_PASSWORD",
         "POSTGRES_DB",
     ]
+    assert spec["postgres_environment_precondition"] == {
+        "path": str(bootstrap_config.postgres_environment_path),
+        "mode": "0600",
+        "grammar": "exact_unquoted_key_value_v1",
+        "shell_source": False,
+        "atomic_load": "open_once_o_nofollow_fstat_bounded_fd_read",
+        "required_keys": list(POSTGRES_BOOTSTRAP_ENVIRONMENT_KEYS),
+        "values_serialized": False,
+    }
     assert "POSTGRES_PASSWORD" in spec["postgres_argv"]
+    assert "--env-file" not in spec["postgres_argv"]
     assert "PGPASSWORD" not in spec["pgbouncer_argv"]
     assert spec["pgbouncer_declared_volume_neutralization"] == {
         "path": "/var/lib/postgresql/data",
@@ -240,6 +261,194 @@ def test_bootstrap_spec_never_serializes_secret_values(
         "budget_bytes": 1048576,
         "path_used_by_pgbouncer": False,
     }
+
+
+def test_formal_postgres_envelope_loads_non_exported_assignments_atomically(
+    bootstrap_config: DisposableDrillBootstrapConfig,
+) -> None:
+    path = bootstrap_config.postgres_environment_path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    secret = "fixture-only-secret+safe"
+    assignments = {
+        "POSTGRES_USER": "mindscape",
+        "POSTGRES_PASSWORD": secret,
+        "POSTGRES_DB": "mindscape_core",
+    }
+    canonical = serialize_postgres_bootstrap_environment(assignments)
+    path.write_bytes(canonical)
+    assert path.read_bytes() == canonical
+    assert canonical == (
+        b"POSTGRES_USER=mindscape\n"
+        b"POSTGRES_PASSWORD=fixture-only-secret+safe\n"
+        b"POSTGRES_DB=mindscape_core\n"
+    )
+    path.chmod(0o600)
+    calls = []
+
+    def fake_run(argv, **kwargs):
+        calls.append((tuple(argv), kwargs))
+        return SimpleNamespace(returncode=0)
+
+    exit_code = execute_formal_postgres_bootstrap(
+        bootstrap_config.postgres_docker_argv(),
+        environment_path=path,
+        base_environment={"PATH": os.environ.get("PATH", "")},
+        run=fake_run,
+    )
+
+    assert exit_code == 0
+    assert len(calls) == 1
+    assert calls[0][0] == bootstrap_config.postgres_docker_argv()
+    assert calls[0][1]["shell"] is False
+    assert calls[0][1]["check"] is False
+    assert calls[0][1]["env"]["POSTGRES_PASSWORD"] == secret
+    assert set(POSTGRES_BOOTSTRAP_ENVIRONMENT_KEYS).issubset(
+        calls[0][1]["env"]
+    )
+    assert "PGPASSWORD" not in calls[0][1]["env"]
+    assert secret not in "\0".join(calls[0][0])
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "POSTGRES_USER=mindscape\nPOSTGRES_DB=mindscape_core\n",
+        "POSTGRES_USER=mindscape\nPOSTGRES_PASSWORD=\nPOSTGRES_DB=mindscape_core\n",
+        "POSTGRES_USER=mindscape\nPOSTGRES_PASSWORD=secret\nPOSTGRES_DB=\n",
+    ],
+)
+def test_formal_postgres_envelope_rejects_missing_or_empty_required_value(
+    bootstrap_config: DisposableDrillBootstrapConfig,
+    content: str,
+) -> None:
+    path = bootstrap_config.postgres_environment_path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+    path.chmod(0o600)
+
+    with pytest.raises(
+        RuntimeError,
+        match="formal_escalation_postgres_environment_required_value_missing",
+    ) as failure:
+        execute_formal_postgres_bootstrap(
+            bootstrap_config.postgres_docker_argv(),
+            environment_path=path,
+            run=lambda *_args, **_kwargs: SimpleNamespace(returncode=0),
+        )
+
+    assert "secret" not in str(failure.value)
+
+
+def test_formal_postgres_envelope_rejects_mode_drift_without_reading_value(
+    bootstrap_config: DisposableDrillBootstrapConfig,
+) -> None:
+    path = bootstrap_config.postgres_environment_path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "POSTGRES_USER=mindscape\n"
+        "POSTGRES_PASSWORD=fixture-only-secret\n"
+        "POSTGRES_DB=mindscape_core\n",
+        encoding="utf-8",
+    )
+    path.chmod(0o644)
+
+    with pytest.raises(
+        RuntimeError,
+        match="formal_escalation_postgres_environment_contract_invalid",
+    ) as failure:
+        execute_formal_postgres_bootstrap(
+            bootstrap_config.postgres_docker_argv(),
+            environment_path=path,
+            run=lambda *_args, **_kwargs: SimpleNamespace(returncode=0),
+        )
+
+    assert "fixture-only-secret" not in str(failure.value)
+
+
+def test_formal_postgres_envelope_rejects_symlink_without_following_value(
+    bootstrap_config: DisposableDrillBootstrapConfig,
+    tmp_path: Path,
+) -> None:
+    target = tmp_path / "secret-target.env"
+    target.write_text(
+        "POSTGRES_USER=mindscape\n"
+        "POSTGRES_PASSWORD=fixture-only-secret\n"
+        "POSTGRES_DB=mindscape_core\n",
+        encoding="utf-8",
+    )
+    target.chmod(0o600)
+    path = bootstrap_config.postgres_environment_path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.symlink_to(target)
+
+    with pytest.raises(
+        RuntimeError,
+        match="formal_escalation_postgres_environment_unavailable",
+    ) as failure:
+        execute_formal_postgres_bootstrap(
+            bootstrap_config.postgres_docker_argv(),
+            environment_path=path,
+            run=lambda *_args, **_kwargs: SimpleNamespace(returncode=0),
+        )
+
+    assert "fixture-only-secret" not in str(failure.value)
+
+
+def test_formal_postgres_envelope_keeps_exact_env_key_argv(
+    bootstrap_config: DisposableDrillBootstrapConfig,
+) -> None:
+    argv = bootstrap_config.postgres_docker_argv()
+
+    assert _option_values(argv, "--env") == list(
+        POSTGRES_BOOTSTRAP_ENVIRONMENT_KEYS
+    )
+    assert "--env-file" not in argv
+    assert str(bootstrap_config.postgres_environment_path) not in argv
+
+
+@pytest.mark.parametrize(
+    ("content", "reason"),
+    [
+        (
+            "POSTGRES_USER=mindscape\nPOSTGRES_PASSWORD=secret\n"
+            "POSTGRES_DB=mindscape_core\nPOSTGRES_USER=duplicate\n",
+            "formal_escalation_postgres_environment_assignment_duplicate",
+        ),
+        (
+            "POSTGRES_USER=mindscape\nPOSTGRES_PASSWORD=secret\n"
+            "POSTGRES_DB=mindscape_core\nPGPASSWORD=unexpected\n",
+            "formal_escalation_postgres_environment_assignment_unexpected",
+        ),
+        (
+            "POSTGRES_USER=mindscape\nPOSTGRES_PASSWORD='quoted-secret'\n"
+            "POSTGRES_DB=mindscape_core\n",
+            "formal_escalation_postgres_environment_value_grammar_invalid",
+        ),
+        (
+            "POSTGRES_USER=mindscape\nPOSTGRES_PASSWORD=secret;command\n"
+            "POSTGRES_DB=mindscape_core\n",
+            "formal_escalation_postgres_environment_value_grammar_invalid",
+        ),
+    ],
+)
+def test_formal_postgres_envelope_rejects_duplicate_or_unexpected_assignment(
+    bootstrap_config: DisposableDrillBootstrapConfig,
+    content: str,
+    reason: str,
+) -> None:
+    path = bootstrap_config.postgres_environment_path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+    path.chmod(0o600)
+
+    with pytest.raises(RuntimeError, match=reason) as failure:
+        execute_formal_postgres_bootstrap(
+            bootstrap_config.postgres_docker_argv(),
+            environment_path=path,
+            run=lambda *_args, **_kwargs: SimpleNamespace(returncode=0),
+        )
+
+    assert "secret" not in str(failure.value)
 
 
 def test_pgbouncer_readback_accepts_only_exact_neutralized_mount_contract(
@@ -352,6 +561,43 @@ def test_drill_facade_is_the_single_bootstrap_spec_entrypoint(
     assert payload["artifact_sha256"] == canonical_observer_artifact_sha256(
         Path(__file__).resolve().parents[3]
     )
+
+
+def test_drill_facade_executes_postgres_through_single_atomic_envelope(
+    bootstrap_config: DisposableDrillBootstrapConfig,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = []
+
+    def fake_execute(argv, *, environment_path):
+        calls.append((tuple(argv), Path(environment_path)))
+        return 0
+
+    monkeypatch.setattr(
+        drill_facade,
+        "execute_formal_postgres_bootstrap",
+        fake_execute,
+    )
+
+    exit_code = drill_facade.main(
+        [
+            "--execute-postgres-bootstrap",
+            "--drill-suffix",
+            bootstrap_config.drill_suffix,
+            "--temp-root",
+            str(bootstrap_config.temp_root),
+            "--image-ref",
+            bootstrap_config.image_ref,
+        ]
+    )
+
+    assert exit_code == 0
+    assert calls == [
+        (
+            bootstrap_config.postgres_docker_argv(),
+            bootstrap_config.postgres_environment_path,
+        )
+    ]
 
 
 def test_drill_facade_validates_redacted_pgbouncer_readback(

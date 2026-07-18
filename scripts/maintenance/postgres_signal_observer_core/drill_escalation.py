@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import re
-from typing import Any, Mapping
+import stat
+import subprocess
+from pathlib import Path
+from typing import Any, Callable, Mapping, Sequence
 
 
 FORMAL_DOCKER_OPERATION_CLASSES = frozenset(
@@ -15,6 +19,150 @@ FORMAL_DOCKER_OPERATION_CLASSES = frozenset(
 )
 MAX_FORMAL_EXEC_OUTPUT_BYTES = 65_536
 _CONTAINER_ID = re.compile(r"^[0-9a-f]{64}$")
+_CANONICAL_ENV_VALUE = re.compile(r"^[A-Za-z0-9._~:/+@%-]+$")
+MAX_POSTGRES_ENVIRONMENT_BYTES = 4_096
+POSTGRES_BOOTSTRAP_ENVIRONMENT_KEYS = (
+    "POSTGRES_USER",
+    "POSTGRES_PASSWORD",
+    "POSTGRES_DB",
+)
+
+
+def serialize_postgres_bootstrap_environment(
+    assignments: Mapping[str, str],
+) -> bytes:
+    """Produce the only accepted non-shell key=value grammar."""
+
+    if set(assignments) != set(POSTGRES_BOOTSTRAP_ENVIRONMENT_KEYS):
+        raise RuntimeError("formal_escalation_postgres_environment_keys_invalid")
+    lines: list[str] = []
+    for key in POSTGRES_BOOTSTRAP_ENVIRONMENT_KEYS:
+        value = assignments.get(key)
+        if not isinstance(value, str) or not value:
+            raise RuntimeError(
+                "formal_escalation_postgres_environment_required_value_missing"
+            )
+        if not _CANONICAL_ENV_VALUE.fullmatch(value):
+            raise RuntimeError(
+                "formal_escalation_postgres_environment_value_grammar_invalid"
+            )
+        lines.append(f"{key}={value}")
+    return ("\n".join(lines) + "\n").encode("utf-8")
+
+
+def _load_postgres_bootstrap_environment(path: Path) -> dict[str, str]:
+    """Open once, verify the fd, and load exact assignments without a shell."""
+
+    candidate = Path(path)
+    nofollow = getattr(os, "O_NOFOLLOW", None)
+    if not isinstance(nofollow, int):
+        raise RuntimeError(
+            "formal_escalation_postgres_environment_nofollow_unavailable"
+        )
+    flags = os.O_RDONLY | nofollow
+    cloexec = getattr(os, "O_CLOEXEC", None)
+    if isinstance(cloexec, int):
+        flags |= cloexec
+    try:
+        file_descriptor = os.open(candidate, flags)
+    except OSError as exc:
+        raise RuntimeError(
+            "formal_escalation_postgres_environment_unavailable"
+        ) from exc
+    try:
+        metadata = os.fstat(file_descriptor)
+        if (
+            not stat.S_ISREG(metadata.st_mode)
+            or stat.S_IMODE(metadata.st_mode) != 0o600
+            or metadata.st_size > MAX_POSTGRES_ENVIRONMENT_BYTES
+        ):
+            raise RuntimeError(
+                "formal_escalation_postgres_environment_contract_invalid"
+            )
+        chunks: list[bytes] = []
+        remaining = MAX_POSTGRES_ENVIRONMENT_BYTES + 1
+        while remaining > 0:
+            chunk = os.read(file_descriptor, remaining)
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        content = b"".join(chunks)
+        if len(content) > MAX_POSTGRES_ENVIRONMENT_BYTES:
+            raise RuntimeError(
+                "formal_escalation_postgres_environment_contract_invalid"
+            )
+    except OSError as exc:
+        raise RuntimeError(
+            "formal_escalation_postgres_environment_unavailable"
+        ) from exc
+    finally:
+        os.close(file_descriptor)
+    try:
+        decoded = content.decode("utf-8")
+    except UnicodeError as exc:
+        raise RuntimeError(
+            "formal_escalation_postgres_environment_assignment_invalid"
+        ) from exc
+    assignments: dict[str, str] = {}
+    for source in decoded.splitlines():
+        if "=" not in source:
+            raise RuntimeError(
+                "formal_escalation_postgres_environment_assignment_invalid"
+            )
+        key, value = source.split("=", 1)
+        if key not in POSTGRES_BOOTSTRAP_ENVIRONMENT_KEYS:
+            raise RuntimeError(
+                "formal_escalation_postgres_environment_assignment_unexpected"
+            )
+        if key in assignments:
+            raise RuntimeError(
+                "formal_escalation_postgres_environment_assignment_duplicate"
+            )
+        assignments[key] = value
+    if any(not assignments.get(key) for key in POSTGRES_BOOTSTRAP_ENVIRONMENT_KEYS):
+        raise RuntimeError(
+            "formal_escalation_postgres_environment_required_value_missing"
+        )
+    if content != serialize_postgres_bootstrap_environment(assignments):
+        raise RuntimeError(
+            "formal_escalation_postgres_environment_canonical_encoding_invalid"
+        )
+    return assignments
+
+
+def execute_formal_postgres_bootstrap(
+    argv: Sequence[str],
+    *,
+    environment_path: Path,
+    base_environment: Mapping[str, str] | None = None,
+    run: Callable[..., Any] = subprocess.run,
+) -> int:
+    """Atomically load the 0600 precondition into one shell-free child env."""
+
+    exact_argv = tuple(str(value) for value in argv)
+    if not exact_argv or exact_argv[:3] != ("docker", "run", "-d"):
+        raise RuntimeError("formal_escalation_postgres_argv_invalid")
+    environment_keys = tuple(
+        exact_argv[index + 1]
+        for index in range(len(exact_argv) - 1)
+        if exact_argv[index] == "--env"
+    )
+    if environment_keys != POSTGRES_BOOTSTRAP_ENVIRONMENT_KEYS:
+        raise RuntimeError("formal_escalation_postgres_argv_environment_drift")
+    loaded = _load_postgres_bootstrap_environment(Path(environment_path))
+    environment = dict(base_environment if base_environment is not None else os.environ)
+    environment.update(loaded)
+    completed = run(
+        exact_argv,
+        check=False,
+        env=environment,
+        shell=False,
+    )
+    return_code = getattr(completed, "returncode", None)
+    if type(return_code) is not int:
+        raise RuntimeError("formal_escalation_postgres_child_result_invalid")
+    return return_code
 
 
 def validate_formal_exec_result(
