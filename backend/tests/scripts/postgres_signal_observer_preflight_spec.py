@@ -4,9 +4,14 @@ import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import pytest
+
 from backend.app.services.runtime_database_incident_gate import (
     IncidentDiagnosticPermit,
     RuntimeDatabaseIncidentJournal,
+)
+from backend.app.services.runtime_database_incident_core.journal import (
+    IncidentJournalUnavailable,
 )
 from scripts.maintenance.postgres_signal_observer_preflight_core import (
     ObserverPreflightConfig,
@@ -127,11 +132,15 @@ def _config(tmp_path: Path, *, phase: str) -> ObserverPreflightConfig:
     )
 
 
+def _open_incident(config: ObserverPreflightConfig) -> str:
+    return RuntimeDatabaseIncidentJournal(config.journal_root).open_incident(
+        failure_code="postgres_server_closed_unexpectedly"
+    ).incident_id
+
+
 def test_qualification_passes_without_claiming_mutation_permit(tmp_path: Path) -> None:
     config = _config(tmp_path, phase="qualification")
-    RuntimeDatabaseIncidentJournal(config.journal_root).open_incident(
-        failure_code="postgres_server_closed_unexpectedly"
-    )
+    incident_id = _open_incident(config)
 
     receipt = collect_observer_preflight(
         config,
@@ -147,11 +156,23 @@ def test_qualification_passes_without_claiming_mutation_permit(tmp_path: Path) -
     assert receipt["parallel_runtime_mutation_detected"] is False
     assert receipt["checks"]["pgbouncer"]["sample_count"] == 3
     assert receipt["checks"]["runtime_lifecycle"]["stable"] is True
+    assert receipt["incident_id"] == incident_id
+    assert receipt["checks"]["diagnostic_permit_admission"] == {
+        "schema_version": "mindscape.postgres-signal-observer-permit-admission.v1",
+        "allowed": True,
+        "failure_code": None,
+        "incident_id": incident_id,
+        "state": "open_unattributed",
+        "conflicting_permit": False,
+        "payload_persisted": False,
+    }
 
 
 def test_liveness_endpoints_are_exact_bounded_and_single_shot(
     tmp_path: Path,
 ) -> None:
+    config = _config(tmp_path, phase="qualification")
+    _open_incident(config)
     calls: list[tuple[str, float]] = []
 
     def fetch(url: str, timeout: float) -> dict[str, object]:
@@ -159,7 +180,7 @@ def test_liveness_endpoints_are_exact_bounded_and_single_shot(
         return {"ok": True, "status": 200, "elapsed_seconds": 0.01}
 
     receipt = collect_observer_preflight(
-        _config(tmp_path, phase="qualification"),
+        config,
         command=_command(),
         fetch=fetch,
         sleep=lambda _: None,
@@ -182,6 +203,8 @@ def test_liveness_endpoints_are_exact_bounded_and_single_shot(
 def test_frontend_liveness_failure_uses_exact_label_without_retry(
     tmp_path: Path,
 ) -> None:
+    config = _config(tmp_path, phase="qualification")
+    _open_incident(config)
     calls: list[tuple[str, float]] = []
 
     def fetch(url: str, timeout: float) -> dict[str, object]:
@@ -196,7 +219,7 @@ def test_frontend_liveness_failure_uses_exact_label_without_retry(
         return {"ok": True, "status": 200, "elapsed_seconds": 0.01}
 
     receipt = collect_observer_preflight(
-        _config(tmp_path, phase="qualification"),
+        config,
         command=_command(),
         fetch=fetch,
         sleep=lambda _: None,
@@ -261,6 +284,7 @@ def test_active_install_is_first_failure_and_capacity_is_not_changed(
     tmp_path: Path,
 ) -> None:
     config = _config(tmp_path, phase="qualification")
+    _open_incident(config)
 
     receipt = collect_observer_preflight(
         config,
@@ -298,6 +322,7 @@ def test_runner_restart_during_full_window_fails_parallel_mutation_gate(
     tmp_path: Path,
 ) -> None:
     config = _config(tmp_path, phase="qualification")
+    _open_incident(config)
 
     receipt = collect_observer_preflight(
         config,
@@ -313,3 +338,123 @@ def test_runner_restart_during_full_window_fails_parallel_mutation_gate(
     after = receipt["checks"]["runtime_lifecycle"]["after"]["rows"][-1]
     assert before["restart_count"] == 2
     assert after["restart_count"] == 3
+
+
+def test_qualification_fails_when_current_incident_is_missing(tmp_path: Path) -> None:
+    receipt = collect_observer_preflight(
+        _config(tmp_path, phase="qualification"),
+        command=_command(),
+        fetch=_fetch,
+        sleep=lambda _: None,
+    )
+
+    assert receipt["gate_pass"] is False
+    assert receipt["first_failure"] == "current_missing"
+    assert receipt["incident_id"] is None
+    assert receipt["checks"]["diagnostic_permit_admission"]["failure_code"] == (
+        "current_missing"
+    )
+
+
+def test_qualification_fails_when_incident_journal_is_unavailable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def unavailable(_journal: RuntimeDatabaseIncidentJournal) -> None:
+        raise IncidentJournalUnavailable("unavailable")
+
+    monkeypatch.setattr(RuntimeDatabaseIncidentJournal, "current", unavailable)
+    receipt = collect_observer_preflight(
+        _config(tmp_path, phase="qualification"),
+        command=_command(),
+        fetch=_fetch,
+        sleep=lambda _: None,
+    )
+
+    assert receipt["gate_pass"] is False
+    assert receipt["first_failure"] == "journal_unavailable"
+    assert receipt["incident_id"] is None
+
+
+def test_qualification_fails_when_current_incident_state_is_not_open(
+    tmp_path: Path,
+) -> None:
+    config = _config(tmp_path, phase="qualification")
+    incident_id = _open_incident(config)
+    current_path = config.journal_root / "current.json"
+    current = json.loads(current_path.read_text(encoding="utf-8"))
+    current["state"] = "contained_pending_soak"
+    current_path.write_text(json.dumps(current), encoding="utf-8")
+
+    receipt = collect_observer_preflight(
+        config,
+        command=_command(),
+        fetch=_fetch,
+        sleep=lambda _: None,
+    )
+
+    assert receipt["gate_pass"] is False
+    assert receipt["first_failure"] == "state_invalid"
+    assert receipt["incident_id"] == incident_id
+
+
+def test_qualification_fails_when_active_diagnostic_permit_conflicts(
+    tmp_path: Path,
+) -> None:
+    config = _config(tmp_path, phase="qualification")
+    incident_id = _open_incident(config)
+    RuntimeDatabaseIncidentJournal(config.journal_root).record_diagnostic_permit(
+        incident_id,
+        IncidentDiagnosticPermit(
+            permit_id="diagnostic-active",
+            source_commit="0123456789abcdef",
+            allowed_operation_keys=(
+                "postgres_signal_observer_start@sha256:" + config.artifact_sha256,
+            ),
+            test_evidence_paths=("evidence/qualification.json",),
+            isolated_drill_id="signal-drill-active",
+            budget_sha256="b" * 64,
+            expires_at=(datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat(),
+            owner="runtime-db-incident-owner",
+        ),
+    )
+
+    receipt = collect_observer_preflight(
+        config,
+        command=_command(),
+        fetch=_fetch,
+        sleep=lambda _: None,
+    )
+
+    assert receipt["gate_pass"] is False
+    assert receipt["first_failure"] == "permit_conflict"
+    assert receipt["incident_id"] == incident_id
+    assert receipt["checks"]["diagnostic_permit_admission"][
+        "conflicting_permit"
+    ] is True
+
+
+def test_qualification_allows_replacement_of_expired_diagnostic_permit(
+    tmp_path: Path,
+) -> None:
+    config = _config(tmp_path, phase="qualification")
+    incident_id = _open_incident(config)
+    current_path = config.journal_root / "current.json"
+    current = json.loads(current_path.read_text(encoding="utf-8"))
+    current["diagnostic_permit"] = {
+        "permit_id": "diagnostic-expired",
+        "expires_at": "2026-07-18T00:00:00Z",
+    }
+    current_path.write_text(json.dumps(current), encoding="utf-8")
+
+    receipt = collect_observer_preflight(
+        config,
+        command=_command(),
+        fetch=_fetch,
+        sleep=lambda _: None,
+    )
+
+    assert receipt["gate_pass"] is True
+    assert receipt["incident_id"] == incident_id
+    assert receipt["checks"]["diagnostic_permit_admission"][
+        "conflicting_permit"
+    ] is False

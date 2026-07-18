@@ -21,6 +21,11 @@ from scripts.maintenance.runtime_pressure_gate_core import (
 from scripts.maintenance.postgres_signal_observer_core import (
     canonical_observer_artifact_sha256,
 )
+from .permit_binding import (
+    OBSERVER_OWNER,
+    QUALIFICATION_SCHEMA,
+    diagnostic_permit_admission,
+)
 
 
 RunCommand = Callable[[list[str], float], dict[str, Any]]
@@ -59,6 +64,8 @@ class ObserverPreflightConfig:
             raise ValueError("observer_preflight_runner_capacity_invalid")
         if not self.owner.strip():
             raise ValueError("observer_preflight_owner_missing")
+        if self.owner != OBSERVER_OWNER:
+            raise ValueError("observer_preflight_owner_invalid")
 
 
 def run_command(args: list[str], timeout_seconds: float) -> dict[str, Any]:
@@ -360,6 +367,10 @@ def _evaluate_failures(
     checks: dict[str, Any], config: ObserverPreflightConfig
 ) -> list[str]:
     failures: list[str] = []
+    if config.phase == "qualification":
+        admission = checks["diagnostic_permit_admission"]
+        if admission.get("allowed") is not True:
+            failures.append(str(admission.get("failure_code") or "state_invalid"))
     if not checks["source_artifact"].get("matches"):
         failures.append("observer_artifact_sha256_mismatch")
     database = checks["database"]
@@ -434,6 +445,11 @@ def collect_observer_preflight(
         evidence={"artifact_sha256": config.artifact_sha256},
         journal_root=config.journal_root,
     )
+    admission = (
+        diagnostic_permit_admission(config.journal_root)
+        if config.phase == "qualification"
+        else None
+    )
     actual_artifact_sha256 = canonical_observer_artifact_sha256(config.repo_root)
     runtime_lifecycle_before = _runtime_lifecycle_snapshot(
         command, config.timeout_seconds
@@ -490,9 +506,11 @@ def collect_observer_preflight(
         "observer_process": observer_process,
         "incident_decision": decision.to_dict(),
     }
+    if admission is not None:
+        checks["diagnostic_permit_admission"] = admission
     failures = _evaluate_failures(checks, config)
     gate_pass = not failures
-    return {
+    receipt = {
         "scope": "postgres_signal_observer_only",
         "phase": config.phase,
         "gate_pass": gate_pass,
@@ -507,6 +525,7 @@ def collect_observer_preflight(
         "ownership_scope": "postgres_signal_observer_only",
         "owner": config.owner,
         "artifact_sha256": config.artifact_sha256,
+        "incident_id": admission.get("incident_id") if admission else decision.incident_id,
         "execution_frontier_queried": False,
         "parallel_runtime_mutation_detected": not bool(
             lifecycle_stable and checks["database_state_stable"]
@@ -514,3 +533,6 @@ def collect_observer_preflight(
         "queue_runner_pool_capacity_mutation": False,
         "checks": checks,
     }
+    if config.phase == "qualification":
+        receipt["schema_version"] = QUALIFICATION_SCHEMA
+    return receipt
