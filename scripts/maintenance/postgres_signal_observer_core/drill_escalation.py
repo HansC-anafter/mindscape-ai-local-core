@@ -33,6 +33,8 @@ FORMAL_DOCKER_OPERATION_RESULT_KINDS = {
     "docker_remove_disposable_isolated_postgresql": "terminal_zero",
     "docker_remove_disposable_isolated_network": "terminal_zero",
 }
+FORMAL_POSTGRES_STARTUP_DEADLINE_SECONDS = 10.0
+FORMAL_POSTGRES_STARTUP_POLL_SECONDS = 0.25
 FORMAL_DOCKER_OPERATION_CLASSES = frozenset(FORMAL_DOCKER_OPERATION_RESULT_KINDS)
 MAX_FORMAL_EXEC_OUTPUT_BYTES = 65_536
 _CONTAINER_ID = re.compile(r"^[0-9a-f]{64}$")
@@ -279,16 +281,16 @@ def validate_formal_exec_result(
     return receipt
 
 
-def terminal_nonzero_capture_metadata(
+def terminal_capture_metadata(
     stdout: object,
     stderr: object,
     *,
     exit_code: int,
 ) -> dict[str, Any]:
-    """Hash full raw binary captures from one terminal nonzero result."""
+    """Hash full raw binary captures without persisting subprocess payload."""
 
-    if type(exit_code) is not int or exit_code == 0:
-        raise ValueError("formal_escalation_terminal_nonzero_exit_code_invalid")
+    if type(exit_code) is not int:
+        raise ValueError("formal_escalation_terminal_exit_code_invalid")
 
     def as_bytes(value: object) -> bytes:
         if value is None:
@@ -312,3 +314,16 @@ def terminal_nonzero_capture_metadata(
         "hash_input": "full_raw_subprocess_capture_bytes",
         "output_disclosed": False,
     }
+
+
+def terminal_nonzero_capture_metadata(
+    stdout: object,
+    stderr: object,
+    *,
+    exit_code: int,
+) -> dict[str, Any]:
+    """Hash full raw binary captures from one terminal nonzero result."""
+
+    if type(exit_code) is not int or exit_code == 0:
+        raise ValueError("formal_escalation_terminal_nonzero_exit_code_invalid")
+    return terminal_capture_metadata(stdout, stderr, exit_code=exit_code)

@@ -5,17 +5,24 @@ from __future__ import annotations
 import json
 import subprocess
 import time
-from typing import Any, Callable, Mapping
+from typing import TYPE_CHECKING, Any, Callable, Mapping
 
 from .drill import DisposableDrillSignalConfig
 from .drill_docker_runtime import canonical_docker_argv
 from .drill_formal_contract import FormalDrillCliConfig
-from .drill_formal_executor import FormalDockerSubprocessExecutor
+from .drill_escalation import (
+    FORMAL_POSTGRES_STARTUP_DEADLINE_SECONDS,
+    FORMAL_POSTGRES_STARTUP_POLL_SECONDS,
+    terminal_capture_metadata,
+)
 from .drill_readback import (
     DisposableDrillContainerReadbackContract,
     execute_disposable_container_readback,
 )
 from .evidence import ObserverEvidenceStore
+
+if TYPE_CHECKING:
+    from .drill_formal_executor import FormalDockerSubprocessExecutor
 
 
 FORMAL_CORRELATION_DEADLINE_SECONDS = 10.0
@@ -40,25 +47,27 @@ class FormalDrillGateOwner:
         self.monotonic = monotonic
         self.sleep = sleep
 
-    def _container_readback(self, role: str, argv: tuple[str, ...], image: str) -> bool:
-        receipt = execute_disposable_container_readback(
+    def _container_readback(
+        self, role: str, argv: tuple[str, ...], image: str
+    ) -> Mapping[str, Any]:
+        return execute_disposable_container_readback(
             DisposableDrillContainerReadbackContract(role, argv, image),
             run=self.executor.run,
         )
-        return receipt.get("validation_passed") is True
 
     def _terminal_command(
         self,
         argv: tuple[str, ...],
         *,
         environment: Mapping[str, str] | None = None,
+        timeout: float = 10.0,
     ) -> Any:
         return self.executor.run(
             argv,
             check=False,
             capture_output=True,
             text=False,
-            timeout=10.0,
+            timeout=timeout,
             shell=False,
             env=(dict(environment) if environment is not None else None),
         )
@@ -67,39 +76,200 @@ class FormalDrillGateOwner:
     def _terminal_zero(completed: Any) -> bool:
         return getattr(completed, "returncode", None) == 0
 
-    def _postgres_ready(self) -> bool:
-        bootstrap = self.config.bootstrap
-        commands = (
-            canonical_docker_argv(
-                "exec",
-                bootstrap.postgres_container_name,
-                _PG_ISREADY,
-                "-U",
-                self.config.client.database_user,
-                "-d",
-                self.config.client.database_name,
-            ),
-            canonical_docker_argv(
-                "exec",
-                bootstrap.postgres_container_name,
-                _PSQL,
-                "-X",
-                "-U",
-                self.config.client.database_user,
-                "-d",
-                self.config.client.database_name,
-                "--tuples-only",
-                "--no-align",
-                "--command",
-                "SELECT 1;",
-            ),
-        )
+    @staticmethod
+    def _stage_result(completed: Any) -> dict[str, Any]:
+        code = getattr(completed, "returncode", None)
+        if type(code) is not int:
+            return {
+                "status": "result_invalid",
+                "error_code": "formal_postgres_readiness_result_invalid",
+            }
         try:
-            return all(
-                self._terminal_zero(self._terminal_command(argv)) for argv in commands
+            capture = terminal_capture_metadata(
+                getattr(completed, "stdout", b""),
+                getattr(completed, "stderr", b""),
+                exit_code=code,
             )
-        except (OSError, RuntimeError, subprocess.TimeoutExpired):
-            return False
+        except ValueError:
+            return {
+                "status": "result_invalid",
+                "error_code": "formal_postgres_readiness_capture_invalid",
+            }
+        return {
+            "status": "terminal_zero" if code == 0 else "terminal_nonzero",
+            "exit_code": code,
+            "terminal_capture": capture,
+        }
+
+    @staticmethod
+    def _empty_stage() -> dict[str, Any]:
+        return {
+            "attempted": False,
+            "attempt_count": 0,
+            "success_count": 0,
+            "passed": False,
+            "last_result": None,
+        }
+
+    @staticmethod
+    def _stage_error(status: str, error_code: str) -> dict[str, str]:
+        return {"status": status, "error_code": error_code}
+
+    def _postgres_readiness(self) -> Mapping[str, Any]:
+        bootstrap = self.config.bootstrap
+        stages = {
+            "container_readback": self._empty_stage(),
+            "pg_isready": self._empty_stage(),
+            "psql_select_one": self._empty_stage(),
+        }
+        try:
+            container_receipt = self._container_readback(
+                "postgres",
+                bootstrap.postgres_docker_argv(),
+                bootstrap.postgres_image_ref,
+            )
+        except (OSError, RuntimeError):
+            container_receipt = {"validation_passed": False}
+        container_passed = container_receipt.get("validation_passed") is True
+        stages["container_readback"] = {
+            "attempted": True,
+            "attempt_count": 1,
+            "success_count": int(container_passed),
+            "passed": container_passed,
+            "last_result": {
+                "status": "validated" if container_passed else "validation_failed",
+                "detail_code": (
+                    None
+                    if container_passed
+                    else "formal_postgres_container_readback_failed"
+                ),
+            },
+        }
+        if not container_passed:
+            return {
+                "passed": False,
+                "gate": "postgres_readiness",
+                "detail_code": "formal_postgres_container_readback_failed",
+                "startup_deadline_seconds": FORMAL_POSTGRES_STARTUP_DEADLINE_SECONDS,
+                "poll_seconds": FORMAL_POSTGRES_STARTUP_POLL_SECONDS,
+                "stages": stages,
+            }
+
+        pg_isready = canonical_docker_argv(
+            "exec",
+            bootstrap.postgres_container_name,
+            _PG_ISREADY,
+            "-U",
+            self.config.client.database_user,
+            "-d",
+            self.config.client.database_name,
+        )
+        select_one = canonical_docker_argv(
+            "exec",
+            bootstrap.postgres_container_name,
+            _PSQL,
+            "-X",
+            "-U",
+            self.config.client.database_user,
+            "-d",
+            self.config.client.database_name,
+            "--tuples-only",
+            "--no-align",
+            "--command",
+            "SELECT 1;",
+        )
+        deadline = self.monotonic() + FORMAL_POSTGRES_STARTUP_DEADLINE_SECONDS
+        detail_code = "formal_postgres_pg_isready_deadline_exceeded"
+
+        while True:
+            remaining = deadline - self.monotonic()
+            if remaining <= 0:
+                break
+            final_attempt = remaining <= FORMAL_POSTGRES_STARTUP_POLL_SECONDS
+            pg_stage = stages["pg_isready"]
+            pg_stage["attempted"] = True
+            pg_stage["attempt_count"] += 1
+            try:
+                completed = self._terminal_command(pg_isready, timeout=remaining)
+            except subprocess.TimeoutExpired:
+                pg_stage["last_result"] = self._stage_error(
+                    "timeout", "formal_postgres_pg_isready_deadline_exceeded"
+                )
+                detail_code = "formal_postgres_pg_isready_deadline_exceeded"
+                break
+            except (OSError, RuntimeError):
+                pg_stage["last_result"] = self._stage_error(
+                    "exec_error", "formal_postgres_pg_isready_unavailable"
+                )
+                detail_code = "formal_postgres_pg_isready_unavailable"
+                break
+            pg_result = self._stage_result(completed)
+            pg_stage["last_result"] = pg_result
+            pg_attempt_passed = pg_result.get("status") == "terminal_zero"
+            if pg_attempt_passed:
+                pg_stage["success_count"] += 1
+                pg_stage["passed"] = True
+
+            if pg_attempt_passed:
+                remaining = deadline - self.monotonic()
+                if remaining <= 0:
+                    detail_code = (
+                        "formal_postgres_psql_select_one_not_attempted_"
+                        "deadline_exceeded"
+                    )
+                    break
+                psql_stage = stages["psql_select_one"]
+                psql_stage["attempted"] = True
+                psql_stage["attempt_count"] += 1
+                try:
+                    completed = self._terminal_command(select_one, timeout=remaining)
+                except subprocess.TimeoutExpired:
+                    psql_stage["last_result"] = self._stage_error(
+                        "timeout", "formal_postgres_psql_select_one_deadline_exceeded"
+                    )
+                    detail_code = "formal_postgres_psql_select_one_deadline_exceeded"
+                    break
+                except (OSError, RuntimeError):
+                    psql_stage["last_result"] = self._stage_error(
+                        "exec_error", "formal_postgres_psql_select_one_unavailable"
+                    )
+                    detail_code = "formal_postgres_psql_select_one_unavailable"
+                    break
+                psql_result = self._stage_result(completed)
+                psql_stage["last_result"] = psql_result
+                psql_attempt_passed = psql_result.get("status") == "terminal_zero"
+                if psql_attempt_passed:
+                    psql_stage["success_count"] += 1
+                    psql_stage["passed"] = True
+                    return {
+                        "passed": True,
+                        "gate": "postgres_readiness",
+                        "detail_code": None,
+                        "startup_deadline_seconds": FORMAL_POSTGRES_STARTUP_DEADLINE_SECONDS,
+                        "poll_seconds": FORMAL_POSTGRES_STARTUP_POLL_SECONDS,
+                        "stages": stages,
+                    }
+                detail_code = "formal_postgres_psql_select_one_deadline_exceeded"
+            else:
+                detail_code = "formal_postgres_pg_isready_deadline_exceeded"
+
+            if final_attempt:
+                break
+            remaining = deadline - self.monotonic()
+            if remaining <= 0:
+                break
+            if remaining <= FORMAL_POSTGRES_STARTUP_POLL_SECONDS:
+                continue
+            self.sleep(FORMAL_POSTGRES_STARTUP_POLL_SECONDS)
+
+        return {
+            "passed": False,
+            "gate": "postgres_readiness",
+            "detail_code": detail_code,
+            "startup_deadline_seconds": FORMAL_POSTGRES_STARTUP_DEADLINE_SECONDS,
+            "poll_seconds": FORMAL_POSTGRES_STARTUP_POLL_SECONDS,
+            "stages": stages,
+        }
 
     def _pgbouncer_ready(self) -> bool:
         bootstrap = self.config.bootstrap
@@ -213,22 +383,28 @@ class FormalDrillGateOwner:
         bootstrap = self.config.bootstrap
         image = bootstrap.postgres_image_ref
         if name == "postgres_readiness":
-            passed = self._container_readback(
-                "postgres", bootstrap.postgres_docker_argv(), image
-            ) and self._postgres_ready()
+            return self._postgres_readiness()
         elif name == "pgbouncer_readiness":
-            passed = self._container_readback(
-                "pgbouncer", bootstrap.pgbouncer_docker_argv(), image
-            ) and self._pgbouncer_ready()
+            passed = (
+                self._container_readback(
+                    "pgbouncer", bootstrap.pgbouncer_docker_argv(), image
+                ).get("validation_passed")
+                is True
+                and self._pgbouncer_ready()
+            )
         elif name == "observer_health":
             passed = bool(
                 self.executor.observer_receipt
                 and self.executor.observer_receipt.get("ready") is True
             )
         elif name == "client_ready":
-            passed = self._container_readback(
-                "client", self.config.client.docker_argv(), image
-            ) and self._source_owned_client_pid()
+            passed = (
+                self._container_readback(
+                    "client", self.config.client.docker_argv(), image
+                ).get("validation_passed")
+                is True
+                and self._source_owned_client_pid()
+            )
         elif name == "sender_target_correlation":
             passed = self._correlation()
         else:

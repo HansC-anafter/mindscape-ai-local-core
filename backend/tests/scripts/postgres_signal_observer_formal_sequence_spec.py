@@ -17,6 +17,9 @@ from scripts.maintenance.postgres_signal_observer_core import (
     execute_formal_drill_sequence,
     materialize_formal_signal_envelope,
 )
+from scripts.maintenance.postgres_signal_observer_core.drill_escalation import (
+    terminal_capture_metadata,
+)
 
 
 POSTGRES_IMAGE_REF = "mindscape-ai-local-core-postgres:pg16@sha256:" + "a" * 64
@@ -71,6 +74,61 @@ def _postflight(owner: str = "none", *, verified: bool = True) -> dict[str, obje
         "remaining_resources_verified": verified,
         "terminal_owner": owner,
         "handed_back": owner == "none" and verified,
+    }
+
+
+def _gate(name: str, *, fail: str | None = None) -> dict[str, object]:
+    passed = name != fail
+    if name != "postgres_readiness":
+        return {"passed": passed}
+
+    def terminal_zero() -> dict[str, object]:
+        return {
+            "status": "terminal_zero",
+            "exit_code": 0,
+            "terminal_capture": terminal_capture_metadata(b"", b"", exit_code=0),
+        }
+    stages = {
+        "container_readback": {
+            "attempted": True,
+            "attempt_count": 1,
+            "success_count": 1,
+            "passed": True,
+            "last_result": {"status": "validated", "detail_code": None},
+        },
+        "pg_isready": {
+            "attempted": True,
+            "attempt_count": 1,
+            "success_count": int(passed),
+            "passed": passed,
+            "last_result": (
+                terminal_zero()
+                if passed
+                else {
+                    "status": "timeout",
+                    "error_code": "formal_postgres_pg_isready_deadline_exceeded",
+                }
+            ),
+        },
+        "psql_select_one": {
+            "attempted": passed,
+            "attempt_count": int(passed),
+            "success_count": int(passed),
+            "passed": passed,
+            "last_result": (
+                terminal_zero() if passed else None
+            ),
+        },
+    }
+    return {
+        "passed": passed,
+        "gate": name,
+        "detail_code": (
+            None if passed else "formal_postgres_pg_isready_deadline_exceeded"
+        ),
+        "startup_deadline_seconds": 10.0,
+        "poll_seconds": 0.25,
+        "stages": stages,
     }
 
 
@@ -173,6 +231,175 @@ def test_sequence_receipt_preserves_redacted_terminal_nonzero_capture_metadata(
     assert receipt["cleanup_operation_attempts"] == 0
 
 
+def test_sequence_projects_exact_postgres_readiness_subreceipt_without_payload(
+    tmp_path: Path,
+) -> None:
+    stdout = b"readiness-private-output"
+    stderr = b"readiness-private-error"
+    capture = {
+        "terminal": True,
+        "exit_code": 1,
+        "stdout_present": True,
+        "stdout_bytes": len(stdout),
+        "stdout_sha256": hashlib.sha256(stdout).hexdigest(),
+        "stderr_present": True,
+        "stderr_bytes": len(stderr),
+        "stderr_sha256": hashlib.sha256(stderr).hexdigest(),
+        "captures_truncated": False,
+        "hash_input": "full_raw_subprocess_capture_bytes",
+        "output_disclosed": False,
+        "unknown_capture_key": "must-drop",
+    }
+    gate = _gate("postgres_readiness", fail="postgres_readiness")
+    gate["unknown_top_level"] = "must-drop"
+    gate["stages"]["pg_isready"] = {
+        "attempted": True,
+        "attempt_count": 4,
+        "success_count": 0,
+        "passed": False,
+        "last_result": {
+            "status": "terminal_nonzero",
+            "exit_code": 1,
+            "terminal_capture": capture,
+            "unknown_result_key": "must-drop",
+        },
+        "unknown_stage_key": "must-drop",
+    }
+
+    receipt = _execute(
+        _configs(tmp_path),
+        execute_docker=_docker_success,
+        evaluate_gate=lambda name: gate if name == "postgres_readiness" else _gate(name),
+        revoke_permit=lambda _reason: None,
+        finalize_cleanup=lambda _failure: _postflight(),
+    )
+
+    projected = receipt["step_receipts"][2]
+    assert projected["detail_code"] == "formal_postgres_pg_isready_deadline_exceeded"
+    result = projected["stages"]["pg_isready"]["last_result"]
+    assert result["terminal_capture"]["stdout_sha256"] == hashlib.sha256(
+        stdout
+    ).hexdigest()
+    assert "unknown_top_level" not in projected
+    assert "unknown_stage_key" not in projected["stages"]["pg_isready"]
+    assert "unknown_result_key" not in result
+    assert "unknown_capture_key" not in result["terminal_capture"]
+    serialized = json.dumps(receipt, sort_keys=True)
+    assert stdout.decode("ascii") not in serialized
+    assert stderr.decode("ascii") not in serialized
+
+
+def test_sequence_rejects_forged_readiness_success_and_capture_shape(
+    tmp_path: Path,
+) -> None:
+    forged_success = _gate("postgres_readiness")
+    forged_success["passed"] = False
+    forged_success["detail_code"] = "formal_postgres_psql_select_one_deadline_exceeded"
+
+    invalid_capture = _gate("postgres_readiness", fail="postgres_readiness")
+    pg_capture = terminal_capture_metadata(b"private", b"", exit_code=1)
+    pg_capture["stdout_present"] = False
+    invalid_capture["stages"]["pg_isready"] = {
+        "attempted": True,
+        "attempt_count": 1,
+        "success_count": 0,
+        "passed": False,
+        "last_result": {
+            "status": "terminal_nonzero",
+            "exit_code": 1,
+            "terminal_capture": pg_capture,
+        },
+    }
+
+    invalid_pg_success = _gate("postgres_readiness")
+    invalid_pg_success["stages"]["pg_isready"]["last_result"] = {
+        "status": "result_invalid",
+        "error_code": "formal_postgres_readiness_capture_invalid",
+    }
+
+    mismatched_container_detail = _gate(
+        "postgres_readiness", fail="postgres_readiness"
+    )
+    mismatched_container_detail["detail_code"] = (
+        "formal_postgres_container_readback_failed"
+    )
+
+    unhashable_detail = _gate("postgres_readiness", fail="postgres_readiness")
+    unhashable_detail["detail_code"] = []
+
+    unhashable_status = _gate("postgres_readiness", fail="postgres_readiness")
+    unhashable_status["stages"]["pg_isready"]["last_result"]["status"] = []
+
+    unhashable_error = _gate("postgres_readiness", fail="postgres_readiness")
+    unhashable_error["stages"]["pg_isready"]["last_result"]["error_code"] = []
+
+    non_string_sha = _gate("postgres_readiness")
+    non_string_sha["stages"]["pg_isready"]["last_result"]["terminal_capture"][
+        "stdout_sha256"
+    ] = int("1" * 64)
+
+    zero_without_success = _gate("postgres_readiness")
+    zero_without_success["passed"] = False
+    zero_without_success["detail_code"] = (
+        "formal_postgres_psql_select_one_deadline_exceeded"
+    )
+    zero_without_success["stages"]["psql_select_one"]["success_count"] = 0
+    zero_without_success["stages"]["psql_select_one"]["passed"] = False
+
+    invalid_last_result_after_success = _gate(
+        "postgres_readiness", fail="postgres_readiness"
+    )
+    invalid_last_result_after_success["stages"]["pg_isready"][
+        "success_count"
+    ] = 1
+    invalid_last_result_after_success["stages"]["pg_isready"]["passed"] = True
+    invalid_last_result_after_success["stages"]["pg_isready"]["last_result"] = {
+        "status": "result_invalid",
+        "error_code": "formal_postgres_readiness_capture_invalid",
+    }
+
+    for index, gate in enumerate(
+        (
+            forged_success,
+            invalid_capture,
+            invalid_pg_success,
+            mismatched_container_detail,
+            unhashable_detail,
+            unhashable_status,
+            unhashable_error,
+            non_string_sha,
+            zero_without_success,
+            invalid_last_result_after_success,
+        )
+    ):
+        case_root = tmp_path / str(index)
+        case_root.mkdir()
+        revocations: list[str] = []
+        receipt = _execute(
+            _configs(case_root),
+            execute_docker=_docker_success,
+            evaluate_gate=(
+                lambda name, source=gate: source
+                if name == "postgres_readiness"
+                else _gate(name)
+            ),
+            revoke_permit=revocations.append,
+            finalize_cleanup=lambda _failure: _postflight(),
+        )
+        projected = receipt["step_receipts"][2]
+        assert projected == {
+            "name": "postgres_readiness",
+            "kind": "gate",
+            "passed": False,
+            "detail_code": "formal_postgres_readiness_receipt_invalid",
+        }
+        assert receipt["first_failure"] == "formal_postgres_readiness_failed"
+        assert revocations == ["formal_postgres_readiness_failed"]
+        assert receipt["remaining_resources_verified"] is True
+        assert receipt["ownership_handed_back"] is True
+        assert receipt["validation_passed"] is False
+
+
 def test_readiness_failure_uses_same_latch_and_blocks_later_mutations(
     tmp_path: Path,
 ) -> None:
@@ -185,7 +412,7 @@ def test_readiness_failure_uses_same_latch_and_blocks_later_mutations(
     receipt = _execute(
         _configs(tmp_path),
         execute_docker=execute,
-        evaluate_gate=lambda name: {"passed": name != "postgres_readiness"},
+        evaluate_gate=lambda name: _gate(name, fail="postgres_readiness"),
         revoke_permit=lambda _reason: None,
         finalize_cleanup=lambda _failure: _postflight(),
     )
@@ -222,7 +449,7 @@ def test_exit_zero_invalid_identifier_runs_exact_may_exist_cleanup(
     receipt = _execute(
         _configs(tmp_path),
         execute_docker=execute,
-        evaluate_gate=lambda _name: {"passed": True},
+        evaluate_gate=_gate,
         revoke_permit=lambda _reason: None,
         finalize_cleanup=lambda _failure: _postflight(),
     )
@@ -254,7 +481,7 @@ def test_observer_health_failure_cleans_started_observer_and_blocks_client(
     receipt = _execute(
         _configs(tmp_path),
         execute_docker=execute,
-        evaluate_gate=lambda name: {"passed": name != "observer_health"},
+        evaluate_gate=lambda name: _gate(name, fail="observer_health"),
         revoke_permit=lambda _reason: None,
         finalize_cleanup=lambda _failure: _postflight(),
     )
@@ -280,7 +507,7 @@ def test_success_requires_every_gate_correlation_revocation_cleanup_and_handback
     receipt = _execute(
         _configs(tmp_path),
         execute_docker=_docker_success,
-        evaluate_gate=lambda _name: {"passed": True},
+        evaluate_gate=_gate,
         revoke_permit=terminal_reasons.append,
         finalize_cleanup=lambda _failure: _postflight(),
     )
@@ -301,7 +528,7 @@ def test_correlation_failure_cannot_claim_validation(tmp_path: Path) -> None:
     receipt = _execute(
         _configs(tmp_path),
         execute_docker=_docker_success,
-        evaluate_gate=lambda name: {"passed": name != "sender_target_correlation"},
+        evaluate_gate=lambda name: _gate(name, fail="sender_target_correlation"),
         revoke_permit=lambda _reason: None,
         finalize_cleanup=lambda _failure: _postflight(),
     )
@@ -322,7 +549,7 @@ def test_revocation_or_cleanup_failure_never_forges_owner_handback(
     receipt = _execute(
         _configs(tmp_path),
         execute_docker=execute,
-        evaluate_gate=lambda _name: {"passed": True},
+        evaluate_gate=_gate,
         revoke_permit=lambda _reason: (_ for _ in ()).throw(
             RuntimeError("revocation failure")
         ),
@@ -396,7 +623,7 @@ def test_signal_envelope_is_materialized_from_exact_source_owned_pid(
     receipt = _execute(
         tuple(configs),
         execute_docker=execute,
-        evaluate_gate=lambda _name: {"passed": True},
+        evaluate_gate=_gate,
         revoke_permit=lambda _reason: None,
         finalize_cleanup=lambda _failure: _postflight(),
     )

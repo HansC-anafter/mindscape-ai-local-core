@@ -110,6 +110,7 @@ def test_artifact_digest_changes_with_the_postgres_image_contract(
         "backend/app/services/runtime_database_incident_core/journal.py",
         "backend/app/services/runtime_database_incident_core/models.py",
         "backend/app/services/runtime_database_incident_core/mutation_context.py",
+        "scripts/maintenance/postgres_signal_observer_core/drill_gate_receipt.py",
     ),
 )
 def test_artifact_digest_binds_incident_admission_and_terminal_owners(
@@ -136,6 +137,7 @@ def test_artifact_digest_binds_incident_admission_and_terminal_owners(
     (
         "backend/app/services/runtime_database_incident_gate.py",
         "backend/app/services/runtime_database_incident_core/journal.py",
+        "scripts/maintenance/postgres_signal_observer_core/drill_gate_receipt.py",
     ),
 )
 def test_artifact_digest_fails_closed_when_incident_owner_is_missing(

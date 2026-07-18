@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import stat
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -29,6 +30,9 @@ from scripts.maintenance.postgres_signal_observer_core.drill_formal_terminal imp
     prepare_formal_preconditions,
     terminal_finalize,
 )
+from scripts.maintenance.postgres_signal_observer_core.drill_gate_receipt import (
+    project_formal_gate_receipt,
+)
 from scripts.maintenance.postgres_signal_observer_core import drill_formal_terminal
 
 
@@ -38,7 +42,7 @@ def _config(tmp_path: Path):
     suffix_tail = int(
         hashlib.sha256(str(tmp_path).encode("utf-8")).hexdigest(), 16
     ) % 1_000_000
-    suffix = f"20260718T{suffix_tail:06d}Z"
+    suffix = f"20991231T{suffix_tail:06d}Z"
     return build_formal_drill_cli_config(
         drill_suffix=suffix,
         temp_root=Path(f"/private/tmp/mindscape-postgres-signal-drill-{suffix}"),
@@ -517,6 +521,456 @@ def test_client_gate_derives_signal_pid_without_external_input(
     assert gate.evaluate("client_ready")["passed"] is True
     assert executor.signal_config.target_postgres_pid == 4242
     assert executor.signal_config.docker_argv()[-1] == "4242"
+
+
+class _FakeClock:
+    def __init__(self) -> None:
+        self.now = 0.0
+        self.sleeps: list[float] = []
+
+    def monotonic(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        assert 0 < seconds <= 0.25
+        self.sleeps.append(seconds)
+        self.now += seconds
+
+
+def _container_readback_pass(*_args, **_kwargs):
+    return {"validation_passed": True}
+
+
+def test_postgres_readiness_container_failure_blocks_all_child_commands(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _config(tmp_path)
+
+    class Executor:
+        def run(self, _argv, **_kwargs):
+            raise AssertionError("readiness child command must not run")
+
+    monkeypatch.setattr(
+        drill_formal_gates,
+        "execute_disposable_container_readback",
+        lambda *_args, **_kwargs: {
+            "validation_passed": False,
+            "first_failure": "sentinel-unpersisted-source-detail",
+        },
+    )
+    receipt = drill_formal_gates.FormalDrillGateOwner(config, Executor()).evaluate(
+        "postgres_readiness"
+    )
+
+    assert receipt["passed"] is False
+    assert receipt["detail_code"] == "formal_postgres_container_readback_failed"
+    assert receipt["stages"]["container_readback"]["attempt_count"] == 1
+    assert receipt["stages"]["pg_isready"]["attempted"] is False
+    assert receipt["stages"]["psql_select_one"]["attempted"] is False
+    assert "sentinel" not in repr(receipt)
+
+
+def test_postgres_readiness_polls_to_success_with_fresh_remaining_timeouts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _config(tmp_path)
+    clock = _FakeClock()
+
+    class Executor:
+        signal_config = None
+        client_environment = None
+        observer_receipt = None
+
+        def __init__(self) -> None:
+            self.pg_results = [1, 0]
+            self.calls: list[tuple[str, float]] = []
+
+        def run(self, argv, **kwargs):
+            timeout = float(kwargs["timeout"])
+            assert 0 < timeout <= 10.0
+            command = "pg_isready" if drill_formal_gates._PG_ISREADY in argv else "psql"
+            self.calls.append((command, timeout))
+            if command == "pg_isready":
+                code = self.pg_results.pop(0)
+                if code == 0:
+                    clock.now += 0.1
+                return SimpleNamespace(
+                    returncode=code,
+                    stdout=(b"transient-payload" if code else b"ready"),
+                    stderr=b"",
+                )
+            return SimpleNamespace(returncode=0, stdout=b"1\n", stderr=b"")
+
+    monkeypatch.setattr(
+        drill_formal_gates,
+        "execute_disposable_container_readback",
+        _container_readback_pass,
+    )
+    executor = Executor()
+    receipt = drill_formal_gates.FormalDrillGateOwner(
+        config,
+        executor,
+        monotonic=clock.monotonic,
+        sleep=clock.sleep,
+    ).evaluate("postgres_readiness")
+
+    assert receipt["passed"] is True
+    assert receipt["detail_code"] is None
+    assert receipt["stages"]["pg_isready"]["attempt_count"] == 2
+    assert receipt["stages"]["psql_select_one"]["attempt_count"] == 1
+    assert (
+        receipt["stages"]["psql_select_one"]["last_result"]["terminal_capture"][
+            "output_disclosed"
+        ]
+        is False
+    )
+    assert executor.calls[0] == ("pg_isready", 10.0)
+    assert executor.calls[-1] == ("psql", pytest.approx(9.65))
+    assert clock.sleeps == [0.25]
+    assert "transient-payload" not in repr(receipt)
+
+
+def test_postgres_readiness_final_poll_quantum_is_terminal_and_bounded(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _config(tmp_path)
+    clock = _FakeClock()
+
+    class Executor:
+        signal_config = None
+        client_environment = None
+        observer_receipt = None
+
+        def __init__(self) -> None:
+            self.timeouts: list[float] = []
+
+        def run(self, _argv, **kwargs):
+            timeout = float(kwargs["timeout"])
+            assert timeout > 0
+            self.timeouts.append(timeout)
+            return SimpleNamespace(
+                returncode=1,
+                stdout=b"not-ready-payload",
+                stderr=b"private-detail",
+            )
+
+    monkeypatch.setattr(
+        drill_formal_gates,
+        "execute_disposable_container_readback",
+        _container_readback_pass,
+    )
+    executor = Executor()
+    receipt = drill_formal_gates.FormalDrillGateOwner(
+        config,
+        executor,
+        monotonic=clock.monotonic,
+        sleep=clock.sleep,
+    ).evaluate("postgres_readiness")
+
+    stage = receipt["stages"]["pg_isready"]
+    assert receipt["passed"] is False
+    assert receipt["detail_code"] == "formal_postgres_pg_isready_deadline_exceeded"
+    assert stage["attempt_count"] == 40
+    assert stage["last_result"]["status"] == "terminal_nonzero"
+    assert stage["last_result"]["terminal_capture"]["output_disclosed"] is False
+    assert receipt["stages"]["psql_select_one"]["attempted"] is False
+    assert executor.timeouts[-1] == pytest.approx(0.25)
+    assert clock.now == pytest.approx(9.75)
+    assert "not-ready-payload" not in repr(receipt)
+    assert "private-detail" not in repr(receipt)
+
+
+def test_postgres_readiness_final_poll_quantum_can_pass(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _config(tmp_path)
+    clock = _FakeClock()
+
+    class Executor:
+        signal_config = None
+        client_environment = None
+        observer_receipt = None
+
+        def __init__(self) -> None:
+            self.pg_count = 0
+            self.timeouts: list[float] = []
+
+        def run(self, argv, **kwargs):
+            timeout = float(kwargs["timeout"])
+            assert timeout > 0
+            self.timeouts.append(timeout)
+            if drill_formal_gates._PG_ISREADY in argv:
+                self.pg_count += 1
+                code = 0 if self.pg_count == 40 else 1
+                if code == 0:
+                    clock.now += 0.05
+                return SimpleNamespace(returncode=code, stdout=b"ready", stderr=b"")
+            clock.now += 0.05
+            return SimpleNamespace(returncode=0, stdout=b"1\n", stderr=b"")
+
+    monkeypatch.setattr(
+        drill_formal_gates,
+        "execute_disposable_container_readback",
+        _container_readback_pass,
+    )
+    executor = Executor()
+    receipt = drill_formal_gates.FormalDrillGateOwner(
+        config,
+        executor,
+        monotonic=clock.monotonic,
+        sleep=clock.sleep,
+    ).evaluate("postgres_readiness")
+
+    assert receipt["passed"] is True
+    assert receipt["stages"]["pg_isready"]["attempt_count"] == 40
+    assert receipt["stages"]["psql_select_one"]["attempt_count"] == 1
+    assert executor.timeouts[-2] == pytest.approx(0.25)
+    assert executor.timeouts[-1] == pytest.approx(0.20)
+    assert clock.now == pytest.approx(9.85)
+    assert receipt["stages"]["psql_select_one"]["last_result"][
+        "terminal_capture"
+    ]["output_disclosed"] is False
+
+
+def test_postgres_readiness_container_readback_exception_is_stable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _config(tmp_path)
+
+    class Executor:
+        def run(self, _argv, **_kwargs):
+            raise AssertionError("readiness child command must not run")
+
+    def unavailable(*_args, **_kwargs):
+        raise OSError("private readback error")
+
+    monkeypatch.setattr(
+        drill_formal_gates, "execute_disposable_container_readback", unavailable
+    )
+    receipt = drill_formal_gates.FormalDrillGateOwner(config, Executor()).evaluate(
+        "postgres_readiness"
+    )
+
+    assert receipt["detail_code"] == "formal_postgres_container_readback_failed"
+    assert receipt["stages"]["pg_isready"]["attempted"] is False
+    assert "private readback error" not in repr(receipt)
+
+
+def test_postgres_readiness_zero_exit_with_invalid_capture_never_passes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _config(tmp_path)
+    clock = _FakeClock()
+
+    class Executor:
+        signal_config = None
+        client_environment = None
+        observer_receipt = None
+
+        def __init__(self) -> None:
+            self.pg_count = 0
+            self.psql_count = 0
+
+        def run(self, argv, **_kwargs):
+            if drill_formal_gates._PG_ISREADY in argv:
+                self.pg_count += 1
+                return SimpleNamespace(returncode=0, stdout="not-bytes", stderr=b"")
+            self.psql_count += 1
+            return SimpleNamespace(returncode=0, stdout=b"1\n", stderr=b"")
+
+    monkeypatch.setattr(
+        drill_formal_gates,
+        "execute_disposable_container_readback",
+        _container_readback_pass,
+    )
+    executor = Executor()
+    receipt = drill_formal_gates.FormalDrillGateOwner(
+        config,
+        executor,
+        monotonic=clock.monotonic,
+        sleep=clock.sleep,
+    ).evaluate("postgres_readiness")
+
+    assert receipt["passed"] is False
+    assert receipt["stages"]["pg_isready"]["success_count"] == 0
+    assert receipt["stages"]["pg_isready"]["last_result"] == {
+        "status": "result_invalid",
+        "error_code": "formal_postgres_readiness_capture_invalid",
+    }
+    assert executor.pg_count == 40
+    assert executor.psql_count == 0
+
+
+def test_postgres_readiness_pg_success_at_deadline_preserves_no_psql_detail(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _config(tmp_path)
+    clock = _FakeClock()
+
+    class Executor:
+        signal_config = None
+        client_environment = None
+        observer_receipt = None
+
+        def __init__(self) -> None:
+            self.pg_count = 0
+            self.psql_count = 0
+
+        def run(self, argv, **_kwargs):
+            if drill_formal_gates._PG_ISREADY in argv:
+                self.pg_count += 1
+                if self.pg_count == 40:
+                    clock.now += 0.25
+                    return SimpleNamespace(returncode=0, stdout=b"ready", stderr=b"")
+                return SimpleNamespace(returncode=1, stdout=b"", stderr=b"")
+            self.psql_count += 1
+            raise AssertionError("psql must not launch after the deadline")
+
+    monkeypatch.setattr(
+        drill_formal_gates,
+        "execute_disposable_container_readback",
+        _container_readback_pass,
+    )
+    executor = Executor()
+    raw = drill_formal_gates.FormalDrillGateOwner(
+        config,
+        executor,
+        monotonic=clock.monotonic,
+        sleep=clock.sleep,
+    ).evaluate("postgres_readiness")
+    projected = project_formal_gate_receipt("postgres_readiness", raw)
+
+    detail = "formal_postgres_psql_select_one_not_attempted_deadline_exceeded"
+    assert raw["detail_code"] == detail
+    assert projected["detail_code"] == detail
+    assert projected["detail_code"] != "formal_postgres_readiness_receipt_invalid"
+    assert projected["stages"]["pg_isready"]["last_result"]["status"] == "terminal_zero"
+    assert projected["stages"]["psql_select_one"]["attempted"] is False
+    assert executor.psql_count == 0
+
+
+def test_postgres_readiness_prior_psql_failure_preserves_final_pg_deadline_gap(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _config(tmp_path)
+    clock = _FakeClock()
+
+    class Executor:
+        signal_config = None
+        client_environment = None
+        observer_receipt = None
+
+        def __init__(self) -> None:
+            self.pg_count = 0
+            self.psql_count = 0
+
+        def run(self, argv, **_kwargs):
+            if drill_formal_gates._PG_ISREADY in argv:
+                self.pg_count += 1
+                code = 0 if self.pg_count in {1, 40} else 1
+                if self.pg_count == 40:
+                    clock.now += 0.25
+                return SimpleNamespace(returncode=code, stdout=b"ready", stderr=b"")
+            self.psql_count += 1
+            return SimpleNamespace(returncode=2, stdout=b"", stderr=b"private")
+
+    monkeypatch.setattr(
+        drill_formal_gates,
+        "execute_disposable_container_readback",
+        _container_readback_pass,
+    )
+    executor = Executor()
+    raw = drill_formal_gates.FormalDrillGateOwner(
+        config,
+        executor,
+        monotonic=clock.monotonic,
+        sleep=clock.sleep,
+    ).evaluate("postgres_readiness")
+    projected = project_formal_gate_receipt("postgres_readiness", raw)
+
+    detail = "formal_postgres_psql_select_one_not_attempted_deadline_exceeded"
+    assert projected["detail_code"] == detail
+    assert projected["stages"]["pg_isready"]["success_count"] == 2
+    assert projected["stages"]["psql_select_one"]["attempt_count"] == 1
+    assert executor.pg_count == 40
+    assert executor.psql_count == 1
+    assert "private" not in repr(projected)
+
+
+def test_postgres_readiness_psql_deadline_and_exec_error_are_stable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _config(tmp_path)
+    clock = _FakeClock()
+
+    class PsqlNonzeroExecutor:
+        signal_config = None
+        client_environment = None
+        observer_receipt = None
+
+        def __init__(self) -> None:
+            self.pg_count = 0
+            self.psql_count = 0
+
+        def run(self, argv, **_kwargs):
+            if drill_formal_gates._PG_ISREADY in argv:
+                self.pg_count += 1
+                return SimpleNamespace(returncode=0, stdout=b"ready", stderr=b"")
+            self.psql_count += 1
+            return SimpleNamespace(returncode=2, stdout=b"", stderr=b"secret")
+
+    monkeypatch.setattr(
+        drill_formal_gates,
+        "execute_disposable_container_readback",
+        _container_readback_pass,
+    )
+    executor = PsqlNonzeroExecutor()
+    receipt = drill_formal_gates.FormalDrillGateOwner(
+        config,
+        executor,
+        monotonic=clock.monotonic,
+        sleep=clock.sleep,
+    ).evaluate("postgres_readiness")
+    assert receipt["detail_code"] == "formal_postgres_psql_select_one_deadline_exceeded"
+    assert executor.pg_count == executor.psql_count == 40
+    assert receipt["stages"]["psql_select_one"]["last_result"]["exit_code"] == 2
+    assert "secret" not in repr(receipt)
+
+    class UnavailableExecutor(PsqlNonzeroExecutor):
+        def run(self, _argv, **_kwargs):
+            raise OSError("private unavailable detail")
+
+    unavailable = drill_formal_gates.FormalDrillGateOwner(
+        config,
+        UnavailableExecutor(),
+    ).evaluate("postgres_readiness")
+    assert unavailable["detail_code"] == "formal_postgres_pg_isready_unavailable"
+    assert unavailable["stages"]["pg_isready"]["last_result"] == {
+        "status": "exec_error",
+        "error_code": "formal_postgres_pg_isready_unavailable",
+    }
+    assert "private unavailable detail" not in repr(unavailable)
+
+    class TimeoutExecutor(PsqlNonzeroExecutor):
+        def run(self, argv, **kwargs):
+            raise subprocess.TimeoutExpired(argv, kwargs["timeout"], output=b"private")
+
+    timed_out = drill_formal_gates.FormalDrillGateOwner(
+        config,
+        TimeoutExecutor(),
+    ).evaluate("postgres_readiness")
+    assert timed_out["detail_code"] == "formal_postgres_pg_isready_deadline_exceeded"
+    assert timed_out["stages"]["pg_isready"]["last_result"]["status"] == "timeout"
+    assert "private" not in repr(timed_out)
 
 
 def test_generic_nonzero_result_persists_only_raw_capture_hashes() -> None:

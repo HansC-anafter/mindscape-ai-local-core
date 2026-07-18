@@ -14,6 +14,7 @@ from .drill_escalation import (
     FORMAL_DOCKER_OPERATION_RESULT_KINDS,
     validate_formal_exec_result,
 )
+from .drill_gate_receipt import project_formal_gate_receipt
 from .drill_observer import DisposableDrillObserverConfig
 
 
@@ -338,8 +339,9 @@ def execute_formal_drill_sequence(
                 gate = evaluate_gate(step.name)
             except Exception:
                 gate = {}
-            passed = isinstance(gate, Mapping) and gate.get("passed") is True
-            step_receipts.append({"name": step.name, "kind": "gate", "passed": passed})
+            projected_gate = project_formal_gate_receipt(step.name, gate)
+            passed = projected_gate.get("passed") is True
+            step_receipts.append(projected_gate)
             if not passed:
                 first_failure = FORMAL_DRILL_GATE_FAILURES[step.name]
                 break
