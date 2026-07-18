@@ -19,6 +19,7 @@ from scripts.maintenance.postgres_signal_observer_core import (  # noqa: E402
     DisposableDrillBootstrapConfig,
     DisposableDrillClientConfig,
     DisposableDrillObserverConfig,
+    canonical_disposable_drill_name,
     canonical_observer_artifact_sha256,
     execute_formal_postgres_bootstrap,
     launch_disposable_drill_client,
@@ -39,14 +40,10 @@ def _parser() -> argparse.ArgumentParser:
     mode.add_argument("--validate-pgbouncer-readback", type=Path)
     mode.add_argument("--validate-formal-exec-result", type=Path)
     parser.add_argument("--journal-root", type=Path)
-    parser.add_argument("--container-name")
     parser.add_argument("--drill-suffix")
     parser.add_argument("--temp-root", type=Path)
-    parser.add_argument("--network-name")
     parser.add_argument("--image-ref")
     parser.add_argument("--formal-operation-class")
-    parser.add_argument("--pgbouncer-host")
-    parser.add_argument("--pgbouncer-container-name")
     parser.add_argument("--pgbouncer-port", type=int, default=6432)
     parser.add_argument("--database-user")
     parser.add_argument("--database-name")
@@ -119,10 +116,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.print_observer_spec or args.launch_observer:
         if args.journal_root is None:
             raise SystemExit("--journal-root is required for observer modes")
+        drill_suffix = str(_required(args.drill_suffix, "--drill-suffix"))
         observer_config = DisposableDrillObserverConfig(
-            container_name=str(_required(args.container_name, "--container-name")),
-            pgbouncer_container_name=str(
-                _required(args.pgbouncer_container_name, "--pgbouncer-container-name")
+            container_name=canonical_disposable_drill_name("observer", drill_suffix),
+            pgbouncer_container_name=canonical_disposable_drill_name(
+                "pgbouncer", drill_suffix
             ),
             image_ref=str(_required(args.image_ref, "--image-ref")),
             journal_host_root=args.journal_root,
@@ -147,11 +145,12 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(receipt, sort_keys=True))
         return 0 if receipt.get("ready") is True else 2
 
+    drill_suffix = str(_required(args.drill_suffix, "--drill-suffix"))
     config = DisposableDrillClientConfig(
-        container_name=str(_required(args.container_name, "--container-name")),
-        network_name=str(_required(args.network_name, "--network-name")),
+        container_name=canonical_disposable_drill_name("client", drill_suffix),
+        network_name=canonical_disposable_drill_name("network", drill_suffix),
         image_ref=str(_required(args.image_ref, "--image-ref")),
-        pgbouncer_host=str(_required(args.pgbouncer_host, "--pgbouncer-host")),
+        pgbouncer_host=canonical_disposable_drill_name("pgbouncer", drill_suffix),
         pgbouncer_port=args.pgbouncer_port,
         database_user=str(_required(args.database_user, "--database-user")),
         database_name=str(_required(args.database_name, "--database-name")),

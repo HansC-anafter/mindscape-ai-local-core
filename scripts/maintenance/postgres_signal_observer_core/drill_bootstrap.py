@@ -9,14 +9,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
+from .drill_names import (
+    DRILL_SUFFIX_PATTERN,
+    canonical_disposable_drill_name,
+)
+
 
 _PINNED_IMAGE = re.compile(r"^[a-zA-Z0-9_./-]+@sha256:[0-9a-f]{64}$")
-_DRILL_SUFFIX = re.compile(r"^[0-9]{8}T[0-9]{6}Z$")
 
 POSTGRES_DATA_TMPFS = "/var/lib/postgresql/data:rw,nosuid,size=192m"
-PGBOUNCER_DECLARED_VOLUME_TMPFS = (
-    "/var/lib/postgresql/data:rw,noexec,nosuid,size=1m"
-)
+PGBOUNCER_DECLARED_VOLUME_TMPFS = "/var/lib/postgresql/data:rw,noexec,nosuid,size=1m"
 PGBOUNCER_RUNTIME_TMPFS = "/tmp:rw,noexec,nosuid,size=4m"
 
 
@@ -33,7 +35,7 @@ class DisposableDrillBootstrapConfig:
     image_ref: str
 
     def validate(self) -> None:
-        if not _DRILL_SUFFIX.fullmatch(str(self.drill_suffix)):
+        if not DRILL_SUFFIX_PATTERN.fullmatch(str(self.drill_suffix)):
             raise ValueError("drill_bootstrap_suffix_invalid")
         expected_root = Path(
             f"/private/tmp/mindscape-postgres-signal-drill-{self.drill_suffix}"
@@ -51,17 +53,27 @@ class DisposableDrillBootstrapConfig:
     @property
     def network_name(self) -> str:
         self.validate()
-        return f"runtime-db-observer-drill-{self.drill_suffix}"
+        return canonical_disposable_drill_name("network", self.drill_suffix)
 
     @property
     def postgres_container_name(self) -> str:
         self.validate()
-        return f"runtime-db-observer-drill-postgres-{self.drill_suffix}"
+        return canonical_disposable_drill_name("postgres", self.drill_suffix)
 
     @property
     def pgbouncer_container_name(self) -> str:
         self.validate()
-        return f"runtime-db-observer-drill-pgbouncer-{self.drill_suffix}"
+        return canonical_disposable_drill_name("pgbouncer", self.drill_suffix)
+
+    @property
+    def observer_container_name(self) -> str:
+        self.validate()
+        return canonical_disposable_drill_name("observer", self.drill_suffix)
+
+    @property
+    def client_container_name(self) -> str:
+        self.validate()
+        return canonical_disposable_drill_name("client", self.drill_suffix)
 
     @property
     def image_digest(self) -> str:
@@ -167,6 +179,8 @@ class DisposableDrillBootstrapConfig:
             "network_name": self.network_name,
             "postgres_container_name": self.postgres_container_name,
             "pgbouncer_container_name": self.pgbouncer_container_name,
+            "observer_container_name": self.observer_container_name,
+            "client_container_name": self.client_container_name,
             "image_ref": self.image_ref,
             "image_digest": self.image_digest,
             "postgres_argv": list(postgres_argv),
@@ -260,9 +274,7 @@ class DisposableDrillBootstrapConfig:
         if not isolation_ok:
             failures.append("pgbouncer_bootstrap_isolation_mismatch")
         tmpfs = source.get("tmpfs")
-        if not isinstance(tmpfs, Mapping) or (
-            "/var/lib/postgresql/data" not in tmpfs
-        ):
+        if not isinstance(tmpfs, Mapping) or ("/var/lib/postgresql/data" not in tmpfs):
             failures.append("pgbouncer_declared_volume_neutralization_missing")
         elif dict(tmpfs) != expected_tmpfs:
             failures.append("pgbouncer_declared_volume_neutralization_drift")

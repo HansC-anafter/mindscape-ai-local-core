@@ -9,9 +9,10 @@ import subprocess
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping
 
+from .drill_names import validate_disposable_drill_name
+
 
 DRILL_APPLICATION_NAME = "postgres-signal-observer-drill-client"
-_NAME = re.compile(r"^[a-z0-9][a-z0-9.-]{0,62}$")
 _IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_.-]{0,62}$")
 _PINNED_IMAGE = re.compile(r"^[A-Za-z0-9_./:-]+@sha256:[0-9a-f]{64}$")
 
@@ -38,7 +39,9 @@ class DisposableDrillClientConfig:
             "network_name": self.network_name,
             "pgbouncer_host": self.pgbouncer_host,
         }.items():
-            if not _NAME.fullmatch(str(value)):
+            try:
+                validate_disposable_drill_name(str(value))
+            except ValueError:
                 raise ValueError(f"drill_{field_name}_invalid")
         for field_name, value in {
             "database_user": self.database_user,

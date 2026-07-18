@@ -12,10 +12,10 @@ from pathlib import Path
 from typing import Any, Callable, Mapping
 
 from .evidence import EvidenceBudget, ObserverEvidenceStore
+from .drill_names import validate_disposable_drill_name
 from .tracefs import INSTANCE_NAME, SIGNAL_FILTER
 
 
-_NAME = re.compile(r"^[a-z0-9][a-z0-9.-]{0,62}$")
 _PINNED_IMAGE = re.compile(r"^[A-Za-z0-9_./:-]+@sha256:[0-9a-f]{64}$")
 
 RunCommand = Callable[..., Any]
@@ -46,7 +46,9 @@ class DisposableDrillObserverConfig:
             "container_name": self.container_name,
             "pgbouncer_container_name": self.pgbouncer_container_name,
         }.items():
-            if not _NAME.fullmatch(str(value)):
+            try:
+                validate_disposable_drill_name(str(value))
+            except ValueError:
                 raise ValueError(f"drill_observer_{field_name}_invalid")
         if not _PINNED_IMAGE.fullmatch(str(self.image_ref)):
             raise ValueError("drill_observer_image_must_be_pinned_by_sha256")
@@ -268,9 +270,7 @@ def launch_disposable_drill_observer(
     inherited = dict(os.environ if environment is None else environment)
     if not str(inherited.get("PGBOUNCER_ADMIN_URL") or ""):
         raise ValueError("drill_observer_pgbouncer_admin_url_environment_missing")
-    if config.evidence_host_root.exists() and any(
-        config.evidence_host_root.iterdir()
-    ):
+    if config.evidence_host_root.exists() and any(config.evidence_host_root.iterdir()):
         raise ValueError("drill_observer_evidence_root_not_empty")
     try:
         completed = run(
@@ -320,9 +320,9 @@ def launch_disposable_drill_observer(
             cleanup=cleanup,
         )
 
-    health_reader = read_health or ObserverEvidenceStore(
-        config.evidence_host_root
-    ).read_health
+    health_reader = (
+        read_health or ObserverEvidenceStore(config.evidence_host_root).read_health
+    )
     deadline = monotonic() + OBSERVER_STARTUP_DEADLINE_SECONDS
     health_state = "health_unavailable"
     health_journal_observed = False

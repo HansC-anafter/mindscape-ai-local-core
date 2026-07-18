@@ -22,6 +22,13 @@ from .drill_observer import (
     DisposableDrillObserverConfig,
     launch_disposable_drill_observer,
 )
+from .drill_names import (
+    DISPOSABLE_DRILL_NAME_PATTERN,
+    DRILL_SUFFIX_PATTERN,
+    canonical_disposable_drill_name,
+    normalize_disposable_drill_suffix,
+    validate_disposable_drill_name,
+)
 from .evidence import EvidenceBudget, EvidenceCapacityExhausted, ObserverEvidenceStore
 from .events import SignalGenerateEvent, parse_signal_generate_line, read_namespace_pids
 from .pgbouncer import PgBouncerCorrelationClient
@@ -37,6 +44,8 @@ __all__ = [
     "DisposableDrillBootstrapConfig",
     "DisposableDrillClientConfig",
     "DisposableDrillObserverConfig",
+    "DISPOSABLE_DRILL_NAME_PATTERN",
+    "DRILL_SUFFIX_PATTERN",
     "ObserverConfig",
     "ObserverEvidenceStore",
     "PgBouncerCorrelationClient",
@@ -47,11 +56,14 @@ __all__ = [
     "SignalGenerateEvent",
     "TraceFsInstance",
     "canonical_observer_artifact_sha256",
+    "canonical_disposable_drill_name",
     "execute_formal_postgres_bootstrap",
     "launch_disposable_drill_client",
     "launch_disposable_drill_observer",
     "parse_signal_generate_line",
+    "normalize_disposable_drill_suffix",
     "read_namespace_pids",
     "serialize_postgres_bootstrap_environment",
     "validate_formal_exec_result",
+    "validate_disposable_drill_name",
 ]

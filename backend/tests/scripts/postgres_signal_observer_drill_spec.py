@@ -17,11 +17,14 @@ from scripts.maintenance.postgres_signal_observer_core import (
     DisposableDrillClientConfig,
     DisposableDrillObserverConfig,
     POSTGRES_BOOTSTRAP_ENVIRONMENT_KEYS,
+    canonical_disposable_drill_name,
     canonical_observer_artifact_sha256,
     execute_formal_postgres_bootstrap,
     launch_disposable_drill_client,
     launch_disposable_drill_observer,
+    normalize_disposable_drill_suffix,
     serialize_postgres_bootstrap_environment,
+    validate_disposable_drill_name,
     validate_formal_exec_result,
 )
 from scripts.maintenance import postgres_signal_observer_drill as drill_facade
@@ -39,6 +42,67 @@ from scripts.maintenance.postgres_signal_observer_core.tracefs import (
 
 IMAGE_REF = "mindscape-ai-local-core-postgres@sha256:" + "a" * 64
 DRILL_SUFFIX = "20260717T233540Z"
+
+
+def test_disposable_drill_names_use_one_exact_lowercase_suffix_seam() -> None:
+    expected = {
+        "network": "runtime-db-observer-drill-20260717t233540z",
+        "postgres": "runtime-db-observer-drill-postgres-20260717t233540z",
+        "pgbouncer": "runtime-db-observer-drill-pgbouncer-20260717t233540z",
+        "observer": "runtime-db-observer-drill-observer-20260717t233540z",
+        "client": "runtime-db-observer-drill-client-20260717t233540z",
+    }
+
+    assert normalize_disposable_drill_suffix(DRILL_SUFFIX) == "20260717t233540z"
+    assert {
+        role: canonical_disposable_drill_name(role, DRILL_SUFFIX) for role in expected
+    } == expected
+    assert len(set(expected.values())) == len(expected)
+    assert all(len(name) <= 63 for name in expected.values())
+    assert (
+        canonical_disposable_drill_name("observer", DRILL_SUFFIX)
+        == expected["observer"]
+    )
+    assert (
+        canonical_disposable_drill_name("observer", "20260717T233541Z")
+        != expected["observer"]
+    )
+
+
+def test_disposable_drill_name_validator_rejects_uppercase_output() -> None:
+    with pytest.raises(ValueError, match="disposable_drill_name_invalid"):
+        validate_disposable_drill_name(
+            "runtime-db-observer-drill-observer-20260717T233540Z"
+        )
+
+
+def test_disposable_drill_name_builder_has_no_hash_or_fallback_branch() -> None:
+    repo_root = Path(__file__).resolve().parents[3]
+    source = (
+        repo_root / "scripts/maintenance/postgres_signal_observer_core/drill_names.py"
+    ).read_text(encoding="utf-8")
+
+    assert "import hashlib" not in source
+    assert ".hexdigest(" not in source
+    assert "sha256" not in source.lower()
+
+
+@pytest.mark.parametrize(
+    ("role", "suffix"),
+    [
+        ("observer", "20260717t233540z"),
+        ("observer", "20260717T233540"),
+        ("observer", "2026-07-17T233540Z"),
+        ("observer", ""),
+        ("unknown", DRILL_SUFFIX),
+    ],
+)
+def test_disposable_drill_name_builder_rejects_noncanonical_input(
+    role: str,
+    suffix: str,
+) -> None:
+    with pytest.raises(ValueError, match="disposable_drill_(suffix|name_role)_invalid"):
+        canonical_disposable_drill_name(role, suffix)
 
 
 @pytest.fixture
@@ -141,9 +205,7 @@ def bootstrap_config(
 ) -> DisposableDrillBootstrapConfig:
     config = DisposableDrillBootstrapConfig(
         drill_suffix=DRILL_SUFFIX,
-        temp_root=Path(
-            f"/private/tmp/mindscape-postgres-signal-drill-{DRILL_SUFFIX}"
-        ),
+        temp_root=Path(f"/private/tmp/mindscape-postgres-signal-drill-{DRILL_SUFFIX}"),
         image_ref=IMAGE_REF,
     )
     request.addfinalizer(
@@ -242,6 +304,19 @@ def test_bootstrap_spec_never_serializes_secret_values(
         "POSTGRES_PASSWORD",
         "POSTGRES_DB",
     ]
+    assert spec["network_name"] == ("runtime-db-observer-drill-20260717t233540z")
+    assert spec["postgres_container_name"] == (
+        "runtime-db-observer-drill-postgres-20260717t233540z"
+    )
+    assert spec["pgbouncer_container_name"] == (
+        "runtime-db-observer-drill-pgbouncer-20260717t233540z"
+    )
+    assert spec["observer_container_name"] == (
+        "runtime-db-observer-drill-observer-20260717t233540z"
+    )
+    assert spec["client_container_name"] == (
+        "runtime-db-observer-drill-client-20260717t233540z"
+    )
     assert spec["postgres_environment_precondition"] == {
         "path": str(bootstrap_config.postgres_environment_path),
         "mode": "0600",
@@ -302,9 +377,7 @@ def test_formal_postgres_envelope_loads_non_exported_assignments_atomically(
     assert calls[0][1]["shell"] is False
     assert calls[0][1]["check"] is False
     assert calls[0][1]["env"]["POSTGRES_PASSWORD"] == secret
-    assert set(POSTGRES_BOOTSTRAP_ENVIRONMENT_KEYS).issubset(
-        calls[0][1]["env"]
-    )
+    assert set(POSTGRES_BOOTSTRAP_ENVIRONMENT_KEYS).issubset(calls[0][1]["env"])
     assert "PGPASSWORD" not in calls[0][1]["env"]
     assert secret not in "\0".join(calls[0][0])
 
@@ -399,9 +472,7 @@ def test_formal_postgres_envelope_keeps_exact_env_key_argv(
 ) -> None:
     argv = bootstrap_config.postgres_docker_argv()
 
-    assert _option_values(argv, "--env") == list(
-        POSTGRES_BOOTSTRAP_ENVIRONMENT_KEYS
-    )
+    assert _option_values(argv, "--env") == list(POSTGRES_BOOTSTRAP_ENVIRONMENT_KEYS)
     assert "--env-file" not in argv
     assert str(bootstrap_config.postgres_environment_path) not in argv
 
@@ -479,9 +550,7 @@ def test_pgbouncer_readback_rejects_image_declared_anonymous_volume(
     receipt = bootstrap_config.validate_pgbouncer_readback(readback)
 
     assert receipt["validation_passed"] is False
-    assert receipt["first_failure"] == (
-        "pgbouncer_bootstrap_anonymous_volume_detected"
-    )
+    assert receipt["first_failure"] == ("pgbouncer_bootstrap_anonymous_volume_detected")
     assert receipt["declared_volume_neutralized"] is False
 
 
@@ -552,15 +621,97 @@ def test_drill_facade_is_the_single_bootstrap_spec_entrypoint(
     payload = json.loads(capsys.readouterr().out)
 
     assert exit_code == 0
-    assert payload["pgbouncer_argv"] == list(
-        bootstrap_config.pgbouncer_docker_argv()
-    )
-    assert payload["postgres_argv"] == list(
-        bootstrap_config.postgres_docker_argv()
-    )
+    assert payload["pgbouncer_argv"] == list(bootstrap_config.pgbouncer_docker_argv())
+    assert payload["postgres_argv"] == list(bootstrap_config.postgres_docker_argv())
     assert payload["artifact_sha256"] == canonical_observer_artifact_sha256(
         Path(__file__).resolve().parents[3]
     )
+
+
+def test_drill_facade_derives_observer_and_client_names_from_suffix_only(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    journal_root = tmp_path / "journal"
+    journal_root.mkdir()
+    backend_image = "mindscape-ai-local-core-backend@sha256:" + "c" * 64
+
+    observer_exit = drill_facade_main(
+        [
+            "--print-observer-spec",
+            "--drill-suffix",
+            DRILL_SUFFIX,
+            "--journal-root",
+            str(journal_root),
+            "--image-ref",
+            backend_image,
+            "--source-commit",
+            "0123456789abcdef",
+        ]
+    )
+    observer_spec = json.loads(capsys.readouterr().out)
+
+    client_exit = drill_facade_main(
+        [
+            "--print-client-spec",
+            "--drill-suffix",
+            DRILL_SUFFIX,
+            "--image-ref",
+            IMAGE_REF,
+            "--database-user",
+            "drill_user",
+            "--database-name",
+            "drill_database",
+        ]
+    )
+    client_spec = json.loads(capsys.readouterr().out)
+
+    assert observer_exit == 0
+    assert observer_spec["container_name"] == (
+        "runtime-db-observer-drill-observer-20260717t233540z"
+    )
+    assert observer_spec["pgbouncer_container_name"] == (
+        "runtime-db-observer-drill-pgbouncer-20260717t233540z"
+    )
+    assert client_exit == 0
+    assert client_spec["container_name"] == (
+        "runtime-db-observer-drill-client-20260717t233540z"
+    )
+    assert client_spec["network_name"] == ("runtime-db-observer-drill-20260717t233540z")
+    assert client_spec["pgbouncer_host"] == (
+        "runtime-db-observer-drill-pgbouncer-20260717t233540z"
+    )
+
+
+@pytest.mark.parametrize(
+    ("legacy_option", "value"),
+    [
+        ("--container-name", "caller-owned"),
+        ("--network-name", "caller-owned"),
+        ("--pgbouncer-host", "caller-owned"),
+        ("--pgbouncer-container-name", "caller-owned"),
+    ],
+)
+def test_drill_facade_rejects_caller_owned_name_inputs(
+    legacy_option: str,
+    value: str,
+) -> None:
+    with pytest.raises(SystemExit):
+        drill_facade_main(
+            [
+                "--print-client-spec",
+                "--drill-suffix",
+                DRILL_SUFFIX,
+                "--image-ref",
+                IMAGE_REF,
+                "--database-user",
+                "drill_user",
+                "--database-name",
+                "drill_database",
+                legacy_option,
+                value,
+            ]
+        )
 
 
 def test_drill_facade_executes_postgres_through_single_atomic_envelope(
@@ -672,9 +823,7 @@ def test_formal_exec_gate_requires_terminal_result_before_id_delivery(
 
 
 def test_formal_exec_gate_fails_closed_on_nonzero_terminal_exit() -> None:
-    exact_output = (
-        "docker: Error response from daemon: No such container: " + "a" * 64
-    )
+    exact_output = "docker: Error response from daemon: No such container: " + "a" * 64
     receipt = validate_formal_exec_result(
         {"exit_code": 125, "output": exact_output},
         operation_class="docker_run_disposable_isolated_postgresql_bootstrap",
