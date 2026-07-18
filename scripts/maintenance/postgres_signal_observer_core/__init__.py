@@ -6,6 +6,11 @@ from .drill import (
     DisposableDrillClientConfig,
     launch_disposable_drill_client,
 )
+from .drill_bootstrap import (
+    PGBOUNCER_DECLARED_VOLUME_TMPFS,
+    POSTGRES_DATA_TMPFS,
+    DisposableDrillBootstrapConfig,
+)
 from .drill_observer import (
     DisposableDrillObserverConfig,
     launch_disposable_drill_observer,
@@ -20,11 +25,14 @@ __all__ = [
     "EvidenceBudget",
     "EvidenceCapacityExhausted",
     "DRILL_APPLICATION_NAME",
+    "DisposableDrillBootstrapConfig",
     "DisposableDrillClientConfig",
     "DisposableDrillObserverConfig",
     "ObserverConfig",
     "ObserverEvidenceStore",
     "PgBouncerCorrelationClient",
+    "PGBOUNCER_DECLARED_VOLUME_TMPFS",
+    "POSTGRES_DATA_TMPFS",
     "PostgresSignalObserver",
     "SIGNAL_FILTER",
     "SignalGenerateEvent",

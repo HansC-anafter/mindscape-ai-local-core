@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -9,12 +10,16 @@ import pytest
 
 from scripts.maintenance.postgres_signal_observer_core import (
     DRILL_APPLICATION_NAME,
+    PGBOUNCER_DECLARED_VOLUME_TMPFS,
+    POSTGRES_DATA_TMPFS,
+    DisposableDrillBootstrapConfig,
     DisposableDrillClientConfig,
     DisposableDrillObserverConfig,
     canonical_observer_artifact_sha256,
     launch_disposable_drill_client,
     launch_disposable_drill_observer,
 )
+from scripts.maintenance.postgres_signal_observer_drill import main as drill_facade_main
 from scripts.maintenance.postgres_signal_observer_core.drill_observer import (
     OBSERVER_HEALTH_COMMAND,
     OBSERVER_STARTUP_DEADLINE_SECONDS,
@@ -27,6 +32,7 @@ from scripts.maintenance.postgres_signal_observer_core.tracefs import (
 
 
 IMAGE_REF = "mindscape-ai-local-core-postgres@sha256:" + "a" * 64
+DRILL_SUFFIX = "20260717T233540Z"
 
 
 @pytest.fixture
@@ -121,6 +127,277 @@ def test_client_config_rejects_payload_injection_and_missing_secret(
         injected.docker_argv()
     with pytest.raises(ValueError, match="pgpassword_environment_missing"):
         launch_disposable_drill_client(client_config, environment={})
+
+
+@pytest.fixture
+def bootstrap_config() -> DisposableDrillBootstrapConfig:
+    return DisposableDrillBootstrapConfig(
+        drill_suffix=DRILL_SUFFIX,
+        temp_root=Path(
+            f"/private/tmp/mindscape-postgres-signal-drill-{DRILL_SUFFIX}"
+        ),
+        image_ref=IMAGE_REF,
+    )
+
+
+def _option_values(argv: tuple[str, ...], option: str) -> list[str]:
+    return [argv[index + 1] for index, value in enumerate(argv) if value == option]
+
+
+def _valid_pgbouncer_readback(
+    config: DisposableDrillBootstrapConfig,
+) -> dict[str, object]:
+    return {
+        "name": f"/{config.pgbouncer_container_name}",
+        "config_image": config.image_ref,
+        "image_id": config.image_digest,
+        "user": "postgres",
+        "entrypoint": ["pgbouncer"],
+        "cmd": ["/etc/pgbouncer/pgbouncer.ini"],
+        "nano_cpus": 100000000,
+        "memory_bytes": 33554432,
+        "pids_limit": 16,
+        "read_only_rootfs": True,
+        "security_opt": ["no-new-privileges:true"],
+        "tmpfs": {
+            "/tmp": "rw,noexec,nosuid,size=4m",
+            "/var/lib/postgresql/data": "rw,noexec,nosuid,size=1m",
+        },
+        "mounts": [
+            {
+                "type": "bind",
+                "source": str(config.pgbouncer_config_path),
+                "destination": "/etc/pgbouncer/pgbouncer.ini",
+                "rw": False,
+            },
+            {
+                "type": "bind",
+                "source": str(config.pgbouncer_userlist_path),
+                "destination": "/etc/pgbouncer/userlist.txt",
+                "rw": False,
+            },
+        ],
+        "networks": [{"name": config.network_name}],
+        "state": {
+            "running": True,
+            "exit_code": 0,
+            "restarting": False,
+            "restart_count": 0,
+        },
+    }
+
+
+def test_bootstrap_spec_neutralizes_declared_volume_and_preserves_budgets(
+    bootstrap_config: DisposableDrillBootstrapConfig,
+) -> None:
+    postgres_argv = bootstrap_config.postgres_docker_argv()
+    pgbouncer_argv = bootstrap_config.pgbouncer_docker_argv()
+    pgbouncer_mounts = _option_values(pgbouncer_argv, "--mount")
+
+    assert _option_values(postgres_argv, "--tmpfs") == [
+        POSTGRES_DATA_TMPFS,
+        "/var/run/postgresql:rw,nosuid,size=8m",
+        "/tmp:rw,noexec,nosuid,size=16m",
+    ]
+    assert _option_values(pgbouncer_argv, "--tmpfs") == [
+        "/tmp:rw,noexec,nosuid,size=4m",
+        PGBOUNCER_DECLARED_VOLUME_TMPFS,
+    ]
+    assert pgbouncer_argv[pgbouncer_argv.index("--cpus") + 1] == "0.10"
+    assert pgbouncer_argv[pgbouncer_argv.index("--memory") + 1] == "32m"
+    assert pgbouncer_argv[pgbouncer_argv.index("--pids-limit") + 1] == "16"
+    assert "--read-only" in pgbouncer_argv
+    assert pgbouncer_argv[pgbouncer_argv.index("--security-opt") + 1] == (
+        "no-new-privileges:true"
+    )
+    assert len(pgbouncer_mounts) == 2
+    assert all(value.endswith(",readonly") for value in pgbouncer_mounts)
+    assert all("/var/lib/postgresql/data" not in value for value in pgbouncer_mounts)
+    assert postgres_argv[-1] == pgbouncer_argv[-2] == IMAGE_REF
+
+
+def test_bootstrap_spec_never_serializes_secret_values(
+    bootstrap_config: DisposableDrillBootstrapConfig,
+) -> None:
+    secret = "fixture-only-secret"
+    spec = bootstrap_config.redacted_spec()
+    serialized = json.dumps(spec, sort_keys=True)
+
+    assert secret not in serialized
+    assert "postgresql://" not in serialized
+    assert spec["postgres_secret_environment_keys"] == [
+        "POSTGRES_USER",
+        "POSTGRES_PASSWORD",
+        "POSTGRES_DB",
+    ]
+    assert "POSTGRES_PASSWORD" in spec["postgres_argv"]
+    assert "PGPASSWORD" not in spec["pgbouncer_argv"]
+    assert spec["pgbouncer_declared_volume_neutralization"] == {
+        "path": "/var/lib/postgresql/data",
+        "type": "tmpfs",
+        "options": "rw,noexec,nosuid,size=1m",
+        "budget_bytes": 1048576,
+        "path_used_by_pgbouncer": False,
+    }
+
+
+def test_pgbouncer_readback_accepts_only_exact_neutralized_mount_contract(
+    bootstrap_config: DisposableDrillBootstrapConfig,
+) -> None:
+    receipt = bootstrap_config.validate_pgbouncer_readback(
+        _valid_pgbouncer_readback(bootstrap_config)
+    )
+
+    assert receipt["validation_passed"] is True
+    assert receipt["first_failure"] is None
+    assert receipt["declared_volume_neutralized"] is True
+
+
+def test_pgbouncer_readback_rejects_image_declared_anonymous_volume(
+    bootstrap_config: DisposableDrillBootstrapConfig,
+) -> None:
+    readback = _valid_pgbouncer_readback(bootstrap_config)
+    readback["mounts"].append(
+        {
+            "type": "volume",
+            "source": "anonymous-volume-id",
+            "destination": "/var/lib/postgresql/data",
+            "rw": True,
+        }
+    )
+
+    receipt = bootstrap_config.validate_pgbouncer_readback(readback)
+
+    assert receipt["validation_passed"] is False
+    assert receipt["first_failure"] == (
+        "pgbouncer_bootstrap_anonymous_volume_detected"
+    )
+    assert receipt["declared_volume_neutralized"] is False
+
+
+@pytest.mark.parametrize(
+    ("tmpfs", "failure"),
+    [
+        (
+            {"/tmp": "rw,noexec,nosuid,size=4m"},
+            "pgbouncer_declared_volume_neutralization_missing",
+        ),
+        (
+            {
+                "/tmp": "rw,noexec,nosuid,size=4m",
+                "/var/lib/postgresql/data": "rw,nosuid,size=2m",
+            },
+            "pgbouncer_declared_volume_neutralization_drift",
+        ),
+    ],
+)
+def test_pgbouncer_readback_rejects_missing_or_drifted_tmpfs(
+    bootstrap_config: DisposableDrillBootstrapConfig,
+    tmpfs: dict[str, str],
+    failure: str,
+) -> None:
+    readback = _valid_pgbouncer_readback(bootstrap_config)
+    readback["tmpfs"] = tmpfs
+
+    receipt = bootstrap_config.validate_pgbouncer_readback(readback)
+
+    assert receipt["validation_passed"] is False
+    assert receipt["first_failure"] == failure
+
+
+def test_pgbouncer_readback_rejects_any_extra_mount(
+    bootstrap_config: DisposableDrillBootstrapConfig,
+) -> None:
+    readback = _valid_pgbouncer_readback(bootstrap_config)
+    readback["mounts"].append(
+        {
+            "type": "bind",
+            "source": "/tmp/extra",
+            "destination": "/tmp/extra",
+            "rw": False,
+        }
+    )
+
+    receipt = bootstrap_config.validate_pgbouncer_readback(readback)
+
+    assert receipt["validation_passed"] is False
+    assert receipt["first_failure"] == "pgbouncer_bootstrap_mount_contract_mismatch"
+
+
+def test_drill_facade_is_the_single_bootstrap_spec_entrypoint(
+    bootstrap_config: DisposableDrillBootstrapConfig,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    exit_code = drill_facade_main(
+        [
+            "--print-bootstrap-spec",
+            "--drill-suffix",
+            bootstrap_config.drill_suffix,
+            "--temp-root",
+            str(bootstrap_config.temp_root),
+            "--image-ref",
+            bootstrap_config.image_ref,
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert payload["pgbouncer_argv"] == list(
+        bootstrap_config.pgbouncer_docker_argv()
+    )
+    assert payload["postgres_argv"] == list(
+        bootstrap_config.postgres_docker_argv()
+    )
+    assert payload["artifact_sha256"] == canonical_observer_artifact_sha256(
+        Path(__file__).resolve().parents[3]
+    )
+
+
+def test_drill_facade_validates_redacted_pgbouncer_readback(
+    bootstrap_config: DisposableDrillBootstrapConfig,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    readback_path = tmp_path / "pgbouncer-readback.json"
+    readback_path.write_text(
+        json.dumps(_valid_pgbouncer_readback(bootstrap_config)),
+        encoding="utf-8",
+    )
+
+    exit_code = drill_facade_main(
+        [
+            "--validate-pgbouncer-readback",
+            str(readback_path),
+            "--drill-suffix",
+            bootstrap_config.drill_suffix,
+            "--temp-root",
+            str(bootstrap_config.temp_root),
+            "--image-ref",
+            bootstrap_config.image_ref,
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert payload["validation_passed"] is True
+    assert payload["declared_volume_neutralized"] is True
+
+
+def test_bootstrap_contract_has_one_facade_and_no_second_launcher() -> None:
+    repo_root = Path(__file__).resolve().parents[3]
+    maintenance_root = repo_root / "scripts/maintenance"
+    facade_hits = []
+    launcher_hits = []
+    for path in maintenance_root.rglob("*.py"):
+        source = path.read_text(encoding="utf-8")
+        relative = path.relative_to(repo_root).as_posix()
+        if "--print-bootstrap-spec" in source:
+            facade_hits.append(relative)
+        if re.search(r"def\s+launch_[a-z0-9_]*bootstrap", source):
+            launcher_hits.append(relative)
+
+    assert facade_hits == ["scripts/maintenance/postgres_signal_observer_drill.py"]
+    assert launcher_hits == []
 
 
 @pytest.fixture
