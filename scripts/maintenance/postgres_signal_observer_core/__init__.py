@@ -43,6 +43,7 @@ from .drill_names import (
     normalize_disposable_drill_suffix,
     validate_disposable_drill_name,
 )
+from .drill_runtime import FormalExecutorPythonRuntimeContract
 from .evidence import EvidenceBudget, EvidenceCapacityExhausted, ObserverEvidenceStore
 from .events import SignalGenerateEvent, parse_signal_generate_line, read_namespace_pids
 from .pgbouncer import PgBouncerCorrelationClient
@@ -53,6 +54,7 @@ __all__ = [
     "EvidenceBudget",
     "EvidenceCapacityExhausted",
     "FORMAL_DOCKER_OPERATION_CLASSES",
+    "FormalExecutorPythonRuntimeContract",
     "POSTGRES_BOOTSTRAP_ENVIRONMENT_KEYS",
     "DRILL_APPLICATION_NAME",
     "DisposableDrillBootstrapConfig",

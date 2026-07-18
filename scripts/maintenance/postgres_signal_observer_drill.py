@@ -25,6 +25,7 @@ from scripts.maintenance.postgres_signal_observer_core import (  # noqa: E402
     DisposableDrillImageContract,
     DisposableDrillObserverConfig,
     DisposableDrillSignalConfig,
+    FormalExecutorPythonRuntimeContract,
     OBSERVER_BACKEND_IMAGE_ROLE,
     POSTGRES_DRILL_IMAGE_ROLE,
     canonical_disposable_drill_name,
@@ -77,12 +78,14 @@ def _with_image_contract(
     payload: dict[str, object],
     *,
     image_contract: DisposableDrillImageContract,
+    runtime_contract: FormalExecutorPythonRuntimeContract,
     selected_role: str,
 ) -> dict[str, object]:
     """Bind every facade receipt to both validated image owners."""
 
     return {
         **payload,
+        "formal_executor_python_runtime": runtime_contract.redacted_spec(),
         "selected_image_role": selected_role,
         "image_contract": image_contract.redacted_spec(),
     }
@@ -178,6 +181,11 @@ def main(argv: list[str] | None = None) -> int:
         image_contract.validate()
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
+    runtime_contract = FormalExecutorPythonRuntimeContract(repo_root=REPO_ROOT)
+    try:
+        runtime_contract.validate()
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
     artifact_sha256 = canonical_observer_artifact_sha256(REPO_ROOT)
     if args.validate_formal_exec_result:
         result_path = Path(args.validate_formal_exec_result)
@@ -199,6 +207,7 @@ def main(argv: list[str] | None = None) -> int:
         payload = _with_image_contract(
             payload,
             image_contract=image_contract,
+            runtime_contract=runtime_contract,
             selected_role=POSTGRES_DRILL_IMAGE_ROLE,
         )
         print(json.dumps(payload, sort_keys=True))
@@ -224,6 +233,7 @@ def main(argv: list[str] | None = None) -> int:
             payload = _with_image_contract(
                 payload,
                 image_contract=image_contract,
+                runtime_contract=runtime_contract,
                 selected_role=POSTGRES_DRILL_IMAGE_ROLE,
             )
             print(json.dumps(payload, sort_keys=True))
@@ -281,6 +291,7 @@ def main(argv: list[str] | None = None) -> int:
                         "shell": False,
                     },
                     image_contract=image_contract,
+                    runtime_contract=runtime_contract,
                     selected_role=POSTGRES_DRILL_IMAGE_ROLE,
                 )
                 print(json.dumps(payload, sort_keys=True))
@@ -306,6 +317,7 @@ def main(argv: list[str] | None = None) -> int:
         payload = _with_image_contract(
             payload,
             image_contract=image_contract,
+            runtime_contract=runtime_contract,
             selected_role=POSTGRES_DRILL_IMAGE_ROLE,
         )
         print(json.dumps(payload, sort_keys=True))
@@ -326,6 +338,7 @@ def main(argv: list[str] | None = None) -> int:
             payload = _with_image_contract(
                 payload,
                 image_contract=image_contract,
+                runtime_contract=runtime_contract,
                 selected_role=POSTGRES_DRILL_IMAGE_ROLE,
             )
             print(json.dumps(payload, sort_keys=True))
@@ -349,6 +362,7 @@ def main(argv: list[str] | None = None) -> int:
         receipt = _with_image_contract(
             receipt,
             image_contract=image_contract,
+            runtime_contract=runtime_contract,
             selected_role=POSTGRES_DRILL_IMAGE_ROLE,
         )
         print(json.dumps(receipt, sort_keys=True))
@@ -374,6 +388,7 @@ def main(argv: list[str] | None = None) -> int:
             payload = _with_image_contract(
                 observer_config.redacted_spec(),
                 image_contract=image_contract,
+                runtime_contract=runtime_contract,
                 selected_role=OBSERVER_BACKEND_IMAGE_ROLE,
             )
             print(json.dumps(payload, sort_keys=True))
@@ -392,6 +407,7 @@ def main(argv: list[str] | None = None) -> int:
         receipt = _with_image_contract(
             receipt,
             image_contract=image_contract,
+            runtime_contract=runtime_contract,
             selected_role=OBSERVER_BACKEND_IMAGE_ROLE,
         )
         print(json.dumps(receipt, sort_keys=True))
@@ -412,6 +428,7 @@ def main(argv: list[str] | None = None) -> int:
         payload = _with_image_contract(
             config.redacted_spec(),
             image_contract=image_contract,
+            runtime_contract=runtime_contract,
             selected_role=POSTGRES_DRILL_IMAGE_ROLE,
         )
         print(json.dumps(payload, sort_keys=True))
@@ -432,6 +449,7 @@ def main(argv: list[str] | None = None) -> int:
     receipt = _with_image_contract(
         receipt,
         image_contract=image_contract,
+        runtime_contract=runtime_contract,
         selected_role=POSTGRES_DRILL_IMAGE_ROLE,
     )
     print(json.dumps(receipt, sort_keys=True))
