@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any, Callable, Mapping
 from .drill_client_readiness import evaluate_client_readiness
 from .drill_correlation_gate_receipt import (
     FORMAL_CORRELATION_DEADLINE_SECONDS, FORMAL_CORRELATION_POLL_SECONDS,
-    correlation_detail, correlation_health_state,
+    correlation_detail, correlation_health,
 )
 from .drill_docker_runtime import canonical_docker_argv
 from .drill_formal_contract import FormalDrillCliConfig
@@ -428,6 +428,7 @@ class FormalDrillGateOwner:
                 "terminal_deadline_seconds": FORMAL_CORRELATION_DEADLINE_SECONDS,
                 "poll_seconds": FORMAL_CORRELATION_POLL_SECONDS,
                 "observer_health_state": "health_unavailable",
+                "observer_health_detail_code": None,
                 "event_file_count": 0,
                 "parsed_event_count": 0,
                 "target_match_count": 0,
@@ -453,7 +454,7 @@ class FormalDrillGateOwner:
                     "pgbouncer"
                 ].get("status") == "correlated":
                     correlated_count += 1
-            health_state = correlation_health_state(store)
+            health_state, health_detail = correlation_health(store)
             detail = correlation_detail(
                 len(paths), parsed_count, target_count, correlated_count, health_state
             )
@@ -464,6 +465,7 @@ class FormalDrillGateOwner:
                 "terminal_deadline_seconds": FORMAL_CORRELATION_DEADLINE_SECONDS,
                 "poll_seconds": FORMAL_CORRELATION_POLL_SECONDS,
                 "observer_health_state": health_state,
+                "observer_health_detail_code": health_detail,
                 "event_file_count": len(paths),
                 "parsed_event_count": parsed_count,
                 "target_match_count": target_count,

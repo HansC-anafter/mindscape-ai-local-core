@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
+from .service import canonical_observer_failure_detail_code
+
 
 FORMAL_CORRELATION_DEADLINE_SECONDS = 10.0
 FORMAL_CORRELATION_POLL_SECONDS = 0.25
@@ -40,6 +42,7 @@ _SOURCE_KEYS = frozenset(
         "terminal_deadline_seconds",
         "poll_seconds",
         "observer_health_state",
+        "observer_health_detail_code",
         *_COUNT_KEYS,
     }
 )
@@ -83,11 +86,22 @@ def project_correlation_gate_receipt(name: str, source: object) -> dict[str, Any
         or source.get("poll_seconds") != FORMAL_CORRELATION_POLL_SECONDS
         or type(source.get("observer_health_state")) is not str
         or source.get("observer_health_state") not in _HEALTH_STATES
+        or not (
+            source.get("observer_health_detail_code") is None
+            or type(source.get("observer_health_detail_code")) is str
+        )
         or any(type(source.get(key)) is not int for key in _COUNT_KEYS)
     ):
         return invalid
     events, parsed, targets, correlated = (source[key] for key in _COUNT_KEYS)
     if not (0 <= correlated <= targets <= parsed <= events):
+        return invalid
+    health_detail = source["observer_health_detail_code"]
+    health_failed = source["observer_health_state"].startswith("fail_closed_")
+    if health_failed is not (type(health_detail) is str) or (
+        health_failed
+        and canonical_observer_failure_detail_code(health_detail) != health_detail
+    ):
         return invalid
     expected_detail = correlation_detail(
         events, parsed, targets, correlated, source["observer_health_state"]
@@ -102,14 +116,22 @@ def project_correlation_gate_receipt(name: str, source: object) -> dict[str, Any
         "terminal_deadline_seconds": FORMAL_CORRELATION_DEADLINE_SECONDS,
         "poll_seconds": FORMAL_CORRELATION_POLL_SECONDS,
         "observer_health_state": source["observer_health_state"],
+        "observer_health_detail_code": health_detail,
         **{key: source[key] for key in _COUNT_KEYS},
     }
 
 
-def correlation_health_state(store: object) -> str:
+def correlation_health(store: object) -> tuple[str, str | None]:
     try:
         payload = store.read_health()  # type: ignore[attr-defined]
     except (OSError, RuntimeError, TypeError, ValueError):
-        return "health_unavailable"
+        return "health_unavailable", None
     state = payload.get("state") if isinstance(payload, Mapping) else None
-    return state if type(state) is str and state in _HEALTH_STATES else "health_invalid"
+    if type(state) is not str or state not in _HEALTH_STATES:
+        return "health_invalid", None
+    detail = payload.get("failure_detail_code")
+    if state.startswith("fail_closed_"):
+        if type(detail) is not str or canonical_observer_failure_detail_code(detail) != detail:
+            return "health_invalid", None
+        return state, detail
+    return state, None
