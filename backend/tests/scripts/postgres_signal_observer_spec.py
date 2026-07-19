@@ -310,7 +310,9 @@ def test_observer_persists_starting_health_before_tracefs_prepare(
     )
 
 
-def test_observer_health_redacts_unclassified_exception_detail(tmp_path: Path) -> None:
+def test_observer_health_redacts_unclassified_tracefs_exception_detail(
+    tmp_path: Path,
+) -> None:
     config = _config(tmp_path)
     journal = RuntimeDatabaseIncidentJournal(config.journal_root)
     incident = journal.open_incident(failure_code="isolated_observer_redaction_test")
@@ -349,8 +351,164 @@ def test_observer_health_redacts_unclassified_exception_detail(tmp_path: Path) -
     terminal = ObserverEvidenceStore(config.evidence_root).read_health()
     assert terminal["error_code"] == "RuntimeError"
     assert terminal["error_class"] == "RuntimeError"
-    assert terminal["failure_detail_code"] == "observer_error_unclassified"
+    assert (
+        terminal["failure_detail_code"]
+        == "observer_error_unclassified_tracefs_prepare"
+    )
     assert "fixture-secret" not in json.dumps(terminal, sort_keys=True)
+
+
+def test_observer_ready_health_write_failure_remains_tracefs_prepare(
+    tmp_path: Path,
+) -> None:
+    config = _config(tmp_path)
+    journal = RuntimeDatabaseIncidentJournal(config.journal_root)
+    incident = journal.open_incident(failure_code="isolated_observer_health_write_test")
+    journal.record_diagnostic_permit(
+        incident.incident_id,
+        IncidentDiagnosticPermit(
+            permit_id="diagnostic-observer-health-write",
+            source_commit=config.source_commit,
+            allowed_operation_keys=(
+                "postgres_signal_observer_start@sha256:" + config.artifact_sha256,
+            ),
+            test_evidence_paths=("evidence/observer-health-write.json",),
+            isolated_drill_id="observer-health-write-test",
+            budget_sha256="b" * 64,
+            expires_at=(datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat(),
+            owner="runtime-db-incident-owner",
+        ),
+    )
+
+    class _ReadyWriteFailureStore:
+        def __init__(self) -> None:
+            self.delegate = ObserverEvidenceStore(config.evidence_root)
+
+        def write_health(self, payload):
+            if payload.get("ready") is True and payload.get("state") == "ready":
+                raise RuntimeError("password=fixture-ready-write-secret")
+            return self.delegate.write_health(payload)
+
+    open_pipe_calls: list[bool] = []
+
+    class _PreparedTrace:
+        instance_name = "test"
+
+        def prepare(self):
+            return 'sig == 3 && comm == "postgres"'
+
+        def open_pipe(self):
+            open_pipe_calls.append(True)
+            raise AssertionError("trace pipe must not open after ready health write failure")
+
+        def cleanup(self):
+            pass
+
+    observer = PostgresSignalObserver(
+        config,
+        store=_ReadyWriteFailureStore(),
+        trace=_PreparedTrace(),
+        correlation=SimpleNamespace(),
+    )
+
+    assert observer.run() == 2
+    assert open_pipe_calls == []
+    terminal = ObserverEvidenceStore(config.evidence_root).read_health()
+    assert (
+        terminal["failure_detail_code"]
+        == "observer_error_unclassified_tracefs_prepare"
+    )
+    assert "fixture-ready-write-secret" not in json.dumps(terminal, sort_keys=True)
+
+
+def test_observer_health_redacts_unclassified_config_exception_detail(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _config(tmp_path)
+    monkeypatch.setattr(
+        ObserverConfig,
+        "validate",
+        lambda _self: (_ for _ in ()).throw(
+            RuntimeError("password=fixture-config-secret")
+        ),
+    )
+    observer = PostgresSignalObserver(
+        config,
+        trace=SimpleNamespace(cleanup=lambda: None),
+        correlation=SimpleNamespace(),
+    )
+
+    assert observer.run() == 2
+    terminal = ObserverEvidenceStore(config.evidence_root).read_health()
+    assert (
+        terminal["failure_detail_code"]
+        == "observer_error_unclassified_config_and_permit_validation"
+    )
+    assert "fixture-config-secret" not in json.dumps(terminal, sort_keys=True)
+
+
+def test_observer_health_redacts_unclassified_trace_pipe_exception_detail(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _config(tmp_path)
+    journal = RuntimeDatabaseIncidentJournal(config.journal_root)
+    incident = journal.open_incident(failure_code="isolated_observer_runtime_test")
+    journal.record_diagnostic_permit(
+        incident.incident_id,
+        IncidentDiagnosticPermit(
+            permit_id="diagnostic-observer-runtime",
+            source_commit=config.source_commit,
+            allowed_operation_keys=(
+                "postgres_signal_observer_start@sha256:" + config.artifact_sha256,
+            ),
+            test_evidence_paths=("evidence/observer-runtime.json",),
+            isolated_drill_id="observer-runtime-test",
+            budget_sha256="b" * 64,
+            expires_at=(datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat(),
+            owner="runtime-db-incident-owner",
+        ),
+    )
+
+    class _PipeContext:
+        def __enter__(self):
+            return object()
+
+        def __exit__(self, *_args):
+            return False
+
+    class _SensitiveRuntimeTrace:
+        instance_name = "test"
+
+        def prepare(self):
+            return 'sig == 3 && comm == "postgres"'
+
+        def open_pipe(self):
+            return _PipeContext()
+
+        def cleanup(self):
+            pass
+
+    monkeypatch.setattr(
+        "scripts.maintenance.postgres_signal_observer_core.service.select.select",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            RuntimeError("password=fixture-runtime-secret")
+        ),
+    )
+    observer = PostgresSignalObserver(
+        config,
+        trace=_SensitiveRuntimeTrace(),
+        correlation=SimpleNamespace(),
+    )
+
+    assert observer.run() == 2
+    terminal = ObserverEvidenceStore(config.evidence_root).read_health()
+    assert (
+        terminal["failure_detail_code"]
+        == "observer_error_unclassified_trace_pipe_runtime"
+    )
+    assert "fixture-runtime-secret" not in json.dumps(terminal, sort_keys=True)
 
 
 def test_docker_healthcheck_reads_only_matching_canonical_journal(

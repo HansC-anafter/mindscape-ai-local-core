@@ -1854,6 +1854,11 @@ def test_observer_launcher_failure_projects_exact_payload_free_receipt(
             "health_failure_detail_code": "observer_error_unclassified",
         },
         {
+            "first_failure": "fail_closed_observer_error",
+            "health_state": "fail_closed_observer_error",
+            "health_failure_detail_code": "observer_error_unclassified_unknown_phase",
+        },
+        {
             "first_failure": "disposable_drill_observer_launch_unavailable",
             "container_started": False,
             "container_id": None,

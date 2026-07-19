@@ -36,6 +36,9 @@ _STABLE_OBSERVER_FAILURE_CODES = frozenset(
         "observer_image_digest_invalid",
         "observer_image_digest_missing",
         "observer_pgbouncer_admin_url_missing",
+        "observer_error_unclassified_config_and_permit_validation",
+        "observer_error_unclassified_trace_pipe_runtime",
+        "observer_error_unclassified_tracefs_prepare",
         "observer_source_commit_invalid",
         "observer_source_commit_missing",
         "signal_event_correlation_unavailable",
@@ -47,8 +50,20 @@ _STABLE_OBSERVER_FAILURE_CODES = frozenset(
     }
 )
 
+_OBSERVER_FAILURE_PHASE_FALLBACKS = {
+    "config_and_permit_validation": (
+        "observer_error_unclassified_config_and_permit_validation"
+    ),
+    "tracefs_prepare": "observer_error_unclassified_tracefs_prepare",
+    "trace_pipe_runtime": "observer_error_unclassified_trace_pipe_runtime",
+}
 
-def canonical_observer_failure_detail_code(value: object) -> str:
+
+def canonical_observer_failure_detail_code(
+    value: object,
+    *,
+    phase: str | None = None,
+) -> str:
     """Return one exact allowlisted code without serializing error payloads."""
 
     candidate = str(value)
@@ -56,6 +71,9 @@ def canonical_observer_failure_detail_code(value: object) -> str:
         return candidate
     if candidate.startswith("tracefs_control_write_failed:"):
         return "tracefs_control_write_failed"
+    phase_fallback = _OBSERVER_FAILURE_PHASE_FALLBACKS.get(phase)
+    if phase_fallback is not None:
+        return phase_fallback
     return "observer_error_unclassified"
 
 
@@ -221,6 +239,7 @@ class PostgresSignalObserver:
             raise RuntimeError("signal_event_correlation_unavailable")
 
     def run(self) -> int:
+        failure_phase = "config_and_permit_validation"
         try:
             # Persist a bounded startup receipt before any tracefs operation.  The
             # launcher can then distinguish an observer that is still starting
@@ -239,6 +258,7 @@ class PostgresSignalObserver:
             )
             if decision.reason != "incident_diagnostic_permit":
                 raise RuntimeError("incident_diagnostic_permit_required")
+            failure_phase = "tracefs_prepare"
             self._health(
                 ready=False,
                 state="starting",
@@ -252,6 +272,7 @@ class PostgresSignalObserver:
                 filter_readback=actual_filter,
                 pgbouncer_correlation_ready=True,
             )
+            failure_phase = "trace_pipe_runtime"
             with self.trace.open_pipe() as trace_pipe:
                 while not self._stopping:
                     readable, _, _ = select.select(
@@ -291,7 +312,10 @@ class PostgresSignalObserver:
                 state="fail_closed_observer_error",
                 error_code=type(exc).__name__,
                 error_class=type(exc).__name__,
-                failure_detail_code=canonical_observer_failure_detail_code(exc),
+                failure_detail_code=canonical_observer_failure_detail_code(
+                    exc,
+                    phase=failure_phase,
+                ),
             )
             return 2
         finally:

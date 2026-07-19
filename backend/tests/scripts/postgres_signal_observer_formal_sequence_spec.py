@@ -1034,17 +1034,19 @@ def test_observer_launcher_failure_receipt_survives_sequence_projection(
             return {
                 "exit_code": 1,
                 "output": "",
-                "failure_code": "observer_health_startup_deadline_exceeded",
+                "failure_code": "fail_closed_observer_error",
                 "resource_may_exist": False,
                 "observer_launch_receipt": {
                     "launched": False,
                     "container_started": True,
                     "ready": False,
                     "container_id": "d" * 64,
-                    "first_failure": "observer_health_startup_deadline_exceeded",
-                    "health_failure_detail_code": None,
+                    "first_failure": "fail_closed_observer_error",
+                    "health_failure_detail_code": (
+                        "observer_error_unclassified_tracefs_prepare"
+                    ),
                     "health_journal_observed": True,
-                    "health_state": "starting",
+                    "health_state": "fail_closed_observer_error",
                     "cleanup": {
                         "stop_succeeded": True,
                         "remove_succeeded": True,
@@ -1064,10 +1066,14 @@ def test_observer_launcher_failure_receipt_survives_sequence_projection(
     )
 
     launch = receipt["step_receipts"][5]["result"]["observer_launch_receipt"]
-    assert receipt["first_failure"] == "observer_health_startup_deadline_exceeded"
+    assert receipt["first_failure"] == "fail_closed_observer_error"
     assert launch["container_started"] is True
     assert launch["health_journal_observed"] is True
-    assert launch["health_state"] == "starting"
+    assert launch["health_state"] == "fail_closed_observer_error"
+    assert (
+        launch["health_failure_detail_code"]
+        == "observer_error_unclassified_tracefs_prepare"
+    )
     assert launch["cleanup"] == {
         "attempted": True,
         "stop_succeeded": True,
@@ -1077,7 +1083,7 @@ def test_observer_launcher_failure_receipt_survives_sequence_projection(
     assert "sentinel-secret" not in repr(receipt)
     assert "sentinel-path" not in repr(receipt)
     assert "docker_run_disposable_isolated_client" not in calls
-    assert revocations == ["observer_health_startup_deadline_exceeded"]
+    assert revocations == ["fail_closed_observer_error"]
     assert receipt["cleanup_operation_attempts"] == 5
     assert receipt["ownership_handed_back"] is True
 
@@ -1101,6 +1107,11 @@ def test_observer_launcher_failure_receipt_survives_sequence_projection(
             "first_failure": "fail_closed_observer_error",
             "health_state": "starting",
             "health_failure_detail_code": "observer_error_unclassified",
+        },
+        {
+            "first_failure": "fail_closed_observer_error",
+            "health_state": "fail_closed_observer_error",
+            "health_failure_detail_code": "observer_error_unclassified_unknown_phase",
         },
         {
             "first_failure": "disposable_drill_observer_launch_unavailable",
