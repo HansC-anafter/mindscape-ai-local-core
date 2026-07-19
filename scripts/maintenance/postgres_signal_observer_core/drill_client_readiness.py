@@ -15,6 +15,14 @@ if TYPE_CHECKING:
 
 
 FORMAL_CLIENT_READY_TERMINAL_DEADLINE_SECONDS = 10.0
+FORMAL_CLIENT_READY_POLL_SECONDS = 0.25
+FORMAL_CLIENT_READY_MAX_PID_ATTEMPTS = (
+    int(
+        FORMAL_CLIENT_READY_TERMINAL_DEADLINE_SECONDS
+        / FORMAL_CLIENT_READY_POLL_SECONDS
+    )
+    + 1
+)
 _PSQL = "/usr/lib/postgresql/16/bin/psql"
 
 
@@ -26,6 +34,7 @@ def _receipt(
         "gate": "client_ready",
         "detail_code": detail_code,
         "terminal_deadline_seconds": FORMAL_CLIENT_READY_TERMINAL_DEADLINE_SECONDS,
+        "poll_seconds": FORMAL_CLIENT_READY_POLL_SECONDS,
         "stages": stages,
     }
 
@@ -37,8 +46,10 @@ def evaluate_client_readiness(
     client: DisposableDrillClientConfig,
     run: Callable[..., Any],
     stage_result: Callable[[Any], dict[str, Any]],
+    monotonic: Callable[[], float],
+    sleep: Callable[[float], None],
 ) -> tuple[Mapping[str, Any], DisposableDrillSignalConfig | None]:
-    """Run the existing one-shot PID query and retain only stable metadata."""
+    """Wait within one bounded deadline for the source-owned client PID."""
 
     stages = {
         "container_readback": empty_stage(),
@@ -84,57 +95,87 @@ def evaluate_client_readiness(
         query,
     )
     pid_stage = stages["source_owned_pid"]
-    pid_stage["attempted"] = True
-    pid_stage["attempt_count"] = 1
-    try:
-        completed = run(
-            argv,
-            timeout=FORMAL_CLIENT_READY_TERMINAL_DEADLINE_SECONDS,
-        )
-    except subprocess.TimeoutExpired:
-        pid_stage["last_result"] = {
-            "status": "timeout",
-            "error_code": "formal_client_pid_query_terminal_deadline_exceeded",
-        }
-        return _receipt(
-            stages, "formal_client_pid_query_terminal_deadline_exceeded"
-        ), None
-    except (OSError, RuntimeError):
-        pid_stage["last_result"] = {
-            "status": "exec_error",
-            "error_code": "formal_client_pid_query_unavailable",
-        }
-        return _receipt(stages, "formal_client_pid_query_unavailable"), None
-
-    result = stage_result(completed)
-    pid_stage["last_result"] = result
-    status = result.get("status")
-    if status == "terminal_nonzero":
-        return _receipt(stages, "formal_client_pid_query_terminal_nonzero"), None
-    if status != "terminal_zero":
-        error_code = result.get("error_code")
-        detail_code = (
-            error_code
-            if error_code
-            in {
-                "formal_client_readiness_result_invalid",
-                "formal_client_readiness_capture_invalid",
+    deadline = monotonic() + FORMAL_CLIENT_READY_TERMINAL_DEADLINE_SECONDS
+    final_attempt = False
+    while True:
+        remaining = deadline - monotonic()
+        if remaining <= 0:
+            pid_stage["last_result"] = {
+                "status": "result_invalid",
+                "error_code": "formal_client_pid_not_observed_before_deadline",
             }
-            else "formal_client_pid_query_result_invalid"
-        )
-        return _receipt(stages, detail_code), None
+            return _receipt(
+                stages, "formal_client_pid_not_observed_before_deadline"
+            ), None
+        pid_stage["attempted"] = True
+        pid_stage["attempt_count"] += 1
+        try:
+            completed = run(argv, timeout=remaining)
+        except subprocess.TimeoutExpired:
+            pid_stage["last_result"] = {
+                "status": "timeout",
+                "error_code": "formal_client_pid_query_terminal_deadline_exceeded",
+            }
+            return _receipt(
+                stages, "formal_client_pid_query_terminal_deadline_exceeded"
+            ), None
+        except (OSError, RuntimeError):
+            pid_stage["last_result"] = {
+                "status": "exec_error",
+                "error_code": "formal_client_pid_query_unavailable",
+            }
+            return _receipt(stages, "formal_client_pid_query_unavailable"), None
 
-    raw = getattr(completed, "stdout", None)
-    try:
+        result = stage_result(completed)
+        pid_stage["last_result"] = result
+        status = result.get("status")
+        if status == "terminal_nonzero":
+            return _receipt(stages, "formal_client_pid_query_terminal_nonzero"), None
+        if status != "terminal_zero":
+            error_code = result.get("error_code")
+            detail_code = (
+                error_code
+                if error_code
+                in {
+                    "formal_client_readiness_result_invalid",
+                    "formal_client_readiness_capture_invalid",
+                }
+                else "formal_client_pid_query_result_invalid"
+            )
+            return _receipt(stages, detail_code), None
+
+        raw = getattr(completed, "stdout", None)
         if not isinstance(raw, bytes):
-            raise ValueError("formal_client_pid_query_result_invalid")
-        pid = int(raw.strip().decode("ascii"))
-    except (UnicodeError, ValueError):
-        pid_stage["last_result"] = {
-            "status": "result_invalid",
-            "error_code": "formal_client_pid_value_invalid",
-        }
-        return _receipt(stages, "formal_client_pid_value_invalid"), None
+            pid_stage["last_result"] = {
+                "status": "result_invalid",
+                "error_code": "formal_client_pid_query_result_invalid",
+            }
+            return _receipt(stages, "formal_client_pid_query_result_invalid"), None
+        value = raw.strip()
+        if value:
+            try:
+                pid = int(value.decode("ascii"))
+            except (UnicodeError, ValueError):
+                pid_stage["last_result"] = {
+                    "status": "result_invalid",
+                    "error_code": "formal_client_pid_value_invalid",
+                }
+                return _receipt(stages, "formal_client_pid_value_invalid"), None
+            break
+
+        remaining = deadline - monotonic()
+        if remaining <= 0 or final_attempt:
+            pid_stage["last_result"] = {
+                "status": "result_invalid",
+                "error_code": "formal_client_pid_not_observed_before_deadline",
+            }
+            return _receipt(
+                stages, "formal_client_pid_not_observed_before_deadline"
+            ), None
+        if remaining <= FORMAL_CLIENT_READY_POLL_SECONDS:
+            final_attempt = True
+            continue
+        sleep(FORMAL_CLIENT_READY_POLL_SECONDS)
     try:
         signal = DisposableDrillSignalConfig(
             drill_suffix=bootstrap.drill_suffix,
@@ -155,6 +196,8 @@ def evaluate_client_readiness(
 
 
 __all__ = [
+    "FORMAL_CLIENT_READY_MAX_PID_ATTEMPTS",
+    "FORMAL_CLIENT_READY_POLL_SECONDS",
     "FORMAL_CLIENT_READY_TERMINAL_DEADLINE_SECONDS",
     "evaluate_client_readiness",
 ]

@@ -179,6 +179,7 @@ def _gate(name: str, *, fail: str | None = None) -> dict[str, object]:
                 None if passed else "formal_client_pid_query_terminal_nonzero"
             ),
             "terminal_deadline_seconds": 10.0,
+            "poll_seconds": 0.25,
             "stages": {
                 "container_readback": {
                     "attempted": True,
@@ -1575,6 +1576,7 @@ def test_sequence_projects_client_failure_and_rejects_payload_injection(
         "gate": "client_ready",
         "detail_code": "formal_client_container_readback_failed",
         "terminal_deadline_seconds": 10.0,
+        "poll_seconds": 0.25,
         "stages": {
             "container_readback": dict(empty_stage),
             "source_owned_pid": dict(empty_stage),

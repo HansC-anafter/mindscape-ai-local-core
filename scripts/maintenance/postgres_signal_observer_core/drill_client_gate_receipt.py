@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-from .drill_client_readiness import FORMAL_CLIENT_READY_TERMINAL_DEADLINE_SECONDS
+from .drill_client_readiness import (
+    FORMAL_CLIENT_READY_MAX_PID_ATTEMPTS,
+    FORMAL_CLIENT_READY_POLL_SECONDS,
+    FORMAL_CLIENT_READY_TERMINAL_DEADLINE_SECONDS,
+)
 from .drill_gate_receipt import _project_capture, _project_stage
 
 
@@ -19,6 +23,7 @@ _DETAIL_CODES = frozenset(
         "formal_client_readiness_result_invalid",
         "formal_client_readiness_capture_invalid",
         "formal_client_pid_value_invalid",
+        "formal_client_pid_not_observed_before_deadline",
         "formal_client_signal_config_invalid",
     }
 )
@@ -28,6 +33,7 @@ _RESULT_INVALID_CODES = frozenset(
         "formal_client_readiness_result_invalid",
         "formal_client_readiness_capture_invalid",
         "formal_client_pid_value_invalid",
+        "formal_client_pid_not_observed_before_deadline",
         "formal_client_signal_config_invalid",
     }
 )
@@ -102,10 +108,10 @@ def _project_pid_stage(source: object) -> dict[str, Any] | None:
         or type(attempts) is not int
         or type(successes) is not int
         or type(passed) is not bool
-        or attempts not in {0, 1}
+        or not 0 <= attempts <= FORMAL_CLIENT_READY_MAX_PID_ATTEMPTS
         or successes not in {0, 1}
         or successes > attempts
-        or attempted != (attempts == 1)
+        or attempted != (attempts > 0)
         or passed != (successes == 1)
         or (attempted and result is None)
         or (not attempted and raw_result is not None)
@@ -160,6 +166,7 @@ def project_client_gate_receipt(name: str, source: object) -> dict[str, Any]:
         "gate",
         "detail_code",
         "terminal_deadline_seconds",
+        "poll_seconds",
         "stages",
     }:
         return invalid
@@ -177,6 +184,8 @@ def project_client_gate_receipt(name: str, source: object) -> dict[str, Any]:
         or type(source.get("terminal_deadline_seconds")) is not float
         or source.get("terminal_deadline_seconds")
         != FORMAL_CLIENT_READY_TERMINAL_DEADLINE_SECONDS
+        or type(source.get("poll_seconds")) is not float
+        or source.get("poll_seconds") != FORMAL_CLIENT_READY_POLL_SECONDS
         or not isinstance(raw_stages, Mapping)
         or set(raw_stages) != set(_STAGES)
     ):
@@ -236,6 +245,7 @@ def project_client_gate_receipt(name: str, source: object) -> dict[str, Any]:
         "passed": passed,
         "detail_code": detail,
         "terminal_deadline_seconds": FORMAL_CLIENT_READY_TERMINAL_DEADLINE_SECONDS,
+        "poll_seconds": FORMAL_CLIENT_READY_POLL_SECONDS,
         "stages": {
             "container_readback": container,
             "source_owned_pid": pid_stage,

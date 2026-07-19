@@ -575,6 +575,93 @@ def test_client_gate_derives_signal_pid_without_external_input(
     assert executor.signal_config.docker_argv()[-1] == "4242"
 
 
+def test_client_gate_waits_with_fresh_remaining_budget_for_source_owned_pid(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _config(tmp_path)
+    clock = _FakeClock()
+    calls: list[tuple[float, float]] = []
+
+    class Executor:
+        signal_config = None
+        client_environment = {"PGPASSWORD": "fixture-secret"}
+        observer_receipt = None
+
+        def run(self, _argv, **kwargs):
+            calls.append((clock.now, kwargs["timeout"]))
+            stdout = b"\n" if len(calls) == 1 else b"4242\n"
+            return SimpleNamespace(returncode=0, stdout=stdout, stderr=b"")
+
+    monkeypatch.setattr(
+        drill_formal_gates,
+        "execute_disposable_container_readback",
+        _container_readback_pass,
+    )
+    executor = Executor()
+    gate = drill_formal_gates.FormalDrillGateOwner(
+        config,
+        executor,
+        monotonic=clock.monotonic,
+        sleep=clock.sleep,
+    )
+
+    receipt = project_formal_gate_receipt(
+        "client_ready", gate.evaluate("client_ready")
+    )
+
+    assert receipt["passed"] is True
+    assert receipt["poll_seconds"] == 0.25
+    assert receipt["stages"]["source_owned_pid"]["attempt_count"] == 2
+    assert calls == [(0.0, pytest.approx(10.0)), (0.25, pytest.approx(9.75))]
+    assert executor.signal_config.target_postgres_pid == 4242
+
+
+def test_client_gate_empty_pid_exhausts_one_bounded_deadline(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _config(tmp_path)
+    clock = _FakeClock()
+    calls: list[tuple[float, float]] = []
+
+    class Executor:
+        signal_config = None
+        client_environment = {"PGPASSWORD": "fixture-secret"}
+        observer_receipt = None
+
+        def run(self, _argv, **kwargs):
+            assert clock.now < 10.0
+            calls.append((clock.now, kwargs["timeout"]))
+            return SimpleNamespace(returncode=0, stdout=b"\n", stderr=b"")
+
+    monkeypatch.setattr(
+        drill_formal_gates,
+        "execute_disposable_container_readback",
+        _container_readback_pass,
+    )
+    gate = drill_formal_gates.FormalDrillGateOwner(
+        config,
+        Executor(),
+        monotonic=clock.monotonic,
+        sleep=clock.sleep,
+    )
+
+    receipt = project_formal_gate_receipt(
+        "client_ready", gate.evaluate("client_ready")
+    )
+
+    assert receipt["passed"] is False
+    assert receipt["detail_code"] == (
+        "formal_client_pid_not_observed_before_deadline"
+    )
+    assert receipt["stages"]["source_owned_pid"]["attempt_count"] == 41
+    assert len(calls) == 41
+    assert all(timeout == pytest.approx(10.0 - started) for started, timeout in calls)
+    assert clock.now == pytest.approx(9.75)
+    assert gate.executor.signal_config is None
+
+
 class _FakeClock:
     def __init__(self) -> None:
         self.now = 0.0
@@ -667,7 +754,7 @@ def test_client_gate_projects_pid_terminal_failure_without_payload(
         observer_receipt = None
 
         def run(self, _argv, **kwargs):
-            assert kwargs["timeout"] == 10.0
+            assert 0 < kwargs["timeout"] <= 10.0
             return SimpleNamespace(returncode=17, stdout=stdout, stderr=stderr)
 
     monkeypatch.setattr(
@@ -756,6 +843,7 @@ def test_client_gate_projector_rejects_unattempted_container_without_raising() -
         "gate": "client_ready",
         "detail_code": "formal_client_container_readback_failed",
         "terminal_deadline_seconds": 10.0,
+        "poll_seconds": 0.25,
         "stages": {
             "container_readback": dict(empty_stage),
             "source_owned_pid": dict(empty_stage),
