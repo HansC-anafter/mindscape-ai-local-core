@@ -36,7 +36,7 @@ OBSERVER_STARTUP_DEADLINE_SECONDS = 10.0
 OBSERVER_HEALTH_POLL_SECONDS = 0.25
 OBSERVER_DOCKER_TERMINAL_DEADLINE_SECONDS = 60.0
 OBSERVER_HEALTH_COMMAND = (
-    "python /app/scripts/maintenance/postgres_signal_observer.py "
+    "/usr/local/bin/python /app/scripts/maintenance/postgres_signal_observer.py "
     "--healthcheck --max-health-age-seconds 30"
 )
 
@@ -154,6 +154,8 @@ class DisposableDrillObserverConfig:
             "--health-retries",
             "3",
             "--health-start-period",
+            "10s",
+            "--health-start-interval",
             "10s",
             "--log-driver",
             "json-file",

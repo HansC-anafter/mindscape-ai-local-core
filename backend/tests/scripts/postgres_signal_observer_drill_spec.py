@@ -863,6 +863,8 @@ def test_observer_spec_overrides_image_healthcheck_and_preserves_budgets(
     ]
 
     assert argv[argv.index("--health-cmd") + 1] == OBSERVER_HEALTH_COMMAND
+    assert argv[argv.index("--health-start-period") + 1] == "10s"
+    assert argv[argv.index("--health-start-interval") + 1] == "10s"
     assert argv[argv.index("--cpus") + 1] == "0.10"
     assert argv[argv.index("--memory") + 1] == "64m"
     assert argv[argv.index("--pids-limit") + 1] == "16"

@@ -52,6 +52,7 @@ _VALUE_OPTIONS = frozenset(
         "--health-timeout",
         "--health-retries",
         "--health-start-period",
+        "--health-start-interval",
         "--log-driver",
         "--log-opt",
     }

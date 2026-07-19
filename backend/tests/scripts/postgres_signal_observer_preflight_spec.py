@@ -302,6 +302,9 @@ def test_official_compose_uses_exact_readonly_artifact_source_mount() -> None:
         "../../docker/postgres/Dockerfile:/app/docker/postgres/Dockerfile:ro"
     ) == 1
     assert "../../docker:/app/docker" not in compose
+    assert "        - /usr/local/bin/python\n" in compose
+    assert "      start_period: 10s\n" in compose
+    assert "      start_interval: 10s\n" in compose
 
 
 def test_liveness_endpoints_are_exact_bounded_and_single_shot(

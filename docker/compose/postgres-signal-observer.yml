@@ -46,7 +46,7 @@ services:
     healthcheck:
       test:
         - CMD
-        - python
+        - /usr/local/bin/python
         - /app/scripts/maintenance/postgres_signal_observer.py
         - --healthcheck
         - --max-health-age-seconds
@@ -55,3 +55,4 @@ services:
       timeout: 3s
       retries: 3
       start_period: 10s
+      start_interval: 10s
