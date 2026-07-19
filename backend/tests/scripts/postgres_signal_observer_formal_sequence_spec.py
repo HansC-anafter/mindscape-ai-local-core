@@ -148,7 +148,8 @@ def _gate(name: str, *, fail: str | None = None) -> dict[str, object]:
             "detail_code": (
                 None if passed else "formal_pgbouncer_pg_isready_failed"
             ),
-            "terminal_deadline_seconds": 10.0,
+            "startup_deadline_seconds": 10.0,
+            "poll_seconds": 0.25,
             "stages": stages,
         }
     if name != "postgres_readiness":
@@ -1230,3 +1231,61 @@ def test_sequence_projects_pgbouncer_readiness_and_fails_malformed_capture_close
     assert wrong_role["first_failure"] == "formal_pgbouncer_readiness_failed"
     assert wrong_role["cleanup_operation_attempts"] == 5
     assert wrong_role["ownership_handed_back"] is True
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "startup_budget",
+        "poll_budget",
+        "attempt_bound",
+        "show_without_pg_success",
+    ],
+)
+def test_sequence_rejects_pgbouncer_shared_deadline_contract_drift(
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    configs = _configs(tmp_path)
+    gate = json.loads(json.dumps(_gate("pgbouncer_readiness")))
+    if mutation == "startup_budget":
+        gate["startup_deadline_seconds"] = 9.0
+    elif mutation == "poll_budget":
+        gate["poll_seconds"] = 0.5
+    elif mutation == "attempt_bound":
+        stage = gate["stages"]["pg_isready"]
+        stage["attempt_count"] = 41
+        stage["success_count"] = 1
+    else:
+        gate["passed"] = False
+        gate["detail_code"] = "formal_pgbouncer_show_version_failed"
+        gate["stages"]["pg_isready"] = {
+            "attempted": True,
+            "attempt_count": 1,
+            "success_count": 0,
+            "passed": False,
+            "last_result": {
+                "status": "terminal_nonzero",
+                "exit_code": 2,
+                "terminal_capture": terminal_capture_metadata(
+                    b"secret-sentinel-output", b"", exit_code=2
+                ),
+            },
+        }
+    receipt = _execute(
+        configs,
+        execute_docker=_docker_success,
+        evaluate_gate=lambda name: gate if name == "pgbouncer_readiness" else _gate(name),
+        revoke_permit=lambda _reason: None,
+        finalize_cleanup=lambda _failure: _postflight(),
+    )
+    projected = next(
+        item
+        for item in receipt["step_receipts"]
+        if item["name"] == "pgbouncer_readiness"
+    )
+    assert projected["detail_code"] == "formal_pgbouncer_readiness_receipt_invalid"
+    assert receipt["first_failure"] == "formal_pgbouncer_readiness_failed"
+    assert receipt["cleanup_operation_attempts"] == 5
+    assert receipt["ownership_handed_back"] is True
+    assert "secret-sentinel-output" not in json.dumps(receipt, sort_keys=True)

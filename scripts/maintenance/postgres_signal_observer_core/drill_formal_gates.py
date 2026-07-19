@@ -14,7 +14,11 @@ from .drill_gate_receipt import (
     project_pgbouncer_container_readback_outcome,
     project_postgres_container_readback_outcome,
 )
-from .drill_pgbouncer_gate_receipt import FORMAL_PGBOUNCER_READINESS_TERMINAL_DEADLINE_SECONDS
+from .drill_pgbouncer_readiness import (
+    FORMAL_PGBOUNCER_STARTUP_DEADLINE_SECONDS,
+    FORMAL_PGBOUNCER_STARTUP_POLL_SECONDS,
+    evaluate_pgbouncer_startup,
+)
 from .drill_escalation import (
     FORMAL_POSTGRES_STARTUP_DEADLINE_SECONDS,
     FORMAL_POSTGRES_STARTUP_POLL_SECONDS,
@@ -329,19 +333,17 @@ class FormalDrillGateOwner:
             ),
         }
 
-        def receipt(detail_code: str | None) -> Mapping[str, Any]:
+        if not container_passed:
             return {
-                "passed": detail_code is None,
+                "passed": False,
                 "gate": "pgbouncer_readiness",
-                "detail_code": detail_code,
-                "terminal_deadline_seconds": (
-                    FORMAL_PGBOUNCER_READINESS_TERMINAL_DEADLINE_SECONDS
+                "detail_code": "formal_pgbouncer_container_readback_failed",
+                "startup_deadline_seconds": (
+                    FORMAL_PGBOUNCER_STARTUP_DEADLINE_SECONDS
                 ),
+                "poll_seconds": FORMAL_PGBOUNCER_STARTUP_POLL_SECONDS,
                 "stages": stages,
             }
-
-        if not container_passed:
-            return receipt("formal_pgbouncer_container_readback_failed")
         prefix = (
             "exec",
             "--env",
@@ -358,54 +360,27 @@ class FormalDrillGateOwner:
             "-d",
             "pgbouncer",
         )
-        commands = (
-            (
-                "pg_isready",
-                canonical_docker_argv(*prefix, _PG_ISREADY, *shared),
-                "formal_pgbouncer_pg_isready_failed",
+        return evaluate_pgbouncer_startup(
+            stages=stages,
+            pg_isready_argv=canonical_docker_argv(*prefix, _PG_ISREADY, *shared),
+            show_version_argv=canonical_docker_argv(
+                *prefix,
+                _PSQL,
+                "-X",
+                *shared,
+                "--tuples-only",
+                "--no-align",
+                "--command",
+                "SHOW VERSION;",
             ),
-            (
-                "show_version",
-                canonical_docker_argv(
-                    *prefix,
-                    _PSQL,
-                    "-X",
-                    *shared,
-                    "--tuples-only",
-                    "--no-align",
-                    "--command",
-                    "SHOW VERSION;",
-                ),
-                "formal_pgbouncer_show_version_failed",
+            run=self._terminal_command,
+            environment=self.executor.client_environment,
+            stage_result=lambda completed: self._stage_result(
+                completed, role="pgbouncer"
             ),
+            monotonic=self.monotonic,
+            sleep=self.sleep,
         )
-        for stage_name, argv, detail_code in commands:
-            stage = stages[stage_name]
-            stage["attempted"] = True
-            stage["attempt_count"] = 1
-            try:
-                completed = self._terminal_command(
-                    argv,
-                    environment=self.executor.client_environment,
-                    timeout=FORMAL_PGBOUNCER_READINESS_TERMINAL_DEADLINE_SECONDS,
-                )
-            except subprocess.TimeoutExpired:
-                stage["last_result"] = self._stage_error(
-                    "timeout", f"formal_pgbouncer_{stage_name}_terminal_deadline_exceeded"
-                )
-                return receipt(detail_code)
-            except (OSError, RuntimeError):
-                stage["last_result"] = self._stage_error(
-                    "exec_error", f"formal_pgbouncer_{stage_name}_unavailable"
-                )
-                return receipt(detail_code)
-            result = self._stage_result(completed, role="pgbouncer")
-            stage["last_result"] = result
-            if result.get("status") != "terminal_zero":
-                return receipt(detail_code)
-            stage["success_count"] = 1
-            stage["passed"] = True
-        return receipt(None)
 
     def _source_owned_client_pid(self) -> bool:
         bootstrap = self.config.bootstrap

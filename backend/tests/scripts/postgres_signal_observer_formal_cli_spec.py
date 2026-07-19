@@ -1882,34 +1882,218 @@ def test_pgbouncer_readback_terminal_nonzero_preserves_only_capture_metadata(
     assert "private-readback" not in repr(projected)
 
 
-@pytest.mark.parametrize(
-    "failure_kind", ["terminal_nonzero", "timeout", "exec_error", "result_invalid"]
-)
-def test_pgbouncer_pg_isready_failure_is_payload_free_and_blocks_show_version(
+@pytest.mark.parametrize("first_pg_result", ["terminal_nonzero", "result_invalid"])
+def test_pgbouncer_readiness_polls_pg_then_show_in_the_same_round(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    failure_kind: str,
+    first_pg_result: str,
 ) -> None:
     config = _config(tmp_path)
+    clock = _FakeClock()
     calls: list[tuple[str, ...]] = []
+    call_timeouts: list[tuple[float, float]] = []
+    pg_attempts = 0
 
     class Executor:
         client_environment = {"PGPASSWORD": "fixture-secret"}
 
         def run(self, argv, **kwargs):
+            nonlocal pg_attempts
             calls.append(tuple(argv))
-            assert kwargs["timeout"] == 10.0
-            if failure_kind == "timeout":
-                raise subprocess.TimeoutExpired(argv, 10.0, output=b"private-timeout")
-            if failure_kind == "exec_error":
-                raise OSError("private-exec-error")
-            if failure_kind == "result_invalid":
-                return SimpleNamespace(returncode=0, stdout="not-bytes", stderr=b"")
+            call_timeouts.append((clock.now, kwargs["timeout"]))
+            clock.now += 0.05
+            if drill_formal_gates._PG_ISREADY in argv:
+                pg_attempts += 1
+                if pg_attempts == 1 and first_pg_result == "result_invalid":
+                    return SimpleNamespace(returncode=0, stdout="not-bytes", stderr=b"")
+                exit_code = 2 if pg_attempts == 1 else 0
+            else:
+                exit_code = 0
             return SimpleNamespace(
-                returncode=3,
+                returncode=exit_code,
+                stdout=b"private-ready-output",
+                stderr=b"",
+            )
+
+    monkeypatch.setattr(
+        drill_formal_gates,
+        "execute_disposable_container_readback",
+        _container_readback_pass,
+    )
+    source = drill_formal_gates.FormalDrillGateOwner(
+        config, Executor(), monotonic=clock.monotonic, sleep=clock.sleep
+    ).evaluate("pgbouncer_readiness")
+    projected = project_formal_gate_receipt("pgbouncer_readiness", source)
+
+    assert [drill_formal_gates._PG_ISREADY in argv for argv in calls] == [True, True, False]
+    assert [timeout for _, timeout in call_timeouts] == pytest.approx(
+        [10.0 - started_at for started_at, _ in call_timeouts]
+    )
+    assert call_timeouts[-1][1] < call_timeouts[-2][1]
+    assert clock.sleeps == [0.25]
+    assert projected["passed"] is True
+    assert projected["poll_seconds"] == 0.25
+    assert projected["stages"]["pg_isready"]["attempt_count"] == 2
+    assert projected["stages"]["pg_isready"]["success_count"] == 1
+    assert projected["stages"]["show_version"]["attempt_count"] == 1
+    assert "private" not in repr(projected)
+
+
+def test_pgbouncer_pg_isready_deadline_blocks_show_and_post_deadline_children(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _config(tmp_path)
+    clock = _FakeClock()
+    call_timeouts: list[tuple[float, float]] = []
+
+    class Executor:
+        client_environment = {"PGPASSWORD": "fixture-secret"}
+
+        def run(self, argv, **kwargs):
+            assert drill_formal_gates._PG_ISREADY in argv
+            call_timeouts.append((clock.now, kwargs["timeout"]))
+            clock.now += min(0.25, kwargs["timeout"])
+            return SimpleNamespace(
+                returncode=2,
                 stdout=b"private-ready-output",
                 stderr=b"private-ready-error",
             )
+
+    monkeypatch.setattr(
+        drill_formal_gates,
+        "execute_disposable_container_readback",
+        _container_readback_pass,
+    )
+    source = drill_formal_gates.FormalDrillGateOwner(
+        config, Executor(), monotonic=clock.monotonic, sleep=clock.sleep
+    ).evaluate("pgbouncer_readiness")
+    projected = project_formal_gate_receipt("pgbouncer_readiness", source)
+
+    assert projected["detail_code"] == "formal_pgbouncer_pg_isready_failed"
+    assert projected["stages"]["pg_isready"]["attempt_count"] == len(call_timeouts)
+    assert projected["stages"]["show_version"]["attempt_count"] == 0
+    assert [timeout for _, timeout in call_timeouts] == pytest.approx(
+        [10.0 - started_at for started_at, _ in call_timeouts]
+    )
+    assert all(timeout > 0 for _, timeout in call_timeouts)
+    assert clock.now == 10.0
+    assert "private-ready" not in repr(projected)
+
+
+@pytest.mark.parametrize("first_show_result", ["terminal_nonzero", "result_invalid"])
+def test_pgbouncer_show_version_retries_within_shared_deadline(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    first_show_result: str,
+) -> None:
+    config = _config(tmp_path)
+    clock = _FakeClock()
+    call_timeouts: list[tuple[float, float]] = []
+    show_attempts = 0
+
+    class Executor:
+        client_environment = {"PGPASSWORD": "fixture-secret"}
+
+        def run(self, argv, **kwargs):
+            nonlocal show_attempts
+            call_timeouts.append((clock.now, kwargs["timeout"]))
+            clock.now += 0.05
+            if drill_formal_gates._PG_ISREADY in argv:
+                exit_code = 0
+            else:
+                show_attempts += 1
+                if show_attempts == 1 and first_show_result == "result_invalid":
+                    return SimpleNamespace(returncode=0, stdout="not-bytes", stderr=b"")
+                exit_code = 2 if show_attempts == 1 else 0
+            return SimpleNamespace(returncode=exit_code, stdout=b"private", stderr=b"")
+
+    monkeypatch.setattr(
+        drill_formal_gates,
+        "execute_disposable_container_readback",
+        _container_readback_pass,
+    )
+    source = drill_formal_gates.FormalDrillGateOwner(
+        config, Executor(), monotonic=clock.monotonic, sleep=clock.sleep
+    ).evaluate("pgbouncer_readiness")
+    projected = project_formal_gate_receipt("pgbouncer_readiness", source)
+
+    assert projected["passed"] is True
+    assert projected["stages"]["pg_isready"]["attempt_count"] == 2
+    assert projected["stages"]["show_version"]["attempt_count"] == 2
+    assert [timeout for _, timeout in call_timeouts] == pytest.approx(
+        [10.0 - started_at for started_at, _ in call_timeouts]
+    )
+    assert call_timeouts[1][1] < call_timeouts[0][1]
+    assert clock.sleeps == [0.25]
+    assert "private" not in repr(projected)
+
+
+def test_pgbouncer_show_version_failure_exhausts_shared_deadline_with_capture(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _config(tmp_path)
+    clock = _FakeClock()
+    call_timeouts: list[tuple[float, float]] = []
+
+    class Executor:
+        client_environment = {"PGPASSWORD": "fixture-secret"}
+
+        def run(self, argv, **kwargs):
+            call_timeouts.append((clock.now, kwargs["timeout"]))
+            clock.now += min(0.125, kwargs["timeout"])
+            is_pg = drill_formal_gates._PG_ISREADY in argv
+            return SimpleNamespace(
+                returncode=0 if is_pg else 2,
+                stdout=b"private-show-output",
+                stderr=b"private-show-error" if not is_pg else b"",
+            )
+
+    monkeypatch.setattr(
+        drill_formal_gates,
+        "execute_disposable_container_readback",
+        _container_readback_pass,
+    )
+    source = drill_formal_gates.FormalDrillGateOwner(
+        config, Executor(), monotonic=clock.monotonic, sleep=clock.sleep
+    ).evaluate("pgbouncer_readiness")
+    projected = project_formal_gate_receipt("pgbouncer_readiness", source)
+
+    show_stage = projected["stages"]["show_version"]
+    assert projected["detail_code"] == "formal_pgbouncer_show_version_failed"
+    assert show_stage["attempt_count"] > 1
+    assert show_stage["last_result"]["status"] == "terminal_nonzero"
+    assert show_stage["last_result"]["exit_code"] == 2
+    assert show_stage["last_result"]["terminal_capture"]["stderr_sha256"] == (
+        hashlib.sha256(b"private-show-error").hexdigest()
+    )
+    assert [timeout for _, timeout in call_timeouts] == pytest.approx(
+        [10.0 - started_at for started_at, _ in call_timeouts]
+    )
+    assert all(timeout > 0 for _, timeout in call_timeouts)
+    assert clock.now == 10.0
+    assert "private-show" not in repr(projected)
+
+
+@pytest.mark.parametrize("failure_kind", ["timeout", "exec_error"])
+def test_pgbouncer_terminal_child_failure_is_payload_free(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure_kind: str,
+) -> None:
+    config = _config(tmp_path)
+    calls = 0
+
+    class Executor:
+        client_environment = {"PGPASSWORD": "fixture-secret"}
+
+        def run(self, argv, **kwargs):
+            nonlocal calls
+            calls += 1
+            if failure_kind == "timeout":
+                raise subprocess.TimeoutExpired(argv, kwargs["timeout"], output=b"private")
+            raise OSError("private-exec-error")
 
     monkeypatch.setattr(
         drill_formal_gates,
@@ -1921,60 +2105,7 @@ def test_pgbouncer_pg_isready_failure_is_payload_free_and_blocks_show_version(
     )
     projected = project_formal_gate_receipt("pgbouncer_readiness", source)
 
-    assert len(calls) == 1
-    assert projected["detail_code"] == "formal_pgbouncer_pg_isready_failed"
+    assert calls == 1
+    assert projected["stages"]["pg_isready"]["last_result"]["status"] == failure_kind
     assert projected["stages"]["show_version"]["attempt_count"] == 0
-    result = projected["stages"]["pg_isready"]["last_result"]
-    assert result["status"] == failure_kind
     assert "private" not in repr(projected)
-
-
-def test_pgbouncer_show_version_result_and_full_success_are_exact(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    config = _config(tmp_path)
-
-    class Executor:
-        client_environment = {"PGPASSWORD": "fixture-secret"}
-
-        def __init__(self, show_exit: int) -> None:
-            self.show_exit = show_exit
-            self.calls: list[tuple[str, ...]] = []
-
-        def run(self, argv, **kwargs):
-            self.calls.append(tuple(argv))
-            exit_code = 0 if len(self.calls) == 1 else self.show_exit
-            return SimpleNamespace(
-                returncode=exit_code,
-                stdout=b"private-show-output",
-                stderr=b"" if exit_code == 0 else b"private-show-error",
-            )
-
-    monkeypatch.setattr(
-        drill_formal_gates,
-        "execute_disposable_container_readback",
-        _container_readback_pass,
-    )
-    failed_executor = Executor(show_exit=2)
-    failed = drill_formal_gates.FormalDrillGateOwner(
-        config, failed_executor
-    ).evaluate("pgbouncer_readiness")
-    failed_projected = project_formal_gate_receipt("pgbouncer_readiness", failed)
-    assert len(failed_executor.calls) == 2
-    assert failed_projected["detail_code"] == "formal_pgbouncer_show_version_failed"
-    assert failed_projected["stages"]["pg_isready"]["passed"] is True
-    assert failed_projected["stages"]["show_version"]["last_result"][
-        "exit_code"
-    ] == 2
-    assert "private-show" not in repr(failed_projected)
-
-    success_executor = Executor(show_exit=0)
-    success = drill_formal_gates.FormalDrillGateOwner(
-        config, success_executor
-    ).evaluate("pgbouncer_readiness")
-    success_projected = project_formal_gate_receipt("pgbouncer_readiness", success)
-    assert success_projected["passed"] is True
-    assert success_projected["detail_code"] is None
-    assert all(stage["passed"] for stage in success_projected["stages"].values())
-    assert "PGPASSWORD" not in repr(success_projected)
