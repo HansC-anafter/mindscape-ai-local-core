@@ -7,6 +7,7 @@ import re
 
 DRILL_SUFFIX_PATTERN = re.compile(r"^[0-9]{8}T[0-9]{6}Z$")
 DISPOSABLE_DRILL_NAME_PATTERN = re.compile(r"^[a-z0-9][a-z0-9.-]{0,62}$")
+DRILL_APPLICATION_NAME = "postgres-signal-observer-drill-client"
 
 _PREFIXES = {
     "network": "runtime-db-observer-drill",

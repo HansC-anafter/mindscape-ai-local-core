@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Mapping
 
 from .drill_names import (
+    DRILL_APPLICATION_NAME,
     canonical_disposable_drill_name,
     validate_disposable_drill_name,
 )
@@ -22,7 +23,6 @@ from .drill_bootstrap import PGBOUNCER_DECLARED_VOLUME_TMPFS
 from .drill_docker_runtime import canonical_docker_argv
 
 
-DRILL_APPLICATION_NAME = "postgres-signal-observer-drill-client"
 _IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_.-]{0,62}$")
 POSTGRES_SIGNAL_SENDER_EXECUTABLE = "/usr/lib/postgresql/16/bin/pg_ctl"
 POSTGRES_SIGNAL_SENDER_USER = "postgres"

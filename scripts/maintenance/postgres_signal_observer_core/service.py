@@ -17,7 +17,7 @@ from backend.app.services.runtime_database_incident_gate import (
 )
 
 from .artifact import canonical_observer_artifact_sha256
-from .drill import DRILL_APPLICATION_NAME
+from .drill_names import DRILL_APPLICATION_NAME
 from .evidence import EvidenceCapacityExhausted, ObserverEvidenceStore
 from .events import parse_signal_generate_line, read_namespace_pids
 from .pgbouncer import PgBouncerCorrelationClient

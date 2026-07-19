@@ -124,7 +124,7 @@ def main(argv: list[str] | None = None) -> int:
         from scripts.maintenance.postgres_signal_observer_core.pgbouncer import (
             PgBouncerCorrelationClient,
         )
-        from scripts.maintenance.postgres_signal_observer_core.drill import (
+        from scripts.maintenance.postgres_signal_observer_core.drill_names import (
             DRILL_APPLICATION_NAME,
         )
 
