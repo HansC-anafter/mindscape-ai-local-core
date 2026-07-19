@@ -150,7 +150,13 @@ class ObserverEvidenceStore:
             raise RuntimeError("observer_health_unavailable") from exc
         return dict(payload)
 
-    def write_signal_target(self, *, postgres_pid: int, host_pid: int) -> None:
+    def write_signal_target(
+        self,
+        *,
+        postgres_pid: int,
+        host_pid: int,
+        correlation: Mapping[str, Any] | None = None,
+    ) -> None:
         """Publish one bounded target mapping before the synthetic signal."""
 
         if not all(
@@ -158,11 +164,22 @@ class ObserverEvidenceStore:
             for value in (postgres_pid, host_pid)
         ):
             raise ValueError("observer_signal_target_invalid")
-        payload = {
+        payload: dict[str, Any] = {
             "schema_version": "mindscape.postgres-signal-observer-target.v1",
             "target_postgres_pid": postgres_pid,
             "target_host_pid": host_pid,
         }
+        if correlation is not None:
+            from .pgbouncer import validate_pgbouncer_correlation
+
+            payload = {
+                **payload,
+                "schema_version": "mindscape.postgres-signal-observer-target.v2",
+                "pgbouncer": validate_pgbouncer_correlation(
+                    dict(correlation),
+                    target_postgres_pid=postgres_pid,
+                ),
+            }
         encoded = (
             json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n"
         ).encode("ascii")
@@ -234,8 +251,10 @@ class ObserverEvidenceStore:
                 )
                 raise RuntimeError(failure) from exc
 
-    def consume_signal_target(self, host_pid: int) -> int | None:
-        """Consume the exact host/container PID mapping for one observed target."""
+    def consume_signal_target_mapping(
+        self, host_pid: int
+    ) -> dict[str, Any] | None:
+        """Consume the exact PID and optional pre-signal correlation mapping."""
 
         if type(host_pid) is not int or not 0 < host_pid <= 4_194_304:
             raise ValueError("observer_signal_target_host_pid_invalid")
@@ -266,7 +285,7 @@ class ObserverEvidenceStore:
                 ):
                     raise OSError("observer signal target identity changed")
                 chunks: list[bytes] = []
-                remaining = 257
+                remaining = 2049
                 while remaining > 0:
                     chunk = os.read(descriptor, remaining)
                     if not chunk:
@@ -288,23 +307,44 @@ class ObserverEvidenceStore:
                 payload = json.loads(encoded)
             except (ValueError, TypeError) as exc:
                 raise RuntimeError("observer_signal_target_read_failed") from exc
+            base_keys = {
+                "schema_version",
+                "target_postgres_pid",
+                "target_host_pid",
+            }
+            if len(encoded) > 2048 or type(payload) is not dict:
+                raise RuntimeError("observer_signal_target_payload_invalid")
+            schema_version = payload.get("schema_version")
+            expected_keys = (
+                base_keys | {"pgbouncer"}
+                if schema_version == "mindscape.postgres-signal-observer-target.v2"
+                else base_keys
+            )
             if (
-                len(encoded) > 256
-                or type(payload) is not dict
-                or set(payload)
-                != {
-                    "schema_version",
-                    "target_postgres_pid",
-                    "target_host_pid",
+                set(payload) != expected_keys
+                or schema_version
+                not in {
+                    "mindscape.postgres-signal-observer-target.v1",
+                    "mindscape.postgres-signal-observer-target.v2",
                 }
-                or payload.get("schema_version")
-                != "mindscape.postgres-signal-observer-target.v1"
                 or type(payload.get("target_postgres_pid")) is not int
                 or not 0 < payload["target_postgres_pid"] <= 4_194_304
                 or type(payload.get("target_host_pid")) is not int
                 or not 0 < payload["target_host_pid"] <= 4_194_304
             ):
                 raise RuntimeError("observer_signal_target_payload_invalid")
+            if schema_version.endswith(".v2"):
+                from .pgbouncer import validate_pgbouncer_correlation
+
+                try:
+                    payload["pgbouncer"] = validate_pgbouncer_correlation(
+                        payload.get("pgbouncer"),
+                        target_postgres_pid=payload["target_postgres_pid"],
+                    )
+                except RuntimeError as exc:
+                    raise RuntimeError(
+                        "observer_signal_target_payload_invalid"
+                    ) from exc
             if payload["target_host_pid"] != host_pid:
                 return None
             try:
@@ -317,4 +357,12 @@ class ObserverEvidenceStore:
                 self.signal_target_path.unlink()
             except OSError as exc:
                 raise RuntimeError("observer_signal_target_consume_failed") from exc
-            return payload["target_postgres_pid"]
+            return dict(payload)
+
+    def consume_signal_target(self, host_pid: int) -> int | None:
+        """Consume one mapping and return its PostgreSQL namespace PID."""
+
+        payload = self.consume_signal_target_mapping(host_pid)
+        if payload is None:
+            return None
+        return int(payload["target_postgres_pid"])

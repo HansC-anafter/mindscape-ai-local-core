@@ -41,6 +41,54 @@ def _application_name(value: Any) -> str:
     return candidate
 
 
+def validate_pgbouncer_correlation(
+    payload: Any,
+    *,
+    target_postgres_pid: int,
+) -> dict[str, Any]:
+    """Return the exact payload-free correlation schema or fail closed."""
+
+    if type(payload) is not dict or set(payload) != {
+        "status",
+        "application_name",
+        "database",
+        "user_sha256",
+        "client_address_class",
+        "client_remote_pid",
+        "postgres_remote_pid",
+    }:
+        raise RuntimeError("pgbouncer_correlation_projection_invalid")
+    database = payload.get("database")
+    user_sha256 = payload.get("user_sha256")
+    address_class = payload.get("client_address_class")
+    client_remote_pid = payload.get("client_remote_pid")
+    postgres_remote_pid = payload.get("postgres_remote_pid")
+    if (
+        payload.get("status") != "correlated"
+        or type(database) is not str
+        or re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,62}", database) is None
+        or type(user_sha256) is not str
+        or re.fullmatch(r"[0-9a-f]{64}", user_sha256) is None
+        or type(address_class) is not str
+        or address_class
+        not in {"local", "loopback", "private", "public", "unknown"}
+        or type(client_remote_pid) is not int
+        or not 0 < client_remote_pid <= 4_194_304
+        or type(postgres_remote_pid) is not int
+        or postgres_remote_pid != target_postgres_pid
+    ):
+        raise RuntimeError("pgbouncer_correlation_projection_invalid")
+    return {
+        "status": "correlated",
+        "application_name": _application_name(payload.get("application_name")),
+        "database": database,
+        "user_sha256": user_sha256,
+        "client_address_class": address_class,
+        "client_remote_pid": client_remote_pid,
+        "postgres_remote_pid": postgres_remote_pid,
+    }
+
+
 class PgBouncerCorrelationClient:
     """Read SHOW metadata once; never query PostgreSQL or retain credentials."""
 
@@ -94,12 +142,19 @@ class PgBouncerCorrelationClient:
         postgres_remote_pid = int(server.get("remote_pid") or 0)
         if client_remote_pid <= 0 or postgres_remote_pid != int(target_postgres_pid):
             raise RuntimeError("pgbouncer_pid_correlation_invalid")
-        return {
-            "status": "correlated",
-            "application_name": application_name,
-            "database": str(client.get("database") or server.get("database") or ""),
-            "user_sha256": _stable_hash(client.get("user") or server.get("user")),
-            "client_address_class": _address_class(client.get("addr")),
-            "client_remote_pid": client_remote_pid,
-            "postgres_remote_pid": postgres_remote_pid,
-        }
+        return validate_pgbouncer_correlation(
+            {
+                "status": "correlated",
+                "application_name": application_name,
+                "database": str(
+                    client.get("database") or server.get("database") or ""
+                ),
+                "user_sha256": _stable_hash(
+                    client.get("user") or server.get("user")
+                ),
+                "client_address_class": _address_class(client.get("addr")),
+                "client_remote_pid": client_remote_pid,
+                "postgres_remote_pid": postgres_remote_pid,
+            },
+            target_postgres_pid=target_postgres_pid,
+        )

@@ -9,7 +9,7 @@ import select
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from backend.app.services.runtime_database_incident_gate import (
     record_database_diagnostic_observation,
@@ -198,14 +198,16 @@ class PostgresSignalObserver:
         if event is None:
             return
         correlation_error = ""
+        target_mapping: Mapping[str, Any] | None = None
         try:
-            target_postgres_pid = self.store.consume_signal_target(
+            target_mapping = self.store.consume_signal_target_mapping(
                 event.target_host_pid
             )
-            if target_postgres_pid is None:
+            if target_mapping is None:
                 target_namespace_pids = read_namespace_pids(event.target_host_pid)
                 target_postgres_pid = target_namespace_pids[-1]
             else:
+                target_postgres_pid = int(target_mapping["target_postgres_pid"])
                 target_namespace_pids = (event.target_host_pid, target_postgres_pid)
         except Exception as exc:
             target_namespace_pids = ()
@@ -217,7 +219,12 @@ class PostgresSignalObserver:
             sender_namespace_pids = ()
         if target_postgres_pid:
             try:
-                correlation = self.correlation.correlate(target_postgres_pid)
+                correlation = (
+                    dict(target_mapping["pgbouncer"])
+                    if target_mapping is not None
+                    and isinstance(target_mapping.get("pgbouncer"), Mapping)
+                    else self.correlation.correlate(target_postgres_pid)
+                )
             except Exception as exc:
                 correlation = {
                     "status": "correlation_unavailable",

@@ -272,18 +272,28 @@ def test_signal_target_handoff_survives_backend_proc_exit_and_correlates(
     recorded = []
     config = _config(tmp_path)
     store = ObserverEvidenceStore(config.evidence_root)
-    store.write_signal_target(postgres_pid=204, host_pid=54909)
+    correlation = {
+        "status": "correlated",
+        "application_name": "postgres-signal-observer-drill-client",
+        "database": "mindscape_core",
+        "user_sha256": "d" * 64,
+        "client_address_class": "private",
+        "client_remote_pid": 4242,
+        "postgres_remote_pid": 204,
+    }
+    store.write_signal_target(
+        postgres_pid=204,
+        host_pid=54909,
+        correlation=correlation,
+    )
     observer = PostgresSignalObserver(
         config,
         store=store,
         trace=SimpleNamespace(instance_name="test", cleanup=lambda: None),
         correlation=SimpleNamespace(
-            correlate=lambda pid: {
-                "status": "correlated",
-                "application_name": "postgres-signal-observer-drill-client",
-                "client_remote_pid": 4242,
-                "postgres_remote_pid": pid,
-            }
+            correlate=lambda _pid: (_ for _ in ()).throw(
+                AssertionError("pre-signal correlation must be consumed")
+            )
         ),
     )
     observer._diagnostic_incident_id = "incident-fixture"
@@ -304,7 +314,7 @@ def test_signal_target_handoff_survives_backend_proc_exit_and_correlates(
     event = json.loads(event_path.read_text(encoding="utf-8"))
     assert event["target_namespace_pids"] == [54909, 204]
     assert event["target_postgres_pid"] == 204
-    assert event["pgbouncer"]["status"] == "correlated"
+    assert event["pgbouncer"] == correlation
     assert not store.signal_target_path.exists()
     assert recorded[0][1]["permit_id"] == "permit-fixture"
 

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
+import time
 from typing import Any, Callable, Mapping
 
 from .drill import (
@@ -51,7 +53,14 @@ class FormalDockerSubprocessExecutor:
         self,
         config: FormalDrillCliConfig,
         signal: DisposableDrillSignalConfig,
+        *,
+        timeout_seconds: float = 10.0,
     ) -> bool:
+        if type(timeout_seconds) not in {int, float} or not 0 < float(
+            timeout_seconds
+        ) <= 10.0:
+            return False
+        deadline = time.monotonic() + float(timeout_seconds)
         argv = canonical_docker_argv(
             "top",
             config.bootstrap.postgres_container_name,
@@ -64,7 +73,7 @@ class FormalDockerSubprocessExecutor:
                 check=False,
                 capture_output=True,
                 text=False,
-                timeout=10.0,
+                timeout=deadline - time.monotonic(),
                 shell=False,
             )
         except (OSError, RuntimeError, subprocess.TimeoutExpired, ValueError):
@@ -95,12 +104,53 @@ class FormalDockerSubprocessExecutor:
                 host_pids.append(host_pid)
         if len(host_pids) != 1:
             return False
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return False
+        correlation_argv = canonical_docker_argv(
+            "exec",
+            config.observer.container_name,
+            "python",
+            "/app/scripts/maintenance/postgres_signal_observer.py",
+            "--correlate-target-pid",
+            str(signal.target_postgres_pid),
+        )
+        try:
+            correlation_completed = self.run(
+                correlation_argv,
+                check=False,
+                capture_output=True,
+                text=False,
+                timeout=remaining,
+                shell=False,
+            )
+        except (OSError, RuntimeError, subprocess.TimeoutExpired, ValueError):
+            return False
+        if getattr(correlation_completed, "returncode", None) != 0:
+            return False
+        correlation_raw = getattr(correlation_completed, "stdout", None)
+        if (
+            not isinstance(correlation_raw, bytes)
+            or not correlation_raw
+            or len(correlation_raw) > 2048
+        ):
+            return False
+        try:
+            from .pgbouncer import validate_pgbouncer_correlation
+
+            correlation = validate_pgbouncer_correlation(
+                json.loads(correlation_raw),
+                target_postgres_pid=signal.target_postgres_pid,
+            )
+        except (UnicodeError, ValueError, TypeError, RuntimeError):
+            return False
         try:
             ObserverEvidenceStore(
                 config.observer.evidence_host_root
             ).write_signal_target(
                 postgres_pid=signal.target_postgres_pid,
                 host_pid=host_pids[0],
+                correlation=correlation,
             )
         except (OSError, RuntimeError, ValueError):
             return False

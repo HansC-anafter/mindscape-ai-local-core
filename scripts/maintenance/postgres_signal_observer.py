@@ -34,6 +34,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--healthcheck", action="store_true")
     parser.add_argument("--validate-config", action="store_true")
     parser.add_argument("--print-artifact-sha256", action="store_true")
+    parser.add_argument("--correlate-target-pid", type=int)
     parser.add_argument("--max-health-age-seconds", type=int, default=30)
     return parser
 
@@ -117,6 +118,18 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.healthcheck:
         return _healthcheck(args.max_health_age_seconds)
+    if args.correlate_target_pid is not None:
+        if not 0 < args.correlate_target_pid <= 4_194_304:
+            raise SystemExit("observer_correlation_target_pid_invalid")
+        from scripts.maintenance.postgres_signal_observer_core.pgbouncer import (
+            PgBouncerCorrelationClient,
+        )
+
+        correlation = PgBouncerCorrelationClient(
+            _required_environment("PGBOUNCER_ADMIN_URL")
+        ).correlate(args.correlate_target_pid)
+        print(json.dumps(correlation, sort_keys=True, separators=(",", ":")))
+        return 0
 
     if not args.validate_config:
         _write_startup_health()

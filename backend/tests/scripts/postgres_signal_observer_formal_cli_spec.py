@@ -555,8 +555,8 @@ def test_client_gate_derives_signal_pid_without_external_input(
         def run(self, _argv, **_kwargs):
             return SimpleNamespace(returncode=0, stdout=b"4242\n", stderr=b"")
 
-        def bind_signal_target(self, _config, signal):
-            return signal.target_host_pid is None
+        def bind_signal_target(self, _config, signal, *, timeout_seconds):
+            return signal.target_host_pid is None and timeout_seconds > 0
 
     def pass_neutralized_client_readback(contract, *_args, **_kwargs):
         expected = contract._expected()
@@ -608,7 +608,8 @@ def test_client_gate_fails_closed_when_signal_target_binding_fails(
                 stderr=b"",
             )
 
-        def bind_signal_target(self, _config, _signal):
+        def bind_signal_target(self, _config, _signal, *, timeout_seconds):
+            assert timeout_seconds > 0
             return False
 
     monkeypatch.setattr(
@@ -652,8 +653,8 @@ def test_client_gate_waits_with_fresh_remaining_budget_for_source_owned_pid(
             stdout = b"\n" if len(calls) == 1 else b"4242\n"
             return SimpleNamespace(returncode=0, stdout=stdout, stderr=b"")
 
-        def bind_signal_target(self, _config, signal):
-            return signal.target_host_pid is None
+        def bind_signal_target(self, _config, signal, *, timeout_seconds):
+            return signal.target_host_pid is None and timeout_seconds > 0
 
     monkeypatch.setattr(
         drill_formal_gates,
@@ -2154,9 +2155,24 @@ def test_formal_executor_binds_exact_signal_target_for_observer(
     config = _config(tmp_path)
     config.observer.evidence_host_root.mkdir(parents=True)
     calls = []
+    correlation = {
+        "status": "correlated",
+        "application_name": "postgres-signal-observer-drill-client",
+        "database": "mindscape_core",
+        "user_sha256": "d" * 64,
+        "client_address_class": "private",
+        "client_remote_pid": 55123,
+        "postgres_remote_pid": 4242,
+    }
 
     def run(argv, **kwargs):
         calls.append((argv, kwargs))
+        if argv[1] == "exec":
+            return SimpleNamespace(
+                returncode=0,
+                stdout=json.dumps(correlation).encode("ascii"),
+                stderr=b"",
+            )
         return SimpleNamespace(
             returncode=0,
             stdout=(
@@ -2182,11 +2198,23 @@ def test_formal_executor_binds_exact_signal_target_for_observer(
         "-eo",
         "pid,args",
     ]
-    assert calls[0][1]["timeout"] == 10.0
+    assert 0 < calls[0][1]["timeout"] <= 10.0
     assert calls[0][1]["shell"] is False
+    assert calls[1][0] == [
+        "/usr/local/bin/docker",
+        "exec",
+        config.observer.container_name,
+        "python",
+        "/app/scripts/maintenance/postgres_signal_observer.py",
+        "--correlate-target-pid",
+        "4242",
+    ]
+    assert 0 < calls[1][1]["timeout"] <= 10.0
     store = ObserverEvidenceStore(config.observer.evidence_host_root)
-    assert store.consume_signal_target(54909) == 4242
-    assert store.consume_signal_target(54909) is None
+    handoff = store.consume_signal_target_mapping(54909)
+    assert handoff["target_postgres_pid"] == 4242
+    assert handoff["pgbouncer"] == correlation
+    assert store.consume_signal_target_mapping(54909) is None
 
 
 @pytest.mark.parametrize(

@@ -46,7 +46,7 @@ def evaluate_client_readiness(
     client: DisposableDrillClientConfig,
     run: Callable[..., Any],
     stage_result: Callable[[Any], dict[str, Any]],
-    bind_signal_target: Callable[[DisposableDrillSignalConfig], bool],
+    bind_signal_target: Callable[[DisposableDrillSignalConfig, float], bool],
     monotonic: Callable[[], float],
     sleep: Callable[[float], None],
 ) -> tuple[Mapping[str, Any], DisposableDrillSignalConfig | None]:
@@ -190,7 +190,8 @@ def evaluate_client_readiness(
             "error_code": "formal_client_signal_config_invalid",
         }
         return _receipt(stages, "formal_client_signal_config_invalid"), None
-    if not bind_signal_target(signal):
+    remaining = deadline - monotonic()
+    if remaining <= 0 or not bind_signal_target(signal, remaining):
         pid_stage["last_result"] = {
             "status": "result_invalid",
             "error_code": "formal_client_signal_target_binding_failed",
