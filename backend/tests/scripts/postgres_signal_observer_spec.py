@@ -191,6 +191,31 @@ def test_pgbouncer_correlation_returns_only_bounded_metadata(monkeypatch) -> Non
     assert "SELECT" not in serialized
 
 
+def test_pgbouncer_correlation_uses_exact_source_owned_application_identity(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        "scripts.maintenance.postgres_signal_observer_core.pgbouncer.psycopg2.connect",
+        lambda *args, **kwargs: _FakeConnection(),
+    )
+    monkeypatch.setattr(
+        _FakeCursor,
+        "fetchall",
+        lambda self: [
+            tuple("" if index == 5 else value for index, value in enumerate(row))
+            for row in self._rows
+        ],
+    )
+    client = PgBouncerCorrelationClient(
+        "postgresql://user:secret@pgbouncer:6432/pgbouncer",
+        expected_application_name="postgres-signal-observer-drill-client",
+    )
+
+    result = client.correlate(204)
+
+    assert result["application_name"] == "postgres-signal-observer-drill-client"
+
+
 def _config(tmp_path: Path) -> ObserverConfig:
     repo_root = Path(__file__).resolve().parents[3]
     return ObserverConfig(

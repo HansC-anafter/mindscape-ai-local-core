@@ -124,9 +124,13 @@ def main(argv: list[str] | None = None) -> int:
         from scripts.maintenance.postgres_signal_observer_core.pgbouncer import (
             PgBouncerCorrelationClient,
         )
+        from scripts.maintenance.postgres_signal_observer_core.drill import (
+            DRILL_APPLICATION_NAME,
+        )
 
         correlation = PgBouncerCorrelationClient(
-            _required_environment("PGBOUNCER_ADMIN_URL")
+            _required_environment("PGBOUNCER_ADMIN_URL"),
+            expected_application_name=DRILL_APPLICATION_NAME,
         ).correlate(args.correlate_target_pid)
         print(json.dumps(correlation, sort_keys=True, separators=(",", ":")))
         return 0

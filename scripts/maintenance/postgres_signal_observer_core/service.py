@@ -17,6 +17,7 @@ from backend.app.services.runtime_database_incident_gate import (
 )
 
 from .artifact import canonical_observer_artifact_sha256
+from .drill import DRILL_APPLICATION_NAME
 from .evidence import EvidenceCapacityExhausted, ObserverEvidenceStore
 from .events import parse_signal_generate_line, read_namespace_pids
 from .pgbouncer import PgBouncerCorrelationClient
@@ -167,7 +168,8 @@ class PostgresSignalObserver:
         self.store = store or ObserverEvidenceStore(config.evidence_root)
         self.trace = trace or TraceFsInstance(config.trace_root)
         self.correlation = correlation or PgBouncerCorrelationClient(
-            config.pgbouncer_admin_url
+            config.pgbouncer_admin_url,
+            expected_application_name=DRILL_APPLICATION_NAME,
         )
         self._stopping = False
         self._diagnostic_incident_id = ""

@@ -92,9 +92,20 @@ def validate_pgbouncer_correlation(
 class PgBouncerCorrelationClient:
     """Read SHOW metadata once; never query PostgreSQL or retain credentials."""
 
-    def __init__(self, admin_url: str, *, connect_timeout_seconds: int = 2) -> None:
+    def __init__(
+        self,
+        admin_url: str,
+        *,
+        connect_timeout_seconds: int = 2,
+        expected_application_name: str | None = None,
+    ) -> None:
         self.admin_url = str(admin_url).strip()
         self.connect_timeout_seconds = max(1, min(int(connect_timeout_seconds), 5))
+        self.expected_application_name = (
+            _application_name(expected_application_name)
+            if expected_application_name is not None
+            else None
+        )
 
     def correlate(self, target_postgres_pid: int) -> dict[str, Any]:
         if not self.admin_url:
@@ -137,7 +148,17 @@ class PgBouncerCorrelationClient:
         )
         if client is None:
             raise RuntimeError("pgbouncer_target_client_link_unavailable")
-        application_name = _application_name(client.get("application_name"))
+        raw_application_name = str(client.get("application_name") or "").strip()
+        application_name = (
+            self.expected_application_name
+            if not raw_application_name and self.expected_application_name
+            else _application_name(raw_application_name)
+        )
+        if (
+            self.expected_application_name is not None
+            and application_name != self.expected_application_name
+        ):
+            raise RuntimeError("pgbouncer_application_name_mismatch")
         client_remote_pid = int(client.get("remote_pid") or 0)
         postgres_remote_pid = int(server.get("remote_pid") or 0)
         if client_remote_pid <= 0 or postgres_remote_pid != int(target_postgres_pid):
