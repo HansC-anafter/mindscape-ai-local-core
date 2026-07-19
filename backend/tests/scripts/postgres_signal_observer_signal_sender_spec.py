@@ -118,6 +118,7 @@ def test_artifact_digest_changes_with_the_postgres_image_contract(
         "scripts/maintenance/postgres_signal_observer_core/drill_gate_receipt.py",
         "scripts/maintenance/postgres_signal_observer_core/drill_pgbouncer_gate_receipt.py",
         "scripts/maintenance/postgres_signal_observer_core/drill_pgbouncer_readiness.py",
+        "scripts/maintenance/postgres_signal_observer_core/drill_observer_launch_receipt.py",
         "scripts/maintenance/postgres_signal_observer_core/drill_readiness_stage.py",
     ),
 )
@@ -149,6 +150,7 @@ def test_artifact_digest_binds_incident_admission_and_terminal_owners(
         "scripts/maintenance/postgres_signal_observer_core/drill_gate_receipt.py",
         "scripts/maintenance/postgres_signal_observer_core/drill_pgbouncer_gate_receipt.py",
         "scripts/maintenance/postgres_signal_observer_core/drill_pgbouncer_readiness.py",
+        "scripts/maintenance/postgres_signal_observer_core/drill_observer_launch_receipt.py",
         "scripts/maintenance/postgres_signal_observer_core/drill_readiness_stage.py",
     ),
 )

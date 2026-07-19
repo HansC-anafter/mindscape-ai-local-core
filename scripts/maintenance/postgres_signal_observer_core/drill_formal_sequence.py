@@ -388,7 +388,12 @@ def execute_formal_drill_sequence(
         if resource_may_exist and envelope.resource is not None:
             created_resources.add(envelope.resource)
         if result.get("delivery_allowed") is not True:
-            candidate = source.get("failure_code") if isinstance(source, Mapping) else None
+            result_failure = result.get("first_failure")
+            candidate = (
+                result_failure
+                if result_failure == "formal_observer_launch_receipt_invalid"
+                else (source.get("failure_code") if isinstance(source, Mapping) else None)
+            )
             first_failure = (
                 candidate
                 if isinstance(candidate, str) and re.fullmatch(r"[a-z0-9_]{3,160}", candidate)

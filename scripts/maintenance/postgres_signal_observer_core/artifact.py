@@ -34,6 +34,7 @@ OBSERVER_SOURCE_PATHS = (
     "scripts/maintenance/postgres_signal_observer_core/drill_images.py",
     "scripts/maintenance/postgres_signal_observer_core/drill_names.py",
     "scripts/maintenance/postgres_signal_observer_core/drill_observer.py",
+    "scripts/maintenance/postgres_signal_observer_core/drill_observer_launch_receipt.py",
     "scripts/maintenance/postgres_signal_observer_core/drill_pgbouncer_gate_receipt.py",
     "scripts/maintenance/postgres_signal_observer_core/drill_pgbouncer_readiness.py",
     "scripts/maintenance/postgres_signal_observer_core/drill_preconditions.py",

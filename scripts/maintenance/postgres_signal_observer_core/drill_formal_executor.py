@@ -98,7 +98,11 @@ class FormalDockerSubprocessExecutor:
                 )
                 self.observer_receipt = receipt
                 if receipt.get("ready") is True:
-                    return {"exit_code": 0, "output": receipt.get("container_id", "")}
+                    return {
+                        "exit_code": 0,
+                        "output": receipt.get("container_id", ""),
+                        "observer_launch_receipt": receipt,
+                    }
                 cleanup = receipt.get("cleanup")
                 resource_may_exist = bool(
                     isinstance(cleanup, Mapping)
@@ -109,6 +113,7 @@ class FormalDockerSubprocessExecutor:
                     "output": "",
                     "failure_code": str(receipt.get("first_failure") or ""),
                     "resource_may_exist": resource_may_exist,
+                    "observer_launch_receipt": receipt,
                 }
             if operation == "docker_run_disposable_isolated_client":
                 completed: Any | None = None

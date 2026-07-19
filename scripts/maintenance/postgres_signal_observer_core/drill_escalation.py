@@ -14,6 +14,10 @@ from .drill_docker_runtime import (
     CANONICAL_DOCKER_CLI_ENTRY_PATH,
     validate_canonical_docker_argv,
 )
+from .drill_observer_launch_receipt import (
+    FORMAL_OBSERVER_LAUNCH_FAILURES,
+    project_formal_observer_launch_receipt,
+)
 
 
 FORMAL_DOCKER_OPERATION_RESULT_KINDS = {
@@ -242,6 +246,49 @@ def validate_formal_exec_result(
         return receipt
     receipt["terminal"] = True
     receipt["exit_code"] = exit_code
+    if operation_class == "docker_run_disposable_isolated_observer":
+        raw_observer_receipt = source.get("observer_launch_receipt")
+        failure_code = source.get("failure_code")
+        projection_required = (
+            exit_code == 0
+            or (
+                type(failure_code) is str
+                and failure_code in FORMAL_OBSERVER_LAUNCH_FAILURES
+            )
+        )
+        if raw_observer_receipt is not None or projection_required:
+            observer_receipt = project_formal_observer_launch_receipt(
+                raw_observer_receipt
+            )
+            if observer_receipt is None:
+                receipt["first_failure"] = (
+                    "formal_observer_launch_receipt_invalid"
+                )
+                return receipt
+            ready = observer_receipt["ready"] is True
+            if (
+                ready is not (exit_code == 0)
+                or (
+                    ready
+                    and (
+                        not isinstance(raw_observer_receipt, Mapping)
+                        or raw_observer_receipt.get("container_id")
+                        != output_text.strip()
+                    )
+                )
+                or (
+                    not ready
+                    and (
+                        failure_code != observer_receipt["first_failure"]
+                        or output_text != ""
+                    )
+                )
+            ):
+                receipt["first_failure"] = (
+                    "formal_observer_launch_receipt_invalid"
+                )
+                return receipt
+            receipt["observer_launch_receipt"] = observer_receipt
     if exit_code != 0:
         capture = source.get("terminal_nonzero_capture")
         if isinstance(capture, Mapping):

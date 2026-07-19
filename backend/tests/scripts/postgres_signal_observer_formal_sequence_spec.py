@@ -78,6 +78,22 @@ def _configs(tmp_path: Path) -> tuple[object, object, object, object]:
 
 
 def _docker_success(envelope: FormalDockerExecutionEnvelope) -> dict[str, object]:
+    if envelope.operation_class == "docker_run_disposable_isolated_observer":
+        return {
+            "exit_code": 0,
+            "output": "a" * 64,
+            "observer_launch_receipt": {
+                "launched": True,
+                "container_started": True,
+                "ready": True,
+                "container_id": "a" * 64,
+                "health_failure_detail_code": None,
+                "health_journal_observed": True,
+                "health_state": "ready",
+                "pgbouncer_admin_environment": {},
+                "spec": {},
+            },
+        }
     if envelope.result_kind == "identifier":
         return {"exit_code": 0, "output": "a" * 64}
     return {"exit_code": 0, "output": ""}
@@ -1004,6 +1020,148 @@ def test_observer_health_failure_cleans_started_observer_and_blocks_client(
         "docker_remove_disposable_isolated_postgresql",
         "docker_remove_disposable_isolated_network",
     ]
+
+
+def test_observer_launcher_failure_receipt_survives_sequence_projection(
+    tmp_path: Path,
+) -> None:
+    calls: list[str] = []
+    revocations: list[str] = []
+
+    def execute(envelope: FormalDockerExecutionEnvelope) -> dict[str, object]:
+        calls.append(envelope.operation_class)
+        if envelope.operation_class == "docker_run_disposable_isolated_observer":
+            return {
+                "exit_code": 1,
+                "output": "",
+                "failure_code": "observer_health_startup_deadline_exceeded",
+                "resource_may_exist": False,
+                "observer_launch_receipt": {
+                    "launched": False,
+                    "container_started": True,
+                    "ready": False,
+                    "container_id": "d" * 64,
+                    "first_failure": "observer_health_startup_deadline_exceeded",
+                    "health_failure_detail_code": None,
+                    "health_journal_observed": True,
+                    "health_state": "starting",
+                    "cleanup": {
+                        "stop_succeeded": True,
+                        "remove_succeeded": True,
+                    },
+                    "pgbouncer_admin_environment": {"private": "sentinel-secret"},
+                    "spec": {"private_path": "sentinel-path"},
+                },
+            }
+        return _docker_success(envelope)
+
+    receipt = _execute(
+        _configs(tmp_path),
+        execute_docker=execute,
+        evaluate_gate=_gate,
+        revoke_permit=revocations.append,
+        finalize_cleanup=lambda _failure: _postflight(),
+    )
+
+    launch = receipt["step_receipts"][5]["result"]["observer_launch_receipt"]
+    assert receipt["first_failure"] == "observer_health_startup_deadline_exceeded"
+    assert launch["container_started"] is True
+    assert launch["health_journal_observed"] is True
+    assert launch["health_state"] == "starting"
+    assert launch["cleanup"] == {
+        "attempted": True,
+        "stop_succeeded": True,
+        "remove_succeeded": True,
+    }
+    assert "container_id" not in launch
+    assert "sentinel-secret" not in repr(receipt)
+    assert "sentinel-path" not in repr(receipt)
+    assert "docker_run_disposable_isolated_client" not in calls
+    assert revocations == ["observer_health_startup_deadline_exceeded"]
+    assert receipt["cleanup_operation_attempts"] == 5
+    assert receipt["ownership_handed_back"] is True
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"health_state": ["starting"]},
+        {"health_failure_detail_code": {"secret": "sentinel"}},
+        {"health_failure_detail_code": ["sentinel"]},
+        {"health_failure_detail_code": 1},
+        {"health_journal_observed": False},
+        {"health_journal_observed": False, "health_state": "health_invalid"},
+        {"health_state": "ready"},
+        {"container_started": False, "container_id": None},
+        {
+            "first_failure": "observer_health_identity_mismatch",
+            "health_state": "starting",
+        },
+        {
+            "first_failure": "fail_closed_observer_error",
+            "health_state": "starting",
+            "health_failure_detail_code": "observer_error_unclassified",
+        },
+        {
+            "first_failure": "disposable_drill_observer_launch_unavailable",
+            "container_started": False,
+            "container_id": None,
+            "health_journal_observed": False,
+            "health_state": "starting",
+        },
+    ],
+)
+def test_malformed_observer_launcher_projection_uses_invalid_latch_and_cleanup(
+    tmp_path: Path,
+    overrides: dict[str, object],
+) -> None:
+    revocations: list[str] = []
+
+    def execute(envelope: FormalDockerExecutionEnvelope) -> dict[str, object]:
+        if envelope.operation_class == "docker_run_disposable_isolated_observer":
+            raw_observer_receipt = {
+                "launched": False,
+                "container_started": True,
+                "ready": False,
+                "container_id": "d" * 64,
+                "first_failure": "observer_health_startup_deadline_exceeded",
+                "health_failure_detail_code": None,
+                "health_journal_observed": True,
+                "health_state": "starting",
+                "cleanup": {
+                    "stop_succeeded": True,
+                    "remove_succeeded": True,
+                },
+                "pgbouncer_admin_environment": {},
+                "spec": {},
+            }
+            raw_observer_receipt.update(overrides)
+            return {
+                "exit_code": 1,
+                "output": "",
+                "failure_code": "observer_health_startup_deadline_exceeded",
+                "observer_launch_receipt": raw_observer_receipt,
+            }
+        return _docker_success(envelope)
+
+    receipt = _execute(
+        _configs(tmp_path),
+        execute_docker=execute,
+        evaluate_gate=_gate,
+        revoke_permit=revocations.append,
+        finalize_cleanup=lambda _failure: _postflight(),
+    )
+
+    assert receipt["first_failure"] == "formal_observer_launch_receipt_invalid"
+    assert receipt["step_receipts"][5]["result"]["first_failure"] == (
+        "formal_observer_launch_receipt_invalid"
+    )
+    assert revocations == ["formal_observer_launch_receipt_invalid"]
+    assert receipt["downstream_operation_attempts"]["client"] == 0
+    assert receipt["downstream_operation_attempts"]["signal"] == 0
+    assert receipt["cleanup_operation_attempts"] == 5
+    assert receipt["ownership_handed_back"] is True
+    assert "sentinel" not in repr(receipt)
 
 
 def test_success_requires_every_gate_correlation_revocation_cleanup_and_handback(

@@ -14,6 +14,7 @@ from scripts.maintenance.postgres_signal_observer_core import (
     validate_formal_exec_result,
 )
 from scripts.maintenance.postgres_signal_observer_core import drill_formal_cli
+from scripts.maintenance.postgres_signal_observer_core import drill_formal_executor
 from scripts.maintenance.postgres_signal_observer_core import drill_formal_gates
 from scripts.maintenance.postgres_signal_observer_core.drill_formal_executor import (
     FormalDockerSubprocessExecutor,
@@ -1772,6 +1773,126 @@ def test_generic_nonzero_result_persists_only_raw_capture_hashes() -> None:
     assert capture["stderr_bytes"] == len(stderr)
     assert source["output"] == ""
     assert b"sentinel-secret" not in repr(receipt).encode("utf-8")
+
+
+def test_observer_launcher_failure_projects_exact_payload_free_receipt(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _config(tmp_path)
+    raw_receipt = {
+        "launched": False,
+        "container_started": True,
+        "ready": False,
+        "container_id": "d" * 64,
+        "first_failure": "observer_health_startup_deadline_exceeded",
+        "health_failure_detail_code": None,
+        "health_journal_observed": True,
+        "health_state": "starting",
+        "cleanup": {"stop_succeeded": True, "remove_succeeded": True},
+        "pgbouncer_admin_environment": {"private": "sentinel-admin-url"},
+        "spec": {"private_path": "sentinel-private-path"},
+    }
+    monkeypatch.setattr(
+        drill_formal_executor,
+        "launch_disposable_drill_observer",
+        lambda *_args, **_kwargs: raw_receipt,
+    )
+    executor = FormalDockerSubprocessExecutor()
+    executor.observer_environment = SimpleNamespace()
+    source = executor.execute(
+        SimpleNamespace(operation_class="docker_run_disposable_isolated_observer"),
+        config=config,
+    )
+    projected = validate_formal_exec_result(
+        source,
+        operation_class="docker_run_disposable_isolated_observer",
+    )["observer_launch_receipt"]
+
+    assert projected == {
+        "schema_version": "mindscape.postgres-signal-observer-formal-launch.v1",
+        "launched": False,
+        "container_started": True,
+        "ready": False,
+        "container_id_persisted": False,
+        "health_journal_observed": True,
+        "health_state": "starting",
+        "health_failure_detail_code": None,
+        "raw_payload_persisted": False,
+        "first_failure": "observer_health_startup_deadline_exceeded",
+        "cleanup": {
+            "attempted": True,
+            "stop_succeeded": True,
+            "remove_succeeded": True,
+        },
+    }
+    assert "container_id" not in projected
+    assert "sentinel-admin-url" not in repr(projected)
+    assert "sentinel-private-path" not in repr(projected)
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"health_state": ["starting"]},
+        {"health_journal_observed": 1},
+        {"cleanup": {"stop_succeeded": True, "remove_succeeded": "yes"}},
+        {"health_failure_detail_code": {"secret": "sentinel"}},
+        {"health_failure_detail_code": ["sentinel"]},
+        {"health_failure_detail_code": 1},
+        {"health_journal_observed": False},
+        {"health_journal_observed": False, "health_state": "health_invalid"},
+        {"health_state": "ready"},
+        {"container_started": False, "container_id": None},
+        {
+            "first_failure": "observer_health_identity_mismatch",
+            "health_state": "starting",
+        },
+        {
+            "first_failure": "fail_closed_observer_error",
+            "health_state": "starting",
+            "health_failure_detail_code": "observer_error_unclassified",
+        },
+        {
+            "first_failure": "disposable_drill_observer_launch_unavailable",
+            "container_started": False,
+            "container_id": None,
+            "health_journal_observed": False,
+            "health_state": "starting",
+        },
+    ],
+)
+def test_observer_launcher_projection_fails_closed_on_malformed_metadata(
+    overrides: dict[str, object],
+) -> None:
+    raw_receipt = {
+        "launched": False,
+        "container_started": True,
+        "ready": False,
+        "container_id": "d" * 64,
+        "first_failure": "observer_health_startup_deadline_exceeded",
+        "health_failure_detail_code": None,
+        "health_journal_observed": True,
+        "health_state": "starting",
+        "cleanup": {"stop_succeeded": True, "remove_succeeded": True},
+        "pgbouncer_admin_environment": {},
+        "spec": {},
+    }
+    raw_receipt.update(overrides)
+    receipt = validate_formal_exec_result(
+        {
+            "exit_code": 1,
+            "output": "",
+            "failure_code": "observer_health_startup_deadline_exceeded",
+            "observer_launch_receipt": raw_receipt,
+        },
+        operation_class="docker_run_disposable_isolated_observer",
+    )
+
+    assert receipt["delivery_allowed"] is False
+    assert receipt["first_failure"] == "formal_observer_launch_receipt_invalid"
+    assert "observer_launch_receipt" not in receipt
+    assert "sentinel" not in repr(receipt)
 
 
 def test_pgbouncer_admin_user_matches_byte_exact_precondition_owner() -> None:
