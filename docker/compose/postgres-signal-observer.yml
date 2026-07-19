@@ -33,6 +33,7 @@ services:
     volumes:
       - ../../backend:/app/backend:ro
       - ../../scripts:/app/scripts:ro
+      - ../../docker/postgres/Dockerfile:/app/docker/postgres/Dockerfile:ro
       - ${LOCAL_CORE_DATA_HOST_DIR:-../../data}:/app/data:rw
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=16m

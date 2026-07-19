@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import subprocess
 import time
@@ -21,6 +20,7 @@ from scripts.maintenance.runtime_pressure_gate_core import (
 from scripts.maintenance.postgres_signal_observer_core import (
     canonical_observer_artifact_sha256,
 )
+from .compose_policy import collect_observer_compose_policy
 from .permit_binding import (
     OBSERVER_OWNER,
     QUALIFICATION_SCHEMA,
@@ -185,84 +185,6 @@ def _database_checks(command: RunCommand, timeout_seconds: float) -> dict[str, A
         "lock_waits": metrics.get("lock_waits"),
         "active_install_jobs": active_count,
         "incomplete_commit_receipts": incomplete_count,
-    }
-
-
-def _compose_policy(
-    command: RunCommand,
-    config: ObserverPreflightConfig,
-) -> dict[str, Any]:
-    result = command(
-        [
-            "docker",
-            "compose",
-            "--project-directory",
-            str(config.repo_root),
-            "--profile",
-            "runtime-db-observer",
-            "config",
-            "--format",
-            "json",
-        ],
-        config.timeout_seconds,
-    )
-    if not result.get("ok"):
-        return {"ok": False, "error_code": "observer_compose_config_unavailable"}
-    try:
-        service = json.loads(result.get("stdout") or "{}")["services"][
-            "postgres-signal-observer"
-        ]
-        environment = service.get("environment") or {}
-        volume_targets = sorted(
-            str(volume.get("target") or "")
-            for volume in service.get("volumes") or []
-            if isinstance(volume, dict)
-        )
-        policy = {
-            "profiles": service.get("profiles"),
-            "read_only": service.get("read_only"),
-            "privileged": bool(service.get("privileged", False)),
-            "pid": service.get("pid"),
-            "network_mode": service.get("network_mode"),
-            "cap_add": service.get("cap_add"),
-            "cap_drop": service.get("cap_drop"),
-            "cpus": float(service.get("cpus") or 0),
-            "mem_limit": int(service.get("mem_limit") or 0),
-            "pids_limit": int(service.get("pids_limit") or 0),
-            "volume_targets": volume_targets,
-            "environment_keys": sorted(environment),
-        }
-    except (KeyError, TypeError, ValueError, json.JSONDecodeError):
-        return {"ok": False, "error_code": "observer_compose_config_invalid"}
-    policy_sha256 = hashlib.sha256(
-        json.dumps(policy, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    ).hexdigest()
-    expected = {
-        "profiles": ["runtime-db-observer"],
-        "read_only": True,
-        "privileged": False,
-        "pid": "host",
-        "network_mode": "service:pgbouncer",
-        "cap_add": ["SYS_ADMIN"],
-        "cap_drop": ["ALL"],
-        "cpus": 0.1,
-        "mem_limit": 67_108_864,
-        "pids_limit": 16,
-    }
-    policy_matches = all(policy.get(key) == value for key, value in expected.items())
-    docker_socket_present = any("docker.sock" in target for target in volume_targets)
-    return {
-        "ok": policy_matches and not docker_socket_present,
-        "policy_sha256": policy_sha256,
-        "policy_matches": policy_matches,
-        "docker_socket_present": docker_socket_present,
-        "resource_budget": {
-            "cpus": policy["cpus"],
-            "mem_limit": policy["mem_limit"],
-            "pids_limit": policy["pids_limit"],
-        },
-        "cap_add": policy["cap_add"],
-        "cap_drop": policy["cap_drop"],
     }
 
 
@@ -472,7 +394,7 @@ def collect_observer_preflight(
             "http://127.0.0.1:8300/healthz", config.timeout_seconds
         ),
     }
-    compose_policy = _compose_policy(command, config)
+    compose_policy = collect_observer_compose_policy(command, config)
     observer_process = _observer_running(command, config.timeout_seconds)
     database_after = _database_checks(command, config.timeout_seconds)
     runtime_lifecycle_after = _runtime_lifecycle_snapshot(

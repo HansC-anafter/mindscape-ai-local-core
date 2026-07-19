@@ -38,6 +38,10 @@ from scripts.maintenance.postgres_signal_observer_core.drill_observer import (
     OBSERVER_HEALTH_POLL_SECONDS,
     OBSERVER_STARTUP_DEADLINE_SECONDS,
 )
+from scripts.maintenance.postgres_signal_observer_core.artifact import (
+    OBSERVER_ARTIFACT_POSTGRES_DOCKERFILE,
+    OBSERVER_SOURCE_PATHS,
+)
 from scripts.maintenance.postgres_signal_observer_core.evidence import EvidenceBudget
 from scripts.maintenance.postgres_signal_observer_core.tracefs import (
     INSTANCE_NAME,
@@ -844,6 +848,11 @@ def test_observer_spec_overrides_image_healthcheck_and_preserves_budgets(
 ) -> None:
     argv = observer_config.docker_argv()
     joined = "\0".join(argv)
+    mounts = [
+        argv[index + 1]
+        for index, value in enumerate(argv[:-1])
+        if value == "--mount"
+    ]
 
     assert argv[argv.index("--health-cmd") + 1] == OBSERVER_HEALTH_COMMAND
     assert argv[argv.index("--cpus") + 1] == "0.10"
@@ -857,10 +866,83 @@ def test_observer_spec_overrides_image_healthcheck_and_preserves_budgets(
     assert "docker.sock" not in joined
     assert "PGBOUNCER_ADMIN_URL" in argv
     assert "postgresql://" not in joined
+    assert mounts == [
+        "type=bind,src="
+        f"{(observer_config.repo_root / 'backend').resolve()},"
+        "dst=/app/backend,readonly",
+        "type=bind,src="
+        f"{(observer_config.repo_root / 'scripts').resolve()},"
+        "dst=/app/scripts,readonly",
+        "type=bind,src="
+        f"{(observer_config.repo_root / 'docker/postgres/Dockerfile').resolve()},"
+        "dst=/app/docker/postgres/Dockerfile,readonly",
+        "type=bind,src="
+        f"{observer_config.journal_host_root.resolve()},"
+        "dst=/app/data/runtime-database-incidents",
+    ]
+    assert all(
+        "/app/docker/" not in mount
+        or mount.endswith("dst=/app/docker/postgres/Dockerfile,readonly")
+        for mount in mounts
+    )
     assert argv[-1] == "/app/scripts/maintenance/postgres_signal_observer.py"
     assert observer_config.redacted_spec()["docker_terminal_deadline_seconds"] == 60.0
     assert observer_config.redacted_spec()["startup_deadline_seconds"] == 10.0
     assert observer_config.redacted_spec()["health_poll_seconds"] == 0.25
+    assert observer_config.redacted_spec()["artifact_source_contract"] == {
+        "relative_source": "docker/postgres/Dockerfile",
+        "container_target": "/app/docker/postgres/Dockerfile",
+        "read_only": True,
+        "host_source_disclosed": False,
+    }
+    assert str(observer_config.repo_root) not in json.dumps(
+        observer_config.redacted_spec(), sort_keys=True
+    )
+
+
+def test_observer_runtime_mount_contract_covers_every_artifact_source_owner() -> None:
+    uncovered = [
+        relative
+        for relative in OBSERVER_SOURCE_PATHS
+        if not relative.startswith(("backend/", "scripts/"))
+        and relative != OBSERVER_ARTIFACT_POSTGRES_DOCKERFILE
+    ]
+
+    assert OBSERVER_ARTIFACT_POSTGRES_DOCKERFILE == "docker/postgres/Dockerfile"
+    assert uncovered == []
+
+
+@pytest.mark.parametrize("source_state", ["missing", "symlink"])
+def test_observer_rejects_unowned_postgres_dockerfile_before_docker(
+    tmp_path: Path,
+    source_state: str,
+) -> None:
+    repo_root = tmp_path / "repo"
+    (repo_root / "backend").mkdir(parents=True)
+    (repo_root / "scripts").mkdir()
+    dockerfile = repo_root / "docker/postgres/Dockerfile"
+    dockerfile.parent.mkdir(parents=True)
+    if source_state == "symlink":
+        foreign = tmp_path / "foreign-Dockerfile"
+        foreign.write_text("FROM postgres:16\n", encoding="utf-8")
+        dockerfile.symlink_to(foreign)
+    journal_root = tmp_path / "journal"
+    journal_root.mkdir()
+    config = DisposableDrillObserverConfig(
+        container_name="postgres-signal-observer-drill-observer-1",
+        pgbouncer_container_name="postgres-signal-observer-drill-pgbouncer-1",
+        observer_image_ref=OBSERVER_IMAGE_REF,
+        journal_host_root=journal_root,
+        repo_root=repo_root,
+        artifact_sha256="a" * 64,
+        source_commit="0123456789abcdef",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="drill_observer_postgres_dockerfile_invalid",
+    ):
+        config.docker_argv()
 
 
 def test_observer_launcher_terminal_deadline_is_independent_and_fail_closed(

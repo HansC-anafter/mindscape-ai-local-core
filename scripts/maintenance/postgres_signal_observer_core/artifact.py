@@ -6,13 +6,15 @@ import hashlib
 from pathlib import Path
 
 
+OBSERVER_ARTIFACT_POSTGRES_DOCKERFILE = "docker/postgres/Dockerfile"
+
 OBSERVER_SOURCE_PATHS = (
     "backend/app/services/runtime_database_incident_gate.py",
     "backend/app/services/runtime_database_incident_core/evaluator.py",
     "backend/app/services/runtime_database_incident_core/journal.py",
     "backend/app/services/runtime_database_incident_core/models.py",
     "backend/app/services/runtime_database_incident_core/mutation_context.py",
-    "docker/postgres/Dockerfile",
+    OBSERVER_ARTIFACT_POSTGRES_DOCKERFILE,
     "scripts/maintenance/postgres_incident_gate.py",
     "scripts/maintenance/postgres_signal_observer.py",
     "scripts/maintenance/postgres_signal_observer_drill.py",
@@ -49,6 +51,7 @@ OBSERVER_SOURCE_PATHS = (
     "scripts/maintenance/postgres_signal_observer_core/tracefs.py",
     "scripts/maintenance/postgres_signal_observer_preflight.py",
     "scripts/maintenance/postgres_signal_observer_preflight_core/__init__.py",
+    "scripts/maintenance/postgres_signal_observer_preflight_core/compose_policy.py",
     "scripts/maintenance/postgres_signal_observer_preflight_core/permit_binding.py",
     "scripts/maintenance/postgres_signal_observer_preflight_core/preflight.py",
 )

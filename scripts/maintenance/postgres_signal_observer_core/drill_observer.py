@@ -23,6 +23,7 @@ from .drill_images import (
     validate_drill_image_ref,
 )
 from .drill_docker_runtime import canonical_docker_argv
+from .artifact import OBSERVER_ARTIFACT_POSTGRES_DOCKERFILE
 from .service import canonical_observer_failure_detail_code
 from .tracefs import INSTANCE_NAME, SIGNAL_FILTER
 
@@ -84,6 +85,19 @@ class DisposableDrillObserverConfig:
                 raise ValueError(f"drill_observer_{field_name}_invalid")
             if any(character in str(resolved) for character in ("\n", "\r", ",")):
                 raise ValueError(f"drill_observer_{field_name}_invalid")
+        postgres_dockerfile = (
+            self.repo_root.resolve() / OBSERVER_ARTIFACT_POSTGRES_DOCKERFILE
+        )
+        if (
+            postgres_dockerfile.is_symlink()
+            or not postgres_dockerfile.is_file()
+            or postgres_dockerfile.resolve() != postgres_dockerfile
+            or any(
+                character in str(postgres_dockerfile)
+                for character in ("\n", "\r", ",")
+            )
+        ):
+            raise ValueError("drill_observer_postgres_dockerfile_invalid")
 
     @property
     def image_digest(self) -> str:
@@ -102,6 +116,9 @@ class DisposableDrillObserverConfig:
         self.validate()
         backend_root = (self.repo_root / "backend").resolve()
         scripts_root = (self.repo_root / "scripts").resolve()
+        postgres_dockerfile = (
+            self.repo_root.resolve() / OBSERVER_ARTIFACT_POSTGRES_DOCKERFILE
+        )
         journal_root = self.journal_host_root.resolve()
         return canonical_docker_argv(
             "run",
@@ -151,6 +168,9 @@ class DisposableDrillObserverConfig:
             "--mount",
             f"type=bind,src={scripts_root},dst=/app/scripts,readonly",
             "--mount",
+            f"type=bind,src={postgres_dockerfile},"
+            "dst=/app/docker/postgres/Dockerfile,readonly",
+            "--mount",
             f"type=bind,src={journal_root},dst=/app/data/runtime-database-incidents",
             "--env",
             "PYTHONPATH=/app:/app/backend",
@@ -199,6 +219,12 @@ class DisposableDrillObserverConfig:
                 "child_environment_only": True,
                 "host_environment_value_inherited": False,
                 "url_or_credential_disclosed": False,
+            },
+            "artifact_source_contract": {
+                "relative_source": OBSERVER_ARTIFACT_POSTGRES_DOCKERFILE,
+                "container_target": "/app/docker/postgres/Dockerfile",
+                "read_only": True,
+                "host_source_disclosed": False,
             },
             "shell": False,
             "argv_sha256": hashlib.sha256("\0".join(argv).encode("utf-8")).hexdigest(),

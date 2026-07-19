@@ -17,18 +17,47 @@ from scripts.maintenance.postgres_signal_observer_preflight_core import (
     ObserverPreflightConfig,
     collect_observer_preflight,
 )
+from scripts.maintenance.postgres_signal_observer_preflight_core.compose_policy import (
+    collect_observer_compose_policy,
+)
 from scripts.maintenance.postgres_signal_observer_core import (
     canonical_observer_artifact_sha256,
 )
 
 
-def _compose_payload() -> str:
+def _compose_payload(
+    *,
+    include_artifact_source: bool = True,
+    artifact_source: str | None = None,
+    artifact_read_only: object = True,
+    artifact_type: str = "bind",
+    include_whole_docker_tree: bool = False,
+    service_read_only: object = True,
+) -> str:
+    repo_root = Path(__file__).resolve().parents[3]
+    volumes = [
+        {"target": "/app/backend"},
+        {"target": "/app/data"},
+        {"target": "/app/scripts"},
+    ]
+    if include_artifact_source:
+        volumes.append(
+            {
+                "type": artifact_type,
+                "source": artifact_source
+                or str(repo_root / "docker/postgres/Dockerfile"),
+                "target": "/app/docker/postgres/Dockerfile",
+                "read_only": artifact_read_only,
+            }
+        )
+    if include_whole_docker_tree:
+        volumes.append({"target": "/app/docker"})
     return json.dumps(
         {
             "services": {
                 "postgres-signal-observer": {
                     "profiles": ["runtime-db-observer"],
-                    "read_only": True,
+                    "read_only": service_read_only,
                     "pid": "host",
                     "network_mode": "service:pgbouncer",
                     "cap_add": ["SYS_ADMIN"],
@@ -40,24 +69,41 @@ def _compose_payload() -> str:
                         "PGBOUNCER_ADMIN_URL": "redacted-in-memory-only",
                         "RUNTIME_DATABASE_INCIDENT_DIR": "/data",
                     },
-                    "volumes": [
-                        {"target": "/app/backend"},
-                        {"target": "/app/data"},
-                    ],
+                    "volumes": volumes,
                 }
             }
         }
     )
 
 
-def _command(*, active_install_jobs: int = 0, lifecycle_changed: bool = False):
+def _command(
+    *,
+    active_install_jobs: int = 0,
+    lifecycle_changed: bool = False,
+    include_artifact_source: bool = True,
+    artifact_source: str | None = None,
+    artifact_read_only: object = True,
+    artifact_type: str = "bind",
+    include_whole_docker_tree: bool = False,
+    service_read_only: object = True,
+):
     lifecycle_calls = 0
 
     def run(args: list[str], timeout: float):
         nonlocal lifecycle_calls
         joined = " ".join(args)
         if "docker compose" in joined:
-            return {"ok": True, "stdout": _compose_payload()}
+            return {
+                "ok": True,
+                "stdout": _compose_payload(
+                    include_artifact_source=include_artifact_source,
+                    artifact_source=artifact_source,
+                    artifact_read_only=artifact_read_only,
+                    artifact_type=artifact_type,
+                    include_whole_docker_tree=include_whole_docker_tree,
+                    service_read_only=service_read_only,
+                ),
+            }
         if "SHOW POOLS" in joined:
             return {
                 "ok": True,
@@ -166,6 +212,96 @@ def test_qualification_passes_without_claiming_mutation_permit(tmp_path: Path) -
         "conflicting_permit": False,
         "payload_persisted": False,
     }
+
+
+def test_qualification_rejects_missing_observer_artifact_source_mount(
+    tmp_path: Path,
+) -> None:
+    config = _config(tmp_path, phase="qualification")
+    _open_incident(config)
+
+    receipt = collect_observer_preflight(
+        config,
+        command=_command(include_artifact_source=False),
+        fetch=_fetch,
+        sleep=lambda _: None,
+    )
+
+    assert receipt["gate_pass"] is False
+    assert receipt["first_failure"] == "observer_compose_policy_invalid"
+    assert receipt["checks"]["compose_policy"]["policy_matches"] is False
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        _command(artifact_source="/private/tmp/wrong-Dockerfile"),
+        _command(artifact_read_only=False),
+        _command(artifact_read_only=1),
+        _command(artifact_type="volume"),
+        _command(include_whole_docker_tree=True),
+        _command(service_read_only=1),
+    ],
+)
+def test_qualification_rejects_observer_artifact_source_mount_drift(
+    tmp_path: Path,
+    command,
+) -> None:
+    config = _config(tmp_path, phase="qualification")
+    _open_incident(config)
+
+    receipt = collect_observer_preflight(
+        config,
+        command=command,
+        fetch=_fetch,
+        sleep=lambda _: None,
+    )
+
+    assert receipt["gate_pass"] is False
+    assert receipt["first_failure"] == "observer_compose_policy_invalid"
+    assert receipt["checks"]["compose_policy"]["policy_matches"] is False
+
+
+def test_compose_policy_rejects_symlinked_artifact_source(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    dockerfile = repo_root / "docker/postgres/Dockerfile"
+    dockerfile.parent.mkdir(parents=True)
+    foreign = tmp_path / "foreign-Dockerfile"
+    foreign.write_text("FROM postgres:16\n", encoding="utf-8")
+    dockerfile.symlink_to(foreign)
+    config = ObserverPreflightConfig(
+        repo_root=repo_root,
+        journal_root=tmp_path / "journal",
+        output_json=tmp_path / "receipt.json",
+        artifact_sha256="a" * 64,
+        expected_runner_capacity=8,
+        owner="runtime-db-incident-owner",
+        phase="qualification",
+    )
+
+    receipt = collect_observer_compose_policy(
+        lambda _args, _timeout: {
+            "ok": True,
+            "stdout": _compose_payload(artifact_source=str(dockerfile)),
+        },
+        config,
+    )
+
+    assert receipt["ok"] is False
+    assert receipt["policy_matches"] is False
+    assert receipt["artifact_source_owned"] is False
+
+
+def test_official_compose_uses_exact_readonly_artifact_source_mount() -> None:
+    repo_root = Path(__file__).resolve().parents[3]
+    compose = (repo_root / "docker/compose/postgres-signal-observer.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert compose.count(
+        "../../docker/postgres/Dockerfile:/app/docker/postgres/Dockerfile:ro"
+    ) == 1
+    assert "../../docker:/app/docker" not in compose
 
 
 def test_liveness_endpoints_are_exact_bounded_and_single_shot(
