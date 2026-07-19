@@ -46,7 +46,7 @@ def parse_signal_generate_line(line: str) -> SignalGenerateEvent | None:
         item.group("key"): item.group("value").strip('"')
         for item in _FIELD_PATTERN.finditer(match.group("payload"))
     }
-    required = {"sig", "errno", "code", "comm", "pid", "group", "result"}
+    required = {"sig", "errno", "code", "comm", "pid", "grp", "res"}
     if not required.issubset(fields):
         raise ValueError("signal_generate_trace_fields_missing")
     try:
@@ -58,8 +58,8 @@ def parse_signal_generate_line(line: str) -> SignalGenerateEvent | None:
             signal=int(fields["sig"]),
             signal_errno=int(fields["errno"]),
             signal_code=int(fields["code"]),
-            signal_group=int(fields["group"]),
-            signal_result=int(fields["result"]),
+            signal_group=int(fields["grp"]),
+            signal_result=int(fields["res"]),
             monotonic_seconds=float(match.group("monotonic_seconds")),
         )
     except ValueError as exc:

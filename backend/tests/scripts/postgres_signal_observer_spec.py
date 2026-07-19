@@ -27,7 +27,7 @@ from scripts.maintenance.postgres_signal_observer import _healthcheck
 
 TRACE_LINE = (
     "postgres-sender-4210  [003] .... 12345.678901: signal_generate: "
-    "sig=3 errno=0 code=0 comm=postgres pid=54909 group=0 result=0"
+    "sig=3 errno=0 code=0 comm=postgres pid=54909 grp=0 res=0"
 )
 
 
@@ -41,7 +41,7 @@ def test_parses_exact_sigquit_sender_and_rejects_malformed_trace() -> None:
     assert event.signal == 3
     assert parse_signal_generate_line(TRACE_LINE.replace("sig=3", "sig=15")) is None
     with pytest.raises(ValueError, match="fields_missing"):
-        parse_signal_generate_line(TRACE_LINE.replace(" result=0", ""))
+        parse_signal_generate_line(TRACE_LINE.replace(" res=0", ""))
 
 
 def test_reads_host_to_container_namespace_pid_chain(tmp_path: Path) -> None:
