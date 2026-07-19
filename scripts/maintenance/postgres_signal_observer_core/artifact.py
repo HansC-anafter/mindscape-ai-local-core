@@ -16,6 +16,7 @@ OBSERVER_SOURCE_PATHS = (
     "scripts/maintenance/postgres_incident_gate.py",
     "scripts/maintenance/postgres_signal_observer.py",
     "scripts/maintenance/postgres_signal_observer_drill.py",
+    "scripts/maintenance/postgres_signal_observer_ownership_grant.py",
     "scripts/maintenance/postgres_signal_observer_core/__init__.py",
     "scripts/maintenance/postgres_signal_observer_core/artifact.py",
     "scripts/maintenance/postgres_signal_observer_core/drill.py",

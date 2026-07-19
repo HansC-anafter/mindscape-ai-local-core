@@ -271,6 +271,21 @@ def build_ownership_grant(
     }
 
 
+def materialize_ownership_grant(
+    ownership_request_path: Path,
+    *,
+    granted_owner: str,
+) -> dict[str, Any]:
+    """Build the sole exact grant from one immutable request receipt."""
+
+    request, request_sha256 = _read_receipt(ownership_request_path)
+    return build_ownership_grant(
+        request,
+        ownership_request_receipt_sha256=request_sha256,
+        granted_owner=granted_owner,
+    )
+
+
 def receipt_bound_incident_id(
     *,
     qualification_path: Path,

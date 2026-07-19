@@ -79,6 +79,10 @@ def test_postgres_image_build_contract_pins_pg_major_and_pg_ctl_executable() -> 
     assert 'test -x "/usr/lib/postgresql/${PG_MAJOR}/bin/pg_ctl"' in dockerfile
     assert "docker/postgres/Dockerfile" in OBSERVER_SOURCE_PATHS
     assert "scripts/maintenance/postgres_incident_gate.py" in OBSERVER_SOURCE_PATHS
+    assert (
+        "scripts/maintenance/postgres_signal_observer_ownership_grant.py"
+        in OBSERVER_SOURCE_PATHS
+    )
 
 
 def test_artifact_digest_changes_with_the_postgres_image_contract(
@@ -110,6 +114,7 @@ def test_artifact_digest_changes_with_the_postgres_image_contract(
         "backend/app/services/runtime_database_incident_core/journal.py",
         "backend/app/services/runtime_database_incident_core/models.py",
         "backend/app/services/runtime_database_incident_core/mutation_context.py",
+        "scripts/maintenance/postgres_signal_observer_ownership_grant.py",
         "scripts/maintenance/postgres_signal_observer_core/drill_gate_receipt.py",
         "scripts/maintenance/postgres_signal_observer_core/drill_pgbouncer_gate_receipt.py",
         "scripts/maintenance/postgres_signal_observer_core/drill_readiness_stage.py",
@@ -139,6 +144,7 @@ def test_artifact_digest_binds_incident_admission_and_terminal_owners(
     (
         "backend/app/services/runtime_database_incident_gate.py",
         "backend/app/services/runtime_database_incident_core/journal.py",
+        "scripts/maintenance/postgres_signal_observer_ownership_grant.py",
         "scripts/maintenance/postgres_signal_observer_core/drill_gate_receipt.py",
         "scripts/maintenance/postgres_signal_observer_core/drill_pgbouncer_gate_receipt.py",
         "scripts/maintenance/postgres_signal_observer_core/drill_readiness_stage.py",
