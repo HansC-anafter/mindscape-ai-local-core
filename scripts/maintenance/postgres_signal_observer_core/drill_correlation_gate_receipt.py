@@ -9,10 +9,21 @@ FORMAL_CORRELATION_DEADLINE_SECONDS = 10.0
 FORMAL_CORRELATION_POLL_SECONDS = 0.25
 _DETAIL_CODES = frozenset(
     {
+        "formal_correlation_observer_health_failed",
         "formal_correlation_event_not_observed",
         "formal_correlation_event_invalid",
         "formal_correlation_target_not_observed",
         "formal_correlation_pgbouncer_unavailable",
+    }
+)
+_HEALTH_STATES = frozenset(
+    {
+        "ready",
+        "starting",
+        "fail_closed_capacity_exhausted",
+        "fail_closed_observer_error",
+        "health_unavailable",
+        "health_invalid",
     }
 )
 _COUNT_KEYS = (
@@ -28,6 +39,7 @@ _SOURCE_KEYS = frozenset(
         "detail_code",
         "terminal_deadline_seconds",
         "poll_seconds",
+        "observer_health_state",
         *_COUNT_KEYS,
     }
 )
@@ -53,15 +65,20 @@ def project_correlation_gate_receipt(name: str, source: object) -> dict[str, Any
         != FORMAL_CORRELATION_DEADLINE_SECONDS
         or type(source.get("poll_seconds")) is not float
         or source.get("poll_seconds") != FORMAL_CORRELATION_POLL_SECONDS
+        or type(source.get("observer_health_state")) is not str
+        or source.get("observer_health_state") not in _HEALTH_STATES
         or any(type(source.get(key)) is not int for key in _COUNT_KEYS)
     ):
         return invalid
     events, parsed, targets, correlated = (source[key] for key in _COUNT_KEYS)
     if not (0 <= correlated <= targets <= parsed <= events):
         return invalid
+    health_failed = source["observer_health_state"] not in {"ready", "starting"}
     expected_detail = (
         None
         if correlated > 0
+        else "formal_correlation_observer_health_failed"
+        if health_failed
         else "formal_correlation_event_not_observed"
         if events == 0
         else "formal_correlation_event_invalid"
@@ -79,5 +96,15 @@ def project_correlation_gate_receipt(name: str, source: object) -> dict[str, Any
         "detail_code": detail,
         "terminal_deadline_seconds": FORMAL_CORRELATION_DEADLINE_SECONDS,
         "poll_seconds": FORMAL_CORRELATION_POLL_SECONDS,
+        "observer_health_state": source["observer_health_state"],
         **{key: source[key] for key in _COUNT_KEYS},
     }
+
+
+def correlation_health_state(store: object) -> str:
+    try:
+        payload = store.read_health()  # type: ignore[attr-defined]
+    except (OSError, RuntimeError, TypeError, ValueError):
+        return "health_unavailable"
+    state = payload.get("state") if isinstance(payload, Mapping) else None
+    return state if type(state) is str and state in _HEALTH_STATES else "health_invalid"

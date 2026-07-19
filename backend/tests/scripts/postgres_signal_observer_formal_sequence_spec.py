@@ -251,6 +251,7 @@ def _gate(name: str, *, fail: str | None = None) -> dict[str, object]:
             ),
             "terminal_deadline_seconds": 10.0,
             "poll_seconds": 0.25,
+            "observer_health_state": "ready",
             "event_file_count": int(passed),
             "parsed_event_count": int(passed),
             "target_match_count": int(passed),

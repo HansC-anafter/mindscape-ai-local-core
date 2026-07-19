@@ -9,8 +9,8 @@ from typing import TYPE_CHECKING, Any, Callable, Mapping
 
 from .drill_client_readiness import evaluate_client_readiness
 from .drill_correlation_gate_receipt import (
-    FORMAL_CORRELATION_DEADLINE_SECONDS,
-    FORMAL_CORRELATION_POLL_SECONDS,
+    FORMAL_CORRELATION_DEADLINE_SECONDS, FORMAL_CORRELATION_POLL_SECONDS,
+    correlation_health_state,
 )
 from .drill_docker_runtime import canonical_docker_argv
 from .drill_formal_contract import FormalDrillCliConfig
@@ -418,16 +418,16 @@ class FormalDrillGateOwner:
         )
         self.executor.signal_config = signal
         return receipt
-
     def _correlation(self) -> Mapping[str, Any]:
         signal = self.executor.signal_config
         if signal is None:
             return {
                 "passed": False,
                 "gate": "sender_target_correlation",
-                "detail_code": "formal_correlation_target_not_observed",
+                "detail_code": "formal_correlation_observer_health_failed",
                 "terminal_deadline_seconds": FORMAL_CORRELATION_DEADLINE_SECONDS,
                 "poll_seconds": FORMAL_CORRELATION_POLL_SECONDS,
+                "observer_health_state": "health_unavailable",
                 "event_file_count": 0,
                 "parsed_event_count": 0,
                 "target_match_count": 0,
@@ -469,6 +469,7 @@ class FormalDrillGateOwner:
                 "detail_code": detail,
                 "terminal_deadline_seconds": FORMAL_CORRELATION_DEADLINE_SECONDS,
                 "poll_seconds": FORMAL_CORRELATION_POLL_SECONDS,
+                "observer_health_state": correlation_health_state(store),
                 "event_file_count": len(paths),
                 "parsed_event_count": parsed_count,
                 "target_match_count": target_count,
@@ -480,7 +481,6 @@ class FormalDrillGateOwner:
             if remaining <= 0:
                 return receipt
             self.sleep(min(FORMAL_CORRELATION_POLL_SECONDS, remaining))
-
     def evaluate(self, name: str) -> Mapping[str, Any]:
         if name == "postgres_readiness":
             return self._postgres_readiness()
