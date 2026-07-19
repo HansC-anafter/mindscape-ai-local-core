@@ -45,6 +45,22 @@ _SOURCE_KEYS = frozenset(
 )
 
 
+def correlation_detail(
+    events: int, parsed: int, targets: int, correlated: int, health_state: str
+) -> str | None:
+    if correlated > 0:
+        return None
+    if health_state not in {"ready", "starting"}:
+        return "formal_correlation_observer_health_failed"
+    if events == 0:
+        return "formal_correlation_event_not_observed"
+    if parsed == 0:
+        return "formal_correlation_event_invalid"
+    if targets == 0:
+        return "formal_correlation_target_not_observed"
+    return "formal_correlation_pgbouncer_unavailable"
+
+
 def project_correlation_gate_receipt(name: str, source: object) -> dict[str, Any]:
     invalid = {
         "name": name,
@@ -73,19 +89,8 @@ def project_correlation_gate_receipt(name: str, source: object) -> dict[str, Any
     events, parsed, targets, correlated = (source[key] for key in _COUNT_KEYS)
     if not (0 <= correlated <= targets <= parsed <= events):
         return invalid
-    health_failed = source["observer_health_state"] not in {"ready", "starting"}
-    expected_detail = (
-        None
-        if correlated > 0
-        else "formal_correlation_observer_health_failed"
-        if health_failed
-        else "formal_correlation_event_not_observed"
-        if events == 0
-        else "formal_correlation_event_invalid"
-        if parsed == 0
-        else "formal_correlation_target_not_observed"
-        if targets == 0
-        else "formal_correlation_pgbouncer_unavailable"
+    expected_detail = correlation_detail(
+        events, parsed, targets, correlated, source["observer_health_state"]
     )
     if passed is not (correlated > 0) or detail != expected_detail:
         return invalid

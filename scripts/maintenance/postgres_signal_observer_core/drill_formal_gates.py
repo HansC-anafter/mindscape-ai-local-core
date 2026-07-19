@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any, Callable, Mapping
 from .drill_client_readiness import evaluate_client_readiness
 from .drill_correlation_gate_receipt import (
     FORMAL_CORRELATION_DEADLINE_SECONDS, FORMAL_CORRELATION_POLL_SECONDS,
-    correlation_health_state,
+    correlation_detail, correlation_health_state,
 )
 from .drill_docker_runtime import canonical_docker_argv
 from .drill_formal_contract import FormalDrillCliConfig
@@ -453,23 +453,17 @@ class FormalDrillGateOwner:
                     "pgbouncer"
                 ].get("status") == "correlated":
                     correlated_count += 1
-            if correlated_count:
-                detail = None
-            elif not paths:
-                detail = "formal_correlation_event_not_observed"
-            elif not parsed_count:
-                detail = "formal_correlation_event_invalid"
-            elif not target_count:
-                detail = "formal_correlation_target_not_observed"
-            else:
-                detail = "formal_correlation_pgbouncer_unavailable"
+            health_state = correlation_health_state(store)
+            detail = correlation_detail(
+                len(paths), parsed_count, target_count, correlated_count, health_state
+            )
             receipt = {
                 "passed": correlated_count > 0,
                 "gate": "sender_target_correlation",
                 "detail_code": detail,
                 "terminal_deadline_seconds": FORMAL_CORRELATION_DEADLINE_SECONDS,
                 "poll_seconds": FORMAL_CORRELATION_POLL_SECONDS,
-                "observer_health_state": correlation_health_state(store),
+                "observer_health_state": health_state,
                 "event_file_count": len(paths),
                 "parsed_event_count": parsed_count,
                 "target_match_count": target_count,
