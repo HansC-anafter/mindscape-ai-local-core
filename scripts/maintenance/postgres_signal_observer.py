@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import os
 import signal
 import sys
 from datetime import datetime, timezone
@@ -20,10 +22,7 @@ from scripts.maintenance.postgres_signal_observer_core.artifact import (  # noqa
 from scripts.maintenance.postgres_signal_observer_core.evidence import (  # noqa: E402
     EvidenceBudget,
     ObserverEvidenceStore,
-)
-from scripts.maintenance.postgres_signal_observer_core.service import (  # noqa: E402
-    ObserverConfig,
-    PostgresSignalObserver,
+    utc_now,
 )
 from scripts.maintenance.postgres_signal_observer_core.tracefs import (  # noqa: E402
     SIGNAL_FILTER,
@@ -39,9 +38,28 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _healthcheck(config: ObserverConfig, max_age_seconds: int) -> int:
+def _required_environment(name: str) -> str:
+    value = os.environ.get(name)
+    if type(value) is not str or not value.strip():
+        raise ValueError(f"{name.lower()}_required")
+    return value.strip()
+
+
+def _healthcheck(max_age_seconds: int) -> int:
     try:
-        payload = ObserverEvidenceStore(config.evidence_root).read_health()
+        evidence_root = Path(
+            _required_environment("POSTGRES_SIGNAL_OBSERVER_EVIDENCE_DIR")
+        )
+        artifact_sha256 = _required_environment(
+            "POSTGRES_SIGNAL_OBSERVER_ARTIFACT_SHA256"
+        )
+        source_commit = _required_environment(
+            "POSTGRES_SIGNAL_OBSERVER_SOURCE_COMMIT"
+        )
+        image_digest = _required_environment(
+            "POSTGRES_SIGNAL_OBSERVER_IMAGE_DIGEST"
+        )
+        payload = ObserverEvidenceStore(evidence_root).read_health()
         updated = datetime.fromisoformat(
             str(payload["updated_at"]).replace("Z", "+00:00")
         )
@@ -49,9 +67,9 @@ def _healthcheck(config: ObserverConfig, max_age_seconds: int) -> int:
         healthy = (
             payload.get("ready") is True
             and payload.get("state") == "ready"
-            and payload.get("artifact_sha256") == config.artifact_sha256
-            and payload.get("source_commit") == config.source_commit
-            and payload.get("image_digest") == config.image_digest
+            and payload.get("artifact_sha256") == artifact_sha256
+            and payload.get("source_commit") == source_commit
+            and payload.get("image_digest") == image_digest
             and payload.get("filter") == SIGNAL_FILTER
             and age <= max(5, int(max_age_seconds))
         )
@@ -62,14 +80,52 @@ def _healthcheck(config: ObserverConfig, max_age_seconds: int) -> int:
     return 0 if healthy else 2
 
 
+def _write_startup_health() -> None:
+    evidence_root = Path(
+        _required_environment("POSTGRES_SIGNAL_OBSERVER_EVIDENCE_DIR")
+    )
+    ObserverEvidenceStore(evidence_root).write_health(
+        {
+            "ready": False,
+            "state": "starting",
+            "filter": SIGNAL_FILTER,
+            "filter_sha256": hashlib.sha256(
+                SIGNAL_FILTER.encode("utf-8")
+            ).hexdigest(),
+            "source_commit": _required_environment(
+                "POSTGRES_SIGNAL_OBSERVER_SOURCE_COMMIT"
+            ),
+            "image_digest": _required_environment(
+                "POSTGRES_SIGNAL_OBSERVER_IMAGE_DIGEST"
+            ),
+            "artifact_sha256": _required_environment(
+                "POSTGRES_SIGNAL_OBSERVER_ARTIFACT_SHA256"
+            ),
+            "heartbeat_at": utc_now(),
+            "startup_phase": "config_and_permit_validation",
+        }
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
-    config = ObserverConfig.from_environment()
     if args.print_artifact_sha256:
-        print(canonical_observer_artifact_sha256(config.repo_root))
+        repo_root = Path(
+            _required_environment("POSTGRES_SIGNAL_OBSERVER_REPO_ROOT")
+        )
+        print(canonical_observer_artifact_sha256(repo_root))
         return 0
     if args.healthcheck:
-        return _healthcheck(config, args.max_health_age_seconds)
+        return _healthcheck(args.max_health_age_seconds)
+
+    if not args.validate_config:
+        _write_startup_health()
+    from scripts.maintenance.postgres_signal_observer_core.service import (
+        ObserverConfig,
+        PostgresSignalObserver,
+    )
+
+    config = ObserverConfig.from_environment()
     if args.validate_config:
         config.validate()
         budget = EvidenceBudget()

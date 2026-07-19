@@ -22,7 +22,10 @@ from scripts.maintenance.postgres_signal_observer_core import (
     parse_signal_generate_line,
     read_namespace_pids,
 )
-from scripts.maintenance.postgres_signal_observer import _healthcheck
+from scripts.maintenance.postgres_signal_observer import (
+    _healthcheck,
+    _write_startup_health,
+)
 
 
 TRACE_LINE = (
@@ -199,6 +202,28 @@ def _config(tmp_path: Path) -> ObserverConfig:
         image_digest="sha256:" + "d" * 64,
         repo_root=repo_root,
         trace_root=tmp_path / "trace",
+    )
+
+
+def _set_observer_identity_environment(
+    monkeypatch: pytest.MonkeyPatch,
+    config: ObserverConfig,
+) -> None:
+    monkeypatch.setenv(
+        "POSTGRES_SIGNAL_OBSERVER_EVIDENCE_DIR",
+        str(config.evidence_root),
+    )
+    monkeypatch.setenv(
+        "POSTGRES_SIGNAL_OBSERVER_ARTIFACT_SHA256",
+        config.artifact_sha256,
+    )
+    monkeypatch.setenv(
+        "POSTGRES_SIGNAL_OBSERVER_SOURCE_COMMIT",
+        config.source_commit,
+    )
+    monkeypatch.setenv(
+        "POSTGRES_SIGNAL_OBSERVER_IMAGE_DIGEST",
+        config.image_digest,
     )
 
 
@@ -575,8 +600,10 @@ def test_observer_health_redacts_unclassified_trace_pipe_exception_detail(
 
 def test_docker_healthcheck_reads_only_matching_canonical_journal(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     config = _config(tmp_path)
+    _set_observer_identity_environment(monkeypatch, config)
     store = ObserverEvidenceStore(config.evidence_root)
     canonical = {
         "ready": True,
@@ -588,7 +615,25 @@ def test_docker_healthcheck_reads_only_matching_canonical_journal(
     }
 
     store.write_health(canonical)
-    assert _healthcheck(config, 30) == 0
+    assert _healthcheck(30) == 0
 
     store.write_health({**canonical, "artifact_sha256": "0" * 64})
-    assert _healthcheck(config, 30) == 2
+    assert _healthcheck(30) == 2
+
+
+def test_facade_writes_starting_health_before_service_import(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _config(tmp_path)
+    _set_observer_identity_environment(monkeypatch, config)
+
+    _write_startup_health()
+
+    health = ObserverEvidenceStore(config.evidence_root).read_health()
+    assert health["ready"] is False
+    assert health["state"] == "starting"
+    assert health["startup_phase"] == "config_and_permit_validation"
+    assert health["artifact_sha256"] == config.artifact_sha256
+    assert health["source_commit"] == config.source_commit
+    assert health["image_digest"] == config.image_digest
