@@ -1162,7 +1162,11 @@ def test_observer_launcher_accepts_ready_on_final_deadline_boundary_read(
     health_reads = []
     health = iter(
         [
-            {"ready": False, "state": "starting"},
+            {
+                "ready": False,
+                "state": "starting",
+                "startup_phase": "config_and_permit_validation",
+            },
             {
                 "ready": True,
                 "state": "ready",
@@ -1228,7 +1232,11 @@ def test_observer_launcher_cleans_up_at_existing_ten_second_deadline(
 
     def read_health():
         health_reads.append(True)
-        return {"ready": False, "state": "starting"}
+        return {
+            "ready": False,
+            "state": "starting",
+            "startup_phase": "tracefs_prepare",
+        }
 
     receipt = launch_disposable_drill_observer(
         observer_config,
@@ -1251,6 +1259,7 @@ def test_observer_launcher_cleans_up_at_existing_ten_second_deadline(
     assert receipt["first_failure"] == "observer_health_startup_deadline_exceeded"
     assert receipt["health_journal_observed"] is True
     assert receipt["health_state"] == "starting"
+    assert receipt["health_startup_phase"] == "tracefs_prepare"
     assert len(health_reads) == 2
     assert sleeps == [OBSERVER_HEALTH_POLL_SECONDS]
     assert receipt["cleanup"] == {

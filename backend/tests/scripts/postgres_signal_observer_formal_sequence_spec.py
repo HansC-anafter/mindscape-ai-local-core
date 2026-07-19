@@ -94,6 +94,7 @@ def _docker_success(envelope: FormalDockerExecutionEnvelope) -> dict[str, object
                 "health_failure_detail_code": None,
                 "health_journal_observed": True,
                 "health_state": "ready",
+                "health_startup_phase": None,
                 "pgbouncer_admin_environment": {},
                 "spec": {},
             },
@@ -1137,6 +1138,7 @@ def test_observer_launcher_failure_receipt_survives_sequence_projection(
                     ),
                     "health_journal_observed": True,
                     "health_state": "fail_closed_observer_error",
+                    "health_startup_phase": None,
                     "cleanup": {
                         "stop_succeeded": True,
                         "remove_succeeded": True,
@@ -1160,6 +1162,7 @@ def test_observer_launcher_failure_receipt_survives_sequence_projection(
     assert launch["container_started"] is True
     assert launch["health_journal_observed"] is True
     assert launch["health_state"] == "fail_closed_observer_error"
+    assert launch["health_startup_phase"] is None
     assert (
         launch["health_failure_detail_code"]
         == "observer_error_unclassified_tracefs_prepare"
@@ -1182,6 +1185,8 @@ def test_observer_launcher_failure_receipt_survives_sequence_projection(
     "overrides",
     [
         {"health_state": ["starting"]},
+        {"health_startup_phase": {"secret": "sentinel"}},
+        {"health_startup_phase": "trace_pipe_runtime"},
         {"health_failure_detail_code": {"secret": "sentinel"}},
         {"health_failure_detail_code": ["sentinel"]},
         {"health_failure_detail_code": 1},
@@ -1209,6 +1214,7 @@ def test_observer_launcher_failure_receipt_survives_sequence_projection(
             "container_id": None,
             "health_journal_observed": False,
             "health_state": "starting",
+            "health_startup_phase": None,
         },
     ],
 )
@@ -1229,6 +1235,7 @@ def test_malformed_observer_launcher_projection_uses_invalid_latch_and_cleanup(
                 "health_failure_detail_code": None,
                 "health_journal_observed": True,
                 "health_state": "starting",
+                "health_startup_phase": "tracefs_prepare",
                 "cleanup": {
                     "stop_succeeded": True,
                     "remove_succeeded": True,

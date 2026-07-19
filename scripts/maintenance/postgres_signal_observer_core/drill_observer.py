@@ -1,5 +1,3 @@
-"""Exact disposable observer startup contract for the isolated drill."""
-
 from __future__ import annotations
 
 import hashlib
@@ -24,7 +22,10 @@ from .drill_images import (
 )
 from .drill_docker_runtime import canonical_docker_argv
 from .artifact import OBSERVER_ARTIFACT_POSTGRES_DOCKERFILE
-from .service import canonical_observer_failure_detail_code
+from .service import (
+    canonical_observer_failure_detail_code,
+    canonical_observer_startup_phase,
+)
 from .tracefs import INSTANCE_NAME, SIGNAL_FILTER
 
 
@@ -42,8 +43,6 @@ OBSERVER_HEALTH_COMMAND = (
 
 @dataclass(frozen=True)
 class DisposableDrillObserverConfig:
-    """Exact isolated observer container and local startup-journal contract."""
-
     container_name: str
     pgbouncer_container_name: str
     observer_image_ref: str
@@ -111,8 +110,6 @@ class DisposableDrillObserverConfig:
         )
 
     def docker_argv(self) -> tuple[str, ...]:
-        """Override the backend image healthcheck and preserve exact budgets."""
-
         self.validate()
         backend_root = (self.repo_root / "backend").resolve()
         scripts_root = (self.repo_root / "scripts").resolve()
@@ -274,10 +271,7 @@ def _cleanup_disposable_observer(
         remove_succeeded = removed.returncode == 0
     except (OSError, subprocess.TimeoutExpired):
         remove_succeeded = False
-    return {
-        "stop_succeeded": stop_succeeded,
-        "remove_succeeded": remove_succeeded,
-    }
+    return {"stop_succeeded": stop_succeeded, "remove_succeeded": remove_succeeded}
 
 
 def _health_identity_matches(
@@ -303,14 +297,12 @@ def _failure_receipt(
     health_state: str,
     cleanup: Mapping[str, bool],
     environment_contract_spec: Mapping[str, Any],
+    health_startup_phase: str | None = None,
     health_failure_detail_code: str | None = None,
     docker_terminal_result: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     container_started = container_id is not None
     receipt = {
-        # Compatibility: `launched` means the canonical ready/health gate
-        # passed. `container_started` separately records a terminal Docker
-        # start that subsequently entered the fail-closed cleanup path.
         "launched": False,
         "container_started": container_started,
         "ready": False,
@@ -319,6 +311,7 @@ def _failure_receipt(
         "health_failure_detail_code": health_failure_detail_code,
         "health_journal_observed": health_journal_observed,
         "health_state": health_state,
+        "health_startup_phase": health_startup_phase,
         "cleanup": dict(cleanup),
         "pgbouncer_admin_environment": dict(environment_contract_spec),
         "spec": config.redacted_spec(),
@@ -337,8 +330,6 @@ def launch_disposable_drill_observer(
     monotonic: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], None] = time.sleep,
 ) -> dict[str, Any]:
-    """Launch once, wait only on the local journal, and clean up on first failure."""
-
     config.validate()
     if not isinstance(environment_contract, DisposableDrillObserverEnvironment):
         raise TypeError("drill_observer_environment_contract_required")
@@ -424,12 +415,18 @@ def launch_disposable_drill_observer(
     )
     deadline = monotonic() + OBSERVER_STARTUP_DEADLINE_SECONDS
     health_state = "health_unavailable"
+    health_startup_phase = None
     health_journal_observed = False
     while True:
         try:
             health = dict(health_reader())
             health_journal_observed = True
             health_state = str(health.get("state") or "health_invalid")
+            health_startup_phase = None
+            if health_state == "starting":
+                health_startup_phase = canonical_observer_startup_phase(
+                    health.get("startup_phase")
+                )
             if health.get("ready") is True and health_state == "ready":
                 if not _health_identity_matches(health, config):
                     cleanup = _cleanup_disposable_observer(
@@ -453,6 +450,7 @@ def launch_disposable_drill_observer(
                     "container_id": container_id,
                     "health_journal_observed": True,
                     "health_state": health_state,
+                    "health_startup_phase": None,
                     "health_failure_detail_code": None,
                     "spec": config.redacted_spec(),
                     "pgbouncer_admin_environment": environment_contract_spec,
@@ -478,6 +476,7 @@ def launch_disposable_drill_observer(
                 )
         except RuntimeError:
             health_state = "health_unavailable"
+            health_startup_phase = None
         remaining = deadline - monotonic()
         if remaining <= 0:
             break
@@ -494,6 +493,7 @@ def launch_disposable_drill_observer(
         first_failure="observer_health_startup_deadline_exceeded",
         health_journal_observed=health_journal_observed,
         health_state=health_state,
+        health_startup_phase=health_startup_phase,
         cleanup=cleanup,
         environment_contract_spec=environment_contract_spec,
     )

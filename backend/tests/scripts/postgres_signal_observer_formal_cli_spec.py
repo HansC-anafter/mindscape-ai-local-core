@@ -2108,6 +2108,7 @@ def test_observer_launcher_failure_projects_exact_payload_free_receipt(
         "health_failure_detail_code": None,
         "health_journal_observed": True,
         "health_state": "starting",
+        "health_startup_phase": "tracefs_prepare",
         "cleanup": {"stop_succeeded": True, "remove_succeeded": True},
         "pgbouncer_admin_environment": {"private": "sentinel-admin-url"},
         "spec": {"private_path": "sentinel-private-path"},
@@ -2129,13 +2130,14 @@ def test_observer_launcher_failure_projects_exact_payload_free_receipt(
     )["observer_launch_receipt"]
 
     assert projected == {
-        "schema_version": "mindscape.postgres-signal-observer-formal-launch.v1",
+        "schema_version": "mindscape.postgres-signal-observer-formal-launch.v2",
         "launched": False,
         "container_started": True,
         "ready": False,
         "container_id_persisted": False,
         "health_journal_observed": True,
         "health_state": "starting",
+        "health_startup_phase": "tracefs_prepare",
         "health_failure_detail_code": None,
         "raw_payload_persisted": False,
         "first_failure": "observer_health_startup_deadline_exceeded",
@@ -2154,6 +2156,8 @@ def test_observer_launcher_failure_projects_exact_payload_free_receipt(
     "overrides",
     [
         {"health_state": ["starting"]},
+        {"health_startup_phase": {"secret": "sentinel"}},
+        {"health_startup_phase": "trace_pipe_runtime"},
         {"health_journal_observed": 1},
         {"cleanup": {"stop_succeeded": True, "remove_succeeded": "yes"}},
         {"health_failure_detail_code": {"secret": "sentinel"}},
@@ -2183,6 +2187,7 @@ def test_observer_launcher_failure_projects_exact_payload_free_receipt(
             "container_id": None,
             "health_journal_observed": False,
             "health_state": "starting",
+            "health_startup_phase": None,
         },
     ],
 )
@@ -2198,6 +2203,7 @@ def test_observer_launcher_projection_fails_closed_on_malformed_metadata(
         "health_failure_detail_code": None,
         "health_journal_observed": True,
         "health_state": "starting",
+        "health_startup_phase": "tracefs_prepare",
         "cleanup": {"stop_succeeded": True, "remove_succeeded": True},
         "pgbouncer_admin_environment": {},
         "spec": {},

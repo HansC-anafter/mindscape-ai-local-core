@@ -6,11 +6,14 @@ import hashlib
 import re
 from typing import Any, Mapping
 
-from .service import canonical_observer_failure_detail_code
+from .service import (
+    canonical_observer_failure_detail_code,
+    canonical_observer_startup_phase,
+)
 
 
 FORMAL_OBSERVER_LAUNCH_RECEIPT_SCHEMA_VERSION = (
-    "mindscape.postgres-signal-observer-formal-launch.v1"
+    "mindscape.postgres-signal-observer-formal-launch.v2"
 )
 FORMAL_OBSERVER_LAUNCH_FAILURES = frozenset(
     {
@@ -160,6 +163,7 @@ def project_formal_observer_launch_receipt(
         return None
     health_state = receipt.get("health_state")
     health_detail = receipt.get("health_failure_detail_code")
+    health_startup_phase = receipt.get("health_startup_phase")
     if type(health_state) is not str or health_state not in _OBSERVER_HEALTH_STATES:
         return None
     success = receipt["ready"] is True
@@ -171,6 +175,7 @@ def project_formal_observer_launch_receipt(
         "health_failure_detail_code",
         "health_journal_observed",
         "health_state",
+        "health_startup_phase",
         "pgbouncer_admin_environment",
         "spec",
     }
@@ -182,6 +187,7 @@ def project_formal_observer_launch_receipt(
         "container_id_persisted": False,
         "health_journal_observed": receipt["health_journal_observed"],
         "health_state": health_state,
+        "health_startup_phase": health_startup_phase,
         "health_failure_detail_code": health_detail,
         "raw_payload_persisted": False,
     }
@@ -192,6 +198,7 @@ def project_formal_observer_launch_receipt(
             or container_started is not True
             or receipt["health_journal_observed"] is not True
             or health_state != "ready"
+            or health_startup_phase is not None
             or health_detail is not None
         ):
             return None
@@ -226,6 +233,12 @@ def project_formal_observer_launch_receipt(
     ):
         return None
     fail_closed = first_failure.startswith("fail_closed_")
+    startup_deadline = first_failure == "observer_health_startup_deadline_exceeded"
+    if startup_deadline and health_state == "starting":
+        if canonical_observer_startup_phase(health_startup_phase) is None:
+            return None
+    elif health_startup_phase is not None:
+        return None
     if fail_closed:
         if type(health_detail) is not str:
             return None

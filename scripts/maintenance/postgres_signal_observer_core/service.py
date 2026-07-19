@@ -58,6 +58,16 @@ _OBSERVER_FAILURE_PHASE_FALLBACKS = {
     "trace_pipe_runtime": "observer_error_unclassified_trace_pipe_runtime",
 }
 
+_OBSERVER_STARTUP_PHASES = frozenset(
+    {"config_and_permit_validation", "tracefs_prepare"}
+)
+
+
+def canonical_observer_startup_phase(value: object) -> str | None:
+    """Return one payload-free startup phase exposed by the health journal."""
+
+    return value if type(value) is str and value in _OBSERVER_STARTUP_PHASES else None
+
 
 def canonical_observer_failure_detail_code(
     value: object,
