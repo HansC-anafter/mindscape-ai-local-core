@@ -88,6 +88,33 @@ def _mount_contract(value: str) -> dict[str, object]:
     }
 
 
+def _mount_identities(source: object) -> tuple[tuple[str, str, str, bool], ...] | None:
+    if type(source) is not list:
+        return None
+    identities: list[tuple[str, str, str, bool]] = []
+    for item in source:
+        if type(item) is not dict or set(item) != {
+            "type",
+            "source",
+            "destination",
+            "rw",
+        }:
+            return None
+        mount_type = item.get("type")
+        mount_source = item.get("source")
+        destination = item.get("destination")
+        read_write = item.get("rw")
+        if (
+            type(mount_type) is not str
+            or type(mount_source) is not str
+            or type(destination) is not str
+            or type(read_write) is not bool
+        ):
+            return None
+        identities.append((mount_type, mount_source, destination, read_write))
+    return tuple(sorted(identities))
+
+
 def _option_values(options: Mapping[str, list[str]], option: str) -> list[str]:
     return list(options.get(option, []))
 
@@ -230,7 +257,16 @@ class DisposableDrillContainerReadbackContract:
             "pid_mode",
             "network_mode",
         ):
-            if source.get(field) != expected[field]:
+            values_match = source.get(field) == expected[field]
+            if field == "mounts":
+                expected_mounts = _mount_identities(expected[field])
+                source_mounts = _mount_identities(source.get(field))
+                values_match = (
+                    expected_mounts is not None
+                    and source_mounts is not None
+                    and source_mounts == expected_mounts
+                )
+            if not values_match:
                 failures.append(f"{self.role}_container_readback_{field}_mismatch")
         attached_network_name = expected["attached_network_name"]
         network_ids_ok = bool(

@@ -298,6 +298,17 @@ def test_pgbouncer_validator_rejects_tmpfs_or_mount_drift() -> None:
     assert "pgbouncer_container_readback_mounts_mismatch" in receipt["failures"]
 
 
+def test_pgbouncer_validator_accepts_exact_mounts_in_docker_inspect_order() -> None:
+    contract = _contracts()["pgbouncer"]
+    source = _valid_contract_projection(contract)
+    source["mounts"] = list(reversed(source["mounts"]))
+
+    receipt = contract.validate_projection(source)
+
+    assert receipt["validation_passed"] is True
+    assert receipt["failures"] == []
+
+
 def test_client_neutralizes_declared_volume_and_rejects_anonymous_mount() -> None:
     contract = _contracts()["client"]
     source = _valid_contract_projection(contract)
