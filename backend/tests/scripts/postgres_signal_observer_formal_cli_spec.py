@@ -553,10 +553,10 @@ def test_client_gate_derives_signal_pid_without_external_input(
         observer_receipt = None
 
         def run(self, _argv, **_kwargs):
-            return SimpleNamespace(returncode=0, stdout=b"4242|54909\n", stderr=b"")
+            return SimpleNamespace(returncode=0, stdout=b"4242\n", stderr=b"")
 
         def bind_signal_target(self, _config, signal):
-            return signal.target_host_pid == 54909
+            return signal.target_host_pid is None
 
     def pass_neutralized_client_readback(contract, *_args, **_kwargs):
         expected = contract._expected()
@@ -586,7 +586,7 @@ def test_client_gate_derives_signal_pid_without_external_input(
     assert len(readback_calls) == 1
     assert "4242" not in json.dumps(receipt, sort_keys=True)
     assert executor.signal_config.target_postgres_pid == 4242
-    assert executor.signal_config.target_host_pid == 54909
+    assert executor.signal_config.target_host_pid is None
     assert executor.signal_config.docker_argv()[-1] == "4242"
 
 
@@ -604,7 +604,7 @@ def test_client_gate_fails_closed_when_signal_target_binding_fails(
         def run(self, _argv, **_kwargs):
             return SimpleNamespace(
                 returncode=0,
-                stdout=b"4242|54909\n",
+                stdout=b"4242\n",
                 stderr=b"",
             )
 
@@ -649,11 +649,11 @@ def test_client_gate_waits_with_fresh_remaining_budget_for_source_owned_pid(
 
         def run(self, _argv, **kwargs):
             calls.append((clock.now, kwargs["timeout"]))
-            stdout = b"\n" if len(calls) == 1 else b"4242|54909\n"
+            stdout = b"\n" if len(calls) == 1 else b"4242\n"
             return SimpleNamespace(returncode=0, stdout=stdout, stderr=b"")
 
         def bind_signal_target(self, _config, signal):
-            return signal.target_host_pid == 54909
+            return signal.target_host_pid is None
 
     monkeypatch.setattr(
         drill_formal_gates,
@@ -677,7 +677,7 @@ def test_client_gate_waits_with_fresh_remaining_budget_for_source_owned_pid(
     assert receipt["stages"]["source_owned_pid"]["attempt_count"] == 2
     assert calls == [(0.0, pytest.approx(10.0)), (0.25, pytest.approx(9.75))]
     assert executor.signal_config.target_postgres_pid == 4242
-    assert executor.signal_config.target_host_pid == 54909
+    assert executor.signal_config.target_host_pid is None
 
 
 def test_client_gate_empty_pid_exhausts_one_bounded_deadline(
@@ -2153,17 +2153,75 @@ def test_formal_executor_binds_exact_signal_target_for_observer(
 ) -> None:
     config = _config(tmp_path)
     config.observer.evidence_host_root.mkdir(parents=True)
+    calls = []
+
+    def run(argv, **kwargs):
+        calls.append((argv, kwargs))
+        return SimpleNamespace(
+            returncode=0,
+            stdout=(
+                b"PID COMMAND\n"
+                b"54909 postgres: mindscape mindscape_core "
+                b"172.20.0.2(12345) SELECT\n"
+            ),
+            stderr=b"",
+        )
+
     signal = DisposableDrillSignalConfig(
         drill_suffix=config.bootstrap.drill_suffix,
         postgres_image_ref=config.bootstrap.postgres_image_ref,
         target_postgres_pid=4242,
-        target_host_pid=54909,
     )
+    executor = FormalDockerSubprocessExecutor(run=run)
 
-    assert FormalDockerSubprocessExecutor.bind_signal_target(config, signal) is True
+    assert executor.bind_signal_target(config, signal) is True
+    assert calls[0][0] == [
+        "/usr/local/bin/docker",
+        "top",
+        config.bootstrap.postgres_container_name,
+        "-eo",
+        "pid,args",
+    ]
+    assert calls[0][1]["timeout"] == 10.0
+    assert calls[0][1]["shell"] is False
     store = ObserverEvidenceStore(config.observer.evidence_host_root)
     assert store.consume_signal_target(54909) == 4242
     assert store.consume_signal_target(54909) is None
+
+
+@pytest.mark.parametrize(
+    "stdout",
+    [
+        b"PID COMMAND\n",
+        (
+            b"PID COMMAND\n"
+            b"54909 postgres: mindscape mindscape_core x SELECT\n"
+            b"54910 postgres: mindscape mindscape_core y SELECT\n"
+        ),
+        b"PID COMMAND\n54909 postgres: mindscape wrong_database x SELECT\n",
+    ],
+)
+def test_formal_executor_rejects_ambiguous_or_missing_host_pid(
+    tmp_path: Path,
+    stdout: bytes,
+) -> None:
+    config = _config(tmp_path)
+    config.observer.evidence_host_root.mkdir(parents=True)
+    signal = DisposableDrillSignalConfig(
+        drill_suffix=config.bootstrap.drill_suffix,
+        postgres_image_ref=config.bootstrap.postgres_image_ref,
+        target_postgres_pid=4242,
+    )
+    executor = FormalDockerSubprocessExecutor(
+        run=lambda *_args, **_kwargs: SimpleNamespace(
+            returncode=0,
+            stdout=stdout,
+            stderr=b"",
+        )
+    )
+
+    assert executor.bind_signal_target(config, signal) is False
+    assert not (config.observer.evidence_host_root / "signal-target.json").exists()
 
 
 def test_observer_launcher_failure_projects_exact_payload_free_receipt(

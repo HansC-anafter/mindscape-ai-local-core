@@ -13,7 +13,7 @@ from .drill import (
     send_disposable_drill_signal,
 )
 from .drill_admin_url import DisposableDrillObserverEnvironment
-from .drill_docker_runtime import validate_canonical_docker_argv
+from .drill_docker_runtime import canonical_docker_argv, validate_canonical_docker_argv
 from .drill_formal_contract import FormalDrillCliConfig
 from .drill_formal_sequence import FormalDockerExecutionEnvelope
 from .drill_escalation import terminal_nonzero_capture_metadata
@@ -47,20 +47,60 @@ class FormalDockerSubprocessExecutor:
             raise RuntimeError("formal_executor_terminal_deadline_invalid")
         return self._run(list(exact), **kwargs)
 
-    @staticmethod
     def bind_signal_target(
+        self,
         config: FormalDrillCliConfig,
         signal: DisposableDrillSignalConfig,
     ) -> bool:
-        host_pid = signal.target_host_pid
-        if type(host_pid) is not int:
+        argv = canonical_docker_argv(
+            "top",
+            config.bootstrap.postgres_container_name,
+            "-eo",
+            "pid,args",
+        )
+        try:
+            completed = self.run(
+                argv,
+                check=False,
+                capture_output=True,
+                text=False,
+                timeout=10.0,
+                shell=False,
+            )
+        except (OSError, RuntimeError, subprocess.TimeoutExpired, ValueError):
+            return False
+        if getattr(completed, "returncode", None) != 0:
+            return False
+        raw = getattr(completed, "stdout", None)
+        if not isinstance(raw, bytes) or not raw or len(raw) > 32_768:
+            return False
+        try:
+            lines = raw.decode("ascii").splitlines()
+        except UnicodeDecodeError:
+            return False
+        if not lines or lines[0].split() != ["PID", "COMMAND"]:
+            return False
+        command_pattern = re.compile(
+            rf"postgres: {re.escape(config.client.database_user)} "
+            rf"{re.escape(config.client.database_name)} \S+ SELECT"
+        )
+        host_pids: list[int] = []
+        for line in lines[1:]:
+            try:
+                pid_text, command = line.strip().split(maxsplit=1)
+                host_pid = int(pid_text)
+            except (ValueError, TypeError):
+                return False
+            if command_pattern.fullmatch(command):
+                host_pids.append(host_pid)
+        if len(host_pids) != 1:
             return False
         try:
             ObserverEvidenceStore(
                 config.observer.evidence_host_root
             ).write_signal_target(
                 postgres_pid=signal.target_postgres_pid,
-                host_pid=host_pid,
+                host_pid=host_pids[0],
             )
         except (OSError, RuntimeError, ValueError):
             return False
