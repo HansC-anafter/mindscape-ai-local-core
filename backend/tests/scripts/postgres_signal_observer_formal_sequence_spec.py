@@ -242,6 +242,20 @@ def _gate(name: str, *, fail: str | None = None) -> dict[str, object]:
                 },
             },
         }
+    if name == "sender_target_correlation":
+        return {
+            "passed": passed,
+            "gate": name,
+            "detail_code": (
+                None if passed else "formal_correlation_event_not_observed"
+            ),
+            "terminal_deadline_seconds": 10.0,
+            "poll_seconds": 0.25,
+            "event_file_count": int(passed),
+            "parsed_event_count": int(passed),
+            "target_match_count": int(passed),
+            "correlated_match_count": int(passed),
+        }
     if name != "postgres_readiness":
         return {"passed": passed}
 
@@ -1284,6 +1298,12 @@ def test_correlation_failure_cannot_claim_validation(tmp_path: Path) -> None:
     )
 
     assert receipt["first_failure"] == "formal_sender_target_correlation_failed"
+    correlation = next(
+        item
+        for item in receipt["step_receipts"]
+        if item["name"] == "sender_target_correlation"
+    )
+    assert correlation["detail_code"] == "formal_correlation_event_not_observed"
     assert receipt["correlation_passed"] is False
     assert receipt["validation_passed"] is False
 

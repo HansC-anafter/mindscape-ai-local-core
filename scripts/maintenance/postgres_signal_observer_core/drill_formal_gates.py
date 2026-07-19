@@ -8,6 +8,10 @@ import time
 from typing import TYPE_CHECKING, Any, Callable, Mapping
 
 from .drill_client_readiness import evaluate_client_readiness
+from .drill_correlation_gate_receipt import (
+    FORMAL_CORRELATION_DEADLINE_SECONDS,
+    FORMAL_CORRELATION_POLL_SECONDS,
+)
 from .drill_docker_runtime import canonical_docker_argv
 from .drill_formal_contract import FormalDrillCliConfig
 from .drill_gate_receipt import (
@@ -39,12 +43,8 @@ from .evidence import ObserverEvidenceStore
 
 if TYPE_CHECKING:
     from .drill_formal_executor import FormalDockerSubprocessExecutor
-FORMAL_CORRELATION_DEADLINE_SECONDS = 10.0
-FORMAL_CORRELATION_POLL_SECONDS = 0.25
 _PSQL = "/usr/lib/postgresql/16/bin/psql"
 _PG_ISREADY = "/usr/lib/postgresql/16/bin/pg_isready"
-
-
 class FormalDrillGateOwner:
     """Interleave the existing readback/health/correlation owners."""
 
@@ -419,27 +419,66 @@ class FormalDrillGateOwner:
         self.executor.signal_config = signal
         return receipt
 
-    def _correlation(self) -> bool:
+    def _correlation(self) -> Mapping[str, Any]:
         signal = self.executor.signal_config
         if signal is None:
-            return False
+            return {
+                "passed": False,
+                "gate": "sender_target_correlation",
+                "detail_code": "formal_correlation_target_not_observed",
+                "terminal_deadline_seconds": FORMAL_CORRELATION_DEADLINE_SECONDS,
+                "poll_seconds": FORMAL_CORRELATION_POLL_SECONDS,
+                "event_file_count": 0,
+                "parsed_event_count": 0,
+                "target_match_count": 0,
+                "correlated_match_count": 0,
+            }
         deadline = self.monotonic() + FORMAL_CORRELATION_DEADLINE_SECONDS
         store = ObserverEvidenceStore(self.config.observer.evidence_host_root)
         while True:
-            for path in sorted(store.events_root.glob("event-*.json")):
+            paths = sorted(store.events_root.glob("event-*.json"))
+            parsed_count = target_count = correlated_count = 0
+            for path in paths:
                 try:
                     payload = json.loads(path.read_text(encoding="utf-8"))
                 except (OSError, ValueError, TypeError):
                     continue
-                if (
-                    payload.get("target_postgres_pid") == signal.target_postgres_pid
-                    and isinstance(payload.get("pgbouncer"), Mapping)
-                    and payload["pgbouncer"].get("status") == "correlated"
-                ):
-                    return True
+                if not isinstance(payload, Mapping):
+                    continue
+                parsed_count += 1
+                if payload.get("target_postgres_pid") != signal.target_postgres_pid:
+                    continue
+                target_count += 1
+                if isinstance(payload.get("pgbouncer"), Mapping) and payload[
+                    "pgbouncer"
+                ].get("status") == "correlated":
+                    correlated_count += 1
+            if correlated_count:
+                detail = None
+            elif not paths:
+                detail = "formal_correlation_event_not_observed"
+            elif not parsed_count:
+                detail = "formal_correlation_event_invalid"
+            elif not target_count:
+                detail = "formal_correlation_target_not_observed"
+            else:
+                detail = "formal_correlation_pgbouncer_unavailable"
+            receipt = {
+                "passed": correlated_count > 0,
+                "gate": "sender_target_correlation",
+                "detail_code": detail,
+                "terminal_deadline_seconds": FORMAL_CORRELATION_DEADLINE_SECONDS,
+                "poll_seconds": FORMAL_CORRELATION_POLL_SECONDS,
+                "event_file_count": len(paths),
+                "parsed_event_count": parsed_count,
+                "target_match_count": target_count,
+                "correlated_match_count": correlated_count,
+            }
+            if correlated_count:
+                return receipt
             remaining = deadline - self.monotonic()
             if remaining <= 0:
-                return False
+                return receipt
             self.sleep(min(FORMAL_CORRELATION_POLL_SECONDS, remaining))
 
     def evaluate(self, name: str) -> Mapping[str, Any]:
@@ -455,7 +494,7 @@ class FormalDrillGateOwner:
         elif name == "client_ready":
             return self._client_readiness()
         elif name == "sender_target_correlation":
-            passed = self._correlation()
+            return self._correlation()
         else:
             passed = False
         return {"passed": passed, "gate": name}

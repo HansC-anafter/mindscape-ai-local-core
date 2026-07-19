@@ -395,6 +395,10 @@ def project_formal_gate_receipt(name: str, source: object) -> dict[str, Any]:
         from .drill_client_gate_receipt import project_client_gate_receipt
 
         return project_client_gate_receipt(name, source)
+    if name == "sender_target_correlation":
+        from .drill_correlation_gate_receipt import project_correlation_gate_receipt
+
+        return project_correlation_gate_receipt(name, source)
     if name != "postgres_readiness":
         return {
             "name": name,
