@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import stat
 import subprocess
 from pathlib import Path
@@ -35,6 +36,7 @@ from scripts.maintenance.postgres_signal_observer_core.drill_formal_terminal imp
     terminal_finalize,
 )
 from scripts.maintenance.postgres_signal_observer_core.drill_gate_receipt import (
+    project_client_container_readback_outcome,
     project_pgbouncer_container_readback_outcome,
     project_formal_gate_receipt,
     project_postgres_container_readback_outcome,
@@ -544,12 +546,19 @@ def test_client_gate_derives_signal_pid_without_external_input(
     monkeypatch.setattr(
         drill_formal_gates,
         "execute_disposable_container_readback",
-        lambda *_args, **_kwargs: {"validation_passed": True},
+        _container_readback_pass,
     )
     executor = Executor()
     gate = drill_formal_gates.FormalDrillGateOwner(config, executor)
 
-    assert gate.evaluate("client_ready")["passed"] is True
+    receipt = project_formal_gate_receipt(
+        "client_ready", gate.evaluate("client_ready")
+    )
+    assert receipt["passed"] is True
+    assert receipt["detail_code"] is None
+    assert receipt["stages"]["container_readback"]["passed"] is True
+    assert receipt["stages"]["source_owned_pid"]["passed"] is True
+    assert "4242" not in json.dumps(receipt, sort_keys=True)
     assert executor.signal_config.target_postgres_pid == 4242
     assert executor.signal_config.docker_argv()[-1] == "4242"
 
@@ -584,6 +593,171 @@ def _container_readback_pass(contract=None, *_args, **_kwargs):
     }
 
 
+def test_client_gate_container_failure_blocks_pid_query(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _config(tmp_path)
+
+    class Executor:
+        signal_config = None
+        client_environment = {"PGPASSWORD": "fixture-secret"}
+        observer_receipt = None
+
+        def run(self, *_args, **_kwargs):
+            raise AssertionError("PID query must remain blocked")
+
+    monkeypatch.setattr(
+        drill_formal_gates,
+        "execute_disposable_container_readback",
+        lambda contract, *_args, **_kwargs: {
+            "validation_passed": False,
+            "role": contract.role,
+            "first_failure": "client_container_readback_state_unready",
+            "failures": ["client_container_readback_state_unready"],
+            "projection_schema_version": (
+                drill_formal_gates.CONTAINER_READBACK_SCHEMA_VERSION
+            ),
+            "projection_max_bytes": drill_formal_gates.CONTAINER_READBACK_MAX_BYTES,
+            "terminal_deadline_seconds": (
+                drill_formal_gates.CONTAINER_READBACK_TERMINAL_DEADLINE_SECONDS
+            ),
+        },
+    )
+    gate = drill_formal_gates.FormalDrillGateOwner(config, Executor())
+
+    receipt = project_formal_gate_receipt(
+        "client_ready", gate.evaluate("client_ready")
+    )
+
+    assert receipt["passed"] is False
+    assert receipt["detail_code"] == "formal_client_container_readback_failed"
+    assert receipt["stages"]["source_owned_pid"] == {
+        "attempted": False,
+        "attempt_count": 0,
+        "success_count": 0,
+        "passed": False,
+        "last_result": None,
+    }
+
+
+def test_client_gate_projects_pid_terminal_failure_without_payload(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _config(tmp_path)
+    stdout = b"private-client-pid-output"
+    stderr = b"private-client-pid-error"
+
+    class Executor:
+        signal_config = None
+        client_environment = {"PGPASSWORD": "fixture-secret"}
+        observer_receipt = None
+
+        def run(self, _argv, **kwargs):
+            assert kwargs["timeout"] == 10.0
+            return SimpleNamespace(returncode=17, stdout=stdout, stderr=stderr)
+
+    monkeypatch.setattr(
+        drill_formal_gates,
+        "execute_disposable_container_readback",
+        _container_readback_pass,
+    )
+    executor = Executor()
+    gate = drill_formal_gates.FormalDrillGateOwner(config, executor)
+
+    receipt = project_formal_gate_receipt(
+        "client_ready", gate.evaluate("client_ready")
+    )
+
+    assert receipt["passed"] is False
+    assert receipt["detail_code"] == "formal_client_pid_query_terminal_nonzero"
+    result = receipt["stages"]["source_owned_pid"]["last_result"]
+    assert result["exit_code"] == 17
+    assert result["terminal_capture"] == terminal_nonzero_capture_metadata(
+        stdout, stderr, exit_code=17
+    )
+    serialized = json.dumps(receipt, sort_keys=True)
+    assert stdout.decode("ascii") not in serialized
+    assert stderr.decode("ascii") not in serialized
+    assert executor.signal_config is None
+
+
+@pytest.mark.parametrize(
+    ("outcome", "expected_detail"),
+    [
+        (
+            subprocess.TimeoutExpired(cmd=("fixture",), timeout=10.0),
+            "formal_client_pid_query_terminal_deadline_exceeded",
+        ),
+        (OSError("private-error"), "formal_client_pid_query_unavailable"),
+        (
+            SimpleNamespace(returncode=0, stdout=b"not-a-pid", stderr=b""),
+            "formal_client_pid_value_invalid",
+        ),
+    ],
+)
+def test_client_gate_projects_stable_pid_failure_detail(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    outcome: object,
+    expected_detail: str,
+) -> None:
+    config = _config(tmp_path)
+
+    class Executor:
+        signal_config = None
+        client_environment = {"PGPASSWORD": "fixture-secret"}
+        observer_receipt = None
+
+        def run(self, _argv, **_kwargs):
+            if isinstance(outcome, BaseException):
+                raise outcome
+            return outcome
+
+    monkeypatch.setattr(
+        drill_formal_gates,
+        "execute_disposable_container_readback",
+        _container_readback_pass,
+    )
+    gate = drill_formal_gates.FormalDrillGateOwner(config, Executor())
+
+    receipt = project_formal_gate_receipt(
+        "client_ready", gate.evaluate("client_ready")
+    )
+
+    assert receipt["passed"] is False
+    assert receipt["detail_code"] == expected_detail
+    assert "private-error" not in json.dumps(receipt, sort_keys=True)
+
+
+def test_client_gate_projector_rejects_unattempted_container_without_raising() -> None:
+    empty_stage = {
+        "attempted": False,
+        "attempt_count": 0,
+        "success_count": 0,
+        "passed": False,
+        "last_result": None,
+    }
+    source = {
+        "passed": False,
+        "gate": "client_ready",
+        "detail_code": "formal_client_container_readback_failed",
+        "terminal_deadline_seconds": 10.0,
+        "stages": {
+            "container_readback": dict(empty_stage),
+            "source_owned_pid": dict(empty_stage),
+        },
+    }
+
+    assert project_formal_gate_receipt("client_ready", source) == {
+        "name": "client_ready",
+        "kind": "gate",
+        "passed": False,
+        "detail_code": "formal_client_readiness_receipt_invalid",
+    }
+
+
 @pytest.mark.parametrize(
     ("projector", "expected_role", "source_role"),
     [
@@ -593,6 +767,9 @@ def _container_readback_pass(contract=None, *_args, **_kwargs):
         (project_pgbouncer_container_readback_outcome, "pgbouncer", None),
         (project_pgbouncer_container_readback_outcome, "pgbouncer", "postgres"),
         (project_pgbouncer_container_readback_outcome, "pgbouncer", 1),
+        (project_client_container_readback_outcome, "client", None),
+        (project_client_container_readback_outcome, "client", "postgres"),
+        (project_client_container_readback_outcome, "client", 1),
     ],
 )
 def test_container_readback_projection_requires_exact_source_role(

@@ -24,6 +24,8 @@ OBSERVER_SOURCE_PATHS = (
     "scripts/maintenance/postgres_signal_observer_core/drill.py",
     "scripts/maintenance/postgres_signal_observer_core/drill_admin_url.py",
     "scripts/maintenance/postgres_signal_observer_core/drill_bootstrap.py",
+    "scripts/maintenance/postgres_signal_observer_core/drill_client_gate_receipt.py",
+    "scripts/maintenance/postgres_signal_observer_core/drill_client_readiness.py",
     "scripts/maintenance/postgres_signal_observer_core/drill_docker_runtime.py",
     "scripts/maintenance/postgres_signal_observer_core/drill_escalation.py",
     "scripts/maintenance/postgres_signal_observer_core/drill_formal_cli.py",

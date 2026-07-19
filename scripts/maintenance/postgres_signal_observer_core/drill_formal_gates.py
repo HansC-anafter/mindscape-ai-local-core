@@ -7,10 +7,11 @@ import subprocess
 import time
 from typing import TYPE_CHECKING, Any, Callable, Mapping
 
-from .drill import DisposableDrillSignalConfig
+from .drill_client_readiness import evaluate_client_readiness
 from .drill_docker_runtime import canonical_docker_argv
 from .drill_formal_contract import FormalDrillCliConfig
 from .drill_gate_receipt import (
+    project_client_container_readback_outcome,
     project_pgbouncer_container_readback_outcome,
     project_postgres_container_readback_outcome,
 )
@@ -382,46 +383,39 @@ class FormalDrillGateOwner:
             sleep=self.sleep,
         )
 
-    def _source_owned_client_pid(self) -> bool:
+    def _client_readiness(self) -> Mapping[str, Any]:
         bootstrap = self.config.bootstrap
-        query = (
-            "SELECT pid FROM pg_stat_activity WHERE application_name = "
-            "'postgres-signal-observer-drill-client' AND state <> 'idle' "
-            "ORDER BY backend_start DESC LIMIT 1;"
-        )
-        argv = canonical_docker_argv(
-            "exec",
-            bootstrap.postgres_container_name,
-            _PSQL,
-            "-X",
-            "-U",
-            self.config.client.database_user,
-            "-d",
-            self.config.client.database_name,
-            "--tuples-only",
-            "--no-align",
-            "--command",
-            query,
-        )
         try:
-            completed = self._terminal_command(argv)
-        except (OSError, RuntimeError, subprocess.TimeoutExpired):
-            return False
-        raw = getattr(completed, "stdout", None)
-        if not self._terminal_zero(completed) or not isinstance(raw, bytes):
-            return False
-        try:
-            pid = int(raw.strip().decode("ascii"))
-            signal = DisposableDrillSignalConfig(
-                drill_suffix=self.config.bootstrap.drill_suffix,
-                postgres_image_ref=self.config.bootstrap.postgres_image_ref,
-                target_postgres_pid=pid,
+            container_receipt = self._container_readback(
+                "client",
+                self.config.client.docker_argv(),
+                bootstrap.postgres_image_ref,
             )
-            signal.validate()
-        except (UnicodeError, ValueError):
-            return False
+        except (OSError, RuntimeError):
+            container_receipt = {
+                "validation_passed": False,
+                "role": "client",
+                "first_failure": "formal_client_readback_unavailable",
+                "failures": ["formal_client_readback_unavailable"],
+                "projection_schema_version": CONTAINER_READBACK_SCHEMA_VERSION,
+                "projection_max_bytes": CONTAINER_READBACK_MAX_BYTES,
+                "terminal_deadline_seconds": (
+                    CONTAINER_READBACK_TERMINAL_DEADLINE_SECONDS
+                ),
+            }
+        receipt, signal = evaluate_client_readiness(
+            container_outcome=project_client_container_readback_outcome(
+                container_receipt
+            ),
+            bootstrap=bootstrap,
+            client=self.config.client,
+            run=self._terminal_command,
+            stage_result=lambda completed: self._stage_result(
+                completed, role="client"
+            ),
+        )
         self.executor.signal_config = signal
-        return True
+        return receipt
 
     def _correlation(self) -> bool:
         signal = self.executor.signal_config
@@ -447,8 +441,6 @@ class FormalDrillGateOwner:
             self.sleep(min(FORMAL_CORRELATION_POLL_SECONDS, remaining))
 
     def evaluate(self, name: str) -> Mapping[str, Any]:
-        bootstrap = self.config.bootstrap
-        image = bootstrap.postgres_image_ref
         if name == "postgres_readiness":
             return self._postgres_readiness()
         elif name == "pgbouncer_readiness":
@@ -459,13 +451,7 @@ class FormalDrillGateOwner:
                 and self.executor.observer_receipt.get("ready") is True
             )
         elif name == "client_ready":
-            passed = (
-                self._container_readback(
-                    "client", self.config.client.docker_argv(), image
-                ).get("validation_passed")
-                is True
-                and self._source_owned_client_pid()
-            )
+            return self._client_readiness()
         elif name == "sender_target_correlation":
             passed = self._correlation()
         else:

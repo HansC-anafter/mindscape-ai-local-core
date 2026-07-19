@@ -172,6 +172,10 @@ def project_pgbouncer_container_readback_outcome(source: object) -> dict[str, An
     return _project_container_readback_outcome("pgbouncer", source)
 
 
+def project_client_container_readback_outcome(source: object) -> dict[str, Any] | None:
+    return _project_container_readback_outcome("client", source)
+
+
 def _project_container_failure(source: Mapping[str, Any], *, role: str = "postgres") -> dict[str, Any] | None:
     readback_source = {
         "validation_passed": False,
@@ -387,6 +391,10 @@ def project_formal_gate_receipt(name: str, source: object) -> dict[str, Any]:
         from .drill_pgbouncer_gate_receipt import project_pgbouncer_gate_receipt
 
         return project_pgbouncer_gate_receipt(name, source)
+    if name == "client_ready":
+        from .drill_client_gate_receipt import project_client_gate_receipt
+
+        return project_client_gate_receipt(name, source)
     if name != "postgres_readiness":
         return {
             "name": name,

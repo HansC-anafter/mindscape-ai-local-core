@@ -171,6 +171,53 @@ def _gate(name: str, *, fail: str | None = None) -> dict[str, object]:
             "poll_seconds": 0.25,
             "stages": stages,
         }
+    if name == "client_ready":
+        return {
+            "passed": passed,
+            "gate": name,
+            "detail_code": (
+                None if passed else "formal_client_pid_query_terminal_nonzero"
+            ),
+            "terminal_deadline_seconds": 10.0,
+            "stages": {
+                "container_readback": {
+                    "attempted": True,
+                    "attempt_count": 1,
+                    "success_count": 1,
+                    "passed": True,
+                    "last_result": {
+                        "status": "validated",
+                        "detail_code": None,
+                        "projection_schema_version": (
+                            CONTAINER_READBACK_SCHEMA_VERSION
+                        ),
+                        "projection_max_bytes": CONTAINER_READBACK_MAX_BYTES,
+                        "terminal_deadline_seconds": (
+                            CONTAINER_READBACK_TERMINAL_DEADLINE_SECONDS
+                        ),
+                    },
+                },
+                "source_owned_pid": {
+                    "attempted": True,
+                    "attempt_count": 1,
+                    "success_count": int(passed),
+                    "passed": passed,
+                    "last_result": (
+                        terminal_zero()
+                        if passed
+                        else {
+                            "status": "terminal_nonzero",
+                            "exit_code": 17,
+                            "terminal_capture": terminal_capture_metadata(
+                                b"private-client-output",
+                                b"private-client-error",
+                                exit_code=17,
+                            ),
+                        }
+                    ),
+                },
+            },
+        }
     if name != "postgres_readiness":
         return {"passed": passed}
 
@@ -1461,3 +1508,98 @@ def test_sequence_rejects_pgbouncer_shared_deadline_contract_drift(
     assert receipt["cleanup_operation_attempts"] == 5
     assert receipt["ownership_handed_back"] is True
     assert "secret-sentinel-output" not in json.dumps(receipt, sort_keys=True)
+
+
+def test_sequence_projects_client_failure_and_rejects_payload_injection(
+    tmp_path: Path,
+) -> None:
+    configs = _configs(tmp_path)
+    gate = _gate("client_ready", fail="client_ready")
+    revocations: list[str] = []
+    receipt = _execute(
+        configs,
+        execute_docker=_docker_success,
+        evaluate_gate=lambda name: gate if name == "client_ready" else _gate(name),
+        revoke_permit=revocations.append,
+        finalize_cleanup=lambda _failure: _postflight(),
+    )
+
+    projected = next(
+        item for item in receipt["step_receipts"] if item["name"] == "client_ready"
+    )
+    assert projected["detail_code"] == "formal_client_pid_query_terminal_nonzero"
+    assert projected["stages"]["source_owned_pid"]["last_result"]["exit_code"] == 17
+    assert "private-client" not in json.dumps(receipt, sort_keys=True)
+    assert receipt["first_failure"] == "formal_client_ready_failed"
+    assert revocations == ["formal_client_ready_failed"]
+    assert receipt["downstream_operation_attempts"]["signal"] == 0
+    assert receipt["remaining_resources_verified"] is True
+    assert receipt["ownership_handed_back"] is True
+
+    gate["stages"]["source_owned_pid"]["last_result"]["raw_output"] = {
+        "secret": "sentinel"
+    }
+    malformed = _execute(
+        configs,
+        execute_docker=_docker_success,
+        evaluate_gate=lambda name: gate if name == "client_ready" else _gate(name),
+        revoke_permit=lambda _reason: None,
+        finalize_cleanup=lambda _failure: _postflight(),
+    )
+    invalid = next(
+        item
+        for item in malformed["step_receipts"]
+        if item["name"] == "client_ready"
+    )
+    assert invalid == {
+        "name": "client_ready",
+        "kind": "gate",
+        "passed": False,
+        "detail_code": "formal_client_readiness_receipt_invalid",
+    }
+    assert malformed["first_failure"] == "formal_client_ready_failed"
+    assert malformed["downstream_operation_attempts"]["signal"] == 0
+    assert malformed["remaining_resources_verified"] is True
+    assert malformed["ownership_handed_back"] is True
+    assert "sentinel" not in json.dumps(malformed, sort_keys=True)
+
+    empty_stage = {
+        "attempted": False,
+        "attempt_count": 0,
+        "success_count": 0,
+        "passed": False,
+        "last_result": None,
+    }
+    unattempted_container = {
+        "passed": False,
+        "gate": "client_ready",
+        "detail_code": "formal_client_container_readback_failed",
+        "terminal_deadline_seconds": 10.0,
+        "stages": {
+            "container_readback": dict(empty_stage),
+            "source_owned_pid": dict(empty_stage),
+        },
+    }
+    empty_revocations: list[str] = []
+    empty_receipt = _execute(
+        configs,
+        execute_docker=_docker_success,
+        evaluate_gate=lambda name: (
+            unattempted_container if name == "client_ready" else _gate(name)
+        ),
+        revoke_permit=empty_revocations.append,
+        finalize_cleanup=lambda _failure: _postflight(),
+    )
+    empty_projection = next(
+        item
+        for item in empty_receipt["step_receipts"]
+        if item["name"] == "client_ready"
+    )
+    assert empty_projection["detail_code"] == (
+        "formal_client_readiness_receipt_invalid"
+    )
+    assert empty_receipt["first_failure"] == "formal_client_ready_failed"
+    assert empty_revocations == ["formal_client_ready_failed"]
+    assert empty_receipt["downstream_operation_attempts"]["signal"] == 0
+    assert empty_receipt["remaining_resources_verified"] is True
+    assert empty_receipt["ownership_handed_back"] is True
