@@ -29,6 +29,7 @@ from .drill_readback_projection import (
     CONTAINER_READBACK_MAX_BYTES,
     CONTAINER_READBACK_SCHEMA_VERSION,
 )
+from .drill_readiness_stage import empty_psql_stage, empty_stage, replace_psql_result
 from .evidence import ObserverEvidenceStore
 
 if TYPE_CHECKING:
@@ -113,25 +114,15 @@ class FormalDrillGateOwner:
         }
 
     @staticmethod
-    def _empty_stage() -> dict[str, Any]:
-        return {
-            "attempted": False,
-            "attempt_count": 0,
-            "success_count": 0,
-            "passed": False,
-            "last_result": None,
-        }
-
-    @staticmethod
     def _stage_error(status: str, error_code: str) -> dict[str, str]:
         return {"status": status, "error_code": error_code}
 
     def _postgres_readiness(self) -> Mapping[str, Any]:
         bootstrap = self.config.bootstrap
         stages = {
-            "container_readback": self._empty_stage(),
-            "pg_isready": self._empty_stage(),
-            "psql_select_one": self._empty_stage(),
+            "container_readback": empty_stage(),
+            "pg_isready": empty_stage(),
+            "psql_select_one": empty_psql_stage(empty_stage()),
         }
         try:
             container_receipt = self._container_readback(
@@ -247,19 +238,26 @@ class FormalDrillGateOwner:
                 try:
                     completed = self._terminal_command(select_one, timeout=remaining)
                 except subprocess.TimeoutExpired:
-                    psql_stage["last_result"] = self._stage_error(
-                        "timeout", "formal_postgres_psql_select_one_deadline_exceeded"
+                    replace_psql_result(
+                        psql_stage,
+                        self._stage_error(
+                            "timeout",
+                            "formal_postgres_psql_select_one_deadline_exceeded",
+                        ),
                     )
                     detail_code = "formal_postgres_psql_select_one_deadline_exceeded"
                     break
                 except (OSError, RuntimeError):
-                    psql_stage["last_result"] = self._stage_error(
-                        "exec_error", "formal_postgres_psql_select_one_unavailable"
+                    replace_psql_result(
+                        psql_stage,
+                        self._stage_error(
+                            "exec_error", "formal_postgres_psql_select_one_unavailable"
+                        ),
                     )
                     detail_code = "formal_postgres_psql_select_one_unavailable"
                     break
                 psql_result = self._stage_result(completed)
-                psql_stage["last_result"] = psql_result
+                replace_psql_result(psql_stage, psql_result)
                 psql_attempt_passed = psql_result.get("status") == "terminal_zero"
                 if psql_attempt_passed:
                     psql_stage["success_count"] += 1
@@ -297,9 +295,9 @@ class FormalDrillGateOwner:
     def _pgbouncer_readiness(self) -> Mapping[str, Any]:
         bootstrap = self.config.bootstrap
         stages = {
-            "container_readback": self._empty_stage(),
-            "pg_isready": self._empty_stage(),
-            "show_version": self._empty_stage(),
+            "container_readback": empty_stage(),
+            "pg_isready": empty_stage(),
+            "show_version": empty_stage(),
         }
         try:
             container_receipt = self._container_readback(

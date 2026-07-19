@@ -1128,6 +1128,92 @@ def test_postgres_readiness_polls_to_success_with_fresh_remaining_timeouts(
     assert "transient-payload" not in repr(receipt)
 
 
+@pytest.mark.parametrize(
+    ("psql_results", "prior_status", "prior_index"),
+    [
+        (("terminal_nonzero", "timeout"), "terminal_nonzero", 1),
+        (("result_invalid", "timeout"), "result_invalid", 1),
+        (
+            ("terminal_nonzero", "result_invalid", "timeout"),
+            "result_invalid",
+            2,
+        ),
+    ],
+)
+def test_postgres_readiness_preserves_one_bounded_prior_psql_result(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    psql_results: tuple[str, ...],
+    prior_status: str,
+    prior_index: int,
+) -> None:
+    config = _config(tmp_path)
+    clock = _FakeClock()
+
+    class Executor:
+        signal_config = None
+        client_environment = None
+        observer_receipt = None
+
+        def __init__(self) -> None:
+            self.psql_results = list(psql_results)
+
+        def run(self, argv, **kwargs):
+            if drill_formal_gates._PG_ISREADY in argv:
+                return SimpleNamespace(returncode=0, stdout=b"ready", stderr=b"")
+            outcome = self.psql_results.pop(0)
+            if outcome == "timeout":
+                raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
+            if outcome == "result_invalid":
+                return SimpleNamespace(
+                    returncode=17,
+                    stdout="private-invalid-payload",
+                    stderr=b"",
+                )
+            return SimpleNamespace(
+                returncode=17,
+                stdout=b"private-prior-stdout",
+                stderr=b"private-prior-stderr",
+            )
+
+    monkeypatch.setattr(
+        drill_formal_gates,
+        "execute_disposable_container_readback",
+        _container_readback_pass,
+    )
+    raw = drill_formal_gates.FormalDrillGateOwner(
+        config,
+        Executor(),
+        monotonic=clock.monotonic,
+        sleep=clock.sleep,
+    ).evaluate("postgres_readiness")
+
+    stage = raw["stages"]["psql_select_one"]
+    assert raw["detail_code"] == "formal_postgres_psql_select_one_deadline_exceeded"
+    assert raw["startup_deadline_seconds"] == 10.0
+    assert raw["poll_seconds"] == 0.25
+    assert stage["attempt_count"] == len(psql_results)
+    assert stage["last_result"] == {
+        "status": "timeout",
+        "error_code": "formal_postgres_psql_select_one_deadline_exceeded",
+    }
+    assert stage["prior_terminal_attempt_index"] == prior_index
+    assert stage["prior_terminal_result"]["status"] == prior_status
+    if prior_status == "terminal_nonzero":
+        assert stage["prior_terminal_result"]["exit_code"] == 17
+        assert stage["prior_terminal_result"]["terminal_capture"][
+            "output_disclosed"
+        ] is False
+    else:
+        assert stage["prior_terminal_result"] == {
+            "status": "result_invalid",
+            "error_code": "formal_postgres_readiness_capture_invalid",
+        }
+    assert "private-prior-stdout" not in repr(raw)
+    assert "private-prior-stderr" not in repr(raw)
+    assert "private-invalid-payload" not in repr(raw)
+
+
 def test_postgres_readiness_final_poll_quantum_is_terminal_and_bounded(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1470,6 +1556,201 @@ def test_postgres_readiness_psql_deadline_and_exec_error_are_stable(
     assert timed_out["detail_code"] == "formal_postgres_pg_isready_deadline_exceeded"
     assert timed_out["stages"]["pg_isready"]["last_result"]["status"] == "timeout"
     assert "private" not in repr(timed_out)
+
+
+def test_postgres_readiness_preserves_prior_psql_nonzero_before_final_timeout(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _config(tmp_path)
+    clock = _FakeClock()
+
+    class Executor:
+        signal_config = None
+        client_environment = None
+        observer_receipt = None
+
+        def __init__(self) -> None:
+            self.psql_count = 0
+
+        def run(self, argv, **kwargs):
+            if drill_formal_gates._PG_ISREADY in argv:
+                return SimpleNamespace(returncode=0, stdout=b"ready", stderr=b"")
+            self.psql_count += 1
+            if self.psql_count == 1:
+                return SimpleNamespace(
+                    returncode=2,
+                    stdout=b"private-stdout",
+                    stderr=b"private-stderr",
+                )
+            raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
+
+    monkeypatch.setattr(
+        drill_formal_gates,
+        "execute_disposable_container_readback",
+        _container_readback_pass,
+    )
+    raw = drill_formal_gates.FormalDrillGateOwner(
+        config,
+        Executor(),
+        monotonic=clock.monotonic,
+        sleep=clock.sleep,
+    ).evaluate("postgres_readiness")
+    projected = project_formal_gate_receipt("postgres_readiness", raw)
+
+    stage = projected["stages"]["psql_select_one"]
+    assert stage["attempt_count"] == 2
+    assert stage["last_result"] == {
+        "status": "timeout",
+        "error_code": "formal_postgres_psql_select_one_deadline_exceeded",
+    }
+    assert stage["prior_terminal_attempt_index"] == 1
+    assert stage["prior_terminal_result"]["status"] == "terminal_nonzero"
+    assert stage["prior_terminal_result"]["exit_code"] == 2
+    assert (
+        stage["prior_terminal_result"]["terminal_capture"]["output_disclosed"]
+        is False
+    )
+    assert "private-stdout" not in repr(projected)
+    assert "private-stderr" not in repr(projected)
+
+
+def test_postgres_readiness_preserves_only_most_recent_eligible_psql_result(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _config(tmp_path)
+    clock = _FakeClock()
+
+    class Executor:
+        signal_config = None
+        client_environment = None
+        observer_receipt = None
+
+        def __init__(self) -> None:
+            self.psql_count = 0
+
+        def run(self, argv, **kwargs):
+            if drill_formal_gates._PG_ISREADY in argv:
+                return SimpleNamespace(returncode=0, stdout=b"ready", stderr=b"")
+            self.psql_count += 1
+            if self.psql_count == 1:
+                return SimpleNamespace(returncode=2, stdout="invalid", stderr=b"")
+            if self.psql_count == 2:
+                return SimpleNamespace(returncode=3, stdout=b"recent", stderr=b"")
+            raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
+
+    monkeypatch.setattr(
+        drill_formal_gates,
+        "execute_disposable_container_readback",
+        _container_readback_pass,
+    )
+    raw = drill_formal_gates.FormalDrillGateOwner(
+        config,
+        Executor(),
+        monotonic=clock.monotonic,
+        sleep=clock.sleep,
+    ).evaluate("postgres_readiness")
+    projected = project_formal_gate_receipt("postgres_readiness", raw)
+
+    stage = projected["stages"]["psql_select_one"]
+    assert stage["attempt_count"] == 3
+    assert stage["prior_terminal_attempt_index"] == 2
+    assert stage["prior_terminal_result"]["status"] == "terminal_nonzero"
+    assert stage["prior_terminal_result"]["exit_code"] == 3
+    assert not isinstance(stage["prior_terminal_result"], list)
+    assert "invalid" not in repr(projected)
+    assert "recent" not in repr(projected)
+
+
+def test_postgres_readiness_preserves_prior_psql_result_invalid_without_capture(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _config(tmp_path)
+    clock = _FakeClock()
+
+    class Executor:
+        signal_config = None
+        client_environment = None
+        observer_receipt = None
+
+        def __init__(self) -> None:
+            self.psql_count = 0
+
+        def run(self, argv, **kwargs):
+            if drill_formal_gates._PG_ISREADY in argv:
+                return SimpleNamespace(returncode=0, stdout=b"ready", stderr=b"")
+            self.psql_count += 1
+            if self.psql_count == 1:
+                return SimpleNamespace(returncode=2, stdout="invalid", stderr=b"")
+            raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
+
+    monkeypatch.setattr(
+        drill_formal_gates,
+        "execute_disposable_container_readback",
+        _container_readback_pass,
+    )
+    raw = drill_formal_gates.FormalDrillGateOwner(
+        config,
+        Executor(),
+        monotonic=clock.monotonic,
+        sleep=clock.sleep,
+    ).evaluate("postgres_readiness")
+    projected = project_formal_gate_receipt("postgres_readiness", raw)
+
+    prior = projected["stages"]["psql_select_one"]["prior_terminal_result"]
+    assert prior == {
+        "status": "result_invalid",
+        "error_code": "formal_postgres_readiness_capture_invalid",
+    }
+    assert "terminal_capture" not in prior
+
+
+def test_postgres_readiness_success_clears_prior_psql_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _config(tmp_path)
+    clock = _FakeClock()
+
+    class Executor:
+        signal_config = None
+        client_environment = None
+        observer_receipt = None
+
+        def __init__(self) -> None:
+            self.psql_count = 0
+
+        def run(self, argv, **_kwargs):
+            if drill_formal_gates._PG_ISREADY in argv:
+                return SimpleNamespace(returncode=0, stdout=b"ready", stderr=b"")
+            self.psql_count += 1
+            return SimpleNamespace(
+                returncode=0 if self.psql_count == 2 else 2,
+                stdout=b"1\n" if self.psql_count == 2 else b"private",
+                stderr=b"",
+            )
+
+    monkeypatch.setattr(
+        drill_formal_gates,
+        "execute_disposable_container_readback",
+        _container_readback_pass,
+    )
+    raw = drill_formal_gates.FormalDrillGateOwner(
+        config,
+        Executor(),
+        monotonic=clock.monotonic,
+        sleep=clock.sleep,
+    ).evaluate("postgres_readiness")
+    projected = project_formal_gate_receipt("postgres_readiness", raw)
+
+    stage = projected["stages"]["psql_select_one"]
+    assert projected["passed"] is True
+    assert stage["attempt_count"] == 2
+    assert stage["prior_terminal_attempt_index"] is None
+    assert stage["prior_terminal_result"] is None
+    assert "private" not in repr(projected)
 
 
 def test_generic_nonzero_result_persists_only_raw_capture_hashes() -> None:

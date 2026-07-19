@@ -189,6 +189,8 @@ def _gate(name: str, *, fail: str | None = None) -> dict[str, object]:
             "attempt_count": int(passed),
             "success_count": int(passed),
             "passed": passed,
+            "prior_terminal_attempt_index": None,
+            "prior_terminal_result": None,
             "last_result": (
                 terminal_zero() if passed else None
             ),
@@ -404,6 +406,8 @@ def test_sequence_preserves_container_leaf_failure_and_terminal_cleanup(
         "attempt_count": 0,
         "success_count": 0,
         "passed": False,
+        "prior_terminal_attempt_index": None,
+        "prior_terminal_result": None,
         "last_result": None,
     }
     revocations: list[str] = []
@@ -472,6 +476,8 @@ def test_sequence_preserves_readback_terminal_nonzero_capture_and_cleanup(
         "attempt_count": 0,
         "success_count": 0,
         "passed": False,
+        "prior_terminal_attempt_index": None,
+        "prior_terminal_result": None,
         "last_result": None,
     }
     revocations: list[str] = []
@@ -565,6 +571,8 @@ def test_sequence_rejects_malformed_readback_capture_without_downstream(
         "attempt_count": 0,
         "success_count": 0,
         "passed": False,
+        "prior_terminal_attempt_index": None,
+        "prior_terminal_result": None,
         "last_result": None,
     }
     revocations: list[str] = []
@@ -592,6 +600,87 @@ def test_sequence_rejects_malformed_readback_capture_without_downstream(
         "client": 0,
         "signal": 0,
     }
+    assert receipt["remaining_resources_verified"] is True
+    assert receipt["ownership_handed_back"] is True
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "wrong_status",
+        "wrong_index",
+        "stale_index",
+        "missing_prior",
+        "extra_key",
+        "bad_hash",
+    ],
+)
+def test_sequence_rejects_malformed_prior_psql_result_and_cleans_up(
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    gate = _gate("postgres_readiness")
+    gate["passed"] = False
+    gate["detail_code"] = "formal_postgres_psql_select_one_deadline_exceeded"
+    gate["stages"]["pg_isready"].update(
+        {"attempt_count": 2, "success_count": 2, "passed": True}
+    )
+    psql = gate["stages"]["psql_select_one"]
+    psql.update(
+        {
+            "attempt_count": 2,
+            "success_count": 0,
+            "passed": False,
+            "last_result": {
+                "status": "timeout",
+                "error_code": "formal_postgres_psql_select_one_deadline_exceeded",
+            },
+            "prior_terminal_attempt_index": 1,
+            "prior_terminal_result": {
+                "status": "terminal_nonzero",
+                "exit_code": 2,
+                "terminal_capture": terminal_capture_metadata(
+                    b"private", b"secret", exit_code=2
+                ),
+            },
+        }
+    )
+    if mutation == "wrong_status":
+        psql["prior_terminal_result"] = {
+            "status": "timeout",
+            "error_code": "formal_postgres_psql_select_one_deadline_exceeded",
+        }
+    elif mutation == "wrong_index":
+        psql["prior_terminal_attempt_index"] = True
+    elif mutation == "stale_index":
+        gate["stages"]["pg_isready"].update(
+            {"attempt_count": 3, "success_count": 3}
+        )
+        psql["attempt_count"] = 3
+        psql["prior_terminal_attempt_index"] = 1
+    elif mutation == "missing_prior":
+        psql["prior_terminal_attempt_index"] = None
+        psql["prior_terminal_result"] = None
+    elif mutation == "extra_key":
+        psql["prior_terminal_result"]["raw_output"] = "secret"
+    else:
+        psql["prior_terminal_result"]["terminal_capture"]["stdout_sha256"] = "bad"
+    revocations: list[str] = []
+
+    receipt = _execute(
+        _configs(tmp_path),
+        execute_docker=_docker_success,
+        evaluate_gate=lambda name: gate if name == "postgres_readiness" else _gate(name),
+        revoke_permit=revocations.append,
+        finalize_cleanup=lambda _failure: _postflight(),
+    )
+
+    assert receipt["step_receipts"][2]["detail_code"] == (
+        "formal_postgres_readiness_receipt_invalid"
+    )
+    assert receipt["first_failure"] == "formal_postgres_readiness_failed"
+    assert revocations == ["formal_postgres_readiness_failed"]
+    assert receipt["downstream_operation_attempts"]["pgbouncer"] == 0
     assert receipt["remaining_resources_verified"] is True
     assert receipt["ownership_handed_back"] is True
 

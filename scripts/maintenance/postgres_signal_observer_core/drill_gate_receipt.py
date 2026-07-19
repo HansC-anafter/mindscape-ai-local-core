@@ -15,6 +15,7 @@ from .drill_readback_projection import (
     CONTAINER_READBACK_MAX_BYTES,
     CONTAINER_READBACK_SCHEMA_VERSION,
 )
+from .drill_readiness_stage import project_readiness_stage
 
 
 _DETAIL_CODES = frozenset(
@@ -310,54 +311,13 @@ def _project_result(stage_name: str, source: object, *, role: str = "postgres") 
 def _project_stage(
     stage_name: str, source: object, *, role: str = "postgres"
 ) -> dict[str, Any] | None:
-    if not isinstance(source, Mapping):
-        return None
-    attempted = source.get("attempted")
-    attempts = source.get("attempt_count")
-    successes = source.get("success_count")
-    passed = source.get("passed")
-    raw_result = source.get("last_result")
-    result = _project_result(stage_name, raw_result, role=role)
-    if (
-        type(attempted) is not bool
-        or type(attempts) is not int
-        or type(successes) is not int
-        or type(passed) is not bool
-        or attempts < 0
-        or not 0 <= successes <= attempts
-        or attempted != (attempts > 0)
-        or passed != (successes > 0)
-        or (
-            result is not None
-            and result.get("status") == "terminal_zero"
-            and successes == 0
-        )
-        or (
-            stage_name != "container_readback"
-            and result is not None
-            and result.get("status") != "terminal_zero"
-            and successes >= attempts
-        )
-        or (attempted and result is None)
-        or (not attempted and source.get("last_result") is not None)
-        or (role == "pgbouncer" and set(source) != {
-            "attempted", "attempt_count", "success_count", "passed", "last_result"
-        })
-        or (
-            role == "pgbouncer"
-            and isinstance(raw_result, Mapping)
-            and isinstance(result, Mapping)
-            and set(raw_result) != set(result)
-        )
-    ):
-        return None
-    return {
-        "attempted": attempted,
-        "attempt_count": attempts,
-        "success_count": successes,
-        "passed": passed,
-        "last_result": result,
-    }
+    return project_readiness_stage(
+        stage_name,
+        source,
+        role=role,
+        project_result=_project_result,
+        capture_keys=frozenset(_CAPTURE_KEYS),
+    )
 
 
 def _detail_matches_stages(
