@@ -100,6 +100,28 @@ def _docker_success(envelope: FormalDockerExecutionEnvelope) -> dict[str, object
         }
     if envelope.result_kind == "identifier":
         return {"exit_code": 0, "output": "a" * 64}
+    if envelope.operation_class == "docker_exec_disposable_isolated_signal_sender":
+        empty_hash = hashlib.sha256(b"").hexdigest()
+        return {
+            "exit_code": 0,
+            "output": "",
+            "failure_code": "",
+            "signal_sender_receipt": {
+                "signal_sent": True,
+                "first_failure": None,
+                "terminal": True,
+                "target_postgres_pid": 42,
+                "target_postgres_pid_scope": "required_sender_correlation_receipt",
+                "spec": {},
+                "stdout_bytes": 0,
+                "stdout_sha256": empty_hash,
+                "stderr_bytes": 0,
+                "stderr_sha256": empty_hash,
+                "output_disclosed": False,
+                "output_budget_exceeded": False,
+                "terminal_exit_code": 0,
+            },
+        }
     return {"exit_code": 0, "output": ""}
 
 
@@ -1374,6 +1396,40 @@ def test_signal_envelope_is_materialized_from_exact_source_owned_pid(
     )
     assert declared_signal["operation"]["source_owned_late_bound"] is True
     assert "argv" not in declared_signal["operation"]
+
+
+def test_malformed_signal_receipt_fails_closed_before_correlation_and_hands_back(
+    tmp_path: Path,
+) -> None:
+    configs = _configs(tmp_path)
+    revocations: list[str] = []
+
+    def execute(envelope: FormalDockerExecutionEnvelope) -> dict[str, object]:
+        source = _docker_success(envelope)
+        if envelope.operation_class == "docker_exec_disposable_isolated_signal_sender":
+            source["signal_sender_receipt"]["stdout_sha256"] = "0" * 64  # type: ignore[index]
+        return source
+
+    receipt = _execute(
+        configs,
+        execute_docker=execute,
+        evaluate_gate=_gate,
+        revoke_permit=revocations.append,
+        finalize_cleanup=lambda _failure: _postflight(),
+    )
+    signal_step = next(
+        item for item in receipt["step_receipts"] if item["name"] == "signal_send"
+    )
+
+    assert receipt["first_failure"] == "formal_signal_sender_receipt_invalid"
+    assert signal_step["result"]["first_failure"] == (
+        "formal_signal_sender_receipt_invalid"
+    )
+    assert receipt["correlation_passed"] is False
+    assert "sender_target_correlation" in receipt["blocked_steps"]
+    assert revocations == ["formal_signal_sender_receipt_invalid"]
+    assert receipt["remaining_resources_verified"] is True
+    assert receipt["ownership_handed_back"] is True
 
 
 def test_sequence_projects_pgbouncer_readiness_and_fails_malformed_capture_closed(

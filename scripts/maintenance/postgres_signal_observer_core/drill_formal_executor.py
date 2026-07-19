@@ -152,6 +152,7 @@ class FormalDockerSubprocessExecutor:
                     "exit_code": 0 if receipt.get("signal_sent") is True else 1,
                     "output": "",
                     "failure_code": str(receipt.get("first_failure") or ""),
+                    "signal_sender_receipt": receipt,
                 }
             completed = self.run(
                 envelope.argv,

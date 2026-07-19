@@ -24,6 +24,12 @@ from scripts.maintenance.postgres_signal_observer_core import (
 from scripts.maintenance.postgres_signal_observer_core.artifact import (
     OBSERVER_SOURCE_PATHS,
 )
+from scripts.maintenance.postgres_signal_observer_core.drill_escalation import (
+    validate_formal_exec_result,
+)
+from scripts.maintenance.postgres_signal_observer_core.drill_signal_receipt import (
+    project_formal_signal_sender_receipt,
+)
 
 
 DRILL_SUFFIX = "20260718T055442Z"
@@ -123,6 +129,7 @@ def test_artifact_digest_changes_with_the_postgres_image_contract(
         "scripts/maintenance/postgres_signal_observer_core/drill_pgbouncer_readiness.py",
         "scripts/maintenance/postgres_signal_observer_core/drill_observer_launch_receipt.py",
         "scripts/maintenance/postgres_signal_observer_core/drill_readiness_stage.py",
+        "scripts/maintenance/postgres_signal_observer_core/drill_signal_receipt.py",
     ),
 )
 def test_artifact_digest_binds_incident_admission_and_terminal_owners(
@@ -158,6 +165,7 @@ def test_artifact_digest_binds_incident_admission_and_terminal_owners(
         "scripts/maintenance/postgres_signal_observer_core/drill_pgbouncer_readiness.py",
         "scripts/maintenance/postgres_signal_observer_core/drill_observer_launch_receipt.py",
         "scripts/maintenance/postgres_signal_observer_core/drill_readiness_stage.py",
+        "scripts/maintenance/postgres_signal_observer_core/drill_signal_receipt.py",
     ),
 )
 def test_artifact_digest_fails_closed_when_incident_owner_is_missing(
@@ -237,6 +245,94 @@ def test_signal_sender_marks_sent_only_after_terminal_zero_and_redacts_output(
     assert receipt["stdout_sha256"] == hashlib.sha256(b"sent\n").hexdigest()
     assert receipt["output_disclosed"] is False
     assert "sent\\n" not in serialized
+
+    projected = project_formal_signal_sender_receipt(receipt)
+    assert projected == {
+        "signal_sent": True,
+        "terminal": True,
+        "first_failure": None,
+        "stdout_present": True,
+        "stdout_bytes": 5,
+        "stdout_sha256": hashlib.sha256(b"sent\n").hexdigest(),
+        "stderr_present": False,
+        "stderr_bytes": 0,
+        "stderr_sha256": hashlib.sha256(b"").hexdigest(),
+        "captures_truncated": False,
+        "hash_input": "full_raw_subprocess_capture_bytes",
+        "output_disclosed": False,
+        "output_budget_exceeded": False,
+        "target_postgres_pid_disclosed": False,
+        "terminal_exit_code": 0,
+    }
+    assert "target_postgres_pid" not in projected
+    assert "spec" not in projected
+
+
+def test_formal_signal_result_preserves_terminal_failure_metadata_without_payload(
+    signal_config: DisposableDrillSignalConfig,
+) -> None:
+    receipt = send_disposable_drill_signal(
+        signal_config,
+        run=lambda *_args, **_kwargs: SimpleNamespace(
+            returncode=7,
+            stdout=b"sensitive stdout",
+            stderr=b"sensitive stderr",
+        ),
+    )
+    result = validate_formal_exec_result(
+        {
+            "exit_code": 1,
+            "output": "",
+            "failure_code": receipt["first_failure"],
+            "signal_sender_receipt": receipt,
+        },
+        operation_class="docker_exec_disposable_isolated_signal_sender",
+    )
+    projected = result["signal_sender_receipt"]
+
+    assert result["delivery_allowed"] is False
+    assert projected["terminal_exit_code"] == 7
+    assert projected["stdout_bytes"] == len(b"sensitive stdout")
+    assert projected["stderr_bytes"] == len(b"sensitive stderr")
+    serialized = json.dumps(result, sort_keys=True)
+    assert "sensitive stdout" not in serialized
+    assert "sensitive stderr" not in serialized
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("terminal_exit_code", True),
+        ("stdout_sha256", "0" * 64),
+        ("first_failure", "unallowlisted_sender_failure"),
+    ],
+)
+def test_formal_signal_projection_rejects_forged_terminal_receipts(
+    signal_config: DisposableDrillSignalConfig,
+    field: str,
+    value: object,
+) -> None:
+    receipt = send_disposable_drill_signal(
+        signal_config,
+        run=lambda *_args, **_kwargs: SimpleNamespace(
+            returncode=7,
+            stdout=b"",
+            stderr=b"failed",
+        ),
+    )
+    receipt[field] = value
+    result = validate_formal_exec_result(
+        {
+            "exit_code": 1,
+            "output": "",
+            "failure_code": "disposable_drill_signal_sender_terminal_failure",
+            "signal_sender_receipt": receipt,
+        },
+        operation_class="docker_exec_disposable_isolated_signal_sender",
+    )
+
+    assert result["delivery_allowed"] is False
+    assert result["first_failure"] == "formal_signal_sender_receipt_invalid"
 
 
 @pytest.mark.parametrize(

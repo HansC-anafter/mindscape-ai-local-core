@@ -18,6 +18,7 @@ from .drill_observer_launch_receipt import (
     FORMAL_OBSERVER_LAUNCH_FAILURES,
     project_formal_observer_launch_receipt,
 )
+from .drill_signal_receipt import project_formal_signal_sender_receipt
 
 
 FORMAL_DOCKER_OPERATION_RESULT_KINDS = {
@@ -289,6 +290,24 @@ def validate_formal_exec_result(
                 )
                 return receipt
             receipt["observer_launch_receipt"] = observer_receipt
+    if operation_class == "docker_exec_disposable_isolated_signal_sender":
+        signal_receipt = project_formal_signal_sender_receipt(
+            source.get("signal_sender_receipt")
+        )
+        failure_code = source.get("failure_code")
+        sent = signal_receipt is not None and signal_receipt["signal_sent"] is True
+        if (
+            signal_receipt is None
+            or sent is not (exit_code == 0)
+            or output_text != ""
+            or (
+                not sent
+                and failure_code != signal_receipt["first_failure"]
+            )
+        ):
+            receipt["first_failure"] = "formal_signal_sender_receipt_invalid"
+            return receipt
+        receipt["signal_sender_receipt"] = signal_receipt
     if exit_code != 0:
         capture = source.get("terminal_nonzero_capture")
         if isinstance(capture, Mapping):
