@@ -20,6 +20,7 @@ from scripts.maintenance.postgres_signal_observer_core import (
     materialize_formal_signal_envelope,
 )
 from scripts.maintenance.postgres_signal_observer_core.drill_escalation import (
+    FORMAL_POSTGRES_STARTUP_DEADLINE_SECONDS,
     terminal_capture_metadata,
 )
 from scripts.maintenance.postgres_signal_observer_core.drill_readback import (
@@ -270,7 +271,7 @@ def _gate(name: str, *, fail: str | None = None) -> dict[str, object]:
         "detail_code": (
             None if passed else "formal_postgres_pg_isready_deadline_exceeded"
         ),
-        "startup_deadline_seconds": 10.0,
+        "startup_deadline_seconds": FORMAL_POSTGRES_STARTUP_DEADLINE_SECONDS,
         "poll_seconds": 0.25,
         "stages": stages,
     }

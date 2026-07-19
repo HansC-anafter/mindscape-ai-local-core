@@ -46,6 +46,15 @@ from scripts.maintenance.postgres_signal_observer_core import drill_formal_termi
 
 POSTGRES_IMAGE = "mindscape-ai-local-core-postgres:pg16@sha256:" + "a" * 64
 OBSERVER_IMAGE = "mindscape-ai-local-core-backend@sha256:" + "b" * 64
+POSTGRES_STARTUP_DEADLINE_SECONDS = (
+    drill_formal_gates.FORMAL_POSTGRES_STARTUP_DEADLINE_SECONDS
+)
+POSTGRES_STARTUP_POLL_SECONDS = (
+    drill_formal_gates.FORMAL_POSTGRES_STARTUP_POLL_SECONDS
+)
+POSTGRES_MAX_POLL_ATTEMPTS = int(
+    POSTGRES_STARTUP_DEADLINE_SECONDS / POSTGRES_STARTUP_POLL_SECONDS
+)
 
 
 class _EqualToCaptureHashInput:
@@ -1381,7 +1390,7 @@ def test_postgres_readiness_polls_to_success_with_fresh_remaining_timeouts(
 
         def run(self, argv, **kwargs):
             timeout = float(kwargs["timeout"])
-            assert 0 < timeout <= 10.0
+            assert 0 < timeout <= POSTGRES_STARTUP_DEADLINE_SECONDS
             command = "pg_isready" if drill_formal_gates._PG_ISREADY in argv else "psql"
             self.calls.append((command, timeout))
             if command == "pg_isready":
@@ -1410,6 +1419,7 @@ def test_postgres_readiness_polls_to_success_with_fresh_remaining_timeouts(
 
     assert receipt["passed"] is True
     assert receipt["detail_code"] is None
+    assert receipt["startup_deadline_seconds"] == 20.0
     assert receipt["stages"]["pg_isready"]["attempt_count"] == 2
     assert receipt["stages"]["psql_select_one"]["attempt_count"] == 1
     assert (
@@ -1418,8 +1428,11 @@ def test_postgres_readiness_polls_to_success_with_fresh_remaining_timeouts(
         ]
         is False
     )
-    assert executor.calls[0] == ("pg_isready", 10.0)
-    assert executor.calls[-1] == ("psql", pytest.approx(9.65))
+    assert executor.calls[0] == ("pg_isready", POSTGRES_STARTUP_DEADLINE_SECONDS)
+    assert executor.calls[-1] == (
+        "psql",
+        pytest.approx(POSTGRES_STARTUP_DEADLINE_SECONDS - 0.35),
+    )
     assert clock.sleeps == [0.25]
     assert "transient-payload" not in repr(receipt)
 
@@ -1486,7 +1499,7 @@ def test_postgres_readiness_preserves_one_bounded_prior_psql_result(
 
     stage = raw["stages"]["psql_select_one"]
     assert raw["detail_code"] == "formal_postgres_psql_select_one_deadline_exceeded"
-    assert raw["startup_deadline_seconds"] == 10.0
+    assert raw["startup_deadline_seconds"] == POSTGRES_STARTUP_DEADLINE_SECONDS
     assert raw["poll_seconds"] == 0.25
     assert stage["attempt_count"] == len(psql_results)
     assert stage["last_result"] == {
@@ -1551,12 +1564,14 @@ def test_postgres_readiness_final_poll_quantum_is_terminal_and_bounded(
     stage = receipt["stages"]["pg_isready"]
     assert receipt["passed"] is False
     assert receipt["detail_code"] == "formal_postgres_pg_isready_deadline_exceeded"
-    assert stage["attempt_count"] == 40
+    assert stage["attempt_count"] == POSTGRES_MAX_POLL_ATTEMPTS
     assert stage["last_result"]["status"] == "terminal_nonzero"
     assert stage["last_result"]["terminal_capture"]["output_disclosed"] is False
     assert receipt["stages"]["psql_select_one"]["attempted"] is False
     assert executor.timeouts[-1] == pytest.approx(0.25)
-    assert clock.now == pytest.approx(9.75)
+    assert clock.now == pytest.approx(
+        POSTGRES_STARTUP_DEADLINE_SECONDS - POSTGRES_STARTUP_POLL_SECONDS
+    )
     assert "not-ready-payload" not in repr(receipt)
     assert "private-detail" not in repr(receipt)
 
@@ -1583,7 +1598,7 @@ def test_postgres_readiness_final_poll_quantum_can_pass(
             self.timeouts.append(timeout)
             if drill_formal_gates._PG_ISREADY in argv:
                 self.pg_count += 1
-                code = 0 if self.pg_count == 40 else 1
+                code = 0 if self.pg_count == POSTGRES_MAX_POLL_ATTEMPTS else 1
                 if code == 0:
                     clock.now += 0.05
                 return SimpleNamespace(returncode=code, stdout=b"ready", stderr=b"")
@@ -1604,11 +1619,14 @@ def test_postgres_readiness_final_poll_quantum_can_pass(
     ).evaluate("postgres_readiness")
 
     assert receipt["passed"] is True
-    assert receipt["stages"]["pg_isready"]["attempt_count"] == 40
+    assert (
+        receipt["stages"]["pg_isready"]["attempt_count"]
+        == POSTGRES_MAX_POLL_ATTEMPTS
+    )
     assert receipt["stages"]["psql_select_one"]["attempt_count"] == 1
     assert executor.timeouts[-2] == pytest.approx(0.25)
     assert executor.timeouts[-1] == pytest.approx(0.20)
-    assert clock.now == pytest.approx(9.85)
+    assert clock.now == pytest.approx(POSTGRES_STARTUP_DEADLINE_SECONDS - 0.15)
     assert receipt["stages"]["psql_select_one"]["last_result"][
         "terminal_capture"
     ]["output_disclosed"] is False
@@ -1684,7 +1702,7 @@ def test_postgres_readiness_zero_exit_with_invalid_capture_never_passes(
         "status": "result_invalid",
         "error_code": "formal_postgres_readiness_capture_invalid",
     }
-    assert executor.pg_count == 40
+    assert executor.pg_count == POSTGRES_MAX_POLL_ATTEMPTS
     assert executor.psql_count == 0
 
 
@@ -1707,7 +1725,7 @@ def test_postgres_readiness_pg_success_at_deadline_preserves_no_psql_detail(
         def run(self, argv, **_kwargs):
             if drill_formal_gates._PG_ISREADY in argv:
                 self.pg_count += 1
-                if self.pg_count == 40:
+                if self.pg_count == POSTGRES_MAX_POLL_ATTEMPTS:
                     clock.now += 0.25
                     return SimpleNamespace(returncode=0, stdout=b"ready", stderr=b"")
                 return SimpleNamespace(returncode=1, stdout=b"", stderr=b"")
@@ -1756,8 +1774,10 @@ def test_postgres_readiness_prior_psql_failure_preserves_final_pg_deadline_gap(
         def run(self, argv, **_kwargs):
             if drill_formal_gates._PG_ISREADY in argv:
                 self.pg_count += 1
-                code = 0 if self.pg_count in {1, 40} else 1
-                if self.pg_count == 40:
+                code = (
+                    0 if self.pg_count in {1, POSTGRES_MAX_POLL_ATTEMPTS} else 1
+                )
+                if self.pg_count == POSTGRES_MAX_POLL_ATTEMPTS:
                     clock.now += 0.25
                 return SimpleNamespace(returncode=code, stdout=b"ready", stderr=b"")
             self.psql_count += 1
@@ -1781,7 +1801,7 @@ def test_postgres_readiness_prior_psql_failure_preserves_final_pg_deadline_gap(
     assert projected["detail_code"] == detail
     assert projected["stages"]["pg_isready"]["success_count"] == 2
     assert projected["stages"]["psql_select_one"]["attempt_count"] == 1
-    assert executor.pg_count == 40
+    assert executor.pg_count == POSTGRES_MAX_POLL_ATTEMPTS
     assert executor.psql_count == 1
     assert "private" not in repr(projected)
 
@@ -1822,7 +1842,11 @@ def test_postgres_readiness_psql_deadline_and_exec_error_are_stable(
         sleep=clock.sleep,
     ).evaluate("postgres_readiness")
     assert receipt["detail_code"] == "formal_postgres_psql_select_one_deadline_exceeded"
-    assert executor.pg_count == executor.psql_count == 40
+    assert (
+        executor.pg_count
+        == executor.psql_count
+        == POSTGRES_MAX_POLL_ATTEMPTS
+    )
     assert receipt["stages"]["psql_select_one"]["last_result"]["exit_code"] == 2
     assert "secret" not in repr(receipt)
 
