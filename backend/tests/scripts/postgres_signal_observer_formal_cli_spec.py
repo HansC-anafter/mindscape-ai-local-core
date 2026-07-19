@@ -34,7 +34,9 @@ from scripts.maintenance.postgres_signal_observer_core.drill_formal_terminal imp
     terminal_finalize,
 )
 from scripts.maintenance.postgres_signal_observer_core.drill_gate_receipt import (
+    project_pgbouncer_container_readback_outcome,
     project_formal_gate_receipt,
+    project_postgres_container_readback_outcome,
 )
 from scripts.maintenance.postgres_signal_observer_core import drill_formal_terminal
 
@@ -547,9 +549,10 @@ class _FakeClock:
         self.now += seconds
 
 
-def _container_readback_pass(*_args, **_kwargs):
+def _container_readback_pass(contract=None, *_args, **_kwargs):
     return {
         "validation_passed": True,
+        "role": getattr(contract, "role", "postgres"),
         "first_failure": None,
         "failures": [],
         "projection_schema_version": (
@@ -560,6 +563,31 @@ def _container_readback_pass(*_args, **_kwargs):
             drill_formal_gates.CONTAINER_READBACK_TERMINAL_DEADLINE_SECONDS
         ),
     }
+
+
+@pytest.mark.parametrize(
+    ("projector", "expected_role", "source_role"),
+    [
+        (project_postgres_container_readback_outcome, "postgres", None),
+        (project_postgres_container_readback_outcome, "postgres", "pgbouncer"),
+        (project_postgres_container_readback_outcome, "postgres", 1),
+        (project_pgbouncer_container_readback_outcome, "pgbouncer", None),
+        (project_pgbouncer_container_readback_outcome, "pgbouncer", "postgres"),
+        (project_pgbouncer_container_readback_outcome, "pgbouncer", 1),
+    ],
+)
+def test_container_readback_projection_requires_exact_source_role(
+    projector,
+    expected_role: str,
+    source_role: object,
+) -> None:
+    source = _container_readback_pass(SimpleNamespace(role=expected_role))
+    if source_role is None:
+        source.pop("role")
+    else:
+        source["role"] = source_role
+
+    assert projector(source) is None
 
 
 def test_postgres_readiness_container_failure_blocks_all_child_commands(
@@ -577,6 +605,7 @@ def test_postgres_readiness_container_failure_blocks_all_child_commands(
         "execute_disposable_container_readback",
         lambda *_args, **_kwargs: {
             "validation_passed": False,
+            "role": "postgres",
             "first_failure": "postgres_container_readback_state_unready",
             "failures": ["postgres_container_readback_state_unready"],
             "projection_schema_version": (
@@ -655,6 +684,7 @@ def test_postgres_readiness_projects_exact_allowlisted_readback_leaf_failures(
         "execute_disposable_container_readback",
         lambda *_args, **_kwargs: {
             "validation_passed": False,
+            "role": "postgres",
             "first_failure": first_failure,
             "failures": failures,
             "projection_schema_version": (
@@ -706,6 +736,7 @@ def test_postgres_readiness_projects_exact_readback_terminal_nonzero_capture(
         "execute_disposable_container_readback",
         lambda *_args, **_kwargs: {
             "validation_passed": False,
+            "role": "postgres",
             "first_failure": "formal_postgres_readback_failed",
             "failures": ["formal_postgres_readback_failed"],
             "projection_schema_version": (
@@ -776,6 +807,7 @@ def test_postgres_readiness_rejects_malformed_readback_terminal_capture(
         "execute_disposable_container_readback",
         lambda *_args, **_kwargs: {
             "validation_passed": False,
+            "role": "postgres",
             "first_failure": "formal_postgres_readback_failed",
             "failures": ["formal_postgres_readback_failed"],
             "projection_schema_version": (
@@ -837,6 +869,7 @@ def test_readback_capture_requires_exact_singleton_terminal_failure_leaf(
     config = _config(tmp_path)
     readback = {
         "validation_passed": False,
+        "role": "postgres",
         "first_failure": first_failure,
         "failures": failures,
         "projection_schema_version": (
@@ -911,6 +944,7 @@ def test_postgres_readiness_malformed_readback_leaf_fails_receipt_closed(
         "execute_disposable_container_readback",
         lambda *_args, **_kwargs: {
             "validation_passed": False,
+            "role": "postgres",
             "first_failure": first_failure,
             "failures": failures,
             "projection_schema_version": (
@@ -959,6 +993,7 @@ def test_postgres_readiness_rejects_readback_metadata_drift_before_child_command
     config = _config(tmp_path)
     source_receipt = {
         "validation_passed": False,
+        "role": "postgres",
         "first_failure": "postgres_container_readback_state_unready",
         "failures": ["postgres_container_readback_state_unready"],
         "projection_schema_version": (
@@ -1468,3 +1503,197 @@ def test_pgbouncer_admin_user_matches_byte_exact_precondition_owner() -> None:
     )
     assert b"admin_users = mindscape\n" in payload
     assert b"stats_users" not in payload
+
+
+def test_pgbouncer_readiness_container_failure_blocks_child_commands(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _config(tmp_path)
+
+    class Executor:
+        client_environment = {"PGPASSWORD": "fixture-secret"}
+
+        def run(self, _argv, **_kwargs):
+            raise AssertionError("PgBouncer readiness child command must not run")
+
+    monkeypatch.setattr(
+        drill_formal_gates,
+        "execute_disposable_container_readback",
+        lambda *_args, **_kwargs: {
+            "validation_passed": False,
+            "role": "pgbouncer",
+            "first_failure": "pgbouncer_container_readback_state_unready",
+            "failures": ["pgbouncer_container_readback_state_unready"],
+            "projection_schema_version": (
+                drill_formal_gates.CONTAINER_READBACK_SCHEMA_VERSION
+            ),
+            "projection_max_bytes": drill_formal_gates.CONTAINER_READBACK_MAX_BYTES,
+            "terminal_deadline_seconds": (
+                drill_formal_gates.CONTAINER_READBACK_TERMINAL_DEADLINE_SECONDS
+            ),
+            "projection": {"Config.Env": ["PGPASSWORD=sentinel-secret"]},
+        },
+    )
+    source = drill_formal_gates.FormalDrillGateOwner(config, Executor()).evaluate(
+        "pgbouncer_readiness"
+    )
+    projected = project_formal_gate_receipt("pgbouncer_readiness", source)
+
+    assert projected["detail_code"] == "formal_pgbouncer_container_readback_failed"
+    assert projected["stages"]["pg_isready"]["attempt_count"] == 0
+    assert projected["stages"]["show_version"]["attempt_count"] == 0
+    assert projected["stages"]["container_readback"]["last_result"][
+        "leaf_failure_code"
+    ] == "pgbouncer_container_readback_state_unready"
+    assert "sentinel-secret" not in repr(projected)
+
+
+def test_pgbouncer_readback_terminal_nonzero_preserves_only_capture_metadata(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _config(tmp_path)
+    stdout = b"private-readback-output"
+    stderr = b"private-readback-error"
+
+    class Executor:
+        client_environment = {"PGPASSWORD": "fixture-secret"}
+
+        def run(self, _argv, **_kwargs):
+            raise AssertionError("PgBouncer readiness child command must not run")
+
+    monkeypatch.setattr(
+        drill_formal_gates,
+        "execute_disposable_container_readback",
+        lambda *_args, **_kwargs: {
+            "validation_passed": False,
+            "role": "pgbouncer",
+            "first_failure": "formal_pgbouncer_readback_failed",
+            "failures": ["formal_pgbouncer_readback_failed"],
+            "projection_schema_version": (
+                drill_formal_gates.CONTAINER_READBACK_SCHEMA_VERSION
+            ),
+            "projection_max_bytes": drill_formal_gates.CONTAINER_READBACK_MAX_BYTES,
+            "terminal_deadline_seconds": (
+                drill_formal_gates.CONTAINER_READBACK_TERMINAL_DEADLINE_SECONDS
+            ),
+            "exit_code": 125,
+            "terminal_nonzero_capture": terminal_nonzero_capture_metadata(
+                stdout, stderr, exit_code=125
+            ),
+        },
+    )
+    source = drill_formal_gates.FormalDrillGateOwner(config, Executor()).evaluate(
+        "pgbouncer_readiness"
+    )
+    projected = project_formal_gate_receipt("pgbouncer_readiness", source)
+    result = projected["stages"]["container_readback"]["last_result"]
+
+    assert result["leaf_failure_code"] == "formal_pgbouncer_readback_failed"
+    assert result["exit_code"] == 125
+    assert result["terminal_nonzero_capture"]["stdout_sha256"] == hashlib.sha256(
+        stdout
+    ).hexdigest()
+    assert result["terminal_nonzero_capture"]["stderr_sha256"] == hashlib.sha256(
+        stderr
+    ).hexdigest()
+    assert "private-readback" not in repr(projected)
+
+
+@pytest.mark.parametrize(
+    "failure_kind", ["terminal_nonzero", "timeout", "exec_error", "result_invalid"]
+)
+def test_pgbouncer_pg_isready_failure_is_payload_free_and_blocks_show_version(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure_kind: str,
+) -> None:
+    config = _config(tmp_path)
+    calls: list[tuple[str, ...]] = []
+
+    class Executor:
+        client_environment = {"PGPASSWORD": "fixture-secret"}
+
+        def run(self, argv, **kwargs):
+            calls.append(tuple(argv))
+            assert kwargs["timeout"] == 10.0
+            if failure_kind == "timeout":
+                raise subprocess.TimeoutExpired(argv, 10.0, output=b"private-timeout")
+            if failure_kind == "exec_error":
+                raise OSError("private-exec-error")
+            if failure_kind == "result_invalid":
+                return SimpleNamespace(returncode=0, stdout="not-bytes", stderr=b"")
+            return SimpleNamespace(
+                returncode=3,
+                stdout=b"private-ready-output",
+                stderr=b"private-ready-error",
+            )
+
+    monkeypatch.setattr(
+        drill_formal_gates,
+        "execute_disposable_container_readback",
+        _container_readback_pass,
+    )
+    source = drill_formal_gates.FormalDrillGateOwner(config, Executor()).evaluate(
+        "pgbouncer_readiness"
+    )
+    projected = project_formal_gate_receipt("pgbouncer_readiness", source)
+
+    assert len(calls) == 1
+    assert projected["detail_code"] == "formal_pgbouncer_pg_isready_failed"
+    assert projected["stages"]["show_version"]["attempt_count"] == 0
+    result = projected["stages"]["pg_isready"]["last_result"]
+    assert result["status"] == failure_kind
+    assert "private" not in repr(projected)
+
+
+def test_pgbouncer_show_version_result_and_full_success_are_exact(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _config(tmp_path)
+
+    class Executor:
+        client_environment = {"PGPASSWORD": "fixture-secret"}
+
+        def __init__(self, show_exit: int) -> None:
+            self.show_exit = show_exit
+            self.calls: list[tuple[str, ...]] = []
+
+        def run(self, argv, **kwargs):
+            self.calls.append(tuple(argv))
+            exit_code = 0 if len(self.calls) == 1 else self.show_exit
+            return SimpleNamespace(
+                returncode=exit_code,
+                stdout=b"private-show-output",
+                stderr=b"" if exit_code == 0 else b"private-show-error",
+            )
+
+    monkeypatch.setattr(
+        drill_formal_gates,
+        "execute_disposable_container_readback",
+        _container_readback_pass,
+    )
+    failed_executor = Executor(show_exit=2)
+    failed = drill_formal_gates.FormalDrillGateOwner(
+        config, failed_executor
+    ).evaluate("pgbouncer_readiness")
+    failed_projected = project_formal_gate_receipt("pgbouncer_readiness", failed)
+    assert len(failed_executor.calls) == 2
+    assert failed_projected["detail_code"] == "formal_pgbouncer_show_version_failed"
+    assert failed_projected["stages"]["pg_isready"]["passed"] is True
+    assert failed_projected["stages"]["show_version"]["last_result"][
+        "exit_code"
+    ] == 2
+    assert "private-show" not in repr(failed_projected)
+
+    success_executor = Executor(show_exit=0)
+    success = drill_formal_gates.FormalDrillGateOwner(
+        config, success_executor
+    ).evaluate("pgbouncer_readiness")
+    success_projected = project_formal_gate_receipt("pgbouncer_readiness", success)
+    assert success_projected["passed"] is True
+    assert success_projected["detail_code"] is None
+    assert all(stage["passed"] for stage in success_projected["stages"].values())
+    assert "PGPASSWORD" not in repr(success_projected)

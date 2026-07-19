@@ -18,56 +18,30 @@ from .drill_readback_projection import (
 
 
 _DETAIL_CODES = frozenset(
-    {
-        "formal_postgres_container_readback_failed",
-        "formal_postgres_pg_isready_deadline_exceeded",
-        "formal_postgres_pg_isready_unavailable",
-        "formal_postgres_psql_select_one_deadline_exceeded",
-        "formal_postgres_psql_select_one_not_attempted_deadline_exceeded",
-        "formal_postgres_psql_select_one_unavailable",
-    }
+    "formal_postgres_container_readback_failed "
+    "formal_postgres_pg_isready_deadline_exceeded formal_postgres_pg_isready_unavailable "
+    "formal_postgres_psql_select_one_deadline_exceeded "
+    "formal_postgres_psql_select_one_not_attempted_deadline_exceeded "
+    "formal_postgres_psql_select_one_unavailable".split()
 )
 _RESULT_INVALID_CODES = frozenset(
-    {
-        "formal_postgres_readiness_result_invalid",
-        "formal_postgres_readiness_capture_invalid",
-    }
+    "formal_postgres_readiness_result_invalid "
+    "formal_postgres_readiness_capture_invalid".split()
 )
 _STAGES = ("container_readback", "pg_isready", "psql_select_one")
 _CONTAINER_FAILURE_SCHEMA_VERSION = 1
-_CONTAINER_FAILURE_CODES = frozenset(
-    {
-        "formal_postgres_readback_terminal_deadline_exceeded",
-        "formal_postgres_readback_unavailable",
-        "formal_postgres_readback_result_invalid",
-        "formal_postgres_readback_failed",
-        "formal_postgres_readback_projection_invalid",
-        "postgres_container_readback_role_mismatch",
-        "postgres_container_readback_name_mismatch",
-        "postgres_container_readback_config_image_mismatch",
-        "postgres_container_readback_image_id_mismatch",
-        "postgres_container_readback_user_mismatch",
-        "postgres_container_readback_entrypoint_mismatch",
-        "postgres_container_readback_cmd_mismatch",
-        "postgres_container_readback_nano_cpus_mismatch",
-        "postgres_container_readback_memory_bytes_mismatch",
-        "postgres_container_readback_pids_limit_mismatch",
-        "postgres_container_readback_read_only_rootfs_mismatch",
-        "postgres_container_readback_security_opt_mismatch",
-        "postgres_container_readback_tmpfs_mismatch",
-        "postgres_container_readback_mounts_mismatch",
-        "postgres_container_readback_cap_add_mismatch",
-        "postgres_container_readback_cap_drop_mismatch",
-        "postgres_container_readback_privileged_mismatch",
-        "postgres_container_readback_pid_mode_mismatch",
-        "postgres_container_readback_network_mode_mismatch",
-        "postgres_container_readback_network_identity_mismatch",
-        "postgres_container_readback_id_invalid",
-        "postgres_container_readback_state_unready",
-        "postgres_container_readback_health_mismatch",
-    }
-)
-_CONTAINER_FAILURE_LIMIT = len(_CONTAINER_FAILURE_CODES)
+_FORMAL_READBACK_FAILURE_SUFFIXES = (
+    "terminal_deadline_exceeded unavailable result_invalid failed projection_invalid"
+).split()
+_CONTAINER_FAILURE_SUFFIXES = (
+    "role_mismatch name_mismatch config_image_mismatch image_id_mismatch "
+    "user_mismatch entrypoint_mismatch cmd_mismatch nano_cpus_mismatch "
+    "memory_bytes_mismatch pids_limit_mismatch read_only_rootfs_mismatch "
+    "security_opt_mismatch tmpfs_mismatch mounts_mismatch cap_add_mismatch "
+    "cap_drop_mismatch privileged_mismatch pid_mode_mismatch "
+    "network_mode_mismatch network_identity_mismatch id_invalid state_unready "
+    "health_mismatch"
+).split()
 _STAGE_ERRORS = {
     "pg_isready": {
         "timeout": "formal_postgres_pg_isready_deadline_exceeded",
@@ -85,32 +59,33 @@ _CAPTURE_KEYS = (
 _EMPTY_CAPTURE_SHA256 = hashlib.sha256(b"").hexdigest()
 
 
+def _container_failure_codes(role: str) -> frozenset[str]:
+    return frozenset(
+        [f"formal_{role}_readback_{suffix}" for suffix in _FORMAL_READBACK_FAILURE_SUFFIXES]
+        + [f"{role}_container_readback_{suffix}" for suffix in _CONTAINER_FAILURE_SUFFIXES]
+    )
+
+
 def _project_container_metadata(source: Mapping[str, Any]) -> dict[str, Any] | None:
-    schema_version = source.get("projection_schema_version")
-    max_bytes = source.get("projection_max_bytes")
-    terminal_deadline = source.get("terminal_deadline_seconds")
-    if (
-        type(schema_version) is not str
-        or schema_version != CONTAINER_READBACK_SCHEMA_VERSION
-        or type(max_bytes) is not int
-        or max_bytes != CONTAINER_READBACK_MAX_BYTES
-        or type(terminal_deadline) is not float
-        or terminal_deadline != CONTAINER_READBACK_TERMINAL_DEADLINE_SECONDS
-    ):
-        return None
-    return {
+    metadata = {
         "projection_schema_version": CONTAINER_READBACK_SCHEMA_VERSION,
         "projection_max_bytes": CONTAINER_READBACK_MAX_BYTES,
         "terminal_deadline_seconds": CONTAINER_READBACK_TERMINAL_DEADLINE_SECONDS,
     }
+    if any(
+        type(source.get(key)) is not type(value) or source.get(key) != value
+        for key, value in metadata.items()
+    ):
+        return None
+    return metadata
 
 
-def project_postgres_container_readback_outcome(
-    source: object,
-) -> dict[str, Any] | None:
-    """Project one exact, payload-free PostgreSQL readback outcome."""
+def _project_container_readback_outcome(role: str, source: object) -> dict[str, Any] | None:
+    """Project one exact, payload-free role-specific readback outcome."""
 
-    if not isinstance(source, Mapping):
+    if not isinstance(source, Mapping) or type(source.get("role")) is not str:
+        return None
+    if source.get("role") != role:
         return None
     metadata = _project_container_metadata(source)
     if metadata is None:
@@ -118,6 +93,7 @@ def project_postgres_container_readback_outcome(
     validation_passed = source.get("validation_passed")
     first_failure = source.get("first_failure")
     failures = source.get("failures")
+    failure_codes = _container_failure_codes(role)
     if (
         validation_passed is True
         and first_failure is None
@@ -137,18 +113,19 @@ def project_postgres_container_readback_outcome(
     if (
         validation_passed is not False
         or type(first_failure) is not str
-        or first_failure not in _CONTAINER_FAILURE_CODES
+        or first_failure not in failure_codes
         or type(failures) is not list
-        or not 1 <= len(failures) <= _CONTAINER_FAILURE_LIMIT
+        or not 1 <= len(failures) <= len(failure_codes)
         or failures[0] != first_failure
         or any(type(code) is not str for code in failures)
-        or any(code not in _CONTAINER_FAILURE_CODES for code in failures)
+        or any(code not in failure_codes for code in failures)
         or len(set(failures)) != len(failures)
     ):
         return None
     failure_projection: dict[str, Any] = {}
-    if first_failure == "formal_postgres_readback_failed":
-        if failures != ["formal_postgres_readback_failed"]:
+    terminal_failure = f"formal_{role}_readback_failed"
+    if first_failure == terminal_failure:
+        if failures != [terminal_failure]:
             return None
         exit_code = source.get("exit_code")
         capture_source = source.get("terminal_nonzero_capture")
@@ -175,7 +152,7 @@ def project_postgres_container_readback_outcome(
         "passed": False,
         "last_result": {
             "status": "validation_failed",
-            "detail_code": "formal_postgres_container_readback_failed",
+            "detail_code": f"formal_{role}_container_readback_failed",
             **metadata,
             "leaf_failure_schema_version": _CONTAINER_FAILURE_SCHEMA_VERSION,
             "leaf_failure_code": first_failure,
@@ -186,9 +163,18 @@ def project_postgres_container_readback_outcome(
     }
 
 
-def _project_container_failure(source: Mapping[str, Any]) -> dict[str, Any] | None:
+def project_postgres_container_readback_outcome(source: object) -> dict[str, Any] | None:
+    return _project_container_readback_outcome("postgres", source)
+
+
+def project_pgbouncer_container_readback_outcome(source: object) -> dict[str, Any] | None:
+    return _project_container_readback_outcome("pgbouncer", source)
+
+
+def _project_container_failure(source: Mapping[str, Any], *, role: str = "postgres") -> dict[str, Any] | None:
     readback_source = {
         "validation_passed": False,
+        "role": role,
         "first_failure": source.get("leaf_failure_code"),
         "failures": source.get("leaf_failure_codes"),
         "projection_schema_version": source.get("projection_schema_version"),
@@ -198,10 +184,8 @@ def _project_container_failure(source: Mapping[str, Any]) -> dict[str, Any] | No
     if "exit_code" in source:
         readback_source["exit_code"] = source.get("exit_code")
     if "terminal_nonzero_capture" in source:
-        readback_source["terminal_nonzero_capture"] = source.get(
-            "terminal_nonzero_capture"
-        )
-    outcome = project_postgres_container_readback_outcome(readback_source)
+        readback_source["terminal_nonzero_capture"] = source.get("terminal_nonzero_capture")
+    outcome = _project_container_readback_outcome(role, readback_source)
     projection = outcome.get("last_result") if outcome is not None else None
     if (
         projection is None
@@ -257,7 +241,7 @@ def _project_capture(source: object) -> dict[str, Any] | None:
     return capture
 
 
-def _project_result(stage_name: str, source: object) -> dict[str, Any] | None:
+def _project_result(stage_name: str, source: object, *, role: str = "postgres") -> dict[str, Any] | None:
     if not isinstance(source, Mapping):
         return None
     status = source.get("status")
@@ -273,7 +257,14 @@ def _project_result(stage_name: str, source: object) -> dict[str, Any] | None:
             or capture["exit_code"] != exit_code
         ):
             return None
-        return {"status": status, "exit_code": exit_code, "terminal_capture": capture}
+        result = {"status": status, "exit_code": exit_code, "terminal_capture": capture}
+        if role == "pgbouncer" and (
+            set(source) != set(result)
+            or not isinstance(source.get("terminal_capture"), Mapping)
+            or set(source["terminal_capture"]) != set(_CAPTURE_KEYS)
+        ):
+            return None
+        return result
     if status == "validated" and stage_name == "container_readback":
         metadata = _project_container_metadata(source)
         if source.get("detail_code") is None and metadata is not None:
@@ -281,8 +272,8 @@ def _project_result(stage_name: str, source: object) -> dict[str, Any] | None:
         return None
     if status == "validation_failed" and stage_name == "container_readback":
         detail = source.get("detail_code")
-        leaf_failure = _project_container_failure(source)
-        if detail == "formal_postgres_container_readback_failed" and leaf_failure:
+        leaf_failure = _project_container_failure(source, role=role)
+        if detail == f"formal_{role}_container_readback_failed" and leaf_failure:
             return {
                 "status": status,
                 "detail_code": detail,
@@ -290,25 +281,43 @@ def _project_result(stage_name: str, source: object) -> dict[str, Any] | None:
             }
         return None
     if status in {"timeout", "exec_error"}:
-        expected = _STAGE_ERRORS.get(stage_name, {}).get(status)
-        if expected is not None and source.get("error_code") == expected:
+        expected = (
+            _STAGE_ERRORS.get(stage_name, {}).get(status)
+            if role == "postgres"
+            else {
+                "timeout": (
+                    f"formal_pgbouncer_{stage_name}_terminal_deadline_exceeded"
+                ),
+                "exec_error": f"formal_pgbouncer_{stage_name}_unavailable",
+            }[status]
+        )
+        error_code = source.get("error_code")
+        if expected is not None and type(error_code) is str and error_code == expected:
             return {"status": status, "error_code": expected}
         return None
-    if status == "result_invalid" and stage_name in _STAGE_ERRORS:
+    if status == "result_invalid" and (
+        stage_name in _STAGE_ERRORS or role == "pgbouncer"
+    ):
         error_code = source.get("error_code")
-        if type(error_code) is str and error_code in _RESULT_INVALID_CODES:
+        expected_codes = _RESULT_INVALID_CODES if role == "postgres" else {
+            f"formal_{role}_readiness_result_invalid", f"formal_{role}_readiness_capture_invalid"
+        }
+        if type(error_code) is str and error_code in expected_codes:
             return {"status": status, "error_code": error_code}
     return None
 
 
-def _project_stage(stage_name: str, source: object) -> dict[str, Any] | None:
+def _project_stage(
+    stage_name: str, source: object, *, role: str = "postgres"
+) -> dict[str, Any] | None:
     if not isinstance(source, Mapping):
         return None
     attempted = source.get("attempted")
     attempts = source.get("attempt_count")
     successes = source.get("success_count")
     passed = source.get("passed")
-    result = _project_result(stage_name, source.get("last_result"))
+    raw_result = source.get("last_result")
+    result = _project_result(stage_name, raw_result, role=role)
     if (
         type(attempted) is not bool
         or type(attempts) is not int
@@ -331,6 +340,15 @@ def _project_stage(stage_name: str, source: object) -> dict[str, Any] | None:
         )
         or (attempted and result is None)
         or (not attempted and source.get("last_result") is not None)
+        or (role == "pgbouncer" and set(source) != {
+            "attempted", "attempt_count", "success_count", "passed", "last_result"
+        })
+        or (
+            role == "pgbouncer"
+            and isinstance(raw_result, Mapping)
+            and isinstance(result, Mapping)
+            and set(raw_result) != set(result)
+        )
     ):
         return None
     return {
@@ -405,6 +423,10 @@ def project_formal_gate_receipt(name: str, source: object) -> dict[str, Any]:
         "passed": False,
         "detail_code": "formal_postgres_readiness_receipt_invalid",
     }
+    if name == "pgbouncer_readiness":
+        from .drill_pgbouncer_gate_receipt import project_pgbouncer_gate_receipt
+
+        return project_pgbouncer_gate_receipt(name, source)
     if name != "postgres_readiness":
         return {
             "name": name,

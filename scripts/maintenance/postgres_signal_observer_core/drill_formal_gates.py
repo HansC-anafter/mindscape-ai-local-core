@@ -10,7 +10,11 @@ from typing import TYPE_CHECKING, Any, Callable, Mapping
 from .drill import DisposableDrillSignalConfig
 from .drill_docker_runtime import canonical_docker_argv
 from .drill_formal_contract import FormalDrillCliConfig
-from .drill_gate_receipt import project_postgres_container_readback_outcome
+from .drill_gate_receipt import (
+    project_pgbouncer_container_readback_outcome,
+    project_postgres_container_readback_outcome,
+)
+from .drill_pgbouncer_gate_receipt import FORMAL_PGBOUNCER_READINESS_TERMINAL_DEADLINE_SECONDS
 from .drill_escalation import (
     FORMAL_POSTGRES_STARTUP_DEADLINE_SECONDS,
     FORMAL_POSTGRES_STARTUP_POLL_SECONDS,
@@ -29,8 +33,6 @@ from .evidence import ObserverEvidenceStore
 
 if TYPE_CHECKING:
     from .drill_formal_executor import FormalDockerSubprocessExecutor
-
-
 FORMAL_CORRELATION_DEADLINE_SECONDS = 10.0
 FORMAL_CORRELATION_POLL_SECONDS = 0.25
 _PSQL = "/usr/lib/postgresql/16/bin/psql"
@@ -83,12 +85,15 @@ class FormalDrillGateOwner:
         return getattr(completed, "returncode", None) == 0
 
     @staticmethod
-    def _stage_result(completed: Any) -> dict[str, Any]:
+    def _stage_result(
+        completed: Any, *, role: str = "postgres"
+    ) -> dict[str, Any]:
+        prefix = f"formal_{role}_readiness"
         code = getattr(completed, "returncode", None)
         if type(code) is not int:
             return {
                 "status": "result_invalid",
-                "error_code": "formal_postgres_readiness_result_invalid",
+                "error_code": f"{prefix}_result_invalid",
             }
         try:
             capture = terminal_capture_metadata(
@@ -99,7 +104,7 @@ class FormalDrillGateOwner:
         except ValueError:
             return {
                 "status": "result_invalid",
-                "error_code": "formal_postgres_readiness_capture_invalid",
+                "error_code": f"{prefix}_capture_invalid",
             }
         return {
             "status": "terminal_zero" if code == 0 else "terminal_nonzero",
@@ -136,7 +141,7 @@ class FormalDrillGateOwner:
             )
         except (OSError, RuntimeError):
             container_receipt = {
-                "validation_passed": False,
+                "validation_passed": False, "role": "postgres",
                 "first_failure": "formal_postgres_readback_unavailable",
                 "failures": ["formal_postgres_readback_unavailable"],
                 "projection_schema_version": CONTAINER_READBACK_SCHEMA_VERSION,
@@ -289,8 +294,56 @@ class FormalDrillGateOwner:
             "stages": stages,
         }
 
-    def _pgbouncer_ready(self) -> bool:
+    def _pgbouncer_readiness(self) -> Mapping[str, Any]:
         bootstrap = self.config.bootstrap
+        stages = {
+            "container_readback": self._empty_stage(),
+            "pg_isready": self._empty_stage(),
+            "show_version": self._empty_stage(),
+        }
+        try:
+            container_receipt = self._container_readback(
+                "pgbouncer", bootstrap.pgbouncer_docker_argv(), bootstrap.postgres_image_ref
+            )
+        except (OSError, RuntimeError):
+            container_receipt = {
+                "validation_passed": False, "role": "pgbouncer",
+                "first_failure": "formal_pgbouncer_readback_unavailable",
+                "failures": ["formal_pgbouncer_readback_unavailable"],
+                "projection_schema_version": CONTAINER_READBACK_SCHEMA_VERSION,
+                "projection_max_bytes": CONTAINER_READBACK_MAX_BYTES,
+                "terminal_deadline_seconds": CONTAINER_READBACK_TERMINAL_DEADLINE_SECONDS,
+            }
+        outcome = project_pgbouncer_container_readback_outcome(container_receipt)
+        container_passed = bool(outcome and outcome["passed"] is True)
+        stages["container_readback"] = {
+            "attempted": True,
+            "attempt_count": 1,
+            "success_count": int(container_passed),
+            "passed": container_passed,
+            "last_result": (
+                outcome["last_result"]
+                if outcome is not None
+                else {
+                    "status": "validation_failed",
+                    "detail_code": "formal_pgbouncer_container_readback_failed",
+                }
+            ),
+        }
+
+        def receipt(detail_code: str | None) -> Mapping[str, Any]:
+            return {
+                "passed": detail_code is None,
+                "gate": "pgbouncer_readiness",
+                "detail_code": detail_code,
+                "terminal_deadline_seconds": (
+                    FORMAL_PGBOUNCER_READINESS_TERMINAL_DEADLINE_SECONDS
+                ),
+                "stages": stages,
+            }
+
+        if not container_passed:
+            return receipt("formal_pgbouncer_container_readback_failed")
         prefix = (
             "exec",
             "--env",
@@ -308,30 +361,53 @@ class FormalDrillGateOwner:
             "pgbouncer",
         )
         commands = (
-            canonical_docker_argv(*prefix, _PG_ISREADY, *shared),
-            canonical_docker_argv(
-                *prefix,
-                _PSQL,
-                "-X",
-                *shared,
-                "--tuples-only",
-                "--no-align",
-                "--command",
-                "SHOW VERSION;",
+            (
+                "pg_isready",
+                canonical_docker_argv(*prefix, _PG_ISREADY, *shared),
+                "formal_pgbouncer_pg_isready_failed",
+            ),
+            (
+                "show_version",
+                canonical_docker_argv(
+                    *prefix,
+                    _PSQL,
+                    "-X",
+                    *shared,
+                    "--tuples-only",
+                    "--no-align",
+                    "--command",
+                    "SHOW VERSION;",
+                ),
+                "formal_pgbouncer_show_version_failed",
             ),
         )
-        try:
-            return all(
-                self._terminal_zero(
-                    self._terminal_command(
-                        argv,
-                        environment=self.executor.client_environment,
-                    )
+        for stage_name, argv, detail_code in commands:
+            stage = stages[stage_name]
+            stage["attempted"] = True
+            stage["attempt_count"] = 1
+            try:
+                completed = self._terminal_command(
+                    argv,
+                    environment=self.executor.client_environment,
+                    timeout=FORMAL_PGBOUNCER_READINESS_TERMINAL_DEADLINE_SECONDS,
                 )
-                for argv in commands
-            )
-        except (OSError, RuntimeError, subprocess.TimeoutExpired):
-            return False
+            except subprocess.TimeoutExpired:
+                stage["last_result"] = self._stage_error(
+                    "timeout", f"formal_pgbouncer_{stage_name}_terminal_deadline_exceeded"
+                )
+                return receipt(detail_code)
+            except (OSError, RuntimeError):
+                stage["last_result"] = self._stage_error(
+                    "exec_error", f"formal_pgbouncer_{stage_name}_unavailable"
+                )
+                return receipt(detail_code)
+            result = self._stage_result(completed, role="pgbouncer")
+            stage["last_result"] = result
+            if result.get("status") != "terminal_zero":
+                return receipt(detail_code)
+            stage["success_count"] = 1
+            stage["passed"] = True
+        return receipt(None)
 
     def _source_owned_client_pid(self) -> bool:
         bootstrap = self.config.bootstrap
@@ -403,13 +479,7 @@ class FormalDrillGateOwner:
         if name == "postgres_readiness":
             return self._postgres_readiness()
         elif name == "pgbouncer_readiness":
-            passed = (
-                self._container_readback(
-                    "pgbouncer", bootstrap.pgbouncer_docker_argv(), image
-                ).get("validation_passed")
-                is True
-                and self._pgbouncer_ready()
-            )
+            return self._pgbouncer_readiness()
         elif name == "observer_health":
             passed = bool(
                 self.executor.observer_receipt

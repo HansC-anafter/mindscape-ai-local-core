@@ -93,15 +93,67 @@ def _postflight(owner: str = "none", *, verified: bool = True) -> dict[str, obje
 
 def _gate(name: str, *, fail: str | None = None) -> dict[str, object]:
     passed = name != fail
-    if name != "postgres_readiness":
-        return {"passed": passed}
-
     def terminal_zero() -> dict[str, object]:
         return {
             "status": "terminal_zero",
             "exit_code": 0,
             "terminal_capture": terminal_capture_metadata(b"", b"", exit_code=0),
         }
+
+    if name == "pgbouncer_readiness":
+        stages = {
+            "container_readback": {
+                "attempted": True,
+                "attempt_count": 1,
+                "success_count": 1,
+                "passed": True,
+                "last_result": {
+                    "status": "validated",
+                    "detail_code": None,
+                    "projection_schema_version": CONTAINER_READBACK_SCHEMA_VERSION,
+                    "projection_max_bytes": CONTAINER_READBACK_MAX_BYTES,
+                    "terminal_deadline_seconds": (
+                        CONTAINER_READBACK_TERMINAL_DEADLINE_SECONDS
+                    ),
+                },
+            },
+            "pg_isready": {
+                "attempted": True,
+                "attempt_count": 1,
+                "success_count": int(passed),
+                "passed": passed,
+                "last_result": (
+                    terminal_zero()
+                    if passed
+                    else {
+                        "status": "terminal_nonzero",
+                        "exit_code": 3,
+                        "terminal_capture": terminal_capture_metadata(
+                            b"private-ready-output", b"private-ready-error", exit_code=3
+                        ),
+                    }
+                ),
+            },
+            "show_version": {
+                "attempted": passed,
+                "attempt_count": int(passed),
+                "success_count": int(passed),
+                "passed": passed,
+                "last_result": terminal_zero() if passed else None,
+            },
+        }
+        return {
+            "passed": passed,
+            "gate": name,
+            "detail_code": (
+                None if passed else "formal_pgbouncer_pg_isready_failed"
+            ),
+            "terminal_deadline_seconds": 10.0,
+            "stages": stages,
+        }
+    if name != "postgres_readiness":
+        return {"passed": passed}
+
     stages = {
         "container_readback": {
             "attempted": True,
@@ -1011,3 +1063,81 @@ def test_signal_envelope_is_materialized_from_exact_source_owned_pid(
     )
     assert declared_signal["operation"]["source_owned_late_bound"] is True
     assert "argv" not in declared_signal["operation"]
+
+
+def test_sequence_projects_pgbouncer_readiness_and_fails_malformed_capture_closed(
+    tmp_path: Path,
+) -> None:
+    revocations: list[str] = []
+    configs = _configs(tmp_path)
+    failed_gate = _gate("pgbouncer_readiness", fail="pgbouncer_readiness")
+    receipt = _execute(
+        configs,
+        execute_docker=_docker_success,
+        evaluate_gate=lambda name: (
+            failed_gate if name == "pgbouncer_readiness" else _gate(name)
+        ),
+        revoke_permit=revocations.append,
+        finalize_cleanup=lambda _failure: _postflight(),
+    )
+
+    projected = next(
+        item
+        for item in receipt["step_receipts"]
+        if item["name"] == "pgbouncer_readiness"
+    )
+    assert projected["detail_code"] == "formal_pgbouncer_pg_isready_failed"
+    assert projected["stages"]["show_version"]["attempt_count"] == 0
+    assert projected["stages"]["pg_isready"]["last_result"]["exit_code"] == 3
+    assert "private-ready" not in json.dumps(receipt, sort_keys=True)
+    assert receipt["first_failure"] == "formal_pgbouncer_readiness_failed"
+    assert revocations == ["formal_pgbouncer_readiness_failed"]
+    assert receipt["cleanup_operation_attempts"] == 5
+    assert receipt["ownership_handed_back"] is True
+
+    failed_gate["stages"]["pg_isready"]["last_result"][
+        "terminal_capture"
+    ]["stdout_sha256"] = "Z" * 64
+    malformed = _execute(
+        configs,
+        execute_docker=_docker_success,
+        evaluate_gate=lambda name: (
+            failed_gate if name == "pgbouncer_readiness" else _gate(name)
+        ),
+        revoke_permit=lambda _reason: None,
+        finalize_cleanup=lambda _failure: _postflight(),
+    )
+    invalid = next(
+        item
+        for item in malformed["step_receipts"]
+        if item["name"] == "pgbouncer_readiness"
+    )
+    assert invalid == {
+        "name": "pgbouncer_readiness",
+        "kind": "gate",
+        "passed": False,
+        "detail_code": "formal_pgbouncer_readiness_receipt_invalid",
+    }
+    assert malformed["first_failure"] == "formal_pgbouncer_readiness_failed"
+    assert malformed["cleanup_operation_attempts"] == 5
+    assert malformed["ownership_handed_back"] is True
+
+    failed_gate["stages"]["container_readback"]["last_result"]["role"] = "postgres"
+    wrong_role = _execute(
+        configs,
+        execute_docker=_docker_success,
+        evaluate_gate=lambda name: (
+            failed_gate if name == "pgbouncer_readiness" else _gate(name)
+        ),
+        revoke_permit=lambda _reason: None,
+        finalize_cleanup=lambda _failure: _postflight(),
+    )
+    invalid_role = next(
+        item
+        for item in wrong_role["step_receipts"]
+        if item["name"] == "pgbouncer_readiness"
+    )
+    assert invalid_role["detail_code"] == "formal_pgbouncer_readiness_receipt_invalid"
+    assert wrong_role["first_failure"] == "formal_pgbouncer_readiness_failed"
+    assert wrong_role["cleanup_operation_attempts"] == 5
+    assert wrong_role["ownership_handed_back"] is True
