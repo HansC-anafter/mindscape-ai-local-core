@@ -173,6 +173,10 @@ def test_client_argv_is_parseable_and_application_name_never_enters_sql(
     assert DRILL_APPLICATION_NAME not in parsed.command
     assert f"PGAPPNAME={DRILL_APPLICATION_NAME}" in argv
     assert "PGPASSWORD" in argv
+    assert _option_values(argv, "--tmpfs") == [
+        "/tmp:rw,noexec,nosuid,size=4m",
+        PGBOUNCER_DECLARED_VOLUME_TMPFS,
+    ]
     assert "sh" not in argv
     assert "-lc" not in argv
 

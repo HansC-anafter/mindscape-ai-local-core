@@ -298,6 +298,32 @@ def test_pgbouncer_validator_rejects_tmpfs_or_mount_drift() -> None:
     assert "pgbouncer_container_readback_mounts_mismatch" in receipt["failures"]
 
 
+def test_client_neutralizes_declared_volume_and_rejects_anonymous_mount() -> None:
+    contract = _contracts()["client"]
+    source = _valid_contract_projection(contract)
+
+    assert source["tmpfs"] == {
+        "/tmp": "rw,noexec,nosuid,size=4m",
+        "/var/lib/postgresql/data": "rw,noexec,nosuid,size=1m",
+    }
+    assert source["mounts"] == []
+    assert contract.validate_projection(source)["validation_passed"] is True
+
+    source["mounts"] = [
+        {
+            "type": "volume",
+            "source": "anonymous-volume",
+            "destination": "/var/lib/postgresql/data",
+            "rw": True,
+        }
+    ]
+
+    receipt = contract.validate_projection(source)
+
+    assert receipt["validation_passed"] is False
+    assert receipt["first_failure"] == "client_container_readback_mounts_mismatch"
+
+
 @pytest.mark.parametrize("role", ["postgres", "pgbouncer", "observer", "client"])
 def test_formal_executor_persists_only_allowlisted_projection(
     role: str,

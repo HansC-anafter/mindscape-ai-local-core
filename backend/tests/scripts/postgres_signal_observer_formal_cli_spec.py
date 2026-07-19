@@ -534,6 +534,7 @@ def test_client_gate_derives_signal_pid_without_external_input(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     config = _config(tmp_path)
+    readback_calls = []
 
     class Executor:
         signal_config = None
@@ -543,10 +544,20 @@ def test_client_gate_derives_signal_pid_without_external_input(
         def run(self, _argv, **_kwargs):
             return SimpleNamespace(returncode=0, stdout=b"4242\n", stderr=b"")
 
+    def pass_neutralized_client_readback(contract, *_args, **_kwargs):
+        expected = contract._expected()
+        readback_calls.append(expected)
+        assert expected["tmpfs"] == {
+            "/tmp": "rw,noexec,nosuid,size=4m",
+            "/var/lib/postgresql/data": "rw,noexec,nosuid,size=1m",
+        }
+        assert expected["mounts"] == []
+        return _container_readback_pass(contract)
+
     monkeypatch.setattr(
         drill_formal_gates,
         "execute_disposable_container_readback",
-        _container_readback_pass,
+        pass_neutralized_client_readback,
     )
     executor = Executor()
     gate = drill_formal_gates.FormalDrillGateOwner(config, executor)
@@ -558,6 +569,7 @@ def test_client_gate_derives_signal_pid_without_external_input(
     assert receipt["detail_code"] is None
     assert receipt["stages"]["container_readback"]["passed"] is True
     assert receipt["stages"]["source_owned_pid"]["passed"] is True
+    assert len(readback_calls) == 1
     assert "4242" not in json.dumps(receipt, sort_keys=True)
     assert executor.signal_config.target_postgres_pid == 4242
     assert executor.signal_config.docker_argv()[-1] == "4242"

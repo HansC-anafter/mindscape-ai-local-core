@@ -18,6 +18,7 @@ from .drill_images import (
     drill_image_digest,
     validate_drill_image_ref,
 )
+from .drill_bootstrap import PGBOUNCER_DECLARED_VOLUME_TMPFS
 from .drill_docker_runtime import canonical_docker_argv
 
 
@@ -96,6 +97,8 @@ class DisposableDrillClientConfig:
             "--read-only",
             "--tmpfs",
             "/tmp:rw,noexec,nosuid,size=4m",
+            "--tmpfs",
+            PGBOUNCER_DECLARED_VOLUME_TMPFS,
             "--security-opt",
             "no-new-privileges:true",
             "--env",
