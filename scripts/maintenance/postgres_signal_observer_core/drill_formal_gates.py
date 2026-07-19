@@ -413,6 +413,9 @@ class FormalDrillGateOwner:
             stage_result=lambda completed: self._stage_result(
                 completed, role="client"
             ),
+            bind_signal_target=lambda signal: self.executor.bind_signal_target(
+                self.config, signal
+            ),
             monotonic=self.monotonic,
             sleep=self.sleep,
         )

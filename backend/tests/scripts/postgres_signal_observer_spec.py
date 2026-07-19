@@ -64,6 +64,20 @@ def test_evidence_store_never_overwrites_and_fails_closed_at_64_events(
         store.append_event({"index": 65})
 
 
+def test_signal_target_contract_is_exact_single_use_and_mode_0600(
+    tmp_path: Path,
+) -> None:
+    store = ObserverEvidenceStore(tmp_path)
+
+    store.write_signal_target(postgres_pid=204, host_pid=54909)
+
+    assert store.signal_target_path.stat().st_mode & 0o777 == 0o600
+    assert store.consume_signal_target(12) is None
+    assert store.signal_target_path.exists()
+    assert store.consume_signal_target(54909) == 204
+    assert not store.signal_target_path.exists()
+
+
 def test_tracefs_instance_uses_only_owned_instance_and_exact_filter(
     tmp_path: Path,
 ) -> None:
@@ -203,12 +217,15 @@ def test_signal_event_is_persisted_before_correlation_failure_closes_health(
             correlate=lambda pid: (_ for _ in ()).throw(RuntimeError("link gone"))
         ),
     )
+    observer._diagnostic_incident_id = "incident-fixture"
+    observer._diagnostic_permit_id = "permit-fixture"
     monkeypatch.setattr(
         "scripts.maintenance.postgres_signal_observer_core.service.read_namespace_pids",
         lambda pid: (pid, 204 if pid == 54909 else 300),
     )
     monkeypatch.setattr(
-        "scripts.maintenance.postgres_signal_observer_core.service.record_database_failure",
+        "scripts.maintenance.postgres_signal_observer_core.service."
+        "record_database_diagnostic_observation",
         lambda *args, **kwargs: recorded.append((args, kwargs)),
     )
 
@@ -219,7 +236,52 @@ def test_signal_event_is_persisted_before_correlation_failure_closes_health(
     event_path = next((config.evidence_root / "events").glob("event-*.json"))
     event = json.loads(event_path.read_text(encoding="utf-8"))
     assert event["pgbouncer"]["status"] == "correlation_unavailable"
-    assert recorded[0][0][0] == "postgres_sigquit_signal_observed"
+    assert recorded[0][0][0] == "incident-fixture"
+    assert recorded[0][1]["observation_code"] == "postgres_sigquit_signal_observed"
+
+
+def test_signal_target_handoff_survives_backend_proc_exit_and_correlates(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    recorded = []
+    config = _config(tmp_path)
+    store = ObserverEvidenceStore(config.evidence_root)
+    store.write_signal_target(postgres_pid=204, host_pid=54909)
+    observer = PostgresSignalObserver(
+        config,
+        store=store,
+        trace=SimpleNamespace(instance_name="test", cleanup=lambda: None),
+        correlation=SimpleNamespace(
+            correlate=lambda pid: {
+                "status": "correlated",
+                "application_name": "postgres-signal-observer-drill-client",
+                "client_remote_pid": 4242,
+                "postgres_remote_pid": pid,
+            }
+        ),
+    )
+    observer._diagnostic_incident_id = "incident-fixture"
+    observer._diagnostic_permit_id = "permit-fixture"
+    monkeypatch.setattr(
+        "scripts.maintenance.postgres_signal_observer_core.service.read_namespace_pids",
+        lambda _pid: (_ for _ in ()).throw(RuntimeError("process exited")),
+    )
+    monkeypatch.setattr(
+        "scripts.maintenance.postgres_signal_observer_core.service."
+        "record_database_diagnostic_observation",
+        lambda *args, **kwargs: recorded.append((args, kwargs)),
+    )
+
+    observer._process_line(TRACE_LINE)
+
+    event_path = next((config.evidence_root / "events").glob("event-*.json"))
+    event = json.loads(event_path.read_text(encoding="utf-8"))
+    assert event["target_namespace_pids"] == [54909, 204]
+    assert event["target_postgres_pid"] == 204
+    assert event["pgbouncer"]["status"] == "correlated"
+    assert not store.signal_target_path.exists()
+    assert recorded[0][1]["permit_id"] == "permit-fixture"
 
 
 def test_observer_refuses_tracefs_before_exact_incident_permit(

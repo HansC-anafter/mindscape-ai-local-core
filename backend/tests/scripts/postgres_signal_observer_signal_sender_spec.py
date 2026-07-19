@@ -45,6 +45,7 @@ def signal_config() -> DisposableDrillSignalConfig:
         drill_suffix=DRILL_SUFFIX,
         postgres_image_ref=POSTGRES_IMAGE_REF,
         target_postgres_pid=TARGET_PID,
+        target_host_pid=54909,
     )
 
 
@@ -75,6 +76,7 @@ def test_signal_sender_uses_one_exact_postgres_16_pg_ctl_argv(
     assert spec["sender_user"] == "postgres"
     assert spec["shell"] is False
     assert spec["target_postgres_pid_disclosed"] is False
+    assert spec["target_host_pid_disclosed"] is False
     assert spec["terminal_deadline_seconds"] == 10.0
     assert spec["output_budget_bytes"] == 4096
     assert "target_postgres_pid" not in spec
@@ -205,6 +207,19 @@ def test_signal_sender_rejects_unbounded_or_non_integer_pid(pid: object) -> None
     )
 
     with pytest.raises(ValueError, match="target_postgres_pid_invalid"):
+        config.docker_argv()
+
+
+@pytest.mark.parametrize("host_pid", [0, -1, POSTGRES_BACKEND_PID_MAX + 1, True])
+def test_signal_sender_rejects_invalid_optional_host_pid(host_pid: object) -> None:
+    config = DisposableDrillSignalConfig(
+        drill_suffix=DRILL_SUFFIX,
+        postgres_image_ref=POSTGRES_IMAGE_REF,
+        target_postgres_pid=TARGET_PID,
+        target_host_pid=host_pid,  # type: ignore[arg-type]
+    )
+
+    with pytest.raises(ValueError, match="target_host_pid_invalid"):
         config.docker_argv()
 
 

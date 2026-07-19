@@ -10,6 +10,8 @@ from types import SimpleNamespace
 import pytest
 
 from scripts.maintenance.postgres_signal_observer_core import (
+    DisposableDrillSignalConfig,
+    ObserverEvidenceStore,
     build_formal_drill_cli_config,
     serialize_disposable_pgbouncer_config,
     validate_formal_exec_result,
@@ -551,7 +553,10 @@ def test_client_gate_derives_signal_pid_without_external_input(
         observer_receipt = None
 
         def run(self, _argv, **_kwargs):
-            return SimpleNamespace(returncode=0, stdout=b"4242\n", stderr=b"")
+            return SimpleNamespace(returncode=0, stdout=b"4242|54909\n", stderr=b"")
+
+        def bind_signal_target(self, _config, signal):
+            return signal.target_host_pid == 54909
 
     def pass_neutralized_client_readback(contract, *_args, **_kwargs):
         expected = contract._expected()
@@ -581,7 +586,52 @@ def test_client_gate_derives_signal_pid_without_external_input(
     assert len(readback_calls) == 1
     assert "4242" not in json.dumps(receipt, sort_keys=True)
     assert executor.signal_config.target_postgres_pid == 4242
+    assert executor.signal_config.target_host_pid == 54909
     assert executor.signal_config.docker_argv()[-1] == "4242"
+
+
+def test_client_gate_fails_closed_when_signal_target_binding_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _config(tmp_path)
+
+    class Executor:
+        signal_config = None
+        client_environment = {"PGPASSWORD": "fixture-secret"}
+        observer_receipt = None
+
+        def run(self, _argv, **_kwargs):
+            return SimpleNamespace(
+                returncode=0,
+                stdout=b"4242|54909\n",
+                stderr=b"",
+            )
+
+        def bind_signal_target(self, _config, _signal):
+            return False
+
+    monkeypatch.setattr(
+        drill_formal_gates,
+        "execute_disposable_container_readback",
+        _container_readback_pass,
+    )
+    executor = Executor()
+    gate = drill_formal_gates.FormalDrillGateOwner(config, executor)
+
+    receipt = project_formal_gate_receipt(
+        "client_ready", gate.evaluate("client_ready")
+    )
+
+    assert receipt["passed"] is False
+    assert receipt["detail_code"] == (
+        "formal_client_signal_target_binding_failed"
+    )
+    assert receipt["stages"]["source_owned_pid"]["last_result"] == {
+        "status": "result_invalid",
+        "error_code": "formal_client_signal_target_binding_failed",
+    }
+    assert executor.signal_config is None
 
 
 def test_client_gate_waits_with_fresh_remaining_budget_for_source_owned_pid(
@@ -599,8 +649,11 @@ def test_client_gate_waits_with_fresh_remaining_budget_for_source_owned_pid(
 
         def run(self, _argv, **kwargs):
             calls.append((clock.now, kwargs["timeout"]))
-            stdout = b"\n" if len(calls) == 1 else b"4242\n"
+            stdout = b"\n" if len(calls) == 1 else b"4242|54909\n"
             return SimpleNamespace(returncode=0, stdout=stdout, stderr=b"")
+
+        def bind_signal_target(self, _config, signal):
+            return signal.target_host_pid == 54909
 
     monkeypatch.setattr(
         drill_formal_gates,
@@ -624,6 +677,7 @@ def test_client_gate_waits_with_fresh_remaining_budget_for_source_owned_pid(
     assert receipt["stages"]["source_owned_pid"]["attempt_count"] == 2
     assert calls == [(0.0, pytest.approx(10.0)), (0.25, pytest.approx(9.75))]
     assert executor.signal_config.target_postgres_pid == 4242
+    assert executor.signal_config.target_host_pid == 54909
 
 
 def test_client_gate_empty_pid_exhausts_one_bounded_deadline(
@@ -2092,6 +2146,24 @@ def test_generic_nonzero_result_persists_only_raw_capture_hashes() -> None:
     assert capture["stderr_bytes"] == len(stderr)
     assert source["output"] == ""
     assert b"sentinel-secret" not in repr(receipt).encode("utf-8")
+
+
+def test_formal_executor_binds_exact_signal_target_for_observer(
+    tmp_path: Path,
+) -> None:
+    config = _config(tmp_path)
+    config.observer.evidence_host_root.mkdir(parents=True)
+    signal = DisposableDrillSignalConfig(
+        drill_suffix=config.bootstrap.drill_suffix,
+        postgres_image_ref=config.bootstrap.postgres_image_ref,
+        target_postgres_pid=4242,
+        target_host_pid=54909,
+    )
+
+    assert FormalDockerSubprocessExecutor.bind_signal_target(config, signal) is True
+    store = ObserverEvidenceStore(config.observer.evidence_host_root)
+    assert store.consume_signal_target(54909) == 4242
+    assert store.consume_signal_target(54909) is None
 
 
 def test_observer_launcher_failure_projects_exact_payload_free_receipt(

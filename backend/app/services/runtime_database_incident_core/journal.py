@@ -274,6 +274,47 @@ class RuntimeDatabaseIncidentJournal:
             self._write_current_unlocked(updated)
             return updated
 
+    def record_diagnostic_observation(
+        self,
+        incident_id: str,
+        *,
+        permit_id: str,
+        observation_code: str,
+        evidence: Optional[Mapping[str, Any]] = None,
+    ) -> IncidentReceipt:
+        """Append permit-bound diagnostic evidence without revoking the permit."""
+
+        if observation_code != "postgres_sigquit_signal_observed":
+            raise ValueError("diagnostic_observation_code_invalid")
+        exact_permit_id = str(permit_id).strip()
+        if not exact_permit_id:
+            raise ValueError("diagnostic_observation_permit_id_required")
+        with self._lock():
+            current = self._require_current_unlocked(incident_id)
+            diagnostic = dict(current.diagnostic_permit or {})
+            if diagnostic.get("permit_id") != exact_permit_id:
+                raise IncidentTransitionError(
+                    f"Incident {incident_id} diagnostic permit does not match"
+                )
+            event_time = utc_now()
+            updated = replace(
+                current,
+                updated_at=event_time,
+                evidence_count=current.evidence_count + 1,
+            )
+            self._append_event_unlocked(
+                incident_id=incident_id,
+                event={
+                    "event": "diagnostic_observation_recorded",
+                    "at": event_time,
+                    "permit_id": exact_permit_id,
+                    "observation_code": observation_code,
+                    "evidence": dict(evidence or {}),
+                },
+            )
+            self._write_current_unlocked(updated)
+            return updated
+
     def revoke_diagnostic_permit(
         self,
         incident_id: str,

@@ -45,6 +45,22 @@ def record_database_failure(
     )
 
 
+def record_database_diagnostic_observation(
+    incident_id: str,
+    *,
+    permit_id: str,
+    observation_code: str,
+    evidence: Optional[Mapping[str, str]] = None,
+    journal_root: Optional[Path] = None,
+) -> IncidentReceipt:
+    return RuntimeDatabaseIncidentJournal(journal_root).record_diagnostic_observation(
+        incident_id,
+        permit_id=permit_id,
+        observation_code=observation_code,
+        evidence=evidence,
+    )
+
+
 def evaluate_runtime_database_mutation(
     operation: str,
     *,
@@ -80,6 +96,7 @@ __all__ = [
     "RuntimeDatabaseMutationGate",
     "evaluate_runtime_database_mutation",
     "record_database_failure",
+    "record_database_diagnostic_observation",
     "require_runtime_database_mutation_allowed",
     "runtime_database_mutation_context",
 ]

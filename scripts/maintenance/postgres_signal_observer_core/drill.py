@@ -196,6 +196,7 @@ class DisposableDrillSignalConfig:
     drill_suffix: str
     postgres_image_ref: str
     target_postgres_pid: int
+    target_host_pid: int | None = None
 
     def validate(self) -> None:
         canonical_disposable_drill_name("postgres", self.drill_suffix)
@@ -208,6 +209,11 @@ class DisposableDrillSignalConfig:
             or not 1 <= self.target_postgres_pid <= POSTGRES_BACKEND_PID_MAX
         ):
             raise ValueError("drill_signal_target_postgres_pid_invalid")
+        if self.target_host_pid is not None and (
+            type(self.target_host_pid) is not int
+            or not 1 <= self.target_host_pid <= POSTGRES_BACKEND_PID_MAX
+        ):
+            raise ValueError("drill_signal_target_host_pid_invalid")
 
     @property
     def container_name(self) -> str:
@@ -249,6 +255,7 @@ class DisposableDrillSignalConfig:
                 str(self.target_postgres_pid).encode("ascii")
             ).hexdigest(),
             "target_postgres_pid_disclosed": False,
+            "target_host_pid_disclosed": False,
             "terminal_deadline_seconds": POSTGRES_SIGNAL_TERMINAL_DEADLINE_SECONDS,
             "output_budget_bytes": POSTGRES_SIGNAL_OUTPUT_BUDGET_BYTES,
             "argv_sha256": hashlib.sha256("\0".join(argv).encode("utf-8")).hexdigest(),

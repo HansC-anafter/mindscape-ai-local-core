@@ -18,6 +18,7 @@ from .drill_formal_contract import FormalDrillCliConfig
 from .drill_formal_sequence import FormalDockerExecutionEnvelope
 from .drill_escalation import terminal_nonzero_capture_metadata
 from .drill_observer import launch_disposable_drill_observer
+from .evidence import ObserverEvidenceStore
 
 
 FORMAL_DOCKER_TERMINAL_DEADLINE_SECONDS = 60.0
@@ -45,6 +46,25 @@ class FormalDockerSubprocessExecutor:
         if not isinstance(timeout, (int, float)) or not 0 < float(timeout) <= 60:
             raise RuntimeError("formal_executor_terminal_deadline_invalid")
         return self._run(list(exact), **kwargs)
+
+    @staticmethod
+    def bind_signal_target(
+        config: FormalDrillCliConfig,
+        signal: DisposableDrillSignalConfig,
+    ) -> bool:
+        host_pid = signal.target_host_pid
+        if type(host_pid) is not int:
+            return False
+        try:
+            ObserverEvidenceStore(
+                config.observer.evidence_host_root
+            ).write_signal_target(
+                postgres_pid=signal.target_postgres_pid,
+                host_pid=host_pid,
+            )
+        except (OSError, RuntimeError, ValueError):
+            return False
+        return True
 
     @staticmethod
     def _source(completed: Any) -> dict[str, Any]:

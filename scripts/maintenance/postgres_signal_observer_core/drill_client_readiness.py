@@ -46,6 +46,7 @@ def evaluate_client_readiness(
     client: DisposableDrillClientConfig,
     run: Callable[..., Any],
     stage_result: Callable[[Any], dict[str, Any]],
+    bind_signal_target: Callable[[DisposableDrillSignalConfig], bool],
     monotonic: Callable[[], float],
     sleep: Callable[[float], None],
 ) -> tuple[Mapping[str, Any], DisposableDrillSignalConfig | None]:
@@ -76,7 +77,9 @@ def evaluate_client_readiness(
         return _receipt(stages, "formal_client_container_readback_failed"), None
 
     query = (
-        "SELECT pid FROM pg_stat_activity WHERE application_name = "
+        "SELECT pid, substring(pg_read_file('/proc/' || pid || '/status') "
+        "from 'NSpid:[[:space:]]+([0-9]+)') FROM pg_stat_activity "
+        "WHERE application_name = "
         "'postgres-signal-observer-drill-client' AND state <> 'idle' "
         "ORDER BY backend_start DESC LIMIT 1;"
     )
@@ -154,7 +157,9 @@ def evaluate_client_readiness(
         value = raw.strip()
         if value:
             try:
-                pid = int(value.decode("ascii"))
+                postgres_text, host_text = value.decode("ascii").split("|", 1)
+                pid = int(postgres_text)
+                host_pid = int(host_text)
             except (UnicodeError, ValueError):
                 pid_stage["last_result"] = {
                     "status": "result_invalid",
@@ -181,6 +186,7 @@ def evaluate_client_readiness(
             drill_suffix=bootstrap.drill_suffix,
             postgres_image_ref=bootstrap.postgres_image_ref,
             target_postgres_pid=pid,
+            target_host_pid=host_pid,
         )
         signal.validate()
     except ValueError:
@@ -189,6 +195,14 @@ def evaluate_client_readiness(
             "error_code": "formal_client_signal_config_invalid",
         }
         return _receipt(stages, "formal_client_signal_config_invalid"), None
+    if not bind_signal_target(signal):
+        pid_stage["last_result"] = {
+            "status": "result_invalid",
+            "error_code": "formal_client_signal_target_binding_failed",
+        }
+        return _receipt(
+            stages, "formal_client_signal_target_binding_failed"
+        ), None
 
     pid_stage["success_count"] = 1
     pid_stage["passed"] = True

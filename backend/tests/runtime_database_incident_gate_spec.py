@@ -305,6 +305,34 @@ def test_terminal_diagnostic_permit_consumption_and_ownership_handback_are_disti
     ]
 
 
+def test_diagnostic_observation_preserves_exact_active_permit(
+    tmp_path: Path,
+) -> None:
+    journal = RuntimeDatabaseIncidentJournal(tmp_path)
+    incident = journal.open_incident(failure_code="unexpected_close")
+    permit = _diagnostic_permit()
+    journal.record_diagnostic_permit(incident.incident_id, permit)
+
+    observed = journal.record_diagnostic_observation(
+        incident.incident_id,
+        permit_id=permit.permit_id,
+        observation_code="postgres_sigquit_signal_observed",
+        evidence={"signal_event_sha256": "a" * 64},
+    )
+
+    assert observed.diagnostic_permit == permit.to_dict()
+    events_path = next((tmp_path / "incidents").iterdir()) / "events.jsonl"
+    last_event = json.loads(events_path.read_text(encoding="utf-8").splitlines()[-1])
+    assert last_event["event"] == "diagnostic_observation_recorded"
+    assert last_event["permit_id"] == permit.permit_id
+    with pytest.raises(IncidentTransitionError, match="does not match"):
+        journal.record_diagnostic_observation(
+            incident.incident_id,
+            permit_id="wrong-permit",
+            observation_code="postgres_sigquit_signal_observed",
+        )
+
+
 def test_ownership_handback_rejects_active_permit_or_unverified_resources(
     tmp_path: Path,
 ) -> None:

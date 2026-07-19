@@ -25,6 +25,7 @@ _DETAIL_CODES = frozenset(
         "formal_client_pid_value_invalid",
         "formal_client_pid_not_observed_before_deadline",
         "formal_client_signal_config_invalid",
+        "formal_client_signal_target_binding_failed",
     }
 )
 _RESULT_INVALID_CODES = frozenset(
@@ -35,6 +36,7 @@ _RESULT_INVALID_CODES = frozenset(
         "formal_client_pid_value_invalid",
         "formal_client_pid_not_observed_before_deadline",
         "formal_client_signal_config_invalid",
+        "formal_client_signal_target_binding_failed",
     }
 )
 _CAPTURE_KEYS = frozenset(

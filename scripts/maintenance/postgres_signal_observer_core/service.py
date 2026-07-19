@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from backend.app.services.runtime_database_incident_gate import (
-    record_database_failure,
+    record_database_diagnostic_observation,
     require_runtime_database_mutation_allowed,
 )
 
@@ -170,6 +170,8 @@ class PostgresSignalObserver:
             config.pgbouncer_admin_url
         )
         self._stopping = False
+        self._diagnostic_incident_id = ""
+        self._diagnostic_permit_id = ""
 
     def stop(self) -> None:
         self._stopping = True
@@ -197,8 +199,14 @@ class PostgresSignalObserver:
             return
         correlation_error = ""
         try:
-            target_namespace_pids = read_namespace_pids(event.target_host_pid)
-            target_postgres_pid = target_namespace_pids[-1]
+            target_postgres_pid = self.store.consume_signal_target(
+                event.target_host_pid
+            )
+            if target_postgres_pid is None:
+                target_namespace_pids = read_namespace_pids(event.target_host_pid)
+                target_postgres_pid = target_namespace_pids[-1]
+            else:
+                target_namespace_pids = (event.target_host_pid, target_postgres_pid)
         except Exception as exc:
             target_namespace_pids = ()
             target_postgres_pid = 0
@@ -231,8 +239,10 @@ class PostgresSignalObserver:
             "filter": SIGNAL_FILTER,
         }
         receipt = self.store.append_event(payload)
-        record_database_failure(
-            "postgres_sigquit_signal_observed",
+        record_database_diagnostic_observation(
+            self._diagnostic_incident_id,
+            permit_id=self._diagnostic_permit_id,
+            observation_code="postgres_sigquit_signal_observed",
             evidence={
                 "sender_comm": event.sender_comm,
                 "sender_host_pid": str(event.sender_host_pid),
@@ -268,6 +278,8 @@ class PostgresSignalObserver:
             )
             if decision.reason != "incident_diagnostic_permit":
                 raise RuntimeError("incident_diagnostic_permit_required")
+            self._diagnostic_incident_id = str(decision.incident_id or "")
+            self._diagnostic_permit_id = str(decision.details.get("permit_id") or "")
             failure_phase = "tracefs_prepare"
             self._health(
                 ready=False,

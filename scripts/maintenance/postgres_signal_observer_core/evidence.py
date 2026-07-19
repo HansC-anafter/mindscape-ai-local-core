@@ -6,6 +6,7 @@ import fcntl
 import hashlib
 import json
 import os
+import stat
 import tempfile
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
@@ -51,6 +52,7 @@ class ObserverEvidenceStore:
         self.root = Path(root)
         self.events_root = self.root / "events"
         self.health_path = self.root / "health.json"
+        self.signal_target_path = self.root / "signal-target.json"
         self.lock_path = self.root / ".observer.lock"
         self.budget = budget or EvidenceBudget()
         self.budget.validate()
@@ -147,3 +149,172 @@ class ObserverEvidenceStore:
         except (OSError, ValueError, TypeError) as exc:
             raise RuntimeError("observer_health_unavailable") from exc
         return dict(payload)
+
+    def write_signal_target(self, *, postgres_pid: int, host_pid: int) -> None:
+        """Publish one bounded target mapping before the synthetic signal."""
+
+        if not all(
+            type(value) is int and 0 < value <= 4_194_304
+            for value in (postgres_pid, host_pid)
+        ):
+            raise ValueError("observer_signal_target_invalid")
+        payload = {
+            "schema_version": "mindscape.postgres-signal-observer-target.v1",
+            "target_postgres_pid": postgres_pid,
+            "target_host_pid": host_pid,
+        }
+        encoded = (
+            json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n"
+        ).encode("ascii")
+        self._ensure_root()
+        with self._lock():
+            nofollow = getattr(os, "O_NOFOLLOW", None)
+            if nofollow is None:
+                raise RuntimeError("observer_signal_target_write_failed")
+            descriptor: int | None = None
+            identity: os.stat_result | None = None
+
+            def unlink_owned() -> bool:
+                if identity is None:
+                    return True
+                try:
+                    current = os.lstat(self.signal_target_path)
+                except FileNotFoundError:
+                    return True
+                except OSError:
+                    return False
+                if (current.st_dev, current.st_ino) != (
+                    identity.st_dev,
+                    identity.st_ino,
+                ):
+                    return False
+                try:
+                    self.signal_target_path.unlink()
+                except OSError:
+                    return False
+                return True
+
+            try:
+                descriptor = os.open(
+                    self.signal_target_path,
+                    os.O_WRONLY | os.O_CREAT | os.O_EXCL | nofollow,
+                    0o600,
+                )
+                identity = os.fstat(descriptor)
+                if not stat.S_ISREG(identity.st_mode) or (
+                    stat.S_IMODE(identity.st_mode) != 0o600
+                ):
+                    raise OSError("observer signal target identity invalid")
+                offset = 0
+                while offset < len(encoded):
+                    written = os.write(descriptor, encoded[offset:])
+                    if written <= 0:
+                        raise OSError("observer signal target write stalled")
+                    offset += written
+                os.fsync(descriptor)
+                final_status = os.fstat(descriptor)
+                if (
+                    (final_status.st_dev, final_status.st_ino)
+                    != (identity.st_dev, identity.st_ino)
+                    or final_status.st_size != len(encoded)
+                ):
+                    raise OSError("observer signal target readback invalid")
+                os.close(descriptor)
+                descriptor = None
+            except OSError as exc:
+                if descriptor is not None:
+                    try:
+                        os.close(descriptor)
+                    except OSError:
+                        pass
+                failure = (
+                    "observer_signal_target_write_failed"
+                    if unlink_owned()
+                    else "observer_signal_target_cleanup_incomplete"
+                )
+                raise RuntimeError(failure) from exc
+
+    def consume_signal_target(self, host_pid: int) -> int | None:
+        """Consume the exact host/container PID mapping for one observed target."""
+
+        if type(host_pid) is not int or not 0 < host_pid <= 4_194_304:
+            raise ValueError("observer_signal_target_host_pid_invalid")
+        with self._lock():
+            nofollow = getattr(os, "O_NOFOLLOW", None)
+            if nofollow is None:
+                raise RuntimeError("observer_signal_target_read_failed")
+            try:
+                status = os.lstat(self.signal_target_path)
+            except FileNotFoundError:
+                return None
+            if not stat.S_ISREG(status.st_mode) or (
+                stat.S_IMODE(status.st_mode) != 0o600
+            ):
+                raise RuntimeError("observer_signal_target_identity_invalid")
+            descriptor: int | None = None
+            try:
+                descriptor = os.open(
+                    self.signal_target_path,
+                    os.O_RDONLY | nofollow,
+                )
+                opened = os.fstat(descriptor)
+                if (
+                    not stat.S_ISREG(opened.st_mode)
+                    or stat.S_IMODE(opened.st_mode) != 0o600
+                    or (opened.st_dev, opened.st_ino)
+                    != (status.st_dev, status.st_ino)
+                ):
+                    raise OSError("observer signal target identity changed")
+                chunks: list[bytes] = []
+                remaining = 257
+                while remaining > 0:
+                    chunk = os.read(descriptor, remaining)
+                    if not chunk:
+                        break
+                    chunks.append(chunk)
+                    remaining -= len(chunk)
+                encoded = b"".join(chunks)
+            except (OSError, ValueError, TypeError) as exc:
+                raise RuntimeError("observer_signal_target_read_failed") from exc
+            finally:
+                if descriptor is not None:
+                    try:
+                        os.close(descriptor)
+                    except OSError as exc:
+                        raise RuntimeError(
+                            "observer_signal_target_read_failed"
+                        ) from exc
+            try:
+                payload = json.loads(encoded)
+            except (ValueError, TypeError) as exc:
+                raise RuntimeError("observer_signal_target_read_failed") from exc
+            if (
+                len(encoded) > 256
+                or type(payload) is not dict
+                or set(payload)
+                != {
+                    "schema_version",
+                    "target_postgres_pid",
+                    "target_host_pid",
+                }
+                or payload.get("schema_version")
+                != "mindscape.postgres-signal-observer-target.v1"
+                or type(payload.get("target_postgres_pid")) is not int
+                or not 0 < payload["target_postgres_pid"] <= 4_194_304
+                or type(payload.get("target_host_pid")) is not int
+                or not 0 < payload["target_host_pid"] <= 4_194_304
+            ):
+                raise RuntimeError("observer_signal_target_payload_invalid")
+            if payload["target_host_pid"] != host_pid:
+                return None
+            try:
+                current = os.lstat(self.signal_target_path)
+                if (current.st_dev, current.st_ino) != (
+                    status.st_dev,
+                    status.st_ino,
+                ):
+                    raise OSError("observer signal target identity changed")
+                self.signal_target_path.unlink()
+            except OSError as exc:
+                raise RuntimeError("observer_signal_target_consume_failed") from exc
+            return payload["target_postgres_pid"]
