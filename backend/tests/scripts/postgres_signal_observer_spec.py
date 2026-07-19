@@ -22,6 +22,9 @@ from scripts.maintenance.postgres_signal_observer_core import (
     parse_signal_generate_line,
     read_namespace_pids,
 )
+from scripts.maintenance.postgres_signal_observer_core.pgbouncer import (
+    validate_pgbouncer_correlation,
+)
 from scripts.maintenance.postgres_signal_observer import (
     _healthcheck,
     _write_startup_health,
@@ -184,6 +187,7 @@ def test_pgbouncer_correlation_returns_only_bounded_metadata(monkeypatch) -> Non
 
     assert result["application_name"] == "local-core-backend:core"
     assert result["client_remote_pid"] == 4242
+    assert result["client_remote_pid_available"] is True
     assert result["postgres_remote_pid"] == 204
     assert result["client_address_class"] == "private"
     assert "mindscape" not in result["user_sha256"]
@@ -214,6 +218,62 @@ def test_pgbouncer_correlation_uses_exact_source_owned_application_identity(
     result = client.correlate(204)
 
     assert result["application_name"] == "postgres-signal-observer-drill-client"
+
+
+class _TcpFakeCursor(_FakeCursor):
+    def execute(self, command: str) -> None:
+        super().execute(command)
+        if command == "SHOW CLIENTS":
+            self._rows = [
+                tuple(0 if index == 4 else value for index, value in enumerate(row))
+                for row in self._rows
+            ]
+
+
+class _TcpFakeConnection(_FakeConnection):
+    def cursor(self):
+        return _TcpFakeCursor()
+
+
+def test_pgbouncer_correlation_marks_tcp_client_pid_unavailable(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "scripts.maintenance.postgres_signal_observer_core.pgbouncer.psycopg2.connect",
+        lambda *args, **kwargs: _TcpFakeConnection(),
+    )
+    client = PgBouncerCorrelationClient(
+        "postgresql://user:secret@pgbouncer:6432/pgbouncer",
+        expected_application_name="local-core-backend:core",
+    )
+
+    result = client.correlate(204)
+
+    assert result["status"] == "correlated"
+    assert result["client_remote_pid_available"] is False
+    assert result["client_remote_pid"] == 0
+    assert result["postgres_remote_pid"] == 204
+
+
+@pytest.mark.parametrize(
+    ("available", "client_pid"),
+    ((True, 0), (False, 4242), (1, 4242)),
+)
+def test_pgbouncer_correlation_rejects_inconsistent_client_pid_availability(
+    available: object,
+    client_pid: int,
+) -> None:
+    payload = {
+        "status": "correlated",
+        "application_name": "postgres-signal-observer-drill-client",
+        "database": "mindscape_core",
+        "user_sha256": "d" * 64,
+        "client_address_class": "private",
+        "client_remote_pid_available": available,
+        "client_remote_pid": client_pid,
+        "postgres_remote_pid": 204,
+    }
+
+    with pytest.raises(RuntimeError, match="pgbouncer_correlation_projection_invalid"):
+        validate_pgbouncer_correlation(payload, target_postgres_pid=204)
 
 
 def _config(tmp_path: Path) -> ObserverConfig:
@@ -303,6 +363,7 @@ def test_signal_target_handoff_survives_backend_proc_exit_and_correlates(
         "database": "mindscape_core",
         "user_sha256": "d" * 64,
         "client_address_class": "private",
+        "client_remote_pid_available": True,
         "client_remote_pid": 4242,
         "postgres_remote_pid": 204,
     }

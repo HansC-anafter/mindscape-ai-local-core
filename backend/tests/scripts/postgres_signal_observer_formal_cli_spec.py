@@ -2161,6 +2161,7 @@ def test_formal_executor_binds_exact_signal_target_for_observer(
         "database": "mindscape_core",
         "user_sha256": "d" * 64,
         "client_address_class": "private",
+        "client_remote_pid_available": True,
         "client_remote_pid": 55123,
         "postgres_remote_pid": 4242,
     }

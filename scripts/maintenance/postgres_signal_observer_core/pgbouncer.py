@@ -54,6 +54,7 @@ def validate_pgbouncer_correlation(
         "database",
         "user_sha256",
         "client_address_class",
+        "client_remote_pid_available",
         "client_remote_pid",
         "postgres_remote_pid",
     }:
@@ -61,6 +62,7 @@ def validate_pgbouncer_correlation(
     database = payload.get("database")
     user_sha256 = payload.get("user_sha256")
     address_class = payload.get("client_address_class")
+    client_remote_pid_available = payload.get("client_remote_pid_available")
     client_remote_pid = payload.get("client_remote_pid")
     postgres_remote_pid = payload.get("postgres_remote_pid")
     if (
@@ -72,8 +74,10 @@ def validate_pgbouncer_correlation(
         or type(address_class) is not str
         or address_class
         not in {"local", "loopback", "private", "public", "unknown"}
+        or type(client_remote_pid_available) is not bool
         or type(client_remote_pid) is not int
-        or not 0 < client_remote_pid <= 4_194_304
+        or not 0 <= client_remote_pid <= 4_194_304
+        or client_remote_pid_available is not (client_remote_pid > 0)
         or type(postgres_remote_pid) is not int
         or postgres_remote_pid != target_postgres_pid
     ):
@@ -84,6 +88,7 @@ def validate_pgbouncer_correlation(
         "database": database,
         "user_sha256": user_sha256,
         "client_address_class": address_class,
+        "client_remote_pid_available": client_remote_pid_available,
         "client_remote_pid": client_remote_pid,
         "postgres_remote_pid": postgres_remote_pid,
     }
@@ -159,9 +164,15 @@ class PgBouncerCorrelationClient:
             and application_name != self.expected_application_name
         ):
             raise RuntimeError("pgbouncer_application_name_mismatch")
-        client_remote_pid = int(client.get("remote_pid") or 0)
-        postgres_remote_pid = int(server.get("remote_pid") or 0)
-        if client_remote_pid <= 0 or postgres_remote_pid != int(target_postgres_pid):
+        try:
+            client_remote_pid = int(client.get("remote_pid") or 0)
+            postgres_remote_pid = int(server.get("remote_pid") or 0)
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError("pgbouncer_pid_correlation_invalid") from exc
+        if (
+            not 0 <= client_remote_pid <= 4_194_304
+            or postgres_remote_pid != int(target_postgres_pid)
+        ):
             raise RuntimeError("pgbouncer_pid_correlation_invalid")
         return validate_pgbouncer_correlation(
             {
@@ -174,6 +185,7 @@ class PgBouncerCorrelationClient:
                     client.get("user") or server.get("user")
                 ),
                 "client_address_class": _address_class(client.get("addr")),
+                "client_remote_pid_available": client_remote_pid > 0,
                 "client_remote_pid": client_remote_pid,
                 "postgres_remote_pid": postgres_remote_pid,
             },

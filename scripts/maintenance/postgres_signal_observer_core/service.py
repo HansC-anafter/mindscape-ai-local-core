@@ -258,6 +258,9 @@ class PostgresSignalObserver:
                 "target_host_pid": str(event.target_host_pid),
                 "target_postgres_pid": str(target_postgres_pid),
                 "application_name": str(correlation.get("application_name") or ""),
+                "client_process_pid_available": str(
+                    correlation.get("client_remote_pid_available") is True
+                ).lower(),
                 "client_process_pid": str(correlation.get("client_remote_pid") or 0),
                 "signal_event_path": receipt["event_path"],
                 "signal_event_sha256": receipt["event_sha256"],
