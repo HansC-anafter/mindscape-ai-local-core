@@ -222,6 +222,7 @@ def test_all_isolated_operation_classes_share_one_absolute_docker_owner() -> Non
         ),
         observer_image_ref=OBSERVER_IMAGE_REF,
         journal_host_root=repo_root,
+        evidence_host_root=repo_root / "backend",
         repo_root=repo_root,
         artifact_sha256="c" * 64,
         source_commit="d" * 40,

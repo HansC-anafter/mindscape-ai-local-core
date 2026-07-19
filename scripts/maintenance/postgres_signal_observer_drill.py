@@ -74,6 +74,10 @@ def _required(value: object, option: str) -> object:
     return value
 
 
+def _nonformal_observer_evidence_host_root(journal_root: Path) -> Path:
+    return journal_root / "signal-observer"
+
+
 def _with_image_contract(
     payload: dict[str, object],
     *,
@@ -122,6 +126,9 @@ def _container_readback_run_argv(
             pgbouncer_container_name=bootstrap.pgbouncer_container_name,
             observer_image_ref=observer_image_ref,
             journal_host_root=args.journal_root,
+            evidence_host_root=_nonformal_observer_evidence_host_root(
+                args.journal_root
+            ),
             repo_root=REPO_ROOT,
             artifact_sha256=artifact_sha256,
             source_commit=str(_required(args.source_commit, "--source-commit")),
@@ -311,6 +318,9 @@ def main(argv: list[str] | None = None) -> int:
                 OBSERVER_BACKEND_IMAGE_ROLE
             ),
             journal_host_root=args.journal_root,
+            evidence_host_root=_nonformal_observer_evidence_host_root(
+                args.journal_root
+            ),
             repo_root=REPO_ROOT,
             artifact_sha256=artifact_sha256,
             source_commit=str(_required(args.source_commit, "--source-commit")),

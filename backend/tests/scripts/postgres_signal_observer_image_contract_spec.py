@@ -209,6 +209,8 @@ def test_observer_role_consumer_rejects_postgres_image(tmp_path: Path) -> None:
     repo_root = Path(__file__).resolve().parents[3]
     journal_root = tmp_path / "journal"
     journal_root.mkdir()
+    evidence_root = journal_root / "signal-observer"
+    evidence_root.mkdir()
     config = DisposableDrillObserverConfig(
         container_name="runtime-db-observer-drill-observer-20260718t103518z",
         pgbouncer_container_name=(
@@ -216,6 +218,7 @@ def test_observer_role_consumer_rejects_postgres_image(tmp_path: Path) -> None:
         ),
         observer_image_ref=POSTGRES_IMAGE_REF,
         journal_host_root=journal_root,
+        evidence_host_root=evidence_root,
         repo_root=repo_root,
         artifact_sha256=canonical_observer_artifact_sha256(repo_root),
         source_commit="0123456789abcdef",
@@ -232,6 +235,7 @@ def test_single_facade_modes_select_only_their_owned_image(
     temp_root = Path(f"/private/tmp/mindscape-postgres-signal-drill-{DRILL_SUFFIX}")
     journal_root = tmp_path / "journal"
     journal_root.mkdir()
+    (journal_root / "signal-observer").mkdir()
     cases = [
         (
             [
@@ -307,6 +311,8 @@ def test_observer_failure_receipt_keeps_observer_role_spec(tmp_path: Path) -> No
     repo_root = Path(__file__).resolve().parents[3]
     journal_root = tmp_path / "journal"
     journal_root.mkdir()
+    evidence_root = journal_root / "signal-observer"
+    evidence_root.mkdir()
     config = DisposableDrillObserverConfig(
         container_name="runtime-db-observer-drill-observer-20260718t103518z",
         pgbouncer_container_name=(
@@ -314,6 +320,7 @@ def test_observer_failure_receipt_keeps_observer_role_spec(tmp_path: Path) -> No
         ),
         observer_image_ref=OBSERVER_IMAGE_REF,
         journal_host_root=journal_root,
+        evidence_host_root=evidence_root,
         repo_root=repo_root,
         artifact_sha256=canonical_observer_artifact_sha256(repo_root),
         source_commit="0123456789abcdef",

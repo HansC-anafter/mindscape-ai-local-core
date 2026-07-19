@@ -56,10 +56,12 @@ def _config(tmp_path: Path):
         hashlib.sha256(str(tmp_path).encode("utf-8")).hexdigest(), 16
     ) % 1_000_000
     suffix = f"20991231T{suffix_tail:06d}Z"
+    journal_root = tmp_path / "journal"
+    journal_root.mkdir()
     return build_formal_drill_cli_config(
         drill_suffix=suffix,
         temp_root=Path(f"/private/tmp/mindscape-postgres-signal-drill-{suffix}"),
-        journal_root=tmp_path / "journal",
+        journal_root=journal_root,
         postgres_image_ref=POSTGRES_IMAGE,
         observer_image_ref=OBSERVER_IMAGE,
         repo_root=Path(__file__).resolve().parents[3],
@@ -81,7 +83,7 @@ def _remove_test_staging(config) -> None:
         path.unlink(missing_ok=True)
     for path in (
         config.observer.evidence_host_root,
-        config.observer.journal_host_root,
+        config.observer.evidence_host_root.parent,
         config.bootstrap.temp_root,
     ):
         if path.exists():
@@ -150,7 +152,7 @@ def test_preconditions_create_exact_observer_roots_in_parent_child_order(
 
     expected = [
         config.bootstrap.temp_root,
-        config.observer.journal_host_root,
+        config.observer.evidence_host_root.parent,
         config.observer.evidence_host_root,
     ]
     assert order == expected
@@ -159,8 +161,24 @@ def test_preconditions_create_exact_observer_roots_in_parent_child_order(
         stat.S_IMODE(path.lstat().st_mode) == 0o700 for path in expected
     )
     assert len(state.owned_files) == 3
+    assert config.observer.journal_host_root == config.journal_root
+    assert config.observer.journal_host_root not in expected
+    mounts = [
+        config.observer.docker_argv()[index + 1]
+        for index, value in enumerate(config.observer.docker_argv()[:-1])
+        if value == "--mount"
+    ]
+    assert (
+        f"type=bind,src={config.journal_root.resolve()},"
+        "dst=/app/data/runtime-database-incidents"
+    ) in mounts
+    assert (
+        f"type=bind,src={config.observer.evidence_host_root.resolve()},"
+        "dst=/app/data/runtime-database-incidents/signal-observer"
+    ) in mounts
     assert _cleanup_precondition_state(state) is True
     assert all(not path.exists() for path in expected)
+    assert config.journal_root.is_dir()
 
 
 @pytest.mark.parametrize(
@@ -306,7 +324,7 @@ def test_directory_identity_validation_failure_cleans_captured_owner(
     source_validate = drill_formal_terminal._validate_invocation_owned_path
 
     def fail_journal_validation(item, metadata) -> None:
-        if item.path == config.observer.journal_host_root:
+        if item.path == config.observer.evidence_host_root.parent:
             raise RuntimeError("sentinel-directory-validation-payload")
         source_validate(item, metadata)
 

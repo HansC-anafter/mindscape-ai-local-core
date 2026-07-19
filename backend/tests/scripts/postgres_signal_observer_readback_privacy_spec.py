@@ -90,6 +90,7 @@ def _contracts() -> dict[str, DisposableDrillContainerReadbackContract]:
         pgbouncer_container_name=bootstrap.pgbouncer_container_name,
         observer_image_ref=OBSERVER_IMAGE_REF,
         journal_host_root=repo_root,
+        evidence_host_root=repo_root / "backend",
         repo_root=repo_root,
         artifact_sha256="f" * 64,
         source_commit="1" * 40,
@@ -474,6 +475,76 @@ def test_facade_routes_postgres_readback_through_single_projection_owner(
     assert payload["config_env_captured"] is False
     assert payload["secret_value_or_hash_persisted"] is False
     assert SENTINEL_SECRET not in json.dumps(payload, sort_keys=True)
+
+
+def test_facade_observer_readback_uses_print_spec_evidence_derivation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    calls: list[DisposableDrillContainerReadbackContract] = []
+    journal_root = tmp_path / "journal"
+    evidence_root = journal_root / "signal-observer"
+    journal_root.mkdir()
+    evidence_root.mkdir()
+
+    def fake_execute(
+        contract: DisposableDrillContainerReadbackContract,
+    ) -> dict[str, object]:
+        calls.append(contract)
+        return {
+            "validation_passed": True,
+            "first_failure": None,
+            "failures": [],
+            "role": contract.role,
+            "raw_inspect_json_captured": False,
+            "config_env_captured": False,
+            "secret_value_or_hash_persisted": False,
+        }
+
+    monkeypatch.setattr(
+        drill_facade,
+        "execute_disposable_container_readback",
+        fake_execute,
+    )
+    temp_root = _bootstrap().temp_root
+
+    exit_code = drill_facade.main(
+        [
+            "--execute-container-readback",
+            "observer",
+            "--drill-suffix",
+            DRILL_SUFFIX,
+            "--temp-root",
+            str(temp_root),
+            "--journal-root",
+            str(journal_root),
+            "--postgres-drill-image-ref",
+            POSTGRES_IMAGE_REF,
+            "--observer-backend-image-ref",
+            OBSERVER_IMAGE_REF,
+            "--source-commit",
+            "1" * 40,
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert len(calls) == 1
+    assert calls[0].role == "observer"
+    argv = calls[0].run_argv
+    assert (
+        f"type=bind,src={journal_root.resolve()},"
+        "dst=/app/data/runtime-database-incidents"
+    ) in argv
+    assert (
+        f"type=bind,src={evidence_root.resolve()},"
+        "dst=/app/data/runtime-database-incidents/signal-observer"
+    ) in argv
+    assert str(temp_root / "observer-evidence") not in "\0".join(argv)
+    assert payload["raw_inspect_json_captured"] is False
+    assert payload["config_env_captured"] is False
+    assert payload["secret_value_or_hash_persisted"] is False
 
 
 def test_source_has_one_projection_facade_and_no_raw_inspect_alternate() -> None:

@@ -69,11 +69,14 @@ def _observer_config(
     repo_root = Path(__file__).resolve().parents[3]
     journal_root = tmp_path / "journal"
     journal_root.mkdir()
+    evidence_root = journal_root / "signal-observer"
+    evidence_root.mkdir()
     return DisposableDrillObserverConfig(
         container_name=bootstrap.observer_container_name,
         pgbouncer_container_name=bootstrap.pgbouncer_container_name,
         observer_image_ref=OBSERVER_IMAGE_REF,
         journal_host_root=journal_root,
+        evidence_host_root=evidence_root,
         repo_root=repo_root,
         artifact_sha256=canonical_observer_artifact_sha256(repo_root),
         source_commit="0123456789abcdef",

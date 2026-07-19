@@ -231,10 +231,10 @@ def prepare_formal_preconditions(
     config: FormalDrillCliConfig,
 ) -> FormalPreconditionState:
     bootstrap = config.bootstrap
-    expected_journal_root = bootstrap.temp_root / "observer-evidence"
-    expected_evidence_root = expected_journal_root / "signal-observer"
+    expected_evidence_parent = bootstrap.temp_root / "observer-evidence"
+    expected_evidence_root = expected_evidence_parent / "signal-observer"
     if (
-        config.observer.journal_host_root != expected_journal_root
+        config.observer.journal_host_root != config.journal_root
         or config.observer.evidence_host_root != expected_evidence_root
     ):
         raise _precondition_failure(
@@ -249,7 +249,7 @@ def prepare_formal_preconditions(
     )
     state = _materialize_owned_directory(
         state,
-        expected_journal_root,
+        expected_evidence_parent,
         FORMAL_OBSERVER_JOURNAL_PARENT_MATERIALIZATION_FAILED,
     )
     state = _materialize_owned_directory(

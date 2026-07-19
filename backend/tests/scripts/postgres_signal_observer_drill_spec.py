@@ -540,6 +540,7 @@ def test_drill_facade_derives_observer_and_client_names_from_suffix_only(
 ) -> None:
     journal_root = tmp_path / "journal"
     journal_root.mkdir()
+    (journal_root / "signal-observer").mkdir()
     observer_exit = drill_facade_main(
         [
             "--print-observer-spec",
@@ -832,11 +833,14 @@ def observer_config(tmp_path: Path) -> DisposableDrillObserverConfig:
     repo_root = Path(__file__).resolve().parents[3]
     journal_root = tmp_path / "journal"
     journal_root.mkdir()
+    evidence_root = journal_root / "signal-observer"
+    evidence_root.mkdir()
     return DisposableDrillObserverConfig(
         container_name="postgres-signal-observer-drill-observer-1",
         pgbouncer_container_name="postgres-signal-observer-drill-pgbouncer-1",
         observer_image_ref=OBSERVER_IMAGE_REF,
         journal_host_root=journal_root,
+        evidence_host_root=evidence_root,
         repo_root=repo_root,
         artifact_sha256=canonical_observer_artifact_sha256(repo_root),
         source_commit="0123456789abcdef",
@@ -879,6 +883,9 @@ def test_observer_spec_overrides_image_healthcheck_and_preserves_budgets(
         "type=bind,src="
         f"{observer_config.journal_host_root.resolve()},"
         "dst=/app/data/runtime-database-incidents",
+        "type=bind,src="
+        f"{observer_config.evidence_host_root.resolve()},"
+        "dst=/app/data/runtime-database-incidents/signal-observer",
     ]
     assert all(
         "/app/docker/" not in mount
@@ -912,6 +919,23 @@ def test_observer_runtime_mount_contract_covers_every_artifact_source_owner() ->
     assert uncovered == []
 
 
+def test_observer_rejects_conflated_journal_role_sources_before_docker(
+    observer_config: DisposableDrillObserverConfig,
+) -> None:
+    conflated = DisposableDrillObserverConfig(
+        **{
+            **observer_config.__dict__,
+            "evidence_host_root": observer_config.journal_host_root,
+        }
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="drill_observer_journal_role_sources_conflict",
+    ):
+        conflated.docker_argv()
+
+
 @pytest.mark.parametrize("source_state", ["missing", "symlink"])
 def test_observer_rejects_unowned_postgres_dockerfile_before_docker(
     tmp_path: Path,
@@ -928,11 +952,14 @@ def test_observer_rejects_unowned_postgres_dockerfile_before_docker(
         dockerfile.symlink_to(foreign)
     journal_root = tmp_path / "journal"
     journal_root.mkdir()
+    evidence_root = journal_root / "signal-observer"
+    evidence_root.mkdir()
     config = DisposableDrillObserverConfig(
         container_name="postgres-signal-observer-drill-observer-1",
         pgbouncer_container_name="postgres-signal-observer-drill-pgbouncer-1",
         observer_image_ref=OBSERVER_IMAGE_REF,
         journal_host_root=journal_root,
+        evidence_host_root=evidence_root,
         repo_root=repo_root,
         artifact_sha256="a" * 64,
         source_commit="0123456789abcdef",

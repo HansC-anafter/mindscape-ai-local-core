@@ -48,6 +48,7 @@ class DisposableDrillObserverConfig:
     pgbouncer_container_name: str
     observer_image_ref: str
     journal_host_root: Path
+    evidence_host_root: Path
     repo_root: Path
     artifact_sha256: str
     source_commit: str
@@ -71,6 +72,7 @@ class DisposableDrillObserverConfig:
             raise ValueError("drill_observer_source_commit_invalid")
         for field_name, path in {
             "journal_host_root": self.journal_host_root,
+            "evidence_host_root": self.evidence_host_root,
             "repo_root": self.repo_root,
             "backend_root": self.repo_root / "backend",
             "scripts_root": self.repo_root / "scripts",
@@ -88,6 +90,8 @@ class DisposableDrillObserverConfig:
         postgres_dockerfile = (
             self.repo_root.resolve() / OBSERVER_ARTIFACT_POSTGRES_DOCKERFILE
         )
+        if self.journal_host_root.resolve() == self.evidence_host_root.resolve():
+            raise ValueError("drill_observer_journal_role_sources_conflict")
         if (
             postgres_dockerfile.is_symlink()
             or not postgres_dockerfile.is_file()
@@ -106,10 +110,6 @@ class DisposableDrillObserverConfig:
             role=OBSERVER_BACKEND_IMAGE_ROLE,
         )
 
-    @property
-    def evidence_host_root(self) -> Path:
-        return Path(self.journal_host_root).resolve() / "signal-observer"
-
     def docker_argv(self) -> tuple[str, ...]:
         """Override the backend image healthcheck and preserve exact budgets."""
 
@@ -120,6 +120,7 @@ class DisposableDrillObserverConfig:
             self.repo_root.resolve() / OBSERVER_ARTIFACT_POSTGRES_DOCKERFILE
         )
         journal_root = self.journal_host_root.resolve()
+        evidence_root = self.evidence_host_root.resolve()
         return canonical_docker_argv(
             "run",
             "-d",
@@ -172,6 +173,9 @@ class DisposableDrillObserverConfig:
             "dst=/app/docker/postgres/Dockerfile,readonly",
             "--mount",
             f"type=bind,src={journal_root},dst=/app/data/runtime-database-incidents",
+            "--mount",
+            f"type=bind,src={evidence_root},"
+            "dst=/app/data/runtime-database-incidents/signal-observer",
             "--env",
             "PYTHONPATH=/app:/app/backend",
             "--env",
@@ -225,6 +229,13 @@ class DisposableDrillObserverConfig:
                 "container_target": "/app/docker/postgres/Dockerfile",
                 "read_only": True,
                 "host_source_disclosed": False,
+            },
+            "journal_role_contract": {
+                "incident_journal_target": "/app/data/runtime-database-incidents",
+                "observer_evidence_target": "/app/data/runtime-database-incidents/signal-observer",
+                "distinct_host_sources": self.journal_host_root.resolve()
+                != self.evidence_host_root.resolve(),
+                "host_sources_disclosed": False,
             },
             "shell": False,
             "argv_sha256": hashlib.sha256("\0".join(argv).encode("utf-8")).hexdigest(),
