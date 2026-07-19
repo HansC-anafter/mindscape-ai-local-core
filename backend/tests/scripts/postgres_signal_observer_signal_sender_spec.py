@@ -16,6 +16,7 @@ from scripts.maintenance.postgres_signal_observer_core import (
     POSTGRES_SIGNAL_NAME,
     POSTGRES_SIGNAL_OUTPUT_BUDGET_BYTES,
     POSTGRES_SIGNAL_SENDER_EXECUTABLE,
+    POSTGRES_SIGNAL_SENDER_USER,
     POSTGRES_SIGNAL_TERMINAL_DEADLINE_SECONDS,
     canonical_disposable_drill_name,
     canonical_observer_artifact_sha256,
@@ -55,19 +56,23 @@ def test_signal_sender_uses_one_exact_postgres_16_pg_ctl_argv(
     assert argv == (
         "/usr/local/bin/docker",
         "exec",
+        "--user",
+        "postgres",
         canonical_disposable_drill_name("postgres", DRILL_SUFFIX),
         "/usr/lib/postgresql/16/bin/pg_ctl",
         "kill",
         "QUIT",
         "96",
     )
-    assert POSTGRES_SIGNAL_SENDER_EXECUTABLE == argv[3]
-    assert POSTGRES_SIGNAL_NAME == argv[5]
+    assert POSTGRES_SIGNAL_SENDER_USER == argv[3]
+    assert POSTGRES_SIGNAL_SENDER_EXECUTABLE == argv[5]
+    assert POSTGRES_SIGNAL_NAME == argv[7]
     assert "sh" not in argv
     assert "-c" not in argv
 
     spec = signal_config.redacted_spec()
     assert spec["postgres_major"] == 16
+    assert spec["sender_user"] == "postgres"
     assert spec["shell"] is False
     assert spec["target_postgres_pid_disclosed"] is False
     assert spec["terminal_deadline_seconds"] == 10.0

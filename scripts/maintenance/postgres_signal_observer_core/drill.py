@@ -25,6 +25,7 @@ from .drill_docker_runtime import canonical_docker_argv
 DRILL_APPLICATION_NAME = "postgres-signal-observer-drill-client"
 _IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_.-]{0,62}$")
 POSTGRES_SIGNAL_SENDER_EXECUTABLE = "/usr/lib/postgresql/16/bin/pg_ctl"
+POSTGRES_SIGNAL_SENDER_USER = "postgres"
 POSTGRES_SIGNAL_NAME = "QUIT"
 POSTGRES_SIGNAL_TERMINAL_DEADLINE_SECONDS = 10.0
 POSTGRES_SIGNAL_OUTPUT_BUDGET_BYTES = 4_096
@@ -219,6 +220,8 @@ class DisposableDrillSignalConfig:
         self.validate()
         return canonical_docker_argv(
             "exec",
+            "--user",
+            POSTGRES_SIGNAL_SENDER_USER,
             self.container_name,
             POSTGRES_SIGNAL_SENDER_EXECUTABLE,
             "kill",
@@ -240,6 +243,7 @@ class DisposableDrillSignalConfig:
             ),
             "postgres_major": 16,
             "sender_executable": POSTGRES_SIGNAL_SENDER_EXECUTABLE,
+            "sender_user": POSTGRES_SIGNAL_SENDER_USER,
             "signal_name": POSTGRES_SIGNAL_NAME,
             "target_postgres_pid_sha256": hashlib.sha256(
                 str(self.target_postgres_pid).encode("ascii")
