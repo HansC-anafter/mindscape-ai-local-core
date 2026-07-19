@@ -25,6 +25,7 @@ from scripts.maintenance.postgres_signal_observer_core import (  # noqa: E402
     OBSERVER_BACKEND_IMAGE_ROLE,
     POSTGRES_DRILL_IMAGE_ROLE,
     canonical_disposable_drill_name,
+    canonical_disposable_drill_temp_root,
     canonical_observer_artifact_sha256,
     build_formal_drill_cli_config,
     execute_canonical_formal_drill,
@@ -171,9 +172,12 @@ def main(argv: list[str] | None = None) -> int:
     ):
         raise SystemExit(LEGACY_FORMAL_MUTATION_ENTRY_FAILURE)
     if args.execute_formal_drill_sequence:
+        drill_suffix = str(_required(args.drill_suffix, "--drill-suffix"))
+        if args.temp_root is not None:
+            raise SystemExit("formal_drill_temp_root_caller_owned")
         config = build_formal_drill_cli_config(
-            drill_suffix=str(_required(args.drill_suffix, "--drill-suffix")),
-            temp_root=Path(_required(args.temp_root, "--temp-root")),
+            drill_suffix=drill_suffix,
+            temp_root=canonical_disposable_drill_temp_root(drill_suffix),
             journal_root=Path(_required(args.journal_root, "--journal-root")),
             postgres_image_ref=image_contract.image_ref_for(POSTGRES_DRILL_IMAGE_ROLE),
             observer_image_ref=image_contract.image_ref_for(OBSERVER_BACKEND_IMAGE_ROLE),

@@ -17,6 +17,7 @@ from .drill_bootstrap import (
     PGBOUNCER_DECLARED_VOLUME_TMPFS,
     POSTGRES_DATA_TMPFS,
     DisposableDrillBootstrapConfig,
+    canonical_disposable_drill_temp_root,
 )
 from .drill_admin_url import (
     DisposableDrillObserverEnvironment,
@@ -150,6 +151,7 @@ __all__ = [
     "container_readback_argv",
     "container_readback_projection_format",
     "canonical_disposable_drill_name",
+    "canonical_disposable_drill_temp_root",
     "drill_image_digest",
     "execute_formal_postgres_bootstrap",
     "canonical_formal_drill_sequence",

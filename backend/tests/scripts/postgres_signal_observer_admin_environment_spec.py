@@ -258,8 +258,6 @@ def test_formal_facade_uses_single_precondition_derived_environment_contract(
             str(journal_root),
             "--drill-suffix",
             DRILL_SUFFIX,
-            "--temp-root",
-            str(TEMP_ROOT),
             "--postgres-drill-image-ref",
             POSTGRES_IMAGE_REF,
             "--observer-backend-image-ref",
@@ -276,9 +274,48 @@ def test_formal_facade_uses_single_precondition_derived_environment_contract(
 
     assert exit_code == 0
     assert captured["build"]["drill_suffix"] == DRILL_SUFFIX
+    assert captured["build"]["temp_root"] == TEMP_ROOT
     assert captured["execute"] is marker
     assert payload["validation_passed"] is True
     assert "postgresql://" not in json.dumps(payload, sort_keys=True)
+
+
+def test_formal_facade_rejects_caller_owned_temp_root_before_execution(
+    bootstrap_config: DisposableDrillBootstrapConfig,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    journal_root = tmp_path / "journal"
+    journal_root.mkdir()
+
+    def unexpected(**_kwargs):
+        raise AssertionError("formal sequence construction must remain blocked")
+
+    monkeypatch.setattr(drill_facade, "build_formal_drill_cli_config", unexpected)
+    monkeypatch.setattr(drill_facade, "execute_canonical_formal_drill", unexpected)
+
+    with pytest.raises(SystemExit, match="formal_drill_temp_root_caller_owned"):
+        drill_facade.main(
+            [
+                "--execute-formal-drill-sequence",
+                "--journal-root",
+                str(journal_root),
+                "--drill-suffix",
+                DRILL_SUFFIX,
+                "--temp-root",
+                str(bootstrap_config.temp_root),
+                "--postgres-drill-image-ref",
+                POSTGRES_IMAGE_REF,
+                "--observer-backend-image-ref",
+                OBSERVER_IMAGE_REF,
+                "--source-commit",
+                "0123456789abcdef",
+                "--database-user",
+                "mindscape",
+                "--database-name",
+                "mindscape_core",
+            ]
+        )
 
 
 def test_single_launcher_has_no_host_environment_or_second_provisioning_path() -> None:

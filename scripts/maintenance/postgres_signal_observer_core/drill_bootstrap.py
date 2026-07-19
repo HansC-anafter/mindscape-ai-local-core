@@ -25,6 +25,14 @@ PGBOUNCER_DECLARED_VOLUME_TMPFS = "/var/lib/postgresql/data:rw,noexec,nosuid,siz
 PGBOUNCER_RUNTIME_TMPFS = "/tmp:rw,noexec,nosuid,size=4m"
 
 
+def canonical_disposable_drill_temp_root(drill_suffix: str) -> Path:
+    """Return the only source-owned staging root for a drill suffix."""
+
+    if not DRILL_SUFFIX_PATTERN.fullmatch(str(drill_suffix)):
+        raise ValueError("drill_bootstrap_suffix_invalid")
+    return Path(f"/private/tmp/mindscape-postgres-signal-drill-{drill_suffix}")
+
+
 def _argv_sha256(argv: tuple[str, ...]) -> str:
     return hashlib.sha256("\0".join(argv).encode("utf-8")).hexdigest()
 
@@ -38,11 +46,7 @@ class DisposableDrillBootstrapConfig:
     postgres_image_ref: str
 
     def validate(self) -> None:
-        if not DRILL_SUFFIX_PATTERN.fullmatch(str(self.drill_suffix)):
-            raise ValueError("drill_bootstrap_suffix_invalid")
-        expected_root = Path(
-            f"/private/tmp/mindscape-postgres-signal-drill-{self.drill_suffix}"
-        )
+        expected_root = canonical_disposable_drill_temp_root(self.drill_suffix)
         candidate = Path(self.temp_root)
         if (
             not candidate.is_absolute()
