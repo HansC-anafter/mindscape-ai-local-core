@@ -14,13 +14,19 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from scripts.maintenance.postgres_signal_observer_core import (  # noqa: E402
-    EvidenceBudget,
-    ObserverConfig,
-    ObserverEvidenceStore,
-    PostgresSignalObserver,
-    SIGNAL_FILTER,
+from scripts.maintenance.postgres_signal_observer_core.artifact import (  # noqa: E402
     canonical_observer_artifact_sha256,
+)
+from scripts.maintenance.postgres_signal_observer_core.evidence import (  # noqa: E402
+    EvidenceBudget,
+    ObserverEvidenceStore,
+)
+from scripts.maintenance.postgres_signal_observer_core.service import (  # noqa: E402
+    ObserverConfig,
+    PostgresSignalObserver,
+)
+from scripts.maintenance.postgres_signal_observer_core.tracefs import (  # noqa: E402
+    SIGNAL_FILTER,
 )
 
 
