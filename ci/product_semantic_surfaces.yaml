@@ -1,6 +1,6 @@
 version: 1
 registry_id: mindscape.product-semantic-surfaces.local-core
-updated_at: "2026-07-16"
+updated_at: "2026-07-25"
 owner_review_handle: "@team-leads"
 
 declaration:
@@ -13,6 +13,55 @@ declaration:
     - breaking-product-semantics-approved-by
 
 surfaces:
+  - id: psc.local-core.workspace-product-capability-admission.v1
+    tier: P0
+    owner: "@team-leads"
+    contract_doc: mindscape-ai-cloud/docs/internal/local-core/product-semantics/tenant-product-capability-set-governance-contract-2026-07-24.zh-TW.md
+    requires_product_semantic_declaration: true
+    semantics:
+      - The source Local Core is the only owner of workspace and explicit Gate0 group Product Capability Set configuration, revision-pinned effective snapshots, host readiness, and local admission; remote views read that source projection without a Site-Hub or remote mirror truth.
+      - Installed and enabled packs are host readiness only, while Remote Workbench capability allowlists remain remote gateway exposure only; runtime metadata overrides, deployment providers, and CRS decisions cannot add or rewrite workspace configuration.
+      - Site-Hub is one replaceable commercial Deployment Control Provider adapter whose envelope may only narrow configured surfaces; unmanaged local workspaces preserve offline operation without Site-Hub.
+      - Tool, playbook, capability API, run-harness, Meeting, and background task roots share one admission facade; local execution makes zero Site-Hub or CRS calls, external-provider roots make at most one CRS call, and child phases consume the immutable snapshot.
+      - Existing Core Settings is the only workspace and explicit active-group Product Capability Set editor: it stages a local draft, reviews the complete change, and performs one revision-checked replacement through the source Local Core; Capability Packs, Settings Assistant, public Remote Workbench, and Site-Hub storage never become alternate writers.
+      - Existing workspaces without a scope row remain legacy-unmanaged; configuration-only, shadow, and enforced are explicit per-workspace reviewed states, and catalog imports or group assignments never fan out or silently change member modes.
+      - Revocation keeps historical artifacts visible and already-admitted runs pinned, while configuration, admission, and workbench surfaces add no outbox, worker, queue, PgBouncer expansion, per-card request, or UX polling interval.
+    path_globs:
+      - backend/alembic_migrations/postgres/versions/*workspace_product_configuration*
+      - backend/app/services/workspace_product_configuration/**
+      - backend/app/services/deployment_control/**
+      - backend/app/capabilities/mindscape_cloud_integration/services/deployment_control/**
+      - backend/app/services/workspace_capability_admission/**
+      - backend/app/routes/core/workspace_product_configuration.py
+      - backend/app/app_bootstrap/workspace_product_routes.py
+      - backend/app/app_bootstrap/workspace_capability_request_admission.py
+      - backend/app/app_bootstrap/capability_activation_middleware.py
+      - backend/app/shared/tool_executor.py
+      - backend/app/services/unified_tool_executor_core/**
+      - backend/app/services/playbook_run_executor.py
+      - backend/app/services/playbook_execution_admission.py
+      - backend/app/services/playbook/tool_execution/**
+      - backend/app/routes/core/tools/execution.py
+      - backend/app/routes/core/workspace/run_harness.py
+      - backend/app/services/run_harness/**
+      - backend/app/routes/meeting_sessions.py
+      - backend/app/services/meeting_product_admission.py
+      - backend/app/services/orchestration/meeting/**
+      - backend/app/runner/task_executor_child.py
+      - backend/app/services/stores/installed_packs_store.py
+      - backend/app/capabilities/mindscape_cloud_integration/services/remote_workbench_effective_policy.py
+      - web-console/src/app/workspaces/**
+      - web-console/src/app/settings/page.tsx
+      - web-console/src/app/settings/types.ts
+      - web-console/src/app/settings/navigation/settingsNavigationRegistry.ts
+      - web-console/src/app/settings/components/SettingsContentHost.tsx
+      - web-console/src/app/settings/components/panels/WorkspaceProduct*
+      - web-console/src/components/workspace-products/**
+      - web-console/src/lib/workspace-product-configuration-api*
+      - web-console/src/lib/server-api-proxy.ts
+      - web-console/src/components/**
+      - backend/tests/workspace_capability_admission/**
+
   - id: psc.local-core.runtime-database-resilience-and-pack-install-atomicity.v1
     tier: P0
     owner: "@team-leads"
