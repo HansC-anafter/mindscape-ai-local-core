@@ -12,6 +12,7 @@ import hashlib
 import json
 import logging
 import shutil
+from difflib import unified_diff
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -195,6 +196,85 @@ def check_dirty_state(cap_dir: Path) -> DirtyCheckResult:
 
     result.is_dirty = bool(result.modified or result.added or result.deleted)
     return result
+
+
+def _review_path(root: Path, relative_path: str) -> Path:
+    candidate = (root / relative_path).resolve()
+    resolved_root = root.resolve()
+    if candidate != resolved_root and resolved_root not in candidate.parents:
+        raise ValueError("dirty_review_path_outside_capability_root")
+    return candidate
+
+
+def _text_diff(current_path: Path, candidate_path: Path) -> List[str]:
+    if not current_path.is_file() or not candidate_path.is_file():
+        return []
+    if current_path.stat().st_size > 262_144 or candidate_path.stat().st_size > 262_144:
+        return []
+    try:
+        current = current_path.read_text(encoding="utf-8").splitlines()
+        candidate = candidate_path.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError):
+        return []
+    lines = unified_diff(
+        current,
+        candidate,
+        fromfile="installed",
+        tofile="candidate",
+        lineterm="",
+    )
+    return [line[:500] for line in list(lines)[:120]]
+
+
+def build_dirty_review_payload(
+    installed_cap_dir: Path,
+    candidate_cap_dir: Path,
+    dirty: DirtyCheckResult,
+) -> Dict[str, object]:
+    """Compare every local change with the incoming candidate for review."""
+
+    change_kinds = {
+        **{path: "modified" for path in dirty.modified},
+        **{path: "added" for path in dirty.added},
+        **{path: "deleted" for path in dirty.deleted},
+    }
+    files = []
+    for relative_path in sorted(change_kinds):
+        installed_path = _review_path(installed_cap_dir, relative_path)
+        candidate_path = _review_path(candidate_cap_dir, relative_path)
+        installed_exists = installed_path.is_file()
+        candidate_exists = candidate_path.is_file()
+        installed_hash = _hash_file(installed_path) if installed_exists else None
+        candidate_hash = _hash_file(candidate_path) if candidate_exists else None
+        local_change_preserved = (
+            installed_exists == candidate_exists
+            and installed_hash == candidate_hash
+        )
+        files.append(
+            {
+                "path": relative_path,
+                "local_change": change_kinds[relative_path],
+                "installed_sha256": installed_hash,
+                "candidate_sha256": candidate_hash,
+                "candidate_state": (
+                    "matches_local"
+                    if local_change_preserved
+                    else "differs_from_local"
+                    if candidate_exists
+                    else "absent"
+                ),
+                "local_change_preserved": local_change_preserved,
+                "text_diff": _text_diff(installed_path, candidate_path),
+            }
+        )
+    return {
+        "schema_version": "mindscape.capability_install_dirty_review.v1",
+        "file_count": len(files),
+        "all_local_changes_preserved": all(
+            bool(item["local_change_preserved"]) for item in files
+        ),
+        "files": files,
+    }
 
 
 def _load_installed_file_manifest(cap_dir: Path) -> Dict[str, str]:

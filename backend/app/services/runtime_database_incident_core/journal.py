@@ -16,8 +16,10 @@ from typing import Any, Iterator, Mapping, Optional
 from .models import (
     IncidentCloseReceipt,
     IncidentContainmentReceipt,
+    IncidentPackInstallPermitReceipt,
     IncidentReceipt,
     IncidentState,
+    IncidentTargetedMigrationPermitReceipt,
     _parse_timestamp,
 )
 
@@ -236,6 +238,104 @@ class RuntimeDatabaseIncidentJournal:
                     "event": "incident_contained",
                     "at": event_time,
                     "containment_receipt": containment_receipt.to_dict(),
+                },
+            )
+            self._write_current_unlocked(updated)
+            return updated
+
+    def grant_pack_install_permit(
+        self,
+        incident_id: str,
+        permit_receipt: IncidentPackInstallPermitReceipt,
+    ) -> IncidentReceipt:
+        """Attach an exact pack-only permit without claiming incident containment."""
+
+        permit_receipt.validate()
+        if _parse_timestamp(
+            permit_receipt.expires_at,
+            field_name="pack_install_permit_expires_at",
+        ) <= datetime.now(timezone.utc):
+            raise ValueError("pack_install_permit_expired")
+        with self._lock():
+            current = self._require_current_unlocked(incident_id)
+            if current.state is IncidentState.CLOSED:
+                raise IncidentTransitionError(
+                    f"Incident {incident_id} is already closed"
+                )
+            permit_payload = permit_receipt.to_dict()
+            existing = tuple(current.pack_install_permits)
+            for item in existing:
+                if str(item.get("permit_id") or "") != permit_receipt.permit_id:
+                    continue
+                if dict(item) == permit_payload:
+                    return current
+                raise IncidentTransitionError(
+                    f"Permit {permit_receipt.permit_id} already has another receipt"
+                )
+            if len(existing) >= 16:
+                raise IncidentTransitionError("pack_install_permit_limit_exceeded")
+            event_time = utc_now()
+            updated = replace(
+                current,
+                updated_at=event_time,
+                pack_install_permits=(*existing, permit_payload),
+            )
+            self._append_event_unlocked(
+                incident_id=incident_id,
+                event={
+                    "event": "pack_install_permit_granted",
+                    "at": event_time,
+                    "permit_receipt": permit_payload,
+                },
+            )
+            self._write_current_unlocked(updated)
+            return updated
+
+    def grant_targeted_migration_permit(
+        self,
+        incident_id: str,
+        permit_receipt: IncidentTargetedMigrationPermitReceipt,
+    ) -> IncidentReceipt:
+        """Attach one exact create-only migration permit without containment."""
+
+        permit_receipt.validate()
+        if _parse_timestamp(
+            permit_receipt.expires_at,
+            field_name="targeted_migration_permit_expires_at",
+        ) <= datetime.now(timezone.utc):
+            raise ValueError("targeted_migration_permit_expired")
+        with self._lock():
+            current = self._require_current_unlocked(incident_id)
+            if current.state is IncidentState.CLOSED:
+                raise IncidentTransitionError(
+                    f"Incident {incident_id} is already closed"
+                )
+            permit_payload = permit_receipt.to_dict()
+            existing = tuple(current.targeted_migration_permits)
+            for item in existing:
+                if str(item.get("permit_id") or "") != permit_receipt.permit_id:
+                    continue
+                if dict(item) == permit_payload:
+                    return current
+                raise IncidentTransitionError(
+                    f"Permit {permit_receipt.permit_id} already has another receipt"
+                )
+            if len(existing) >= 16:
+                raise IncidentTransitionError(
+                    "targeted_migration_permit_limit_exceeded"
+                )
+            event_time = utc_now()
+            updated = replace(
+                current,
+                updated_at=event_time,
+                targeted_migration_permits=(*existing, permit_payload),
+            )
+            self._append_event_unlocked(
+                incident_id=incident_id,
+                event={
+                    "event": "targeted_migration_permit_granted",
+                    "at": event_time,
+                    "permit_receipt": permit_payload,
                 },
             )
             self._write_current_unlocked(updated)

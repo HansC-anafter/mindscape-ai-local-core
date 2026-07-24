@@ -79,10 +79,22 @@ _DESTRUCTIVE_MIGRATION_MARKERS = (
 )
 
 
-def _validate_expand_compatible_migrations(files: list[Path]) -> str:
+def _validate_expand_compatible_migrations(
+    files: list[Path],
+    *,
+    pending_revision_ids: set[str] | None = None,
+) -> str:
     digest = hashlib.sha256()
     for path in sorted(files):
         content = path.read_text(encoding="utf-8")
+        digest.update(path.name.encode("utf-8"))
+        digest.update(content.encode("utf-8"))
+        revision_id = extract_revision_id(path)
+        if (
+            pending_revision_ids is not None
+            and str(revision_id or "") not in pending_revision_ids
+        ):
+            continue
         tree = ast.parse(content, filename=path.as_posix())
         upgrade = next(
             (
@@ -105,8 +117,6 @@ def _validate_expand_compatible_migrations(files: list[Path]) -> str:
             raise RuntimeError(
                 f"candidate_migration_not_expand_compatible:{path.name}:{marker.strip()}"
             )
-        digest.update(path.name.encode("utf-8"))
-        digest.update(content.encode("utf-8"))
     return digest.hexdigest()
 
 
@@ -146,20 +156,6 @@ def execute_migrations(
     try:
         migration_started = time.monotonic()
         logger.info(f"Executing database migrations for {capability_code}...")
-        try:
-            require_runtime_database_mutation_allowed(
-                f"capability_migration:{capability_code}"
-            )
-        except RuntimeDatabaseMutationBlocked as exc:
-            if result.migration_status is None:
-                result.migration_status = {}
-            result.migration_status[capability_code] = "waiting_db_incident"
-            result.add_error(
-                "Migration blocked by runtime database incident gate: "
-                f"{exc.decision.incident_id or exc.decision.reason}"
-            )
-            return
-
         capability_dir = capabilities_dir / capability_code
         migrations_yaml = capability_dir / "migrations.yaml"
         migration_data = {}
@@ -278,11 +274,8 @@ def execute_migrations(
             capabilities_root,
             alembic_configs,
             extra_version_locations=candidate_version_locations,
+            excluded_capability_codes={capability_code},
         )
-        ddl_checksum = _validate_expand_compatible_migrations(
-            current_migration_files
-        )
-
         engine = create_session_semantics_engine(
             get_postgres_url_core_session(),
             "local-core-runtime-assets-migration-check",
@@ -358,6 +351,31 @@ def execute_migrations(
                 return
 
         pending_revisions = _pending_revisions(revisions, applied_revisions)
+        ddl_checksum = _validate_expand_compatible_migrations(
+            current_migration_files,
+            pending_revision_ids=(
+                None
+                if use_branch_scoped
+                else {str(revision) for revision in pending_revisions}
+            ),
+        )
+        migration_mutation_required = bool(pending_revisions) or (
+            _should_use_branch_scoped_upgrade(revisions, use_branch_scoped)
+        )
+        if migration_mutation_required:
+            try:
+                require_runtime_database_mutation_allowed(
+                    f"capability_migration:{capability_code}"
+                )
+            except RuntimeDatabaseMutationBlocked as exc:
+                if result.migration_status is None:
+                    result.migration_status = {}
+                result.migration_status[capability_code] = "waiting_db_incident"
+                result.add_error(
+                    "Migration blocked by runtime database incident gate: "
+                    f"{exc.decision.incident_id or exc.decision.reason}"
+                )
+                return
 
         if _should_use_branch_scoped_upgrade(revisions, use_branch_scoped):
             target = f"{capability_code}@head"

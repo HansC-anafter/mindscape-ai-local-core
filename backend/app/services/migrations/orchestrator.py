@@ -17,6 +17,7 @@ from .execution_policy import (
     apply_migration_subprocess_policy,
     require_migration_execution_allowed,
 )
+from .independent_revision_executor import execute_independent_revision
 from .runtime_locations import (
     append_runtime_version_locations,
     configure_runtime_version_locations,
@@ -41,6 +42,7 @@ class MigrationOrchestrator:
         capabilities_root: Path,
         alembic_configs: Dict[str, Path],
         extra_version_locations: list[Path] | None = None,
+        excluded_capability_codes: set[str] | None = None,
     ):
         """
         Args:
@@ -55,6 +57,11 @@ class MigrationOrchestrator:
         self.extra_version_locations = [
             Path(path).resolve() for path in (extra_version_locations or [])
         ]
+        self.excluded_capability_codes = {
+            str(code).strip()
+            for code in (excluded_capability_codes or set())
+            if str(code).strip()
+        }
 
     def dry_run(self, db_type: str) -> Dict:
         """Perform a dry-run to show what migrations would be executed."""
@@ -259,7 +266,24 @@ class MigrationOrchestrator:
 
         alembic_config = self.alembic_configs[db_type]
         try:
-            completed = self._run_alembic_upgrade(alembic_config, revision)
+            script_dir = self._load_script_directory(db_type)
+            target = script_dir.get_revision(revision) if script_dir else None
+            is_single_independent_revision = bool(
+                target is not None
+                and getattr(target, "down_revision", None) is None
+                and plan["migrations_pending"] == 1
+            )
+            if is_single_independent_revision:
+                require_migration_execution_allowed(alembic_config, revision)
+                completed = execute_independent_revision(
+                    revision_script=target,
+                    postgres_url=str(
+                        self._get_env_requirements(db_type)["postgres_url"]
+                    ),
+                    revision=revision,
+                )
+            else:
+                completed = self._run_alembic_upgrade(alembic_config, revision)
         except Exception as exc:
             logger.error("Targeted migration execution failed: %s", exc)
             return {
@@ -397,6 +421,7 @@ class MigrationOrchestrator:
                 config,
                 capabilities_root=self.capabilities_root,
                 db_type=db_type,
+                excluded_capability_codes=self.excluded_capability_codes,
             )
             append_runtime_version_locations(config, self.extra_version_locations)
 
@@ -468,6 +493,7 @@ configure_runtime_version_locations(
     config,
     capabilities_root=Path('{capabilities_root}'),
     db_type='postgres',
+    excluded_capability_codes={repr(self.excluded_capability_codes)},
 )
 append_runtime_version_locations(
     config,

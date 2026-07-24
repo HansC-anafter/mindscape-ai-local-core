@@ -20,8 +20,10 @@ from backend.app.services.runtime_database_incident_core.journal import (
 from backend.app.services.runtime_database_incident_core.models import (
     IncidentCloseReceipt,
     IncidentContainmentReceipt,
+    IncidentPackInstallPermitReceipt,
     IncidentReceipt,
     IncidentState,
+    IncidentTargetedMigrationPermitReceipt,
     MutationDecision,
 )
 from backend.app.services.runtime_database_incident_core.mutation_context import (
@@ -68,6 +70,8 @@ def require_runtime_database_mutation_allowed(
 __all__ = [
     "IncidentCloseReceipt",
     "IncidentContainmentReceipt",
+    "IncidentPackInstallPermitReceipt",
+    "IncidentTargetedMigrationPermitReceipt",
     "IncidentJournalUnavailable",
     "IncidentReceipt",
     "IncidentState",

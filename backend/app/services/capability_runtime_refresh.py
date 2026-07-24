@@ -15,6 +15,9 @@ from backend.app.services.capability_api_loader import (
 )
 
 
+_STATEFUL_MODULE_SEGMENTS = ("models", "database")
+
+
 def _dedupe_non_empty(values: Iterable[str]) -> list[str]:
     deduped: list[str] = []
     seen: set[str] = set()
@@ -68,12 +71,30 @@ def _remove_capability_routes(
     return removed_count
 
 
+def _is_stateful_capability_module(
+    module_name: str,
+    module_prefixes: list[str],
+) -> bool:
+    """Keep ORM namespaces alive while refreshing executable pack modules."""
+
+    return any(
+        module_name == f"{prefix}.{segment}"
+        or module_name.startswith(f"{prefix}.{segment}.")
+        for prefix in module_prefixes
+        for segment in _STATEFUL_MODULE_SEGMENTS
+    )
+
+
 def _purge_capability_modules(module_prefixes: list[str]) -> int:
     purged = 0
     for module_name in list(sys.modules):
-        if any(
+        belongs_to_capability = any(
             module_name == prefix or module_name.startswith(f"{prefix}.")
             for prefix in module_prefixes
+        )
+        if belongs_to_capability and not _is_stateful_capability_module(
+            module_name,
+            module_prefixes,
         ):
             purged += 1
             sys.modules.pop(module_name, None)

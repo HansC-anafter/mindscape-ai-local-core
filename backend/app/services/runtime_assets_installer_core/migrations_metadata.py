@@ -8,6 +8,11 @@ from typing import Optional
 logger = logging.getLogger(f"{__package__}.migrations")
 
 
+_PACK_OWNER_CAPABILITY_PATTERN = re.compile(
+    r"""\bpack_owner_capability\b\s*(?::\s*[^=]+)?\s*=\s*['\"]([^'\"]+)['\"]"""
+)
+
+
 def _get_alembic_versions_dir(local_core_root: Path) -> Path:
     """Return the Alembic versions directory used by Local-Core."""
     return (
@@ -94,6 +99,21 @@ def extract_down_revision(migration_file: Path) -> Optional[str]:
     return None
 
 
+def extract_pack_owner_capability(migration_file: Path) -> Optional[str]:
+    """Return the exact pack owner declared by a core graph-anchor tombstone."""
+    if not migration_file.name.endswith("_pack_schema_tombstone.py"):
+        return None
+    try:
+        match = _PACK_OWNER_CAPABILITY_PATTERN.search(
+            migration_file.read_text(encoding="utf-8")
+        )
+    except (OSError, UnicodeDecodeError):
+        return None
+    if match is None:
+        return None
+    return match.group(1).strip() or None
+
+
 def detect_revision_conflicts(
     capability_code: str,
     alembic_versions_dir: Path,
@@ -107,11 +127,6 @@ def detect_revision_conflicts(
     if not alembic_versions_dir.exists():
         return []
 
-    capability_patterns = [
-        capability_code.replace("_", " "),
-        capability_code.replace("_", ""),
-        capability_code,
-    ]
     incoming_filenames = {
         migration_file.name for migration_file in incoming_migration_files
     }
@@ -132,9 +147,12 @@ def detect_revision_conflicts(
 
             is_current_capability = migration_file.name in incoming_filenames
             if not is_current_capability:
-                file_content = migration_file.read_text().lower()
-                is_current_capability = any(
-                    pattern in file_content for pattern in capability_patterns
+                is_current_capability = capability_code in extract_branch_labels(
+                    migration_file
+                )
+            if not is_current_capability:
+                is_current_capability = (
+                    extract_pack_owner_capability(migration_file) == capability_code
                 )
 
             existing_revisions.setdefault(revision, []).append(

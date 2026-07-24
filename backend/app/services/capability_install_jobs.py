@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import os
 import shutil
 import uuid
@@ -31,6 +32,26 @@ from backend.app.services.stores.capability_install_job_store import (
 )
 
 logger = logging.getLogger(__name__)
+
+_EXECUTION_ACTIVATION_TIMEOUT_DEFAULT_SECONDS = 60.0
+_EXECUTION_ACTIVATION_TIMEOUT_MIN_SECONDS = 30.0
+_EXECUTION_ACTIVATION_TIMEOUT_MAX_SECONDS = 300.0
+
+
+def _execution_activation_timeout_seconds() -> float:
+    raw_value = os.getenv("MINDSCAPE_EXECUTION_ACTIVATION_TIMEOUT_SECONDS", "").strip()
+    if not raw_value:
+        return _EXECUTION_ACTIVATION_TIMEOUT_DEFAULT_SECONDS
+    try:
+        configured = float(raw_value)
+    except ValueError:
+        return _EXECUTION_ACTIVATION_TIMEOUT_DEFAULT_SECONDS
+    if not math.isfinite(configured):
+        return _EXECUTION_ACTIVATION_TIMEOUT_DEFAULT_SECONDS
+    return min(
+        max(configured, _EXECUTION_ACTIVATION_TIMEOUT_MIN_SECONDS),
+        _EXECUTION_ACTIVATION_TIMEOUT_MAX_SECONDS,
+    )
 
 
 def _jobs_root() -> Path:
@@ -234,7 +255,9 @@ class CapabilityInstallJobService:
             "http://backend:8200/api/v1/admin/capability-runtime/activate",
         )
         try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
+            async with httpx.AsyncClient(
+                timeout=_execution_activation_timeout_seconds()
+            ) as client:
                 response = await client.post(
                     activation_url,
                     json={

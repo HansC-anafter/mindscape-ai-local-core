@@ -45,3 +45,13 @@ class PackActivationRecord:
             "last_error": self.last_error,
             "activated_at": self.activated_at,
         }
+
+    def to_receipt_payload(self) -> Dict[str, Any]:
+        """Return the JSON-safe activation projection used by install receipts."""
+
+        payload = self.to_store_payload()
+        for field_name in ("embeddings_updated_at", "activated_at"):
+            value = payload.get(field_name)
+            if isinstance(value, datetime):
+                payload[field_name] = value.isoformat()
+        return payload

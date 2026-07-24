@@ -67,9 +67,84 @@ class RuntimeDatabaseMutationGate:
                 reason="allowed",
                 retry_after_seconds=0,
             )
+        operation_key = self.operation_key(operation_name, evidence)
+        for permit in reversed(current.pack_install_permits):
+            allowed_keys = set(permit.get("allowed_operation_keys") or ())
+            if operation_key not in allowed_keys:
+                continue
+            expires_at = permit.get("expires_at")
+            try:
+                permit_active = bool(expires_at) and _parse_timestamp(
+                    str(expires_at),
+                    field_name="pack_install_permit_expires_at",
+                ) > datetime.now(timezone.utc)
+            except ValueError:
+                permit_active = False
+            if permit_active:
+                return MutationDecision(
+                    allowed=True,
+                    operation=operation_name,
+                    reason="owner_authorized_pack_install_permit",
+                    incident_id=current.incident_id,
+                    retry_after_seconds=0,
+                    details={
+                        "incident_state": current.state.value,
+                        "permit_id": permit.get("permit_id"),
+                        "operation_key": operation_key,
+                        "capability_code": permit.get("capability_code"),
+                        "candidate_version": permit.get("candidate_version"),
+                    },
+                )
+            return MutationDecision(
+                allowed=False,
+                operation=operation_name,
+                reason="pack_install_permit_expired",
+                incident_id=current.incident_id,
+                details={
+                    "incident_state": current.state.value,
+                    "permit_id": permit.get("permit_id"),
+                    "operation_key": operation_key,
+                },
+            )
+        for permit in reversed(current.targeted_migration_permits):
+            if operation_key != str(permit.get("allowed_operation_key") or ""):
+                continue
+            expires_at = permit.get("expires_at")
+            try:
+                permit_active = bool(expires_at) and _parse_timestamp(
+                    str(expires_at),
+                    field_name="targeted_migration_permit_expires_at",
+                ) > datetime.now(timezone.utc)
+            except ValueError:
+                permit_active = False
+            if permit_active:
+                return MutationDecision(
+                    allowed=True,
+                    operation=operation_name,
+                    reason="owner_authorized_targeted_migration_permit",
+                    incident_id=current.incident_id,
+                    retry_after_seconds=0,
+                    details={
+                        "incident_state": current.state.value,
+                        "permit_id": permit.get("permit_id"),
+                        "operation_key": operation_key,
+                        "revision": permit.get("revision"),
+                        "migration_mode": permit.get("migration_mode"),
+                    },
+                )
+            return MutationDecision(
+                allowed=False,
+                operation=operation_name,
+                reason="targeted_migration_permit_expired",
+                incident_id=current.incident_id,
+                details={
+                    "incident_state": current.state.value,
+                    "permit_id": permit.get("permit_id"),
+                    "operation_key": operation_key,
+                },
+            )
         if current.state is IncidentState.CONTAINED_PENDING_SOAK:
             containment = dict(current.containment_receipt or {})
-            operation_key = self.operation_key(operation_name, evidence)
             allowed_keys = set(containment.get("allowed_operation_keys") or ())
             expires_at = containment.get("expires_at")
             permit_active = False

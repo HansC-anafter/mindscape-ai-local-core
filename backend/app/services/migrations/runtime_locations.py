@@ -105,13 +105,17 @@ def _resolve_capability_version_locations(
     capabilities_root: Path,
     db_type: str,
     known_revision_ids: set[str],
+    excluded_capability_codes: set[str] | None = None,
 ) -> list[str]:
     resolved_locations: list[str] = []
+    excluded = {str(code).strip() for code in (excluded_capability_codes or set())}
     scanner = MigrationScanner(capabilities_root)
     for metadata in sorted(
         scanner.scan_capabilities(),
         key=lambda item: item.capability_code,
     ):
+        if metadata.capability_code in excluded:
+            continue
         if metadata.db_type != db_type:
             continue
         for rel_path in metadata.migration_paths:
@@ -158,6 +162,7 @@ def configure_runtime_version_locations(
     *,
     capabilities_root: Path,
     db_type: str,
+    excluded_capability_codes: set[str] | None = None,
 ) -> list[str]:
     """Merge declared Alembic version paths with runtime capability migration paths."""
     declared_locations = _resolve_declared_version_locations(config)
@@ -169,6 +174,7 @@ def configure_runtime_version_locations(
             capabilities_root=capabilities_root,
             db_type=db_type,
             known_revision_ids=known_revision_ids,
+            excluded_capability_codes=excluded_capability_codes,
         ),
     ]:
         if location not in merged_locations:

@@ -40,11 +40,14 @@ class CommittedInstallReconciler:
         return self.store.has_incomplete()
 
     def reconcile_next(self) -> Optional[dict[str, Any]]:
-        require_runtime_database_mutation_allowed("pack_install_reconciliation_poll")
         row = self.store.next_due()
         if row is None:
             return None
         install_id = str(row["install_id"])
+        require_runtime_database_mutation_allowed(
+            f"capability_install_job:{install_id}",
+            evidence={"artifact_sha256": str(row.get("artifact_sha256") or "")},
+        )
         payload = dict(row.get("result_payload") or {})
         pack_id = str(row.get("pack_id") or "")
         manifest_hash = str(row.get("manifest_hash") or "")
