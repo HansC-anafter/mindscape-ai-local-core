@@ -10,6 +10,7 @@ from backend.app.routes.core.capability_install_core.install_commit_coordinator 
     validate_candidate_version,
 )
 from backend.app.services import pack_install_version_preflight
+from backend.app.services import runtime_database_incident_gate
 
 
 def _validate(incoming_version: str, incoming_hash: str, **kwargs):
@@ -145,12 +146,6 @@ def test_receipt_bound_preflight_accepts_upgrade_before_side_effects(
     candidate = tmp_path / "candidate.yaml"
     live_hash = _manifest(live, "2.0.0")
     _manifest(candidate, "2.1.0")
-    monkeypatch.setattr(
-        pack_install_version_preflight,
-        "record_database_failure",
-        lambda *_args, **_kwargs: None,
-    )
-
     decision = pack_install_version_preflight.validate_existing_pack_version_truth(
         capability_code="demo",
         candidate_manifest_path=candidate,
@@ -168,14 +163,16 @@ def test_receipt_bound_preflight_accepts_upgrade_before_side_effects(
     assert decision == "upgrade"
 
 
-def test_unreceipted_existing_pack_opens_incident_and_stops(tmp_path: Path, monkeypatch) -> None:
+def test_unreceipted_existing_pack_stops_without_opening_database_incident(
+    tmp_path: Path, monkeypatch
+) -> None:
     live = tmp_path / "live.yaml"
     candidate = tmp_path / "candidate.yaml"
     _manifest(live, "2.0.0")
     _manifest(candidate, "2.1.0")
     failures = []
     monkeypatch.setattr(
-        pack_install_version_preflight,
+        runtime_database_incident_gate,
         "record_database_failure",
         lambda code, **_kwargs: failures.append(code),
     )
@@ -189,7 +186,7 @@ def test_unreceipted_existing_pack_opens_incident_and_stops(tmp_path: Path, monk
             truth_reader=_TruthReader(None),
         )
 
-    assert failures == ["pack_committed_receipt_missing"]
+    assert failures == []
 
 
 def test_verified_legacy_receipt_bootstrap_allows_upgrade(tmp_path: Path, monkeypatch):
@@ -197,12 +194,6 @@ def test_verified_legacy_receipt_bootstrap_allows_upgrade(tmp_path: Path, monkey
     candidate = tmp_path / "candidate.yaml"
     live_hash = _manifest(live, "2.0.0")
     _manifest(candidate, "2.1.0")
-    monkeypatch.setattr(
-        pack_install_version_preflight,
-        "record_database_failure",
-        lambda *_args, **_kwargs: None,
-    )
-
     decision = pack_install_version_preflight.validate_existing_pack_version_truth(
         capability_code="demo",
         candidate_manifest_path=candidate,
@@ -219,6 +210,42 @@ def test_verified_legacy_receipt_bootstrap_allows_upgrade(tmp_path: Path, monkey
     )
 
     assert decision == "upgrade"
+
+
+def test_version_truth_conflict_does_not_open_database_incident(
+    tmp_path: Path, monkeypatch
+) -> None:
+    live = tmp_path / "live.yaml"
+    candidate = tmp_path / "candidate.yaml"
+    live_hash = _manifest(live, "2.0.0")
+    _manifest(candidate, "2.0.0")
+    candidate.write_text(
+        candidate.read_text(encoding="utf-8") + "display_name: Changed\n",
+        encoding="utf-8",
+    )
+    failures = []
+    monkeypatch.setattr(
+        runtime_database_incident_gate,
+        "record_database_failure",
+        lambda code, **_kwargs: failures.append(code),
+    )
+
+    with pytest.raises(RuntimeError, match="different_hash"):
+        pack_install_version_preflight.validate_existing_pack_version_truth(
+            capability_code="demo",
+            candidate_manifest_path=candidate,
+            live_manifest_path=live,
+            artifact_sha256="a" * 64,
+            truth_reader=_TruthReader(
+                {
+                    "install_id": "install-2",
+                    "version": "2.0.0",
+                    "manifest_hash": live_hash,
+                }
+            ),
+        )
+
+    assert failures == []
 
 
 def test_legacy_bootstrap_requires_matching_job_activation_and_live_truth():

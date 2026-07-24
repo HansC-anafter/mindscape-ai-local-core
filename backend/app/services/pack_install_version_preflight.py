@@ -14,7 +14,6 @@ from backend.app.routes.core.capability_install_core.install_commit_coordinator 
     PackBackoutReceipt,
     validate_candidate_version,
 )
-from backend.app.services.runtime_database_incident_gate import record_database_failure
 from backend.app.services.stores.postgres_base import PostgresStoreBase
 
 
@@ -319,30 +318,16 @@ def validate_existing_pack_version_truth(
             live_manifest_hash=live_manifest_hash,
         )
     if committed is None:
-        record_database_failure(
-            "pack_committed_receipt_missing",
-            evidence={"pack_id": capability_code},
-        )
         raise RuntimeError("pack_committed_receipt_missing")
-    try:
-        return validate_candidate_version(
-            incoming_version=incoming_version,
-            incoming_hash=incoming_manifest_hash,
-            incoming_artifact_sha256=artifact_sha256,
-            committed_version=str(committed["version"]),
-            committed_hash=str(committed["manifest_hash"]),
-            committed_install_id=str(committed["install_id"]),
-            live_version=live_version,
-            live_hash=live_manifest_hash,
-            backout_receipt=_backout_receipt(backout),
-            reviewed_split_truth_repair=reviewed_split_truth_repair,
-        )
-    except Exception:
-        record_database_failure(
-            "pack_install_truth_preflight_failed",
-            evidence={
-                "pack_id": capability_code,
-                "committed_install_id": str(committed["install_id"]),
-            },
-        )
-        raise
+    return validate_candidate_version(
+        incoming_version=incoming_version,
+        incoming_hash=incoming_manifest_hash,
+        incoming_artifact_sha256=artifact_sha256,
+        committed_version=str(committed["version"]),
+        committed_hash=str(committed["manifest_hash"]),
+        committed_install_id=str(committed["install_id"]),
+        live_version=live_version,
+        live_hash=live_manifest_hash,
+        backout_receipt=_backout_receipt(backout),
+        reviewed_split_truth_repair=reviewed_split_truth_repair,
+    )
