@@ -19,10 +19,12 @@ from backend.app.services.conversation_orchestrator import ConversationOrchestra
 from backend.app.services.meeting_command_dispatch import (
     _run_meeting_orchestration_in_background,
     dispatch_chat_for_command,
+    dispatch_client_action_for_command,
     dispatch_meeting_orchestration_for_command,
     dispatch_object_action_for_command,
     dispatch_playbook_for_command,
     should_route_chat,
+    should_route_client_action,
     should_route_meeting_orchestration,
     should_route_object_action,
     should_route_playbook,
@@ -30,6 +32,9 @@ from backend.app.services.meeting_command_dispatch import (
 from backend.app.services.meeting_command_parser import (
     MeetingCommandNormalizationError,
     canonicalize_meeting_command_envelope,
+)
+from backend.app.services.meeting_command_client_action_events import (
+    emit_meeting_client_action_ready_event,
 )
 from backend.app.services.mindscape_store import MindscapeStore
 from backend.app.services.stores.meeting_command_store import MeetingCommandStore
@@ -253,6 +258,23 @@ class MeetingCommandSubmissionService:
                 saved = self._save_failed_command(saved, exc)
                 raise
             saved = self.command_store.save(saved)
+        elif should_route_client_action(canonical):
+            try:
+                command, dispatch_result = await dispatch_client_action_for_command(
+                    command=saved,
+                    canonical=canonical,
+                )
+                saved = self.command_store.save(command)
+                emit_meeting_client_action_ready_event(
+                    command=saved,
+                    client_action=dispatch_result["client_action"],
+                    workspace=workspace,
+                    session=session,
+                    mindscape_store=mindscape_store,
+                )
+            except Exception as exc:
+                saved = self._save_failed_command(saved, exc)
+                raise
         elif should_route_object_action(canonical):
             try:
                 command, dispatch_result = await dispatch_object_action_for_command(

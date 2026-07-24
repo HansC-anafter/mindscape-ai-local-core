@@ -18,6 +18,9 @@ from backend.app.services.meeting_command_dispatch_chat import (
     _run_chat_dispatch_and_sync_command,
     dispatch_chat_for_command,
 )
+from backend.app.services.meeting_command_dispatch_client_actions import (
+    dispatch_client_action_for_command,
+)
 from backend.app.services.meeting_command_dispatch_orchestration import (
     _meeting_orchestration_timeout_result,
     _request_contract_aol_metadata,
@@ -43,6 +46,7 @@ from backend.app.services.meeting_command_dispatch_routing import (
     metadata_action_parameters,
     requested_affordance_verb,
     should_route_chat,
+    should_route_client_action,
     should_route_meeting_orchestration,
     should_route_object_action,
     should_route_playbook,
@@ -110,6 +114,7 @@ __all__ = [
     "command_context_objects",
     "command_instruction",
     "dispatch_chat_for_command",
+    "dispatch_client_action_for_command",
     "dispatch_meeting_orchestration_for_command",
     "dispatch_object_action_for_command",
     "dispatch_playbook_for_command",
@@ -118,6 +123,7 @@ __all__ = [
     "metadata_action_parameters",
     "requested_affordance_verb",
     "should_route_chat",
+    "should_route_client_action",
     "should_route_meeting_orchestration",
     "should_route_object_action",
     "should_route_playbook",

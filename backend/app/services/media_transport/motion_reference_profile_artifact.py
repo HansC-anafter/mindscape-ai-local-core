@@ -16,6 +16,7 @@ MOTION_REFERENCE_PROFILE_SCHEMA = "motion_reference_profile.v1"
 MAX_PROFILE_BYTES = 8 * 1024 * 1024
 MAX_PROFILE_CHAPTERS = 128
 MAX_CHAPTER_FEATURES = 128
+MAX_REFERENCE_VISUAL_EVIDENCE = 256
 INDEPENDENT_REFERENCE_PROVENANCE = frozenset(
     {
         "course_reference_analysis",
@@ -150,6 +151,87 @@ def _resolve_storage_path(workspace_id: str, storage_ref: Any) -> Path:
     return resolved
 
 
+def _validate_reference_visual_evidence(
+    profile: Mapping[str, Any],
+    *,
+    chapters: list[dict[str, Any]],
+    source_ref: str,
+) -> None:
+    assets = _records(profile.get("visual_evidence"))
+    if not assets or len(assets) > MAX_REFERENCE_VISUAL_EVIDENCE:
+        raise MotionReferenceProfileArtifactError(
+            "motion_reference_profile_visual_evidence_count_invalid"
+        )
+    chapter_ids = {
+        _required_text(
+            chapter.get("chapter_id"),
+            "motion_reference_profile_chapter_id_missing",
+        )
+        for chapter in chapters
+    }
+    covered_chapter_ids: set[str] = set()
+    asset_ids: set[str] = set()
+    forbidden_provenance = {
+        "capture_session_id",
+        "media_session_id",
+        "receiver_identity",
+        "transport_kind",
+        "capture_input_kind",
+        "motion_window_ref",
+    }
+    for asset in assets:
+        asset_id = _required_text(
+            asset.get("asset_id"),
+            "motion_reference_profile_visual_evidence_asset_id_missing",
+        )
+        if asset_id in asset_ids:
+            raise MotionReferenceProfileArtifactError(
+                "motion_reference_profile_visual_evidence_asset_id_duplicate"
+            )
+        asset_ids.add(asset_id)
+        chapter_id = _required_text(
+            asset.get("chapter_id"),
+            "motion_reference_profile_visual_evidence_chapter_id_missing",
+        )
+        if chapter_id not in chapter_ids:
+            raise MotionReferenceProfileArtifactError(
+                "motion_reference_profile_visual_evidence_chapter_unknown"
+            )
+        if asset.get("role") != "reference" or (
+            asset.get("source_kind") != "reference_asset"
+        ):
+            raise MotionReferenceProfileArtifactError(
+                "motion_reference_profile_visual_evidence_provenance_invalid"
+            )
+        if any(asset.get(name) not in (None, "") for name in forbidden_provenance):
+            raise MotionReferenceProfileArtifactError(
+                "motion_reference_profile_visual_evidence_receiver_provenance_invalid"
+            )
+        if asset.get("media_kind") not in {"snapshot", "video_clip"}:
+            raise MotionReferenceProfileArtifactError(
+                "motion_reference_profile_visual_evidence_media_kind_invalid"
+            )
+        for name, reason in (
+            ("artifact_id", "motion_reference_profile_visual_evidence_artifact_id_missing"),
+            ("mime_type", "motion_reference_profile_visual_evidence_mime_type_missing"),
+            ("label", "motion_reference_profile_visual_evidence_label_missing"),
+            ("lineage", "motion_reference_profile_visual_evidence_lineage_missing"),
+        ):
+            _required_text(asset.get(name), reason)
+        asset_source_ref = canonical_motion_reference_source_ref(
+            asset.get("source_ref")
+        )
+        if asset_source_ref != source_ref:
+            raise MotionReferenceProfileArtifactError(
+                "motion_reference_profile_visual_evidence_source_mismatch"
+            )
+        covered_chapter_ids.add(chapter_id)
+    if covered_chapter_ids != chapter_ids:
+        raise MotionReferenceProfileArtifactError(
+            "motion_reference_profile_visual_evidence_chapter_coverage_incomplete"
+        )
+
+
 def _validate_profile(path: Path) -> tuple[str, str | None, int]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -189,6 +271,15 @@ def _validate_profile(path: Path) -> tuple[str, str | None, int]:
                 "motion_reference_profile_features_invalid"
             )
     source_ref = canonical_motion_reference_source_ref(profile.get("source_ref")) or None
+    if not source_ref:
+        raise MotionReferenceProfileArtifactError(
+            "motion_reference_profile_source_ref_missing"
+        )
+    _validate_reference_visual_evidence(
+        profile,
+        chapters=chapters,
+        source_ref=source_ref,
+    )
     return profile_id, source_ref, len(chapters)
 
 

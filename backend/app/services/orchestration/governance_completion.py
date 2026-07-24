@@ -18,6 +18,7 @@ def process_completion(
     project_id: Optional[str] = None,
     task_id: Optional[str] = None,
     playbook_code: Optional[str] = None,
+    defer_task_terminal_update: bool = False,
 ) -> Optional[Dict[str, Any]]:
     """Land execution results through the governance facade."""
     if not playbook_code:
@@ -39,6 +40,7 @@ def process_completion(
         thread_id=thread_id,
         project_id=project_id,
         task_id=task_id,
+        defer_task_terminal_update=defer_task_terminal_update,
     )
 
     if landing_result:

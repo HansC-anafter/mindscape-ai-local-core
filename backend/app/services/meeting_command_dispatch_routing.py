@@ -175,6 +175,19 @@ def should_route_object_action(canonical: MeetingCommandEnvelope) -> bool:
     )
 
 
+def should_route_client_action(canonical: MeetingCommandEnvelope) -> bool:
+    requested = canonical.requested_action
+    return (
+        canonical.metadata.get("dispatch_mode") == "route_client_action"
+        and explicit_direct_override(canonical)
+        and requested is not None
+        and requested.verb == "client_action"
+        and bool(requested.pack_code)
+        and bool(requested.affordance_verb)
+        and isinstance(requested.parameters.get("client_action"), dict)
+    )
+
+
 def should_route_playbook(canonical: MeetingCommandEnvelope) -> bool:
     return _is_explicit_playbook_route(canonical)
 

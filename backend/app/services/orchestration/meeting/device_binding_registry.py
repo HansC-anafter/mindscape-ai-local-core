@@ -10,6 +10,7 @@ from typing import Any
 
 from backend.app.models.device_binding import (
     DeviceCapabilityDeclaration,
+    DeviceMediaAnalysisHandoff,
     DevicePairingCode,
     DeviceSessionEntry,
 )
@@ -17,7 +18,9 @@ from backend.app.models.device_binding import (
 
 DEVICE_PAIRING_CODE_TTL_SECONDS = 120
 MAX_DEVICE_PAIRING_CODE_TTL_SECONDS = 600
-DEVICE_SESSION_TTL_SECONDS = 60
+# Six 30-second phone heartbeats keep one bounded lease resilient to a delayed
+# control-plane event loop without changing the media-session expiry.
+DEVICE_SESSION_TTL_SECONDS = 180
 MAX_ACTIVE_SOURCE_DEVICES_PER_WORKSPACE = 3
 _PAIRING_ALPHABET = string.ascii_uppercase + string.digits
 
@@ -336,6 +339,7 @@ class DeviceBindingRegistry:
             )
         entry.media_session_id = None
         entry.media_session_state = "stopped"
+        entry.media_analysis_handoff = None
         entry.media_session_expires_at_epoch = None
         entry.updated_at_epoch = time.time()
         self._sessions[session_id] = entry
@@ -349,6 +353,7 @@ class DeviceBindingRegistry:
         media_session_id: str,
         receiver_state: str,
         metrics: dict[str, object] | None = None,
+        analysis_handoff: DeviceMediaAnalysisHandoff | None = None,
     ) -> DeviceSessionEntry:
         entry = self.get_active_session(
             workspace_id=workspace_id,
@@ -370,6 +375,8 @@ class DeviceBindingRegistry:
             )
         entry.media_session_state = receiver_state
         entry.media_receiver_metrics = dict(metrics or {})
+        if analysis_handoff is not None:
+            entry.media_analysis_handoff = analysis_handoff
         entry.updated_at_epoch = time.time()
         self._sessions[session_id] = entry
         return entry

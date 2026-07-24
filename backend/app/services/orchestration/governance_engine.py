@@ -131,6 +131,7 @@ class GovernanceEngine:
         project_id: Optional[str] = None,
         task_id: Optional[str] = None,
         playbook_code: Optional[str] = None,
+        defer_task_terminal_update: bool = False,
     ) -> Optional[Dict[str, Any]]:
         """Land execution results through a single governed entry point.
 
@@ -153,6 +154,7 @@ class GovernanceEngine:
             project_id=project_id,
             task_id=task_id,
             playbook_code=playbook_code,
+            defer_task_terminal_update=defer_task_terminal_update,
         )
 
     def process_remote_terminal_event(

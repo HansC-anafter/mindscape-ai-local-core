@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 from typing import Any, Awaitable, Callable
 
-from backend.app.models.meeting_command import MeetingCommandEnvelope
 from backend.app.models.meeting_voice_session import (
     MeetingVoiceAudioWindow,
     MeetingVoiceTranscriptCandidate,
@@ -27,6 +26,10 @@ from backend.app.services.orchestration.meeting.voice_ingress import (
     MeetingVoiceIngressError,
     decode_audio_base64,
     normalized_mime_type,
+)
+from backend.app.services.orchestration.meeting.voice_client_actions import (
+    build_voice_command_envelope,
+    resolve_voice_client_action,
 )
 
 
@@ -138,14 +141,18 @@ class RealtimeVoiceTranscriber:
         mindscape_store: MindscapeStore,
     ):
         service = self.submission_service or MeetingCommandSubmissionService()
+        session = service.session_store.get_by_id(meeting_id)
         return await service.submit_envelope(
-            envelope=MeetingCommandEnvelope(
+            envelope=build_voice_command_envelope(
                 workspace_id=workspace_id,
                 meeting_id=meeting_id,
                 origin_surface="meeting_voice_session",
-                actor="user",
-                intent_text=candidate.transcript,
+                transcript=candidate.transcript,
                 context_objects=candidate.context_objects,
+                resolution=resolve_voice_client_action(
+                    transcript=candidate.transcript,
+                    session=session,
+                ),
                 metadata={
                     "client_session_id": candidate.client_session_id,
                     "utterance_id": candidate.utterance_id,

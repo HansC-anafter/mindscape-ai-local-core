@@ -97,7 +97,7 @@ class WebRTCSignalingRegistry:
         participant: MediaSignalParticipant,
         websocket: Any,
         device_binding_registry: DeviceBindingRegistry,
-    ) -> tuple[MediaSignalEvent, list[MediaSignalEvent], Any | None]:
+    ) -> tuple[MediaSignalEvent, list[MediaSignalEvent], Any | None, Any | None]:
         self._require_active_device_session(
             workspace_id=workspace_id,
             device_session_id=device_session_id,
@@ -127,14 +127,9 @@ class WebRTCSignalingRegistry:
                 media_session_id=media_session_id,
             ),
         )
-        existing = session.websocket_for(participant)
-        if existing is not None and existing is not websocket:
-            raise WebRTCSignalingRegistryError(
-                reason="participant_already_joined",
-                message="This media session already has an active participant for that role.",
-                status_code=409,
-                close_code=4409,
-            )
+        replaced_websocket = session.websocket_for(participant)
+        if replaced_websocket is websocket:
+            replaced_websocket = None
 
         session.set_websocket(participant, websocket)
         peer: MediaSignalParticipant = "source" if participant == "workspace" else "workspace"
@@ -151,7 +146,27 @@ class WebRTCSignalingRegistry:
             ),
             pending,
             peer_websocket,
+            replaced_websocket,
         )
+
+    def is_active_participant(
+        self,
+        *,
+        workspace_id: str,
+        device_session_id: str,
+        media_session_id: str,
+        participant: MediaSignalParticipant,
+        websocket: Any,
+    ) -> bool:
+        key = self._key(
+            workspace_id=workspace_id,
+            device_session_id=device_session_id,
+            media_session_id=media_session_id,
+        )
+        session = self._sessions.get(key)
+        if session is None:
+            return False
+        return session.websocket_for(participant) is websocket
 
     def detach_participant(
         self,

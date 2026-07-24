@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 
 from fastapi import WebSocket
 
@@ -10,6 +12,44 @@ from backend.app.models.device_binding import DeviceControlEvent, DeviceSessionE
 from backend.app.services.orchestration.meeting.device_binding_registry import (
     DeviceBindingRegistry,
 )
+
+
+logger = logging.getLogger(__name__)
+OBSERVER_SEND_TIMEOUT_SECONDS = 1.0
+
+
+async def _send_observer_event(
+    websocket: WebSocket,
+    event: DeviceControlEvent,
+) -> bool:
+    try:
+        await asyncio.wait_for(
+            send_device_control_event(websocket, event),
+            timeout=OBSERVER_SEND_TIMEOUT_SECONDS,
+        )
+    except Exception as exc:
+        logger.info(
+            "detaching closed device-binding observer: %s",
+            type(exc).__name__,
+        )
+        return False
+    return True
+
+
+async def _stale_observers(
+    observers: list[WebSocket],
+    event: DeviceControlEvent,
+) -> list[WebSocket]:
+    if not observers:
+        return []
+    delivered = await asyncio.gather(
+        *(_send_observer_event(observer, event) for observer in observers)
+    )
+    return [
+        observer
+        for observer, was_delivered in zip(observers, delivered, strict=True)
+        if not was_delivered
+    ]
 
 
 async def send_device_control_event(
@@ -27,6 +67,7 @@ def build_entry_event(
     reason: str | None = None,
     message: str | None = None,
     recoverable: bool | None = None,
+    heartbeat_sequence: int | None = None,
 ) -> DeviceControlEvent:
     return DeviceControlEvent(
         type=event_type,
@@ -42,6 +83,7 @@ def build_entry_event(
         reason=reason,
         message=message,
         recoverable=recoverable,
+        heartbeat_sequence=heartbeat_sequence,
     )
 
 
@@ -72,31 +114,28 @@ async def broadcast_to_workspace_observers(
     pairing_code: str,
     event: DeviceControlEvent,
 ) -> None:
-    stale: list[WebSocket] = []
-    for observer in registry.workspace_observers(pairing_code=pairing_code):
-        try:
-            await send_device_control_event(observer, event)
-        except RuntimeError:
-            stale.append(observer)
-    for observer in stale:
-        registry.detach_workspace_observer(
-            pairing_code=pairing_code,
-            websocket=observer,
-        )
-
-    stale_workspace_observers: list[WebSocket] = []
-    for observer in registry.workspace_session_observers(
+    pairing_observers = registry.workspace_observers(pairing_code=pairing_code)
+    workspace_observers = registry.workspace_session_observers(
         workspace_id=event.workspace_id,
-    ):
-        try:
-            await send_device_control_event(observer, event)
-        except RuntimeError:
-            stale_workspace_observers.append(observer)
-    for observer in stale_workspace_observers:
-        registry.detach_workspace_session_observer(
-            workspace_id=event.workspace_id,
-            websocket=observer,
-        )
+    )
+    observers_by_identity = {
+        id(observer): observer
+        for observer in [*pairing_observers, *workspace_observers]
+    }
+    stale = await _stale_observers(list(observers_by_identity.values()), event)
+    pairing_observer_ids = {id(observer) for observer in pairing_observers}
+    workspace_observer_ids = {id(observer) for observer in workspace_observers}
+    for observer in stale:
+        if id(observer) in pairing_observer_ids:
+            registry.detach_workspace_observer(
+                pairing_code=pairing_code,
+                websocket=observer,
+            )
+        if id(observer) in workspace_observer_ids:
+            registry.detach_workspace_session_observer(
+                workspace_id=event.workspace_id,
+                websocket=observer,
+            )
 
 
 async def broadcast_to_source_devices(
@@ -106,13 +145,15 @@ async def broadcast_to_source_devices(
     pairing_code: str,
     event: DeviceControlEvent,
 ) -> None:
-    for entry in registry.list_active_sessions(workspace_id=workspace_id):
-        if (pairing_code and entry.pairing_code != pairing_code) or entry.websocket is None:
-            continue
-        try:
-            await send_device_control_event(entry.websocket, event)
-        except RuntimeError:
-            continue
+    observers = [
+        entry.websocket
+        for entry in registry.list_active_sessions(workspace_id=workspace_id)
+        if (
+            (not pairing_code or entry.pairing_code == pairing_code)
+            and entry.websocket is not None
+        )
+    ]
+    await _stale_observers(observers, event)
 
 
 async def broadcast_workspace_session_observers(
@@ -121,12 +162,8 @@ async def broadcast_workspace_session_observers(
     workspace_id: str,
     event: DeviceControlEvent,
 ) -> None:
-    stale: list[WebSocket] = []
-    for observer in registry.workspace_session_observers(workspace_id=workspace_id):
-        try:
-            await send_device_control_event(observer, event)
-        except RuntimeError:
-            stale.append(observer)
+    observers = registry.workspace_session_observers(workspace_id=workspace_id)
+    stale = await _stale_observers(observers, event)
     for observer in stale:
         registry.detach_workspace_session_observer(
             workspace_id=workspace_id,

@@ -8,7 +8,6 @@ from typing import Any, Awaitable, Callable
 
 from fastapi import BackgroundTasks
 
-from backend.app.models.meeting_command import MeetingCommandEnvelope
 from backend.app.models.meeting_voice import (
     MeetingVoiceTurnRequest,
     MeetingVoiceTurnResponse,
@@ -26,6 +25,10 @@ from backend.app.services.mindscape_store import MindscapeStore
 from backend.app.services.orchestration.meeting.meeting_command_submission import (
     MeetingCommandSubmissionService,
     validate_meeting_session,
+)
+from backend.app.services.orchestration.meeting.voice_client_actions import (
+    build_voice_command_envelope,
+    resolve_voice_client_action,
 )
 
 SUPPORTED_VOICE_TURN_MIME_TYPES = {"audio/webm", "audio/wav"}
@@ -118,7 +121,7 @@ class MeetingVoiceIngressService:
 
         audio_bytes = decode_audio_base64(request.audio_base64)
         service = self.submission_service or MeetingCommandSubmissionService()
-        validate_meeting_session(
+        session = validate_meeting_session(
             workspace_id=workspace_id,
             meeting_id=meeting_id,
             session_store=service.session_store,
@@ -150,13 +153,16 @@ class MeetingVoiceIngressService:
             )
 
         command_response = await service.submit_envelope(
-            envelope=MeetingCommandEnvelope(
+            envelope=build_voice_command_envelope(
                 workspace_id=workspace_id,
                 meeting_id=meeting_id,
                 origin_surface="meeting_voice",
-                actor="user",
-                intent_text=transcript,
+                transcript=transcript,
                 context_objects=request.context_objects,
+                resolution=resolve_voice_client_action(
+                    transcript=transcript,
+                    session=session,
+                ),
                 metadata={
                     "client_turn_id": request.client_turn_id,
                     "transcript_hash": hashlib.sha256(

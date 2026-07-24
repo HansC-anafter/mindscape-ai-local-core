@@ -38,7 +38,16 @@ class LiveMediaReceiverControlError(RuntimeError):
 
 RECEIVER_CLOSEOUT_WAIT_SECONDS = 75.0
 RECEIVER_STATUS_POLL_INTERVAL_SECONDS = 0.5
+RECEIVER_START_WAIT_MILLISECONDS = 30000
+RECEIVER_START_RECOVERY_WAIT_MILLISECONDS = 5000
 RECEIVER_TERMINAL_STATUSES = {"completed", "failed", "expired", "not_found"}
+RECEIVER_ACTIVE_STARTUP_STATES = {
+    "starting",
+    "waiting_source",
+    "receiving",
+    "analyzing",
+    "degraded",
+}
 RECEIVER_STATES = {
     "starting",
     "waiting_source",
@@ -75,6 +84,38 @@ def _receiver_state(value: Any) -> LiveMediaReceiverStateName:
     return cast(LiveMediaReceiverStateName, state)
 
 
+def _is_exact_active_receiver_status(
+    result: dict[str, Any],
+    *,
+    media_session_id: str,
+    receiver_identity: str,
+) -> bool:
+    return (
+        result.get("status") == "active"
+        and str(result.get("media_session_id") or "") == media_session_id
+        and str(result.get("receiver_identity") or "") == receiver_identity
+        and str(result.get("state") or "") in RECEIVER_ACTIVE_STARTUP_STATES
+    )
+
+
+def _project_started_receiver(
+    *,
+    media_service: LiveMediaSessionService,
+    media_session_id: str,
+    result: dict[str, Any],
+) -> dict[str, Any]:
+    status = _safe_status(result)
+    if status.get("status") != "active":
+        raise LiveMediaReceiverControlError("live_media_receiver_not_active")
+    media_service.mark_receiver_started(media_session_id)
+    media_service.update_receiver_state(
+        media_session_id,
+        _receiver_state(status.get("state")),
+        reason=str(status.get("reason") or "").strip() or None,
+    )
+    return status
+
+
 async def start_live_media_receiver(
     *,
     media_service: LiveMediaSessionService,
@@ -105,50 +146,64 @@ async def start_live_media_receiver(
             device_session_id=device_session_id,
             media_session_id=media_session_id,
         )
-        result = await call_capture_relay_arguments(
-            {
-                "action": "receiver_start",
-                "timeout_ms": 10000,
-                "receiver_descriptor": {
-                    "schema_version": "live_media_receiver.v1",
-                    "workspace_id": workspace_id,
-                    "device_session_id": device_session_id,
-                    "media_session_id": media_session_id,
-                    "live_motion_session_id": request.live_motion_session_id,
-                    "meeting_session_id": request.meeting_session_id,
-                    "practice_session_id": request.practice_session_id,
-                    "receiver_identity": access.binding.receiver_identity,
-                    "append_owner_id": access.binding.append_owner_id,
-                    "source_kind": access.session.source_kind,
-                    "transport_kind": "rtsps",
-                    "input_url": access.session.endpoints.rtsps_receiver_url,
-                    "access_token": access.receiver_token,
-                    "expires_at_epoch": access.session.expires_at_epoch,
-                    "api_base": _host_api_base(),
-                    "coach_pack": request.coach_pack,
-                    "practice_mode": request.practice_mode,
-                    "reference_url": request.reference_url,
-                    "motion_reference_profile": (
-                        motion_reference_profile.receiver_ref()
-                        if motion_reference_profile is not None
-                        else None
-                    ),
-                    "user_goal": request.user_goal,
-                    "expected_duration_ms": request.expected_duration_ms,
+        try:
+            result = await call_capture_relay_arguments(
+                {
+                    "action": "receiver_start",
+                    "timeout_ms": RECEIVER_START_WAIT_MILLISECONDS,
+                    "receiver_descriptor": {
+                        "schema_version": "live_media_receiver.v1",
+                        "workspace_id": workspace_id,
+                        "device_session_id": device_session_id,
+                        "media_session_id": media_session_id,
+                        "live_motion_session_id": request.live_motion_session_id,
+                        "meeting_session_id": request.meeting_session_id,
+                        "practice_session_id": request.practice_session_id,
+                        "receiver_identity": access.binding.receiver_identity,
+                        "append_owner_id": access.binding.append_owner_id,
+                        "source_kind": access.session.source_kind,
+                        "transport_kind": "rtsps",
+                        "input_url": access.session.endpoints.rtsps_receiver_url,
+                        "access_token": access.receiver_token,
+                        "expires_at_epoch": access.session.expires_at_epoch,
+                        "api_base": _host_api_base(),
+                        "coach_pack": request.coach_pack,
+                        "practice_mode": request.practice_mode,
+                        "reference_url": request.reference_url,
+                        "motion_reference_profile": (
+                            motion_reference_profile.receiver_ref()
+                            if motion_reference_profile is not None
+                            else None
+                        ),
+                        "user_goal": request.user_goal,
+                        "expected_duration_ms": request.expected_duration_ms,
+                    },
                 },
-            },
-            timeout_ms=10000,
+                timeout_ms=RECEIVER_START_WAIT_MILLISECONDS,
+            )
+        except CaptureRelayUnavailable as start_error:
+            try:
+                recovered = await call_capture_relay_arguments(
+                    {
+                        "action": "receiver_status",
+                        "media_session_id": media_session_id,
+                    },
+                    timeout_ms=RECEIVER_START_RECOVERY_WAIT_MILLISECONDS,
+                )
+            except CaptureRelayUnavailable:
+                raise start_error
+            if not _is_exact_active_receiver_status(
+                recovered,
+                media_session_id=media_session_id,
+                receiver_identity=access.binding.receiver_identity,
+            ):
+                raise start_error
+            result = recovered
+        return _project_started_receiver(
+            media_service=media_service,
+            media_session_id=media_session_id,
+            result=result,
         )
-        status = _safe_status(result)
-        if status.get("status") != "active":
-            raise LiveMediaReceiverControlError("live_media_receiver_not_active")
-        media_service.mark_receiver_started(media_session_id)
-        media_service.update_receiver_state(
-            media_session_id,
-            _receiver_state(status.get("state")),
-            reason=str(status.get("reason") or "").strip() or None,
-        )
-        return status
     except LiveMediaSessionServiceError as exc:
         raise LiveMediaReceiverControlError(
             exc.reason,

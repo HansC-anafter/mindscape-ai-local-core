@@ -122,6 +122,15 @@ def get_whisper_transcription_timeout_seconds() -> float:
     return parsed if parsed > 0 else WHISPER_TRANSCRIPTION_TIMEOUT_SECONDS
 
 
+def normalize_whisper_language(language: str | None) -> str:
+    """Map BCP-47 app locales to faster-whisper language ids."""
+
+    normalized = str(language or "").strip().lower().replace("_", "-")
+    if not normalized or normalized == "auto":
+        return "auto"
+    return normalized.split("-", 1)[0]
+
+
 async def transcribe_whisper_audio(
     request: WhisperTranscriptionRequest,
     *,
@@ -139,7 +148,7 @@ async def transcribe_whisper_audio(
     )
     payload = {
         "audio": request.audio_base64,
-        "language": request.language or "auto",
+        "language": normalize_whisper_language(request.language),
         "task": request.task,
         "model": request.model,
         "device": request.device,
@@ -186,6 +195,7 @@ __all__ = [
     "WhisperTranscriptionUnavailable",
     "get_whisper_base_url",
     "get_whisper_transcription_timeout_seconds",
+    "normalize_whisper_language",
     "transcribe_whisper_audio",
     "validate_whisper_audio_payload",
 ]

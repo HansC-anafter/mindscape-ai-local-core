@@ -78,15 +78,35 @@ class MotionReferenceProfileArtifactStore(PostgresStoreBase):
             rows = connection.execute(
                 text(
                     """
-                    SELECT id, workspace_id, storage_ref, metadata
-                    FROM artifacts
-                    WHERE workspace_id = :workspace_id
-                      AND playbook_code = :playbook_code
-                      AND artifact_type = :artifact_type
-                      AND metadata IS NOT NULL
-                      AND metadata::jsonb ->> 'artifact_contract' = :artifact_contract
-                      AND metadata::jsonb ->> 'source_ref' = :source_ref
-                    ORDER BY updated_at DESC, id DESC
+                    SELECT candidate.id,
+                           candidate.workspace_id,
+                           candidate.storage_ref,
+                           candidate.metadata
+                    FROM artifacts AS candidate
+                    WHERE candidate.workspace_id = :workspace_id
+                      AND candidate.playbook_code = :playbook_code
+                      AND candidate.artifact_type = :artifact_type
+                      AND candidate.metadata IS NOT NULL
+                      AND candidate.metadata::jsonb ->> 'artifact_contract'
+                            = :artifact_contract
+                      AND candidate.metadata::jsonb ->> 'source_ref' = :source_ref
+                      AND NOT EXISTS (
+                          SELECT 1
+                          FROM artifacts AS successor
+                          WHERE successor.workspace_id = candidate.workspace_id
+                            AND successor.playbook_code = :playbook_code
+                            AND successor.artifact_type = :artifact_type
+                            AND successor.metadata IS NOT NULL
+                            AND successor.metadata::jsonb ->> 'artifact_contract'
+                                  = :artifact_contract
+                            AND successor.metadata::jsonb ->> 'source_ref'
+                                  = :source_ref
+                            AND successor.metadata::jsonb
+                                  ->> 'source_reference_profile_id'
+                                  = candidate.metadata::jsonb
+                                    ->> 'reference_profile_id'
+                      )
+                    ORDER BY candidate.updated_at DESC, candidate.id DESC
                     LIMIT :limit
                     """
                 ),
