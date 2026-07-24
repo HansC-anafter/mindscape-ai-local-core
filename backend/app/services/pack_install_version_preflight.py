@@ -13,6 +13,7 @@ from sqlalchemy import text
 from backend.app.routes.core.capability_install_core.install_commit_coordinator import (
     PackBackoutReceipt,
     validate_candidate_version,
+    validate_reviewed_unreceipted_legacy_upgrade,
 )
 from backend.app.services.stores.postgres_base import PostgresStoreBase
 
@@ -318,7 +319,13 @@ def validate_existing_pack_version_truth(
             live_manifest_hash=live_manifest_hash,
         )
     if committed is None:
-        raise RuntimeError("pack_committed_receipt_missing")
+        return validate_reviewed_unreceipted_legacy_upgrade(
+            incoming_version=incoming_version,
+            live_version=live_version,
+            incoming_artifact_sha256=artifact_sha256,
+            backout_receipt=_backout_receipt(backout),
+            reviewed_truth_repair=reviewed_split_truth_repair,
+        )
     return validate_candidate_version(
         incoming_version=incoming_version,
         incoming_hash=incoming_manifest_hash,

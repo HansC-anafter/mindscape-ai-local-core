@@ -83,3 +83,39 @@ def validate_candidate_version(
     ):
         raise RuntimeError("pack_backout_artifact_hash_mismatch")
     return "authorized_backout"
+
+
+def validate_reviewed_unreceipted_legacy_upgrade(
+    *,
+    incoming_version: str,
+    live_version: str,
+    incoming_artifact_sha256: str | None,
+    backout_receipt: PackBackoutReceipt | None,
+    reviewed_truth_repair: bool,
+) -> str:
+    """Admit one reviewed monotonic upgrade when no predecessor receipt exists."""
+
+    if not reviewed_truth_repair:
+        raise RuntimeError("pack_committed_receipt_missing")
+    if backout_receipt is not None:
+        raise RuntimeError(
+            "pack_unreceipted_legacy_upgrade_rejects_backout_receipt"
+        )
+    try:
+        incoming = Version(str(incoming_version))
+        live = Version(str(live_version))
+    except InvalidVersion as exc:
+        raise ValueError("pack_version_must_be_pep440_compatible") from exc
+    if incoming <= live:
+        raise RuntimeError(
+            "pack_unreceipted_legacy_upgrade_requires_monotonic_upgrade"
+        )
+    artifact_sha256 = str(incoming_artifact_sha256 or "").strip()
+    if len(artifact_sha256) != 64 or any(
+        character not in "0123456789abcdef"
+        for character in artifact_sha256
+    ):
+        raise RuntimeError(
+            "pack_unreceipted_legacy_upgrade_requires_artifact_sha256"
+        )
+    return "reviewed_unreceipted_legacy_upgrade"

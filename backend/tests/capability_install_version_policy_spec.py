@@ -189,6 +189,103 @@ def test_unreceipted_existing_pack_stops_without_opening_database_incident(
     assert failures == []
 
 
+def test_reviewed_unreceipted_legacy_upgrade_requires_monotonic_candidate(
+    tmp_path: Path,
+) -> None:
+    live = tmp_path / "live.yaml"
+    candidate = tmp_path / "candidate.yaml"
+    _manifest(live, "2.0.0")
+    _manifest(candidate, "2.1.0")
+
+    decision = pack_install_version_preflight.validate_existing_pack_version_truth(
+        capability_code="demo",
+        candidate_manifest_path=candidate,
+        live_manifest_path=live,
+        artifact_sha256="a" * 64,
+        reviewed_split_truth_repair=True,
+        truth_reader=_TruthReader(None),
+    )
+
+    assert decision == "reviewed_unreceipted_legacy_upgrade"
+
+    for incoming_version in ("2.0.0", "1.9.0"):
+        _manifest(candidate, incoming_version)
+        with pytest.raises(RuntimeError, match="requires_monotonic_upgrade"):
+            pack_install_version_preflight.validate_existing_pack_version_truth(
+                capability_code="demo",
+                candidate_manifest_path=candidate,
+                live_manifest_path=live,
+                artifact_sha256="a" * 64,
+                reviewed_split_truth_repair=True,
+                truth_reader=_TruthReader(None),
+            )
+
+
+def test_reviewed_unreceipted_legacy_upgrade_rejects_invalid_version(
+    tmp_path: Path,
+) -> None:
+    live = tmp_path / "live.yaml"
+    candidate = tmp_path / "candidate.yaml"
+    _manifest(live, "2.0.0")
+    _manifest(candidate, "not-a-version")
+
+    with pytest.raises(ValueError, match="pep440"):
+        pack_install_version_preflight.validate_existing_pack_version_truth(
+            capability_code="demo",
+            candidate_manifest_path=candidate,
+            live_manifest_path=live,
+            artifact_sha256="a" * 64,
+            reviewed_split_truth_repair=True,
+            truth_reader=_TruthReader(None),
+        )
+
+
+def test_reviewed_unreceipted_legacy_upgrade_requires_exact_artifact_hash(
+    tmp_path: Path,
+) -> None:
+    live = tmp_path / "live.yaml"
+    candidate = tmp_path / "candidate.yaml"
+    _manifest(live, "2.0.0")
+    _manifest(candidate, "2.1.0")
+
+    for artifact_sha256 in (None, "short", "A" * 64):
+        with pytest.raises(RuntimeError, match="requires_artifact_sha256"):
+            pack_install_version_preflight.validate_existing_pack_version_truth(
+                capability_code="demo",
+                candidate_manifest_path=candidate,
+                live_manifest_path=live,
+                artifact_sha256=artifact_sha256,
+                reviewed_split_truth_repair=True,
+                truth_reader=_TruthReader(None),
+            )
+
+
+def test_reviewed_unreceipted_legacy_upgrade_rejects_backout_receipt(
+    tmp_path: Path,
+) -> None:
+    live = tmp_path / "live.yaml"
+    candidate = tmp_path / "candidate.yaml"
+    _manifest(live, "2.0.0")
+    _manifest(candidate, "2.1.0")
+
+    with pytest.raises(RuntimeError, match="rejects_backout_receipt"):
+        pack_install_version_preflight.validate_existing_pack_version_truth(
+            capability_code="demo",
+            candidate_manifest_path=candidate,
+            live_manifest_path=live,
+            artifact_sha256="a" * 64,
+            backout={
+                "backout_from_install_id": "missing-predecessor",
+                "artifact_sha256": "b" * 64,
+                "target_version": "2.0.0",
+                "schema_compatibility_receipt": "not-applicable",
+                "owner_approval": "reviewed",
+            },
+            reviewed_split_truth_repair=True,
+            truth_reader=_TruthReader(None),
+        )
+
+
 def test_verified_legacy_receipt_bootstrap_allows_upgrade(tmp_path: Path, monkeypatch):
     live = tmp_path / "live.yaml"
     candidate = tmp_path / "candidate.yaml"

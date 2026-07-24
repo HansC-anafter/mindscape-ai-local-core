@@ -6,6 +6,7 @@ from .install_commit_core.state_machine import InstallCommitState
 from .install_commit_core.version_policy import (
     PackBackoutReceipt,
     validate_candidate_version,
+    validate_reviewed_unreceipted_legacy_upgrade,
 )
 
 __all__ = [
@@ -14,4 +15,5 @@ __all__ = [
     "PreparedCapabilityTree",
     "PackBackoutReceipt",
     "validate_candidate_version",
+    "validate_reviewed_unreceipted_legacy_upgrade",
 ]
