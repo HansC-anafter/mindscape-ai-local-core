@@ -164,6 +164,56 @@ describe('PhoneSourcePreview', () => {
     expect(mocks.previewHandle.stop).toHaveBeenCalledTimes(1);
   });
 
+  it('releases preview while the Local Core receiver acquires the analysis reader slot', async () => {
+    const { rerender } = render(
+      <PhoneSourcePreview
+        apiUrl="http://api.test"
+        workspaceId="ws_device"
+        session={buildSession()}
+      />,
+    );
+    await waitFor(() => expect(startWhepPreview).toHaveBeenCalledTimes(1));
+    mocks.previewHandle.stop.mockClear();
+    vi.mocked(refreshLiveMediaSessionAccess).mockClear();
+
+    rerender(
+      <PhoneSourcePreview
+        apiUrl="http://api.test"
+        workspaceId="ws_device"
+        session={buildSession({ media_session_state: 'waiting_source' })}
+      />,
+    );
+
+    expect(mocks.previewHandle.stop).toHaveBeenCalledTimes(1);
+    expect(refreshLiveMediaSessionAccess).not.toHaveBeenCalled();
+    expect(screen.getAllByText('Prioritizing Local Core analysis handoff.')).toHaveLength(2);
+
+    rerender(
+      <PhoneSourcePreview
+        apiUrl="http://api.test"
+        workspaceId="ws_device"
+        session={buildSession({ media_session_state: 'receiving' })}
+      />,
+    );
+
+    await waitFor(() => expect(startWhepPreview).toHaveBeenCalledTimes(2));
+    expect(refreshLiveMediaSessionAccess).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not request a preview slot when analysis handoff is already pending', () => {
+    render(
+      <PhoneSourcePreview
+        apiUrl="http://api.test"
+        workspaceId="ws_device"
+        session={buildSession({ media_session_state: 'starting' })}
+      />,
+    );
+
+    expect(refreshLiveMediaSessionAccess).not.toHaveBeenCalled();
+    expect(startWhepPreview).not.toHaveBeenCalled();
+    expect(screen.getAllByText('Prioritizing Local Core analysis handoff.')).toHaveLength(2);
+  });
+
   it('uses bounded reconnect delays after WHEP failure', async () => {
     vi.useFakeTimers();
     render(

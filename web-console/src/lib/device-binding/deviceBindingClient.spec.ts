@@ -1,15 +1,22 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   buildDeviceControlWebSocketUrl,
   buildDevicePairingCodeUrl,
   buildDeviceRevokeUrl,
+  buildDeviceSessionsUrl,
   buildWorkspaceDeviceControlWebSocketUrl,
   createDevicePairingCode,
+  listActiveDeviceSessions,
   openDeviceControlSocket,
 } from './deviceBindingClient';
 
 describe('deviceBindingClient', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
   it('builds REST and WebSocket URLs under workspace device-bindings', () => {
     expect(
       buildDevicePairingCodeUrl({
@@ -25,6 +32,12 @@ describe('deviceBindingClient', () => {
       }),
     ).toBe('http://api.test/api/v1/workspaces/ws%201/device-bindings/session%201/revoke');
     expect(
+      buildDeviceSessionsUrl({
+        apiBase: 'http://api.test',
+        workspaceId: 'ws 1',
+      }),
+    ).toBe('http://api.test/api/v1/workspaces/ws%201/device-bindings/sessions');
+    expect(
       buildDeviceControlWebSocketUrl({
         apiBase: 'https://console.test',
         workspaceId: 'ws 1',
@@ -37,6 +50,25 @@ describe('deviceBindingClient', () => {
         workspaceId: 'ws 1',
       }),
     ).toBe('wss://console.test/api/v1/workspaces/ws%201/device-bindings/control');
+  });
+
+  it('uses the backend port directly for local 8300 device binding control', () => {
+    vi.spyOn(window, 'location', 'get').mockReturnValue(
+      new URL('http://localhost:8300/workspaces/ws_device') as unknown as Location,
+    );
+
+    expect(
+      buildDeviceSessionsUrl({
+        apiBase: '',
+        workspaceId: 'ws_device',
+      }),
+    ).toBe('http://localhost:8200/api/v1/workspaces/ws_device/device-bindings/sessions');
+    expect(
+      buildWorkspaceDeviceControlWebSocketUrl({
+        apiBase: '',
+        workspaceId: 'ws_device',
+      }),
+    ).toBe('ws://localhost:8200/api/v1/workspaces/ws_device/device-bindings/control');
   });
 
   it('sends JSON control messages only after socket open', () => {
@@ -106,5 +138,37 @@ describe('deviceBindingClient', () => {
         body: JSON.stringify({ expires_in_seconds: 600 }),
       }),
     );
+  });
+
+  it('lists active device sessions without caching', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => [
+        {
+          session_id: 'session_1',
+          workspace_id: 'ws_test',
+          pairing_code: 'PAIR1234',
+          device_id: 'obs_virtual',
+          display_name: 'OBS Virtual Camera',
+          source_types: ['virtual_camera'],
+          state: 'active',
+          created_at_epoch: 1,
+          updated_at_epoch: 2,
+          expires_at_epoch: 62,
+        },
+      ],
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const sessions = await listActiveDeviceSessions({
+      apiBase: 'http://api.test',
+      workspaceId: 'ws_test',
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://api.test/api/v1/workspaces/ws_test/device-bindings/sessions',
+      { cache: 'no-store' },
+    );
+    expect(sessions[0].display_name).toBe('OBS Virtual Camera');
   });
 });

@@ -15,6 +15,8 @@ import {
 } from './capture-bridge/CaptureSourceBridgeProvider';
 import { CaptureSourceRailFromBridge } from './capture-bridge/CaptureSourceRail';
 import {
+  createDevicePairingCode,
+  listActiveDeviceSessions,
   openWorkspaceDeviceControlSocket,
   revokeDeviceSession,
 } from '@/lib/device-binding/deviceBindingClient';
@@ -28,6 +30,7 @@ describe('MotionSourceRailPanel', () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     resetMotionSourceRailPanelTestState();
   });
 
@@ -50,14 +53,14 @@ describe('MotionSourceRailPanel', () => {
         workspaceId: 'ws_device',
       }),
     );
-    expect(screen.getByText('Local-core device link')).toBeInTheDocument();
+    expect(screen.getByText('Connect a camera')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Open Device Link settings' })).toHaveAttribute(
       'href',
       '/settings?tab=runtime&section=device-link-readiness&workspace_id=ws_device',
     );
-    expect(screen.getByText('Provider backends')).toBeInTheDocument();
-    expect(screen.getByTestId('capture-provider-source-slot-count')).toHaveTextContent('0 / 3 active');
-    expect(screen.getByText('Phone owned camera')).toBeInTheDocument();
+    expect(screen.getByText('Choose a camera')).toBeInTheDocument();
+    expect(screen.getByTestId('capture-provider-source-slot-count')).toHaveTextContent('0 connected');
+    expect(screen.getByText('Use phone camera')).toBeInTheDocument();
     expect(screen.getByText('Computer / OBS camera')).toBeInTheDocument();
     expect(screen.getByText('External device provider')).toBeInTheDocument();
     expect(screen.getByText('Bridge required')).toBeInTheDocument();
@@ -139,6 +142,136 @@ describe('MotionSourceRailPanel', () => {
       'Advanced bridge payload',
     );
     expect(screen.getByTestId('external-provider-copy-payload')).toBeEnabled();
+  });
+
+  it('hydrates workspace active sessions without opening a pairing rail', async () => {
+    function WorkspaceSessionHarness() {
+      const bridge = useCaptureSourceBridge();
+
+      return (
+        <div>
+          <div data-testid="bridge-state">{bridge.state}</div>
+          <div data-testid="bridge-session-count">{bridge.sessions.length}</div>
+          <div data-testid="bridge-session-label">
+            {bridge.sessions[0]?.display_name || ''}
+          </div>
+          <div data-testid="bridge-session-source">
+            {bridge.sessions[0]?.source_types.join(',') || ''}
+          </div>
+        </div>
+      );
+    }
+
+    render(
+      createElement(
+        CaptureSourceBridgeProvider,
+        {
+          apiUrl: 'http://api.test',
+          workspaceId: 'ws_device',
+          children: createElement(WorkspaceSessionHarness),
+        },
+      ),
+    );
+
+    expect(openWorkspaceDeviceControlSocket).toHaveBeenCalledWith(
+      expect.objectContaining({
+        apiBase: 'http://api.test',
+        workspaceId: 'ws_device',
+      }),
+    );
+    expect(createDevicePairingCode).not.toHaveBeenCalled();
+
+    act(() => {
+      mocks.socketInput.onOpen();
+    });
+
+    expect(mocks.socket.send).toHaveBeenCalledWith({ type: 'workspace_subscribe' });
+
+    act(() => {
+      mocks.socketInput.onEvent({
+        type: 'session_active',
+        workspace_id: 'ws_device',
+        active_sessions: [
+          {
+            session_id: 'session_virtual',
+            workspace_id: 'ws_device',
+            pairing_code: 'PAIR1234',
+            device_id: 'obs_virtual',
+            display_name: 'Virtual camera',
+            source_types: ['virtual_camera'],
+            state: 'active',
+            created_at_epoch: 1,
+            updated_at_epoch: 1,
+            expires_at_epoch: 61,
+          },
+        ],
+      });
+    });
+
+    expect(screen.getByTestId('bridge-state')).toHaveTextContent('connected');
+    expect(screen.getByTestId('bridge-session-count')).toHaveTextContent('1');
+    expect(screen.getByTestId('bridge-session-label')).toHaveTextContent('Virtual camera');
+    expect(screen.getByTestId('bridge-session-source')).toHaveTextContent('virtual_camera');
+  });
+
+  it('hydrates active sessions over REST and reconnects workspace control socket after close', async () => {
+    vi.useFakeTimers();
+    vi.mocked(listActiveDeviceSessions).mockResolvedValue([
+      {
+        session_id: 'session_virtual',
+        workspace_id: 'ws_device',
+        pairing_code: 'PAIR1234',
+        device_id: 'obs_virtual',
+        display_name: 'OBS Virtual Camera',
+        source_types: ['virtual_camera'],
+        state: 'active',
+        created_at_epoch: 1,
+        updated_at_epoch: 1,
+        expires_at_epoch: 61,
+      },
+    ]);
+
+    function WorkspaceSessionHarness() {
+      const bridge = useCaptureSourceBridge();
+
+      return (
+        <div>
+          <div data-testid="bridge-state">{bridge.state}</div>
+          <div data-testid="bridge-session-count">{bridge.sessions.length}</div>
+          <div data-testid="bridge-session-label">
+            {bridge.sessions[0]?.display_name || ''}
+          </div>
+        </div>
+      );
+    }
+
+    render(
+      createElement(
+        CaptureSourceBridgeProvider,
+        {
+          apiUrl: 'http://api.test',
+          workspaceId: 'ws_device',
+          children: createElement(WorkspaceSessionHarness),
+        },
+      ),
+    );
+
+    expect(openWorkspaceDeviceControlSocket).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.getByTestId('bridge-session-label')).toHaveTextContent('OBS Virtual Camera');
+    expect(screen.getByTestId('bridge-state')).toHaveTextContent('connected');
+
+    act(() => {
+      mocks.socketInput.onClose();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1200);
+    });
+
+    expect(openWorkspaceDeviceControlSocket).toHaveBeenCalledTimes(2);
   });
 
   it('renders a scannable phone QR only for HTTPS LAN origins', async () => {
@@ -280,7 +413,7 @@ describe('MotionSourceRailPanel', () => {
     });
 
     expect(screen.getByText('phone_camera')).toBeTruthy();
-    expect(screen.getByTestId('capture-provider-source-slot-count')).toHaveTextContent('1 / 3 active');
+    expect(screen.getByTestId('capture-provider-source-slot-count')).toHaveTextContent('1 connected');
 
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Revoke Phone' }));

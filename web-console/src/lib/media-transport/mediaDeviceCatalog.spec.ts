@@ -40,6 +40,34 @@ describe('mediaDeviceCatalog', () => {
     expect(enumerateDevices).toHaveBeenCalledTimes(1);
   });
 
+  it('unlocks browser camera labels when the first enumerate call returns no video inputs', async () => {
+    const stop = vi.fn();
+    const enumerateDevices = vi.fn()
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          kind: 'videoinput',
+          deviceId: 'obs_camera',
+          groupId: 'group_obs',
+          label: 'OBS Virtual Camera',
+        },
+      ] as MediaDeviceInfo[]);
+    const getUserMedia = vi.fn(async () => ({
+      getTracks: () => [{ stop }],
+    } as unknown as MediaStream));
+
+    await expect(loadVideoInputCatalog({ enumerateDevices, getUserMedia })).resolves.toEqual([
+      {
+        deviceId: 'obs_camera',
+        groupId: 'group_obs',
+        label: 'OBS Virtual Camera',
+        sourceKind: 'virtual_camera',
+      },
+    ]);
+    expect(getUserMedia).toHaveBeenCalledWith({ video: true, audio: false });
+    expect(stop).toHaveBeenCalledTimes(1);
+  });
+
   it('uses devicechange events without creating an interval loop', () => {
     const setIntervalSpy = vi.spyOn(globalThis, 'setInterval');
     const addEventListener = vi.fn();

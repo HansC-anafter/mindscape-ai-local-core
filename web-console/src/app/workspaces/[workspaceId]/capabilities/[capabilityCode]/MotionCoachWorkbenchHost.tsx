@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 
 import {
@@ -11,13 +11,28 @@ import {
 } from '@/components/workspace/device-binding/capture-bridge/CaptureSourceBridgeProvider';
 import { PhoneSourcePreview } from '@/components/workspace/device-binding/PhoneSourcePreview';
 import type { MotionPracticeClosureResult } from '@/components/workspace/device-binding/motionPracticeClosure';
-import type { MotionPracticeLaunchInput, MotionPracticeLaunchResult, MotionPracticeCoachPack } from '@/components/workspace/device-binding/motionPracticeLauncher';
+import {
+  launchMotionPractice,
+  type MotionPracticeLaunchInput,
+  type MotionPracticeLaunchResult,
+  type MotionPracticeCoachPack,
+} from '@/components/workspace/device-binding/motionPracticeLauncher';
 import type { MotionWindowAppendEvent } from '@/components/workspace/device-binding/motionWindowAppendEvent';
 import {
+  buildInstructionRefsFromLessonHandoff,
   buildInstructionSourceStateFromLessonHandoff,
   parseMotionPracticeLessonHandoff,
 } from '@/components/workspace/device-binding/practice/motionPracticeLessonHandoff';
 import { buildMotionPracticeLessonHandoffFromGraphSelection } from '@/components/workspace/device-binding/practice/motionPracticeGraphSelection';
+import {
+  confirmMotionPracticeReferencePlayback,
+  prepareMotionPracticeReferencePlayback,
+  type MotionPracticeReferencePlaybackPlan,
+} from '@/components/workspace/device-binding/practice/motionPracticeReferencePlayback';
+import {
+  subscribeMeetingClientActions,
+} from '@/lib/meeting-voice/meetingClientActionEvent';
+import type { DeviceSessionEntry } from '@/lib/device-binding/deviceBindingClient';
 import type { CapabilityTaskConfirmationBridge } from '@/types/capability-workbench';
 import { requestPackScopeToolClose } from '@/components/capabilities/workbench/packScopeToolEvents';
 import {
@@ -37,9 +52,77 @@ interface MotionCoachWorkbenchHostProps {
 }
 
 const MAX_WINDOW_EVENTS = 60;
+const MAX_RETAINED_PLAYBACK_LAUNCHES = 64;
+const playbackLaunchesByConfirmation = new Map<
+  string,
+  Promise<MotionPracticeLaunchResult>
+>();
+const ATTACHED_RECEIVER_STATES = new Set([
+  'starting',
+  'waiting_source',
+  'receiving',
+  'analyzing',
+  'degraded',
+  'stopping',
+]);
+
+function hasAttachedMediaReceiver(session: DeviceSessionEntry): boolean {
+  return Boolean(
+    session.media_session_id
+    && ATTACHED_RECEIVER_STATES.has(session.media_session_state || ''),
+  );
+}
+
+function buildAttachedMotionPracticeResult(
+  session: DeviceSessionEntry,
+  coachPack: MotionPracticeCoachPack,
+): MotionPracticeLaunchResult | null {
+  const handoff = session.media_analysis_handoff;
+  if (
+    !handoff
+    || handoff.coach_pack !== coachPack
+    || !handoff.live_motion_session_id
+    || !handoff.meeting_session_id
+    || !handoff.practice_session_id
+  ) {
+    return null;
+  }
+  return {
+    meetingId: handoff.meeting_session_id,
+    commandId: null,
+    playbookExecutionId: null,
+    liveSessionId: handoff.live_motion_session_id,
+    sourceSessionId: session.session_id,
+    practiceSessionId: handoff.practice_session_id,
+    liveGuidanceEnabled: handoff.practice_mode === 'live_guidance',
+    coachPack,
+    practiceMode: handoff.practice_mode,
+    status: 'active',
+  };
+}
 
 function resolveCoachPack(capabilityCode: MotionCoachCapabilityCode): MotionPracticeCoachPack {
   return capabilityCode === 'dance_motion_coach' ? 'dance_motion_coach' : 'yogacoach';
+}
+
+function launchMotionPracticeOnce(
+  launchKey: string,
+  input: MotionPracticeLaunchInput,
+): Promise<MotionPracticeLaunchResult> {
+  const existing = playbackLaunchesByConfirmation.get(launchKey);
+  if (existing) {
+    return existing;
+  }
+  const pending = launchMotionPractice(input);
+  playbackLaunchesByConfirmation.set(launchKey, pending);
+  while (playbackLaunchesByConfirmation.size > MAX_RETAINED_PLAYBACK_LAUNCHES) {
+    const oldestKey = playbackLaunchesByConfirmation.keys().next().value;
+    if (typeof oldestKey !== 'string') {
+      break;
+    }
+    playbackLaunchesByConfirmation.delete(oldestKey);
+  }
+  return pending;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -106,8 +189,12 @@ function MotionCoachWorkbenchHostContent({
   const [launchInput, setLaunchInput] = useState<MotionPracticeLaunchInput | null>(null);
   const [motionWindowEvents, setMotionWindowEvents] = useState<MotionWindowAppendEvent[]>([]);
   const [closureResult, setClosureResult] = useState<MotionPracticeClosureResult | null>(null);
+  const [agentLessonHandoff, setAgentLessonHandoff] = useState<ReturnType<typeof parseMotionPracticeLessonHandoff>>(null);
+  const [referencePlaybackPlan, setReferencePlaybackPlan] = useState<MotionPracticeReferencePlaybackPlan | null>(null);
   const publishedReferenceLessonKeyRef = useRef('');
   const previousSessionCountRef = useRef(sessions.length);
+  const recoveryInFlightRef = useRef('');
+  const playbackLaunchInFlightRef = useRef('');
   const urlLessonHandoff = useMemo(() => (
     parseMotionPracticeLessonHandoff(searchParams)
   ), [searchParams]);
@@ -120,7 +207,11 @@ function MotionCoachWorkbenchHostContent({
       graphSelection: aolHost?.graphSelection ?? null,
     });
   }, [aolHost, capabilityCode, urlLessonHandoff]);
-  const lessonHandoff = graphLessonHandoff || urlLessonHandoff;
+  const lessonHandoff = agentLessonHandoff || graphLessonHandoff || urlLessonHandoff;
+  const clientActionMeetingId = readString(searchParams.get('meeting'))
+    || readString(searchParams.get('meeting_session_id'))
+    || readString(aolHost?.activeMeetingId)
+    || readString(aolHost?.meetingId);
   const initialInstructionSource = useMemo(() => (
     buildInstructionSourceStateFromLessonHandoff(lessonHandoff)
   ), [lessonHandoff]);
@@ -149,6 +240,161 @@ function MotionCoachWorkbenchHostContent({
   const selectedSession = useMemo(() => (
     sessions.find((session) => session.session_id === selectedSessionId) || sessions[0] || null
   ), [selectedSessionId, sessions]);
+
+  useEffect(() => {
+    return subscribeMeetingClientActions((action) => {
+      if (
+        !action
+        || action.workspaceId !== workspaceId
+        || action.packCode !== resolveCoachPack(capabilityCode)
+        || (clientActionMeetingId && action.meetingId !== clientActionMeetingId)
+      ) {
+        return;
+      }
+      const prepared = prepareMotionPracticeReferencePlayback(action);
+      if (prepared) {
+        setAgentLessonHandoff(prepared.handoff);
+        setReferencePlaybackPlan(prepared.plan);
+        setPracticeResult(null);
+        setClosureResult(null);
+        setMotionWindowEvents([]);
+        return;
+      }
+      setReferencePlaybackPlan((current) => (
+        confirmMotionPracticeReferencePlayback(current, action) || current
+      ));
+    }, clientActionMeetingId ? {
+      apiUrl,
+      workspaceId,
+      meetingId: clientActionMeetingId,
+    } : undefined);
+  }, [apiUrl, capabilityCode, clientActionMeetingId, workspaceId]);
+
+  useEffect(() => {
+    if (!referencePlaybackPlan || referencePlaybackPlan.status !== 'countdown') {
+      return undefined;
+    }
+    if (referencePlaybackPlan.countdownRemaining > 0) {
+      const timer = window.setTimeout(() => {
+        setReferencePlaybackPlan((current) => (
+          current?.status === 'countdown'
+            ? { ...current, countdownRemaining: Math.max(0, current.countdownRemaining - 1) }
+            : current
+        ));
+      }, 1000);
+      return () => window.clearTimeout(timer);
+    }
+    const confirmationActionId = referencePlaybackPlan.confirmationActionId || '';
+    if (!confirmationActionId) {
+      return undefined;
+    }
+    if (!selectedSession || !agentLessonHandoff) {
+      setReferencePlaybackPlan((current) => current ? {
+        ...current,
+        status: 'failed',
+        error: selectedSession ? 'reference_handoff_missing' : 'learner_source_not_connected',
+      } : current);
+      return undefined;
+    }
+    const launchKey = [
+      workspaceId,
+      referencePlaybackPlan.meetingId,
+      selectedSession.session_id,
+      selectedSession.media_session_id || '',
+      resolveCoachPack(capabilityCode),
+      confirmationActionId,
+    ].join(':');
+    if (playbackLaunchInFlightRef.current === launchKey) {
+      return undefined;
+    }
+    playbackLaunchInFlightRef.current = launchKey;
+    const input: MotionPracticeLaunchInput = {
+      apiUrl,
+      workspaceId,
+      sourceSession: selectedSession,
+      meetingSessionId: referencePlaybackPlan.meetingId,
+      coachPack: resolveCoachPack(capabilityCode),
+      practiceMode: 'live_guidance',
+      expertLibraryRef: agentLessonHandoff.sourceValue,
+      instructionRefs: buildInstructionRefsFromLessonHandoff(agentLessonHandoff),
+      userGoal: 'Follow the selected reference lesson while motion-sequence localization aligns learner capture.',
+      expectedDurationMs: referencePlaybackPlan.playback.durationMs,
+    };
+    if (hasAttachedMediaReceiver(selectedSession)) {
+      const attachedResult = buildAttachedMotionPracticeResult(
+        selectedSession,
+        input.coachPack,
+      );
+      if (!attachedResult) {
+        setReferencePlaybackPlan((current) => current ? {
+          ...current,
+          status: 'failed',
+          error: 'media_analysis_handoff_missing',
+        } : current);
+        return undefined;
+      }
+      const elapsedMs = Math.min(
+        Math.max(0, selectedSession.media_receiver_metrics?.last_window_end_ms || 0),
+        Math.max(0, referencePlaybackPlan.playback.durationMs - 1),
+      );
+      setReferencePlaybackPlan((current) => current ? {
+        ...current,
+        status: 'playing',
+        playback: {
+          ...current.playback,
+          startMs: current.playback.startMs + elapsedMs,
+        },
+        startedAt: new Date(Date.now() - elapsedMs).toISOString(),
+        error: undefined,
+      } : current);
+      setLaunchInput(input);
+      setPracticeResult(attachedResult);
+      setClosureResult(null);
+      setMotionWindowEvents([]);
+      return undefined;
+    }
+    setLaunchInput(input);
+    setReferencePlaybackPlan((current) => current ? { ...current, status: 'starting' } : current);
+    void launchMotionPracticeOnce(launchKey, input).then((result) => {
+      setPracticeResult(result);
+      setClosureResult(null);
+      setMotionWindowEvents([]);
+      setReferencePlaybackPlan((current) => current ? {
+        ...current,
+        status: 'playing',
+        startedAt: new Date().toISOString(),
+        error: undefined,
+      } : current);
+    }).catch((error) => {
+      setReferencePlaybackPlan((current) => current ? {
+        ...current,
+        status: 'failed',
+        error: error instanceof Error ? error.message : 'motion_practice_launch_failed',
+      } : current);
+    });
+    return undefined;
+  }, [
+    agentLessonHandoff,
+    apiUrl,
+    capabilityCode,
+    referencePlaybackPlan,
+    selectedSession,
+    workspaceId,
+  ]);
+
+  useEffect(() => {
+    if (!referencePlaybackPlan?.startedAt || referencePlaybackPlan.status !== 'playing') {
+      return undefined;
+    }
+    const elapsedMs = Date.now() - Date.parse(referencePlaybackPlan.startedAt);
+    const remainingMs = Math.max(0, referencePlaybackPlan.playback.durationMs - elapsedMs);
+    const timer = window.setTimeout(() => {
+      setReferencePlaybackPlan((current) => (
+        current?.status === 'playing' ? { ...current, status: 'complete' } : current
+      ));
+    }, remainingMs);
+    return () => window.clearTimeout(timer);
+  }, [referencePlaybackPlan]);
 
   const scopedPracticeResult = useMemo(() => (
     practiceResult?.coachPack === resolveCoachPack(capabilityCode) ? practiceResult : null
@@ -207,6 +453,38 @@ function MotionCoachWorkbenchHostContent({
     ? scopedPracticeResult.liveSessionId
     : null;
 
+  const recoverLiveMotionSession = useCallback(async (lostLiveSessionId: string) => {
+    if (
+      !lostLiveSessionId ||
+      !launchInput ||
+      !scopedPracticeResult ||
+      scopedPracticeResult.liveSessionId !== lostLiveSessionId ||
+      recoveryInFlightRef.current === lostLiveSessionId
+    ) {
+      return;
+    }
+    recoveryInFlightRef.current = lostLiveSessionId;
+    setPracticeResult(null);
+    setClosureResult(null);
+    setMotionWindowEvents((current) => (
+      current.filter((event) => event.liveSessionId !== lostLiveSessionId)
+    ));
+    try {
+      const nextResult = await launchMotionPractice({
+        ...launchInput,
+        sourceSession: selectedSession || launchInput.sourceSession,
+      });
+      setPracticeResult(nextResult);
+      if (nextResult.sourceSessionId) {
+        setSelectedSessionId(nextResult.sourceSessionId);
+      }
+    } finally {
+      if (recoveryInFlightRef.current === lostLiveSessionId) {
+        recoveryInFlightRef.current = '';
+      }
+    }
+  }, [launchInput, scopedPracticeResult, selectedSession]);
+
   const hostCapturePreview = selectedSession ? (
     <PhoneSourcePreview
       apiUrl={apiUrl}
@@ -217,6 +495,9 @@ function MotionCoachWorkbenchHostContent({
         setMotionWindowEvents((current) => (
           [...current, event].slice(-MAX_WINDOW_EVENTS)
         ));
+      }}
+      onLiveMotionSessionLost={(lostLiveSessionId) => {
+        void recoverLiveMotionSession(lostLiveSessionId);
       }}
       className="mt-0 h-full min-h-0 w-full border-stone-900 shadow-sm"
     />
@@ -238,6 +519,7 @@ function MotionCoachWorkbenchHostContent({
         surfacePath={surfacePath}
         taskConfirmation={taskConfirmation}
         workbenchState={workbenchState}
+        referencePlaybackPlan={referencePlaybackPlan}
         hostCapturePreview={hostCapturePreview}
         motionCoachControls={{
           workspaceId,

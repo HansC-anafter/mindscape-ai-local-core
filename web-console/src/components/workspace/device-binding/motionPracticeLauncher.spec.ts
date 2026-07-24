@@ -233,6 +233,7 @@ describe('motionPracticeLauncher', () => {
     await launchMotionPractice({
       ...baseInput,
       practiceMode: 'live_guidance',
+      expectedDurationMs: 1_800_000,
       sourceSession: {
         ...sourceSession,
         media_session_id: 'media-one',
@@ -244,10 +245,71 @@ describe('motionPracticeLauncher', () => {
     ));
     const registrationPayload = JSON.parse(String(registration?.[1]?.body));
     expect(registrationPayload.metadata.append_owner_required).toBe(true);
+    expect(registrationPayload.metadata.expected_duration_ms).toBe(1_800_000);
     expect(mocks.startLiveMediaReceiver).toHaveBeenCalledWith(expect.objectContaining({
       mediaSessionId: 'media-one',
       liveMotionSessionId: 'motion-one',
       meetingSessionId: 'meeting-one',
+      expectedDurationMs: 1_800_000,
     }));
+  });
+
+  it('preserves an explicit voice-action meeting identity', async () => {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith('/meeting-sessions/active')) {
+        return { ok: true, status: 200, json: async () => ({ id: 'meeting-voice' }) };
+      }
+      if (url.endsWith('/analysis/live-sessions')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ live_session: { live_session_id: 'motion-voice' } }),
+        };
+      }
+      throw new Error(`unexpected fetch: ${url}:${init?.method || 'GET'}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await launchMotionPractice({
+      ...baseInput,
+      meetingSessionId: 'meeting-voice',
+      practiceMode: 'live_guidance',
+      sourceSession: {
+        ...sourceSession,
+        media_session_id: 'media-voice',
+      },
+    });
+
+    expect(result.meetingId).toBe('meeting-voice');
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      expect.stringContaining('/meeting-sessions/start'),
+      expect.anything(),
+    );
+    expect(mocks.startLiveMediaReceiver).toHaveBeenCalledWith(expect.objectContaining({
+      meetingSessionId: 'meeting-voice',
+    }));
+  });
+
+  it('fails closed instead of replacing an explicit voice-action meeting', async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.endsWith('/meeting-sessions/active')) {
+        return { ok: true, status: 200, json: async () => ({ id: 'meeting-other' }) };
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(launchMotionPractice({
+      ...baseInput,
+      meetingSessionId: 'meeting-voice',
+      practiceMode: 'live_guidance',
+      sourceSession: {
+        ...sourceSession,
+        media_session_id: 'media-voice',
+      },
+    })).rejects.toThrow('motion_practice_meeting_identity_conflict');
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(mocks.startLiveMediaReceiver).not.toHaveBeenCalled();
   });
 });

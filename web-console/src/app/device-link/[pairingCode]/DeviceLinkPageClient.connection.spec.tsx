@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { act, screen } from '@testing-library/react';
+import { act, screen, waitFor } from '@testing-library/react';
 
 import {
   clickButton,
@@ -73,6 +73,24 @@ describe('DeviceLinkPageClient connection behavior', () => {
         videoOrientation: 'portrait',
       }),
     );
+  });
+
+  it('turns a remote media-route 404 into a clear recovery message', async () => {
+    mocks.createLiveMediaSession.mockRejectedValueOnce(
+      new Error('live_media_request_failed_404'),
+    );
+
+    renderDeviceLinkPage();
+    await clickButton('Connect');
+    openControlSocket();
+    await pairSource();
+
+    await waitFor(() => {
+      expect(screen.getByTestId('device-link-connection-status-detail')).toHaveTextContent(
+        'The camera connection service is unavailable on this link. Reload this page, then tap Reconnect.',
+      );
+    });
+    expect(screen.queryByText('live_media_request_failed_404')).toBeNull();
   });
 
   it('sends requested phone capture orientation when changed before connect', async () => {
@@ -246,6 +264,31 @@ describe('DeviceLinkPageClient connection behavior', () => {
       expect(screen.getByTestId('device-link-connection-status-detail')).toHaveTextContent(
         'Media signaling closed repeatedly',
       );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('republishes the same media session after WHIP connection failure', async () => {
+    vi.useFakeTimers();
+    try {
+      await connectAndPairPhone();
+
+      await act(async () => {
+        mocks.phoneInputs[0].onError(new Error('whip_connection_failed'));
+      });
+      await act(async () => {
+        vi.advanceTimersByTime(1500);
+        await Promise.resolve();
+      });
+
+      expect(mocks.openDeviceControlSocket).toHaveBeenCalledTimes(1);
+      expect(mocks.startPhoneBrowserSourceSession).toHaveBeenCalledTimes(2);
+      expect(mocks.phoneInputs[1]).toEqual(expect.objectContaining({
+        access: expect.objectContaining({
+          session: expect.objectContaining({ media_session_id: 'lms_session_1' }),
+        }),
+      }));
     } finally {
       vi.useRealTimers();
     }

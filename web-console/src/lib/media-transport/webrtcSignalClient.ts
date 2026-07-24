@@ -15,8 +15,29 @@ function getBrowserOrigin(): string {
   return window.location.origin;
 }
 
+function resolveLocalBackendBase(origin: string): string | null {
+  try {
+    const url = new URL(origin);
+    if (
+      (url.hostname === 'localhost' || url.hostname === '127.0.0.1')
+      && url.port === '8300'
+    ) {
+      url.port = '8200';
+      return trimTrailingSlash(url.toString());
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
 function resolveHttpBase(apiBase: string): string {
-  return trimTrailingSlash(apiBase || getBrowserOrigin()) || getBrowserOrigin();
+  const trimmedApiBase = apiBase.trim();
+  if (trimmedApiBase) {
+    return trimTrailingSlash(trimmedApiBase);
+  }
+  const browserOrigin = getBrowserOrigin();
+  return resolveLocalBackendBase(browserOrigin) || trimTrailingSlash(browserOrigin) || browserOrigin;
 }
 
 export function buildWebRTCSignalWebSocketUrl({
@@ -51,7 +72,11 @@ export function openWebRTCSignalSocket(
     }
   };
   socket.onerror = () => input.onError?.(new Error('media_signal_socket_error'));
-  socket.onclose = () => input.onClose?.();
+  socket.onclose = (event) => input.onClose?.({
+    code: event.code,
+    reason: event.reason,
+    wasClean: event.wasClean,
+  });
   return {
     raw: socket,
     send: (message) => {

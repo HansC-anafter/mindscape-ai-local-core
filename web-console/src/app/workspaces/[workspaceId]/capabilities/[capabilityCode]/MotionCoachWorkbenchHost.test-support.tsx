@@ -10,6 +10,19 @@ const navigationMocksState = vi.hoisted(() => ({
 const motionCoachMocksState = vi.hoisted(() => ({
   existingBridge: null as Record<string, unknown> | null,
   publishReferenceLessonState: vi.fn(),
+  phoneSourcePreviewProps: null as any,
+  launchMotionPractice: vi.fn(async (input: any) => ({
+    meetingId: 'meeting-recovered',
+    commandId: null,
+    playbookExecutionId: null,
+    liveSessionId: 'live-session-recovered',
+    sourceSessionId: input.sourceSession.session_id,
+    practiceSessionId: `${input.sourceSession.session_id}:live_guidance`,
+    liveGuidanceEnabled: true,
+    coachPack: input.coachPack,
+    practiceMode: input.practiceMode,
+    status: 'active',
+  })),
   sessions: [
     {
       session_id: 'session-phone',
@@ -35,7 +48,7 @@ const motionCoachMocksState = vi.hoisted(() => ({
       updated_at_epoch: 2,
       expires_at_epoch: 999,
     },
-  ],
+  ] as any[],
   referenceLessonState: {
     lesson_id: 'lesson-live',
     title: 'Foundation Flow',
@@ -47,6 +60,7 @@ const motionCoachMocksState = vi.hoisted(() => ({
 
 export const navigationMocks = navigationMocksState;
 export const motionCoachMocks = motionCoachMocksState;
+export const launchMotionPracticeMock = motionCoachMocksState.launchMotionPractice;
 
 vi.mock('next/navigation', () => ({
   useSearchParams: () => navigationMocks.searchParams,
@@ -59,16 +73,27 @@ vi.mock('@/components/workspace/device-binding/capture-bridge/CaptureSourceBridg
     children,
   ),
   useCaptureSourceBridge: () => ({
-    sessions: motionCoachMocks.sessions,
-    referenceLessonState: motionCoachMocks.referenceLessonState,
-    publishReferenceLessonState: motionCoachMocks.publishReferenceLessonState,
+    sessions: motionCoachMocksState.sessions,
+    referenceLessonState: motionCoachMocksState.referenceLessonState,
+    publishReferenceLessonState: motionCoachMocksState.publishReferenceLessonState,
   }),
-  useOptionalCaptureSourceBridge: () => motionCoachMocks.existingBridge,
+  useOptionalCaptureSourceBridge: () => motionCoachMocksState.existingBridge,
 }));
+
+vi.mock('@/components/workspace/device-binding/motionPracticeLauncher', async () => {
+  const actual = await vi.importActual<typeof import('@/components/workspace/device-binding/motionPracticeLauncher')>(
+    '@/components/workspace/device-binding/motionPracticeLauncher',
+  );
+  return {
+    ...actual,
+    launchMotionPractice: motionCoachMocksState.launchMotionPractice,
+  };
+});
 
 vi.mock('@/components/workspace/device-binding/PhoneSourcePreview', () => ({
   PhoneSourcePreview: (props: any) => {
     const emitted = React.useRef(false);
+    motionCoachMocksState.phoneSourcePreviewProps = props;
 
     React.useEffect(() => {
       if (!props.liveMotionSessionId || emitted.current) {
@@ -173,6 +198,8 @@ export function resetMotionCoachMocks() {
   navigationMocks.searchParams = new URLSearchParams();
   motionCoachMocks.existingBridge = null;
   motionCoachMocks.publishReferenceLessonState = vi.fn();
+  motionCoachMocks.phoneSourcePreviewProps = null;
+  motionCoachMocks.launchMotionPractice.mockClear();
   motionCoachMocks.sessions = createDefaultMotionSessions();
   motionCoachMocks.referenceLessonState = {
     lesson_id: 'lesson-live',

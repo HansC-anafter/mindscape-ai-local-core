@@ -30,6 +30,8 @@ function cn(...classes: Array<string | null | undefined | false>): string {
   return classes.filter(Boolean).join(' ');
 }
 
+const ANALYSIS_HANDOFF_STATES = new Set(['starting', 'waiting_source']);
+
 export function PhoneSourcePreview({
   apiUrl,
   workspaceId,
@@ -45,6 +47,9 @@ export function PhoneSourcePreview({
   const [notice, setNotice] = useState<string | null>(null);
   const [hasRemoteStream, setHasRemoteStream] = useState(false);
   const [videoFrameReady, setVideoFrameReady] = useState(false);
+  const analysisHandoffPending = ANALYSIS_HANDOFF_STATES.has(
+    session.media_session_state || '',
+  );
   const supportsCamera = session.source_types.some((sourceType) => (
     sourceType === 'phone_camera'
     || sourceType === 'desktop_camera'
@@ -58,11 +63,15 @@ export function PhoneSourcePreview({
   }, [session.media_session_id, session.session_id]);
 
   useEffect(() => {
-    if (!supportsCamera || !session.media_session_id) {
+    if (!supportsCamera || !session.media_session_id || analysisHandoffPending) {
       handleRef.current?.stop();
       handleRef.current = null;
       setState('idle');
-      setNotice(supportsCamera ? 'Waiting for the source media session.' : null);
+      setNotice(
+        analysisHandoffPending
+          ? 'Prioritizing Local Core analysis handoff.'
+          : supportsCamera ? 'Waiting for the source media session.' : null,
+      );
       setHasRemoteStream(false);
       setVideoFrameReady(false);
       return undefined;
@@ -142,7 +151,15 @@ export function PhoneSourcePreview({
         videoRef.current.srcObject = null;
       }
     };
-  }, [apiUrl, attempt, session.media_session_id, session.session_id, supportsCamera, workspaceId]);
+  }, [
+    analysisHandoffPending,
+    apiUrl,
+    attempt,
+    session.media_session_id,
+    session.session_id,
+    supportsCamera,
+    workspaceId,
+  ]);
 
   useEffect(() => {
     if (!supportsCamera || hasRemoteStream || state === 'idle' || state === 'error') {

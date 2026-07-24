@@ -43,7 +43,6 @@ const hoistedMocks = vi.hoisted(() => ({
     tokens: {
       publish: 'publish_token',
       preview: 'preview_token',
-      receiver: 'receiver_token',
     },
   })),
   stopLiveMediaSession: vi.fn(async () => ({ state: 'stopped' })),

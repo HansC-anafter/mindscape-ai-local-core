@@ -83,6 +83,15 @@ describe('livePoseWindow', () => {
     expect(summary?.confidence_stats.sample_count).toBe(30);
     expect(summary?.scores.pose_confidence).toBeGreaterThan(0.8);
     expect(summary?.metadata).toMatchObject({
+      reference_segment_policy: {
+        schema_version: 'motion_reference_segment_ledger.v2',
+        segmentation_mode: 'adaptive_semantic',
+        checkpoint_ms: 10000,
+        min_segment_ms: 8000,
+        max_segment_ms: 90000,
+        change_threshold: 0.22,
+        gap_tolerance_ms: 5000,
+      },
       pose_provider: 'mediapipe_pose',
       provider_code: 'browser_mediapipe_pose_lite',
       provider_schema_id: 'mediapipe_pose_landmarker_lite_video',
@@ -97,6 +106,7 @@ describe('livePoseWindow', () => {
       sway_metrics: expect.any(Array),
       phase_metrics: expect.any(Array),
     });
+    expect(summary?.metadata.reference_segment).toBeUndefined();
     expectNoRawPayload(summary as MotionWindowSummary);
   });
 
@@ -154,5 +164,62 @@ describe('livePoseWindow', () => {
     expect(cancelFrame).toHaveBeenCalled();
     expect(appendMotionWindow).toHaveBeenCalledTimes(appendCountAfterStop);
     expect(adapter.dispose).toHaveBeenCalled();
+  });
+
+  it('keeps sampling after a retriable provider loading state', async () => {
+    const callbacks: FrameRequestCallback[] = [];
+    const appendMotionWindow = vi.fn();
+    const statuses: string[] = [];
+    let providerReady = false;
+    const adapter: LivePoseWindowAdapter = {
+      provider: 'test_pose',
+      getStatus: () => (providerReady
+        ? { state: 'ready' }
+        : { state: 'loading', reason: 'retrying_mediapipe_pose_load: chunk timeout' }),
+      estimate: vi.fn(async (_video, timestampMs) => (
+        providerReady ? buildSample(timestampMs) : null
+      )),
+      dispose: vi.fn(),
+    };
+    const video = document.createElement('video');
+    Object.defineProperty(video, 'readyState', {
+      configurable: true,
+      value: 2,
+    });
+
+    const controller = createLivePoseWindowController({
+      video,
+      liveSessionId: 'lms_retry',
+      adapter,
+      appendMotionWindow,
+      sampleFps: 15,
+      scheduler: {
+        requestFrame: (callback) => {
+          callbacks.push(callback);
+          return callbacks.length;
+        },
+        cancelFrame: vi.fn(),
+      },
+      now: () => 4000,
+      onStatus: (status) => {
+        statuses.push(status.reason ? `${status.state}: ${status.reason}` : status.state);
+      },
+    });
+
+    controller.start();
+    callbacks.shift()?.(0);
+    await Promise.resolve();
+    expect(statuses).toContain('provider_loading: retrying_mediapipe_pose_load: chunk timeout');
+    expect(appendMotionWindow).not.toHaveBeenCalled();
+
+    providerReady = true;
+    for (let index = 1; index < 33; index += 1) {
+      callbacks.shift()?.(index * 70);
+      await Promise.resolve();
+    }
+
+    expect(appendMotionWindow).toHaveBeenCalledTimes(1);
+    expect(statuses).toContain('active');
+    expect(statuses).not.toContain('provider_unavailable');
   });
 });

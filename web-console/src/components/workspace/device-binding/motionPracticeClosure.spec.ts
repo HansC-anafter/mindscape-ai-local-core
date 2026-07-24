@@ -39,6 +39,18 @@ const sourceSession: DeviceSessionEntry = {
   expires_at_epoch: 61,
 };
 
+const segmentGraph = {
+  graph_version: 'motion_reference_segment_graph.v1',
+  ordered_edges: [],
+  scoreable_segment_ids: ['chapter_1'],
+  unordered_match_enabled: true,
+  resync_policy: {
+    ordered_prior_enabled: true,
+    unordered_fallback_enabled: true,
+    skip_non_scoreable_segments: true,
+  },
+};
+
 const baseInput: MotionPracticeLaunchInput = {
   apiUrl: 'http://api.test',
   workspaceId: 'ws_device',
@@ -61,6 +73,7 @@ const baseInput: MotionPracticeLaunchInput = {
           end_ms: 5000,
         },
       ],
+      segment_graph: segmentGraph,
     },
   ],
   userGoal: 'Improve balance.',
@@ -101,11 +114,57 @@ const rollupResponse: MotionPracticeSessionRollupResponse = {
         confidence: 0.82,
         top_findings: ['Keep the left knee tracking over the toes.'],
         source_session_id: 'session_1',
+        reference_segment: {
+          segment_id: 'lms_motion:segment:001',
+          segment_index: 0,
+          segment_ms: 10000,
+          segment_start_ms: 0,
+          segment_end_ms: 10000,
+          segment_duration_ms: 10000,
+          window_count: 4,
+          mean_confidence: 0.82,
+          boundary_reason: 'session_start',
+          segmentation_mode: 'adaptive_semantic',
+          scoreable: true,
+          guidance_mode: 'score',
+          match_role: 'instruction',
+        },
         dwpose_node_deltas: [{ node_id: 'left_knee', delta_score: 0.18 }],
         sway_metrics: [{ axis: 'front_back', delta_score: 0.12 }],
         phase_metrics: [{ phase: 'hold', delta_score: 0.1 }],
       },
     ],
+    metadata: {
+      reference_segments: [
+        {
+          segment_id: 'lms_motion:segment:001',
+          segment_index: 0,
+          segment_ms: 10000,
+          segment_start_ms: 0,
+          segment_end_ms: 10000,
+          segment_duration_ms: 10000,
+          window_count: 4,
+          mean_confidence: 0.82,
+          boundary_reason: 'session_start',
+          segmentation_mode: 'adaptive_semantic',
+          scoreable: true,
+          guidance_mode: 'score',
+          match_role: 'instruction',
+        },
+      ],
+      reference_segment_ledger: {
+        schema_version: 'motion_reference_segment_ledger.v2',
+        segmentation_mode: 'adaptive_semantic',
+        checkpoint_ms: 10000,
+        observed_segment_count: 1,
+        observed_checkpoint_count: 1,
+        observed_window_count: 4,
+        observed_duration_ms: 8200,
+        missing_segment_indexes: [],
+        missing_checkpoint_indexes: [],
+        validation_requested: false,
+      },
+    },
   },
 };
 
@@ -191,7 +250,7 @@ describe('motionPracticeClosure', () => {
       expect.objectContaining({
         live_session_id: 'lms_motion',
         instruction_refs: baseInput.instructionRefs,
-        max_window_refs: 100,
+        max_window_refs: 5000,
         max_top_findings: 8,
         metadata: expect.objectContaining({
           course_chapters: [
@@ -202,6 +261,7 @@ describe('motionPracticeClosure', () => {
               end_ms: 5000,
             },
           ],
+          reference_segment_graphs: [segmentGraph],
         }),
       }),
     );
@@ -243,12 +303,38 @@ describe('motionPracticeClosure', () => {
             end_ms: 5000,
           },
         ],
+        reference_segment_graphs: [segmentGraph],
         motion_window_digests: [
           expect.objectContaining({
             motion_window_ref: 'window_1',
             confidence: 0.82,
+            reference_segment: expect.objectContaining({
+              segment_id: 'lms_motion:segment:001',
+              window_count: 4,
+            }),
           }),
         ],
+        reference_segment_ledger: expect.objectContaining({
+          schema_version: 'motion_reference_segment_ledger.v2',
+          segmentation_mode: 'adaptive_semantic',
+          observed_segment_count: 1,
+          observed_checkpoint_count: 1,
+          observed_window_count: 4,
+          validation_requested: false,
+          segments: [
+            expect.objectContaining({
+              segment_id: 'lms_motion:segment:001',
+              window_count: 4,
+              mean_confidence: 0.82,
+            }),
+          ],
+          segment_policy: expect.objectContaining({
+            command_cap: 240,
+            original_segment_count: 1,
+            truncated: false,
+            full_rollup_ref: 'mindscape://motion_runtime/session-rollups/lms_motion',
+          }),
+        }),
         motion_window_refs: ['window_1', 'window_2'],
         physical_device_evidence: expect.objectContaining({
           source_session_id: 'session_1',
@@ -275,7 +361,7 @@ describe('motionPracticeClosure', () => {
     expectNoRawPayload(commandArgs);
   });
 
-  it('bounds closure command payload before it enters task params storage', () => {
+  it('keeps full compact closure digests while stripping raw task params payload', () => {
     const largeRollup: MotionPracticeSessionRollupResponse = {
       ...rollupResponse,
       summary: {
@@ -294,12 +380,12 @@ describe('motionPracticeClosure', () => {
 
     const metadata = parameters.live_practice_rollup as Record<string, unknown>;
     const nestedMetadata = metadata.metadata as Record<string, unknown>;
-    expect(nestedMetadata.motion_window_digests).toHaveLength(3);
+    expect(nestedMetadata.motion_window_digests).toHaveLength(80);
     expect(nestedMetadata.motion_window_refs).toHaveLength(80);
     expect(nestedMetadata.motion_window_digest_policy).toMatchObject({
-      command_cap: 3,
+      command_cap: 5000,
       original_digest_count: 80,
-      truncated: true,
+      truncated: false,
       full_rollup_ref: 'mindscape://motion_runtime/session-rollups/lms_motion',
       full_rollup_artifact_id: 'artifact_motion_rollup',
     });
@@ -313,8 +399,8 @@ describe('motionPracticeClosure', () => {
     });
     expect(
       (nestedMetadata.motion_window_digests as Record<string, unknown>[])[0].dwpose_node_deltas,
-    ).toHaveLength(2);
-    expect(new TextEncoder().encode(JSON.stringify(parameters)).byteLength).toBeLessThan(12000);
+    ).toHaveLength(1);
+    expect(new TextEncoder().encode(JSON.stringify(parameters)).byteLength).toBeLessThan(120000);
     expectNoRawPayload(parameters);
   });
 
@@ -342,6 +428,7 @@ describe('motionPracticeClosure', () => {
       rollup_artifact_id: 'artifact_motion_rollup',
       scores: { balance: 0.71 },
       findings: ['Keep the left knee tracking over the toes.'],
+      reference_segment_graphs: [segmentGraph],
     });
     expectNoRawPayload(parameters);
   });

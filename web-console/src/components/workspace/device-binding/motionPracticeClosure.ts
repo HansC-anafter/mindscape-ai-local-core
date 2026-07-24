@@ -9,6 +9,7 @@ import {
   buildMotionPracticeClosureCommandParameters,
   isRecord,
   readInstructionCourseChapters,
+  readInstructionSegmentGraphs,
   readString,
 } from './motionPracticeClosurePayload';
 import type {
@@ -31,6 +32,8 @@ export type {
   MotionPracticeSessionRollupResponse,
   MotionPracticeSessionRollupSummary,
 } from './motionPracticeClosureTypes';
+
+const FULL_SESSION_WINDOW_REF_CAP = 5000;
 
 type MotionPracticeClosureTarget = {
   packCode: 'yogacoach' | 'dance_motion_coach';
@@ -82,7 +85,7 @@ export async function emitMotionPracticeSessionRollup({
     {
       live_session_id: result.liveSessionId,
       instruction_refs: input.instructionRefs || [],
-      max_window_refs: 100,
+      max_window_refs: FULL_SESSION_WINDOW_REF_CAP,
       max_top_findings: 8,
       metadata: {
         source_surface: 'workspace_motion_source_practice_closure',
@@ -91,6 +94,7 @@ export async function emitMotionPracticeSessionRollup({
         practice_session_id: result.practiceSessionId,
         capture_session_id: input.sourceSession.session_id,
         course_chapters: readInstructionCourseChapters(input.instructionRefs),
+        reference_segment_graphs: readInstructionSegmentGraphs(input.instructionRefs),
         resource_policy: buildMotionPracticeResourcePolicy(),
       },
     },

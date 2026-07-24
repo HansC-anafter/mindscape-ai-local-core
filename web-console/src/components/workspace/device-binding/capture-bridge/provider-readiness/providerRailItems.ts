@@ -18,16 +18,16 @@ export type ProviderRailItem = {
 export const PROVIDER_RAIL_ITEMS: ProviderRailItem[] = [
   {
     id: 'phone',
-    label: 'Phone owned camera',
-    status: 'Ready',
-    summary: 'Phone/tablet browser camera.',
+    label: 'Phone camera',
+    status: 'Available',
+    summary: 'Use this phone or scan a secure link.',
     readiness: 'ready',
     Icon: Smartphone,
   },
   {
     id: 'desktop',
     label: 'Computer / OBS camera',
-    status: 'Ready',
+    status: 'Available',
     summary: 'USB, virtual camera, or OBS source.',
     readiness: 'ready',
     Icon: MonitorUp,

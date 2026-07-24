@@ -9,6 +9,7 @@ export type BrowserVideoInputSource = {
 
 type MediaDevicesLike = {
   enumerateDevices: () => Promise<MediaDeviceInfo[]>;
+  getUserMedia?: (constraints: MediaStreamConstraints) => Promise<MediaStream>;
   addEventListener?: (
     type: 'devicechange',
     listener: EventListener,
@@ -18,6 +19,20 @@ type MediaDevicesLike = {
     listener: EventListener,
   ) => void;
 };
+
+function mapVideoInputCatalog(devices: MediaDeviceInfo[]): BrowserVideoInputSource[] {
+  return devices
+    .filter((device) => device.kind === 'videoinput')
+    .map((device, index) => {
+      const label = device.label || `Camera ${index + 1}`;
+      return {
+        deviceId: device.deviceId,
+        groupId: device.groupId || undefined,
+        label,
+        sourceKind: classifyVideoInputSource(label),
+      };
+    });
+}
 
 export function classifyVideoInputSource(label: string): CameraSourceKind {
   const normalized = label.trim().toLowerCase();
@@ -41,17 +56,18 @@ export async function loadVideoInputCatalog(
     return [];
   }
   const devices = await mediaDevices.enumerateDevices();
-  return devices
-    .filter((device) => device.kind === 'videoinput')
-    .map((device, index) => {
-      const label = device.label || `Camera ${index + 1}`;
-      return {
-        deviceId: device.deviceId,
-        groupId: device.groupId || undefined,
-        label,
-        sourceKind: classifyVideoInputSource(label),
-      };
-    });
+  const catalog = mapVideoInputCatalog(devices);
+  if (catalog.length || !mediaDevices.getUserMedia) {
+    return catalog;
+  }
+  const stream = await mediaDevices.getUserMedia({ video: true, audio: false });
+  try {
+    return mapVideoInputCatalog(await mediaDevices.enumerateDevices());
+  } finally {
+    for (const track of stream.getTracks()) {
+      track.stop();
+    }
+  }
 }
 
 export function attachDeviceChangeRefresh(

@@ -71,6 +71,10 @@ export async function startBrowserMediaSourceSession(
   let peerConnection: RTCPeerConnection | null = null;
   let signalSocket: WebRTCSignalSocket;
 
+  const emitSignalError = (event: { reason?: string; message?: string }) => {
+    input.onError?.(new Error(event.reason || event.message || 'media_signal_session_error'));
+  };
+
   const ensurePeerConnection = () => {
     if (peerConnection) {
       return peerConnection;
@@ -109,15 +113,17 @@ export async function startBrowserMediaSourceSession(
     await sendOffer();
   };
 
-  const stop = () => {
+  const closeSourceSession = ({ notifyPeer }: { notifyPeer: boolean }) => {
     if (stopped) {
       return;
     }
     stopped = true;
-    try {
-      signalSocket.send({ type: 'close', reason: 'source_stopped' });
-    } catch {
-      // Ignore shutdown races.
+    if (notifyPeer) {
+      try {
+        signalSocket.send({ type: 'close', reason: 'source_stopped' });
+      } catch {
+        // Ignore shutdown races.
+      }
     }
     signalSocket.close();
     peerConnection?.close();
@@ -127,6 +133,8 @@ export async function startBrowserMediaSourceSession(
     }
     input.onState?.('closed');
   };
+
+  const stop = () => closeSourceSession({ notifyPeer: true });
 
   const replacePeerVideoTrack = async (nextStream: MediaStream) => {
     const [nextVideoTrack] = nextStream.getVideoTracks();
@@ -261,12 +269,24 @@ export async function startBrowserMediaSourceSession(
         await ensurePeerConnection().addIceCandidate(event.candidate);
         return;
       }
-      if (event.type === 'close' || event.type === 'session_error') {
-        stop();
+      if (event.type === 'close') {
+        closeSourceSession({ notifyPeer: false });
+        return;
+      }
+      if (event.type === 'session_error') {
+        closeSourceSession({ notifyPeer: false });
+        if (!event.recoverable) {
+          emitSignalError(event);
+        }
       }
     },
     onError: input.onError,
-    onClose: () => input.onState?.('closed'),
+    onClose: (event) => {
+      closeSourceSession({ notifyPeer: false });
+      if (event.code >= 4000) {
+        input.onError?.(new Error(event.reason || `media_signal_closed_${event.code}`));
+      }
+    },
   });
 
   return {
@@ -355,11 +375,6 @@ export function startWorkspaceReceiverSession(
       return;
     }
     stopped = true;
-    try {
-      signalSocket.send({ type: 'close', reason: 'workspace_stopped' });
-    } catch {
-      // Ignore shutdown races.
-    }
     signalSocket.close();
     peerConnection?.close();
     input.onState?.('closed');
@@ -398,12 +413,24 @@ export function startWorkspaceReceiverSession(
         await ensurePeerConnection().addIceCandidate(event.candidate);
         return;
       }
-      if (event.type === 'close' || event.type === 'session_error') {
+      if (event.type === 'close') {
         stop();
+        return;
+      }
+      if (event.type === 'session_error') {
+        stop();
+        if (!event.recoverable) {
+          input.onError?.(new Error(event.reason || event.message || 'media_signal_session_error'));
+        }
       }
     },
     onError: input.onError,
-    onClose: () => input.onState?.('closed'),
+    onClose: (event) => {
+      stop();
+      if (event.code >= 4000) {
+        input.onError?.(new Error(event.reason || `media_signal_closed_${event.code}`));
+      }
+    },
   });
 
   return {

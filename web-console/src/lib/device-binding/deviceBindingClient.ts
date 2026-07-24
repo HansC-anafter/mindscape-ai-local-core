@@ -56,6 +56,13 @@ export type DeviceSessionEntry = {
     reference_chapter_id?: string | null;
     reference_localization_ready?: boolean | null;
   };
+  media_analysis_handoff?: {
+    live_motion_session_id: string;
+    meeting_session_id: string;
+    practice_session_id: string;
+    coach_pack: 'yogacoach' | 'dance_motion_coach';
+    practice_mode: 'record_summary' | 'teacher_assessment' | 'live_guidance';
+  } | null;
   media_session_expires_at_epoch?: number | null;
   terminal_reason?: string | null;
 };
@@ -148,8 +155,29 @@ function getBrowserOrigin(): string {
   return window.location.origin;
 }
 
+function resolveLocalBackendBase(origin: string): string | null {
+  try {
+    const url = new URL(origin);
+    if (
+      (url.hostname === 'localhost' || url.hostname === '127.0.0.1')
+      && url.port === '8300'
+    ) {
+      url.port = '8200';
+      return trimTrailingSlash(url.toString());
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
 function resolveHttpBase(apiBase: string): string {
-  return trimTrailingSlash(apiBase || getBrowserOrigin()) || getBrowserOrigin();
+  const trimmedApiBase = apiBase.trim();
+  if (trimmedApiBase) {
+    return trimTrailingSlash(trimmedApiBase);
+  }
+  const browserOrigin = getBrowserOrigin();
+  return resolveLocalBackendBase(browserOrigin) || trimTrailingSlash(browserOrigin) || browserOrigin;
 }
 
 export function buildDevicePairingCodeUrl({
@@ -180,6 +208,16 @@ export function buildDeviceRevokeUrl({
   sessionId: string;
 }): string {
   return `${resolveHttpBase(apiBase)}/api/v1/workspaces/${encodeURIComponent(workspaceId)}/device-bindings/${encodeURIComponent(sessionId)}/revoke`;
+}
+
+export function buildDeviceSessionsUrl({
+  apiBase,
+  workspaceId,
+}: {
+  apiBase: string;
+  workspaceId: string;
+}): string {
+  return `${resolveHttpBase(apiBase)}/api/v1/workspaces/${encodeURIComponent(workspaceId)}/device-bindings/sessions`;
 }
 
 export function buildDeviceControlWebSocketUrl({
@@ -250,6 +288,23 @@ export async function revokeDeviceSession({
     throw new Error('device_session_revoke_failed');
   }
   return response.json() as Promise<DeviceControlEvent>;
+}
+
+export async function listActiveDeviceSessions({
+  apiBase,
+  workspaceId,
+}: {
+  apiBase: string;
+  workspaceId: string;
+}): Promise<DeviceSessionEntry[]> {
+  const response = await fetch(buildDeviceSessionsUrl({ apiBase, workspaceId }), {
+    cache: 'no-store',
+  });
+  if (!response.ok) {
+    throw new Error('device_sessions_list_failed');
+  }
+  const payload = await response.json();
+  return Array.isArray(payload) ? payload as DeviceSessionEntry[] : [];
 }
 
 export function openDeviceControlSocket(

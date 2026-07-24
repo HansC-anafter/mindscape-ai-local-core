@@ -8,11 +8,15 @@ import type {
   MotionPracticeSessionRollupResponse,
   MotionPracticeSessionRollupSummary,
 } from './motionPracticeClosureTypes';
+import {
+  compactReferenceSegmentForCommand,
+  compactReferenceSegmentLedgerForCommand,
+} from './motionPracticeReferenceSegmentPayload';
 
-const MAX_COMMAND_MOTION_DIGESTS = 3;
+const MAX_COMMAND_MOTION_DIGESTS = 5000;
 const MAX_COMMAND_DIGEST_FINDINGS = 2;
-const MAX_COMMAND_DIGEST_METRICS = 2;
-const MAX_COMMAND_TEXT_CHARS = 96;
+const MAX_COMMAND_DIGEST_METRICS = 1;
+const MAX_COMMAND_TEXT_CHARS = 64;
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -134,6 +138,10 @@ function compactMotionWindowDigestForCommand(digest: Record<string, unknown>): R
       compact[key] = metrics;
     }
   }
+  const referenceSegment = compactReferenceSegmentForCommand(digest.reference_segment);
+  if (Object.keys(referenceSegment).length > 0) {
+    compact.reference_segment = referenceSegment;
+  }
   return compact;
 }
 
@@ -155,6 +163,18 @@ export function readInstructionCourseChapters(
     chapters.push(...readRecordArray(nested));
   }
   return chapters;
+}
+
+export function readInstructionSegmentGraphs(
+  instructionRefs: MotionPracticeLaunchInput['instructionRefs'],
+): Record<string, unknown>[] {
+  const segmentGraphs: Record<string, unknown>[] = [];
+  for (const ref of instructionRefs || []) {
+    if (isRecord(ref) && isRecord(ref.segment_graph)) {
+      segmentGraphs.push(ref.segment_graph);
+    }
+  }
+  return segmentGraphs;
 }
 
 function compactInstructionRefsForCommand(
@@ -251,10 +271,16 @@ export function buildLivePracticeRollupFromSessionRollup({
   const artifactId = readString(rollup.artifact_id);
   const topFindings = readStringArray(summary.top_findings);
   const courseChapters = readInstructionCourseChapters(input.instructionRefs);
+  const referenceSegmentGraphs = readInstructionSegmentGraphs(input.instructionRefs);
   const allMotionWindowDigests = readRecordArray(summary.motion_window_digests);
   const commandMotionWindowDigests = compactMotionWindowDigestsForCommand(allMotionWindowDigests);
   const motionWindowRefs = readStringArray(summary.motion_window_refs);
   const windowCount = readNumber(summary.window_count);
+  const referenceSegmentLedger = compactReferenceSegmentLedgerForCommand({
+    summary,
+    motionRollupRef,
+    artifactId,
+  });
   const physicalDeviceEvidence = buildPhysicalDeviceEvidence({
     input,
     motionWindowDigests: commandMotionWindowDigests,
@@ -292,8 +318,12 @@ export function buildLivePracticeRollupFromSessionRollup({
       instruction_ref_count: (input.instructionRefs || []).length,
       instruction_refs: compactInstructionRefsForCommand(input.instructionRefs),
       course_chapters: courseChapters,
+      reference_segment_graphs: referenceSegmentGraphs,
       motion_window_refs: motionWindowRefs,
       motion_window_digests: commandMotionWindowDigests,
+      ...(referenceSegmentLedger
+        ? { reference_segment_ledger: referenceSegmentLedger }
+        : {}),
       motion_window_digest_policy: {
         command_cap: MAX_COMMAND_MOTION_DIGESTS,
         original_digest_count: allMotionWindowDigests.length,
@@ -330,6 +360,8 @@ function buildDancePracticeSessionFromClosure({
       source_surface: 'workspace_motion_source_practice_closure',
       source_types: input.sourceSession.source_types,
       instruction_refs: input.instructionRefs || [],
+      course_chapters: readInstructionCourseChapters(input.instructionRefs),
+      reference_segment_graphs: readInstructionSegmentGraphs(input.instructionRefs),
       resource_policy: buildMotionPracticeResourcePolicy(),
     },
   };
@@ -382,6 +414,8 @@ export function buildMotionPracticeClosureCommandParameters({
         scores: readNumberRecord(summary.score_summary),
         findings: readStringArray(summary.top_findings),
         instruction_refs: input.instructionRefs || [],
+        course_chapters: readInstructionCourseChapters(input.instructionRefs),
+        reference_segment_graphs: readInstructionSegmentGraphs(input.instructionRefs),
       },
       rubric_hint: input.userGoal?.trim() || '',
     };

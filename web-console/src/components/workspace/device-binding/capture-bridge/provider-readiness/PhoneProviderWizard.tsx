@@ -23,6 +23,11 @@ export function PhoneProviderWizard({
           <Smartphone className="h-3.5 w-3.5 text-sky-500" aria-hidden="true" />
           Phone camera
         </div>
+        <ol className="mb-2 space-y-1 text-[11px] leading-4 text-gray-600 dark:text-gray-300">
+          <li><strong>1.</strong> Scan the QR code or open the secure phone link.</li>
+          <li><strong>2.</strong> Aim the phone camera at your full body.</li>
+          <li><strong>3.</strong> Tap Connect once and keep the page open.</li>
+        </ol>
         {phoneDeviceLink ? (
           <a
             href={phoneDeviceLink}
@@ -41,18 +46,23 @@ export function PhoneProviderWizard({
             Open the remote workbench over HTTPS, or configure a trusted LAN HTTPS origin.
           </div>
         )}
-        <label className="mt-2 block">
-          <span className="mb-1 block text-[10px] font-medium uppercase tracking-normal text-gray-500 dark:text-gray-400">
-            Phone capture origin override
-          </span>
-          <input
-            value={phonePublicOrigin}
-            onChange={(event) => setPhonePublicOrigin(event.target.value)}
-            placeholder="optional: https://192.168.x.x:8343"
-            className="w-full rounded border border-gray-300 bg-white px-2 py-1 text-[11px] text-gray-900 placeholder:text-gray-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
-            data-testid="phone-public-origin-input"
-          />
-        </label>
+        <details className="mt-2">
+          <summary className="cursor-pointer text-[11px] font-medium text-gray-600 dark:text-gray-300">
+            Connection settings
+          </summary>
+          <label className="mt-2 block">
+            <span className="mb-1 block text-[10px] font-medium uppercase tracking-normal text-gray-500 dark:text-gray-400">
+              Phone capture origin override
+            </span>
+            <input
+              value={phonePublicOrigin}
+              onChange={(event) => setPhonePublicOrigin(event.target.value)}
+              placeholder="optional: https://192.168.x.x:8343"
+              className="w-full rounded border border-gray-300 bg-white px-2 py-1 text-[11px] text-gray-900 placeholder:text-gray-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+              data-testid="phone-public-origin-input"
+            />
+          </label>
+        </details>
         <div
           className={`mt-2 rounded border px-2 py-1 text-[11px] ${
             phoneReadiness.state === 'ready'

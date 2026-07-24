@@ -31,6 +31,7 @@ describe('startLiveMediaReceiver', () => {
       coachPack: 'yogacoach',
       practiceMode: 'live_guidance',
       referenceUrl: 'https://example.test/reference',
+      expectedDurationMs: 1_800_000,
     });
 
     expect(fetchMock.mock.calls[0]?.[0]).toBe(
@@ -45,6 +46,7 @@ describe('startLiveMediaReceiver', () => {
       meeting_session_id: 'meeting one',
       practice_session_id: 'practice one',
       coach_pack: 'yogacoach',
+      expected_duration_ms: 1_800_000,
     });
     expect(JSON.stringify(payload)).not.toMatch(/token|append_owner|receiver_identity/);
   });

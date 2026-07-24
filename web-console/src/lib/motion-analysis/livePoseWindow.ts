@@ -1,10 +1,16 @@
 'use client';
 
+import { createBrowserMediaPipePoseAdapter } from './browserMediaPipePoseAdapter';
 import {
   buildCaptureMotionWindowMetadata,
-  deriveMediaPipePoseCaptureSample,
   type CapturePoseSampleMetrics,
 } from './captureMotionMetrics';
+import { buildMotionReferenceSegmentPolicy } from './motionReferenceSegmentLedger';
+
+export {
+  createBrowserMediaPipePoseAdapter,
+  createUnavailablePoseAdapter,
+} from './browserMediaPipePoseAdapter';
 
 export type PoseSampleSummary = {
   timestampMs: number;
@@ -47,6 +53,7 @@ export type LivePoseWindowControllerStatus = {
     | 'idle'
     | 'active'
     | 'waiting_video'
+    | 'provider_loading'
     | 'provider_unavailable'
     | 'append_error'
     | 'stopped';
@@ -86,16 +93,6 @@ type LivePoseWindowControllerInput = LivePoseWindowAccumulatorInput & {
   onStatus?: (status: LivePoseWindowControllerStatus) => void;
 };
 
-type BrowserMediaPipeAdapterOptions = {
-  wasmAssetPath?: string;
-  modelAssetPath?: string;
-};
-
-type MediaPipePoseDetector = {
-  detectForVideo: (video: HTMLVideoElement, timestampMs: number) => unknown;
-  close?: () => void;
-};
-
 const DEFAULT_SAMPLE_FPS = 15;
 const DEFAULT_WINDOW_MS = 2000;
 const DEFAULT_MAX_SAMPLES = 30;
@@ -131,100 +128,6 @@ function createDefaultNow(): () => number {
     return () => performance.now();
   }
   return () => Date.now();
-}
-
-export function createUnavailablePoseAdapter(reason: string): LivePoseWindowAdapter {
-  return {
-    provider: 'mediapipe_pose',
-    getStatus: () => ({ state: 'unavailable', reason }),
-    estimate: async () => null,
-  };
-}
-
-function summarizePoints(points: unknown, timestampMs: number): PoseSampleSummary | null {
-  if (!Array.isArray(points) || !points.length) {
-    return null;
-  }
-  const confidenceValues = points.map((point) => {
-    if (!point || typeof point !== 'object') {
-      return 0;
-    }
-    const payload = point as { visibility?: unknown; presence?: unknown };
-    const visibility = typeof payload.visibility === 'number' ? payload.visibility : undefined;
-    const presence = typeof payload.presence === 'number' ? payload.presence : undefined;
-    return clamp01(visibility ?? presence ?? 0);
-  });
-  const visiblePointCount = confidenceValues.filter((value) => value >= 0.5).length;
-  return {
-    timestampMs,
-    confidence: roundMetric(average(confidenceValues)),
-    visiblePointCount,
-    totalPointCount: points.length,
-    captureMetrics: deriveMediaPipePoseCaptureSample(points),
-  };
-}
-
-export function createBrowserMediaPipePoseAdapter(
-  options: BrowserMediaPipeAdapterOptions = {},
-): LivePoseWindowAdapter {
-  let detector: MediaPipePoseDetector | null = null;
-  let loadPromise: Promise<MediaPipePoseDetector | null> | null = null;
-  let status: LivePoseWindowAdapterStatus = { state: 'loading' };
-
-  const loadDetector = async () => {
-    if (detector) {
-      return detector;
-    }
-    if (status.state === 'unavailable') {
-      return null;
-    }
-    if (!loadPromise) {
-      loadPromise = (async () => {
-        try {
-          const vision = await import('@mediapipe/tasks-vision');
-          const filesetResolver = await vision.FilesetResolver.forVisionTasks(
-            options.wasmAssetPath || '/mediapipe/tasks-vision/wasm',
-          );
-          detector = await vision.PoseLandmarker.createFromOptions(filesetResolver, {
-            baseOptions: {
-              modelAssetPath: options.modelAssetPath || '/mediapipe/models/pose_landmarker_lite.task',
-            },
-            runningMode: 'VIDEO',
-            numPoses: 1,
-          });
-          status = { state: 'ready' };
-          return detector;
-        } catch (error) {
-          status = {
-            state: 'unavailable',
-            reason: error instanceof Error ? error.message : 'mediapipe_pose_unavailable',
-          };
-          return null;
-        }
-      })();
-    }
-    return loadPromise;
-  };
-
-  return {
-    provider: 'mediapipe_pose',
-    getStatus: () => status,
-    estimate: async (video, timestampMs) => {
-      const activeDetector = await loadDetector();
-      if (!activeDetector) {
-        return null;
-      }
-      const result = activeDetector.detectForVideo(video, timestampMs) as Record<string, unknown>;
-      const posePoints = Array.isArray(result?.landmarks) ? result.landmarks[0] : null;
-      return summarizePoints(posePoints, timestampMs);
-    },
-    dispose: () => {
-      detector?.close?.();
-      detector = null;
-      loadPromise = null;
-      status = { state: 'loading' };
-    },
-  };
 }
 
 export function createLivePoseWindowAccumulator({
@@ -277,6 +180,7 @@ export function createLivePoseWindowAccumulator({
         window_ms: windowMs,
         max_samples: maxSamples,
         ...metadata,
+        reference_segment_policy: buildMotionReferenceSegmentPolicy(),
         ...buildCaptureMotionWindowMetadata(samples),
       },
     };
@@ -368,7 +272,10 @@ export function createLivePoseWindowController({
     running = false;
     stopFrame();
     adapter.dispose?.();
-    if (status.state !== 'provider_unavailable' && status.state !== 'append_error') {
+    if (
+      status.state !== 'provider_unavailable'
+      && status.state !== 'append_error'
+    ) {
       updateStatus({ state: 'stopped' });
     }
   };
@@ -397,6 +304,12 @@ export function createLivePoseWindowController({
       stop();
       return;
     }
+    if (adapterStatus?.state === 'loading' && adapterStatus.reason) {
+      updateStatus({
+        state: 'provider_loading',
+        reason: adapterStatus.reason,
+      });
+    }
     if (video.readyState < MIN_VIDEO_READY_STATE) {
       updateStatus({ state: 'waiting_video' });
       return;
@@ -417,6 +330,13 @@ export function createLivePoseWindowController({
           reason: nextAdapterStatus.reason,
         });
         stop();
+        return;
+      }
+      if (nextAdapterStatus?.state === 'loading') {
+        updateStatus({
+          state: 'provider_loading',
+          reason: nextAdapterStatus.reason,
+        });
         return;
       }
       if (!sample) {

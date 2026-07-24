@@ -31,6 +31,19 @@ export function phoneFacingModeMessage(mode: CameraFacingMode): string {
   return mode === 'environment' ? 'Rear camera enabled.' : 'Front camera enabled.';
 }
 
+export function deviceLinkConnectionErrorMessage(reason: string): string {
+  if (reason === 'live_media_request_failed_404') {
+    return 'The camera connection service is unavailable on this link. Reload this page, then tap Reconnect.';
+  }
+  if (/^live_media_request_failed_5\d\d$/.test(reason)) {
+    return 'The camera connection service did not respond. Wait a moment, then tap Reconnect.';
+  }
+  if (/^[a-z0-9_:-]+$/.test(reason)) {
+    return 'Could not connect the camera. Check the network, then tap Reconnect.';
+  }
+  return reason;
+}
+
 export function isActiveLinkState(state: LinkState): boolean {
   return state === 'connecting' || state === 'paired' || state === 'streaming';
 }
@@ -102,7 +115,7 @@ export function connectionStatusDetail(state: LinkState, mediaState: WebRTCSessi
   if (state === 'closed') {
     return 'The source session closed. Reconnect if you want to start a new session.';
   }
-  return 'Tap Connect once, then keep this page open.';
+  return 'Aim the phone at your full body, then tap Connect once. Keep this page open.';
 }
 
 export function connectButtonLabel(state: LinkState, mediaState: WebRTCSessionState | 'idle' | 'error'): string {

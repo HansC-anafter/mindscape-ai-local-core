@@ -28,6 +28,7 @@ import {
   connectButtonLabel,
   connectionStatusDetail,
   connectionStatusLabel,
+  deviceLinkConnectionErrorMessage,
   isActiveLinkState,
   phoneFacingModeMessage,
   stopStreamTracks,
@@ -172,12 +173,15 @@ export function useDeviceLinkCaptureSession({
               setLinkState('closed');
               setDeviceSessionId(null);
               setMessage('The source control session is no longer active. Reconnect from this page.');
+            } else if (error.message === 'whip_connection_failed') {
+              setMediaState('closed');
+              setMessage('Camera media disconnected. Reconnecting the same live session.');
             } else if (suppressMediaErrorRef.current) {
-              setMessage(error.message);
+              setMessage(deviceLinkConnectionErrorMessage(error.message));
             } else {
               setMediaState('error');
               setLinkState('error');
-              setMessage(error.message);
+              setMessage(deviceLinkConnectionErrorMessage(error.message));
             }
           },
         });
@@ -203,7 +207,9 @@ export function useDeviceLinkCaptureSession({
         if (startGeneration === mediaGenerationRef.current) {
           setMediaState('error');
           setLinkState('error');
-          setMessage(error instanceof Error ? error.message : 'media_capture_failed');
+          setMessage(deviceLinkConnectionErrorMessage(
+            error instanceof Error ? error.message : 'media_capture_failed',
+          ));
         }
       } finally {
         if (mediaStartTokenRef.current === startToken) {
@@ -366,7 +372,7 @@ export function useDeviceLinkCaptureSession({
       onEvent: handleEvent,
       onError: (error) => {
         setLinkState('error');
-        setMessage(error.message);
+        setMessage(deviceLinkConnectionErrorMessage(error.message));
       },
       onClose: () => {
         if (!isActiveLinkState(stateRef.current)) {

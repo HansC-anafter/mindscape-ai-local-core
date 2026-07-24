@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { Settings, ShieldCheck } from 'lucide-react';
+import { Camera, Settings } from 'lucide-react';
 
 import { CaptureSourceRail } from './capture-bridge/CaptureSourceRail';
 
@@ -22,11 +22,11 @@ export function MotionSourceRailPanel({
     <div className="flex min-h-full flex-col">
       <div className="border-b border-gray-200 bg-gray-50 p-3 text-xs text-gray-600 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-300">
         <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-gray-100">
-          <ShieldCheck className="h-4 w-4 text-sky-500" aria-hidden="true" />
-          Local-core device link
+          <Camera className="h-4 w-4 text-sky-500" aria-hidden="true" />
+          Connect a camera
         </div>
         <p className="leading-5">
-          Pair phone, iPad, desktop, or OBS camera sources here. Start Yoga or Dance practice from the pack workbench after a source is active.
+          For phone capture, choose Phone camera, scan the QR code, then tap Connect once on your phone.
         </p>
         <a
           href={settingsHref}

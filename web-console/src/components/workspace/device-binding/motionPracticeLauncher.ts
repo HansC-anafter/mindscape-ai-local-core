@@ -41,11 +41,13 @@ export type MotionPracticeLaunchInput = {
   apiUrl: string;
   workspaceId: string;
   sourceSession: DeviceSessionEntry;
+  meetingSessionId?: string;
   coachPack: MotionPracticeCoachPack;
   practiceMode: MotionPracticeMode;
   expertLibraryRef?: string;
   instructionRefs?: MotionPracticeInstructionRef[];
   userGoal?: string;
+  expectedDurationMs?: number;
 };
 
 export type MotionPracticeLaunchResult = {
@@ -173,6 +175,16 @@ async function ensureMotionPracticeMeetingSession(
   input: MotionPracticeLaunchInput,
 ): Promise<MeetingSessionSummary> {
   const active = await fetchActiveMeetingSession(apiUrl, workspaceId);
+  const requestedMeetingId = input.meetingSessionId?.trim();
+  if (requestedMeetingId) {
+    if (!active) {
+      throw new Error('motion_practice_meeting_not_active');
+    }
+    if (active.id !== requestedMeetingId) {
+      throw new Error('motion_practice_meeting_identity_conflict');
+    }
+    return active;
+  }
   return active || startMotionPracticeMeetingSession(apiUrl, workspaceId, input);
 }
 
@@ -203,6 +215,7 @@ async function registerLiveMotionSession(
           source_types: input.sourceSession.source_types,
           coach_pack: input.coachPack,
           practice_mode: input.practiceMode,
+          expected_duration_ms: Math.max(0, input.expectedDurationMs || 0),
           ...buildMotionPracticeReferenceMetadata(input),
           resource_policy: buildMotionPracticeResourcePolicy(),
         },
@@ -418,6 +431,7 @@ export async function launchMotionPractice(
     referenceUrl: reference.sourceRef || undefined,
     motionReferenceProfileArtifactId: reference.profileArtifactId || undefined,
     userGoal: input.userGoal,
+    expectedDurationMs: input.expectedDurationMs,
   });
 
   if (target.launchKind === 'live_guidance') {

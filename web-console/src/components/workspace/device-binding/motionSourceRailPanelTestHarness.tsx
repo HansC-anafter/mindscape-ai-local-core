@@ -39,6 +39,7 @@ vi.mock('@/lib/device-binding/deviceBindingClient', () => ({
     expires_in_seconds: 120,
     device_link_path: '/device-link/PAIR1234',
   })),
+  listActiveDeviceSessions: vi.fn(async () => []),
   openWorkspaceDeviceControlSocket: vi.fn((input) => {
     mocks.socketInput = input;
     return mocks.socket;

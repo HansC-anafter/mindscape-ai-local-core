@@ -66,7 +66,7 @@ export type OpenWebRTCSignalSocketInput = {
   onOpen?: () => void;
   onEvent?: (event: MediaSignalEvent) => void | Promise<void>;
   onError?: (error: Error) => void;
-  onClose?: () => void;
+  onClose?: (event: { code: number; reason: string; wasClean: boolean }) => void;
 };
 
 export type WebRTCSessionState =
