@@ -1,6 +1,6 @@
 import type React from 'react';
 import { describe, expect, it } from 'vitest';
-import { FileOutput, Wrench } from 'lucide-react';
+import { FileOutput, PlusCircle, Wrench } from 'lucide-react';
 
 import type { WorkspaceToolDefinition } from '@/lib/workspace-tools/workspace-tool-registry';
 import { iconForTool } from './packScopeToolRailModel';
@@ -32,6 +32,12 @@ describe('packScopeToolRailModel iconForTool', () => {
     const icon = iconForTool(baseTool) as React.ReactElement;
 
     expect(icon.type).toBe(FileOutput);
+  });
+
+  it('renders PlusCircle for new-practice shortcuts', () => {
+    const icon = iconForTool({ ...baseTool, icon: 'PlusCircle' }) as React.ReactElement;
+
+    expect(icon.type).toBe(PlusCircle);
   });
 
   it('falls back to Wrench for unknown manifest icons', () => {
