@@ -73,7 +73,10 @@ export default function WorkspaceHeaderBar({
                     />
                 )}
             </div>
-            <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-2 z-20">
+            <div
+                className="absolute right-14 top-1/2 z-20 flex -translate-y-1/2 items-center gap-2 md:right-4"
+                data-testid="workspace-header-device-status-slot"
+            >
                 <DeviceStatusIndicator apiUrl={apiUrl} />
             </div>
         </div>

@@ -63,7 +63,10 @@ export function CapabilityWorkbenchMenuWrap({
       data-mobile-collapsed={mobileCollapsed ? 'true' : 'false'}
       aria-label={ariaLabel}
     >
-      <div className="flex min-w-0 items-center justify-between gap-2">
+      <div
+        className="flex min-w-0 items-center justify-between gap-2 pr-12"
+        data-testid={`${testId}-mobile-summary-row`}
+      >
         <div className="min-w-0 truncate text-xs font-semibold text-gray-600 dark:text-gray-300">
           {activeLabel || ariaLabel}
         </div>

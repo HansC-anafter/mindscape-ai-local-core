@@ -46,6 +46,7 @@ describe('CapabilityWorkbenchMenuWrap', () => {
     const wrap = await screen.findByTestId('capability-workbench-menu-wrap');
     expect(wrap).toHaveAttribute('data-workbench-placement', 'mobile');
     expect(wrap).toHaveAttribute('data-mobile-collapsed', 'true');
+    expect(screen.getByTestId('capability-workbench-menu-wrap-mobile-summary-row').className).toContain('pr-12');
     expect(screen.queryByRole('button', { name: 'Accounts' })).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: 'Expand Pack navigation' }));
