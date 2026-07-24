@@ -1,7 +1,7 @@
 """Create durable capability pack install commit receipts.
 
 Revision ID: 20260716020000
-Revises: 20260715010000
+Revises: None (independent capability pack install atomicity branch)
 Create Date: 2026-07-16 02:00:00.000000
 """
 
@@ -10,8 +10,8 @@ from alembic import op
 
 
 revision = "20260716020000"
-down_revision = "20260715010000"
-branch_labels = None
+down_revision = None
+branch_labels = ("capability_pack_install_atomicity",)
 depends_on = None
 
 
