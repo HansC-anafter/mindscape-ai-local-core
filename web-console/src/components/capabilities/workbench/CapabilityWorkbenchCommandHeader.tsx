@@ -68,7 +68,7 @@ export function CapabilityWorkbenchCommandHeader({
 
     return (
       <header
-        className={`grid shrink-0 grid-cols-1 gap-2 border-b border-stone-800 bg-stone-950 px-3 py-2 text-stone-100 ${className}`.trim()}
+        className={`grid shrink-0 grid-cols-1 gap-2 border-b border-stone-800 bg-stone-950 py-2 pl-3 pr-14 text-stone-100 ${className}`.trim()}
         data-testid="capability-workbench-command-header"
         data-mobile-variant="compact"
         data-mobile-collapsible={compactMobileCollapsible ? 'true' : 'false'}

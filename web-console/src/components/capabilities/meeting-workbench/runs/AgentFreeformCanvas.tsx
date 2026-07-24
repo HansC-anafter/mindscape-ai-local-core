@@ -100,6 +100,7 @@ function resolveEffectiveRuntimeStatus({
 
 export function AgentFreeformCanvas({
   apiUrl,
+  workspaceId,
   layout,
   events,
   session,
@@ -119,6 +120,7 @@ export function AgentFreeformCanvas({
   onToggleLocked,
 }: {
   apiUrl: string;
+  workspaceId?: string;
   layout: AgentFreeformLayoutState;
   events: HostRuntimeEvent[];
   session: HostRuntimeSession | null;
@@ -225,6 +227,7 @@ export function AgentFreeformCanvas({
       {!compact ? (
         <AgentFreeformDesktopWorkspace
           apiUrl={apiUrl}
+          workspaceId={workspaceId}
           layout={layout}
           events={events}
           session={session}
@@ -256,6 +259,7 @@ export function AgentFreeformCanvas({
               <AgentFreeformPanelContent
                 panel={panel}
                 apiUrl={apiUrl}
+                workspaceId={workspaceId}
                 events={events}
                 session={session}
                 effectiveStatus={effectiveStatus}

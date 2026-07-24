@@ -66,7 +66,11 @@ describe('CapabilityWorkbenchCommandHeader', () => {
     );
 
     return waitFor(() => {
-      expect(screen.getByTestId('capability-workbench-command-header')).toHaveAttribute('data-mobile-variant', 'compact');
+      const header = screen.getByTestId('capability-workbench-command-header');
+      expect(header).toHaveAttribute('data-mobile-variant', 'compact');
+      expect(header.className).toContain('pl-3');
+      expect(header.className).toContain('pr-14');
+      expect(header.className).not.toContain('px-3');
       expect(screen.getByTestId('capability-workbench-command-header-mobile-meta-strip')).toBeInTheDocument();
       expect(screen.getByTestId('capability-workbench-command-header-context-toolbar')).toHaveTextContent('Grid / All');
       expect(screen.getByTestId('capability-workbench-command-header-status')).toHaveTextContent('Ready');

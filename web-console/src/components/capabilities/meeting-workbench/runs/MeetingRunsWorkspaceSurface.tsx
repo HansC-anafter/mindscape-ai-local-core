@@ -69,6 +69,7 @@ export function MeetingRunsWorkspaceSurface({
     >
       <AgentFreeformCanvas
         apiUrl={apiUrl}
+        workspaceId={workspaceId}
         layout={layout.state}
         events={runtime.events}
         session={runtime.session}

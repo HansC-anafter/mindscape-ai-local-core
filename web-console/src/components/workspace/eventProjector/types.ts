@@ -8,6 +8,7 @@ export interface UnifiedEvent {
   profile_id: string;
   thread_id?: string;
   payload: {
+    [key: string]: unknown;
     decision_id?: string;
     intent_log_id?: string;
     requires_user_approval?: boolean;

@@ -17,6 +17,7 @@ import type { HostRuntimeGraphContext } from './hostRuntimeGraphContext';
 export function AgentFreeformPanelContent({
   panel,
   apiUrl,
+  workspaceId,
   events,
   session,
   effectiveStatus,
@@ -28,6 +29,7 @@ export function AgentFreeformPanelContent({
 }: {
   panel: AgentFreeformPanel;
   apiUrl: string;
+  workspaceId?: string;
   events: HostRuntimeEvent[];
   session: HostRuntimeSession | null;
   effectiveStatus: string;
@@ -39,7 +41,15 @@ export function AgentFreeformPanelContent({
 }) {
   switch (panel.type) {
     case 'composer':
-      return <HostRuntimeComposer apiUrl={apiUrl} disabled={isStarting} onSubmit={onSubmitPrompt} />;
+      return (
+        <HostRuntimeComposer
+          apiUrl={apiUrl}
+          workspaceId={workspaceId}
+          meetingId={meetingId}
+          disabled={isStarting}
+          onSubmit={onSubmitPrompt}
+        />
+      );
     case 'timeline':
     case 'model_feedback':
       return <HostRuntimeEventTimeline events={events} />;

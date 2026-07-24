@@ -8,6 +8,7 @@ import {
   submitVoiceTurn,
   type MeetingVoiceTurnResponse,
 } from '@/lib/meeting-voice/voiceTurnClient';
+import { dispatchMeetingClientAction } from '@/lib/meeting-voice/meetingClientActionEvent';
 
 type VoiceButtonState =
   | 'idle'
@@ -115,6 +116,7 @@ export function MeetingVoiceTurnButton({
             mimeType,
             language: 'auto',
           });
+          dispatchMeetingClientAction(result.command_response);
           setLastResult(result);
           if (result.status === 'ignored_empty_transcript') {
             setState('empty');

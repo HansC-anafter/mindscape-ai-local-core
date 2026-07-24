@@ -20,6 +20,7 @@ function isTypingTarget(target: EventTarget | null): boolean {
 
 export function AgentFreeformDesktopWorkspace({
   apiUrl,
+  workspaceId,
   layout,
   events,
   session,
@@ -35,6 +36,7 @@ export function AgentFreeformDesktopWorkspace({
   onSelectPanel,
 }: {
   apiUrl: string;
+  workspaceId?: string;
   layout: AgentFreeformLayoutState;
   events: HostRuntimeEvent[];
   session: HostRuntimeSession | null;
@@ -196,6 +198,7 @@ export function AgentFreeformDesktopWorkspace({
 
   const panelContentProps = {
     apiUrl,
+    workspaceId,
     events,
     session,
     effectiveStatus,

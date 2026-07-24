@@ -1,7 +1,11 @@
 import { useRef, useState } from 'react';
 import { Mic, Square } from 'lucide-react';
 
-import { blobToBase64Audio } from '@/lib/meeting-voice/voiceTurnClient';
+import { dispatchMeetingClientAction } from '@/lib/meeting-voice/meetingClientActionEvent';
+import {
+  blobToBase64Audio,
+  submitVoiceTurn,
+} from '@/lib/meeting-voice/voiceTurnClient';
 
 import { transcribeHostRuntimeAudio } from './hostRuntimeSpeechToTextClient';
 
@@ -29,10 +33,14 @@ function getSupportedMimeType(): string | null {
 
 export function HostRuntimeVoicePromptButton({
   apiUrl,
+  workspaceId,
+  meetingId,
   disabled = false,
   onTranscript,
 }: {
   apiUrl: string;
+  workspaceId?: string;
+  meetingId?: string | null;
   disabled?: boolean;
   onTranscript: (transcript: string) => void;
 }) {
@@ -92,17 +100,37 @@ export function HostRuntimeVoicePromptButton({
         try {
           setState('submitting');
           const audioBase64 = await blobToBase64Audio(audioBlob);
-          const response = await transcribeHostRuntimeAudio({
-            apiUrl,
-            audioBase64,
-            language: 'auto',
-          });
-          const transcript = response.text.trim();
+          let transcript = '';
+          let clientActionHandled = false;
+          if (workspaceId && meetingId) {
+            const response = await submitVoiceTurn({
+              apiBase: apiUrl,
+              workspaceId,
+              meetingId,
+              clientTurnId: `host_runtime_voice_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`,
+              audioBase64,
+              mimeType: resolvedMimeType,
+              language: 'auto',
+            });
+            transcript = response.transcript?.trim() || '';
+            clientActionHandled = Boolean(
+              dispatchMeetingClientAction(response.command_response),
+            );
+          } else {
+            const response = await transcribeHostRuntimeAudio({
+              apiUrl,
+              audioBase64,
+              language: 'auto',
+            });
+            transcript = response.text.trim();
+          }
           if (!transcript) {
             setState('empty');
             return;
           }
-          onTranscript(transcript);
+          if (!clientActionHandled) {
+            onTranscript(transcript);
+          }
           setLastTranscript(transcript);
           setState('submitted');
         } catch (err) {

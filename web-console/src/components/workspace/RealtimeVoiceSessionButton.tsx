@@ -13,6 +13,7 @@ import {
   fetchXttsHealth,
   VoicePlaybackQueue,
 } from '@/lib/meeting-voice/voicePlaybackQueue';
+import { dispatchMeetingClientAction } from '@/lib/meeting-voice/meetingClientActionEvent';
 
 type RealtimeButtonState =
   | 'idle'
@@ -75,7 +76,13 @@ export function RealtimeVoiceSessionButton({
       setLastTranscript(event.transcript || null);
       return;
     }
-    if (event.type === 'transcript_final' || event.type === 'command_submitted') {
+    if (event.type === 'command_submitted') {
+      dispatchMeetingClientAction(event.command_response);
+      setState('listening');
+      setLastTranscript(event.transcript || lastTranscript);
+      return;
+    }
+    if (event.type === 'transcript_final') {
       setState('listening');
       setLastTranscript(event.transcript || lastTranscript);
       return;

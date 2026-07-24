@@ -16,6 +16,47 @@ interface SharedStream {
 
 const sharedStreams = new Map<string, SharedStream>();
 
+function isRecord(value: unknown): value is Record<string, any> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function readString(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+export function normalizeWorkspaceEvent(data: unknown): UnifiedEvent | null {
+  if (!isRecord(data)) {
+    return null;
+  }
+  const domain = data.specversion === '1.0' && isRecord(data.data)
+    ? data.data
+    : data;
+  const type = readString(domain.event_type) || readString(data.type);
+  const id = readString(data.id) || readString(domain.id);
+  if (!type || !id) {
+    return null;
+  }
+  const payload = isRecord(domain.payload) ? domain.payload : domain;
+  const metadata = isRecord(domain.metadata) ? domain.metadata : undefined;
+  return {
+    id,
+    type,
+    timestamp: readString(domain.timestamp) || readString(data.time),
+    actor: readString(domain.actor),
+    workspace_id: readString(domain.workspace_id) || readString(data.workspaceid) || undefined,
+    project_id: readString(domain.project_id) || undefined,
+    profile_id: readString(domain.profile_id),
+    thread_id: readString(domain.thread_id)
+      || readString(payload.thread_id)
+      || readString(metadata?.thread_id)
+      || readString(payload.session_id)
+      || undefined,
+    payload,
+    entity_ids: isRecord(domain.entity_ids) ? domain.entity_ids : undefined,
+    metadata,
+  };
+}
+
 function stripTrailingSlash(value: string): string {
   return value.replace(/\/+$/, '');
 }
@@ -70,29 +111,19 @@ function getOrCreateStream(workspaceId: string, apiUrl: string): SharedStream {
   const eventSource = new EventSource(url);
   const stream: SharedStream = { eventSource, subscribers: new Set(), url, key };
 
-  const dispatch = (data: any) => {
-    if (data.type === 'connected' || data.type === 'error') {
+  const dispatch = (data: unknown) => {
+    if (isRecord(data) && (data.type === 'connected' || data.type === 'error')) {
       if (data.type === 'error') {
         stream.subscribers.forEach(sub => {
-          sub.onError?.(new Error(data.message));
+          sub.onError?.(new Error(readString(data.message)));
         });
       }
       return;
     }
-
-    const event: UnifiedEvent = {
-      id: data.id,
-      type: data.type,
-      timestamp: data.timestamp,
-      actor: data.actor,
-      workspace_id: data.workspace_id,
-      project_id: data.project_id,
-      profile_id: data.profile_id,
-      thread_id: data.thread_id || data.payload?.thread_id || data.metadata?.thread_id || data.payload?.session_id,
-      payload: data.payload || data,
-      entity_ids: data.entity_ids,
-      metadata: data.metadata,
-    };
+    const event = normalizeWorkspaceEvent(data);
+    if (!event) {
+      return;
+    }
 
     stream.subscribers.forEach(sub => {
       if (sub.eventTypes && sub.eventTypes.size > 0 && !sub.eventTypes.has(event.type)) {
@@ -164,10 +195,12 @@ function getOrCreateStream(workspaceId: string, apiUrl: string): SharedStream {
     'stream_start',
     'stream_end',
     'meeting_stage',
+    'capability_event',
   ];
 
   for (const eventType of allEventTypes) {
     eventSource.addEventListener(eventType, handleEvent);
+    eventSource.addEventListener(`mindscape.workspace.${eventType}.v1`, handleEvent);
   }
 
   eventSource.onerror = (err) => {

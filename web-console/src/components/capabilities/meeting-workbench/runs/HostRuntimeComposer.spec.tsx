@@ -5,17 +5,13 @@ import { describe, expect, it, vi } from 'vitest';
 import { HostRuntimeComposer } from './HostRuntimeComposer';
 
 vi.mock('./HostRuntimeVoicePromptButton', () => ({
-  HostRuntimeVoicePromptButton: ({
-    onTranscript,
-  }: {
-    apiUrl: string;
-    disabled?: boolean;
-    onTranscript: (transcript: string) => void;
-  }) => (
+  HostRuntimeVoicePromptButton: (props: any) => (
     <button
       type="button"
       data-testid="host-runtime-voice-prompt-button"
-      onClick={() => onTranscript('voice prompt')}
+      data-workspace-id={props.workspaceId}
+      data-meeting-id={props.meetingId || ''}
+      onClick={() => props.onTranscript('voice prompt')}
     >
       Voice
     </button>
@@ -29,9 +25,20 @@ describe('HostRuntimeComposer', () => {
     render(
       <HostRuntimeComposer
         apiUrl="http://api.test"
+        workspaceId="ws_test"
+        meetingId="mtg_test"
         disabled={false}
         onSubmit={onSubmit}
       />,
+    );
+
+    expect(screen.getByTestId('host-runtime-voice-prompt-button')).toHaveAttribute(
+      'data-workspace-id',
+      'ws_test',
+    );
+    expect(screen.getByTestId('host-runtime-voice-prompt-button')).toHaveAttribute(
+      'data-meeting-id',
+      'mtg_test',
     );
 
     fireEvent.click(screen.getByTestId('host-runtime-voice-prompt-button'));

@@ -5,10 +5,14 @@ import { HostRuntimeVoicePromptButton } from './HostRuntimeVoicePromptButton';
 
 export function HostRuntimeComposer({
   apiUrl,
+  workspaceId,
+  meetingId,
   disabled,
   onSubmit,
 }: {
   apiUrl: string;
+  workspaceId?: string;
+  meetingId?: string | null;
   disabled: boolean;
   onSubmit: (prompt: string) => void;
 }) {
@@ -55,6 +59,8 @@ export function HostRuntimeComposer({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <HostRuntimeVoicePromptButton
           apiUrl={apiUrl}
+          workspaceId={workspaceId}
+          meetingId={meetingId}
           disabled={disabled}
           onTranscript={handleAppendTranscript}
         />

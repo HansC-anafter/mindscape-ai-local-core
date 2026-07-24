@@ -287,7 +287,10 @@ describe('WorkspaceGlobalToolRailProvider', () => {
       expect(screen.getByTestId('workspace-global-tool-shell')).toHaveAttribute('data-workbench-placement', 'mobile');
       expect(screen.getByTestId('workspace-mobile-host-rail-controls')).toBeInTheDocument();
       expect(screen.getByTestId('workspace-mobile-host-rail-controls').className).toContain('right-2');
-      expect(screen.getByTestId('workspace-mobile-host-rail-controls').className).toContain('top-40');
+      expect(screen.getByTestId('workspace-mobile-host-rail-controls').className).toContain(
+        'top-[calc(0.5rem+env(safe-area-inset-top,0px))]',
+      );
+      expect(screen.getByTestId('workspace-mobile-host-rail-controls').className).not.toContain('top-40');
       expect(screen.getByTestId('workspace-mobile-host-rail-controls').className).not.toContain('top-1/2');
       expect(screen.getByTestId('workspace-mobile-host-rail-controls').className).not.toContain('-translate-y-1/2');
       expect(screen.queryByTestId('workspace-global-tool-rail')).toBeNull();
