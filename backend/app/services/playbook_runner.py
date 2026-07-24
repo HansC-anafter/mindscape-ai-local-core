@@ -35,6 +35,9 @@ from backend.app.services.playbook_runner_core.session_state import (
 from backend.app.services.playbook_runner_core.step_reset import (
     reset_current_step as runner_reset_current_step,
 )
+from backend.app.services.playbook_run_executor_admission import (
+    prepare_playbook_admission,
+)
 
 class PlaybookRunner:
     """Main Playbook execution service"""
@@ -109,11 +112,26 @@ class PlaybookRunner:
         variant_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Start a new Playbook execution."""
+        governed_inputs, snapshot = await prepare_playbook_admission(
+            playbook_code=playbook_code,
+            profile_id=profile_id,
+            workspace_id=workspace_id,
+            inputs=inputs,
+        )
+        if snapshot is not None:
+            self.tool_executor.execution_context.update(
+                {
+                    "workspace_id": workspace_id,
+                    "execution_admission_snapshot": snapshot.model_dump(
+                        mode="json"
+                    ),
+                }
+            )
         return await runner_start_playbook_execution(
             self,
             playbook_code=playbook_code,
             profile_id=profile_id,
-            inputs=inputs,
+            inputs=governed_inputs,
             workspace_id=workspace_id,
             project_id=project_id,
             target_language=target_language,

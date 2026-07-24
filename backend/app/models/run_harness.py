@@ -108,6 +108,7 @@ class RunHarnessCapabilitySnapshotRef(StrictModel):
     version: Optional[str] = None
     capability_codes: List[str] = Field(default_factory=list)
     digest: Optional[str] = None
+    execution_admission_snapshot: Optional[Dict[str, Any]] = None
 
 
 class RunHarnessPermissionProfileRef(StrictModel):

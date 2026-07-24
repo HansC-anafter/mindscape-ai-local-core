@@ -5,12 +5,39 @@ from fastapi import APIRouter, Body, HTTPException, Query
 
 from backend.app.routes.core.execution_schemas import (
     CancelExecutionRequest,
+    ContinueExecutionRequest,
     ResumeExecutionRequest,
+)
+from backend.app.services.workspace_capability_admission.child_snapshot_verifier import (
+    verify_child_snapshot,
 )
 
 from .state import _utc_now, logger, playbook_executor, playbook_runner
 
 router = APIRouter()
+
+
+@router.post("/execute/{execution_id}/continue")
+async def continue_playbook_execution(
+    execution_id: str,
+    request: ContinueExecutionRequest = Body(...),
+    profile_id: str = Query("default-user", description="Profile ID"),
+):
+    """Continue an ongoing conversational execution."""
+    try:
+        return await playbook_runner.continue_playbook_execution(
+            execution_id=execution_id,
+            user_message=request.user_message,
+            profile_id=profile_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to continue playbook: {str(exc)}",
+        ) from exc
+
 
 @router.post("/execute/{execution_id}/resume")
 async def resume_playbook_execution(
@@ -79,6 +106,18 @@ async def resume_playbook_execution(
         ).strip()
         inputs = ctx.get("inputs") if isinstance(ctx.get("inputs"), dict) else {}
         inputs = dict(inputs)
+        admission_snapshot = ctx.get("execution_admission_snapshot")
+        if workspace_id:
+            if not isinstance(admission_snapshot, dict):
+                raise HTTPException(
+                    status_code=409,
+                    detail="execution_admission_snapshot_required",
+                )
+            verify_child_snapshot(
+                admission_snapshot,
+                expected_workspace_id=workspace_id,
+                expected_root_execution_id=execution_id,
+            )
         inputs["execution_id"] = execution_id
         inputs["_workflow_checkpoint"] = checkpoint
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Dict, Literal, Optional
 
 from pydantic import Field
 
@@ -24,3 +24,7 @@ class RunHarnessToolExecutionRequest(StrictModel):
     policy: ToolAdmissionPolicy
     approval_granted: bool = False
     rollback_available: bool = False
+    product_surface_id: Optional[str] = Field(default=None, min_length=2)
+    active_group_id: Optional[str] = Field(default=None, min_length=1)
+    observed_topology_revision: Optional[int] = Field(default=None, ge=1)
+    execution_backend: Literal["local", "remote", "external_provider"] = "local"

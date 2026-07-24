@@ -59,4 +59,20 @@ class ToolParameterNormalizer:
                 normalized_kwargs["workspace_id"] = execution_workspace_id
                 logger.debug(f"Auto-injected workspace_id={execution_workspace_id} for {tool_fqn}")
 
+        admission_snapshot = execution_context.get(
+            "execution_admission_snapshot"
+        )
+        if (
+            isinstance(admission_snapshot, dict)
+            and "execution_admission_snapshot" not in normalized_kwargs
+        ):
+            normalized_kwargs["execution_admission_snapshot"] = (
+                admission_snapshot
+            )
+            root_execution_id = admission_snapshot.get(
+                "root_execution_id"
+            )
+            if root_execution_id:
+                normalized_kwargs["root_execution_id"] = root_execution_id
+
         return normalized_kwargs

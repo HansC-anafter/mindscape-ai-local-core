@@ -41,6 +41,7 @@ class RemoteExecutionLaunchService:
         remote_job_type: str = "playbook",
         remote_request_payload: Optional[Dict[str, Any]] = None,
         capability_code: Optional[str] = None,
+        external_authorization_context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         try:
             connector = self._connector
@@ -85,6 +86,10 @@ class RemoteExecutionLaunchService:
                 remote_job_type=remote_job_type,
                 remote_request_payload=remote_request_payload,
             )
+            if external_authorization_context:
+                control_request_payload["_external_execution_authorization"] = (
+                    dict(external_authorization_context)
+                )
             dispatch_target = self._resolve_dispatch_target(
                 normalized_inputs=normalized_inputs,
                 request_payload=control_request_payload,

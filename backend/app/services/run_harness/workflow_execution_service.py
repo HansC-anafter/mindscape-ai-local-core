@@ -58,6 +58,8 @@ class RunHarnessWorkflowExecutionService:
     async def start(
         self,
         request: RunHarnessWorkflowExecutionRequest,
+        *,
+        external_decision: Any = None,
     ) -> RunHarnessResult:
         terminal = await self._ledger_call(
             self.episode_ledger.get_terminal_result,
@@ -110,7 +112,17 @@ class RunHarnessWorkflowExecutionService:
         )
         normalized_inputs[RUN_HARNESS_STARTED_RECORDED_KEY] = True
 
-        starter_result = await self.workflow_starter(request, normalized_inputs)
+        if request.execution_backend in {"remote", "external_provider"}:
+            starter_result = await self._start_remote(
+                request,
+                normalized_inputs,
+                external_decision=external_decision,
+            )
+        else:
+            starter_result = await self.workflow_starter(
+                request,
+                normalized_inputs,
+            )
         result = self._map_initial_result(request, starter_result)
         return await self._record_terminal_result(result)
 
@@ -128,6 +140,31 @@ class RunHarnessWorkflowExecutionService:
             profile_id=request.profile_id,
             inputs=normalized_inputs,
             project_id=request.project_id,
+        )
+
+    async def _start_remote(
+        self,
+        request: RunHarnessWorkflowExecutionRequest,
+        normalized_inputs: dict[str, Any],
+        *,
+        external_decision: Any,
+    ) -> Any:
+        from backend.app.routes.core.execution_dispatch import (
+            build_external_authorization_context,
+            dispatch_remote_execution,
+        )
+
+        return await dispatch_remote_execution(
+            playbook_code=request.playbook_code,
+            inputs=normalized_inputs,
+            workspace_id=request.workspace_id,
+            profile_id=request.profile_id,
+            project_id=request.project_id,
+            execution_id=request.run_id,
+            trace_id=request.envelope.trace_id,
+            external_authorization_context=(
+                build_external_authorization_context(external_decision)
+            ),
         )
 
     async def _create_episode(
@@ -230,6 +267,13 @@ class RunHarnessWorkflowExecutionService:
         normalized_inputs["execution_backend"] = request.execution_backend
         normalized_inputs[RUN_HARNESS_EPISODE_ID_KEY] = request.episode_id
         normalized_inputs[RUN_HARNESS_RUN_ID_KEY] = request.run_id
+        snapshot = (
+            request.envelope.capability_snapshot_ref
+            .execution_admission_snapshot
+        )
+        if snapshot is not None:
+            normalized_inputs["execution_admission_snapshot"] = snapshot
+            normalized_inputs["root_execution_id"] = request.run_id
         return normalized_inputs
 
     def _map_initial_result(
@@ -237,9 +281,21 @@ class RunHarnessWorkflowExecutionService:
         request: RunHarnessWorkflowExecutionRequest,
         starter_result: Any,
     ) -> RunHarnessResult:
-        status_text = str(getattr(starter_result, "status", "") or "").lower()
-        error = getattr(starter_result, "error", None)
-        execution_id = str(getattr(starter_result, "execution_id", "") or request.run_id)
+        if isinstance(starter_result, dict):
+            status_text = str(starter_result.get("status") or "").lower()
+            error = starter_result.get("error")
+            execution_id = str(
+                starter_result.get("execution_id") or request.run_id
+            )
+        else:
+            status_text = str(
+                getattr(starter_result, "status", "") or ""
+            ).lower()
+            error = getattr(starter_result, "error", None)
+            execution_id = str(
+                getattr(starter_result, "execution_id", "")
+                or request.run_id
+            )
         if status_text in {"error", "failed"}:
             return RunHarnessResult(
                 run_id=execution_id,

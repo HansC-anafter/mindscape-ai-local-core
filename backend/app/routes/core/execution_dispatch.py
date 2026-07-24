@@ -16,6 +16,26 @@ from fastapi import HTTPException
 logger = logging.getLogger(__name__)
 
 
+def build_external_authorization_context(decision: Any) -> Optional[Dict[str, Any]]:
+    """Serialize verified EED credentials for one transient provider dispatch."""
+    if decision is None or decision.provider is None:
+        return None
+    provider = decision.provider
+    return {
+        "decision_id": decision.decision_id,
+        "issuer": decision.issuer,
+        "expires_at": decision.expires_at.isoformat(),
+        "provider": {
+            "provider_name": provider.provider_name,
+            "api_url": provider.api_url,
+            "token_type": provider.token_type,
+            "access_token": provider.access_token,
+            "token_id": provider.token_id,
+            "token_expires_at": provider.token_expires_at.isoformat(),
+        },
+    }
+
+
 def get_execution_mode() -> str:
     """Read the configured execution mode from environment."""
     return (
@@ -78,6 +98,7 @@ async def dispatch_remote_execution(
     remote_job_type: str = "playbook",
     remote_request_payload: Optional[Dict[str, Any]] = None,
     capability_code: Optional[str] = None,
+    external_authorization_context: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Dispatch execution to cloud control plane via CloudConnector.
 
@@ -123,6 +144,7 @@ async def dispatch_remote_execution(
         remote_job_type=remote_job_type,
         remote_request_payload=remote_request_payload,
         capability_code=capability_code,
+        external_authorization_context=external_authorization_context,
     )
 
 
@@ -148,10 +170,18 @@ def resolve_and_acquire_backend(hint: str) -> Tuple[str, Optional[str]]:
 
     if not pool.acquire(resolved):
         logger.warning(
-            "Pool capacity exhausted for %s, falling back to in_process",
+            "Pool capacity exhausted for %s; preserving requested capability",
             resolved,
         )
-        return "in_process", None
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": "execution_pool_capacity_unavailable",
+                "requested_backend": hint,
+                "resolved_backend": resolved,
+                "fallback": "forbidden",
+            },
+        )
 
     return resolved, resolved
 

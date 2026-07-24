@@ -19,3 +19,6 @@ class RunHarnessWorkflowExecutionRequest(StrictModel):
     project_id: Optional[str] = None
     profile_id: str = Field(min_length=1)
     execution_backend: str = "auto"
+    product_surface_id: Optional[str] = Field(default=None, min_length=2)
+    active_group_id: Optional[str] = Field(default=None, min_length=1)
+    observed_topology_revision: Optional[int] = Field(default=None, ge=1)

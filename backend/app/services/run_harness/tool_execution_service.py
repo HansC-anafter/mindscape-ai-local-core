@@ -67,6 +67,8 @@ class RunHarnessToolExecutionService:
     async def execute(
         self,
         request: RunHarnessToolExecutionRequest,
+        *,
+        external_decision: Any = None,
     ) -> RunHarnessResult:
         terminal = await self._ledger_call(
             self.episode_ledger.get_terminal_result,
@@ -157,7 +159,10 @@ class RunHarnessToolExecutionService:
             },
         )
 
-        execution_result = await self._execute_tool(request)
+        execution_result = await self._execute_tool(
+            request,
+            external_decision=external_decision,
+        )
         result = map_execution_result(
             request,
             execution_result,
@@ -317,14 +322,60 @@ class RunHarnessToolExecutionService:
     async def _execute_tool(
         self,
         request: RunHarnessToolExecutionRequest,
+        *,
+        external_decision: Any = None,
     ) -> ToolExecutionResult:
         try:
             timeout_seconds = float(
                 getattr(request.policy, "timeout_seconds", None) or 30.0
             )
+            governed_arguments = dict(request.arguments)
+            snapshot = (
+                request.envelope.capability_snapshot_ref
+                .execution_admission_snapshot
+            )
+            if snapshot is not None:
+                governed_arguments.update(
+                    {
+                        "workspace_id": request.envelope.workspace_id,
+                        "root_execution_id": request.run_id,
+                        "execution_admission_snapshot": snapshot,
+                    }
+                )
+            if request.execution_backend in {"remote", "external_provider"}:
+                from backend.app.routes.core.execution_dispatch import (
+                    build_external_authorization_context,
+                    dispatch_remote_execution,
+                )
+
+                remote_result = await dispatch_remote_execution(
+                    playbook_code=request.tool_ref,
+                    inputs=governed_arguments,
+                    workspace_id=request.envelope.workspace_id,
+                    profile_id=request.envelope.profile_id,
+                    execution_id=request.run_id,
+                    trace_id=request.envelope.trace_id,
+                    remote_job_type="tool",
+                    remote_request_payload={
+                        "tool_name": request.tool_ref,
+                        "inputs": request.arguments,
+                    },
+                    external_authorization_context=(
+                        build_external_authorization_context(
+                            external_decision
+                        )
+                    ),
+                )
+                return ToolExecutionResult(
+                    success=True,
+                    tool_name=request.tool_ref,
+                    tool_type="remote",
+                    result=remote_result,
+                    metadata={"execution_backend": "external_provider"},
+                )
             return await self.executor.execute_tool(
                 request.tool_ref,
-                request.arguments,
+                governed_arguments,
                 timeout=timeout_seconds,
             )
         except Exception as exc:

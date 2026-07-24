@@ -11,7 +11,10 @@ from backend.app.services.workspace_groups.contracts import (
 )
 
 from .contracts import (
+    AvailablePackClosureItem,
     AvailableProduct,
+    AvailableProductSurface,
+    AvailableProductSurfaceSelectors,
     EffectiveProductAssignment,
     ProductAssignment,
     ProductClosureSummary,
@@ -169,8 +172,41 @@ def _available_product(
         surface_ids=[
             surface["id"] for surface in product["product_surfaces"]
         ],
+        product_surfaces=[
+            AvailableProductSurface(
+                id=surface["id"],
+                display_name=surface["display_name"],
+                selectors=AvailableProductSurfaceSelectors.model_validate(
+                    surface.get("selectors") or {}
+                ),
+            )
+            for surface in product["product_surfaces"]
+        ],
         closure_summary=summary,
+        pack_closure=[
+            AvailablePackClosureItem(
+                provider=pack["provider"],
+                code=pack["code"],
+                version=pack["version"],
+                readiness=_pack_readiness(pack, readiness),
+            )
+            for pack in product["pack_closure"]
+        ],
     )
+
+
+def _pack_readiness(
+    pack: dict[str, Any],
+    readiness: dict[str, dict[str, Any]],
+) -> str:
+    installed = readiness.get(pack["code"])
+    if installed is None:
+        return "missing"
+    if not installed["enabled"]:
+        return "disabled"
+    if installed["version"] != pack["version"]:
+        return "version_mismatch"
+    return "ready"
 
 
 def _closure_summary(

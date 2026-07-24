@@ -50,6 +50,14 @@ class UnifiedToolExecutor:
         tool_type = "unknown"
 
         try:
+            from backend.app.services.tool_execution_admission import (
+                prepare_tool_admission,
+            )
+
+            arguments, admission_snapshot = await prepare_tool_admission(
+                tool_name=tool_name,
+                arguments=arguments,
+            )
             tool_type, actual_tool_name = self._parse_tool_name(tool_name)
             tool = await self._get_tool(tool_type, actual_tool_name)
 
@@ -77,6 +85,15 @@ class UnifiedToolExecutor:
                     "tool_description": getattr(tool, "description", ""),
                     "tool_source": getattr(tool.metadata, "source_type", tool_type),
                     **(tool_result.metadata or {}),
+                    **(
+                        {
+                            "admission_snapshot_hash": (
+                                admission_snapshot.snapshot_hash
+                            )
+                        }
+                        if admission_snapshot is not None
+                        else {}
+                    ),
                 },
             )
 
@@ -121,6 +138,34 @@ class UnifiedToolExecutor:
         env_overrides: Optional[Dict[str, str]] = None,
     ) -> ToolExecutionResult:
         """Execute tool dependency from Playbook configuration."""
+        from backend.app.services.tool_execution_admission import (
+            prepare_tool_admission,
+        )
+
+        arguments, admission_snapshot = await prepare_tool_admission(
+            tool_name=tool_dep.name,
+            arguments=arguments,
+        )
+        result = await self._execute_tool_dependency_resolved(
+            tool_dep,
+            arguments,
+            env_overrides,
+        )
+        if admission_snapshot is not None:
+            result.metadata = {
+                **(result.metadata or {}),
+                "admission_snapshot_hash": (
+                    admission_snapshot.snapshot_hash
+                ),
+            }
+        return result
+
+    async def _execute_tool_dependency_resolved(
+        self,
+        tool_dep: ToolDependency,
+        arguments: Dict[str, Any],
+        env_overrides: Optional[Dict[str, str]] = None,
+    ) -> ToolExecutionResult:
         tool_dep_resolved = tool_dep.copy(deep=True)
         tool_dep_resolved.config = self.tool_resolver.substitute_env_vars(
             tool_dep.config, env_overrides
@@ -142,7 +187,7 @@ class UnifiedToolExecutor:
                 source=tool_dep.source,
                 required=tool_dep.required,
             )
-            return await self.execute_tool_dependency(
+            return await self._execute_tool_dependency_resolved(
                 fallback_dep, arguments, env_overrides
             )
 

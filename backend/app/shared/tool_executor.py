@@ -114,6 +114,14 @@ class ToolExecutor:
         Returns:
             Tool execution result
         """
+        from backend.app.services.tool_execution_admission import (
+            prepare_tool_admission,
+        )
+
+        kwargs, _admission_snapshot = await prepare_tool_admission(
+            tool_name=tool_name,
+            arguments=kwargs,
+        )
         if '.' in tool_name:
             parts = tool_name.split('.', 1)
             if len(parts) == 2:

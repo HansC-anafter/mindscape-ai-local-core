@@ -16,7 +16,15 @@ async def test_start_execution_delegates_to_core_seam(monkeypatch) -> None:
         calls.append((runner_arg, kwargs))
         return {"execution_id": "exec-1"}
 
+    async def fake_admission(**kwargs):
+        return dict(kwargs["inputs"]), None
+
     monkeypatch.setattr(playbook_runner, "runner_start_playbook_execution", fake_start)
+    monkeypatch.setattr(
+        playbook_runner,
+        "prepare_playbook_admission",
+        fake_admission,
+    )
 
     result = await playbook_runner.PlaybookRunner.start_playbook_execution(
         runner,

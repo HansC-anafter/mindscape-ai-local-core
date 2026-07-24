@@ -282,6 +282,7 @@ class MeetingCommandSubmissionService:
                     canonical=canonical,
                     workspace_id=workspace_id,
                     meeting_id=meeting_id,
+                    session=session,
                 )
             except Exception as exc:
                 saved = self._save_failed_command(saved, exc)
@@ -295,6 +296,7 @@ class MeetingCommandSubmissionService:
                     workspace=workspace,
                     orchestrator=orchestrator,
                     meeting_id=meeting_id,
+                    session=session,
                 )
             except Exception as exc:
                 saved = self._save_failed_command(saved, exc)
@@ -308,6 +310,7 @@ class MeetingCommandSubmissionService:
                     workspace=workspace,
                     orchestrator=orchestrator,
                     meeting_id=meeting_id,
+                    session=session,
                     background_tasks=background_tasks,
                 )
             except Exception as exc:
