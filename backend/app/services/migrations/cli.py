@@ -14,6 +14,9 @@ backend_dir = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(backend_dir))
 
 from app.services.migrations import MigrationOrchestrator
+from app.services.migrations.head_normalizer import (
+    MigrationHeadNormalizationFacade,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -128,6 +131,35 @@ def apply_command(
         print(f"Error: {result.get('error')}")
 
 
+def normalize_heads_command(db_type: str, *, apply: bool) -> None:
+    """Plan or apply removal of graph-proven redundant current heads."""
+
+    if db_type != "postgres":
+        raise SystemExit("Only PostgreSQL head normalization is supported")
+    orchestrator = _build_orchestrator()
+    script_directory = orchestrator._load_script_directory(db_type)
+    if script_directory is None:
+        raise SystemExit("Runtime migration catalog is unavailable")
+    from app.database.config import get_postgres_url_core_session
+
+    facade = MigrationHeadNormalizationFacade(
+        script_directory=script_directory,
+        postgres_url=get_postgres_url_core_session(),
+    )
+    plan = facade.plan(orchestrator._get_current_revisions(db_type))
+    print("\nMigration Head Normalization")
+    print("=" * 60)
+    for key, value in plan.model_dump().items():
+        print(f"{key}: {value}")
+    if plan.status == "blocked_unresolved":
+        raise SystemExit(2)
+    if not apply or plan.status == "clean":
+        return
+    result = facade.apply(plan)
+    print(f"applied_status: {result.status}")
+    print(f"retained_revisions: {result.retained_revisions}")
+
+
 def main():
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(description="Migration management CLI")
@@ -153,6 +185,21 @@ def main():
         '--revision',
         help='Apply one exact revision target and only its unapplied ancestors',
     )
+    normalize_parser = subparsers.add_parser(
+        "normalize-heads",
+        help="Remove only runtime-graph-proven redundant current heads",
+    )
+    normalize_parser.add_argument(
+        "--db",
+        choices=["postgres"],
+        required=True,
+        help="Database type",
+    )
+    normalize_parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="Apply the exact compare-and-swap normalization plan",
+    )
 
     args = parser.parse_args()
 
@@ -162,6 +209,8 @@ def main():
         dry_run_command(args.db)
     elif args.command == 'apply':
         apply_command(args.db, dry_run=args.dry_run, revision=args.revision)
+    elif args.command == "normalize-heads":
+        normalize_heads_command(args.db, apply=args.apply)
     else:
         parser.print_help()
 
