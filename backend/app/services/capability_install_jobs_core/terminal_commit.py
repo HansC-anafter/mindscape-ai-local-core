@@ -23,6 +23,16 @@ from backend.app.services.pack_install_reconciliation import (
 
 logger = logging.getLogger(__name__)
 
+_FINAL_RESTART_METADATA_KEYS = (
+    "restart_decision",
+    "restart_required",
+    "backend_process_restart_required",
+    "runner_restart_required",
+    "execution_activation_required",
+    "execution_activation_state",
+    "restart_semantics_version",
+)
+
 
 class _ProjectionCommitResult:
     def add_error(self, message: str) -> None:
@@ -34,6 +44,17 @@ def _coordinator(result: Any):
     if coordinator is None:
         raise RuntimeError("install_commit_coordinator_missing")
     return coordinator
+
+
+def _finalized_pack_metadata(payload: dict[str, Any]) -> dict[str, Any]:
+    """Persist the execution-confirmed restart truth, not the install candidate."""
+
+    metadata = dict(payload.get("pack_metadata") or {})
+    for key in _FINAL_RESTART_METADATA_KEYS:
+        if key in payload:
+            metadata[key] = payload[key]
+    payload["pack_metadata"] = metadata
+    return metadata
 
 
 def restore_previous_candidate(result: Any) -> dict[str, Any]:
@@ -86,6 +107,7 @@ def commit_succeeded_install(
         "activation_state": "active",
         "commit_state": "committed",
     }
+    commit_metadata = _finalized_pack_metadata(payload)
     source_payload = dict(job.get("source_payload") or {})
     migration_receipt = dict(
         (payload.get("migration_receipts") or {}).get(
@@ -109,7 +131,7 @@ def commit_succeeded_install(
         manifest_hash=manifest_hash,
         artifact_sha256=source_payload.get("archive_sha256"),
         migration_receipt=migration_receipt,
-        commit_metadata=dict(payload.get("pack_metadata") or {}),
+        commit_metadata=commit_metadata,
         activation=activation_candidate,
         result_payload=payload,
     )

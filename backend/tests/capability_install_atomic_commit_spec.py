@@ -183,11 +183,14 @@ def test_terminal_cleanup_failure_keeps_committed_candidate(monkeypatch, tmp_pat
         lambda *_args: (_ for _ in ()).throw(RuntimeError("cleanup failed")),
     )
 
+    committed_inputs = {}
+
     class _Committer:
         def __init__(self, **_kwargs):
             pass
 
         def commit(self, **kwargs):
+            committed_inputs.update(kwargs)
             return {"install_id": kwargs["install_id"]}
 
     class _Store:
@@ -235,6 +238,16 @@ def test_terminal_cleanup_failure_keeps_committed_candidate(monkeypatch, tmp_pat
             "version": "2.0.0",
             "migration_receipts": {},
             "pack_metadata": {"install_projection_manifest": {}},
+            "restart_decision": {
+                "execution_activation_state": "activated",
+                "runner_restart_required": False,
+            },
+            "restart_required": False,
+            "backend_process_restart_required": False,
+            "runner_restart_required": False,
+            "execution_activation_required": True,
+            "execution_activation_state": "activated",
+            "restart_semantics_version": "install_restart_decision_v2",
         },
         execution_activation={"state": "activated"},
     )
@@ -242,6 +255,14 @@ def test_terminal_cleanup_failure_keeps_committed_candidate(monkeypatch, tmp_pat
     assert committed["state"] == "succeeded"
     assert coordinator.state is InstallCommitState.COMMITTED_CLEANUP_PENDING
     assert "version: 2.0.0" in (live / "manifest.yaml").read_text(encoding="utf-8")
+    assert committed_inputs["commit_metadata"]["restart_decision"][
+        "execution_activation_state"
+    ] == "activated"
+    assert (
+        committed_inputs["commit_metadata"]["execution_activation_state"]
+        == "activated"
+    )
+    assert committed_inputs["commit_metadata"]["runner_restart_required"] is False
     assert reconciliation[0] == (
         "projection",
         "install-1",
