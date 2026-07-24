@@ -1,5 +1,6 @@
 """Persistence helpers for runtime workflow execution."""
 
+import copy
 import logging
 import uuid
 from typing import Any, Callable, Dict, Optional
@@ -129,6 +130,7 @@ def _land_runtime_result(
             project_id=project_id,
             task_id=task_id,
             playbook_code=playbook_code,
+            defer_task_terminal_update=True,
         )
     except Exception:
         logger.warning(
@@ -223,6 +225,7 @@ def persist_runtime_result(
     runtime_result: Any,
     result: Dict[str, Any],
     runtime_result_has_errors_fn: Callable[[Any, Optional[Dict[str, Any]]], bool],
+    parent_finalizes_success: bool = False,
     utc_now_fn: Callable[[], Any] = _utc_now,
 ) -> None:
     try:
@@ -333,6 +336,17 @@ def persist_runtime_result(
             ),
             "error": error_value,
         }
+        if parent_finalizes_success and task_status == TaskStatus.SUCCEEDED:
+            # A runner owns capacity until its isolated child process has
+            # actually exited. Keep the DB row RUNNING here; the parent
+            # executor publishes SUCCEEDED immediately after observing exit 0.
+            update_kwargs.update(
+                {
+                    "status": TaskStatus.RUNNING,
+                    "completed_at": None,
+                    "error": None,
+                }
+            )
         if task_status == TaskStatus.PENDING and pause_mode == "user_reserved":
             update_kwargs.update(
                 {
@@ -357,18 +371,20 @@ def persist_runtime_result(
             )
             merged_context.update(execution_context)
             update_kwargs["execution_context"] = merged_context
-            tasks_store.update_task(
-                existing_task.id,
-                **update_kwargs,
-            )
             if task_status in (TaskStatus.SUCCEEDED, TaskStatus.FAILED):
+                # Governance/result landing can take several seconds. Complete
+                # it before the final task update; runner-owned successes stay
+                # RUNNING until the parent observes child exit.
                 _land_runtime_result(
                     workspace_id=workspace_id,
                     project_id=project_id,
                     playbook_code=playbook_code,
                     execution_id=execution_id,
                     task_id=existing_task.id,
-                    result=canonical_workflow_result,
+                    # Completion consumers may normalize their input in place;
+                    # keep the canonical task context immutable until the
+                    # terminal update is persisted below.
+                    result=copy.deepcopy(canonical_workflow_result),
                 )
         bridge_compact_result = dict(compact_workflow_result)
         bridge_compact_result["workflow_failed"] = workflow_failed
@@ -378,6 +394,11 @@ def persist_runtime_result(
             runtime_result=runtime_result,
             compact_result=bridge_compact_result,
         )
+        if existing_task:
+            tasks_store.update_task(
+                existing_task.id,
+                **update_kwargs,
+            )
     except Exception as exc:
         logger.warning(
             "PlaybookRunExecutor: Failed to persist execution context: %s",

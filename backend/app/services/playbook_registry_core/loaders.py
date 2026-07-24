@@ -236,7 +236,7 @@ def load_playbooks_from_directory(
 ) -> None:
     """Load playbooks from each capability directory under a local capabilities root."""
     for capability_dir in capabilities_dir.iterdir():
-        if not capability_dir.is_dir():
+        if not capability_dir.is_dir() or capability_dir.name.startswith("."):
             continue
 
         manifest_path = capability_dir / "manifest.yaml"
@@ -334,7 +334,7 @@ def _enrich_system_playbook_from_capabilities(
         return
 
     for cap_dir in caps_dir.iterdir():
-        if not cap_dir.is_dir():
+        if not cap_dir.is_dir() or cap_dir.name.startswith("."):
             continue
         cap_name = cap_dir.name
         if playbook_code.startswith(f"{cap_name}_") or playbook_code.startswith(
@@ -345,7 +345,7 @@ def _enrich_system_playbook_from_capabilities(
                 return
 
     for cap_dir in caps_dir.iterdir():
-        if not cap_dir.is_dir():
+        if not cap_dir.is_dir() or cap_dir.name.startswith("."):
             continue
         enrich_playbook_metadata(playbook, cap_dir, playbook_code, locale)
         if playbook.metadata.description:

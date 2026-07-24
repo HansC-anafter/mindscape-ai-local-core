@@ -33,7 +33,7 @@ class TasksStoreColdReleaseQueryMixin:
             blocked_reason="concurrency_locked",
             queue_shard=queue_shard,
             limit=limit,
-            include_execution_context=False,
+            include_execution_context=True,
             rank_by_concurrency_key=True,
         )
 

@@ -178,7 +178,7 @@ def find_capability_dir_for_playbook(
         return None
 
     for capability_dir in capabilities_dir.iterdir():
-        if not capability_dir.is_dir():
+        if not capability_dir.is_dir() or capability_dir.name.startswith("."):
             continue
         playbook_path = capability_dir / "playbooks" / locale / f"{playbook_code}.md"
         if playbook_path.exists():

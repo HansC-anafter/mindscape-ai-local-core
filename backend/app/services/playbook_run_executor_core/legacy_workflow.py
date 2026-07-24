@@ -358,19 +358,23 @@ async def execute_legacy_workflow(
                 result
             )
             merged_context.update(execution_context)
-            tasks_store.update_task(
-                task.id,
-                execution_context=merged_context,
-                status=TaskStatus.FAILED if workflow_failed else TaskStatus.SUCCEEDED,
-                completed_at=_utc_now(),
-                error="Workflow completed with step errors" if workflow_failed else None,
-            )
+            # Completion landing is still part of the running execution. Do
+            # not expose a terminal task until this work has actually ended,
+            # otherwise the active-run count drops before the runner slot can
+            # accept its replacement.
             await _land_governed_result(
                 execution_id=execution_id,
                 workspace_id=workspace_id,
                 project_id=project_id,
                 playbook_code=playbook_code,
                 result=result or {},
+            )
+            tasks_store.update_task(
+                task.id,
+                execution_context=merged_context,
+                status=TaskStatus.FAILED if workflow_failed else TaskStatus.SUCCEEDED,
+                completed_at=_utc_now(),
+                error="Workflow completed with step errors" if workflow_failed else None,
             )
         except Exception as exc:
             from backend.app.shared.error_handler import parse_api_error

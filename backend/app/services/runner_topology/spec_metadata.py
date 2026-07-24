@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from backend.app.services.contract_variants import select_exact_input_variant
+from backend.app.services.runtime_pack_hygiene import is_ignored_runtime_pack_dir
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +47,37 @@ def _capability_registry():
     except Exception:
         pass
     return registry
+
+
+def _installed_capabilities_dir() -> Path:
+    return Path(__file__).resolve().parents[2] / "capabilities"
+
+
+def _resolve_direct_installed_spec(
+    playbook_code: str,
+) -> Optional[tuple[str, dict[str, Any]]]:
+    """Resolve an exact playbook spec without hydrating the global registry."""
+    matches: list[tuple[str, Path]] = []
+    capabilities_dir = _installed_capabilities_dir()
+    if not capabilities_dir.exists():
+        return None
+    for capability_dir in capabilities_dir.iterdir():
+        if (
+            not capability_dir.is_dir()
+            or is_ignored_runtime_pack_dir(capability_dir.name)
+        ):
+            continue
+        spec_path = capability_dir / "playbooks" / "specs" / f"{playbook_code}.json"
+        if spec_path.is_file():
+            matches.append((capability_dir.name, spec_path))
+    if len(matches) != 1:
+        return None
+
+    capability_code, spec_path = matches[0]
+    spec = _read_spec_json(spec_path)
+    if not spec or str(spec.get("playbook_code") or "").strip() != playbook_code:
+        return None
+    return capability_code, spec
 
 
 def _normalize_playbook_entry(entry: Any) -> Optional[dict[str, Any]]:
@@ -96,6 +128,14 @@ def resolve_installed_playbook_runner_metadata(playbook_code: str) -> Dict[str, 
         return {}
 
     try:
+        direct = _resolve_direct_installed_spec(normalized_code)
+        if direct is not None:
+            capability_code, spec = direct
+            return _extract_runner_metadata_from_spec(
+                spec,
+                capability_code=capability_code,
+            )
+
         registry = _capability_registry()
         for capability_code in registry.list_capabilities():
             capability = registry.get_capability(capability_code) or {}

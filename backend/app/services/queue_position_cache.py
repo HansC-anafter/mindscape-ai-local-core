@@ -64,13 +64,14 @@ class QueuePositionCache:
         self._eligible_totals: dict[str, int] = {}
         self._pending_totals: dict[str, int] = {}
         self._updated: float = 0.0
+        self._last_attempt: float = 0.0
         self._refresh_lock = threading.Lock()
 
     def refresh_if_stale(self, tasks_store, max_age: float = 3.0) -> None:
         if time.monotonic() - self._updated < max_age:
             return
         if self._updated <= 0.0:
-            acquired = self._refresh_lock.acquire(timeout=15.0)
+            acquired = self._refresh_lock.acquire()
         else:
             acquired = self._refresh_lock.acquire(blocking=False)
         if not acquired:
@@ -78,6 +79,9 @@ class QueuePositionCache:
         try:
             if time.monotonic() - self._updated < max_age:
                 return
+            if time.monotonic() - self._last_attempt < max_age:
+                return
+            self._last_attempt = time.monotonic()
             with tasks_store.get_connection() as conn:
                 _apply_queue_read_budget(conn)
                 rows = conn.execute(
@@ -126,7 +130,8 @@ class QueuePositionCache:
             getattr(task_obj, "queue_shard", None),
             fallback=DEFAULT_LOCAL_QUEUE_PARTITION,
         )
-        if self.get_total(queue_shard) <= 0:
+        queue_total = self.get_total(queue_shard)
+        if queue_total is None or queue_total <= 0:
             return None
 
         cutoff = (
@@ -163,7 +168,9 @@ class QueuePositionCache:
         except Exception:
             return None
 
-    def get_total(self, queue_shard: str) -> int:
+    def get_total(self, queue_shard: str) -> Optional[int]:
+        if self._updated <= 0.0:
+            return None
         raw = str(queue_shard or "").strip()
         canonical = normalize_queue_partition(
             queue_shard,
@@ -175,7 +182,9 @@ class QueuePositionCache:
         return 0
 
     @property
-    def total(self) -> int:
+    def total(self) -> Optional[int]:
+        if self._updated <= 0.0:
+            return None
         return sum(self._eligible_totals.values())
 
 

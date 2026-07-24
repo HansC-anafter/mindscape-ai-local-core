@@ -180,6 +180,7 @@ async def execute_runtime_workflow(
                 runtime_result=runtime_result,
                 result=result,
                 runtime_result_has_errors_fn=runtime_result_has_errors_fn,
+                parent_finalizes_success=is_runner_process_fn(),
             )
         except RecoverableStepError as exc:
             logger.warning(

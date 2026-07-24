@@ -137,6 +137,7 @@ class TaskResultLandingService:
         thread_id: Optional[str] = None,
         project_id: Optional[str] = None,
         task_id: Optional[str] = None,
+        defer_task_terminal_update: bool = False,
     ) -> Optional[LandingResult]:
         """
         Persist execution result to disk and DB.
@@ -164,6 +165,7 @@ class TaskResultLandingService:
                 thread_id=thread_id,
                 project_id=project_id,
                 task_id=task_id,
+                defer_task_terminal_update=defer_task_terminal_update,
             )
         except Exception:
             logger.exception(
@@ -184,6 +186,7 @@ class TaskResultLandingService:
         thread_id: Optional[str],
         project_id: Optional[str],
         task_id: Optional[str],
+        defer_task_terminal_update: bool = False,
     ) -> LandingResult:
         # --- Recover lineage from result payload / task record ---
         result_context = (result_data.get("context") or {}) if result_data else {}
@@ -402,7 +405,7 @@ class TaskResultLandingService:
         except Exception:
             logger.exception("Artifact DB write failed exec=%s", execution_id)
 
-        # --- DB: Update Task status ---
+        # --- DB: Persist task result and, unless deferred, terminal status ---
         if task_id:
             try:
                 existing_task_result = (
@@ -413,29 +416,40 @@ class TaskResultLandingService:
                 task_status = (
                     TaskStatus.FAILED if workflow_failure else TaskStatus.SUCCEEDED
                 )
-                self._tasks_store.update_task_status(
-                    task_id=task_id,
-                    status=task_status,
-                    result=self._build_task_result_payload(
-                        existing_result=existing_task_result,
-                        incoming_result=result_data,
-                        summary=summary[:500],
-                        storage_ref=artifact_dir_str or None,
-                        object_key=result_object_key,
-                        execution_id=execution_id,
-                        artifact_id=artifact_id,
-                        landing_metadata=landing_metadata,
-                        deliverable_identity=deliverable_identity,
-                        acceptance_evidence=acceptance_evidence,
-                    ),
-                    completed_at=landed_at,
-                    error=workflow_failure,
+                task_result_payload = self._build_task_result_payload(
+                    existing_result=existing_task_result,
+                    incoming_result=result_data,
+                    summary=summary[:500],
+                    storage_ref=artifact_dir_str or None,
+                    object_key=result_object_key,
+                    execution_id=execution_id,
+                    artifact_id=artifact_id,
+                    landing_metadata=landing_metadata,
+                    deliverable_identity=deliverable_identity,
+                    acceptance_evidence=acceptance_evidence,
                 )
-                logger.info(
-                    "Task updated id=%s status=%s",
-                    task_id,
-                    task_status.value,
-                )
+                if defer_task_terminal_update:
+                    self._tasks_store.update_task(
+                        task_id,
+                        result=task_result_payload,
+                    )
+                    logger.info(
+                        "Task result persisted with terminal status deferred id=%s",
+                        task_id,
+                    )
+                else:
+                    self._tasks_store.update_task_status(
+                        task_id=task_id,
+                        status=task_status,
+                        result=task_result_payload,
+                        completed_at=landed_at,
+                        error=workflow_failure,
+                    )
+                    logger.info(
+                        "Task updated id=%s status=%s",
+                        task_id,
+                        task_status.value,
+                    )
             except Exception:
                 logger.exception("Task DB update failed task_id=%s", task_id)
 

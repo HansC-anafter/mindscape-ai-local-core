@@ -26,7 +26,10 @@ from backend.app.services.external_agents.bridge.cli_stream_activity import (
 
 MAX_CLI_OUTPUT_SIZE = 100_000
 DEFAULT_CLI_STALL_TIMEOUT_SECONDS = 180.0
-CODEX_APP_BUNDLE_BINARY = "/Applications/Codex.app/Contents/Resources/codex"
+CODEX_APP_BUNDLE_BINARIES = (
+    "/Applications/ChatGPT.app/Contents/Resources/codex",
+    "/Applications/Codex.app/Contents/Resources/codex",
+)
 logger = logging.getLogger("codex_cli_runner")
 _CODEX_CLI_VERSION_RE = re.compile(
     r"codex-cli\s+(\d+)\.(\d+)\.(\d+)(?:[-+.]?([0-9A-Za-z.-]+))?",
@@ -135,7 +138,7 @@ def _iter_auto_codex_cli_candidates() -> List[str]:
     seen: set[str] = set()
     resolved: List[str] = []
     for raw_candidate in (
-        CODEX_APP_BUNDLE_BINARY,
+        *CODEX_APP_BUNDLE_BINARIES,
         "codex",
         str(backend_bundled_binary),
         str(repo_bundled_binary),
