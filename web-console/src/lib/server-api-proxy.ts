@@ -40,9 +40,9 @@ export function normalizeBaseUrl(value: string | undefined, fallback: string): s
   return resolved.replace(/\/+$/, '');
 }
 
-function isHostRuntimeProxyPath(pathname: string): boolean {
-  return pathname === '/api/v1/host-runtime/status'
-    || /^\/api\/v1\/workspaces\/[^/]+\/host-runtime(?:\/|$)/.test(pathname);
+function isControlPlaneProxyPath(pathname: string): boolean {
+  return /^\/api\/v1\/capability-packs\/(?:install-from-file|install-from-cloud|install-jobs)(?:\/|$)/.test(pathname)
+    || /^\/api\/v1\/(?:admin|providers|cloud-providers|deploy|deployments)(?:\/|$)/.test(pathname);
 }
 
 function resolveExecutionApiBaseUrl(): string {
@@ -75,9 +75,9 @@ export function resolveApiProxyUpstream(requestUrl: string): ProxyUpstreamResolu
           getServiceEndpointUrl('local_core.media_proxy', 'container_internal'),
         ''
       )
-    : isHostRuntimeProxyPath(url.pathname)
-      ? resolveExecutionApiBaseUrl()
-      : resolveControlApiBaseUrl();
+    : isControlPlaneProxyPath(url.pathname)
+      ? resolveControlApiBaseUrl()
+      : resolveExecutionApiBaseUrl();
 
   return {
     baseUrl,

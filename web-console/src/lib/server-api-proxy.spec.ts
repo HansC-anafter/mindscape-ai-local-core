@@ -24,7 +24,7 @@ afterEach(() => {
 
 describe('server API proxy', () => {
   it('routes normal API paths to the backend with the original path and query', async () => {
-    process.env.WEB_CONSOLE_BACKEND_URL = 'http://backend:8200/';
+    process.env.WEB_CONSOLE_EXECUTION_BACKEND_URL = 'http://backend:8200/';
 
     const resolution = resolveApiProxyUpstream('http://localhost:8300/api/v1/skills/?source=agent');
 
@@ -33,6 +33,43 @@ describe('server API proxy', () => {
       pathname: '/api/v1/skills/',
       search: '?source=agent',
     });
+  });
+
+  it('routes install and administrative APIs to backend control only', () => {
+    process.env.WEB_CONSOLE_BACKEND_URL = 'http://backend-control:8210/';
+    process.env.WEB_CONSOLE_EXECUTION_BACKEND_URL = 'http://backend:8200/';
+
+    expect(
+      resolveApiProxyUpstream(
+        'http://localhost:8300/api/v1/capability-packs/install-jobs/install-one',
+      ),
+    ).toEqual({
+      baseUrl: 'http://backend-control:8210',
+      pathname: '/api/v1/capability-packs/install-jobs/install-one',
+      search: '',
+    });
+    expect(resolveApiProxyUpstream('http://localhost:8300/api/v1/admin/runtime')).toEqual({
+      baseUrl: 'http://backend-control:8210',
+      pathname: '/api/v1/admin/runtime',
+      search: '',
+    });
+  });
+
+  it('keeps device, meeting, and pack runtime APIs on execution', () => {
+    process.env.WEB_CONSOLE_BACKEND_URL = 'http://backend-control:8210/';
+    process.env.WEB_CONSOLE_EXECUTION_BACKEND_URL = 'http://backend:8200/';
+
+    for (const pathname of [
+      '/api/v1/workspaces/ws-1/device-bindings/sessions',
+      '/api/v1/workspaces/ws-1/meetings',
+      '/api/v1/capabilities/yogacoach/practice-diaries',
+    ]) {
+      expect(resolveApiProxyUpstream(`http://localhost:8300${pathname}`)).toEqual({
+        baseUrl: 'http://backend:8200',
+        pathname,
+        search: '',
+      });
+    }
   });
 
   it('routes media API paths to the media proxy', async () => {
@@ -77,7 +114,7 @@ describe('server API proxy', () => {
     delete process.env.MEDIA_PROXY_URL;
 
     expect(resolveApiProxyUpstream('http://localhost:8300/api/v1/skills/')).toEqual({
-      baseUrl: 'http://backend-control:8210',
+      baseUrl: 'http://backend:8200',
       pathname: '/api/v1/skills/',
       search: '',
     });

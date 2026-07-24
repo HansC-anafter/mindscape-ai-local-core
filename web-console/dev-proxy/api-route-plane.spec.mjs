@@ -85,7 +85,7 @@ describe('API route plane', () => {
     });
   });
 
-  it('keeps workspace device-binding state on the control plane', () => {
+  it('keeps the Remote bridge on control and device/media sessions on execution', () => {
     expect(resolveApiRoutePlane('/api/v1/workspaces/ws-1/agents/bridge-service')).toMatchObject({
       plane: 'control',
       serviceId: 'local_core.control_api',
@@ -95,16 +95,16 @@ describe('API route plane', () => {
       serviceId: 'local_core.control_api',
     });
     expect(resolveApiRoutePlane('/api/v1/workspaces/ws-1/device-bindings/pairing-codes')).toMatchObject({
-      plane: 'control',
-      serviceId: 'local_core.control_api',
+      plane: 'execution',
+      serviceId: 'local_core.execution_api',
     });
     expect(resolveApiRoutePlane('/api/v1/workspaces/ws-1/device-bindings/PAIR1234/control')).toMatchObject({
-      plane: 'control',
-      serviceId: 'local_core.control_api',
+      plane: 'execution',
+      serviceId: 'local_core.execution_api',
     });
     expect(resolveApiRoutePlane('/api/v1/workspaces/ws-1/device-bindings/session-1/media-sessions/session-1/signal')).toMatchObject({
-      plane: 'control',
-      serviceId: 'local_core.control_api',
+      plane: 'execution',
+      serviceId: 'local_core.execution_api',
     });
   });
 

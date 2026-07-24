@@ -15,8 +15,6 @@ import {
 let inflightCount = 0;
 const MAX_INFLIGHT = 3;
 const waitQueue: (() => void)[] = [];
-const HIDDEN_POLLING_MULTIPLIER = 3;
-const MIN_HIDDEN_POLLING_INTERVAL_MS = 30_000;
 const TERMINAL_EXECUTION_STATUSES = new Set([
     'aborted',
     'cancelled',
@@ -83,15 +81,6 @@ export function extractExecutionStatusFromUpdate(data: any): string | null {
     return typeof match === 'string' ? match : null;
 }
 
-export function resolveExecutionPollingIntervalMs(
-    baseIntervalMs: number,
-    hidden: boolean,
-): number {
-    const safeBase = Math.max(500, Number.isFinite(baseIntervalMs) ? baseIntervalMs : 10_000);
-    if (!hidden) return safeBase;
-    return Math.max(safeBase * HIDDEN_POLLING_MULTIPLIER, MIN_HIDDEN_POLLING_INTERVAL_MS);
-}
-
 export function useExecutionPolling(options: UseExecutionPollingOptions): UseExecutionPollingReturn {
     const {
         executionId,
@@ -145,6 +134,7 @@ export function useExecutionPolling(options: UseExecutionPollingOptions): UseExe
         if (
             terminalRef.current ||
             pollingInFlightRef.current ||
+            (typeof document !== 'undefined' && document.visibilityState === 'hidden') ||
             (!pollFnRef.current && !abortablePollFnRef.current)
         ) {
             return;
@@ -263,10 +253,17 @@ export function useExecutionPolling(options: UseExecutionPollingOptions): UseExe
 
         let cancelled = false;
         let timer: ReturnType<typeof setTimeout> | null = null;
+        const clearScheduledPoll = () => {
+            cancelExecutionPoll(timer);
+            timer = null;
+        };
 
         const scheduleNext = () => {
             if (cancelled || terminalRef.current) return;
-            if (executionDocumentHidden()) return;
+            if (executionDocumentHidden()) {
+                clearScheduledPoll();
+                return;
+            }
             const interval = resolveExecutionPollingDelayMs({
                 baseIntervalMs: pollIntervalMs,
                 consecutiveFailures: consecutiveFailuresRef.current,
@@ -292,8 +289,7 @@ export function useExecutionPolling(options: UseExecutionPollingOptions): UseExe
         };
 
         const resumeVisiblePolling = () => {
-            cancelExecutionPoll(timer);
-            timer = null;
+            clearScheduledPoll();
             if (executionDocumentHidden()) {
                 abortControllerRef.current?.abort();
                 return;
@@ -309,7 +305,7 @@ export function useExecutionPolling(options: UseExecutionPollingOptions): UseExe
         return () => {
             cancelled = true;
             document.removeEventListener('visibilitychange', resumeVisiblePolling);
-            cancelExecutionPoll(timer);
+            clearScheduledPoll();
             abortControllerRef.current?.abort();
         };
     }, [
@@ -319,7 +315,6 @@ export function useExecutionPolling(options: UseExecutionPollingOptions): UseExe
         enablePollingFallback,
         pollIntervalMs,
         runPoll,
-        runPollSafely,
     ]);
 
     return { sseConnected, refresh };

@@ -93,10 +93,10 @@ describe('frontend dev proxy', () => {
       plane: 'control',
     });
     expect(resolveDevApiProxyTarget('/api/v1/workspaces/ws-1/device-bindings/PAIR1234/control')).toMatchObject({
-      hostname: 'backend-control',
-      port: 8210,
+      hostname: 'backend',
+      port: 8200,
       path: '/api/v1/workspaces/ws-1/device-bindings/PAIR1234/control',
-      plane: 'control',
+      plane: 'execution',
     });
   });
 
@@ -112,7 +112,7 @@ describe('frontend dev proxy', () => {
   it('classifies upstreams and strips query strings from timing log paths', () => {
     expect(classifyProxyUpstream('/api/v1/workspaces/ws-1/summary?fresh=1')).toBe('backend_execution_api');
     expect(classifyProxyUpstream('/api/v1/capability-packs/install-from-file')).toBe('backend_control_api');
-    expect(classifyProxyUpstream('/api/v1/workspaces/ws-1/device-bindings/PAIR1234/control')).toBe('backend_control_api');
+    expect(classifyProxyUpstream('/api/v1/workspaces/ws-1/device-bindings/PAIR1234/control')).toBe('backend_execution_api');
     expect(classifyProxyUpstream('/api/v1/media/assets/demo.png?token=secret')).toBe('media_proxy');
     expect(classifyProxyUpstream('/workspaces/ws-1?tab=home')).toBe('next_dev');
     expect(normalizeProxyLogPath('/workspaces/ws-1?tab=home')).toBe('/workspaces/ws-1');

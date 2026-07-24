@@ -19,7 +19,6 @@ const CONTROL_PATTERNS = [
   /^\/api\/v1\/capabilities\/mindscape_cloud_integration\/mobile-workbench-gateway\/runtime-policy\/?$/,
   /^\/api\/v1\/capabilities\/mindscape_cloud_integration\/mobile-workbench-gateway\/workspaces\/[^/]+\/policy\/?$/,
   /^\/api\/v1\/workspaces\/[^/]+\/agents\/bridge-service(?:\/|$)/,
-  /^\/api\/v1\/workspaces\/[^/]+\/device-bindings(?:\/|$)/,
   /^\/api\/v1\/workspaces\/[^/]+\/projects\/[^/]+\/deploy(?:\/|$)/,
 ];
 

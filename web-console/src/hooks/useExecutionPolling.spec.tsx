@@ -4,7 +4,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   extractExecutionStatusFromUpdate,
   isTerminalExecutionStatus,
-  resolveExecutionPollingIntervalMs,
   useExecutionPolling,
 } from './useExecutionPolling';
 import { resolveExecutionPollingDelayMs } from './executionPollingPolicy';
@@ -23,12 +22,6 @@ describe('useExecutionPolling helpers', () => {
     })).toBe('done');
     expect(extractExecutionStatusFromUpdate({ type: 'execution_error' })).toBe('failed');
   });
-
-  it('backs off the fallback interval while the page is hidden', () => {
-    expect(resolveExecutionPollingIntervalMs(1000, false)).toBe(1000);
-    expect(resolveExecutionPollingIntervalMs(1000, true)).toBe(30000);
-  });
-
   it('uses 10/20/30 second failure backoff and honors longer Retry-After', () => {
     expect(resolveExecutionPollingDelayMs({ baseIntervalMs: 1000, consecutiveFailures: 1 })).toBe(10000);
     expect(resolveExecutionPollingDelayMs({ baseIntervalMs: 1000, consecutiveFailures: 2 })).toBe(20000);
@@ -98,7 +91,7 @@ describe('useExecutionPolling', () => {
     expect(pollFn).toHaveBeenCalledTimes(1);
   });
 
-  it('stops fallback polling while hidden and probes once when visible', async () => {
+  it('does not dispatch while hidden and refreshes immediately on visibility resume', async () => {
     const originalVisibilityState = document.visibilityState;
     Object.defineProperty(document, 'visibilityState', {
       configurable: true,
@@ -126,9 +119,50 @@ describe('useExecutionPolling', () => {
       configurable: true,
       value: 'visible',
     });
-    await act(async () => document.dispatchEvent(new Event('visibilitychange')));
+    act(() => document.dispatchEvent(new Event('visibilitychange')));
     expect(pollFn).toHaveBeenCalledTimes(1);
 
+    await act(async () => vi.advanceTimersByTimeAsync(1000));
+    expect(pollFn).toHaveBeenCalledTimes(2);
+
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      value: originalVisibilityState,
+    });
+  });
+
+  it('aborts an in-flight fallback poll when the page becomes hidden', () => {
+    const originalVisibilityState = document.visibilityState;
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      value: 'visible',
+    });
+    const observed: AbortSignal[] = [];
+    const abortablePollFn = vi.fn((signal: AbortSignal): Promise<void> => {
+      observed.push(signal);
+      return new Promise(() => undefined);
+    });
+    const { unmount } = renderHook(() => useExecutionPolling({
+      executionId: 'exec-1',
+      workspaceId: 'workspace-1',
+      apiUrl: '',
+      onUpdate: vi.fn(),
+      executionStatus: 'running',
+      pollIntervalMs: 1000,
+      enableSSE: false,
+      enablePollingFallback: true,
+      abortablePollFn,
+    }));
+
+    expect(observed[0]?.aborted).toBe(false);
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      value: 'hidden',
+    });
+    act(() => document.dispatchEvent(new Event('visibilitychange')));
+    expect(observed[0]?.aborted).toBe(true);
+
+    unmount();
     Object.defineProperty(document, 'visibilityState', {
       configurable: true,
       value: originalVisibilityState,

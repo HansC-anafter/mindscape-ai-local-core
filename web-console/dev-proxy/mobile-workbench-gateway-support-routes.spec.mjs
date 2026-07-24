@@ -81,3 +81,28 @@ test('shared read-only routes reject writes', async () => {
     assert.equal(result.reason_code, 'capability_path_not_allowed');
   }
 });
+
+test('device-link media routes allow only the remote camera lifecycle methods', async () => {
+  for (const [requestMethod, path] of [
+    ['GET', '/api/v1/workspaces/workspace-a/device-bindings/sessions'],
+    ['POST', '/api/v1/workspaces/workspace-a/device-bindings/device-session/media-sessions'],
+    ['GET', '/api/v1/workspaces/workspace-a/device-bindings/device-session/media-sessions'],
+    ['POST', '/api/v1/workspaces/workspace-a/device-bindings/device-session/media-sessions/media-session/refresh'],
+    ['POST', '/api/v1/workspaces/workspace-a/device-bindings/device-session/media-sessions/media-session/receiver/start'],
+    ['POST', '/api/v1/workspaces/workspace-a/device-bindings/device-session/media-sessions/media-session/stop'],
+  ]) {
+    const result = await authorize(path, requestMethod);
+    assert.equal(result.allowed, true, `${requestMethod} ${path}`);
+  }
+
+  for (const [requestMethod, path] of [
+    ['POST', '/api/v1/workspaces/workspace-a/device-bindings/sessions'],
+    ['DELETE', '/api/v1/workspaces/workspace-a/device-bindings/device-session/media-sessions'],
+    ['GET', '/api/v1/workspaces/workspace-a/device-bindings/device-session/media-sessions/media-session/stop'],
+    ['POST', '/api/v1/workspaces/workspace-a/device-bindings/device-session/media-sessions/media-session/receiver/events'],
+  ]) {
+    const result = await authorize(path, requestMethod);
+    assert.equal(result.allowed, false, `${requestMethod} ${path}`);
+    assert.equal(result.reason_code, 'capability_path_not_allowed');
+  }
+});
