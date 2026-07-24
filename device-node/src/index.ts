@@ -11,6 +11,7 @@ import { LocalCoreBridge } from "./bridge/local-core-client.js";
 import * as fs from "fs";
 import * as path from "path";
 import { fileURLToPath } from "url";
+import { warmLiveMediaReceiverRuntime } from "./capabilities/capture-relay-control/receiver-runtime.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -73,6 +74,15 @@ async function main(): Promise<void> {
             await mcpServer.startHttp(config.httpPort!);
             console.log(`✅ MCP Server running (HTTP mode on port ${config.httpPort})`);
         }
+
+        void warmLiveMediaReceiverRuntime()
+            .then(() => {
+                console.log("✅ Live media receiver runtime ready");
+            })
+            .catch((error: unknown) => {
+                const reason = error instanceof Error ? error.message : String(error);
+                console.error(`❌ Live media receiver runtime unavailable: ${reason}`);
+            });
 
         const handleShutdown = async (): Promise<void> => {
             console.log("\n🛑 Shutting down Device Node...");

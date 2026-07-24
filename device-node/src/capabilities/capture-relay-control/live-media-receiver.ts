@@ -1,13 +1,11 @@
-import { spawn, spawnSync } from "child_process";
+import { spawn } from "child_process";
 import {
     chmodSync,
     closeSync,
-    existsSync,
     mkdirSync,
     openSync,
     readFileSync,
     realpathSync,
-    readdirSync,
     renameSync,
     statSync,
     writeFileSync,
@@ -17,20 +15,20 @@ import * as path from "path";
 import {
     dataHostRoot,
     hostPathForContainerDataPath,
-    projectRootCandidates,
-    readDotenvValue,
 } from "../host-resource-lane-worker-paths.js";
+import {
+    assertWorkspaceReceiverAvailable,
+    receiverStateIsTerminal,
+    receiverStateOwnsLiveProcess,
+    type ReceiverProcessState,
+    type ReceiverProcessStateName,
+} from "./receiver-admission.js";
+import {
+    ensureReceiverRuntime,
+    findReceiverRuntime,
+} from "./receiver-runtime.js";
 
-type ReceiverStateName =
-    | "starting"
-    | "waiting_source"
-    | "receiving"
-    | "analyzing"
-    | "degraded"
-    | "stopping"
-    | "completed"
-    | "failed"
-    | "expired";
+type ReceiverStateName = ReceiverProcessStateName;
 
 interface ReceiverDescriptor {
     schema_version: "live_media_receiver.v1";
@@ -60,13 +58,9 @@ interface ReceiverDescriptor {
     expected_duration_ms: number;
 }
 
-interface ReceiverState {
+interface ReceiverState extends ReceiverProcessState {
     schema_version: "live_media_receiver_state.v1";
-    workspace_id: string;
-    media_session_id: string;
     receiver_identity: string;
-    pid: number;
-    state: ReceiverStateName;
     updated_at: string;
     reason?: string;
     metrics?: Record<string, string | number | boolean | null>;
@@ -246,71 +240,13 @@ function pidIsRunning(pid: number): boolean {
     }
 }
 
-interface ProjectRuntime {
-    root: string;
-    python: string;
-    script: string;
-    preflightScript: string;
-}
-
-function findProjectRuntime(): ProjectRuntime {
-    for (const root of projectRootCandidates()) {
-        const python = cleanString(process.env.LOCAL_CORE_MOTION_RECEIVER_PYTHON)
-            || readDotenvValue(root, "LOCAL_CORE_MOTION_RECEIVER_PYTHON");
-        const script = path.join(root, "scripts/live_motion_receiver.py");
-        const preflightScript = path.join(
-            root,
-            "scripts/verify_live_motion_receiver_runtime.py",
-        );
-        if (
-            python
-            && existsSync(python)
-            && existsSync(script)
-            && existsSync(preflightScript)
-        ) {
-            return { root, python, script, preflightScript };
-        }
-    }
-    throw new Error("live_media_receiver_runtime_unavailable");
-}
-
-function assertReceiverRuntime(runtime: ProjectRuntime): void {
-    const result = spawnSync(runtime.python, [runtime.preflightScript], {
-        cwd: runtime.root,
-        encoding: "utf8",
-        env: process.env,
-        shell: false,
-        timeout: 15000,
-    });
-    if (result.status !== 0) {
-        throw new Error("live_media_receiver_runtime_preflight_failed");
-    }
-}
-
-function assertWorkspaceAvailable(runtimeDir: string, descriptor: ReceiverDescriptor): void {
-    for (const name of readdirSync(runtimeDir)) {
-        if (!name.endsWith(".state.json")) {
-            continue;
-        }
-        const state = readState(path.join(runtimeDir, name));
-        if (
-            state
-            && state.workspace_id === descriptor.workspace_id
-            && state.media_session_id !== descriptor.media_session_id
-            && pidIsRunning(state.pid)
-        ) {
-            throw new Error("workspace_live_media_receiver_already_active");
-        }
-    }
-}
-
 function publicStatus(action: string, state: ReceiverState): Record<string, unknown> {
     return {
         schema_version: "live_media_receiver_control.v1",
         action,
         status: state.state === "stopping"
             ? "stopping"
-            : pidIsRunning(state.pid) ? "active" : state.state,
+            : receiverStateOwnsLiveProcess(state, pidIsRunning) ? "active" : state.state,
         state: state.state,
         workspace_id: state.workspace_id,
         media_session_id: state.media_session_id,
@@ -361,7 +297,7 @@ async function waitForReceiverReady(
         "analyzing",
         "degraded",
     ]);
-    const deadline = Date.now() + Math.min(Math.max(timeoutMs, 1000), 10000);
+    const deadline = Date.now() + Math.min(Math.max(timeoutMs, 1000), 30000);
     while (Date.now() < deadline) {
         const state = readState(statePath);
         if (state && readyStates.has(state.state)) {
@@ -386,21 +322,26 @@ export async function startLiveMediaReceiver(
     timeoutMs = 10000,
 ): Promise<Record<string, unknown>> {
     const descriptor = parseLiveMediaReceiverDescriptor(rawDescriptor);
-    const runtime = findProjectRuntime();
+    const runtime = findReceiverRuntime();
     const paths = receiverPaths(runtime.root, descriptor.media_session_id);
     const existing = readState(paths.statePath);
-    if (existing && pidIsRunning(existing.pid)) {
+    if (existing && receiverStateOwnsLiveProcess(existing, pidIsRunning)) {
         if (existing.receiver_identity !== descriptor.receiver_identity) {
             throw new Error("receiver_identity_conflict");
         }
         return publicStatus("receiver_start", existing);
     }
-    assertReceiverRuntime(runtime);
+    await ensureReceiverRuntime(runtime);
     const motionReferenceProfilePath = resolveMotionReferenceProfilePath(
         runtime.root,
         descriptor,
     );
-    assertWorkspaceAvailable(paths.runtimeDir, descriptor);
+    assertWorkspaceReceiverAvailable({
+        runtimeDir: paths.runtimeDir,
+        workspaceId: descriptor.workspace_id,
+        mediaSessionId: descriptor.media_session_id,
+        pidIsRunning,
+    });
     atomicPrivateJson(paths.descriptorPath, {
         ...descriptor,
         motion_reference_profile_path: motionReferenceProfilePath,
@@ -458,7 +399,7 @@ export async function stopLiveMediaReceiver(
     receiverIdentity: string,
     timeoutMs = 10000,
 ): Promise<Record<string, unknown>> {
-    const runtime = findProjectRuntime();
+    const runtime = findReceiverRuntime();
     const paths = receiverPaths(runtime.root, mediaSessionId);
     const state = readState(paths.statePath);
     if (!state) {
@@ -471,6 +412,9 @@ export async function stopLiveMediaReceiver(
     }
     if (state.receiver_identity !== receiverIdentity) {
         throw new Error("receiver_identity_conflict");
+    }
+    if (receiverStateIsTerminal(state.state)) {
+        return publicStatus("receiver_stop", state);
     }
     state.state = "stopping";
     state.updated_at = new Date().toISOString();
@@ -500,7 +444,7 @@ export async function stopLiveMediaReceiver(
 export function getLiveMediaReceiverStatus(
     mediaSessionId: string,
 ): Record<string, unknown> {
-    const runtime = findProjectRuntime();
+    const runtime = findReceiverRuntime();
     const paths = receiverPaths(runtime.root, mediaSessionId);
     const state = readState(paths.statePath);
     if (!state) {

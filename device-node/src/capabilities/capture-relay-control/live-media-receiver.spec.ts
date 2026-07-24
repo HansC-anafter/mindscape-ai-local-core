@@ -14,6 +14,7 @@ import {
     startLiveMediaReceiver,
     stopLiveMediaReceiver,
 } from "./live-media-receiver.js";
+import { assertWorkspaceReceiverAvailable } from "./receiver-admission.js";
 
 test("redacts non-stable receiver failure details", () => {
     assert.equal(
@@ -197,6 +198,30 @@ test("idempotent start returns an active child before runtime preflight", async 
         if (previousDataRoot === undefined) delete process.env.LOCAL_CORE_DATA_HOST_DIR;
         else process.env.LOCAL_CORE_DATA_HOST_DIR = previousDataRoot;
         rmSync(dataRoot, { recursive: true, force: true });
+    }
+});
+
+test("terminal receiver state cannot block a workspace after PID reuse", () => {
+    const runtimeDir = mkdtempSync(path.join(tmpdir(), "receiver-admission-"));
+    try {
+        writeFileSync(
+            path.join(runtimeDir, "completed.state.json"),
+            JSON.stringify({
+                workspace_id: "workspace-one",
+                media_session_id: "completed-media",
+                pid: process.pid,
+                state: "completed",
+            }),
+        );
+
+        assert.doesNotThrow(() => assertWorkspaceReceiverAvailable({
+            runtimeDir,
+            workspaceId: "workspace-one",
+            mediaSessionId: "new-media",
+            pidIsRunning: () => true,
+        }));
+    } finally {
+        rmSync(runtimeDir, { recursive: true, force: true });
     }
 });
 
