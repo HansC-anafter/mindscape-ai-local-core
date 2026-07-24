@@ -98,6 +98,22 @@ describe('frontend dev proxy', () => {
       path: '/api/v1/workspaces/ws-1/device-bindings/PAIR1234/control',
       plane: 'execution',
     });
+    expect(resolveDevApiProxyTarget(
+      '/api/v1/workspaces/ws-1/product-configuration?active_group_id=group-1',
+      'PUT',
+    )).toMatchObject({
+      hostname: 'backend-control',
+      port: 8210,
+      plane: 'control',
+    });
+    expect(resolveDevApiProxyTarget(
+      '/api/v1/workspaces/ws-1/product-configuration/effective?active_group_id=group-1',
+      'GET',
+    )).toMatchObject({
+      hostname: 'backend',
+      port: 8200,
+      plane: 'execution',
+    });
   });
 
   it('keeps media API traffic on the media proxy upstream', () => {
@@ -113,6 +129,8 @@ describe('frontend dev proxy', () => {
     expect(classifyProxyUpstream('/api/v1/workspaces/ws-1/summary?fresh=1')).toBe('backend_execution_api');
     expect(classifyProxyUpstream('/api/v1/capability-packs/install-from-file')).toBe('backend_control_api');
     expect(classifyProxyUpstream('/api/v1/workspaces/ws-1/device-bindings/PAIR1234/control')).toBe('backend_execution_api');
+    expect(classifyProxyUpstream('/api/v1/workspaces/ws-1/product-configuration', 'PUT')).toBe('backend_control_api');
+    expect(classifyProxyUpstream('/api/v1/workspaces/ws-1/product-configuration', 'GET')).toBe('backend_execution_api');
     expect(classifyProxyUpstream('/api/v1/media/assets/demo.png?token=secret')).toBe('media_proxy');
     expect(classifyProxyUpstream('/workspaces/ws-1?tab=home')).toBe('next_dev');
     expect(normalizeProxyLogPath('/workspaces/ws-1?tab=home')).toBe('/workspaces/ws-1');

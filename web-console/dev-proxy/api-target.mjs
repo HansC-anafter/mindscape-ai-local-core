@@ -59,9 +59,9 @@ export function isDevApiProxyPath(requestUrl = '/') {
   }
 }
 
-export function resolveDevApiProxyTarget(requestUrl = '/') {
+export function resolveDevApiProxyTarget(requestUrl = '/', method = 'GET') {
   const parsed = new URL(requestUrl, 'http://localhost');
-  const routePlane = resolveApiRoutePlane(requestUrl);
+  const routePlane = resolveApiRoutePlane(requestUrl, method);
   const registryMediaProxyUrl = resolveSeedEndpointUrl('local_core.media_proxy', 'container_internal');
   const registryControlBackendUrl =
     resolveSeedEndpointUrl('local_core.control_api', 'server_internal') ||
@@ -92,8 +92,8 @@ export function resolveDevApiProxyTarget(requestUrl = '/') {
   };
 }
 
-export function buildInternalApiUrl(requestPath = '/') {
-  const target = resolveDevApiProxyTarget(requestPath);
+export function buildInternalApiUrl(requestPath = '/', method = 'GET') {
+  const target = resolveDevApiProxyTarget(requestPath, method);
   const port = target.port ? `:${target.port}` : '';
   return `${target.protocol}//${target.hostname}${port}${target.path}`;
 }

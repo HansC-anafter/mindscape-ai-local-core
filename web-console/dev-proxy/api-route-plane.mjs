@@ -30,9 +30,15 @@ const EXECUTION_PATTERNS = [
   /^\/api\/v1\/workspaces\/[^/]+\/host-runtime(?:\/|$)/,
 ];
 
-export function resolveApiRoutePlane(requestUrl = '/') {
+const WORKSPACE_PRODUCT_MUTATION_PATTERNS = [
+  /^\/api\/v1\/workspaces\/[^/]+\/product-configuration\/?$/,
+  /^\/api\/v1\/workspace-groups\/[^/]+\/product-configuration\/?$/,
+];
+
+export function resolveApiRoutePlane(requestUrl = '/', method = 'GET') {
   const parsed = new URL(requestUrl, 'http://localhost');
   const { pathname } = parsed;
+  const normalizedMethod = String(method || 'GET').toUpperCase();
   if (pathname.startsWith('/api/v1/media/')) {
     return {
       plane: 'media',
@@ -53,7 +59,11 @@ export function resolveApiRoutePlane(requestUrl = '/') {
   if (
     CONTROL_EXACT_PATHS.has(pathname) ||
     CONTROL_PREFIXES.some((prefix) => pathname.startsWith(prefix)) ||
-    CONTROL_PATTERNS.some((pattern) => pattern.test(pathname))
+    CONTROL_PATTERNS.some((pattern) => pattern.test(pathname)) ||
+    (
+      normalizedMethod === 'PUT'
+      && WORKSPACE_PRODUCT_MUTATION_PATTERNS.some((pattern) => pattern.test(pathname))
+    )
   ) {
     return {
       plane: 'control',
