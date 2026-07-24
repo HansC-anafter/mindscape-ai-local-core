@@ -254,13 +254,13 @@ async def _run_object_index_sync_loop(app: FastAPI) -> None:
     )
     interval_seconds = _env_int(
         "AOL_OBJECT_INDEX_SYNC_INTERVAL_SECONDS",
-        300,
+        3600,
         minimum=0,
         maximum=86400,
     )
     workspace_limit = _env_int(
         "AOL_OBJECT_INDEX_SYNC_WORKSPACE_LIMIT",
-        50,
+        10,
         minimum=1,
         maximum=250,
     )

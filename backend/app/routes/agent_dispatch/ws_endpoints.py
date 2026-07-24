@@ -20,6 +20,14 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _is_normal_websocket_close(exc: BaseException) -> bool:
+    code = getattr(exc, "code", None)
+    if code == 1000:
+        return True
+    message = str(exc)
+    return "received 1000 (OK)" in message or "sent 1000 (OK)" in message
+
+
 # ============================================================
 #  WebSocket endpoint
 # ============================================================
@@ -113,7 +121,14 @@ async def agent_websocket(
     except WebSocketDisconnect:
         manager.disconnect(client)
     except Exception as e:
-        logger.error(f"[AgentWS] Error for client {client.client_id}: {e}")
+        if _is_normal_websocket_close(e):
+            logger.info(
+                "[AgentWS] Client %s closed websocket normally: %s",
+                client.client_id,
+                e,
+            )
+        else:
+            logger.error("[AgentWS] Error for client %s: %s", client.client_id, e)
         manager.disconnect(client)
 
 
@@ -211,5 +226,12 @@ async def agent_control_websocket(
     except WebSocketDisconnect:
         manager.unregister_control_client(bridge_id)
     except Exception as e:
-        logger.error(f"[AgentWS-Control] Error for bridge {bridge_id}: {e}")
+        if _is_normal_websocket_close(e):
+            logger.info(
+                "[AgentWS-Control] Bridge %s closed websocket normally: %s",
+                bridge_id,
+                e,
+            )
+        else:
+            logger.error("[AgentWS-Control] Error for bridge %s: %s", bridge_id, e)
         manager.unregister_control_client(bridge_id)

@@ -5,8 +5,8 @@ Endpoints for managing workspace resource bindings (overlay layer)
 
 import asyncio
 import logging
-import uuid
 from typing import List, Optional
+
 from fastapi import APIRouter, HTTPException, Query, Path as PathParam
 
 from ...models.workspace_resource_binding import (
@@ -15,8 +15,11 @@ from ...models.workspace_resource_binding import (
     UpdateWorkspaceResourceBindingRequest,
     ResourceType,
 )
-from ...services.stores.workspace_resource_binding_store import (
-    WorkspaceResourceBindingStore,
+from ...services.workspace_resource_bindings import (
+    WorkspaceResourceBindingConflictError,
+    WorkspaceResourceBindingFacade,
+    WorkspaceResourceBindingNotFoundError,
+    WorkspaceResourceBindingWorkspaceMismatchError,
 )
 
 logger = logging.getLogger(__name__)
@@ -27,10 +30,20 @@ router = APIRouter(
 )
 
 
-# Initialize store
-def get_binding_store() -> WorkspaceResourceBindingStore:
-    """Get WorkspaceResourceBindingStore instance"""
-    return WorkspaceResourceBindingStore()
+def get_binding_facade() -> WorkspaceResourceBindingFacade:
+    """Return the canonical workspace resource binding service."""
+    return WorkspaceResourceBindingFacade()
+
+
+def _translate_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, WorkspaceResourceBindingWorkspaceMismatchError):
+        return HTTPException(status_code=400, detail=str(exc))
+    if isinstance(exc, WorkspaceResourceBindingNotFoundError):
+        return HTTPException(status_code=404, detail=str(exc))
+    if isinstance(exc, WorkspaceResourceBindingConflictError):
+        return HTTPException(status_code=409, detail=str(exc))
+    logger.error("Workspace resource binding operation failed", exc_info=True)
+    return HTTPException(status_code=500, detail=str(exc))
 
 
 @router.post("/", response_model=WorkspaceResourceBinding, status_code=201)
@@ -45,45 +58,13 @@ async def create_binding(
     with optional local overrides.
     """
     try:
-        # Ensure workspace_id matches
-        if request.workspace_id != workspace_id:
-            raise HTTPException(
-                status_code=400, detail="Workspace ID in path must match request body"
-            )
-
-        store = get_binding_store()
-
-        # Check if binding already exists
-        existing = await asyncio.to_thread(
-            store.get_binding_by_resource,
+        return await asyncio.to_thread(
+            get_binding_facade().create,
             workspace_id=workspace_id,
-            resource_type=request.resource_type,
-            resource_id=request.resource_id,
+            request=request,
         )
-        if existing:
-            raise HTTPException(
-                status_code=409,
-                detail=f"Binding already exists for {request.resource_type}:{request.resource_id}",
-            )
-
-        # Create binding
-        binding = WorkspaceResourceBinding(
-            id=str(uuid.uuid4()),
-            workspace_id=workspace_id,
-            resource_type=request.resource_type,
-            resource_id=request.resource_id,
-            access_mode=request.access_mode,
-            overrides=request.overrides,
-        )
-
-        saved_binding = await asyncio.to_thread(store.save_binding, binding)
-        return saved_binding
-
-    except HTTPException:
-        raise
     except Exception as e:
-        logger.error(f"Failed to create binding: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise _translate_error(e) from e
 
 
 @router.get("/", response_model=List[WorkspaceResourceBinding])
@@ -99,16 +80,13 @@ async def list_bindings(
     Optionally filter by resource_type.
     """
     try:
-        store = get_binding_store()
-        bindings = await asyncio.to_thread(
-            store.list_bindings_by_workspace,
+        return await asyncio.to_thread(
+            get_binding_facade().list_for_workspace,
             workspace_id=workspace_id,
             resource_type=resource_type,
         )
-        return bindings
     except Exception as e:
-        logger.error(f"Failed to list bindings: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise _translate_error(e) from e
 
 
 @router.get("/{resource_type}/{resource_id}", response_model=WorkspaceResourceBinding)
@@ -123,26 +101,14 @@ async def get_binding(
     Returns the binding for a specific resource in a workspace.
     """
     try:
-        store = get_binding_store()
-        binding = await asyncio.to_thread(
-            store.get_binding_by_resource,
+        return await asyncio.to_thread(
+            get_binding_facade().get,
             workspace_id=workspace_id,
             resource_type=resource_type,
             resource_id=resource_id,
         )
-
-        if not binding:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Binding not found for {resource_type}:{resource_id}",
-            )
-
-        return binding
-    except HTTPException:
-        raise
     except Exception as e:
-        logger.error(f"Failed to get binding: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise _translate_error(e) from e
 
 
 @router.put("/{resource_type}/{resource_id}", response_model=WorkspaceResourceBinding)
@@ -158,34 +124,15 @@ async def update_binding(
     Updates access_mode and/or overrides for a binding.
     """
     try:
-        store = get_binding_store()
-        binding = await asyncio.to_thread(
-            store.get_binding_by_resource,
+        return await asyncio.to_thread(
+            get_binding_facade().update,
             workspace_id=workspace_id,
             resource_type=resource_type,
             resource_id=resource_id,
+            request=request,
         )
-
-        if not binding:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Binding not found for {resource_type}:{resource_id}",
-            )
-
-        # Update fields
-        if request.access_mode is not None:
-            binding.access_mode = request.access_mode
-        if request.overrides is not None:
-            binding.overrides = request.overrides
-
-        saved_binding = await asyncio.to_thread(store.save_binding, binding)
-        return saved_binding
-
-    except HTTPException:
-        raise
     except Exception as e:
-        logger.error(f"Failed to update binding: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise _translate_error(e) from e
 
 
 @router.delete("/{resource_type}/{resource_id}", status_code=204)
@@ -200,26 +147,15 @@ async def delete_binding(
     Removes the binding, making the resource unavailable in this workspace.
     """
     try:
-        store = get_binding_store()
-        deleted = await asyncio.to_thread(
-            store.delete_binding_by_resource,
+        await asyncio.to_thread(
+            get_binding_facade().delete,
             workspace_id=workspace_id,
             resource_type=resource_type,
             resource_id=resource_id,
         )
-
-        if not deleted:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Binding not found for {resource_type}:{resource_id}",
-            )
-
         return None
-    except HTTPException:
-        raise
     except Exception as e:
-        logger.error(f"Failed to delete binding: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise _translate_error(e) from e
 
 
 @router.get(
@@ -236,13 +172,10 @@ async def list_workspaces_using_resource(
     Useful for finding which workspaces are affected when a shared resource changes.
     """
     try:
-        store = get_binding_store()
-        bindings = await asyncio.to_thread(
-            store.list_bindings_by_resource,
+        return await asyncio.to_thread(
+            get_binding_facade().list_workspaces_using_resource,
             resource_type=resource_type,
             resource_id=resource_id,
         )
-        return bindings
     except Exception as e:
-        logger.error(f"Failed to list workspaces using resource: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise _translate_error(e) from e

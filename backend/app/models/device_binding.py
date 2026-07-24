@@ -72,6 +72,18 @@ class DevicePairingCode(BaseModel):
     device_link_path: str
 
 
+class DeviceMediaAnalysisHandoff(BaseModel):
+    """Credential-free analysis identity retained across Workbench mounts."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    live_motion_session_id: str = Field(min_length=1, max_length=160)
+    meeting_session_id: str = Field(min_length=1, max_length=160)
+    practice_session_id: str = Field(min_length=1, max_length=240)
+    coach_pack: Literal["yogacoach", "dance_motion_coach"]
+    practice_mode: Literal["record_summary", "teacher_assessment", "live_guidance"]
+
+
 class DeviceSessionEntry(BaseModel):
     """Process-local active source device session."""
 
@@ -91,6 +103,7 @@ class DeviceSessionEntry(BaseModel):
     media_session_id: Optional[str] = None
     media_session_state: Optional[str] = None
     media_receiver_metrics: Dict[str, Any] = Field(default_factory=dict)
+    media_analysis_handoff: Optional[DeviceMediaAnalysisHandoff] = None
     media_session_expires_at_epoch: Optional[float] = None
     terminal_reason: Optional[str] = None
     websocket: Any = Field(default=None, exclude=True)
@@ -107,6 +120,7 @@ class DeviceControlMessage(BaseModel):
     source_types: List[DeviceSourceType] = Field(default_factory=list)
     metadata: Dict[str, Any] = Field(default_factory=dict)
     reference_lesson_state: Optional[Dict[str, Any]] = None
+    heartbeat_sequence: Optional[int] = Field(default=None, ge=1)
 
 
 class DeviceControlEvent(BaseModel):
@@ -128,6 +142,7 @@ class DeviceControlEvent(BaseModel):
     message: Optional[str] = None
     recoverable: Optional[bool] = None
     reference_lesson_state: Optional[Dict[str, Any]] = None
+    heartbeat_sequence: Optional[int] = Field(default=None, ge=1)
 
 
 __all__ = [

@@ -28,6 +28,11 @@ LiveMediaSessionState = Literal[
     "expired",
 ]
 LiveMotionCoachPack = Literal["yogacoach", "dance_motion_coach"]
+LiveMotionPracticeMode = Literal[
+    "record_summary",
+    "teacher_assessment",
+    "live_guidance",
+]
 LiveMediaReceiverStateName = Literal[
     "starting",
     "waiting_source",
@@ -228,7 +233,7 @@ class StartLiveMediaReceiverRequest(BaseModel):
     meeting_session_id: str = Field(min_length=1, max_length=160)
     practice_session_id: str = Field(min_length=1, max_length=240)
     coach_pack: LiveMotionCoachPack
-    practice_mode: str = Field(min_length=1, max_length=80)
+    practice_mode: LiveMotionPracticeMode
     reference_url: Optional[str] = Field(default=None, max_length=4096)
     motion_reference_profile_artifact_id: Optional[str] = Field(
         default=None,

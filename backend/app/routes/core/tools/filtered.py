@@ -5,6 +5,7 @@ Combines Tool RAG filtering with safe defaults and deterministic ordering
 to return a right-sized tool set for MCP gateway consumption.
 """
 
+import asyncio
 import logging
 from typing import List, Optional
 
@@ -270,7 +271,11 @@ async def list_filtered_tools(
     - Never returns an empty tool set (safe defaults are always present)
     """
     task_hint = body.task_hint[:TASK_HINT_MAX_LEN].strip()
-    all_tools = _collect_all_tools(registry, enabled_only=body.enabled_only)
+    all_tools = await asyncio.to_thread(
+        _collect_all_tools,
+        registry,
+        body.enabled_only,
+    )
 
     # Build lookup
     tool_by_id = {t.tool_id: t for t in all_tools}

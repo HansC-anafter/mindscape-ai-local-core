@@ -16,7 +16,11 @@ from backend.app.models.media_transport import (
     MediaSignalEvent,
     StartLiveMediaReceiverRequest,
 )
-from backend.app.models.device_binding import DeviceControlEvent, DeviceSessionEntry
+from backend.app.models.device_binding import (
+    DeviceControlEvent,
+    DeviceMediaAnalysisHandoff,
+    DeviceSessionEntry,
+)
 from backend.app.models.workspace import Workspace
 from backend.app.routes.workspace_dependencies import get_workspace
 from backend.app.services.orchestration.meeting.device_binding_registry import (
@@ -236,6 +240,13 @@ async def start_live_media_session_receiver(
             session_id=device_session_id,
             media_session_id=media_session_id,
             receiver_state=str(status.get("state") or "starting"),
+            analysis_handoff=DeviceMediaAnalysisHandoff(
+                live_motion_session_id=payload.live_motion_session_id,
+                meeting_session_id=payload.meeting_session_id,
+                practice_session_id=payload.practice_session_id,
+                coach_pack=payload.coach_pack,
+                practice_mode=payload.practice_mode,
+            ),
         )
     except LiveMediaReceiverControlError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.reason) from exc

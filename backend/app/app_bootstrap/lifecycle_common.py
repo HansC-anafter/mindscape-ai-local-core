@@ -11,6 +11,7 @@ from backend.app.app_bootstrap.startup_contract import (
     is_contract_trustworthy,
     read_preflight_contract,
 )
+from backend.app.core.backend_runtime_mode import is_control_plane
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +46,15 @@ def _should_run_post_ready_playbook_registry_warmup() -> bool:
 
 def should_run_object_index_sync() -> bool:
     disabled = os.getenv("AOL_OBJECT_INDEX_SYNC_DISABLED", "").strip().lower()
-    return disabled not in {"1", "true", "yes", "on"}
+    if disabled in {"1", "true", "yes", "on"}:
+        return False
+
+    mode = os.getenv("AOL_OBJECT_INDEX_SYNC_MODE", "control").strip().lower()
+    if mode in {"0", "false", "no", "off", "disabled", "none"}:
+        return False
+    if mode in {"all", "any"}:
+        return True
+    return is_control_plane()
 
 
 def _core_database_accepts_work() -> tuple[bool, str | None]:

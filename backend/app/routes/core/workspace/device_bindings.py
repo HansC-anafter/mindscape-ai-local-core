@@ -320,6 +320,7 @@ async def control_device_binding_session(
                     event_type="heartbeat_ack",
                     entry=entry,
                     active_sessions=registry.list_active_sessions(workspace_id=workspace_id),
+                    heartbeat_sequence=message.heartbeat_sequence,
                 )
                 await _send_event(websocket, event)
                 await _broadcast_to_workspace_observers(

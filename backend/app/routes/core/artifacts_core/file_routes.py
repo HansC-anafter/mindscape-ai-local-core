@@ -3,15 +3,37 @@ import asyncio
 import os
 from pathlib import Path as PathLib
 
-from fastapi import APIRouter, HTTPException, Path
-from fastapi.responses import FileResponse, RedirectResponse, Response
+from fastapi import APIRouter, HTTPException, Path, Request
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 
 from .state import logger, store
+from .artifact_file_range import (
+    PreviewDataTooLarge,
+    PreviewDataUnsupported,
+    RangeNotSatisfiable,
+    build_preview_data_payload,
+    build_range_file_response,
+    validate_preview_content_request,
+)
 
 router = APIRouter()
 
+MAX_PREVIEW_DATA_BYTES = 8 * 1024 * 1024
+PREVIEW_DATA_MEDIA_TYPES = {
+    "image/gif",
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "video/mp4",
+}
+
 @router.get("/workspaces/{workspace_id}/artifacts/{artifact_id}/file")
+@router.get("/workspaces/{workspace_id}/artifacts/{artifact_id}/preview")
+@router.get("/workspaces/{workspace_id}/media-assets/{artifact_id}/preview")
+@router.get("/workspaces/{workspace_id}/media-assets/{artifact_id}/preview-data")
+@router.get("/workspaces/{workspace_id}/media-assets/{artifact_id}/preview-content")
 async def get_artifact_file(
+    request: Request,
     workspace_id: str = Path(..., description="Workspace ID"),
     artifact_id: str = Path(..., description="Artifact ID"),
 ):
@@ -86,6 +108,46 @@ async def get_artifact_file(
             ".mp3": "audio/mpeg",
         }
         media_type = media_type_map.get(file_ext, "application/octet-stream")
+        preview_data_request = request.url.path.endswith("/preview-data")
+        if preview_data_request:
+            try:
+                payload = await asyncio.to_thread(
+                    build_preview_data_payload,
+                    file_path,
+                    media_type=media_type,
+                    allowed_media_types=PREVIEW_DATA_MEDIA_TYPES,
+                    max_bytes=MAX_PREVIEW_DATA_BYTES,
+                )
+            except PreviewDataUnsupported:
+                raise HTTPException(status_code=415, detail="Artifact is not previewable media")
+            except PreviewDataTooLarge:
+                raise HTTPException(status_code=413, detail="Artifact exceeds preview data limit")
+            return JSONResponse(
+                content=payload,
+                headers={"Cache-Control": "private, no-store"},
+            )
+        preview_content_request = request.url.path.endswith("/preview-content")
+        range_header = request.headers.get("range")
+        if preview_content_request:
+            try:
+                await asyncio.to_thread(
+                    validate_preview_content_request,
+                    file_path,
+                    media_type=media_type,
+                    allowed_media_types=PREVIEW_DATA_MEDIA_TYPES,
+                    max_bytes=MAX_PREVIEW_DATA_BYTES,
+                    range_header=range_header,
+                )
+            except PreviewDataUnsupported:
+                raise HTTPException(status_code=415, detail="Artifact is not previewable media")
+            except PreviewDataTooLarge:
+                raise HTTPException(status_code=413, detail="Artifact exceeds preview data limit")
+        preview_request = request.url.path.endswith("/preview") or preview_content_request
+        inline_media_type = preview_request and (
+            media_type.startswith(("image/", "video/", "audio/"))
+            and media_type != "image/svg+xml"
+        )
+        content_disposition_type = "inline" if inline_media_type else "attachment"
 
         # For text-based files (JSON, text, markdown), return content directly
         # This allows frontend to display inline instead of forcing download
@@ -115,9 +177,37 @@ async def get_artifact_file(
                     f"Failed to read file as text, falling back to FileResponse: {e}"
                 )
 
-        # For binary files (images, videos, documents), return as file download
+        if range_header:
+            try:
+                response = build_range_file_response(
+                    file_path,
+                    range_header=range_header,
+                    media_type=media_type,
+                    filename=PathLib(file_path).name,
+                    content_disposition_type=content_disposition_type,
+                )
+                if preview_content_request:
+                    response.headers["Cache-Control"] = "private, no-store"
+                return response
+            except RangeNotSatisfiable:
+                return Response(
+                    status_code=416,
+                    headers={
+                        "Accept-Ranges": "bytes",
+                        "Content-Range": f"bytes */{os.path.getsize(file_path)}",
+                    },
+                )
+
+        # Binary files advertise range support even when the client asks for the full body.
+        response_headers = {"Accept-Ranges": "bytes"}
+        if preview_content_request:
+            response_headers["Cache-Control"] = "private, no-store"
         return FileResponse(
-            path=file_path, media_type=media_type, filename=PathLib(file_path).name
+            path=file_path,
+            media_type=media_type,
+            filename=PathLib(file_path).name,
+            headers=response_headers,
+            content_disposition_type=content_disposition_type,
         )
 
     except HTTPException:

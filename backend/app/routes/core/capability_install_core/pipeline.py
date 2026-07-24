@@ -324,7 +324,7 @@ async def run_install_pipeline(
             manifest_path=installed_manifest_path,
             activation_error=activation_error,
         )
-        pipeline.activation_candidate = activation_record.to_store_payload()
+        pipeline.activation_candidate = activation_record.to_receipt_payload()
         pipeline.activation = {
             **pipeline.activation_candidate,
             "commit_state": "candidate_pending_execution_activation",
