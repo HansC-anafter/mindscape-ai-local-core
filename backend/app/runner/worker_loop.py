@@ -57,6 +57,7 @@ from backend.app.runner.worker_transport import (
     _split_ready_target,
 )
 from backend.app.runner.concurrency import _runner_id
+from backend.app.runner.claim_start_delays import ClaimStartDelayCycle
 
 logger = logging.getLogger("backend.app.runner.worker")
 
@@ -76,6 +77,9 @@ async def run_forever() -> None:
     poll_interval_ms = _env_int("LOCAL_CORE_RUNNER_POLL_INTERVAL_MS", 1000)
     max_inflight = _env_int("LOCAL_CORE_RUNNER_MAX_INFLIGHT", 1)
     configured_poll_batch_limit = _env_int("LOCAL_CORE_RUNNER_POLL_BATCH_LIMIT", 0)
+    claim_start_delays = ClaimStartDelayCycle.from_raw(
+        os.getenv("LOCAL_CORE_RUNNER_POST_CLAIM_START_DELAYS_MS")
+    )
     runner_id = _runner_id()
     os.environ["LOCAL_CORE_RUNNER_ID"] = runner_id
     visibility_timeout_sec = _env_int("LOCAL_CORE_RUNNER_VISIBILITY_TIMEOUT_SECONDS", 180)
@@ -115,7 +119,8 @@ async def run_forever() -> None:
 
     logger.info(
         "Local-Core runner started runner_id=%s profile=%s partitions=%s "
-        "resource_classes=%s poll_interval_ms=%s max_inflight=%s poll_batch_limit=%s",
+        "resource_classes=%s poll_interval_ms=%s max_inflight=%s poll_batch_limit=%s "
+        "post_claim_start_delays_ms=%s",
         runner_id,
         runner_profile.profile_code,
         ",".join(runner_profile.accepted_queue_partitions),
@@ -123,6 +128,7 @@ async def run_forever() -> None:
         poll_interval_ms,
         max_inflight,
         capacity.poll_batch_limit,
+        ",".join(str(value) for value in claim_start_delays.delays_ms),
     )
 
     postgres_heartbeat_enabled = _postgres_runner_heartbeat_enabled()
@@ -458,6 +464,8 @@ async def run_forever() -> None:
             visibility_timeout_sec=visibility_timeout_sec,
             lock_ttl_seconds=lock_ttl_seconds,
             db_recovery_backoff=db_recovery_backoff,
+            post_claim_start_delay_ms=claim_start_delays.peek_ms(),
         )
         if dispatch_task is not None:
+            claim_start_delays.commit()
             inflight.add(dispatch_task)

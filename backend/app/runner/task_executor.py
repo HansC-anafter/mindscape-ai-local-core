@@ -46,6 +46,7 @@ from backend.app.runner.task_executor_runtime import (
     TaskExecutorHooks,
     _run_single_task_impl,
 )
+from backend.app.runner.terminal_handoff_gate import acquire_terminal_handoff
 from backend.app.runner.utils import _utc_now
 
 
@@ -74,6 +75,7 @@ async def _mark_task_failed(
     resource_pressure_source: Optional[str] = None,
     resource_snapshot: Optional[Dict[str, Any]] = None,
 ) -> None:
+    await acquire_terminal_handoff(redis_queue, runner_id=runner_id)
     await _mark_task_failed_impl(
         tasks_store,
         task_id,
@@ -95,6 +97,7 @@ async def _mark_task_succeeded(
     result_file: Optional[str],
     redis_queue: Optional[RedisRunnerQueueStore] = None,
 ) -> None:
+    await acquire_terminal_handoff(redis_queue, runner_id=runner_id)
     await _mark_task_succeeded_impl(
         tasks_store,
         task_id,

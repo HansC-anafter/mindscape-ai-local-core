@@ -14,6 +14,9 @@ from backend.app.services.task_admission_service import (
     TASK_ADMISSION_SERVICE,
 )
 from backend.app.runner.concurrency import _resolve_lock_keys
+from backend.app.runner.reference_concurrency_repair import (
+    normalize_reference_analysis_concurrency,
+)
 from backend.app.runner.reaper_context import (
     _CONCURRENCY_LOCKED_REASON,
     _DEPENDENCY_HOLD_REASON,
@@ -328,10 +331,20 @@ async def _release_concurrency_locked_tasks(
 
         raw_ctx = task.execution_context
         ctx = raw_ctx if isinstance(raw_ctx, dict) else {}
+        pack_id = str(getattr(task, "pack_id", "") or "")
+        repaired_ctx, repaired_concurrency_key = normalize_reference_analysis_concurrency(
+            pack_id=pack_id,
+            ctx=ctx,
+        )
+        if isinstance(raw_ctx, dict):
+            ctx = repaired_ctx
+        effective_concurrency_key = (
+            repaired_concurrency_key or getattr(task, "concurrency_key", None)
+        )
         lock_keys = _resolve_lock_keys(
             ctx,
-            str(getattr(task, "pack_id", "") or ""),
-            persisted_concurrency_key=getattr(task, "concurrency_key", None),
+            pack_id,
+            persisted_concurrency_key=effective_concurrency_key,
         )
         if lock_keys and any(lock_key in released_lock_keys for lock_key in lock_keys):
             continue
@@ -346,12 +359,14 @@ async def _release_concurrency_locked_tasks(
                 frontier_enqueued_at=now,
             )
             if isinstance(raw_ctx, dict):
-                ctx2 = dict(raw_ctx)
+                ctx2 = dict(ctx)
                 ctx2.pop("runner_skip_reason", None)
                 ctx2.pop("runner_skip_lock_key", None)
                 ctx2.pop("runner_skip_conflict_lock_key", None)
                 ctx2.pop("resume_after", None)
                 update_kwargs["execution_context"] = ctx2
+            if repaired_concurrency_key:
+                update_kwargs["concurrency_key"] = repaired_concurrency_key
             await asyncio.to_thread(
                 tasks_store.update_task,
                 task.id,

@@ -20,6 +20,7 @@ from backend.app.runner.browser_fair_candidate_scheduler import (
     select_browser_fair_candidate,
 )
 from backend.app.runner.browser_fairness_cursor import (
+    claim_browser_fairness_scan_offset,
     read_browser_fairness_cursor,
 )
 from backend.app.runner.resource_pressure import is_browser_resource_profile
@@ -212,11 +213,34 @@ async def _dequeue_by_browser_fair_candidate_policy(
         if cursor_client is None:
             cursor_client = client
         try:
-            candidate_ids = await client.lrange(
-                queue_store.q_pending,
-                0,
-                max(0, scan_limit - 1),
+            queue_length = max(0, int(await client.llen(queue_store.q_pending)))
+            if queue_length <= 0:
+                continue
+            scan_count = min(scan_limit, queue_length)
+            scan_start = await claim_browser_fairness_scan_offset(
+                client,
+                queue_shard=queue_store.pack_id,
+                queue_name=queue_store.q_pending,
+                queue_length=queue_length,
+                scan_limit=scan_limit,
             )
+            first_end = min(queue_length - 1, scan_start + scan_count - 1)
+            candidate_ids = list(
+                await client.lrange(
+                    queue_store.q_pending,
+                    scan_start,
+                    first_end,
+                )
+            )
+            remaining = scan_count - len(candidate_ids)
+            if remaining > 0 and scan_start > 0:
+                candidate_ids.extend(
+                    await client.lrange(
+                        queue_store.q_pending,
+                        0,
+                        remaining - 1,
+                    )
+                )
         except Exception as e:
             logger.warning(
                 "[Worker] Failed to scan ready queue %s for browser fairness: %s",
@@ -227,13 +251,13 @@ async def _dequeue_by_browser_fair_candidate_policy(
 
         task_ids: list[str] = []
         positions: dict[str, int] = {}
-        for position, raw_task_id in enumerate(candidate_ids):
+        for window_position, raw_task_id in enumerate(candidate_ids):
             task_id = _normalize_task_id(raw_task_id).strip()
             if not task_id or task_id in seen:
                 continue
             seen.add(task_id)
             task_ids.append(task_id)
-            positions[task_id] = position
+            positions[task_id] = (scan_start + window_position) % queue_length
         if not task_ids:
             continue
 

@@ -27,6 +27,9 @@ from backend.app.runner.concurrency import _resolve_lock_keys
 from backend.app.runner.database_backoff import RunnerDatabaseRecoveryBackoff
 from backend.app.runner.dependency_check import DependencyChecker
 from backend.app.runner.task_executor import _run_single_task
+from backend.app.runner.terminal_handoff_gate import (
+    release_terminal_handoff_after_claim,
+)
 from backend.app.runner.utils import _utc_now
 from backend.app.runner.worker_claim_policy import _build_parked_task_update
 from backend.app.runner.worker_db_budget import WorkerDbBudgetDecision
@@ -53,6 +56,7 @@ async def _dispatch_claimed_task(
     visibility_timeout_sec: int,
     lock_ttl_seconds: int,
     db_recovery_backoff: RunnerDatabaseRecoveryBackoff,
+    post_claim_start_delay_ms: int = 0,
 ) -> asyncio.Task | None:
     lock_owner_id = f"{runner_id}:{task_id}"
     resource_lease_store = None
@@ -448,19 +452,42 @@ async def _dispatch_claimed_task(
             runner_profile=runner_profile,
         )
 
-        # Dispatch execution.
-        task_coro = _run_single_task(
-            tasks_store,
-            runner_id,
-            t_data.id,
-            redis_queue=task_queue,
-            lock_owner_id=lock_owner_id,
-            node_budget_reservation=(
-                resource_decision.node_budget_reservation
-                if resource_decision is not None
-                else None
-            ),
+        # A predecessor publishes its terminal state while holding the shared
+        # handoff lease. Release it only after this successor is canonically
+        # RUNNING, so simultaneous completions cannot punch a hole in the
+        # configured active-run floor.
+        await release_terminal_handoff_after_claim(
+            redis_queue,
+            runner_id=runner_id,
         )
+
+        # The row is already a real RUNNING claim with its canonical locks and
+        # resource reservation. A bounded post-claim delay spreads expensive
+        # browser startups without reducing the active-run floor in the UI/DB.
+        async def _run_claimed_task_after_delay():
+            delay_ms = max(0, int(post_claim_start_delay_ms or 0))
+            if delay_ms:
+                logger.info(
+                    "Runner delaying claimed task start task_id=%s runner_id=%s delay_ms=%s",
+                    t_data.id,
+                    runner_id,
+                    delay_ms,
+                )
+                await asyncio.sleep(delay_ms / 1000)
+            return await _run_single_task(
+                tasks_store,
+                runner_id,
+                t_data.id,
+                redis_queue=task_queue,
+                lock_owner_id=lock_owner_id,
+                node_budget_reservation=(
+                    resource_decision.node_budget_reservation
+                    if resource_decision is not None
+                    else None
+                ),
+            )
+
+        task_coro = _run_claimed_task_after_delay()
         dispatch_task = asyncio.create_task(task_coro)
         setattr(dispatch_task, "_mindscape_pack_id", str(t_data.pack_id or ""))
         return dispatch_task

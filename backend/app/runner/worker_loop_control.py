@@ -32,6 +32,9 @@ from backend.app.runner.worker_db_budget import (
 
 logger = logging.getLogger("backend.app.runner.worker")
 
+_RESOURCE_HEARTBEAT_FAILURE_LOG_INTERVAL_SECONDS = 30.0
+_next_resource_heartbeat_failure_log_at = 0.0
+
 
 def _maintenance_only_claim_control(runner_id: str) -> RunnerClaimControl | None:
     raw = os.getenv("LOCAL_CORE_RUNNER_MAINTENANCE_ONLY")
@@ -44,6 +47,7 @@ def _maintenance_only_claim_control(runner_id: str) -> RunnerClaimControl | None
         updated_by="environment",
         source="environment",
     )
+
 
 def _build_initial_resource_snapshot(runner_profile, *, inflight: int, max_inflight: int):
     try:
@@ -180,7 +184,18 @@ async def _publish_resource_heartbeat(
             ),
         )
     except Exception:
-        pass
+        global _next_resource_heartbeat_failure_log_at
+        now_loop = asyncio.get_running_loop().time()
+        if now_loop >= _next_resource_heartbeat_failure_log_at:
+            logger.warning(
+                "Runner resource heartbeat publish failed runner_id=%s profile=%s",
+                runner_id,
+                runner_profile.profile_code,
+                exc_info=True,
+            )
+            _next_resource_heartbeat_failure_log_at = (
+                now_loop + _RESOURCE_HEARTBEAT_FAILURE_LOG_INTERVAL_SECONDS
+            )
 
 
 async def _exit_for_restart_if_requested(inflight: set[asyncio.Task]) -> None:
