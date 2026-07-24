@@ -5,8 +5,9 @@ from backend.app.services.migrations.orchestrator import MigrationOrchestrator
 
 
 class _FakeRevision:
-    def __init__(self, revision: str):
+    def __init__(self, revision: str, down_revision: str | None = "parent"):
         self.revision = revision
+        self.down_revision = down_revision
 
 
 class _FakeScriptDirectory:
@@ -105,6 +106,76 @@ def test_plan_revision_matches_apply_revision_chain(tmp_path: Path, monkeypatch)
         "target_revision": "20260715130000",
         "migrations_pending": 2,
         "revisions": ["20260715120000", "20260715130000"],
+    }
+
+
+def test_apply_revision_uses_transactional_executor_for_one_independent_branch(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    target = _FakeRevision("20260716020000", down_revision=None)
+    target.branch_labels = ("capability_pack_install_atomicity",)
+    target.module = object()
+
+    class _IndependentScriptDirectory:
+        def get_revision(self, revision: str):
+            assert revision == target.revision
+            return target
+
+        def iterate_revisions(self, head: str, _base: str):
+            assert head == target.revision
+            return [target]
+
+    orchestrator = MigrationOrchestrator(
+        tmp_path,
+        {"postgres": tmp_path / "alembic.postgres.ini"},
+    )
+    monkeypatch.setattr(
+        orchestrator.validator,
+        "validate_environment",
+        lambda _db_type, _requirements: {"database_connection": True},
+    )
+    monkeypatch.setattr(
+        orchestrator,
+        "_get_env_requirements",
+        lambda _db_type: {"postgres_url": "postgresql://example"},
+    )
+    monkeypatch.setattr(
+        orchestrator,
+        "_load_script_directory",
+        lambda _db_type: _IndependentScriptDirectory(),
+    )
+    monkeypatch.setattr(orchestrator, "_get_current_revisions", lambda _db_type: [])
+    monkeypatch.setattr(
+        orchestrator,
+        "_get_applied_revisions",
+        lambda _db_type, _heads: set(),
+    )
+    monkeypatch.setattr(
+        "backend.app.services.migrations.orchestrator.require_migration_execution_allowed",
+        lambda _config, _revision: None,
+    )
+    captured = {}
+    monkeypatch.setattr(
+        "backend.app.services.migrations.orchestrator.execute_independent_revision",
+        lambda **kwargs: captured.update(kwargs) or True,
+    )
+    monkeypatch.setattr(
+        orchestrator,
+        "_run_alembic_upgrade",
+        lambda *_args: (_ for _ in ()).throw(
+            AssertionError("independent revision must not traverse unrelated heads")
+        ),
+    )
+
+    result = orchestrator.apply_revision("postgres", target.revision)
+
+    assert result["status"] == "completed"
+    assert result["revisions"] == [target.revision]
+    assert captured == {
+        "revision_script": target,
+        "postgres_url": "postgresql://example",
+        "revision": target.revision,
     }
 
 

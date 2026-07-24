@@ -6,8 +6,10 @@ import stat
 
 from scripts.e2e.live_media_device_source_client import (
     _DeviceControlReader,
+    _control_ws_connect_options,
     _control_ws_url,
     _create_source_session,
+    _heartbeat_ack_timeout_is_recoverable,
     _write_private_json,
 )
 
@@ -64,6 +66,14 @@ def test_control_ws_url_preserves_origin_and_encodes_identity() -> None:
     )
 
 
+def test_control_socket_uses_application_heartbeat_as_single_liveness_owner() -> None:
+    options = _control_ws_connect_options()
+
+    assert options["open_timeout"] == 15
+    assert options["close_timeout"] == 5
+    assert options["ping_interval"] is None
+
+
 def test_create_source_session_uses_product_pairing_and_control_paths() -> None:
     calls: list[dict] = []
     socket = _Socket()
@@ -94,6 +104,9 @@ def test_create_source_session_uses_product_pairing_and_control_paths() -> None:
     assert socket.sent[0]["metadata"] == {"e2e": True, "transport": "whip"}
     assert state["device_session_id"] == "device-one"
     assert state["status"] == "active"
+    assert state["consecutive_heartbeat_timeouts"] == 0
+    assert state["heartbeat_timeout_count"] == 0
+    assert state["last_heartbeat_sequence"] == 0
 
 
 def test_private_state_writer_is_atomic_and_owner_only(tmp_path) -> None:
@@ -125,6 +138,25 @@ def test_control_reader_drains_snapshots_before_heartbeat_ack() -> None:
     assert socket.closed is True
 
 
+def test_control_reader_rejects_stale_heartbeat_ack_sequence() -> None:
+    socket = _StreamingSocket(
+        [
+            json.dumps({"type": "heartbeat_ack", "heartbeat_sequence": 3}),
+            json.dumps({"type": "heartbeat_ack", "heartbeat_sequence": 4}),
+        ]
+    )
+    reader = _DeviceControlReader(socket)
+    reader.start()
+
+    assert reader.wait_for(
+        "heartbeat_ack",
+        timeout=2.0,
+        heartbeat_sequence=4,
+    ) == {"type": "heartbeat_ack", "heartbeat_sequence": 4}
+
+    reader.close()
+
+
 def test_control_reader_reports_closed_socket_without_json_decode_noise() -> None:
     socket = _StreamingSocket([""])
     reader = _DeviceControlReader(socket)
@@ -153,3 +185,33 @@ def test_control_reader_treats_idle_read_timeout_as_non_terminal() -> None:
     assert socket.recv_calls >= 2
 
     reader.close()
+
+
+def test_heartbeat_ack_timeout_budget_survives_transient_backend_delay() -> None:
+    timeout = RuntimeError("device_source_event_timeout:heartbeat_ack")
+
+    assert _heartbeat_ack_timeout_is_recoverable(
+        timeout,
+        consecutive_timeouts=3,
+        miss_limit=4,
+    ) is True
+    assert _heartbeat_ack_timeout_is_recoverable(
+        timeout,
+        consecutive_timeouts=4,
+        miss_limit=4,
+    ) is False
+
+
+def test_heartbeat_ack_timeout_budget_does_not_mask_reader_failure() -> None:
+    failure = RuntimeError("device_source_socket_closed")
+
+    try:
+        _heartbeat_ack_timeout_is_recoverable(
+            failure,
+            consecutive_timeouts=1,
+            miss_limit=4,
+        )
+    except RuntimeError as exc:
+        assert exc is failure
+    else:
+        raise AssertionError("non-timeout source failures must remain terminal")

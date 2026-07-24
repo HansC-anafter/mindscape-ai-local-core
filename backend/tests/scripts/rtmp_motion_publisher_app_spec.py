@@ -32,8 +32,10 @@ sys.modules.setdefault(
 )
 
 from rtmp_motion_publisher import app as publisher_app  # noqa: E402
-from rtmp_motion_publisher.capture import FfmpegRawFrameCapture  # noqa: E402
-from rtmp_motion_publisher.windows import PoseSample  # noqa: E402
+from rtmp_motion_publisher.capture import (  # noqa: E402
+    FfmpegRawFrameCapture,
+    RETAINED_VIDEO_FINALIZE_TIMEOUT_SEC,
+)
 
 
 class ClosedCapture:
@@ -98,6 +100,8 @@ def _args() -> Namespace:
         stream_reconnect_backoff_sec=1.0,
         stream_reconnect_max_attempts=0,
         source_wait_timeout_sec=0.0,
+        source_wait_max_attempts=0,
+        session_expires_at_epoch=0.0,
         stream_gap_holdover_sec=0.0,
         stream_gap_holdover_confidence_cap=0.0,
         disable_guidance_ws=True,
@@ -160,6 +164,106 @@ def test_ffmpeg_capture_uses_bounded_mjpeg_pipe(monkeypatch) -> None:
     assert "rawvideo" not in command
     assert launched["kwargs"]["stderr"] is subprocess.DEVNULL
     capture.release()
+
+
+def test_ffmpeg_capture_retains_one_mp4_without_opening_a_second_source_reader(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    launched: dict[str, object] = {}
+
+    class Process:
+        stdout = None
+
+        @staticmethod
+        def poll() -> int:
+            return 0
+
+    def popen(command, **kwargs):
+        launched["command"] = command
+        launched["kwargs"] = kwargs
+        return Process()
+
+    monkeypatch.setattr("rtmp_motion_publisher.capture.subprocess.Popen", popen)
+    retained_path = tmp_path / "learner-capture-part-000.mp4"
+    capture = FfmpegRawFrameCapture(
+        rtmp_url="rtsps://media.example.test/live/path",
+        ffmpeg_bin="/usr/bin/ffmpeg",
+        sample_fps=5.0,
+        frame_width=640,
+        frame_height=360,
+        read_timeout_sec=10.0,
+        avfoundation_framerate=60.0,
+        ffmpeg_realtime_input=False,
+        retained_video_path=retained_path,
+    )
+
+    command = launched["command"]
+    assert isinstance(command, list)
+    assert command.count("-i") == 1
+    assert command.count("-map") == 2
+    assert [
+        command[index + 1]
+        for index, value in enumerate(command)
+        if value == "-c:v"
+    ] == ["copy", "mjpeg"]
+    retained_movflags_index = command.index("-movflags")
+    assert command[retained_movflags_index + 1] == "+faststart"
+    assert "empty_moov" not in command
+    assert "frag_keyframe" not in command
+    assert str(retained_path) in command
+    assert command[-1] == "pipe:1"
+    capture.release()
+
+
+def test_retained_capture_drains_frames_until_ffmpeg_finalizes_mp4() -> None:
+    events: list[object] = []
+
+    class StopReader:
+        stopped = False
+
+        def set(self) -> None:
+            self.stopped = True
+            events.append("reader_stopped")
+
+    stop_reader = StopReader()
+
+    class Process:
+        returncode = 0
+
+        @staticmethod
+        def poll() -> None:
+            return None
+
+        @staticmethod
+        def terminate() -> None:
+            events.append("terminate")
+
+        @staticmethod
+        def wait(*, timeout: float) -> int:
+            assert stop_reader.stopped is False
+            events.append(("wait", timeout))
+            return 0
+
+        @staticmethod
+        def kill() -> None:
+            raise AssertionError("graceful retained-video finalization must not kill")
+
+    capture = object.__new__(FfmpegRawFrameCapture)
+    capture.process = Process()
+    capture.retained_video_path = Path("learner-capture-part-000.mp4")
+    capture._stop_reader = stop_reader
+    capture._reader_thread = None
+    capture.selector = None
+
+    capture.release()
+
+    assert events == [
+        "terminate",
+        ("wait", RETAINED_VIDEO_FINALIZE_TIMEOUT_SEC),
+        "reader_stopped",
+    ]
+    assert capture.process is None
 
 
 def test_ffmpeg_capture_handoff_keeps_only_latest_frame() -> None:
@@ -233,7 +337,7 @@ def test_stream_open_failure_does_not_register_live_session(monkeypatch) -> None
     events: list[dict] = []
     registered: list[Namespace] = []
     args = _args()
-    args.stream_reconnect_max_attempts = 1
+    args.source_wait_max_attempts = 1
     args.stream_reconnect_backoff_sec = 0.0
 
     monkeypatch.setattr(publisher_app, "parse_args", lambda: args)
@@ -256,9 +360,9 @@ def test_stream_open_failure_does_not_register_live_session(monkeypatch) -> None
     assert registered == []
     assert [event["event"] for event in events] == [
         "stream_open_failed",
-        "stream_reconnect_started",
+        "source_wait_retry_started",
         "stream_open_failed",
-        "stream_reconnect_give_up",
+        "source_wait_expired",
     ]
 
 
@@ -267,7 +371,7 @@ def test_initial_frame_failure_does_not_register_live_session(monkeypatch) -> No
     events: list[dict] = []
     registered: list[Namespace] = []
     args = _args()
-    args.stream_reconnect_max_attempts = 1
+    args.source_wait_max_attempts = 1
     args.stream_reconnect_backoff_sec = 0.0
 
     monkeypatch.setattr(publisher_app, "parse_args", lambda: args)
@@ -291,9 +395,9 @@ def test_initial_frame_failure_does_not_register_live_session(monkeypatch) -> No
     assert registered == []
     assert [event["event"] for event in events] == [
         "stream_open_failed",
-        "stream_reconnect_started",
+        "source_wait_retry_started",
         "stream_open_failed",
-        "stream_reconnect_give_up",
+        "source_wait_expired",
     ]
 
 
@@ -339,7 +443,7 @@ def test_initial_stream_wait_recovers_when_publisher_arrives(monkeypatch) -> Non
     assert states == ["waiting_source"]
     assert [event["event"] for event in events] == [
         "stream_open_failed",
-        "stream_reconnect_started",
+        "source_wait_retry_started",
     ]
 
 
@@ -368,113 +472,3 @@ def test_rollup_failure_is_reported_without_escaping_receiver(monkeypatch) -> No
             "error": "slow rollup",
         }
     ]
-
-
-def test_receiver_flushes_partial_terminal_window_before_final_rollup(monkeypatch) -> None:
-    class Capture:
-        def isOpened(self) -> bool:
-            return True
-
-        def read(self):
-            return True, object()
-
-        def release(self) -> None:
-            return None
-
-    class Pose:
-        def process(self, _frame, _timestamp_ms):
-            return object()
-
-        def close(self) -> None:
-            return None
-
-    class Sender:
-        instance = None
-
-        def __init__(self, **_kwargs) -> None:
-            self.pending = []
-            self.closed = False
-            Sender.instance = self
-
-        def enqueue(self, pending) -> bool:
-            self.pending.append(pending)
-            return True
-
-        def close(self) -> None:
-            self.closed = True
-
-        def stats(self) -> dict:
-            return {
-                "accepted_windows": len(self.pending),
-                "rejected_windows": 0,
-                "failed_windows": 0,
-                "append_queue_pending": 0,
-                "last_append_error": None,
-                "guidance_reconnects": 0,
-                "guidance_failures": 0,
-                "last_guidance_error": None,
-            }
-
-    class Evidence:
-        def __init__(self, *_args) -> None:
-            return None
-
-        def capture_window(self, *_args) -> None:
-            return None
-
-        def finalize(self, _rollup):
-            return None
-
-        def cleanup_transient_frames(self) -> None:
-            return None
-
-    ticks = iter((0.0, 0.0, 0.6, 1.2, 1.8, 2.4, 3.0))
-    args = _args()
-    args.duration_sec = 1.5
-    args.window_sec = 10.0
-    args.disable_learner_visual_evidence = True
-    args.learner_evidence_output_dir = ""
-    args.learner_evidence_storage_dir = ""
-    args.learner_evidence_max_windows = 10
-    args.learner_evidence_jpeg_quality = 78
-    events: list[dict] = []
-    monkeypatch.setattr(publisher_app.time, "monotonic", lambda: next(ticks))
-    monkeypatch.setattr(publisher_app, "open_stream_capture", lambda _args: Capture())
-    monkeypatch.setattr(publisher_app, "register_live_session", lambda _args: "motion-one")
-    monkeypatch.setattr(publisher_app, "BackgroundMotionWindowSender", Sender)
-    monkeypatch.setattr(
-        publisher_app.PoseDetector,
-        "create",
-        lambda _path: Pose(),
-    )
-    monkeypatch.setattr(publisher_app.cv2, "COLOR_BGR2RGB", 1, raising=False)
-    monkeypatch.setattr(publisher_app.cv2, "cvtColor", lambda frame, _code: frame, raising=False)
-    monkeypatch.setattr(
-        publisher_app,
-        "pose_sample_from_result",
-        lambda _result, timestamp_ms: PoseSample(
-            timestamp_ms=timestamp_ms,
-            confidence=0.9,
-            visible_point_count=30,
-            total_point_count=33,
-        ),
-    )
-    monkeypatch.setattr(publisher_app, "LearnerVisualEvidenceRecorder", Evidence)
-    monkeypatch.setattr(publisher_app, "start_stream_cost_tracking", lambda *_args: None)
-    monkeypatch.setattr(
-        publisher_app,
-        "emit_rollup",
-        lambda *_args, **_kwargs: {"motion_rollup_ref": "rollup-one"},
-    )
-    monkeypatch.setattr(publisher_app, "emit_yogacoach_closeout", lambda *_args, **_kwargs: {})
-    monkeypatch.setattr(publisher_app, "emit", events.append)
-
-    assert publisher_app.run_receiver(args) == 0
-
-    sender = Sender.instance
-    assert sender is not None
-    assert sender.closed is True
-    assert len(sender.pending) == 1
-    assert sender.pending[0].summary["ts_start_ms"] == 600.0
-    assert sender.pending[0].summary["ts_end_ms"] == 1500.0
-    assert any(event["event"] == "terminal_motion_window_flushed" for event in events)

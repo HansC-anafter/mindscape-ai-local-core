@@ -14,6 +14,11 @@ class FakeFairClient:
         self.projections = {}
         self.values = {}
         self.setex_calls = []
+        self.incrby_calls = []
+        self.expire_calls = []
+
+    async def llen(self, queue_name):
+        return len(self.ids)
 
     async def lrange(self, queue_name, start, end):
         return self.ids[start : end + 1]
@@ -27,6 +32,16 @@ class FakeFairClient:
     async def setex(self, key, ttl_seconds, value):
         self.values[key] = value
         self.setex_calls.append((key, ttl_seconds, value))
+        return True
+
+    async def incrby(self, key, amount):
+        next_value = int(self.values.get(key) or 0) + int(amount)
+        self.values[key] = next_value
+        self.incrby_calls.append((key, amount))
+        return next_value
+
+    async def expire(self, key, ttl_seconds):
+        self.expire_calls.append((key, ttl_seconds))
         return True
 
 

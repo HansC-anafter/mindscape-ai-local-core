@@ -7,6 +7,7 @@ import types
 from pathlib import Path
 
 import pytest
+import requests
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -36,6 +37,7 @@ from rtmp_motion_publisher.live_receiver_runtime import (  # noqa: E402
     _build_receiver_args,
     _load_descriptor,
 )
+from rtmp_motion_publisher import live_receiver_runtime  # noqa: E402
 from rtmp_motion_publisher import api_client  # noqa: E402
 from rtmp_motion_publisher.receiver_state import (  # noqa: E402
     close_receiver_state_reporter,
@@ -94,6 +96,8 @@ def test_descriptor_builds_formal_rtsps_receiver_args(
     assert args.closeout_api_timeout_sec == 30.0
     assert args.api_retry_count == 2
     assert args.append_queue_max_size == 32
+    assert args.stream_reconnect_max_attempts == 8
+    assert args.session_expires_at_epoch == descriptor["expires_at_epoch"]
     assert args.rtmp_url.startswith("rtsps://media.example.test:8322/live/path?")
     assert "token=secret-token" in args.rtmp_url
     assert args.append_owner_id == "append-one"
@@ -136,6 +140,9 @@ def test_descriptor_passes_only_device_node_resolved_reference_profile_path(
     )
 
     assert args.motion_reference_profile_path == str(profile_path.resolve())
+    assert args.practice_diary_reference_visual_evidence_path == str(
+        profile_path.resolve()
+    )
 
 
 def test_descriptor_rejects_group_readable_credentials(tmp_path: Path) -> None:
@@ -216,6 +223,7 @@ def test_receiver_state_emits_bounded_authenticated_event(
             "pipe_high_watermark_bytes": 28000,
             "pipe_discarded_bytes": 12,
             "pipe_overflow_count": 0,
+            "pipe_idle_timeout_count": 2,
             "reference_chapter_id": "segment:010",
             "reference_localization_ready": True,
             "raw_frames": ["forbidden"],
@@ -224,6 +232,9 @@ def test_receiver_state_emits_bounded_authenticated_event(
     close_receiver_state_reporter()
 
     assert len(calls) == 1
+    host_state = json.loads(Path(args.receiver_state_path).read_text(encoding="utf-8"))
+    assert host_state["metrics"]["source_wait_attempts"] == 0
+    assert host_state["metrics"]["pipe_idle_timeout_count"] == 2
     assert calls[0]["url"].endswith(
         "/media-sessions/media-one/receiver/events"
     )
@@ -247,3 +258,103 @@ def test_receiver_state_emits_bounded_authenticated_event(
         "reference_localization_ready": True,
     }
     assert "append-one" not in json.dumps(calls[0]["json"])
+
+
+def test_receiver_state_transition_without_metrics_preserves_counters(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("LOCAL_CORE_DATA_HOST_DIR", str(tmp_path / "runtime-data"))
+    state_path = tmp_path / "state.json"
+    args = _build_receiver_args(
+        _load_descriptor(_write_descriptor(tmp_path)),
+        state_path=state_path,
+    )
+
+    class Response:
+        status_code = 200
+
+    monkeypatch.setattr(
+        "rtmp_motion_publisher.receiver_state.requests.post",
+        lambda *_args, **_kwargs: Response(),
+    )
+    transition_receiver_state(
+        args,
+        "analyzing",
+        metrics={"attempted_windows": 9, "accepted_windows": 8},
+    )
+    transition_receiver_state(args, "degraded", reason="frame_pipe_idle")
+    close_receiver_state_reporter()
+
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    assert state["state"] == "degraded"
+    assert state["reason"] == "frame_pipe_idle"
+    assert state["metrics"]["attempted_windows"] == 9
+    assert state["metrics"]["accepted_windows"] == 8
+
+
+def test_runtime_failure_preserves_final_receiver_metrics(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    args = types.SimpleNamespace(
+        receiver_state_path=str(tmp_path / "state.json"),
+        workspace_id="workspace-one",
+        media_session_id="media-one",
+        receiver_identity="receiver-one",
+        receiver_final_metrics={
+            "attempted_windows": 70,
+            "accepted_windows": 70,
+            "rejected_windows": 0,
+            "failed_windows": 0,
+        },
+    )
+    transitions: list[dict] = []
+    events: list[dict] = []
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "live_motion_receiver.py",
+            "--descriptor-path",
+            str(tmp_path / "descriptor.json"),
+            "--state-path",
+            str(tmp_path / "state.json"),
+        ],
+    )
+    monkeypatch.setattr(live_receiver_runtime, "_load_descriptor", lambda _path: {})
+    monkeypatch.setattr(
+        live_receiver_runtime,
+        "_build_receiver_args",
+        lambda _descriptor, *, state_path: args,
+    )
+    monkeypatch.setattr(
+        live_receiver_runtime,
+        "run_receiver",
+        lambda _args: (_ for _ in ()).throw(requests.ReadTimeout("credential")),
+    )
+    monkeypatch.setattr(
+        live_receiver_runtime,
+        "transition_receiver_state",
+        lambda _args, state, **kwargs: transitions.append(
+            {"state": state, **kwargs}
+        ),
+    )
+    monkeypatch.setattr(
+        live_receiver_runtime,
+        "close_receiver_state_reporter",
+        lambda: None,
+    )
+    monkeypatch.setattr(live_receiver_runtime, "emit", events.append)
+
+    assert live_receiver_runtime.main() == 1
+    assert transitions[-1] == {
+        "state": "failed",
+        "reason": "live_media_receiver_read_timeout",
+        "metrics": args.receiver_final_metrics,
+    }
+    assert events[-1] == {
+        "event": "live_media_receiver_runtime_failed",
+        "error_type": "ReadTimeout",
+        "reason": "live_media_receiver_read_timeout",
+    }

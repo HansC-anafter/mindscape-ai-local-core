@@ -61,6 +61,45 @@ def test_capacity_preflight_does_not_double_count_existing_wal_on_primary(monkey
     assert result["mirror_estimated_required_bytes"] == 1120
 
 
+def test_postgres_only_capacity_skips_runtime_snapshot_and_mirror_estimates(monkeypatch, tmp_path):
+    primary = tmp_path / "primary"
+    data = tmp_path / "data"
+    wal_root = primary / "postgres-wal-archive"
+    for path in [primary, data / "postgres", wal_root]:
+        path.mkdir(parents=True)
+
+    monkeypatch.setattr(incremental, "resolve_data_host_dir", lambda: data)
+    monkeypatch.setattr(
+        incremental,
+        "estimate_snapshot_transfer_bytes",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("postgres-only must not estimate app-data")
+        ),
+    )
+    monkeypatch.setattr(incremental, "disk_usage_bytes", lambda path: 100 if path == data / "postgres" else 1000)
+    monkeypatch.setattr(incremental, "disk_free_bytes", lambda _path: 10_000)
+
+    result = incremental.capacity_preflight(
+        plan={"base_backup_required": True, "wal_archive_bytes": 1000},
+        config={
+            "primary_root": primary,
+            "mirror_root": None,
+            "wal_archive_root": wal_root,
+            "min_free_gb": 0,
+            "mirror_scopes": [],
+            "postgres_only": True,
+        },
+        previous_manifest=None,
+        previous_snapshot=None,
+        timeout_seconds=30,
+    )
+
+    assert result["backup_scope"] == "postgres_chain_only"
+    assert result["snapshot_transfer_bytes"] == 0
+    assert result["primary_estimated_required_bytes"] == 100
+    assert result["mirror_estimated_required_bytes"] == 0
+
+
 def test_mirror_incremental_artifacts_skips_legacy_backups_and_rewrites_manifest(monkeypatch, tmp_path):
     primary = tmp_path / "primary"
     mirror = tmp_path / "mirror"

@@ -5,7 +5,9 @@ import json
 import os
 import sys
 import time
+from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -24,6 +26,7 @@ from remote_workbench_authorization_cutover.secure_inputs import (
     EXPECTED_ISSUER,
     EXPECTED_TARGET_WORKSPACE_ID,
     MIN_ACCESS_TOKEN_REMAINING_SECONDS,
+    load_remote_ingress_inputs,
     load_secure_inputs,
 )
 
@@ -82,6 +85,122 @@ def _secure_dir(tmp_path: Path, *, revision: int = 7) -> Path:
         path.write_text(value, encoding="utf-8")
         os.chmod(path, 0o600)
     return directory
+
+
+def _ingress_secure_dir(tmp_path: Path) -> Path:
+    directory = tmp_path / "ingress-secure"
+    directory.mkdir(mode=0o700)
+    os.chmod(directory, 0o700)
+    files = {
+        "cloudflare-account-id.txt": "a" * 32,
+        "cloudflare-tunnel-id.txt": "11111111-2222-4333-8444-555555555555",
+        "cloudflare-api-token.txt": "fixture-cloudflare-read-write-token",
+    }
+    for name, value in files.items():
+        path = directory / name
+        path.write_text(value, encoding="utf-8")
+        os.chmod(path, 0o600)
+    return directory
+
+
+def _runner_module():
+    path = REPO_ROOT / "scripts/verify_remote_workbench_identity_workspace_authorization.py"
+    spec = spec_from_file_location("remote_workbench_authorization_runner", path)
+    assert spec is not None and spec.loader is not None
+    module = module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_remote_ingress_inputs_require_only_three_private_cloudflare_files(
+    tmp_path: Path,
+) -> None:
+    directory = _ingress_secure_dir(tmp_path)
+
+    inputs = load_remote_ingress_inputs(directory)
+
+    assert inputs.policy == {}
+    assert inputs.jwt_paths == {}
+    assert inputs.cloudflare_account_id == "a" * 32
+    assert inputs.cloudflare_tunnel_id == "11111111-2222-4333-8444-555555555555"
+    with pytest.raises(CutoverError):
+        load_secure_inputs(directory)
+
+
+def test_remote_ingress_inputs_reject_unsafe_token_and_directory_links(
+    tmp_path: Path,
+) -> None:
+    directory = _ingress_secure_dir(tmp_path)
+    os.chmod(directory / "cloudflare-api-token.txt", 0o640)
+    with pytest.raises(CutoverError, match="Invalid permissions"):
+        load_remote_ingress_inputs(directory)
+
+    linked = tmp_path / "ingress-link"
+    linked.symlink_to(directory, target_is_directory=True)
+    with pytest.raises(CutoverError, match="symbolic link"):
+        load_remote_ingress_inputs(linked)
+
+
+def test_runner_parser_keeps_full_actions_strict_and_ingress_recovery_narrow(
+    tmp_path: Path,
+) -> None:
+    runner = _runner_module()
+    secure = _ingress_secure_dir(tmp_path)
+
+    recovered = runner.build_parser().parse_args(
+        ["recover-ingress", "--secure-input-dir", str(secure)]
+    )
+
+    assert recovered.action == "recover-ingress"
+    assert recovered.secure_input_dir == secure
+    with pytest.raises(SystemExit):
+        runner.build_parser().parse_args(
+            ["cutover", "--secure-input-dir", str(secure)]
+        )
+
+
+def test_runner_ingress_recovery_does_not_construct_runtime_or_release_gates(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    runner = _runner_module()
+    secure = _ingress_secure_dir(tmp_path)
+    inputs = load_remote_ingress_inputs(secure)
+
+    class FakeIngressGate:
+        def __init__(self, _http) -> None:
+            pass
+
+        def recover_exact(self, received):
+            assert received == inputs
+            return {"status": "succeeded", "tunnel_id": inputs.cloudflare_tunnel_id}
+
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("Ingress recovery constructed an unrelated gate")
+
+    monkeypatch.setattr(runner, "load_remote_ingress_inputs", lambda _path: inputs)
+    monkeypatch.setattr(runner, "RemoteIngressGate", FakeIngressGate)
+    monkeypatch.setattr(runner, "HttpClient", lambda: object())
+    for name in (
+        "CommandExecutor",
+        "RuntimeGate",
+        "RedisResourceSampler",
+        "CutoverWorkflow",
+        "lock_phase06_repositories",
+    ):
+        monkeypatch.setattr(runner, name, forbidden)
+
+    result = runner._run_locked(
+        SimpleNamespace(action="recover-ingress", secure_input_dir=secure)
+    )
+
+    assert result == 0
+    output = json.loads(capsys.readouterr().out)
+    assert output == {
+        "status": "succeeded",
+        "tunnel_id": "11111111-2222-4333-8444-555555555555",
+    }
 
 
 def test_secure_inputs_require_locked_config_and_three_distinct_principals(

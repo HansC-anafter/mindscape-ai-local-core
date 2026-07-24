@@ -4,6 +4,7 @@ import sys
 import types
 
 import numpy as np
+import requests
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -21,9 +22,13 @@ sys.modules.setdefault(
 
 from rtmp_motion_publisher import api_client, evidence  # noqa: E402
 from rtmp_motion_publisher.closeout import _input_asset_kind, _source_mode  # noqa: E402
+from rtmp_motion_publisher.localized_reference_evidence import (  # noqa: E402
+    reference_frame_specs,
+)
 from rtmp_motion_publisher.receiver_state import (  # noqa: E402
     safe_receiver_failure_reason,
 )
+from rtmp_motion_publisher.retained_video import RetainedVideoProbe  # noqa: E402
 
 
 class FakeCV2:
@@ -73,6 +78,20 @@ def _args(tmp_path: Path, input_uri: str) -> Namespace:
         learner_evidence_storage_dir="/app/backend/data/test-evidence",
         learner_evidence_max_windows=10,
         learner_evidence_jpeg_quality=78,
+    )
+
+
+def _write_retained_video(recorder: evidence.LearnerVisualEvidenceRecorder) -> None:
+    recorder.host_root.mkdir(parents=True, exist_ok=True)
+    (recorder.host_root / "learner-capture-part-000.mp4").write_bytes(
+        b"bounded-test-video"
+    )
+    recorder._probe_retained_video = lambda _path: RetainedVideoProbe(
+        duration_ms=10_000.0,
+        browser_metadata_duration_ms=10_000.0,
+        codec_name="h264",
+        width=1920,
+        height=1080,
     )
 
 
@@ -129,6 +148,9 @@ def test_receiver_failure_reason_never_persists_source_credentials() -> None:
     assert safe_receiver_failure_reason(ValueError("receiver_descriptor_expired")) == (
         "receiver_descriptor_expired"
     )
+    assert safe_receiver_failure_reason(
+        requests.ReadTimeout("rtsps://media.test/live?token=jwt-credential")
+    ) == "live_media_receiver_read_timeout"
 
 
 def test_persisted_evidence_removes_live_media_credentials(
@@ -160,12 +182,17 @@ def test_persisted_evidence_removes_live_media_credentials(
             "ts_end_ms": 2000,
         },
     )
+    _write_retained_video(recorder)
     result = recorder.finalize(
         {
             "summary": {
                 "metadata": {
                     "reference_segments": [
-                        {"segment_start_ms": 0, "segment_end_ms": 2000}
+                        {
+                            "segment_id": "lms-secret-redaction:segment:001",
+                            "segment_start_ms": 0,
+                            "segment_end_ms": 2000,
+                        }
                     ]
                 }
             }
@@ -218,6 +245,7 @@ def test_rtmp_capture_emits_session_bound_adaptive_chapter_frames(
             "ts_end_ms": 4000,
         },
     )
+    _write_retained_video(recorder)
     result = recorder.finalize(
         {
             "summary": {
@@ -241,15 +269,26 @@ def test_rtmp_capture_emits_session_bound_adaptive_chapter_frames(
 
     assert result["status"] == "ready"
     assert result["artifact_id"] == "learner-contact-sheet-artifact"
-    assert len(result["assets"]) == 2
+    assert len(result["assets"]) == 4
+    assert {asset["media_kind"] for asset in result["assets"]} == {
+        "snapshot",
+        "video_clip",
+    }
     assert {asset["source_kind"] for asset in result["assets"]} == {"learner_capture"}
     assert {asset["capture_session_id"] for asset in result["assets"]} == {
         "device_session_capture_1"
     }
     assert all(asset["motion_window_ref"] for asset in result["assets"])
-    assert [asset["capture_ms"] for asset in result["assets"]] == [1000.0, 3000.0]
+    assert [asset["capture_ms"] for asset in result["assets"]] == [
+        1000.0,
+        1000.0,
+        3000.0,
+        3000.0,
+    ]
     assert [asset["motion_window_ref"] for asset in result["assets"]] == [
         "lms-live-capture:rtmp-window:0:0",
+        "lms-live-capture:rtmp-window:0:0",
+        "lms-live-capture:rtmp-window:2000:1",
         "lms-live-capture:rtmp-window:2000:1",
     ]
     assert requests[0]["metadata"]["capture_input_uri"].startswith("rtmp://")
@@ -259,6 +298,132 @@ def test_rtmp_capture_emits_session_bound_adaptive_chapter_frames(
     recorder.cleanup_transient_frames()
 
     assert not recorder.window_dir.exists()
+
+
+def test_representative_frame_follows_confirmed_reference_time_not_learner_midpoint(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    fake_cv2 = FakeCV2()
+    requests: list[dict] = []
+    monkeypatch.setattr(evidence, "cv2", fake_cv2)
+    monkeypatch.setattr(evidence, "emit", lambda _event: None)
+    monkeypatch.setattr(
+        evidence,
+        "api_post",
+        lambda _base, _path, payload, **_kwargs: requests.append(payload)
+        or {"id": "learner-contact-sheet-artifact"},
+    )
+    recorder = evidence.LearnerVisualEvidenceRecorder(
+        _args(tmp_path, "rtsps://media.test/live/chapter"),
+        "lms-reference-time-selection",
+    )
+    windows = [
+        ("window-1", 0, 2000, 50_000),
+        ("window-2", 2000, 4000, 90_000),
+        ("window-3", 4000, 6000, 95_000),
+    ]
+    for index, (window_id, start_ms, end_ms, reference_time_ms) in enumerate(windows):
+        summary = {
+            "window_id": window_id,
+            "ts_start_ms": start_ms,
+            "ts_end_ms": end_ms,
+            "metadata": {},
+        }
+        recorder.capture_window(
+            np.full((360, 640, 3), index, dtype=np.uint8),
+            summary,
+        )
+        summary["metadata"]["reference_alignment"] = {
+            "localization_ready": True,
+            "chapter_id": "reference-chapter-1",
+            "chapter_ts_start_ms": 0,
+            "chapter_ts_end_ms": 100_000,
+            "reference_time_ms": reference_time_ms,
+        }
+        recorder.record_reference_alignment(summary)
+
+    _write_retained_video(recorder)
+
+    result = recorder.finalize(
+        {
+            "summary": {
+                "metadata": {
+                    "reference_segments": [
+                        {
+                            "segment_id": "lms-reference-time-selection:segment:001",
+                            "segment_start_ms": 0,
+                            "segment_end_ms": 6000,
+                        }
+                    ]
+                }
+            }
+        }
+    )
+
+    assert result["status"] == "ready"
+    assert result["assets"][0]["motion_window_ref"] == "window-1"
+    assert result["assets"][0]["capture_ms"] == 1000.0
+    assert requests[0]["metadata"]["selected_motion_window_refs"] == ["window-1"]
+
+
+def test_localized_reference_frame_spec_uses_exact_paired_alignment() -> None:
+    captured = evidence.CapturedWindowFrame(
+        motion_window_ref="window-1",
+        start_ms=2000,
+        end_ms=4000,
+        capture_ms=3000,
+        path=Path("/tmp/window-1.jpg"),
+    )
+    profile = {
+        "reference_profile_id": "reference-profile-1",
+        "source_ref": "https://example.test/reference",
+        "chapters": [
+            {
+                "chapter_id": "reference-chapter-1",
+                "ts_start_ms": 1000,
+                "ts_end_ms": 5000,
+            }
+        ],
+        "visual_evidence": [
+            {
+                "chapter_id": "reference-chapter-1",
+                "role": "reference",
+                "source_kind": "reference_asset",
+                "media_kind": "video_clip",
+                "artifact_id": "reference-clip-1",
+            }
+        ],
+    }
+
+    specs = reference_frame_specs(
+        profile,
+        [
+            (
+                {
+                    "segment_id": "live-segment-1",
+                    "segment_start_ms": 2000,
+                    "segment_end_ms": 4000,
+                },
+                captured,
+            )
+        ],
+        lambda _window_ref: {
+            "localization_ready": True,
+            "visual_evidence_reference_status": "confirmed",
+            "reference_profile_id": "reference-profile-1",
+            "chapter_id": "reference-chapter-1",
+            "reference_time_ms": 3250,
+        },
+    )
+
+    assert len(specs) == 1
+    assert specs[0].reference_capture_ms == 3250
+    assert specs[0].clip_capture_ms == 2250
+    assert specs[0].motion_window_ref == "window-1"
+    assert specs[0].clip_artifact_id == "reference-clip-1"
+    assert specs[0].clip_time_range_ms == [1250.0, 3250.0]
+    assert specs[0].reference_alignment_status == "confirmed"
 
 
 def test_api_post_rejection_surfaces_bounded_response_detail(monkeypatch) -> None:

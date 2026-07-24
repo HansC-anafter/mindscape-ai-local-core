@@ -68,6 +68,53 @@ def test_worker_browser_fairness_keeps_following_available_to_general_browser_pr
     assert queue.client.setex_calls == []
 
 
+def test_worker_browser_fairness_rotates_scan_window_beyond_fixed_prefix(monkeypatch):
+    monkeypatch.setattr(route_gate, "get_active_route_reservations", lambda: [])
+    following_ids = [f"task-following-{index}" for index in range(75)]
+    pin_task_id = "task-pin-after-prefix"
+    pin_playbook = "ig_pin_post_detail"
+    queue = FakeFairQueue([*following_ids, pin_task_id])
+    tasks_store = FakeCandidateTasksStore(
+        {
+            **{
+                task_id: candidate_projection(task_id, FOLLOWING_PLAYBOOK)
+                for task_id in following_ids
+            },
+            pin_task_id: candidate_projection(pin_task_id, pin_playbook),
+        },
+        {
+            FOLLOWING_PLAYBOOK: 1,
+            pin_playbook: 0,
+        },
+    )
+
+    first_task_id, _, _ = asyncio.run(
+        _dequeue_by_browser_fair_candidate_policy(
+            [queue],
+            tasks_store=tasks_store,
+            runner_profile=browser_profile(),
+            visibility_timeout_sec=180,
+            scan_limit=50,
+        )
+    )
+    second_task_id, queue_store, drain_wait = asyncio.run(
+        _dequeue_by_browser_fair_candidate_policy(
+            [queue],
+            tasks_store=tasks_store,
+            runner_profile=browser_profile(),
+            visibility_timeout_sec=180,
+            scan_limit=50,
+        )
+    )
+
+    assert first_task_id in following_ids[:50]
+    assert second_task_id == pin_task_id
+    assert queue_store is queue
+    assert drain_wait is False
+    assert pin_task_id in tasks_store.requested_ids
+    assert len(tasks_store.requested_ids) <= 50
+
+
 def test_worker_browser_fairness_rotates_tied_lane_from_durable_cursor():
     alternate_playbook = "browser_alt_collect"
     queue = FakeFairQueue(["task-following", "task-alternate"])
@@ -347,7 +394,7 @@ def test_managed_batch_runner_and_spillover_compose_semantics():
     assert "IG_THUMBNAIL_BROWSER_FALLBACK_MAX_INFLIGHT" not in compose_text
     assert "LOCAL_CORE_RUNNER_DEFAULT_LOCAL_BROWSER_ACCEPTED_CAPABILITY_CODES" not in compose_text
     assert "LOCAL_CORE_RUNNER_VISION_MLX_DEV_ACCEPTED_CAPABILITY_CODES" not in compose_text
-    assert "LOCAL_CORE_RUNNER_DEFAULT_LOCAL_BROWSER_MAX_INFLIGHT:-1" in compose_text
+    assert "LOCAL_CORE_RUNNER_DEFAULT_LOCAL_BROWSER_MAX_INFLIGHT:-2" in compose_text
     assert "LOCAL_CORE_RUNNER_SPILLOVER_PROFILE:-default_local" in compose_text
     assert "LOCAL_CORE_RUNNER_SPILLOVER_ACCEPTED_RESOURCE_CLASSES:-compute,api" in compose_text
     assert "LOCAL_CORE_RUNNER_SPILLOVER_MAX_INFLIGHT:-1" in compose_text

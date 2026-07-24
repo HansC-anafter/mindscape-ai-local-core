@@ -224,6 +224,11 @@ def test_yogacoach_closeout_projects_rollup_stream_cost(monkeypatch) -> None:
     result = closeout.emit_yogacoach_closeout(
         args,
         live_session_id="lms_test",
+        reference_visual_evidence={
+            "status": "ready",
+            "artifact_id": "reference-contact-sheet",
+            "assets": [{"asset_id": "reference-1"}],
+        },
         rollup_response={
             "summary": {
                 "window_count": 1,
@@ -235,3 +240,6 @@ def test_yogacoach_closeout_projects_rollup_stream_cost(monkeypatch) -> None:
     assert result is not None
     assert captured["metadata"]["stream_cost"]["provider"] == "gcp"
     assert captured["metadata"]["stream_cost"]["rate_snapshot"]["quote_id"] == "scq_test"
+    assert captured["metadata"]["reference_visual_evidence"]["status"] == "ready"
+    assert result["reference_visual_evidence_status"] == "ready"
+    assert result["reference_visual_evidence_asset_count"] == 1

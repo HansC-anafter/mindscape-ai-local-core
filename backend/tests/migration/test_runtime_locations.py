@@ -2,7 +2,10 @@ from pathlib import Path
 
 from alembic.config import Config
 
-from app.services.migrations.runtime_locations import configure_runtime_version_locations
+from app.services.migrations.runtime_locations import (
+    append_runtime_version_locations,
+    configure_runtime_version_locations,
+)
 
 
 def _write_revision(path: Path, revision: str, *, typed: bool = False) -> None:
@@ -188,3 +191,43 @@ def test_configure_runtime_version_locations_dedupes_typed_revision_assignments(
     assert sorted(path.name for path in staged_dir.glob("*.py")) == [
         "20260403143000_add_training_job_runtime_status.py",
     ]
+
+
+def test_candidate_overlay_excludes_same_owner_live_tree(tmp_path: Path) -> None:
+    declared_versions_dir = tmp_path / "declared_versions"
+    _write_revision(declared_versions_dir / "core_revision.py", "core_revision")
+
+    capabilities_root = tmp_path / "capabilities"
+    live_yoga = capabilities_root / "yogacoach"
+    live_other = capabilities_root / "ig"
+    for capability_dir, revision in (
+        (live_yoga, "yoga_revision"),
+        (live_other, "ig_revision"),
+    ):
+        capability_dir.mkdir(parents=True, exist_ok=True)
+        (capability_dir / "migrations.yaml").write_text(
+            "db: postgres\n"
+            f"revisions:\n  - \"{revision}\"\n"
+            "migration_paths:\n  - \"migrations/versions/\"\n",
+            encoding="utf-8",
+        )
+        _write_revision(
+            capability_dir / "migrations" / "versions" / f"{revision}.py",
+            revision,
+        )
+
+    candidate_yoga = tmp_path / "candidate" / "yogacoach" / "migrations" / "versions"
+    _write_revision(candidate_yoga / "yoga_revision.py", "yoga_revision")
+    config = _build_config(tmp_path, declared_versions_dir)
+
+    locations = configure_runtime_version_locations(
+        config,
+        capabilities_root=capabilities_root,
+        db_type="postgres",
+        excluded_capability_codes={"yogacoach"},
+    )
+    locations = append_runtime_version_locations(config, [candidate_yoga])
+
+    assert live_yoga.joinpath("migrations", "versions").as_posix() not in locations
+    assert live_other.joinpath("migrations", "versions").as_posix() in locations
+    assert candidate_yoga.resolve().as_posix() in locations

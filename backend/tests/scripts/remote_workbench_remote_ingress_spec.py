@@ -59,6 +59,7 @@ def _configuration(version: int, config: dict | None = None) -> dict:
     return {
         "account_id": ACCOUNT_ID,
         "tunnel_id": TUNNEL_ID,
+        "source": "cloudflare",
         "version": version,
         "config": config if config is not None else CANONICAL_CONFIG,
     }
@@ -89,6 +90,23 @@ class CloudflareHttp:
         return _envelope(_configuration(version, self.readback_config))
 
 
+class EmptyCloudflareHttp(CloudflareHttp):
+    def request(self, method, url, **kwargs) -> HttpResponse:
+        if method == "GET" and url.endswith("/configurations"):
+            self.calls.append({"method": method, "url": url, **kwargs})
+            self.config_gets += 1
+            if self.config_gets == 1:
+                return _envelope(
+                    {
+                        "account_id": ACCOUNT_ID,
+                        "tunnel_id": TUNNEL_ID,
+                        "version": 0,
+                        "config": None,
+                    }
+                )
+        return super().request(method, url, **kwargs)
+
+
 def test_apply_exact_writes_launcher_loadable_lock_from_full_config(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -113,6 +131,69 @@ def test_apply_exact_writes_launcher_loadable_lock_from_full_config(
     assert loaded.tunnel_id == TUNNEL_ID
     assert state.stat().st_mode & 0o777 == 0o700
     assert (state / "remote-ingress-lock.json").stat().st_mode & 0o777 == 0o600
+
+
+def test_recover_exact_adopts_existing_config_without_put_and_returns_identity(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    inputs = _inputs(tmp_path)
+    state = tmp_path / "recover-state"
+    monkeypatch.setenv("REMOTE_WORKBENCH_BRIDGE_STATE_DIR", str(state))
+    http = CloudflareHttp()
+
+    result = RemoteIngressGate(http).recover_exact(inputs)
+
+    assert result == {
+        "status": "succeeded",
+        "operation": "recover-ingress",
+        "prechange_config_version": 4,
+        "remote_put_applied": False,
+        "tunnel_id": TUNNEL_ID,
+        "config_version": 5,
+        "config_sha256": EXPECTED_HASH,
+        "config_src": "cloudflare",
+        "hostname": "remote-workbench.mindscapeai.app",
+        "service": "http://mindscape-ai-local-core-frontend:3001",
+        "catch_all": "http_status:404",
+    }
+    assert sum(call["method"] == "PUT" for call in http.calls) == 0
+    assert "fixture-cloudflare-read-write-token" not in json.dumps(result)
+
+
+def test_recover_exact_captures_absent_prechange_config_but_keeps_readback_strict(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    inputs = _inputs(tmp_path)
+    state = tmp_path / "empty-recover-state"
+    monkeypatch.setenv("REMOTE_WORKBENCH_BRIDGE_STATE_DIR", str(state))
+    http = EmptyCloudflareHttp()
+
+    result = RemoteIngressGate(http).recover_exact(inputs)
+
+    assert result["prechange_config_version"] == 0
+    before = json.loads(
+        (inputs.directory / "cloudflare-ingress-before.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert before["ingress"] == []
+    assert result["config_version"] == 5
+    assert result["remote_put_applied"] is True
+    assert sum(call["method"] == "PUT" for call in http.calls) == 1
+
+    with pytest.raises(CutoverError, match="canonical config"):
+        RemoteIngressGate(http)._require_exact_readback(
+            inputs,
+            {
+                "account_id": ACCOUNT_ID,
+                "tunnel_id": TUNNEL_ID,
+                "source": "cloudflare",
+                "version": 6,
+                "config": None,
+            },
+        )
 
 
 def test_remote_ingress_rejects_local_config_source_and_extra_config(

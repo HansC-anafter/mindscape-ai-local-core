@@ -86,4 +86,50 @@ def test_materialize_uses_canonical_api_and_requires_diary_id(tmp_path, monkeypa
         "/api/v1/capabilities/yogacoach/practice-diaries/materialize"
     )
     assert requests[0][3]["timeout_sec"] == 30.0
-    assert requests[0][3]["retry_count"] == 1
+    assert requests[0][3]["retry_count"] == 2
+
+
+def test_materialize_keeps_higher_configured_idempotent_retry_count(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    path = tmp_path / "visuals.json"
+    path.write_text(
+        json.dumps(
+            [
+                {
+                    "asset_id": "reference-1",
+                    "role": "reference",
+                    "source_kind": "reference_asset",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    call_options = []
+    monkeypatch.setattr(
+        practice_diary,
+        "api_post",
+        lambda _base, _route, _payload, **kwargs: call_options.append(kwargs)
+        or {"summary": {"diary_id": "diary-1"}},
+    )
+    args = Namespace(
+        workspace_id="workspace-1",
+        meeting_id="meeting-1",
+        user_goal=None,
+        api_base="http://localhost:8200",
+        api_timeout_sec=5.0,
+        closeout_api_timeout_sec=30.0,
+        api_retry_count=4,
+        api_retry_backoff_sec=0.1,
+        practice_diary_reference_visual_evidence_path=str(path),
+    )
+
+    practice_diary.materialize_practice_diary(
+        args,
+        live_session_id="live-1",
+        live_practice_rollup={"practice_session_id": "practice-1"},
+        practice_review_projection={},
+    )
+
+    assert call_options[0]["retry_count"] == 4
