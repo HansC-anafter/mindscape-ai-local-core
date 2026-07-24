@@ -36,9 +36,9 @@ export function normalizeProxyLogPath(requestUrl = '/') {
   }
 }
 
-export function classifyProxyUpstream(requestUrl = '/') {
+export function classifyProxyUpstream(requestUrl = '/', method = 'GET') {
   if (isDevApiProxyPath(requestUrl)) {
-    const routePlane = resolveApiRoutePlane(requestUrl);
+    const routePlane = resolveApiRoutePlane(requestUrl, method);
     if (routePlane.plane === 'media') {
       return 'media_proxy';
     }
@@ -148,7 +148,7 @@ export function proxyHttpRequest(
   } = {},
 ) {
   const startedAt = performance.now();
-  const upstreamKind = classifyProxyUpstream(req.url);
+  const upstreamKind = classifyProxyUpstream(req.url, req.method);
   const logPath = normalizeProxyLogPath(req.url);
   let upstreamStatus = null;
   let upstreamHeaderMs = null;
@@ -157,7 +157,7 @@ export function proxyHttpRequest(
   let terminalEvent = 'finish';
   let terminalError = null;
   const target = upstreamKind.startsWith('backend_') || upstreamKind === 'media_proxy'
-    ? resolveDevApiProxyTarget(req.url)
+    ? resolveDevApiProxyTarget(req.url, req.method)
     : resolveNextProxyTarget(req.url, nextProxyTarget);
 
   const originalWrite = res.write.bind(res);

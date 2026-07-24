@@ -62,6 +62,22 @@ describe('API route plane', () => {
     });
   });
 
+  it('routes only workspace product mutations to the control plane', () => {
+    for (const path of [
+      '/api/v1/workspaces/ws-1/product-configuration',
+      '/api/v1/workspace-groups/group-1/product-configuration?workspace_id=ws-1',
+    ]) {
+      expect(resolveApiRoutePlane(path, 'GET')).toMatchObject({
+        plane: 'execution',
+        serviceId: 'local_core.execution_api',
+      });
+      expect(resolveApiRoutePlane(path, 'PUT')).toMatchObject({
+        plane: 'control',
+        serviceId: 'local_core.control_api',
+      });
+    }
+  });
+
   it('keeps host-runtime session gateway APIs on the execution plane', () => {
     expect(resolveApiRoutePlane('/api/v1/host-runtime/status')).toMatchObject({
       plane: 'execution',
