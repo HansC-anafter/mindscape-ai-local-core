@@ -68,6 +68,9 @@ from backend.app.app_bootstrap.startup_seeded_activation import (
     record_startup_seeded_activation_pending,
 )
 from backend.app.app_bootstrap.runtime_route_modules import register_runtime_route_modules
+from backend.app.app_bootstrap.workspace_product_routes import (
+    register_workspace_product_routes,
+)
 from app.services.pack_activation_service import PackActivationService
 
 logger = logging.getLogger(__name__)
@@ -84,6 +87,7 @@ def register_core_routes(app: FastAPI) -> None:
 
     app.include_router(workspace_groups_router, tags=["workspace-groups"])
     app.include_router(knowledge_foundation_router, tags=["knowledge-foundation"])
+    register_workspace_product_routes(app)
     app.include_router(playbook.router, tags=["playbook"])
     app.include_router(playbook_execution.router, tags=["playbook"])
     try:
