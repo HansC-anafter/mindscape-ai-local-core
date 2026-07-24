@@ -38,11 +38,13 @@ def _publish_test_candidate(installer, cap_dir, capability_code, manifest, resul
 
 def _write_pack(cap_dir: Path) -> None:
     tools_dir = cap_dir / "tools"
+    schema_dir = cap_dir / "schema"
     services_dir = cap_dir / "services"
     repositories_dir = cap_dir / "repositories"
     helper_dir = tools_dir / "following_analyzer"
     core_dir = services_dir / "reference_catalog_store_core"
     helper_dir.mkdir(parents=True)
+    schema_dir.mkdir(parents=True)
     core_dir.mkdir(parents=True)
     repositories_dir.mkdir(parents=True)
 
@@ -55,9 +57,23 @@ def _write_pack(cap_dir: Path) -> None:
         "VALUE = 'new-reference'\n",
         encoding="utf-8",
     )
+    (tools_dir / "README.md").write_text(
+        "# Runtime tool support\n",
+        encoding="utf-8",
+    )
+    (tools_dir / "ignored.pyc").write_bytes(b"excluded-bytecode")
     (helper_dir / "__init__.py").write_text("", encoding="utf-8")
     (helper_dir / "browser_session.py").write_text(
         "BROWSER_SESSION = True\n",
+        encoding="utf-8",
+    )
+    (schema_dir / "__init__.py").write_text("", encoding="utf-8")
+    (schema_dir / "site_style_config_schema.yaml").write_text(
+        "schema_version: 1\n",
+        encoding="utf-8",
+    )
+    (schema_dir / "thread_view_schema.json").write_text(
+        '{"type":"object"}\n',
         encoding="utf-8",
     )
     (services_dir / "__init__.py").write_text("", encoding="utf-8")
@@ -120,10 +136,25 @@ def test_runtime_assets_publish_complete_tree_from_staging(tmp_path: Path):
     target = capabilities_dir / "ig"
     assert (target / "manifest.yaml").exists()
     assert (target / "tools" / "ig_analyze_reference.py").exists()
+    assert (target / "tools" / "README.md").read_text(encoding="utf-8") == (
+        "# Runtime tool support\n"
+    )
+    assert not (target / "tools" / "ignored.pyc").exists()
     assert (target / "tools" / "following_analyzer" / "browser_session.py").exists()
+    assert (
+        target / "schema" / "site_style_config_schema.yaml"
+    ).read_text(encoding="utf-8") == "schema_version: 1\n"
+    assert (
+        target / "schema" / "thread_view_schema.json"
+    ).read_text(encoding="utf-8") == '{"type":"object"}\n'
     assert (target / "services" / "reference_index.py").exists()
     assert (target / "services" / "reference_catalog_store_core" / "writer.py").exists()
     assert (target / "repositories" / "goal_repository.py").exists()
+    assert result.installed["tool_assets"] == ["README.md"]
+    assert result.installed["schema_assets"] == [
+        "site_style_config_schema.yaml",
+        "thread_view_schema.json",
+    ]
     assert "repositories" in result.installed["runtime_namespace_dirs"]
     assert not (capabilities_dir.parent / ".capability-install-staging").exists()
 

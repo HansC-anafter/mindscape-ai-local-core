@@ -9,9 +9,31 @@ from .runtime_assets_installer_support import (
     SCRIPT_FILE_EXCLUDES,
     SCRIPT_SUFFIX_EXCLUDES,
     _clear_directory_contents,
+    _should_skip_runtime_mirror_asset,
 )
 
 logger = logging.getLogger("app.services.runtime_assets_installer")
+
+
+def _copy_top_level_support_assets(
+    *,
+    source_dir: Path,
+    target_dir: Path,
+    result: InstallResult,
+    result_category: str,
+) -> None:
+    """Copy non-Python runtime support files using the mirror exclusion policy."""
+
+    for source_file in sorted(source_dir.iterdir()):
+        if (
+            not source_file.is_file()
+            or source_file.is_symlink()
+            or source_file.suffix == ".py"
+            or _should_skip_runtime_mirror_asset(Path(source_file.name))
+        ):
+            continue
+        shutil.copy2(source_file, target_dir / source_file.name)
+        result.add_installed(result_category, source_file.name)
 
 
 class RuntimeAssetsInstallerTreeAssetsMixin:
@@ -95,6 +117,13 @@ class RuntimeAssetsInstallerTreeAssetsMixin:
             tool_name = tool_file.stem
             result.add_installed("tools", tool_name)
             logger.debug(f"Installed tool: {tool_name}")
+
+        _copy_top_level_support_assets(
+            source_dir=tools_dir,
+            target_dir=target_tools_dir,
+            result=result,
+            result_category="tool_assets",
+        )
 
         for item in tools_dir.iterdir():
             if not item.is_dir():
@@ -281,6 +310,13 @@ class RuntimeAssetsInstallerTreeAssetsMixin:
             if not schema_name.startswith("__"):
                 result.add_installed("schema_modules", schema_name)
             logger.debug(f"Installed schema module: {schema_file.name}")
+
+        _copy_top_level_support_assets(
+            source_dir=schema_dir,
+            target_dir=target_schema_dir,
+            result=result,
+            result_category="schema_assets",
+        )
 
         for item in schema_dir.iterdir():
             if item.is_dir() and not item.name.startswith("__"):
