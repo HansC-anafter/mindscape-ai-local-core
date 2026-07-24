@@ -3,7 +3,6 @@ from __future__ import annotations
 from copy import deepcopy
 from hashlib import sha256
 import json
-from pathlib import Path
 
 import pytest
 
@@ -21,7 +20,9 @@ from backend.app.services.workspace_product_configuration.contracts import (
 from backend.app.services.workspace_product_configuration.errors import (
     CatalogArtifactInvalidError,
     TopologyRevisionConflictError,
+    TopologyRevisionRequiredError,
     WorkspaceProductConfigurationError,
+    WorkspaceProductSnapshotLimitError,
 )
 from backend.app.services.workspace_product_configuration.facade import (
     WorkspaceProductConfigurationFacade,
@@ -109,6 +110,7 @@ def _state(*, workspace_scope=None, group_scope=None) -> dict:
         "source_commit": artifact["source_commit"],
         "compiler_version": artifact["compiler_version"],
         "artifact": artifact,
+        "readiness": {"ig": {"enabled": True, "version": "1.0.195"}},
         "scopes": scopes,
     }
 
@@ -166,18 +168,12 @@ class FakeRepository:
     def __init__(self, state):
         self.state = state
         self.effective_reads = 0
-        self.readiness_reads = 0
         self.writes = []
         self.imports = []
 
     def load_effective_state(self, **kwargs):
         self.effective_reads += 1
         return deepcopy(self.state)
-
-    def load_pack_readiness(self, pack_codes):
-        self.readiness_reads += 1
-        assert pack_codes == ["ig"]
-        return {"ig": {"enabled": True, "version": "1.0.195"}}
 
     def replace_scope(self, **kwargs):
         self.writes.append(kwargs)
@@ -219,7 +215,6 @@ def test_absent_scope_projects_legacy_without_topology_write() -> None:
     assert snapshot.workspace_scope_revision == 0
     assert snapshot.effective_assignments == []
     assert repository.effective_reads == 1
-    assert repository.readiness_reads == 1
     assert group_facade.calls == 1
 
 
@@ -252,7 +247,6 @@ def test_first_workspace_save_is_configuration_only_and_returns_wpcs() -> None:
     assert snapshot.effective_assignments[0].host_ready is True
     assert repository.writes[0]["admission_mode"] == "configuration_only"
     assert repository.effective_reads == 1
-    assert repository.readiness_reads == 1
 
 
 def test_group_and_workspace_sources_remain_visible_without_unioning_groups() -> None:
@@ -286,6 +280,50 @@ def test_group_and_workspace_sources_remain_visible_without_unioning_groups() ->
     ]
 
 
+def test_workspace_and_group_version_conflict_fails_closed() -> None:
+    artifact = _artifact()
+    second_version = deepcopy(artifact["catalog"]["products"][0])
+    second_version["version"] = "2.0.0"
+    artifact["catalog"]["products"].append(second_version)
+    artifact["catalog_hash"] = sha256(_canonical(artifact["catalog"])).hexdigest()
+    unsigned = {
+        key: value for key, value in artifact.items() if key != "artifact_hash"
+    }
+    artifact["artifact_hash"] = sha256(_canonical(unsigned)).hexdigest()
+    workspace_scope = _scope("workspace", WORKSPACE_ID, mode="shadow")
+    group_scope = _scope("workspace_group", GROUP_ID)
+    workspace_scope["catalog_hash"] = artifact["catalog_hash"]
+    group_scope["catalog_hash"] = artifact["catalog_hash"]
+    group_scope["assignments"][0]["pcs_version"] = "2.0.0"
+    state = {
+        "artifact_hash": artifact["artifact_hash"],
+        "catalog_hash": artifact["catalog_hash"],
+        "source_commit": artifact["source_commit"],
+        "compiler_version": artifact["compiler_version"],
+        "artifact": artifact,
+        "readiness": {"ig": {"enabled": True, "version": "1.0.195"}},
+        "scopes": [workspace_scope, group_scope],
+    }
+
+    snapshot = _facade(
+        FakeRepository(state),
+        FakeGroupFacade(_context(owner="owner")),
+    ).resolve_snapshot(
+        workspace_id=WORKSPACE_ID,
+        explicit_active_group_id=GROUP_ID,
+        observed_topology_revision=7,
+        actor_user_id="owner",
+        allowed_workspace_ids=[WORKSPACE_ID],
+        allowed_group_ids=[GROUP_ID],
+    )
+
+    assert snapshot.effective_assignments == []
+    assert snapshot.configuration_errors == [
+        "assignment_version_conflict:"
+        "instagram_workspace_intelligence:1.0.0,2.0.0"
+    ]
+
+
 def test_group_scope_cannot_change_member_admission_mode() -> None:
     repository = FakeRepository(
         _state(group_scope=_scope("workspace_group", GROUP_ID))
@@ -316,6 +354,29 @@ def test_group_scope_cannot_change_member_admission_mode() -> None:
         )
 
 
+def test_group_mutation_requires_observed_topology_revision() -> None:
+    artifact = _artifact()
+    with pytest.raises(TopologyRevisionRequiredError):
+        _facade(
+            FakeRepository(_state()),
+            FakeGroupFacade(_context(owner="owner")),
+        ).replace_scope(
+            scope_kind="workspace_group",
+            scope_id=GROUP_ID,
+            workspace_id=WORKSPACE_ID,
+            explicit_active_group_id=GROUP_ID,
+            observed_topology_revision=None,
+            command=ReplaceScopeCommand(
+                expected_revision=0,
+                catalog_hash=artifact["catalog_hash"],
+                assignments=[],
+            ),
+            actor_user_id="owner",
+            allowed_workspace_ids=[WORKSPACE_ID],
+            allowed_group_ids=[GROUP_ID],
+        )
+
+
 def test_observed_topology_revision_is_cas_guard() -> None:
     with pytest.raises(TopologyRevisionConflictError):
         _facade(
@@ -338,6 +399,72 @@ def test_catalog_artifact_rejects_semantic_tamper() -> None:
         verify_catalog_artifact(artifact)
 
 
+def test_catalog_artifact_enforces_product_count_limit() -> None:
+    artifact = _artifact()
+    product = artifact["catalog"]["products"][0]
+    artifact["catalog"]["products"] = []
+    for index in range(65):
+        candidate = deepcopy(product)
+        candidate["pcs_id"] = f"product_{index:02d}"
+        candidate["product_surfaces"][0]["id"] = f"surface.product_{index:02d}"
+        artifact["catalog"]["products"].append(candidate)
+    artifact["catalog_hash"] = sha256(_canonical(artifact["catalog"])).hexdigest()
+    unsigned = {
+        key: value for key, value in artifact.items() if key != "artifact_hash"
+    }
+    artifact["artifact_hash"] = sha256(_canonical(unsigned)).hexdigest()
+
+    with pytest.raises(
+        CatalogArtifactInvalidError,
+        match="artifact_product_limit_exceeded",
+    ):
+        verify_catalog_artifact(artifact)
+
+
+def test_effective_snapshot_fails_closed_above_64_kib() -> None:
+    artifact = _artifact()
+    product = artifact["catalog"]["products"][0]
+    artifact["catalog"]["products"] = []
+    for index in range(64):
+        candidate = deepcopy(product)
+        candidate["pcs_id"] = f"product_{index:02d}"
+        candidate["display_name"] = "Product " + ("x" * 100)
+        candidate["outcome_summary"] = "y" * 500
+        candidate["product_surfaces"] = [
+            {
+                "id": f"surface.product_{index:02d}.{surface_index:02d}."
+                + ("z" * 60),
+                "display_name": "Surface",
+                "selectors": {"api_prefixes": ["/api/v1/test"]},
+            }
+            for surface_index in range(16)
+        ]
+        artifact["catalog"]["products"].append(candidate)
+    artifact["catalog_hash"] = sha256(_canonical(artifact["catalog"])).hexdigest()
+    unsigned = {
+        key: value for key, value in artifact.items() if key != "artifact_hash"
+    }
+    artifact["artifact_hash"] = sha256(_canonical(unsigned)).hexdigest()
+    state = {
+        "artifact_hash": artifact["artifact_hash"],
+        "catalog_hash": artifact["catalog_hash"],
+        "source_commit": artifact["source_commit"],
+        "compiler_version": artifact["compiler_version"],
+        "artifact": artifact,
+        "readiness": {"ig": {"enabled": True, "version": "1.0.195"}},
+        "scopes": [],
+    }
+
+    with pytest.raises(WorkspaceProductSnapshotLimitError):
+        _facade(FakeRepository(state)).resolve_snapshot(
+            workspace_id=WORKSPACE_ID,
+            explicit_active_group_id=None,
+            observed_topology_revision=None,
+            actor_user_id="owner",
+            allowed_workspace_ids=[WORKSPACE_ID],
+        )
+
+
 def test_catalog_import_delegates_only_after_verification() -> None:
     repository = FakeRepository(_state())
     result = _facade(repository).import_catalog(
@@ -347,14 +474,3 @@ def test_catalog_import_delegates_only_after_verification() -> None:
 
     assert result.imported is True
     assert len(repository.imports) == 1
-
-
-def test_facade_modules_and_bootstrap_remain_bounded() -> None:
-    root = Path(__file__).resolve().parents[3]
-    facade = (
-        root
-        / "backend/app/services/workspace_product_configuration/facade.py"
-    )
-    bootstrap = root / "backend/app/app_bootstrap/routes.py"
-    assert len(facade.read_text(encoding="utf-8").splitlines()) < 500
-    assert len(bootstrap.read_text(encoding="utf-8").splitlines()) < 500

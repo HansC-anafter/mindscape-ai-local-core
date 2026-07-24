@@ -13,6 +13,7 @@ def test_workspace_product_configuration_uses_gate0_branch() -> None:
     source = MIGRATION.read_text(encoding="utf-8")
     assert 'revision = "20260725120000"' in source
     assert 'down_revision = "20260715130000"' in source
+    assert 'depends_on = "20260716020000"' in source
     assert "product_capability_catalog_versions" in source
     assert "workspace_product_configuration_scopes" in source
     assert "workspace_product_configuration_assignments" in source

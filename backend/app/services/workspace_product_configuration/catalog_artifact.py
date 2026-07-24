@@ -13,6 +13,8 @@ from .errors import CatalogArtifactInvalidError
 
 
 MAX_ARTIFACT_BYTES = 128 * 1024
+MAX_PRODUCTS = 64
+MAX_PACKS_PER_PRODUCT = 64
 
 
 def canonical_bytes(payload: Any) -> bytes:
@@ -51,6 +53,8 @@ def _validate_catalog(catalog: dict[str, Any]) -> None:
     products = catalog.get("products")
     if not isinstance(products, list) or not products:
         raise CatalogArtifactInvalidError("artifact_products_missing")
+    if len(products) > MAX_PRODUCTS:
+        raise CatalogArtifactInvalidError("artifact_product_limit_exceeded")
     identities: set[tuple[str, str]] = set()
     surfaces: set[str] = set()
     for product in products:
@@ -66,6 +70,10 @@ def _validate_catalog(catalog: dict[str, Any]) -> None:
         if not isinstance(closure, list) or not closure:
             raise CatalogArtifactInvalidError(
                 f"artifact_product_closure_missing:{pcs_id}"
+            )
+        if len(closure) > MAX_PACKS_PER_PRODUCT:
+            raise CatalogArtifactInvalidError(
+                f"artifact_product_closure_limit_exceeded:{pcs_id}"
             )
         product_surfaces = product.get("product_surfaces")
         if not isinstance(product_surfaces, list) or not product_surfaces:

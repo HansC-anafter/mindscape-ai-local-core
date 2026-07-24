@@ -13,7 +13,7 @@ from sqlalchemy.dialects import postgresql
 revision = "20260725120000"
 down_revision = "20260715130000"
 branch_labels = None
-depends_on = None
+depends_on = "20260716020000"
 
 
 def upgrade() -> None:

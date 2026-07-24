@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Sequence
+from typing import Any
 from uuid import uuid4
 
 from sqlalchemy import text
@@ -10,7 +10,11 @@ from sqlalchemy import text
 from backend.app.services.stores.postgres_base import PostgresStoreBase
 
 from .contracts import CatalogArtifactEnvelope, ProductAssignment, ScopeKind
-from .errors import ActiveCatalogMissingError, ScopeRevisionConflictError
+from .errors import (
+    ActiveCatalogMissingError,
+    CatalogRevisionConflictError,
+    ScopeRevisionConflictError,
+)
 
 
 class WorkspaceProductConfigurationRepository(PostgresStoreBase):
@@ -114,6 +118,17 @@ class WorkspaceProductConfigurationRepository(PostgresStoreBase):
                         WHERE status = 'active'
                         LIMIT 1
                     ),
+                    required_pack_codes AS (
+                        SELECT DISTINCT pack.value ->> 'code' AS pack_code
+                        FROM active_catalog,
+                        LATERAL jsonb_array_elements(
+                            active_catalog.artifact_json
+                                -> 'catalog' -> 'products'
+                        ) AS product(value),
+                        LATERAL jsonb_array_elements(
+                            product.value -> 'pack_closure'
+                        ) AS pack(value)
+                    ),
                     selected_scopes AS (
                         SELECT
                             scope.scope_kind,
@@ -156,6 +171,32 @@ class WorkspaceProductConfigurationRepository(PostgresStoreBase):
                         (SELECT artifact_json FROM active_catalog) AS artifact_json,
                         COALESCE(
                             (
+                                SELECT jsonb_object_agg(
+                                    required.pack_code,
+                                    jsonb_build_object(
+                                        'enabled', installed.enabled,
+                                        'version', COALESCE(receipt.version, '')
+                                    )
+                                )
+                                FROM required_pack_codes AS required
+                                JOIN installed_packs AS installed
+                                  ON installed.pack_id = required.pack_code
+                                LEFT JOIN LATERAL (
+                                    SELECT install_commit.version
+                                    FROM pack_install_commit_receipts
+                                        AS install_commit
+                                    WHERE install_commit.pack_id =
+                                        required.pack_code
+                                    ORDER BY
+                                        install_commit.committed_at DESC,
+                                        install_commit.install_id DESC
+                                    LIMIT 1
+                                ) AS receipt ON TRUE
+                            ),
+                            '{}'::jsonb
+                        ) AS readiness,
+                        COALESCE(
+                            (
                                 SELECT jsonb_agg(
                                     jsonb_build_object(
                                         'scope_kind', scope_kind,
@@ -181,39 +222,8 @@ class WorkspaceProductConfigurationRepository(PostgresStoreBase):
             "source_commit": row.source_commit,
             "compiler_version": row.compiler_version,
             "artifact": self.deserialize_json(row.artifact_json, default={}),
+            "readiness": self.deserialize_json(row.readiness, default={}),
             "scopes": self.deserialize_json(row.scopes, default=[]),
-        }
-
-    def load_pack_readiness(
-        self,
-        pack_codes: Sequence[str],
-    ) -> dict[str, dict[str, Any]]:
-        if not pack_codes:
-            return {}
-        with self.get_connection() as conn:
-            rows = conn.execute(
-                text(
-                    """
-                    SELECT
-                        pack_id,
-                        enabled,
-                        COALESCE(
-                            metadata ->> 'version',
-                            metadata -> 'manifest' ->> 'version',
-                            ''
-                        ) AS version
-                    FROM installed_packs
-                    WHERE pack_id = ANY(CAST(:pack_codes AS varchar[]))
-                    """
-                ),
-                {"pack_codes": sorted(set(pack_codes))},
-            ).fetchall()
-        return {
-            row.pack_id: {
-                "enabled": bool(row.enabled),
-                "version": str(row.version or ""),
-            }
-            for row in rows
         }
 
     def replace_scope(
@@ -241,7 +251,10 @@ class WorkspaceProductConfigurationRepository(PostgresStoreBase):
             if catalog_row is None:
                 raise ActiveCatalogMissingError()
             if catalog_row.catalog_hash != catalog_hash:
-                raise ValueError("product_catalog_revision_conflict")
+                raise CatalogRevisionConflictError(
+                    expected_catalog_hash=catalog_hash,
+                    current_catalog_hash=catalog_row.catalog_hash,
+                )
 
             existing = conn.execute(
                 text(
@@ -259,10 +272,11 @@ class WorkspaceProductConfigurationRepository(PostgresStoreBase):
                 raise ScopeRevisionConflictError(
                     expected_revision=expected_revision,
                     actual_revision=actual_revision,
+                    current_catalog_hash=catalog_row.catalog_hash,
                 )
             new_revision = actual_revision + 1
             if existing is None:
-                conn.execute(
+                inserted = conn.execute(
                     text(
                         """
                         INSERT INTO workspace_product_configuration_scopes
@@ -271,6 +285,8 @@ class WorkspaceProductConfigurationRepository(PostgresStoreBase):
                         VALUES
                             (:scope_kind, :scope_id, :catalog_hash, :revision,
                              :admission_mode, :updated_by)
+                        ON CONFLICT (scope_kind, scope_id) DO NOTHING
+                        RETURNING revision
                         """
                     ),
                     {
@@ -281,7 +297,28 @@ class WorkspaceProductConfigurationRepository(PostgresStoreBase):
                         "admission_mode": admission_mode,
                         "updated_by": actor_user_id,
                     },
-                )
+                ).fetchone()
+                if inserted is None:
+                    concurrent = conn.execute(
+                        text(
+                            """
+                            SELECT revision
+                            FROM workspace_product_configuration_scopes
+                            WHERE scope_kind = :scope_kind
+                              AND scope_id = :scope_id
+                            FOR UPDATE
+                            """
+                        ),
+                        {
+                            "scope_kind": scope_kind,
+                            "scope_id": scope_id,
+                        },
+                    ).fetchone()
+                    raise ScopeRevisionConflictError(
+                        expected_revision=expected_revision,
+                        actual_revision=int(concurrent.revision),
+                        current_catalog_hash=catalog_row.catalog_hash,
+                    )
             else:
                 conn.execute(
                     text(
