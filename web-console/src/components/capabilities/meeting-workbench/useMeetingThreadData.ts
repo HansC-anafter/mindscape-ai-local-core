@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetState
 
 import { subscribeEventStream, type UnifiedEvent } from '@/components/workspace/eventProjector';
 import { postApiJson } from './meetingApi';
+import type { MeetingProductAdmissionRequest } from '@/components/workspace-products/workspaceMeetingAdmission';
 import {
   isMeetingCommandLedgerUpdatedFor,
   MEETING_COMMAND_LEDGER_UPDATED_EVENT,
@@ -24,6 +25,7 @@ interface UseMeetingThreadDataArgs {
   workspaceId: string;
   apiUrl: string;
   meetingId?: string | null;
+  productAdmission?: MeetingProductAdmissionRequest | null;
 }
 
 const MEETING_RUNTIME_REFRESH_EVENT_TYPES = [
@@ -93,6 +95,7 @@ export function useMeetingThreadData({
   workspaceId,
   apiUrl,
   meetingId,
+  productAdmission,
 }: UseMeetingThreadDataArgs): MeetingThreadDataState {
   const [activeMeetingId, setActiveMeetingId] = useState(meetingId ?? '');
   const [meetingSessions, setMeetingSessions] = useState<MeetingSessionSummary[]>([]);
@@ -178,6 +181,7 @@ export function useMeetingThreadData({
             blank_session: true,
             ...metadata,
           },
+          ...(productAdmission || {}),
         },
       );
       if (!isRecord(payload) || typeof payload.id !== 'string') {

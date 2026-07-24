@@ -42,6 +42,8 @@ interface SettingsRouteState {
   activeModel?: string;
   activeService?: string;
   workspaceId?: string;
+  activeGroupId?: string;
+  topologyRevision?: number;
   initialCatalogCategory?: string;
 }
 
@@ -78,6 +80,13 @@ function resolveSettingsRoute(searchParams: SearchParamsReader | null): Settings
     activeModel: searchParams?.get('model') || undefined,
     activeService: searchParams?.get('service') || undefined,
     workspaceId: searchParams?.get('workspace_id') || undefined,
+    activeGroupId: searchParams?.get('active_group_id') || undefined,
+    topologyRevision: (() => {
+      const raw = searchParams?.get('topology_revision');
+      if (!raw) return undefined;
+      const value = Number(raw);
+      return Number.isInteger(value) && value > 0 ? value : undefined;
+    })(),
     initialCatalogCategory: searchParams?.get('catalog') || undefined,
   };
 }
@@ -93,6 +102,8 @@ export default function SettingsPage() {
   const [activeModel, setActiveModel] = useState<string | undefined>(initialRoute.activeModel);
   const [activeService, setActiveService] = useState<string | undefined>(initialRoute.activeService);
   const [workspaceId, setWorkspaceId] = useState<string | undefined>(initialRoute.workspaceId);
+  const [activeGroupId, setActiveGroupId] = useState<string | undefined>(initialRoute.activeGroupId);
+  const [topologyRevision, setTopologyRevision] = useState<number | undefined>(initialRoute.topologyRevision);
   const [initialCatalogCategory, setInitialCatalogCategory] = useState<string | undefined>(initialRoute.initialCatalogCategory);
 
   // Ref for Chat-First UX - allows buttons to trigger assistant chat
@@ -109,6 +120,8 @@ export default function SettingsPage() {
     setActiveModel(route.activeModel);
     setActiveService(route.activeService);
     setWorkspaceId(route.workspaceId);
+    setActiveGroupId(route.activeGroupId);
+    setTopologyRevision(route.topologyRevision);
     setInitialCatalogCategory(route.initialCatalogCategory);
   }, [searchParams]);
 
@@ -139,6 +152,12 @@ export default function SettingsPage() {
     if (workspaceId) {
       params?.set('workspace_id', workspaceId);
     }
+    if (activeGroupId) {
+      params?.set('active_group_id', activeGroupId);
+    }
+    if (topologyRevision) {
+      params?.set('topology_revision', String(topologyRevision));
+    }
     if (initialCatalogCategory && tab === 'basic') {
       params?.set('catalog', initialCatalogCategory);
     }
@@ -151,6 +170,8 @@ export default function SettingsPage() {
       activeSection={activeSection}
       activeProvider={activeProvider}
       workspaceId={workspaceId}
+      activeGroupId={activeGroupId}
+      topologyRevision={topologyRevision}
       initialCatalogCategory={initialCatalogCategory}
       onCredentialsNavigate={(section, provider) => handleNavigate('credentials', section, provider)}
       onSendToAssistant={handleSendToAssistant}

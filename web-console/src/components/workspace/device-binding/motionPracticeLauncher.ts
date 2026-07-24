@@ -40,6 +40,8 @@ export type MotionPracticeInstructionRef = Record<string, unknown>;
 export type MotionPracticeLaunchInput = {
   apiUrl: string;
   workspaceId: string;
+  activeGroupId?: string;
+  observedTopologyRevision?: number;
   sourceSession: DeviceSessionEntry;
   meetingSessionId?: string;
   coachPack: MotionPracticeCoachPack;
@@ -143,6 +145,13 @@ async function startMotionPracticeMeetingSession(
       method: 'POST',
       body: JSON.stringify({
         meeting_type: 'motion_practice',
+        active_group_id: input.activeGroupId,
+        observed_topology_revision: input.observedTopologyRevision,
+        product_surface_id: 'yogacoach.live_practice',
+        product_selector_kind: 'api_prefix',
+        product_selector_key: '/api/v1/capabilities/yogacoach',
+        operation_type: 'generate',
+        execution_backend: 'local',
         agenda: [
           'Bind the selected motion source to an AI practice workflow.',
           'Preserve compact motion analysis refs for guidance and practice records.',

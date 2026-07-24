@@ -20,6 +20,7 @@ import {
   type MotionPracticeInstructionSourceState,
 } from './MotionPracticeInstructionSourcePanel';
 import { MotionPracticeRecordsPanel } from './MotionPracticeRecordsPanel';
+import { useWorkspaceGroupOptional } from '@/contexts/WorkspaceGroupContext';
 import {
   MotionPracticeSessionStatusPanel,
   type MotionPracticeLaunchState,
@@ -69,6 +70,7 @@ export function MotionPracticeRailController({
   defaultPracticeMode = 'record_summary',
   initialInstructionSource = null,
 }: MotionPracticeRailControllerProps) {
+  const workspaceGroup = useWorkspaceGroupOptional();
   const [selectedSessionIdState, setSelectedSessionIdState] = useState<string>('');
   const [coachPack, setCoachPack] = useState<MotionPracticeCoachPack>(coachPackLock || 'yogacoach');
   const [practiceMode, setPracticeMode] = useState<MotionPracticeMode>(defaultPracticeMode);
@@ -140,6 +142,8 @@ export function MotionPracticeRailController({
     const launchInput: MotionPracticeLaunchInput = {
       apiUrl,
       workspaceId,
+      activeGroupId: workspaceGroup?.activeGroup?.id,
+      observedTopologyRevision: workspaceGroup?.activeGroup?.revision,
       sourceSession: selectedSession,
       coachPack,
       practiceMode,

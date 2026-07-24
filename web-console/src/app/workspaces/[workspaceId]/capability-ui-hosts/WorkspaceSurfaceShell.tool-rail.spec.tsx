@@ -80,7 +80,7 @@ describe('WorkspaceSurfaceShell tool rail', () => {
     expect(useRunObservationsSummary).not.toHaveBeenCalled();
   });
 
-  it('does not register remote-only forbidden controls or issue their background reads', async () => {
+  it('keeps remote controls hidden and issues only the one source WPCS read', async () => {
     vi.useFakeTimers();
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: true,
@@ -103,7 +103,14 @@ describe('WorkspaceSurfaceShell tool rail', () => {
       await act(async () => {
         await vi.advanceTimersByTimeAsync(60_000);
       });
-      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'http://api.test/api/v1/workspaces/ws_remote/product-configuration/effective',
+        expect.objectContaining({
+          cache: 'no-store',
+          credentials: 'same-origin',
+        }),
+      );
     } finally {
       vi.useRealTimers();
     }

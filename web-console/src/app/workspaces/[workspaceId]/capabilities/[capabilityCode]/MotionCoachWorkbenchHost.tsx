@@ -35,6 +35,7 @@ import {
 import type { DeviceSessionEntry } from '@/lib/device-binding/deviceBindingClient';
 import type { CapabilityTaskConfirmationBridge } from '@/types/capability-workbench';
 import { requestPackScopeToolClose } from '@/components/capabilities/workbench/packScopeToolEvents';
+import { useWorkspaceGroupOptional } from '@/contexts/WorkspaceGroupContext';
 import {
   buildDancePracticeWorkbenchState,
   buildYogaPracticeWorkbenchState,
@@ -181,6 +182,7 @@ function MotionCoachWorkbenchHostContent({
   surfacePath,
   taskConfirmation,
 }: MotionCoachWorkbenchHostProps) {
+  const workspaceGroup = useWorkspaceGroupOptional();
   const searchParams = useSearchParams();
   const captureSourceBridge = useCaptureSourceBridge();
   const { sessions, referenceLessonState } = captureSourceBridge;
@@ -311,6 +313,8 @@ function MotionCoachWorkbenchHostContent({
     const input: MotionPracticeLaunchInput = {
       apiUrl,
       workspaceId,
+      activeGroupId: workspaceGroup?.activeGroup?.id,
+      observedTopologyRevision: workspaceGroup?.activeGroup?.revision,
       sourceSession: selectedSession,
       meetingSessionId: referencePlaybackPlan.meetingId,
       coachPack: resolveCoachPack(capabilityCode),
@@ -379,6 +383,8 @@ function MotionCoachWorkbenchHostContent({
     capabilityCode,
     referencePlaybackPlan,
     selectedSession,
+    workspaceGroup?.activeGroup?.id,
+    workspaceGroup?.activeGroup?.revision,
     workspaceId,
   ]);
 

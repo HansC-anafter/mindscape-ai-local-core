@@ -238,6 +238,7 @@ export const settingsZhTW = {
   keyboardShortcutsEmpty: '目前沒有快捷鍵指令。',
   toolsAndIntegrations: '工具與整合',
   toolsAndIntegrationsDescription: '連接工具與第三方服務，讓 AI 成員可以幫你處理真實工作',
+  workspaceProducts: '工作區產品',
   capabilityPacks: '能力包管理',
   capabilityPacksDescription: '一鍵安裝 AI 成員 + Playbooks 組合，快速組裝你的 AI 團隊',
   capabilitySuites: '能力套裝',

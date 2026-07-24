@@ -1,7 +1,5 @@
 'use client';
-
 import React, { useEffect } from 'react';
-
 import { useT } from '@/lib/i18n';
 import { CANVAS_ZOOM_STEP } from './meetingWorkbenchConstants';
 import { getMentionQuery, rememberAppliedMentionItem } from './meetingMentions';
@@ -15,6 +13,7 @@ import { MeetingWorkbenchStageLayout } from './MeetingWorkbenchStageLayout';
 import { createMeetingWorkbenchSecondarySurfaceSlots } from './MeetingWorkbenchSecondarySurfaceSlots';
 import { useMeetingWorkbenchData } from './useMeetingWorkbenchData';
 import { useMeetingWorkbenchGraphModel } from './useMeetingWorkbenchGraphModel';
+import { useMeetingProductAdmission } from './useMeetingProductAdmission';
 import { useMeetingMentionItems } from './useMeetingMentionItems';
 import { useMeetingSessionNotification } from './useMeetingSessionNotification';
 import { useMeetingWorkbenchShellState } from './useMeetingWorkbenchShellState';
@@ -33,7 +32,6 @@ import type {
   MeetingMentionItem,
   MeetingSessionSummary,
 } from './meetingWorkbenchTypes';
-
 export function AOLMeetingBottomShell({
   workspaceId,
   apiUrl,
@@ -47,6 +45,14 @@ export function AOLMeetingBottomShell({
   onSwitchObject,
 }: AOLMeetingBottomShellProps) {
   const t = useT();
+  const {
+    productAdmission: meetingProductAdmission,
+    startBlockReason,
+  } = useMeetingProductAdmission({
+    capabilityCode,
+    surfaceRoute,
+    workspaceId,
+  });
   const viewportClass = useMeetingWorkbenchViewportClass();
   const compactViewport = isCompactMeetingWorkbenchViewport(viewportClass);
   const {
@@ -105,6 +111,7 @@ export function AOLMeetingBottomShell({
     attachResponse,
     activeMentionQuery,
     activeInspector,
+    productAdmission: meetingProductAdmission,
   });
   useEffect(() => {
     setLocalTasks([]);
@@ -177,6 +184,9 @@ export function AOLMeetingBottomShell({
 
   async function handleStartBlankMeetingSession() {
     try {
+      if (startBlockReason) {
+        throw new Error(startBlockReason);
+      }
       const session = await startBlankMeetingSession({
         active_capability_code: capabilityCode,
         active_pack_code: capabilityCode,
