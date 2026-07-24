@@ -27,6 +27,15 @@ def _control_ws_url(api_base: str, workspace_id: str, pairing_code: str) -> str:
     return urlunsplit((scheme, parsed.netloc, path, "", ""))
 
 
+def _control_ws_connect_options() -> dict[str, Any]:
+    return {
+        "open_timeout": 15,
+        "close_timeout": 5,
+        # Application heartbeats own the bounded device-session lease.
+        "ping_interval": None,
+    }
+
+
 def _write_private_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f"{path.name}.tmp-{os.getpid()}")
@@ -54,6 +63,17 @@ def _receive_event(socket: Any, expected_type: str) -> dict[str, Any]:
     raise RuntimeError(f"device_source_event_missing:{expected_type}")
 
 
+def _heartbeat_ack_timeout_is_recoverable(
+    exc: RuntimeError,
+    *,
+    consecutive_timeouts: int,
+    miss_limit: int,
+) -> bool:
+    if not str(exc).startswith("device_source_event_timeout:heartbeat_ack"):
+        raise exc
+    return consecutive_timeouts < max(1, miss_limit)
+
+
 class _DeviceControlReader:
     """Continuously drain control frames so websocket keepalives remain serviced."""
 
@@ -74,7 +94,13 @@ class _DeviceControlReader:
     def start(self) -> None:
         self._thread.start()
 
-    def wait_for(self, expected_type: str, *, timeout: float = 15.0) -> dict[str, Any]:
+    def wait_for(
+        self,
+        expected_type: str,
+        *,
+        timeout: float = 15.0,
+        heartbeat_sequence: int | None = None,
+    ) -> dict[str, Any]:
         deadline = time.monotonic() + timeout
         while True:
             remaining = deadline - time.monotonic()
@@ -89,7 +115,13 @@ class _DeviceControlReader:
             event_type = str(event.get("type") or "")
             if event_type in {"error", "reader_failed"}:
                 raise RuntimeError(str(event.get("reason") or "device_source_error"))
-            if event_type == expected_type:
+            if event_type == expected_type and (
+                heartbeat_sequence is None
+                or (
+                    type(event.get("heartbeat_sequence")) is int
+                    and event["heartbeat_sequence"] == heartbeat_sequence
+                )
+            ):
                 return event
 
     def close(self) -> None:
@@ -142,10 +174,6 @@ def _create_source_session(
     request_post: Callable[..., Any] = requests.post,
     connect: Callable[..., Any] | None = None,
 ) -> tuple[Any, dict[str, Any]]:
-    if connect is None:
-        from websocket import create_connection
-
-        connect = create_connection
     response = request_post(
         f"{api_base.rstrip('/')}/api/v1/workspaces/"
         f"{quote(workspace_id, safe='')}/device-bindings/pairing-codes",
@@ -157,11 +185,20 @@ def _create_source_session(
     pairing_code = str(pairing.get("pairing_code") or "").strip()
     if not pairing_code:
         raise RuntimeError("device_pairing_code_missing")
-    socket = connect(
-        _control_ws_url(api_base, workspace_id, pairing_code),
-        timeout=15,
-        enable_multithread=True,
-    )
+    control_url = _control_ws_url(api_base, workspace_id, pairing_code)
+    if connect is None:
+        from websockets.sync.client import connect as websocket_connect
+
+        socket = websocket_connect(
+            control_url,
+            **_control_ws_connect_options(),
+        )
+    else:
+        socket = connect(
+            control_url,
+            timeout=15,
+            enable_multithread=True,
+        )
     socket.send(
         json.dumps(
             {
@@ -187,6 +224,9 @@ def _create_source_session(
         "device_session_id": session_id,
         "device_id": device_id,
         "connected_at_epoch": time.time(),
+        "consecutive_heartbeat_timeouts": 0,
+        "heartbeat_timeout_count": 0,
+        "last_heartbeat_sequence": 0,
         "last_heartbeat_at_epoch": None,
     }
 
@@ -199,6 +239,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device-id", default="formal-whip-e2e-source")
     parser.add_argument("--display-name", default="Formal WHIP E2E source")
     parser.add_argument("--heartbeat-seconds", type=float, default=20.0)
+    parser.add_argument("--heartbeat-ack-timeout-seconds", type=float, default=10.0)
+    parser.add_argument("--heartbeat-miss-limit", type=int, default=4)
     return parser.parse_args()
 
 
@@ -231,14 +273,47 @@ def main() -> int:
         reader = _DeviceControlReader(socket)
         reader.start()
         next_heartbeat = time.monotonic()
+        consecutive_heartbeat_timeouts = 0
+        heartbeat_sequence = 0
         while not stop_requested:
             now = time.monotonic()
             if now < next_heartbeat:
                 time.sleep(min(0.25, next_heartbeat - now))
                 continue
-            socket.send('{"type":"heartbeat"}')
-            reader.wait_for("heartbeat_ack")
-            state["last_heartbeat_at_epoch"] = time.time()
+            heartbeat_sequence += 1
+            socket.send(
+                json.dumps(
+                    {
+                        "type": "heartbeat",
+                        "heartbeat_sequence": heartbeat_sequence,
+                    },
+                    separators=(",", ":"),
+                )
+            )
+            try:
+                reader.wait_for(
+                    "heartbeat_ack",
+                    timeout=max(1.0, args.heartbeat_ack_timeout_seconds),
+                    heartbeat_sequence=heartbeat_sequence,
+                )
+            except RuntimeError as exc:
+                consecutive_heartbeat_timeouts += 1
+                state["heartbeat_timeout_count"] += 1
+                state["consecutive_heartbeat_timeouts"] = (
+                    consecutive_heartbeat_timeouts
+                )
+                state["last_heartbeat_timeout_at_epoch"] = time.time()
+                if not _heartbeat_ack_timeout_is_recoverable(
+                    exc,
+                    consecutive_timeouts=consecutive_heartbeat_timeouts,
+                    miss_limit=args.heartbeat_miss_limit,
+                ):
+                    raise RuntimeError("device_source_heartbeat_ack_miss_limit")
+            else:
+                consecutive_heartbeat_timeouts = 0
+                state["consecutive_heartbeat_timeouts"] = 0
+                state["last_heartbeat_sequence"] = heartbeat_sequence
+                state["last_heartbeat_at_epoch"] = time.time()
             _write_private_json(args.state_path, state)
             next_heartbeat = now + max(1.0, args.heartbeat_seconds)
         socket.send('{"type":"session_close"}')
