@@ -23,8 +23,10 @@ from .contracts import (
 )
 from .errors import (
     ActiveCatalogMissingError,
+    CatalogRevisionConflictError,
     ScopeAccessError,
     TopologyRevisionConflictError,
+    TopologyRevisionRequiredError,
     WorkspaceProductConfigurationError,
 )
 from .projection import build_snapshot
@@ -92,14 +94,11 @@ class WorkspaceProductConfigurationFacade:
             group_id=context.group_id if context else None,
         )
         catalog = self._active_catalog(state)
-        readiness = self.repository.load_pack_readiness(
-            self._pack_codes(catalog)
-        )
         return self._build_snapshot(
             workspace_id=workspace_id,
             context=context,
             state=state,
-            readiness=readiness,
+            readiness=state["readiness"],
             actor_user_id=actor_user_id,
         )
 
@@ -118,6 +117,11 @@ class WorkspaceProductConfigurationFacade:
     ) -> WorkspaceCapabilitySetSnapshot:
         """CAS replace and return committed WPCS without a follow-up GET."""
         self._require_workspace_access(workspace_id, allowed_workspace_ids)
+        if (
+            explicit_active_group_id is not None
+            and observed_topology_revision is None
+        ):
+            raise TopologyRevisionRequiredError()
         context = self._resolve_group_context(
             workspace_id=workspace_id,
             explicit_active_group_id=explicit_active_group_id,
@@ -138,8 +142,9 @@ class WorkspaceProductConfigurationFacade:
         )
         catalog = self._active_catalog(state)
         if command.catalog_hash != state["catalog_hash"]:
-            raise WorkspaceProductConfigurationError(
-                "product_catalog_revision_conflict"
+            raise CatalogRevisionConflictError(
+                expected_catalog_hash=command.catalog_hash,
+                current_catalog_hash=state["catalog_hash"],
             )
         self._validate_assignments(command.assignments, catalog)
         mode = self._resolve_admission_mode(
@@ -148,9 +153,6 @@ class WorkspaceProductConfigurationFacade:
             expected_revision=command.expected_revision,
             requested_mode=command.admission_mode,
             state=state,
-        )
-        readiness = self.repository.load_pack_readiness(
-            self._pack_codes(catalog)
         )
         committed = self.repository.replace_scope(
             scope_kind=scope_kind,
@@ -166,7 +168,7 @@ class WorkspaceProductConfigurationFacade:
             workspace_id=workspace_id,
             context=context,
             state=committed_state,
-            readiness=readiness,
+            readiness=state["readiness"],
             actor_user_id=actor_user_id,
         )
 
@@ -231,16 +233,6 @@ class WorkspaceProductConfigurationFacade:
         if not state.get("catalog_hash") or not isinstance(catalog, dict):
             raise ActiveCatalogMissingError()
         return catalog
-
-    @staticmethod
-    def _pack_codes(catalog: dict[str, Any]) -> list[str]:
-        return sorted(
-            {
-                pack["code"]
-                for product in catalog["products"]
-                for pack in product["pack_closure"]
-            }
-        )
 
     @staticmethod
     def _validate_assignments(

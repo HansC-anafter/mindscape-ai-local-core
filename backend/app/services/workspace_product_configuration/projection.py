@@ -18,6 +18,10 @@ from .contracts import (
     ScopeConfiguration,
     WorkspaceCapabilitySetSnapshot,
 )
+from .errors import WorkspaceProductSnapshotLimitError
+
+
+MAX_SNAPSHOT_BYTES = 64 * 1024
 
 
 def build_snapshot(
@@ -123,9 +127,10 @@ def build_snapshot(
         "configuration_errors": errors[:20],
     }
     snapshot_hash = sha256(_canonical_bytes(payload)).hexdigest()
-    return WorkspaceCapabilitySetSnapshot.model_validate(
-        {**payload, "snapshot_hash": snapshot_hash}
-    )
+    snapshot_payload = {**payload, "snapshot_hash": snapshot_hash}
+    if len(_canonical_bytes(snapshot_payload)) + 1 > MAX_SNAPSHOT_BYTES:
+        raise WorkspaceProductSnapshotLimitError()
+    return WorkspaceCapabilitySetSnapshot.model_validate(snapshot_payload)
 
 
 def _scope_projection(
@@ -211,8 +216,23 @@ def _effective_assignments(
                 )
                 continue
             sources.setdefault(identity, set()).add(scope.scope_kind)
+    versions_by_product: dict[str, set[str]] = {}
+    for pcs_id, pcs_version in sources:
+        versions_by_product.setdefault(pcs_id, set()).add(pcs_version)
+    conflicted_products = {
+        pcs_id
+        for pcs_id, versions in versions_by_product.items()
+        if len(versions) > 1
+    }
+    for pcs_id in sorted(conflicted_products):
+        errors.append(
+            "assignment_version_conflict:"
+            f"{pcs_id}:{','.join(sorted(versions_by_product[pcs_id]))}"
+        )
     result = []
     for identity, configuration_sources in sorted(sources.items()):
+        if identity[0] in conflicted_products:
+            continue
         product = products[identity]
         summary = _closure_summary(product, readiness)
         result.append(

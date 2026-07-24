@@ -24,6 +24,7 @@ from backend.app.services.workspace_product_configuration.contracts import (
 )
 from backend.app.services.workspace_product_configuration.errors import (
     ActiveCatalogMissingError,
+    CatalogRevisionConflictError,
     ScopeAccessError,
     ScopeRevisionConflictError,
     TopologyRevisionConflictError,
@@ -58,6 +59,15 @@ def _require_control_plane_mutation() -> None:
 
 
 def _translate_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, CatalogRevisionConflictError):
+        return HTTPException(
+            status_code=409,
+            detail={
+                "error": exc.code,
+                "expected_catalog_hash": exc.expected_catalog_hash,
+                "current_catalog_hash": exc.current_catalog_hash,
+            },
+        )
     if isinstance(exc, ScopeRevisionConflictError):
         return HTTPException(
             status_code=409,
@@ -65,6 +75,7 @@ def _translate_error(exc: Exception) -> HTTPException:
                 "error": exc.code,
                 "expected_revision": exc.expected_revision,
                 "server_revision": exc.actual_revision,
+                "current_catalog_hash": exc.current_catalog_hash,
             },
         )
     if isinstance(exc, TopologyRevisionConflictError):
