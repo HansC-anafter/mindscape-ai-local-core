@@ -11,7 +11,6 @@ from fastapi.responses import StreamingResponse
 from backend.app.models.mindscape import EventActor, EventType, MindEvent
 from backend.app.models.workspace import (
     ExecutionChatMessage,
-    ExecutionChatMessageRole,
     ExecutionChatMessageType,
     ExecutionSession,
     PlaybookExecutionStep,
@@ -134,7 +133,7 @@ def stream_execution_updates_response(
                                     query_result_message = ExecutionChatMessage(
                                         id=message_id,
                                         execution_id=execution_id,
-                                        role=ExecutionChatMessageRole.ASSISTANT,
+                                        role="assistant",
                                         content=report,
                                         message_type=(
                                             ExecutionChatMessageType.SYSTEM_HINT
