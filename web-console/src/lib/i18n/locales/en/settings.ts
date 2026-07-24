@@ -238,6 +238,7 @@ export const settingsEn = {
   keyboardShortcutsEmpty: 'No shortcut commands found.',
   toolsAndIntegrations: 'Tools & Integrations',
   toolsAndIntegrationsDescription: 'Connect tools and third-party services so AI members can help with real work',
+  workspaceProducts: 'Workspace Products',
   capabilityPacks: 'Capability Packs',
   capabilityPacksDescription: 'One-click installation of AI member + Playbook combinations',
   capabilitySuites: 'Capability Suites',

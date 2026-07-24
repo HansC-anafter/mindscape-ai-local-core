@@ -42,6 +42,39 @@ describe('bounded remote workspace landing', () => {
           { code: 'ig', display_name: 'Reference Library' },
         ]);
       }
+      if (url.endsWith(
+        '/api/v1/workspaces/workspace-a/product-configuration/effective',
+      )) {
+        return jsonResponse({
+          source_runtime_id: 'runtime-a',
+          workspace_id: 'workspace-a',
+          workspace_scope_revision: 1,
+          group_scope_revision: 0,
+          workspace_admission_mode: 'configuration_only',
+          available_products: [{
+            pcs_id: 'guided_practice',
+            exact_version: '1.0.0',
+            display_name: 'Guided Practice',
+            outcome_summary: 'Practice and teach back.',
+            surface_ids: ['guided.practice'],
+            closure_summary: {
+              total_packs: 1,
+              exact_ready_packs: 1,
+              missing_packs: 0,
+              disabled_packs: 0,
+              version_mismatch_packs: 0,
+            },
+            pack_closure: [],
+          }],
+          effective_assignments: [{
+            pcs_id: 'guided_practice',
+            pcs_version: '1.0.0',
+            product_surface_ids: ['guided.practice'],
+            configuration_sources: ['workspace'],
+            host_ready: true,
+          }],
+        });
+      }
       throw new Error(`Unexpected request: ${url}`);
     });
     vi.stubGlobal('fetch', fetchMock);
@@ -62,6 +95,10 @@ describe('bounded remote workspace landing', () => {
       'href',
       '/workspaces/workspace-a/capability-ui-hosts/ig',
     );
+    expect(screen.getByTestId('remote-workspace-product-rail')).toHaveTextContent(
+      'Guided Practice',
+    );
+    expect(screen.queryByText('Manage workspace products')).not.toBeInTheDocument();
     for (const control of [
       'Mindscape',
       'Graph',
@@ -74,24 +111,25 @@ describe('bounded remote workspace landing', () => {
     ]) {
       expect(screen.queryByText(control, { exact: true })).not.toBeInTheDocument();
     }
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
-  it('starts only two fixed requests and adds no polling over sixty seconds', async () => {
+  it('starts three fixed requests including one WPCS read and adds no polling', async () => {
     vi.useFakeTimers();
     const intervalSpy = vi.spyOn(globalThis, 'setInterval');
-    const fetchMock = vi.fn(() => new Promise<Response>(() => {}));
+    const fetchMock = vi.fn((_: RequestInfo | URL) => new Promise<Response>(() => {}));
     vi.stubGlobal('fetch', fetchMock);
     const { unmount } = render(<RemoteWorkspaceLanding workspaceId="workspace-a" />);
 
     expect(fetchMock.mock.calls.map(([input]) => String(input))).toEqual([
       '/api/v1/workspaces/workspace-a/summary',
       '/api/v1/capability-packs/installed-capabilities?workspace_id=workspace-a',
+      '/api/v1/workspaces/workspace-a/product-configuration/effective',
     ]);
     await act(async () => {
       vi.advanceTimersByTime(60_000);
     });
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(intervalSpy).not.toHaveBeenCalled();
     unmount();
   });

@@ -307,6 +307,7 @@ export const settingsKeys = {
   hostResources: true,
   hostResourceObservability: true,
   workspaceResourceAllocations: true,
+  workspaceProducts: true,
   resourceGovernance: true,
   addRuntime: true,
   addRuntimeDescription: true,

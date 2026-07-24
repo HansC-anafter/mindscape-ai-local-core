@@ -9,6 +9,8 @@ import {
   getInstalledCapabilities,
   type InstalledCapability,
 } from '@/lib/capability-packs/installed-capabilities-cache';
+import { useWorkspaceGroup } from '@/contexts/WorkspaceGroupContext';
+import { WorkspaceProductRail } from '@/components/workspace-products/WorkspaceProductRail';
 import { PackRemoteWorkbenchTab } from './PackRemoteWorkbenchTab';
 
 const ThinkingPanel = dynamic(
@@ -22,7 +24,7 @@ interface PackPanelProps {
   storyThreadId?: string;
 }
 
-type PackSubTab = 'thinking' | 'capabilities' | 'apps';
+type PackSubTab = 'thinking' | 'capabilities' | 'apps' | 'products';
 type ExtendedPackSubTab = PackSubTab | 'remote';
 const GATEWAY_CONTROL_CAPABILITY_CODE = 'mindscape_cloud_integration';
 
@@ -43,10 +45,11 @@ export function PackPanel({
   storyThreadId,
 }: PackPanelProps) {
   const t = useT();
-  const [activeSubTab, setActiveSubTab] = useState<ExtendedPackSubTab>('apps');
+  const [activeSubTab, setActiveSubTab] = useState<ExtendedPackSubTab>('products');
   const [installedCapabilities, setInstalledCapabilities] = useState<InstalledCapability[]>([]);
   const [loading, setLoading] = useState(true);
   const [remoteTargetCapabilityCode, setRemoteTargetCapabilityCode] = useState<string | null>(null);
+  const workspaceGroup = useWorkspaceGroup();
 
   useEffect(() => {
     let cancelled = false;
@@ -109,6 +112,19 @@ export function PackPanel({
     <div className="flex flex-col h-full overflow-hidden">
       <div className="flex-shrink-0 border-b dark:border-gray-700">
         <div className="flex items-center gap-1 px-2 pt-2 pb-1">
+          <button
+            type="button"
+            onClick={() => setActiveSubTab('products')}
+            className={`rounded p-1.5 transition-colors ${
+              activeSubTab === 'products'
+                ? 'bg-accent-10 text-accent dark:bg-blue-900/30 dark:text-blue-300'
+                : 'text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800'
+            }`}
+            title="Workspace products"
+            data-testid="pack-panel-products-tab"
+          >
+            PCS
+          </button>
           <button
             onClick={() => setActiveSubTab('apps')}
             className={`p-1.5 rounded transition-colors ${activeSubTab === 'apps'
@@ -199,6 +215,13 @@ export function PackPanel({
       </div>
 
       <div className="flex-1 overflow-y-auto min-h-0">
+        <div className={activeSubTab === 'products' ? 'block' : 'hidden'}>
+          <WorkspaceProductRail
+            workspaceId={workspaceId}
+            activeGroupId={workspaceGroup.activeGroup?.id}
+            topologyRevision={workspaceGroup.activeGroup?.revision}
+          />
+        </div>
         {activeSubTab === 'apps' && (
           <div className="p-3 space-y-3">
             {loading ? (

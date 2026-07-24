@@ -2,6 +2,11 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
+import {
+  getEffectiveWorkspaceProductConfiguration,
+  type AvailableProduct,
+  type WorkspaceCapabilitySetSnapshot,
+} from '@/lib/workspace-product-configuration-api';
 
 const MAX_CAPABILITY_LINKS = 64;
 
@@ -19,6 +24,8 @@ interface CapabilityLink {
 interface LandingState {
   workspace: WorkspaceSummary;
   capabilities: CapabilityLink[];
+  products: AvailableProduct[];
+  productSnapshot: WorkspaceCapabilitySetSnapshot;
 }
 
 function boundedText(value: unknown, maximum: number): string {
@@ -63,9 +70,21 @@ async function readJson(response: Response): Promise<unknown> {
   return response.json();
 }
 
-export default function RemoteWorkspaceLanding({ workspaceId }: { workspaceId: string }) {
+export default function RemoteWorkspaceLanding({
+  workspaceId,
+  activeGroupId,
+  topologyRevision,
+}: {
+  workspaceId: string;
+  activeGroupId?: string;
+  topologyRevision?: number;
+}) {
   const [state, setState] = useState<LandingState | null>(null);
   const [failed, setFailed] = useState(false);
+  const groupQuery = new URLSearchParams({
+    ...(activeGroupId ? { active_group_id: activeGroupId } : {}),
+    ...(topologyRevision ? { topology_revision: String(topologyRevision) } : {}),
+  }).toString();
 
   useEffect(() => {
     const controller = new AbortController();
@@ -79,11 +98,19 @@ export default function RemoteWorkspaceLanding({ workspaceId }: { workspaceId: s
         `/api/v1/capability-packs/installed-capabilities?workspace_id=${encodedWorkspaceId}`,
         { credentials: 'same-origin', signal: controller.signal },
       ).then(readJson),
+      getEffectiveWorkspaceProductConfiguration({
+        workspaceId,
+        activeGroupId,
+        topologyRevision,
+        signal: controller.signal,
+      }),
     ])
-      .then(([workspace, capabilities]) => {
+      .then(([workspace, capabilities, productSnapshot]) => {
         setState({
           workspace: normalizeWorkspaceSummary(workspace, workspaceId),
           capabilities: normalizeCapabilityLinks(capabilities),
+          products: productSnapshot.available_products,
+          productSnapshot,
         });
       })
       .catch((error) => {
@@ -93,7 +120,7 @@ export default function RemoteWorkspaceLanding({ workspaceId }: { workspaceId: s
         }
       });
     return () => controller.abort();
-  }, [workspaceId]);
+  }, [activeGroupId, topologyRevision, workspaceId]);
 
   return (
     <main className="min-h-screen bg-surface px-6 py-10 text-primary dark:bg-gray-950 dark:text-gray-100">
@@ -110,6 +137,39 @@ export default function RemoteWorkspaceLanding({ workspaceId }: { workspaceId: s
             </p>
           ) : null}
         </header>
+
+        <section aria-labelledby="remote-products-heading" className="space-y-4">
+          <div>
+            <h2 id="remote-products-heading" className="text-xl font-semibold">Workspace products</h2>
+            <p className="text-sm text-secondary dark:text-gray-400">
+              Read-only configuration from source runtime {state?.productSnapshot.source_runtime_id || '…'}.
+            </p>
+          </div>
+          {state ? (
+            <ul className="grid gap-3 sm:grid-cols-2" data-testid="remote-workspace-product-rail">
+              {state.products.map((product) => {
+                const effective = state.productSnapshot.effective_assignments.find(
+                  (item) => item.pcs_id === product.pcs_id
+                    && item.pcs_version === product.exact_version,
+                );
+                return (
+                  <li
+                    key={`${product.pcs_id}@${product.exact_version}`}
+                    className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900"
+                  >
+                    <div className="font-medium">{product.display_name}</div>
+                    <p className="mt-1 text-sm text-secondary dark:text-gray-400">
+                      {product.outcome_summary}
+                    </p>
+                    <p className="mt-2 text-xs text-secondary dark:text-gray-400">
+                      {effective ? 'Configured' : 'Not configured'} · {effective?.host_ready ? 'Host ready' : 'Host not ready'}
+                    </p>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : null}
+        </section>
 
         <section aria-labelledby="remote-capabilities-heading" className="space-y-4">
           <div>
@@ -131,7 +191,11 @@ export default function RemoteWorkspaceLanding({ workspaceId }: { workspaceId: s
                 <li key={capability.code}>
                   <Link
                     className="block rounded-lg border border-gray-200 bg-white p-4 font-medium hover:border-blue-500 dark:border-gray-800 dark:bg-gray-900"
-                    href={`/workspaces/${encodeURIComponent(workspaceId)}/capability-ui-hosts/${encodeURIComponent(capability.code)}`}
+                    href={
+                      `/workspaces/${encodeURIComponent(workspaceId)}`
+                      + `/capability-ui-hosts/${encodeURIComponent(capability.code)}`
+                      + (groupQuery ? `?${groupQuery}` : '')
+                    }
                     prefetch={false}
                   >
                     {capability.label}

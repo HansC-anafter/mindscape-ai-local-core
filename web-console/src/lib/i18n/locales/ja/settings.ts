@@ -195,6 +195,7 @@ export const settingsJa = {
   serviceCredentials: 'サービス認証情報',
   toolsAndIntegrations: 'ツールと統合',
   toolsAndIntegrationsDescription: 'ツールとサードパーティサービスを接続し、AI メンバーが実際の作業を支援できるようにする',
+  workspaceProducts: 'ワークスペース製品',
   capabilityPacks: '能力パック管理',
   capabilityPacksDescription: 'AI メンバー + プレイブックの組み合わせをワンクリックでインストールし、AI チームを素早く組み立てる',
   capabilitySuites: '能力スイート',

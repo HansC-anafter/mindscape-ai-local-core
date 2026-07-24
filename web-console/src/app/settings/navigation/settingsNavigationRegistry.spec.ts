@@ -29,6 +29,7 @@ describe('settings navigation registry', () => {
       'mindscape',
       'social_media',
       'localization',
+      'workspace_products',
       'packs_status',
       'governance',
       'runtime',

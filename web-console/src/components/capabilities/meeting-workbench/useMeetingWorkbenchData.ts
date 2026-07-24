@@ -22,6 +22,7 @@ import { useMeetingObjectRegistryMentions } from './useMeetingObjectRegistryMent
 import { useMeetingPackTools } from './useMeetingPackTools';
 import { useMeetingThreadData } from './useMeetingThreadData';
 import { useRuntimeInspectorSnapshot } from './useRuntimeInspectorSnapshot';
+import type { MeetingProductAdmissionRequest } from '@/components/workspace-products/workspaceMeetingAdmission';
 
 export interface MeetingWorkbenchDataState {
   activeMeetingId: string;
@@ -71,6 +72,7 @@ export function useMeetingWorkbenchData({
   attachResponse,
   activeMentionQuery,
   activeInspector,
+  productAdmission,
 }: {
   workspaceId: string;
   apiUrl: string;
@@ -80,6 +82,7 @@ export function useMeetingWorkbenchData({
   attachResponse?: ObjectMeetingAttachResponse | null;
   activeMentionQuery: string | null;
   activeInspector: InspectorTab | null;
+  productAdmission?: MeetingProductAdmissionRequest | null;
 }): MeetingWorkbenchDataState {
   const {
     activeMeetingId,
@@ -106,6 +109,7 @@ export function useMeetingWorkbenchData({
     workspaceId,
     apiUrl,
     meetingId,
+    productAdmission,
   });
 
   const {

@@ -85,7 +85,7 @@ export const navigationItems: NavigationItem[] = [
     label: 'runtimeEnvironments',
     icon: PlayCircle,
     tab: 'runtime',
-    mobileOrder: 7,
+    mobileOrder: 8,
     children: [
       { id: 'runtime-environments', label: 'runtimeEnvironments', tab: 'runtime', section: 'runtime-environments' },
       { id: 'device-link-readiness', label: 'Device Link', tab: 'runtime', section: 'device-link-readiness' },
@@ -99,7 +99,7 @@ export const navigationItems: NavigationItem[] = [
     label: 'remoteWorkbenchAccess',
     icon: ShieldCheck,
     tab: 'remote_workbench_access',
-    mobileOrder: 8,
+    mobileOrder: 9,
   },
   {
     id: 'tools',
@@ -165,11 +165,18 @@ export const navigationItems: NavigationItem[] = [
     ],
   },
   {
+    id: 'workspace-products',
+    label: 'workspaceProducts',
+    icon: Package,
+    tab: 'workspace_products',
+    mobileOrder: 5,
+  },
+  {
     id: 'governance',
     label: 'governance',
     icon: ShieldCheck,
     tab: 'governance',
-    mobileOrder: 6,
+    mobileOrder: 7,
     children: [
       { id: 'node-governance', label: 'nodeGovernance', tab: 'governance', section: 'node' },
       { id: 'preflight', label: 'preflight', tab: 'governance', section: 'preflight' },
@@ -183,13 +190,13 @@ export const navigationItems: NavigationItem[] = [
     label: 'capabilityPacks',
     icon: Package,
     tab: 'packs_status',
-    mobileOrder: 5,
+    mobileOrder: 6,
     children: [
       { id: 'capability-packages', label: 'capabilityPackages', tab: 'packs_status', section: 'packages' },
       { id: 'capability-suites', label: 'capabilitySuites', tab: 'packs_status', section: 'suites' },
     ],
   },
-  { id: 'service_status', label: 'serviceStatus', icon: Activity, tab: 'service_status', mobileOrder: 9 },
+  { id: 'service_status', label: 'serviceStatus', icon: Activity, tab: 'service_status', mobileOrder: 10 },
 ];
 
 export const validSettingsTabs: readonly SettingsTab[] = navigationItems.map((item) => item.tab);

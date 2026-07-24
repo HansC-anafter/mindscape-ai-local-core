@@ -4,6 +4,7 @@ import React from 'react';
 import { Info, PanelRight } from 'lucide-react';
 
 import { AOLRuntimeShellProvider } from '@/components/capabilities/aol-runtime-shell/AOLRuntimeShell';
+import { WorkspaceCapabilitySetProvider } from '@/components/workspace-products/WorkspaceCapabilitySetProvider';
 import { CapabilityWorkbenchInfoPanel } from '@/components/capabilities/workbench/CapabilityWorkbenchInfoPanel';
 import {
   CapabilityWorkbenchInfoProvider,
@@ -11,6 +12,7 @@ import {
 } from '@/components/capabilities/workbench/CapabilityWorkbenchInfoProvider';
 import { PackScopeToolContributionsProvider } from '@/components/capabilities/workbench/usePackScopeToolContributions';
 import { getApiBaseUrl } from '@/lib/api-url';
+import { useWorkspaceGroupOptional } from '@/contexts/WorkspaceGroupContext';
 import {
   WORKBENCH_LEFT_TOOL_RAIL_SLOT,
   filterWorkspaceToolsBySlot,
@@ -103,6 +105,7 @@ function WorkspaceSurfaceShellContent({
   children,
 }: WorkspaceSurfaceShellProps) {
   const apiUrl = getApiBaseUrl();
+  const workspaceGroup = useWorkspaceGroupOptional();
   const rail = useOptionalWorkspaceGlobalToolRail();
   const setActiveCapabilityCode = rail?.setActiveCapabilityCode;
   const workspaceToolDefinitions = useWorkspaceToolDefinitions({
@@ -162,27 +165,33 @@ function WorkspaceSurfaceShellContent({
   const contributionScopeId = `workspace-surface:${activeCapabilityCode}`;
 
   return (
-    <AOLRuntimeShellProvider workspaceId={workspaceId}>
-      <CapabilityWorkbenchInfoProvider>
-        <WorkspaceWorkbenchInfoToolRegistration scopeId={contributionScopeId} />
-        <PackScopeToolContributionsProvider
-          capabilityCode={activeCapabilityCode}
-          tools={leftRailTools}
-        >
-          <section
-            className="relative h-full min-h-0 min-w-0 flex-1 overflow-hidden bg-white dark:bg-gray-950"
-            data-testid="workspace-surface-shell"
-            data-active-capability-code={activeCapabilityCode}
-            data-surface-path={surfacePath.join('/')}
+    <WorkspaceCapabilitySetProvider
+      workspaceId={workspaceId}
+      activeGroupId={workspaceGroup?.activeGroup?.id}
+      topologyRevision={workspaceGroup?.activeGroup?.revision}
+    >
+      <AOLRuntimeShellProvider workspaceId={workspaceId}>
+        <CapabilityWorkbenchInfoProvider>
+          <WorkspaceWorkbenchInfoToolRegistration scopeId={contributionScopeId} />
+          <PackScopeToolContributionsProvider
+            capabilityCode={activeCapabilityCode}
+            tools={leftRailTools}
           >
-            <div className="flex h-full min-h-0 min-w-0 overflow-hidden">
-              <div className="min-w-0 flex-1 overflow-hidden">
-                {children}
+            <section
+              className="relative h-full min-h-0 min-w-0 flex-1 overflow-hidden bg-white dark:bg-gray-950"
+              data-testid="workspace-surface-shell"
+              data-active-capability-code={activeCapabilityCode}
+              data-surface-path={surfacePath.join('/')}
+            >
+              <div className="flex h-full min-h-0 min-w-0 overflow-hidden">
+                <div className="min-w-0 flex-1 overflow-hidden">
+                  {children}
+                </div>
               </div>
-            </div>
-          </section>
-        </PackScopeToolContributionsProvider>
-      </CapabilityWorkbenchInfoProvider>
-    </AOLRuntimeShellProvider>
+            </section>
+          </PackScopeToolContributionsProvider>
+        </CapabilityWorkbenchInfoProvider>
+      </AOLRuntimeShellProvider>
+    </WorkspaceCapabilitySetProvider>
   );
 }

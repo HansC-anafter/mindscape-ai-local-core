@@ -9,6 +9,8 @@ interface SettingsContentHostProps {
   activeSection?: string;
   activeProvider?: string;
   workspaceId?: string;
+  activeGroupId?: string;
+  topologyRevision?: number;
   initialCatalogCategory?: string;
   onCredentialsNavigate: (section?: string, provider?: string) => void;
   onSendToAssistant: (message: string) => void;
@@ -82,6 +84,10 @@ const RemoteWorkbenchAccessSettings = dynamic(
   () => import('./panels/RemoteWorkbenchAccessSettings').then((mod) => mod.RemoteWorkbenchAccessSettings),
   { ssr: false, loading: SettingsContentFallback }
 );
+const WorkspaceProductConfigurationPanel = dynamic(
+  () => import('./panels/WorkspaceProductConfigurationPanel').then((mod) => mod.WorkspaceProductConfigurationPanel),
+  { ssr: false, loading: SettingsContentFallback }
+);
 
 function PacksSettingsContent({ activeSection }: { activeSection?: string }) {
   const { getToolStatusForPack } = useTools();
@@ -93,6 +99,8 @@ export function SettingsContentHost({
   activeSection,
   activeProvider,
   workspaceId,
+  activeGroupId,
+  topologyRevision,
   initialCatalogCategory,
   onCredentialsNavigate,
   onSendToAssistant,
@@ -142,6 +150,14 @@ export function SettingsContentHost({
       return <ServiceStatusPanel />;
     case 'packs_status':
       return <PacksSettingsContent activeSection={activeSection} />;
+    case 'workspace_products':
+      return (
+        <WorkspaceProductConfigurationPanel
+          workspaceId={workspaceId}
+          activeGroupId={activeGroupId}
+          topologyRevision={topologyRevision}
+        />
+      );
     case 'governance':
       return <GovernancePanel activeSection={activeSection} />;
     default:
