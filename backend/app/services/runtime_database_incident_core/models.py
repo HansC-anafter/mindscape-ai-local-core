@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from enum import Enum
+import re
 from typing import Any, Mapping, Optional
 
 
@@ -29,6 +30,80 @@ def _parse_timestamp(value: str, *, field_name: str) -> datetime:
     if parsed.tzinfo is None:
         raise ValueError(f"{field_name}_must_include_timezone")
     return parsed
+
+
+_SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+_DIAGNOSTIC_OPERATION_PATTERNS = (
+    re.compile(r"^postgres_signal_observer_start@sha256:[0-9a-f]{64}$"),
+    re.compile(r"^postgres_identity_logging_reload@sha256:[0-9a-f]{64}$"),
+)
+
+
+@dataclass(frozen=True)
+class IncidentDiagnosticPermit:
+    """Exact short-lived observability operations allowed while incident stays open."""
+
+    permit_id: str
+    source_commit: str
+    allowed_operation_keys: tuple[str, ...]
+    test_evidence_paths: tuple[str, ...]
+    isolated_drill_id: str
+    budget_sha256: str
+    expires_at: str
+    owner: str
+
+    def validate(self) -> None:
+        missing = _required_text(
+            {
+                "permit_id": self.permit_id,
+                "source_commit": self.source_commit,
+                "isolated_drill_id": self.isolated_drill_id,
+                "budget_sha256": self.budget_sha256,
+                "expires_at": self.expires_at,
+                "owner": self.owner,
+            }
+        )
+        if not self.allowed_operation_keys or any(
+            not str(value).strip() for value in self.allowed_operation_keys
+        ):
+            missing.append("allowed_operation_keys")
+        if not self.test_evidence_paths or any(
+            not str(path).strip() for path in self.test_evidence_paths
+        ):
+            missing.append("test_evidence_paths")
+        if missing:
+            raise ValueError(
+                "Incident diagnostic permit is missing required fields: "
+                + ", ".join(sorted(set(missing)))
+            )
+        if not _SHA256_PATTERN.fullmatch(self.budget_sha256):
+            raise ValueError("diagnostic_budget_sha256_invalid")
+        if not re.fullmatch(r"[0-9a-f]{8,64}", self.source_commit):
+            raise ValueError("diagnostic_source_commit_invalid")
+        if len(self.allowed_operation_keys) > 2:
+            raise ValueError("diagnostic_operation_key_limit_exceeded")
+        if len(set(self.allowed_operation_keys)) != len(self.allowed_operation_keys):
+            raise ValueError("diagnostic_operation_keys_must_be_unique")
+        for key in self.allowed_operation_keys:
+            if not any(
+                pattern.fullmatch(key) for pattern in _DIAGNOSTIC_OPERATION_PATTERNS
+            ):
+                raise ValueError("diagnostic_operation_key_not_allowed")
+        expires_at = _parse_timestamp(
+            self.expires_at,
+            field_name="diagnostic_expires_at",
+        )
+        now = datetime.now(timezone.utc)
+        if expires_at <= now:
+            raise ValueError("diagnostic_permit_expired")
+        if expires_at > now + timedelta(minutes=30):
+            raise ValueError("diagnostic_permit_duration_exceeds_30_minutes")
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["allowed_operation_keys"] = list(self.allowed_operation_keys)
+        payload["test_evidence_paths"] = list(self.test_evidence_paths)
+        return payload
 
 
 @dataclass(frozen=True)
@@ -295,6 +370,7 @@ class IncidentReceipt:
     first_failure_at: str
     updated_at: str
     evidence_count: int
+    diagnostic_permit: Optional[Mapping[str, Any]] = None
     containment_receipt: Optional[Mapping[str, Any]] = None
     pack_install_permits: tuple[Mapping[str, Any], ...] = ()
     targeted_migration_permits: tuple[Mapping[str, Any], ...] = ()
@@ -310,6 +386,7 @@ class IncidentReceipt:
             first_failure_at=str(payload["first_failure_at"]),
             updated_at=str(payload["updated_at"]),
             evidence_count=int(payload.get("evidence_count", 0)),
+            diagnostic_permit=payload.get("diagnostic_permit"),
             containment_receipt=payload.get("containment_receipt"),
             pack_install_permits=tuple(payload.get("pack_install_permits") or ()),
             targeted_migration_permits=tuple(
@@ -321,6 +398,8 @@ class IncidentReceipt:
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         payload["state"] = self.state.value
+        if self.diagnostic_permit is None:
+            payload.pop("diagnostic_permit", None)
         if self.containment_receipt is None:
             payload.pop("containment_receipt", None)
         if self.pack_install_permits:

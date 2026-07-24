@@ -1,0 +1,58 @@
+services:
+  postgres-signal-observer:
+    profiles: ["runtime-db-observer"]
+    image: ${LOCAL_CORE_BACKEND_IMAGE:-mindscape-ai-local-core-backend}
+    container_name: mindscape-ai-local-core-postgres-signal-observer
+    init: true
+    restart: unless-stopped
+    read_only: true
+    pid: host
+    network_mode: "service:pgbouncer"
+    cap_drop: ["ALL"]
+    cap_add: ["SYS_ADMIN"]
+    security_opt:
+      - no-new-privileges:true
+    cpus: "0.10"
+    mem_limit: 64m
+    pids_limit: 16
+    logging:
+      driver: json-file
+      options:
+        max-size: "1m"
+        max-file: "3"
+    environment:
+      PYTHONPATH: /app:/app/backend
+      RUNTIME_DATABASE_INCIDENT_DIR: /app/data/runtime-database-incidents
+      POSTGRES_SIGNAL_OBSERVER_EVIDENCE_DIR: /app/data/runtime-database-incidents/signal-observer
+      POSTGRES_SIGNAL_OBSERVER_REPO_ROOT: /app
+      POSTGRES_SIGNAL_OBSERVER_ARTIFACT_SHA256: ${POSTGRES_SIGNAL_OBSERVER_ARTIFACT_SHA256:-}
+      POSTGRES_SIGNAL_OBSERVER_SOURCE_COMMIT: ${POSTGRES_SIGNAL_OBSERVER_SOURCE_COMMIT:-}
+      POSTGRES_SIGNAL_OBSERVER_IMAGE_DIGEST: ${POSTGRES_SIGNAL_OBSERVER_IMAGE_DIGEST:-}
+      PGBOUNCER_ADMIN_URL: postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@127.0.0.1:6432/pgbouncer
+      PYTHONDONTWRITEBYTECODE: "1"
+    volumes:
+      - ../../backend:/app/backend:ro
+      - ../../scripts:/app/scripts:ro
+      - ../../docker/postgres/Dockerfile:/app/docker/postgres/Dockerfile:ro
+      - ${LOCAL_CORE_DATA_HOST_DIR:-../../data}:/app/data:rw
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    entrypoint:
+      - python
+      - /app/scripts/maintenance/postgres_signal_observer.py
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - /usr/local/bin/python
+        - /app/scripts/maintenance/postgres_signal_observer.py
+        - --healthcheck
+        - --max-health-age-seconds
+        - "30"
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+      start_interval: 10s

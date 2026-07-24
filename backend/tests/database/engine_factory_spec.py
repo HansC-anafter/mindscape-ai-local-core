@@ -12,6 +12,11 @@ def test_transaction_engine_uses_queue_pool_kwargs(monkeypatch):
         return object()
 
     monkeypatch.setattr(engine_factory, "create_engine", fake_create_engine)
+    monkeypatch.setattr(
+        engine_factory,
+        "attach_query_failure_evidence",
+        lambda engine, **kwargs: captured.setdefault("evidence", kwargs),
+    )
     monkeypatch.setenv("DB_POOL_SIZE", "2")
     monkeypatch.setenv("DB_MAX_OVERFLOW", "1")
     monkeypatch.setenv("DB_POOL_TIMEOUT", "5")
@@ -27,6 +32,7 @@ def test_transaction_engine_uses_queue_pool_kwargs(monkeypatch):
     assert captured["kwargs"]["pool_timeout"] == 5
     assert captured["kwargs"]["pool_use_lifo"] is True
     assert captured["kwargs"]["connect_args"]["application_name"] == "local-core-test"
+    assert captured["evidence"]["application_name"] == "local-core-test"
 
 
 def test_readonly_transaction_engine_uses_queue_pool_kwargs(monkeypatch):
@@ -38,6 +44,11 @@ def test_readonly_transaction_engine_uses_queue_pool_kwargs(monkeypatch):
         return object()
 
     monkeypatch.setattr(engine_factory, "create_engine", fake_create_engine)
+    monkeypatch.setattr(
+        engine_factory,
+        "attach_query_failure_evidence",
+        lambda engine, **kwargs: captured.setdefault("evidence", kwargs),
+    )
     monkeypatch.setenv("DB_POOL_SIZE", "3")
     monkeypatch.setenv("DB_MAX_OVERFLOW", "0")
     monkeypatch.setenv("DB_POOL_TIMEOUT", "4")
@@ -56,16 +67,23 @@ def test_readonly_transaction_engine_uses_queue_pool_kwargs(monkeypatch):
         captured["kwargs"]["connect_args"]["application_name"]
         == "local-core-readonly-test"
     )
+    assert captured["evidence"]["application_name"] == "local-core-readonly-test"
 
 
 def test_transient_and_session_engines_use_nullpool(monkeypatch):
     calls = []
+    evidence = []
 
     def fake_create_engine(url, **kwargs):
         calls.append((url, kwargs))
         return object()
 
     monkeypatch.setattr(engine_factory, "create_engine", fake_create_engine)
+    monkeypatch.setattr(
+        engine_factory,
+        "attach_query_failure_evidence",
+        lambda engine, **kwargs: evidence.append(kwargs),
+    )
 
     engine_factory.create_transient_transaction_engine(
         "postgresql://u:p@pgbouncer:6432/core",
@@ -80,3 +98,7 @@ def test_transient_and_session_engines_use_nullpool(monkeypatch):
     assert calls[0][1]["connect_args"]["application_name"] == "transient-test"
     assert calls[1][1]["poolclass"] is NullPool
     assert calls[1][1]["connect_args"]["application_name"] == "session-test"
+    assert [item["application_name"] for item in evidence] == [
+        "transient-test",
+        "session-test",
+    ]

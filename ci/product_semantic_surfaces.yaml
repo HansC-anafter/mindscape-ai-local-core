@@ -21,12 +21,17 @@ surfaces:
     semantics:
       - The tasks table remains bounded task-control authority; a single adapter facade writes pack-owned typed identity projections only for create or identity changes, and both generic task tables retire pack-specific indexes to zero.
       - Every abnormal database close opens one durable incident and mutation gate; schema mutation, index retirement, backfill, pack migration, restart, and failover require an explicit gate receipt.
+      - PostgreSQL clients preserve process and database role identity; unexpected-close and SIGQUIT sender evidence is payload-free, bounded, and appended to the same incident journal through one observer facade.
+      - The high-privilege signal observer requires an exact short-lived diagnostic permit while the incident remains open; generic allow cannot start it, and any new database failure atomically revokes diagnostic or containment permits.
       - Capability-pack install retains the candidate and previous active runtime until migration and verification succeed, then commits filesystem activation, activation state, installed metadata, and registry projections from one durable receipt.
       - Alembic revision history is append-only operational truth; recovery uses graph diagnosis and corrective revisions and never deletes revision rows to force convergence.
       - Progress reads return one compact current or stale-known snapshot, or a redacted 503 with Retry-After; frontend polling obeys bounded 10, 20, and 30 second intervals and stops when hidden or terminal.
       - Runtime repair preserves seven runner slots and existing queue visibility, does not expand PgBouncer pools as a workaround, and may claim only isolated recovery or controlled-switchover drill readiness; production high availability requires a separate failure-domain and controller decision.
     path_globs:
       - backend/app/database/recovery_backoff.py
+      - backend/app/database/application_identity.py
+      - backend/app/database/query_failure_evidence.py
+      - backend/app/database/query_failure_evidence_core/**
       - backend/app/database/task_control_contract.py
       - backend/app/runner/db_pool_pressure.py
       - backend/app/routes/core/workspace/tasks_core/progress_snapshot.py
@@ -49,16 +54,24 @@ surfaces:
       - backend/scripts/preflight_db.py
       - backend/alembic_migrations/postgres/versions/**
       - scripts/maintenance/postgres_incident_gate.py
+      - scripts/maintenance/postgres_signal_observer.py
+      - scripts/maintenance/postgres_signal_observer_drill.py
+      - scripts/maintenance/postgres_signal_observer_core/**
+      - scripts/maintenance/postgres_signal_observer_preflight.py
+      - scripts/maintenance/postgres_signal_observer_preflight_core/**
       - scripts/maintenance/postgres_recovery_drill.py
       - scripts/postgres_recovery_drill_core/**
       - scripts/maintenance/runtime_pressure_gate.py
       - scripts/maintenance/check_runtime_read_path_budget.py
       - docker-compose.yml
       - docker/compose/postgres-recovery-drill.yml
+      - docker/compose/postgres-signal-observer.yml
       - docker/postgres/**
       - docker/pgbouncer/**
       - backend/tests/runtime_database_incident_gate_spec.py
       - backend/tests/database_recovery_backoff_spec.py
+      - backend/tests/database_application_identity_spec.py
+      - backend/tests/database_query_failure_evidence_spec.py
       - backend/tests/postgres_task_control_budget_spec.py
       - backend/tests/task_projection_adapters_spec.py
       - backend/tests/capability_install_atomic_commit_spec.py
@@ -70,6 +83,11 @@ surfaces:
       - backend/tests/progress_snapshot_degraded_state_spec.py
       - backend/tests/scripts/postgres_incident_gate_spec.py
       - backend/tests/scripts/postgres_recovery_drill_spec.py
+      - backend/tests/scripts/postgres_signal_observer_spec.py
+      - backend/tests/scripts/postgres_signal_observer_drill_spec.py
+      - backend/tests/scripts/postgres_signal_observer_docker_runtime_spec.py
+      - backend/tests/scripts/postgres_signal_observer_signal_sender_spec.py
+      - backend/tests/scripts/postgres_signal_observer_preflight_spec.py
       - web-console/src/hooks/useExecutionPolling.ts
       - web-console/src/hooks/useExecutionPolling.spec.tsx
       - web-console/src/hooks/executionPollingPolicy.ts

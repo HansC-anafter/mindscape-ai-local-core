@@ -68,6 +68,45 @@ class RuntimeDatabaseMutationGate:
                 retry_after_seconds=0,
             )
         operation_key = self.operation_key(operation_name, evidence)
+        if current.state is IncidentState.OPEN_UNATTRIBUTED:
+            diagnostic = dict(current.diagnostic_permit or {})
+            if diagnostic:
+                allowed_keys = set(diagnostic.get("allowed_operation_keys") or ())
+                expires_at = diagnostic.get("expires_at")
+                permit_active = False
+                if expires_at:
+                    try:
+                        permit_active = _parse_timestamp(
+                            str(expires_at),
+                            field_name="diagnostic_expires_at",
+                        ) > datetime.now(timezone.utc)
+                    except ValueError:
+                        permit_active = False
+                if operation_key in allowed_keys and permit_active:
+                    return MutationDecision(
+                        allowed=True,
+                        operation=operation_name,
+                        reason="incident_diagnostic_permit",
+                        incident_id=current.incident_id,
+                        retry_after_seconds=0,
+                        details={
+                            "incident_state": current.state.value,
+                            "permit_id": diagnostic.get("permit_id"),
+                            "operation_key": operation_key,
+                        },
+                    )
+                if operation_key in allowed_keys and not permit_active:
+                    return MutationDecision(
+                        allowed=False,
+                        operation=operation_name,
+                        reason="incident_diagnostic_permit_expired",
+                        incident_id=current.incident_id,
+                        details={
+                            "incident_state": current.state.value,
+                            "permit_id": diagnostic.get("permit_id"),
+                            "operation_key": operation_key,
+                        },
+                    )
         for permit in reversed(current.pack_install_permits):
             allowed_keys = set(permit.get("allowed_operation_keys") or ())
             if operation_key not in allowed_keys:

@@ -20,6 +20,7 @@ from backend.app.services.runtime_database_incident_core.journal import (
 from backend.app.services.runtime_database_incident_core.models import (
     IncidentCloseReceipt,
     IncidentContainmentReceipt,
+    IncidentDiagnosticPermit,
     IncidentPackInstallPermitReceipt,
     IncidentReceipt,
     IncidentState,
@@ -43,6 +44,22 @@ def record_database_failure(
         postmaster_start_time=postmaster_start_time,
         evidence=evidence,
         journal_root=journal_root,
+    )
+
+
+def record_database_diagnostic_observation(
+    incident_id: str,
+    *,
+    permit_id: str,
+    observation_code: str,
+    evidence: Optional[Mapping[str, str]] = None,
+    journal_root: Optional[Path] = None,
+) -> IncidentReceipt:
+    return RuntimeDatabaseIncidentJournal(journal_root).record_diagnostic_observation(
+        incident_id,
+        permit_id=permit_id,
+        observation_code=observation_code,
+        evidence=evidence,
     )
 
 
@@ -70,6 +87,7 @@ def require_runtime_database_mutation_allowed(
 __all__ = [
     "IncidentCloseReceipt",
     "IncidentContainmentReceipt",
+    "IncidentDiagnosticPermit",
     "IncidentPackInstallPermitReceipt",
     "IncidentTargetedMigrationPermitReceipt",
     "IncidentJournalUnavailable",
@@ -82,6 +100,7 @@ __all__ = [
     "RuntimeDatabaseMutationGate",
     "evaluate_runtime_database_mutation",
     "record_database_failure",
+    "record_database_diagnostic_observation",
     "require_runtime_database_mutation_allowed",
     "runtime_database_mutation_context",
 ]

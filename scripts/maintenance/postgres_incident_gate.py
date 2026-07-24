@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -15,10 +16,21 @@ if str(REPO_ROOT) not in sys.path:
 from backend.app.services.runtime_database_incident_gate import (  # noqa: E402
     IncidentCloseReceipt,
     IncidentContainmentReceipt,
+    IncidentDiagnosticPermit,
     IncidentPackInstallPermitReceipt,
     IncidentTargetedMigrationPermitReceipt,
     RuntimeDatabaseIncidentJournal,
     RuntimeDatabaseMutationGate,
+)
+from scripts.maintenance.postgres_signal_observer_preflight_core import (  # noqa: E402
+    receipt_bound_incident_id,
+)
+
+
+_ARTIFACT_SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+_DIAGNOSTIC_OPERATIONS = (
+    "postgres_signal_observer_start",
+    "postgres_identity_logging_reload",
 )
 
 
@@ -81,6 +93,25 @@ def _parser() -> argparse.ArgumentParser:
     migration_permit.add_argument("--expires-at", required=True)
     migration_permit.add_argument("--owner", required=True)
     migration_permit.add_argument("--owner-authorization", required=True)
+
+    diagnose = commands.add_parser("diagnose")
+    diagnose.add_argument("--incident-id")
+    diagnose.add_argument("--qualification-receipt", type=Path)
+    diagnose.add_argument("--ownership-request-receipt", type=Path)
+    diagnose.add_argument("--ownership-grant-receipt", type=Path)
+    diagnose.add_argument("--permit-id", required=True)
+    diagnose.add_argument("--source-commit", required=True)
+    diagnose.add_argument(
+        "--diagnostic-operation",
+        choices=_DIAGNOSTIC_OPERATIONS,
+        required=True,
+    )
+    diagnose.add_argument("--artifact-sha256", required=True)
+    diagnose.add_argument("--test-evidence-path", action="append", required=True)
+    diagnose.add_argument("--isolated-drill-id", required=True)
+    diagnose.add_argument("--budget-sha256", required=True)
+    diagnose.add_argument("--expires-at", required=True)
+    diagnose.add_argument("--owner", required=True)
 
     close = commands.add_parser("close")
     close.add_argument("incident_id")
@@ -179,6 +210,58 @@ def main(argv: list[str] | None = None) -> int:
                 expires_at=args.expires_at,
                 owner=args.owner,
                 owner_authorization=args.owner_authorization,
+            ),
+        )
+    elif args.command == "diagnose":
+        artifact_sha256 = str(args.artifact_sha256).strip()
+        if not _ARTIFACT_SHA256_PATTERN.fullmatch(artifact_sha256):
+            raise SystemExit("diagnostic_artifact_sha256_invalid")
+        operation_key = gate.operation_key(
+            args.diagnostic_operation,
+            {"artifact_sha256": artifact_sha256},
+        )
+        if args.diagnostic_operation == "postgres_signal_observer_start":
+            if args.incident_id is not None:
+                raise SystemExit("observer_incident_id_must_be_receipt_bound")
+            receipt_paths = (
+                args.qualification_receipt,
+                args.ownership_request_receipt,
+                args.ownership_grant_receipt,
+            )
+            if any(path is None for path in receipt_paths):
+                raise SystemExit("observer_diagnostic_receipt_chain_required")
+            incident_id = receipt_bound_incident_id(
+                qualification_path=args.qualification_receipt,
+                ownership_request_path=args.ownership_request_receipt,
+                ownership_grant_path=args.ownership_grant_receipt,
+                artifact_sha256=artifact_sha256,
+                owner=args.owner,
+                expires_at=args.expires_at,
+            )
+        else:
+            if any(
+                path is not None
+                for path in (
+                    args.qualification_receipt,
+                    args.ownership_request_receipt,
+                    args.ownership_grant_receipt,
+                )
+            ):
+                raise SystemExit("identity_logging_receipt_chain_not_supported")
+            incident_id = str(args.incident_id or "").strip()
+            if not incident_id:
+                raise SystemExit("diagnostic_incident_id_required")
+        receipt = journal.record_diagnostic_permit(
+            incident_id,
+            IncidentDiagnosticPermit(
+                permit_id=args.permit_id,
+                source_commit=args.source_commit,
+                allowed_operation_keys=(operation_key,),
+                test_evidence_paths=tuple(args.test_evidence_path),
+                isolated_drill_id=args.isolated_drill_id,
+                budget_sha256=args.budget_sha256,
+                expires_at=args.expires_at,
+                owner=args.owner,
             ),
         )
     elif args.command == "close":

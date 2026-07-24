@@ -15,4 +15,6 @@ RUN set -eux; \
     echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt ${VERSION_CODENAME}-pgdg main" > /etc/apt/sources.list.d/pgdg.list; \
     apt-get update; \
     apt-get install -y --no-install-recommends pgbouncer postgresql-${PG_MAJOR}-repack; \
+    test "${PG_MAJOR}" = "16"; \
+    test -x "/usr/lib/postgresql/${PG_MAJOR}/bin/pg_ctl"; \
     rm -rf /var/lib/apt/lists/*

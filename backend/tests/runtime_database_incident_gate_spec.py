@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -9,9 +10,8 @@ import pytest
 from backend.app.services.runtime_database_incident_gate import (
     IncidentCloseReceipt,
     IncidentContainmentReceipt,
-    IncidentPackInstallPermitReceipt,
+    IncidentDiagnosticPermit,
     IncidentState,
-    IncidentTargetedMigrationPermitReceipt,
     IncidentTransitionError,
     RuntimeDatabaseIncidentJournal,
     RuntimeDatabaseMutationGate,
@@ -47,49 +47,22 @@ def _containment_receipt() -> IncidentContainmentReceipt:
     )
 
 
-def _pack_install_permit() -> IncidentPackInstallPermitReceipt:
-    artifact_sha256 = "b" * 64
-    return IncidentPackInstallPermitReceipt(
-        permit_id="pack-install-001",
-        capability_code="yogacoach",
-        current_version="1.1.34",
-        candidate_version="1.1.36",
-        artifact_sha256=artifact_sha256,
+def _diagnostic_permit(
+    *,
+    artifact_sha256: str = "b" * 64,
+) -> IncidentDiagnosticPermit:
+    expires_at = (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()
+    return IncidentDiagnosticPermit(
+        permit_id="diagnostic-001",
+        source_commit="0123456789abcdef",
         allowed_operation_keys=(
-            f"capability_install_intake:file@sha256:{artifact_sha256}",
-            f"capability_install_job@sha256:{artifact_sha256}",
+            f"postgres_signal_observer_start@sha256:{artifact_sha256}",
         ),
-        preflight_evidence_paths=("evidence/yogacoach-install-preflight.json",),
-        migration_revisions=("20260711090000",),
-        migration_files_digest="c" * 64,
-        schema_mutation_required=False,
-        backout_install_id="install-1.1.34",
-        backout_artifact_sha256="d" * 64,
-        expires_at="2099-07-17T00:00:00Z",
-        owner="workspace-owner",
-        owner_authorization="direct_install_requested_in_task",
-    )
-
-
-def _targeted_migration_permit() -> IncidentTargetedMigrationPermitReceipt:
-    return IncidentTargetedMigrationPermitReceipt(
-        permit_id="pack-ledger-bootstrap-001",
-        alembic_config_name="alembic.postgres.ini",
-        revision="20260716020000",
-        migration_file_sha256="e" * 64,
-        migration_mode="create_only",
-        created_relations=(
-            "pack_install_commit_receipts",
-            "idx_pack_install_commit_receipts_pack_committed",
-            "idx_pack_install_commit_receipts_reconcile_due",
-        ),
-        allowed_operation_key=(
-            "alembic_upgrade:alembic.postgres.ini:20260716020000"
-        ),
-        preflight_evidence_paths=("evidence/pack-ledger-bootstrap.json",),
-        expires_at="2099-07-17T00:00:00Z",
-        owner="workspace-owner",
-        owner_authorization="direct_install_requested_in_task",
+        test_evidence_paths=("evidence/observer-tests.json",),
+        isolated_drill_id="signal-drill-001",
+        budget_sha256="c" * 64,
+        expires_at=expires_at,
+        owner="team-leads",
     )
 
 
@@ -209,98 +182,178 @@ def test_containment_receipt_rejects_wildcards_and_expiry(tmp_path: Path) -> Non
         )
 
 
-def test_open_incident_allows_only_exact_owner_authorized_pack_install(
+def test_open_incident_allows_only_exact_diagnostic_operation(
     tmp_path: Path,
 ) -> None:
     journal = RuntimeDatabaseIncidentJournal(tmp_path)
     incident = journal.open_incident(failure_code="unexpected_close")
-    permitted = journal.grant_pack_install_permit(
-        incident.incident_id,
-        _pack_install_permit(),
-    )
+    permit = _diagnostic_permit()
+    current = journal.record_diagnostic_permit(incident.incident_id, permit)
     gate = RuntimeDatabaseMutationGate(tmp_path)
 
-    assert permitted.state is IncidentState.OPEN_UNATTRIBUTED
-    assert len(permitted.pack_install_permits) == 1
-    intake = gate.evaluate(
-        "capability_install_intake:file",
+    allowed = gate.evaluate(
+        "postgres_signal_observer_start",
         {"artifact_sha256": "b" * 64},
     )
-    job = gate.evaluate(
-        "capability_install_job:runtime-id",
+    wrong_digest = gate.evaluate(
+        "postgres_signal_observer_start",
+        {"artifact_sha256": "d" * 64},
+    )
+    v52 = gate.evaluate(
+        "remote_live_practice_v52_diagnostic_retry",
         {"artifact_sha256": "b" * 64},
     )
-    wrong_artifact = gate.evaluate(
-        "capability_install_job:runtime-id",
-        {"artifact_sha256": "a" * 64},
-    )
-    unrelated = gate.evaluate("backend_restart")
 
-    assert intake.allowed is True
-    assert job.allowed is True
-    assert intake.reason == "owner_authorized_pack_install_permit"
-    assert intake.details["permit_id"] == "pack-install-001"
-    assert wrong_artifact.allowed is False
-    assert wrong_artifact.reason == "runtime_database_incident_open"
-    assert unrelated.allowed is False
+    assert current.state is IncidentState.OPEN_UNATTRIBUTED
+    assert current.diagnostic_permit == permit.to_dict()
+    assert allowed.allowed is True
+    assert allowed.reason == "incident_diagnostic_permit"
+    assert wrong_digest.allowed is False
+    assert wrong_digest.reason == "runtime_database_incident_open"
+    assert v52.allowed is False
+    assert v52.reason == "runtime_database_incident_open"
 
 
-def test_pack_install_permit_rejects_schema_mutation_and_wrong_keys() -> None:
-    receipt = _pack_install_permit()
-    with pytest.raises(ValueError, match="forbids_schema_mutation"):
-        IncidentPackInstallPermitReceipt(
-            **{**receipt.__dict__, "schema_mutation_required": True}
-        ).validate()
-    with pytest.raises(ValueError, match="operation_keys_must_be_exact"):
-        IncidentPackInstallPermitReceipt(
+def test_diagnostic_permit_rejects_non_observer_operation_and_long_duration() -> None:
+    permit = _diagnostic_permit()
+    with pytest.raises(ValueError, match="operation_key_not_allowed"):
+        IncidentDiagnosticPermit(
             **{
-                **receipt.__dict__,
+                **permit.__dict__,
                 "allowed_operation_keys": (
-                    "capability_install_intake:file@sha256:" + "b" * 64,
+                    "remote_live_practice_v52_diagnostic_retry@sha256:" + "b" * 64,
                 ),
             }
         ).validate()
 
+    with pytest.raises(ValueError, match="duration_exceeds_30_minutes"):
+        IncidentDiagnosticPermit(
+            **{
+                **permit.__dict__,
+                "expires_at": (
+                    datetime.now(timezone.utc) + timedelta(minutes=31)
+                ).isoformat(),
+            }
+        ).validate()
 
-def test_open_incident_allows_only_exact_owner_authorized_targeted_migration(
+
+def test_new_failure_revokes_diagnostic_and_containment_permits(
     tmp_path: Path,
 ) -> None:
     journal = RuntimeDatabaseIncidentJournal(tmp_path)
     incident = journal.open_incident(failure_code="unexpected_close")
-    permitted = journal.grant_targeted_migration_permit(
+    journal.record_diagnostic_permit(incident.incident_id, _diagnostic_permit())
+
+    after_diagnostic_failure = journal.open_incident(
+        failure_code="postgres_server_closed_unexpectedly",
+        evidence={"source": "test"},
+    )
+    assert after_diagnostic_failure.state is IncidentState.OPEN_UNATTRIBUTED
+    assert after_diagnostic_failure.diagnostic_permit is None
+
+    journal.mark_contained(incident.incident_id, _containment_receipt())
+    after_contained_failure = journal.open_incident(
+        failure_code="postgres_server_closed_unexpectedly",
+        evidence={"source": "test"},
+    )
+    assert after_contained_failure.state is IncidentState.OPEN_UNATTRIBUTED
+    assert after_contained_failure.containment_receipt is None
+    assert (
+        RuntimeDatabaseMutationGate(tmp_path).evaluate("backend_restart").allowed
+        is False
+    )
+
+    events_path = next((tmp_path / "incidents").iterdir()) / "events.jsonl"
+    event_names = [
+        json.loads(line)["event"]
+        for line in events_path.read_text(encoding="utf-8").splitlines()
+    ]
+    assert "diagnostic_permit_revoked_by_failure" in event_names
+    assert "containment_revoked_by_failure" in event_names
+
+
+def test_terminal_diagnostic_permit_consumption_and_ownership_handback_are_distinct(
+    tmp_path: Path,
+) -> None:
+    journal = RuntimeDatabaseIncidentJournal(tmp_path)
+    incident = journal.open_incident(failure_code="unexpected_close")
+    journal.record_diagnostic_permit(incident.incident_id, _diagnostic_permit())
+
+    consumed = journal.revoke_diagnostic_permit(
         incident.incident_id,
-        _targeted_migration_permit(),
+        terminal_reason="formal_drill_sequence_terminal_complete",
     )
-    gate = RuntimeDatabaseMutationGate(tmp_path)
+    assert consumed.diagnostic_permit is None
 
-    exact = gate.evaluate(
-        "alembic_upgrade:alembic.postgres.ini:20260716020000"
+    handback = journal.record_diagnostic_ownership_handback(
+        incident.incident_id,
+        owner="runtime-db-incident-owner",
+        terminal_reason="formal_drill_sequence_terminal_complete",
+        remaining_resources_verified=True,
     )
-    wrong_revision = gate.evaluate(
-        "alembic_upgrade:alembic.postgres.ini:20260716020001"
+    assert handback["owner_before"] == "runtime-db-incident-owner"
+    assert handback["owner_after"] == "none"
+
+    events_path = next((tmp_path / "incidents").iterdir()) / "events.jsonl"
+    event_names = [
+        json.loads(line)["event"]
+        for line in events_path.read_text(encoding="utf-8").splitlines()
+    ]
+    assert event_names[-2:] == [
+        "diagnostic_permit_consumed_terminal",
+        "diagnostic_observer_ownership_handed_back",
+    ]
+
+
+def test_diagnostic_observation_preserves_exact_active_permit(
+    tmp_path: Path,
+) -> None:
+    journal = RuntimeDatabaseIncidentJournal(tmp_path)
+    incident = journal.open_incident(failure_code="unexpected_close")
+    permit = _diagnostic_permit()
+    journal.record_diagnostic_permit(incident.incident_id, permit)
+
+    observed = journal.record_diagnostic_observation(
+        incident.incident_id,
+        permit_id=permit.permit_id,
+        observation_code="postgres_sigquit_signal_observed",
+        evidence={"signal_event_sha256": "a" * 64},
     )
-    unrelated = gate.evaluate("backend_restart")
 
-    assert permitted.state is IncidentState.OPEN_UNATTRIBUTED
-    assert len(permitted.targeted_migration_permits) == 1
-    assert exact.allowed is True
-    assert exact.reason == "owner_authorized_targeted_migration_permit"
-    assert exact.details["permit_id"] == "pack-ledger-bootstrap-001"
-    assert wrong_revision.allowed is False
-    assert wrong_revision.reason == "runtime_database_incident_open"
-    assert unrelated.allowed is False
+    assert observed.diagnostic_permit == permit.to_dict()
+    events_path = next((tmp_path / "incidents").iterdir()) / "events.jsonl"
+    last_event = json.loads(events_path.read_text(encoding="utf-8").splitlines()[-1])
+    assert last_event["event"] == "diagnostic_observation_recorded"
+    assert last_event["permit_id"] == permit.permit_id
+    with pytest.raises(IncidentTransitionError, match="does not match"):
+        journal.record_diagnostic_observation(
+            incident.incident_id,
+            permit_id="wrong-permit",
+            observation_code="postgres_sigquit_signal_observed",
+        )
 
 
-def test_targeted_migration_permit_rejects_non_create_and_inexact_operation() -> None:
-    receipt = _targeted_migration_permit()
-    with pytest.raises(ValueError, match="requires_create_only"):
-        IncidentTargetedMigrationPermitReceipt(
-            **{**receipt.__dict__, "migration_mode": "alter_existing"}
-        ).validate()
-    with pytest.raises(ValueError, match="operation_key_must_be_exact"):
-        IncidentTargetedMigrationPermitReceipt(
-            **{**receipt.__dict__, "allowed_operation_key": "alembic_upgrade:*"}
-        ).validate()
+def test_ownership_handback_rejects_active_permit_or_unverified_resources(
+    tmp_path: Path,
+) -> None:
+    journal = RuntimeDatabaseIncidentJournal(tmp_path)
+    incident = journal.open_incident(failure_code="unexpected_close")
+    journal.record_diagnostic_permit(incident.incident_id, _diagnostic_permit())
+
+    with pytest.raises(IncidentTransitionError, match="still active"):
+        journal.record_diagnostic_ownership_handback(
+            incident.incident_id,
+            owner="runtime-db-incident-owner",
+            terminal_reason="fixture",
+            remaining_resources_verified=True,
+        )
+    with pytest.raises(ValueError, match="resources_not_verified"):
+        journal.record_diagnostic_ownership_handback(
+            incident.incident_id,
+            owner="runtime-db-incident-owner",
+            terminal_reason="fixture",
+            remaining_resources_verified=False,
+        )
 
 
 def test_close_rejects_unattributed_deep_trigger() -> None:
@@ -336,7 +389,10 @@ def test_cross_caller_concurrency_appends_to_one_incident(tmp_path: Path) -> Non
     assert len(digest_dirs) == 1
     events = (digest_dirs[0] / "events.jsonl").read_text(encoding="utf-8").splitlines()
     assert len(events) == 24
-    assert all(json.loads(line)["event"] in {"incident_opened", "failure_observed"} for line in events)
+    assert all(
+        json.loads(line)["event"] in {"incident_opened", "failure_observed"}
+        for line in events
+    )
 
 
 def test_corrupt_current_receipt_fails_mutation_gate_closed(tmp_path: Path) -> None:
