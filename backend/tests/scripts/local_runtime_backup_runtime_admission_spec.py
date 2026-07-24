@@ -62,7 +62,8 @@ def _postgres_ok():
 
 def _runtime_admitted():
     return {
-        "schema_version": "backup_runtime_admission.v3",
+        "schema_version": "backup_runtime_admission.v4",
+        "backup_scope": "runtime_snapshot_and_postgres_chain",
         "admitted": True,
         "active_meeting_sessions": 0,
         "active_postgres_base_backups": 0,
@@ -211,6 +212,62 @@ def test_database_workload_probe_parses_meeting_and_basebackup_counts(monkeypatc
         "active_postgres_base_backups": 1,
         "active_runner_tasks": 3,
     }
+
+
+def test_postgres_chain_only_admission_does_not_wait_for_global_runner_idle(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setattr(
+        runtime_admission,
+        "active_postgres_base_backup_count",
+        lambda: 0,
+    )
+    monkeypatch.setattr(
+        runtime_admission,
+        "active_database_workload_counts",
+        lambda: (_ for _ in ()).throw(AssertionError("global DB workloads must not be read")),
+    )
+    monkeypatch.setattr(
+        runtime_admission,
+        "active_runner_heartbeat_counts",
+        lambda: (_ for _ in ()).throw(AssertionError("runner heartbeats must not be read")),
+    )
+    monkeypatch.setattr(
+        runtime_admission,
+        "inspect_live_media_receivers",
+        lambda _path: (_ for _ in ()).throw(AssertionError("media state must not be read")),
+    )
+
+    result = runtime_admission.inspect_backup_runtime_admission(
+        data_host_dir=tmp_path,
+        wal_archive_root=tmp_path / "postgres-wal-archive",
+        backup_scope="postgres_chain_only",
+    )
+
+    assert result["admitted"] is True
+    assert result["backup_scope"] == "postgres_chain_only"
+    assert result["active_runner_tasks"] is None
+    assert result["active_runner_inflight"] is None
+    assert result["blocking_reasons"] == []
+
+
+def test_postgres_chain_only_admission_blocks_concurrent_base_backup(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setattr(
+        runtime_admission,
+        "active_postgres_base_backup_count",
+        lambda: 1,
+    )
+
+    result = runtime_admission.inspect_backup_runtime_admission(
+        data_host_dir=tmp_path,
+        wal_archive_root=tmp_path / "postgres-wal-archive",
+        backup_scope="postgres_chain_only",
+    )
+
+    assert result["admitted"] is False
+    assert result["blocking_reasons"] == ["postgres_basebackup_already_running"]
 
 
 def test_admission_blocks_fresh_running_runner_tasks(monkeypatch, tmp_path):

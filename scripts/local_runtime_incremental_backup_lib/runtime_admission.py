@@ -21,6 +21,8 @@ ACTIVE_RECEIVER_STATES = frozenset(
     {"starting", "waiting_source", "receiving", "analyzing", "degraded", "stopping"}
 )
 PENDING_RECEIVER_GRACE_SECONDS = 300
+POSTGRES_CHAIN_ONLY_SCOPE = "postgres_chain_only"
+RUNTIME_SNAPSHOT_SCOPE = "runtime_snapshot_and_postgres_chain"
 
 _RUNNER_HEARTBEAT_COUNTS_LUA = """
 local cursor = '0'
@@ -121,6 +123,13 @@ SELECT
     )
 """.strip()
 
+_POSTGRES_BASE_BACKUP_COUNT_SQL = """
+SELECT COUNT(*)
+FROM pg_stat_activity
+WHERE backend_type = 'walsender'
+  AND query ~ '^BASE_BACKUP'
+""".strip()
+
 
 def active_database_workload_counts() -> dict[str, int]:
     """Read bounded meeting and base-backup counts directly from PostgreSQL."""
@@ -152,6 +161,34 @@ def active_database_workload_counts() -> dict[str, int]:
         "active_postgres_base_backups": int(parts[1]),
         "active_runner_tasks": int(parts[2]),
     }
+
+
+def active_postgres_base_backup_count() -> int:
+    """Read only the PostgreSQL conflict relevant to a PostgreSQL-chain backup."""
+
+    output = run_text(
+        [
+            "docker",
+            "exec",
+            "mindscape-ai-local-core-postgres",
+            "psql",
+            "-X",
+            "-v",
+            "ON_ERROR_STOP=1",
+            "-U",
+            "mindscape",
+            "-d",
+            "mindscape_core",
+            "-Atc",
+            f"SET statement_timeout = '3s'; {_POSTGRES_BASE_BACKUP_COUNT_SQL}",
+        ],
+        timeout=10,
+    ).strip()
+    lines = [line.strip() for line in output.splitlines() if line.strip()]
+    value = lines[-1] if lines else ""
+    if not value.isdigit():
+        raise RuntimeError("postgres_base_backup_count_invalid")
+    return int(value)
 
 
 def active_runner_heartbeat_counts() -> dict[str, int]:
@@ -268,17 +305,28 @@ def inspect_backup_runtime_admission(
     *,
     data_host_dir: Path | None = None,
     wal_archive_root: Path | None = None,
+    backup_scope: str = RUNTIME_SNAPSHOT_SCOPE,
 ) -> dict[str, Any]:
-    """Fail closed when a live practice workload cannot be ruled out."""
+    """Apply only the workload gate owned by the requested backup scope."""
 
     errors: list[str] = []
     resolved_wal_root = wal_archive_root or resolve_wal_archive_root(resolve_primary_root(None))
     base_backup_lock = resolved_wal_root / ".pg_basebackup.lock.d"
     database_inspection_skipped = base_backup_lock.is_dir()
+    if backup_scope not in {POSTGRES_CHAIN_ONLY_SCOPE, RUNTIME_SNAPSHOT_SCOPE}:
+        errors.append("backup_scope_invalid")
     if database_inspection_skipped:
         meeting_count = None
         base_backup_count = 1
         runner_task_count = None
+    elif backup_scope == POSTGRES_CHAIN_ONLY_SCOPE:
+        meeting_count = None
+        runner_task_count = None
+        try:
+            base_backup_count = active_postgres_base_backup_count()
+        except Exception as exc:
+            base_backup_count = None
+            errors.append(f"postgres_base_backup_inspection_failed:{type(exc).__name__}")
     else:
         try:
             database_workloads = active_database_workload_counts()
@@ -290,41 +338,60 @@ def inspect_backup_runtime_admission(
             base_backup_count = None
             runner_task_count = None
             errors.append(f"database_workload_inspection_failed:{type(exc).__name__}")
-    try:
-        runner_heartbeats = active_runner_heartbeat_counts()
-    except Exception as exc:
+    if backup_scope == POSTGRES_CHAIN_ONLY_SCOPE:
         runner_heartbeats = {
             "count": None,
             "inflight": None,
             "capacity": None,
             "malformed": None,
         }
-        errors.append(f"runner_heartbeat_inspection_failed:{type(exc).__name__}")
-    try:
-        receivers = inspect_live_media_receivers(data_host_dir or resolve_data_host_dir())
-        errors.extend(receivers["errors"])
-    except Exception as exc:
         receivers = {"state_root": "", "active": [], "errors": []}
-        errors.append(f"receiver_inspection_failed:{type(exc).__name__}")
+    else:
+        try:
+            runner_heartbeats = active_runner_heartbeat_counts()
+        except Exception as exc:
+            runner_heartbeats = {
+                "count": None,
+                "inflight": None,
+                "capacity": None,
+                "malformed": None,
+            }
+            errors.append(f"runner_heartbeat_inspection_failed:{type(exc).__name__}")
+        try:
+            receivers = inspect_live_media_receivers(data_host_dir or resolve_data_host_dir())
+            errors.extend(receivers["errors"])
+        except Exception as exc:
+            receivers = {"state_root": "", "active": [], "errors": []}
+            errors.append(f"receiver_inspection_failed:{type(exc).__name__}")
 
     blocking_reasons: list[str] = []
-    if meeting_count is not None and meeting_count > 0:
+    if (
+        backup_scope == RUNTIME_SNAPSHOT_SCOPE
+        and meeting_count is not None
+        and meeting_count > 0
+    ):
         blocking_reasons.append("active_meeting_sessions")
     if base_backup_count is not None and base_backup_count > 0:
         blocking_reasons.append("postgres_basebackup_already_running")
-    if runner_task_count is not None and runner_task_count > 0:
+    if (
+        backup_scope == RUNTIME_SNAPSHOT_SCOPE
+        and runner_task_count is not None
+        and runner_task_count > 0
+    ):
         blocking_reasons.append("active_runner_tasks")
     if (
-        runner_heartbeats["inflight"] is not None
+        backup_scope == RUNTIME_SNAPSHOT_SCOPE
+        and runner_heartbeats["inflight"] is not None
         and runner_heartbeats["inflight"] > 0
     ):
         blocking_reasons.append("active_runner_inflight")
-    if receivers["active"]:
+    if backup_scope == RUNTIME_SNAPSHOT_SCOPE and receivers["active"]:
         blocking_reasons.append("active_live_media_receivers")
     if errors:
         blocking_reasons.append("backup_runtime_admission_inspection_failed")
     return {
-        "schema_version": "backup_runtime_admission.v3",
+        "schema_version": "backup_runtime_admission.v4",
+        "backup_scope": backup_scope,
         "admitted": not blocking_reasons,
         "active_meeting_sessions": meeting_count,
         "active_postgres_base_backups": base_backup_count,
@@ -345,10 +412,12 @@ def require_backup_runtime_admission(
     *,
     data_host_dir: Path | None = None,
     wal_archive_root: Path | None = None,
+    backup_scope: str = RUNTIME_SNAPSHOT_SCOPE,
 ) -> dict[str, Any]:
     admission = inspect_backup_runtime_admission(
         data_host_dir=data_host_dir,
         wal_archive_root=wal_archive_root,
+        backup_scope=backup_scope,
     )
     if not admission["admitted"]:
         raise SystemExit(

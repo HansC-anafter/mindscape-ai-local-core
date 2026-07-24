@@ -10,7 +10,8 @@ def stub_incremental_backup_runtime_admission(monkeypatch, request):
         incremental,
         "inspect_backup_runtime_admission",
         lambda **_kwargs: {
-            "schema_version": "backup_runtime_admission.v3",
+            "schema_version": "backup_runtime_admission.v4",
+            "backup_scope": "runtime_snapshot_and_postgres_chain",
             "admitted": True,
             "active_meeting_sessions": 0,
             "active_postgres_base_backups": 0,

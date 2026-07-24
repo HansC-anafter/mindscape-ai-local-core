@@ -138,7 +138,12 @@ def run_policy(args: argparse.Namespace) -> dict[str, Any]:
         raise SystemExit("Backup capacity preflight failed: " + ", ".join(capacity["blocking_reasons"]))
 
     execution_admission = require_backup_runtime_admission(
-        wal_archive_root=config["wal_archive_root"]
+        wal_archive_root=config["wal_archive_root"],
+        backup_scope=(
+            "postgres_chain_only"
+            if config.get("postgres_only")
+            else "runtime_snapshot_and_postgres_chain"
+        ),
     )
 
     partial_dir.mkdir(parents=True, exist_ok=True)

@@ -125,7 +125,8 @@ def build_plan(args: argparse.Namespace) -> dict[str, Any]:
             "warnings": [],
         }
     runtime_admission = inspect_backup_runtime_admission(
-        wal_archive_root=config["wal_archive_root"]
+        wal_archive_root=config["wal_archive_root"],
+        backup_scope=policy["backup_scope"],
     )
     if not runtime_admission["admitted"]:
         return {

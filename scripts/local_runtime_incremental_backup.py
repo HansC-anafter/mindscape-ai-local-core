@@ -172,11 +172,17 @@ def postgres_status():
     return _postgres.postgres_status()
 
 
-def inspect_backup_runtime_admission(*, data_host_dir=None, wal_archive_root=None):
+def inspect_backup_runtime_admission(
+    *,
+    data_host_dir=None,
+    wal_archive_root=None,
+    backup_scope=_runtime_admission.RUNTIME_SNAPSHOT_SCOPE,
+):
     _sync_dependency_overrides()
     return _runtime_admission.inspect_backup_runtime_admission(
         data_host_dir=data_host_dir,
         wal_archive_root=wal_archive_root,
+        backup_scope=backup_scope,
     )
 
 
