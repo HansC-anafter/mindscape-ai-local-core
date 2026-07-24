@@ -55,6 +55,45 @@ describe('server API proxy', () => {
     });
   });
 
+  it('routes only workspace product mutations to control', () => {
+    process.env.WEB_CONSOLE_BACKEND_URL = 'http://backend-control:8210/';
+    process.env.WEB_CONSOLE_EXECUTION_BACKEND_URL = 'http://backend:8200/';
+
+    const workspacePath = '/api/v1/workspaces/ws-1/product-configuration';
+    const groupPath = '/api/v1/workspace-groups/wg-1/product-configuration';
+    const effectivePath =
+      '/api/v1/workspaces/ws-1/product-configuration/effective';
+
+    expect(
+      resolveApiProxyUpstream(`http://localhost:8300${workspacePath}`, 'PUT')
+    ).toEqual({
+      baseUrl: 'http://backend-control:8210',
+      pathname: workspacePath,
+      search: '',
+    });
+    expect(
+      resolveApiProxyUpstream(`http://localhost:8300${groupPath}`, 'PUT')
+    ).toEqual({
+      baseUrl: 'http://backend-control:8210',
+      pathname: groupPath,
+      search: '',
+    });
+    expect(
+      resolveApiProxyUpstream(`http://localhost:8300${effectivePath}`, 'GET')
+    ).toEqual({
+      baseUrl: 'http://backend:8200',
+      pathname: effectivePath,
+      search: '',
+    });
+    expect(
+      resolveApiProxyUpstream(`http://localhost:8300${workspacePath}`, 'GET')
+    ).toEqual({
+      baseUrl: 'http://backend:8200',
+      pathname: workspacePath,
+      search: '',
+    });
+  });
+
   it('keeps device, meeting, and pack runtime APIs on execution', () => {
     process.env.WEB_CONSOLE_BACKEND_URL = 'http://backend-control:8210/';
     process.env.WEB_CONSOLE_EXECUTION_BACKEND_URL = 'http://backend:8200/';

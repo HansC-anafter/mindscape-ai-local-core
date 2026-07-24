@@ -14,6 +14,29 @@ from backend.app.services.workspace_groups.contracts import (
 )
 
 
+def canonical_topology_payload(context: ActiveWorkspaceGroupContext) -> dict[str, Any]:
+    """Build the read-only topology payload shared by Settings and admission."""
+    return {
+        "display_name": context.topology.display_name,
+        "members": [
+            member.model_dump(mode="json")
+            for member in context.topology.members
+        ],
+        "dispatch_workspace_id": context.topology.dispatch_workspace_id,
+        "cell_workspace_ids": context.topology.cell_workspace_ids,
+    }
+
+
+def topology_content_hash(context: ActiveWorkspaceGroupContext) -> str:
+    canonical_payload = json.dumps(
+        canonical_topology_payload(context),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(canonical_payload.encode("utf-8")).hexdigest()
+
+
 class WorkspaceGroupSnapshotService(PostgresStoreBase):
     def get_or_create(
         self,
@@ -21,22 +44,14 @@ class WorkspaceGroupSnapshotService(PostgresStoreBase):
         *,
         actor_user_id: str,
     ) -> WorkspaceGroupTopologySnapshot:
-        payload = {
-            "display_name": context.topology.display_name,
-            "members": [
-                member.model_dump(mode="json")
-                for member in context.topology.members
-            ],
-            "dispatch_workspace_id": context.topology.dispatch_workspace_id,
-            "cell_workspace_ids": context.topology.cell_workspace_ids,
-        }
+        payload = canonical_topology_payload(context)
         canonical_payload = json.dumps(
             payload,
             ensure_ascii=False,
             sort_keys=True,
             separators=(",", ":"),
         )
-        content_hash = hashlib.sha256(canonical_payload.encode("utf-8")).hexdigest()
+        content_hash = topology_content_hash(context)
         snapshot_id = f"wgs_{uuid4().hex}"
         with self.transaction() as conn:
             row = conn.execute(

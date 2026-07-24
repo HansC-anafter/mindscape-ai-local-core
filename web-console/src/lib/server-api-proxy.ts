@@ -45,6 +45,12 @@ function isControlPlaneProxyPath(pathname: string): boolean {
     || /^\/api\/v1\/(?:admin|providers|cloud-providers|deploy|deployments)(?:\/|$)/.test(pathname);
 }
 
+function isWorkspaceProductMutationPath(pathname: string, method: string): boolean {
+  if (method.toUpperCase() !== 'PUT') return false;
+  return /^\/api\/v1\/workspaces\/[^/]+\/product-configuration\/?$/.test(pathname)
+    || /^\/api\/v1\/workspace-groups\/[^/]+\/product-configuration\/?$/.test(pathname);
+}
+
 function resolveExecutionApiBaseUrl(): string {
   return normalizeBaseUrl(
     process.env.WEB_CONSOLE_EXECUTION_BACKEND_URL ||
@@ -66,7 +72,10 @@ function resolveControlApiBaseUrl(): string {
   );
 }
 
-export function resolveApiProxyUpstream(requestUrl: string): ProxyUpstreamResolution {
+export function resolveApiProxyUpstream(
+  requestUrl: string,
+  method = 'GET'
+): ProxyUpstreamResolution {
   const url = new URL(requestUrl);
   const isMediaProxyPath = url.pathname.startsWith('/api/v1/media/');
   const baseUrl = isMediaProxyPath
@@ -76,6 +85,7 @@ export function resolveApiProxyUpstream(requestUrl: string): ProxyUpstreamResolu
         ''
       )
     : isControlPlaneProxyPath(url.pathname)
+      || isWorkspaceProductMutationPath(url.pathname, method)
       ? resolveControlApiBaseUrl()
       : resolveExecutionApiBaseUrl();
 

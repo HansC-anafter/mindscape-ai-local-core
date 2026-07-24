@@ -7,7 +7,10 @@ export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 function proxy(request: Request): Promise<Response> {
-  return proxyToUpstream(request, resolveApiProxyUpstream(request.url));
+  return proxyToUpstream(
+    request,
+    resolveApiProxyUpstream(request.url, request.method)
+  );
 }
 
 export const GET = proxy;
