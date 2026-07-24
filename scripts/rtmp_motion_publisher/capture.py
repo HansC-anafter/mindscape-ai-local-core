@@ -7,6 +7,7 @@ import selectors
 import subprocess
 import threading
 import time
+from pathlib import Path
 from typing import Any
 
 import cv2
@@ -18,6 +19,8 @@ from .jpeg_pipe import BoundedJpegFrameParser
 
 JPEG_PIPE_READ_SIZE = 64 * 1024
 JPEG_PIPE_MAX_FRAME_BYTES = 2 * 1024 * 1024
+DEFAULT_PROCESS_STOP_TIMEOUT_SEC = 2.0
+RETAINED_VIDEO_FINALIZE_TIMEOUT_SEC = 30.0
 
 
 class OpenCvStreamCapture:
@@ -67,6 +70,7 @@ class FfmpegRawFrameCapture:
         read_timeout_sec: float,
         avfoundation_framerate: float,
         ffmpeg_realtime_input: bool,
+        retained_video_path: str | Path | None = None,
     ) -> None:
         self.rtmp_url = rtmp_url
         self.ffmpeg_bin = ffmpeg_bin
@@ -76,6 +80,11 @@ class FfmpegRawFrameCapture:
         self.read_timeout_sec = read_timeout_sec
         self.avfoundation_framerate = avfoundation_framerate
         self.ffmpeg_realtime_input = ffmpeg_realtime_input
+        self.retained_video_path = (
+            Path(retained_video_path).expanduser()
+            if retained_video_path
+            else None
+        )
         self.process: subprocess.Popen[bytes] | None = None
         self.selector: selectors.BaseSelector | None = None
         self._frames: queue.Queue[np.ndarray] = queue.Queue(maxsize=1)
@@ -89,6 +98,7 @@ class FfmpegRawFrameCapture:
         self._overwritten_frames = 0
         self._decode_errors = 0
         self._pipe_bytes_read = 0
+        self._pipe_idle_timeout_count = 0
         self._reader_error: str | None = None
         self._open()
 
@@ -117,6 +127,20 @@ class FfmpegRawFrameCapture:
 
     def _open(self) -> None:
         fps = max(0.1, self.sample_fps)
+        retained_output: list[str] = []
+        if self.retained_video_path is not None:
+            self.retained_video_path.parent.mkdir(parents=True, exist_ok=True)
+            retained_output = [
+                "-map",
+                "0:v:0",
+                "-an",
+                "-c:v",
+                "copy",
+                "-movflags",
+                "+faststart",
+                "-y",
+                str(self.retained_video_path),
+            ]
         cmd = [
             self.ffmpeg_bin,
             "-nostdin",
@@ -129,6 +153,9 @@ class FfmpegRawFrameCapture:
             "low_delay",
             *(["-re"] if self.ffmpeg_realtime_input else []),
             *self._input_args(),
+            *retained_output,
+            "-map",
+            "0:v:0",
             "-an",
             "-vf",
             f"fps={fps},scale={self.frame_width}:{self.frame_height}",
@@ -184,23 +211,43 @@ class FfmpegRawFrameCapture:
                 return encoded_frame
             wait_sec = deadline - time.monotonic()
             if wait_sec <= 0:
-                self._reader_error = "frame_read_timeout"
-                return None
+                if self.process.poll() is not None:
+                    self._reader_error = f"ffmpeg_exit_{self.process.returncode}"
+                    return None
+                self._pipe_idle_timeout_count += 1
+                self._reader_error = "frame_pipe_idle"
+                deadline = time.monotonic() + max(1.0, self.read_timeout_sec)
+                continue
             try:
                 readable = self.selector is not None and self.selector.select(wait_sec)
             except (OSError, ValueError):
+                self._reader_error = "frame_pipe_selector_failed"
                 return None
             if not readable:
-                self._reader_error = "frame_read_timeout"
-                return None
+                if self.process.poll() is not None:
+                    self._reader_error = f"ffmpeg_exit_{self.process.returncode}"
+                    return None
+                self._pipe_idle_timeout_count += 1
+                self._reader_error = "frame_pipe_idle"
+                deadline = time.monotonic() + max(1.0, self.read_timeout_sec)
+                continue
             try:
                 chunk = os.read(fd, JPEG_PIPE_READ_SIZE)
             except OSError:
+                self._reader_error = "frame_pipe_read_failed"
                 return None
             if not chunk:
+                return_code = self.process.poll()
+                self._reader_error = (
+                    f"ffmpeg_exit_{return_code}"
+                    if return_code is not None
+                    else "frame_pipe_eof"
+                )
                 return None
+            self._reader_error = None
             self._pipe_bytes_read += len(chunk)
             self._jpeg_parser.feed(chunk)
+            deadline = time.monotonic() + max(1.0, self.read_timeout_sec)
         return None
 
     def _replace_latest_frame(self, frame: np.ndarray) -> None:
@@ -261,20 +308,28 @@ class FfmpegRawFrameCapture:
             "pipe_high_watermark_bytes": self._jpeg_parser.high_watermark_bytes,
             "pipe_discarded_bytes": self._jpeg_parser.discarded_bytes,
             "pipe_overflow_count": self._jpeg_parser.overflow_count,
+            "pipe_idle_timeout_count": self._pipe_idle_timeout_count,
             "reader_error": self._reader_error,
         }
 
     def release(self) -> None:
-        self._stop_reader.set()
         if self.process is None:
+            self._stop_reader.set()
             return
         if self.process.poll() is None:
             self.process.terminate()
+            finalize_timeout_sec = (
+                RETAINED_VIDEO_FINALIZE_TIMEOUT_SEC
+                if self.retained_video_path is not None
+                else DEFAULT_PROCESS_STOP_TIMEOUT_SEC
+            )
             try:
-                self.process.wait(timeout=2)
+                self.process.wait(timeout=finalize_timeout_sec)
             except subprocess.TimeoutExpired:
+                self._stop_reader.set()
                 self.process.kill()
-                self.process.wait(timeout=2)
+                self.process.wait(timeout=DEFAULT_PROCESS_STOP_TIMEOUT_SEC)
+        self._stop_reader.set()
         if self._reader_thread is not None:
             self._reader_thread.join(timeout=2)
             self._reader_thread = None
@@ -293,6 +348,24 @@ def open_stream_capture(args: argparse.Namespace) -> Any:
             args.rtmp_url,
             read_timeout_sec=args.stream_read_timeout_sec,
         )
+    retained_video_path = None
+    evidence_dir = str(
+        getattr(args, "learner_evidence_output_dir", "") or ""
+    ).strip()
+    input_uri = str(getattr(args, "rtmp_url", "") or "").strip().lower()
+    if (
+        evidence_dir
+        and not bool(getattr(args, "disable_learner_visual_evidence", False))
+        and input_uri.startswith(
+            ("rtmp://", "rtmps://", "rtsp://", "rtsps://", "avfoundation:")
+        )
+    ):
+        part_index = int(getattr(args, "_learner_retained_video_part_index", 0))
+        setattr(args, "_learner_retained_video_part_index", part_index + 1)
+        retained_video_path = (
+            Path(evidence_dir).expanduser()
+            / f"learner-capture-part-{part_index:03d}.mp4"
+        )
     return FfmpegRawFrameCapture(
         rtmp_url=args.rtmp_url,
         ffmpeg_bin=args.ffmpeg_bin,
@@ -302,4 +375,5 @@ def open_stream_capture(args: argparse.Namespace) -> Any:
         read_timeout_sec=args.stream_read_timeout_sec,
         avfoundation_framerate=args.avfoundation_framerate,
         ffmpeg_realtime_input=args.ffmpeg_realtime_input,
+        retained_video_path=retained_video_path,
     )

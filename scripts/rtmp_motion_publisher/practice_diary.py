@@ -65,8 +65,10 @@ def materialize_practice_diary(
         timeout_sec=float(
             getattr(args, "closeout_api_timeout_sec", args.api_timeout_sec)
         ),
-        # A timed-out write may still commit server-side. Do not duplicate it.
-        retry_count=1,
+        # Materialization is idempotent for workspace, practice session, and
+        # source fingerprint. Retrying an ambiguous timeout returns the same
+        # revision instead of creating a duplicate diary.
+        retry_count=max(2, int(getattr(args, "api_retry_count", 2))),
         retry_backoff_sec=args.api_retry_backoff_sec,
     )
     summary = _record(response.get("summary"))

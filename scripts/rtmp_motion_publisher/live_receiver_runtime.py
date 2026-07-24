@@ -11,11 +11,13 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from .app import run_receiver
 from .cli import parse_args
+from .events import emit
 from .receiver_state import (
     close_receiver_state_reporter,
     safe_receiver_failure_reason,
     transition_receiver_state,
 )
+from .settings import DEFAULT_FORMAL_STREAM_RECONNECT_MAX_ATTEMPTS
 
 
 def _required(record: dict[str, Any], name: str) -> str:
@@ -181,16 +183,23 @@ def _build_receiver_args(
         "--learner-evidence-storage-dir",
         evidence_storage,
         "--stream-reconnect-max-attempts",
-        "0",
+        str(DEFAULT_FORMAL_STREAM_RECONNECT_MAX_ATTEMPTS),
         "--source-wait-timeout-sec",
         str(remaining_sec),
+        "--session-expires-at-epoch",
+        str(float(descriptor["expires_at_epoch"])),
     ]
     reference_url = str(descriptor.get("reference_url") or "").strip()
     if reference_url:
         arguments.extend(["--yogacoach-reference-url", reference_url])
     if motion_reference_profile_path:
         arguments.extend(
-            ["--motion-reference-profile-path", motion_reference_profile_path]
+            [
+                "--motion-reference-profile-path",
+                motion_reference_profile_path,
+                "--practice-diary-reference-visual-evidence-path",
+                motion_reference_profile_path,
+            ]
         )
         profile_ref = descriptor.get("motion_reference_profile") or {}
         arguments.extend(
@@ -229,16 +238,31 @@ def main() -> int:
         close_receiver_state_reporter()
         return result
     except Exception as exc:
-        fallback = argparse.Namespace(
+        failure_reason = safe_receiver_failure_reason(exc)
+        active_args = locals().get("receiver_args")
+        fallback = active_args or argparse.Namespace(
             receiver_state_path=str(input_args.state_path),
             workspace_id=(locals().get("descriptor") or {}).get("workspace_id", "unknown"),
             media_session_id=(locals().get("descriptor") or {}).get("media_session_id", "unknown"),
             receiver_identity=(locals().get("descriptor") or {}).get("receiver_identity", "unknown"),
         )
+        final_metrics = (
+            getattr(active_args, "receiver_final_metrics", None)
+            if active_args is not None
+            else None
+        )
+        emit(
+            {
+                "event": "live_media_receiver_runtime_failed",
+                "error_type": type(exc).__name__,
+                "reason": failure_reason,
+            }
+        )
         transition_receiver_state(
             fallback,
             "failed",
-            reason=safe_receiver_failure_reason(exc),
+            reason=failure_reason,
+            metrics=final_metrics,
         )
         close_receiver_state_reporter()
         return 1

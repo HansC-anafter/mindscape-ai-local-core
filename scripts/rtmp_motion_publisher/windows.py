@@ -4,6 +4,21 @@ from dataclasses import dataclass, field
 from typing import Any
 
 
+POSTURE_METRIC_KEYS = (
+    "left_elbow_flexion",
+    "right_elbow_flexion",
+    "left_shoulder_flexion",
+    "right_shoulder_flexion",
+    "left_hip_flexion",
+    "right_hip_flexion",
+    "left_knee_flexion",
+    "right_knee_flexion",
+    "torso_horizontal",
+    "wrist_ankle_vertical_gap",
+    "body_aspect",
+)
+
+
 @dataclass
 class PoseSample:
     timestamp_ms: float
@@ -18,6 +33,9 @@ class PoseSample:
 class PendingMotionWindow:
     summary: dict[str, Any]
     received_at_ms: float
+    append_confirmation_rounds: int = 0
+    append_first_failure_monotonic: float | None = None
+    append_next_confirmation_monotonic: float = 0.0
 
 
 @dataclass
@@ -37,10 +55,29 @@ class MotionWindowAccumulator:
             self.samples.append(sample)
         if sample.timestamp_ms - self.window_start_ms < self.window_ms:
             return None
-        return self.flush(sample.timestamp_ms)
+        summary = self.flush(sample.timestamp_ms)
+        if summary is not None:
+            self.window_start_ms = sample.timestamp_ms
+            self.samples = [sample]
+        return summary
 
-    def flush(self, end_ms: float | None = None) -> dict[str, Any] | None:
+    def pending_duration_ms(self, end_ms: float | None = None) -> float:
         if self.window_start_ms is None or not self.samples:
+            return 0.0
+        resolved_end_ms = float(
+            end_ms if end_ms is not None else self.samples[-1].timestamp_ms
+        )
+        return max(0.0, resolved_end_ms - self.window_start_ms)
+
+    def flush(
+        self,
+        end_ms: float | None = None,
+        *,
+        minimum_duration_ms: float = 0.0,
+    ) -> dict[str, Any] | None:
+        if self.window_start_ms is None or not self.samples:
+            return None
+        if self.pending_duration_ms(end_ms) < max(0.0, minimum_duration_ms):
             return None
         confidence_values = [sample.confidence for sample in self.samples]
         visible_ratios = [
@@ -139,7 +176,7 @@ class MotionWindowAccumulator:
         return round(max(values) - min(values), 4)
 
     def _compact_metrics(self) -> dict[str, float]:
-        return {
+        metrics = {
             "center_x_mean": self._metric_mean("center_x"),
             "center_y_mean": self._metric_mean("center_y"),
             "center_x_range": self._metric_range("center_x"),
@@ -149,6 +186,14 @@ class MotionWindowAccumulator:
             "torso_length_mean": self._metric_mean("torso_length"),
             "body_width_mean": self._metric_mean("body_width"),
         }
+        metrics.update(
+            {
+                f"{key}_mean": self._metric_mean(key)
+                for key in POSTURE_METRIC_KEYS
+                if self._metric_values(key)
+            }
+        )
+        return metrics
 
     def _domain_metrics(
         self,

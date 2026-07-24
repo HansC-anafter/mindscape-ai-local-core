@@ -88,6 +88,7 @@ def emit_yogacoach_closeout(
     live_session_id: str,
     rollup_response: dict[str, Any] | None,
     learner_visual_evidence: dict[str, Any] | None = None,
+    reference_visual_evidence: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     if not args.emit_yogacoach_summary:
         return None
@@ -127,6 +128,8 @@ def emit_yogacoach_closeout(
         "publisher_expected_duration_ms": args.expected_duration_ms or None,
         "e2e_source_mode": source_mode,
         "learner_visual_evidence": learner_visual_evidence
+        or {"status": "unavailable", "reason": "not_captured", "assets": []},
+        "reference_visual_evidence": reference_visual_evidence
         or {"status": "unavailable", "reason": "not_captured", "assets": []},
     }
     motion_rollup_metadata = motion_rollup.get("metadata")
@@ -243,6 +246,12 @@ def emit_yogacoach_closeout(
         ).get("status"),
         "learner_visual_evidence_asset_count": len(
             (learner_visual_evidence or {}).get("assets") or []
+        ),
+        "reference_visual_evidence_status": (
+            reference_visual_evidence or {}
+        ).get("status"),
+        "reference_visual_evidence_asset_count": len(
+            (reference_visual_evidence or {}).get("assets") or []
         ),
         "practice_diary": (
             (diary_response or {}).get("summary")

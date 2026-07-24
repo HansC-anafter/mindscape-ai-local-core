@@ -20,7 +20,7 @@ def acquire_initial_stream(
     """Wait for the first publisher frame until stop, retry limit, or session TTL."""
 
     wait_started_at = monotonic()
-    reconnect_attempts = 0
+    source_wait_attempts = 0
     input_uri = public_input_uri(args.rtmp_url)
     while not should_stop():
         capture = open_capture(args)
@@ -28,7 +28,7 @@ def acquire_initial_stream(
         if capture.isOpened():
             first_frame_ok, first_frame = capture.read()
             if first_frame_ok:
-                return capture, first_frame, reconnect_attempts
+                return capture, first_frame, source_wait_attempts
             reason = "initial_frame_unavailable"
         emit_event(
             {
@@ -44,31 +44,37 @@ def acquire_initial_stream(
             0.0,
             float(getattr(args, "source_wait_timeout_sec", 0.0) or 0.0),
         )
-        attempts_exhausted = (
-            args.stream_reconnect_max_attempts > 0
-            and reconnect_attempts >= args.stream_reconnect_max_attempts
-        )
         wait_expired = (
             source_wait_timeout_sec > 0
             and elapsed_sec >= source_wait_timeout_sec
         )
-        if attempts_exhausted or wait_expired:
+        attempts_exhausted = (
+            int(getattr(args, "source_wait_max_attempts", 0) or 0) > 0
+            and source_wait_attempts
+            >= int(getattr(args, "source_wait_max_attempts", 0) or 0)
+        )
+        if wait_expired or attempts_exhausted:
             emit_event(
                 {
-                    "event": "stream_reconnect_give_up",
-                    "reason": reason,
-                    "attempts": reconnect_attempts,
+                    "event": "source_wait_expired",
+                    "reason": (
+                        "source_wait_budget_exhausted"
+                        if attempts_exhausted
+                        else reason
+                    ),
+                    "trigger": reason,
+                    "attempts": source_wait_attempts,
                     "elapsed_sec": round(elapsed_sec, 3),
                 }
             )
             return None
 
-        reconnect_attempts += 1
+        source_wait_attempts += 1
         emit_event(
             {
-                "event": "stream_reconnect_started",
+                "event": "source_wait_retry_started",
                 "reason": reason,
-                "attempt": reconnect_attempts,
+                "attempt": source_wait_attempts,
                 "elapsed_sec": round(elapsed_sec, 3),
             }
         )

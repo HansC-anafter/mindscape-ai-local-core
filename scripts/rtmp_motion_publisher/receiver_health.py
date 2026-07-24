@@ -48,6 +48,7 @@ def receiver_metrics(
     attempted_windows: int,
     sender_stats: dict[str, Any],
     capture_stats: dict[str, Any] | None,
+    source_wait_attempts: int,
     reconnect_attempts: int,
     last_window_summary: dict[str, Any] | None,
 ) -> dict[str, Any]:
@@ -59,6 +60,7 @@ def receiver_metrics(
         "rejected_windows": sender_stats.get("rejected_windows", 0),
         "failed_windows": sender_stats.get("failed_windows", 0),
         "append_queue_pending": sender_stats.get("append_queue_pending", 0),
+        "source_wait_attempts": source_wait_attempts,
         "reconnect_attempts": reconnect_attempts,
         "decoded_frames": capture.get("decoded_frames", 0),
         "overwritten_frames": capture.get("overwritten_frames", 0),
@@ -68,6 +70,7 @@ def receiver_metrics(
         "pipe_high_watermark_bytes": capture.get("pipe_high_watermark_bytes", 0),
         "pipe_discarded_bytes": capture.get("pipe_discarded_bytes", 0),
         "pipe_overflow_count": capture.get("pipe_overflow_count", 0),
+        "pipe_idle_timeout_count": capture.get("pipe_idle_timeout_count", 0),
         "last_window_end_ms": (
             last_window_summary.get("ts_end_ms")
             if last_window_summary is not None
@@ -82,4 +85,40 @@ def receiver_metrics(
     }
 
 
-__all__ = ["public_reference_alignment_status", "receiver_metrics"]
+def publisher_status_event(
+    *,
+    elapsed_sec: float,
+    attempted_windows: int,
+    sender_stats: dict[str, Any],
+    capture_stats: dict[str, Any],
+    analysis_stats: dict[str, object],
+    last_window_summary: dict[str, Any] | None,
+) -> dict[str, Any]:
+    return {
+        "event": "publisher_status",
+        "elapsed_sec": round(elapsed_sec, 3),
+        "attempted_windows": attempted_windows,
+        **sender_stats,
+        "capture": capture_stats,
+        "analysis": analysis_stats,
+        "last_confidence": (
+            last_window_summary["confidence_stats"]["mean_confidence"]
+            if last_window_summary is not None
+            else None
+        ),
+        "last_findings": (
+            last_window_summary["findings"]
+            if last_window_summary is not None
+            else []
+        ),
+        "reference_alignment": public_reference_alignment_status(
+            last_window_summary
+        ),
+    }
+
+
+__all__ = [
+    "public_reference_alignment_status",
+    "publisher_status_event",
+    "receiver_metrics",
+]

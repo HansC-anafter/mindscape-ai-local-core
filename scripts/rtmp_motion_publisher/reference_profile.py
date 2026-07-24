@@ -80,6 +80,9 @@ def compact_window_features(window: Mapping[str, Any]) -> dict[str, float]:
             scores.get("body_visibility") or confidence.get("mean_visible_ratio")
         ),
     }
+    for key, value in _record(metadata.get("compact_motion_metrics")).items():
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            features[f"posture_{key}"] = _number(value)
     families = (
         ("dwpose_node_deltas", "node_id"),
         ("sway_metrics", "axis"),
@@ -135,6 +138,7 @@ def build_motion_reference_profile(
     source_ref: str,
     chapters: list[Mapping[str, Any]],
     windows: list[Mapping[str, Any]],
+    visual_evidence: list[Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     profile_chapters: list[dict[str, Any]] = []
     for index, chapter in enumerate(chapters[:MAX_CHAPTERS]):
@@ -195,6 +199,7 @@ def build_motion_reference_profile(
         "reference_rights_status": "unknown",
         "skeleton_family": "mediapipe_pose_33",
         "chapters": profile_chapters,
+        "visual_evidence": [dict(item) for item in (visual_evidence or [])],
         "redaction_notes": [
             "Only compact chapter motion features and bounded evidence refs are retained."
         ],

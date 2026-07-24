@@ -4,7 +4,7 @@ import hashlib
 import json
 import math
 import shutil
-from dataclasses import dataclass
+import threading
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -12,59 +12,33 @@ import cv2
 import numpy as np
 
 from .api_client import api_post
+from .evidence_values import (
+    CapturedWindowFrame,
+    first_number as _first_number,
+    is_live_capture_source as _is_live_capture_source,
+    number as _number,
+    record as _record,
+    records as _records,
+    safe_path_part as _safe_path_part,
+    segment_frame_coverage_reason as _coverage_reason,
+)
 from .events import emit
+from .evidence_alignment import (
+    select_reference_evidence_frame,
+    visual_reference_alignment,
+)
+from .retained_video import (
+    RegisteredRetainedVideo,
+    RetainedVideoProbe,
+    probe_retained_video,
+    register_retained_video,
+)
 from .source_uri import capture_input_kind, public_input_uri
 
 
 CONTACT_SHEET_COLUMNS = 6
 CONTACT_SHEET_FRAME_WIDTH = 320
 CONTACT_SHEET_FRAME_HEIGHT = 180
-
-
-def _record(value: Any) -> dict[str, Any]:
-    return dict(value) if isinstance(value, Mapping) else {}
-
-
-def _records(value: Any) -> list[dict[str, Any]]:
-    return [dict(item) for item in value] if isinstance(value, list) else []
-
-
-def _number(value: Any, fallback: float = 0.0) -> float:
-    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else fallback
-
-
-def _first_number(
-    value: Mapping[str, Any],
-    *keys: str,
-    fallback: float = 0.0,
-) -> float:
-    for key in keys:
-        candidate = value.get(key)
-        if isinstance(candidate, (int, float)) and not isinstance(candidate, bool):
-            return float(candidate)
-    return fallback
-
-
-def _safe_path_part(value: str) -> str:
-    cleaned = "".join(
-        character if character.isalnum() or character in {"-", "_", "."} else "-"
-        for character in str(value).strip()
-    ).strip("-")
-    return cleaned or "unknown"
-
-
-def _is_live_capture_source(value: str) -> bool:
-    source = str(value or "").strip().lower()
-    return source.startswith(("rtmp://", "rtmps://", "rtsp://", "rtsps://", "avfoundation:"))
-
-
-@dataclass(frozen=True)
-class CapturedWindowFrame:
-    motion_window_ref: str
-    start_ms: float
-    end_ms: float
-    capture_ms: float
-    path: Path
 
 
 class LearnerVisualEvidenceRecorder:
@@ -103,6 +77,8 @@ class LearnerVisualEvidenceRecorder:
         ) / workspace_part / "artifacts" / "yogacoach" / "live-capture" / session_part
         self.window_dir = self.host_root / "motion-window-frames"
         self.frames: list[CapturedWindowFrame] = []
+        self.reference_alignments: dict[str, dict[str, Any]] = {}
+        self.lock = threading.Lock()
         self.dropped_frames = 0
         if self.enabled:
             self.window_dir.mkdir(parents=True, exist_ok=True)
@@ -167,16 +143,41 @@ class LearnerVisualEvidenceRecorder:
             )
         )
 
-    def _segments(self, rollup_response: Mapping[str, Any]) -> list[dict[str, Any]]:
+    def record_reference_alignment(self, summary: Mapping[str, Any]) -> None:
+        motion_window_ref = str(
+            summary.get("window_id") or summary.get("motion_window_ref") or ""
+        ).strip()
+        metadata = _record(summary.get("metadata"))
+        alignment = visual_reference_alignment(
+            _record(metadata.get("reference_alignment"))
+        )
+        if not motion_window_ref or not alignment:
+            return
+        with self.lock:
+            self.reference_alignments[motion_window_ref] = alignment
+
+    def _reference_aligned_frame(
+        self,
+        frames: list[CapturedWindowFrame],
+    ) -> CapturedWindowFrame | None:
+        with self.lock:
+            alignments = dict(self.reference_alignments)
+        return select_reference_evidence_frame(
+            frames,
+            alignments,
+        )
+
+    def segments(self, rollup_response: Mapping[str, Any]) -> list[dict[str, Any]]:
         summary = _record(rollup_response.get("summary"))
         metadata = _record(summary.get("metadata"))
         return _records(metadata.get("reference_segments"))
 
-    def _representative_frames(
+    def representative_frames(
         self,
         segments: list[dict[str, Any]],
     ) -> list[tuple[dict[str, Any], CapturedWindowFrame]]:
         selected: list[tuple[dict[str, Any], CapturedWindowFrame]] = []
+        used_motion_window_refs: set[str] = set()
         for segment in segments:
             start_ms = _number(segment.get("segment_start_ms") or segment.get("start_ms"))
             end_ms = max(
@@ -188,12 +189,26 @@ class LearnerVisualEvidenceRecorder:
                 frame
                 for frame in self.frames
                 if frame.capture_ms >= start_ms and frame.capture_ms <= end_ms
+                and frame.motion_window_ref not in used_motion_window_refs
             ]
-            candidates = in_segment or self.frames
-            if not candidates:
+            if not in_segment:
                 continue
-            selected.append((segment, min(candidates, key=lambda frame: abs(frame.capture_ms - midpoint))))
+            captured = self._reference_aligned_frame(in_segment) or min(
+                in_segment,
+                key=lambda frame: abs(frame.capture_ms - midpoint),
+            )
+            used_motion_window_refs.add(captured.motion_window_ref)
+            selected.append(
+                (
+                    segment,
+                    captured,
+                )
+            )
         return selected
+
+    def reference_alignment(self, motion_window_ref: str) -> dict[str, Any]:
+        with self.lock:
+            return dict(self.reference_alignments.get(motion_window_ref) or {})
 
     def _write_contact_sheet(
         self,
@@ -285,16 +300,48 @@ class LearnerVisualEvidenceRecorder:
             raise RuntimeError("learner contact sheet artifact registration returned no id")
         return artifact_id
 
+    def _probe_retained_video(self, path: Path) -> RetainedVideoProbe:
+        return probe_retained_video(
+            path,
+            ffmpeg_bin=str(getattr(self.args, "ffmpeg_bin", "ffmpeg")),
+            timeout_sec=float(getattr(self.args, "closeout_api_timeout_sec", 30.0)),
+        )
+
+    def _register_retained_video(
+        self,
+        segments: list[dict[str, Any]],
+    ) -> RegisteredRetainedVideo:
+        input_kind = capture_input_kind(
+            getattr(self.args, "source_kind", ""),
+            getattr(self.args, "transport_kind", ""),
+        )
+        return register_retained_video(
+            args=self.args,
+            host_root=self.host_root,
+            storage_root=self.storage_root,
+            live_session_id=self.live_session_id,
+            segments=segments,
+            input_kind=input_kind,
+            input_uri=public_input_uri(self.args.rtmp_url),
+            probe=self._probe_retained_video,
+            register_artifact=api_post,
+        )
+
     def finalize(self, rollup_response: Mapping[str, Any]) -> dict[str, Any]:
         if not self.enabled:
             return {"status": "unavailable", "reason": "input_is_not_live_capture", "assets": []}
-        segments = self._segments(rollup_response)
-        selected = self._representative_frames(segments)
-        if not selected:
-            return {"status": "unavailable", "reason": "no_captured_segment_frames", "assets": []}
+        segments = self.segments(rollup_response)
+        completeness_reason = _coverage_reason(segments)
+        if completeness_reason:
+            return {"status": "unavailable", "reason": completeness_reason, "assets": []}
+        selected = self.representative_frames(segments)
+        completeness_reason = _coverage_reason(segments, selected_count=len(selected))
+        if completeness_reason:
+            return {"status": "unavailable", "reason": completeness_reason, "assets": []}
         try:
             contact_sheet_path = self._write_contact_sheet(selected)
             artifact_id = self._register_contact_sheet(contact_sheet_path, selected)
+            retained_video = self._register_retained_video(segments)
             columns = min(CONTACT_SHEET_COLUMNS, len(selected))
             rows = math.ceil(len(selected) / columns)
             source_ref = f"mindscape://device_binding/session/{self.args.source_session_id}"
@@ -337,10 +384,39 @@ class LearnerVisualEvidenceRecorder:
                         "motion_window_ref": captured.motion_window_ref,
                     }
                 )
+                assets.append(
+                    {
+                        "asset_id": f"{chapter_id}:learner:capture-video-clip",
+                        "chapter_id": chapter_id,
+                        "role": "learner",
+                        "media_kind": "video_clip",
+                        "artifact_id": retained_video.artifact_id,
+                        "mime_type": "video/mp4",
+                        "label": "Learner capture chapter clip",
+                        "time_range_ms": [start_ms, end_ms],
+                        "media_time_range_ms": [
+                            min(start_ms, retained_video.duration_ms),
+                            min(end_ms, retained_video.duration_ms),
+                        ],
+                        "media_duration_ms": round(retained_video.duration_ms, 3),
+                        "capture_ms": captured.capture_ms,
+                        "source_ref": source_ref,
+                        "lineage": "learner_capture_retained_by_analysis_reader",
+                        "source_kind": "learner_capture",
+                        "capture_session_id": self.args.source_session_id,
+                        "media_session_id": getattr(self.args, "media_session_id", "") or None,
+                        "receiver_identity": getattr(self.args, "receiver_identity", "") or None,
+                        "transport_kind": getattr(self.args, "transport_kind", "") or None,
+                        "capture_input_kind": input_kind,
+                        "motion_window_ref": captured.motion_window_ref,
+                    }
+                )
             manifest = {
                 "schema_version": "yogacoach.learner_visual_evidence.v1",
                 "status": "ready",
                 "artifact_id": artifact_id,
+                "clip_artifact_id": retained_video.artifact_id,
+                "clip_duration_ms": round(retained_video.duration_ms, 3),
                 "capture_session_id": self.args.source_session_id,
                 "media_session_id": getattr(self.args, "media_session_id", "") or None,
                 "live_session_id": self.live_session_id,
@@ -348,7 +424,8 @@ class LearnerVisualEvidenceRecorder:
                 "transport_kind": getattr(self.args, "transport_kind", "") or None,
                 "capture_input_kind": input_kind,
                 "captured_window_frame_count": len(self.frames),
-                "adaptive_segment_frame_count": len(assets),
+                "adaptive_segment_frame_count": len(selected),
+                "adaptive_segment_clip_count": len(selected),
                 "assets": assets,
             }
             manifest_path = self.host_root / "learner-visual-evidence-manifest.json"
@@ -360,8 +437,10 @@ class LearnerVisualEvidenceRecorder:
                 {
                     "event": "learner_visual_evidence_ready",
                     "artifact_id": artifact_id,
+                    "clip_artifact_id": retained_video.artifact_id,
                     "captured_window_frame_count": len(self.frames),
-                    "adaptive_segment_frame_count": len(assets),
+                    "adaptive_segment_frame_count": len(selected),
+                    "adaptive_segment_clip_count": len(selected),
                 }
             )
             return manifest

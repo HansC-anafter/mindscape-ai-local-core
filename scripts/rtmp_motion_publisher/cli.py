@@ -6,6 +6,8 @@ from .settings import (
     DEFAULT_API_RETRY_BACKOFF_SEC,
     DEFAULT_API_RETRY_COUNT,
     DEFAULT_API_TIMEOUT_SEC,
+    DEFAULT_APPEND_ACK_RECOVERY_BACKOFF_SEC,
+    DEFAULT_APPEND_ACK_RECOVERY_MAX_SEC,
     DEFAULT_CLOSEOUT_API_TIMEOUT_SEC,
     DEFAULT_CONTROL_API_TIMEOUT_SEC,
     DEFAULT_ROLLUP_API_TIMEOUT_SEC,
@@ -114,6 +116,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=DEFAULT_APPEND_QUEUE_MAX_SIZE,
     )
     parser.add_argument(
+        "--append-ack-recovery-backoff-sec",
+        type=float,
+        default=DEFAULT_APPEND_ACK_RECOVERY_BACKOFF_SEC,
+    )
+    parser.add_argument(
+        "--append-ack-recovery-max-sec",
+        type=float,
+        default=DEFAULT_APPEND_ACK_RECOVERY_MAX_SEC,
+    )
+    parser.add_argument(
         "--capture-backend",
         choices=["ffmpeg", "opencv"],
         default=DEFAULT_CAPTURE_BACKEND,
@@ -151,13 +163,25 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--stream-reconnect-max-attempts",
         type=int,
         default=0,
-        help="0 means retry until the publisher is stopped.",
+        help="Maximum consecutive attempts per outage; 0 requires another deadline.",
     )
     parser.add_argument(
         "--source-wait-timeout-sec",
         type=float,
         default=0.0,
         help="Maximum initial publisher wait; 0 is bounded only by explicit stop.",
+    )
+    parser.add_argument(
+        "--source-wait-max-attempts",
+        type=int,
+        default=0,
+        help="Optional initial-source retry budget; 0 relies on timeout or stop.",
+    )
+    parser.add_argument(
+        "--session-expires-at-epoch",
+        type=float,
+        default=0.0,
+        help="Absolute receiver session expiry; 0 leaves expiry to another policy.",
     )
     parser.add_argument(
         "--stream-gap-holdover-sec",

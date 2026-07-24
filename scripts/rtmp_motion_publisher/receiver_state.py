@@ -23,6 +23,7 @@ _METRIC_COUNTERS = (
     "rejected_windows",
     "failed_windows",
     "append_queue_pending",
+    "source_wait_attempts",
     "reconnect_attempts",
     "decoded_frames",
     "overwritten_frames",
@@ -32,7 +33,9 @@ _METRIC_COUNTERS = (
     "pipe_high_watermark_bytes",
     "pipe_discarded_bytes",
     "pipe_overflow_count",
+    "pipe_idle_timeout_count",
 )
+_HOST_ONLY_METRIC_COUNTERS = {"source_wait_attempts", "pipe_idle_timeout_count"}
 
 
 def _bounded_metrics(value: Mapping[str, Any] | None) -> dict[str, Any]:
@@ -179,10 +182,37 @@ def safe_receiver_failure_reason(exc: Exception) -> str:
     message = str(exc).strip()
     if isinstance(exc, ValueError) and _STABLE_REASON.fullmatch(message):
         return message
+    if isinstance(exc, requests.ConnectTimeout):
+        return "live_media_receiver_connect_timeout"
+    if isinstance(exc, requests.ReadTimeout):
+        return "live_media_receiver_read_timeout"
+    if isinstance(exc, requests.ConnectionError):
+        return "live_media_receiver_connection_failed"
+    if isinstance(exc, requests.HTTPError):
+        return "live_media_receiver_http_error"
     if isinstance(exc, OSError):
         errno = exc.errno if isinstance(exc.errno, int) else "unknown"
         return f"live_media_receiver_os_error_{errno}"
     return "live_media_receiver_runtime_failed"
+
+
+def _previous_metrics(path: Path, args: Any) -> dict[str, Any]:
+    try:
+        previous = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return _bounded_metrics(None)
+    if not isinstance(previous, dict):
+        return _bounded_metrics(None)
+    if str(previous.get("media_session_id") or "") != str(
+        getattr(args, "media_session_id", "")
+    ):
+        return _bounded_metrics(None)
+    if str(previous.get("receiver_identity") or "") != str(
+        getattr(args, "receiver_identity", "")
+    ):
+        return _bounded_metrics(None)
+    raw_metrics = previous.get("metrics")
+    return _bounded_metrics(raw_metrics if isinstance(raw_metrics, dict) else None)
 
 
 def transition_receiver_state(
@@ -197,6 +227,11 @@ def transition_receiver_state(
         return
     path = Path(raw_path)
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    bounded_metrics = (
+        _bounded_metrics(metrics)
+        if metrics is not None
+        else _previous_metrics(path, args)
+    )
     payload = {
         "schema_version": "live_media_receiver_state.v1",
         "workspace_id": str(args.workspace_id),
@@ -205,7 +240,7 @@ def transition_receiver_state(
         "pid": os.getpid(),
         "state": state,
         "updated_at": datetime.now(timezone.utc).isoformat(),
-        "metrics": _bounded_metrics(metrics),
+        "metrics": bounded_metrics,
     }
     if reason:
         payload["reason"] = reason[:500]
@@ -221,7 +256,11 @@ def transition_receiver_state(
         "schema_version": "live_media_receiver_event.v1",
         "state": state,
         "updated_at": payload["updated_at"],
-        "metrics": payload["metrics"],
+        "metrics": {
+            key: value
+            for key, value in payload["metrics"].items()
+            if key not in _HOST_ONLY_METRIC_COUNTERS
+        },
     }
     if reason:
         event_payload["reason"] = reason[:128]

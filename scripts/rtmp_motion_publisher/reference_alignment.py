@@ -6,20 +6,27 @@ from statistics import mean
 from typing import Any, Mapping
 
 from .reference_profile import compact_window_features
+from .reference_guidance_gate import (
+    CHAPTER_GUIDANCE_CONFIRMATION_WINDOWS,
+    ReferenceGuidanceGate,
+)
 from .reference_localization import (
     GLOBAL_RELOCK_CONFIRMATION_WINDOWS,
     GLOBAL_RELOCK_MARGIN,
     ORDERED_TRANSITION_CONFIRMATION_WINDOWS,
     ORDERED_TRANSITION_MARGIN,
     PARTIAL_MATCH_THRESHOLD,
+    SAME_CHAPTER_WRAP_CONFIRMATION_WINDOWS,
     ReferencePoint,
     ReferenceSequenceLocalizer,
 )
+from .reference_similarity import VectorizedReferenceSimilarityMatrix
 
 
 HISTORY_SIZE = 6
 HIGH_MATCH_THRESHOLD = 0.84
 MIN_LOCALIZATION_HISTORY = 3
+LOCALIZATION_CONFLICT_TOLERANCE = 0.02
 
 
 def _record(value: Any) -> dict[str, Any]:
@@ -87,6 +94,26 @@ def _correction_text(feature_key: str) -> str:
     }.get(feature_key, "Adjust this shape toward the selected reference segment.")
 
 
+def _localization_evidence_conflicted(
+    *,
+    chapter_id: str,
+    selected_score: float,
+    localization: Mapping[str, Any],
+) -> bool:
+    for prefix in ("full_sequence_candidate", "global_candidate"):
+        candidate_chapter_id = str(
+            localization.get(f"{prefix}_chapter_id") or ""
+        ).strip()
+        candidate_score = _number(localization.get(f"{prefix}_score"))
+        if (
+            candidate_chapter_id
+            and candidate_chapter_id != chapter_id
+            and candidate_score > selected_score + LOCALIZATION_CONFLICT_TOLERANCE
+        ):
+            return True
+    return False
+
+
 class LiveReferenceAlignmentMatcher:
     """Locate compact live windows in a profile without fixed-duration slicing."""
 
@@ -112,11 +139,27 @@ class LiveReferenceAlignmentMatcher:
                 buckets.setdefault(key, []).append(value)
         self.scales = {key: _feature_scale(key, values) for key, values in buckets.items()}
         self.history: deque[dict[str, float]] = deque(maxlen=HISTORY_SIZE)
+        self.chapter_point_bounds = self._chapter_point_bounds(self.points)
+        self.guidance_gate = ReferenceGuidanceGate()
         self.localizer = ReferenceSequenceLocalizer(
             self.points,
             self.scales,
             _feature_similarity,
+            similarity_matrix=VectorizedReferenceSimilarityMatrix(
+                self.points,
+                self.scales,
+            ),
         )
+
+    @staticmethod
+    def _chapter_point_bounds(
+        points: list[ReferencePoint],
+    ) -> dict[str, tuple[int, int]]:
+        bounds: dict[str, tuple[int, int]] = {}
+        for point in points:
+            first, _last = bounds.get(point.chapter_id, (point.index, point.index))
+            bounds[point.chapter_id] = (first, point.index)
+        return bounds
 
     @staticmethod
     def _flatten_points(profile: Mapping[str, Any]) -> list[ReferencePoint]:
@@ -204,16 +247,48 @@ class LiveReferenceAlignmentMatcher:
             and point.chapter_id == self.points[previous_index].chapter_id
             and score >= PARTIAL_MATCH_THRESHOLD
         )
-        localization_ready = (
-            len(self.history) >= MIN_LOCALIZATION_HISTORY
-            and (
-                point.chapter_id
-                == localization.get("full_sequence_candidate_chapter_id")
-                or established_local_prior
-                or selection_mode
-                in {"confirmed_global_relock", "confirmed_ordered_chapter_transition"}
+        confirmed_selection = selection_mode in {
+            "confirmed_global_relock",
+            "confirmed_ordered_chapter_transition",
+            "confirmed_same_chapter_wrap",
+        }
+        localization_evidence_conflicted = (
+            not confirmed_selection
+            and _localization_evidence_conflicted(
+                chapter_id=point.chapter_id,
+                selected_score=score,
+                localization=localization,
             )
         )
+        sequence_supported = (
+            point.chapter_id
+            == localization.get("full_sequence_candidate_chapter_id")
+            or established_local_prior
+        )
+        base_localization_ready = (
+            len(self.history) >= MIN_LOCALIZATION_HISTORY
+            and (
+                confirmed_selection
+                or (sequence_supported and not localization_evidence_conflicted)
+            )
+        )
+        guidance_gate = self.guidance_gate.observe(
+            point.chapter_id,
+            localization_ready=base_localization_ready,
+        )
+        localization_ready = base_localization_ready and guidance_gate.ready
+        if len(self.history) < MIN_LOCALIZATION_HISTORY:
+            localization_ready_reason = "insufficient_history"
+        elif base_localization_ready and not guidance_gate.ready:
+            localization_ready_reason = "chapter_guidance_confirmation_pending"
+        elif confirmed_selection:
+            localization_ready_reason = selection_mode
+        elif localization_evidence_conflicted:
+            localization_ready_reason = "multiscale_evidence_conflict"
+        elif sequence_supported:
+            localization_ready_reason = "sequence_supported"
+        else:
+            localization_ready_reason = "sequence_evidence_pending"
         self.localizer.commit_selection(
             point.index,
             localization_ready=localization_ready,
@@ -273,6 +348,13 @@ class LiveReferenceAlignmentMatcher:
             "chapter_ts_end_ms": point.chapter_end_ms,
             "match_role": point.match_role,
             "reference_window_index": point.index,
+            "reference_time_ms": round(point.reference_time_ms, 3),
+            "chapter_reference_window_start_index": self.chapter_point_bounds[
+                point.chapter_id
+            ][0],
+            "chapter_reference_window_end_index": self.chapter_point_bounds[
+                point.chapter_id
+            ][1],
             "previous_reference_window_index": previous_index,
             "score": round(pose_match_score, 4),
             "localization_score": round(score, 4),
@@ -282,10 +364,22 @@ class LiveReferenceAlignmentMatcher:
             "guidance_points": list(point.guidance_points),
             "sequence_history_size": len(self.history),
             "localization_ready": localization_ready,
+            "localization_ready_reason": localization_ready_reason,
+            "base_localization_ready": base_localization_ready,
+            "localization_evidence_conflicted": localization_evidence_conflicted,
+            "localization_conflict_tolerance": LOCALIZATION_CONFLICT_TOLERANCE,
+            "guidance_chapter_committed_id": (
+                guidance_gate.committed_chapter_id
+            ),
+            "guidance_chapter_pending_id": guidance_gate.pending_chapter_id,
+            "guidance_chapter_pending_count": guidance_gate.pending_count,
+            "guidance_chapter_confirmation_windows": (
+                CHAPTER_GUIDANCE_CONFIRMATION_WINDOWS
+            ),
             "established_local_prior": established_local_prior,
             "minimum_localization_history": MIN_LOCALIZATION_HISTORY,
             "localization_mode": (
-                "tempo_normalized_sequence_with_confirmed_transitions_and_global_relock"
+                "tempo_normalized_sequence_with_confirmed_transitions_wrap_and_global_relock"
             ),
             **localization,
         }
@@ -322,11 +416,14 @@ class LiveReferenceAlignmentMatcher:
 
 
 __all__ = [
+    "CHAPTER_GUIDANCE_CONFIRMATION_WINDOWS",
     "HIGH_MATCH_THRESHOLD",
+    "LOCALIZATION_CONFLICT_TOLERANCE",
     "GLOBAL_RELOCK_CONFIRMATION_WINDOWS",
     "GLOBAL_RELOCK_MARGIN",
     "LiveReferenceAlignmentMatcher",
     "ORDERED_TRANSITION_CONFIRMATION_WINDOWS",
     "ORDERED_TRANSITION_MARGIN",
     "PARTIAL_MATCH_THRESHOLD",
+    "SAME_CHAPTER_WRAP_CONFIRMATION_WINDOWS",
 ]

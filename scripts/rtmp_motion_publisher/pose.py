@@ -90,6 +90,41 @@ def _distance(
     return math.dist(first, second)
 
 
+def _joint_angle(
+    first: tuple[float, float] | None,
+    vertex: tuple[float, float] | None,
+    third: tuple[float, float] | None,
+) -> float | None:
+    if first is None or vertex is None or third is None:
+        return None
+    first_vector = (first[0] - vertex[0], first[1] - vertex[1])
+    third_vector = (third[0] - vertex[0], third[1] - vertex[1])
+    denominator = math.hypot(*first_vector) * math.hypot(*third_vector)
+    if denominator <= 1e-8:
+        return None
+    cosine = max(
+        -1.0,
+        min(
+            1.0,
+            (first_vector[0] * third_vector[0] + first_vector[1] * third_vector[1])
+            / denominator,
+        ),
+    )
+    return round(math.acos(cosine) / math.pi, 4)
+
+
+def _add_joint_angle(
+    metrics: dict[str, float],
+    key: str,
+    first: tuple[float, float] | None,
+    vertex: tuple[float, float] | None,
+    third: tuple[float, float] | None,
+) -> None:
+    value = _joint_angle(first, vertex, third)
+    if value is not None:
+        metrics[key] = value
+
+
 def _compact_pose_metrics(landmarks: list[Any]) -> dict[str, float]:
     visible_points = [
         _point(landmarks, index)
@@ -100,6 +135,14 @@ def _compact_pose_metrics(landmarks: list[Any]) -> dict[str, float]:
     right_shoulder = _point(landmarks, 12)
     left_hip = _point(landmarks, 23)
     right_hip = _point(landmarks, 24)
+    left_elbow = _point(landmarks, 13)
+    right_elbow = _point(landmarks, 14)
+    left_wrist = _point(landmarks, 15)
+    right_wrist = _point(landmarks, 16)
+    left_knee = _point(landmarks, 25)
+    right_knee = _point(landmarks, 26)
+    left_ankle = _point(landmarks, 27)
+    right_ankle = _point(landmarks, 28)
     shoulder_mid = _midpoint(left_shoulder, right_shoulder)
     hip_mid = _midpoint(left_hip, right_hip)
     if visible_points:
@@ -108,7 +151,7 @@ def _compact_pose_metrics(landmarks: list[Any]) -> dict[str, float]:
     else:
         center_x = 0.0
         center_y = 0.0
-    return {
+    metrics = {
         "center_x": round(center_x, 4),
         "center_y": round(center_y, 4),
         "shoulder_line_tilt": round(
@@ -126,6 +169,37 @@ def _compact_pose_metrics(landmarks: list[Any]) -> dict[str, float]:
         "torso_length": round(_distance(shoulder_mid, hip_mid), 4),
         "body_width": round(_distance(left_shoulder, right_shoulder), 4),
     }
+    _add_joint_angle(metrics, "left_elbow_flexion", left_shoulder, left_elbow, left_wrist)
+    _add_joint_angle(metrics, "right_elbow_flexion", right_shoulder, right_elbow, right_wrist)
+    _add_joint_angle(metrics, "left_shoulder_flexion", left_elbow, left_shoulder, left_hip)
+    _add_joint_angle(metrics, "right_shoulder_flexion", right_elbow, right_shoulder, right_hip)
+    _add_joint_angle(metrics, "left_hip_flexion", left_shoulder, left_hip, left_knee)
+    _add_joint_angle(metrics, "right_hip_flexion", right_shoulder, right_hip, right_knee)
+    _add_joint_angle(metrics, "left_knee_flexion", left_hip, left_knee, left_ankle)
+    _add_joint_angle(metrics, "right_knee_flexion", right_hip, right_knee, right_ankle)
+    torso_length = _distance(shoulder_mid, hip_mid)
+    if shoulder_mid is not None and hip_mid is not None and torso_length > 1e-8:
+        metrics["torso_horizontal"] = round(
+            abs(shoulder_mid[0] - hip_mid[0]) / torso_length,
+            4,
+        )
+    wrist_mid = _midpoint(left_wrist, right_wrist)
+    ankle_mid = _midpoint(left_ankle, right_ankle)
+    if wrist_mid is not None and ankle_mid is not None:
+        metrics["wrist_ankle_vertical_gap"] = round(
+            abs(wrist_mid[1] - ankle_mid[1]),
+            4,
+        )
+    if visible_points:
+        width = max(point[0] for point in visible_points) - min(
+            point[0] for point in visible_points
+        )
+        height = max(point[1] for point in visible_points) - min(
+            point[1] for point in visible_points
+        )
+        if width + height > 1e-8:
+            metrics["body_aspect"] = round(width / (width + height), 4)
+    return metrics
 
 
 def pose_sample_from_result(result: Any, timestamp_ms: float) -> PoseSample:
