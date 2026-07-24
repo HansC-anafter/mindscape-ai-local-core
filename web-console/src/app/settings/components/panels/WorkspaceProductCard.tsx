@@ -18,7 +18,11 @@ export function WorkspaceProductCard({
   editable: boolean;
   onToggle: () => void;
 }) {
-  const ready = effective?.host_ready === true;
+  const closureReady = (
+    product.closure_summary.total_packs > 0
+    && product.closure_summary.exact_ready_packs === product.closure_summary.total_packs
+  );
+  const ready = effective ? effective.host_ready : closureReady;
   const sourceLabel = configuredHere
     ? 'Configured here'
     : inherited
@@ -84,4 +88,3 @@ export function WorkspaceProductCard({
     </article>
   );
 }
-
