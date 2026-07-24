@@ -4,6 +4,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from backend.app.dependencies.auth import AuthContext
 from backend.app.models.run_harness import (
     RunHarnessCapabilitySnapshotRef,
     RunHarnessKind,
@@ -54,6 +55,29 @@ class FakeToolExecutionService:
         )
 
 
+class FakeAdmissionFacade:
+    async def admit_root(self, request):
+        class Snapshot:
+            schema_version = "mindscape.execution-admission-snapshot.v1"
+            snapshot_hash = "a" * 64
+
+            @staticmethod
+            def model_dump(*, mode):
+                assert mode == "json"
+                return {
+                    "schema_version": Snapshot.schema_version,
+                    "snapshot_hash": Snapshot.snapshot_hash,
+                    "workspace_id": request.workspace_id,
+                    "root_execution_id": request.root_execution_id,
+                }
+
+        return type(
+            "Admission",
+            (),
+            {"snapshot": Snapshot(), "external_decision": None},
+        )()
+
+
 def _request(workspace_id: str = "ws") -> RunHarnessToolExecutionRequest:
     envelope = RunIntentEnvelope(
         decision_id="decision-1",
@@ -93,6 +117,14 @@ def _build_client(service: FakeToolExecutionService) -> TestClient:
     app.dependency_overrides[run_harness.get_tool_execution_service] = (
         lambda: service
     )
+    app.dependency_overrides[run_harness.get_current_user] = lambda: AuthContext(
+        user_id="user",
+        tenant_id="local",
+        workspace_ids=["ws"],
+    )
+    app.dependency_overrides[run_harness.get_product_admission_facade] = (
+        lambda: FakeAdmissionFacade()
+    )
     return TestClient(app)
 
 
@@ -111,6 +143,9 @@ def test_workspace_run_harness_tool_route_calls_service_only() -> None:
     assert payload["output_artifact_refs"] == ["artifact-1"]
     assert len(service.requests) == 1
     assert service.requests[0].tool_ref == "cap.tool"
+    snapshot_ref = service.requests[0].envelope.capability_snapshot_ref
+    assert snapshot_ref.digest == "a" * 64
+    assert snapshot_ref.execution_admission_snapshot["workspace_id"] == "ws"
 
 
 def test_workspace_run_harness_tool_route_enforces_workspace_scope() -> None:

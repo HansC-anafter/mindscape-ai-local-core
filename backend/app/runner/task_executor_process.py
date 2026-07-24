@@ -38,6 +38,12 @@ def build_child_payload(
         "inputs": inputs,
         "workspace_id": task.workspace_id,
         "project_id": task.project_id,
+        "root_execution_id": task.execution_id or task.id,
+        "execution_admission_snapshot": (
+            ctx.get("execution_admission_snapshot")
+            if isinstance(ctx, dict)
+            else None
+        ),
         "_result_file": result_file,
     }
 

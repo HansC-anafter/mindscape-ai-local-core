@@ -16,6 +16,9 @@ from backend.app.services.meeting_command_dispatch_routing import (
     command_instruction,
     metadata_action_parameters,
 )
+from backend.app.services.meeting_product_admission import (
+    meeting_admission_context,
+)
 
 
 async def _run_chat_dispatch_and_sync_command(
@@ -77,6 +80,7 @@ async def dispatch_chat_for_command(
     workspace: Workspace,
     orchestrator: ConversationOrchestrator,
     meeting_id: str,
+    session=None,
     background_tasks: BackgroundTasks | None,
 ) -> tuple[MeetingCommandRecord, dict]:
     from backend.app.services.chat_orchestrator_service import ChatOrchestratorService
@@ -94,6 +98,7 @@ async def dispatch_chat_for_command(
         "meeting_mentions": canonical.meeting_mentions,
         "object_action_entries": command_context_objects(canonical),
         "source_surface": canonical.origin_surface,
+        **meeting_admission_context(session),
         "request_context": {
             "command_id": command.command_id,
             "origin_surface": canonical.origin_surface,

@@ -15,6 +15,7 @@ from backend.app.services.workspace_groups.snapshot_service import (
 
 from .catalog_artifact import verify_catalog_artifact
 from .contracts import (
+    AdmissionConfigurationSource,
     CatalogImportResult,
     ProductAssignment,
     ReplaceScopeCommand,
@@ -81,6 +82,26 @@ class WorkspaceProductConfigurationFacade:
         allowed_workspace_ids: Sequence[str] = (),
         allowed_group_ids: Sequence[str] = (),
     ) -> WorkspaceCapabilitySetSnapshot:
+        return self.resolve_admission_source(
+            workspace_id=workspace_id,
+            explicit_active_group_id=explicit_active_group_id,
+            observed_topology_revision=observed_topology_revision,
+            actor_user_id=actor_user_id,
+            allowed_group_ids=allowed_group_ids,
+            allowed_workspace_ids=allowed_workspace_ids,
+        ).snapshot
+
+    def resolve_admission_source(
+        self,
+        *,
+        workspace_id: str,
+        explicit_active_group_id: str | None,
+        observed_topology_revision: int | None,
+        actor_user_id: str,
+        allowed_workspace_ids: Sequence[str] = (),
+        allowed_group_ids: Sequence[str] = (),
+    ) -> AdmissionConfigurationSource:
+        """Resolve WPCS, active topology, and catalog products in one DB read."""
         self._require_workspace_access(workspace_id, allowed_workspace_ids)
         context = self._resolve_group_context(
             workspace_id=workspace_id,
@@ -94,12 +115,23 @@ class WorkspaceProductConfigurationFacade:
             group_id=context.group_id if context else None,
         )
         catalog = self._active_catalog(state)
-        return self._build_snapshot(
-            workspace_id=workspace_id,
-            context=context,
-            state=state,
-            readiness=state["readiness"],
-            actor_user_id=actor_user_id,
+        products = catalog.get("products")
+        if not isinstance(products, list):
+            raise ActiveCatalogMissingError()
+        return AdmissionConfigurationSource(
+            snapshot=self._build_snapshot(
+                workspace_id=workspace_id,
+                context=context,
+                state=state,
+                readiness=state["readiness"],
+                actor_user_id=actor_user_id,
+            ),
+            active_group_context=context,
+            catalog_products=tuple(
+                deepcopy(product)
+                for product in products
+                if isinstance(product, dict)
+            ),
         )
 
     def replace_scope(

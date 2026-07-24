@@ -38,7 +38,7 @@ async def start_playbook_execution(
     variant_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Start a new playbook execution through the runner facade."""
-    execution_id = ""
+    execution_id = str((inputs or {}).get("execution_id") or uuid.uuid4())
     last_run_state = "UNKNOWN"
     try:
         thread_id = inputs.get("thread_id") if inputs else None
@@ -125,8 +125,6 @@ async def start_playbook_execution(
             if inputs is None:
                 inputs = {}
             inputs["sandbox_id"] = sandbox_id
-
-        execution_id = str(uuid.uuid4())
 
         try:
             ready_event = build_run_state_changed_event(

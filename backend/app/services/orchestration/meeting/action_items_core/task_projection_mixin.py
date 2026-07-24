@@ -60,6 +60,7 @@ class ActionItemTaskProjectionMixin:
                     "priority": item.get("priority"),
                     "tool_name": item.get("tool_name"),
                     "input_params": item.get("input_params"),
+                    **self._meeting_admission_context(),
                 },
                 result=None,
                 execution_context={
@@ -68,6 +69,7 @@ class ActionItemTaskProjectionMixin:
                     "thread_id": getattr(self.session, "thread_id", None),
                     "tool_name": item.get("tool_name"),
                     "inputs": item.get("input_params") or {},
+                    **self._meeting_admission_context(),
                 },
                 created_at=datetime.now(timezone.utc),
             )
@@ -78,3 +80,10 @@ class ActionItemTaskProjectionMixin:
                 "MeetingEngine failed to create action task: %s", exc, exc_info=True
             )
             return None
+
+    def _meeting_admission_context(self) -> dict:
+        from backend.app.services.meeting_product_admission import (
+            meeting_admission_context,
+        )
+
+        return meeting_admission_context(self.session)

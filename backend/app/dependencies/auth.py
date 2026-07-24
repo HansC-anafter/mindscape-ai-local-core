@@ -228,10 +228,15 @@ async def get_current_user(request: Request) -> AuthContext:
     - R1: Do not get user_id from query parameters
     - R2: Cloud mode without valid token -> 401 (no fallback)
     """
-    return await _get_authenticated_context(
+    cached = getattr(request.state, "mindscape_auth_context", None)
+    if isinstance(cached, AuthContext):
+        return cached
+    context = await _get_authenticated_context(
         request,
         include_local_workspace_ids=True,
     )
+    request.state.mindscape_auth_context = context
+    return context
 
 
 async def get_current_operator(request: Request) -> AuthContext:

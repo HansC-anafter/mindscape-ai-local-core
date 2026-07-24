@@ -170,11 +170,21 @@ class TransportHandler:
             raise ValueError("workspace_id is required in execution_context.metadata")
         if not profile_id:
             raise ValueError("profile_id is required in execution_context.metadata")
+        governed_inputs = {
+            **inputs,
+            "execution_id": request.request_id,
+            "trace_id": request.request_id,
+        }
+        snapshot = request.execution_context.metadata.get(
+            "execution_admission_snapshot"
+        )
+        if isinstance(snapshot, dict):
+            governed_inputs["execution_admission_snapshot"] = snapshot
 
         result = await playbook_runner.start_playbook_execution(
             playbook_code=playbook_code,
             profile_id=profile_id,
-            inputs=inputs,
+            inputs=governed_inputs,
             workspace_id=workspace_id,
         )
 
@@ -205,12 +215,25 @@ class TransportHandler:
             raise ValueError("tool_name is required for tool execution")
 
         workspace_id = request.execution_context.metadata.get("workspace_id")
+        profile_id = request.execution_context.metadata.get("profile_id")
         if not workspace_id:
             raise ValueError("workspace_id is required in execution_context.metadata")
+        governed_inputs = {
+            **tool_inputs,
+            "workspace_id": workspace_id,
+            "profile_id": profile_id or "default-user",
+            "execution_id": request.request_id,
+            "trace_id": request.request_id,
+        }
+        snapshot = request.execution_context.metadata.get(
+            "execution_admission_snapshot"
+        )
+        if isinstance(snapshot, dict):
+            governed_inputs["execution_admission_snapshot"] = snapshot
 
         execution_result = await tool_executor.execute_tool(
             tool_name=tool_name,
-            arguments=tool_inputs,
+            arguments=governed_inputs,
             timeout=300.0,
         )
 

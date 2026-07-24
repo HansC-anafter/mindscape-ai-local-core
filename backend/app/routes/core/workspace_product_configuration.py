@@ -22,6 +22,7 @@ from backend.app.services.workspace_product_configuration.contracts import (
     ReplaceScopeCommand,
     WorkspaceCapabilitySetSnapshot,
 )
+from backend.app.services.deployment_control.facade import DeploymentControlFacade
 from backend.app.services.workspace_product_configuration.errors import (
     ActiveCatalogMissingError,
     CatalogRevisionConflictError,
@@ -37,6 +38,7 @@ from backend.app.services.workspace_product_configuration.facade import (
 
 router = APIRouter(tags=["workspace-product-configuration"])
 facade = WorkspaceProductConfigurationFacade()
+deployment_facade = DeploymentControlFacade()
 
 
 def _auth(auth: AuthContext) -> dict[str, Any]:
@@ -56,6 +58,31 @@ def _require_control_plane_mutation() -> None:
                 "required_plane": "control",
             },
         )
+
+
+def _with_deployment_control(
+    snapshot: WorkspaceCapabilitySetSnapshot,
+) -> WorkspaceCapabilitySetSnapshot:
+    ceiling = deployment_facade.resolve_effective_ceiling(snapshot)
+    return WorkspaceCapabilitySetSnapshot.model_validate(
+        {
+            **snapshot.model_dump(mode="json"),
+            "deployment_control": {
+                "mode": ceiling.mode,
+                "provider_code": ceiling.provider_code,
+                "state_revision": ceiling.state_revision,
+                "envelope_revision": ceiling.envelope_revision,
+                "envelope_hash": ceiling.envelope_hash,
+                "permitted_surface_ids": sorted(
+                    {
+                        surface
+                        for assignment in ceiling.assignments
+                        for surface in assignment.allowed_surface_ids
+                    }
+                ),
+            },
+        }
+    )
 
 
 def _translate_error(exc: Exception) -> HTTPException:
@@ -137,13 +164,14 @@ async def get_effective_workspace_product_configuration(
     auth: AuthContext = Depends(get_current_user),
 ):
     try:
-        return await asyncio.to_thread(
+        snapshot = await asyncio.to_thread(
             facade.resolve_snapshot,
             workspace_id=workspace_id,
             explicit_active_group_id=active_group_id,
             observed_topology_revision=observed_topology_revision,
             **_auth(auth),
         )
+        return await asyncio.to_thread(_with_deployment_control, snapshot)
     except Exception as exc:
         raise _translate_error(exc) from exc
 
@@ -161,7 +189,7 @@ async def replace_workspace_product_configuration(
 ):
     _require_control_plane_mutation()
     try:
-        return await asyncio.to_thread(
+        snapshot = await asyncio.to_thread(
             facade.replace_scope,
             scope_kind="workspace",
             scope_id=workspace_id,
@@ -171,6 +199,7 @@ async def replace_workspace_product_configuration(
             command=command,
             **_auth(auth),
         )
+        return await asyncio.to_thread(_with_deployment_control, snapshot)
     except Exception as exc:
         raise _translate_error(exc) from exc
 
@@ -188,7 +217,7 @@ async def replace_workspace_group_product_configuration(
 ):
     _require_control_plane_mutation()
     try:
-        return await asyncio.to_thread(
+        snapshot = await asyncio.to_thread(
             facade.replace_scope,
             scope_kind="workspace_group",
             scope_id=group_id,
@@ -198,5 +227,6 @@ async def replace_workspace_group_product_configuration(
             command=command,
             **_auth(auth),
         )
+        return await asyncio.to_thread(_with_deployment_control, snapshot)
     except Exception as exc:
         raise _translate_error(exc) from exc

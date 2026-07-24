@@ -138,6 +138,25 @@ class PlaybookRunExecutor:
         Returns:
             Execution result dict
         """
+        from backend.app.services.playbook_run_executor_admission import (
+            prepare_playbook_admission,
+        )
+
+        inputs, _admission_snapshot = await prepare_playbook_admission(
+            playbook_code=playbook_code,
+            profile_id=profile_id,
+            workspace_id=workspace_id,
+            inputs=inputs,
+        )
+        if _admission_snapshot is not None:
+            self.playbook_runner.tool_executor.execution_context.update(
+                {
+                    "workspace_id": workspace_id,
+                    "execution_admission_snapshot": (
+                        _admission_snapshot.model_dump(mode="json")
+                    ),
+                }
+            )
         playbook_run = await self.playbook_service.load_playbook_run(
             playbook_code=playbook_code,
             locale=locale or "zh-TW",

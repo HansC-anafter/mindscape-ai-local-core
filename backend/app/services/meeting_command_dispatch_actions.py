@@ -19,6 +19,9 @@ from backend.app.services.meeting_command_dispatch_routing import (
     command_instruction,
     requested_affordance_verb,
 )
+from backend.app.services.meeting_product_admission import (
+    meeting_admission_context,
+)
 
 
 async def dispatch_object_action_for_command(
@@ -27,6 +30,7 @@ async def dispatch_object_action_for_command(
     canonical: MeetingCommandEnvelope,
     workspace_id: str,
     meeting_id: str,
+    session=None,
 ) -> tuple[MeetingCommandRecord, dict]:
     from backend.app.routes.core.workspace import object_runtime
 
@@ -36,6 +40,7 @@ async def dispatch_object_action_for_command(
         "origin_surface": canonical.origin_surface,
         "source_surface": canonical.origin_surface,
         "dispatch_source": "meeting_command_route",
+        **meeting_admission_context(session),
     }
     command.status = MeetingCommandStatus.RUNNING
     command.metadata = {
@@ -103,6 +108,7 @@ async def dispatch_playbook_for_command(
     workspace: Workspace,
     orchestrator: ConversationOrchestrator,
     meeting_id: str,
+    session=None,
 ) -> tuple[MeetingCommandRecord, dict]:
     requested = canonical.requested_action
     playbook_code = requested.playbook_code if requested else None
@@ -126,6 +132,7 @@ async def dispatch_playbook_for_command(
         "thread_id": thread_id,
         "meeting_command": instruction,
         "motion_practice_command": motion_practice_command,
+        **meeting_admission_context(session),
         "meeting_mentions": canonical.meeting_mentions,
         "object_action_entries": command_context_objects(canonical),
         "source_surface": canonical.origin_surface,

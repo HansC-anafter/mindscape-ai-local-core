@@ -2,9 +2,10 @@ import asyncio
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Body, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 
 from backend.app.routes.core.execution_dispatch import (
+    build_external_authorization_context,
     dispatch_remote_execution,
     get_execution_mode,
     release_backend,
@@ -16,17 +17,27 @@ from backend.app.routes.core.execution_metadata import (
     should_route_through_runner,
 )
 from backend.app.routes.core.execution_schemas import (
-    ContinueExecutionRequest,
     StartExecutionRequest,
 )
 from backend.app.services.runner_topology import DEFAULT_LOCAL_QUEUE_PARTITION
+from backend.app.dependencies.auth import AuthContext, get_current_user
+from backend.app.services.workspace_capability_admission import (
+    AdmissionDenied,
+)
+from backend.app.services.workspace_capability_admission.external_execution_adapter import (
+    ExternalAuthorizationDenied,
+)
+from backend.app.services.playbook_execution_admission import (
+    admit_playbook_root,
+)
 
-from .state import _utc_now, logger, playbook_executor, playbook_runner, playbook_service
+from .state import _utc_now, logger, playbook_executor, playbook_service
 
 router = APIRouter()
 
 @router.post("/execute/start")
 async def start_playbook_execution(
+    http_request: Request,
     playbook_code: str = Query(..., description="Playbook code to execute"),
     profile_id: str = Query("default-user", description="Profile ID"),
     workspace_id: Optional[str] = Query(
@@ -49,6 +60,10 @@ async def start_playbook_execution(
         None,
         description="Neutral execution backend hint: auto|runner|in_process. Routing is always decided by backend.",
     ),
+    product_surface_id: Optional[str] = Query(None),
+    active_group_id: Optional[str] = Query(None),
+    observed_topology_revision: Optional[int] = Query(None, ge=1),
+    auth: AuthContext = Depends(get_current_user),
     request: Optional[StartExecutionRequest] = Body(
         None, description="Optional inputs for the playbook"
     ),
@@ -142,6 +157,44 @@ async def start_playbook_execution(
         final_execution_backend, pool_acquired_backend = resolve_and_acquire_backend(
             final_execution_backend
         )
+        admission = None
+        root_execution_id = (
+            request.execution_id
+            if request and request.execution_id
+            else str(uuid.uuid4())
+        )
+        trace_id = (
+            request.trace_id
+            if request and request.trace_id
+            else root_execution_id
+        )
+        if final_workspace_id:
+            resolved_surface = product_surface_id or (
+                inputs.get("product_surface_id")
+                if isinstance(inputs, dict)
+                else None
+            )
+            admission = await admit_playbook_root(
+                workspace_id=final_workspace_id,
+                product_surface_id=resolved_surface,
+                active_group_id=active_group_id,
+                observed_topology_revision=observed_topology_revision,
+                playbook_code=playbook_code,
+                execution_backend=final_execution_backend,
+                remote_ingress_verified=(
+                    http_request.headers.get(
+                        "x-mindscape-remote-ingress"
+                    ) == "remote_workbench"
+                ),
+                auth=auth,
+                trace_id=trace_id,
+                root_execution_id=root_execution_id,
+            )
+            if inputs is None:
+                inputs = {}
+            inputs["execution_admission_snapshot"] = (
+                admission.snapshot.model_dump(mode="json")
+            )
 
         # Remote backend: dispatch to cloud control plane via CloudConnector
         if final_execution_backend == "remote":
@@ -153,11 +206,18 @@ async def start_playbook_execution(
                     profile_id=profile_id,
                     project_id=final_project_id,
                     tenant_id=request.tenant_id if request else None,
-                    execution_id=request.execution_id if request else None,
-                    trace_id=request.trace_id if request else None,
+                    execution_id=root_execution_id,
+                    trace_id=trace_id,
                     remote_job_type=final_remote_job_type,
                     remote_request_payload=final_remote_request_payload,
                     capability_code=final_remote_capability_code,
+                    external_authorization_context=(
+                        build_external_authorization_context(
+                            admission.external_decision
+                            if admission is not None
+                            else None
+                        )
+                    ),
                 )
             finally:
                 release_backend(pool_acquired_backend)
@@ -218,7 +278,11 @@ async def start_playbook_execution(
                 and playbook_run.get_execution_mode() == "workflow"
                 and playbook_run.has_json()
             ):
-                execution_id = str(uuid.uuid4())
+                execution_id = (
+                    admission.snapshot.root_execution_id
+                    if admission is not None
+                    else root_execution_id
+                )
                 normalized_inputs = inputs.copy() if isinstance(inputs, dict) else {}
                 normalized_inputs["execution_id"] = execution_id
                 normalized_inputs["execution_backend"] = final_execution_backend
@@ -319,6 +383,17 @@ async def start_playbook_execution(
                             "profile_id": profile_id,
                             "total_steps": total_steps,
                             "current_step_index": 0,
+                            **(
+                                {
+                                    "execution_admission_snapshot": (
+                                        admission.snapshot.model_dump(
+                                            mode="json"
+                                        )
+                                    )
+                                }
+                                if admission is not None
+                                else {}
+                            ),
                             **runner_metadata,
                         },
                         created_at=_utc_now(),
@@ -380,35 +455,21 @@ async def start_playbook_execution(
                 "execution_id": result.get("execution_id"),
                 **result.get("result", {}),
             }
+    except AdmissionDenied as e:
+        raise HTTPException(
+            status_code=403,
+            detail={"error": e.code},
+        ) from e
+    except ExternalAuthorizationDenied as e:
+        raise HTTPException(
+            status_code=403,
+            detail={"error": e.code},
+        ) from e
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Failed to start playbook: {str(e)}"
-        )
-
-
-@router.post("/execute/{execution_id}/continue")
-async def continue_playbook_execution(
-    execution_id: str,
-    request: ContinueExecutionRequest = Body(...),
-    profile_id: str = Query("default-user", description="Profile ID"),
-):
-    """
-    Continue an ongoing Playbook execution with user response
-
-    Returns the next assistant message and completion status
-    """
-    try:
-        result = await playbook_runner.continue_playbook_execution(
-            execution_id=execution_id,
-            user_message=request.user_message,
-            profile_id=profile_id,
-        )
-        return result
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Failed to continue playbook: {str(e)}"
         )

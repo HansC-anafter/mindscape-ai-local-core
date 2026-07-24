@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from backend.app.services.workspace_groups.contracts import (
+    ActiveWorkspaceGroupContext,
+)
 
 
 ScopeKind = Literal["workspace", "workspace_group"]
@@ -62,13 +67,44 @@ class ProductClosureSummary(BaseModel):
     version_mismatch_packs: int = Field(ge=0)
 
 
+class AvailablePackClosureItem(BaseModel):
+    provider: str
+    code: str
+    version: str
+    readiness: Literal[
+        "ready",
+        "missing",
+        "disabled",
+        "version_mismatch",
+    ]
+
+
+class AvailableProductSurfaceSelectors(BaseModel):
+    api_prefixes: list[str] = Field(default_factory=list, max_length=64)
+    tool_prefixes: list[str] = Field(default_factory=list, max_length=64)
+    tool_keys: list[str] = Field(default_factory=list, max_length=64)
+    playbook_codes: list[str] = Field(default_factory=list, max_length=64)
+    ui_routes: list[str] = Field(default_factory=list, max_length=64)
+
+
+class AvailableProductSurface(BaseModel):
+    id: str
+    display_name: str
+    selectors: AvailableProductSurfaceSelectors
+
+
 class AvailableProduct(BaseModel):
     pcs_id: str
     exact_version: str
     display_name: str
     outcome_summary: str
     surface_ids: list[str] = Field(default_factory=list)
+    product_surfaces: list[AvailableProductSurface] = Field(
+        default_factory=list,
+        max_length=64,
+    )
     closure_summary: ProductClosureSummary
+    pack_closure: list[AvailablePackClosureItem] = Field(default_factory=list)
 
 
 class EffectiveProductAssignment(BaseModel):
@@ -77,6 +113,15 @@ class EffectiveProductAssignment(BaseModel):
     product_surface_ids: list[str] = Field(default_factory=list)
     configuration_sources: list[ScopeKind] = Field(default_factory=list)
     host_ready: bool
+
+
+class EffectiveDeploymentControlProjection(BaseModel):
+    mode: Literal["unmanaged_local", "provider_managed"]
+    provider_code: str | None = None
+    state_revision: int = Field(ge=0)
+    envelope_revision: int | None = Field(default=None, ge=1)
+    envelope_hash: str | None = None
+    permitted_surface_ids: list[str] = Field(default_factory=list)
 
 
 class WorkspaceCapabilitySetSnapshot(BaseModel):
@@ -95,6 +140,7 @@ class WorkspaceCapabilitySetSnapshot(BaseModel):
     available_products: list[AvailableProduct]
     effective_assignments: list[EffectiveProductAssignment]
     configuration_errors: list[str] = Field(default_factory=list, max_length=20)
+    deployment_control: EffectiveDeploymentControlProjection | None = None
 
 
 class CatalogImportResult(BaseModel):
@@ -104,6 +150,15 @@ class CatalogImportResult(BaseModel):
     compiler_version: str
     status: Literal["active"] = "active"
     imported: bool
+
+
+@dataclass(frozen=True)
+class AdmissionConfigurationSource:
+    """One-read admission projection kept outside the public HTTP contract."""
+
+    snapshot: WorkspaceCapabilitySetSnapshot
+    active_group_context: ActiveWorkspaceGroupContext | None
+    catalog_products: tuple[dict[str, Any], ...]
 
 
 class CatalogArtifactEnvelope(BaseModel):

@@ -1,7 +1,6 @@
 """Playbook execution route compatibility facade."""
 
 from .playbook_execution_core.control_routes import (
-    continue_playbook_execution,
     start_playbook_execution,
 )
 from .playbook_execution_core.debug_routes import get_execution_debug_screenshot
@@ -12,6 +11,7 @@ from .playbook_execution_core.helpers import (
 from .playbook_execution_core.lifecycle_routes import (
     cancel_playbook_execution,
     cleanup_playbook_execution,
+    continue_playbook_execution,
     rerun_playbook_execution,
     reset_current_step,
     resume_playbook_execution,

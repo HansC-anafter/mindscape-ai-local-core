@@ -12,11 +12,12 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any
 
-from fastapi import HTTPException, Query, Body
+from fastapi import Body, Depends, HTTPException, Query, Request
 
 from .execution_schemas import RerunExecutionRequest
 from .execution_shared import playbook_executor, playbook_service
 from .execution_dispatch import (
+    build_external_authorization_context,
     get_execution_mode,
     dispatch_remote_execution,
     resolve_and_acquire_backend,
@@ -29,6 +30,14 @@ from .execution_hooks import (
 )
 from .execution_metadata import resolve_runner_metadata, should_route_through_runner
 from backend.app.services.runner_topology import DEFAULT_LOCAL_QUEUE_PARTITION
+from backend.app.dependencies.auth import AuthContext, get_current_user
+from backend.app.services.playbook_rerun_admission import (
+    admit_playbook_rerun,
+)
+from backend.app.services.workspace_capability_admission import AdmissionDenied
+from backend.app.services.workspace_capability_admission.external_execution_adapter import (
+    ExternalAuthorizationDenied,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -38,40 +47,9 @@ def _utc_now():
     return datetime.now(timezone.utc)
 
 
-def _infer_target_username_from_artifacts(
-    workspace_id: str, exec_id: str
-) -> Optional[str]:
-    """Infer target_username for ig_analyze_following reruns from artifact metadata."""
-    try:
-        from backend.app.services.stores.postgres.artifacts_store import (
-            PostgresArtifactsStore,
-        )
-
-        artifacts_store = PostgresArtifactsStore()
-        arts = artifacts_store.list_artifacts_by_workspace(
-            workspace_id=workspace_id, limit=300
-        )
-        for a in arts:
-            if getattr(a, "execution_id", None) != exec_id:
-                continue
-            if getattr(a, "playbook_code", None) != "ig_analyze_following":
-                continue
-            meta = a.metadata if isinstance(a.metadata, dict) else {}
-            val = (meta.get("target_username") or meta.get("target_seed") or "").strip()
-            if val:
-                return val
-            content = a.content if isinstance(a.content, dict) else {}
-            cm = (
-                content.get("metadata")
-                if isinstance(content.get("metadata"), dict)
-                else {}
-            )
-            val2 = (cm.get("target_username") or cm.get("target_seed") or "").strip()
-            if val2:
-                return val2
-    except Exception:
-        return None
-    return None
+from backend.app.services.playbook_rerun_artifact_fallback import (
+    infer_ig_target_username as _infer_target_username_from_artifacts,
+)
 
 
 def _normalize_rerun_spec(playbook_run) -> Dict[str, Any]:
@@ -211,12 +189,14 @@ async def _resolve_rerun_inputs(
 
 
 async def rerun_playbook_execution(
+    http_request: Request,
     execution_id: str,
     request: Optional[RerunExecutionRequest] = Body(None),
     execution_backend: Optional[str] = Query(
         None,
         description="Neutral execution backend hint: auto|runner|in_process. Routing is always decided by backend.",
     ),
+    auth: AuthContext = Depends(get_current_user),
 ):
     """Rerun a playbook execution using original inputs with optional overrides."""
     try:
@@ -267,6 +247,24 @@ async def rerun_playbook_execution(
         profile_id = (
             ctx.get("profile_id") or getattr(task, "profile_id", None) or "default-user"
         )
+        new_execution_id = str(uuid.uuid4())
+        admission = await admit_playbook_rerun(
+            workspace_id=workspace_id,
+            playbook_code=playbook_code,
+            execution_backend=final_execution_backend,
+            original_execution_context=ctx,
+            merged_inputs=merged_inputs,
+            remote_ingress_verified=(
+                http_request.headers.get("x-mindscape-remote-ingress")
+                == "remote_workbench"
+            ),
+            auth=auth,
+            new_execution_id=new_execution_id,
+        )
+        if admission is not None:
+            merged_inputs["execution_admission_snapshot"] = (
+                admission.snapshot.model_dump(mode="json")
+            )
         playbook_run = await playbook_service.load_playbook_run(
             playbook_code=playbook_code,
             locale="zh-TW",
@@ -291,6 +289,15 @@ async def rerun_playbook_execution(
                     inputs=merged_inputs,
                     workspace_id=workspace_id,
                     profile_id=profile_id,
+                    execution_id=new_execution_id,
+                    trace_id=new_execution_id,
+                    external_authorization_context=(
+                        build_external_authorization_context(
+                            admission.external_decision
+                            if admission is not None
+                            else None
+                        )
+                    ),
                 )
             finally:
                 release_backend(pool_acquired_backend)
@@ -315,7 +322,6 @@ async def rerun_playbook_execution(
                 and playbook_run.get_execution_mode() == "workflow"
                 and playbook_run.has_json()
             ):
-                new_execution_id = str(uuid.uuid4())
                 normalized_inputs = (
                     merged_inputs.copy() if isinstance(merged_inputs, dict) else {}
                 )
@@ -416,6 +422,9 @@ async def rerun_playbook_execution(
                             "project_id": project_id,
                             "profile_id": profile_id,
                             "total_steps": total_steps,
+                            "execution_admission_snapshot": (
+                                admission_snapshot
+                            ),
                             **runner_metadata,
                         },
                         created_at=_utc_now(),
@@ -467,6 +476,16 @@ async def rerun_playbook_execution(
             "playbook_code": playbook_code,
             **(result.get("result", {}) or {}),
         }
+    except AdmissionDenied as e:
+        raise HTTPException(
+            status_code=403,
+            detail={"error": e.code},
+        ) from e
+    except ExternalAuthorizationDenied as e:
+        raise HTTPException(
+            status_code=403,
+            detail={"error": e.code},
+        ) from e
     except HTTPException:
         raise
     except Exception as e:

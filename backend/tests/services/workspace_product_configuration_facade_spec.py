@@ -218,6 +218,36 @@ def test_absent_scope_projects_legacy_without_topology_write() -> None:
     assert group_facade.calls == 1
 
 
+def test_admission_source_returns_wpcs_context_and_catalog_in_one_read() -> None:
+    repository = FakeRepository(
+        _state(
+            workspace_scope=_scope(
+                "workspace",
+                WORKSPACE_ID,
+                mode="shadow",
+            )
+        )
+    )
+    group_facade = FakeGroupFacade(_context(owner="owner"))
+
+    source = _facade(repository, group_facade).resolve_admission_source(
+        workspace_id=WORKSPACE_ID,
+        explicit_active_group_id=GROUP_ID,
+        observed_topology_revision=7,
+        actor_user_id="owner",
+        allowed_workspace_ids=[WORKSPACE_ID],
+        allowed_group_ids=[GROUP_ID],
+    )
+
+    assert source.snapshot.workspace_id == WORKSPACE_ID
+    assert source.active_group_context.group_id == GROUP_ID
+    assert source.catalog_products[0]["pcs_id"] == (
+        "instagram_workspace_intelligence"
+    )
+    assert repository.effective_reads == 1
+    assert group_facade.calls == 1
+
+
 def test_first_workspace_save_is_configuration_only_and_returns_wpcs() -> None:
     repository = FakeRepository(_state())
     artifact = _artifact()

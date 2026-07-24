@@ -8,12 +8,11 @@ Provides REST endpoints for managing meeting session lifecycle:
 - GET session history for a workspace
 """
 
-import asyncio
 import logging
 import uuid
-from typing import Any, Dict, Optional, List
+from typing import Any, Dict, Literal, Optional, List
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from backend.app.models.meeting_session import MeetingSession
@@ -21,13 +20,13 @@ from backend.app.models.mindscape import EventActor, EventType, MindEvent
 from backend.app.services.mindscape_store import MindscapeStore
 from backend.app.services.stores.meeting_session_store import MeetingSessionStore
 from backend.app.dependencies.auth import AuthContext, get_current_user
-from backend.app.services.workspace_groups.facade import WorkspaceGroupFacade
-from backend.app.services.workspace_groups.snapshot_service import (
-    WorkspaceGroupSnapshotService,
+from backend.app.services.meeting_session_start import (
+    MeetingSessionStartError,
+    start_meeting_session,
 )
-from backend.app.services.workspace_groups.topology_service import (
-    WorkspaceGroupAccessError,
-    WorkspaceGroupNotFoundError,
+from backend.app.services.workspace_capability_admission import AdmissionDenied
+from backend.app.services.workspace_capability_admission.external_execution_adapter import (
+    ExternalAuthorizationDenied,
 )
 
 logger = logging.getLogger(__name__)
@@ -48,7 +47,21 @@ class StartSessionRequest(BaseModel):
     lens_id: Optional[str] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
     active_group_id: Optional[str] = None
+    observed_topology_revision: Optional[int] = Field(default=None, ge=1)
     expected_topology_snapshot_id: Optional[str] = None
+    product_surface_id: Optional[str] = Field(default=None, min_length=2)
+    product_selector_kind: Literal["api_prefix", "tool", "playbook"] = "api_prefix"
+    product_selector_key: Optional[str] = Field(default=None, min_length=1)
+    operation_type: Literal[
+        "query",
+        "read",
+        "generate",
+        "modify",
+        "delete",
+        "publish",
+        "payment",
+    ] = "generate"
+    execution_backend: Literal["local", "external_provider"] = "local"
 
 
 class EndSessionRequest(BaseModel):
@@ -226,107 +239,38 @@ async def get_active_session(
 async def start_session(
     workspace_id: str,
     body: StartSessionRequest,
+    http_request: Request,
     x_group_id: Optional[str] = Header(None, alias="X-Group-ID"),
     auth: AuthContext = Depends(get_current_user),
 ):
     """Start a new meeting session. Ends any existing active session first."""
-    store = MeetingSessionStore()
-
-    if body.active_group_id and x_group_id and body.active_group_id != x_group_id:
-        raise HTTPException(status_code=400, detail="active group header/body mismatch")
-    active_group_id = body.active_group_id or x_group_id
-    group_context = None
-    group_snapshot = None
-    if active_group_id:
-        try:
-            group_context = await asyncio.to_thread(
-                WorkspaceGroupFacade().resolve_context,
-                active_group_id=active_group_id,
-                workspace_id=workspace_id,
-                actor_user_id=auth.user_id,
-                allowed_group_ids=auth.group_ids,
-            )
-        except WorkspaceGroupNotFoundError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
-        except WorkspaceGroupAccessError as exc:
-            raise HTTPException(status_code=403, detail=str(exc)) from exc
-        group_snapshot = await asyncio.to_thread(
-            WorkspaceGroupSnapshotService().get_or_create,
-            group_context,
-            actor_user_id=auth.user_id,
+    try:
+        return await start_meeting_session(
+            workspace_id=workspace_id,
+            body=body,
+            header_group_id=x_group_id,
+            remote_ingress_verified=(
+                http_request.headers.get("x-mindscape-remote-ingress")
+                == "remote_workbench"
+            ),
+            trace_id=http_request.headers.get("x-trace-id"),
+            auth=auth,
         )
-        if (
-            body.expected_topology_snapshot_id
-            and group_snapshot.id != body.expected_topology_snapshot_id
-        ):
-            raise HTTPException(
-                status_code=409,
-                detail="workspace_group_snapshot_stale",
-            )
-    elif body.expected_topology_snapshot_id:
+    except AdmissionDenied as exc:
         raise HTTPException(
-            status_code=422,
-            detail="expected_topology_snapshot_requires_active_group",
+            status_code=403,
+            detail={"error": exc.code},
+        ) from exc
+    except ExternalAuthorizationDenied as exc:
+        raise HTTPException(
+            status_code=403,
+            detail={"error": exc.code},
+        ) from exc
+    except MeetingSessionStartError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=exc.detail,
         )
-
-    # End any existing active session
-    existing = store.get_active_session(workspace_id, body.project_id, body.thread_id)
-    if existing:
-        store.end_session(existing.id)
-        logger.info(
-            f"[MeetingSession] Ended previous session {existing.id} "
-            f"before starting new one"
-        )
-
-    # Pre-1: Resolve lens_id via EffectiveLensResolver if not provided
-    lens_id = body.lens_id
-    if not lens_id:
-        try:
-            from backend.app.services.stores.graph_store import GraphStore
-            from backend.app.services.lens.effective_lens_resolver import (
-                EffectiveLensResolver,
-            )
-            from backend.app.services.lens.session_override_store import (
-                InMemorySessionStore,
-            )
-
-            graph_store = GraphStore()
-            session_override_store = InMemorySessionStore()
-            resolver = EffectiveLensResolver(graph_store, session_override_store)
-            effective = resolver.resolve(
-                profile_id="default-user",
-                workspace_id=workspace_id,
-            )
-            lens_id = effective.global_preset_id
-        except Exception as exc:
-            logger.warning(
-                "[MeetingSession] Failed to resolve lens_id for session: %s", exc
-            )
-
-    new_session = MeetingSession.new(
-        workspace_id=workspace_id,
-        project_id=body.project_id,
-        thread_id=body.thread_id,
-        lens_id=lens_id,
-        workspace_group_snapshot_id=(group_snapshot.id if group_snapshot else None),
-        meeting_type=body.meeting_type,
-        agenda=body.agenda,
-        success_criteria=body.success_criteria,
-        max_rounds=body.max_rounds or 5,
-    )
-    if body.metadata:
-        new_session.metadata.update(body.metadata)
-    if group_context:
-        new_session.metadata["active_group_id"] = group_context.group_id
-        new_session.metadata["workspace_group_revision"] = group_context.revision
-        new_session.metadata["workspace_group_role"] = group_context.role
-        new_session.metadata["workspace_group_snapshot"] = group_snapshot.model_dump(
-            mode="json"
-        )
-    new_session.start()
-    store.create(new_session)
-    logger.info(f"[MeetingSession] Started session {new_session.id}")
-    return new_session.to_dict()
 
 
 @router.post("/{session_id}/end")

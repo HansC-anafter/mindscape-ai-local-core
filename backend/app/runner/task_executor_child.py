@@ -9,6 +9,9 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
 from backend.app.services.playbook_run_executor import PlaybookRunExecutor
+from backend.app.services.workspace_capability_admission.child_snapshot_verifier import (
+    verify_child_snapshot,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +56,18 @@ def _child_execute_playbook(
         os.environ["LOCAL_CORE_RUNNER_ID"] = runner_id
     if task_id:
         os.environ["LOCAL_CORE_TASK_ID"] = task_id
+    workspace_id = payload.get("workspace_id")
+    admission_snapshot = payload.get("execution_admission_snapshot")
+    if workspace_id:
+        if not isinstance(admission_snapshot, dict):
+            raise RuntimeError("runner_child_admission_snapshot_required")
+        verify_child_snapshot(
+            admission_snapshot,
+            expected_workspace_id=str(workspace_id),
+            expected_root_execution_id=str(
+                payload.get("root_execution_id") or task_id
+            ),
+        )
     try:
         eager_tool_load = (
             os.getenv("LOCAL_CORE_RUNNER_CHILD_EAGER_TOOL_LOAD", "")
@@ -68,7 +83,6 @@ def _child_execute_playbook(
     playbook_code = payload.get("playbook_code")
     profile_id = payload.get("profile_id")
     inputs = payload.get("inputs")
-    workspace_id = payload.get("workspace_id")
     project_id = payload.get("project_id")
     result_file = payload.get("_result_file")
 

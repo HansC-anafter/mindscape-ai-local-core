@@ -9,6 +9,9 @@ import traceback
 
 from backend.app.core.security import security_monitor
 from .capability_activation_middleware import ensure_capability_activation_for_request
+from .workspace_capability_request_admission import (
+    admit_workspace_capability_request,
+)
 from .cors import resolve_error_cors_origin
 
 logger = logging.getLogger(__name__)
@@ -54,6 +57,9 @@ async def security_middleware(request: Request, call_next):
         sys.stderr.flush()
 
     try:
+        admission_response = await admit_workspace_capability_request(request)
+        if admission_response is not None:
+            return admission_response
         activation_response = await ensure_capability_activation_for_request(request)
         if activation_response is not None:
             return activation_response
