@@ -1,4 +1,10 @@
 #!/usr/bin/env python3
+"""Read-only admission gate for disruptive local-core process reloads.
+
+This gate is not an admission requirement for ordinary durable capability-pack
+install intake. Pack intake has its own control-plane, database-write, incident,
+and active-install-job gates.
+"""
 from __future__ import annotations
 
 import argparse
@@ -273,7 +279,10 @@ def evaluate_gate(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Read-only runtime pressure gate for local-core deploy/restart decisions.",
+        description=(
+            "Read-only runtime pressure gate for disruptive local-core process "
+            "reload/restart decisions; not for ordinary durable pack install intake."
+        ),
     )
     parser.add_argument("--api-base", default="http://localhost:8200")
     parser.add_argument("--max-running", type=int, default=0)

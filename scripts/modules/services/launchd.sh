@@ -107,3 +107,21 @@ setup_cli_bridge_launchd() {
     echo "  WARNING: CLI Bridge install script not found: $install_script"
   fi
 }
+
+setup_remote_workbench_bridge_launchd() {
+  local project_root="${PROJECT_ROOT:-.}"
+  local install_script="$project_root/scripts/install-remote-workbench-bridge-macos.sh"
+  local label="ai.mindscape.remote-workbench-bridge"
+  local domain="gui/$(id -u)"
+
+  if launchctl print "$domain/$label" >/dev/null 2>&1; then
+    echo "  OK Remote Workbench bridge launchd agent running"
+    return 0
+  fi
+  if [ ! -f "$install_script" ]; then
+    echo "  WARNING: Remote Workbench bridge installer not found: $install_script"
+    return 0
+  fi
+  echo "  Installing Remote Workbench bridge launchd agent..."
+  bash "$install_script"
+}

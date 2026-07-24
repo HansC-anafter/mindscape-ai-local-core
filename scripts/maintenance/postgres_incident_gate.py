@@ -15,6 +15,8 @@ if str(REPO_ROOT) not in sys.path:
 from backend.app.services.runtime_database_incident_gate import (  # noqa: E402
     IncidentCloseReceipt,
     IncidentContainmentReceipt,
+    IncidentPackInstallPermitReceipt,
+    IncidentTargetedMigrationPermitReceipt,
     RuntimeDatabaseIncidentJournal,
     RuntimeDatabaseMutationGate,
 )
@@ -47,6 +49,38 @@ def _parser() -> argparse.ArgumentParser:
     contain.add_argument("--restore-id", required=True)
     contain.add_argument("--expires-at", required=True)
     contain.add_argument("--owner", required=True)
+
+    pack_permit = commands.add_parser("permit-pack-install")
+    pack_permit.add_argument("incident_id")
+    pack_permit.add_argument("--permit-id", required=True)
+    pack_permit.add_argument("--capability-code", required=True)
+    pack_permit.add_argument("--current-version", required=True)
+    pack_permit.add_argument("--candidate-version", required=True)
+    pack_permit.add_argument("--artifact-sha256", required=True)
+    pack_permit.add_argument("--preflight-evidence-path", action="append", required=True)
+    pack_permit.add_argument("--migration-revision", action="append", required=True)
+    pack_permit.add_argument("--migration-files-digest", required=True)
+    pack_permit.add_argument("--backout-install-id", required=True)
+    pack_permit.add_argument("--backout-artifact-sha256", required=True)
+    pack_permit.add_argument("--expires-at", required=True)
+    pack_permit.add_argument("--owner", required=True)
+    pack_permit.add_argument("--owner-authorization", required=True)
+
+    migration_permit = commands.add_parser("permit-targeted-migration")
+    migration_permit.add_argument("incident_id")
+    migration_permit.add_argument("--permit-id", required=True)
+    migration_permit.add_argument("--alembic-config-name", required=True)
+    migration_permit.add_argument("--revision", required=True)
+    migration_permit.add_argument("--migration-file-sha256", required=True)
+    migration_permit.add_argument("--created-relation", action="append", required=True)
+    migration_permit.add_argument(
+        "--preflight-evidence-path",
+        action="append",
+        required=True,
+    )
+    migration_permit.add_argument("--expires-at", required=True)
+    migration_permit.add_argument("--owner", required=True)
+    migration_permit.add_argument("--owner-authorization", required=True)
 
     close = commands.add_parser("close")
     close.add_argument("incident_id")
@@ -100,6 +134,51 @@ def main(argv: list[str] | None = None) -> int:
                 restore_id=args.restore_id,
                 expires_at=args.expires_at,
                 owner=args.owner,
+            ),
+        )
+    elif args.command == "permit-pack-install":
+        artifact_sha256 = args.artifact_sha256.strip().lower()
+        receipt = journal.grant_pack_install_permit(
+            args.incident_id,
+            IncidentPackInstallPermitReceipt(
+                permit_id=args.permit_id,
+                capability_code=args.capability_code,
+                current_version=args.current_version,
+                candidate_version=args.candidate_version,
+                artifact_sha256=artifact_sha256,
+                allowed_operation_keys=(
+                    f"capability_install_intake:file@sha256:{artifact_sha256}",
+                    f"capability_install_job@sha256:{artifact_sha256}",
+                ),
+                preflight_evidence_paths=tuple(args.preflight_evidence_path),
+                migration_revisions=tuple(args.migration_revision),
+                migration_files_digest=args.migration_files_digest,
+                schema_mutation_required=False,
+                backout_install_id=args.backout_install_id,
+                backout_artifact_sha256=args.backout_artifact_sha256,
+                expires_at=args.expires_at,
+                owner=args.owner,
+                owner_authorization=args.owner_authorization,
+            ),
+        )
+    elif args.command == "permit-targeted-migration":
+        operation_key = (
+            f"alembic_upgrade:{args.alembic_config_name}:{args.revision}"
+        )
+        receipt = journal.grant_targeted_migration_permit(
+            args.incident_id,
+            IncidentTargetedMigrationPermitReceipt(
+                permit_id=args.permit_id,
+                alembic_config_name=args.alembic_config_name,
+                revision=args.revision,
+                migration_file_sha256=args.migration_file_sha256,
+                migration_mode="create_only",
+                created_relations=tuple(args.created_relation),
+                allowed_operation_key=operation_key,
+                preflight_evidence_paths=tuple(args.preflight_evidence_path),
+                expires_at=args.expires_at,
+                owner=args.owner,
+                owner_authorization=args.owner_authorization,
             ),
         )
     elif args.command == "close":

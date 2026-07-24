@@ -21,6 +21,15 @@ from .secure_inputs import SecureInputs
 
 INTERNAL_REMOTE_SERVICE = "http://mindscape-ai-local-core-frontend:3001"
 FALLBACK_SERVICE = "http_status:404"
+INGRESS_IDENTITY_KEYS = (
+    "tunnel_id",
+    "config_version",
+    "config_sha256",
+    "config_src",
+    "hostname",
+    "service",
+    "catch_all",
+)
 CANONICAL_INGRESS = [
     {"hostname": PUBLIC_HOSTNAME, "service": INTERNAL_REMOTE_SERVICE},
     {"service": FALLBACK_SERVICE},
@@ -106,8 +115,14 @@ class RemoteIngressGate:
         return value
 
     @staticmethod
-    def _normalized_ingress(result: Mapping[str, Any]) -> list[dict[str, str]]:
+    def _normalized_ingress(
+        result: Mapping[str, Any],
+        *,
+        allow_absent: bool = False,
+    ) -> list[dict[str, str]]:
         config = result.get("config")
+        if allow_absent and config is None:
+            return []
         if not isinstance(config, Mapping):
             raise CutoverError("Cloudflare tunnel configuration is missing")
         ingress = config.get("ingress")
@@ -151,13 +166,17 @@ class RemoteIngressGate:
             raise CutoverError("Cloudflare tunnel is not the locked remotely-managed tunnel")
         configuration = self._request(inputs, "/configurations")
         version = self._version(configuration)
-        ingress = self._normalized_ingress(configuration)
+        ingress = self._normalized_ingress(configuration, allow_absent=True)
+        config = configuration.get("config")
         evidence = {
             "account_id": inputs.cloudflare_account_id,
             "tunnel_id": inputs.cloudflare_tunnel_id,
             "config_src": "cloudflare",
             "config_version": version,
             "ingress": ingress,
+            "canonical_config": (
+                isinstance(config, Mapping) and dict(config) == CANONICAL_CONFIG
+            ),
             "canonical_config_sha256": canonical_config_sha256(),
         }
         write_private_json(
@@ -172,8 +191,8 @@ class RemoteIngressGate:
         result: Mapping[str, Any],
     ) -> int:
         if (
-            result.get("account_id") != inputs.cloudflare_account_id
-            or result.get("tunnel_id") != inputs.cloudflare_tunnel_id
+            result.get("tunnel_id") != inputs.cloudflare_tunnel_id
+            or result.get("source") != "cloudflare"
         ):
             raise CutoverError("Cloudflare configuration identity mismatch")
         config = result.get("config")
@@ -181,27 +200,18 @@ class RemoteIngressGate:
             raise CutoverError("Cloudflare ingress readback does not match the canonical config")
         return self._version(result)
 
-    def apply_exact(self, inputs: SecureInputs) -> dict[str, Any]:
-        """PUT the canonical config once, GET exact readback, then write the lock."""
-
-        updated = self._request(
-            inputs,
-            "/configurations",
-            method="PUT",
-            payload={"config": CANONICAL_CONFIG},
-        )
-        updated_version = self._require_exact_readback(inputs, updated)
-        readback = self._request(inputs, "/configurations")
-        readback_version = self._require_exact_readback(inputs, readback)
-        if readback_version != updated_version:
-            raise CutoverError("Cloudflare ingress PUT and GET versions do not match")
+    def _write_exact_lock(
+        self,
+        inputs: SecureInputs,
+        config_version: int,
+    ) -> dict[str, Any]:
         verified_at = self.now().astimezone(timezone.utc).strftime(
             "%Y-%m-%dT%H:%M:%S.%fZ"
         )
         lock = {
             "schema_version": 1,
             "tunnel_id": inputs.cloudflare_tunnel_id,
-            "config_version": readback_version,
+            "config_version": config_version,
             "config_sha256": canonical_config_sha256(),
             "config_src": "cloudflare",
             "hostname": PUBLIC_HOSTNAME,
@@ -221,6 +231,49 @@ class RemoteIngressGate:
         write_private_json(lock_path, lock)
         write_private_json(inputs.directory / "cloudflare-ingress-after.json", lock)
         return lock
+
+    def apply_exact(self, inputs: SecureInputs) -> dict[str, Any]:
+        """PUT the canonical config once, GET exact readback, then write the lock."""
+
+        updated = self._request(
+            inputs,
+            "/configurations",
+            method="PUT",
+            payload={"config": CANONICAL_CONFIG},
+        )
+        updated_version = self._require_exact_readback(inputs, updated)
+        readback = self._request(inputs, "/configurations")
+        readback_version = self._require_exact_readback(inputs, readback)
+        if readback_version != updated_version:
+            raise CutoverError("Cloudflare ingress PUT and GET versions do not match")
+        return self._write_exact_lock(inputs, readback_version)
+
+    def adopt_exact(self, inputs: SecureInputs) -> dict[str, Any]:
+        """Write locks from an already-exact remote config without another PUT."""
+
+        readback = self._request(inputs, "/configurations")
+        readback_version = self._require_exact_readback(inputs, readback)
+        return self._write_exact_lock(inputs, readback_version)
+
+    def recover_exact(self, inputs: SecureInputs) -> dict[str, Any]:
+        """Recover the canonical ingress and prove both locks in one bounded action."""
+
+        before = self.capture_prechange(inputs)
+        remote_put_applied = not before["canonical_config"]
+        written = (
+            self.apply_exact(inputs)
+            if remote_put_applied
+            else self.adopt_exact(inputs)
+        )
+        expected = {key: written[key] for key in INGRESS_IDENTITY_KEYS}
+        live = self.verify_exact(inputs, expected)
+        return {
+            "status": "succeeded",
+            "operation": "recover-ingress",
+            "prechange_config_version": before["config_version"],
+            "remote_put_applied": remote_put_applied,
+            **live,
+        }
 
     def verify_exact(
         self,

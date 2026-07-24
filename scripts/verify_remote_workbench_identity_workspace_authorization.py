@@ -17,6 +17,9 @@ from remote_workbench_authorization_cutover.remote_ingress import RemoteIngressG
 from remote_workbench_authorization_cutover.repository import lock_phase06_repositories
 from remote_workbench_authorization_cutover.resources import RedisResourceSampler
 from remote_workbench_authorization_cutover.runtime import RuntimeGate
+from remote_workbench_authorization_cutover.secure_inputs import (
+    load_remote_ingress_inputs,
+)
 from remote_workbench_authorization_cutover.claim_gate import RunnerClaimGate
 from remote_workbench_authorization_cutover.transition_recovery import (
     safe_close_before_preflight,
@@ -25,14 +28,22 @@ from remote_workbench_authorization_cutover.workflow import CutoverWorkflow
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """Build the locked cutover/backout command contract."""
+    """Build the locked authorization and bounded ingress command contracts."""
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=("cutover", "backout"))
-    parser.add_argument("--cloud-worktree", type=Path, required=True)
-    parser.add_argument("--secure-input-dir", type=Path, required=True)
-    parser.add_argument("--target-workspace-id", required=True)
-    parser.add_argument("--inheritance-workspace-id", required=True)
+    actions = parser.add_subparsers(dest="action", required=True)
+
+    def add_authorization_action(name: str) -> None:
+        action = actions.add_parser(name)
+        action.add_argument("--cloud-worktree", type=Path, required=True)
+        action.add_argument("--secure-input-dir", type=Path, required=True)
+        action.add_argument("--target-workspace-id", required=True)
+        action.add_argument("--inheritance-workspace-id", required=True)
+
+    add_authorization_action("cutover")
+    add_authorization_action("backout")
+    ingress = actions.add_parser("recover-ingress")
+    ingress.add_argument("--secure-input-dir", type=Path, required=True)
     return parser
 
 
@@ -50,6 +61,19 @@ def main() -> int:
 
 def _run_locked(args: argparse.Namespace) -> int:
     """Run every repository and runtime action while the host lock is held."""
+
+    if args.action == "recover-ingress":
+        try:
+            inputs = load_remote_ingress_inputs(args.secure_input_dir)
+            result = RemoteIngressGate(HttpClient()).recover_exact(inputs)
+        except CutoverError as error:
+            print(f"ERROR: {error}", file=sys.stderr)
+            return 1
+        except Exception:
+            print("ERROR: Remote ingress recovery failed closed", file=sys.stderr)
+            return 1
+        print(json.dumps(result, sort_keys=True))
+        return 0
 
     executor = CommandExecutor()
     script_repo_root = Path(__file__).resolve().parents[1]

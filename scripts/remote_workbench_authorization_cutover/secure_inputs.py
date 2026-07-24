@@ -162,14 +162,60 @@ def _validate_policy(payload: Any) -> dict[str, Any]:
     return normalized
 
 
-def load_secure_inputs(directory: Path) -> SecureInputs:
-    """Load the locked policy, two admins, and an optional outsider assertion."""
+def _normalize_secure_directory(directory: Path) -> Path:
+    """Resolve and validate the private input directory without following a link."""
 
     expanded = directory.expanduser()
     if expanded.is_symlink():
         raise CutoverError("Secure input directory must not be a symbolic link")
     directory = Path(os.path.abspath(expanded))
     assert_private_directory(directory)
+    return directory
+
+
+def _load_cloudflare_inputs(directory: Path) -> tuple[str, str, Path]:
+    account_path = directory / "cloudflare-account-id.txt"
+    tunnel_path = directory / "cloudflare-tunnel-id.txt"
+    api_token_path = directory / "cloudflare-api-token.txt"
+    assert_private_file(account_path, max_bytes=64)
+    assert_private_file(tunnel_path, max_bytes=64)
+    assert_private_file(api_token_path, max_bytes=4_096)
+    account_id = account_path.read_text(encoding="utf-8").strip()
+    raw_tunnel_id = tunnel_path.read_text(encoding="utf-8").strip()
+    api_token = api_token_path.read_text(encoding="utf-8").strip()
+    if not _ACCOUNT_ID_PATTERN.fullmatch(account_id):
+        raise CutoverError("Cloudflare account id is invalid")
+    try:
+        tunnel_id = str(UUID(raw_tunnel_id))
+    except ValueError as error:
+        raise CutoverError("Cloudflare tunnel id is invalid") from error
+    if raw_tunnel_id != tunnel_id:
+        raise CutoverError("Cloudflare tunnel id must use canonical lowercase UUID form")
+    if len(api_token) < 20 or any(character.isspace() for character in api_token):
+        raise CutoverError("Cloudflare API token is malformed")
+    return account_id, tunnel_id, api_token_path
+
+
+def load_remote_ingress_inputs(directory: Path) -> SecureInputs:
+    """Load only the private Cloudflare inputs required for ingress recovery."""
+
+    directory = _normalize_secure_directory(directory)
+    account_id, tunnel_id, api_token_path = _load_cloudflare_inputs(directory)
+    return SecureInputs(
+        directory=directory,
+        policy={},
+        jwt_paths={},
+        jwt_claims={},
+        cloudflare_account_id=account_id,
+        cloudflare_tunnel_id=tunnel_id,
+        cloudflare_api_token_path=api_token_path,
+    )
+
+
+def load_secure_inputs(directory: Path) -> SecureInputs:
+    """Load the locked policy, two admins, and an optional outsider assertion."""
+
+    directory = _normalize_secure_directory(directory)
     policy_path = directory / "runtime-policy-next.json"
     assert_private_file(policy_path, max_bytes=32_768)
     try:
@@ -219,25 +265,7 @@ def load_secure_inputs(directory: Path) -> SecureInputs:
         if outsider_subject in admins.values():
             raise CutoverError("Outsider assertion must not reuse an administrator subject")
 
-    account_path = directory / "cloudflare-account-id.txt"
-    tunnel_path = directory / "cloudflare-tunnel-id.txt"
-    api_token_path = directory / "cloudflare-api-token.txt"
-    assert_private_file(account_path, max_bytes=64)
-    assert_private_file(tunnel_path, max_bytes=64)
-    assert_private_file(api_token_path, max_bytes=4_096)
-    account_id = account_path.read_text(encoding="utf-8").strip()
-    raw_tunnel_id = tunnel_path.read_text(encoding="utf-8").strip()
-    api_token = api_token_path.read_text(encoding="utf-8").strip()
-    if not _ACCOUNT_ID_PATTERN.fullmatch(account_id):
-        raise CutoverError("Cloudflare account id is invalid")
-    try:
-        tunnel_id = str(UUID(raw_tunnel_id))
-    except ValueError as error:
-        raise CutoverError("Cloudflare tunnel id is invalid") from error
-    if raw_tunnel_id != tunnel_id:
-        raise CutoverError("Cloudflare tunnel id must use canonical lowercase UUID form")
-    if len(api_token) < 20 or any(character.isspace() for character in api_token):
-        raise CutoverError("Cloudflare API token is malformed")
+    account_id, tunnel_id, api_token_path = _load_cloudflare_inputs(directory)
     return SecureInputs(
         directory=directory,
         policy=policy,
