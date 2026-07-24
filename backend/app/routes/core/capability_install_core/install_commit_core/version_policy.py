@@ -38,13 +38,26 @@ def validate_candidate_version(
     live_hash: str | None,
     incoming_artifact_sha256: str | None = None,
     backout_receipt: PackBackoutReceipt | None = None,
+    reviewed_split_truth_repair: bool = False,
 ) -> str:
     """Validate version order and split-truth conditions before prepare."""
 
     if committed_version is None:
         return "new_install"
     if live_version != committed_version or live_hash != committed_hash:
-        raise RuntimeError("pack_live_runtime_does_not_match_committed_receipt")
+        if not reviewed_split_truth_repair:
+            raise RuntimeError("pack_live_runtime_does_not_match_committed_receipt")
+        try:
+            incoming = Version(str(incoming_version))
+            committed = Version(str(committed_version))
+            live = Version(str(live_version))
+        except InvalidVersion as exc:
+            raise ValueError("pack_version_must_be_pep440_compatible") from exc
+        if incoming <= committed or incoming <= live:
+            raise RuntimeError(
+                "pack_split_truth_repair_requires_monotonic_upgrade"
+            )
+        return "reviewed_split_truth_upgrade"
     try:
         incoming = Version(str(incoming_version))
         committed = Version(str(committed_version))

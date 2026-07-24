@@ -14,6 +14,7 @@ from backend.app.database.write_readiness import (
     ensure_core_write_ready,
 )
 from .paths import (
+    OVERWRITE_REVIEW_CONFIRMATION_PHRASE,
     _ensure_sys_path,
     _handle_dev_mode_reload_trigger,
     _resolve_local_core_root,
@@ -134,6 +135,11 @@ async def run_install_pipeline(
                 )
                 or None,
                 backout=(extra_metadata or {}).get("backout_receipt"),
+                reviewed_split_truth_repair=(
+                    allow_overwrite
+                    and overwrite_review_confirmation
+                    == OVERWRITE_REVIEW_CONFIRMATION_PHRASE
+                ),
             )
 
         requirement_blockers = await run_in_threadpool(

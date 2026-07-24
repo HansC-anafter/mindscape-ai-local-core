@@ -301,6 +301,7 @@ def validate_existing_pack_version_truth(
     live_manifest_path: Path,
     artifact_sha256: Optional[str],
     backout: Optional[Mapping[str, Any]] = None,
+    reviewed_split_truth_repair: bool = False,
     truth_reader: Optional[PackInstallVersionTruthReader] = None,
 ) -> str:
     """Reject unreceipted/split truth before playbook or runtime writes."""
@@ -334,6 +335,7 @@ def validate_existing_pack_version_truth(
             live_version=live_version,
             live_hash=live_manifest_hash,
             backout_receipt=_backout_receipt(backout),
+            reviewed_split_truth_repair=reviewed_split_truth_repair,
         )
     except Exception:
         record_database_failure(

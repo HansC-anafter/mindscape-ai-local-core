@@ -37,6 +37,48 @@ def test_same_version_different_hash_and_normal_downgrade_are_rejected() -> None
         _validate("1.9.0", "hash-19")
 
 
+def test_reviewed_split_truth_repair_requires_monotonic_upgrade() -> None:
+    assert (
+        validate_candidate_version(
+            incoming_version="2.1.0",
+            incoming_hash="hash-21",
+            committed_version="2.0.0",
+            committed_hash="hash-2",
+            live_version="2.0.0",
+            live_hash="drifted-live-hash",
+            reviewed_split_truth_repair=True,
+        )
+        == "reviewed_split_truth_upgrade"
+    )
+
+    for incoming_version in ("2.0.0", "1.9.0"):
+        with pytest.raises(RuntimeError, match="requires_monotonic_upgrade"):
+            validate_candidate_version(
+                incoming_version=incoming_version,
+                incoming_hash="candidate-hash",
+                committed_version="2.0.0",
+                committed_hash="hash-2",
+                live_version="2.0.0",
+                live_hash="drifted-live-hash",
+                reviewed_split_truth_repair=True,
+            )
+
+
+def test_split_truth_still_blocks_without_reviewed_repair() -> None:
+    with pytest.raises(
+        RuntimeError,
+        match="pack_live_runtime_does_not_match_committed_receipt",
+    ):
+        validate_candidate_version(
+            incoming_version="2.1.0",
+            incoming_hash="hash-21",
+            committed_version="2.0.0",
+            committed_hash="hash-2",
+            live_version="2.0.0",
+            live_hash="drifted-live-hash",
+        )
+
+
 def test_downgrade_requires_exact_backout_artifact_and_schema_receipt() -> None:
     receipt = PackBackoutReceipt(
         backout_from_install_id="install-2",
