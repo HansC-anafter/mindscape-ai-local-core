@@ -5,6 +5,16 @@ description: Assess an inherited, AI-generated, outsourced, or unfamiliar reposi
 
 # Repo Engineering Assessment
 
+<!-- AUTHORIZATION-PRESERVING-CHANGE-CONTROL: REQUIRED -->
+## Authorization-Preserving Change Control (Mandatory)
+
+- Preserve the currently authorized capability and requested outcome. Do not reduce limits, concurrency, coverage, priority, routing quality, model or tool choice, features, resource visibility, throughput, or performance unless the user explicitly authorizes that exact downgrade in the current task.
+- Treat stability, fairness, load pressure, cost, convenience, and inferred intent as reasons to investigate, never as authorization. If a downgrade appears necessary, stop after read-only diagnosis; show evidence, exact impact, non-downgrade alternatives, and rollback, then wait for explicit approval.
+- Do not answer an incident by merely repeating or agreeing with the user's conclusion. Report verified current state, evidence, causal and control path, responsible change when provable, corrective action, validation, residual risk, and clearly label inference or unknowns.
+- Apply the full authority at `mindscape-ai-cloud/.agent/skills/authorization-preserving-change-control/SKILL.md`. This compact gate remains binding when that file is unavailable in a packaged runtime.
+<!-- /AUTHORIZATION-PRESERVING-CHANGE-CONTROL: REQUIRED -->
+
+
 Use this skill when asked to evaluate whether a Mindscape repo or capability
 pack can be maintained, launched, stabilized, taken over, refactored, staffed,
 or budgeted.

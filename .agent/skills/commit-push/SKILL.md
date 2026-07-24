@@ -5,6 +5,16 @@ description: Batch-commit all outstanding changes by component, using Convention
 
 # Commit & Push (local-core)
 
+<!-- AUTHORIZATION-PRESERVING-CHANGE-CONTROL: REQUIRED -->
+## Authorization-Preserving Change Control (Mandatory)
+
+- Preserve the currently authorized capability and requested outcome. Do not reduce limits, concurrency, coverage, priority, routing quality, model or tool choice, features, resource visibility, throughput, or performance unless the user explicitly authorizes that exact downgrade in the current task.
+- Treat stability, fairness, load pressure, cost, convenience, and inferred intent as reasons to investigate, never as authorization. If a downgrade appears necessary, stop after read-only diagnosis; show evidence, exact impact, non-downgrade alternatives, and rollback, then wait for explicit approval.
+- Do not answer an incident by merely repeating or agreeing with the user's conclusion. Report verified current state, evidence, causal and control path, responsible change when provable, corrective action, validation, residual risk, and clearly label inference or unknowns.
+- Apply the full authority at `mindscape-ai-cloud/.agent/skills/authorization-preserving-change-control/SKILL.md`. This compact gate remains binding when that file is unavailable in a packaged runtime.
+<!-- /AUTHORIZATION-PRESERVING-CHANGE-CONTROL: REQUIRED -->
+
+
 > **Important: Commit and Push are INDEPENDENT operations.**
 > - User says "提交" / "commit" → **Only commit** (Steps 0–2)
 > - User says "推送" / "push" → **Only push** (Step 3)

@@ -76,6 +76,98 @@ surfaces:
       - web-console/src/hooks/executionPollingCoordinator.ts
       - web-console/src/app/workspaces/components/ExecutionChatPanel.tsx
 
+  - id: psc.local-core.workspace-group-dispatch-and-knowledge-projection.v1
+    tier: P0
+    owner: "@team-leads"
+    contract_doc: mindscape-ai-cloud/docs/internal/local-core/product-semantics/workspace-group-dispatch-and-knowledge-projection-contract-2026-07-15.zh-TW.md
+    requires_product_semantic_declaration: true
+    semantics:
+      - Workspace group definitions and normalized memberships are the only durable topology authority; legacy role maps are computed read projections and a workspace is never assigned to an arbitrary first group.
+      - Group execution requires an explicitly authorized active group and an immutable topology revision snapshot; no active group preserves the existing single-workspace path.
+      - The existing dispatch DAG remains the only execution scheduler, preserves the full eligible agent and workspace set, and hands results to exactly one canonical synthesis committer.
+      - Shared group knowledge and agent-scoped views derive from canonical MemoryItem, MemoryVersion, evidence, governance, and receipts; Markdown is a rebuildable projection or source asset, never shared-memory truth.
+      - Source intake separates owner-controlled fetch, immutable evidence, candidate memory, verified memory, and deterministic projections without adding a second credential store, database, scheduler, queue lane, or worker pool.
+      - Group list, snapshot, projection, and UI reads stay bounded, avoid N-plus-one queries, preserve PgBouncer and runner capacity, and add no topology or projection polling loop.
+      - Capability adapters consume the authorized host workspace-group contract and reach installed runtime only through the canonical capability-pack control-plane job and activation path.
+    path_globs:
+      - backend/app/models/workspace_group.py
+      - backend/app/models/workspace/core.py
+      - backend/app/models/workspace_resource_binding.py
+      - backend/app/models/meeting_session.py
+      - backend/app/models/task_ir*.py
+      - backend/app/services/workspace_groups/**
+      - backend/app/services/knowledge_projection/**
+      - backend/app/services/stores/postgres/workspace_group_store.py
+      - backend/app/services/stores/postgres/group_membership_store.py
+      - backend/app/services/stores/postgres/workspaces_store.py
+      - backend/app/routes/core/workspace/groups.py
+      - backend/app/routes/core/workspace/crud_core/list_routes.py
+      - backend/app/services/orchestration/meeting/prompt_context_core/basic_context.py
+      - backend/app/services/orchestration/meeting/prompt_core/turn_prompt_mixin.py
+      - backend/app/services/orchestration/dispatch_orchestrator_core/**
+      - backend/app/services/orchestration/multi_agent_orchestrator.py
+      - backend/app/services/orchestration/group_synthesis_committer.py
+      - backend/app/services/conversation/plan_executor_core/orchestration.py
+      - backend/app/services/governance/governance_context_read_model.py
+      - backend/app/services/governance/memory_packet_compiler.py
+      - backend/app/services/memory/writeback/**
+      - backend/app/services/mindscape_graph_derivation.py
+      - backend/app/capabilities/frontier_research/services/workspace_group_adapter.py
+      - backend/alembic_migrations/versions/*workspace*group*
+      - backend/alembic_migrations/postgres/versions/*workspace*group*
+      - backend/tests/*workspace*group*
+      - backend/tests/workspace_groups/**
+      - web-console/src/components/workspace/WorkspaceSelector.tsx
+      - web-console/src/app/workspaces/*/components/WorkspaceGroupIndicator.tsx
+      - web-console/src/app/workspaces/*/components/WorkspaceHeaderBar.tsx
+      - web-console/src/api/client.ts
+      - web-console/src/**/*workspace*group*
+
+  - id: psc.local-core.workspace-group-shared-asset-scope.v1
+    tier: P0
+    owner: "@team-leads"
+    contract_doc: mindscape-ai-cloud/docs/internal/local-core/product-semantics/ig-workspace-group-shared-source-projection-contract-2026-07-16.zh-TW.md
+    requires_product_semantic_declaration: true
+    semantics:
+      - A workspace-group shared-asset read scope is authorized only by matching source and consumer asset/read bindings plus valid membership and group topology; arbitrary override JSON or group display metadata is never authorization truth.
+      - The workspace-group facade returns all valid typed scopes for the active workspace, optionally narrowed by an explicit group filter, and never selects an arbitrary first group or changes explicit active-group execution semantics.
+      - Shared-scope resolution uses one bounded indexed repository read per request, fails closed per invalid scope without hiding workspace-owned data, and exposes stable binding and group-revision provenance to capability adapters.
+      - The host shared-asset seam adds no pack-specific table, second credential store, migration, worker, scheduler, queue lane, PgBouncer expansion, or UX polling path.
+    path_globs:
+      - backend/app/models/workspace_resource_binding.py
+      - backend/app/routes/core/workspace_resource_bindings.py
+      - backend/app/services/stores/workspace_resource_binding_store.py
+      - backend/app/services/workspace_resource_bindings/**
+      - backend/app/services/workspace_groups/contracts.py
+      - backend/app/services/workspace_groups/facade.py
+      - backend/app/services/workspace_groups/shared_asset_scope_repository.py
+      - backend/app/services/workspace_groups/shared_asset_scope_resolver.py
+      - backend/tests/*resource*binding*
+      - backend/tests/workspace_groups/*shared*asset*
+
+  - id: psc.local-core.runtime-task-read-budget.v1
+    tier: P0
+    owner: "@team-leads"
+    contract_doc: mindscape-ai-cloud/docs/internal/local-core/product-semantics/ig-runtime-db-read-and-polling-budget-contract-2026-07-15.zh-TW.md
+    requires_product_semantic_declaration: true
+    semantics:
+      - Task control remains in tasks while list, queue position, and capability runtime status reads use compact synchronized projections with query-shaped indexes.
+      - Identical stale cache refreshes execute once per process window, retain the last known snapshot on refresh failure, and never fabricate zero queue state while another refresh is in flight.
+      - DB read-path repair preserves runner capacity, queue shard visibility, PgBouncer service quality, and active task state.
+      - Core schema and index changes use Alembic with concurrent large-table indexes, preflight, rollback, and original-path verification.
+    path_globs:
+      - backend/app/services/queue_position_cache.py
+      - backend/app/services/task_projection_builder.py
+      - backend/app/routes/core/playbook_execution_core/read_routes.py
+      - backend/app/routes/core/workspace/tasks_core/streaming.py
+      - backend/features/workspace/executions_core/progress_snapshot.py
+      - web-console/src/hooks/useExecutionPolling.ts
+      - backend/alembic_migrations/postgres/versions/*runtime*read*
+      - backend/alembic_migrations/postgres/versions/*task*projection*
+      - backend/tests/*queue_position_cache*
+      - backend/tests/postgres_task_projection*
+      - web-console/src/hooks/useExecutionPolling.spec.tsx
+
   - id: psc.local-core.capability-install-control-plane.v1
     tier: P0
     owner: "@team-leads"
@@ -170,7 +262,7 @@ surfaces:
     requires_product_semantic_declaration: true
     semantics:
       - Capability workbench mobile controls remain rendered by their semantic owner: pack navigation in the bottom pack rail, primary commands in the command header, and pack-module filters in that module's secondary header.
-      - Host-owned workspace tools use one shared mobile upper-right safe-slot tray across generic workspace and capability-host routes; its only anchor is right 8px / top 160px with no vertical transform, the trigger stays fixed while closed or open, it must sit below primary and pack headers without overlapping the secondary header or bottom rail, and capability routes must not render a persistent desktop right rail on mobile.
+      - Host-owned workspace tools use one shared mobile page-top-right safe-slot tray across generic workspace and capability-host routes; its only anchor is right 8px / top calc(8px + safe-area-inset-top) with no vertical transform, the trigger stays fixed while closed or open, the shared compact command header reserves 56px at its right edge so primary utilities remain in-header without overlap, and capability routes do not render a persistent desktop right rail on mobile.
       - Local Core does not provide a generic window bridge that relocates pack-owned or module-owned controls into host viewport chrome.
       - Layout changes preserve the installed runtime asset lane and add no DB write, worker or queue work, PgBouncer pressure, background request, or UX polling path.
     path_globs:
@@ -254,14 +346,29 @@ surfaces:
   - id: psc.local-core.capture-relay-device-binding.v1
     tier: P1
     owner: "@team-leads"
-    contract_doc: mindscape-ai-cloud/docs/internal/local-core/product-semantics/product-semantic-contract-index-2026-06-21.zh-TW.md#psclocal-corecapture-relay-device-bindingv1
+    contract_doc: mindscape-ai-cloud/docs/internal/local-core/product-semantics/remote-live-practice-media-lane-contract-2026-07-14.zh-TW.md
     requires_product_semantic_declaration: true
     semantics:
       - Capture relay and device binding preserve source identity, pairing, media transport readiness, and device capability control meanings across device-node and web-console.
+      - Formal live practice uses one session-scoped media path: WHIP/WebRTC and public RTMPS are publish adapters, plain RTMP is limited to local or private relay profiles, the existing MediaMTX service is the media router, and one supervised Local Core receiver owns analysis execution.
+      - Workbench preview and lifecycle are independent from analysis; closing or hiding Workbench must not stop an active supervised receiver.
+      - Remote Workbench bridge readiness covers the control ingress only; media and guidance readiness require publisher, relay, receiver, analyzer, append, guidance, and evidence gates for the same live session.
+      - Live media control remains bounded to one analyzed session per workspace in the first release, with no raw media DB writes, shared-runner allocation, PgBouncer expansion, or UX polling loop.
     path_globs:
       - backend/app/models/device_binding.py
+      - backend/app/models/media_transport.py
+      - backend/app/routes/core/workspace/device_bindings.py
+      - backend/app/routes/core/workspace/media_sessions.py
+      - backend/app/services/host_services/capture_relay_proxy.py
       - backend/app/services/media_transport/**
+      - backend/app/services/orchestration/meeting/device_binding_registry.py
+      - backend/app/services/orchestration/meeting/webrtc_signaling_registry.py
+      - backend/tests/*media*session*
+      - backend/tests/*device*binding*
+      - backend/tests/*capture*relay*
       - device-node/src/**
+      - scripts/rtmp_motion_window_publisher.py
+      - scripts/rtmp_motion_publisher/**
       - web-console/src/components/workspace/device-binding/**
       - web-console/src/lib/media-transport/**
 

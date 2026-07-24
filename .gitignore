@@ -240,6 +240,7 @@ docker-compose.override.yml.example
 !/web-console/src/app/capabilities/.gitkeep
 /backend/app/capabilities/
 !/backend/app/capabilities/.gitkeep
+/backend/app/.capability-install-staging/
 
 # Capability-installed playbooks (installed via API, not committed directly)
 /backend/i18n/playbooks/
