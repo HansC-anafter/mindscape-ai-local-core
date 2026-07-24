@@ -75,12 +75,97 @@ class _ActivationService:
         return self.state if self.state.get("pack_id") == pack_id else None
 
 
+@pytest.mark.parametrize(
+    ("configured", "expected"),
+    [
+        (None, 60.0),
+        ("invalid", 60.0),
+        ("nan", 60.0),
+        ("15", 30.0),
+        ("75", 75.0),
+        ("600", 300.0),
+    ],
+)
+def test_execution_activation_timeout_is_bounded(
+    monkeypatch,
+    configured,
+    expected,
+):
+    if configured is None:
+        monkeypatch.delenv(
+            "MINDSCAPE_EXECUTION_ACTIVATION_TIMEOUT_SECONDS",
+            raising=False,
+        )
+    else:
+        monkeypatch.setenv(
+            "MINDSCAPE_EXECUTION_ACTIVATION_TIMEOUT_SECONDS",
+            configured,
+        )
+
+    assert capability_install_jobs._execution_activation_timeout_seconds() == expected
+
+
+@pytest.mark.asyncio
+async def test_execution_activation_client_uses_bounded_timeout(monkeypatch):
+    observed = {}
+
+    class _Response:
+        status_code = 200
+
+        @staticmethod
+        def json():
+            return {"state": "activated", "manifest_hash": "hash-1"}
+
+        @staticmethod
+        def raise_for_status():
+            return None
+
+    class _Client:
+        def __init__(self, *, timeout):
+            observed["timeout"] = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def post(self, url, *, json):
+            observed["url"] = url
+            observed["json"] = json
+            return _Response()
+
+    import httpx
+
+    monkeypatch.setenv("MINDSCAPE_EXECUTION_ACTIVATION_TIMEOUT_SECONDS", "75")
+    monkeypatch.setattr(httpx, "AsyncClient", _Client)
+
+    result = await CapabilityInstallJobService(
+        store=object()
+    )._notify_execution_activation(
+        install_id="install-1",
+        pipeline_payload={
+            "capability_code": "yogacoach",
+            "activation": {"manifest_hash": "hash-1"},
+        },
+    )
+
+    assert observed["timeout"] == 75.0
+    assert observed["json"]["manifest_hash"] == "hash-1"
+    assert result["state"] == "activated"
+
+
 @pytest.fixture(autouse=True)
 def _no_committed_install_reconciliation(monkeypatch):
     monkeypatch.setattr(
         pack_install_reconciliation,
         "poll_install_reconciliation_once",
         lambda: None,
+    )
+    monkeypatch.setattr(
+        executor,
+        "require_runtime_database_mutation_allowed",
+        lambda _operation, evidence=None: None,
     )
 
 

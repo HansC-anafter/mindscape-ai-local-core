@@ -1,10 +1,39 @@
 import json
+from pathlib import Path
+
+import yaml
 
 from backend.tests.capability_packs_cache_support import (
     _reset_pack_yaml_cache,
     capability_packs,
 )
 from backend.app.routes.core.capability_packs_core import installed_routes
+from backend.app.routes.core.capability_packs_core.mobile_workbench_gateway_support import (
+    build_mobile_workbench_gateway_support_payload,
+)
+
+
+def test_yogacoach_manifest_supports_workspace_scoped_remote_workbench():
+    manifest_path = (
+        Path(__file__).resolve().parents[1]
+        / "app"
+        / "capabilities"
+        / "yogacoach"
+        / "manifest.yaml"
+    )
+    pack_meta = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+
+    payload = build_mobile_workbench_gateway_support_payload(
+        "yogacoach",
+        pack_meta,
+    )
+
+    assert payload["supported"] is True
+    assert payload["host_route_template"] == (
+        "/workspaces/{workspaceId}/capability-ui-hosts/yogacoach"
+    )
+    assert payload["request_scope_contract"] == "explicit_workspace_v1"
+    assert payload["api_prefixes"] == ["/api/v1/capabilities/yogacoach"]
 
 
 def test_mobile_workbench_gateway_support_rejects_unowned_api_prefix(monkeypatch):

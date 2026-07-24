@@ -30,8 +30,14 @@ def _write_playbook(path: Path, *, code: str, locale: str, name: str) -> None:
     )
 
 
-def _write_capability(root: Path, capability_code: str, playbook_code: str) -> Path:
-    capability_dir = root / capability_code
+def _write_capability(
+    root: Path,
+    capability_code: str,
+    playbook_code: str,
+    *,
+    directory_name: str | None = None,
+) -> Path:
+    capability_dir = root / (directory_name or capability_code)
     capability_dir.mkdir(parents=True, exist_ok=True)
     (capability_dir / "manifest.yaml").write_text(
         "\n".join(
@@ -84,6 +90,58 @@ def test_directory_loader_preserves_locale_cache_and_variants(tmp_path, monkeypa
     assert playbooks["demo_pack.welcome"].metadata.locale == "en"
     assert registry.get_variant("demo_pack.welcome", "fast")["skip_steps"] == [1]
     assert activations[0]["capability_code"] == "demo_pack"
+
+
+def test_directory_loader_ignores_hidden_install_backups(tmp_path, monkeypatch):
+    activations = []
+    monkeypatch.setattr(
+        registry_module,
+        "_record_loaded_capability_activation",
+        lambda **payload: activations.append(payload),
+    )
+    _write_capability(tmp_path, "demo_pack", "welcome")
+    hidden_dir = _write_capability(
+        tmp_path,
+        "demo_pack",
+        "welcome",
+        directory_name=".demo_pack.previous-install",
+    )
+    _write_playbook(
+        hidden_dir / "playbooks" / "zh-TW" / "welcome.md",
+        code="welcome",
+        locale="zh-TW",
+        name="Stale Backup ZH",
+    )
+
+    registry = PlaybookRegistry()
+    registry._load_playbooks_from_directory(tmp_path)
+
+    assert (
+        registry.capability_playbooks["demo_pack"]["welcome:zh-TW"].metadata.name
+        == "Welcome ZH"
+    )
+    assert [item["capability_code"] for item in activations] == ["demo_pack"]
+
+
+def test_direct_lookup_ignores_hidden_install_backups(tmp_path):
+    hidden_dir = _write_capability(
+        tmp_path,
+        "demo_pack",
+        "welcome",
+        directory_name=".demo_pack.previous-install",
+    )
+    _write_playbook(
+        hidden_dir / "playbooks" / "zh-TW" / "welcome.md",
+        code="welcome",
+        locale="zh-TW",
+        name="Stale Backup ZH",
+    )
+    active_dir = _write_capability(tmp_path, "demo_pack", "welcome")
+
+    registry = PlaybookRegistry()
+    registry._capabilities_dir = tmp_path
+
+    assert registry._find_capability_dir_for_playbook("welcome", "zh-TW") == active_dir
 
 
 @pytest.mark.asyncio

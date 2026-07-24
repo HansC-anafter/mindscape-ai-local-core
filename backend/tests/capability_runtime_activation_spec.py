@@ -90,11 +90,6 @@ def test_explicit_runtime_activation_refreshes_cached_capability_modules(
 ):
     _write_reloadable_capability(tmp_path, label="old")
     monkeypatch.setenv("CAPABILITY_API_ACTIVATION_POLICY", "seed_only")
-    monkeypatch.setattr(
-        capability_runtime_activation,
-        "PackActivationService",
-        lambda: FakeActivationService(),
-    )
 
     app = FastAPI()
     seed_capability_api_descriptors(
@@ -137,12 +132,6 @@ def test_targeted_capability_reload_preserves_other_registry_slices(
     tmp_path,
     monkeypatch,
 ):
-    monkeypatch.setattr(
-        capability_registry.PackActivationService,
-        "record_activation_succeeded",
-        lambda self, **kwargs: None,
-    )
-
     def write_manifest(code: str, tool_name: str) -> None:
         capability_dir = tmp_path / code
         capability_dir.mkdir(parents=True, exist_ok=True)

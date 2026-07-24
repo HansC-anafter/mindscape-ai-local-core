@@ -141,6 +141,58 @@ async def test_releases_one_due_concurrency_locked_task_per_lock_key():
 
 
 @pytest.mark.asyncio
+async def test_releases_reference_analysis_tasks_by_repaired_reference_key():
+    task_a = _build_concurrency_locked_task(
+        "task-ref-a",
+        "concurrency:playbook:ig_analyze_pinned_reference",
+    )
+    task_b = _build_concurrency_locked_task(
+        "task-ref-b",
+        "concurrency:playbook:ig_analyze_pinned_reference",
+    )
+    for task, reference_id in ((task_a, "ref-a"), (task_b, "ref-b")):
+        task.pack_id = "ig_analyze_pinned_reference"
+        task.execution_context = {
+            "playbook_code": "ig_analyze_pinned_reference",
+            "concurrency": {"lock_scope": "playbook"},
+            "runner_skip_reason": "concurrency_locked",
+            "runner_skip_lock_key": "concurrency:playbook:ig_analyze_pinned_reference",
+            "runner_skip_conflict_lock_key": "concurrency:playbook:ig_analyze_pinned_reference",
+            "resume_after": "2026-07-04T00:00:00+00:00",
+            "inputs": {
+                "workspace_id": "ws-1",
+                "reference_id": reference_id,
+            },
+        }
+    store = _FakeTasksStore([task_a, task_b])
+    queue = _FakeRedisQueue("vision_local")
+
+    released = await reaper._release_concurrency_locked_tasks(
+        store,
+        queue,
+        release_limit=2,
+    )
+
+    assert released == 2
+    assert queue._client.enqueued == ["task-ref-a", "task-ref-b"]
+    assert [
+        update["concurrency_key"] for _task_id, update in store.updated
+    ] == [
+        "concurrency:playbook_input:ig_analyze_pinned_reference:ref-a",
+        "concurrency:playbook_input:ig_analyze_pinned_reference:ref-b",
+    ]
+    for _task_id, update in store.updated:
+        assert update["execution_context"]["concurrency"] == {
+            "lock_scope": "playbook_input",
+            "lock_key_input": "reference_id",
+            "max_parallel": 1,
+        }
+        assert "runner_skip_reason" not in update["execution_context"]
+        assert "runner_skip_lock_key" not in update["execution_context"]
+        assert "runner_skip_conflict_lock_key" not in update["execution_context"]
+
+
+@pytest.mark.asyncio
 async def test_releases_due_dependency_hold_task_to_ready_queue():
     store = _FakeTasksStore([_build_dependency_hold_task()])
     queue = _FakeRedisQueue("vision_local")

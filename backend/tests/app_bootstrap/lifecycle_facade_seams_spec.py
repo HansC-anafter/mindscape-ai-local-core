@@ -57,3 +57,30 @@ def test_main_uses_lifecycle_facade_import_path():
     ).read_text(encoding="utf-8")
 
     assert "from backend.app.app_bootstrap.lifecycle import lifespan" in main_source
+
+
+def test_object_index_sync_defaults_to_control_plane(monkeypatch):
+    monkeypatch.delenv("AOL_OBJECT_INDEX_SYNC_DISABLED", raising=False)
+    monkeypatch.delenv("AOL_OBJECT_INDEX_SYNC_MODE", raising=False)
+
+    monkeypatch.setenv("MINDSCAPE_BACKEND_ROLE", "execution")
+    assert lifecycle_common.should_run_object_index_sync() is False
+
+    monkeypatch.setenv("MINDSCAPE_BACKEND_ROLE", "control")
+    assert lifecycle_common.should_run_object_index_sync() is True
+
+
+def test_object_index_sync_mode_can_explicitly_target_all_planes(monkeypatch):
+    monkeypatch.delenv("AOL_OBJECT_INDEX_SYNC_DISABLED", raising=False)
+    monkeypatch.setenv("AOL_OBJECT_INDEX_SYNC_MODE", "all")
+    monkeypatch.setenv("MINDSCAPE_BACKEND_ROLE", "execution")
+
+    assert lifecycle_common.should_run_object_index_sync() is True
+
+
+def test_object_index_sync_disabled_override_has_precedence(monkeypatch):
+    monkeypatch.setenv("AOL_OBJECT_INDEX_SYNC_DISABLED", "true")
+    monkeypatch.setenv("AOL_OBJECT_INDEX_SYNC_MODE", "all")
+    monkeypatch.setenv("MINDSCAPE_BACKEND_ROLE", "control")
+
+    assert lifecycle_common.should_run_object_index_sync() is False

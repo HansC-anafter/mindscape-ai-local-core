@@ -136,7 +136,15 @@ def test_motion_rollup_artifact_publisher_keeps_content_within_registry_budget(
     assert len(json.dumps(content).encode("utf-8")) < 16_384
     artifact_rollup = content["motion_session_rollup"]
     assert artifact_rollup["window_count"] == 80
-    assert artifact_rollup["motion_window_refs"] == rollup.motion_window_refs
+    assert artifact_rollup["motion_window_ref_count"] == 80
+    assert artifact_rollup["motion_window_refs_sample"] == rollup.motion_window_refs[:5]
+    assert artifact_rollup["motion_window_refs_tail_sample"] == rollup.motion_window_refs[-5:]
+    assert artifact_rollup["motion_window_ref_policy"] == {
+        "artifact_sample_cap": 5,
+        "original_ref_count": 80,
+        "truncated": True,
+        "full_rollup_ref": rollup.motion_rollup_ref,
+    }
     assert len(artifact_rollup["motion_window_digests"]) == 3
     assert artifact_rollup["motion_window_digest_policy"] == {
         "artifact_cap": 3,

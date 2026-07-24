@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -83,10 +84,13 @@ def _client(tmp_path: Path):
     app.dependency_overrides[device_module.get_device_binding_live_media_service] = (
         lambda: service
     )
-    return TestClient(app), registry, service
+    app.dependency_overrides[
+        media_module.get_motion_reference_profile_artifact_store
+    ] = lambda: SimpleNamespace()
+    return TestClient(app), registry, service, media_module
 
 
-def _connect_device(client: TestClient) -> tuple[str, object]:
+def _connect_device(client: TestClient) -> tuple[str, object, object]:
     pairing = client.post(
         "/api/v1/workspaces/ws_device/device-bindings/pairing-codes",
         json={},
@@ -104,14 +108,14 @@ def _connect_device(client: TestClient) -> tuple[str, object]:
         }
     )
     paired = source.receive_json()
-    return paired["session_id"], socket
+    return paired["session_id"], socket, source
 
 
 def test_live_media_routes_create_read_refresh_and_stop_without_get_token_leak(
     tmp_path: Path,
 ) -> None:
-    client, registry, _ = _client(tmp_path)
-    device_session_id, source_socket = _connect_device(client)
+    client, registry, _, _ = _client(tmp_path)
+    device_session_id, source_socket, _ = _connect_device(client)
     collection_url = (
         "/api/v1/workspaces/ws_device/device-bindings/"
         f"{device_session_id}/media-sessions"
@@ -154,7 +158,7 @@ def test_live_media_routes_create_read_refresh_and_stop_without_get_token_leak(
 
 
 def test_live_media_route_rejects_unknown_device_session(tmp_path: Path) -> None:
-    client, _, _ = _client(tmp_path)
+    client, _, _, _ = _client(tmp_path)
 
     response = client.post(
         "/api/v1/workspaces/ws_device/device-bindings/missing/media-sessions",
@@ -168,8 +172,8 @@ def test_live_media_route_rejects_unknown_device_session(tmp_path: Path) -> None
 def test_receiver_event_projects_authenticated_health_without_polling(
     tmp_path: Path,
 ) -> None:
-    client, registry, service = _client(tmp_path)
-    device_session_id, source_socket = _connect_device(client)
+    client, registry, service, _ = _client(tmp_path)
+    device_session_id, source_socket, _ = _connect_device(client)
     collection_url = (
         "/api/v1/workspaces/ws_device/device-bindings/"
         f"{device_session_id}/media-sessions"
@@ -237,8 +241,8 @@ def test_receiver_event_projects_authenticated_health_without_polling(
 
 
 def test_source_disconnect_releases_attached_media_reservation(tmp_path: Path) -> None:
-    client, _, service = _client(tmp_path)
-    device_session_id, source_socket = _connect_device(client)
+    client, _, service, _ = _client(tmp_path)
+    device_session_id, source_socket, _ = _connect_device(client)
     collection_url = (
         "/api/v1/workspaces/ws_device/device-bindings/"
         f"{device_session_id}/media-sessions"
@@ -258,3 +262,96 @@ def test_source_disconnect_releases_attached_media_reservation(tmp_path: Path) -
         )
     assert exc_info.value.reason == "live_media_session_not_found"
     assert media_session_id.startswith("lms_")
+
+
+def test_receiver_start_projects_analysis_handoff_to_device_session(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, registry, _, media_module = _client(tmp_path)
+    device_session_id, source_socket, _ = _connect_device(client)
+    collection_url = (
+        "/api/v1/workspaces/ws_device/device-bindings/"
+        f"{device_session_id}/media-sessions"
+    )
+    created = client.post(
+        collection_url,
+        json={"source_kind": "phone_camera", "analysis_reserved": True},
+    ).json()
+    media_session_id = created["session"]["media_session_id"]
+
+    async def _start_receiver(**_kwargs):
+        return {"state": "analyzing", "receiver_identity": "receiver-one"}
+
+    monkeypatch.setattr(media_module, "start_live_media_receiver", _start_receiver)
+    response = client.post(
+        f"{collection_url}/{media_session_id}/receiver/start",
+        json={
+            "live_motion_session_id": "motion-one",
+            "meeting_session_id": "meeting-one",
+            "practice_session_id": "practice-one",
+            "coach_pack": "yogacoach",
+            "practice_mode": "live_guidance",
+            "reference_url": "https://example.test/reference",
+            "expected_duration_ms": 1800000,
+        },
+    )
+
+    assert response.status_code == 200
+    entry = registry.get_active_session(
+        workspace_id="ws_device",
+        session_id=device_session_id,
+    )
+    assert entry is not None
+    assert entry.media_session_state == "analyzing"
+    assert entry.media_analysis_handoff is not None
+    assert entry.media_analysis_handoff.model_dump() == {
+        "live_motion_session_id": "motion-one",
+        "meeting_session_id": "meeting-one",
+        "practice_session_id": "practice-one",
+        "coach_pack": "yogacoach",
+        "practice_mode": "live_guidance",
+    }
+    source_socket.__exit__(None, None, None)
+
+
+def test_closed_workspace_observer_does_not_disconnect_source_heartbeat(
+    tmp_path: Path,
+) -> None:
+    client, registry, _, _ = _client(tmp_path)
+    device_session_id, source_socket, source = _connect_device(client)
+    entry = registry.get_active_session(
+        workspace_id="ws_device",
+        session_id=device_session_id,
+    )
+    assert entry is not None
+
+    class _ClosedObserver:
+        async def send_text(self, _payload: str) -> None:
+            raise ConnectionError("observer already closed")
+
+    observer = _ClosedObserver()
+    registry.attach_workspace_observer(
+        workspace_id="ws_device",
+        pairing_code=entry.pairing_code,
+        websocket=observer,
+    )
+
+    source.send_json({"type": "heartbeat", "heartbeat_sequence": 7})
+    heartbeat_ack = source.receive_json()
+
+    assert heartbeat_ack["type"] == "heartbeat_ack"
+    assert heartbeat_ack["session_id"] == device_session_id
+    assert heartbeat_ack["heartbeat_sequence"] == 7
+    assert registry.get_active_session(
+        workspace_id="ws_device",
+        session_id=device_session_id,
+    ) is not None
+    deadline = time.monotonic() + 1.0
+    while (
+        registry.workspace_observers(pairing_code=entry.pairing_code)
+        and time.monotonic() < deadline
+    ):
+        time.sleep(0.01)
+    assert registry.workspace_observers(pairing_code=entry.pairing_code) == []
+    source_socket.__exit__(None, None, None)

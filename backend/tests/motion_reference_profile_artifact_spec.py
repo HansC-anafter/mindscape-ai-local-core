@@ -48,6 +48,26 @@ def _profile() -> dict:
                 ],
             }
         ],
+        "visual_evidence": [
+            {
+                "asset_id": "chapter-one:reference:snapshot",
+                "chapter_id": "chapter-one",
+                "role": "reference",
+                "media_kind": "snapshot",
+                "artifact_id": "reference-contact-sheet-one",
+                "mime_type": "image/jpeg",
+                "label": "Reference chapter representative frame",
+                "time_range_ms": [0.0, 2000.0],
+                "media_time_range_ms": [0.0, 2000.0],
+                "capture_ms": 1000.0,
+                "sprite_frame_index": 0,
+                "sprite_grid_columns": 1,
+                "sprite_grid_rows": 1,
+                "source_ref": "https://example.test/reference",
+                "lineage": "independent_reference_media_chapter_frame",
+                "source_kind": "reference_asset",
+            }
+        ],
         "metadata": {"comparison_provenance": "independent_reference_asset"},
     }
 
@@ -130,6 +150,7 @@ def test_bilibili_tracking_url_resolves_to_canonical_video_identity(
     profile_path.parent.mkdir(parents=True)
     profile = _profile()
     profile["source_ref"] = canonical_ref
+    profile["visual_evidence"][0]["source_ref"] = canonical_ref
     profile_path.write_text(json.dumps(profile), encoding="utf-8")
     artifact = _artifact(profile_path)
     artifact.metadata["source_ref"] = canonical_ref
@@ -159,6 +180,31 @@ def test_rejects_selected_source_without_materialized_profile() -> None:
         )
 
 
+def test_rejects_profile_without_complete_reference_visual_coverage(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("LOCAL_CORE_DATA_DIR", str(tmp_path))
+    profile_path = (
+        tmp_path
+        / "workspaces/workspace-one/artifacts/yogacoach/reference-profiles/reference.json"
+    )
+    profile_path.parent.mkdir(parents=True)
+    profile = _profile()
+    profile["visual_evidence"] = []
+    profile_path.write_text(json.dumps(profile), encoding="utf-8")
+
+    with pytest.raises(
+        MotionReferenceProfileArtifactError,
+        match="motion_reference_profile_visual_evidence_count_invalid",
+    ):
+        resolve_motion_reference_profile_artifact(
+            artifact_store=FakeArtifactStore(_artifact(profile_path)),
+            workspace_id="workspace-one",
+            artifact_id="artifact-one",
+        )
+
+
 def test_source_lookup_uses_indexed_owner_scope_before_text_json_cast(
     monkeypatch,
 ) -> None:
@@ -181,9 +227,14 @@ def test_source_lookup_uses_indexed_owner_scope_before_text_json_cast(
         source_ref="https://example.test/reference",
     ) == []
     query, parameters = executions[0]
-    assert "playbook_code = :playbook_code" in query
-    assert "artifact_type = :artifact_type" in query
-    assert "metadata::jsonb ->> 'source_ref'" in query
+    assert "candidate.playbook_code = :playbook_code" in query
+    assert "candidate.artifact_type = :artifact_type" in query
+    assert "candidate.metadata::jsonb ->> 'source_ref'" in query
+    assert "AND NOT EXISTS" in query
+    assert "successor.metadata::jsonb" in query
+    assert "->> 'source_reference_profile_id'" in query
+    assert "candidate.metadata::jsonb" in query
+    assert "->> 'reference_profile_id'" in query
     assert parameters["playbook_code"] == MOTION_REFERENCE_PROFILE_OWNER_PLAYBOOK
     assert parameters["artifact_type"] == MOTION_REFERENCE_PROFILE_ARTIFACT_TYPE
 

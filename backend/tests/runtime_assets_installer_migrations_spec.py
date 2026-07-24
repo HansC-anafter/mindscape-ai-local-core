@@ -7,6 +7,9 @@ from backend.app.database.write_readiness import (
     DatabaseWriteNotReadyError,
     DatabaseWriteReadiness,
 )
+from backend.app.services.runtime_assets_installer_core.migrations_metadata import (
+    detect_revision_conflicts,
+)
 from backend.app.services.migrations.execution_policy import (
     apply_migration_subprocess_policy,
 )
@@ -147,6 +150,141 @@ def test_execute_migrations_uses_declared_revisions_before_branch_scope(
 
     assert calls == ["demo_rev"]
     assert result.migration_status == {"demo": "applied"}
+
+
+def test_execute_migrations_requires_incident_gate_only_for_pending_revision(
+    monkeypatch,
+    tmp_path,
+):
+    calls = []
+    gate_calls = []
+    local_core_root, capabilities_dir = _prepare_demo_capability(
+        tmp_path,
+        include_migrations_yaml=True,
+    )
+    _patch_migration_runtime(monkeypatch, calls)
+    monkeypatch.setattr(
+        migrations,
+        "require_runtime_database_mutation_allowed",
+        lambda operation: gate_calls.append(operation),
+    )
+
+    result = InstallResult(capability_code="demo")
+    migrations.execute_migrations(
+        local_core_root=local_core_root,
+        capabilities_dir=capabilities_dir,
+        capability_code="demo",
+        result=result,
+    )
+
+    assert gate_calls == ["capability_migration:demo"]
+    assert calls == ["demo_rev"]
+
+
+def test_execute_migrations_skips_incident_gate_when_all_revisions_are_applied(
+    monkeypatch,
+    tmp_path,
+):
+    calls = []
+    local_core_root, capabilities_dir = _prepare_demo_capability(
+        tmp_path,
+        include_migrations_yaml=True,
+    )
+    _patch_migration_runtime(monkeypatch, calls, applied={"demo_rev"})
+    monkeypatch.setattr(
+        migrations,
+        "require_runtime_database_mutation_allowed",
+        lambda _operation: pytest.fail("read-only migration verification hit mutation gate"),
+    )
+
+    result = InstallResult(capability_code="demo")
+    migrations.execute_migrations(
+        local_core_root=local_core_root,
+        capabilities_dir=capabilities_dir,
+        capability_code="demo",
+        result=result,
+    )
+
+    assert calls == []
+    assert result.migration_status == {"demo": "applied"}
+
+
+def test_execute_migrations_does_not_revalidate_applied_destructive_history(
+    monkeypatch,
+    tmp_path,
+):
+    calls = []
+    local_core_root, capabilities_dir = _prepare_demo_capability(
+        tmp_path,
+        include_migrations_yaml=True,
+    )
+    migration_path = (
+        capabilities_dir
+        / "demo"
+        / "migrations"
+        / "versions"
+        / "demo_rev_create_demo_table.py"
+    )
+    migration_path.write_text(
+        migration_path.read_text(encoding="utf-8").replace(
+            "    pass",
+            '    op.execute("ALTER TABLE demo ALTER COLUMN value SET STATISTICS 0")',
+        ),
+        encoding="utf-8",
+    )
+    _patch_migration_runtime(monkeypatch, calls, applied={"demo_rev"})
+
+    result = InstallResult(capability_code="demo")
+    migrations.execute_migrations(
+        local_core_root=local_core_root,
+        capabilities_dir=capabilities_dir,
+        capability_code="demo",
+        result=result,
+    )
+
+    assert calls == []
+    assert result.migration_status == {"demo": "applied"}
+
+
+def test_execute_migrations_rejects_pending_destructive_revision(
+    monkeypatch,
+    tmp_path,
+):
+    calls = []
+    local_core_root, capabilities_dir = _prepare_demo_capability(
+        tmp_path,
+        include_migrations_yaml=True,
+    )
+    migration_path = (
+        capabilities_dir
+        / "demo"
+        / "migrations"
+        / "versions"
+        / "demo_rev_create_demo_table.py"
+    )
+    migration_path.write_text(
+        migration_path.read_text(encoding="utf-8").replace(
+            "    pass",
+            '    op.execute("ALTER TABLE demo ALTER COLUMN value SET STATISTICS 0")',
+        ),
+        encoding="utf-8",
+    )
+    _patch_migration_runtime(monkeypatch, calls)
+
+    result = InstallResult(capability_code="demo")
+    migrations.execute_migrations(
+        local_core_root=local_core_root,
+        capabilities_dir=capabilities_dir,
+        capability_code="demo",
+        result=result,
+    )
+
+    assert calls == []
+    assert result.migration_status == {"demo": "error"}
+    assert any(
+        "candidate_migration_not_expand_compatible" in warning
+        for warning in result.warnings
+    )
 
 
 def test_execute_migrations_keeps_branch_scope_for_auto_discovered_pack(
@@ -401,6 +539,93 @@ def test_install_migrations_allows_same_filename_reinstall_without_conflict(tmp_
     assert "UPGRADED = True" not in existing_migration.read_text(encoding="utf-8")
 
 
+def test_install_migrations_allows_explicit_pack_owner_tombstone(tmp_path):
+    versions_dir = tmp_path / "core_versions"
+    incoming_dir = tmp_path / "incoming"
+    versions_dir.mkdir()
+    incoming_dir.mkdir()
+    (versions_dir / "demo_rev_pack_schema_tombstone.py").write_text(
+        '\n'.join(
+            [
+                'revision = "demo_rev"',
+                'down_revision = "demo_parent"',
+                'branch_labels = None',
+                'pack_owner_capability = "ig"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    incoming = incoming_dir / "demo_rev_create_ig_schema.py"
+    incoming.write_text(
+        '\n'.join(
+            [
+                'revision = "demo_rev"',
+                'down_revision = "demo_parent"',
+                'branch_labels = ("ig",)',
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    assert detect_revision_conflicts("ig", versions_dir, [incoming]) == []
+
+
+def test_install_migrations_rejects_incidental_capability_substring(tmp_path):
+    versions_dir = tmp_path / "core_versions"
+    incoming_dir = tmp_path / "incoming"
+    versions_dir.mkdir()
+    incoming_dir.mkdir()
+    existing = versions_dir / "demo_rev_other_capability.py"
+    existing.write_text(
+        '\n'.join(
+            [
+                '"""Original migration retained for compatibility."""',
+                'revision = "demo_rev"',
+                'down_revision = "demo_parent"',
+                'branch_labels = None',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    incoming = incoming_dir / "demo_rev_create_ig_schema.py"
+    incoming.write_text(
+        'revision = "demo_rev"\ndown_revision = "demo_parent"\n',
+        encoding="utf-8",
+    )
+
+    assert detect_revision_conflicts("ig", versions_dir, [incoming]) == [
+        {"revision": "demo_rev", "existing_files": [existing.name]}
+    ]
+
+
+def test_install_migrations_rejects_mismatched_pack_owner_tombstone(tmp_path):
+    versions_dir = tmp_path / "core_versions"
+    incoming_dir = tmp_path / "incoming"
+    versions_dir.mkdir()
+    incoming_dir.mkdir()
+    existing = versions_dir / "demo_rev_pack_schema_tombstone.py"
+    existing.write_text(
+        '\n'.join(
+            [
+                'revision = "demo_rev"',
+                'down_revision = "demo_parent"',
+                'branch_labels = None',
+                'pack_owner_capability = "other_capability"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    incoming = incoming_dir / "demo_rev_create_ig_schema.py"
+    incoming.write_text(
+        'revision = "demo_rev"\ndown_revision = "demo_parent"\n',
+        encoding="utf-8",
+    )
+
+    assert detect_revision_conflicts("ig", versions_dir, [incoming]) == [
+        {"revision": "demo_rev", "existing_files": [existing.name]}
+    ]
+
+
 def _prepare_demo_capability(tmp_path, *, include_migrations_yaml: bool):
     local_core_root = tmp_path / "local-core"
     backend_root = local_core_root / "backend"
@@ -436,7 +661,7 @@ def _prepare_demo_capability(tmp_path, *, include_migrations_yaml: bool):
     return local_core_root, capabilities_dir
 
 
-def _patch_migration_runtime(monkeypatch, calls):
+def _patch_migration_runtime(monkeypatch, calls, *, applied=None):
     class FakeScriptDirectory:
         def get_revision(self, revision):
             return object() if revision == "demo_rev" else None
@@ -449,7 +674,7 @@ def _patch_migration_runtime(monkeypatch, calls):
             pass
 
         def _get_applied_revisions(self, _db_type, _current_revisions):
-            return set()
+            return set(applied or ())
 
         def _load_script_directory(self, _db_type):
             return FakeScriptDirectory()
@@ -466,6 +691,11 @@ def _patch_migration_runtime(monkeypatch, calls):
             reason="ready",
             retry_after_seconds=0,
         ),
+    )
+    monkeypatch.setattr(
+        migrations,
+        "require_runtime_database_mutation_allowed",
+        lambda _operation: None,
     )
     monkeypatch.setattr(
         "app.services.migrations.orchestrator.MigrationOrchestrator",

@@ -10,7 +10,7 @@ MIGRATION = (
     / "alembic_migrations"
     / "postgres"
     / "versions"
-    / "20260715010000_add_runtime_task_read_budget_index.py"
+    / "20260715023000_add_runtime_task_read_budget_index.py"
 )
 
 
@@ -25,19 +25,25 @@ def test_queue_position_queries_use_compact_projection():
 def test_queue_projection_index_matches_runtime_predicate():
     source = MIGRATION.read_text(encoding="utf-8")
 
-    assert 'revision = "20260715010000"' in source
-    assert 'down_revision = "20260622193000"' in source
+    assert 'revision = "20260715023000"' in source
+    assert "down_revision = None" in source
+    assert 'branch_labels = ("local_core_runtime_read_budget",)' in source
+    assert "depends_on = None" in source
+    assert "required_projection_columns_ready is not True" in source
+    assert "task_summary_projection is missing required runtime queue columns" in source
     assert "CREATE INDEX CONCURRENTLY IF NOT EXISTS" in source
-    assert "idx_tasks_queue_ready_eligible_v1" in source
     assert "idx_tsp_queue_ready_eligible_v1" in source
-    assert "ON tasks" in source
+    assert 'OBSOLETE_TASKS_INDEX_NAME = "idx_tasks_queue_ready_eligible_v1"' in source
+    assert "authoritative_index_ready is not True" in source
+    assert "ON tasks" not in source
     assert "ON task_summary_projection" in source
     assert "status = 'pending'" in source
     assert "task_type IN ('playbook_execution', 'tool_execution')" in source
     assert "frontier_state = 'ready'" in source
     assert "blocked_reason IS NULL OR blocked_reason = ''" in source
     assert "DROP INDEX CONCURRENTLY IF EXISTS" in source
-    assert "SET lock_timeout = '120s'" in source
+    assert "DROP INDEX CONCURRENTLY IF EXISTS {OBSOLETE_TASKS_INDEX_NAME}" in source
+    assert "SET lock_timeout = '5s'" in source
 
 
 def test_queue_read_budget_is_applied_only_to_postgres_connections():

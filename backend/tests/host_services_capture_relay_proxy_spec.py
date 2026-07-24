@@ -214,4 +214,4 @@ async def test_receiver_start_timeout_includes_runtime_preflight_budget(monkeypa
     )
 
     assert result["status"] == "active"
-    assert captured["timeout_seconds"] == 30.0
+    assert captured["timeout_seconds"] == 105.0

@@ -45,6 +45,7 @@ class _FakeManifestStore:
 class _FakeTasksStore:
     def __init__(self):
         self.updated = []
+        self.partial_updates = []
         self.task = SimpleNamespace(
             id="task-001",
             result={},
@@ -64,6 +65,10 @@ class _FakeTasksStore:
 
     def update_task_status(self, **kwargs):
         self.updated.append(kwargs)
+        return True
+
+    def update_task(self, task_id, **kwargs):
+        self.partial_updates.append((task_id, kwargs))
         return True
 
 
@@ -138,6 +143,34 @@ def test_task_result_landing_writes_manifest_and_bounded_artifact_content(tmp_pa
     assert task_result["result_object"]["object_key"] == "analysis_result/exec-001.json"
     assert "execution_trace" not in json.dumps(task_result)
     assert (tmp_path / "artifacts" / "exec-001" / "result.json").exists()
+
+
+def test_task_result_landing_can_defer_terminal_status_until_governance_finishes(
+    tmp_path,
+):
+    service = object.__new__(TaskResultLandingService)
+    service._tasks_store = _FakeTasksStore()
+    service._artifacts_store = _FakeArtifactsStore()
+    service._artifact_manifest_store = _FakeManifestStore()
+
+    service._do_land(
+        workspace_id="workspace-001",
+        execution_id="exec-deferred",
+        result_data={"output": "done", "status": "completed"},
+        storage_base_path=str(tmp_path),
+        artifacts_dirname="artifacts",
+        thread_id="thread-001",
+        project_id="project-001",
+        task_id="task-001",
+        defer_task_terminal_update=True,
+    )
+
+    assert service._tasks_store.updated == []
+    assert len(service._tasks_store.partial_updates) == 1
+    task_id, payload = service._tasks_store.partial_updates[0]
+    assert task_id == "task-001"
+    assert "status" not in payload
+    assert payload["result"]["execution_id"] == "exec-deferred"
 
 
 def test_artifact_store_rejects_unbounded_content_and_metadata():

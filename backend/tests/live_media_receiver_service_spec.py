@@ -126,6 +126,8 @@ async def test_receiver_handoff_keeps_credentials_server_only(
 
     first_descriptor = calls[0]["arguments"]["receiver_descriptor"]
     second_descriptor = calls[1]["arguments"]["receiver_descriptor"]
+    assert calls[0]["arguments"]["timeout_ms"] == 30000
+    assert calls[0]["timeout_ms"] == 30000
     assert first["status"] == "active"
     assert "access_token" not in first
     assert "receiver_identity" not in first
@@ -138,6 +140,115 @@ async def test_receiver_handoff_keeps_credentials_server_only(
         workspace_id="workspace-one",
         device_session_id="device-one",
     ).state == "waiting_for_publisher"
+
+
+@pytest.mark.asyncio
+async def test_receiver_handoff_recovers_exact_active_receiver_after_start_timeout(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    service, media_session_id = _service(tmp_path)
+    calls: list[dict] = []
+
+    async def fake_call(arguments: dict, *, timeout_ms: int) -> dict:
+        calls.append({"arguments": arguments, "timeout_ms": timeout_ms})
+        if arguments["action"] == "receiver_start":
+            raise CaptureRelayUnavailable("device_node_capture_relay_timeout")
+        return {
+            "schema_version": "live_media_receiver_control.v1",
+            "status": "active",
+            "state": "analyzing",
+            "media_session_id": media_session_id,
+            "receiver_identity": service.receiver_access(
+                workspace_id="workspace-one",
+                device_session_id="device-one",
+                media_session_id=media_session_id,
+            ).binding.receiver_identity,
+        }
+
+    monkeypatch.setattr(
+        live_media_receiver_service,
+        "call_capture_relay_arguments",
+        fake_call,
+    )
+
+    result = await start_live_media_receiver(
+        media_service=service,
+        workspace_id="workspace-one",
+        device_session_id="device-one",
+        media_session_id=media_session_id,
+        request=_request(),
+    )
+
+    assert [call["arguments"]["action"] for call in calls] == [
+        "receiver_start",
+        "receiver_status",
+    ]
+    assert calls[1]["arguments"] == {
+        "action": "receiver_status",
+        "media_session_id": media_session_id,
+    }
+    assert calls[1]["timeout_ms"] == 5000
+    assert result["status"] == "active"
+    assert result["state"] == "analyzing"
+    assert "receiver_identity" not in result
+    assert service.receiver_started(media_session_id) is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("status", "state", "returned_media_session_id", "identity_matches"),
+    [
+        ("active", "analyzing", "other-media-session", True),
+        ("active", "analyzing", None, False),
+        ("completed", "completed", None, True),
+    ],
+)
+async def test_receiver_handoff_rejects_non_owned_or_terminal_timeout_recovery(
+    tmp_path: Path,
+    monkeypatch,
+    status: str,
+    state: str,
+    returned_media_session_id: str | None,
+    identity_matches: bool,
+) -> None:
+    service, media_session_id = _service(tmp_path)
+    receiver_identity = service.receiver_access(
+        workspace_id="workspace-one",
+        device_session_id="device-one",
+        media_session_id=media_session_id,
+    ).binding.receiver_identity
+
+    async def fake_call(arguments: dict, *, timeout_ms: int) -> dict:
+        _ = timeout_ms
+        if arguments["action"] == "receiver_start":
+            raise CaptureRelayUnavailable("device_node_capture_relay_timeout")
+        return {
+            "status": status,
+            "state": state,
+            "media_session_id": returned_media_session_id or media_session_id,
+            "receiver_identity": (
+                receiver_identity if identity_matches else "different-receiver"
+            ),
+        }
+
+    monkeypatch.setattr(
+        live_media_receiver_service,
+        "call_capture_relay_arguments",
+        fake_call,
+    )
+
+    with pytest.raises(LiveMediaReceiverControlError) as exc_info:
+        await start_live_media_receiver(
+            media_service=service,
+            workspace_id="workspace-one",
+            device_session_id="device-one",
+            media_session_id=media_session_id,
+            request=_request(),
+        )
+
+    assert exc_info.value.reason == "device_node_capture_relay_timeout"
+    assert service.receiver_started(media_session_id) is False
 
 
 def test_receiver_state_projects_without_releasing_reservation(tmp_path: Path) -> None:

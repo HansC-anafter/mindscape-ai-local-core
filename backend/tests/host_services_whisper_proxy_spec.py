@@ -12,6 +12,7 @@ from backend.app.services.host_services.whisper_proxy import (
     WhisperTranscriptionRequest,
     WhisperTranscriptionResult,
     WhisperTranscriptionUnavailable,
+    normalize_whisper_language,
     transcribe_whisper_audio,
 )
 
@@ -145,3 +146,52 @@ def test_transcribe_whisper_audio_posts_sidecar_payload(monkeypatch) -> None:
             "device": "cpu",
         },
     }
+
+
+def test_normalize_whisper_language_maps_product_locales_to_model_ids() -> None:
+    assert normalize_whisper_language("zh-TW") == "zh"
+    assert normalize_whisper_language("zh_Hant_TW") == "zh"
+    assert normalize_whisper_language("en-US") == "en"
+    assert normalize_whisper_language("yue-HK") == "yue"
+    assert normalize_whisper_language("auto") == "auto"
+    assert normalize_whisper_language(None) == "auto"
+
+
+def test_transcribe_whisper_audio_normalizes_bcp47_language(monkeypatch) -> None:
+    captured = {}
+
+    class _FakeResponse:
+        status_code = 200
+        text = ""
+
+        def json(self):
+            return {"text": "開始練習", "segments": [], "language": "zh", "duration": 1.0}
+
+    class _FakeClient:
+        def __init__(self, timeout: float) -> None:
+            captured["timeout"] = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb) -> None:
+            return None
+
+        async def post(self, endpoint: str, json: dict) -> _FakeResponse:
+            captured["language"] = json["language"]
+            return _FakeResponse()
+
+    monkeypatch.setattr(whisper_proxy.httpx, "AsyncClient", _FakeClient)
+
+    result = asyncio.run(
+        transcribe_whisper_audio(
+            WhisperTranscriptionRequest(
+                audio_base64=_audio_payload(),
+                language="zh-TW",
+            ),
+            base_url="http://whisper.local",
+        )
+    )
+
+    assert result.text == "開始練習"
+    assert captured["language"] == "zh"

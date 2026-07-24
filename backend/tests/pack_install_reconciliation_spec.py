@@ -115,6 +115,7 @@ def _row(tmp_path: Path):
     row = {
         "install_id": "install-1",
         "pack_id": "demo",
+        "artifact_sha256": "a" * 64,
         "manifest_hash": manifest_hash,
         "projection_state": "pending",
         "filesystem_cleanup_state": "pending",
@@ -140,9 +141,10 @@ def test_reconciler_syncs_projection_before_retained_tree_cleanup(
     root, row = _row(tmp_path)
     store = _Store(row)
     order = []
+    gate_calls = []
     monkeypatch.setattr(
         "backend.app.services.pack_install_reconciliation_core.reconciler.require_runtime_database_mutation_allowed",
-        lambda _operation: None,
+        lambda operation, evidence=None: gate_calls.append((operation, evidence)),
     )
     monkeypatch.setattr(
         "backend.app.services.pack_install_reconciliation_core.reconciler._sync_install_time_registries",
@@ -159,6 +161,12 @@ def test_reconciler_syncs_projection_before_retained_tree_cleanup(
     ).reconcile_next()
 
     assert result["ok"] is True
+    assert gate_calls == [
+        (
+            "capability_install_job:install-1",
+            {"artifact_sha256": "a" * 64},
+        )
+    ]
     assert order == ["projection", "cleanup"]
     assert store.calls[0][0] == "projection"
     assert store.calls[1][0] == "cleanup"
@@ -173,7 +181,7 @@ def test_reconciler_keeps_previous_tree_when_projection_sync_fails(
     cleanup_called = []
     monkeypatch.setattr(
         "backend.app.services.pack_install_reconciliation_core.reconciler.require_runtime_database_mutation_allowed",
-        lambda _operation: None,
+        lambda _operation, evidence=None: None,
     )
     monkeypatch.setattr(
         "backend.app.services.pack_install_reconciliation_core.reconciler._sync_install_time_registries",
@@ -193,6 +201,29 @@ def test_reconciler_keeps_previous_tree_when_projection_sync_fails(
     assert "projection failed" in result["error"]
     assert cleanup_called == []
     assert store.calls[0][0:3] == ("projection", "install-1", False)
+
+
+def test_reconciler_does_not_request_mutation_admission_without_due_receipt(
+    monkeypatch,
+    tmp_path: Path,
+):
+    class _EmptyStore:
+        def next_due(self):
+            return None
+
+    gate_calls = []
+    monkeypatch.setattr(
+        "backend.app.services.pack_install_reconciliation_core.reconciler.require_runtime_database_mutation_allowed",
+        lambda operation, evidence=None: gate_calls.append((operation, evidence)),
+    )
+
+    result = CommittedInstallReconciler(
+        store=_EmptyStore(),
+        local_core_root=tmp_path,
+    ).reconcile_next()
+
+    assert result is None
+    assert gate_calls == []
 
 
 def test_clean_reconciliation_poll_is_cached_for_worker_idle_budget(monkeypatch):
