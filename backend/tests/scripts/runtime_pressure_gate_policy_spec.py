@@ -40,7 +40,36 @@ def _healthy():
         "runner_capacity": {
             "ok": True,
             "aggregate_max_inflight": 9,
-            "rows": [],
+            "rows": [
+                {
+                    "container": "runner-browser",
+                    "max_inflight": 2,
+                    "profile": "browser_local",
+                    "accepted_partitions": "browser_local",
+                    "accepted_resource_classes": "browser",
+                },
+                {
+                    "container": "runner-browser-extra",
+                    "max_inflight": 2,
+                    "profile": "browser_local",
+                    "accepted_partitions": "browser_local",
+                    "accepted_resource_classes": "browser",
+                },
+                {
+                    "container": "runner-default-browser",
+                    "max_inflight": 2,
+                    "profile": "default_local_browser",
+                    "accepted_partitions": "default_local_browser",
+                    "accepted_resource_classes": "browser",
+                },
+                {
+                    "container": "runner-vision",
+                    "max_inflight": 3,
+                    "profile": "vision_local",
+                    "accepted_partitions": "vision_local",
+                    "accepted_resource_classes": "compute",
+                },
+            ],
         },
     }
 
@@ -75,24 +104,32 @@ def test_runtime_gate_rejects_degraded_capacity_below_nine():
     assert "runner_capacity_below_9" in evaluate_gate(**evidence)
 
 
+def test_intent_bound_capacity_cannot_mask_a_degraded_protected_lane():
+    evidence = _healthy()
+    evidence["runner_capacity"]["aggregate_max_inflight"] = 9
+    evidence["runner_capacity"]["rows"] = [
+        row
+        for row in evidence["runner_capacity"]["rows"]
+        if row["container"] != "runner-browser-extra"
+    ]
+    evidence["runner_capacity"]["rows"].append(
+        {
+            "container": "runner-vision-mlx-dev",
+            "max_inflight": 2,
+            "profile": "vision_mlx_dev",
+            "accepted_partitions": "vision_mlx_dev",
+            "accepted_resource_classes": "compute",
+        }
+    )
+
+    assert (
+        "protected_lane_capacity_below_browser_local_4"
+        in evaluate_gate(**evidence)
+    )
+
+
 def test_runner_rolling_gate_requires_target_and_compatible_peer():
     evidence = _healthy()
-    evidence["runner_capacity"]["rows"] = [
-        {
-            "container": "runner-browser",
-            "max_inflight": 2,
-            "profile": "browser_local",
-            "accepted_partitions": "browser_local",
-            "accepted_resource_classes": "browser",
-        },
-        {
-            "container": "runner-browser-extra",
-            "max_inflight": 2,
-            "profile": "browser_local",
-            "accepted_partitions": "browser_local",
-            "accepted_resource_classes": "browser",
-        },
-    ]
     evidence["scope"] = runtime_pressure_gate.GateScope(
         action="runner-rolling-reload",
         target_runner_container="runner-browser-extra",
@@ -103,15 +140,6 @@ def test_runner_rolling_gate_requires_target_and_compatible_peer():
 
 def test_runner_rolling_gate_requires_explicit_sole_owner_flag():
     evidence = _healthy()
-    evidence["runner_capacity"]["rows"] = [
-        {
-            "container": "runner-default-browser",
-            "max_inflight": 2,
-            "profile": "default_local_browser",
-            "accepted_partitions": "default_local_browser",
-            "accepted_resource_classes": "browser",
-        }
-    ]
     evidence["scope"] = runtime_pressure_gate.GateScope(
         action="runner-rolling-reload",
         target_runner_container="runner-default-browser",

@@ -7,6 +7,26 @@ from typing import Any
 
 
 PROTECTED_RUNNER_CAPACITY = 9
+PROTECTED_LANE_CAPACITY = {
+    "browser_local": {
+        "profile": "browser_local",
+        "accepted_partitions": ("browser_local",),
+        "accepted_resource_classes": ("browser",),
+        "minimum_capacity": 4,
+    },
+    "default_local_browser": {
+        "profile": "default_local_browser",
+        "accepted_partitions": ("default_local_browser",),
+        "accepted_resource_classes": ("browser",),
+        "minimum_capacity": 2,
+    },
+    "vision_local": {
+        "profile": "vision_local",
+        "accepted_partitions": ("vision_local",),
+        "accepted_resource_classes": ("compute",),
+        "minimum_capacity": 3,
+    },
+}
 RUNTIME_OBSERVATION_ACTION = "runtime-observation"
 RUNNER_ROLLING_RELOAD_ACTION = "runner-rolling-reload"
 BACKEND_RELOAD_ACTION = "backend-reload"
@@ -50,6 +70,31 @@ def _normalized_lane_identity(row: dict[str, Any]) -> tuple[str, tuple[str, ...]
     return profile, partitions, resource_classes
 
 
+def _protected_lane_observations(
+    rows: list[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    observations: dict[str, dict[str, Any]] = {}
+    for lane_name, contract in PROTECTED_LANE_CAPACITY.items():
+        expected_identity = (
+            contract["profile"],
+            contract["accepted_partitions"],
+            contract["accepted_resource_classes"],
+        )
+        matching_rows = [
+            row for row in rows if _normalized_lane_identity(row) == expected_identity
+        ]
+        observations[lane_name] = {
+            "minimum_capacity": contract["minimum_capacity"],
+            "observed_capacity": sum(
+                int(row.get("max_inflight") or 0) for row in matching_rows
+            ),
+            "containers": [
+                str(row.get("container") or "").strip() for row in matching_rows
+            ],
+        }
+    return observations
+
+
 def runner_scope_evidence(
     runner_capacity: dict[str, Any],
     scope: GateScope,
@@ -65,6 +110,7 @@ def runner_scope_evidence(
         "aggregate_max_inflight": int(
             runner_capacity.get("aggregate_max_inflight") or 0
         ),
+        "protected_lanes": _protected_lane_observations(rows),
     }
     if scope.action != RUNNER_ROLLING_RELOAD_ACTION:
         return evidence
@@ -111,6 +157,18 @@ def evaluate_runner_scope(
     aggregate = int(runner_capacity.get("aggregate_max_inflight") or 0)
     if aggregate < PROTECTED_RUNNER_CAPACITY:
         failures.append(f"runner_capacity_below_{PROTECTED_RUNNER_CAPACITY}")
+    for lane_name, observation in _protected_lane_observations(
+        [
+            row
+            for row in runner_capacity.get("rows") or []
+            if isinstance(row, dict)
+        ]
+    ).items():
+        minimum = int(observation["minimum_capacity"])
+        if int(observation["observed_capacity"]) < minimum:
+            failures.append(
+                f"protected_lane_capacity_below_{lane_name}_{minimum}"
+            )
 
     if scope.action not in ALLOWED_ACTIONS:
         failures.append("runtime_gate_action_invalid")
