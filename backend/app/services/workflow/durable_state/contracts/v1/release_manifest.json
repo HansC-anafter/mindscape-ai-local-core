@@ -27,8 +27,8 @@
       "bytes": 5512
     },
     "schemas/evaluation_receipt.schema.json": {
-      "sha256": "1ad625773cb7eb71ffdd9c41a9beaddc277ca1f7a1c3d5917f03d2ae565d55cb",
-      "bytes": 1782
+      "sha256": "a8b9fbeb1d332214cea0ee776adc9503235d9780a516ed2a104c80cef3a91633",
+      "bytes": 3035
     },
     "schemas/evidence_lifecycle_manifest.schema.json": {
       "sha256": "8cb3fba1aa3f0a9ebc811311cfa4c7139018095c346b77d14755f6150aee82a6",
@@ -46,9 +46,13 @@
       "sha256": "91b371effc51761c7929ea2289a9834db0a58f154d22d3f8997d60994c0bc5f4",
       "bytes": 4268
     },
+    "schemas/iteration_enrollment.schema.json": {
+      "sha256": "39351526c852c34d1bfedc3c7d3465900b7d4098ca00d1112d2d86efc05bf6a3",
+      "bytes": 3783
+    },
     "schemas/product_iteration.schema.json": {
-      "sha256": "037a91a8ea8964f54dc566f6ffcb8669bf14daca696f848a22367a79d91b6f92",
-      "bytes": 5233
+      "sha256": "8d34e0fa6a1a9a9d489197eb83d0ef3f5985097c83825c6051effda0776355b8",
+      "bytes": 9421
     },
     "schemas/release_health_receipt.schema.json": {
       "sha256": "8388d1405d9b71afb7f31bbb016da0ea7a9ce45201b993ac238cc965e108f176",
@@ -71,5 +75,5 @@
       "bytes": 2519
     }
   },
-  "manifest_sha256": "6f303b4c3f0873edc4ee0d07c80d6e0be9430cbba92fda5c897a9b477c063318"
+  "manifest_sha256": "456d975db21c6edb9a8d539993fba59fd965c5f287c0da192336dcd786a196aa"
 }

@@ -20,6 +20,7 @@ SCHEMA_NAMES = (
     "replay_envelope",
     "execution_terminal_receipt",
     "outcome_adapter_descriptor",
+    "iteration_enrollment",
     "product_iteration",
     "outcome_observation",
     "evaluation_receipt",

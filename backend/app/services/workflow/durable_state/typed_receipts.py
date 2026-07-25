@@ -10,6 +10,7 @@ RECEIPT_SCHEMAS = frozenset(
         "evaluation_receipt",
         "evidence_lifecycle_manifest",
         "execution_terminal_receipt",
+        "iteration_enrollment",
         "outcome_adapter_descriptor",
         "outcome_observation",
         "product_iteration",

@@ -6,24 +6,59 @@
   "additionalProperties": false,
   "required": [
     "evaluation_id",
+    "evaluation_attempt_id",
     "iteration_id",
+    "definition_sha256",
+    "development_attestation_set_sha256",
+    "consumer_compatibility_class",
     "evaluator_id",
     "evaluator_version",
     "frontier_sequence",
     "frontier_hash",
+    "comparability_fingerprint",
+    "source_observation_ref",
     "gate_results",
     "decision",
     "recommendation",
     "evaluated_at",
+    "key_id",
     "signature"
   ],
   "properties": {
     "evaluation_id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "evaluation_attempt_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
     "iteration_id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "definition_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "development_attestation_set_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "consumer_compatibility_class": {
+      "enum": ["compatible", "needs_review", "incompatible"]
+    },
     "evaluator_id": {"type": "string", "minLength": 1, "maxLength": 200},
     "evaluator_version": {"type": "string", "minLength": 1, "maxLength": 100},
     "frontier_sequence": {"type": "integer", "minimum": 0},
     "frontier_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "comparability_fingerprint": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "source_observation_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["uri", "sha256", "bytes", "schema_id"],
+      "properties": {
+        "uri": {"type": "string", "minLength": 1, "maxLength": 2048},
+        "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "bytes": {"type": "integer", "minimum": 0},
+        "schema_id": {"type": "string", "minLength": 1, "maxLength": 240}
+      }
+    },
     "gate_results": {
       "type": "array",
       "minItems": 1,
@@ -40,9 +75,12 @@
       }
     },
     "decision": {"enum": ["pass", "fail", "inconclusive", "needs_review"]},
-    "recommendation": {"enum": ["promote", "reject", "continue", "review"]},
+    "recommendation": {
+      "enum": ["promote", "reject", "inconclusive", "needs_human_review"]
+    },
     "promotion_effect_receipt_id": {"type": "null"},
     "evaluated_at": {"type": "string", "format": "date-time"},
+    "key_id": {"type": "string", "minLength": 1, "maxLength": 200},
     "signature": {"type": "string", "minLength": 1, "maxLength": 4096}
   }
 }

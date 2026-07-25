@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Callable, Mapping
 
 from .canonical_json import encode, sha256_hex
-from .contracts.v1.validator import validate_contract
+from .contracts.v1.validator import ContractValidationError, validate_contract
 from .outcome_adapter_resolver import OutcomeAdapterResolver
 from .signature import SigningKeyError, verify
 
@@ -29,11 +29,13 @@ class OutcomeEvaluationTaskHandler:
         create_task_with_conn: Callable,
         append_linkage_with_conn: Callable,
         terminal_verification_keys: dict[str, object],
+        enrollment_verification_keys: dict[str, object],
     ) -> None:
         self._resolver = resolver
         self._create_task_with_conn = create_task_with_conn
         self._append_linkage_with_conn = append_linkage_with_conn
         self._terminal_verification_keys = terminal_verification_keys
+        self._enrollment_verification_keys = enrollment_verification_keys
 
     def prepare(
         self,
@@ -52,6 +54,25 @@ class OutcomeEvaluationTaskHandler:
                 "wake_after_commit": False,
             }
         pin = self._pin_from_enrollment(enrollment)
+        try:
+            validate_contract("iteration_enrollment", enrollment)
+        except ContractValidationError:
+            return {
+                "status": "rejected",
+                "task": None,
+                "rejection": self._resolver.reject(
+                    pin, "enrollment_contract_invalid"
+                ),
+                "wake_after_commit": False,
+            }
+        signature_error = self._enrollment_signature_error(enrollment)
+        if signature_error:
+            return {
+                "status": "rejected",
+                "task": None,
+                "rejection": self._resolver.reject(pin, signature_error),
+                "wake_after_commit": False,
+            }
         signature_error = self._terminal_signature_error(terminal_receipt)
         if signature_error:
             return {
@@ -94,6 +115,12 @@ class OutcomeEvaluationTaskHandler:
             ],
             "descriptor_sha256": descriptor["descriptor_sha256"],
             "evaluator_version": descriptor["evaluator_version"],
+            "evaluator_contract_sha256": enrollment[
+                "evaluator_contract_sha256"
+            ],
+            "cohort_manifest_sha256": enrollment[
+                "cohort_manifest_sha256"
+            ],
         }
         idempotency_key = f"outcome-evaluation:{sha256_hex(unique_input)}"
         task = {
@@ -136,37 +163,27 @@ class OutcomeEvaluationTaskHandler:
 
     @staticmethod
     def _pin_from_enrollment(enrollment: dict) -> dict[str, str]:
-        required = (
-            "enrollment_id",
-            "iteration_id",
-            "arm_id",
-            "case_id",
-            "terminal_receipt_id",
-            "capability_code",
-            "port_id",
-            "contract_export_id",
-            "adapter_contract_version",
-            "descriptor_sha256",
-            "evaluator_version",
-            "observation_window",
-            "budget",
-            *PARITY_FIELDS,
+        capability_identity = enrollment.get("capability_identity")
+        capability_code = (
+            capability_identity.get("capability_code", "")
+            if isinstance(capability_identity, dict)
+            else ""
         )
-        missing = [field for field in required if field not in enrollment]
-        if missing:
-            raise ValueError(
-                f"outcome enrollment missing required field: {missing[0]}"
-            )
         return {
-            field: enrollment[field]
-            for field in (
-                "capability_code",
-                "port_id",
-                "contract_export_id",
-                "adapter_contract_version",
-                "descriptor_sha256",
-                "evaluator_version",
-            )
+            "capability_code": str(capability_code),
+            "port_id": str(enrollment.get("port_id") or ""),
+            "contract_export_id": str(
+                enrollment.get("contract_export_id") or ""
+            ),
+            "adapter_contract_version": str(
+                enrollment.get("adapter_contract_version") or ""
+            ),
+            "descriptor_sha256": str(
+                enrollment.get("descriptor_sha256") or ""
+            ),
+            "evaluator_version": str(
+                enrollment.get("evaluator_version") or ""
+            ),
         }
 
     @staticmethod
@@ -175,16 +192,40 @@ class OutcomeEvaluationTaskHandler:
     ) -> str | None:
         if enrollment["terminal_receipt_id"] != terminal_receipt["receipt_id"]:
             return "terminal_receipt_mismatch"
-        terminal_capability = terminal_receipt["capability_identity"][
-            "capability_code"
-        ]
-        if enrollment["capability_code"] != terminal_capability:
+        if (
+            enrollment["capability_identity"]
+            != terminal_receipt["capability_identity"]
+        ):
             return "capability_identity_mismatch"
         for field in PARITY_FIELDS:
             if enrollment[field] != terminal_receipt[field]:
                 return f"{field}_mismatch"
         if enrollment["consumer_compatibility_class"] != "compatible":
             return "consumer_compatibility_not_admitted"
+        return None
+
+    def _enrollment_signature_error(
+        self, enrollment: dict
+    ) -> str | None:
+        public_key = self._enrollment_verification_keys.get(
+            enrollment["key_id"]
+        )
+        if public_key is None:
+            return "enrollment_signing_key_unavailable"
+        try:
+            verify(
+                public_key,
+                encode(
+                    {
+                        key: value
+                        for key, value in enrollment.items()
+                        if key != "signature"
+                    }
+                ),
+                enrollment["signature"],
+            )
+        except SigningKeyError:
+            return "enrollment_signature_invalid"
         return None
 
     def _terminal_signature_error(

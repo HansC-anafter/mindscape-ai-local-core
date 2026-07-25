@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "mindscape://durable-product-semantic-workflow/v1/iteration_enrollment",
+  "title": "Signed Product Iteration Enrollment",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "enrollment_id",
+    "iteration_id",
+    "arm_id",
+    "case_id",
+    "terminal_receipt_id",
+    "capability_identity",
+    "port_id",
+    "contract_export_id",
+    "adapter_contract_version",
+    "descriptor_sha256",
+    "evaluator_version",
+    "evaluator_contract_sha256",
+    "cohort_manifest_sha256",
+    "development_attestation_id",
+    "development_attestation_sha256",
+    "consumer_compatibility_class",
+    "configuration_fingerprint",
+    "environment_fingerprint",
+    "data_fingerprint",
+    "observation_window",
+    "budget",
+    "idempotency_key",
+    "enrolled_at",
+    "key_id",
+    "signature"
+  ],
+  "properties": {
+    "enrollment_id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "iteration_id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "arm_id": {"type": "string", "minLength": 1, "maxLength": 120},
+    "case_id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "terminal_receipt_id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "capability_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["capability_code", "pack_version", "manifest_sha256"],
+      "properties": {
+        "capability_code": {"type": "string", "pattern": "^[a-z][a-z0-9_]{1,63}$"},
+        "pack_version": {"type": "string", "minLength": 1, "maxLength": 100},
+        "manifest_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+      }
+    },
+    "port_id": {"const": "mindscape.product-outcome-adapter-port.v1"},
+    "contract_export_id": {"const": "product_outcome_adapter"},
+    "adapter_contract_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$",
+      "maxLength": 100
+    },
+    "descriptor_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "evaluator_version": {"type": "string", "minLength": 1, "maxLength": 100},
+    "evaluator_contract_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "cohort_manifest_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "development_attestation_id": {"type": "string", "minLength": 1, "maxLength": 240},
+    "development_attestation_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "consumer_compatibility_class": {
+      "enum": ["compatible", "needs_review", "incompatible"]
+    },
+    "configuration_fingerprint": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "environment_fingerprint": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "data_fingerprint": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "observation_window": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["starts_at", "ends_at"],
+      "properties": {
+        "starts_at": {"type": "string", "format": "date-time"},
+        "ends_at": {"type": "string", "format": "date-time"}
+      }
+    },
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_attempts", "timeout_seconds"],
+      "properties": {
+        "max_attempts": {"type": "integer", "minimum": 1},
+        "timeout_seconds": {"type": "integer", "minimum": 1},
+        "max_cost": {"type": ["number", "null"], "minimum": 0}
+      }
+    },
+    "idempotency_key": {"type": "string", "minLength": 1, "maxLength": 240},
+    "enrolled_at": {"type": "string", "format": "date-time"},
+    "key_id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "signature": {"type": "string", "minLength": 1, "maxLength": 4096}
+  }
+}

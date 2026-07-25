@@ -161,15 +161,27 @@ def _signed_terminal(
 
 
 def _enrollment(
-    capability_code: str, descriptor: dict, terminal: dict
+    capability_code: str,
+    descriptor: dict,
+    terminal: dict,
+    signer: Ed25519Signer,
 ) -> dict:
-    return {
+    unsigned = {
         "enrollment_id": f"enrollment:{capability_code}",
         "iteration_id": "iteration:1",
         "arm_id": "control",
         "case_id": "case:1",
         "terminal_receipt_id": terminal["receipt_id"],
-        **_pin(capability_code, descriptor),
+        "capability_identity": terminal["capability_identity"],
+        "port_id": PORT_ID,
+        "contract_export_id": CONTRACT_EXPORT_ID,
+        "adapter_contract_version": descriptor[
+            "adapter_contract_version"
+        ],
+        "descriptor_sha256": descriptor["descriptor_sha256"],
+        "evaluator_version": descriptor["evaluator_version"],
+        "evaluator_contract_sha256": H,
+        "cohort_manifest_sha256": H,
         "development_attestation_id": terminal[
             "development_attestation_id"
         ],
@@ -186,6 +198,25 @@ def _enrollment(
         "data_fingerprint": terminal["data_fingerprint"],
         "observation_window": {"starts_at": NOW, "ends_at": NOW},
         "budget": {"max_attempts": 1, "timeout_seconds": 30},
+        "idempotency_key": f"enrollment:{capability_code}",
+        "enrolled_at": NOW,
+        "key_id": signer.key_id,
+    }
+    return {
+        **unsigned,
+        "signature": signer.sign(encode(unsigned)).value,
+    }
+
+
+def _resign_enrollment(
+    enrollment: dict, signer: Ed25519Signer
+) -> dict:
+    unsigned = {
+        key: value for key, value in enrollment.items() if key != "signature"
+    }
+    return {
+        **unsigned,
+        "signature": signer.sign(encode(unsigned)).value,
     }
 
 
@@ -248,6 +279,7 @@ def test_unenrolled_and_parity_rejected_terminals_create_no_task(
             _args[1]
         ),
         terminal_verification_keys={signer.key_id: signer.public_key()},
+        enrollment_verification_keys={signer.key_id: signer.public_key()},
     )
     not_enrolled = handler.prepare(
         object(),
@@ -257,8 +289,11 @@ def test_unenrolled_and_parity_rejected_terminals_create_no_task(
     )
     assert not_enrolled["status"] == "not_enrolled"
 
-    enrollment = _enrollment(capability_code, descriptor, terminal)
+    enrollment = _enrollment(
+        capability_code, descriptor, terminal, signer
+    )
     enrollment["data_fingerprint"] = "1" * 64
+    enrollment = _resign_enrollment(enrollment, signer)
     rejected = handler.prepare(
         object(),
         capability_entries={capability_code: entry},
@@ -275,7 +310,9 @@ def test_exact_enrollment_creates_one_existing_lane_intent(signer) -> None:
     capability_code = "epsilon_capability"
     entry, descriptor, snapshot = _materialize(capability_code, signer)
     terminal = _signed_terminal(capability_code, signer)
-    enrollment = _enrollment(capability_code, descriptor, terminal)
+    enrollment = _enrollment(
+        capability_code, descriptor, terminal, signer
+    )
     created = []
     linked = []
 
@@ -288,6 +325,7 @@ def test_exact_enrollment_creates_one_existing_lane_intent(signer) -> None:
         create_task_with_conn=create,
         append_linkage_with_conn=lambda _conn, event: linked.append(event),
         terminal_verification_keys={signer.key_id: signer.public_key()},
+        enrollment_verification_keys={signer.key_id: signer.public_key()},
     )
     result = handler.prepare(
         object(),
@@ -303,13 +341,51 @@ def test_exact_enrollment_creates_one_existing_lane_intent(signer) -> None:
     assert result["wake_after_commit"] is True
 
 
+def test_invalid_enrollment_signature_creates_no_task(signer) -> None:
+    capability_code = "eta_capability"
+    entry, descriptor, _snapshot = _materialize(capability_code, signer)
+    terminal = _signed_terminal(capability_code, signer)
+    enrollment = _enrollment(
+        capability_code, descriptor, terminal, signer
+    )
+    enrollment["signature"] = "invalid"
+    created = []
+    linked = []
+    handler = OutcomeEvaluationTaskHandler(
+        OutcomeAdapterResolver(signer),
+        create_task_with_conn=lambda *_args, **_kwargs: created.append(
+            _args[1]
+        ),
+        append_linkage_with_conn=lambda *_args, **_kwargs: linked.append(
+            _args[1]
+        ),
+        terminal_verification_keys={signer.key_id: signer.public_key()},
+        enrollment_verification_keys={signer.key_id: signer.public_key()},
+    )
+    rejected = handler.prepare(
+        object(),
+        capability_entries={capability_code: entry},
+        terminal_receipt=terminal,
+        enrollment=enrollment,
+    )
+    assert rejected["status"] == "rejected"
+    assert (
+        rejected["rejection"]["reason"]
+        == "enrollment_signature_invalid"
+    )
+    assert created == []
+    assert linked == []
+
+
 def test_port_verifies_generic_observation_identity_and_signature(
     signer,
 ) -> None:
     capability_code = "zeta_capability"
     _entry, descriptor, snapshot = _materialize(capability_code, signer)
     terminal = _signed_terminal(capability_code, signer)
-    enrollment = _enrollment(capability_code, descriptor, terminal)
+    enrollment = _enrollment(
+        capability_code, descriptor, terminal, signer
+    )
     unsigned_observation = {
         "observation_id": "observation:1",
         "iteration_id": enrollment["iteration_id"],
