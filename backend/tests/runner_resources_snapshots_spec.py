@@ -38,6 +38,7 @@ def test_runner_resource_heartbeat_captures_capacity_snapshot():
         runner_id="runner-a",
         profile_code="runner-browser",
         queue_shards=("browser_local",),
+        accepted_resource_classes=("browser",),
         capacity=SimpleNamespace(
             max_inflight=2,
             inflight=1,
@@ -52,6 +53,7 @@ def test_runner_resource_heartbeat_captures_capacity_snapshot():
     assert heartbeat["runner_id"] == "runner-a"
     assert heartbeat["profile_code"] == "runner-browser"
     assert heartbeat["queue_shards"] == ["browser_local"]
+    assert heartbeat["accepted_resource_classes"] == ["browser"]
     assert heartbeat["captured_at_epoch"] == 100.0
     assert heartbeat["capacity"]["available_slots"] == 1
     assert heartbeat["resource_snapshot"]["memory"]["working_set_ratio"] == 0.5

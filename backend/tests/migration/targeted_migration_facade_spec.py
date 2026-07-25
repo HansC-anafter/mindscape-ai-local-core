@@ -179,6 +179,80 @@ def test_apply_revision_uses_transactional_executor_for_one_independent_branch(
     }
 
 
+def test_apply_revision_uses_transactional_executor_for_direct_applied_parent(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    target = _FakeRevision("20260725140000", down_revision="20260725130000")
+    target.module = object()
+
+    class _LinearScriptDirectory:
+        def get_revision(self, revision: str):
+            assert revision == target.revision
+            return target
+
+        def iterate_revisions(self, head: str, _base: str):
+            assert head == target.revision
+            return [target]
+
+    orchestrator = MigrationOrchestrator(
+        tmp_path,
+        {"postgres": tmp_path / "alembic.postgres.ini"},
+    )
+    monkeypatch.setattr(
+        orchestrator.validator,
+        "validate_environment",
+        lambda _db_type, _requirements: {"database_connection": True},
+    )
+    monkeypatch.setattr(
+        orchestrator,
+        "_get_env_requirements",
+        lambda _db_type: {"postgres_url": "postgresql://example"},
+    )
+    monkeypatch.setattr(
+        orchestrator,
+        "_load_script_directory",
+        lambda _db_type: _LinearScriptDirectory(),
+    )
+    monkeypatch.setattr(
+        orchestrator,
+        "_get_current_revisions",
+        lambda _db_type: ["20260725130000", "unrelated-head"],
+    )
+    monkeypatch.setattr(
+        orchestrator,
+        "_get_applied_revisions",
+        lambda _db_type, _heads: {"20260725130000", "unrelated-head"},
+    )
+    monkeypatch.setattr(
+        "backend.app.services.migrations.orchestrator.require_migration_execution_allowed",
+        lambda _config, _revision: None,
+    )
+    captured = {}
+    monkeypatch.setattr(
+        "backend.app.services.migrations.orchestrator.execute_linear_revision",
+        lambda **kwargs: captured.update(kwargs) or True,
+    )
+    monkeypatch.setattr(
+        orchestrator,
+        "_run_alembic_upgrade",
+        lambda *_args: (_ for _ in ()).throw(
+            AssertionError("direct child must not traverse unrelated heads")
+        ),
+    )
+
+    result = orchestrator.apply_revision("postgres", target.revision)
+
+    assert result["status"] == "completed"
+    assert result["revisions"] == [target.revision]
+    assert captured == {
+        "revision_script": target,
+        "postgres_url": "postgresql://example",
+        "revision": target.revision,
+        "expected_parent_revision": "20260725130000",
+    }
+
+
 def test_cli_targeted_dry_run_uses_the_same_revision_plan(monkeypatch, capsys) -> None:
     class _FakeOrchestrator:
         def plan_revision(self, db_type: str, revision: str):

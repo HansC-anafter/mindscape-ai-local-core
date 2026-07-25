@@ -178,6 +178,9 @@ async def _publish_resource_heartbeat(
                 runner_id=runner_id,
                 profile_code=runner_profile.profile_code,
                 queue_shards=list(runner_profile.accepted_queue_partitions),
+                accepted_resource_classes=list(
+                    runner_profile.accepted_resource_classes
+                ),
                 capacity=capacity,
                 resource_snapshot=resource_snapshot,
                 claim_control=runner_claim_control.to_dict(),

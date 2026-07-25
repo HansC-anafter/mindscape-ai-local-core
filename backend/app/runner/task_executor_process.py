@@ -28,6 +28,14 @@ def build_child_payload(
     resolved_profile_id: str,
     result_file: str,
 ) -> Dict[str, Any]:
+    child_inputs = dict(inputs)
+    admission_snapshot = (
+        ctx.get("execution_admission_snapshot")
+        if isinstance(ctx, dict)
+        else None
+    )
+    if isinstance(admission_snapshot, dict):
+        child_inputs["execution_admission_snapshot"] = admission_snapshot
     return {
         "runner_id": runner_id,
         "task_id": task.id,
@@ -35,15 +43,11 @@ def build_child_payload(
         "task_type": task.task_type or "playbook_execution",
         "tool_name": (ctx.get("tool_name") if isinstance(ctx, dict) else None),
         "profile_id": resolved_profile_id,
-        "inputs": inputs,
+        "inputs": child_inputs,
         "workspace_id": task.workspace_id,
         "project_id": task.project_id,
         "root_execution_id": task.execution_id or task.id,
-        "execution_admission_snapshot": (
-            ctx.get("execution_admission_snapshot")
-            if isinstance(ctx, dict)
-            else None
-        ),
+        "execution_admission_snapshot": admission_snapshot,
         "_result_file": result_file,
     }
 

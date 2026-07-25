@@ -23,6 +23,7 @@ surfaces:
       - Installed and enabled packs are host readiness only, while Remote Workbench capability allowlists remain remote gateway exposure only; runtime metadata overrides, deployment providers, and CRS decisions cannot add or rewrite workspace configuration.
       - Site-Hub is one replaceable commercial Deployment Control Provider adapter whose envelope may only narrow configured surfaces; unmanaged local workspaces preserve offline operation without Site-Hub.
       - Tool, playbook, capability API, run-harness, Meeting, and background task roots share one admission facade; local execution makes zero Site-Hub or CRS calls, external-provider roots make at most one CRS call, and child phases consume the immutable snapshot.
+      - Mixed-version runner parents and legacy queued tasks converge through the same parent-side admission facade before child launch; invalid or unavailable admission remains pending and cold without consuming execution retries or entering Deadletter.
       - Existing Core Settings is the only workspace and explicit active-group Product Capability Set editor: it stages a local draft, reviews the complete change, and performs one revision-checked replacement through the source Local Core; Capability Packs, Settings Assistant, public Remote Workbench, and Site-Hub storage never become alternate writers.
       - Existing workspaces without a scope row remain legacy-unmanaged; configuration-only, shadow, and enforced are explicit per-workspace reviewed states, and catalog imports or group assignments never fan out or silently change member modes.
       - Revocation keeps historical artifacts visible and already-admitted runs pinned, while configuration, admission, and workbench surfaces add no outbox, worker, queue, PgBouncer expansion, per-card request, or UX polling interval.
@@ -41,6 +42,7 @@ surfaces:
       - backend/app/services/playbook_run_executor.py
       - backend/app/services/playbook_execution_admission.py
       - backend/app/services/playbook/tool_execution/**
+      - backend/app/services/workflow/tool_execution.py
       - backend/app/routes/core/tools/execution.py
       - backend/app/routes/core/workspace/run_harness.py
       - backend/app/services/run_harness/**
@@ -48,6 +50,9 @@ surfaces:
       - backend/app/services/meeting_product_admission.py
       - backend/app/services/orchestration/meeting/**
       - backend/app/runner/task_executor_child.py
+      - backend/app/runner/task_executor_admission.py
+      - backend/app/runner/task_executor_process.py
+      - backend/app/runner/task_executor_runtime.py
       - backend/app/services/stores/installed_packs_store.py
       - backend/app/capabilities/mindscape_cloud_integration/services/remote_workbench_effective_policy.py
       - web-console/src/app/workspaces/**
@@ -75,7 +80,7 @@ surfaces:
       - Capability-pack install retains the candidate and previous active runtime until migration and verification succeed, then commits filesystem activation, activation state, installed metadata, and registry projections from one durable receipt.
       - Alembic revision history is append-only operational truth; recovery uses graph diagnosis and corrective revisions and never deletes revision rows to force convergence.
       - Progress reads return one compact current or stale-known snapshot, or a redacted 503 with Retry-After; frontend polling obeys bounded 10, 20, and 30 second intervals and stops when hidden or terminal.
-      - Runtime repair preserves seven runner slots and existing queue visibility, does not expand PgBouncer pools as a workaround, and may claim only isolated recovery or controlled-switchover drill readiness; production high availability requires a separate failure-domain and controller decision.
+      - Runtime repair preserves the authorized nine runner slots and existing queue visibility, does not expand PgBouncer pools as a workaround, and may claim only isolated recovery or controlled-switchover drill readiness; production high availability requires a separate failure-domain and controller decision.
     path_globs:
       - backend/app/database/recovery_backoff.py
       - backend/app/database/application_identity.py
@@ -99,6 +104,7 @@ surfaces:
       - backend/app/services/runtime_assets_installer_core/**
       - backend/app/services/pack_activation*.py
       - backend/app/services/playbook_registry.py
+      - backend/app/services/migrations/**
       - backend/app/services/deprecated/capability_installer.py
       - backend/scripts/preflight_db.py
       - backend/alembic_migrations/postgres/versions/**

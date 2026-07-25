@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from backend.app.models.workspace import Task, TaskStatus, _utc_now
 from backend.app.services.execution_intent_resolver import ExecutionIntentResolution
 from backend.app.runner import task_executor
+from backend.app.runner.task_executor_admission import RunnerChildAdmission
 
 
 def _task() -> Task:
@@ -98,6 +99,13 @@ def test_run_single_task_uses_facade_success_hook(monkeypatch):
     async def fake_mark_succeeded(tasks_store, task_id, runner_id, result_file, redis_queue):
         marked["task_id"] = task_id
 
+    async def fake_prepare_admission(task, inputs, ctx, *, profile_id):
+        return RunnerChildAdmission(
+            inputs=dict(inputs),
+            execution_context=dict(ctx),
+            changed=False,
+        )
+
     monkeypatch.setattr(task_executor.mp, "get_context", lambda method: FakeMpContext())
     monkeypatch.setattr(
         task_executor,
@@ -108,6 +116,11 @@ def test_run_single_task_uses_facade_success_hook(monkeypatch):
         task_executor,
         "_apply_runtime_binding_to_playbook_task",
         lambda task, ctx, inputs, profile_id: (inputs, ctx, object()),
+    )
+    monkeypatch.setattr(
+        task_executor,
+        "prepare_runner_child_admission",
+        fake_prepare_admission,
     )
     monkeypatch.setattr(task_executor, "_mark_task_succeeded", fake_mark_succeeded)
 

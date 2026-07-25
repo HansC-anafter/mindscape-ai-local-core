@@ -18,6 +18,7 @@ from .execution_policy import (
     require_migration_execution_allowed,
 )
 from .independent_revision_executor import execute_independent_revision
+from .linear_revision_executor import execute_linear_revision
 from .runtime_locations import (
     append_runtime_version_locations,
     configure_runtime_version_locations,
@@ -273,6 +274,18 @@ class MigrationOrchestrator:
                 and getattr(target, "down_revision", None) is None
                 and plan["migrations_pending"] == 1
             )
+            current_revisions = set(self._get_current_revisions(db_type))
+            target_parent = (
+                getattr(target, "down_revision", None)
+                if target is not None
+                else None
+            )
+            is_single_linear_revision = bool(
+                target is not None
+                and isinstance(target_parent, str)
+                and target_parent in current_revisions
+                and plan["migrations_pending"] == 1
+            )
             if is_single_independent_revision:
                 require_migration_execution_allowed(alembic_config, revision)
                 completed = execute_independent_revision(
@@ -281,6 +294,16 @@ class MigrationOrchestrator:
                         self._get_env_requirements(db_type)["postgres_url"]
                     ),
                     revision=revision,
+                )
+            elif is_single_linear_revision:
+                require_migration_execution_allowed(alembic_config, revision)
+                completed = execute_linear_revision(
+                    revision_script=target,
+                    postgres_url=str(
+                        self._get_env_requirements(db_type)["postgres_url"]
+                    ),
+                    revision=revision,
+                    expected_parent_revision=target_parent,
                 )
             else:
                 completed = self._run_alembic_upgrade(alembic_config, revision)

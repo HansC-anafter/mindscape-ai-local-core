@@ -250,6 +250,21 @@ def capacity_by_queue_shard(
     def _resource_admission_deferred(admission: dict[str, Any]) -> bool:
         return bool(admission.get("should_defer"))
 
+    def _uses_browser_resource_admission(
+        heartbeat: dict[str, Any],
+    ) -> bool:
+        resource_classes = heartbeat.get("accepted_resource_classes")
+        if isinstance(resource_classes, (list, tuple)):
+            normalized = {
+                str(item).strip().lower()
+                for item in resource_classes
+                if str(item).strip()
+            }
+            if normalized:
+                return "browser" in normalized
+        profile_code = str(heartbeat.get("profile_code") or "").strip().lower()
+        return profile_code in {"browser_local", "default_local_browser"}
+
     def _append_unique(values: list[Any], value: Any) -> None:
         if value not in values:
             values.append(value)
@@ -276,7 +291,10 @@ def capacity_by_queue_shard(
             claim_mode == "active" and claim_control.get("claim_enabled") is not False
         )
         admission = _resource_admission(heartbeat)
-        resource_deferred = _resource_admission_deferred(admission)
+        resource_deferred = (
+            _uses_browser_resource_admission(heartbeat)
+            and _resource_admission_deferred(admission)
+        )
         effective_claim_enabled = claim_enabled and not resource_deferred
         for queue_shard in queue_shards:
             if queue_shard not in capacity_by_queue:

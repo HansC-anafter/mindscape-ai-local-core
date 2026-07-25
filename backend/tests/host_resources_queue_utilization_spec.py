@@ -137,6 +137,57 @@ async def test_live_queue_utilization_marks_resource_admission_cooldown_unclaima
 
 
 @pytest.mark.asyncio
+async def test_live_queue_utilization_does_not_apply_browser_admission_to_compute(
+    monkeypatch,
+):
+    queue = FakeQueue("vision_local", ["task-a"])
+
+    async def _heartbeats(_queue_store):
+        return [
+            {
+                "runner_id": "runner-vision-1",
+                "profile_code": "vision_local",
+                "queue_shards": ["vision_local"],
+                "accepted_resource_classes": ["compute"],
+                "capacity": {
+                    "max_inflight": 3,
+                    "inflight": 1,
+                    "available_slots": 2,
+                },
+                "claim_control": {
+                    "mode": "active",
+                    "claim_enabled": True,
+                },
+                "resource_snapshot": {
+                    "admission": {
+                        "state": "soft_defer",
+                        "should_defer": True,
+                        "reasons": ["browser_session_slots"],
+                    },
+                },
+            }
+        ]
+
+    monkeypatch.setattr(
+        queue_utilization,
+        "list_active_runner_resource_heartbeats",
+        _heartbeats,
+    )
+    snapshot = await build_live_queue_utilization(
+        queue_stores=[queue],
+        scan_limit=1,
+        now_epoch=1000,
+    )
+
+    capacity = snapshot["capacity_by_queue_shard"]["vision_local"]
+    assert capacity["active_runner_count"] == 1
+    assert capacity["claimable_runner_count"] == 1
+    assert capacity["claim_blocked_runner_count"] == 0
+    assert capacity["claimable_available_slots_total"] == 2
+    assert capacity["claim_blocked_reasons"] == []
+
+
+@pytest.mark.asyncio
 async def test_live_queue_utilization_uses_bounded_redis_data(monkeypatch):
     queue = FakeQueue(
         "browser_local",

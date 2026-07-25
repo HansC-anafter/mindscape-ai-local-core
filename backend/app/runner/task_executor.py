@@ -21,6 +21,10 @@ from backend.app.runner.task_executor_child import (
     _child_execute_playbook as _child_execute_playbook_impl,
     _initialize_capability_packages_for_runner,
 )
+from backend.app.runner.task_executor_admission import (
+    park_task_for_runner_admission,
+    prepare_runner_child_admission,
+)
 from backend.app.runner.task_executor_completion import (
     _build_resource_failure_snapshot as _build_resource_failure_snapshot_impl,
     _mark_task_failed as _mark_task_failed_impl,
@@ -119,6 +123,8 @@ def _build_hooks() -> TaskExecutorHooks:
         get_task_control_signal=_get_task_control_signal,
         apply_runtime_binding_to_playbook_task=_apply_runtime_binding_to_playbook_task,
         serialize_runtime_binding=_serialize_runtime_binding,
+        prepare_runner_child_admission=prepare_runner_child_admission,
+        park_task_for_runner_admission=park_task_for_runner_admission,
         child_execute_playbook=_child_execute_playbook,
         build_subprocess_failure_message=_build_subprocess_failure_message,
         build_resource_failure_snapshot=_build_resource_failure_snapshot,
@@ -163,6 +169,8 @@ __all__ = [
     "_is_non_retryable_task_error",
     "_mark_task_failed",
     "_mark_task_succeeded",
+    "park_task_for_runner_admission",
+    "prepare_runner_child_admission",
     "_park_task_after_intent_resolution",
     "_release_task_locks",
     "_release_task_resource_leases",

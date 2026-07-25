@@ -48,12 +48,23 @@ def build_tool_inputs(
     tool_id: str,
     resolved_inputs: Dict[str, Any],
     profile_id: Optional[str],
+    playbook_inputs: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Build the concrete tool input payload for a single workflow step."""
     tool_inputs = resolved_inputs.copy()
+    root_inputs = playbook_inputs or {}
 
     if profile_id and is_llm_tool(tool_id):
         tool_inputs["profile_id"] = profile_id
+
+    admission_snapshot = root_inputs.get("execution_admission_snapshot")
+    if isinstance(admission_snapshot, dict):
+        # The root playbook snapshot is authoritative for every child tool
+        # step. Do not let a templated step input replace it.
+        tool_inputs["execution_admission_snapshot"] = admission_snapshot
+        root_execution_id = admission_snapshot.get("root_execution_id")
+        if root_execution_id:
+            tool_inputs["root_execution_id"] = root_execution_id
 
     return tool_inputs
 
@@ -113,6 +124,7 @@ async def execute_tool_step(
         tool_id=tool_id,
         resolved_inputs=resolved_inputs,
         profile_id=profile_id,
+        playbook_inputs=playbook_inputs,
     )
 
     handled_remotely, remote_tool_result = (

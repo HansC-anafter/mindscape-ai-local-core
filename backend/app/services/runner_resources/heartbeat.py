@@ -22,6 +22,7 @@ def build_runner_resource_heartbeat(
     queue_shards: list[str] | tuple[str, ...],
     capacity: Any,
     resource_snapshot: dict[str, Any] | None,
+    accepted_resource_classes: list[str] | tuple[str, ...] = (),
     claim_control: dict[str, Any] | None = None,
     now_epoch: float | None = None,
 ) -> dict[str, Any]:
@@ -31,6 +32,11 @@ def build_runner_resource_heartbeat(
         "runner_id": runner_id,
         "profile_code": profile_code,
         "queue_shards": [str(item) for item in queue_shards],
+        "accepted_resource_classes": [
+            str(item).strip().lower()
+            for item in accepted_resource_classes
+            if str(item).strip()
+        ],
         "captured_at_epoch": captured_at,
         "capacity": {
             "max_inflight": int(getattr(capacity, "max_inflight", 0) or 0),

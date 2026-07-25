@@ -67,6 +67,8 @@ class TaskExecutorHooks:
     get_task_control_signal: Callable[..., Optional[dict[str, str]]]
     apply_runtime_binding_to_playbook_task: Callable[..., Any]
     serialize_runtime_binding: Callable[..., dict[str, Any]]
+    prepare_runner_child_admission: Callable[..., Awaitable[Any]]
+    park_task_for_runner_admission: Callable[..., Awaitable[None]]
     child_execute_playbook: Callable[[dict[str, Any]], None]
     build_subprocess_failure_message: Callable[[Optional[str], int], str]
     build_resource_failure_snapshot: Callable[..., Optional[dict[str, Any]]]
@@ -198,6 +200,40 @@ async def _run_single_task_impl(
             runtime_binding_payload.get("device_id"),
             runtime_binding_payload.get("via"),
         )
+
+    try:
+        admission = await hooks.prepare_runner_child_admission(
+            task,
+            inputs,
+            ctx,
+            profile_id=resolved_profile_id,
+        )
+        inputs = admission.inputs
+        ctx = admission.execution_context
+        if admission.changed:
+            tasks_store.update_task(task.id, execution_context=ctx)
+    except Exception as admission_error:
+        try:
+            await hooks.park_task_for_runner_admission(
+                tasks_store,
+                task,
+                runner_id,
+                admission_error,
+                redis_queue,
+            )
+        finally:
+            await hooks.release_task_locks(
+                redis_queue,
+                lock_keys,
+                lock_owner_id,
+            )
+            await hooks.release_task_resource_leases(
+                redis_queue,
+                resource_lease_keys,
+                lock_owner_id,
+                node_budget_reservation,
+            )
+        return
 
     hb_interval_ms = _env_int("LOCAL_CORE_RUNNER_HEARTBEAT_INTERVAL_MS", 15000)
     heartbeat_ttl_seconds = max(60, int((hb_interval_ms / 1000.0) * 4))
