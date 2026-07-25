@@ -15,6 +15,7 @@ export interface DurableWorkflowSummary {
   runtime_build_id: string;
   development_attestation_id: string;
   development_attestation_sha256: string;
+  consumer_compatibility_class: string;
   configuration_fingerprint: string;
   environment_fingerprint: string;
   data_fingerprint: string;
@@ -63,6 +64,7 @@ export interface AsOfSnapshot {
   replay_compatibility_class: string;
   development_attestation_id: string;
   development_attestation_sha256: string;
+  consumer_compatibility_class: string;
   configuration_fingerprint: string;
   environment_fingerprint: string;
   data_fingerprint: string;

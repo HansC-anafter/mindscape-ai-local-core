@@ -102,6 +102,7 @@ def identity(
         "replay_compatibility_class": "exact",
         "development_attestation_id": "attestation:test",
         "development_attestation_sha256": H,
+        "consumer_compatibility_class": "compatible",
         "configuration_fingerprint": H,
         "environment_fingerprint": H,
         "data_fingerprint": H,

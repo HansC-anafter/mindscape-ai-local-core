@@ -15,6 +15,7 @@ PARITY_FIELDS = (
     "capability_identity",
     "development_attestation_id",
     "development_attestation_sha256",
+    "consumer_compatibility_class",
     "configuration_fingerprint",
     "environment_fingerprint",
     "data_fingerprint",
@@ -76,6 +77,7 @@ def _append_execution_terminal(
         **receipt,
         "terminal_sequence": transition["sequence"],
         "terminal_event_hash": transition["event_hash"],
+        "key_id": facade._signer.key_id,
     }
     unsigned.pop("signature", None)
     signature = facade._signer.sign(encode(unsigned))

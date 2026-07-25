@@ -91,6 +91,9 @@ class DurableWorkflowReviewService:
             "development_attestation_sha256": identity[
                 "development_attestation_sha256"
             ],
+            "consumer_compatibility_class": identity[
+                "consumer_compatibility_class"
+            ],
             "configuration_fingerprint": identity[
                 "configuration_fingerprint"
             ],
@@ -216,6 +219,9 @@ class DurableWorkflowReviewService:
             "development_attestation_sha256": instance[
                 "semantic_identity"
             ]["development_attestation_sha256"],
+            "consumer_compatibility_class": instance["semantic_identity"][
+                "consumer_compatibility_class"
+            ],
             "configuration_fingerprint": instance["semantic_identity"][
                 "configuration_fingerprint"
             ],
@@ -278,6 +284,7 @@ class DurableWorkflowReviewService:
             "replay_compatibility_class",
             "development_attestation_id",
             "development_attestation_sha256",
+            "consumer_compatibility_class",
             "configuration_fingerprint",
             "environment_fingerprint",
             "data_fingerprint",

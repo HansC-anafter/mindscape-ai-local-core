@@ -41,6 +41,9 @@ export function DurableWorkflowSummary({
         Attestation: {summary.development_attestation_id} ·{' '}
         {summary.development_attestation_sha256}
       </p>
+      <p className="text-xs text-gray-500">
+        Consumer compatibility: {summary.consumer_compatibility_class}
+      </p>
       <p className="break-all text-xs text-gray-500">
         Environment: {summary.environment_fingerprint} · Data:{' '}
         {summary.data_fingerprint}

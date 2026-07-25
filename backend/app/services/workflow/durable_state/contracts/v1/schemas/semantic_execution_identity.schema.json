@@ -24,6 +24,7 @@
     "replay_compatibility_class",
     "development_attestation_id",
     "development_attestation_sha256",
+    "consumer_compatibility_class",
     "configuration_fingerprint",
     "environment_fingerprint",
     "data_fingerprint",
@@ -79,6 +80,9 @@
     "development_attestation_sha256": {
       "type": "string",
       "pattern": "^[a-f0-9]{64}$"
+    },
+    "consumer_compatibility_class": {
+      "enum": ["compatible", "needs_review", "incompatible"]
     },
     "configuration_fingerprint": {
       "type": "string",

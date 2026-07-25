@@ -20,6 +20,7 @@
     "artifact_refs",
     "development_attestation_id",
     "development_attestation_sha256",
+    "consumer_compatibility_class",
     "configuration_fingerprint",
     "environment_fingerprint",
     "data_fingerprint",
@@ -29,6 +30,7 @@
     "runtime_build_id",
     "started_at",
     "completed_at",
+    "key_id",
     "signature"
   ],
   "properties": {
@@ -98,6 +100,9 @@
       "type": "string",
       "pattern": "^[a-f0-9]{64}$"
     },
+    "consumer_compatibility_class": {
+      "enum": ["compatible", "needs_review", "incompatible"]
+    },
     "configuration_fingerprint": {
       "type": "string",
       "pattern": "^[a-f0-9]{64}$"
@@ -120,6 +125,7 @@
     "runtime_build_id": {"type": "string", "minLength": 1, "maxLength": 240},
     "started_at": {"type": "string", "format": "date-time"},
     "completed_at": {"type": "string", "format": "date-time"},
+    "key_id": {"type": "string", "minLength": 1, "maxLength": 200},
     "signature": {"type": "string", "minLength": 1, "maxLength": 4096}
   }
 }

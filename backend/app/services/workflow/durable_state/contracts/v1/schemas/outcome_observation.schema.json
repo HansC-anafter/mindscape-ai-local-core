@@ -8,35 +8,92 @@
     "observation_id",
     "iteration_id",
     "arm_id",
+    "case_id",
     "terminal_receipt_id",
     "enrollment_id",
     "descriptor_id",
+    "capability_identity",
+    "adapter_contract_version",
+    "descriptor_sha256",
     "evaluator_id",
     "evaluator_version",
+    "development_attestation_id",
+    "development_attestation_sha256",
+    "configuration_fingerprint",
+    "environment_fingerprint",
+    "data_fingerprint",
+    "consumer_compatibility_class",
     "metric_id",
-    "value",
     "denominator",
     "comparability_key",
     "provenance_hash",
+    "status",
     "observed_at",
+    "key_id",
     "signature"
+  ],
+  "oneOf": [
+    {
+      "required": ["value"],
+      "not": {"required": ["missing_reason"]}
+    },
+    {
+      "required": ["missing_reason"],
+      "not": {"required": ["value"]}
+    }
   ],
   "properties": {
     "observation_id": {"type": "string", "minLength": 1, "maxLength": 200},
     "iteration_id": {"type": "string", "minLength": 1, "maxLength": 200},
     "arm_id": {"type": "string", "minLength": 1, "maxLength": 120},
+    "case_id": {"type": "string", "minLength": 1, "maxLength": 200},
     "terminal_receipt_id": {"type": "string", "minLength": 1, "maxLength": 200},
     "enrollment_id": {"type": "string", "minLength": 1, "maxLength": 200},
     "descriptor_id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "capability_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["capability_code", "pack_version", "manifest_sha256"],
+      "properties": {
+        "capability_code": {"type": "string", "pattern": "^[a-z][a-z0-9_]{1,63}$"},
+        "pack_version": {"type": "string", "minLength": 1, "maxLength": 100},
+        "manifest_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+      }
+    },
+    "adapter_contract_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$",
+      "maxLength": 100
+    },
+    "descriptor_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
     "evaluator_id": {"type": "string", "minLength": 1, "maxLength": 200},
     "evaluator_version": {"type": "string", "minLength": 1, "maxLength": 100},
+    "development_attestation_id": {"type": "string", "minLength": 1, "maxLength": 240},
+    "development_attestation_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "configuration_fingerprint": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "environment_fingerprint": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "data_fingerprint": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "consumer_compatibility_class": {
+      "enum": ["compatible", "needs_review", "incompatible"]
+    },
     "metric_id": {"type": "string", "minLength": 1, "maxLength": 120},
     "value": {"type": "number"},
+    "missing_reason": {"type": "string", "minLength": 1, "maxLength": 500},
     "denominator": {"type": "number", "exclusiveMinimum": 0},
     "unit": {"type": ["string", "null"], "maxLength": 80},
     "comparability_key": {"type": "string", "minLength": 1, "maxLength": 240},
     "quality_state": {"enum": ["valid", "invalid", "needs_review"]},
     "provenance_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "status": {
+      "enum": [
+        "accepted_candidate",
+        "rejected_invalid",
+        "needs_human_review"
+      ]
+    },
     "raw_evidence_ref": {
       "type": ["object", "null"],
       "additionalProperties": false,
@@ -49,6 +106,7 @@
       }
     },
     "observed_at": {"type": "string", "format": "date-time"},
+    "key_id": {"type": "string", "minLength": 1, "maxLength": 200},
     "signature": {"type": "string", "minLength": 1, "maxLength": 4096}
   }
 }

@@ -222,6 +222,7 @@ def _terminal_draft(exact_identity: dict) -> dict:
         "capability_identity",
         "development_attestation_id",
         "development_attestation_sha256",
+        "consumer_compatibility_class",
         "configuration_fingerprint",
         "environment_fingerprint",
         "data_fingerprint",
