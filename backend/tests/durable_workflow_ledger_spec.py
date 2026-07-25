@@ -33,7 +33,7 @@ SIG = "ed25519:test-signature"
 ACTOR = {"actor_type": "service", "actor_id": "durable-ledger-test"}
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="session")
 def engine():
     dsn = os.environ.get("DURABLE_WORKFLOW_TEST_DATABASE_URL")
     if not dsn:
@@ -446,6 +446,23 @@ def test_source_has_no_owned_pool_or_production_caller() -> None:
     assert "create_" + "engine(" not in source
     assert ".commit(" not in source
 
+    allowed_source_only_adapters = {
+        root
+        / "app"
+        / "services"
+        / "run_harness"
+        / "durable_workflow_adapter.py",
+        root
+        / "app"
+        / "services"
+        / "playbook"
+        / "durable_checkpoint_adapter.py",
+        root
+        / "app"
+        / "services"
+        / "host_runtime_sessions"
+        / "durable_approval_adapter.py",
+    }
     callers = []
     for path in (root / "app").rglob("*.py"):
         if durable_root in path.parents:
@@ -453,4 +470,4 @@ def test_source_has_no_owned_pool_or_production_caller() -> None:
         body = path.read_text(encoding="utf-8")
         if "services.workflow.durable_state" in body:
             callers.append(path)
-    assert callers == []
+    assert set(callers) == allowed_source_only_adapters

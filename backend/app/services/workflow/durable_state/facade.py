@@ -9,6 +9,7 @@ from .cancellation import validate_cancellation
 from .canonical_json import sha256_hex
 from .compatibility import CompatibilityRegistry
 from .contracts.v1.validator import validate_contract
+from .controls import DurableControlPlaneMixin
 from .events import build_signed_event, verify_events
 from .projections import project
 from .repository import DurableWorkflowRepository
@@ -27,7 +28,7 @@ class DurableWorkflowConflict(RuntimeError):
     """Raised on stale sequence, divergent idempotency, or rollover misuse."""
 
 
-class DurableWorkflowFacade:
+class DurableWorkflowFacade(DurableControlPlaneMixin):
     """Caller-owned-connection facade; it never commits or publishes."""
 
     def __init__(
@@ -112,6 +113,10 @@ class DurableWorkflowFacade:
         terminal = require_transition(
             locked["workflow_kind"], locked["current_state"], target_state
         )
+        if locked["workflow_kind"] == "execution" and terminal:
+            raise DurableWorkflowConflict(
+                "execution terminal transition requires append_execution_terminal"
+            )
         payload: dict[str, Any] = {
             "from_state": locked["current_state"],
             "to_state": target_state,
