@@ -57,20 +57,21 @@ def validate_parity(
                 errors.append(f"source manifest {key} mismatch")
         canonical_repo = canonical_root.parents[2]
         if (canonical_repo / ".git").exists():
-            head = subprocess.run(
-                ["git", "-C", str(canonical_repo), "rev-parse", "HEAD"],
+            source_commit = str(source_manifest.get("cloud_commit_sha") or "")
+            commit = subprocess.run(
+                ["git", "-C", str(canonical_repo), "rev-parse", f"{source_commit}^{{commit}}"],
                 check=True,
                 text=True,
                 stdout=subprocess.PIPE,
             ).stdout.strip()
             tree = subprocess.run(
-                ["git", "-C", str(canonical_repo), "rev-parse", "HEAD^{tree}"],
+                ["git", "-C", str(canonical_repo), "rev-parse", f"{source_commit}^{{tree}}"],
                 check=True,
                 text=True,
                 stdout=subprocess.PIPE,
             ).stdout.strip()
-            if source_manifest.get("cloud_commit_sha") != head:
-                errors.append("source manifest Cloud commit mismatch")
+            if source_commit != commit:
+                errors.append("source manifest Cloud commit is not canonical")
             if source_manifest.get("cloud_tree_sha") != tree:
                 errors.append("source manifest Cloud tree mismatch")
     for relative, receipt in manifest.get("schemas", {}).items():
