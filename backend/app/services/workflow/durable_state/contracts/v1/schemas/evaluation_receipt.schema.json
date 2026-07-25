@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "mindscape://durable-product-semantic-workflow/v1/evaluation_receipt",
+  "title": "Evaluation Receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "evaluation_id",
+    "iteration_id",
+    "evaluator_id",
+    "evaluator_version",
+    "frontier_sequence",
+    "frontier_hash",
+    "gate_results",
+    "decision",
+    "recommendation",
+    "evaluated_at",
+    "signature"
+  ],
+  "properties": {
+    "evaluation_id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "iteration_id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "evaluator_id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "evaluator_version": {"type": "string", "minLength": 1, "maxLength": 100},
+    "frontier_sequence": {"type": "integer", "minimum": 0},
+    "frontier_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "gate_results": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["gate_id", "status", "evidence_hash"],
+        "properties": {
+          "gate_id": {"type": "string", "minLength": 1, "maxLength": 120},
+          "status": {"enum": ["pass", "fail", "inconclusive", "needs_review"]},
+          "evidence_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+        }
+      }
+    },
+    "decision": {"enum": ["pass", "fail", "inconclusive", "needs_review"]},
+    "recommendation": {"enum": ["promote", "reject", "continue", "review"]},
+    "promotion_effect_receipt_id": {"type": "null"},
+    "evaluated_at": {"type": "string", "format": "date-time"},
+    "signature": {"type": "string", "minLength": 1, "maxLength": 4096}
+  }
+}

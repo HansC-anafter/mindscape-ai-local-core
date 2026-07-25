@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "mindscape://durable-product-semantic-workflow/v1/workflow_event",
+  "title": "Durable Workflow Event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "workflow_id",
+    "segment_id",
+    "sequence",
+    "event_type",
+    "occurred_at",
+    "actor",
+    "payload_sha256",
+    "previous_event_hash",
+    "event_hash",
+    "critical_durability"
+  ],
+  "properties": {
+    "event_id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "workflow_id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "segment_id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "sequence": {"type": "integer", "minimum": 1},
+    "event_type": {
+      "enum": [
+        "transition",
+        "timer_recorded",
+        "timer_fired",
+        "external_message_recorded",
+        "external_message_consumed",
+        "cancellation_requested",
+        "cancellation_acknowledged",
+        "compensation_recorded",
+        "segment_rollover"
+      ]
+    },
+    "occurred_at": {"type": "string", "format": "date-time"},
+    "actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["actor_type", "actor_id"],
+      "properties": {
+        "actor_type": {"enum": ["user", "service", "worker", "operator"]},
+        "actor_id": {"type": "string", "minLength": 1, "maxLength": 200},
+        "authorization_ref": {"type": ["string", "null"], "maxLength": 240}
+      }
+    },
+    "payload": {"type": "object"},
+    "payload_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["uri", "sha256", "bytes", "schema_id"],
+      "properties": {
+        "uri": {"type": "string", "minLength": 1, "maxLength": 2048},
+        "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "bytes": {"type": "integer", "minimum": 0},
+        "schema_id": {"type": "string", "minLength": 1, "maxLength": 240}
+      }
+    },
+    "payload_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "canonical_bytes": {"type": "integer", "minimum": 2, "maximum": 16384},
+    "previous_event_hash": {
+      "type": ["string", "null"],
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "event_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "critical_durability": {"const": "sync"},
+    "signature": {"type": "string", "minLength": 1, "maxLength": 4096}
+  },
+  "oneOf": [
+    {"required": ["payload"]},
+    {"required": ["payload_ref"]}
+  ]
+}

@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "mindscape://durable-product-semantic-workflow/v1/release_health_receipt",
+  "title": "Product Release Health Receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "receipt_id",
+    "release_workflow_id",
+    "release_id",
+    "candidate_attestation_id",
+    "window",
+    "slo",
+    "error_budget",
+    "quality",
+    "safety",
+    "resource",
+    "drift",
+    "incident_refs",
+    "decision",
+    "recorded_at",
+    "signature"
+  ],
+  "properties": {
+    "receipt_id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "release_workflow_id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "release_id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "candidate_attestation_id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "window": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["started_at", "ended_at", "cohort_hash"],
+      "properties": {
+        "started_at": {"type": "string", "format": "date-time"},
+        "ended_at": {"type": "string", "format": "date-time"},
+        "cohort_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+      }
+    },
+    "slo": {"$ref": "#/$defs/measurement"},
+    "error_budget": {"$ref": "#/$defs/measurement"},
+    "quality": {"$ref": "#/$defs/measurement"},
+    "safety": {"$ref": "#/$defs/measurement"},
+    "resource": {"$ref": "#/$defs/measurement"},
+    "drift": {"$ref": "#/$defs/measurement"},
+    "incident_refs": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1, "maxLength": 240}
+    },
+    "decision": {"enum": ["healthy", "degraded", "rollback_required", "rolled_back"]},
+    "rollback_approval_id": {"type": ["string", "null"], "maxLength": 200},
+    "rollback_effect_receipt_id": {"type": ["string", "null"], "maxLength": 200},
+    "recorded_at": {"type": "string", "format": "date-time"},
+    "signature": {"type": "string", "minLength": 1, "maxLength": 4096}
+  },
+  "$defs": {
+    "measurement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["definition_hash", "value", "threshold", "status"],
+      "properties": {
+        "definition_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "value": {"type": "number"},
+        "threshold": {"type": "number"},
+        "status": {"enum": ["pass", "fail", "inconclusive"]}
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "decision": {"enum": ["rollback_required", "rolled_back"]}
+        }
+      },
+      "then": {"required": ["rollback_approval_id"]}
+    },
+    {
+      "if": {"properties": {"decision": {"const": "rolled_back"}}},
+      "then": {"required": ["rollback_effect_receipt_id"]}
+    }
+  ]
+}

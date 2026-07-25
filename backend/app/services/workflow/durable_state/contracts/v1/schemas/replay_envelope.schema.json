@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "mindscape://durable-product-semantic-workflow/v1/replay_envelope",
+  "title": "Replay Envelope",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "replay_id",
+    "source_root_workflow_id",
+    "source_segments",
+    "source_sequence",
+    "mode",
+    "workflow_definition_version",
+    "reducer_version",
+    "effect_adapter_registry_version",
+    "runtime_build_id",
+    "compatibility_result",
+    "effect_policy",
+    "created_by",
+    "created_at",
+    "signature"
+  ],
+  "properties": {
+    "replay_id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "source_root_workflow_id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "source_segments": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["segment_id", "segment_number", "terminal_hash"],
+        "properties": {
+          "segment_id": {"type": "string", "minLength": 1, "maxLength": 200},
+          "segment_number": {"type": "integer", "minimum": 0},
+          "terminal_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+        }
+      }
+    },
+    "source_sequence": {"type": "integer", "minimum": 0},
+    "mode": {"enum": ["as_of", "fork", "replay", "compare", "re_evaluate"]},
+    "fork_workflow_id": {"type": ["string", "null"], "maxLength": 200},
+    "workflow_definition_version": {"type": "string", "minLength": 1, "maxLength": 100},
+    "reducer_version": {"type": "string", "minLength": 1, "maxLength": 100},
+    "effect_adapter_registry_version": {"type": "string", "minLength": 1, "maxLength": 100},
+    "runtime_build_id": {"type": "string", "minLength": 1, "maxLength": 240},
+    "compatibility_result": {"enum": ["exact", "semantic", "incompatible"]},
+    "effect_policy": {"const": "receipts_only_no_direct_effect"},
+    "created_by": {"type": "string", "minLength": 1, "maxLength": 200},
+    "created_at": {"type": "string", "format": "date-time"},
+    "signature": {"type": "string", "minLength": 1, "maxLength": 4096}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"mode": {"const": "fork"}}},
+      "then": {
+        "required": ["fork_workflow_id"],
+        "properties": {"fork_workflow_id": {"type": "string", "minLength": 1}}
+      }
+    }
+  ]
+}

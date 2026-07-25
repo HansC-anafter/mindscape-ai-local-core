@@ -1,0 +1,170 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "mindscape://durable-product-semantic-workflow/v1/development_change_attestation",
+  "title": "Development Change Attestation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "attestation_id",
+    "contract_id",
+    "repositories",
+    "build_artifacts",
+    "configuration_hashes",
+    "data_model_tool_prompt_hashes",
+    "dependency_locks",
+    "sbom_receipts",
+    "security_license_receipts",
+    "consumer_impact_receipt",
+    "provider",
+    "decision",
+    "created_at",
+    "signature"
+  ],
+  "properties": {
+    "attestation_id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "contract_id": {"const": "mindscape.durable-product-semantic-workflow.v1"},
+    "repositories": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["repo_id", "commit_sha", "tree_sha", "dirty"],
+        "properties": {
+          "repo_id": {"enum": ["mindscape-ai-cloud", "mindscape-ai-local-core"]},
+          "commit_sha": {"type": "string", "pattern": "^[a-f0-9]{40}$"},
+          "tree_sha": {"type": "string", "pattern": "^[a-f0-9]{40}$"},
+          "dirty": {"const": false}
+        }
+      }
+    },
+    "build_artifacts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/hashReceipt"}
+    },
+    "configuration_hashes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/hashReceipt"}
+    },
+    "data_model_tool_prompt_hashes": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/hashReceipt"}
+    },
+    "dependency_locks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/hashReceipt"}
+    },
+    "sbom_receipts": {
+      "type": "array",
+      "minItems": 2,
+      "items": {"$ref": "#/$defs/scanReceipt"}
+    },
+    "security_license_receipts": {
+      "type": "array",
+      "minItems": 2,
+      "items": {"$ref": "#/$defs/scanReceipt"}
+    },
+    "consumer_impact_receipt": {"$ref": "#/$defs/hashReceipt"},
+    "provider": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provider_id",
+        "image_digest",
+        "source_commit",
+        "database_digest",
+        "commands"
+      ],
+      "properties": {
+        "provider_id": {"const": "aquasecurity.trivy.fs.v0.72.0"},
+        "image_digest": {
+          "const": "sha256:cffe3f5161a47a6823fbd23d985795b3ed72a4c806da4c4df16266c02accdd6f"
+        },
+        "source_commit": {
+          "const": "8a32853686209a428179bb3a1688802b25691564"
+        },
+        "database_digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+        "commands": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {"type": "array", "minItems": 2, "items": {"type": "string"}}
+        }
+      }
+    },
+    "decision": {"enum": ["admitted", "blocked", "needs_human_review"]},
+    "exceptions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["finding_id", "expires_at", "approver", "signature"],
+        "properties": {
+          "finding_id": {"type": "string", "minLength": 1, "maxLength": 240},
+          "expires_at": {"type": "string", "format": "date-time"},
+          "approver": {"type": "string", "minLength": 1, "maxLength": 200},
+          "signature": {"type": "string", "minLength": 1, "maxLength": 4096}
+        }
+      }
+    },
+    "created_at": {"type": "string", "format": "date-time"},
+    "signature": {"type": "string", "minLength": 1, "maxLength": 4096}
+  },
+  "$defs": {
+    "hashReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "sha256", "bytes"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1, "maxLength": 300},
+        "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "bytes": {"type": "integer", "minimum": 0}
+      }
+    },
+    "scanReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repo_id",
+        "tree_sha",
+        "command_argv",
+        "scanned_at",
+        "output_sha256",
+        "output_bytes",
+        "finding_summary"
+      ],
+      "properties": {
+        "repo_id": {"enum": ["mindscape-ai-cloud", "mindscape-ai-local-core"]},
+        "tree_sha": {"type": "string", "pattern": "^[a-f0-9]{40}$"},
+        "command_argv": {"type": "array", "minItems": 2, "items": {"type": "string"}},
+        "scanned_at": {"type": "string", "format": "date-time"},
+        "output_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "output_bytes": {"type": "integer", "minimum": 2},
+        "finding_summary": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "critical",
+            "high",
+            "forbidden",
+            "restricted",
+            "reciprocal",
+            "unknown"
+          ],
+          "properties": {
+            "critical": {"type": "integer", "minimum": 0},
+            "high": {"type": "integer", "minimum": 0},
+            "forbidden": {"type": "integer", "minimum": 0},
+            "restricted": {"type": "integer", "minimum": 0},
+            "reciprocal": {"type": "integer", "minimum": 0},
+            "unknown": {"type": "integer", "minimum": 0}
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "mindscape://durable-product-semantic-workflow/v1/evidence_lifecycle_manifest",
+  "title": "Evidence Lifecycle Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "manifest_id",
+    "workflow_id",
+    "evidence_class",
+    "content_hash",
+    "retention_policy_id",
+    "retention_until",
+    "privacy_classification",
+    "archive_policy",
+    "legal_hold",
+    "redaction_policy",
+    "erasure_policy",
+    "crypto_shredding_policy",
+    "purge_policy",
+    "tombstone_policy",
+    "reconciliation_state",
+    "created_at",
+    "signature"
+  ],
+  "properties": {
+    "manifest_id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "workflow_id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "evidence_class": {"type": "string", "minLength": 1, "maxLength": 120},
+    "content_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "object_ref": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["uri", "sha256", "bytes", "schema_id"],
+      "properties": {
+        "uri": {"type": "string", "minLength": 1, "maxLength": 2048},
+        "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "bytes": {"type": "integer", "minimum": 0},
+        "schema_id": {"type": "string", "minLength": 1, "maxLength": 240}
+      }
+    },
+    "retention_policy_id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "retention_until": {"type": "string", "format": "date-time"},
+    "privacy_classification": {
+      "enum": ["public", "internal", "confidential", "restricted"]
+    },
+    "archive_policy": {"type": "string", "minLength": 1, "maxLength": 500},
+    "legal_hold": {"type": "boolean"},
+    "redaction_policy": {"type": "string", "minLength": 1, "maxLength": 500},
+    "erasure_policy": {"type": "string", "minLength": 1, "maxLength": 500},
+    "crypto_shredding_policy": {"type": "string", "minLength": 1, "maxLength": 500},
+    "purge_policy": {"type": "string", "minLength": 1, "maxLength": 500},
+    "tombstone_policy": {"type": "string", "minLength": 1, "maxLength": 500},
+    "lifecycle_action": {
+      "enum": [
+        "registered",
+        "archived",
+        "redacted",
+        "erased",
+        "crypto_shredded",
+        "purged",
+        "tombstoned"
+      ]
+    },
+    "action_receipt_ref": {"type": ["string", "null"], "maxLength": 240},
+    "reconciliation_state": {"enum": ["pending", "verified", "failed"]},
+    "created_at": {"type": "string", "format": "date-time"},
+    "signature": {"type": "string", "minLength": 1, "maxLength": 4096}
+  }
+}

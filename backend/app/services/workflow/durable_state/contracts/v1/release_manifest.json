@@ -1,0 +1,75 @@
+{
+  "contract_id": "mindscape.durable-product-semantic-workflow.v1",
+  "contract_version": "1.0.0",
+  "outcome_adapter_port_id": "mindscape.product-outcome-adapter-port.v1",
+  "cloud_psc_id": "psc.cloud.durable-product-semantic-workflow-publication.v1",
+  "local_core_psc_id": "psc.local-core.durable-product-semantic-workflow-runtime.v1",
+  "source_revision_binding": "development_change_attestation",
+  "workflow_kinds": [
+    "execution",
+    "product_iteration",
+    "product_release"
+  ],
+  "critical_durability": "sync",
+  "max_segment_events": 10000,
+  "max_segment_canonical_bytes": 67108864,
+  "schemas": {
+    "schemas/approval.schema.json": {
+      "sha256": "839e06fe7c642b55954f88368ffb27c1c2ce36e22b81ddd5e6427ddea533481c",
+      "bytes": 2252
+    },
+    "schemas/checkpoint.schema.json": {
+      "sha256": "af7385146d27e43dd8fcc9074656447715e3f6fe2ee90d9ca52ee4505384ac80",
+      "bytes": 2430
+    },
+    "schemas/development_change_attestation.schema.json": {
+      "sha256": "306915755aa68a32da3d0fbc04da87c9a3f71b922121b2522dc29862d3f7646f",
+      "bytes": 5512
+    },
+    "schemas/evaluation_receipt.schema.json": {
+      "sha256": "1ad625773cb7eb71ffdd9c41a9beaddc277ca1f7a1c3d5917f03d2ae565d55cb",
+      "bytes": 1782
+    },
+    "schemas/evidence_lifecycle_manifest.schema.json": {
+      "sha256": "8cb3fba1aa3f0a9ebc811311cfa4c7139018095c346b77d14755f6150aee82a6",
+      "bytes": 2657
+    },
+    "schemas/execution_terminal_receipt.schema.json": {
+      "sha256": "c9a65f2b126a722136fdc6227bdc557641a043000a75ccae647300f12a4db859",
+      "bytes": 2844
+    },
+    "schemas/outcome_adapter_descriptor.schema.json": {
+      "sha256": "29612c66653ab68c4207dbce51a6f3ed15118e2b7680f1ca9c5cf2a115c3828d",
+      "bytes": 2702
+    },
+    "schemas/outcome_observation.schema.json": {
+      "sha256": "a52d0082be1653396296e1d39b1587c43e258299cb60943c82dcbf95ba859fdb",
+      "bytes": 2214
+    },
+    "schemas/product_iteration.schema.json": {
+      "sha256": "037a91a8ea8964f54dc566f6ffcb8669bf14daca696f848a22367a79d91b6f92",
+      "bytes": 5233
+    },
+    "schemas/release_health_receipt.schema.json": {
+      "sha256": "8388d1405d9b71afb7f31bbb016da0ea7a9ce45201b993ac238cc965e108f176",
+      "bytes": 2829
+    },
+    "schemas/replay_envelope.schema.json": {
+      "sha256": "6c8c420803e0cbad2239b75d14d339649346dfe02519c83bf017f5f81a267956",
+      "bytes": 2389
+    },
+    "schemas/semantic_execution_identity.schema.json": {
+      "sha256": "292ee8cff1cbcac4f66670fbfe1541c0f2572a82141e372ffbea565ad08e91ad",
+      "bytes": 2989
+    },
+    "schemas/side_effect_receipt.schema.json": {
+      "sha256": "2e578c27e2995c07737548b63afd96ff1c9a5270dc3f92d20002694fb7897323",
+      "bytes": 2099
+    },
+    "schemas/workflow_event.schema.json": {
+      "sha256": "02f842c76ea6d0a66594bae90b28cad5c5033084e4fa3f0fbcea0af0ea8c6697",
+      "bytes": 2519
+    }
+  },
+  "manifest_sha256": "1660a6d9783bbdb6d8032b758ad9a9787e2409e2b23ef2e2c7397e4f2d08a69c"
+}

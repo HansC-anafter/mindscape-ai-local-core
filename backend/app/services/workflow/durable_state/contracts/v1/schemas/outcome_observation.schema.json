@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "mindscape://durable-product-semantic-workflow/v1/outcome_observation",
+  "title": "Outcome Observation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "observation_id",
+    "iteration_id",
+    "arm_id",
+    "terminal_receipt_id",
+    "enrollment_id",
+    "descriptor_id",
+    "evaluator_id",
+    "evaluator_version",
+    "metric_id",
+    "value",
+    "denominator",
+    "comparability_key",
+    "provenance_hash",
+    "observed_at",
+    "signature"
+  ],
+  "properties": {
+    "observation_id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "iteration_id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "arm_id": {"type": "string", "minLength": 1, "maxLength": 120},
+    "terminal_receipt_id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "enrollment_id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "descriptor_id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "evaluator_id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "evaluator_version": {"type": "string", "minLength": 1, "maxLength": 100},
+    "metric_id": {"type": "string", "minLength": 1, "maxLength": 120},
+    "value": {"type": "number"},
+    "denominator": {"type": "number", "exclusiveMinimum": 0},
+    "unit": {"type": ["string", "null"], "maxLength": 80},
+    "comparability_key": {"type": "string", "minLength": 1, "maxLength": 240},
+    "quality_state": {"enum": ["valid", "invalid", "needs_review"]},
+    "provenance_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "raw_evidence_ref": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["uri", "sha256", "bytes", "schema_id"],
+      "properties": {
+        "uri": {"type": "string", "minLength": 1, "maxLength": 2048},
+        "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "bytes": {"type": "integer", "minimum": 0},
+        "schema_id": {"type": "string", "minLength": 1, "maxLength": 240}
+      }
+    },
+    "observed_at": {"type": "string", "format": "date-time"},
+    "signature": {"type": "string", "minLength": 1, "maxLength": 4096}
+  }
+}

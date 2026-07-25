@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "mindscape://durable-product-semantic-workflow/v1/semantic_execution_identity",
+  "title": "Semantic Execution Identity",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract_id",
+    "contract_version",
+    "workflow_id",
+    "root_workflow_id",
+    "segment_id",
+    "segment_number",
+    "workflow_kind",
+    "workspace_id",
+    "psc_ids",
+    "workflow_definition_version",
+    "reducer_version",
+    "effect_adapter_registry_version",
+    "runtime_build_id",
+    "replay_compatibility_class",
+    "critical_durability"
+  ],
+  "properties": {
+    "contract_id": {"const": "mindscape.durable-product-semantic-workflow.v1"},
+    "contract_version": {"const": "1.0.0"},
+    "workflow_id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "root_workflow_id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "segment_id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "segment_number": {"type": "integer", "minimum": 0},
+    "predecessor_segment_id": {"type": ["string", "null"], "maxLength": 200},
+    "predecessor_terminal_hash": {
+      "type": ["string", "null"],
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "workflow_kind": {
+      "enum": ["execution", "product_iteration", "product_release"]
+    },
+    "workspace_id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "execution_id": {"type": ["string", "null"], "maxLength": 200},
+    "psc_ids": {
+      "type": "array",
+      "minItems": 2,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1, "maxLength": 240}
+    },
+    "cloud_contract_manifest_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "workflow_definition_version": {"type": "string", "minLength": 1, "maxLength": 100},
+    "reducer_version": {"type": "string", "minLength": 1, "maxLength": 100},
+    "effect_adapter_registry_version": {"type": "string", "minLength": 1, "maxLength": 100},
+    "runtime_build_id": {"type": "string", "minLength": 1, "maxLength": 240},
+    "replay_compatibility_class": {
+      "enum": ["exact", "backward_compatible", "migration_required"]
+    },
+    "critical_durability": {"const": "sync"},
+    "development_attestation_id": {"type": "string", "minLength": 1, "maxLength": 240},
+    "created_at": {"type": "string", "format": "date-time"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"segment_number": {"const": 0}}},
+      "then": {
+        "properties": {
+          "predecessor_segment_id": {"type": "null"},
+          "predecessor_terminal_hash": {"type": "null"}
+        }
+      },
+      "else": {
+        "required": ["predecessor_segment_id", "predecessor_terminal_hash"],
+        "properties": {
+          "predecessor_segment_id": {"type": "string", "minLength": 1},
+          "predecessor_terminal_hash": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        }
+      }
+    }
+  ]
+}

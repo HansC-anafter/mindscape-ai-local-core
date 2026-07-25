@@ -647,6 +647,33 @@ surfaces:
       - web-console/src/hooks/useFileUpload.ts
       - docker-compose.yml
 
+  - id: psc.local-core.durable-product-semantic-workflow-runtime.v1
+    tier: P0
+    owner: "@team-leads"
+    contract_doc: mindscape-ai-cloud/docs/internal/local-core/product-semantics/durable-product-semantic-workflow-contract-2026-07-25.zh-TW.md
+    requires_product_semantic_declaration: true
+    semantics:
+      - Local Core owns the byte-identical contract mirror, one durable-state facade, one ten-table PostgreSQL ledger, deterministic reducers, signed receipts, bounded projections, review routes, and operational recovery evidence.
+      - Runtime code never reads Cloud source, .contract-sources, or network contracts; schema parity is a CI/build concern and a pinned release-manifest hash is part of every semantic execution identity.
+      - All protected writes require caller-owned transactions through the facade; repository leaves do not create engines or sessions, routes do not issue SQL, and runtime has no DDL fallback or unsigned receipt path.
+      - Terminal execution enters product iteration only through mindscape.product-outcome-adapter-port.v1 and the installed runtime contract registry; generic host code contains no pack literal, known-pack map, prefix dispatch, or pack-specific import.
+      - The runtime reuses the existing task lane, PgBouncer transaction pool, workspace shared EventSource, and explicit compact reads with zero new worker, queue, pool, scheduler, or polling topology.
+    path_globs:
+      - backend/app/services/workflow/durable_state/**
+      - backend/alembic_migrations/postgres/durable_workflow_v1.py
+      - backend/alembic_migrations/postgres/versions/*durable_workflow*
+      - backend/app/routes/core/durable_workflows.py
+      - backend/app/routes/core/durable_workflows_core/**
+      - backend/app/services/run_harness/durable_workflow_adapter.py
+      - backend/app/services/tasks/durable_workflow_*.py
+      - backend/app/services/workflow/durable_workflow_*.py
+      - web-console/src/app/workspaces/components/durable-workflow-review/**
+      - scripts/ci/build_durable_workflow_change_attestation.py
+      - scripts/ci/durable_workflow_attestation/**
+      - scripts/ci/validate_durable_workflow_contract_parity.py
+      - backend/tests/durable_workflow_*
+      - backend/tests/ci/durable_workflow_*
+
   - id: psc.local-core.semantic-governance-tooling.v1
     tier: P0
     owner: "@team-leads"

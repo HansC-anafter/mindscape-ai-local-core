@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "mindscape://durable-product-semantic-workflow/v1/side_effect_receipt",
+  "title": "Side Effect Receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "receipt_id",
+    "workflow_id",
+    "effect_id",
+    "effect_type",
+    "owner",
+    "request_hash",
+    "adapter_id",
+    "adapter_version",
+    "status",
+    "replay_disposition",
+    "attempt",
+    "recorded_at",
+    "signature"
+  ],
+  "properties": {
+    "receipt_id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "workflow_id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "effect_id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "effect_type": {"type": "string", "minLength": 1, "maxLength": 120},
+    "owner": {"type": "string", "minLength": 1, "maxLength": 200},
+    "request_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "response_hash": {
+      "type": ["string", "null"],
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "adapter_id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "adapter_version": {"type": "string", "minLength": 1, "maxLength": 100},
+    "status": {"enum": ["prepared", "succeeded", "failed", "compensated"]},
+    "replay_disposition": {
+      "enum": ["reuse_receipt", "retry_idempotently", "requires_approval", "never_replay"]
+    },
+    "attempt": {"type": "integer", "minimum": 1},
+    "approval_consumption_id": {"type": ["string", "null"], "maxLength": 200},
+    "result_ref": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["uri", "sha256", "bytes", "schema_id"],
+      "properties": {
+        "uri": {"type": "string", "minLength": 1, "maxLength": 2048},
+        "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "bytes": {"type": "integer", "minimum": 0},
+        "schema_id": {"type": "string", "minLength": 1, "maxLength": 240}
+      }
+    },
+    "recorded_at": {"type": "string", "format": "date-time"},
+    "signature": {"type": "string", "minLength": 1, "maxLength": 4096}
+  }
+}

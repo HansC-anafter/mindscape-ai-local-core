@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "mindscape://durable-product-semantic-workflow/v1/execution_terminal_receipt",
+  "title": "Execution Terminal Receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "receipt_id",
+    "workflow_id",
+    "root_workflow_id",
+    "execution_id",
+    "workspace_id",
+    "capability_identity",
+    "terminal_state",
+    "terminal_event_hash",
+    "result_schema_id",
+    "result_hash",
+    "resource_summary",
+    "artifact_refs",
+    "completed_at",
+    "signature"
+  ],
+  "properties": {
+    "receipt_id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "workflow_id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "root_workflow_id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "execution_id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "workspace_id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "capability_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["capability_code", "pack_version", "manifest_sha256"],
+      "properties": {
+        "capability_code": {"type": "string", "pattern": "^[a-z][a-z0-9_]{1,63}$"},
+        "pack_version": {"type": "string", "minLength": 1, "maxLength": 100},
+        "manifest_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+      }
+    },
+    "terminal_state": {"enum": ["succeeded", "failed", "cancelled", "compensated"]},
+    "terminal_event_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "result_schema_id": {"type": "string", "minLength": 1, "maxLength": 240},
+    "result_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "resource_summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["duration_ms", "attempts", "task_count"],
+      "properties": {
+        "duration_ms": {"type": "integer", "minimum": 0},
+        "attempts": {"type": "integer", "minimum": 1},
+        "task_count": {"type": "integer", "minimum": 0},
+        "cpu_ms": {"type": "integer", "minimum": 0},
+        "peak_memory_bytes": {"type": "integer", "minimum": 0}
+      }
+    },
+    "artifact_refs": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["uri", "sha256", "bytes", "schema_id"],
+        "properties": {
+          "uri": {"type": "string", "minLength": 1, "maxLength": 2048},
+          "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+          "bytes": {"type": "integer", "minimum": 0},
+          "schema_id": {"type": "string", "minLength": 1, "maxLength": 240}
+        }
+      }
+    },
+    "completed_at": {"type": "string", "format": "date-time"},
+    "signature": {"type": "string", "minLength": 1, "maxLength": 4096}
+  }
+}

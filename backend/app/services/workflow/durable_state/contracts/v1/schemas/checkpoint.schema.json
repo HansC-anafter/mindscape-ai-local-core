@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "mindscape://durable-product-semantic-workflow/v1/checkpoint",
+  "title": "Durable Workflow Checkpoint",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "checkpoint_id",
+    "workflow_id",
+    "segment_id",
+    "sequence",
+    "state_hash",
+    "event_hash",
+    "reducer_version",
+    "effect_frontier",
+    "approval_frontier",
+    "timer_frontier",
+    "message_frontier",
+    "cancellation_frontier",
+    "segment_event_count",
+    "segment_canonical_bytes",
+    "committed_at",
+    "critical_durability",
+    "signature"
+  ],
+  "properties": {
+    "checkpoint_id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "workflow_id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "segment_id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "sequence": {"type": "integer", "minimum": 0},
+    "state_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "event_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "reducer_version": {"type": "string", "minLength": 1, "maxLength": 100},
+    "effect_frontier": {"type": "integer", "minimum": 0},
+    "approval_frontier": {"type": "integer", "minimum": 0},
+    "timer_frontier": {"type": "integer", "minimum": 0},
+    "message_frontier": {"type": "integer", "minimum": 0},
+    "cancellation_frontier": {"type": "integer", "minimum": 0},
+    "segment_event_count": {"type": "integer", "minimum": 0, "maximum": 10000},
+    "segment_canonical_bytes": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 67108864
+    },
+    "predecessor_segment_id": {"type": ["string", "null"], "maxLength": 200},
+    "predecessor_terminal_hash": {
+      "type": ["string", "null"],
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "state_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["uri", "sha256", "bytes", "schema_id"],
+      "properties": {
+        "uri": {"type": "string", "minLength": 1, "maxLength": 2048},
+        "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "bytes": {"type": "integer", "minimum": 0},
+        "schema_id": {"type": "string", "minLength": 1, "maxLength": 240}
+      }
+    },
+    "committed_at": {"type": "string", "format": "date-time"},
+    "critical_durability": {"const": "sync"},
+    "signature": {"type": "string", "minLength": 1, "maxLength": 4096}
+  }
+}
