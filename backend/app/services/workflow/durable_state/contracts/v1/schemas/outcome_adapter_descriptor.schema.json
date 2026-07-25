@@ -8,6 +8,8 @@
     "descriptor_id",
     "port_id",
     "contract_export_id",
+    "adapter_contract_version",
+    "evaluator_version",
     "capability_identity",
     "selector",
     "input_schema_id",
@@ -18,12 +20,19 @@
     "manifest_sha256",
     "descriptor_sha256",
     "activated_at",
+    "key_id",
     "signature"
   ],
   "properties": {
     "descriptor_id": {"type": "string", "minLength": 1, "maxLength": 200},
     "port_id": {"const": "mindscape.product-outcome-adapter-port.v1"},
     "contract_export_id": {"const": "product_outcome_adapter"},
+    "adapter_contract_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$",
+      "maxLength": 100
+    },
+    "evaluator_version": {"type": "string", "minLength": 1, "maxLength": 120},
     "capability_identity": {
       "type": "object",
       "additionalProperties": false,
@@ -67,8 +76,13 @@
     "authorized_lane": {"type": "string", "minLength": 1, "maxLength": 120},
     "installed_artifact_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
     "manifest_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
-    "descriptor_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "descriptor_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$",
+      "$comment": "SHA-256 of canonical JSON after removing descriptor_sha256 and signature."
+    },
     "activated_at": {"type": "string", "format": "date-time"},
+    "key_id": {"type": "string", "minLength": 1, "maxLength": 200},
     "signature": {"type": "string", "minLength": 1, "maxLength": 4096}
   }
 }
