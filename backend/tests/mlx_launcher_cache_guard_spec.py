@@ -34,6 +34,22 @@ def test_main_mlx_launcher_recovers_unresponsive_idle_runtime_by_default() -> No
     assert "${WATCHDOG_MAX_FAILURES} idle failures - killing MLX" in text
 
 
+def test_main_mlx_launcher_reads_formal_lane_state_without_unlinking_it() -> None:
+    text = MAIN_LAUNCHER.read_text(encoding="utf-8")
+
+    assert 'if [ "$PORT" = "8210" ]; then' in text
+    assert (
+        'WATCHDOG_STATE_FILE_DEFAULT="${WATCHDOG_STATE_ROOT}/vision_local.json"'
+        in text
+    )
+    assert (
+        'WATCHDOG_STATE_FILE="${MLX_WATCHDOG_STATE_FILE:-'
+        '$WATCHDOG_STATE_FILE_DEFAULT}"'
+        in text
+    )
+    assert 'rm -f "$WATCHDOG_STATE_FILE"' not in text
+
+
 def test_module_mlx_launcher_creates_hf_cache_before_server_exec() -> None:
     text = MODULE_LAUNCHER.read_text(encoding="utf-8")
 

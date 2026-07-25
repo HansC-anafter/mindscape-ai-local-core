@@ -88,9 +88,16 @@ WATCHDOG_INFLIGHT_USTATE_SAMPLES="${MLX_WATCHDOG_INFLIGHT_USTATE_SAMPLES:-3}"
 WATCHDOG_INFLIGHT_USTATE_SAMPLE_DELAY="${MLX_WATCHDOG_INFLIGHT_USTATE_SAMPLE_DELAY:-1}"
 # Health check curl timeout (must be < WATCHDOG_INTERVAL)
 WATCHDOG_CURL_TIMEOUT=5
-# The backend/runner writes this through the Docker bind mount at
-# /app/data/runtime/mlx-watchdog/inflight_request.json.
-WATCHDOG_STATE_FILE="${MLX_WATCHDOG_STATE_FILE:-/Volumes/OWC Ultra 4T/mindscape-ai-local-core-runtime/data/runtime/mlx-watchdog/inflight_request.json}"
+# The formal vision runner writes its lane-scoped state through the Docker bind
+# mount at /app/data/runtime/mlx-watchdog/vision_local.json. Keep the legacy
+# generic filename for non-formal/manual ports unless an operator supplies an
+# exact state file.
+WATCHDOG_STATE_ROOT="${MLX_WATCHDOG_STATE_ROOT:-/Volumes/OWC Ultra 4T/mindscape-ai-local-core-runtime/data/runtime/mlx-watchdog}"
+WATCHDOG_STATE_FILE_DEFAULT="${WATCHDOG_STATE_ROOT}/inflight_request.json"
+if [ "$PORT" = "8210" ]; then
+  WATCHDOG_STATE_FILE_DEFAULT="${WATCHDOG_STATE_ROOT}/vision_local.json"
+fi
+WATCHDOG_STATE_FILE="${MLX_WATCHDOG_STATE_FILE:-$WATCHDOG_STATE_FILE_DEFAULT}"
 WATCHDOG_INFLIGHT_HARD_TIMEOUT="${MLX_WATCHDOG_INFLIGHT_HARD_TIMEOUT:-7200}"
 WATCHDOG_INFLIGHT_HEARTBEAT_TIMEOUT="${MLX_WATCHDOG_INFLIGHT_HEARTBEAT_TIMEOUT:-120}"
 WATCHDOG_STATE_HELPER="$(dirname "$0")/watchdog_state.py"
@@ -99,7 +106,8 @@ WATCHDOG_STATE_HELPER="$(dirname "$0")/watchdog_state.py"
 # operators may still explicitly set "ignore" for a controlled diagnostic.
 WATCHDOG_IDLE_FAILURE_MODE="${MLX_WATCHDOG_IDLE_FAILURE_MODE:-recover}"
 mkdir -p "$(dirname "$WATCHDOG_STATE_FILE")" 2>/dev/null || true
-rm -f "$WATCHDOG_STATE_FILE" 2>/dev/null || true
+# Do not unlink a fresh runner-owned state file during launchd recovery. The
+# watchdog helper already rejects inactive, stale, and over-hard-timeout state.
 
 echo "[mlx-server] Starting MLX VLM server: host=$HOST port=$PORT (model loaded on first request)"
 echo "[mlx-server] Watchdog enabled: check every ${WATCHDOG_INTERVAL}s, kill after ${WATCHDOG_MAX_FAILURES} consecutive failures"
