@@ -39,8 +39,8 @@
       "bytes": 4515
     },
     "schemas/outcome_adapter_descriptor.schema.json": {
-      "sha256": "81513570bcff9394da6f590abf35e7ba2c871977412533e0991ae911a7fd7314",
-      "bytes": 3191
+      "sha256": "7756743998c9f38348a80f1aa183650dc27e04647555795da91e55fcc3d06bcf",
+      "bytes": 3202
     },
     "schemas/outcome_observation.schema.json": {
       "sha256": "a52d0082be1653396296e1d39b1587c43e258299cb60943c82dcbf95ba859fdb",
@@ -71,5 +71,5 @@
       "bytes": 2519
     }
   },
-  "manifest_sha256": "232bf879c960c7998360570ccba6a8b5fc2cb296c08f103d00c08a1e815adc99"
+  "manifest_sha256": "b00f55eb343cea82627a4886f399ff7908dd920f690b9c7837c2ca6e399798d7"
 }

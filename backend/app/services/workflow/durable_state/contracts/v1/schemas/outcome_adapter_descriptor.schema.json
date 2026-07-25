@@ -14,7 +14,7 @@
     "selector",
     "input_schema_id",
     "output_schema_id",
-    "entrypoint",
+    "evaluator_entrypoint",
     "authorized_lane",
     "installed_artifact_sha256",
     "manifest_sha256",
@@ -68,9 +68,9 @@
     "output_schema_id": {
       "const": "mindscape://durable-product-semantic-workflow/v1/outcome_observation"
     },
-    "entrypoint": {
+    "evaluator_entrypoint": {
       "type": "string",
-      "pattern": "^capabilities\\.[a-z][a-z0-9_]{1,63}\\.schema\\.[a-z][a-z0-9_\\.]*:[A-Za-z][A-Za-z0-9_]*$",
+      "pattern": "^capabilities\\.[a-z][a-z0-9_]{1,63}\\.[a-z][a-z0-9_\\.]*:[A-Za-z][A-Za-z0-9_]*$",
       "maxLength": 300
     },
     "authorized_lane": {"type": "string", "minLength": 1, "maxLength": 120},
