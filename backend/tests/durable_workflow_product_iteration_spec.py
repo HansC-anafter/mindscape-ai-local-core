@@ -139,6 +139,7 @@ def test_upper_chain_requires_signed_evidence_and_owner_effect(
                 workflow_id=workflow_id,
                 expected_sequence=10,
                 target_state="promoted",
+                release_workflow_id="release:promotion",
                 actor=ACTOR,
                 idempotency_key="promote:early",
             )
@@ -186,6 +187,7 @@ def test_upper_chain_requires_signed_evidence_and_owner_effect(
             target_state="promoted",
             approval_consumption_id="consumption:promotion",
             release_effect_receipt_id=effect["receipt_id"],
+            release_workflow_id="release:promotion",
             actor=ACTOR,
             idempotency_key="promote",
         )
@@ -332,6 +334,7 @@ def test_upper_source_has_no_pack_or_resource_pool_branch() -> None:
     paths = [
         root / "product_iterations.py",
         root / "product_iteration_contract.py",
+        root / "product_iteration_re_evaluation.py",
         root / "product_iteration_closure.py",
         root / "product_releases.py",
         root / "experience_summary.py",

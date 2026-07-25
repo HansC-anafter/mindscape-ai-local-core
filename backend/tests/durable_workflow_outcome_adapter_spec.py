@@ -56,6 +56,14 @@ def _signed_descriptor(
         "evaluator_entrypoint": (
             f"capabilities.{capability_code}.services.outcome:evaluate"
         ),
+        "review_lens": {
+            "component_code": "ProductOutcomeReviewLens",
+            "integrity": (
+                "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+            ),
+            "runtime": "esm",
+            "export": "default",
+        },
         "authorized_lane": "runner:existing",
         "installed_artifact_sha256": H,
         "manifest_sha256": H,
@@ -179,6 +187,7 @@ def _enrollment(
             "adapter_contract_version"
         ],
         "descriptor_sha256": descriptor["descriptor_sha256"],
+        "review_lens": descriptor.get("review_lens"),
         "evaluator_version": descriptor["evaluator_version"],
         "evaluator_contract_sha256": H,
         "cohort_manifest_sha256": H,
@@ -339,6 +348,39 @@ def test_exact_enrollment_creates_one_existing_lane_intent(signer) -> None:
     assert created[0][0]["task_type"] == "product_outcome_evaluation"
     assert created[0][0]["authorized_lane"] == "runner:existing"
     assert result["wake_after_commit"] is True
+
+
+def test_review_lens_mismatch_fails_before_task_creation(signer) -> None:
+    capability_code = "lens_capability"
+    entry, descriptor, _snapshot = _materialize(capability_code, signer)
+    terminal = _signed_terminal(capability_code, signer)
+    enrollment = _enrollment(
+        capability_code, descriptor, terminal, signer
+    )
+    enrollment["review_lens"] = {
+        **enrollment["review_lens"],
+        "component_code": "DifferentReviewLens",
+    }
+    enrollment = _resign_enrollment(enrollment, signer)
+    created = []
+    handler = OutcomeEvaluationTaskHandler(
+        OutcomeAdapterResolver(signer),
+        create_task_with_conn=lambda *_args, **_kwargs: created.append(
+            _args[1]
+        ),
+        append_linkage_with_conn=lambda *_args, **_kwargs: None,
+        terminal_verification_keys={signer.key_id: signer.public_key()},
+        enrollment_verification_keys={signer.key_id: signer.public_key()},
+    )
+    rejected = handler.prepare(
+        object(),
+        capability_entries={capability_code: entry},
+        terminal_receipt=terminal,
+        enrollment=enrollment,
+    )
+    assert rejected["status"] == "rejected"
+    assert rejected["rejection"]["reason"] == "review_lens_pin_mismatch"
+    assert created == []
 
 
 def test_invalid_enrollment_signature_creates_no_task(signer) -> None:

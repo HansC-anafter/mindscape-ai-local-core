@@ -99,6 +99,18 @@ class OutcomeEvaluationTaskHandler:
             }
 
         descriptor = dict(resolved.snapshot.descriptor)
+        descriptor_lens = descriptor.get("review_lens")
+        if isinstance(descriptor_lens, Mapping):
+            descriptor_lens = dict(descriptor_lens)
+        if descriptor_lens != enrollment.get("review_lens"):
+            return {
+                "status": "rejected",
+                "task": None,
+                "rejection": self._resolver.reject(
+                    pin, "review_lens_pin_mismatch"
+                ),
+                "wake_after_commit": False,
+            }
         unique_input = {
             "iteration_id": enrollment["iteration_id"],
             "arm_id": enrollment["arm_id"],
@@ -114,6 +126,7 @@ class OutcomeEvaluationTaskHandler:
                 "adapter_contract_version"
             ],
             "descriptor_sha256": descriptor["descriptor_sha256"],
+            "review_lens": descriptor_lens,
             "evaluator_version": descriptor["evaluator_version"],
             "evaluator_contract_sha256": enrollment[
                 "evaluator_contract_sha256"

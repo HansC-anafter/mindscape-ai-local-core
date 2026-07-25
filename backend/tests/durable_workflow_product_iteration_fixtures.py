@@ -48,6 +48,7 @@ def definition(
     state: str = "draft",
     minimum_sample_size: int = 2,
     parent_iteration_id: str | None = None,
+    max_evaluation_attempts: int = 1,
 ) -> dict:
     effective_minimum = max(2, minimum_sample_size)
     value = {
@@ -127,7 +128,7 @@ def definition(
         "observation_window": {"starts_at": NOW, "ends_at": NOW},
         "budget": {
             "max_observations": 10,
-            "max_evaluation_attempts": 1,
+            "max_evaluation_attempts": max_evaluation_attempts,
         },
         "release_target": {
             "arm_id": "candidate",
@@ -171,6 +172,14 @@ def enrollment(
             "contract_export_id": "product_outcome_adapter",
             "adapter_contract_version": "1.0.0",
             "descriptor_sha256": H,
+            "review_lens": {
+                "component_code": "ProductOutcomeReviewLens",
+                "integrity": (
+                    "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+                ),
+                "runtime": "esm",
+                "export": "default",
+            },
             "evaluator_version": iteration["evaluator"]["version"],
             "evaluator_contract_sha256": iteration["evaluator"][
                 "contract_hash"
@@ -300,11 +309,22 @@ def evaluation(iteration: dict, projection: dict, signer) -> dict:
 
 
 def open_collecting(
-    conn, facade, workflow_id: str, minimum: int = 2
+    conn,
+    facade,
+    workflow_id: str,
+    minimum: int = 2,
+    max_evaluation_attempts: int = 1,
 ) -> dict:
-    draft = definition(workflow_id, minimum_sample_size=minimum)
+    draft = definition(
+        workflow_id,
+        minimum_sample_size=minimum,
+        max_evaluation_attempts=max_evaluation_attempts,
+    )
     admitted = definition(
-        workflow_id, state="admitted", minimum_sample_size=minimum
+        workflow_id,
+        state="admitted",
+        minimum_sample_size=minimum,
+        max_evaluation_attempts=max_evaluation_attempts,
     )
     facade.open_product_iteration(
         conn,

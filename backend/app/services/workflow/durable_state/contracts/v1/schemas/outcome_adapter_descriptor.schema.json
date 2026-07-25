@@ -73,6 +73,32 @@
       "pattern": "^capabilities\\.[a-z][a-z0-9_]{1,63}\\.[a-z][a-z0-9_\\.]*:[A-Za-z][A-Za-z0-9_]*$",
       "maxLength": 300
     },
+    "review_lens": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["component_code", "integrity", "runtime", "export"],
+          "properties": {
+            "component_code": {
+              "type": "string",
+              "pattern": "^[A-Za-z][A-Za-z0-9._-]{0,199}$"
+            },
+            "integrity": {
+              "type": "string",
+              "pattern": "^sha256-[A-Za-z0-9+/]{43}=$",
+              "maxLength": 128
+            },
+            "runtime": {"const": "esm"},
+            "export": {
+              "type": "string",
+              "pattern": "^[A-Za-z][A-Za-z0-9_]{0,199}$"
+            }
+          }
+        }
+      ]
+    },
     "authorized_lane": {"type": "string", "minLength": 1, "maxLength": 120},
     "installed_artifact_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
     "manifest_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},

@@ -14,6 +14,9 @@ from .errors import DurableWorkflowConflict
 from .events import verify_events
 from .facade_append import DurableAppendMixin
 from .product_iterations import ProductIterationMixin
+from .product_iteration_re_evaluation import (
+    ProductIterationReEvaluationMixin,
+)
 from .product_iteration_closure import ProductIterationClosureMixin
 from .product_releases import ProductReleaseMixin
 from .repository import DurableWorkflowRepository
@@ -32,6 +35,7 @@ class DurableWorkflowFacade(
     DurableAppendMixin,
     DurableControlPlaneMixin,
     ProductIterationMixin,
+    ProductIterationReEvaluationMixin,
     ProductIterationClosureMixin,
     ProductReleaseMixin,
 ):

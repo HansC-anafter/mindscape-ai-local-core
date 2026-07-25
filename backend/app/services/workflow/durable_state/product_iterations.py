@@ -163,6 +163,22 @@ class ProductIterationMixin:
         require_enrollment_parity(
             definition, selected_arm, enrollment
         )
+        adapter_ref = {
+            "capability_identity": enrollment["capability_identity"],
+            "adapter_contract_version": enrollment[
+                "adapter_contract_version"
+            ],
+            "descriptor_sha256": enrollment["descriptor_sha256"],
+            "evaluator_version": enrollment["evaluator_version"],
+            "review_lens": enrollment.get("review_lens"),
+        }
+        prior_ref = state.get("adapter_refs_by_arm", {}).get(
+            enrollment["arm_id"]
+        )
+        if prior_ref is not None and prior_ref != adapter_ref:
+            raise ValueError(
+                "iteration arm adapter identity is already pinned"
+            )
         return self._append_locked(
             conn,
             locked=locked,
@@ -323,9 +339,23 @@ class ProductIterationMixin:
         idempotency_key: str,
         approval_consumption_id: str | None = None,
         release_effect_receipt_id: str | None = None,
+        release_workflow_id: str | None = None,
     ) -> dict[str, Any]:
-        locked = self._repository.lock_instance(conn, workflow_id)
+        locked, retry = self._begin_append(
+            conn,
+            workflow_id,
+            expected_sequence,
+            idempotency_key,
+            lambda prior: (
+                prior["event_type"] == "transition"
+                and prior["payload"].get("to_state") == target_state
+                and prior["payload"].get("release_workflow_id")
+                == release_workflow_id
+            ),
+        )
         self._require_kind(locked, "product_iteration")
+        if retry:
+            return retry
         state = self._projection_state(conn, locked)
         evaluation = state.get("evaluation")
         definition = state.get("definition")
@@ -341,6 +371,10 @@ class ProductIterationMixin:
                 "iteration target does not match evaluation recommendation"
             )
         if target_state == "promoted":
+            if not release_workflow_id:
+                raise ValueError(
+                    "promotion requires an exact release workflow ID"
+                )
             self._require_release_effect(
                 conn,
                 workflow_id=workflow_id,
@@ -349,18 +383,32 @@ class ProductIterationMixin:
                 approval_consumption_id=approval_consumption_id,
                 release_effect_receipt_id=release_effect_receipt_id,
             )
-        elif approval_consumption_id or release_effect_receipt_id:
+        elif (
+            approval_consumption_id
+            or release_effect_receipt_id
+            or release_workflow_id
+        ):
             raise ValueError(
-                "reject or inconclusive cannot consume a release effect"
+                "reject or inconclusive cannot carry release linkage"
             )
-        return self._append_transition_for_kind(
+        require_transition(
+            "product_iteration", locked["current_state"], target_state
+        )
+        return self._append_locked(
             conn,
-            workflow_id=workflow_id,
-            expected_sequence=expected_sequence,
-            target_state=target_state,
+            locked=locked,
+            event_type="transition",
             idempotency_key=idempotency_key,
             actor=actor,
-            expected_kind="product_iteration",
+            payload={
+                "from_state": locked["current_state"],
+                "to_state": target_state,
+                "approval_consumption_id": approval_consumption_id,
+                "release_effect_receipt_id": release_effect_receipt_id,
+                "release_workflow_id": release_workflow_id,
+            },
+            current_state=target_state,
+            terminal=True,
         )
 
     def _projection_state(self, conn, locked: dict) -> dict:

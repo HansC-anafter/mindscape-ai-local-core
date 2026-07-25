@@ -34,6 +34,14 @@ class ProductReleaseMixin:
         )
         state = self._projection_state(conn, source)
         definition = state["definition"]
+        promotion_link = state.get("promotion_link") or {}
+        if (
+            promotion_link.get("release_workflow_id")
+            != identity["workflow_id"]
+            or promotion_link.get("release_effect_receipt_id")
+            != release_effect_receipt_id
+        ):
+            raise ValueError("product release workflow linkage mismatch")
         selected_arm = arm(
             definition, definition["release_target"]["arm_id"]
         )
