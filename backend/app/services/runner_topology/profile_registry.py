@@ -33,6 +33,7 @@ class RunnerProfile:
     accepted_resource_classes: tuple[str, ...]
     accepted_queue_partitions: tuple[str, ...]
     accepted_capability_codes: tuple[str, ...] = ()
+    rejected_capability_codes: tuple[str, ...] = ()
     runtime_id: Optional[str] = None
     max_inflight: int = 1
     enabled: bool = True
@@ -98,6 +99,7 @@ def _build_profile(
     accepted_queue_partitions: Iterable[str],
     accepted_resource_classes: Iterable[str],
     accepted_capability_codes: Iterable[str] = (),
+    rejected_capability_codes: Iterable[str] = (),
     runtime_id: Optional[str] = None,
     max_inflight: int = 1,
     enabled: bool = True,
@@ -117,6 +119,7 @@ def _build_profile(
         accepted_resource_classes=normalized_resource_classes,
         accepted_queue_partitions=normalized_partitions,
         accepted_capability_codes=_normalize_tokens(accepted_capability_codes),
+        rejected_capability_codes=_normalize_tokens(rejected_capability_codes),
         runtime_id=(runtime_id or "").strip() or None,
         max_inflight=max(1, int(max_inflight or 1)),
         enabled=bool(enabled),
@@ -195,6 +198,9 @@ def resolve_runner_profile_from_env(
     accepted_capability_codes = _normalize_tokens(
         _parse_csv_env("LOCAL_CORE_RUNNER_ACCEPTED_CAPABILITY_CODES")
     ) or base_profile.accepted_capability_codes
+    rejected_capability_codes = _normalize_tokens(
+        _parse_csv_env("LOCAL_CORE_RUNNER_REJECTED_CAPABILITY_CODES")
+    ) or base_profile.rejected_capability_codes
 
     return RunnerProfile(
         profile_code=profile_code,
@@ -209,6 +215,7 @@ def resolve_runner_profile_from_env(
         accepted_resource_classes=accepted_resource_classes,
         accepted_queue_partitions=accepted_queue_partitions,
         accepted_capability_codes=accepted_capability_codes,
+        rejected_capability_codes=rejected_capability_codes,
         runtime_id=(
             os.getenv("LOCAL_CORE_RUNNER_RUNTIME_ID", "").strip()
             or base_profile.runtime_id

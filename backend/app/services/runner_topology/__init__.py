@@ -37,6 +37,7 @@ from .routing import (
     resolve_target_runner_profile,
     resolve_task_routing_target,
     runner_profile_can_claim_task,
+    runner_profile_rejects_task,
 )
 from .spec_metadata import (
     merge_runner_metadata_into_context,
@@ -98,6 +99,7 @@ __all__ = [
     "resolve_task_routing_target",
     "runner_profile_has_capacity",
     "runner_profile_can_claim_task",
+    "runner_profile_rejects_task",
     "is_default_local_browser_legacy_partition",
     "is_default_local_browser_playbook",
     "merge_runner_metadata_into_context",

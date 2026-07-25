@@ -10,6 +10,7 @@ from typing import Optional
 from backend.app.services.runner_topology import (
     normalize_queue_partition,
     runner_profile_can_claim_task,
+    runner_profile_rejects_task,
 )
 from backend.app.services.stores.redis.runner_queue_store import RedisRunnerQueueStore
 from backend.app.services.stores.tasks_store import TasksStore
@@ -86,31 +87,56 @@ async def _dequeue_by_route_gate_policy(
     visibility_timeout_sec: int,
     scan_limit: int,
     active_pack_ids: set[str] | None = None,
-) -> tuple[Optional[str], Optional[RedisRunnerQueueStore], bool]:
+    scan_offsets: dict[str, int] | None = None,
+    tasks_store: TasksStore | None = None,
+) -> tuple[Optional[str], Optional[RedisRunnerQueueStore], bool, bool]:
     if not queue_cycle or scan_limit <= 0:
-        return None, None, False
+        return None, None, False, False
     if not _host_route_gate_enabled():
-        return None, None, False
+        return None, None, False, False
 
     try:
         from backend.app.services.host_resources import route_gate
 
         active_reservations = route_gate.get_active_route_reservations()
     except Exception:
-        return None, None, False
+        return None, None, False, False
 
     candidates: list[dict] = []
     seen: set[str] = set()
+    profile_filtered_count = 0
     for queue_store in queue_cycle:
         client = await queue_store._get_client()
         if not client:
             continue
         try:
-            candidate_ids = await client.lrange(
-                queue_store.q_pending,
-                0,
-                max(0, scan_limit - 1),
+            queue_length = max(0, int(await client.llen(queue_store.q_pending)))
+            if queue_length <= 0:
+                continue
+            scan_count = min(scan_limit, queue_length)
+            scan_start = (
+                max(0, int((scan_offsets or {}).get(queue_store.pack_id, 0)))
+                % queue_length
             )
+            first_end = min(queue_length - 1, scan_start + scan_count - 1)
+            candidate_ids = list(await client.lrange(
+                queue_store.q_pending,
+                scan_start,
+                first_end,
+            ))
+            remaining = scan_count - len(candidate_ids)
+            if remaining > 0 and scan_start > 0:
+                candidate_ids.extend(
+                    await client.lrange(
+                        queue_store.q_pending,
+                        0,
+                        remaining - 1,
+                    )
+                )
+            if scan_offsets is not None:
+                scan_offsets[queue_store.pack_id] = (
+                    scan_start + scan_count
+                ) % queue_length
         except Exception as e:
             logger.warning(
                 "[Worker] Failed to scan ready queue %s for route gate: %s",
@@ -129,6 +155,21 @@ async def _dequeue_by_route_gate_policy(
             positions[task_id] = position
 
         projections = await read_route_identity_projections(client, task_ids)
+        missing_projection_ids = [
+            task_id for task_id in task_ids if task_id not in projections
+        ]
+        if missing_projection_ids and tasks_store is not None:
+            db_projections = await asyncio.to_thread(
+                tasks_store.list_runner_candidate_projections_by_ids,
+                missing_projection_ids,
+                queue_store.pack_id,
+            )
+            for projection in db_projections:
+                projection_id = str(
+                    projection.get("task_id") or projection.get("id") or ""
+                ).strip()
+                if projection_id:
+                    projections[projection_id] = projection
         for task_id in task_ids:
             projection = projections.get(task_id)
             if not projection:
@@ -139,6 +180,8 @@ async def _dequeue_by_route_gate_policy(
                 )
                 continue
             if not _facade_attr("runner_profile_can_claim_task", runner_profile_can_claim_task)(runner_profile, projection):
+                if runner_profile_rejects_task(runner_profile, projection):
+                    profile_filtered_count += 1
                 continue
             candidates.append(
                 {
@@ -151,6 +194,9 @@ async def _dequeue_by_route_gate_policy(
                 }
             )
 
+    if not candidates and profile_filtered_count:
+        return None, None, False, True
+
     selection = route_gate.select_candidate_policy(
         candidates,
         active_reservations=active_reservations,
@@ -158,14 +204,20 @@ async def _dequeue_by_route_gate_policy(
         active_pack_ids=active_pack_ids or set(),
     )
     if selection.get("drain_wait"):
-        return None, None, True
+        return None, None, True, False
     selected = selection.get("selected")
+    if (
+        not isinstance(selected, dict)
+        and runner_profile.rejected_capability_codes
+        and candidates
+    ):
+        selected = candidates[0]
     if not isinstance(selected, dict):
-        return None, None, False
+        return None, None, False, False
     task_id = str(selected.get("task_id") or "").strip()
     queue_store = selected.get("queue_store")
     if not task_id or not hasattr(queue_store, "promote_pending_task_by_id"):
-        return None, None, False
+        return None, None, False, False
     moved = await queue_store.promote_pending_task_by_id(
         task_id,
         visibility_timeout_sec=visibility_timeout_sec,
@@ -177,8 +229,8 @@ async def _dequeue_by_route_gate_policy(
             selection.get("reason"),
             queue_store.pack_id,
         )
-        return moved, queue_store, False
-    return None, None, False
+        return moved, queue_store, False, False
+    return None, None, False, False
 
 
 async def _dequeue_by_browser_fair_candidate_policy(

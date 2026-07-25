@@ -188,13 +188,30 @@ def runner_profile_can_claim_task(profile: RunnerProfile, task: Any) -> bool:
     ):
         return False
 
+    if runner_profile_rejects_task(profile, task):
+        return False
+
+    capability_tokens = {
+        token
+        for token in (target.capability_code, target.pack_id, target.playbook_code)
+        if isinstance(token, str) and token.strip()
+    }
     if profile.accepted_capability_codes:
-        capability_tokens = {
-            token
-            for token in (target.capability_code, target.pack_id, target.playbook_code)
-            if isinstance(token, str) and token.strip()
-        }
         if not capability_tokens.intersection(profile.accepted_capability_codes):
             return False
 
     return True
+
+
+def runner_profile_rejects_task(profile: RunnerProfile, task: Any) -> bool:
+    """Return whether the profile explicitly excludes this task identity."""
+
+    if not profile.rejected_capability_codes:
+        return False
+    target = resolve_task_routing_target(task)
+    capability_tokens = {
+        token
+        for token in (target.capability_code, target.pack_id, target.playbook_code)
+        if isinstance(token, str) and token.strip()
+    }
+    return bool(capability_tokens.intersection(profile.rejected_capability_codes))

@@ -17,6 +17,7 @@ from backend.app.services.host_resources import route_gate
 from backend.app.services.host_resources.route_identity_projection import (
     serialize_route_identity_projection,
 )
+from backend.app.services.runner_topology.profile_registry import RunnerProfile
 from backend.tests.runner.worker_playbook_fairness_support import (
     BATCH_PLAYBOOK,
     DETAIL_PLAYBOOK,
@@ -164,7 +165,7 @@ def test_route_gate_policy_falls_back_when_only_same_playbook():
             projection(task_id, BATCH_PLAYBOOK),
         )
 
-    task_id, queue_store, drain_wait = asyncio.run(
+    task_id, queue_store, drain_wait, profile_filter_wait = asyncio.run(
         _dequeue_by_route_gate_policy(
             [queue],
             runner_profile=browser_profile(),
@@ -177,6 +178,7 @@ def test_route_gate_policy_falls_back_when_only_same_playbook():
     assert task_id is None
     assert queue_store is None
     assert drain_wait is False
+    assert profile_filter_wait is False
     assert queue.promoted == []
 
 
@@ -204,7 +206,7 @@ def test_route_gate_policy_ignores_unrelated_drain_after_current(monkeypatch):
         ],
     )
 
-    task_id, queue_store, drain_wait = asyncio.run(
+    task_id, queue_store, drain_wait, profile_filter_wait = asyncio.run(
         _dequeue_by_route_gate_policy(
             [queue],
             runner_profile=default_profile(),
@@ -217,6 +219,124 @@ def test_route_gate_policy_ignores_unrelated_drain_after_current(monkeypatch):
     assert task_id is None
     assert queue_store is None
     assert drain_wait is False
+    assert profile_filter_wait is False
+    assert queue.promoted == []
+
+
+def test_route_gate_policy_rotates_past_rejected_playbook_without_dequeue(
+    monkeypatch,
+):
+    rejected_playbook = "ig_analyze_pinned_reference"
+    allowed_playbook = "decision_assets_synthesize"
+    queue = FakeFairQueue(
+        ["task-rejected", "task-allowed"],
+        pack_id="vision_mlx_dev",
+    )
+    for task_id, playbook_code in (
+        ("task-rejected", rejected_playbook),
+        ("task-allowed", allowed_playbook),
+    ):
+        queue.client.projections[
+            f"mindscape:host_resources:route_identity:{task_id}"
+        ] = serialize_route_identity_projection(
+            task_id,
+            {
+                **projection(task_id, playbook_code),
+                "queue_shard": "vision_mlx_dev",
+                "runner_profile_hint": "vision_mlx_dev",
+                "route_identity": {
+                    "lane_id": "runner:vision_mlx_dev",
+                    "resource_groups": ["vision_mlx_dev"],
+                    "priority_class": "default",
+                    "pack_id": playbook_code,
+                    "playbook_code": playbook_code,
+                },
+            },
+        )
+    profile = RunnerProfile(
+        profile_code="vision_mlx_dev",
+        display_name="Vision MLX Dev",
+        dispatch_mode="docker_local",
+        accepted_resource_classes=("compute",),
+        accepted_queue_partitions=("vision_mlx_dev",),
+        rejected_capability_codes=(rejected_playbook,),
+        max_inflight=1,
+    )
+    scan_offsets: dict[str, int] = {}
+    monkeypatch.setattr(route_gate, "get_active_route_reservations", lambda: [])
+
+    first = asyncio.run(
+        _dequeue_by_route_gate_policy(
+            [queue],
+            runner_profile=profile,
+            visibility_timeout_sec=180,
+            scan_limit=1,
+            scan_offsets=scan_offsets,
+        )
+    )
+    second = asyncio.run(
+        _dequeue_by_route_gate_policy(
+            [queue],
+            runner_profile=profile,
+            visibility_timeout_sec=180,
+            scan_limit=1,
+            scan_offsets=scan_offsets,
+        )
+    )
+
+    assert first == (None, None, False, True)
+    assert second[0] == "task-allowed"
+    assert second[1] is queue
+    assert second[2:] == (False, False)
+    assert queue.promoted == ["task-allowed"]
+
+
+def test_route_gate_policy_bulk_reads_missing_projections_before_dequeue(
+    monkeypatch,
+):
+    rejected_playbook = "ig_analyze_pinned_reference"
+    queue = FakeFairQueue(
+        ["task-rejected"],
+        pack_id="vision_mlx_dev",
+    )
+    tasks_store = FakeCandidateTasksStore(
+        {
+            "task-rejected": {
+                **candidate_projection("task-rejected", rejected_playbook),
+                "queue_shard": "vision_mlx_dev",
+                "execution_context": {
+                    "playbook_code": rejected_playbook,
+                    "queue_shard": "vision_mlx_dev",
+                    "runner_profile_hint": "vision_mlx_dev",
+                },
+            }
+        },
+        {},
+    )
+    profile = RunnerProfile(
+        profile_code="vision_mlx_dev",
+        display_name="Vision MLX Dev",
+        dispatch_mode="docker_local",
+        accepted_resource_classes=("compute",),
+        accepted_queue_partitions=("vision_mlx_dev",),
+        rejected_capability_codes=(rejected_playbook,),
+        max_inflight=1,
+    )
+    monkeypatch.setattr(route_gate, "get_active_route_reservations", lambda: [])
+
+    result = asyncio.run(
+        _dequeue_by_route_gate_policy(
+            [queue],
+            runner_profile=profile,
+            visibility_timeout_sec=180,
+            scan_limit=1,
+            scan_offsets={},
+            tasks_store=tasks_store,
+        )
+    )
+
+    assert result == (None, None, False, True)
+    assert tasks_store.requested_ids == ["task-rejected"]
     assert queue.promoted == []
 
 

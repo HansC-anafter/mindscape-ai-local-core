@@ -220,6 +220,59 @@ def get_allocation_blueprint(blueprint_id: str) -> dict[str, Any] | None:
     }
 
 
+def _resolve_blueprint_entry_allocation_payload(
+    *,
+    workspace_id: str,
+    blueprint_id: str,
+    entry: dict[str, Any],
+    existing_allocation: dict[str, Any] | None,
+) -> dict[str, Any]:
+    blueprint_claims = _clean_int(
+        entry.get("max_parallel_task_claims"),
+        default=1,
+    )
+    existing_metadata = (
+        dict(existing_allocation.get("metadata") or {})
+        if isinstance(existing_allocation, dict)
+        and isinstance(existing_allocation.get("metadata"), dict)
+        else {}
+    )
+    operator_override = existing_metadata.get("operator_override")
+    has_operator_override = isinstance(operator_override, dict) and bool(
+        operator_override
+    )
+    effective_claims = (
+        _clean_int(
+            existing_allocation.get("max_parallel_task_claims"),
+            default=blueprint_claims,
+        )
+        if has_operator_override and isinstance(existing_allocation, dict)
+        else blueprint_claims
+    )
+    metadata: dict[str, Any] = {
+        "source": "allocation_blueprint",
+        "task_selectors": entry.get("task_selectors") or [],
+        "resource_semantics": "shared_pool_admission_quota",
+        "blueprint_max_parallel_task_claims": blueprint_claims,
+    }
+    if has_operator_override:
+        metadata["operator_override"] = dict(operator_override)
+        metadata["blueprint_apply_preserved_operator_override"] = True
+    return {
+        "workspace_id": workspace_id,
+        "queue_shard": entry.get("queue_shard"),
+        "task_family": entry.get("task_family"),
+        "label": entry.get("label"),
+        "max_parallel_task_claims": effective_claims,
+        "share_policy": entry.get("share_policy") or "shared_pool",
+        "priority_ceiling": entry.get("priority_ceiling") or "normal",
+        "blueprint_id": blueprint_id,
+        "blueprint_entry_id": entry.get("blueprint_entry_id"),
+        "state": "enabled",
+        "metadata": metadata,
+    }
+
+
 def apply_allocation_blueprint_to_workspace(
     *,
     workspace_id: str,
@@ -242,27 +295,18 @@ def apply_allocation_blueprint_to_workspace(
     allocation_store = HostResourceWorkspaceAllocationStore("core")
     allocations: list[dict[str, Any]] = []
     for entry in entries:
+        existing_allocation = allocation_store.find_allocation_for_task_family(
+            workspace_id=normalized_workspace_id,
+            queue_shard=_clean_string(entry.get("queue_shard")) or "",
+            task_family=_clean_string(entry.get("task_family")) or "",
+        )
         allocation = allocation_store.upsert_allocation(
-            {
-                "workspace_id": normalized_workspace_id,
-                "queue_shard": entry.get("queue_shard"),
-                "task_family": entry.get("task_family"),
-                "label": entry.get("label"),
-                "max_parallel_task_claims": _clean_int(
-                    entry.get("max_parallel_task_claims"),
-                    default=1,
-                ),
-                "share_policy": entry.get("share_policy") or "shared_pool",
-                "priority_ceiling": entry.get("priority_ceiling") or "normal",
-                "blueprint_id": normalized_blueprint_id,
-                "blueprint_entry_id": entry.get("blueprint_entry_id"),
-                "state": "enabled",
-                "metadata": {
-                    "source": "allocation_blueprint",
-                    "task_selectors": entry.get("task_selectors") or [],
-                    "resource_semantics": "shared_pool_admission_quota",
-                },
-            },
+            _resolve_blueprint_entry_allocation_payload(
+                workspace_id=normalized_workspace_id,
+                blueprint_id=normalized_blueprint_id,
+                entry=entry,
+                existing_allocation=existing_allocation,
+            ),
             actor_id=actor_id,
         )
         allocations.append(allocation)

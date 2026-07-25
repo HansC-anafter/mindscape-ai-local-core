@@ -108,6 +108,7 @@ async def run_forever() -> None:
         else RedisRunnerQueueStore(pack_id=DEFAULT_LOCAL_QUEUE_PARTITION)
     )
     queue_cursor = 0
+    route_scan_offsets: dict[str, int] = {}
     ready_targets = _split_ready_target(
         _env_int("LOCAL_CORE_RUNNER_READY_TARGET", 64),
         list(ready_queues.keys()),
@@ -401,6 +402,7 @@ async def run_forever() -> None:
         task_id = None
         task_queue = None
         route_drain_wait = False
+        profile_filter_wait = False
         if is_browser_runner:
             task_id, task_queue, route_drain_wait = (
                 await _dequeue_by_browser_fair_candidate_policy(
@@ -417,12 +419,19 @@ async def run_forever() -> None:
                 for task in inflight
                 if str(getattr(task, "_mindscape_pack_id", "") or "").strip()
             }
-            task_id, task_queue, route_drain_wait = await _dequeue_by_route_gate_policy(
+            (
+                task_id,
+                task_queue,
+                route_drain_wait,
+                profile_filter_wait,
+            ) = await _dequeue_by_route_gate_policy(
                 queue_cycle,
                 runner_profile=runner_profile,
                 visibility_timeout_sec=visibility_timeout_sec,
                 scan_limit=db_budget.apply_claim_scan_limit(playbook_fair_scan_limit),
                 active_pack_ids=active_pack_ids,
+                scan_offsets=route_scan_offsets,
+                tasks_store=tasks_store,
             )
         if route_drain_wait:
             route_drain_gate = _route_drain_after_current_status()
@@ -435,6 +444,9 @@ async def run_forever() -> None:
                     len(inflight),
                 )
                 next_route_drain_gate_log_at = now_loop + 30.0
+            await asyncio.sleep(poll_interval_ms / 1000)
+            continue
+        if profile_filter_wait:
             await asyncio.sleep(poll_interval_ms / 1000)
             continue
 

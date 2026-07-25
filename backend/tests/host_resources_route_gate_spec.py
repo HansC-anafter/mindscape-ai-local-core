@@ -285,6 +285,9 @@ async def test_worker_route_candidate_scan_promotes_permitted_task(monkeypatch):
         async def lrange(self, key, start, end):
             return ["low-task", "high-task"]
 
+        async def llen(self, key):
+            return 2
+
         async def mget(self, keys):
             return [self.projections.get(key) for key in keys]
 
@@ -343,14 +346,17 @@ async def test_worker_route_candidate_scan_promotes_permitted_task(monkeypatch):
                 },
             },
         )
-    task_id, task_queue, drain_wait = await worker._dequeue_by_route_gate_policy(
+    task_id, task_queue, drain_wait, profile_filter_wait = (
+        await worker._dequeue_by_route_gate_policy(
         [queue],
         runner_profile=SimpleNamespace(profile_code="default"),
         visibility_timeout_sec=180,
         scan_limit=10,
+        )
     )
 
     assert task_id == "high-task"
     assert task_queue is queue
     assert drain_wait is False
+    assert profile_filter_wait is False
     assert queue.promoted == "high-task"
