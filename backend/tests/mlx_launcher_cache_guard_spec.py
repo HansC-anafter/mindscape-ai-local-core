@@ -22,6 +22,18 @@ def test_main_mlx_launcher_self_heals_hf_cache_before_health_probe() -> None:
     assert ensure_index < probe_index
 
 
+def test_main_mlx_launcher_recovers_unresponsive_idle_runtime_by_default() -> None:
+    text = MAIN_LAUNCHER.read_text(encoding="utf-8")
+
+    assert (
+        'WATCHDOG_IDLE_FAILURE_MODE="${MLX_WATCHDOG_IDLE_FAILURE_MODE:-recover}"'
+        in text
+    )
+    assert 'if [ "$WATCHDOG_IDLE_FAILURE_MODE" = "ignore" ]' in text
+    assert "failures=$((failures + 1))" in text
+    assert "${WATCHDOG_MAX_FAILURES} idle failures - killing MLX" in text
+
+
 def test_module_mlx_launcher_creates_hf_cache_before_server_exec() -> None:
     text = MODULE_LAUNCHER.read_text(encoding="utf-8")
 

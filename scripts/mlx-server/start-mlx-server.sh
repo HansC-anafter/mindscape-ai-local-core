@@ -94,7 +94,10 @@ WATCHDOG_STATE_FILE="${MLX_WATCHDOG_STATE_FILE:-/Volumes/OWC Ultra 4T/mindscape-
 WATCHDOG_INFLIGHT_HARD_TIMEOUT="${MLX_WATCHDOG_INFLIGHT_HARD_TIMEOUT:-7200}"
 WATCHDOG_INFLIGHT_HEARTBEAT_TIMEOUT="${MLX_WATCHDOG_INFLIGHT_HEARTBEAT_TIMEOUT:-120}"
 WATCHDOG_STATE_HELPER="$(dirname "$0")/watchdog_state.py"
-WATCHDOG_IDLE_FAILURE_MODE="${MLX_WATCHDOG_IDLE_FAILURE_MODE:-ignore}"
+# A listening-but-unresponsive idle runtime cannot serve the runner dependency
+# probe. Recover by default after the existing bounded failure threshold;
+# operators may still explicitly set "ignore" for a controlled diagnostic.
+WATCHDOG_IDLE_FAILURE_MODE="${MLX_WATCHDOG_IDLE_FAILURE_MODE:-recover}"
 mkdir -p "$(dirname "$WATCHDOG_STATE_FILE")" 2>/dev/null || true
 rm -f "$WATCHDOG_STATE_FILE" 2>/dev/null || true
 
