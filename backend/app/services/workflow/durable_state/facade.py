@@ -10,8 +10,12 @@ from .canonical_json import sha256_hex
 from .compatibility import CompatibilityRegistry
 from .contracts.v1.validator import validate_contract
 from .controls import DurableControlPlaneMixin
-from .events import build_signed_event, verify_events
-from .projections import project
+from .errors import DurableWorkflowConflict
+from .events import verify_events
+from .facade_append import DurableAppendMixin
+from .product_iterations import ProductIterationMixin
+from .product_iteration_closure import ProductIterationClosureMixin
+from .product_releases import ProductReleaseMixin
 from .repository import DurableWorkflowRepository
 from .signature import Ed25519Signer
 from .messages import validate_external_message
@@ -24,11 +28,13 @@ MAX_SEGMENT_EVENTS = 10_000
 MAX_SEGMENT_BYTES = 64 * 1024 * 1024
 
 
-class DurableWorkflowConflict(RuntimeError):
-    """Raised on stale sequence, divergent idempotency, or rollover misuse."""
-
-
-class DurableWorkflowFacade(DurableControlPlaneMixin):
+class DurableWorkflowFacade(
+    DurableAppendMixin,
+    DurableControlPlaneMixin,
+    ProductIterationMixin,
+    ProductIterationClosureMixin,
+    ProductReleaseMixin,
+):
     """Caller-owned-connection facade; it never commits or publishes."""
 
     def __init__(
@@ -47,6 +53,15 @@ class DurableWorkflowFacade(DurableControlPlaneMixin):
         }
 
     def open_workflow(self, conn, identity: dict[str, Any]) -> dict[str, Any]:
+        if identity.get("workflow_kind") != "execution":
+            raise ValueError(
+                "non-execution workflow requires its specialized facade seam"
+            )
+        return self._open_workflow_kind(conn, identity)
+
+    def _open_workflow_kind(
+        self, conn, identity: dict[str, Any]
+    ) -> dict[str, Any]:
         validate_contract("semantic_execution_identity", identity)
         self._compatibility.require(identity)
         return self._insert_identity(
@@ -72,11 +87,6 @@ class DurableWorkflowFacade(DurableControlPlaneMixin):
         )
         return self._repository.read_instance(conn, identity["workflow_id"])
 
-    def open_product_release(self, conn, identity: dict[str, Any]) -> dict[str, Any]:
-        if identity.get("workflow_kind") != "product_release":
-            raise ValueError("product release identity must use product_release kind")
-        return self.open_workflow(conn, identity)
-
     def append_transition(
         self,
         conn,
@@ -86,6 +96,29 @@ class DurableWorkflowFacade(DurableControlPlaneMixin):
         target_state: str,
         idempotency_key: str,
         actor: dict[str, Any],
+        typed_receipt: tuple[str, dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        return self._append_transition_for_kind(
+            conn,
+            workflow_id=workflow_id,
+            expected_sequence=expected_sequence,
+            target_state=target_state,
+            idempotency_key=idempotency_key,
+            actor=actor,
+            expected_kind="execution",
+            typed_receipt=typed_receipt,
+        )
+
+    def _append_transition_for_kind(
+        self,
+        conn,
+        *,
+        workflow_id: str,
+        expected_sequence: int,
+        target_state: str,
+        idempotency_key: str,
+        actor: dict[str, Any],
+        expected_kind: str,
         typed_receipt: tuple[str, dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         locked, retry = self._begin_append(
@@ -108,6 +141,10 @@ class DurableWorkflowFacade(DurableControlPlaneMixin):
                 )
             ),
         )
+        if locked["workflow_kind"] != expected_kind:
+            raise DurableWorkflowConflict(
+                f"{locked['workflow_kind']} transition requires its specialized facade seam"
+            )
         if retry:
             return retry
         terminal = require_transition(
@@ -150,6 +187,29 @@ class DurableWorkflowFacade(DurableControlPlaneMixin):
         idempotency_key: str,
         actor: dict[str, Any],
     ) -> dict[str, Any]:
+        return self._append_typed_receipt_for_kind(
+            conn,
+            workflow_id=workflow_id,
+            expected_sequence=expected_sequence,
+            receipt_type=receipt_type,
+            receipt=receipt,
+            idempotency_key=idempotency_key,
+            actor=actor,
+            expected_kind="execution",
+        )
+
+    def _append_typed_receipt_for_kind(
+        self,
+        conn,
+        *,
+        workflow_id: str,
+        expected_sequence: int,
+        receipt_type: str,
+        receipt: dict[str, Any],
+        idempotency_key: str,
+        actor: dict[str, Any],
+        expected_kind: str | None,
+    ) -> dict[str, Any]:
         validate_typed_receipt(receipt_type, receipt)
         wrapped = {"receipt_type": receipt_type, "receipt": receipt}
         locked, retry = self._begin_append(
@@ -163,6 +223,13 @@ class DurableWorkflowFacade(DurableControlPlaneMixin):
                 and prior["payload"].get("typed_receipt") == wrapped
             ),
         )
+        if (
+            expected_kind is not None
+            and locked["workflow_kind"] != expected_kind
+        ):
+            raise DurableWorkflowConflict(
+                f"{locked['workflow_kind']} receipt requires its specialized facade seam"
+            )
         if retry:
             return retry
         return self._append_locked(
@@ -178,16 +245,21 @@ class DurableWorkflowFacade(DurableControlPlaneMixin):
 
     def append_release_health(self, conn, **kwargs) -> dict[str, Any]:
         receipt = kwargs.pop("health_receipt")
-        return self.append_typed_receipt(
-            conn, receipt_type="release_health_receipt", receipt=receipt, **kwargs
+        return self._append_typed_receipt_for_kind(
+            conn,
+            receipt_type="release_health_receipt",
+            receipt=receipt,
+            expected_kind="product_release",
+            **kwargs,
         )
 
     def append_evidence_lifecycle(self, conn, **kwargs) -> dict[str, Any]:
         receipt = kwargs.pop("lifecycle_manifest_or_receipt")
-        return self.append_typed_receipt(
+        return self._append_typed_receipt_for_kind(
             conn,
             receipt_type="evidence_lifecycle_manifest",
             receipt=receipt,
+            expected_kind=None,
             **kwargs,
         )
 
@@ -371,117 +443,3 @@ class DurableWorkflowFacade(DurableControlPlaneMixin):
             return verify_events(events, self._verification_keys)
         except ValueError as exc:
             raise DurableWorkflowConflict(str(exc)) from exc
-
-    def _begin_append(
-        self,
-        conn,
-        workflow_id: str,
-        expected: int,
-        idempotency_key: str,
-        matches,
-    ) -> tuple[dict[str, Any], dict[str, Any] | None]:
-        locked = self._repository.lock_instance(conn, workflow_id)
-        if locked["current_sequence"] == expected:
-            return locked, None
-        prior = self._repository.find_idempotent_event(
-            conn, workflow_id, idempotency_key
-        )
-        if prior and matches(prior):
-            return locked, prior
-        raise DurableWorkflowConflict(
-            f"expected sequence {expected}, found {locked['current_sequence']}"
-        )
-
-    def _append_locked(
-        self,
-        conn,
-        *,
-        locked: dict[str, Any],
-        event_type: str,
-        idempotency_key: str,
-        actor: dict[str, Any],
-        payload: dict[str, Any],
-        current_state: str | None = None,
-        terminal: bool | None = None,
-        timer_id: str | None = None,
-        external_message_id: str | None = None,
-        next_durable_deadline=None,
-        cancellation_state: str | None = None,
-    ) -> dict[str, Any]:
-        if locked["terminal"]:
-            raise DurableWorkflowConflict("terminal workflow is insert-closed")
-        payload_sha256 = sha256_hex(payload)
-        prior = self._repository.find_idempotent_event(
-            conn, locked["workflow_id"], idempotency_key
-        )
-        if prior:
-            if prior["event_type"] == event_type and prior["payload_sha256"] == payload_sha256:
-                return prior
-            raise DurableWorkflowConflict("idempotency key was used for different input")
-        contract_event = build_signed_event(
-            self._signer,
-            locked=locked,
-            event_type=event_type,
-            actor=actor,
-            payload=payload,
-        )
-        event_hash = contract_event["event_hash"]
-        canonical_bytes = contract_event["canonical_bytes"]
-        if event_type != "segment_rollover" and (
-            locked["event_count"] >= MAX_SEGMENT_EVENTS - 1
-            or locked["canonical_event_bytes"] + canonical_bytes
-            > MAX_SEGMENT_BYTES - 16_384
-        ):
-            raise DurableWorkflowConflict("segment rollover is required")
-        if (
-            event_type == "segment_rollover"
-            and locked["canonical_event_bytes"] + canonical_bytes > MAX_SEGMENT_BYTES
-        ):
-            raise DurableWorkflowConflict("segment byte boundary was exceeded")
-        validate_contract(
-            "workflow_event",
-            {key: value for key, value in contract_event.items() if key != "key_id"},
-        )
-        stored = {
-            **contract_event,
-            "idempotency_key": idempotency_key,
-            "timer_id": timer_id,
-            "external_message_id": external_message_id,
-        }
-        self._repository.insert_event(conn, stored)
-        resulting_state = current_state or locked["current_state"]
-        resulting_terminal = locked["terminal"] if terminal is None else terminal
-        resulting_cancel = (
-            cancellation_state
-            if cancellation_state is not None
-            else locked["cancellation_state"]
-        )
-        self._repository.advance_instance(
-            conn,
-            workflow_id=locked["workflow_id"],
-            expected_sequence=locked["current_sequence"],
-            event_hash=event_hash,
-            event_bytes=canonical_bytes,
-            current_state=resulting_state,
-            terminal=resulting_terminal,
-            next_durable_deadline=next_durable_deadline,
-            cancellation_state=resulting_cancel,
-        )
-        projection_state, state_hash = project(
-            {
-                "current_state": locked["current_state"],
-                "cancellation_state": locked["cancellation_state"],
-                "last_sequence": locked["current_sequence"],
-                "last_event_hash": locked["current_event_hash"],
-            },
-            contract_event,
-        )
-        self._repository.upsert_projection(
-            conn,
-            workflow_id=locked["workflow_id"],
-            sequence=contract_event["sequence"],
-            reducer_version=locked["reducer_version"],
-            state=projection_state,
-            state_hash=state_hash,
-        )
-        return stored

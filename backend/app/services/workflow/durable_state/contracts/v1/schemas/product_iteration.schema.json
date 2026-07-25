@@ -262,8 +262,14 @@
     "release_target": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["owner_id", "target_revision", "target_sha256"],
+      "required": [
+        "arm_id",
+        "owner_id",
+        "target_revision",
+        "target_sha256"
+      ],
       "properties": {
+        "arm_id": {"type": "string", "minLength": 1, "maxLength": 120},
         "owner_id": {"type": "string", "minLength": 1, "maxLength": 200},
         "target_revision": {"type": "string", "minLength": 1, "maxLength": 200},
         "target_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}

@@ -201,6 +201,60 @@ class DurableWorkflowRepository:
             },
         )
 
+    def read_projection(
+        self, conn, workflow_id: str
+    ) -> dict[str, Any] | None:
+        row = conn.execute(
+            text(
+                """
+                SELECT last_sequence, reducer_version, state_hash, state
+                FROM durable_workflow_projection_offsets
+                WHERE projection_name = 'current'
+                  AND workflow_id = :workflow_id
+                """
+            ),
+            {"workflow_id": workflow_id},
+        ).mappings().one_or_none()
+        return dict(row) if row else None
+
+    def read_approval_consumption(
+        self, conn, consumption_id: str
+    ) -> dict[str, Any]:
+        row = conn.execute(
+            text(
+                """
+                SELECT *
+                FROM durable_workflow_approval_consumptions
+                WHERE consumption_id = :consumption_id
+                """
+            ),
+            {"consumption_id": consumption_id},
+        ).mappings().one_or_none()
+        if row is None:
+            raise KeyError(
+                f"approval consumption {consumption_id!r} does not exist"
+            )
+        return dict(row)
+
+    def read_side_effect_receipt(
+        self, conn, receipt_id: str
+    ) -> dict[str, Any]:
+        row = conn.execute(
+            text(
+                """
+                SELECT *
+                FROM durable_workflow_side_effect_receipts
+                WHERE receipt_id = :receipt_id
+                """
+            ),
+            {"receipt_id": receipt_id},
+        ).mappings().one_or_none()
+        if row is None:
+            raise KeyError(
+                f"side-effect receipt {receipt_id!r} does not exist"
+            )
+        return dict(row)
+
     def read_events_after(
         self, conn, workflow_id: str, cursor: int, limit: int
     ) -> list[dict[str, Any]]:

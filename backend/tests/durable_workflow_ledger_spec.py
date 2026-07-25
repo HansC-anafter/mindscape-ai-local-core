@@ -196,30 +196,31 @@ def test_schema_is_exactly_ten_tables_with_insert_only_triggers(engine) -> None:
     }
 
 
-@pytest.mark.parametrize(
-    ("kind", "first_target"),
-    [
-        ("execution", "running"),
-        ("product_iteration", "admitted"),
-        ("product_release", "observing"),
-    ],
-)
-def test_workflow_kinds_share_one_chain(engine, facade, kind, first_target) -> None:
-    workflow_id = f"kind:{kind}"
+def test_execution_uses_public_chain(engine, facade) -> None:
+    workflow_id = "kind:execution"
     with engine.begin() as conn:
-        facade.open_workflow(conn, identity(workflow_id, kind))
+        facade.open_workflow(conn, identity(workflow_id))
         event = facade.append_transition(
             conn,
             workflow_id=workflow_id,
             expected_sequence=0,
-            target_state=first_target,
+            target_state="running",
             idempotency_key="first-transition",
             actor=ACTOR,
         )
         assert facade.verify_chain(conn, workflow_id) == event["event_hash"]
         current = facade.read_current(conn, workflow_id)
-    assert current["current_state"] == first_target
+    assert current["current_state"] == "running"
     assert current["current_sequence"] == 1
+
+
+@pytest.mark.parametrize("kind", ["product_iteration", "product_release"])
+def test_public_generic_seam_rejects_upper_kind(
+    engine, facade, kind
+) -> None:
+    with engine.begin() as conn:
+        with pytest.raises(ValueError, match="specialized facade seam"):
+            facade.open_workflow(conn, identity(f"generic:{kind}", kind))
 
 
 def test_idempotent_retry_returns_original_event(engine, facade) -> None:
@@ -265,7 +266,7 @@ def test_typed_receipt_uses_event_chain_without_extra_table(engine, facade) -> N
 def test_release_health_uses_product_release_chain(engine, facade) -> None:
     workflow_id = "health:release"
     with engine.begin() as conn:
-        facade.open_product_release(
+        facade._open_workflow_kind(
             conn, identity(workflow_id, "product_release")
         )
         facade.append_release_health(

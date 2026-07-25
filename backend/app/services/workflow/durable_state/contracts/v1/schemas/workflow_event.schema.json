@@ -32,7 +32,12 @@
         "cancellation_requested",
         "cancellation_acknowledged",
         "compensation_recorded",
-        "segment_rollover"
+        "segment_rollover",
+        "product_iteration_defined",
+        "iteration_enrollment_accepted",
+        "outcome_observation_accepted",
+        "outcome_observation_rejected",
+        "product_release_linked"
       ]
     },
     "occurred_at": {"type": "string", "format": "date-time"},

@@ -51,8 +51,8 @@
       "bytes": 3783
     },
     "schemas/product_iteration.schema.json": {
-      "sha256": "8d34e0fa6a1a9a9d489197eb83d0ef3f5985097c83825c6051effda0776355b8",
-      "bytes": 9421
+      "sha256": "317d0c9ee339c879a830b4457989a00e63fb99ec0bded50f7a4a86351d9b7a31",
+      "bytes": 9543
     },
     "schemas/release_health_receipt.schema.json": {
       "sha256": "8388d1405d9b71afb7f31bbb016da0ea7a9ce45201b993ac238cc965e108f176",
@@ -71,9 +71,9 @@
       "bytes": 2099
     },
     "schemas/workflow_event.schema.json": {
-      "sha256": "02f842c76ea6d0a66594bae90b28cad5c5033084e4fa3f0fbcea0af0ea8c6697",
-      "bytes": 2519
+      "sha256": "67a7e11a2650ddbf6f86ae24c238427a2d87b6eed1057aa93522768b0af81831",
+      "bytes": 2711
     }
   },
-  "manifest_sha256": "456d975db21c6edb9a8d539993fba59fd965c5f287c0da192336dcd786a196aa"
+  "manifest_sha256": "04532cc749ea22088bd5046e7b75f1b34586430ba494a3c86740ed1212f682fd"
 }
