@@ -35,8 +35,8 @@
       "bytes": 2657
     },
     "schemas/execution_terminal_receipt.schema.json": {
-      "sha256": "c9a65f2b126a722136fdc6227bdc557641a043000a75ccae647300f12a4db859",
-      "bytes": 2844
+      "sha256": "a8bfeaf0aae88a1a0022a5ebf13ecc78cec35df38abb72a393d695f1b0afd839",
+      "bytes": 4515
     },
     "schemas/outcome_adapter_descriptor.schema.json": {
       "sha256": "29612c66653ab68c4207dbce51a6f3ed15118e2b7680f1ca9c5cf2a115c3828d",
@@ -59,8 +59,8 @@
       "bytes": 2389
     },
     "schemas/semantic_execution_identity.schema.json": {
-      "sha256": "292ee8cff1cbcac4f66670fbfe1541c0f2572a82141e372ffbea565ad08e91ad",
-      "bytes": 2989
+      "sha256": "02fdae649c09b8a7fad9ecc2b3ba3c20a7932072761df9915b433e9ae3202a08",
+      "bytes": 3543
     },
     "schemas/side_effect_receipt.schema.json": {
       "sha256": "2e578c27e2995c07737548b63afd96ff1c9a5270dc3f92d20002694fb7897323",
@@ -71,5 +71,5 @@
       "bytes": 2519
     }
   },
-  "manifest_sha256": "1660a6d9783bbdb6d8032b758ad9a9787e2409e2b23ef2e2c7397e4f2d08a69c"
+  "manifest_sha256": "744e6060342f7e89ba1fe61abff4ad392e6492d085d4a322f66e8240b07c5961"
 }

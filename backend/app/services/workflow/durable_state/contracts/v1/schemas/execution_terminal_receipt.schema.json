@@ -9,14 +9,25 @@
     "workflow_id",
     "root_workflow_id",
     "execution_id",
+    "attempt_id",
+    "terminal_sequence",
     "workspace_id",
     "capability_identity",
     "terminal_state",
     "terminal_event_hash",
-    "result_schema_id",
-    "result_hash",
+    "result_ref",
     "resource_summary",
     "artifact_refs",
+    "development_attestation_id",
+    "development_attestation_sha256",
+    "configuration_fingerprint",
+    "environment_fingerprint",
+    "data_fingerprint",
+    "workflow_definition_version",
+    "reducer_version",
+    "effect_adapter_registry_version",
+    "runtime_build_id",
+    "started_at",
     "completed_at",
     "signature"
   ],
@@ -25,6 +36,8 @@
     "workflow_id": {"type": "string", "minLength": 1, "maxLength": 200},
     "root_workflow_id": {"type": "string", "minLength": 1, "maxLength": 200},
     "execution_id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "attempt_id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "terminal_sequence": {"type": "integer", "minimum": 1},
     "workspace_id": {"type": "string", "minLength": 1, "maxLength": 200},
     "capability_identity": {
       "type": "object",
@@ -38,8 +51,17 @@
     },
     "terminal_state": {"enum": ["succeeded", "failed", "cancelled", "compensated"]},
     "terminal_event_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
-    "result_schema_id": {"type": "string", "minLength": 1, "maxLength": 240},
-    "result_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "result_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["uri", "sha256", "bytes", "schema_id"],
+      "properties": {
+        "uri": {"type": "string", "minLength": 1, "maxLength": 2048},
+        "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "bytes": {"type": "integer", "minimum": 0},
+        "schema_id": {"type": "string", "minLength": 1, "maxLength": 240}
+      }
+    },
     "resource_summary": {
       "type": "object",
       "additionalProperties": false,
@@ -67,6 +89,36 @@
         }
       }
     },
+    "development_attestation_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 240
+    },
+    "development_attestation_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "configuration_fingerprint": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "environment_fingerprint": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "data_fingerprint": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "workflow_definition_version": {"type": "string", "minLength": 1, "maxLength": 100},
+    "reducer_version": {"type": "string", "minLength": 1, "maxLength": 100},
+    "effect_adapter_registry_version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "runtime_build_id": {"type": "string", "minLength": 1, "maxLength": 240},
+    "started_at": {"type": "string", "format": "date-time"},
     "completed_at": {"type": "string", "format": "date-time"},
     "signature": {"type": "string", "minLength": 1, "maxLength": 4096}
   }

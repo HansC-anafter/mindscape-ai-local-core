@@ -93,6 +93,11 @@ def identity(
         "effect_adapter_registry_version": "effects.v1",
         "runtime_build_id": "test-build",
         "replay_compatibility_class": "exact",
+        "development_attestation_id": "attestation:test",
+        "development_attestation_sha256": H,
+        "configuration_fingerprint": H,
+        "environment_fingerprint": H,
+        "data_fingerprint": H,
         "critical_durability": "sync",
     }
 
