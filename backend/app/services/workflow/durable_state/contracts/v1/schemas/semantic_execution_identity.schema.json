@@ -13,7 +13,10 @@
     "segment_number",
     "workflow_kind",
     "workspace_id",
+    "attempt_id",
+    "capability_identity",
     "psc_ids",
+    "cloud_contract_manifest_sha256",
     "workflow_definition_version",
     "reducer_version",
     "effect_adapter_registry_version",
@@ -43,6 +46,17 @@
     },
     "workspace_id": {"type": "string", "minLength": 1, "maxLength": 200},
     "execution_id": {"type": ["string", "null"], "maxLength": 200},
+    "attempt_id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "capability_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["capability_code", "pack_version", "manifest_sha256"],
+      "properties": {
+        "capability_code": {"type": "string", "pattern": "^[a-z][a-z0-9_]{1,63}$"},
+        "pack_version": {"type": "string", "minLength": 1, "maxLength": 100},
+        "manifest_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+      }
+    },
     "psc_ids": {
       "type": "array",
       "minItems": 2,
@@ -81,6 +95,14 @@
     "created_at": {"type": "string", "format": "date-time"}
   },
   "allOf": [
+    {
+      "if": {"properties": {"workflow_kind": {"const": "execution"}}},
+      "then": {
+        "properties": {
+          "execution_id": {"type": "string", "minLength": 1, "maxLength": 200}
+        }
+      }
+    },
     {
       "if": {"properties": {"segment_number": {"const": 0}}},
       "then": {

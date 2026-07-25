@@ -59,8 +59,8 @@
       "bytes": 2389
     },
     "schemas/semantic_execution_identity.schema.json": {
-      "sha256": "02fdae649c09b8a7fad9ecc2b3ba3c20a7932072761df9915b433e9ae3202a08",
-      "bytes": 3543
+      "sha256": "21acd3f5c7c61423022b97fc1e2ae094e6274e903b9b5c3730018d3430a0226b",
+      "bytes": 4357
     },
     "schemas/side_effect_receipt.schema.json": {
       "sha256": "2e578c27e2995c07737548b63afd96ff1c9a5270dc3f92d20002694fb7897323",
@@ -71,5 +71,5 @@
       "bytes": 2519
     }
   },
-  "manifest_sha256": "744e6060342f7e89ba1fe61abff4ad392e6492d085d4a322f66e8240b07c5961"
+  "manifest_sha256": "06b3121bba4e2828f72a391a41e7bc97b52fcf8150f0e2573fb011180063fcaf"
 }

@@ -84,10 +84,17 @@ def identity(
         "workflow_kind": kind,
         "workspace_id": "workspace:test",
         "execution_id": f"execution:{workflow_id}" if kind == "execution" else None,
+        "attempt_id": f"attempt:{workflow_id}",
+        "capability_identity": {
+            "capability_code": "test_capability",
+            "pack_version": "1.0.0",
+            "manifest_sha256": H,
+        },
         "psc_ids": [
             "psc.cloud.durable-product-semantic-workflow-publication.v1",
             "psc.local-core.durable-product-semantic-workflow-runtime.v1",
         ],
+        "cloud_contract_manifest_sha256": H,
         "workflow_definition_version": "workflow.v1",
         "reducer_version": "reducer.v1",
         "effect_adapter_registry_version": "effects.v1",
