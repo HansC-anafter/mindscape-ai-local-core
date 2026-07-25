@@ -24,9 +24,16 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from scripts.maintenance.runtime_pressure_gate_core import (
+    GateScope,
     collect_pgbouncer_metrics,
     collect_postgres_metrics,
     collect_runner_capacity,
+    evaluate_runner_scope,
+    runner_scope_evidence,
+)
+from scripts.maintenance.runtime_pressure_gate_core.policy import (
+    ALLOWED_ACTIONS,
+    RUNTIME_OBSERVATION_ACTION,
 )
 
 
@@ -46,8 +53,8 @@ FALLBACK_RUNNER_CONTAINERS = [
 
 @dataclass(frozen=True)
 class Thresholds:
-    max_running: int
-    max_pending: int
+    running_observation_limit: int
+    pending_observation_limit: int
     max_postgres_cpu: float
     max_runner_cpu: float
     max_endpoint_seconds: float
@@ -112,13 +119,13 @@ def fetch_url(url: str, timeout_seconds: float) -> dict[str, Any]:
 def collect_task_status_counts(
     timeout_seconds: float,
     *,
-    max_running: int,
-    max_pending: int,
+    running_observation_limit: int,
+    pending_observation_limit: int,
 ) -> dict[str, Any]:
-    """Count only enough active frontier rows to prove a threshold violation."""
+    """Collect bounded workload observations without turning task zero into a gate."""
 
-    running_limit = max(0, int(max_running)) + 1
-    pending_limit = max(0, int(max_pending)) + 1
+    running_limit = max(0, int(running_observation_limit)) + 1
+    pending_limit = max(0, int(pending_observation_limit)) + 1
     sql = (
         "select status, count(*) from ("
         "(select status from tasks where status = 'running' "
@@ -157,6 +164,7 @@ def collect_task_status_counts(
     return {
         "ok": result["ok"],
         "counts": counts,
+        "gate_semantics": "observational_only",
         "pending_semantics": "ready_unblocked_execution_frontier",
         "elapsed_seconds": result["elapsed_seconds"],
         "error": result["stderr"].strip() if not result["ok"] else "",
@@ -217,17 +225,11 @@ def evaluate_gate(
     postgres_metrics: dict[str, Any] | None = None,
     pgbouncer_metrics: dict[str, Any] | None = None,
     runner_capacity: dict[str, Any] | None = None,
+    scope: GateScope | None = None,
 ) -> list[str]:
     failures: list[str] = []
-    counts = task_status.get("counts", {})
     if not task_status.get("ok"):
         failures.append("task_status_unavailable")
-    if counts.get("running", 0) > thresholds.max_running:
-        failures.append(
-            f"running_tasks>{thresholds.max_running}: {counts.get('running', 0)}"
-        )
-    if counts.get("pending", 0) > thresholds.max_pending:
-        failures.append(f"pending_tasks>{thresholds.max_pending}: {counts.get('pending', 0)}")
     if not docker_stats.get("ok"):
         failures.append("docker_stats_unavailable")
     for row in docker_stats.get("rows", []):
@@ -272,8 +274,13 @@ def evaluate_gate(
                 failures.append("pgbouncer_client_maxwait")
     if not runner_capacity.get("ok"):
         failures.append("runner_capacity_unavailable")
-    elif int(runner_capacity.get("aggregate_max_inflight") or 0) < 7:
-        failures.append("runner_capacity_below_7")
+    else:
+        failures.extend(
+            evaluate_runner_scope(
+                runner_capacity,
+                scope or GateScope(),
+            )
+        )
     return failures
 
 
@@ -285,8 +292,29 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument("--api-base", default="http://localhost:8200")
-    parser.add_argument("--max-running", type=int, default=0)
-    parser.add_argument("--max-pending", type=int, default=1000)
+    parser.add_argument(
+        "--running-observation-limit",
+        "--max-running",
+        dest="running_observation_limit",
+        type=int,
+        default=100,
+        help="Bounded running-task sample size; observational only.",
+    )
+    parser.add_argument(
+        "--pending-observation-limit",
+        "--max-pending",
+        dest="pending_observation_limit",
+        type=int,
+        default=1000,
+        help="Bounded ready-pending sample size; observational only.",
+    )
+    parser.add_argument(
+        "--action",
+        choices=sorted(ALLOWED_ACTIONS),
+        default=RUNTIME_OBSERVATION_ACTION,
+    )
+    parser.add_argument("--target-runner-container")
+    parser.add_argument("--allow-sole-owner-target", action="store_true")
     parser.add_argument("--max-postgres-cpu", type=float, default=200.0)
     parser.add_argument("--max-runner-cpu", type=float, default=400.0)
     parser.add_argument("--max-endpoint-seconds", type=float, default=5.0)
@@ -305,16 +333,21 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     thresholds = Thresholds(
-        max_running=args.max_running,
-        max_pending=args.max_pending,
+        running_observation_limit=args.running_observation_limit,
+        pending_observation_limit=args.pending_observation_limit,
         max_postgres_cpu=args.max_postgres_cpu,
         max_runner_cpu=args.max_runner_cpu,
         max_endpoint_seconds=args.max_endpoint_seconds,
     )
+    scope = GateScope(
+        action=args.action,
+        target_runner_container=args.target_runner_container,
+        allow_sole_owner_target=args.allow_sole_owner_target,
+    )
     task_status = collect_task_status_counts(
         args.command_timeout_seconds,
-        max_running=thresholds.max_running,
-        max_pending=thresholds.max_pending,
+        running_observation_limit=thresholds.running_observation_limit,
+        pending_observation_limit=thresholds.pending_observation_limit,
     )
     runner_capacity = collect_runner_capacity(
         run_command,
@@ -353,6 +386,7 @@ def main() -> int:
         postgres_metrics,
         pgbouncer_metrics,
         runner_capacity,
+        scope,
     )
     payload = {
         "ok": not failures,
@@ -364,6 +398,7 @@ def main() -> int:
         "postgres_metrics": postgres_metrics,
         "pgbouncer_metrics": pgbouncer_metrics,
         "runner_capacity": runner_capacity,
+        "scope": runner_scope_evidence(runner_capacity, scope),
     }
     encoded = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
     if args.output_json:

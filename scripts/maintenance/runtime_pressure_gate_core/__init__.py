@@ -1,10 +1,14 @@
 """Read-only runtime pressure evidence collectors."""
 
 from .database import collect_pgbouncer_metrics, collect_postgres_metrics
+from .policy import GateScope, evaluate_runner_scope, runner_scope_evidence
 from .runners import collect_runner_capacity
 
 __all__ = [
     "collect_pgbouncer_metrics",
     "collect_postgres_metrics",
     "collect_runner_capacity",
+    "evaluate_runner_scope",
+    "GateScope",
+    "runner_scope_evidence",
 ]
