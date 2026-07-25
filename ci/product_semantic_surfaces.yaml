@@ -1,6 +1,6 @@
 version: 1
 registry_id: mindscape.product-semantic-surfaces.local-core
-updated_at: "2026-07-25"
+updated_at: "2026-07-26"
 owner_review_handle: "@team-leads"
 
 declaration:
@@ -344,6 +344,24 @@ surfaces:
       - "web-console/src/app/workspaces/[workspaceId]/components/WorkspaceHeaderBar.tsx"
       - "web-console/src/app/workspaces/[workspaceId]/components/workspaceGlobalToolRailModel.ts"
       - web-console/src/components/capabilities/workbench/**
+
+  - id: psc.local-core.ig-analyze-pinned-reference-workspace-resource-lane.v1
+    tier: P0
+    owner: "workspace owner"
+    contract_doc: mindscape-ai-cloud/docs/internal/local-core/product-semantics/analyze-pinned-reference-workspace-resource-lane-contract-2026-07-26.zh-TW.md
+    requires_product_semantic_declaration: true
+    semantics:
+      - Local Core keeps runner:vision_local as the only formal host lane that Analyze Pinned Reference Workspace Resources may expose or bind.
+      - Host-global development lanes remain visible to their development owners but never become an Analyze Pinned Reference workspace resource merely because they are present in the global lane registry.
+      - Scoped workspace projection must not delete global lane rows, mutate existing tasks, change other playbook routes, change worker or runner capacity, or change workspace claim quotas.
+      - The host-global lane catalog remains canonical and capability-neutral; the IG pack owns its one-lane workspace projection and exact writer validation.
+    path_globs:
+      - backend/app/services/host_resources/lane_registry.py
+      - backend/app/services/host_resources/dynamic_lane_store.py
+      - backend/app/services/host_resources/manager.py
+      - backend/app/routes/core/host_resources.py
+      - backend/tests/host_resources_lane_registry_spec.py
+      - backend/tests/host_resources_manager_seams_spec.py
 
   - id: psc.local-core.resource-console-queue-snapshot.v1
     tier: P0
