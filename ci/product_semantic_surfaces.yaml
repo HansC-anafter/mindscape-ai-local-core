@@ -683,6 +683,10 @@ surfaces:
       - Local Core product semantic governance changes must be traceable through registry, validator, PR declaration, CI, and owner review.
     path_globs:
       - ci/product_semantic_surfaces.yaml
+      - ci/modular_entry_guardrails.yaml
+      - scripts/ci/validate_modular_entrypoints.py
+      - scripts/ci/modular_entry_guard_facade.py
+      - backend/tests/ci/validate_modular_entrypoints_guard_spec.py
       - scripts/ci/validate_product_semantics.py
       - scripts/ci/product_semantic_traceability.py
       - scripts/ci/validate_product_semantic_helper_parity.py

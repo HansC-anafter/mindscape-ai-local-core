@@ -7,6 +7,7 @@
 /ci/modular_entry_guardrails.yaml @team-leads
 /ci/product_semantic_surfaces.yaml @team-leads
 /scripts/ci/validate_modular_entrypoints.py @team-leads
+/scripts/ci/modular_entry_guard_facade.py @team-leads
 /scripts/ci/validate_product_semantics.py @team-leads
 /backend/app/database/recovery_backoff.py @team-leads
 /backend/app/database/application_identity.py @team-leads
