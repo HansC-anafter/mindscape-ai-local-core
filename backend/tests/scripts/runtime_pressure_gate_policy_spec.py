@@ -39,7 +39,7 @@ def _healthy():
         },
         "runner_capacity": {
             "ok": True,
-            "aggregate_max_inflight": 9,
+            "aggregate_max_inflight": 7,
             "rows": [
                 {
                     "container": "runner-browser",
@@ -64,7 +64,7 @@ def _healthy():
                 },
                 {
                     "container": "runner-vision",
-                    "max_inflight": 3,
+                    "max_inflight": 1,
                     "profile": "vision_local",
                     "accepted_partitions": "vision_local",
                     "accepted_resource_classes": "compute",
@@ -97,16 +97,17 @@ def test_runtime_gate_does_not_require_global_task_zero():
     assert evaluate_gate(**evidence) == []
 
 
-def test_runtime_gate_rejects_degraded_capacity_below_nine():
+def test_runtime_gate_rejects_degraded_protected_capacity_below_seven():
     evidence = _healthy()
-    evidence["runner_capacity"]["aggregate_max_inflight"] = 8
+    evidence["runner_capacity"]["aggregate_max_inflight"] = 6
+    evidence["runner_capacity"]["rows"][-1]["max_inflight"] = 0
 
-    assert "runner_capacity_below_9" in evaluate_gate(**evidence)
+    assert "protected_runner_capacity_below_7" in evaluate_gate(**evidence)
 
 
 def test_intent_bound_capacity_cannot_mask_a_degraded_protected_lane():
     evidence = _healthy()
-    evidence["runner_capacity"]["aggregate_max_inflight"] = 9
+    evidence["runner_capacity"]["aggregate_max_inflight"] = 7
     evidence["runner_capacity"]["rows"] = [
         row
         for row in evidence["runner_capacity"]["rows"]

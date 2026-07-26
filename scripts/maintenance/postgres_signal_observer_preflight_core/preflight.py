@@ -14,8 +14,14 @@ from backend.app.services.runtime_database_incident_gate import (
     evaluate_runtime_database_mutation,
 )
 from scripts.maintenance.runtime_pressure_gate_core import (
+    GateScope,
     collect_pgbouncer_metrics,
     collect_runner_capacity,
+    evaluate_runner_scope,
+    runner_scope_evidence,
+)
+from scripts.maintenance.runtime_pressure_gate_core.policy import (
+    PROTECTED_RUNNER_CAPACITY,
 )
 from scripts.maintenance.postgres_signal_observer_core import (
     canonical_observer_artifact_sha256,
@@ -60,8 +66,10 @@ class ObserverPreflightConfig:
             character not in "0123456789abcdef" for character in self.artifact_sha256
         ):
             raise ValueError("observer_preflight_artifact_sha256_invalid")
-        if self.expected_runner_capacity <= 0:
-            raise ValueError("observer_preflight_runner_capacity_invalid")
+        if self.expected_runner_capacity != PROTECTED_RUNNER_CAPACITY:
+            raise ValueError(
+                "observer_preflight_runner_capacity_must_match_authorized_baseline"
+            )
         if not self.owner.strip():
             raise ValueError("observer_preflight_owner_missing")
         if self.owner != OBSERVER_OWNER:
@@ -332,11 +340,17 @@ def _evaluate_failures(
     runners = checks["runner_capacity"]
     if not runners.get("ok"):
         failures.append("runner_capacity_unavailable")
-    elif runners.get("aggregate_max_inflight") != config.expected_runner_capacity:
-        failures.append(
-            "runner_capacity_changed:"
-            f"{runners.get('aggregate_max_inflight')}!={config.expected_runner_capacity}"
-        )
+    else:
+        failures.extend(evaluate_runner_scope(runners, GateScope()))
+        if (
+            runners.get("protected_aggregate_max_inflight")
+            != config.expected_runner_capacity
+        ):
+            failures.append(
+                "protected_runner_capacity_changed:"
+                f"{runners.get('protected_aggregate_max_inflight')}"
+                f"!={config.expected_runner_capacity}"
+            )
     for label, endpoint in checks["endpoints"].items():
         if not endpoint.get("ok") or endpoint.get("status") != 200:
             failures.append(f"endpoint_{label}_unavailable")
@@ -385,6 +399,15 @@ def collect_observer_preflight(
         sleep=sleep,
     )
     runner_capacity = collect_runner_capacity(command, config.timeout_seconds)
+    if runner_capacity.get("ok"):
+        protected_scope = runner_scope_evidence(runner_capacity, GateScope())
+        runner_capacity = {
+            **runner_capacity,
+            "protected_aggregate_max_inflight": protected_scope[
+                "protected_aggregate_max_inflight"
+            ],
+            "protected_lanes": protected_scope["protected_lanes"],
+        }
     endpoints = {
         "execution_8200": fetch(
             "http://127.0.0.1:8200/healthz", config.timeout_seconds

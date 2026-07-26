@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 
-PROTECTED_RUNNER_CAPACITY = 9
+PROTECTED_RUNNER_CAPACITY = 7
 PROTECTED_LANE_CAPACITY = {
     "browser_local": {
         "profile": "browser_local",
@@ -24,7 +24,7 @@ PROTECTED_LANE_CAPACITY = {
         "profile": "vision_local",
         "accepted_partitions": ("vision_local",),
         "accepted_resource_classes": ("compute",),
-        "minimum_capacity": 3,
+        "minimum_capacity": 1,
     },
 }
 RUNTIME_OBSERVATION_ACTION = "runtime-observation"
@@ -104,13 +104,18 @@ def runner_scope_evidence(
         for row in runner_capacity.get("rows") or []
         if isinstance(row, dict)
     ]
+    protected_lanes = _protected_lane_observations(rows)
     evidence: dict[str, Any] = {
         **scope.to_dict(),
         "protected_runner_capacity": PROTECTED_RUNNER_CAPACITY,
+        "protected_aggregate_max_inflight": sum(
+            int(observation["observed_capacity"])
+            for observation in protected_lanes.values()
+        ),
         "aggregate_max_inflight": int(
             runner_capacity.get("aggregate_max_inflight") or 0
         ),
-        "protected_lanes": _protected_lane_observations(rows),
+        "protected_lanes": protected_lanes,
     }
     if scope.action != RUNNER_ROLLING_RELOAD_ACTION:
         return evidence
@@ -154,16 +159,22 @@ def evaluate_runner_scope(
     scope: GateScope,
 ) -> list[str]:
     failures: list[str] = []
-    aggregate = int(runner_capacity.get("aggregate_max_inflight") or 0)
-    if aggregate < PROTECTED_RUNNER_CAPACITY:
-        failures.append(f"runner_capacity_below_{PROTECTED_RUNNER_CAPACITY}")
-    for lane_name, observation in _protected_lane_observations(
+    protected_lanes = _protected_lane_observations(
         [
             row
             for row in runner_capacity.get("rows") or []
             if isinstance(row, dict)
         ]
-    ).items():
+    )
+    protected_aggregate = sum(
+        int(observation["observed_capacity"])
+        for observation in protected_lanes.values()
+    )
+    if protected_aggregate < PROTECTED_RUNNER_CAPACITY:
+        failures.append(
+            f"protected_runner_capacity_below_{PROTECTED_RUNNER_CAPACITY}"
+        )
+    for lane_name, observation in protected_lanes.items():
         minimum = int(observation["minimum_capacity"])
         if int(observation["observed_capacity"]) < minimum:
             failures.append(

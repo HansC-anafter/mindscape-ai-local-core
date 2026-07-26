@@ -83,6 +83,7 @@ def collect_observer_compose_policy(
         )
         policy = {
             "profiles": service.get("profiles"),
+            "restart": service.get("restart"),
             "read_only": service.get("read_only"),
             "privileged": bool(service.get("privileged", False)),
             "pid": service.get("pid"),
@@ -104,6 +105,7 @@ def collect_observer_compose_policy(
     ).hexdigest()
     expected = {
         "profiles": ["runtime-db-observer"],
+        "restart": "no",
         "read_only": True,
         "privileged": False,
         "pid": "host",

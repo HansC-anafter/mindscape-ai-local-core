@@ -80,7 +80,7 @@ surfaces:
       - Capability-pack install retains the candidate and previous active runtime until migration and verification succeed, then commits filesystem activation, activation state, installed metadata, and registry projections from one durable receipt.
       - Alembic revision history is append-only operational truth; recovery uses graph diagnosis and corrective revisions and never deletes revision rows to force convergence.
       - Progress reads return one compact current or stale-known snapshot, or a redacted 503 with Retry-After; frontend polling obeys bounded 10, 20, and 30 second intervals and stops when hidden or terminal.
-      - Runtime repair preserves the authorized nine runner slots and existing queue visibility, does not expand PgBouncer pools as a workaround, and may claim only isolated recovery or controlled-switchover drill readiness; production high availability requires a separate failure-domain and controller decision.
+      - Runtime repair preserves the authorized protected runner capacity 2+2+2+1=7 and existing queue visibility; non-protected development lanes remain separately visible and cannot satisfy or mask a protected-lane shortage. It does not expand PgBouncer pools as a workaround, and may claim only isolated recovery or controlled-switchover drill readiness; production high availability requires a separate failure-domain and controller decision.
     path_globs:
       - backend/app/database/recovery_backoff.py
       - backend/app/database/application_identity.py

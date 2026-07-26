@@ -57,6 +57,7 @@ def _compose_payload(
             "services": {
                 "postgres-signal-observer": {
                     "profiles": ["runtime-db-observer"],
+                    "restart": "no",
                     "read_only": service_read_only,
                     "pid": "host",
                     "network_mode": "service:pgbouncer",
@@ -88,6 +89,38 @@ def _command(
     service_read_only: object = True,
 ):
     lifecycle_calls = 0
+    runner_environment = {
+        "mindscape-ai-local-core-runner-browser": {
+            "LOCAL_CORE_RUNNER_MAX_INFLIGHT": "2",
+            "LOCAL_CORE_RUNNER_PROFILE": "browser_local",
+            "LOCAL_CORE_RUNNER_ACCEPTED_PARTITIONS": "browser_local",
+            "LOCAL_CORE_RUNNER_ACCEPTED_RESOURCE_CLASSES": "browser",
+        },
+        "mindscape-ai-local-core-runner-browser-extra": {
+            "LOCAL_CORE_RUNNER_MAX_INFLIGHT": "2",
+            "LOCAL_CORE_RUNNER_PROFILE": "browser_local",
+            "LOCAL_CORE_RUNNER_ACCEPTED_PARTITIONS": "browser_local",
+            "LOCAL_CORE_RUNNER_ACCEPTED_RESOURCE_CLASSES": "browser",
+        },
+        "mindscape-ai-local-core-runner-default-local-browser": {
+            "LOCAL_CORE_RUNNER_MAX_INFLIGHT": "2",
+            "LOCAL_CORE_RUNNER_PROFILE": "default_local_browser",
+            "LOCAL_CORE_RUNNER_ACCEPTED_PARTITIONS": "default_local_browser",
+            "LOCAL_CORE_RUNNER_ACCEPTED_RESOURCE_CLASSES": "browser",
+        },
+        "mindscape-ai-local-core-runner-vision": {
+            "LOCAL_CORE_RUNNER_MAX_INFLIGHT": "1",
+            "LOCAL_CORE_RUNNER_PROFILE": "vision_local",
+            "LOCAL_CORE_RUNNER_ACCEPTED_PARTITIONS": "vision_local",
+            "LOCAL_CORE_RUNNER_ACCEPTED_RESOURCE_CLASSES": "compute",
+        },
+        "mindscape-ai-local-core-runner-vision-mlx-dev": {
+            "LOCAL_CORE_RUNNER_MAX_INFLIGHT": "1",
+            "LOCAL_CORE_RUNNER_PROFILE": "vision_mlx_dev",
+            "LOCAL_CORE_RUNNER_ACCEPTED_PARTITIONS": "vision_mlx_dev",
+            "LOCAL_CORE_RUNNER_ACCEPTED_RESOURCE_CLASSES": "compute",
+        },
+    }
 
     def run(args: list[str], timeout: float):
         nonlocal lifecycle_calls
@@ -127,7 +160,7 @@ def _command(
         if "name=mindscape-ai-local-core-runner" in joined:
             return {
                 "ok": True,
-                "stdout": "mindscape-ai-local-core-runner-a\n",
+                "stdout": "\n".join(runner_environment) + "\n",
             }
         if ".State.StartedAt" in joined:
             lifecycle_calls += 1
@@ -142,17 +175,25 @@ def _command(
                 "/mindscape-ai-local-core-backend|2026-07-17T04:03:11Z|0|true",
                 "/mindscape-ai-local-core-backend-control|2026-07-17T18:05:45Z|0|true",
                 "/mindscape-ai-local-core-frontend|2026-07-17T04:03:11Z|0|true",
-                "/mindscape-ai-local-core-runner-a|"
-                + runner_started_at
-                + (
-                    "|3|true"
-                    if lifecycle_calls > 1 and lifecycle_changed
-                    else "|2|true"
-                ),
+                *[
+                    f"/{name}|{runner_started_at}|"
+                    + (
+                        "3|true"
+                        if lifecycle_calls > 1
+                        and lifecycle_changed
+                        and name == "mindscape-ai-local-core-runner-vision"
+                        else "2|true"
+                    )
+                    for name in runner_environment
+                ],
             ]
             return {"ok": True, "stdout": "\n".join(rows) + "\n"}
-        if "docker inspect" in joined:
-            return {"ok": True, "stdout": "LOCAL_CORE_RUNNER_MAX_INFLIGHT=8\n"}
+        if args[:2] == ["docker", "exec"] and args[3] == "printenv":
+            value = runner_environment.get(args[2], {}).get(args[4])
+            return {
+                "ok": value is not None,
+                "stdout": f"{value}\n" if value is not None else "",
+            }
         if "postgres-signal-observer" in joined and "docker ps" in joined:
             return {"ok": True, "stdout": ""}
         raise AssertionError(args)
@@ -171,7 +212,7 @@ def _config(tmp_path: Path, *, phase: str) -> ObserverPreflightConfig:
         journal_root=tmp_path / "journal",
         output_json=tmp_path / "receipt.json",
         artifact_sha256=canonical_observer_artifact_sha256(repo_root),
-        expected_runner_capacity=8,
+        expected_runner_capacity=7,
         owner="runtime-db-incident-owner",
         phase=phase,
         pgbouncer_sample_interval_seconds=0,
@@ -274,7 +315,7 @@ def test_compose_policy_rejects_symlinked_artifact_source(tmp_path: Path) -> Non
         journal_root=tmp_path / "journal",
         output_json=tmp_path / "receipt.json",
         artifact_sha256="a" * 64,
-        expected_runner_capacity=8,
+        expected_runner_capacity=7,
         owner="runtime-db-incident-owner",
         phase="qualification",
     )
@@ -302,6 +343,7 @@ def test_official_compose_uses_exact_readonly_artifact_source_mount() -> None:
         "../../docker/postgres/Dockerfile:/app/docker/postgres/Dockerfile:ro"
     ) == 1
     assert "../../docker:/app/docker" not in compose
+    assert '    restart: "no"\n' in compose
     assert "        - /usr/local/bin/python\n" in compose
     assert "      start_period: 10s\n" in compose
     assert "      start_interval: 10s\n" in compose
@@ -435,6 +477,10 @@ def test_active_install_is_first_failure_and_capacity_is_not_changed(
     assert receipt["gate_pass"] is False
     assert receipt["first_failure"] == "active_install_jobs_nonzero:1"
     assert receipt["checks"]["runner_capacity"]["aggregate_max_inflight"] == 8
+    assert (
+        receipt["checks"]["runner_capacity"]["protected_aggregate_max_inflight"]
+        == 7
+    )
     assert receipt["queue_runner_pool_capacity_mutation"] is False
 
 
@@ -473,8 +519,16 @@ def test_runner_restart_during_full_window_fails_parallel_mutation_gate(
     assert receipt["gate_pass"] is False
     assert receipt["first_failure"] == "runtime_lifecycle_changed_during_preflight"
     assert receipt["parallel_runtime_mutation_detected"] is True
-    before = receipt["checks"]["runtime_lifecycle"]["before"]["rows"][-1]
-    after = receipt["checks"]["runtime_lifecycle"]["after"]["rows"][-1]
+    before = next(
+        row
+        for row in receipt["checks"]["runtime_lifecycle"]["before"]["rows"]
+        if row["container"] == "mindscape-ai-local-core-runner-vision"
+    )
+    after = next(
+        row
+        for row in receipt["checks"]["runtime_lifecycle"]["after"]["rows"]
+        if row["container"] == "mindscape-ai-local-core-runner-vision"
+    )
     assert before["restart_count"] == 2
     assert after["restart_count"] == 3
 
