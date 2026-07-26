@@ -101,6 +101,16 @@ def _readiness_query(
         )
 
 
+def _require_restore_service_running(
+    readiness: subprocess.CompletedProcess[str],
+) -> None:
+    if readiness.returncode == 0 or readiness.returncode == 124:
+        return
+    error = str(readiness.stderr or "").lower()
+    if "is not running" in error or "no container found" in error:
+        raise RuntimeError("restore_service_exited_before_ready")
+
+
 def preflight(source: RestoreSource) -> dict[str, Any]:
     config = _compose(source, "config", "--format", "json")
     if config.returncode != 0:
@@ -240,6 +250,7 @@ def run_restore(source: RestoreSource, *, timeout_seconds: int = 3600) -> dict[s
         ready = _readiness_query(source)
         if ready.returncode == 0 and ready.stdout.strip() == "t":
             break
+        _require_restore_service_running(ready)
         time.sleep(2)
     else:
         raise RuntimeError("restore_replay_timeout")

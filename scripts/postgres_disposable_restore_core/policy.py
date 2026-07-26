@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 import tempfile
 from typing import Any
@@ -51,7 +51,7 @@ def _parse_target_time(value: object) -> str:
         raise ValueError("restore_recovery_target_time_invalid") from exc
     if parsed.tzinfo is None:
         raise ValueError("restore_recovery_target_timezone_required")
-    return raw
+    return parsed.astimezone(timezone.utc).isoformat(sep=" ")
 
 
 def validate_restore_scope(

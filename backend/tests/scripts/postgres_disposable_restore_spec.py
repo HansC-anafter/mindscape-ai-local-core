@@ -7,6 +7,7 @@ from scripts.postgres_disposable_restore_core.commands import (
     _critical_database_evidence,
     _environment,
     _readiness_query,
+    _require_restore_service_running,
 )
 from scripts.postgres_disposable_restore_core.policy import (
     RestoreScope,
@@ -65,7 +66,7 @@ def test_restore_scope_resolves_relocated_incremental_chain(tmp_path: Path):
 
     assert source.base_dir.name == "base-1"
     assert source.wal_dir.name == "postgres-wal-archive"
-    assert source.recovery_target_time == "2026-07-16T12:00:00Z"
+    assert source.recovery_target_time == "2026-07-16 12:00:00+00:00"
     assert source.required_wal_segments == ("000000010000000000000001",)
 
 
@@ -205,6 +206,21 @@ def test_readiness_timeout_is_not_a_terminal_restore_exception(
 
     assert result.returncode == 124
     assert result.stderr == "restore_readiness_probe_timeout"
+
+
+def test_exited_restore_service_fails_before_global_timeout() -> None:
+    completed = __import__("subprocess").CompletedProcess(
+        args=("docker", "compose", "exec"),
+        returncode=1,
+        stdout="",
+        stderr='service "postgres-recovery-restore" is not running',
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="restore_service_exited_before_ready",
+    ):
+        _require_restore_service_running(completed)
 
 
 def test_restore_receipt_is_atomic_and_tamper_evident(tmp_path: Path):
