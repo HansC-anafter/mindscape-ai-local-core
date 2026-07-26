@@ -36,7 +36,9 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/tools", tags=["tools"])
 
 REPORTING_TOOL_IDS = {
+    "core.workspace_package_report",
     "core.workspace_write_html_report",
+    "workspace_package_report",
     "workspace_write_html_report",
 }
 
@@ -235,8 +237,8 @@ async def list_tools(
     except Exception as e:
         logger.warning(f"Failed to load capability tools: {e}", exc_info=True)
 
-    # Include only the core reporting writer from builtin tools so the general
-    # catalog can surface the Meeting Engine report output primitive without
+    # Include only core reporting builtins so the general catalog can surface
+    # Meeting Engine report output and share primitives without
     # broadening this legacy list route to every builtin tool.
     try:
         from backend.app.services.tool_list_service import ToolListService

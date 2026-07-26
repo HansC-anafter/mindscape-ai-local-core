@@ -163,6 +163,12 @@ class WorkspaceProductConfigurationRepository(PostgresStoreBase):
                         )
                     )
                     SELECT
+                        (
+                            SELECT owner_user_id
+                            FROM workspaces
+                            WHERE id = :workspace_id
+                            LIMIT 1
+                        ) AS workspace_owner_user_id,
                         (SELECT artifact_hash FROM active_catalog) AS artifact_hash,
                         (SELECT catalog_hash FROM active_catalog) AS catalog_hash,
                         (SELECT source_commit FROM active_catalog) AS source_commit,
@@ -217,6 +223,11 @@ class WorkspaceProductConfigurationRepository(PostgresStoreBase):
                 {"workspace_id": workspace_id, "group_id": group_id},
             ).fetchone()
         return {
+            "workspace_owner_user_id": getattr(
+                row,
+                "workspace_owner_user_id",
+                None,
+            ),
             "artifact_hash": row.artifact_hash,
             "catalog_hash": row.catalog_hash,
             "source_commit": row.source_commit,

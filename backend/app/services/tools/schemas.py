@@ -151,6 +151,15 @@ class ToolMetadata(BaseModel):
 
     # Optional fields
     version: Optional[str] = Field(default="1.0.0", description="Tool version")
+    execution_timeout_seconds: Optional[float] = Field(
+        default=None,
+        ge=1,
+        le=3600,
+        description=(
+            "Default execution budget used when the caller policy does not "
+            "declare a stricter timeout"
+        ),
+    )
     tags: List[str] = Field(
         default_factory=list, description="Tags (for search and categorization)"
     )

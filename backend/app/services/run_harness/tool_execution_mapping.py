@@ -21,6 +21,9 @@ from backend.app.models.run_harness_tool_execution import (
     RunHarnessToolExecutionRequest,
 )
 from backend.app.services.unified_tool_executor import ToolExecutionResult
+from backend.app.services.unified_tool_executor_core.structured_outcome import (
+    classify_structured_tool_outcome,
+)
 
 
 TOOL_METADATA_KEYS = (
@@ -30,6 +33,7 @@ TOOL_METADATA_KEYS = (
     "danger_level",
     "version",
 )
+TOOL_METADATA_OPTIONAL_KEYS = ("execution_timeout_seconds",)
 
 
 def map_execution_result(
@@ -49,6 +53,49 @@ def map_execution_result(
         "ledger_episode_id": request.episode_id,
     }
     if execution_result.success:
+        structured = classify_structured_tool_outcome(
+            execution_result.result
+        )
+        if structured.kind == "waiting":
+            return RunHarnessResult(
+                run_id=request.run_id,
+                episode_id=request.episode_id,
+                harness_kind=RunHarnessKind.DETERMINISTIC_TOOL,
+                status=RunHarnessStatus.WAITING,
+                wait_state=RunHarnessWaitState(
+                    kind=RunHarnessWaitKind.HUMAN_APPROVAL,
+                    reason="artifact_disclosure_review_required",
+                ),
+                trace_refs=[trace_ref(request)],
+                metadata={
+                    **metadata,
+                    "review_binding_sha256": (
+                        structured.review_binding_sha256
+                    ),
+                    "review_requirements": list(
+                        structured.review_requirements
+                    ),
+                },
+            )
+        if structured.kind == "blocked":
+            return RunHarnessResult(
+                run_id=request.run_id,
+                episode_id=request.episode_id,
+                harness_kind=RunHarnessKind.DETERMINISTIC_TOOL,
+                status=RunHarnessStatus.FAILED,
+                failure=RunHarnessFailure(
+                    code="artifact_disclosure_blocked",
+                    message="Artifact disclosure was blocked.",
+                    retryable=False,
+                ),
+                trace_refs=[trace_ref(request)],
+                metadata={
+                    **metadata,
+                    "blocking_codes": list(
+                        structured.blocking_codes
+                    ),
+                },
+            )
         return RunHarnessResult(
             run_id=request.run_id,
             episode_id=request.episode_id,
@@ -190,10 +237,24 @@ def validate_tool_snapshot(snapshot: Any) -> Optional[dict[str, Any]]:
         return None
     if any(key not in snapshot for key in TOOL_METADATA_KEYS):
         return None
-    normalized = {key: enum_value(snapshot.get(key)) for key in TOOL_METADATA_KEYS}
+    normalized = {
+        key: enum_value(snapshot.get(key))
+        for key in (*TOOL_METADATA_KEYS, *TOOL_METADATA_OPTIONAL_KEYS)
+    }
     for required_key in ("tool_name", "source_type", "danger_level"):
         if not str(normalized.get(required_key) or "").strip():
             return None
+    timeout_seconds = normalized.get("execution_timeout_seconds")
+    if timeout_seconds is not None:
+        try:
+            timeout_seconds = float(timeout_seconds)
+        except (TypeError, ValueError):
+            return None
+        if not 1 <= timeout_seconds <= 3600:
+            return None
+        normalized["execution_timeout_seconds"] = timeout_seconds
+    else:
+        normalized.pop("execution_timeout_seconds", None)
     return normalized
 
 

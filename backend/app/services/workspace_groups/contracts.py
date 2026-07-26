@@ -118,6 +118,9 @@ class AuthorizedSharedAssetScope(BaseModel):
     resource_id: str
     access_mode: Literal["read"] = "read"
     selector: SharedAssetSelector
+    active_workspace_owner_user_id: Optional[str] = None
+    group_owner_user_id: Optional[str] = None
+    source_workspace_owner_user_id: Optional[str] = None
 
 
 class SharedAssetScopeError(BaseModel):

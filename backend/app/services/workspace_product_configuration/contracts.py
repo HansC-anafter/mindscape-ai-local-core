@@ -159,6 +159,7 @@ class AdmissionConfigurationSource:
     snapshot: WorkspaceCapabilitySetSnapshot
     active_group_context: ActiveWorkspaceGroupContext | None
     catalog_products: tuple[dict[str, Any], ...]
+    workspace_owner_user_id: str | None = None
 
 
 class CatalogArtifactEnvelope(BaseModel):

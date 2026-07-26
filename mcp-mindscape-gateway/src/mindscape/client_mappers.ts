@@ -82,14 +82,37 @@ export function mapFilteredToolsResponse(data: any): FilteredToolsResponse {
 }
 
 export function formatToolResult(backendResult: any, toolName: string): ToolResult {
+  const outputs = backendResult.result || {};
+  const artifactCreated = outputs.artifact_created;
+  const reviewRequirements = Array.isArray(outputs.review_requirements)
+    ? outputs.review_requirements
+    : [];
+  const blockingCodes = Array.isArray(outputs.blocking_codes)
+    ? outputs.blocking_codes
+    : [];
+  const isStructuredPreflight = artifactCreated === false;
+  const status = isStructuredPreflight && blockingCodes.length > 0
+    ? "failed"
+    : isStructuredPreflight && reviewRequirements.length > 0
+      ? "confirmation_required"
+      : backendResult.success
+        ? "completed"
+        : "failed";
+  const structuredError = (
+    isStructuredPreflight && blockingCodes.length > 0
+  ) ? {
+    code: "ARTIFACT_DISCLOSURE_BLOCKED",
+    message: "Artifact disclosure was blocked.",
+    details: { blocking_codes: blockingCodes.slice(0, 20) },
+  } : undefined;
   return {
-    status: backendResult.success ? "completed" : "failed",
+    status,
     inputs: {},
-    outputs: backendResult.result || {},
-    error: backendResult.error ? {
+    outputs,
+    error: structuredError || (backendResult.error ? {
       code: "EXECUTION_ERROR",
       message: backendResult.error,
-    } : undefined,
+    } : undefined),
     logs: [],
     _metadata: {
       tool: toolName,

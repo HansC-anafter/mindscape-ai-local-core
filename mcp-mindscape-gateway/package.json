@@ -9,6 +9,7 @@
     "start": "node dist/index.js",
     "dev": "tsx src/index.ts",
     "type-check": "tsc --noEmit",
+    "test:unit": "node --test tests/*.test.mjs",
     "test": "node test-simple.js",
     "test:check": "./test-mcp.sh"
   },
@@ -31,4 +32,3 @@
     "typescript": "^5.3.0"
   }
 }
-

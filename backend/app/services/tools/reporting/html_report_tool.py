@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import html as html_escape
-import os
-import re
-from pathlib import Path, PurePosixPath
+from pathlib import PurePosixPath
 from typing import Any, Dict, Optional
 
 from backend.app.services.tools.base import MindscapeTool
+from backend.app.services.tools.reporting.workspace_reporting_paths import (
+    is_relative_to as _is_relative_to,
+    resolve_workspace_sandbox,
+    validate_relative_path,
+    validate_workspace_id as _validate_workspace_id,
+)
 from backend.app.services.tools.schemas import (
     ToolCategory,
     ToolInputSchema,
@@ -18,16 +22,7 @@ from backend.app.services.tools.schemas import (
 
 DEFAULT_REPORT_SUBDIR = "reports/html"
 MAX_HTML_BYTES = 2 * 1024 * 1024
-_SAFE_WORKSPACE_ID_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 _BLOCKED_HTML_MARKERS = ("<script", "javascript:")
-
-
-def _is_relative_to(child: Path, parent: Path) -> bool:
-    try:
-        child.relative_to(parent)
-        return True
-    except ValueError:
-        return False
 
 
 def _validate_file_name(file_name: str) -> str:
@@ -42,22 +37,14 @@ def _validate_file_name(file_name: str) -> str:
 
 
 def _validate_relative_subdir(report_subdir: Optional[str]) -> PurePosixPath:
-    value = (report_subdir or DEFAULT_REPORT_SUBDIR).strip().strip("/")
-    if not value:
-        value = DEFAULT_REPORT_SUBDIR
-    path = PurePosixPath(value)
-    if path.is_absolute() or any(part in ("", ".", "..") for part in path.parts):
-        raise ValueError("report_subdir must be a safe relative path")
-    return path
-
-
-def _validate_workspace_id(workspace_id: Optional[str]) -> Optional[str]:
-    if workspace_id is None:
-        return None
-    value = workspace_id.strip()
-    if not value or not _SAFE_WORKSPACE_ID_RE.match(value):
-        raise ValueError("workspace_id contains unsupported characters")
-    return value
+    normalized = (report_subdir or DEFAULT_REPORT_SUBDIR).strip().strip("/")
+    if not normalized:
+        normalized = DEFAULT_REPORT_SUBDIR
+    return validate_relative_path(
+        normalized,
+        field_name="report_subdir",
+        default=DEFAULT_REPORT_SUBDIR,
+    )
 
 
 def _normalize_html(title: Optional[str], content: str) -> str:
@@ -166,27 +153,13 @@ class WorkspaceHtmlReportTool(MindscapeTool):
         overwrite: bool = False,
     ) -> Dict[str, Any]:
         """Write a static HTML report into a workspace sandbox."""
-        safe_workspace_id = _validate_workspace_id(workspace_id)
         safe_file_name = _validate_file_name(file_name)
         safe_subdir = _validate_relative_subdir(report_subdir)
         normalized_html = _normalize_html(title, html)
-
-        data_dir = Path(os.getenv("DATA_DIR", "./data")).expanduser().resolve()
-        workspaces_root = (data_dir / "workspaces").resolve()
-
-        if sandbox_path:
-            sandbox_root = Path(sandbox_path).expanduser().resolve()
-        elif safe_workspace_id:
-            sandbox_root = (workspaces_root / safe_workspace_id / "sandbox").resolve()
-        else:
-            raise ValueError("workspace_id or sandbox_path is required")
-
-        if not _is_relative_to(sandbox_root, workspaces_root):
-            raise ValueError("sandbox_path must be under DATA_DIR/workspaces")
-        if safe_workspace_id:
-            workspace_root = (workspaces_root / safe_workspace_id).resolve()
-            if not _is_relative_to(sandbox_root, workspace_root):
-                raise ValueError("sandbox_path must belong to workspace_id")
+        safe_workspace_id, sandbox_root = resolve_workspace_sandbox(
+            workspace_id=workspace_id,
+            sandbox_path=sandbox_path,
+        )
 
         target_dir = sandbox_root.joinpath(*safe_subdir.parts).resolve()
         target_path = (target_dir / safe_file_name).resolve()
