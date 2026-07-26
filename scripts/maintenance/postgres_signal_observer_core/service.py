@@ -225,7 +225,10 @@ class PostgresSignalObserver:
             raise RuntimeError(failure)
         incident_id = str(decision.incident_id or "")
         permit_id = str(decision.details.get("permit_id") or "")
+        source_commit = str(decision.details.get("source_commit") or "")
         expires_at_value = str(decision.details.get("expires_at") or "")
+        if source_commit != self.config.source_commit:
+            raise RuntimeError("incident_diagnostic_permit_changed")
         try:
             expires_at = datetime.fromisoformat(
                 expires_at_value.replace("Z", "+00:00")

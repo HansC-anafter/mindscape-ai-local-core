@@ -18,7 +18,7 @@ RunCommand = Callable[[list[str], float], dict[str, Any]]
 
 class ComposePolicyConfig(Protocol):
     repo_root: Path
-    timeout_seconds: float
+    command_timeout_seconds: float
 
 
 def collect_observer_compose_policy(
@@ -37,7 +37,7 @@ def collect_observer_compose_policy(
             "--format",
             "json",
         ],
-        config.timeout_seconds,
+        config.command_timeout_seconds,
     )
     if not result.get("ok"):
         return {"ok": False, "error_code": "observer_compose_config_unavailable"}

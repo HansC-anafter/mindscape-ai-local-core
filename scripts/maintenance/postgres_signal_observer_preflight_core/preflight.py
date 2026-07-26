@@ -56,7 +56,8 @@ class ObserverPreflightConfig:
     expected_runner_capacity: int
     owner: str
     phase: str
-    timeout_seconds: float = 10.0
+    command_timeout_seconds: float = 30.0
+    endpoint_timeout_seconds: float = 10.0
     pgbouncer_sample_interval_seconds: float = 5.0
 
     def validate(self) -> None:
@@ -388,17 +389,20 @@ def collect_observer_preflight(
     )
     actual_artifact_sha256 = canonical_observer_artifact_sha256(config.repo_root)
     runtime_lifecycle_before = _runtime_lifecycle_snapshot(
-        command, config.timeout_seconds
+        command, config.command_timeout_seconds
     )
-    database_before = _database_checks(command, config.timeout_seconds)
+    database_before = _database_checks(command, config.command_timeout_seconds)
     pgbouncer = collect_pgbouncer_metrics(
         command,
-        config.timeout_seconds,
+        config.command_timeout_seconds,
         sample_count=3,
         sample_interval_seconds=config.pgbouncer_sample_interval_seconds,
         sleep=sleep,
     )
-    runner_capacity = collect_runner_capacity(command, config.timeout_seconds)
+    runner_capacity = collect_runner_capacity(
+        command,
+        config.command_timeout_seconds,
+    )
     if runner_capacity.get("ok"):
         protected_scope = runner_scope_evidence(runner_capacity, GateScope())
         runner_capacity = {
@@ -410,18 +414,22 @@ def collect_observer_preflight(
         }
     endpoints = {
         "execution_8200": fetch(
-            "http://127.0.0.1:8200/healthz", config.timeout_seconds
+            "http://127.0.0.1:8200/healthz", config.endpoint_timeout_seconds
         ),
-        "control_8220": fetch("http://127.0.0.1:8220/healthz", config.timeout_seconds),
+        "control_8220": fetch(
+            "http://127.0.0.1:8220/healthz",
+            config.endpoint_timeout_seconds,
+        ),
         "frontend_8300_liveness": fetch(
-            "http://127.0.0.1:8300/healthz", config.timeout_seconds
+            "http://127.0.0.1:8300/healthz",
+            config.endpoint_timeout_seconds,
         ),
     }
     compose_policy = collect_observer_compose_policy(command, config)
-    observer_process = _observer_running(command, config.timeout_seconds)
-    database_after = _database_checks(command, config.timeout_seconds)
+    observer_process = _observer_running(command, config.command_timeout_seconds)
+    database_after = _database_checks(command, config.command_timeout_seconds)
     runtime_lifecycle_after = _runtime_lifecycle_snapshot(
-        command, config.timeout_seconds
+        command, config.command_timeout_seconds
     )
     lifecycle_stable = bool(
         runtime_lifecycle_before.get("ok")

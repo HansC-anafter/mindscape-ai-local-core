@@ -94,6 +94,7 @@ class RuntimeDatabaseMutationGate:
                             "permit_id": diagnostic.get("permit_id"),
                             "operation_key": operation_key,
                             "expires_at": expires_at,
+                            "source_commit": diagnostic.get("source_commit"),
                         },
                     )
                 if operation_key in allowed_keys and not permit_active:

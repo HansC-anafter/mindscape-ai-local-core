@@ -484,6 +484,51 @@ def test_observer_refuses_tracefs_before_exact_incident_permit(
     assert health["state"] == "fail_closed_observer_error"
 
 
+def test_observer_refuses_permit_bound_to_another_source_commit(
+    tmp_path: Path,
+) -> None:
+    config = _config(tmp_path)
+    journal = RuntimeDatabaseIncidentJournal(config.journal_root)
+    incident = journal.open_incident(failure_code="observer_source_mismatch_test")
+    journal.record_diagnostic_permit(
+        incident.incident_id,
+        IncidentDiagnosticPermit(
+            permit_id="diagnostic-source-mismatch",
+            source_commit="f" * 40,
+            allowed_operation_keys=(
+                "postgres_signal_observer_start@sha256:" + config.artifact_sha256,
+            ),
+            test_evidence_paths=("evidence/source-mismatch.json",),
+            capture_evidence_id="observer-source-mismatch",
+            budget_sha256="b" * 64,
+            expires_at=(datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat(),
+            owner="runtime-db-incident-owner",
+        ),
+    )
+
+    class _Trace:
+        prepared = False
+
+        def prepare(self):
+            self.prepared = True
+            return ""
+
+        def cleanup(self):
+            pass
+
+    trace = _Trace()
+    observer = PostgresSignalObserver(
+        config,
+        trace=trace,
+        correlation=SimpleNamespace(),
+    )
+
+    assert observer.run() == 2
+    assert trace.prepared is False
+    terminal = ObserverEvidenceStore(config.evidence_root).read_health()
+    assert terminal["failure_detail_code"] == "incident_diagnostic_permit_changed"
+
+
 def test_observer_persists_starting_health_before_tracefs_prepare(
     tmp_path: Path,
 ) -> None:
