@@ -9,11 +9,12 @@ import { NodeDetailPanel } from '../../../components/mindscape/NodeDetailPanel';
 import { NodeEditor } from '../../../components/mindscape/NodeEditor';
 import { DeleteConfirmDialog } from '../../../components/mindscape/DeleteConfirmDialog';
 import { GraphSidePanel } from '../../../components/mindscape/GraphSidePanel';
-import { t } from '../../../lib/i18n';
+import { useT } from '../../../lib/i18n';
 import { GraphNode, useFullGraph, deleteNode, initializeGraph } from '../../../lib/graph-api';
 import { OpenWorkspaceDialog } from '../../../components/mindscape/OpenWorkspaceDialog';
 
 export default function GraphPage() {
+  const t = useT();
   const searchParams = useSearchParams();
   const workspaceId = searchParams?.get('workspaceId') || searchParams?.get('workspace_id') || '';
 

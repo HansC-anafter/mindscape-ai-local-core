@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { t } from '../../../../lib/i18n';
+import { useT } from '../../../../lib/i18n';
 import { getThemePreset, setThemePreset, type ThemePreset } from '../../../../lib/theme-preset';
 import { useTheme } from 'next-themes';
 
@@ -23,6 +23,7 @@ const THEME_PRESETS: { value: ThemePreset; label: string; description: string }[
 ];
 
 export function ThemePresetSettings({ onPresetChange }: ThemePresetSettingsProps) {
+  const t = useT();
   const [currentPreset, setCurrentPreset] = useState<ThemePreset>('default');
   const [loading, setLoading] = useState(true);
   const { resolvedTheme } = useTheme();

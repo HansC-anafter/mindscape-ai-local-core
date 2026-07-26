@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 
 interface InputBottomBarProps {
   messagesCount: number;
@@ -30,6 +30,7 @@ export function InputBottomBar({
   canSend,
   llmConfigured,
 }: InputBottomBarProps) {
+  const t = useT();
   return (
     <div className="flex items-center justify-between px-4 pb-3 pt-2 border-t border-gray-200/30 dark:border-gray-700/30">
       <div className="flex min-w-0 items-center gap-2">

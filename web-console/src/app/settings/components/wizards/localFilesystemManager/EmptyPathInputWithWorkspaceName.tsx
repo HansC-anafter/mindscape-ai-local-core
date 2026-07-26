@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 
 import { appendWorkspaceTitleToPath } from './pathUtils';
 
@@ -21,6 +21,7 @@ export function EmptyPathInputWithWorkspaceName({
   onPathChange,
   workspaceTitle,
 }: EmptyPathInputWithWorkspaceNameProps) {
+  const t = useT();
   const [inputValue, setInputValue] = useState(currentPath || '');
 
   useEffect(() => {

@@ -2,7 +2,7 @@
 
 import React, { useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { t } from '../../../../lib/i18n';
+import { useT } from '../../../../lib/i18n';
 import { Card } from '../Card';
 import {
   LocalCoreSlotsCard,
@@ -16,6 +16,7 @@ import type { PackGroup } from './ModelRouteRegistryPanelTypes';
 import { useModelRouteRegistryPanelData } from './useModelRouteRegistryPanelData';
 
 export function ModelRouteRegistryPanel() {
+  const t = useT();
   const router = useRouter();
   const {
     payload,

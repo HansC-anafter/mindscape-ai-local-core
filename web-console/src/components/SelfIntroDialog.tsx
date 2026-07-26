@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 
 interface SelfIntroDialogProps {
   isOpen: boolean;
@@ -10,6 +10,7 @@ interface SelfIntroDialogProps {
 }
 
 export default function SelfIntroDialog({ isOpen, onClose, onSubmit }: SelfIntroDialogProps) {
+  const t = useT();
   const [identity, setIdentity] = useState('');
   const [solving, setSolving] = useState('');
   const [thinking, setThinking] = useState('');

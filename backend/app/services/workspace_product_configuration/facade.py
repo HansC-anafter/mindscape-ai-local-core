@@ -132,6 +132,7 @@ class WorkspaceProductConfigurationFacade:
                 for product in products
                 if isinstance(product, dict)
             ),
+            workspace_owner_user_id=state.get("workspace_owner_user_id"),
         )
 
     def replace_scope(

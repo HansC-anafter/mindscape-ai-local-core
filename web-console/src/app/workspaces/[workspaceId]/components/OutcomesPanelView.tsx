@@ -1,7 +1,7 @@
 import React from 'react';
 
 import ConflictDialog from '@/components/ConflictDialog';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 
 import SandboxModalWrapper from '../../components/execution-inspector/SandboxModalWrapper';
 import { buildCapabilityComponentUrl } from './outcomesPanelApi';
@@ -46,6 +46,7 @@ export function OutcomesPanelView({
   onOpenExternal,
   onSandboxClick,
 }: OutcomesPanelViewProps) {
+  const t = useT();
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">

@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import React, { useEffect, useState } from 'react';
-import { t } from '../../../lib/i18n';
+import { useT } from '../../../lib/i18n';
 import { settingsApi } from '../utils/settingsApi';
 import { InlineAlert } from './InlineAlert';
 
@@ -14,6 +14,7 @@ interface HuggingFaceAuthConfig {
 }
 
 export function HuggingFaceCredentialsSettings() {
+  const t = useT();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [clearing, setClearing] = useState(false);

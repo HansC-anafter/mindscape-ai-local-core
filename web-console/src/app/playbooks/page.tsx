@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { t, useLocale } from '../../lib/i18n';
+import { useT, useLocale } from '../../lib/i18n';
 import { getPlaybookRegistry } from '../../playbook';
 import { PlaybooksPageView } from './PlaybooksPageView';
 import {
@@ -23,6 +23,7 @@ import {
 } from './playbooksPageTransforms';
 
 export default function PlaybooksPage() {
+  const t = useT();
   const [locale] = useLocale();
   const router = useRouter();
   const [playbooks, setPlaybooks] = useState<Playbook[]>([]);

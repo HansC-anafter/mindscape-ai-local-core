@@ -7,7 +7,7 @@ import { useExecutionState } from '@/hooks/useExecutionState';
 import { useWorkspaceProjects } from '@/hooks/useWorkspaceProjects';
 import { useWorkspaceAutoActions } from '@/hooks/useWorkspaceAutoActions';
 import type { Artifact } from './components/OutcomesPanel';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 import { getApiBaseUrl } from '../../../lib/api-url';
 
 import WorkspaceHeaderBar from './components/WorkspaceHeaderBar';
@@ -57,6 +57,7 @@ function WorkspaceSidebarPlaceholder({ side }: { side: 'left' | 'right' }) {
 }
 
 function WorkspacePageContent({ workspaceId }: { workspaceId: string }) {
+  const t = useT();
   const contextData = useWorkspaceData();
 
   const workspace = contextData.workspace as Workspace | null;

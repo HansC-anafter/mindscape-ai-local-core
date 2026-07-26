@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { t } from '../../../../lib/i18n';
+import { useT } from '../../../../lib/i18n';
 import { settingsApi } from '../../utils/settingsApi';
 import { InlineAlert } from '../InlineAlert';
 
@@ -24,6 +24,7 @@ export function ObsidianConfigWizard({
   onClose,
   onSuccess,
 }: ObsidianConfigWizardProps) {
+  const t = useT();
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [error, setError] = useState<string | null>(null);

@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import React, { useCallback, useEffect, useState } from 'react';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 import { formatLocalDateTime } from '@/lib/time';
 import { GovernanceDecisionDetail } from '@/app/workspaces/[workspaceId]/governance/components/GovernanceDecisionDetail';
 import { GovernedMemoryPreview } from '@/components/workspace/governance/GovernedMemoryPreview';
@@ -38,6 +38,7 @@ export default function GovernanceTab({
   apiUrl,
   relatedGovernedMemory,
 }: GovernanceTabProps) {
+  const t = useT();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [decisions, setDecisions] = useState<GovernanceDecision[]>([]);

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 import { linkNodeToPlaybook } from '@/lib/graph-api';
 
 interface PlaybookLinkDialogProps {
@@ -11,6 +11,7 @@ interface PlaybookLinkDialogProps {
 }
 
 export function PlaybookLinkDialog({ nodeId, onLink, onCancel }: PlaybookLinkDialogProps) {
+  const t = useT();
   const [playbookCode, setPlaybookCode] = useState('');
   const [isLinking, setIsLinking] = useState(false);
   const [error, setError] = useState<string | null>(null);

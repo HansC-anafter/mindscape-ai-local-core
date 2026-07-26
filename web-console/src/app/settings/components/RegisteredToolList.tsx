@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { t } from '../../../lib/i18n';
+import { useT } from '../../../lib/i18n';
 import { Card } from './Card';
 import { StatusPill } from './StatusPill';
 import type { RegisteredTool } from '../types';
@@ -12,6 +12,7 @@ interface RegisteredToolListProps {
 }
 
 export function RegisteredToolList({ tools, maxDisplay = 10 }: RegisteredToolListProps) {
+  const t = useT();
   if (tools.length === 0) {
     return null;
   }

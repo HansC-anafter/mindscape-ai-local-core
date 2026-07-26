@@ -1,6 +1,6 @@
 'use client';
 
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 import { InlineAlert } from '@/app/settings/components/InlineAlert';
 
 import type { DirectoryConfig } from './types';
@@ -30,6 +30,7 @@ export function LocalFilesystemStatusSection({
   success,
   workspaceMode,
 }: LocalFilesystemStatusSectionProps) {
+  const t = useT();
   return (
     <>
       {showHeader && (
@@ -87,6 +88,7 @@ export function LocalFilesystemFooterSection({
   saving,
   showHeader,
 }: LocalFilesystemFooterSectionProps) {
+  const t = useT();
   return (
     <>
       {showHeader && (

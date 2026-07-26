@@ -113,19 +113,24 @@ export function registerListToolsHandler({
           });
         } else {
           const governedName = toolNameResolver.toMcpName(identity, "run");
+          const requiresConfirmation = Boolean(
+            decision.constraints?.requiresConfirmation
+          );
           mcpTools.push({
             name: governedName,
-            description: `[Governed] ${tool.description} - Requires confirmation`,
+            description: requiresConfirmation
+              ? `[Governed] ${tool.description} - Requires confirmation`
+              : `[Governed] ${tool.description}`,
             inputSchema: wrapToolSchema(tool.input_schema || {}, {
               includeWorkspaceId: true,
-              includeConfirmToken: true
+              includeConfirmToken: requiresConfirmation
             }),
             _mindscape: {
               layer: "governed",
               pack: identity.pack,
               action: identity.action,
               danger_level: "high",
-              requires_confirmation: decision.constraints?.requiresConfirmation,
+              requires_confirmation: requiresConfirmation,
               requires_preview: decision.constraints?.requiresPreview
             }
           });

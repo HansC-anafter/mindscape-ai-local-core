@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { t } from '../../../lib/i18n';
+import { useT, type Translator } from '../../../lib/i18n';
 import { Card } from './Card';
 import { StatusPill } from './StatusPill';
 import type { CapabilityPack, ToolStatus } from '../types';
@@ -13,7 +13,7 @@ interface PackCardProps {
   getToolStatus: (toolType: string) => ToolStatus;
 }
 
-function getPackName(packId: string): string {
+function getPackName(packId: string, t: Translator): string {
   const nameMap: Record<string, string> = {
     product_designer: t('packProductDesignerName' as any),
     content_creator: t('packContentCreatorName' as any),
@@ -22,7 +22,7 @@ function getPackName(packId: string): string {
   return nameMap[packId] || packId;
 }
 
-function getPackDescription(packId: string): string {
+function getPackDescription(packId: string, t: Translator): string {
   const descMap: Record<string, string> = {
     product_designer: t('packProductDesignerDescription' as any),
     content_creator: t('packContentCreatorDescription' as any),
@@ -31,7 +31,7 @@ function getPackDescription(packId: string): string {
   return descMap[packId] || '';
 }
 
-function getPackCapabilities(packId: string): string[] {
+function getPackCapabilities(packId: string, t: Translator): string[] {
   const capMap: Record<string, string[]> = {
     product_designer: [
       t('packProductDesignerCap1'),
@@ -54,9 +54,10 @@ function getPackCapabilities(packId: string): string[] {
 }
 
 export function PackCard({ pack, onInstall, installing, getToolStatus }: PackCardProps) {
-  const packName = getPackName(pack.id);
-  const packDescription = getPackDescription(pack.id) || pack.description;
-  const packCapabilities = getPackCapabilities(pack.id);
+  const t = useT();
+  const packName = getPackName(pack.id, t);
+  const packDescription = getPackDescription(pack.id, t) || pack.description;
+  const packCapabilities = getPackCapabilities(pack.id, t);
   const displayPlaybooks = pack.playbooks || [];
   const displayTools = pack.tools || pack.required_tools || [];
 

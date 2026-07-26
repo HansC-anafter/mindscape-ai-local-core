@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { Globe2, RefreshCw, SlidersHorizontal } from 'lucide-react';
-import { t } from '../../../../lib/i18n';
+import { useT } from '../../../../lib/i18n';
 import { settingsApi } from '../../utils/settingsApi';
 
 interface BackendModeSettingsProps {
@@ -23,6 +23,7 @@ interface ResourceGovernanceContext {
 }
 
 export function BackendModeSettings({ mode }: BackendModeSettingsProps) {
+  const t = useT();
   const [context, setContext] = useState<ResourceGovernanceContext | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

@@ -4,13 +4,14 @@ import React, { useState, useEffect } from 'react';
 import { useToolOverlay, ToolWithOverlay } from '@/hooks/useToolOverlay';
 import ToolWhitelistEditor from './ToolWhitelistEditor';
 import ToolDangerLevelOverride from './ToolDangerLevelOverride';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 
 interface ToolOverlayPanelProps {
   workspaceId: string;
 }
 
 export default function ToolOverlayPanel({ workspaceId }: ToolOverlayPanelProps) {
+  const t = useT();
   const {
     overlay,
     loading,

@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Folder, File, ChevronRight, ChevronLeft, Search, Check, X } from 'lucide-react';
-import { t } from '../../lib/i18n';
+import { useT } from '../../lib/i18n';
 import { settingsApi } from '../../app/settings/utils/settingsApi';
 import { BaseModal } from '../BaseModal';
 
@@ -35,8 +35,10 @@ export function FolderPicker({
     onClose,
     onSelect,
     initialPath = '/',
-    title = t('selectFolder' as any) || 'Select Folder'
+    title,
 }: FolderPickerProps) {
+    const t = useT();
+    const resolvedTitle = title || t('selectFolder' as any);
     const [currentPath, setCurrentPath] = useState(initialPath);
     const [items, setItems] = useState<FileItem[]>([]);
     const [parentPath, setParentPath] = useState<string | null>(null);
@@ -91,7 +93,7 @@ export function FolderPicker({
     );
 
     return (
-        <BaseModal isOpen={isOpen} onClose={onClose} title={title} maxWidth="max-w-2xl">
+        <BaseModal isOpen={isOpen} onClose={onClose} title={resolvedTitle} maxWidth="max-w-2xl">
             <div className="flex flex-col h-[500px]">
                 {/* Navigation Bar */}
                 <div className="flex items-center space-x-2 mb-4 p-2 bg-surface-secondary dark:bg-gray-700/50 rounded-md">

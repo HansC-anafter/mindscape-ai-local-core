@@ -2,7 +2,7 @@
 
 import React, { Suspense, useState, useEffect, useRef } from 'react';
 import { ChatMessage } from '@/hooks/useChatEvents';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 import { parseServerTimestamp } from '@/lib/time';
 
 interface MessageItemProps {
@@ -26,6 +26,7 @@ function renderMarkdownContent(content: string, linkClassName?: string) {
 }
 
 function MessageItemComponent({ message, onCopy, onRetry }: MessageItemProps) {
+  const t = useT();
   const [isVisible, setIsVisible] = useState(false);
   const [showCopyButton, setShowCopyButton] = useState(false);
   const [copied, setCopied] = useState(false);

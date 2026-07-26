@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState } from 'react';
-import { t } from '@/lib/i18n';
 
 interface DataPromptCardProps {
   taskTitle?: string;
@@ -115,7 +114,6 @@ export function DataPromptCard({
     </div>
   );
 }
-
 
 
 

@@ -16,7 +16,7 @@ import {
   Zap,
 } from 'lucide-react';
 import ErrorDialog from '@/components/ErrorDialog';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 import type {
   LaunchpadData,
   WorkspaceHomeDerivedState,
@@ -101,6 +101,7 @@ export function WorkspaceHomeLaunchpadView({
   onClearSetupDrawer,
   onCloseErrorDialog,
 }: WorkspaceHomeLaunchpadViewProps) {
+  const t = useT();
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-full min-h-screen bg-gray-50 dark:bg-gray-950">

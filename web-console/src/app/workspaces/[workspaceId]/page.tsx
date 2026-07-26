@@ -1,6 +1,6 @@
 import { headers } from 'next/headers';
 
-import { t } from '@/lib/i18n';
+import { getServerT } from '@/lib/i18n/server';
 
 import RemoteWorkspaceLanding from './RemoteWorkspaceLanding';
 
@@ -11,6 +11,7 @@ export default async function WorkspacePage({
   params: { workspaceId?: string };
   searchParams?: { active_group_id?: string; topology_revision?: string };
 }) {
+  const t = await getServerT();
   const workspaceId = params?.workspaceId;
   if (!workspaceId) {
     return (

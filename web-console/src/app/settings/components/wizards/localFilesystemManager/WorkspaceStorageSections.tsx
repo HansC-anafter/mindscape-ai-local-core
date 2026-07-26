@@ -1,6 +1,6 @@
 'use client';
 
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 
 import type { DirectoryConfig, PlaybookStorageConfig } from './types';
 
@@ -25,6 +25,7 @@ export function WorkspaceStorageSections({
   usedPlaybooks,
   workspaceMode,
 }: WorkspaceStorageSectionsProps) {
+  const t = useT();
   if (!workspaceMode) {
     return null;
   }
@@ -107,6 +108,7 @@ function PlaybookStorageConfigRow({
   playbookStorageConfig,
   setPlaybookStorageConfig,
 }: PlaybookStorageConfigRowProps) {
+  const t = useT();
   const config = playbookStorageConfig[playbookCode] || {};
   const useCustom = !!(config.base_path && config.base_path.trim());
 

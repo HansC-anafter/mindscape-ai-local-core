@@ -1,6 +1,6 @@
 'use client';
 
-import { t } from '../../../../../lib/i18n';
+import { useT } from '../../../../../lib/i18n';
 import type { ModelOverrideSectionProps } from './types';
 
 export function ModelOverrideSection({
@@ -27,6 +27,7 @@ export function ModelOverrideSection({
   onTemperatureChange,
   onMaxOutputTokensChange,
 }: ModelOverrideSectionProps) {
+  const t = useT();
   return (
     <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
       <div className="flex items-center justify-between mb-3">

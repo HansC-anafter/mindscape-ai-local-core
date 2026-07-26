@@ -31,6 +31,60 @@ export type {
   ToolResult,
 } from "./client_types.js";
 
+export type ToolOperationType =
+  | "read"
+  | "modify"
+  | "delete"
+  | "publish";
+
+const TOOL_ACTION_BOUNDARY = "[._-]";
+
+function actionPattern(actions: string[]): RegExp {
+  return new RegExp(
+    `(^|${TOOL_ACTION_BOUNDARY})(${actions.join("|")})(${TOOL_ACTION_BOUNDARY}|$)`,
+    "i"
+  );
+}
+
+const DELETE_ACTION_PATTERN = actionPattern([
+  "delete",
+  "remove",
+  "drop",
+  "truncate",
+]);
+const PUBLISH_ACTION_PATTERN = actionPattern([
+  "publish",
+  "deploy",
+  "release",
+]);
+const READ_ACTION_PATTERN = actionPattern([
+  "get",
+  "list",
+  "read",
+  "fetch",
+  "query",
+  "search",
+  "check",
+  "validate",
+  "preview",
+  "status",
+  "info",
+  "metadata",
+]);
+
+export function inferToolOperationType(toolName: string): ToolOperationType {
+  if (DELETE_ACTION_PATTERN.test(toolName)) {
+    return "delete";
+  }
+  if (PUBLISH_ACTION_PATTERN.test(toolName)) {
+    return "publish";
+  }
+  if (READ_ACTION_PATTERN.test(toolName)) {
+    return "read";
+  }
+  return "modify";
+}
+
 // ============================================
 // MindscapeClient
 // ============================================
@@ -92,9 +146,18 @@ export class MindscapeClient {
   }
 
   async executeTool(toolName: string, args: Record<string, any>): Promise<ToolResult> {
+    const workspaceId = String(args.workspace_id || "").trim();
+    if (!workspaceId) {
+      throw new Error("workspace_id is required for MCP tool execution");
+    }
+
     const { data } = await this.client.post(
       "/api/v1/tools/execute",
       {
+        workspace_id: workspaceId,
+        product_surface_id: "mcp-gateway",
+        operation_type: inferToolOperationType(toolName),
+        execution_backend: "local",
         tool_name: toolName,
         arguments: args
       },

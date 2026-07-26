@@ -5,6 +5,7 @@ from .contracts import (
     ExecutionAdmissionSnapshot,
     RootAdmissionRequest,
     RootAdmissionResult,
+    RootPrincipalEvidence,
 )
 from .facade import WorkspaceCapabilityAdmissionFacade
 
@@ -13,5 +14,6 @@ __all__ = [
     "ExecutionAdmissionSnapshot",
     "RootAdmissionRequest",
     "RootAdmissionResult",
+    "RootPrincipalEvidence",
     "WorkspaceCapabilityAdmissionFacade",
 ]

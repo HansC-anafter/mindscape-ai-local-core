@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 
 interface TaskCardProps {
   taskNumber: number;
@@ -30,6 +30,7 @@ export default function TaskCard({
   onButtonClick,
   footerText
 }: TaskCardProps) {
+  const t = useT();
 
   return (
     <div className={`bg-white shadow rounded-lg p-6 transition-all duration-300 ${

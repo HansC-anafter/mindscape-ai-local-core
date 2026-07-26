@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { t } from '../../../../lib/i18n';
+import { useT } from '../../../../lib/i18n';
 
 interface RoleGroupPolicyManagerProps {
   rolePolicies: Record<string, string[]>;
@@ -14,6 +14,7 @@ export function RoleGroupPolicyManager({
   rolePolicies,
   onChange,
 }: RoleGroupPolicyManagerProps) {
+  const t = useT();
   const [newRole, setNewRole] = useState('');
 
   const handleAddRole = () => {

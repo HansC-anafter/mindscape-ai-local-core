@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import Header from '../../components/Header';
 import ConfirmDialog from '../../components/ConfirmDialog';
 import ErrorDialog from '../../components/ErrorDialog';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 
 import { getApiBaseUrl } from '../../lib/api-url';
 import { formatLocalDateTime } from '@/lib/time';
@@ -26,6 +26,7 @@ interface Workspace {
 }
 
 export default function WorkspacesPage() {
+  const t = useT();
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

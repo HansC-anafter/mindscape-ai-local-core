@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { WorkspaceResourceBinding } from '@/hooks/useResourceBindings';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 
 interface ResourceBindingCardProps {
   binding: WorkspaceResourceBinding;
@@ -15,6 +15,7 @@ export default function ResourceBindingCard({
   onEdit,
   onDelete,
 }: ResourceBindingCardProps) {
+  const t = useT();
   const getResourceTypeLabel = (type: string) => {
     switch (type) {
       case 'playbook':

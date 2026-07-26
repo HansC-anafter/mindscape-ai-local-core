@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import './globals.css'
-import { LocaleProvider } from '../lib/i18n'
+import { LOCALE_DIRECTION, LocaleProvider } from '../lib/i18n'
+import { getServerLocaleSnapshot } from '../lib/i18n/server'
 import { ThemeProvider } from '../lib/theme-provider'
 import { KeyboardShortcutProvider } from '../lib/keyboard-shortcuts'
 
@@ -9,16 +10,22 @@ export const metadata: Metadata = {
   description: 'Your personal AI team workspace powered by mindscape',
 }
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
+  const localeSnapshot = await getServerLocaleSnapshot()
+
   return (
-    <html lang="zh-TW" suppressHydrationWarning>
+    <html
+      lang={localeSnapshot.locale}
+      dir={LOCALE_DIRECTION[localeSnapshot.locale]}
+      suppressHydrationWarning
+    >
       <body suppressHydrationWarning>
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
-          <LocaleProvider>
+          <LocaleProvider initialSnapshot={localeSnapshot}>
             <KeyboardShortcutProvider>
               {children}
             </KeyboardShortcutProvider>

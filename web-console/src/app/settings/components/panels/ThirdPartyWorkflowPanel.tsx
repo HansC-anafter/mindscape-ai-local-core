@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { t } from '../../../../lib/i18n';
+import { useT } from '../../../../lib/i18n';
 import { Section } from '../Section';
 import { InlineAlert } from '../InlineAlert';
 import { WorkflowWizard } from '../wizards/WorkflowWizard';
@@ -53,6 +53,7 @@ const WORKFLOW_PLATFORMS: Array<{
 ];
 
 export function ThirdPartyWorkflowPanel({ activeProvider }: ThirdPartyWorkflowPanelProps) {
+  const t = useT();
   const [connections, setConnections] = useState<WorkflowConnection[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

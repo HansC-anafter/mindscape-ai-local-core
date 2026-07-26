@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { t } from '../../../../lib/i18n';
+import { useT } from '../../../../lib/i18n';
 
 interface CostQuotaConfigProps {
   settings: {
@@ -27,6 +27,7 @@ interface CostQuotaConfigProps {
 }
 
 export function CostQuotaConfig({ settings, onChange }: CostQuotaConfigProps) {
+  const t = useT();
   return (
     <div className="space-y-4">
       <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 
 interface Tool {
   tool_id: string;
@@ -20,6 +20,7 @@ export default function ToolWhitelistEditor({
   selectedToolIds,
   onSelectionChange,
 }: ToolWhitelistEditorProps) {
+  const t = useT();
   const [searchTerm, setSearchTerm] = useState('');
 
   const filteredTools = availableTools.filter(tool =>

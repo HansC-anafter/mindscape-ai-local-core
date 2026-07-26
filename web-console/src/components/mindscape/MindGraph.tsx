@@ -3,17 +3,22 @@
 import React from 'react';
 import dynamic from 'next/dynamic';
 import { useFullGraph } from '@/lib/graph-api';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
+
+function MindGraphLoading() {
+  const t = useT();
+  return (
+    <div className="w-full h-[600px] bg-gray-100 rounded-lg animate-pulse flex items-center justify-center">
+      <span className="text-gray-400">{t('loading' as any)}</span>
+    </div>
+  );
+}
 
 const SigmaGraphClient = dynamic(
   () => import('./SigmaGraphClient').then(mod => ({ default: mod.SigmaGraphClient })),
   {
     ssr: false,
-    loading: () => (
-      <div className="w-full h-[600px] bg-gray-100 rounded-lg animate-pulse flex items-center justify-center">
-        <span className="text-gray-400">{t('loading' as any)}</span>
-      </div>
-    ),
+    loading: () => <MindGraphLoading />,
   }
 );
 
@@ -25,6 +30,7 @@ interface MindGraphProps {
 }
 
 function GraphSkeleton() {
+  const t = useT();
   return (
     <div className="w-full h-[600px] bg-gray-100 rounded-lg animate-pulse flex items-center justify-center">
       <span className="text-gray-400">{t('loading' as any)}</span>
@@ -37,6 +43,7 @@ interface EmptyGraphStateProps {
 }
 
 function EmptyGraphState({ onInitialize }: EmptyGraphStateProps) {
+  const t = useT();
   return (
     <div className="w-full h-[600px] bg-gray-50 rounded-lg flex flex-col items-center justify-center border-2 border-dashed border-gray-300">
       <div className="text-center max-w-md px-4">
@@ -63,6 +70,7 @@ export function MindGraph({
   workspaceId,
   onInitialize,
 }: MindGraphProps) {
+  const t = useT();
   const { nodes, edges, isLoading, isError } = useFullGraph(workspaceId);
 
   if (isLoading) {

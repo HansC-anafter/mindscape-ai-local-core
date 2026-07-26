@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { t } from '../../../../lib/i18n';
+import { useT } from '../../../../lib/i18n';
 import { settingsApi } from '../../utils/settingsApi';
 import { WizardShell } from './WizardShell';
 import { getApiBaseUrl } from '../../../../lib/api-url';
@@ -12,6 +12,7 @@ interface CanvaConnectionWizardProps {
 }
 
 export function CanvaConnectionWizard({ onClose, onSuccess }: CanvaConnectionWizardProps) {
+  const t = useT();
   const [step, setStep] = useState(1);
   const [form, setForm] = useState({
     connection_id: 'canva-1',

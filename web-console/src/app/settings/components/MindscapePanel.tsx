@@ -1,13 +1,14 @@
 'use client';
 
 import React from 'react';
-import { t } from '../../../lib/i18n';
+import { useT } from '../../../lib/i18n';
 import { useBasicSettings } from '../hooks/useBasicSettings';
 import { Card } from './Card';
 import { InlineAlert } from './InlineAlert';
 import { MindscapeSettings } from './panels/MindscapeSettings';
 
 export function MindscapePanel() {
+  const t = useT();
   const {
     loading,
     saving,

@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { t } from '../../../lib/i18n';
+import { useT } from '../../../lib/i18n';
 import { BaseModal } from '../../../components/BaseModal';
 import { MCPServerWizard } from './wizards/MCPServerWizard';
 
@@ -30,6 +30,7 @@ export function MCPServerConfigModal({
   editingServer,
   onWizardSuccess,
 }: MCPServerConfigModalProps) {
+  const t = useT();
   if (!isOpen) return null;
 
   const handleWizardSuccess = () => {

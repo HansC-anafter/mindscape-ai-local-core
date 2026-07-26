@@ -289,19 +289,25 @@ def test_diagnostic_permit_rejects_non_observer_operation_and_long_duration() ->
         ).validate()
 
 
-def test_new_failure_revokes_diagnostic_and_containment_permits(
+def test_new_failure_preserves_live_observer_but_revokes_containment(
     tmp_path: Path,
 ) -> None:
     journal = RuntimeDatabaseIncidentJournal(tmp_path)
     incident = journal.open_incident(failure_code="unexpected_close")
-    journal.record_diagnostic_permit(incident.incident_id, _diagnostic_permit())
+    diagnostic_permit = _diagnostic_permit()
+    journal.record_diagnostic_permit(incident.incident_id, diagnostic_permit)
 
     after_diagnostic_failure = journal.open_incident(
         failure_code="postgres_server_closed_unexpectedly",
         evidence={"source": "test"},
     )
     assert after_diagnostic_failure.state is IncidentState.OPEN_UNATTRIBUTED
-    assert after_diagnostic_failure.diagnostic_permit is None
+    assert after_diagnostic_failure.diagnostic_permit == diagnostic_permit.to_dict()
+
+    journal.revoke_diagnostic_permit(
+        incident.incident_id,
+        terminal_reason="planned_reconfigure",
+    )
 
     journal.mark_contained(incident.incident_id, _containment_receipt())
     after_contained_failure = journal.open_incident(
@@ -320,8 +326,35 @@ def test_new_failure_revokes_diagnostic_and_containment_permits(
         json.loads(line)["event"]
         for line in events_path.read_text(encoding="utf-8").splitlines()
     ]
-    assert "diagnostic_permit_revoked_by_failure" in event_names
+    assert "diagnostic_permit_preserved_for_attribution_capture" in event_names
     assert "containment_revoked_by_failure" in event_names
+
+
+def test_new_failure_revokes_non_observer_diagnostic_permit(tmp_path: Path) -> None:
+    journal = RuntimeDatabaseIncidentJournal(tmp_path)
+    incident = journal.open_incident(failure_code="unexpected_close")
+    permit = IncidentDiagnosticPermit(
+        **{
+            **_diagnostic_permit().__dict__,
+            "allowed_operation_keys": (
+                "postgres_identity_logging_reload@sha256:" + "b" * 64,
+            ),
+        }
+    )
+    journal.record_diagnostic_permit(incident.incident_id, permit)
+
+    observed = journal.open_incident(
+        failure_code="postgres_server_closed_unexpectedly",
+        evidence={"source": "test"},
+    )
+
+    assert observed.diagnostic_permit is None
+    events_path = next((tmp_path / "incidents").iterdir()) / "events.jsonl"
+    event_names = [
+        json.loads(line)["event"]
+        for line in events_path.read_text(encoding="utf-8").splitlines()
+    ]
+    assert "diagnostic_permit_revoked_by_failure" in event_names
 
 
 def test_terminal_diagnostic_permit_consumption_and_ownership_handback_are_distinct(

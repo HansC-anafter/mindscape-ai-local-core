@@ -1,4 +1,4 @@
-import { t } from '../../../../../lib/i18n';
+import { useT } from '../../../../../lib/i18n';
 import { Card } from '../../Card';
 import { ProviderFormModal } from './ProviderFormModal';
 import { ProviderListSection } from './ProviderListSection';
@@ -58,6 +58,7 @@ export function CloudPlaybookProvidersSettingsView({
   onSave,
   onShowAddForm,
 }: CloudPlaybookProvidersSettingsViewProps) {
+  const t = useT();
   if (loading) {
     return (
       <div className="text-center py-4 text-sm text-gray-500 dark:text-gray-400">

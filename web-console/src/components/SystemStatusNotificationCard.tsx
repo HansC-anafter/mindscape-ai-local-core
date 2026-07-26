@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import Link from 'next/link';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 
 interface SystemStatusNotificationProps {
   systemStatus: {
@@ -22,6 +22,7 @@ interface SystemStatusNotificationProps {
 export default function SystemStatusNotificationCard({
   systemStatus
 }: SystemStatusNotificationProps) {
+  const t = useT();
   const [dismissed, setDismissed] = useState(false);
 
   // 获取未连接的工具

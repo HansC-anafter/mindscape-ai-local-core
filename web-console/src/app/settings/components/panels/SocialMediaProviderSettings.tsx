@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 
-import { t } from '../../../../lib/i18n';
+import { useT } from '../../../../lib/i18n';
 import { Card } from '../Card';
 import { InlineAlert } from '../InlineAlert';
 import { ConnectionStatusSection } from './socialMediaProviderSettings/ConnectionStatusSection';
@@ -44,6 +44,7 @@ const defaultRemoteConfig = (): RemoteConfig => ({
 });
 
 export function SocialMediaProviderSettings({ provider, workspaceId, onBack }: SocialMediaProviderSettingsProps) {
+  const t = useT();
   const searchParams = useSearchParams();
   const [connection, setConnection] = useState<SocialMediaConnection | null>(null);
   const [tools, setTools] = useState<RegisteredTool[]>([]);

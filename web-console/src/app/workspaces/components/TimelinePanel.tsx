@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 import StoragePathConfigModal from '@/components/StoragePathConfigModal';
 import { useWorkspaceDataOptional } from '@/contexts/WorkspaceDataContext';
 import { useRouter } from 'next/navigation';
@@ -33,6 +33,7 @@ export default function TimelinePanel({
   showArchivedOnly = false,
   onArtifactClick,
 }: TimelinePanelProps) {
+  const t = useT();
   const router = useRouter();
   const contextData = useWorkspaceDataOptional();
 

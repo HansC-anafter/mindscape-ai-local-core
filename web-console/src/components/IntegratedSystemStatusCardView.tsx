@@ -1,7 +1,7 @@
 import React from 'react';
 import Link from 'next/link';
 
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 
 import type { AgentInfo, HostServiceStatus, IntegratedSystemStatusProps } from './integratedSystemStatusTypes';
 import {
@@ -81,6 +81,7 @@ export function IntegratedSystemStatusCardView({
   onManualRefresh,
   onShowBridgeDialog,
 }: IntegratedSystemStatusCardViewProps) {
+  const t = useT();
   return (
     <div className="bg-surface-secondary dark:bg-gray-800 border dark:border-gray-700 rounded p-2 shadow-sm">
       <div className="flex items-center justify-between mb-2">

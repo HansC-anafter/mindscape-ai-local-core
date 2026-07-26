@@ -22,6 +22,14 @@ vi.mock('@/lib/api-url', () => ({
   getApiBaseUrl: () => 'http://api.test',
 }));
 
+vi.mock('@/lib/i18n', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/i18n')>('@/lib/i18n');
+  return {
+    ...actual,
+    useT: () => actual.createTranslator('en'),
+  };
+});
+
 vi.mock('@/components/capabilities/aol-runtime-shell/AOLRuntimeShellBridge', () => ({
   AOLRuntimeShellBridge: ({
     children,

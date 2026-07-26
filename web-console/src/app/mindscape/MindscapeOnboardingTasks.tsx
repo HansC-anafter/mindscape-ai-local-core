@@ -1,6 +1,6 @@
 import React from 'react';
 import TaskCard from '../../components/TaskCard';
-import { t } from '../../lib/i18n';
+import { useT } from '../../lib/i18n';
 import { formatLocalDateTime } from '@/lib/time';
 import type { MindscapeIntent, MindscapeProfile, OnboardingState } from './mindscapePageTypes';
 
@@ -21,6 +21,7 @@ export function MindscapeOnboardingTasks({
   onTask2Click,
   onTask3Click,
 }: MindscapeOnboardingTasksProps) {
+  const t = useT();
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
       <TaskCard

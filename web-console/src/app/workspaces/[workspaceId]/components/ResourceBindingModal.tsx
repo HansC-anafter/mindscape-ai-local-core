@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { WorkspaceResourceBinding, CreateResourceBindingRequest } from '@/hooks/useResourceBindings';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 
 interface ResourceBindingModalProps {
   isOpen: boolean;
@@ -17,6 +17,7 @@ export default function ResourceBindingModal({
   onSave,
   binding,
 }: ResourceBindingModalProps) {
+  const t = useT();
   const [resourceType, setResourceType] = useState<'playbook' | 'tool' | 'data_source'>('playbook');
   const [resourceId, setResourceId] = useState('');
   const [accessMode, setAccessMode] = useState<'read' | 'write' | 'admin'>('read');

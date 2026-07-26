@@ -2,7 +2,7 @@
 
 import React from 'react';
 import ChevronRight from 'lucide-react/dist/esm/icons/chevron-right.js';
-import { t } from '../../../lib/i18n';
+import { useT } from '../../../lib/i18n';
 import type { SettingsTab } from '../types';
 import {
   activeExpandableItemIds,
@@ -54,6 +54,7 @@ export function SettingsNavigation({
   activeService,
   onNavigate,
 }: SettingsNavigationProps) {
+  const t = useT();
   const [hoveredItemId, setHoveredItemId] = React.useState<string | null>(null);
   const [expandedItems, setExpandedItems] = React.useState<Set<string>>(
     new Set(['basic', 'credentials']),

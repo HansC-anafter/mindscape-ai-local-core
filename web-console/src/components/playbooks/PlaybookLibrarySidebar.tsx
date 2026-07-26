@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
-import { t, useLocale } from '../../lib/i18n';
+import { useT, useLocale } from '../../lib/i18n';
 
 interface Playbook {
   playbook_code: string;
@@ -49,6 +49,7 @@ export default function PlaybookLibrarySidebar({
   onFilterChange,
   profileId = 'default-user'
 }: PlaybookLibrarySidebarProps) {
+  const t = useT();
   const sortedPacks = useMemo(() => {
     if (!playbooksByCapability) return [];
 

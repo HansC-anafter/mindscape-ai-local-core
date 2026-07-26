@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { CheckCircle, XCircle, AlertCircle } from 'lucide-react';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 
 interface GovernanceLayerStatus {
   layer: 'cost' | 'node' | 'policy' | 'preflight';
@@ -21,6 +21,7 @@ export function GovernanceStatusIndicator({
   onViewDetails,
   compact = false,
 }: GovernanceStatusIndicatorProps) {
+  const t = useT();
   const layerLabels = {
     cost: t('costGovernance' as any) || 'Cost',
     node: t('nodeGovernance' as any) || 'Node',

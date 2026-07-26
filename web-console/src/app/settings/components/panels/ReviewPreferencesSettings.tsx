@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { t } from '../../../../lib/i18n';
+import { useT } from '../../../../lib/i18n';
 import type { ReviewPreferences } from '../../types';
 
 const dayOfWeekOptions = [
@@ -23,6 +23,7 @@ export function ReviewPreferencesSettings({
   preferences,
   onPreferencesChange,
 }: ReviewPreferencesSettingsProps) {
+  const t = useT();
   return (
     <div>
       <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">{t('reviewPreferences' as any)}</h3>

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { t } from '../../../../lib/i18n';
+import { useT } from '../../../../lib/i18n';
 import { ConfiguredDirectoriesSection } from './localFilesystemManager/ConfiguredDirectoriesSection';
 import { DirectorySelectionSection } from './localFilesystemManager/DirectorySelectionSection';
 import { LocalFilesystemFooterSection, LocalFilesystemStatusSection } from './localFilesystemManager/LocalFilesystemStatusSection';
@@ -62,6 +62,7 @@ export function LocalFilesystemManagerContent({
   initialPlaybookStorageConfig,
   showHeader = true,
 }: LocalFilesystemManagerContentProps) {
+  const t = useT();
   const [saving, setSaving] = useState(false);
   const [directories, setDirectories] = useState<DirectoryConfig[]>([]);
   const [newDirectory, setNewDirectory] = useState('');

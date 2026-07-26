@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 import type { Suggestion } from '../workspace/SuggestionChip';
 import type { UploadedFile } from '@/hooks/useFileUpload';
 import { CurrentExecutionBar } from '../workspace/CurrentExecutionBar';
@@ -100,6 +100,7 @@ export function WorkspaceChatContentView({
   uploadedFiles,
   workspaceId,
 }: WorkspaceChatContentViewProps) {
+  const t = useT();
   const errorMessage = error ? String(error) : null;
 
   return (

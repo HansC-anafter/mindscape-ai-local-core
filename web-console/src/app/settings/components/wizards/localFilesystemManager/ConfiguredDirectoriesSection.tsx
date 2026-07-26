@@ -1,6 +1,6 @@
 'use client';
 
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 
 import type { ConfiguredDirectory } from './types';
 
@@ -9,6 +9,7 @@ interface ConfiguredDirectoriesSectionProps {
 }
 
 export function ConfiguredDirectoriesSection({ configuredDirs }: ConfiguredDirectoriesSectionProps) {
+  const t = useT();
   if (configuredDirs.length === 0) {
     return null;
   }

@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { BaseModal } from '../../../../components/BaseModal';
-import { t } from '../../../../lib/i18n';
+import { useT } from '../../../../lib/i18n';
 import { getApiBaseUrl } from '../../../../lib/api-url';
 
 interface PublishTargetWizardProps {
@@ -12,6 +12,7 @@ interface PublishTargetWizardProps {
 }
 
 export function PublishTargetWizard({ toolType, onClose, onSuccess }: PublishTargetWizardProps) {
+  const t = useT();
   const [saving, setSaving] = useState(false);
   const [formData, setFormData] = useState({
     name: '',

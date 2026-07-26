@@ -1,4 +1,4 @@
-import { t } from '../../../../../lib/i18n';
+import { useT } from '../../../../../lib/i18n';
 import { ProviderPacksSection } from './ProviderPacksSection';
 import type { Pack, Provider, TestStatus } from './types';
 
@@ -33,6 +33,7 @@ export function ProviderListSection({
   onHidePacks,
   onInstallPacks,
 }: ProviderListSectionProps) {
+  const t = useT();
   if (providers.length === 0) {
     return (
       <div className="text-center py-8 text-sm text-gray-500 dark:text-gray-400">

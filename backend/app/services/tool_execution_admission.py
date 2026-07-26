@@ -28,6 +28,11 @@ _INTERNAL_KEYS = {
     "execution_backend",
     "root_execution_id",
     "trace_id",
+    "governance_context",
+    "workspace_owner_user_id",
+    "group_owner_user_id",
+    "allowed_workspace_ids",
+    "allowed_group_ids",
 }
 
 
@@ -124,8 +129,15 @@ async def prepare_tool_admission(
             )
         )
         snapshot = result.snapshot
+    return sanitize_tool_arguments(normalized), snapshot
+
+
+def sanitize_tool_arguments(
+    arguments: dict[str, Any],
+) -> dict[str, Any]:
+    """Remove controller-only keys before schema validation."""
     return {
         key: value
-        for key, value in normalized.items()
+        for key, value in arguments.items()
         if key not in _INTERNAL_KEYS
-    }, snapshot
+    }

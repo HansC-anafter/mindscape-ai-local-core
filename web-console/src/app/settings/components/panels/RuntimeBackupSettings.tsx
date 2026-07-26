@@ -2,7 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
-import { t } from '../../../../lib/i18n';
+import { useT } from '../../../../lib/i18n';
 import { Card } from '../Card';
 import { settingsApi } from '../../utils/settingsApi';
 import { showNotification } from '../../hooks/useSettingsNotification';
@@ -25,6 +25,7 @@ import {
 } from './runtime-backup/types';
 
 export function RuntimeBackupSettings() {
+  const t = useT();
   const [status, setStatus] = useState<BackupStatus | null>(null);
   const [config, setConfig] = useState<BackupConfig>(defaultBackupConfig);
   const [loading, setLoading] = useState(true);

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { t } from '../../../../lib/i18n';
+import { useT } from '../../../../lib/i18n';
 import { WizardShell } from './WizardShell';
 import {
   MCPConfigStep,
@@ -36,6 +36,7 @@ interface MCPServerWizardProps {
 }
 
 export function MCPServerWizard({ provider, editingServer, onClose, onSuccess }: MCPServerWizardProps) {
+  const t = useT();
   const [step, setStep] = useState(editingServer ? 2 : 1);
   const [availableServers, setAvailableServers] = useState<AvailableServer[]>([]);
   const [selectedProvider, setSelectedProvider] = useState<string | undefined>(provider);

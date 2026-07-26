@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { getPendingChanges, type PendingChange } from '@/lib/sync-api';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 import { formatLocalDateTime } from '@/lib/time';
 
 interface PendingChangesListProps {
@@ -10,6 +10,7 @@ interface PendingChangesListProps {
 }
 
 export default function PendingChangesList({ onSync }: PendingChangesListProps) {
+  const t = useT();
   const [changes, setChanges] = useState<PendingChange[]>([]);
   const [loading, setLoading] = useState(true);
 

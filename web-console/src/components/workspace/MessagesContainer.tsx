@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useRef, useEffect } from 'react';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 import { useMessages } from '@/contexts/MessagesContext';
 import { useUIState } from '@/contexts/UIStateContext';
 import { useWorkspaceRefs } from '@/contexts/WorkspaceRefsContext';
@@ -35,6 +35,7 @@ export function MessagesContainer({
   currentExecution,
   onViewDetail,
 }: MessagesContainerProps) {
+  const t = useT();
   const {
     messages,
     messagesLoading,

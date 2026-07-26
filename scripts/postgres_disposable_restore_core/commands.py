@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import time
 from datetime import datetime, timezone
@@ -18,12 +19,18 @@ APP_PROBE_SERVICE = "postgres-recovery-restore-app-probe"
 
 
 def _environment(source: RestoreSource) -> dict[str, str]:
-    return {
+    environment = {
         **os.environ,
         "MINDSCAPE_RECOVERY_RESTORE_BASE_DIR": str(source.base_dir),
         "MINDSCAPE_RECOVERY_RESTORE_WAL_DIR": str(source.wal_dir),
         "MINDSCAPE_RECOVERY_TARGET_TIME": source.recovery_target_time,
     }
+    environment.pop("MINDSCAPE_RECOVERY_RESTORE_DATA_DIR", None)
+    if source.scope.data_dir is not None:
+        environment["MINDSCAPE_RECOVERY_RESTORE_DATA_DIR"] = str(
+            source.scope.data_dir
+        )
+    return environment
 
 
 def _compose(
@@ -51,7 +58,12 @@ def _compose(
     )
 
 
-def _query(source: RestoreSource, sql: str) -> subprocess.CompletedProcess[str]:
+def _query(
+    source: RestoreSource,
+    sql: str,
+    *,
+    timeout: int = 60,
+) -> subprocess.CompletedProcess[str]:
     return _compose(
         source,
         "exec",
@@ -67,7 +79,36 @@ def _query(source: RestoreSource, sql: str) -> subprocess.CompletedProcess[str]:
         "ON_ERROR_STOP=1",
         "-c",
         sql,
+        timeout=timeout,
     )
+
+
+def _readiness_query(
+    source: RestoreSource,
+) -> subprocess.CompletedProcess[str]:
+    try:
+        return _query(
+            source,
+            "SELECT NOT pg_is_in_recovery()",
+            timeout=10,
+        )
+    except subprocess.TimeoutExpired:
+        return subprocess.CompletedProcess(
+            args=("restore_readiness_query",),
+            returncode=124,
+            stdout="",
+            stderr="restore_readiness_probe_timeout",
+        )
+
+
+def _require_restore_service_running(
+    readiness: subprocess.CompletedProcess[str],
+) -> None:
+    if readiness.returncode == 0 or readiness.returncode == 124:
+        return
+    error = str(readiness.stderr or "").lower()
+    if "is not running" in error or "no container found" in error:
+        raise RuntimeError("restore_service_exited_before_ready")
 
 
 def preflight(source: RestoreSource) -> dict[str, Any]:
@@ -97,6 +138,11 @@ def preflight(source: RestoreSource) -> dict[str, Any]:
         "wal_dir": str(source.wal_dir),
         "required_wal_segment_count": len(source.required_wal_segments),
         "recovery_target_time": source.recovery_target_time,
+        "restore_data_dir": (
+            str(source.scope.data_dir)
+            if source.scope.data_dir is not None
+            else "docker_named_volume"
+        ),
         "services": sorted(required),
     }
 
@@ -201,9 +247,10 @@ def run_restore(source: RestoreSource, *, timeout_seconds: int = 3600) -> dict[s
         raise RuntimeError("restore_service_start_failed")
     deadline = started + timeout_seconds
     while time.monotonic() < deadline:
-        ready = _query(source, "SELECT NOT pg_is_in_recovery()")
+        ready = _readiness_query(source)
         if ready.returncode == 0 and ready.stdout.strip() == "t":
             break
+        _require_restore_service_running(ready)
         time.sleep(2)
     else:
         raise RuntimeError("restore_replay_timeout")
@@ -223,6 +270,11 @@ def run_restore(source: RestoreSource, *, timeout_seconds: int = 3600) -> dict[s
             "base_dir": str(source.base_dir),
             "wal_dir": str(source.wal_dir),
             "recovery_target_time": source.recovery_target_time,
+            "restore_data_dir": (
+                str(source.scope.data_dir)
+                if source.scope.data_dir is not None
+                else "docker_named_volume"
+            ),
             "required_wal_segment_count": len(source.required_wal_segments),
             "rto_seconds": rto_seconds,
             "database_evidence": database_evidence,
@@ -241,8 +293,13 @@ def cleanup(source: RestoreSource) -> dict[str, Any]:
     result = _compose(source, "down", "--volumes", "--remove-orphans", timeout=180)
     if result.returncode != 0:
         raise RuntimeError("restore_cleanup_failed")
+    removed_data_dir = False
+    if source.scope.data_dir is not None and source.scope.data_dir.exists():
+        shutil.rmtree(source.scope.data_dir)
+        removed_data_dir = True
     return {
         "ok": True,
         "project": source.scope.project,
         "state": "disposable_runtime_removed_receipt_retained",
+        "restore_data_dir_removed": removed_data_dir,
     }

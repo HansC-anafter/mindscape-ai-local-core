@@ -5,13 +5,14 @@ import { useResourceBindings, WorkspaceResourceBinding, CreateResourceBindingReq
 import ResourceBindingCard from './ResourceBindingCard';
 import ResourceBindingModal from './ResourceBindingModal';
 import ConfirmDialog from '@/components/ConfirmDialog';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 
 interface ResourceBindingPanelProps {
   workspaceId: string;
 }
 
 export default function ResourceBindingPanel({ workspaceId }: ResourceBindingPanelProps) {
+  const t = useT();
   const {
     bindings,
     loading,

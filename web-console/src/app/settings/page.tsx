@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Header from '../../components/Header';
-import { t } from '../../lib/i18n';
+import { useT } from '../../lib/i18n';
 import { SettingsNavigation } from './components/SettingsNavigation';
 import { SettingsConfigAssistant, type SettingsConfigAssistantHandle } from './components/SettingsConfigAssistant';
 import { SettingsNotificationContainer } from './hooks/useSettingsNotification';
@@ -92,6 +92,7 @@ function resolveSettingsRoute(searchParams: SearchParamsReader | null): Settings
 }
 
 export default function SettingsPage() {
+  const t = useT();
   const searchParams = useSearchParams();
   const router = useRouter();
   const initialRoute = resolveSettingsRoute(searchParams);

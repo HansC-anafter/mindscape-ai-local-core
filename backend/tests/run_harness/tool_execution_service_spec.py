@@ -55,19 +55,25 @@ class MemoryEpisodeLedger:
 
 
 class FakeExecutor:
-    def __init__(self) -> None:
+    def __init__(self, execution_timeout_seconds=None) -> None:
         self.calls = []
         self.snapshots = []
+        self.execution_timeout_seconds = execution_timeout_seconds
 
     async def resolve_tool_metadata_snapshot(self, tool_ref):
         self.snapshots.append(tool_ref)
-        return {
+        snapshot = {
             "tool_name": "cap_tool",
             "source_type": "capability",
             "provider": "cap",
             "danger_level": "low",
             "version": "1.0.0",
         }
+        if self.execution_timeout_seconds is not None:
+            snapshot["execution_timeout_seconds"] = (
+                self.execution_timeout_seconds
+            )
+        return snapshot
 
     async def execute_tool(self, tool_name, arguments, timeout=30.0):
         self.calls.append((tool_name, arguments, timeout))
@@ -172,3 +178,20 @@ async def test_tool_execution_service_runs_single_production_path() -> None:
         "danger_level": "low",
         "version": "1.0.0",
     }
+
+
+@pytest.mark.asyncio
+async def test_tool_execution_service_uses_declared_tool_timeout() -> None:
+    ledger = MemoryEpisodeLedger()
+    executor = FakeExecutor(execution_timeout_seconds=90)
+    service = RunHarnessToolExecutionService(
+        episode_ledger=ledger,
+        executor=executor,
+    )
+
+    result = await service.execute(_request())
+
+    assert result.status == RunHarnessStatus.SUCCEEDED
+    assert executor.calls == [("cap.tool", {"value": 1}, 90.0)]
+    started = ledger.events[2]["payload"]["metadata"]["tool_snapshot"]
+    assert started["execution_timeout_seconds"] == 90.0

@@ -228,7 +228,11 @@ class ToolListService:
                 register_filesystem_tools()
             if "mindscape_graph.overview" not in builtin_tools:
                 register_mindscape_graph_tools()
-            if "workspace_write_html_report" not in builtin_tools:
+            reporting_tool_ids = {
+                "workspace_write_html_report",
+                "workspace_package_report",
+            }
+            if not reporting_tool_ids.issubset(builtin_tools):
                 register_reporting_tools()
             builtin_tools = get_all_mindscape_tools()
 

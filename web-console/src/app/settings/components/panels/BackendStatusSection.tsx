@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { t } from '../../../../lib/i18n';
+import { useT } from '../../../../lib/i18n';
 import { StatusPill } from '../StatusPill';
 import type { BackendInfo } from '../../types';
 
@@ -10,6 +10,7 @@ interface BackendStatusSectionProps {
 }
 
 export function BackendStatusSection({ availableBackends }: BackendStatusSectionProps) {
+  const t = useT();
   return (
     <div>
       <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{t('backendStatus' as any)}</h3>

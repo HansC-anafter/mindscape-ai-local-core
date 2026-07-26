@@ -149,6 +149,18 @@ class ExecutionAdmissionSnapshot(BaseModel):
 
 
 @dataclass(frozen=True)
+class RootPrincipalEvidence:
+    """Internal-only identity projection used to build transient contexts."""
+
+    workspace_id: str
+    actor_user_id: str
+    allowed_workspace_ids: tuple[str, ...]
+    allowed_group_ids: tuple[str, ...]
+    workspace_owner_user_id: str | None
+    group_owner_user_id: str | None
+
+
+@dataclass(frozen=True)
 class RootAdmissionResult:
     """Snapshot is persistable; external decision remains transient."""
 
@@ -156,6 +168,7 @@ class RootAdmissionResult:
     external_decision: ExternalExecutionDecisionClaims | None = None
     active_group_context: Any | None = None
     topology_snapshot: Any | None = None
+    principal_evidence: RootPrincipalEvidence | None = None
 
 
 class AdmissionDenied(RuntimeError):

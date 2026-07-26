@@ -10,7 +10,7 @@ import { useWorkspaceData } from '@/hooks/useWorkspaceData';
 import { useScrollManagement } from '@/hooks/useScrollManagement';
 import { ChatMessage } from '@/hooks/useChatEvents';
 import { UploadedFile } from '@/hooks/useFileUpload';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 import { parseServerTimestamp } from '@/lib/time';
 
 interface UseMessageHandlingOptions {
@@ -35,6 +35,7 @@ export function useMessageHandling(
   apiUrl: string = '',
   options?: UseMessageHandlingOptions
 ) {
+  const t = useT();
   const { messages, setMessages } = useMessages();
   const { input, setInput, isStreaming, setIsStreaming, firstChunkReceived, setFirstChunkReceived } = useUIState();
   const { setContextTokenCount, setIsFallbackUsed } = useWorkspaceMetadata();

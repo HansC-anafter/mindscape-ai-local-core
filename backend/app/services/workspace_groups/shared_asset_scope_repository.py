@@ -30,6 +30,7 @@ class SharedAssetScopeEvidence:
     consumer_is_member: bool
     source_is_member: bool
     topology_is_ready: bool
+    source_workspace_owner_user_id: Optional[str] = None
 
 
 class SharedAssetScopeRepository(PostgresStoreBase):
@@ -56,6 +57,8 @@ class SharedAssetScopeRepository(PostgresStoreBase):
                         source_binding.id AS source_binding_id,
                         source_binding.workspace_id AS source_workspace_id,
                         source_workspace.title AS source_workspace_title,
+                        source_workspace.owner_user_id
+                            AS source_workspace_owner_user_id,
                         source_binding.access_mode AS source_access_mode,
                         source_binding.overrides AS source_overrides,
                         definition.id AS group_id,
@@ -152,6 +155,9 @@ class SharedAssetScopeRepository(PostgresStoreBase):
             source_binding_id=row.source_binding_id,
             source_workspace_id=row.source_workspace_id,
             source_workspace_title=row.source_workspace_title,
+            source_workspace_owner_user_id=(
+                getattr(row, "source_workspace_owner_user_id", None)
+            ),
             source_access_mode=row.source_access_mode,
             source_overrides=self.deserialize_json(row.source_overrides, default={}),
             group_id=row.group_id,

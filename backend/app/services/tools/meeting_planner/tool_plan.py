@@ -18,6 +18,12 @@ from backend.app.services.tools.schemas import (
     ToolSourceType,
 )
 from backend.app.services.unified_tool_executor import UnifiedToolExecutor
+from backend.app.services.unified_tool_executor_core.governance_context import (
+    VerifiedToolExecutionContext,
+)
+from backend.app.services.unified_tool_executor_core.structured_outcome import (
+    classify_structured_tool_outcome,
+)
 
 
 class ExecutePlannerToolPlanTool(MindscapeTool):
@@ -51,6 +57,28 @@ class ExecutePlannerToolPlanTool(MindscapeTool):
         super().__init__(metadata)
 
     async def execute(self, planner_tool_plan: Dict[str, Any]) -> Dict[str, Any]:
+        return await self._execute_plan(
+            planner_tool_plan,
+            governance_context=None,
+        )
+
+    async def execute_with_context(
+        self,
+        *,
+        governance_context: VerifiedToolExecutionContext | None = None,
+        planner_tool_plan: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        return await self._execute_plan(
+            planner_tool_plan,
+            governance_context=governance_context,
+        )
+
+    async def _execute_plan(
+        self,
+        planner_tool_plan: Dict[str, Any],
+        *,
+        governance_context: VerifiedToolExecutionContext | None,
+    ) -> Dict[str, Any]:
         plan = PlannerToolPlan.model_validate(planner_tool_plan)
         executor = UnifiedToolExecutor()
         categories = {category.category_id: category for category in plan.categories}
@@ -95,12 +123,28 @@ class ExecutePlannerToolPlanTool(MindscapeTool):
                 category=category,
                 step_results=step_results,
             )
-            execution = await executor.execute_tool(step.tool_name, arguments)
+            execution = await executor.execute_tool(
+                step.tool_name,
+                arguments,
+                governance_context=(
+                    governance_context.for_child(step.tool_name)
+                    if governance_context is not None
+                    else None
+                ),
+            )
             selected_results = self._select_results(
                 execution.result,
                 step.result_selectors,
                 step.max_selector_fanout,
             )
+            structured = classify_structured_tool_outcome(
+                execution.result
+            )
+            step_status = "success" if execution.success else "failed"
+            if execution.success and structured.kind == "waiting":
+                step_status = "waiting"
+            elif execution.success and structured.kind == "blocked":
+                step_status = "failed"
             report = {
                 "step_id": step.step_id,
                 "role": step.role,
@@ -109,10 +153,14 @@ class ExecutePlannerToolPlanTool(MindscapeTool):
                 "category_label": step.category_label,
                 "resource_kind": step.resource_kind,
                 "effect": step.effect,
-                "status": "success" if execution.success else "failed",
+                "status": step_status,
                 "selected_results": selected_results,
                 "result": execution.result,
-                "error": execution.error,
+                "error": (
+                    "artifact_disclosure_blocked"
+                    if structured.kind == "blocked"
+                    else execution.error
+                ),
             }
             step_reports.append(report)
             step_results[step.step_id] = {
@@ -120,7 +168,14 @@ class ExecutePlannerToolPlanTool(MindscapeTool):
                 "selected_results": selected_results,
                 "report": report,
             }
-            if not execution.success:
+            if step_status == "waiting":
+                return self._final_result(
+                    plan,
+                    "waiting",
+                    step_reports,
+                    completed_count,
+                )
+            if step_status == "failed":
                 return self._final_result(plan, "failed", step_reports, completed_count)
             completed_count += 1
 

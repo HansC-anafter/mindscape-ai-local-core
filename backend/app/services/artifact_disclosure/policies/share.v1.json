@@ -1,0 +1,124 @@
+{
+  "schema_version": "mindscape.artifact-disclosure-policy.v1",
+  "purpose": "share",
+  "version": "1.0.0",
+  "max_text_scan_bytes": 8388608,
+  "max_findings_per_item": 100,
+  "scan_guard_pattern": "(?i)PRIVATE KEY|bearer|eyJ|api[_-]?key|client[_-]?secret|access[_-]?token|\\d|@|<|\\son|javascript",
+  "review_acknowledgement": "I_APPROVE_EXTERNAL_DISCLOSURE",
+  "text_media_type_prefixes": [
+    "text/"
+  ],
+  "text_media_types": [
+    "application/json",
+    "application/xml",
+    "application/javascript",
+    "image/svg+xml"
+  ],
+  "actions": {
+    "workspace": {
+      "public": "include",
+      "internal": "include",
+      "confidential": "redact",
+      "restricted": "block",
+      "unknown_binary": "include"
+    },
+    "workspace_group": {
+      "public": "include",
+      "internal": "include",
+      "confidential": "redact",
+      "restricted": "block",
+      "unknown_binary": "include"
+    },
+    "external": {
+      "public": "include",
+      "internal": "include",
+      "confidential": "redact",
+      "restricted": "block",
+      "unknown_binary": "include"
+    }
+  },
+  "detectors": [
+    {
+      "id": "private_key",
+      "classification": "restricted",
+      "prefilter_guard_pattern": "PRIVATE KEY",
+      "prefilter_pattern": "PRIVATE KEY",
+      "pattern": "-----BEGIN(?: [A-Z0-9]+)? PRIVATE\\s+KEY-----",
+      "replacement": "[REDACTED:PRIVATE_KEY]",
+      "external_review": false
+    },
+    {
+      "id": "bearer_token",
+      "classification": "restricted",
+      "prefilter_guard_pattern": "(?i)bearer",
+      "prefilter_pattern": "(?i)bearer",
+      "pattern": "(?i)\\bbearer\\s+[A-Za-z0-9._~+/-]{12,4096}={0,2}",
+      "replacement": "[REDACTED:BEARER_TOKEN]",
+      "external_review": false
+    },
+    {
+      "id": "jwt",
+      "classification": "restricted",
+      "prefilter_guard_pattern": "eyJ",
+      "prefilter_pattern": "eyJ",
+      "pattern": "\\beyJ[A-Za-z0-9_-]{8,8192}\\.[A-Za-z0-9_-]{8,8192}\\.[A-Za-z0-9_-]{8,8192}\\b",
+      "replacement": "[REDACTED:JWT]",
+      "external_review": false
+    },
+    {
+      "id": "api_secret",
+      "classification": "restricted",
+      "prefilter_guard_pattern": "(?i)(?:api[_-]?key|client[_-]?secret|access[_-]?token)",
+      "prefilter_pattern": "(?i)(?:api[_-]?key|client[_-]?secret|access[_-]?token)",
+      "pattern": "(?i)\\b(api[_-]?key|client[_-]?secret|access[_-]?token)\\b\\s{0,64}[:=]\\s{0,64}['\\\"]?[A-Za-z0-9._~+/-]{12,4096}",
+      "replacement": "[REDACTED:API_SECRET]",
+      "external_review": false
+    },
+    {
+      "id": "payment_card",
+      "classification": "restricted",
+      "prefilter_guard_pattern": "\\d",
+      "prefilter_pattern": "\\d(?:[ -]*\\d){12}",
+      "pattern": "\\b(?:\\d[ -]*?){13,19}\\b",
+      "replacement": "[REDACTED:PAYMENT_CARD]",
+      "external_review": false
+    },
+    {
+      "id": "email_address",
+      "classification": "confidential",
+      "prefilter_guard_pattern": "@",
+      "prefilter_pattern": "@",
+      "pattern": "(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,253}\\.[A-Za-z]{2,63}\\b",
+      "replacement": "[REDACTED:EMAIL]",
+      "external_review": false
+    },
+    {
+      "id": "phone_number",
+      "classification": "confidential",
+      "prefilter_guard_pattern": "\\d",
+      "prefilter_pattern": "\\+?\\d[\\d ()-]{7,30}\\d",
+      "pattern": "(?<!\\w)(?:\\+?\\d[\\d ()-]{7,30}\\d)(?!\\w)",
+      "replacement": "[REDACTED:PHONE]",
+      "external_review": false
+    },
+    {
+      "id": "ip_address",
+      "classification": "confidential",
+      "prefilter_guard_pattern": "\\d",
+      "prefilter_pattern": "\\d{1,3}\\.",
+      "pattern": "\\b(?:\\d{1,3}\\.){3}\\d{1,3}\\b",
+      "replacement": "[REDACTED:IP]",
+      "external_review": false
+    },
+    {
+      "id": "active_content",
+      "classification": "internal",
+      "prefilter_guard_pattern": "(?i)<|\\son|javascript",
+      "prefilter_pattern": "(?i)<script\\b|\\son[a-z]{3,}\\s*=|javascript\\s*:",
+      "pattern": "(?i)<script\\b|\\son[a-z]{3,}\\s*=|javascript\\s*:",
+      "replacement": "",
+      "external_review": true
+    }
+  ]
+}

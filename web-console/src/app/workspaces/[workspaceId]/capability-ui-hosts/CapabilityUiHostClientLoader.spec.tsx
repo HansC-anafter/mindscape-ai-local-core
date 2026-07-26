@@ -8,6 +8,16 @@ vi.mock('@/lib/api-url', () => ({
   getApiBaseUrl: () => 'http://api.test',
 }));
 
+vi.mock('@/lib/i18n', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/i18n')>('@/lib/i18n');
+  const translator = actual.createTranslator('en');
+  return {
+    ...actual,
+    useLocaleContext: () => ({ locale: 'en' }),
+    useT: () => translator,
+  };
+});
+
 vi.mock('@/lib/capability-static-hosts', () => ({
   buildCapabilityWorkbenchPath: (workspaceId: string, capabilityCode: string, options: { surfacePath?: readonly string[] }) => (
     `/workspaces/${workspaceId}/capability-ui-hosts/${capabilityCode}/${(options.surfacePath || []).join('/')}`
@@ -130,7 +140,7 @@ describe('CapabilityUiHostClientLoader', () => {
     );
   });
 
-  it('falls back to capability id when code-based ui-components are empty', async () => {
+  it('fails closed without issuing a third metadata request when code-based ui-components are empty', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const pathname = requestPath(input);
       if (pathname.endsWith('/api/v1/capability-packs/installed-capabilities/ig_loader_fallback')) {
@@ -158,15 +168,11 @@ describe('CapabilityUiHostClientLoader', () => {
       />,
     );
 
-    await waitFor(() => {
-      expect(screen.getByTestId('loaded-capability-components')).toHaveAttribute(
-        'data-capability-id',
-        'capability_uuid',
-      );
-    });
-    expect(fetchMock).toHaveBeenCalledWith(
-      'http://api.test/api/v1/capability-packs/installed-capabilities/capability_uuid/ui-components?workspace_id=ws_test',
-      expect.objectContaining({ credentials: 'same-origin' }),
+    expect(await screen.findByText('No UI components are available.')).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      expect.stringContaining('/capability_uuid/ui-components'),
+      expect.anything(),
     );
   });
 

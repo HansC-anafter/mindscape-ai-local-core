@@ -1,5 +1,5 @@
 import React from 'react';
-import { t } from '../../lib/i18n';
+import { useT, type Translator } from '../../lib/i18n';
 import type { CurrentMode, MindscapeIntent, MindscapeProfile, MindscapeSuggestion } from './mindscapePageTypes';
 
 interface MindscapeOverviewPanelsProps {
@@ -25,6 +25,7 @@ export function MindscapeOverviewPanels({
   onAcceptSuggestion,
   onDismissSuggestion,
 }: MindscapeOverviewPanelsProps) {
+  const t = useT();
   return (
     <>
       {!isOnboarding && !hasState && currentMode && (
@@ -87,10 +88,10 @@ export function MindscapeOverviewPanels({
                       </span>
                     </div>
                     <h3 className="font-medium text-gray-900 mb-1 break-words">
-                      {formatSuggestionTitle(suggestion.title)}
+                      {formatSuggestionTitle(suggestion.title, t)}
                     </h3>
                     <p className="text-sm text-gray-600 break-words">
-                      {formatSuggestionDescription(suggestion.description)}
+                      {formatSuggestionDescription(suggestion.description, t)}
                     </p>
                   </div>
                   <div className="ml-4 flex space-x-2 flex-shrink-0">
@@ -197,7 +198,7 @@ export function MindscapeOverviewPanels({
   );
 }
 
-function formatSuggestionTitle(title: string) {
+function formatSuggestionTitle(title: string, t: Translator) {
   if (!title) return title;
   if (title.startsWith('suggestion.') || title.startsWith('suggestions.')) {
     const keyMatch = title.match(/^(suggestion\.|suggestions\.)(\S+)\s+(.+)$/);
@@ -212,7 +213,7 @@ function formatSuggestionTitle(title: string) {
   return title;
 }
 
-function formatSuggestionDescription(description: string) {
+function formatSuggestionDescription(description: string, t: Translator) {
   if (!description) return description;
   if (description.startsWith('suggestion.') || description.startsWith('suggestions.')) {
     return t(description as any) || description;

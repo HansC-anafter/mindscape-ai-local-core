@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { t } from '../../../../lib/i18n';
+import { useT } from '../../../../lib/i18n';
 import {
     DEFAULT_ALLOWED_HOSTS,
     DEFAULT_ALLOWED_PROVIDERS,
@@ -10,6 +10,7 @@ import {
 } from './aiTeamGovernancePanelData';
 
 export function ModelPolicySettings() {
+  const t = useT();
     const [allowedProviders, setAllowedProviders] = React.useState<string[]>([...DEFAULT_ALLOWED_PROVIDERS]);
 
     const toggleProvider = (id: string) => {
@@ -107,6 +108,7 @@ export function ModelPolicySettings() {
 }
 
 export function NetworkPolicySettings() {
+  const t = useT();
     const [allowedHosts, setAllowedHosts] = React.useState<string[]>([...DEFAULT_ALLOWED_HOSTS]);
     const [newHost, setNewHost] = React.useState('');
 
@@ -175,6 +177,7 @@ export function NetworkPolicySettings() {
 }
 
 export function SecretsPolicySettings() {
+  const t = useT();
     const [allowedApis, setAllowedApis] = React.useState<string[]>([]);
 
     const toggleApi = (id: string) => {

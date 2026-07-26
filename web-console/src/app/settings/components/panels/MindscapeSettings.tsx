@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { t } from '../../../../lib/i18n';
+import { useT } from '../../../../lib/i18n';
 import { HabitSuggestionsSettings } from './HabitSuggestionsSettings';
 import { ReviewPreferencesSettings } from './ReviewPreferencesSettings';
 import type { ReviewPreferences } from '../../types';
@@ -19,6 +19,7 @@ export function MindscapeSettings({
   onEnableHabitSuggestionsChange,
   onReviewPreferencesChange,
 }: MindscapeSettingsProps) {
+  const t = useT();
   return (
     <div className="space-y-6">
       <div>

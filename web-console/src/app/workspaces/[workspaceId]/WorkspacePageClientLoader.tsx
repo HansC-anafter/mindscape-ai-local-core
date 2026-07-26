@@ -1,11 +1,12 @@
 'use client';
 
 import { useEffect, useState, type ComponentType } from 'react';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 
 type WorkspaceRootClientComponent = ComponentType<{ workspaceId: string }>;
 
 function WorkspacePageLoading() {
+  const t = useT();
   return (
     <div className="min-h-screen bg-surface dark:bg-gray-950">
       <div className="flex items-center justify-center h-[calc(100vh-64px)]">

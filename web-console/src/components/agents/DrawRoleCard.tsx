@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { t } from '../../lib/i18n';
+import { useT } from '../../lib/i18n';
 import { WORK_SCENES, WorkScene } from '../../lib/work-scenes';
 import { getApiBaseUrl } from '../../lib/api-url';
 
@@ -14,6 +14,7 @@ interface DrawRoleCardProps {
 }
 
 export default function DrawRoleCard({ task, backendAvailable, onSceneSelected }: DrawRoleCardProps) {
+  const t = useT();
   const [drawingCard, setDrawingCard] = useState(false);
   const [suggestedScene, setSuggestedScene] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);

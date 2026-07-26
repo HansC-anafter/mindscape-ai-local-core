@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 import { parseServerTimestamp } from '@/lib/time';
 
 const LEGACY_DEFAULT_THREAD_TITLE = '\u65b0\u5c0d\u8a71';
@@ -35,6 +35,7 @@ export default function ConversationsList({
   onThreadSelect,
   onCreateThread,
 }: ConversationsListProps) {
+  const t = useT();
   const [threads, setThreads] = useState<ConversationThread[]>([]);
   const [loading, setLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);

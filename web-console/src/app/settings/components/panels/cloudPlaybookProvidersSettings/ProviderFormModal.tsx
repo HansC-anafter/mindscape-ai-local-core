@@ -1,5 +1,5 @@
 import { BaseModal } from '../../../../../components/BaseModal';
-import { t } from '../../../../../lib/i18n';
+import { useT } from '../../../../../lib/i18n';
 import type { CloudProviderFormData, Provider } from './types';
 
 interface ProviderFormModalProps {
@@ -21,6 +21,7 @@ export function ProviderFormModal({
   onCancel,
   onSave,
 }: ProviderFormModalProps) {
+  const t = useT();
   return (
     <BaseModal
       isOpen={isOpen}

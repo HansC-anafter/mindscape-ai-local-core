@@ -7,7 +7,7 @@ import '@react-sigma/core/lib/style.css';
 import { useFullGraph, GraphNode, GraphEdge } from '@/lib/graph-api';
 import { useGraphLens } from '@/hooks/useGraphLens';
 import { ForceAtlas2Layout } from './GraphWithLayout';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 
 const TYPE_COLORS: Record<string, string> = {
   value: '#10b981',
@@ -266,6 +266,7 @@ export function SigmaGraphClient({
   onNodeSelect,
   workspaceId,
 }: SigmaGraphClientProps) {
+  const t = useT();
   const { nodes, edges, isLoading, isError } = useFullGraph(workspaceId);
 
   const handleNodeClick = (nodeId: string, attributes: any) => {

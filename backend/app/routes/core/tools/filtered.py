@@ -44,9 +44,24 @@ REPORTING_HINT_TERMS = (
     "產出",
     "輸出",
 )
-REPORTING_TOOL_IDS = (
+REPORT_PACKAGING_HINT_TERMS = (
+    "archive",
+    "bundle",
+    "package",
+    "share",
+    "zip",
+    "分享",
+    "壓縮",
+    "打包",
+    "封裝",
+)
+REPORT_WRITER_TOOL_IDS = (
     "core.workspace_write_html_report",
     "workspace_write_html_report",
+)
+REPORT_PACKAGE_TOOL_IDS = (
+    "workspace_package_report",
+    "core.workspace_package_report",
 )
 
 
@@ -242,16 +257,34 @@ def _ensure_reporting_tool(
     tool_by_id: dict,
     task_hint: str,
 ) -> List[RegisteredTool]:
-    """Prepend one reporting tool when the task asks for report output."""
-    if not _should_include_reporting_tool(task_hint):
+    """Prepend reporting tools selected by report-writing or packaging intent."""
+    normalized = task_hint.lower()
+    include_writer = _should_include_reporting_tool(task_hint)
+    include_packager = any(
+        term in normalized for term in REPORT_PACKAGING_HINT_TERMS
+    )
+    if not include_writer and not include_packager:
         return tools
 
     existing_ids = {tool.tool_id for tool in tools}
-    for tool_id in REPORTING_TOOL_IDS:
-        tool = tool_by_id.get(tool_id)
-        if tool and tool_id not in existing_ids:
-            return [tool] + tools
-    return tools
+    selected: List[RegisteredTool] = []
+    groups = []
+    if include_packager:
+        groups.append(REPORT_PACKAGE_TOOL_IDS)
+    if include_writer:
+        groups.append(REPORT_WRITER_TOOL_IDS)
+
+    for tool_ids in groups:
+        for tool_id in tool_ids:
+            tool = tool_by_id.get(tool_id)
+            if (
+                tool
+                and tool_id not in existing_ids
+                and tool_id not in {item.tool_id for item in selected}
+            ):
+                selected.append(tool)
+                break
+    return selected + tools
 
 
 @router.post("/filtered", response_model=FilteredToolsResponse)

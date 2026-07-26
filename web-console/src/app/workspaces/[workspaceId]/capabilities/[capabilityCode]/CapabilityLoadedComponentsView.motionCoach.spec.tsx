@@ -41,6 +41,15 @@ vi.mock('@/lib/api-url', () => ({
   getApiBaseUrl: () => 'http://api.test',
 }));
 
+vi.mock('@/lib/i18n', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/i18n')>('@/lib/i18n');
+  const translator = actual.createTranslator('en');
+  return {
+    ...actual,
+    useT: () => translator,
+  };
+});
+
 vi.mock('@/components/capabilities/aol-runtime-shell/AOLRuntimeShellBridge', () => ({
   AOLRuntimeShellBridge: ({ children }: { children: (host: Record<string, unknown>) => React.ReactNode }) => (
     <div data-testid="aol-runtime-shell">{children({})}</div>
@@ -80,7 +89,7 @@ describe('CapabilityLoadedComponentsView motion coach host routing', () => {
     vi.clearAllMocks();
   });
 
-  it('routes YogaPracticeWorkbenchPage through MotionCoachWorkbenchHost', () => {
+  it('routes YogaPracticeWorkbenchPage through MotionCoachWorkbenchHost', async () => {
     const componentCode = 'YogaPracticeWorkbenchPage';
     const capabilityCode = 'yogacoach';
     const component = createUiComponent(componentCode);
@@ -100,12 +109,12 @@ describe('CapabilityLoadedComponentsView motion coach host routing', () => {
       />,
     );
 
-    expect(screen.getByTestId('motion-coach-host')).toHaveAttribute('data-capability-code', capabilityCode);
+    expect(await screen.findByTestId('motion-coach-host')).toHaveAttribute('data-capability-code', capabilityCode);
     expect(screen.getByTestId('loaded-component-yoga')).toBeTruthy();
     expect(mocks.motionCoachHost).toHaveBeenCalledTimes(1);
   });
 
-  it('routes DancePracticeWorkbenchPage through MotionCoachWorkbenchHost', () => {
+  it('routes DancePracticeWorkbenchPage through MotionCoachWorkbenchHost', async () => {
     const componentCode = 'DancePracticeWorkbenchPage';
     const capabilityCode = 'dance_motion_coach';
     const component = createUiComponent(componentCode);
@@ -125,7 +134,7 @@ describe('CapabilityLoadedComponentsView motion coach host routing', () => {
       />,
     );
 
-    expect(screen.getByTestId('motion-coach-host')).toHaveAttribute('data-capability-code', capabilityCode);
+    expect(await screen.findByTestId('motion-coach-host')).toHaveAttribute('data-capability-code', capabilityCode);
     expect(screen.getByTestId('loaded-component-dance')).toBeTruthy();
     expect(mocks.motionCoachHost).toHaveBeenCalledTimes(1);
   });

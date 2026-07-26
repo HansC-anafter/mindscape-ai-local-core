@@ -15,6 +15,7 @@ from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 OBSERVER_SERVICE = "postgres-signal-observer"
+COMPOSE_START_TIMEOUT_SECONDS = 90
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _SOURCE_COMMIT = re.compile(r"^[0-9a-f]{8,64}$")
 
@@ -108,18 +109,36 @@ def main(argv: list[str] | None = None) -> int:
         "--no-deps",
         OBSERVER_SERVICE,
     ]
-    completed = subprocess.run(
-        command,
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=30,
-        env=environment,
-    )
+    try:
+        completed = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=COMPOSE_START_TIMEOUT_SECONDS,
+            env=environment,
+        )
+    except subprocess.TimeoutExpired:
+        print(
+            json.dumps(
+                {
+                    "service": OBSERVER_SERVICE,
+                    "started": False,
+                    "dependency_reconciliation": False,
+                    "compose_start_timed_out": True,
+                    "runtime_state_unknown": True,
+                    "timeout_seconds": COMPOSE_START_TIMEOUT_SECONDS,
+                },
+                sort_keys=True,
+            )
+        )
+        return 2
     result = {
         "service": OBSERVER_SERVICE,
         "started": completed.returncode == 0,
         "dependency_reconciliation": False,
+        "compose_start_timed_out": False,
+        "runtime_state_unknown": False,
         "returncode": completed.returncode,
     }
     print(json.dumps(result, sort_keys=True))

@@ -1,6 +1,6 @@
 'use client';
 
-import { t } from '../../../../../lib/i18n';
+import { useT } from '../../../../../lib/i18n';
 import type { ProviderConfigurationSectionProps } from './types';
 
 export function ProviderConfigurationSection({
@@ -19,6 +19,7 @@ export function ProviderConfigurationSection({
   onJsonFileChange,
   onSaveProviderConfig,
 }: ProviderConfigurationSectionProps) {
+  const t = useT();
   return (
     <div className="border-b border-gray-200 dark:border-gray-700 pb-3">
       <div className="flex items-center justify-between mb-2">

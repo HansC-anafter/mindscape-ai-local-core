@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 import ContextCard from './ContextCard';
 import SuggestedNextStepsCard from './SuggestedNextStepsCard';
 
@@ -72,6 +72,7 @@ export default function MindscapeAIWorkbench({
   onTabChange,
   refreshTrigger = 0
 }: MindscapeAIWorkbenchProps) {
+  const t = useT();
   const [workbenchData, setWorkbenchData] = useState<WorkbenchData | null>(null);
   const [error, setError] = useState<string | null>(null);
 

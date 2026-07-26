@@ -1,5 +1,5 @@
 import { AlertTriangle, CheckCircle2, Database, HardDrive, ShieldCheck } from 'lucide-react';
-import { t } from '../../../../../lib/i18n';
+import { useT } from '../../../../../lib/i18n';
 import { formatBytes } from './model';
 import type { BackupConfig, BackupStatus } from './types';
 
@@ -14,6 +14,7 @@ export function RuntimeBackupStatusSummary({
   config,
   loadError,
 }: RuntimeBackupStatusSummaryProps) {
+  const t = useT();
   const latest = status?.latest_backup || null;
   const policy = status?.policy || {};
   const archiveMode = status?.postgres_archive_mode || '-';

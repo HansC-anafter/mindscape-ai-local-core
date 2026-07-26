@@ -118,8 +118,12 @@ async def execute_run_harness_tool(
             return await service.execute(
                 admitted.request,
                 external_decision=admitted.external_decision,
+                governance_context=admitted.governance_context,
             )
-        return await service.execute(admitted.request)
+        return await service.execute(
+            admitted.request,
+            governance_context=admitted.governance_context,
+        )
     except (AdmissionDenied, ExternalAuthorizationDenied) as exc:
         raise HTTPException(
             status_code=403,

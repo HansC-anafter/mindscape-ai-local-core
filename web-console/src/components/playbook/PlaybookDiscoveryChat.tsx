@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { t } from '../../lib/i18n';
+import { useT } from '../../lib/i18n';
 
 import { getApiBaseUrl } from '../../lib/api-url';
 
@@ -40,6 +40,7 @@ export default function PlaybookDiscoveryChat({
   selectedWorkspace,
   currentPlaybookCode
 }: PlaybookDiscoveryChatProps) {
+  const t = useT();
   const router = useRouter();
   const [messages, setMessages] = useState<Message[]>([
     {

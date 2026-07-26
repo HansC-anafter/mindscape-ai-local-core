@@ -9,7 +9,7 @@ import {
   Save,
 } from 'lucide-react';
 
-import { t } from '../../../../lib/i18n';
+import { useT } from '../../../../lib/i18n';
 import { useKeyboardShortcuts } from '../../../../lib/keyboard-shortcuts';
 import {
   eventToShortcut,
@@ -137,6 +137,7 @@ function rowsToProfileBindings(rows: ShortcutRow[]): KeyboardShortcutBindingOver
 }
 
 export function KeyboardShortcutsSettingsPanel() {
+  const t = useT();
   const {
     commands,
     setProfile,

@@ -87,6 +87,57 @@ surfaces:
       - web-console/src/components/**
       - backend/tests/workspace_capability_admission/**
 
+  - id: psc.local-core.workspace-report-share-bundle.v1
+    tier: P1
+    owner: "@team-leads"
+    contract_doc: mindscape-ai-cloud/docs/internal/local-core/product-semantics/workspace-report-share-bundle-contract-2026-07-27.zh-TW.md
+    requires_product_semantic_declaration: true
+    semantics:
+      - Meeting Engine, internal agents, and MCP callers keep the existing tool catalog, authenticated root admission, UnifiedToolExecutor, reporting factory, and one archive writer path; no second tool, archive route, server, writer, task, queue, scheduler, or live fallback is introduced.
+      - Before archive write, one WorkspaceReportDisclosureAdapter maps the bounded report graph to a neutral ArtifactDisclosureRequest, one ArtifactDisclosurePort implementation produces the deterministic per-item provenance, sensitive-content, target-scope, redaction, block, and owner-review decision, and the adapter maps that decision to one ReportBundleDisclosurePlan; tool arguments and recomputable snapshot hashes are not principal authority.
+      - ArtifactDisclosurePort is a Local Core host contract and production binds exactly one LocalArtifactDisclosureService. Generic host modules must not select policy by report, tool, Meeting, agent, MCP, pack, customer, tenant, HTML, ZIP, or filename literals; the report adapter owns no classification matrix, scope query, concrete service dependency, policy fallback, or archive write.
+      - One schema-validated and content-hashed host share.v1.json policy artifact is injected by the composition root into the service and report adapter. The adapter does not hard-code its profile id or version, and there is no policy DB, remote config, watcher, dynamic discovery, or same-version content replacement.
+      - This revision activates only the workspace report adapter. The neutral port is not a generic DLP platform, remote service, plugin registry, worker, queue, watcher, or authorization for a second artifact adapter; any additional artifact surface requires a separate product-semantic and resource decision.
+      - Distribution scopes are workspace, workspace_group, and external. Legacy payloads remain executable as workspace_only bundles; external authorization is exact to policy, graph, recipient, and verified workspace-owner review. Because this revision has no multi-owner consent ledger, group-derived external disclosure is allowed only when the verified actor, active workspace owner, group owner, and every source workspace owner are the same principal; every other owner topology fails closed as external_multi_owner_consent_unavailable.
+      - Restricted content always blocks, confidential text requires derived redaction, a no-finding text scan defaults to internal rather than public, unknown binary never becomes public merely because text scanning found nothing, and active content is recorded as a review warning rather than a malware or content-disarm claim. Automated detection is defense in depth and never claims completeness.
+      - The bundle preserves source files, publishes atomically inside the same workspace sandbox, keeps the existing HTML report writer unchanged, and exposes both bare and core aliases. Required linked files are never silently omitted; a security block prevents the whole archive.
+      - Local dependency integrity remains explicit: missing files fail by default, security-boundary violations always fail, external or root-relative references are recorded without network fetch, and manifest entries bind source/output paths, classifications, actions, sizes, and SHA-256 digests.
+      - Hard limits remain 256 source files and 128 MiB uncompressed source bytes. Workspace-owned disclosure adds zero DB statements; workspace-group provenance permits at most one indexed read per bundle and zero writes. No PgBouncer setting, worker, queue, browser, retry, SSE, polling, or remote-provider expansion is allowed.
+      - A preflight result proves analysis only and creates no artifact. A completed archive receipt proves only the bounded authorized filesystem write; neither result claims report-content acceptance, durable runtime closure, product decision, release health, or work-record closure.
+    path_globs:
+      - backend/app/core/ports/artifact_disclosure.py
+      - backend/app/services/artifact_disclosure/**
+      - backend/app/services/tools/reporting/**
+      - backend/app/services/tool_execution_admission.py
+      - backend/app/services/unified_tool_executor.py
+      - backend/app/services/unified_tool_executor_core/**
+      - backend/app/services/workspace_capability_admission/**
+      - backend/app/services/workspace_product_configuration/**
+      - backend/app/services/tools/meeting_planner/tool_plan.py
+      - backend/app/services/meeting_product_admission.py
+      - backend/app/services/run_harness/product_admission.py
+      - backend/app/services/run_harness/tool_execution_service.py
+      - backend/app/routes/core/workspace/run_harness.py
+      - backend/app/services/workspace_groups/contracts.py
+      - backend/app/services/workspace_groups/shared_asset_scope_*
+      - backend/app/services/tools/registry_core/builtin.py
+      - backend/app/services/tool_list_service.py
+      - backend/app/routes/core/tools/base.py
+      - backend/app/routes/core/tools/filtered.py
+      - backend/app/routes/core/tools/execution.py
+      - mcp-mindscape-gateway/src/mindscape/client.ts
+      - mcp-mindscape-gateway/src/tool_list_handler.ts
+      - mcp-mindscape-gateway/tests/client-tool-scope.test.mjs
+      - mcp-mindscape-gateway/package.json
+      - backend/tests/workspace_html_report_tool_spec.py
+      - backend/tests/workspace_report_bundle_tool_spec.py
+      - backend/tests/workspace_report_disclosure_*
+      - backend/tests/core/artifact_disclosure_*
+      - backend/tests/services/artifact_disclosure_*
+      - backend/tests/services/unified_tool_executor_*
+      - backend/tests/services/orchestration/meeting_planner_*
+      - backend/tests/services/run_harness/*
+
   - id: psc.local-core.runtime-database-resilience-and-pack-install-atomicity.v1
     tier: P0
     owner: "@team-leads"
@@ -96,7 +147,8 @@ surfaces:
       - The tasks table remains bounded task-control authority; a single adapter facade writes pack-owned typed identity projections only for create or identity changes, and both generic task tables retire pack-specific indexes to zero.
       - Every abnormal database close opens one durable incident and mutation gate; schema mutation, index retirement, backfill, pack migration, restart, and failover require an explicit gate receipt.
       - PostgreSQL clients preserve process and database role identity; unexpected-close and SIGQUIT sender evidence is payload-free, bounded, and appended to the same incident journal through one observer facade.
-      - The high-privilege signal observer requires an exact short-lived diagnostic permit while the incident remains open; generic allow cannot start it, and any new database failure atomically revokes diagnostic or containment permits.
+      - The high-privilege signal observer requires an exact short-lived diagnostic permit while the incident remains open; generic allow cannot start it, and the client-side unexpected-close symptom it is intended to attribute preserves the live observer permit while expiry, source change, observer failure, planned reconfigure, attribution terminal, or containment failure consumes or revokes it.
+      - Attributable closure remains the default. A historical event with irretrievable sender evidence may close only after one owner-authorized, complete, exact-source, bounded attribution-exhaustion receipt is appended to the same journal and the full containment, tests, non-reproduction, restore, post-containment soak, resource-budget, and owner-receipt bundle matches; health or instance replacement never substitutes for either path.
       - Capability-pack install retains the candidate and previous active runtime until migration and verification succeed, then commits filesystem activation, activation state, installed metadata, and registry projections from one durable receipt.
       - Alembic revision history is append-only operational truth; recovery uses graph diagnosis and corrective revisions and never deletes revision rows to force convergence.
       - Progress reads return one compact current or stale-known snapshot, or a redacted 503 with Retry-After; frontend polling obeys bounded 10, 20, and 30 second intervals and stops when hidden or terminal.
@@ -144,6 +196,7 @@ surfaces:
       - docker/postgres/**
       - docker/pgbouncer/**
       - backend/tests/runtime_database_incident_gate_spec.py
+      - backend/tests/runtime_database_residual_closure_spec.py
       - backend/tests/database_recovery_backoff_spec.py
       - backend/tests/database_application_identity_spec.py
       - backend/tests/database_query_failure_evidence_spec.py
@@ -157,6 +210,7 @@ surfaces:
       - backend/tests/db_pool_pressure_spec.py
       - backend/tests/progress_snapshot_degraded_state_spec.py
       - backend/tests/scripts/postgres_incident_gate_spec.py
+      - backend/tests/scripts/postgres_incident_residual_closure_spec.py
       - backend/tests/scripts/postgres_recovery_drill_spec.py
       - backend/tests/scripts/postgres_signal_observer_spec.py
       - backend/tests/scripts/postgres_signal_observer_drill_spec.py
@@ -545,6 +599,27 @@ surfaces:
       - web-console/src/lib/motion-analysis/**
       - web-console/src/components/workspace/device-binding/motionPractice*
       - web-console/src/components/workspace/device-binding/practice/**
+
+  - id: psc.local-core.motion-runtime-external-provider-boundary.v1
+    tier: P1
+    owner: "@team-leads"
+    contract_doc: mindscape-ai-cloud/docs/internal/local-core/product-semantics/motion-runtime-external-user-managed-provider-contract-2026-07-27.zh-TW.md
+    requires_product_semantic_declaration: true
+    semantics:
+      - Local Core installs and activates only the Mindscape pack artifact; external motion software remains user-managed, and the host does not install, start, stop, update, repair, scan, license-validate, accuracy-certify, or production-promote that external provider.
+      - External provider code and dependencies remain outside the .mindpack and Local Core Python runtime. The installed pack may read only one explicitly authorized workspace-managed FreeMoCap MediaPipe body NPY window through a thin adapter and must not use Parquet dependency expansion, vendoring, direct imports, lifecycle subprocesses, or implicit filesystem, LAN, or internet discovery.
+      - External provider availability is exactly available, incompatible, or unavailable. Available means interface-compatible only and does not imply license, research-grade, medical, safety, accuracy, endurance, SLA, or promotion evidence.
+      - Provider-specific data converges through the existing installed motion_runtime SkeletonFrame, WindowAggregator, MotionWindowSummary, and one append per explicit invocation; no second registry, analyzer, writer, worker, queue, process, stream, pool, or polling loop is allowed, and in-process state must not be claimed as durable.
+      - Generic pack installation keeps its existing manifest, artifact, dependency, atomic commit, and activation responsibilities and does not expand into an external-runtime validator, environment scanner, provider-version matrix, SBOM service, or legal-decision engine for this feature.
+      - Existing MediaPipe behavior, compact payload rejection, two-writes-per-second budget, and formal motion-quality evaluation gate remain unchanged.
+    path_globs:
+      - backend/app/capabilities/motion_runtime/**
+      - backend/tests/motion_runtime*
+      - backend/tests/*motion*runtime*
+      - backend/app/services/unified_tool_executor_core/capability.py
+      - backend/app/routes/core/capability_install_core/**
+      - backend/tests/capability_install*
+      - schemas/manifest.schema.yaml
 
   - id: psc.local-core.runner-browser-resource-governance.v1
     tier: P0

@@ -1,5 +1,5 @@
 import type { Dispatch, SetStateAction } from 'react';
-import { t } from '../../../../../lib/i18n';
+import { useT } from '../../../../../lib/i18n';
 import type { CloudProviderFormData, Provider } from './types';
 
 interface ProviderFormSectionProps {
@@ -19,6 +19,7 @@ export function ProviderFormSection({
   onCancel,
   onSave,
 }: ProviderFormSectionProps) {
+  const t = useT();
   return (
     <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-6 space-y-4">
       <h3 className="font-medium text-gray-900 dark:text-gray-100">

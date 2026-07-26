@@ -16,6 +16,10 @@ from backend.app.services.workspace_capability_admission import (
     RootAdmissionRequest,
     WorkspaceCapabilityAdmissionFacade,
 )
+from backend.app.services.unified_tool_executor_core.governance_context import (
+    VerifiedToolExecutionContext,
+    build_verified_tool_execution_context,
+)
 
 
 RunHarnessRequest = TypeVar(
@@ -30,6 +34,7 @@ _facade = WorkspaceCapabilityAdmissionFacade()
 class AdmittedRunHarnessRoot:
     request: RunHarnessToolExecutionRequest | RunHarnessWorkflowExecutionRequest
     external_decision: Any | None
+    governance_context: VerifiedToolExecutionContext | None
 
 
 def _tool_operation(
@@ -97,4 +102,9 @@ async def admit_run_harness_root(
     return AdmittedRunHarnessRoot(
         request=request.model_copy(update={"envelope": envelope}),
         external_decision=result.external_decision,
+        governance_context=(
+            build_verified_tool_execution_context(result)
+            if isinstance(request, RunHarnessToolExecutionRequest)
+            else None
+        ),
     )

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 import type { Suggestion } from './workspace/SuggestionChip';
 import { useChatEvents, ChatMessage } from '@/hooks/useChatEvents';
 import { useSendMessage } from '@/hooks/useSendMessage';
@@ -53,6 +53,7 @@ function WorkspaceChatContent({
   meetingId,
   layoutVariant = 'default',
 }: WorkspaceChatProps) {
+  const t = useT();
   // Use Context for state management
   const {
     input,

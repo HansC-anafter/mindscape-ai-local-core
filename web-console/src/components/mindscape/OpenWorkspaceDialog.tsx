@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 import { bindLensToWorkspace, useFullGraph, createLensProfile } from '@/lib/graph-api';
 import { GraphNode } from '@/lib/graph-api';
 
@@ -12,6 +12,7 @@ interface OpenWorkspaceDialogProps {
 }
 
 export function OpenWorkspaceDialog({ node, onClose }: OpenWorkspaceDialogProps) {
+  const t = useT();
   const router = useRouter();
   const [workspaceId, setWorkspaceId] = useState('');
   const [isBinding, setIsBinding] = useState(false);

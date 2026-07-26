@@ -1,6 +1,8 @@
 import sys
 import errno
 import json
+import base64
+import hashlib
 from pathlib import Path
 
 import pytest
@@ -91,11 +93,45 @@ def _write_pack(cap_dir: Path) -> None:
 
 def _write_ui_dist(cap_dir: Path) -> None:
     components_dir = cap_dir / "ui_dist" / "components"
+    locales_dir = cap_dir / "ui_dist" / "locales"
     components_dir.mkdir(parents=True)
+    locales_dir.mkdir(parents=True)
     (components_dir / "IGRunsWorkspaceToolPanel.mjs").write_text(
         "export default function IGRunsWorkspaceToolPanel() {}\n",
         encoding="utf-8",
     )
+    keyset_sha256 = f"sha256:{hashlib.sha256(b'runtime.loading').hexdigest()}"
+    catalogs = {}
+    for locale in ("en", "zh-TW", "ja"):
+        catalog_bytes = (
+            json.dumps(
+                {
+                    "format": "formatjs-icu-messageformat-ast-v1",
+                    "compiler": "@formatjs/icu-messageformat-parser@3.5.15",
+                    "namespace": "ig",
+                    "locale": locale,
+                    "keyset_sha256": keyset_sha256,
+                    "messages": {
+                        "runtime.loading": [{"type": 0, "value": "Loading"}]
+                    },
+                },
+                separators=(",", ":"),
+            )
+            + "\n"
+        ).encode("utf-8")
+        locale_path = locales_dir / f"{locale}.json"
+        locale_path.write_bytes(catalog_bytes)
+        catalogs[locale] = {
+            "asset_path": f"locales/{locale}.json",
+            "integrity": (
+                "sha256-"
+                + base64.b64encode(hashlib.sha256(catalog_bytes).digest()).decode(
+                    "ascii"
+                )
+            ),
+            "bytes": len(catalog_bytes),
+        }
+
     (cap_dir / "ui_dist" / "ui_dist_manifest.json").write_text(
         json.dumps(
             {
@@ -106,7 +142,18 @@ def _write_ui_dist(cap_dir: Path) -> None:
                         "export": "default",
                         "runtime": "mindscape-react-bridge-v1",
                     }
-                ]
+                ],
+                "localization": {
+                    "contract": "mindscape-capability-ui-localization-v1",
+                    "namespace": "ig",
+                    "source_locale": "en",
+                    "fallback_locale": "en",
+                    "format": "formatjs-icu-messageformat-ast-v1",
+                    "compiler": "@formatjs/icu-messageformat-parser@3.5.15",
+                    "supported_locales": ["en", "zh-TW", "ja"],
+                    "keyset_sha256": keyset_sha256,
+                    "catalogs": catalogs,
+                },
             }
         ),
         encoding="utf-8",
@@ -344,4 +391,12 @@ def test_runtime_assets_install_all_preserves_ui_runtime_sidecar_after_prune(
     assert sidecar_payload["components"][0]["asset_path"] == (
         "1.0.20/components/IGRunsWorkspaceToolPanel.mjs"
     )
+    assert set(sidecar_payload["localization"]["catalogs"]) == {
+        "en",
+        "zh-TW",
+        "ja",
+    }
+    assert sidecar_payload["localization"]["catalogs"]["zh-TW"][
+        "asset_url"
+    ].endswith("/ui-assets/1.0.20/locales/zh-TW.json")
     assert not (target / "tools" / "removed.py").exists()

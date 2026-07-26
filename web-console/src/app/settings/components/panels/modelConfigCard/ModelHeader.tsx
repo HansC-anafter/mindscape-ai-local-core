@@ -1,9 +1,10 @@
 'use client';
 
-import { t } from '../../../../../lib/i18n';
+import { useT } from '../../../../../lib/i18n';
 import type { ModelHeaderProps } from './types';
 
 export function ModelHeader({ model, pullStatus, onRemoveModel }: ModelHeaderProps) {
+  const t = useT();
   return (
     <div className="flex items-center gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
       {model.icon && <span className="text-2xl">{model.icon}</span>}

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { t } from '../../../../lib/i18n';
+import { useT } from '../../../../lib/i18n';
 import { settingsApi } from '../../utils/settingsApi';
 import { InlineAlert } from '../InlineAlert';
 import { useEnabledModels } from '../../hooks/useEnabledModels';
@@ -18,6 +18,7 @@ export { OllamaToolEmbeddingSection };
 // Main EmbeddingSettings
 // ---------------------------------------------------------------------------
 export function EmbeddingSettings() {
+  const t = useT();
   const [loading, setLoading] = useState(true);
   const [settings, setSettings] = useState<EmbeddingSettingsResponse | null>(null);
   const [testing, setTesting] = useState(false);

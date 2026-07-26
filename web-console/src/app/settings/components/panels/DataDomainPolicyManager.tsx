@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { t } from '../../../../lib/i18n';
+import { useT } from '../../../../lib/i18n';
 
 interface DataDomainPolicyManagerProps {
   dataDomainPolicies: {
@@ -20,6 +20,7 @@ export function DataDomainPolicyManager({
   dataDomainPolicies,
   onChange,
 }: DataDomainPolicyManagerProps) {
+  const t = useT();
   const [newSensitiveDomain, setNewSensitiveDomain] = useState('');
   const [newForbiddenDomain, setNewForbiddenDomain] = useState('');
 

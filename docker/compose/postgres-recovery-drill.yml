@@ -100,7 +100,7 @@ services:
       RECOVERY_TARGET_TIME: ${MINDSCAPE_RECOVERY_TARGET_TIME:-}
     entrypoint: ["sh", "/usr/local/bin/recovery-drill-restore.sh"]
     volumes:
-      - postgres-recovery-restore-data:/var/lib/postgresql/data
+      - ${MINDSCAPE_RECOVERY_RESTORE_DATA_DIR:-postgres-recovery-restore-data}:/var/lib/postgresql/data
       - ${MINDSCAPE_RECOVERY_RESTORE_BASE_DIR:-./data/recovery-restore/unset-base}:/restore/base:ro
       - ${MINDSCAPE_RECOVERY_RESTORE_WAL_DIR:-./data/recovery-restore/unset-wal}:/restore/wal:ro
       - ../postgres/recovery-drill-restore.sh:/usr/local/bin/recovery-drill-restore.sh:ro

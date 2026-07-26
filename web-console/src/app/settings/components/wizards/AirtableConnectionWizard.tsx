@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { t } from '../../../../lib/i18n';
+import { useT } from '../../../../lib/i18n';
 import { settingsApi } from '../../utils/settingsApi';
 import { WizardShell } from './WizardShell';
 
@@ -11,6 +11,7 @@ interface AirtableConnectionWizardProps {
 }
 
 export function AirtableConnectionWizard({ onClose, onSuccess }: AirtableConnectionWizardProps) {
+  const t = useT();
   const [form, setForm] = useState({
     connection_id: 'airtable-workspace-1',
     name: 'My Airtable Workspace',

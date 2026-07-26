@@ -14,6 +14,9 @@ from backend.app.services.unified_tool_executor_core.lookup import (
     parse_tool_name,
 )
 from backend.app.services.unified_tool_executor_core.result import ToolExecutionResult
+from backend.app.services.unified_tool_executor_core.governance_context import (
+    VerifiedToolExecutionContext,
+)
 
 logger = logging.getLogger("backend.app.services.unified_tool_executor")
 
@@ -43,21 +46,43 @@ class UnifiedToolExecutor:
         self._workspace_tools_loaded = False
 
     async def execute_tool(
-        self, tool_name: str, arguments: Dict[str, Any], timeout: Optional[float] = 30.0
+        self,
+        tool_name: str,
+        arguments: Dict[str, Any],
+        timeout: Optional[float] = 30.0,
+        *,
+        governance_context: VerifiedToolExecutionContext | None = None,
     ) -> ToolExecutionResult:
         """Execute tool through the unified interface."""
         start_time = _utc_now()
         tool_type = "unknown"
 
         try:
+            if governance_context is not None:
+                if not isinstance(
+                    governance_context,
+                    VerifiedToolExecutionContext,
+                ):
+                    raise ValueError("verified_governance_context_required")
+                governance_context.verify_selector(tool_name)
             from backend.app.services.tool_execution_admission import (
                 prepare_tool_admission,
+                sanitize_tool_arguments,
             )
 
-            arguments, admission_snapshot = await prepare_tool_admission(
-                tool_name=tool_name,
-                arguments=arguments,
-            )
+            ignored_controller_argument_keys: list[str] = []
+            if governance_context is not None:
+                sanitized_arguments = sanitize_tool_arguments(arguments)
+                ignored_controller_argument_keys = sorted(
+                    set(arguments) - set(sanitized_arguments)
+                )
+                arguments = sanitized_arguments
+                admission_snapshot = None
+            else:
+                arguments, admission_snapshot = await prepare_tool_admission(
+                    tool_name=tool_name,
+                    arguments=arguments,
+                )
             tool_type, actual_tool_name = self._parse_tool_name(tool_name)
             tool = await self._get_tool(tool_type, actual_tool_name)
 
@@ -70,7 +95,13 @@ class UnifiedToolExecutor:
                 )
 
             logger.info("Executing tool: %s, arguments: %s", tool_name, arguments)
-            tool_result = await tool.safe_execute(**arguments)
+            if governance_context is None:
+                tool_result = await tool.safe_execute(**arguments)
+            else:
+                tool_result = await tool.safe_execute(
+                    governance_context=governance_context,
+                    **arguments,
+                )
             tool_result = _normalize_tool_result(tool_result)
 
             execution_time = (_utc_now() - start_time).total_seconds()
@@ -88,10 +119,24 @@ class UnifiedToolExecutor:
                     **(
                         {
                             "admission_snapshot_hash": (
-                                admission_snapshot.snapshot_hash
+                                governance_context.snapshot_hash
+                                if governance_context is not None
+                                else admission_snapshot.snapshot_hash
                             )
                         }
-                        if admission_snapshot is not None
+                        if (
+                            admission_snapshot is not None
+                            or governance_context is not None
+                        )
+                        else {}
+                    ),
+                    **(
+                        {
+                            "ignored_controller_argument_keys": (
+                                ignored_controller_argument_keys
+                            )
+                        }
+                        if ignored_controller_argument_keys
                         else {}
                     ),
                 },

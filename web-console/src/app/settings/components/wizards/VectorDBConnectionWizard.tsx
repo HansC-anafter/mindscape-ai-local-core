@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { t } from '../../../../lib/i18n';
+import { useT } from '../../../../lib/i18n';
 import { settingsApi } from '../../utils/settingsApi';
 import { InlineAlert } from '../InlineAlert';
 import type { VectorDBConfig } from '../../types';
@@ -26,6 +26,7 @@ export function VectorDBConnectionWizard({
   onClose,
   onSuccess,
 }: VectorDBConnectionWizardProps) {
+  const t = useT();
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [error, setError] = useState<string | null>(null);

@@ -1,4 +1,4 @@
-import { t } from '../../../../../lib/i18n';
+import { useT } from '../../../../../lib/i18n';
 import type { Pack } from './types';
 
 interface ProviderPacksSectionProps {
@@ -22,6 +22,7 @@ export function ProviderPacksSection({
   onHidePacks,
   onInstallPacks,
 }: ProviderPacksSectionProps) {
+  const t = useT();
   return (
     <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
       <div className="flex items-center justify-between mb-2">

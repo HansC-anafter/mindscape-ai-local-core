@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { useRouter } from 'next/navigation';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 import { useProfileSummary } from '@/lib/graph-api';
 
 interface MindProfileCardProps {
@@ -10,6 +10,7 @@ interface MindProfileCardProps {
 }
 
 export function MindProfileCard(_props: MindProfileCardProps) {
+  const t = useT();
   const router = useRouter();
   const { summary, isLoading, isError } = useProfileSummary();
 

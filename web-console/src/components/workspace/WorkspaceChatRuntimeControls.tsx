@@ -2,7 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 import { useWorkspaceMetadata } from '@/contexts/WorkspaceMetadataContext';
 import { useWorkspaceExecutorRoute } from '@/hooks/useWorkspaceExecutorRoute';
 import { useWorkspaceAgentsSnapshot } from '@/hooks/useWorkspaceAgentsSnapshot';
@@ -32,6 +32,7 @@ export function WorkspaceChatRuntimeControls({
   apiUrl,
   layout = 'inline',
 }: WorkspaceChatRuntimeControlsProps) {
+  const t = useT();
   const resolvedApiUrl = useMemo(() => resolveApiUrl(apiUrl), [apiUrl]);
   const {
     currentChatModel,

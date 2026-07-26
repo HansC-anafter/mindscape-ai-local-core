@@ -140,22 +140,17 @@ async def create_workspace(
                     )
                     workspace_storage_path_str = None
 
-        # Create Workspace (with storage configuration)
-        # Get default_locale from request, or fallback to system settings
-        if request.default_locale:
-            default_locale = request.default_locale
-        else:
-            from backend.app.services.system_settings_store import SystemSettingsStore
+        # Workspace locale is content/execution policy, not Workbench UI state.
+        from backend.app.services.workspace_locale_seed import (
+            resolve_workspace_default_locale,
+        )
 
-            settings_store = SystemSettingsStore(db_path=store.db_path)
-            language_setting = await asyncio.to_thread(
-                settings_store.get_setting, "default_language"
-            )
-            default_locale = (
-                language_setting.value
-                if language_setting and language_setting.value
-                else "zh-TW"
-            )
+        default_locale = await asyncio.to_thread(
+            resolve_workspace_default_locale,
+            explicit_locale=request.default_locale,
+            owner_user_id=owner_user_id,
+            profile_store=store,
+        )
 
         workspace = Workspace(
             id=str(uuid.uuid4()),

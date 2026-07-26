@@ -174,6 +174,16 @@ class MindscapeTool(ABC):
         """
         pass
 
+    async def execute_with_context(
+        self,
+        *,
+        governance_context: Any = None,
+        **kwargs,
+    ) -> Any:
+        """Opt-in trusted-context seam; ordinary tools keep existing behavior."""
+        del governance_context
+        return await self.execute(**kwargs)
+
     def validate_input(self, **kwargs) -> Dict[str, Any]:
         """
         Validate input parameters against schema
@@ -210,7 +220,12 @@ class MindscapeTool(ABC):
 
         return validated
 
-    async def safe_execute(self, **kwargs) -> ToolExecutionResult:
+    async def safe_execute(
+        self,
+        *,
+        governance_context: Any = None,
+        **kwargs,
+    ) -> ToolExecutionResult:
         """
         Safely execute tool with error handling and result wrapping
 
@@ -227,8 +242,15 @@ class MindscapeTool(ABC):
             # Validate input parameters
             validated = self.validate_input(**kwargs)
 
-            # Execute the tool
-            result = await self.execute(**validated)
+            # Preserve the ordinary tool call shape unless a trusted
+            # controller supplied a verified governance context.
+            if governance_context is None:
+                result = await self.execute(**validated)
+            else:
+                result = await self.execute_with_context(
+                    governance_context=governance_context,
+                    **validated,
+                )
 
             execution_time = int((time.time() - start_time) * 1000)
 

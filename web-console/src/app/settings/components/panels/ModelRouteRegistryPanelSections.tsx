@@ -1,5 +1,5 @@
 import React from 'react';
-import { t } from '../../../../lib/i18n';
+import { useT } from '../../../../lib/i18n';
 import { Card } from '../Card';
 import type {
   ModelRouteRegistryPayload,
@@ -91,6 +91,7 @@ export function RegistryHeaderCard({
   reconcileResult: ReconcileResult | null;
   onReconcile: () => void;
 }) {
+  const t = useT();
   return (
     <Card>
       <div className="space-y-4">
@@ -225,6 +226,7 @@ function SlotRow({
   onOpenSettings: OpenSettingsHandler;
   variant?: 'bordered' | 'filled' | 'runtime';
 }) {
+  const t = useT();
   const containerClass = variant === 'bordered'
     ? 'rounded-xl border border-default p-4 dark:border-gray-700'
     : 'rounded-lg bg-surface-secondary px-3 py-3 dark:bg-gray-800';
@@ -280,6 +282,7 @@ export function LocalCoreSlotsCard({
   slots: ModelRouteSlot[];
   onOpenSettings: OpenSettingsHandler;
 }) {
+  const t = useT();
   return (
     <Card>
       <div className="space-y-4">
@@ -310,6 +313,7 @@ export function PackCoverageCard({
   scannedCount: number;
   onOpenSettings: OpenSettingsHandler;
 }) {
+  const t = useT();
   return (
     <Card>
       <div className="space-y-4">
@@ -343,6 +347,7 @@ function PackCoverageEntryCard({
   group?: PackGroup;
   onOpenSettings: OpenSettingsHandler;
 }) {
+  const t = useT();
   const firstSettingsAnchor = group?.slots.find((slot) => resolveSettingsHref(slot.settings_anchor))?.settings_anchor;
 
   return (
@@ -405,6 +410,7 @@ export function RuntimeCoverageCard({
   registeredRuntimeSlotCount: number;
   onOpenSettings: OpenSettingsHandler;
 }) {
+  const t = useT();
   return (
     <Card>
       <div className="space-y-4">
@@ -435,6 +441,7 @@ function RuntimeGroupCard({
   runtime: RuntimeGroup;
   onOpenSettings: OpenSettingsHandler;
 }) {
+  const t = useT();
   return (
     <div className="rounded-xl border border-default p-4 dark:border-gray-700">
       <div className="flex flex-wrap items-center justify-between gap-2">

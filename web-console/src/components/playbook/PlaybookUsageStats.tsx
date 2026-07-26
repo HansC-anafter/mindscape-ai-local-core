@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { getApiBaseUrl } from '../../lib/api-url';
-import { t } from '../../lib/i18n';
+import { useT } from '../../lib/i18n';
 import { parseServerTimestamp } from '@/lib/time';
 
 const API_URL = getApiBaseUrl();
@@ -28,6 +28,7 @@ interface PlaybookUsageStatsProps {
 }
 
 export default function PlaybookUsageStats({ playbookCode }: PlaybookUsageStatsProps) {
+  const t = useT();
   const [stats, setStats] = useState<UsageStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

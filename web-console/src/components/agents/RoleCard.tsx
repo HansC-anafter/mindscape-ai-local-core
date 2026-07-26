@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { t } from '../../lib/i18n';
+import { useT } from '../../lib/i18n';
 import { AIRole, getLocalizedRole } from '../../lib/ai-roles';
 
 interface RoleCardProps {
@@ -10,6 +10,7 @@ interface RoleCardProps {
 }
 
 export default function RoleCard({ role, onSelect }: RoleCardProps) {
+  const t = useT();
   const localized = getLocalizedRole(role, t);
 
   return (
@@ -28,7 +29,6 @@ export default function RoleCard({ role, onSelect }: RoleCardProps) {
     </button>
   );
 }
-
 
 
 

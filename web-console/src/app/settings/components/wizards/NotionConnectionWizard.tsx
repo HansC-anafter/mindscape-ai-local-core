@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { t } from '../../../../lib/i18n';
+import { useT } from '../../../../lib/i18n';
 import { settingsApi } from '../../utils/settingsApi';
 import { WizardShell } from './WizardShell';
 
@@ -11,6 +11,7 @@ interface NotionConnectionWizardProps {
 }
 
 export function NotionConnectionWizard({ onClose, onSuccess }: NotionConnectionWizardProps) {
+  const t = useT();
   const [form, setForm] = useState({
     connection_id: 'notion-workspace-1',
     name: 'My Notion Workspace',

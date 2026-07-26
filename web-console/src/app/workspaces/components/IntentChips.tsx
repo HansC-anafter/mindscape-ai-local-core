@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useState, useEffect } from 'react';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 
 interface IntentTag {
   id: string;
@@ -29,6 +29,7 @@ export default function IntentChips({
   onConfirm,
   compact = false,
 }: IntentChipsProps) {
+  const t = useT();
   const [intentTags, setIntentTags] = useState<IntentTag[]>([]);
   const [loading, setLoading] = useState(false);
   const [confirmingId, setConfirmingId] = useState<string | null>(null);

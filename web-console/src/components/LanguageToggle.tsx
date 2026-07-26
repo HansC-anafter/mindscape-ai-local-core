@@ -1,73 +1,47 @@
 /**
  * Language toggle component
- * Allows switching between Traditional Chinese and English
+ * Compact delegate to the account-backed locale provider.
  */
 
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { useLocale, type Locale } from '../lib/i18n';
+import React from 'react';
+import { useLocaleContext, type Locale } from '../lib/i18n';
 
 export default function LanguageToggle() {
-  const [locale, setLocale] = useLocale();
-  const [mounted, setMounted] = useState(false);
+  const { locale, setLocale, saving, writable, error } = useLocaleContext();
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  const handleLocaleChange = (newLocale: Locale) => {
-    setLocale(newLocale);
-    // Force page reload to update all text
-    window.location.reload();
+  const handleLocaleChange = async (newLocale: Locale) => {
+    try {
+      await setLocale(newLocale);
+    } catch {
+      // LocaleProvider owns the user-visible error state.
+    }
   };
 
-  // Always use 'zh-TW' as default locale for placeholder to ensure SSR consistency
-  // This matches the initial state returned by useLocale() hook
-  const displayLocale = mounted ? locale : 'zh-TW';
-
-  // Prevent hydration mismatch by using consistent default locale
-  if (!mounted) {
-    return (
-      <div className="flex items-center space-x-2 border-l border-gray-200 pl-4" suppressHydrationWarning>
-        <button
-          className="px-2 py-1 text-sm rounded bg-blue-500 text-white"
-          disabled
-        >
-          中文
-        </button>
-        <button
-          className="px-2 py-1 text-sm rounded text-gray-600"
-          disabled
-        >
-          EN
-        </button>
-      </div>
-    );
-  }
-
   return (
-    <div className="flex items-center space-x-2 border-l border-gray-200 pl-4">
-      <button
-        onClick={() => handleLocaleChange('zh-TW')}
-        className={`px-2 py-1 text-sm rounded ${
-          locale === 'zh-TW'
-            ? 'bg-blue-500 text-white'
-            : 'text-gray-600 hover:text-gray-900'
-        }`}
-      >
-        中文
-      </button>
-      <button
-        onClick={() => handleLocaleChange('en')}
-        className={`px-2 py-1 text-sm rounded ${
-          locale === 'en'
-            ? 'bg-blue-500 text-white'
-            : 'text-gray-600 hover:text-gray-900'
-        }`}
-      >
-        EN
-      </button>
+    <div className="border-l border-gray-200 pl-4">
+      <div className="flex items-center space-x-2">
+        {([
+          ['zh-TW', '中文'],
+          ['en', 'EN'],
+          ['ja', '日本語'],
+        ] as const).map(([candidate, label]) => (
+          <button
+            key={candidate}
+            onClick={() => void handleLocaleChange(candidate)}
+            disabled={saving || !writable}
+            className={`px-2 py-1 text-sm rounded ${
+              locale === candidate
+                ? 'bg-blue-500 text-white'
+                : 'text-gray-600 hover:text-gray-900'
+            } disabled:cursor-not-allowed disabled:opacity-50`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {error && <p className="mt-1 text-xs text-red-600">{error}</p>}
     </div>
   );
 }

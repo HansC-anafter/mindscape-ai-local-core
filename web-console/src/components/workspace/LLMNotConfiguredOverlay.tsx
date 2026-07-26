@@ -1,13 +1,14 @@
 'use client';
 
 import React from 'react';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 
 interface LLMNotConfiguredOverlayProps {
   visible: boolean;
 }
 
 export function LLMNotConfiguredOverlay({ visible }: LLMNotConfiguredOverlayProps) {
+  const t = useT();
   if (!visible) {
     return null;
   }

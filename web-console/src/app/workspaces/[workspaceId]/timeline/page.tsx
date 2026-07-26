@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import Header from '../../../../components/Header';
-import { t } from '../../../../lib/i18n';
+import { useT } from '../../../../lib/i18n';
 import { formatLocalDateTime } from '@/lib/time';
 
 import { getApiBaseUrl } from '../../../../lib/api-url';
@@ -24,6 +24,7 @@ interface TimelineEvent {
 }
 
 export default function WorkspaceTimelinePage() {
+  const t = useT();
   const params = useParams();
   const workspaceId = params?.workspaceId as string;
   const [events, setEvents] = useState<TimelineEvent[]>([]);

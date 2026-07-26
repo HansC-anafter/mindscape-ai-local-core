@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { t } from '../../../../lib/i18n';
+import { useT } from '../../../../lib/i18n';
 import { settingsApi } from '../../utils/settingsApi';
 import { WizardShell } from './WizardShell';
 
@@ -14,6 +14,7 @@ export function GoogleDriveConnectionWizard({
   onClose,
   onSuccess,
 }: GoogleDriveConnectionWizardProps) {
+  const t = useT();
   const [form, setForm] = useState({
     connection_id: 'google-drive-1',
     name: 'My Google Drive',

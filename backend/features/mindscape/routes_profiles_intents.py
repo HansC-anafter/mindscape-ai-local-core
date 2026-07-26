@@ -1,11 +1,13 @@
 """Mindscape profile, intent, and intent-playbook route group."""
 
+import asyncio
 import uuid
 from datetime import datetime
 from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException, Path, Query
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
 
+from backend.app.dependencies.auth import AuthContext, get_current_identity
 from backend.app.models.mindscape import (
     CreateIntentRequest,
     CreateProfileRequest,
@@ -18,6 +20,14 @@ from backend.app.models.mindscape import (
     PriorityLevel,
     UpdateIntentRequest,
     UpdateProfileRequest,
+)
+from backend.app.services.profile_preferences import (
+    ProfilePreferencesConflictError,
+    ProfilePreferencesMutationService,
+    ProfilePreferencesNotFoundError,
+    ProfilePreferencesPatchRequest,
+    ProfileUiLanguageProjection,
+    ProfileUiLanguageProjectionService,
 )
 from backend.features.mindscape.route_state import logger, store
 from backend.features.mindscape.routes_core import (
@@ -33,6 +43,8 @@ from backend.features.mindscape.routes_core import (
 )
 
 router = APIRouter()
+profile_ui_language_projection_service = ProfileUiLanguageProjectionService()
+profile_preferences_mutation_service = ProfilePreferencesMutationService()
 
 
 @router.post("/profiles", response_model=MindscapeProfile, status_code=201)
@@ -44,6 +56,50 @@ async def create_profile(request: CreateProfileRequest):
         raise HTTPException(
             status_code=500, detail=f"Failed to create profile: {str(e)}"
         )
+
+
+@router.get(
+    "/profiles/me/preferences/ui-language",
+    response_model=ProfileUiLanguageProjection,
+)
+async def get_my_ui_language(
+    identity: AuthContext = Depends(get_current_identity),
+):
+    """Return the authenticated profile's effective UI locale and CAS version."""
+    try:
+        return await asyncio.to_thread(
+            profile_ui_language_projection_service.get_ui_language,
+            identity.user_id,
+        )
+    except ProfilePreferencesNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Profile not found") from exc
+
+
+@router.patch(
+    "/profiles/me/preferences",
+    response_model=ProfileUiLanguageProjection,
+)
+async def patch_my_preferences(
+    request: ProfilePreferencesPatchRequest,
+    identity: AuthContext = Depends(get_current_identity),
+):
+    """Apply one allowlisted, optimistic current-profile preference mutation."""
+    try:
+        return await asyncio.to_thread(
+            profile_preferences_mutation_service.patch_preferences,
+            identity.user_id,
+            request,
+        )
+    except ProfilePreferencesNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Profile not found") from exc
+    except ProfilePreferencesConflictError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "profile_preferences_version_conflict",
+                "current_version": exc.current_version,
+            },
+        ) from exc
 
 
 @router.get("/profiles/{user_id}", response_model=MindscapeProfile)
@@ -58,6 +114,14 @@ async def update_profile(
     request: UpdateProfileRequest = None,
 ):
     """Update an existing profile"""
+    if request and "preferences" in request.model_fields_set:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Profile preferences must be updated through "
+                "/profiles/me/preferences"
+            ),
+        )
     try:
         return update_profile_record(
             store=store,

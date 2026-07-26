@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { t } from '../../../../lib/i18n';
+import { useT } from '../../../../lib/i18n';
 import { settingsApi } from '../../utils/settingsApi';
 import { showNotification } from '../../hooks/useSettingsNotification';
 import { OllamaToolEmbeddingSection } from './EmbeddingSettings';
@@ -39,6 +39,7 @@ export function ModelsAndQuotaPanel({
   workspaceId,
   initialCatalogCategory,
 }: ModelsAndQuotaPanelProps = {}) {
+  const t = useT();
   const initialCatalog = normalizeInitialCatalogCategory(initialCatalogCategory);
   const [loading, setLoading] = useState(true);
   const [models, setModels] = useState<ModelItem[]>([]);

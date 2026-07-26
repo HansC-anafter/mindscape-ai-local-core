@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { t } from '../../../lib/i18n';
+import { useT } from '../../../lib/i18n';
 import { Card } from './Card';
 import { InlineAlert } from './InlineAlert';
 
@@ -10,6 +10,7 @@ interface LocalizationPanelProps {
 }
 
 export function LocalizationPanel({ activeSection }: LocalizationPanelProps) {
+  const t = useT();
   const renderSection = () => {
     if (!activeSection) {
       return (

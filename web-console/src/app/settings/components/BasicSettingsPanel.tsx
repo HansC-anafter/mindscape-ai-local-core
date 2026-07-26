@@ -2,7 +2,7 @@
 
 import React, { useEffect } from 'react';
 import dynamic from 'next/dynamic';
-import { t } from '../../../lib/i18n';
+import { useT } from '../../../lib/i18n';
 import { useBasicSettings } from '../hooks/useBasicSettings';
 import { Card } from './Card';
 import { showNotification } from '../hooks/useSettingsNotification';
@@ -32,6 +32,7 @@ export function BasicSettingsPanel({
   workspaceId,
   initialCatalogCategory,
 }: BasicSettingsPanelProps = {}) {
+  const t = useT();
   const {
     loading,
     saving,

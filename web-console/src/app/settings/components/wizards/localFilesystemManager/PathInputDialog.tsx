@@ -1,6 +1,6 @@
 'use client';
 
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 
 interface PathInputDialogProps {
   error: string | null;
@@ -23,6 +23,7 @@ export function PathInputDialog({
   onConfirm,
   onPathInputValueChange,
 }: PathInputDialogProps) {
+  const t = useT();
   return (
     <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-[60]">
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 max-w-lg w-full mx-4">

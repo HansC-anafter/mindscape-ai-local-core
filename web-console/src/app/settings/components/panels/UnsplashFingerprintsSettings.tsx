@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { t } from '../../../../lib/i18n';
+import { useT } from '../../../../lib/i18n';
 import { showNotification } from '../../hooks/useSettingsNotification';
 
 interface FingerprintStatus {
@@ -12,6 +12,7 @@ interface FingerprintStatus {
 }
 
 export function UnsplashFingerprintsSettings() {
+  const t = useT();
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<FingerprintStatus | null>(null);
   const [downloading, setDownloading] = useState(false);

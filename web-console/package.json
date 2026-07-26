@@ -8,7 +8,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "validate:i18n": "vitest run src/lib/i18n/host-catalogs.spec.ts src/lib/i18n/LocaleProvider.spec.tsx"
   },
   "dependencies": {
     "@excalidraw/excalidraw": "^0.18.1",
@@ -29,6 +30,7 @@
     "dockview": "^5.2.0",
     "graphology": "^0.26.0",
     "graphology-layout-forceatlas2": "^0.10.1",
+    "intl-messageformat": "11.2.12",
     "lucide-react": "^0.294.0",
     "next": "14.0.4",
     "next-themes": "^0.4.6",

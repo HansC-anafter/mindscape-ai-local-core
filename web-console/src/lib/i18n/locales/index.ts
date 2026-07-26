@@ -1,4 +1,3 @@
-import { keys } from '../keys';
 import type { MessageKey } from '../keys';
 import { commonZhTW } from './zh-TW/common';
 import { commonEn } from './en/common';
@@ -114,51 +113,23 @@ const mergeJa = {
   ...workspaceJa,
 } as const;
 
+function sourceAlignedCatalog(
+  overrides: Record<string, string>,
+): Record<keyof typeof mergeEn, string> {
+  return Object.fromEntries(
+    Object.entries(mergeEn).map(([key, sourceMessage]) => [
+      key,
+      typeof overrides[key] === 'string' ? overrides[key] : sourceMessage,
+    ]),
+  ) as Record<keyof typeof mergeEn, string>;
+}
+
 export type MessageBundles = typeof messages;
 
 export type { MessageKey };
 
-function validateKeyParity(zhTW: Record<string, any>, en: Record<string, any>): void {
-  const zhTWKeys = new Set(Object.keys(zhTW));
-  const enKeys = new Set(Object.keys(en));
-
-  const missingInEn = Array.from(zhTWKeys).filter(key => !enKeys.has(key));
-  const missingInZhTW = Array.from(enKeys).filter(key => !zhTWKeys.has(key));
-
-  if (missingInEn.length > 0 || missingInZhTW.length > 0) {
-    console.warn('i18n key parity check failed:');
-    if (missingInEn.length > 0) {
-      console.warn(`Missing in en: ${missingInEn.join(', ')}`);
-    }
-    if (missingInZhTW.length > 0) {
-      console.warn(`Missing in zh-TW: ${missingInZhTW.join(', ')}`);
-    }
-  }
-
-  try {
-    const centralizedKeySet = new Set(Object.keys(keys));
-    const missingInCentralized = Array.from(zhTWKeys).filter(key => !centralizedKeySet.has(key));
-    const extraInCentralized = Array.from(centralizedKeySet).filter(key => !zhTWKeys.has(key) && !enKeys.has(key));
-
-    if (missingInCentralized.length > 0 || extraInCentralized.length > 0) {
-      console.warn('i18n key validation against keys.ts:');
-      if (missingInCentralized.length > 0) {
-        console.warn(`Keys in locales but not in keys.ts: ${missingInCentralized.join(', ')}`);
-      }
-      if (extraInCentralized.length > 0) {
-        console.warn(`Keys in keys.ts but not in locales: ${extraInCentralized.join(', ')}`);
-      }
-    }
-  } catch {
-  }
-}
-
-if (process.env.NODE_ENV === 'development') {
-  validateKeyParity(mergeZhTW, mergeEn);
-}
-
 export const messages = {
-  'zh-TW': mergeZhTW,
+  'zh-TW': sourceAlignedCatalog(mergeZhTW),
   en: mergeEn,
-  ja: mergeJa,
+  ja: sourceAlignedCatalog(mergeJa),
 } as const;

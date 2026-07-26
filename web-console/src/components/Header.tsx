@@ -8,19 +8,26 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
-import { t, useLocale, type Locale } from '../lib/i18n';
+import { useT, useLocaleContext, type Locale } from '../lib/i18n';
 import { useTheme } from 'next-themes';
 import { ChevronLeft } from 'lucide-react';
 import OfflineIndicator from './sync/OfflineIndicator';
 
 export default function Header() {
+  const t = useT();
   const [settingsMenuOpen, setSettingsMenuOpen] = useState(false);
   const [worksheetsMenuOpen, setWorksheetsMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const worksheetsMenuRef = useRef<HTMLDivElement>(null);
   const [mounted, setMounted] = useState(false);
   const pathname = usePathname();
-  const [locale, setLocale] = useLocale();
+  const {
+    locale,
+    setLocale,
+    saving: localeSaving,
+    error: localeError,
+    writable: localeWritable,
+  } = useLocaleContext();
   const { theme, setTheme } = useTheme();
 
   useEffect(() => {
@@ -31,8 +38,14 @@ export default function Header() {
   const isCapabilityPage = pathname?.includes('/capabilities/');
   const workspaceId = pathname?.split('/')[2];
 
-  // Use default t() function to ensure consistency during SSR and initial render
-  // Only use useT() after mount if needed, but for now stick with t() for consistency
+  const changeLocale = async (nextLocale: Locale) => {
+    setSettingsMenuOpen(false);
+    try {
+      await setLocale(nextLocale);
+    } catch {
+      // LocaleProvider owns the user-visible error state.
+    }
+  };
 
   // Close menu when clicking outside
   useEffect(() => {
@@ -192,11 +205,8 @@ export default function Header() {
                       Language
                     </div>
                     <button
-                      onClick={() => {
-                        setLocale('zh-TW');
-                        setSettingsMenuOpen(false);
-                        window.location.reload();
-                      }}
+                      onClick={() => void changeLocale('zh-TW')}
+                      disabled={localeSaving || !localeWritable}
                       className={`w-full text-left px-4 py-2 text-sm transition-colors ${locale === 'zh-TW'
                         ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 font-medium'
                         : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
@@ -205,11 +215,8 @@ export default function Header() {
                       中文
                     </button>
                     <button
-                      onClick={() => {
-                        setLocale('en');
-                        setSettingsMenuOpen(false);
-                        window.location.reload();
-                      }}
+                      onClick={() => void changeLocale('en')}
+                      disabled={localeSaving || !localeWritable}
                       className={`w-full text-left px-4 py-2 text-sm transition-colors ${locale === 'en'
                         ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 font-medium'
                         : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
@@ -218,11 +225,8 @@ export default function Header() {
                       English
                     </button>
                     <button
-                      onClick={() => {
-                        setLocale('ja');
-                        setSettingsMenuOpen(false);
-                        window.location.reload();
-                      }}
+                      onClick={() => void changeLocale('ja')}
+                      disabled={localeSaving || !localeWritable}
                       className={`w-full text-left px-4 py-2 text-sm transition-colors ${locale === 'ja'
                         ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 font-medium'
                         : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
@@ -230,6 +234,11 @@ export default function Header() {
                     >
                       日本語
                     </button>
+                    {localeError && (
+                      <p className="px-4 py-2 text-xs text-red-600 dark:text-red-300">
+                        {localeError}
+                      </p>
+                    )}
                     <div className="border-t border-gray-200 dark:border-gray-700 my-1"></div>
                     {mounted && (
                       <button

@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useWorkspaceData } from '@/contexts/WorkspaceDataContext';
 import { getApiBaseUrl } from '@/lib/api-url';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 import InstructionPreview from '../components/InstructionPreview';
 import InstructionChat from '../components/InstructionChat';
 
@@ -35,6 +35,7 @@ const EMPTY_FIELDS: InstructionFields = {
 };
 
 export default function WorkspaceInstructionPage() {
+  const t = useT();
     const params = useParams();
     const router = useRouter();
     const workspaceId = params?.workspaceId as string;

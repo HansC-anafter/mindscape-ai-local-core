@@ -132,6 +132,13 @@ class SharedAssetScopeResolver:
                 binding_id=evidence.binding_id,
                 resource_id=evidence.resource_id,
                 selector=selector,
+                active_workspace_owner_user_id=(
+                    evidence.active_workspace_owner_user_id
+                ),
+                group_owner_user_id=evidence.group_owner_user_id,
+                source_workspace_owner_user_id=(
+                    evidence.source_workspace_owner_user_id
+                ),
             ),
             None,
         )

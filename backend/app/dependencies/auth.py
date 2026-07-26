@@ -239,6 +239,24 @@ async def get_current_user(request: Request) -> AuthContext:
     return context
 
 
+async def get_current_identity(request: Request) -> AuthContext:
+    """Get only the authenticated identity without loading workspace scope."""
+    scoped_context = getattr(request.state, "mindscape_auth_context", None)
+    if isinstance(scoped_context, AuthContext):
+        return scoped_context
+
+    cached = getattr(request.state, "mindscape_identity_context", None)
+    if isinstance(cached, AuthContext):
+        return cached
+
+    context = await _get_authenticated_context(
+        request,
+        include_local_workspace_ids=False,
+    )
+    request.state.mindscape_identity_context = context
+    return context
+
+
 async def get_current_operator(request: Request) -> AuthContext:
     """Authenticate loopback control traffic without local identity reads."""
     return await _get_authenticated_context(

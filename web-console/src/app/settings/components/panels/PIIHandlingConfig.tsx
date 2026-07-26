@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { t } from '../../../../lib/i18n';
+import { useT } from '../../../../lib/i18n';
 
 interface PIIHandlingConfigProps {
   piiEnabled: boolean;
@@ -9,6 +9,7 @@ interface PIIHandlingConfigProps {
 }
 
 export function PIIHandlingConfig({ piiEnabled, onChange }: PIIHandlingConfigProps) {
+  const t = useT();
   return (
     <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
       <div className="mb-3">

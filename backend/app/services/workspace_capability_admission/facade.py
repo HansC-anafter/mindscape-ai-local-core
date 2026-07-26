@@ -18,6 +18,7 @@ from .contracts import (
     AdmissionDenied,
     RootAdmissionRequest,
     RootAdmissionResult,
+    RootPrincipalEvidence,
 )
 from .deployment_gate import DeploymentGate
 from .execution_snapshot import build_execution_snapshot
@@ -226,6 +227,22 @@ class WorkspaceCapabilityAdmissionFacade:
             external_decision=external_decision,
             active_group_context=source.active_group_context,
             topology_snapshot=topology_snapshot,
+            principal_evidence=RootPrincipalEvidence(
+                workspace_id=request.workspace_id,
+                actor_user_id=request.actor_user_id,
+                allowed_workspace_ids=tuple(
+                    sorted(set(request.allowed_workspace_ids))
+                ),
+                allowed_group_ids=tuple(
+                    sorted(set(request.allowed_group_ids))
+                ),
+                workspace_owner_user_id=source.workspace_owner_user_id,
+                group_owner_user_id=(
+                    source.active_group_context.topology.owner_user_id
+                    if source.active_group_context is not None
+                    else None
+                ),
+            ),
         )
 
     @staticmethod

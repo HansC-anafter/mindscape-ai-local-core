@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 
 interface GraphControlsProps {
   activeLens: 'all' | 'direction' | 'action';
@@ -9,6 +9,7 @@ interface GraphControlsProps {
 }
 
 export function GraphControls({ activeLens, onLensChange }: GraphControlsProps) {
+  const t = useT();
   const lensOptions = [
     { value: 'all', label: t('graphLensAll' as any), icon: 'ALL' },
     { value: 'direction', label: t('graphLensDirection' as any), icon: 'DIR' },

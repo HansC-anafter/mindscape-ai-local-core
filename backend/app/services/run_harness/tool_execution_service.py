@@ -44,6 +44,9 @@ from backend.app.services.unified_tool_executor import (
     ToolExecutionResult,
     UnifiedToolExecutor,
 )
+from backend.app.services.unified_tool_executor_core.governance_context import (
+    VerifiedToolExecutionContext,
+)
 
 
 class RunHarnessToolExecutionService:
@@ -69,6 +72,7 @@ class RunHarnessToolExecutionService:
         request: RunHarnessToolExecutionRequest,
         *,
         external_decision: Any = None,
+        governance_context: VerifiedToolExecutionContext | None = None,
     ) -> RunHarnessResult:
         terminal = await self._ledger_call(
             self.episode_ledger.get_terminal_result,
@@ -161,20 +165,23 @@ class RunHarnessToolExecutionService:
 
         execution_result = await self._execute_tool(
             request,
+            tool_snapshot=tool_snapshot,
             external_decision=external_decision,
+            governance_context=governance_context,
         )
         result = map_execution_result(
             request,
             execution_result,
             tool_snapshot,
         )
+        completion_event = "tool_execution_failed"
+        if result.status == RunHarnessStatus.SUCCEEDED:
+            completion_event = "tool_execution_completed"
+        elif result.status == RunHarnessStatus.WAITING:
+            completion_event = "tool_execution_waiting"
         await self._append_event(
             request,
-            (
-                "tool_execution_completed"
-                if result.status == RunHarnessStatus.SUCCEEDED
-                else "tool_execution_failed"
-            ),
+            completion_event,
             result.status,
             artifact_refs=result.output_artifact_refs,
             metadata={
@@ -323,11 +330,15 @@ class RunHarnessToolExecutionService:
         self,
         request: RunHarnessToolExecutionRequest,
         *,
+        tool_snapshot: dict[str, Any],
         external_decision: Any = None,
+        governance_context: VerifiedToolExecutionContext | None = None,
     ) -> ToolExecutionResult:
         try:
             timeout_seconds = float(
-                getattr(request.policy, "timeout_seconds", None) or 30.0
+                getattr(request.policy, "timeout_seconds", None)
+                or tool_snapshot.get("execution_timeout_seconds")
+                or 30.0
             )
             governed_arguments = dict(request.arguments)
             snapshot = (
@@ -373,10 +384,19 @@ class RunHarnessToolExecutionService:
                     result=remote_result,
                     metadata={"execution_backend": "external_provider"},
                 )
+            if governance_context is None:
+                return await self.executor.execute_tool(
+                    request.tool_ref,
+                    governed_arguments,
+                    timeout=timeout_seconds,
+                )
             return await self.executor.execute_tool(
                 request.tool_ref,
                 governed_arguments,
                 timeout=timeout_seconds,
+                governance_context=governance_context.for_child(
+                    request.tool_ref
+                ),
             )
         except Exception as exc:
             return ToolExecutionResult(
@@ -418,6 +438,9 @@ class RunHarnessToolExecutionService:
                 getattr(metadata, "danger_level", None)
             ),
             "version": enum_value(getattr(metadata, "version", None)),
+            "execution_timeout_seconds": enum_value(
+                getattr(metadata, "execution_timeout_seconds", None)
+            ),
         }
         return validate_tool_snapshot(snapshot)
 

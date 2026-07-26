@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { t } from '../../../lib/i18n';
+import { useT } from '../../../lib/i18n';
 import { settingsApi } from '../utils/settingsApi';
 import { InlineAlert } from './InlineAlert';
 import { getApiBaseUrl } from '../../../lib/api-url';
@@ -15,6 +15,7 @@ interface GoogleOAuthConfig {
 }
 
 export function GoogleOAuthSettings() {
+  const t = useT();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);

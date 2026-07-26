@@ -3,7 +3,7 @@
 import React, { useMemo } from 'react';
 import { AI_ROLES, AIRole } from '../../lib/ai-roles';
 import { getLocalizedRole } from '../../lib/ai-roles';
-import { t } from '../../lib/i18n';
+import { useT } from '../../lib/i18n';
 import RoleCard from './RoleCard';
 import DrawRoleCard from './DrawRoleCard';
 import { WorkScene } from '../../lib/work-scenes';
@@ -27,6 +27,7 @@ export default function RoleCardGrid({
   searchQuery = '',
   selectedCategories = [],
 }: RoleCardGridProps) {
+  const t = useT();
   const filteredRoles = useMemo(() => {
     let roles = AI_ROLES;
 

@@ -1,6 +1,6 @@
 import CopyVariantModal from '../../../components/playbook/CopyVariantModal';
 import LLMDrawer from '../../../components/playbook/LLMDrawer';
-import { t } from '../../../lib/i18n';
+import { useT } from '../../../lib/i18n';
 import type { OptimizationSuggestion } from './playbookDetailTypes';
 
 interface PlaybookDetailModalsProps {
@@ -46,6 +46,7 @@ export function PlaybookDetailModals({
   onCloseNotesModal,
   onSaveNotes,
 }: PlaybookDetailModalsProps) {
+  const t = useT();
   return (
     <>
       <CopyVariantModal

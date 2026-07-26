@@ -20,6 +20,9 @@ from backend.app.services.workspace_capability_admission import (
 from backend.app.services.workspace_capability_admission.external_execution_adapter import (
     ExternalAuthorizationDenied,
 )
+from backend.app.services.unified_tool_executor_core.governance_context import (
+    build_verified_tool_execution_context,
+)
 from backend.app.routes.core.execution_dispatch import (
     build_external_authorization_context,
     dispatch_remote_execution,
@@ -173,7 +176,8 @@ async def execute_tool(
         result = await executor.execute_tool(
             tool_name=request.tool_name,
             arguments=governed_arguments,
-            timeout=request.timeout
+            timeout=request.timeout,
+            governance_context=build_verified_tool_execution_context(admission),
         )
         result.metadata = {
             **(result.metadata or {}),

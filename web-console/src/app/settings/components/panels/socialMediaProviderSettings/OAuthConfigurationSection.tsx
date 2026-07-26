@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { t } from '../../../../../lib/i18n';
+import { useT } from '../../../../../lib/i18n';
 import { getOAuthCallbackUrl } from './constants';
 import type { OAuthConfig, SocialMediaConnection } from './types';
 
@@ -21,6 +21,7 @@ export function OAuthConfigurationSection({
   onOauthConfigChange,
   onSave,
 }: OAuthConfigurationSectionProps) {
+  const t = useT();
   return (
     <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
       <h3 className="font-medium text-gray-900 dark:text-gray-100 mb-4">

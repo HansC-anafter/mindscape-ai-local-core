@@ -5,8 +5,9 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
+import tempfile
 from typing import Any
 
 
@@ -19,6 +20,7 @@ class RestoreScope:
     compose_file: Path
     backup_dir: Path
     receipt_dir: Path
+    data_dir: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -49,10 +51,14 @@ def _parse_target_time(value: object) -> str:
         raise ValueError("restore_recovery_target_time_invalid") from exc
     if parsed.tzinfo is None:
         raise ValueError("restore_recovery_target_timezone_required")
-    return raw
+    return parsed.astimezone(timezone.utc).isoformat(sep=" ")
 
 
-def validate_restore_scope(scope: RestoreScope) -> RestoreSource:
+def validate_restore_scope(
+    scope: RestoreScope,
+    *,
+    allow_existing_data: bool = False,
+) -> RestoreSource:
     project = scope.project.strip()
     if not project.endswith("-restore-drill"):
         raise ValueError("restore_project_label_required")
@@ -61,6 +67,7 @@ def validate_restore_scope(scope: RestoreScope) -> RestoreSource:
         raise ValueError("root_compose_entrypoint_required")
     backup_dir = scope.backup_dir.resolve()
     receipt_dir = scope.receipt_dir.resolve()
+    data_dir = scope.data_dir.resolve() if scope.data_dir is not None else None
     forbidden = {
         Path("/var/lib/postgresql/data"),
         Path("/app/data"),
@@ -68,6 +75,25 @@ def validate_restore_scope(scope: RestoreScope) -> RestoreSource:
     }
     if backup_dir in forbidden or receipt_dir in forbidden:
         raise ValueError("production_path_forbidden")
+    if data_dir is not None:
+        temporary_roots = {
+            Path("/private/tmp").resolve(),
+            Path("/tmp").resolve(),
+            Path(tempfile.gettempdir()).resolve(),
+        }
+        if data_dir in temporary_roots or not any(
+            data_dir.is_relative_to(root) for root in temporary_roots
+        ):
+            raise ValueError("restore_data_directory_must_be_system_temporary")
+        if data_dir.name != project:
+            raise ValueError("restore_data_directory_must_match_project")
+        if (
+            data_dir.exists()
+            and any(data_dir.iterdir())
+            and not allow_existing_data
+        ):
+            raise ValueError("restore_data_directory_not_empty_cleanup_first")
+        data_dir.mkdir(parents=True, exist_ok=True)
     manifest_path = backup_dir / "manifest.json"
     try:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -121,6 +147,7 @@ def validate_restore_scope(scope: RestoreScope) -> RestoreSource:
         compose_file=compose_file,
         backup_dir=backup_dir,
         receipt_dir=receipt_dir,
+        data_dir=data_dir,
     )
     receipt_dir.mkdir(parents=True, exist_ok=True)
     return RestoreSource(

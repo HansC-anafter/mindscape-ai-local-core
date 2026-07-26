@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { t } from '../../../../lib/i18n';
+import { useT } from '../../../../lib/i18n';
 import { settingsApi } from '../../utils/settingsApi';
 import { InlineAlert } from '../InlineAlert';
 import { useEnabledModels } from '../../hooks/useEnabledModels';
@@ -27,6 +27,7 @@ interface LLMChatSettingsResponse {
 }
 
 export function LLMChatSettings() {
+  const t = useT();
   const [loading, setLoading] = useState(true);
   const [settings, setSettings] = useState<LLMChatSettingsResponse | null>(null);
   const [testing, setTesting] = useState(false);

@@ -1,5 +1,5 @@
 import React from 'react';
-import { t } from '../../../../lib/i18n';
+import { useT } from '../../../../lib/i18n';
 import {
   envPairsToRecord,
   getProviderEnvRequirements,
@@ -45,6 +45,7 @@ interface FooterProps {
 }
 
 export function MCPProviderSelectionStep({ availableServers, onProviderSelect }: ProviderSelectionStepProps) {
+  const t = useT();
   return (
     <div>
       <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">{t('selectMCPProvider' as any) || 'Select MCP Provider'}</h4>
@@ -102,6 +103,7 @@ export function MCPProviderSelectionStep({ availableServers, onProviderSelect }:
 }
 
 export function MCPTransportSelectionStep({ onTransportSelect }: TransportSelectionStepProps) {
+  const t = useT();
   return (
     <div>
       <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">{t('selectTransportType' as any) || 'Select Transport Type'}</h4>
@@ -166,6 +168,7 @@ function MCPStdioConfigStep({
   onEnvInputModeChange,
   onEnvKeyValuePairsChange,
 }: ConfigStepProps) {
+  const t = useT();
   const envRequirements = getProviderEnvRequirements(selectedProvider);
   const currentEnv = config.env || {};
   const renderedPairs = normalizeEnvPairs(envKeyValuePairs);
@@ -345,6 +348,7 @@ function MCPHttpConfigStep({
   config,
   onConfigChange,
 }: Pick<ConfigStepProps, 'config' | 'onConfigChange'>) {
+  const t = useT();
   return (
     <div className="space-y-4">
       <div>
@@ -396,6 +400,7 @@ export function MCPServerWizardFooter({
   onNext,
   onSubmit,
 }: FooterProps) {
+  const t = useT();
   return (
     <>
       {step > 1 && (

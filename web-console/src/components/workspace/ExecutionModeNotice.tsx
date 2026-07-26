@@ -1,7 +1,6 @@
 'use client';
 
 import React from 'react';
-import { t } from '@/lib/i18n';
 
 type ExecutionMode = 'qa' | 'execution' | 'hybrid' | 'meeting';
 
