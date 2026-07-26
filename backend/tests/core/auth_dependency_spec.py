@@ -10,6 +10,7 @@ from backend.app.services import mindscape_store, system_settings_store
 class _Request:
     def __init__(self, headers=None):
         self.headers = headers or {}
+        self.state = type("_State", (), {})()
 
 
 def test_default_user_fallback_matches_the_canonical_local_profile(monkeypatch):

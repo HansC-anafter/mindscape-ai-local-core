@@ -12,7 +12,35 @@ from backend.app.models.mindscape import (
     EventType,
     MindEvent,
     MindscapeProfile,
+    UserPreferences,
 )
+
+
+def _new_profile_preferences(request):
+    """Seed only a missing UI preference from the system language."""
+    supplied = request.preferences
+    if (
+        supplied is not None
+        and "preferred_ui_language" in supplied.model_fields_set
+    ):
+        return supplied
+
+    from backend.app.services.profile_preferences_core.projection import (
+        HARD_DEFAULT_UI_LOCALE,
+        SUPPORTED_UI_LOCALES,
+    )
+    from backend.app.services.system_settings_store import SystemSettingsStore
+
+    setting = SystemSettingsStore().get_setting("default_language")
+    candidate = setting.value if setting is not None else None
+    seed = (
+        candidate
+        if isinstance(candidate, str) and candidate in SUPPORTED_UI_LOCALES
+        else HARD_DEFAULT_UI_LOCALE
+    )
+    values = supplied.model_dump() if supplied is not None else {}
+    values["preferred_ui_language"] = seed
+    return UserPreferences(**values)
 
 
 def get_onboarding_status_payload(*, onboarding_service, user_id: str) -> dict:
@@ -98,7 +126,7 @@ def create_profile_record(*, store, request) -> MindscapeProfile:
         email=request.email,
         roles=request.roles,
         domains=request.domains,
-        preferences=request.preferences or None,
+        preferences=_new_profile_preferences(request),
         created_at=datetime.utcnow(),
         updated_at=datetime.utcnow(),
     )
@@ -117,9 +145,17 @@ def update_profile_record(*, store, user_id: str, request, logger):
     """Update a profile and record the profile-updated event."""
     if not request:
         raise HTTPException(status_code=400, detail="Update request required")
+    if "preferences" in request.model_fields_set:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Profile preferences must be updated through "
+                "/profiles/me/preferences"
+            ),
+        )
 
     updates = {}
-    for field_name in ("name", "email", "roles", "domains", "preferences"):
+    for field_name in ("name", "email", "roles", "domains"):
         value = getattr(request, field_name)
         if value is not None:
             updates[field_name] = value

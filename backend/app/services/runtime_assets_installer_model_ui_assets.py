@@ -6,6 +6,9 @@ from pathlib import Path
 from typing import Dict
 
 from .install_result import InstallResult
+from .runtime_assets_installer_core.ui_localization_assets import (
+    install_ui_localization_assets,
+)
 from .runtime_assets_installer_support import _safe_asset_segment, _sha256_integrity
 
 logger = logging.getLogger("app.services.runtime_assets_installer")
@@ -176,7 +179,16 @@ class RuntimeAssetsInstallerModelUiAssetsMixin:
             )
             result.add_installed("ui_components", str(component_code))
 
-        if not runtime_components:
+        runtime_localization = install_ui_localization_assets(
+            source_ui_dist_dir=source_ui_dist_dir,
+            target_assets_dir=target_assets_dir,
+            capability_code=capability_code,
+            version_segment=version_segment,
+            localization=dist_manifest.get("localization"),
+            result=result,
+        )
+
+        if not runtime_components or runtime_localization is None:
             return
 
         target_cap_dir = self.capabilities_dir / capability_code
@@ -188,6 +200,7 @@ class RuntimeAssetsInstallerModelUiAssetsMixin:
                     "capability_code": capability_code,
                     "version": version_segment,
                     "components": runtime_components,
+                    "localization": runtime_localization,
                 },
                 indent=2,
                 sort_keys=True,

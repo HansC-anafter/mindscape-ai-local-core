@@ -23,6 +23,7 @@ from .manifest_scan import (
     _scan_pack_yaml_files,
 )
 from .installed_route_workspace_tools import build_capability_workspace_tools
+from .installed_runtime_localization import project_installed_ui_localization
 from .mobile_workbench_gateway_support import (
     build_mobile_workbench_gateway_support_payload,
 )
@@ -102,6 +103,14 @@ def get_installed_capability(capability_code: str):
             )
 
         payload = _format_installed_capability(pack_meta)
+        runtime_localization = project_installed_ui_localization(
+            _load_runtime_ui_index(
+                capability_code,
+                manifest_file=pack_meta.get("_file_path"),
+            )
+        )
+        if runtime_localization is not None:
+            payload["ui_localization"] = runtime_localization
         set_cached_capability_route_payload(
             "installed-capability",
             capability_code,
