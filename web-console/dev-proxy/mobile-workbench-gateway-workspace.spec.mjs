@@ -18,6 +18,7 @@ function workspaceResolution(workspaceId, {
   directPrincipals = [],
   effectivePrincipals = null,
   capabilityCodes = ['yogacoach'],
+  capabilityCode = 'yogacoach',
 } = {}) {
   const globals = [
     {
@@ -40,6 +41,8 @@ function workspaceResolution(workspaceId, {
   ];
   return createPolicyResolution({
     workspaceId,
+    capabilityCode,
+    apiPrefixes: [`/api/v1/capabilities/${capabilityCode}`],
     effectivePayload: createEffectivePolicyPayload({
       workspaceId,
       directPrincipals,
@@ -206,6 +209,62 @@ test('email, URL, token workspace, Referer, and Host cannot create membership', 
   });
   assert.equal(hostSpoof.result.reason_code, 'invalid_public_host');
   assert.equal(hostSpoof.resolverCalls, 0);
+});
+
+test('same-workspace capability handoff preserves primary route authorization', async () => {
+  const returnTo = '/workspaces/workspace-a/capability-ui-hosts/yogacoach'
+    + '?component=YogaPracticeWorkbenchPage&practice_diary=ypd_example';
+  const resolution = workspaceResolution('workspace-a', {
+    capabilityCodes: ['yogacoach', 'social_video_refs'],
+    capabilityCode: 'social_video_refs',
+  });
+  const { result, resolverCalls } = await request({
+    url: '/workspaces/workspace-a/capability-ui-hosts/social_video_refs/refs'
+      + `?handoff_target=yogacoach&return_to=${encodeURIComponent(returnTo)}&provider=youtube`,
+    headers: {
+      referer: `https://remote-workbench.mindscapeai.app${returnTo}`,
+    },
+    resolution,
+  });
+
+  assert.equal(result.allowed, true);
+  assert.equal(result.context.capabilityCode, 'social_video_refs');
+  assert.equal(result.context.refererPath,
+    '/workspaces/workspace-a/capability-ui-hosts/yogacoach');
+  assert.equal(result.context.conflicts.length, 0);
+  assert.equal(resolverCalls, 1);
+});
+
+test('capability handoff fails closed when its target or return route is not exact', async () => {
+  const returnTo = '/workspaces/workspace-a/capability-ui-hosts/yogacoach'
+    + '?component=YogaPracticeWorkbenchPage&practice_diary=ypd_example';
+  const baseUrl = '/workspaces/workspace-a/capability-ui-hosts/social_video_refs/refs';
+  const referer = `https://remote-workbench.mindscapeai.app${returnTo}`;
+  const invalidQueries = [
+    `return_to=${encodeURIComponent(returnTo)}`,
+    `handoff_target=dance_motion_coach&return_to=${encodeURIComponent(returnTo)}`,
+    `handoff_target=yogacoach&return_to=${encodeURIComponent(
+      '/workspaces/workspace-a/capability-ui-hosts/yogacoach?practice_diary=ypd_other',
+    )}`,
+    `handoff_target=yogacoach&return_to=${encodeURIComponent(
+      '/workspaces/workspace-b/capability-ui-hosts/yogacoach',
+    )}`,
+    `handoff_target=yogacoach&return_to=${encodeURIComponent(
+      'https://example.com/workspaces/workspace-a/capability-ui-hosts/yogacoach',
+    )}`,
+    `handoff_target=yogacoach&handoff_target=yogacoach&return_to=${encodeURIComponent(returnTo)}`,
+  ];
+
+  for (const query of invalidQueries) {
+    const { result, resolverCalls } = await request({
+      url: `${baseUrl}?${query}`,
+      headers: { referer },
+    });
+    assert.equal(result.allowed, false);
+    assert.equal(result.reason_code, 'request_context_mismatch');
+    assert.deepEqual(result.context.conflicts, ['referer_capability_mismatch']);
+    assert.equal(resolverCalls, 0);
+  }
 });
 
 test('effective auth fingerprint drift fails closed', async () => {

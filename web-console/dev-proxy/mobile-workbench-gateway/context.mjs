@@ -51,6 +51,71 @@ function parseRequestUrl(requestUrl) {
   }
 }
 
+function hasCapabilityHostPath(pathname) {
+  return /^\/workspaces\/[^/]+\/capability-ui-hosts\/[^/]+(?:\/|$)/.test(pathname);
+}
+
+function readExactSearchParameter(parsedUrl, name) {
+  const values = parsedUrl.searchParams.getAll(name);
+  return values.length === 1 ? values[0] : null;
+}
+
+function isCanonicalCapabilityHandoff({
+  requestUrl,
+  requestMethod,
+  primary,
+  refererUrl,
+  referer,
+}) {
+  if (!['GET', 'HEAD'].includes(String(requestMethod || 'GET').toUpperCase())) {
+    return false;
+  }
+  if (
+    !primary.workspaceId
+    || !referer.workspaceId
+    || primary.workspaceId !== referer.workspaceId
+    || !primary.capabilityCode
+    || !referer.capabilityCode
+    || primary.capabilityCode === referer.capabilityCode
+    || !hasCapabilityHostPath(primary.path)
+    || !hasCapabilityHostPath(referer.path)
+  ) {
+    return false;
+  }
+
+  const parsedRequest = parseRequestUrl(requestUrl);
+  const handoffTarget = readExactSearchParameter(parsedRequest, 'handoff_target');
+  const returnTo = readExactSearchParameter(parsedRequest, 'return_to');
+  if (
+    normalizeIdentifier(handoffTarget)?.toLowerCase() !== referer.capabilityCode
+    || !returnTo
+    || returnTo.length > 4096
+    || !returnTo.startsWith('/')
+    || returnTo.startsWith('//')
+    || /[\u0000-\u001f\u007f]/.test(returnTo)
+  ) {
+    return false;
+  }
+
+  let parsedReturnTo;
+  try {
+    parsedReturnTo = new URL(returnTo, 'http://mindscape.local');
+  } catch {
+    return false;
+  }
+  if (parsedReturnTo.origin !== 'http://mindscape.local') {
+    return false;
+  }
+  const returnContext = extractSingleUrlContext(parsedReturnTo.href, requestMethod);
+  return (
+    returnContext.conflicts.length === 0
+    && returnContext.workspaceId === primary.workspaceId
+    && returnContext.capabilityCode === referer.capabilityCode
+    && parsedReturnTo.pathname === refererUrl.pathname
+    && parsedReturnTo.search === refererUrl.search
+  );
+}
+
 function extractSingleUrlContext(requestUrl = '/', requestMethod = 'GET') {
   const parsed = parseRequestUrl(requestUrl);
   const pathname = parsed.pathname || '/';
@@ -124,12 +189,20 @@ function resolveRefererHeader(requestHeaders) {
   return String(value || '').trim();
 }
 
-function mergeContext(primary, referer, { inherit = false } = {}) {
+function mergeContext(primary, referer, {
+  inherit = false,
+  canonicalCapabilityHandoff = false,
+} = {}) {
   const conflicts = [...primary.conflicts, ...referer.conflicts];
   if (primary.workspaceId && referer.workspaceId && primary.workspaceId !== referer.workspaceId) {
     conflicts.push('referer_workspace_mismatch');
   }
-  if (primary.capabilityCode && referer.capabilityCode && primary.capabilityCode !== referer.capabilityCode) {
+  if (
+    primary.capabilityCode
+    && referer.capabilityCode
+    && primary.capabilityCode !== referer.capabilityCode
+    && !canonicalCapabilityHandoff
+  ) {
     conflicts.push('referer_capability_mismatch');
   }
   return {
@@ -168,11 +241,17 @@ export function extractRequestContext(
       return { ...primary, conflicts: [...primary.conflicts, 'invalid_referer_origin'] };
     }
   }
-  return mergeContext(
-    primary,
-    extractSingleUrlContext(parsedReferer.href),
-    { inherit: primary.isBootAsset },
-  );
+  const referer = extractSingleUrlContext(parsedReferer.href);
+  return mergeContext(primary, referer, {
+    inherit: primary.isBootAsset,
+    canonicalCapabilityHandoff: isCanonicalCapabilityHandoff({
+      requestUrl,
+      requestMethod,
+      primary,
+      refererUrl: parsedReferer,
+      referer,
+    }),
+  });
 }
 
 export function extractMobileWorkbenchGatewayRequestContext(requestUrl = '/', requestHeaders = {}, options = {}) {
