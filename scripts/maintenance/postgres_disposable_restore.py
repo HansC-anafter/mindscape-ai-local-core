@@ -31,6 +31,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--compose-file", type=Path, default=REPO_ROOT / "docker-compose.yml")
     parser.add_argument("--backup-dir", type=Path, required=True)
     parser.add_argument("--receipt-dir", type=Path, required=True)
+    parser.add_argument("--data-dir", type=Path)
     parser.add_argument("--timeout-seconds", type=int, default=3600)
     return parser.parse_args()
 
@@ -43,6 +44,7 @@ def main() -> int:
             compose_file=args.compose_file,
             backup_dir=args.backup_dir,
             receipt_dir=args.receipt_dir,
+            data_dir=args.data_dir,
         )
     )
     if args.command == "status":

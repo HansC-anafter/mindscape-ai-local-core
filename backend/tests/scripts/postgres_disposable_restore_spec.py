@@ -5,6 +5,7 @@ import pytest
 
 from scripts.postgres_disposable_restore_core.commands import (
     _critical_database_evidence,
+    _environment,
 )
 from scripts.postgres_disposable_restore_core.policy import (
     RestoreScope,
@@ -103,6 +104,60 @@ def test_restore_scope_rejects_existing_wal_path_outside_backup_root(
         match="restore_wal_directory_outside_backup_root",
     ):
         validate_restore_scope(source.scope)
+
+
+def test_restore_scope_accepts_project_named_system_temp_bind_dir(
+    tmp_path: Path,
+):
+    source = _restore_source(tmp_path)
+    project = "mindscape-runtime-bind-restore-drill"
+    data_dir = tmp_path / project
+
+    validated = validate_restore_scope(
+        RestoreScope(
+            project=project,
+            compose_file=source.scope.compose_file,
+            backup_dir=source.scope.backup_dir,
+            receipt_dir=source.scope.receipt_dir,
+            data_dir=data_dir,
+        )
+    )
+
+    assert validated.scope.data_dir == data_dir.resolve()
+    assert _environment(validated)["MINDSCAPE_RECOVERY_RESTORE_DATA_DIR"] == str(
+        data_dir.resolve()
+    )
+
+
+def test_restore_scope_rejects_unscoped_bind_directory(tmp_path: Path):
+    source = _restore_source(tmp_path)
+
+    with pytest.raises(
+        ValueError,
+        match="restore_data_directory_must_match_project",
+    ):
+        validate_restore_scope(
+            RestoreScope(
+                project="mindscape-runtime-bind-restore-drill",
+                compose_file=source.scope.compose_file,
+                backup_dir=source.scope.backup_dir,
+                receipt_dir=source.scope.receipt_dir,
+                data_dir=tmp_path / "other-project",
+            )
+        )
+
+
+def test_restore_environment_ignores_unscoped_data_dir_injection(
+    monkeypatch,
+    tmp_path: Path,
+):
+    source = _restore_source(tmp_path)
+    monkeypatch.setenv(
+        "MINDSCAPE_RECOVERY_RESTORE_DATA_DIR",
+        "/var/lib/postgresql/data",
+    )
+
+    assert "MINDSCAPE_RECOVERY_RESTORE_DATA_DIR" not in _environment(source)
 
 
 def test_restore_receipt_is_atomic_and_tamper_evident(tmp_path: Path):

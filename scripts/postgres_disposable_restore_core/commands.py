@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import time
 from datetime import datetime, timezone
@@ -18,12 +19,18 @@ APP_PROBE_SERVICE = "postgres-recovery-restore-app-probe"
 
 
 def _environment(source: RestoreSource) -> dict[str, str]:
-    return {
+    environment = {
         **os.environ,
         "MINDSCAPE_RECOVERY_RESTORE_BASE_DIR": str(source.base_dir),
         "MINDSCAPE_RECOVERY_RESTORE_WAL_DIR": str(source.wal_dir),
         "MINDSCAPE_RECOVERY_TARGET_TIME": source.recovery_target_time,
     }
+    environment.pop("MINDSCAPE_RECOVERY_RESTORE_DATA_DIR", None)
+    if source.scope.data_dir is not None:
+        environment["MINDSCAPE_RECOVERY_RESTORE_DATA_DIR"] = str(
+            source.scope.data_dir
+        )
+    return environment
 
 
 def _compose(
@@ -97,6 +104,11 @@ def preflight(source: RestoreSource) -> dict[str, Any]:
         "wal_dir": str(source.wal_dir),
         "required_wal_segment_count": len(source.required_wal_segments),
         "recovery_target_time": source.recovery_target_time,
+        "restore_data_dir": (
+            str(source.scope.data_dir)
+            if source.scope.data_dir is not None
+            else "docker_named_volume"
+        ),
         "services": sorted(required),
     }
 
@@ -223,6 +235,11 @@ def run_restore(source: RestoreSource, *, timeout_seconds: int = 3600) -> dict[s
             "base_dir": str(source.base_dir),
             "wal_dir": str(source.wal_dir),
             "recovery_target_time": source.recovery_target_time,
+            "restore_data_dir": (
+                str(source.scope.data_dir)
+                if source.scope.data_dir is not None
+                else "docker_named_volume"
+            ),
             "required_wal_segment_count": len(source.required_wal_segments),
             "rto_seconds": rto_seconds,
             "database_evidence": database_evidence,
@@ -241,8 +258,13 @@ def cleanup(source: RestoreSource) -> dict[str, Any]:
     result = _compose(source, "down", "--volumes", "--remove-orphans", timeout=180)
     if result.returncode != 0:
         raise RuntimeError("restore_cleanup_failed")
+    removed_data_dir = False
+    if source.scope.data_dir is not None and source.scope.data_dir.exists():
+        shutil.rmtree(source.scope.data_dir)
+        removed_data_dir = True
     return {
         "ok": True,
         "project": source.scope.project,
         "state": "disposable_runtime_removed_receipt_retained",
+        "restore_data_dir_removed": removed_data_dir,
     }
