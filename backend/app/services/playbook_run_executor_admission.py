@@ -15,6 +15,10 @@ from backend.app.services.workspace_capability_admission.child_snapshot_verifier
 from backend.app.services.workspace_capability_admission.contracts import (
     ExecutionAdmissionSnapshot,
 )
+from backend.app.services.workspace_capability_admission.pinned_tool_slots import (
+    declared_pinned_tool_slots,
+    prepare_pinned_tool_slots,
+)
 
 
 async def prepare_playbook_admission(
@@ -23,9 +27,13 @@ async def prepare_playbook_admission(
     profile_id: str,
     workspace_id: str | None,
     inputs: dict[str, Any] | None,
+    project_id: str | None = None,
 ) -> tuple[dict[str, Any], ExecutionAdmissionSnapshot | None]:
     normalized = dict(inputs or {})
+    declared_slots = declared_pinned_tool_slots(playbook_code)
     if not workspace_id:
+        if declared_slots:
+            raise ValueError("admission_pinned_tool_slots_require_workspace")
         return normalized, None
     existing = normalized.get("execution_admission_snapshot")
     if isinstance(existing, dict):
@@ -35,11 +43,18 @@ async def prepare_playbook_admission(
             or parsed.root_execution_id
         )
         normalized.setdefault("execution_id", root_execution_id)
-        return normalized, verify_child_snapshot(
+        verified_snapshot = verify_child_snapshot(
             parsed,
             expected_workspace_id=workspace_id,
             expected_root_execution_id=root_execution_id,
         )
+        normalized = await prepare_pinned_tool_slots(
+            normalized_inputs=normalized,
+            declared_slots=declared_slots,
+            workspace_id=workspace_id,
+            project_id=project_id,
+        )
+        return normalized, verified_snapshot
 
     root_execution_id = str(
         normalized.get("execution_id") or f"playbook-{uuid4().hex}"
@@ -81,4 +96,10 @@ async def prepare_playbook_admission(
         result.snapshot.model_dump(mode="json")
     )
     normalized.setdefault("execution_id", root_execution_id)
+    normalized = await prepare_pinned_tool_slots(
+        normalized_inputs=normalized,
+        declared_slots=declared_slots,
+        workspace_id=workspace_id,
+        project_id=project_id,
+    )
     return normalized, result.snapshot

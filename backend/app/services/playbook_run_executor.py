@@ -146,6 +146,7 @@ class PlaybookRunExecutor:
             playbook_code=playbook_code,
             profile_id=profile_id,
             workspace_id=workspace_id,
+            project_id=project_id,
             inputs=inputs,
         )
         if _admission_snapshot is not None:

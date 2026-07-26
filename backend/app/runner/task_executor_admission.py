@@ -229,6 +229,11 @@ async def prepare_runner_child_admission(
                 playbook_code=task.pack_id,
                 profile_id=profile_id,
                 workspace_id=workspace_id,
+                project_id=(
+                    str(normalized_inputs.get("project_id"))
+                    if normalized_inputs.get("project_id")
+                    else None
+                ),
                 inputs={
                     **normalized_inputs,
                     "execution_id": root_execution_id,
