@@ -76,6 +76,7 @@ def test_launcher_uses_no_deps_after_exact_terminal_receipt(
     ]
     assert command.count("--no-deps") == 1
     assert kwargs["env"]["POSTGRES_SIGNAL_OBSERVER_SOURCE_COMMIT"] == SOURCE_COMMIT
+    assert kwargs["timeout"] == 90
     assert json.loads(capsys.readouterr().out)["dependency_reconciliation"] is False
 
 
@@ -108,3 +109,41 @@ def test_launcher_rejects_source_commit_not_bound_to_permit(
         assert str(exc) == "observer_terminal_receipt_permit_mismatch"
     else:
         raise AssertionError("source mismatch must fail closed")
+
+
+def test_launcher_reports_timeout_as_unknown_runtime_state(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    def _run(*_args, **_kwargs):
+        raise launcher.subprocess.TimeoutExpired(
+            cmd=["docker", "compose"],
+            timeout=launcher.COMPOSE_START_TIMEOUT_SECONDS,
+        )
+
+    monkeypatch.setattr(launcher.subprocess, "run", _run)
+
+    result = launcher.main(
+        [
+            "--terminal-receipt",
+            str(_terminal_receipt(tmp_path / "terminal.json")),
+            "--artifact-sha256",
+            ARTIFACT_SHA256,
+            "--source-commit",
+            SOURCE_COMMIT,
+            "--image-digest",
+            IMAGE_DIGEST,
+        ]
+    )
+
+    assert result == 2
+    payload = json.loads(capsys.readouterr().out)
+    assert payload == {
+        "compose_start_timed_out": True,
+        "dependency_reconciliation": False,
+        "runtime_state_unknown": True,
+        "service": "postgres-signal-observer",
+        "started": False,
+        "timeout_seconds": 90,
+    }
