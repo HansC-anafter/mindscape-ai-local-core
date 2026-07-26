@@ -64,7 +64,7 @@ async function readBoundedResponse(
   if (!reader) {
     const bytes = new Uint8Array(await response.arrayBuffer());
     if (bytes.byteLength > CAPABILITY_UI_CATALOG_MAX_BYTES) {
-      throw new Error('Capability UI localization catalog exceeds 128 KiB');
+      throw new Error('Capability UI localization catalog exceeds 256 KiB');
     }
     return bytes;
   }
@@ -77,7 +77,7 @@ async function readBoundedResponse(
     total += value.byteLength;
     if (total > CAPABILITY_UI_CATALOG_MAX_BYTES) {
       controller.abort();
-      throw new Error('Capability UI localization catalog exceeds 128 KiB');
+      throw new Error('Capability UI localization catalog exceeds 256 KiB');
     }
     chunks.push(value);
   }

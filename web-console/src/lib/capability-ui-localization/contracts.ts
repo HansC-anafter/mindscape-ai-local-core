@@ -9,7 +9,7 @@ export const CAPABILITY_UI_COMPILED_FORMAT =
 export const CAPABILITY_UI_COMPILER =
   '@formatjs/icu-messageformat-parser@3.5.15';
 export const CAPABILITY_UI_SOURCE_LOCALE: Locale = 'en';
-export const CAPABILITY_UI_CATALOG_MAX_BYTES = 128 * 1024;
+export const CAPABILITY_UI_CATALOG_MAX_BYTES = 256 * 1024;
 
 export type CapabilityUiLocalizationStatus =
   | 'localized'

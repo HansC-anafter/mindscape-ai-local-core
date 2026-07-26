@@ -13,7 +13,7 @@ LOCALIZATION_CONTRACT = "mindscape-capability-ui-localization-v1"
 COMPILED_FORMAT = "formatjs-icu-messageformat-ast-v1"
 COMPILER = "@formatjs/icu-messageformat-parser@3.5.15"
 SUPPORTED_LOCALES = ("en", "zh-TW", "ja")
-MAX_COMPILED_CATALOG_BYTES = 128 * 1024
+MAX_COMPILED_CATALOG_BYTES = 256 * 1024
 
 
 def _fail(result: InstallResult, message: str) -> None:
