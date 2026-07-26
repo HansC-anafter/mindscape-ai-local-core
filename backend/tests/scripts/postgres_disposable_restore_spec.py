@@ -6,6 +6,7 @@ import pytest
 from scripts.postgres_disposable_restore_core.commands import (
     _critical_database_evidence,
     _environment,
+    _readiness_query,
 )
 from scripts.postgres_disposable_restore_core.policy import (
     RestoreScope,
@@ -147,6 +148,32 @@ def test_restore_scope_rejects_unscoped_bind_directory(tmp_path: Path):
         )
 
 
+def test_restore_scope_allows_exact_nonempty_bind_only_for_cleanup(
+    tmp_path: Path,
+):
+    source = _restore_source(tmp_path)
+    project = "mindscape-runtime-cleanup-restore-drill"
+    data_dir = tmp_path / project
+    data_dir.mkdir()
+    (data_dir / "PG_VERSION").write_text("16\n", encoding="utf-8")
+    scope = RestoreScope(
+        project=project,
+        compose_file=source.scope.compose_file,
+        backup_dir=source.scope.backup_dir,
+        receipt_dir=source.scope.receipt_dir,
+        data_dir=data_dir,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="restore_data_directory_not_empty_cleanup_first",
+    ):
+        validate_restore_scope(scope)
+    validated = validate_restore_scope(scope, allow_existing_data=True)
+
+    assert validated.scope.data_dir == data_dir.resolve()
+
+
 def test_restore_environment_ignores_unscoped_data_dir_injection(
     monkeypatch,
     tmp_path: Path,
@@ -158,6 +185,26 @@ def test_restore_environment_ignores_unscoped_data_dir_injection(
     )
 
     assert "MINDSCAPE_RECOVERY_RESTORE_DATA_DIR" not in _environment(source)
+
+
+def test_readiness_timeout_is_not_a_terminal_restore_exception(
+    monkeypatch,
+    tmp_path: Path,
+):
+    source = _restore_source(tmp_path)
+
+    def timeout(*_args, **_kwargs):
+        raise __import__("subprocess").TimeoutExpired("docker compose exec", 10)
+
+    monkeypatch.setattr(
+        "scripts.postgres_disposable_restore_core.commands._query",
+        timeout,
+    )
+
+    result = _readiness_query(source)
+
+    assert result.returncode == 124
+    assert result.stderr == "restore_readiness_probe_timeout"
 
 
 def test_restore_receipt_is_atomic_and_tamper_evident(tmp_path: Path):

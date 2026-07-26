@@ -45,7 +45,8 @@ def main() -> int:
             backup_dir=args.backup_dir,
             receipt_dir=args.receipt_dir,
             data_dir=args.data_dir,
-        )
+        ),
+        allow_existing_data=args.command == "cleanup",
     )
     if args.command == "status":
         result = status(source)

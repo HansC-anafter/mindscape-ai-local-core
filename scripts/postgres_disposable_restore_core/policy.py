@@ -54,7 +54,11 @@ def _parse_target_time(value: object) -> str:
     return raw
 
 
-def validate_restore_scope(scope: RestoreScope) -> RestoreSource:
+def validate_restore_scope(
+    scope: RestoreScope,
+    *,
+    allow_existing_data: bool = False,
+) -> RestoreSource:
     project = scope.project.strip()
     if not project.endswith("-restore-drill"):
         raise ValueError("restore_project_label_required")
@@ -83,7 +87,11 @@ def validate_restore_scope(scope: RestoreScope) -> RestoreSource:
             raise ValueError("restore_data_directory_must_be_system_temporary")
         if data_dir.name != project:
             raise ValueError("restore_data_directory_must_match_project")
-        if data_dir.exists() and any(data_dir.iterdir()):
+        if (
+            data_dir.exists()
+            and any(data_dir.iterdir())
+            and not allow_existing_data
+        ):
             raise ValueError("restore_data_directory_not_empty_cleanup_first")
         data_dir.mkdir(parents=True, exist_ok=True)
     manifest_path = backup_dir / "manifest.json"

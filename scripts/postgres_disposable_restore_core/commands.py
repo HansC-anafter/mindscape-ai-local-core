@@ -58,7 +58,12 @@ def _compose(
     )
 
 
-def _query(source: RestoreSource, sql: str) -> subprocess.CompletedProcess[str]:
+def _query(
+    source: RestoreSource,
+    sql: str,
+    *,
+    timeout: int = 60,
+) -> subprocess.CompletedProcess[str]:
     return _compose(
         source,
         "exec",
@@ -74,7 +79,26 @@ def _query(source: RestoreSource, sql: str) -> subprocess.CompletedProcess[str]:
         "ON_ERROR_STOP=1",
         "-c",
         sql,
+        timeout=timeout,
     )
+
+
+def _readiness_query(
+    source: RestoreSource,
+) -> subprocess.CompletedProcess[str]:
+    try:
+        return _query(
+            source,
+            "SELECT NOT pg_is_in_recovery()",
+            timeout=10,
+        )
+    except subprocess.TimeoutExpired:
+        return subprocess.CompletedProcess(
+            args=("restore_readiness_query",),
+            returncode=124,
+            stdout="",
+            stderr="restore_readiness_probe_timeout",
+        )
 
 
 def preflight(source: RestoreSource) -> dict[str, Any]:
@@ -213,7 +237,7 @@ def run_restore(source: RestoreSource, *, timeout_seconds: int = 3600) -> dict[s
         raise RuntimeError("restore_service_start_failed")
     deadline = started + timeout_seconds
     while time.monotonic() < deadline:
-        ready = _query(source, "SELECT NOT pg_is_in_recovery()")
+        ready = _readiness_query(source)
         if ready.returncode == 0 and ready.stdout.strip() == "t":
             break
         time.sleep(2)
