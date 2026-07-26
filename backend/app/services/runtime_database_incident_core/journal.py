@@ -49,6 +49,21 @@ def incident_directory() -> Path:
     return Path(configured) if configured else DEFAULT_INCIDENT_DIRECTORY
 
 
+def _is_live_signal_observer_permit(
+    diagnostic_permit: Optional[Mapping[str, Any]],
+) -> bool:
+    """Keep the live observer armed for the client symptom it must attribute."""
+
+    if not isinstance(diagnostic_permit, Mapping):
+        return False
+    operation_keys = diagnostic_permit.get("allowed_operation_keys")
+    return isinstance(operation_keys, list) and any(
+        isinstance(operation_key, str)
+        and operation_key.startswith("postgres_signal_observer_start@sha256:")
+        for operation_key in operation_keys
+    )
+
+
 class IncidentJournalUnavailable(RuntimeError):
     """Raised when the single durable journal cannot be read or written."""
 
@@ -189,12 +204,17 @@ class RuntimeDatabaseIncidentJournal:
             if current is not None and current.state is not IncidentState.CLOSED:
                 revoked_diagnostic = current.diagnostic_permit
                 revoked_containment = current.containment_receipt
+                preserve_live_observer = _is_live_signal_observer_permit(
+                    revoked_diagnostic
+                )
                 updated = replace(
                     current,
                     state=IncidentState.OPEN_UNATTRIBUTED,
                     updated_at=event_time,
                     evidence_count=current.evidence_count + 1,
-                    diagnostic_permit=None,
+                    diagnostic_permit=(
+                        revoked_diagnostic if preserve_live_observer else None
+                    ),
                     containment_receipt=None,
                 )
                 if revoked_containment is not None:
@@ -211,7 +231,11 @@ class RuntimeDatabaseIncidentJournal:
                     self._append_event_unlocked(
                         incident_id=current.incident_id,
                         event={
-                            "event": "diagnostic_permit_revoked_by_failure",
+                            "event": (
+                                "diagnostic_permit_preserved_for_attribution_capture"
+                                if preserve_live_observer
+                                else "diagnostic_permit_revoked_by_failure"
+                            ),
                             "at": event_time,
                             "permit_id": revoked_diagnostic.get("permit_id"),
                             "failure_code": failure_code,
