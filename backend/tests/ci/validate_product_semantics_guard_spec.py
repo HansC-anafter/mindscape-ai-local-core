@@ -1,6 +1,8 @@
 import sys
 from pathlib import Path
 
+import yaml
+
 from product_semantic_validator_fixtures import (
     LIVE_QUEUE,
     git as _git,
@@ -14,6 +16,25 @@ from product_semantic_validator_fixtures import (
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
+
+
+def test_registry_declares_workbench_ui_locale_authority_surface() -> None:
+    registry = yaml.safe_load(
+        (REPO_ROOT / "ci/product_semantic_surfaces.yaml").read_text(encoding="utf-8")
+    )
+    surfaces = {
+        surface["id"]: surface
+        for surface in registry["surfaces"]
+    }
+    surface = surfaces["psc.local-core.workbench-ui-locale-authority.v1"]
+
+    assert surface["tier"] == "P0"
+    assert surface["requires_product_semantic_declaration"] is True
+    assert surface["contract_doc"].endswith(
+        "workbench-unified-ui-locale-and-pack-localization-contract-2026-07-27.zh-TW.md"
+    )
+    assert "backend/features/mindscape/routes_profiles_intents.py" in surface["path_globs"]
+    assert "backend/app/routes/core/user_profiles.py" not in surface["path_globs"]
 
 
 def test_registry_only_validation_accepts_valid_registry(tmp_path: Path) -> None:

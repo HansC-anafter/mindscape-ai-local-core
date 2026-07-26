@@ -1,6 +1,6 @@
 version: 1
 registry_id: mindscape.product-semantic-surfaces.local-core
-updated_at: "2026-07-26"
+updated_at: "2026-07-27"
 owner_review_handle: "@team-leads"
 
 declaration:
@@ -327,6 +327,49 @@ surfaces:
         required_text:
           - token: integrity
             message: Runtime asset fetch URL must preserve integrity-based cache identity.
+
+  - id: psc.local-core.workbench-ui-locale-authority.v1
+    tier: P0
+    owner: "@team-leads"
+    contract_doc: mindscape-ai-cloud/docs/internal/local-core/product-semantics/workbench-unified-ui-locale-and-pack-localization-contract-2026-07-27.zh-TW.md
+    requires_product_semantic_declaration: true
+    semantics:
+      - MindscapeProfile.preferences.preferred_ui_language is the sole durable UI locale authority; workspace.default_locale remains content and execution language, while SystemSettings.default_language seeds only new profiles or a missing profile preference.
+      - The mounted backend.features.mindscape route exposes one current-profile locale projection and one partial version-guarded profile-preferences writer; broad profile updates cannot write preferences and the unmounted duplicate core user-profile route never becomes a second entry.
+      - One bounded server-internal bootstrap initializes HTML lang and direction plus one real LocaleProvider; client consumers share that context and never use module-global locale state, locale localStorage, reload, URL locale, Accept-Language, or per-component profile reads as authority.
+      - Host messages use the pinned IntlMessageFormat runtime, and capability hosts add localization only through the existing two metadata requests plus one integrity-bound requested catalog asset; there is no third metadata endpoint or blind component retry.
+      - Remote Workbench receives a read-only server projection for the same Local Core current profile; public profile preference reads and writes remain denied and localization does not create a Cloudflare-principal profile mapping.
+      - Document bootstrap, explicit preference writes, catalog loads, and language changes add no worker, queue, runner, PgBouncer capacity, background synchronization, recursive timeout, interval, visibility polling, or automatic retry.
+    path_globs:
+      - backend/app/models/mindscape_profile.py
+      - backend/app/dependencies/auth.py
+      - backend/features/mindscape/routes_profiles_intents.py
+      - backend/features/mindscape/routes_core/onboarding_profile.py
+      - backend/app/services/profile_preferences.py
+      - backend/app/services/profile_preferences_core/**
+      - backend/app/services/stores/postgres/profile_preferences_store.py
+      - backend/app/services/workspace_locale_seed.py
+      - backend/app/routes/core/workspace/crud_core/create_routes.py
+      - backend/app/services/runtime_assets_installer_model_ui_assets.py
+      - backend/app/services/runtime_assets_installer_core/ui_localization_assets.py
+      - backend/app/routes/core/capability_packs_core/installed_routes.py
+      - backend/app/routes/core/capability_packs_core/ui_localization_projection.py
+      - web-console/src/app/layout.tsx
+      - web-console/src/lib/i18n.ts
+      - web-console/src/lib/i18n/**
+      - web-console/src/components/LanguageToggle.tsx
+      - web-console/src/components/Header.tsx
+      - web-console/src/app/settings/hooks/useBasicSettings.ts
+      - web-console/src/app/settings/components/panels/LanguagePreferencesSettings.tsx
+      - "web-console/src/app/workspaces/[workspaceId]/capability-ui-hosts/**"
+      - "web-console/src/app/workspaces/[workspaceId]/capabilities/[capabilityCode]/**"
+      - web-console/src/lib/capability-ui-localization*
+      - web-console/src/lib/capability-ui-localization/**
+      - web-console/src/lib/capability-ui-loader*
+      - backend/tests/*profile*preference*
+      - backend/tests/*workspace*locale*
+      - web-console/src/**/*.spec.ts
+      - web-console/src/**/*.spec.tsx
 
   - id: psc.local-core.capability-workbench-mobile-control-hierarchy.v1
     tier: P1
