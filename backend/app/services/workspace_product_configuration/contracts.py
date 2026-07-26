@@ -113,6 +113,25 @@ class EffectiveProductAssignment(BaseModel):
     product_surface_ids: list[str] = Field(default_factory=list)
     configuration_sources: list[ScopeKind] = Field(default_factory=list)
     host_ready: bool
+    host_admission: list["ProductHostAdmissionDetail"] = Field(
+        default_factory=list,
+        max_length=128,
+    )
+
+
+class ProductHostAdmissionDetail(BaseModel):
+    pack_code: str = Field(min_length=2, max_length=128)
+    requirement_code: str = Field(min_length=2, max_length=64)
+    operation: str = Field(pattern=r"^[a-z][a-z0-9_.-]{1,63}$")
+    admitted: bool
+    binding_id: str | None = None
+    binding_generation: int | None = Field(default=None, ge=1)
+    grant_id: str | None = None
+    attestation_revision: int | None = Field(default=None, ge=1)
+    policy_revision: int | None = Field(default=None, ge=1)
+    blockers: list[str] = Field(default_factory=list, max_length=20)
+
+    model_config = ConfigDict(extra="forbid", strict=True)
 
 
 class EffectiveDeploymentControlProjection(BaseModel):

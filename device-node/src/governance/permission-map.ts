@@ -25,6 +25,7 @@ interface CapabilityPermission {
     denied_paths?: string[];
     allowed_commands?: string[];
     denied_commands?: string[];
+    allowed_permission_classes?: string[];
 }
 
 interface PermissionConfig {
@@ -119,6 +120,16 @@ export class PermissionMap {
                     trust_level: "EXECUTE",
                     confirm_required: false,
                 },
+                host_runtime_execute: {
+                    trust_level: "EXECUTE",
+                    confirm_required: false,
+                    allowed_permission_classes: [],
+                },
+                host_runtime_attest: {
+                    trust_level: "READ",
+                    confirm_required: false,
+                    allowed_permission_classes: [],
+                },
             },
         };
     }
@@ -148,6 +159,15 @@ export class PermissionMap {
             allowed: true,
             requiresConfirmation: capConfig.confirm_required ?? false,
         };
+    }
+
+    allowedPermissionClasses(capability: string): ReadonlySet<string> {
+        const configured = this.config?.capabilities[capability];
+        const values = configured?.allowed_permission_classes;
+        if (!Array.isArray(values) || values.some((value) => typeof value !== "string")) {
+            return new Set();
+        }
+        return new Set(values);
     }
 
     private checkFilesystemPermission(

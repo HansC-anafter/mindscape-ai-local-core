@@ -17,6 +17,11 @@ class PreparedCapabilityTree:
     target_cap_dir: Path
     previous_root: Path
     previous_cap_dir: Path
+    host_runtime_staging_dir: Path | None = None
+    host_runtime_target_dir: Path | None = None
+    host_runtime_tree_digest: str | None = None
+    host_runtime_reused: bool = False
+    host_runtime_published: bool = False
     published: bool = False
     finalized: bool = False
 
@@ -28,6 +33,14 @@ class PreparedCapabilityTree:
             "staging_cap_dir": str(self.staging_cap_dir),
             "target_cap_dir": str(self.target_cap_dir),
             "previous_cap_dir": str(self.previous_cap_dir),
+            "host_runtime_target_dir": (
+                str(self.host_runtime_target_dir)
+                if self.host_runtime_target_dir
+                else None
+            ),
+            "host_runtime_tree_digest": self.host_runtime_tree_digest,
+            "host_runtime_reused": self.host_runtime_reused,
+            "host_runtime_published": self.host_runtime_published,
             "published": self.published,
             "finalized": self.finalized,
         }

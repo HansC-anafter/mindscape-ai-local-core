@@ -62,6 +62,20 @@ export interface EffectiveProductAssignment {
   product_surface_ids: string[];
   configuration_sources: WorkspaceProductScopeKind[];
   host_ready: boolean;
+  host_admission: ProductHostAdmissionDetail[];
+}
+
+export interface ProductHostAdmissionDetail {
+  pack_code: string;
+  requirement_code: string;
+  operation: string;
+  admitted: boolean;
+  binding_id?: string | null;
+  binding_generation?: number | null;
+  grant_id?: string | null;
+  attestation_revision?: number | null;
+  policy_revision?: number | null;
+  blockers: string[];
 }
 
 export interface WorkspaceCapabilitySetSnapshot {

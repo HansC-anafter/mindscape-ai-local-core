@@ -71,6 +71,9 @@ from backend.app.app_bootstrap.runtime_route_modules import register_runtime_rou
 from backend.app.app_bootstrap.workspace_product_routes import (
     register_workspace_product_routes,
 )
+from backend.app.app_bootstrap.host_runtime_binding_routes import (
+    register_host_runtime_binding_routes,
+)
 from backend.app.app_bootstrap.deployment_control_routes import (
     register_deployment_control_routes,
 )
@@ -91,6 +94,7 @@ def register_core_routes(app: FastAPI) -> None:
     app.include_router(workspace_groups_router, tags=["workspace-groups"])
     app.include_router(knowledge_foundation_router, tags=["knowledge-foundation"])
     register_workspace_product_routes(app)
+    register_host_runtime_binding_routes(app)
     register_deployment_control_routes(app)
     app.include_router(playbook.router, tags=["playbook"])
     app.include_router(playbook_execution.router, tags=["playbook"])

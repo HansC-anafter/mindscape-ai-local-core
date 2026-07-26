@@ -103,7 +103,7 @@ class RuntimeAssetsInstallerStagingMixin:
                 staging_cap_dir=staging_cap_dir,
                 target_cap_dir=target_cap_dir,
             )
-            return PreparedCapabilityTree(
+            prepared = PreparedCapabilityTree(
                 install_id=normalized_install_id,
                 capability_code=capability_code,
                 staging_root=staging_root,
@@ -112,6 +112,13 @@ class RuntimeAssetsInstallerStagingMixin:
                 previous_root=previous_root,
                 previous_cap_dir=previous_cap_dir,
             )
+            self.prepare_host_assets(
+                cap_dir=cap_dir,
+                manifest=manifest,
+                prepared=prepared,
+                result=result,
+            )
+            return prepared
         except Exception:
             if staging_root.exists():
                 shutil.rmtree(staging_root, ignore_errors=True)
@@ -250,15 +257,18 @@ class RuntimeAssetsInstallerStagingMixin:
                 prepared.target_cap_dir.rename(prepared.previous_cap_dir)
                 moved_existing = True
             prepared.staging_cap_dir.rename(prepared.target_cap_dir)
+            self.publish_host_assets(prepared)
             prepared.published = True
             return prepared
         except Exception:
             if (
-                not prepared.target_cap_dir.exists()
-                and moved_existing
-                and prepared.previous_cap_dir.exists()
+                prepared.target_cap_dir.exists()
+                and not prepared.staging_cap_dir.exists()
             ):
+                prepared.target_cap_dir.rename(prepared.staging_cap_dir)
+            if moved_existing and prepared.previous_cap_dir.exists():
                 prepared.previous_cap_dir.rename(prepared.target_cap_dir)
+            self.restore_host_assets(prepared)
             raise
 
     def restore_previous(
@@ -272,6 +282,7 @@ class RuntimeAssetsInstallerStagingMixin:
             raise RuntimeError("capability_candidate_staging_restore_conflict")
         if prepared.target_cap_dir.exists():
             prepared.target_cap_dir.rename(prepared.staging_cap_dir)
+        self.restore_host_assets(prepared)
         if prepared.previous_cap_dir.exists():
             prepared.previous_cap_dir.rename(prepared.target_cap_dir)
         prepared.published = False
@@ -289,6 +300,7 @@ class RuntimeAssetsInstallerStagingMixin:
             shutil.rmtree(prepared.previous_root)
         if prepared.staging_root.exists():
             shutil.rmtree(prepared.staging_root)
+        self.finalize_host_assets(prepared)
         for parent in (prepared.previous_root.parent, prepared.staging_root.parent):
             try:
                 parent.rmdir()

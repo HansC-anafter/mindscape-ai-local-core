@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 import json
 
@@ -97,6 +98,26 @@ def _artifact() -> dict:
         **unsigned,
         "artifact_hash": sha256(_canonical(unsigned)).hexdigest(),
     }
+
+
+def _artifact_with_host_requirement() -> dict:
+    artifact = _artifact()
+    artifact["catalog"]["products"][0]["pack_closure"][0][
+        "host_requirements"
+    ] = [
+        {
+            "requirement_code": "ig_host_automation",
+            "operations": ["watch-screenshots"],
+        }
+    ]
+    artifact["catalog_hash"] = sha256(
+        _canonical(artifact["catalog"])
+    ).hexdigest()
+    unsigned = {
+        key: value for key, value in artifact.items() if key != "artifact_hash"
+    }
+    artifact["artifact_hash"] = sha256(_canonical(unsigned)).hexdigest()
+    return artifact
 
 
 def _state(*, workspace_scope=None, group_scope=None) -> dict:
@@ -308,6 +329,131 @@ def test_group_and_workspace_sources_remain_visible_without_unioning_groups() ->
         "workspace",
         "workspace_group",
     ]
+
+
+def test_host_requirement_without_binding_makes_legacy_host_ready_false() -> None:
+    artifact = _artifact_with_host_requirement()
+    scope = _scope("workspace", WORKSPACE_ID, mode="enforced")
+    scope["catalog_hash"] = artifact["catalog_hash"]
+    state = {
+        "artifact_hash": artifact["artifact_hash"],
+        "catalog_hash": artifact["catalog_hash"],
+        "source_commit": artifact["source_commit"],
+        "compiler_version": artifact["compiler_version"],
+        "artifact": artifact,
+        "readiness": {"ig": {"enabled": True, "version": "1.0.195"}},
+        "host_readiness": [],
+        "scopes": [scope],
+    }
+
+    assignment = _facade(FakeRepository(state)).resolve_snapshot(
+        workspace_id=WORKSPACE_ID,
+        explicit_active_group_id=None,
+        observed_topology_revision=None,
+        actor_user_id="owner",
+        allowed_workspace_ids=[WORKSPACE_ID],
+    ).effective_assignments[0]
+
+    assert assignment.host_ready is False
+    assert assignment.host_admission[0].blockers == [
+        "binding_missing",
+        "grant_missing",
+    ]
+
+
+def test_host_requirement_uses_same_read_composite_grant_and_attestation() -> None:
+    artifact = _artifact_with_host_requirement()
+    scope = _scope("workspace", WORKSPACE_ID, mode="enforced")
+    scope["catalog_hash"] = artifact["catalog_hash"]
+    now = datetime.now(timezone.utc)
+    conditions = [
+        {
+            "type": condition_type,
+            "status": "true",
+            "reason": "verified",
+            "observed_generation": 2,
+            "observed_at": now.isoformat(),
+        }
+        for condition_type in (
+            "Materialized",
+            "RuntimeDigestVerified",
+            "SupervisorReady",
+            "PermissionsReady",
+            "ResourceLaneReady",
+        )
+    ]
+    state = {
+        "artifact_hash": artifact["artifact_hash"],
+        "catalog_hash": artifact["catalog_hash"],
+        "source_commit": artifact["source_commit"],
+        "compiler_version": artifact["compiler_version"],
+        "artifact": artifact,
+        "readiness": {"ig": {"enabled": True, "version": "1.0.195"}},
+        "host_readiness": [
+            {
+                "pack_code": "ig",
+                "requirement_code": "ig_host_automation",
+                "operation": "watch-screenshots",
+                "binding": {
+                    "id": "binding-a",
+                    "device_id": "device-a",
+                    "capability_code": "ig",
+                    "requirement_code": "ig_host_automation",
+                    "capability_version": "1.0.195",
+                    "runtime_digest": "a" * 64,
+                    "host_assets_digest": "a" * 64,
+                    "entrypoint": "scripts/host_runtime_entry.py",
+                    "entrypoint_digest": "d" * 64,
+                    "desired_state": "active",
+                    "generation": 2,
+                    "share_policy": "workspace_grants",
+                    "operations": ["watch-screenshots"],
+                    "permission_classes": ["filesystem.read"],
+                    "resource_lane": "host.io.light",
+                    "materialized_root": "/runtime/ig",
+                    "finalizers": ["mindscape.ai/host-runtime-cleanup"],
+                },
+                "attestation": {
+                    "revision": 4,
+                    "observed_generation": 2,
+                    "runtime_digest": "a" * 64,
+                    "executor_identity_digest": "c" * 64,
+                    "permission_revision": 3,
+                    "conditions": conditions,
+                    "observed_at": now.isoformat(),
+                },
+                "grant": {
+                    "id": "grant-a",
+                    "workspace_id": WORKSPACE_ID,
+                    "binding_id": "binding-a",
+                    "binding_generation": 2,
+                    "operation": "watch-screenshots",
+                    "operation_args_sha256": "d" * 64,
+                    "policy_revision": 3,
+                    "attestation_revision": 4,
+                    "expires_at": (now + timedelta(hours=1)).isoformat(),
+                    "status": "active",
+                    "provider_code": None,
+                    "voice_profile_id": None,
+                    "reference_rights_revision": None,
+                },
+            }
+        ],
+        "scopes": [scope],
+    }
+
+    assignment = _facade(FakeRepository(state)).resolve_snapshot(
+        workspace_id=WORKSPACE_ID,
+        explicit_active_group_id=None,
+        observed_topology_revision=None,
+        actor_user_id="owner",
+        allowed_workspace_ids=[WORKSPACE_ID],
+    ).effective_assignments[0]
+
+    assert assignment.host_ready is True
+    assert assignment.host_admission[0].admitted is True
+    assert assignment.host_admission[0].attestation_revision == 4
+    assert assignment.host_admission[0].policy_revision == 3
 
 
 def test_workspace_and_group_version_conflict_fails_closed() -> None:

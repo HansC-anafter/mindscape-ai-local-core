@@ -29,6 +29,9 @@ test("capture relay MCP schema exposes the committed relay actions", () => {
         "stop",
         "open_obs",
         "configure_obs",
+        "receiver_start",
+        "receiver_status",
+        "receiver_stop",
     ]);
     assert.equal(properties.scene_name?.type, "string");
     assert.equal(properties.source_name?.type, "string");

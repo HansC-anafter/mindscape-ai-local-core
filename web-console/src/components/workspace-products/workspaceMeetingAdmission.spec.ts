@@ -53,6 +53,7 @@ function snapshot(): WorkspaceCapabilitySetSnapshot {
       product_surface_ids: ['instagram.workspace.references'],
       configuration_sources: ['workspace'],
       host_ready: true,
+      host_admission: [],
     }],
     configuration_errors: [],
   };

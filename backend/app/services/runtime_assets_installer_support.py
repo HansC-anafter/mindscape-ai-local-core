@@ -38,6 +38,21 @@ RUNTIME_MIRROR_DIRS = {
 }
 
 
+def resolve_capability_host_runtime_root(local_core_root: Path) -> Path:
+    configured = os.environ.get("MINDSCAPE_CAPABILITY_HOST_RUNTIMES_DIR")
+    if configured:
+        root = Path(configured).expanduser()
+    else:
+        data_root = Path(
+            os.environ.get("LOCAL_CORE_DATA_DIR")
+            or (local_core_root / "data")
+        ).expanduser()
+        root = data_root / "capability-host-runtimes"
+    if not root.is_absolute():
+        raise ValueError("capability_host_runtime_root_must_be_absolute")
+    return root
+
+
 def _clear_directory_contents(target_dir: Path) -> None:
     """Remove all children from an existing directory without deleting the root."""
     if not target_dir.exists():

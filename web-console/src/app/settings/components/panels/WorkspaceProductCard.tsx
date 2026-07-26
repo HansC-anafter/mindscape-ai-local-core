@@ -2,6 +2,7 @@ import type {
   AvailableProduct,
   EffectiveProductAssignment,
 } from '@/lib/workspace-product-configuration-api';
+import { HostAdmissionDetails } from '@/components/workspace-products/HostAdmissionDetails';
 
 export function WorkspaceProductCard({
   product,
@@ -22,7 +23,14 @@ export function WorkspaceProductCard({
     product.closure_summary.total_packs > 0
     && product.closure_summary.exact_ready_packs === product.closure_summary.total_packs
   );
-  const ready = effective ? effective.host_ready : closureReady;
+  const hostReady = effective?.host_ready === true;
+  const readinessLabel = effective
+    ? hostReady
+      ? 'Ready on this host'
+      : 'Host admission blocked'
+    : closureReady
+      ? 'Pack closure ready · not configured'
+      : 'Pack closure incomplete';
   const sourceLabel = configuredHere
     ? 'Configured here'
     : inherited
@@ -47,11 +55,11 @@ export function WorkspaceProductCard({
               {sourceLabel}
             </span>
             <span className={`rounded px-2 py-1 ${
-              ready
+              hostReady
                 ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
                 : 'bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300'
             }`}>
-              {ready ? 'Ready on this host' : 'Pack or dependency not ready'}
+              {readinessLabel}
             </span>
           </div>
         </div>
@@ -77,7 +85,8 @@ export function WorkspaceProductCard({
           ))}
         </ul>
       </details>
-      {!ready ? (
+      <HostAdmissionDetails details={effective?.host_admission || []} />
+      {!closureReady ? (
         <a
           href="/settings?tab=packs_status&section=packages"
           className="mt-3 inline-block text-xs font-medium text-blue-700 underline dark:text-blue-300"

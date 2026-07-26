@@ -9,6 +9,9 @@ from pathlib import Path
 from .runtime_assets_installer_metadata_assets import (
     RuntimeAssetsInstallerMetadataAssetsMixin,
 )
+from .runtime_assets_installer_host_assets import (
+    RuntimeAssetsInstallerHostAssetsMixin,
+)
 from .runtime_assets_installer_model_ui_assets import (
     RuntimeAssetsInstallerModelUiAssetsMixin,
 )
@@ -25,6 +28,7 @@ from .runtime_assets_installer_support import (
     _safe_asset_segment,
     _sha256_integrity,
     _should_skip_runtime_mirror_asset,
+    resolve_capability_host_runtime_root,
 )
 from .runtime_assets_installer_tree_assets import RuntimeAssetsInstallerTreeAssetsMixin
 
@@ -41,11 +45,13 @@ __all__ = [
     "_safe_asset_segment",
     "_sha256_integrity",
     "_should_skip_runtime_mirror_asset",
+    "resolve_capability_host_runtime_root",
 ]
 
 
 class RuntimeAssetsInstaller(
     RuntimeAssetsInstallerStagingMixin,
+    RuntimeAssetsInstallerHostAssetsMixin,
     RuntimeAssetsInstallerTreeAssetsMixin,
     RuntimeAssetsInstallerModelUiAssetsMixin,
     RuntimeAssetsInstallerMetadataAssetsMixin,

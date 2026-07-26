@@ -335,6 +335,7 @@ class WorkspaceProductConfigurationFacade:
             topology_hash=topology_content_hash(context) if context else None,
             state=state,
             readiness=readiness,
+            host_readiness=state.get("host_readiness") or [],
             workspace_editable=True,
             group_editable=bool(
                 context

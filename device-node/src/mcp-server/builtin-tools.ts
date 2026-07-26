@@ -8,8 +8,11 @@ import { cliBridgeServiceControl } from "../capabilities/cli-bridge-service-cont
 import { hostOpenDocument } from "../capabilities/host-open-document.js";
 import { TrustLevel } from "../governance/permission-map.js";
 import type { ToolDefinition } from "./tool-definition.js";
+import { hostRuntimeExecute } from "../host-runtime-runner.js";
+import type { PermissionMap } from "../governance/permission-map.js";
+import { reconcileHostRuntimeBinding } from "../services/host-runtime-reconciliation.js";
 
-export function createBuiltinTools(): ToolDefinition[] {
+export function createBuiltinTools(permissionMap?: PermissionMap): ToolDefinition[] {
     return [
         {
             name: "filesystem_read",
@@ -72,6 +75,99 @@ export function createBuiltinTools(): ToolDefinition[] {
                 required: ["command"],
             },
             handler: shellExecute,
+            trustLevel: TrustLevel.EXECUTE,
+        },
+        {
+            name: "host_runtime_attest",
+            description: "Read and attest one immutable device host runtime binding",
+            inputSchema: {
+                type: "object",
+                properties: {
+                    binding_id: { type: "string" },
+                    generation: { type: "integer", minimum: 1 },
+                    capability_code: { type: "string" },
+                    requirement_code: { type: "string" },
+                    capability_version: { type: "string" },
+                    operations: {
+                        type: "array",
+                        items: {
+                            type: "string",
+                            pattern: "^[a-z][a-z0-9_.-]{1,63}$",
+                        },
+                        minItems: 1,
+                        uniqueItems: true,
+                    },
+                    materialized_root: { type: "string" },
+                    entrypoint: { type: "string" },
+                    entrypoint_digest: { type: "string" },
+                    host_assets_digest: { type: "string" },
+                    runtime_digest: { type: "string" },
+                    permission_classes: {
+                        type: "array",
+                        items: { type: "string" },
+                        minItems: 1,
+                        uniqueItems: true,
+                    },
+                    resource_lane: { type: "string" },
+                },
+                required: [
+                    "binding_id",
+                    "generation",
+                    "capability_code",
+                    "requirement_code",
+                    "capability_version",
+                    "operations",
+                    "materialized_root",
+                    "entrypoint",
+                    "entrypoint_digest",
+                    "host_assets_digest",
+                    "runtime_digest",
+                    "permission_classes",
+                    "resource_lane",
+                ],
+                additionalProperties: false,
+            },
+            handler: (args) => reconcileHostRuntimeBinding(
+                args,
+                {
+                    allowedPermissionClasses:
+                        permissionMap?.allowedPermissionClasses("host_runtime_attest")
+                        ?? new Set<string>(),
+                    pythonExecutable:
+                        process.env.MINDSCAPE_HOST_RUNTIME_PYTHON
+                        || "/usr/bin/python3",
+                },
+            ),
+            trustLevel: TrustLevel.READ,
+        },
+        {
+            name: "host_runtime_execute",
+            description: "Execute one receipt-bound immutable host runtime operation",
+            inputSchema: {
+                type: "object",
+                properties: {
+                    operation: {
+                        type: "string",
+                        pattern: "^[a-z][a-z0-9_.-]{1,63}$",
+                    },
+                    operation_args: {
+                        type: "array",
+                        items: { type: "string" },
+                        maxItems: 64,
+                    },
+                    permit: {
+                        type: "object",
+                        description: "Short-lived Local Core signed admission envelope",
+                    },
+                },
+                required: ["operation", "operation_args", "permit"],
+                additionalProperties: false,
+            },
+            handler: (args) => hostRuntimeExecute(
+                args,
+                permissionMap?.allowedPermissionClasses("host_runtime_execute")
+                ?? new Set<string>(),
+            ),
             trustLevel: TrustLevel.EXECUTE,
         },
         {

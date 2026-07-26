@@ -15,6 +15,7 @@ import { PermissionMap } from "./governance/permission-map.js";
 import { LocalCoreBridge } from "./bridge/local-core-client.js";
 import { createBuiltinTools } from "./mcp-server/builtin-tools.js";
 import type { ToolDefinition } from "./mcp-server/tool-definition.js";
+import { executeGovernedTool } from "./mcp-server/tool-execution.js";
 import {
     attachHttpServerErrorHandlers,
     isRequestAbortedError,
@@ -61,7 +62,7 @@ export class MCPServer {
     }
 
     private registerBuiltinTools(): void {
-        for (const tool of createBuiltinTools()) {
+        for (const tool of createBuiltinTools(this.permissionMap)) {
             this.registerTool(tool);
         }
     }
@@ -89,60 +90,33 @@ export class MCPServer {
                 throw new Error(`Unknown tool: ${name}`);
             }
 
-            const permissionCheck = await this.permissionMap.checkPermission(
+            const result = await this.executeTool(
                 name,
-                args as Record<string, unknown>
+                args as Record<string, unknown>,
+                tool,
             );
+            return {
+                content: [
+                    {
+                        type: "text",
+                        text: typeof result === "string" ? result : JSON.stringify(result, null, 2),
+                    },
+                ],
+            };
+        });
+    }
 
-            if (!permissionCheck.allowed) {
-                throw new Error(`Permission denied: ${permissionCheck.reason}`);
-            }
-
-            if (permissionCheck.requiresConfirmation && this.bridge) {
-                const confirmed = await this.bridge.requestConfirmation({
-                    tool: name,
-                    arguments: args as Record<string, unknown>,
-                    trustLevel: tool.trustLevel,
-                    preview: permissionCheck.preview,
-                });
-
-                if (!confirmed) {
-                    throw new Error("User denied the operation");
-                }
-            }
-
-            try {
-                const result = await tool.handler(args as Record<string, unknown>);
-
-                if (this.bridge) {
-                    await this.bridge.reportAuditEvent({
-                        tool: name,
-                        arguments: args as Record<string, unknown>,
-                        result: "success",
-                        trustLevel: tool.trustLevel,
-                    });
-                }
-
-                return {
-                    content: [
-                        {
-                            type: "text",
-                            text: typeof result === "string" ? result : JSON.stringify(result, null, 2),
-                        },
-                    ],
-                };
-            } catch (error) {
-                if (this.bridge) {
-                    await this.bridge.reportAuditEvent({
-                        tool: name,
-                        arguments: args as Record<string, unknown>,
-                        result: "error",
-                        error: error instanceof Error ? error.message : String(error),
-                        trustLevel: tool.trustLevel,
-                    });
-                }
-                throw error;
-            }
+    private async executeTool(
+        name: string,
+        args: Record<string, unknown>,
+        tool: ToolDefinition,
+    ): Promise<unknown> {
+        return executeGovernedTool({
+            name,
+            args,
+            tool,
+            permissionMap: this.permissionMap,
+            bridge: this.bridge,
         });
     }
 
@@ -195,16 +169,11 @@ export class MCPServer {
                         throw new Error(`Unknown tool: ${name}`);
                     }
 
-                    const permissionCheck = await this.permissionMap.checkPermission(
+                    const toolResult = await this.executeTool(
                         name,
-                        args as Record<string, unknown>
+                        args as Record<string, unknown>,
+                        tool,
                     );
-
-                    if (!permissionCheck.allowed) {
-                        throw new Error(`Permission denied: ${permissionCheck.reason}`);
-                    }
-
-                    const toolResult = await tool.handler(args as Record<string, unknown>);
                     result = {
                         success: true,
                         content: [

@@ -4,6 +4,7 @@ import {
   WorkspaceCapabilitySetProvider,
   useWorkspaceCapabilitySet,
 } from './WorkspaceCapabilitySetProvider';
+import { HostAdmissionDetails } from './HostAdmissionDetails';
 
 function ProductRailContent({
   workspaceId,
@@ -104,6 +105,7 @@ function ProductRailContent({
                 </div>
               ))}
             </details>
+            <HostAdmissionDetails details={effective?.host_admission || []} />
           </article>
         );
       })}

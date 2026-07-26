@@ -22,6 +22,7 @@ from .contracts import (
     WorkspaceCapabilitySetSnapshot,
 )
 from .errors import WorkspaceProductSnapshotLimitError
+from .host_admission_projection import product_host_admission
 
 
 MAX_SNAPSHOT_BYTES = 64 * 1024
@@ -35,6 +36,7 @@ def build_snapshot(
     topology_hash: str | None,
     state: dict[str, Any],
     readiness: dict[str, dict[str, Any]],
+    host_readiness: list[dict[str, Any]],
     workspace_editable: bool,
     group_editable: bool,
 ) -> WorkspaceCapabilitySetSnapshot:
@@ -93,6 +95,8 @@ def build_snapshot(
         scopes=scope_configurations,
         products=products,
         readiness=readiness,
+        host_readiness=host_readiness,
+        workspace_id=workspace_id,
         errors=errors,
     )
     workspace_revision = scope_configurations[0].revision
@@ -238,6 +242,8 @@ def _effective_assignments(
     scopes: list[ScopeConfiguration],
     products: dict[tuple[str, str], dict[str, Any]],
     readiness: dict[str, dict[str, Any]],
+    host_readiness: list[dict[str, Any]],
+    workspace_id: str,
     errors: list[str],
 ) -> list[EffectiveProductAssignment]:
     sources: dict[tuple[str, str], set[str]] = {}
@@ -271,6 +277,11 @@ def _effective_assignments(
             continue
         product = products[identity]
         summary = _closure_summary(product, readiness)
+        host_admission = product_host_admission(
+            product=product,
+            host_readiness=host_readiness,
+            workspace_id=workspace_id,
+        )
         result.append(
             EffectiveProductAssignment(
                 pcs_id=identity[0],
@@ -281,7 +292,9 @@ def _effective_assignments(
                 configuration_sources=sorted(configuration_sources),
                 host_ready=(
                     summary.exact_ready_packs == summary.total_packs
+                    and all(detail.admitted for detail in host_admission)
                 ),
+                host_admission=host_admission,
             )
         )
     return result

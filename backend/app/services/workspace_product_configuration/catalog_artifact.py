@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from hashlib import sha256
 import json
+import re
 from typing import Any
 
 from pydantic import ValidationError
@@ -15,6 +16,7 @@ from .errors import CatalogArtifactInvalidError
 MAX_ARTIFACT_BYTES = 128 * 1024
 MAX_PRODUCTS = 64
 MAX_PACKS_PER_PRODUCT = 64
+HOST_OPERATION_RE = re.compile(r"^[a-z][a-z0-9_.-]{1,63}$")
 
 
 def canonical_bytes(payload: Any) -> bytes:
@@ -75,6 +77,8 @@ def _validate_catalog(catalog: dict[str, Any]) -> None:
             raise CatalogArtifactInvalidError(
                 f"artifact_product_closure_limit_exceeded:{pcs_id}"
             )
+        for pack in closure:
+            _validate_pack_host_requirements(pack, pcs_id=pcs_id)
         product_surfaces = product.get("product_surfaces")
         if not isinstance(product_surfaces, list) or not product_surfaces:
             raise CatalogArtifactInvalidError(
@@ -96,3 +100,47 @@ def _text(payload: dict[str, Any], key: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise CatalogArtifactInvalidError(f"artifact_{key}_missing")
     return value.strip()
+
+
+def _validate_pack_host_requirements(
+    pack: Any,
+    *,
+    pcs_id: str,
+) -> None:
+    if not isinstance(pack, dict):
+        raise CatalogArtifactInvalidError(
+            f"artifact_pack_closure_invalid:{pcs_id}"
+        )
+    requirements = pack.get("host_requirements", [])
+    if not isinstance(requirements, list):
+        raise CatalogArtifactInvalidError(
+            f"artifact_host_requirements_invalid:{pcs_id}"
+        )
+    seen: set[str] = set()
+    for requirement in requirements:
+        if (
+            not isinstance(requirement, dict)
+            or set(requirement) != {"requirement_code", "operations"}
+        ):
+            raise CatalogArtifactInvalidError(
+                f"artifact_host_requirement_invalid:{pcs_id}"
+            )
+        code = requirement.get("requirement_code")
+        operations = requirement.get("operations")
+        if (
+            not isinstance(code, str)
+            or not code
+            or code in seen
+            or not isinstance(operations, list)
+            or not operations
+            or any(
+                not isinstance(value, str)
+                or HOST_OPERATION_RE.fullmatch(value) is None
+                for value in operations
+            )
+            or operations != sorted(set(operations))
+        ):
+            raise CatalogArtifactInvalidError(
+                f"artifact_host_requirement_projection_invalid:{pcs_id}"
+            )
+        seen.add(code)

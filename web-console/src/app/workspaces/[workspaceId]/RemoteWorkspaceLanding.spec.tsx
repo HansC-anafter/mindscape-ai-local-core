@@ -72,6 +72,7 @@ describe('bounded remote workspace landing', () => {
             product_surface_ids: ['guided.practice'],
             configuration_sources: ['workspace'],
             host_ready: true,
+            host_admission: [],
           }],
         });
       }

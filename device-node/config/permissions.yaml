@@ -103,6 +103,26 @@ capabilities:
     trust_level: execute
     confirm_required: false
 
+  host_runtime_execute:
+    trust_level: execute
+    confirm_required: false
+    allowed_permission_classes:
+      - filesystem.read
+      - filesystem.write
+      - network.loopback
+      - audio.output
+      - screen.capture
+
+  host_runtime_attest:
+    trust_level: read
+    confirm_required: false
+    allowed_permission_classes:
+      - filesystem.read
+      - filesystem.write
+      - network.loopback
+      - audio.output
+      - screen.capture
+
   # Admin-level operations for infrastructure management
   docker_admin:
     trust_level: admin

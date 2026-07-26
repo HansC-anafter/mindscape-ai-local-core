@@ -38,6 +38,13 @@ function effective(hostReady: boolean): EffectiveProductAssignment {
     product_surface_ids: ['instagram.workspace.references'],
     configuration_sources: ['workspace'],
     host_ready: hostReady,
+    host_admission: hostReady ? [] : [{
+      pack_code: 'live_interface_interpreter',
+      requirement_code: 'live_interface_automation',
+      operation: 'watch-screenshots',
+      admitted: false,
+      blockers: ['grant_missing'],
+    }],
   };
 }
 
@@ -58,22 +65,23 @@ function renderCard(
 }
 
 describe('WorkspaceProductCard readiness', () => {
-  it('shows catalog closure readiness before the product is configured', () => {
+  it('does not claim host readiness before the product is configured', () => {
     renderCard(product(3));
 
-    expect(screen.getByText('Ready on this host')).toBeInTheDocument();
-    expect(screen.queryByText('Pack or dependency not ready')).not.toBeInTheDocument();
+    expect(screen.getByText('Pack closure ready · not configured')).toBeInTheDocument();
+    expect(screen.queryByText('Ready on this host')).not.toBeInTheDocument();
   });
 
   it('shows an incomplete closure as not ready before configuration', () => {
     renderCard(product(2));
 
-    expect(screen.getByText('Pack or dependency not ready')).toBeInTheDocument();
+    expect(screen.getByText('Pack closure incomplete')).toBeInTheDocument();
   });
 
   it('uses effective assignment readiness after configuration', () => {
     renderCard(product(3), effective(false));
 
-    expect(screen.getByText('Pack or dependency not ready')).toBeInTheDocument();
+    expect(screen.getByText('Host admission blocked')).toBeInTheDocument();
+    expect(screen.getByText('grant_missing')).toBeInTheDocument();
   });
 });
