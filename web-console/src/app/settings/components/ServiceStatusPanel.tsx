@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { t } from '../../../lib/i18n';
+import { useT } from '../../../lib/i18n';
 import { getApiBaseUrl } from '../../../lib/api-url';
 
 interface ServiceStatus {
@@ -29,6 +29,7 @@ interface HealthStatus {
 }
 
 export function ServiceStatusPanel() {
+  const t = useT();
   const [healthStatus, setHealthStatus] = useState<HealthStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

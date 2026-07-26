@@ -2,13 +2,14 @@
 
 import React, { useState, useEffect } from 'react';
 import { getSyncStatus, getChangeSummary, syncPendingChanges, type SyncStatus, type ChangeSummary } from '@/lib/sync-api';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 
 interface OfflineIndicatorProps {
   className?: string;
 }
 
 export default function OfflineIndicator({ className = '' }: OfflineIndicatorProps) {
+  const t = useT();
   const [status, setStatus] = useState<SyncStatus | null>(null);
   const [summary, setSummary] = useState<ChangeSummary | null>(null);
   const [loading, setLoading] = useState(false);
@@ -138,6 +139,7 @@ export default function OfflineIndicator({ className = '' }: OfflineIndicatorPro
 }
 
 function SyncStatusDetails({ status, summary }: { status: SyncStatus; summary: ChangeSummary | null }) {
+  const t = useT();
   return (
     <div className="absolute top-full right-0 mt-2 w-64 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 p-3 z-50">
       <div className="space-y-2 text-xs">

@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { t } from '../../../lib/i18n';
+import { useT } from '../../../lib/i18n';
 import { Card } from './Card';
 import type { CapabilityPack } from '../types';
 
@@ -68,6 +68,7 @@ export function hasBackendProcessRestartRequired(pack: CapabilityPack): boolean 
 }
 
 export function InstalledCapabilitiesList({ packs = [], loading = false }: InstalledCapabilitiesListProps = {}) {
+  const t = useT();
   const installed = packs.filter((pack) => pack.installed);
 
   if (loading) {

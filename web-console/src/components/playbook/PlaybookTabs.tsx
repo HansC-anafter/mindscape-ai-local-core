@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { t, useLocale } from '../../lib/i18n';
+import { useT, useLocale } from '../../lib/i18n';
 import { formatLocalDateTime } from '@/lib/time';
 import PlaybookUsageStats from './PlaybookUsageStats';
 
@@ -60,6 +60,7 @@ export default function PlaybookTabs({
   onCopyClick,
   onLLMClick
 }: PlaybookTabsProps) {
+  const t = useT();
   const [locale] = useLocale();
   return (
     <div className="bg-surface-secondary dark:bg-gray-800 shadow rounded-lg mb-6">

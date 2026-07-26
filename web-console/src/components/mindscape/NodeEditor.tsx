@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 import { GraphNodeCreate, GraphNodeUpdate, GraphNode, createNode, updateNode } from '@/lib/graph-api';
 
 interface NodeEditorProps {
@@ -11,6 +11,7 @@ interface NodeEditorProps {
 }
 
 export function NodeEditor({ node, onSave, onCancel }: NodeEditorProps) {
+  const t = useT();
   const isEditing = !!node;
   const [formData, setFormData] = useState<any>({
     category: node?.category || 'direction',

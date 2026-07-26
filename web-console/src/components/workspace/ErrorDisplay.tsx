@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 
 interface ErrorDisplayProps {
   error: string | null;
@@ -9,6 +9,7 @@ interface ErrorDisplayProps {
 }
 
 export function ErrorDisplay({ error, onRetry }: ErrorDisplayProps) {
+  const t = useT();
   if (!error) {
     return null;
   }

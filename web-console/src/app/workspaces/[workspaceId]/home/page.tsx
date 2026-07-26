@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useWorkspaceDataOptional } from '@/contexts/WorkspaceDataContext';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 import {
   createWorkspaceFromWizard,
   fetchWorkspaceLaunchpad,
@@ -16,6 +16,7 @@ import { WorkspaceHomeCreateView } from './WorkspaceHomeCreateView';
 import { WorkspaceHomeLaunchpadView } from './WorkspaceHomeLaunchpadView';
 
 export default function WorkspaceHomePage() {
+  const t = useT();
   const params = useParams();
   const router = useRouter();
   const searchParams = useSearchParams();

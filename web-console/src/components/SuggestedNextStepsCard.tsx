@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 import HelpIcon from './HelpIcon';
 import { formatLocalDateTime } from '@/lib/time';
 
@@ -38,6 +38,7 @@ export default function SuggestedNextStepsCard({
   apiUrl = '',
   suggestionHistory = []
 }: SuggestedNextStepsCardProps) {
+  const t = useT();
   const [showHistory, setShowHistory] = React.useState(false);
   const [executingSteps, setExecutingSteps] = React.useState<Set<number>>(new Set());
   const [executedSteps, setExecutedSteps] = React.useState<Set<number>>(new Set());

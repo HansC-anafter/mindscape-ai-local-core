@@ -1,5 +1,5 @@
 import { AlertTriangle, CheckCircle2, Cloud, FolderSync } from 'lucide-react';
-import { t } from '../../../../../lib/i18n';
+import { useT } from '../../../../../lib/i18n';
 import {
   defaultBackupConfig,
   deriveGoogleDriveStatusFromConfig,
@@ -38,6 +38,7 @@ export function RuntimeBackupPolicySection({
   applyGoogleDriveDefaults,
   prepareGoogleDriveSync,
 }: RuntimeBackupPolicySectionProps) {
+  const t = useT();
   const policy = status?.policy || {};
   const googleDrive =
     status?.google_drive_sync?.available

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { t } from '../../../lib/i18n';
+import { useT } from '../../../lib/i18n';
 import { Section } from './Section';
 import { PackCard } from './PackCard';
 import { InstallFromFileButton } from './InstallFromFileButton';
@@ -18,6 +18,7 @@ interface PacksPanelProps {
 }
 
 export function PacksPanel({ getToolStatus, activeSection }: PacksPanelProps) {
+  const t = useT();
   const { packs, loading: packsLoading, installingPack, loadPacks, installPack } = usePacks();
   const { suites, loading: suitesLoading, installingSuite, loadSuites, installSuite } = useSuites();
   const [installSuccess, setInstallSuccess] = useState<string | null>(null);

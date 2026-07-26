@@ -5,7 +5,6 @@ import { settingsApi } from '../utils/settingsApi';
 import type {
   BackendConfig,
   Profile,
-  ProfilePreferences,
   ReviewPreferences,
 } from '../types';
 
@@ -140,15 +139,14 @@ export function useBasicSettings(): UseBasicSettingsReturn {
       await settingsApi.put(`/api/v1/config/backend?profile_id=${PROFILE_ID}`, requestData);
 
       if (profile) {
-        const updatedPreferences: ProfilePreferences = {
-          ...profile.preferences,
+        await settingsApi.patch(
+          '/api/v1/mindscape/profiles/me/preferences',
+          {
+            expected_version: profile.version,
           enable_habit_suggestions: enableHabitSuggestions,
           review_preferences: reviewPreferences,
-        };
-
-        await settingsApi.put(`/api/v1/mindscape/profiles/${PROFILE_ID}`, {
-          preferences: updatedPreferences,
-        });
+          },
+        );
       }
 
       setSuccess('Settings saved successfully');

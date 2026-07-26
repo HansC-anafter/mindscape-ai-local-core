@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
-import { t } from '../../../../lib/i18n';
+import { useT } from '../../../../lib/i18n';
 import { settingsApi } from '../../utils/settingsApi';
 import { WizardShell } from './WizardShell';
 import { useWorkspaceDataOptional } from '../../../../contexts/WorkspaceDataContext';
@@ -25,6 +25,7 @@ export function UnsplashConnectionWizard({
   onClose,
   onSuccess,
 }: UnsplashConnectionWizardProps) {
+  const t = useT();
   const params = useParams();
   const workspaceData = useWorkspaceDataOptional();
 

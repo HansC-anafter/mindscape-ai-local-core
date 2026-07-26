@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { t } from '../../../lib/i18n';
+import { useT } from '../../../lib/i18n';
 import { Card } from './Card';
 import { BaseModal } from '../../../components/BaseModal';
 import { getApiBaseUrl } from '../../../lib/api-url';
@@ -25,6 +25,7 @@ interface PublishTarget {
 }
 
 export function CloudPublishPanel() {
+  const t = useT();
   const [loading, setLoading] = useState(true);
   const [config, setConfig] = useState<PublishServiceConfig | null>(null);
   const [publishTargets, setPublishTargets] = useState<PublishTarget[]>([]);

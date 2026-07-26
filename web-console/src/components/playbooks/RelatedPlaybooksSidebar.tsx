@@ -2,7 +2,7 @@
 
 import React, { useMemo } from 'react';
 import Link from 'next/link';
-import { t } from '../../lib/i18n';
+import { useT } from '../../lib/i18n';
 
 interface Playbook {
   playbook_code: string;
@@ -48,6 +48,7 @@ export default function RelatedPlaybooksSidebar({
   allPlaybooks,
   recentPlaybooks
 }: RelatedPlaybooksSidebarProps) {
+  const t = useT();
   const samePackPlaybooks = useMemo(() => {
     const currentCapabilityCode = extractCapabilityCode(currentPlaybook);
     if (!currentCapabilityCode) return [];

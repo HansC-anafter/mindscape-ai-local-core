@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 
 interface ResearchModePanelProps {
   workspaceId: string;
@@ -12,6 +12,7 @@ export default function ResearchModePanel({
   workspaceId: _workspaceId,
   apiUrl: _apiUrl
 }: ResearchModePanelProps) {
+  const t = useT();
   return (
     <div className="p-4 space-y-4">
       <div className="flex items-center gap-2 mb-4">

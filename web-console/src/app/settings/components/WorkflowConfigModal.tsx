@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { t } from '../../../lib/i18n';
+import { useT } from '../../../lib/i18n';
 import { BaseModal } from '../../../components/BaseModal';
 import { WorkflowWizard } from './wizards/WorkflowWizard';
 
@@ -18,6 +18,7 @@ export function WorkflowConfigModal({
   platform,
   onWizardSuccess,
 }: WorkflowConfigModalProps) {
+  const t = useT();
   if (!isOpen || !platform) return null;
 
   const handleWizardSuccess = () => {

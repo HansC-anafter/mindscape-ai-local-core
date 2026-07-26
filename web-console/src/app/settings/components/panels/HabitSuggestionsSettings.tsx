@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { t } from '../../../../lib/i18n';
+import { useT } from '../../../../lib/i18n';
 
 interface HabitSuggestionsSettingsProps {
   enabled: boolean;
@@ -12,6 +12,7 @@ export function HabitSuggestionsSettings({
   enabled,
   onEnabledChange,
 }: HabitSuggestionsSettingsProps) {
+  const t = useT();
   return (
     <div>
       <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">{t('habitSuggestions' as any)}</h3>

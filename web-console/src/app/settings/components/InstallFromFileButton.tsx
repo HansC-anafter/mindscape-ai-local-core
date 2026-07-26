@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useRef, useState } from 'react';
-import { t } from '../../../lib/i18n';
+import { useT } from '../../../lib/i18n';
 import { settingsApi } from '../utils/settingsApi';
 import { InlineAlert } from './InlineAlert';
 
@@ -13,6 +13,7 @@ type InstallPhase = 'idle' | 'installing' | 'mapping_roles' | 'completed' | 'err
 const OVERWRITE_CONFIRMATION_PHRASE = 'OVERWRITE';
 
 export function InstallFromFileButton({ onSuccess }: InstallFromFileButtonProps) {
+  const t = useT();
   const [phase, setPhase] = useState<InstallPhase>('idle');
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);

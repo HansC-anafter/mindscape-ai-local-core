@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { t } from '../../../lib/i18n';
+import { useT } from '../../../lib/i18n';
 import { Card } from './Card';
 import { Section } from './Section';
 import { NodeGovernanceSettings } from './panels/NodeGovernanceSettings';
@@ -15,6 +15,7 @@ interface GovernancePanelProps {
 }
 
 export function GovernancePanel({ activeSection }: GovernancePanelProps) {
+  const t = useT();
   const renderContent = () => {
     switch (activeSection) {
       case 'node':

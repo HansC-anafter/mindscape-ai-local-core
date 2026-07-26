@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 import './CurrentExecutionBar.css';
 import { CostWarningBanner } from './governance/CostWarningBanner';
 import { getApiBaseUrl } from '../../lib/api-url';
@@ -33,6 +33,7 @@ export function CurrentExecutionBar({
   workspaceId,
   apiUrl = getApiBaseUrl(),
 }: CurrentExecutionBarProps) {
+  const t = useT();
   const [costData, setCostData] = useState<{
     currentUsage: number;
     quota: number;

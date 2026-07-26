@@ -4,7 +4,7 @@ import React, { useCallback, useState, useEffect } from 'react';
 import { Card } from '../Card';
 import { settingsApi } from '../../utils/settingsApi';
 import { showNotification } from '../../hooks/useSettingsNotification';
-import { t } from '../../../../lib/i18n';
+import { useT } from '../../../../lib/i18n';
 
 interface PortConfig {
   backend_api: number;
@@ -20,6 +20,7 @@ interface PortConfig {
 }
 
 export function PortConfigurationSettings() {
+  const t = useT();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [config, setConfig] = useState<PortConfig>({

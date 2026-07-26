@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 import './SuggestionChip.css';
 
 export interface Suggestion {
@@ -25,6 +25,7 @@ export function SuggestionChip({
   isExecuted,
   onExecute
 }: SuggestionChipProps) {
+  const t = useT();
   const tooltipText = isExecuted && suggestion.runNumber
     ? `${t('executedAt' as any) || 'Executed at'} Run #${suggestion.runNumber} - ${suggestion.status || 'completed'}`
     : undefined;

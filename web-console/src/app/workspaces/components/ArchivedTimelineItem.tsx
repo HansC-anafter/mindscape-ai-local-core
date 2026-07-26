@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 import { parseServerTimestamp } from '@/lib/time';
 
 interface ExecutionSession {
@@ -33,6 +33,7 @@ export default function ArchivedTimelineItem({
   onClick,
   onOpenConsole
 }: ArchivedTimelineItemProps) {
+  const t = useT();
   const [isExpanded, setIsExpanded] = useState(false);
 
   const handleClick = () => {

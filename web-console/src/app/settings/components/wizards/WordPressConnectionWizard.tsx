@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { t } from '../../../../lib/i18n';
+import { useT } from '../../../../lib/i18n';
 import { settingsApi } from '../../utils/settingsApi';
 import { WizardShell } from './WizardShell';
 
@@ -14,6 +14,7 @@ export function WordPressConnectionWizard({
   onClose,
   onSuccess,
 }: WordPressConnectionWizardProps) {
+  const t = useT();
   const [form, setForm] = useState({
     connection_id: 'wordpress-local',
     name: 'Local WordPress',

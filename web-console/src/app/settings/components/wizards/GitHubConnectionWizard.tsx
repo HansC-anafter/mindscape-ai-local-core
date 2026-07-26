@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { t } from '../../../../lib/i18n';
+import { useT } from '../../../../lib/i18n';
 import { settingsApi } from '../../utils/settingsApi';
 import { WizardShell } from './WizardShell';
 
@@ -11,6 +11,7 @@ interface GitHubConnectionWizardProps {
 }
 
 export function GitHubConnectionWizard({ onClose, onSuccess }: GitHubConnectionWizardProps) {
+  const t = useT();
   const [step, setStep] = useState(1);
   const [form, setForm] = useState({
     connection_id: 'github-account-1',

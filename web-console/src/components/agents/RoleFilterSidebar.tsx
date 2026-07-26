@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { t } from '../../lib/i18n';
+import { useT } from '../../lib/i18n';
 
 export interface RoleCategory {
   id: string;
@@ -32,6 +32,7 @@ export default function RoleFilterSidebar({
   onSearchChange,
   onCategoryToggle,
 }: RoleFilterSidebarProps) {
+  const t = useT();
   return (
     <div className="w-64 flex-shrink-0 pr-6">
       <div className="sticky top-8">

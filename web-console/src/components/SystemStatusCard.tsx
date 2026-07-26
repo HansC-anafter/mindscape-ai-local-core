@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import Link from 'next/link';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 
 interface SystemStatusProps {
   systemStatus: {
@@ -26,6 +26,7 @@ export default function SystemStatusCard({
   workspaceId,
   onRefresh
 }: SystemStatusProps) {
+  const t = useT();
   const [showDetails, setShowDetails] = useState(true);
 
 

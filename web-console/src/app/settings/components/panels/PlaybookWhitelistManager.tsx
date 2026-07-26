@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { t } from '../../../../lib/i18n';
+import { useT } from '../../../../lib/i18n';
 
 interface PlaybookWhitelistManagerProps {
   whitelist: string[];
@@ -12,6 +12,7 @@ export function PlaybookWhitelistManager({
   whitelist,
   onChange,
 }: PlaybookWhitelistManagerProps) {
+  const t = useT();
   const [newPlaybook, setNewPlaybook] = useState('');
 
   const handleAdd = () => {

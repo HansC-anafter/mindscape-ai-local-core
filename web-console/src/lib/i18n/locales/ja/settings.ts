@@ -8,6 +8,10 @@ import { settingsJaCloudExtensionAndBackup } from './settingsSections/cloudExten
 
 export const settingsJa = {
   settings: '設定',
+  uiLanguageTitle: 'あなたのインターフェース言語',
+  uiLanguageDescription: 'このアカウントの Workbench とローカライズ済み Pack UI に使用します。',
+  systemDefaultUiLanguageTitle: '新規 Profile の既定インターフェース言語',
+  systemDefaultUiLanguageDescription: '新規 Profile にインターフェース言語の設定がない場合だけ初期値として使用します。',
   remoteWorkbenchAccess: 'Remote Workbench アクセス',
   remoteWorkbenchAccessDescription: 'すべてのワークスペースが継承する検証済み管理者を管理します',
   backendConfiguration: 'エージェントバックエンド設定',
@@ -208,7 +212,7 @@ export const settingsJa = {
   toolUsedByPlaybooks: 'どのプレイブックがこのツールを使用しますか？',
   whichPlaybooksUseThisTool: 'どのプレイブックがこのツールを使用しますか？',
   noPlaybooksUseThisTool: '現在、このツールを使用している Playbook はありません',
-  playbooksUsingThisTool: '{count} 個の Playbook がこのツールを使用しています',
+  playbooksUsingThisTool: '{count, plural, other {# 個の Playbook がこのツールを使用しています}}',
   credentialStatus: '認証情報の状態',
   huggingFaceCredentialTitle: 'Hugging Face アクセストークン',
   huggingFaceCredentialDescription: 'モデルのダウンロード、重み同期、認証が必要なアセット取得に使う Hugging Face access token を管理します。',

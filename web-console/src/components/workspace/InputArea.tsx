@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect } from 'react';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 import { useUIState } from '@/contexts/UIStateContext';
 import { useWorkspaceRefs } from '@/contexts/WorkspaceRefsContext';
 import { useFileHandling } from '@/hooks/useFileHandling';
@@ -48,6 +48,7 @@ export function InputArea({
   meetingId,
   onFilesChanged,
 }: InputAreaProps) {
+  const t = useT();
   const { input, setInput, llmConfigured, duplicateFileToast, copiedAll } = useUIState();
   const { textareaRef, fileInputRef } = useWorkspaceRefs();
   const { messages } = useMessages();

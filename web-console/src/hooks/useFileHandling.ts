@@ -4,7 +4,6 @@ import { useCallback, useRef } from 'react';
 import { useFileUpload, UploadedFile } from '@/hooks/useFileUpload';
 import { useUIState } from '@/contexts/UIStateContext';
 import { useWorkspaceRefs } from '@/contexts/WorkspaceRefsContext';
-import { t } from '@/lib/i18n';
 
 interface UseFileHandlingOptions {
   onFileAnalyzed?: () => void;
@@ -169,4 +168,3 @@ export function useFileHandling(
     clearFiles,
   };
 }
-

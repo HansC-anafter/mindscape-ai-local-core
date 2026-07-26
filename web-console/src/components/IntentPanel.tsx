@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 
 interface IntentCard {
   id: string;
@@ -32,6 +32,7 @@ export default function IntentPanel({
   apiUrl,
   onClose
 }: IntentPanelProps) {
+  const t = useT();
   const [intentCards, setIntentCards] = useState<IntentCard[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

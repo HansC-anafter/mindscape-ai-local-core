@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { t } from '../../lib/i18n';
+import { useT } from '../../lib/i18n';
 
 interface VersionSelectorProps {
   hasPersonalVariant: boolean;
@@ -26,6 +26,7 @@ export default function VersionSelector({
   onLLMClick,
   activeExecutionsCount = 0
 }: VersionSelectorProps) {
+  const t = useT();
   return (
     <div className="flex items-center gap-6">
       <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 whitespace-nowrap">{t('currentExecutionVersion' as any)}</h3>

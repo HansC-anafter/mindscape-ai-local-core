@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { t } from '../../../lib/i18n';
+import { useT } from '../../../lib/i18n';
 import { getApiBaseUrl } from '../../../lib/api-url';
 import { Section } from './Section';
 import { ToolGrid } from './ToolGrid';
@@ -127,6 +127,7 @@ interface ToolsPanelProps {
 }
 
 export function ToolsPanel({ activeSection, activeProvider }: ToolsPanelProps = {}) {
+  const t = useT();
   const {
     loading,
     connections,

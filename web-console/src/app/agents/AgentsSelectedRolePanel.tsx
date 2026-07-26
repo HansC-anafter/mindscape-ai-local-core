@@ -1,6 +1,6 @@
 import Link from 'next/link';
 
-import { t } from '../../lib/i18n';
+import { useT } from '../../lib/i18n';
 import { AI_ROLES, getLocalizedRole } from '../../lib/ai-roles';
 
 interface AgentsSelectedRolePanelProps {
@@ -14,6 +14,7 @@ export default function AgentsSelectedRolePanel({
   onClearSelection,
   onSuggestedTaskSelect,
 }: AgentsSelectedRolePanelProps) {
+  const t = useT();
   const role = AI_ROLES.find((candidate) => candidate.id === selectedRole);
 
   if (!role) {

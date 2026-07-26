@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 import { getApiBaseUrl } from '@/lib/api-url';
 
 const API_URL = getApiBaseUrl();
@@ -28,6 +28,7 @@ export default function LLMDrawer({
   systemSOP,
   onVariantCreated
 }: LLMDrawerProps) {
+  const t = useT();
   const [messages, setMessages] = useState<Array<{ role: 'user' | 'assistant'; content: string }>>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);

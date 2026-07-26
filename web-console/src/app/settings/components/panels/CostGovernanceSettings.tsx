@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { t } from '../../../../lib/i18n';
+import { useT } from '../../../../lib/i18n';
 import { Card } from '../Card';
 import { InlineAlert } from '../InlineAlert';
 import { CostQuotaConfig } from './CostQuotaConfig';
@@ -18,6 +18,7 @@ interface CostGovernanceSettingsData {
 }
 
 export function CostGovernanceSettings() {
+  const t = useT();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);

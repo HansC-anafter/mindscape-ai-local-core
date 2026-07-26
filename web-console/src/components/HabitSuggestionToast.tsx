@@ -6,7 +6,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { ChevronLeft, ChevronRight, Lightbulb, X } from 'lucide-react';
-import { t } from '../lib/i18n';
+import { useT } from '../lib/i18n';
 import { getCandidates, confirmCandidate, rejectCandidate, type HabitCandidateResponse } from '../lib/habits-api';
 
 interface HabitSuggestionToastProps {
@@ -24,6 +24,7 @@ export default function HabitSuggestionToast({
   autoShow = true,
   checkInterval = 30000,
 }: HabitSuggestionToastProps) {
+  const t = useT();
   const [candidates, setCandidates] = useState<HabitCandidateResponse[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [loading, setLoading] = useState(false);

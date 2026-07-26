@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { t } from '../../lib/i18n';
+import { useT } from '../../lib/i18n';
 
 import { getApiBaseUrl } from '../../lib/api-url';
 import type { SkillCard } from '../../app/skills/page';
@@ -32,6 +32,7 @@ interface SkillDiscoveryChatProps {
 export default function SkillDiscoveryChat({
     selectedSkill,
 }: SkillDiscoveryChatProps) {
+  const t = useT();
     const [messages, setMessages] = useState<Message[]>([
         {
             id: 'initial',

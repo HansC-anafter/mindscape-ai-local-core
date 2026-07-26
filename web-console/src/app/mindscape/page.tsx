@@ -7,7 +7,7 @@ import OnboardingBanner from '../../components/OnboardingBanner';
 import SelfIntroDialog from '../../components/SelfIntroDialog';
 import HabitSuggestionToast from '../../components/HabitSuggestionToast';
 import { MindProfileCard } from '../../components/mindscape/MindProfileCard';
-import { t } from '../../lib/i18n';
+import { useT } from '../../lib/i18n';
 import { getApiBaseUrl } from '../../lib/api-url';
 import {
   DAILY_PLANNING_INTENT_PAYLOAD,
@@ -30,6 +30,7 @@ import type { CurrentMode, MindscapeIntent, MindscapeProfile, MindscapeSuggestio
 const API_URL = getApiBaseUrl();
 
 export default function MindscapePage() {
+  const t = useT();
   const router = useRouter();
   const [onboardingState, setOnboardingState] = useState<OnboardingState | null>(null);
   const [showSelfIntroDialog, setShowSelfIntroDialog] = useState(false);

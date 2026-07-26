@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 import { formatLocalDateTime } from '@/lib/time';
 
 interface ContextCardProps {
@@ -24,6 +24,7 @@ interface ContextCardProps {
 }
 
 export default function ContextCard({ context, showRecentFile = true, showDetectedIntents = true }: ContextCardProps) {
+  const t = useT();
   return (
     <div className="bg-white border rounded p-2 shadow-sm">
       <h3 className="font-semibold text-xs text-gray-900 mb-2">{t('currentContext' as any)}</h3>

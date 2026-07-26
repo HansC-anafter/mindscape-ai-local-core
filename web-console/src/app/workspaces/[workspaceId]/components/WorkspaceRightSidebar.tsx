@@ -5,7 +5,7 @@ import dynamic from 'next/dynamic';
 import ConversationsList from './ConversationsList';
 import { ResizablePanel } from '../../../../components/ui/ResizablePanel';
 import type { Artifact } from './OutcomesPanel';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 import type { Workspace } from '../workspace-page.types';
 
 const MindscapeAIWorkbench = dynamic(() => import('../../../../components/MindscapeAIWorkbench'), { ssr: false });
@@ -65,6 +65,7 @@ export default function WorkspaceRightSidebar({
     setSelectedThreadId,
     contextData,
 }: WorkspaceRightSidebarProps) {
+  const t = useT();
     return (
         <div className="w-80 border-l dark:border-gray-700 bg-surface-secondary dark:bg-gray-900 flex flex-col">
             {/* Header - Title with AI Team Mode Selector */}

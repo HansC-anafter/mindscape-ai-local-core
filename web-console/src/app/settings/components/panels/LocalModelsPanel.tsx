@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { t } from '../../../../lib/i18n';
+import { useT } from '../../../../lib/i18n';
 import { showNotification } from '../../hooks/useSettingsNotification';
 
 interface ModelFile {
@@ -40,6 +40,7 @@ const STATUS_LABELS: Record<string, { label: string; color: string; icon: string
 };
 
 export function LocalModelsPanel() {
+  const t = useT();
     const [models, setModels] = useState<LocalModel[]>([]);
     const [diskUsage, setDiskUsage] = useState<DiskUsage | null>(null);
     const [loading, setLoading] = useState(true);

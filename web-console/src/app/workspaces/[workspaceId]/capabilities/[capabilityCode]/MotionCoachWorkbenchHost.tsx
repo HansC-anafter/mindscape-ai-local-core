@@ -50,6 +50,7 @@ interface MotionCoachWorkbenchHostProps {
   aolHost: any;
   surfacePath: readonly string[];
   taskConfirmation?: CapabilityTaskConfirmationBridge;
+  localization?: import('@/lib/capability-ui-localization').CapabilityUiLocalizationBridgeV1 | null;
 }
 
 const MAX_WINDOW_EVENTS = 60;
@@ -181,6 +182,7 @@ function MotionCoachWorkbenchHostContent({
   aolHost,
   surfacePath,
   taskConfirmation,
+  localization,
 }: MotionCoachWorkbenchHostProps) {
   const workspaceGroup = useWorkspaceGroupOptional();
   const searchParams = useSearchParams();
@@ -524,6 +526,7 @@ function MotionCoachWorkbenchHostContent({
         aolHost={aolHost}
         surfacePath={surfacePath}
         taskConfirmation={taskConfirmation}
+        localization={localization}
         workbenchState={workbenchState}
         referencePlaybackPlan={referencePlaybackPlan}
         hostCapturePreview={hostCapturePreview}

@@ -366,6 +366,17 @@ export const workbenchEn = {
   aolRuntimeShellOpenFlow: 'Open Runtime Flow',
   aolRuntimeShellFlowOpen: 'Runtime Flow is open',
   aolRuntimeShellFlowUnavailable: 'No active surface for Runtime Flow',
+  capabilityUiLoading: 'Loading capability UI...',
+  capabilityUiMetadataFailed: 'Capability UI failed to load',
+  capabilityUiMetadataTimeout: 'Capability UI metadata request timed out after {seconds} seconds',
+  capabilityUiNoComponents: 'No UI components are available.',
+  capabilityUiComponentLoading: 'Loading component...',
+  capabilityUiComponentFailed: 'Component failed to render',
+  capabilityUiComponentsFailed: 'Capability components failed to load.',
+  capabilityUiNoDiagnostics: 'No component loader diagnostics were reported.',
+  capabilityUiSelectWorkbench: 'Select a workbench for this capability.',
+  capabilityUiBack: 'Back',
+  capabilityUiComponentLabel: 'Component: {component}',
   viewOriginalResponse: 'View Original Response',
 
 } as const satisfies Partial<Record<MessageKey, string>>;

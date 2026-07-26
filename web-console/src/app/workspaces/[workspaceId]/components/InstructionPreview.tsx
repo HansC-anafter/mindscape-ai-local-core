@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 
 interface InstructionPreviewProps {
     persona?: string;
@@ -23,6 +23,7 @@ export default function InstructionPreview({
     styleRules,
     domainContext,
 }: InstructionPreviewProps) {
+  const t = useT();
     const hasContent = persona || (goals && goals.length > 0) || (antiGoals && antiGoals.length > 0) || (styleRules && styleRules.length > 0) || domainContext;
 
     if (!hasContent) {

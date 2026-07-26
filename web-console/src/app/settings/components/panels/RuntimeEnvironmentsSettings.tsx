@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, Suspense } from 'react';
-import { t } from '../../../../lib/i18n';
+import { useT } from '../../../../lib/i18n';
 import { ToolCard } from '../ToolCard';
 import { ToolGrid } from '../ToolGrid';
 import { Section } from '../Section';
@@ -37,6 +37,7 @@ export type {
 } from './runtimeEnvironmentsSettings/types';
 
 export function RuntimeEnvironmentsSettings() {
+  const t = useT();
   const [runtimes, setRuntimes] = useState<RuntimeEnvironment[]>([]);
   const [selectedRuntime, setSelectedRuntime] = useState<string | null>(null);
   const [showAddRuntimeModal, setShowAddRuntimeModal] = useState(false);

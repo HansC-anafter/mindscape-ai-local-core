@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useMemo, useRef, useState, useEffect } from 'react';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 
 interface InstructionFields {
     persona: string;
@@ -64,6 +64,7 @@ export default function InstructionChat({
     currentInstruction,
     onApplyPatch,
 }: InstructionChatProps) {
+  const t = useT();
     const [messages, setMessages] = useState<InstructionChatMessage[]>([
         {
             id: 'initial',

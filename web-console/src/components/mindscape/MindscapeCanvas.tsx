@@ -4,7 +4,7 @@ import React, { useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import { useMindscapeGraph, MindscapeNode, MindscapeEdge } from '@/lib/mindscape-graph-api';
 import { usePendingChanges } from '@/lib/graph-changelog-api';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 
 const ReactFlowCanvas = dynamic(
     () => import('./ReactFlowCanvas'),
@@ -15,6 +15,7 @@ const ReactFlowCanvas = dynamic(
 );
 
 function CanvasLoading() {
+  const t = useT();
     return (
         <div className="w-full h-full bg-gray-50 rounded-lg flex items-center justify-center">
             <div className="text-center">
@@ -37,6 +38,7 @@ function CanvasError({ message }: { message: string }) {
 }
 
 function CanvasEmpty() {
+  const t = useT();
     return (
         <div className="w-full h-full bg-gray-50 rounded-lg flex flex-col items-center justify-center border-2 border-dashed border-gray-300">
             <div className="text-center max-w-md px-4">

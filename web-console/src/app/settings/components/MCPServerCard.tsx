@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { t } from '../../../lib/i18n';
+import { useT } from '../../../lib/i18n';
 import { Card } from './Card';
 import { StatusPill } from './StatusPill';
 
@@ -23,6 +23,7 @@ interface MCPServerCardProps {
 }
 
 export function MCPServerCard({ server, onRefresh, onEdit, onDelete }: MCPServerCardProps) {
+  const t = useT();
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
 

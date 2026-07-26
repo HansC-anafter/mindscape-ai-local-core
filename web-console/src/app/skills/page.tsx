@@ -2,7 +2,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import Header from '../../components/Header';
-import { t } from '../../lib/i18n';
 import { getApiBaseUrl } from '../../lib/api-url';
 import { sharedGetFetch } from '../../lib/resilient-fetch';
 import SkillDiscoveryChat from '../../components/skill/SkillDiscoveryChat';

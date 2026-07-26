@@ -1,6 +1,6 @@
 'use client';
 
-import { t } from '../../../../../lib/i18n';
+import { useT } from '../../../../../lib/i18n';
 import type { ModelItem } from './types';
 
 interface ModelDetailsSectionProps {
@@ -8,6 +8,7 @@ interface ModelDetailsSectionProps {
 }
 
 export function ModelDetailsSection({ model }: ModelDetailsSectionProps) {
+  const t = useT();
   return (
     <div className="grid grid-cols-2 gap-4">
       {model.dimensions && (

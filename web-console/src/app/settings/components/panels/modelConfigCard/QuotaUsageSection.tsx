@@ -1,9 +1,10 @@
 'use client';
 
-import { t } from '../../../../../lib/i18n';
+import { useT } from '../../../../../lib/i18n';
 import type { QuotaUsageSectionProps } from './types';
 
 export function QuotaUsageSection({ quotaInfo }: QuotaUsageSectionProps) {
+  const t = useT();
   if (!quotaInfo) {
     return null;
   }

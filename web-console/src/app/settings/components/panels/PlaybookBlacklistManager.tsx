@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { t } from '../../../../lib/i18n';
+import { useT } from '../../../../lib/i18n';
 
 interface PlaybookBlacklistManagerProps {
   blacklist: string[];
@@ -12,6 +12,7 @@ export function PlaybookBlacklistManager({
   blacklist,
   onChange,
 }: PlaybookBlacklistManagerProps) {
+  const t = useT();
   const [newPlaybook, setNewPlaybook] = useState('');
 
   const handleAdd = () => {

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { t } from '../../../lib/i18n';
+import { useT } from '../../../lib/i18n';
 import { Card } from './Card';
 import { StatusPill } from './StatusPill';
 import type { ToolStatus } from '../types';
@@ -41,6 +41,7 @@ export function ToolCard({
   extraInfo,
   children,
 }: ToolCardProps) {
+  const t = useT();
   const [playbookCount, setPlaybookCount] = useState<number | null>(null);
   const [loadingCount, setLoadingCount] = useState(false);
   const hasLoadedRef = useRef(false);
@@ -71,16 +72,7 @@ export function ToolCard({
   }, [toolType, status.status]);
 
   const formatPlaybookCount = (count: number) => {
-    const template = t('playbooksUsingThisTool' as any);
-    if (template.includes('{count}')) {
-      const plural = count !== 1 ? 's' : '';
-      const verb = count !== 1 ? 'use' : 'uses';
-      return template
-        .replace('{count}', count.toString())
-        .replace('{plural}', plural)
-        .replace('{verb}', verb);
-    }
-    return template.replace('{count}', count.toString());
+    return t('playbooksUsingThisTool' as any, { count });
   };
 
   return (

@@ -3,7 +3,7 @@ import ForkPlaybookButton from '../../components/playbooks/ForkPlaybookButton';
 import PlaybookLibrarySidebar from '../../components/playbooks/PlaybookLibrarySidebar';
 import PlaybookDiscoveryChat from '../../components/playbook/PlaybookDiscoveryChat';
 import { WorkspaceSelector } from '../../components/workspace/WorkspaceSelector';
-import { t } from '../../lib/i18n';
+import { useT } from '../../lib/i18n';
 import { getPlaybookMetadata } from '../../lib/i18n/locales/playbooks';
 import { InstallFromFileButton } from '../settings/components/InstallFromFileButton';
 import type { Playbook, PlaybooksByCapability } from './playbooksPageTypes';
@@ -66,6 +66,7 @@ export function PlaybooksPageView({
   onTogglePin,
   onDiscoverPlaybook,
 }: PlaybooksPageViewProps) {
+  const t = useT();
   return (
     <div className="min-h-screen bg-surface dark:bg-gray-950">
       <Header />
@@ -224,6 +225,7 @@ function PlaybookCard({
   onExecuteNow,
   onTogglePin,
 }: PlaybookCardProps) {
+  const t = useT();
   const isPinned = playbook.pinned_workspaces?.some((workspace) => workspace.id === selectedWorkspaceId) || false;
 
   return (

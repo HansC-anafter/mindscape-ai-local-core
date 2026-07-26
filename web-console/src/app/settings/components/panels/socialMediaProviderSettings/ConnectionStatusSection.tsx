@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { t } from '../../../../../lib/i18n';
+import { useT } from '../../../../../lib/i18n';
 import type { SocialMediaConnection } from './types';
 
 interface ConnectionStatusSectionProps {
@@ -18,6 +18,7 @@ export function ConnectionStatusSection({
   onConnect,
   onDisconnect,
 }: ConnectionStatusSectionProps) {
+  const t = useT();
   return (
     <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
       <div className="flex items-center justify-between mb-4">

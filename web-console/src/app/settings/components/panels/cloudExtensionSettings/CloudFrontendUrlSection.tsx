@@ -1,4 +1,4 @@
-import { t } from '../../../../../lib/i18n';
+import { useT } from '../../../../../lib/i18n';
 import { Card } from '../../Card';
 
 interface CloudFrontendUrlSectionProps {
@@ -14,6 +14,7 @@ export function CloudFrontendUrlSection({
   onChange,
   onSave,
 }: CloudFrontendUrlSectionProps) {
+  const t = useT();
   return (
     <Card>
       <div className="space-y-4">

@@ -1,5 +1,5 @@
 import { Clipboard, Play, RefreshCw, ShieldCheck } from 'lucide-react';
-import { t } from '../../../../../lib/i18n';
+import { useT } from '../../../../../lib/i18n';
 import { formatBytes, formatDate } from './model';
 import type { BackupAction, BackupBusyAction, BackupStatus } from './types';
 
@@ -26,6 +26,7 @@ export function RuntimeBackupActionSections({
   runAction,
   copyCommand,
 }: RuntimeBackupActionSectionsProps) {
+  const t = useT();
   const latest = status?.latest_backup || null;
   const latestJob = status?.latest_job || null;
   const profileState = latest?.profile_state;

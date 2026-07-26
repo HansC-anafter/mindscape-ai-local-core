@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { t } from '../../../../lib/i18n';
+import { useT } from '../../../../lib/i18n';
 import { showNotification } from '../../hooks/useSettingsNotification';
 import { settingsApi } from '../../utils/settingsApi';
 import { ModelConfigCardView } from './modelConfigCard/ModelConfigCardView';
@@ -23,6 +23,7 @@ export function ModelConfigCard({
   onCancelPull,
   onRemoveModel,
 }: ModelConfigCardProps) {
+  const t = useT();
   const { model, base_url, project_id, location, provider_config, quota_info } = card;
   const [showModelOverride, setShowModelOverride] = useState(false);
 

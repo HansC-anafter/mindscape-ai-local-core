@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { t } from '../../../../lib/i18n';
+import { useT } from '../../../../lib/i18n';
 import type { BackendConfig } from '../../types';
 
 interface APIAndQuotaSettingsProps {
@@ -19,6 +19,7 @@ export function APIAndQuotaSettings({
   onOpenaiKeyChange,
   onAnthropicKeyChange,
 }: APIAndQuotaSettingsProps) {
+  const t = useT();
   return (
     <div className="space-y-6">
       <div>

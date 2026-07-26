@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import Header from '../../components/Header';
-import { t } from '../../lib/i18n';
+import { useT } from '../../lib/i18n';
 import { WorkScene } from '../../lib/work-scenes';
 import { AI_ROLES, AIRole, getLocalizedRole } from '../../lib/ai-roles';
 import RoleCardGrid from '../../components/agents/RoleCardGrid';
@@ -17,6 +17,7 @@ import {
 } from './agentsPageApi';
 
 export default function AgentsPage() {
+  const t = useT();
   const [selectedScene, setSelectedScene] = useState<string | null>(null);
   const [selectedRole, setSelectedRole] = useState<string | null>(null);
   const [task, setTask] = useState('');

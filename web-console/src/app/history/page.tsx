@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import Header from '../../components/Header';
-import { t } from '../../lib/i18n';
+import { useT } from '../../lib/i18n';
 import { getApiBaseUrl } from '../../lib/api-url';
 import { formatLocalDateTime } from '@/lib/time';
 
@@ -21,6 +21,7 @@ interface Execution {
 }
 
 export default function HistoryPage() {
+  const t = useT();
   const [executions, setExecutions] = useState<Execution[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 
-import { t } from '../../../../../lib/i18n';
+import { useT } from '../../../../../lib/i18n';
 import { getApiBaseUrl } from '../../../../../lib/api-url';
 import type { SiteHubSettingsFormProps } from './types';
 
@@ -9,6 +9,7 @@ export function SiteHubSettingsForm({
   onSave,
   onCancel,
 }: SiteHubSettingsFormProps) {
+  const t = useT();
   const meta = runtime.metadata || {};
   const [configUrl, setConfigUrl] = useState(runtime.config_url || '');
   const [siteKey, setSiteKey] = useState(meta.site_key || '');

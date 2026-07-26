@@ -366,6 +366,17 @@ export const workbenchZhTW = {
   aolRuntimeShellOpenFlow: '開啟 Runtime Flow',
   aolRuntimeShellFlowOpen: 'Runtime Flow 已開啟',
   aolRuntimeShellFlowUnavailable: '沒有可開啟 Runtime Flow 的作用中 surface',
+  capabilityUiLoading: '正在載入能力介面…',
+  capabilityUiMetadataFailed: '能力介面載入失敗',
+  capabilityUiMetadataTimeout: '能力介面中繼資料請求已在 {seconds} 秒後逾時',
+  capabilityUiNoComponents: '目前沒有可用的能力介面元件。',
+  capabilityUiComponentLoading: '正在載入元件…',
+  capabilityUiComponentFailed: '元件無法呈現',
+  capabilityUiComponentsFailed: '能力介面元件載入失敗。',
+  capabilityUiNoDiagnostics: '元件載入器沒有回報診斷資訊。',
+  capabilityUiSelectWorkbench: '選擇此能力要使用的工作台。',
+  capabilityUiBack: '返回',
+  capabilityUiComponentLabel: '元件：{component}',
   viewOriginalResponse: '查看原始回應',
 
 } as const satisfies Partial<Record<MessageKey, string>>;

@@ -5,7 +5,7 @@ import PlaybookDiscoveryChat from '../../../components/playbook/PlaybookDiscover
 import PlaybookTabs from '../../../components/playbook/PlaybookTabs';
 import VersionSelector from '../../../components/playbook/VersionSelector';
 import RelatedPlaybooksSidebar from '../../../components/playbooks/RelatedPlaybooksSidebar';
-import { t } from '../../../lib/i18n';
+import { useT } from '../../../lib/i18n';
 import type { Playbook, PlaybookListItem, PlaybookTab, VersionSelection } from './playbookDetailTypes';
 
 export function getPlaybookBadge(playbookCode: string, name?: string): string {
@@ -20,6 +20,7 @@ interface PlaybookLoadingViewProps {
 }
 
 export function PlaybookLoadingView({ error, onRetry }: PlaybookLoadingViewProps) {
+  const t = useT();
   return (
     <div className="min-h-screen bg-surface dark:bg-gray-950">
       <Header />
@@ -109,6 +110,7 @@ export function PlaybookDetailView({
   onboardingTask,
   apiUrl,
 }: PlaybookDetailViewProps) {
+  const t = useT();
   const playbookName = playbook.metadata.name;
   const playbookDescription = playbook.metadata.description;
   const playbookTags = playbook.metadata.tags || [];

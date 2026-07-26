@@ -4,7 +4,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import RefreshCw from 'lucide-react/dist/esm/icons/refresh-cw.js';
 import ShieldCheck from 'lucide-react/dist/esm/icons/shield-check.js';
 
-import { t } from '../../../../lib/i18n';
+import { useT } from '../../../../lib/i18n';
 import { getApiBaseUrl } from '../../../../lib/api-url';
 import { Card } from '../Card';
 import { InlineAlert } from '../InlineAlert';
@@ -62,6 +62,7 @@ function display(value: string | number | boolean | null | undefined): string {
 }
 
 export function MobileWorkbenchGatewayPanel() {
+  const t = useT();
   const [health, setHealth] = useState<MobileWorkbenchGatewayHealth | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);

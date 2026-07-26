@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { LocalFilesystemManagerContent } from '@/app/settings/components/wizards/LocalFilesystemManagerContent';
 import ResourceBindingPanel from '@/app/workspaces/[workspaceId]/components/ResourceBindingPanel';
 import DataSourceOverlayPanel from '@/app/workspaces/[workspaceId]/components/DataSourceOverlayPanel';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 
 interface Workspace {
   id: string;
@@ -48,6 +48,7 @@ export default function StoragePathConfigModal({
   onSuccess,
   toolConnections
 }: StoragePathConfigModalProps) {
+  const t = useT();
   const [workspaceData, setWorkspaceData] = useState<Workspace | null>(workspace);
   const [activeTab, setActiveTab] = useState<TabType>('storage');
   const [expectedArtifacts, setExpectedArtifacts] = useState<string[]>([]);

@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { t } from '../../../../lib/i18n';
+import { useT } from '../../../../lib/i18n';
 import { AVAILABLE_AGENTS } from './aiTeamGovernancePanelData';
 import type { AgentMarketplaceProps, RiskTag } from './aiTeamGovernancePanelTypes';
 
@@ -21,6 +21,7 @@ function getRiskTagColor(color: RiskTag['color']): string {
 }
 
 export function AgentMarketplace({ onInstall, onConfigure, onSendToAssistant }: AgentMarketplaceProps) {
+  const t = useT();
     const [installing] = React.useState<string | null>(null);
 
     const handleInstall = (agentId: string, agentName: string) => {
@@ -157,6 +158,7 @@ export function AgentMarketplace({ onInstall, onConfigure, onSendToAssistant }: 
 }
 
 export function InstalledAgentsList() {
+  const t = useT();
     const installedAgents = AVAILABLE_AGENTS.filter(a => a.status === 'installed');
 
     return (

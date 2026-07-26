@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 
 interface OnboardingBannerProps {
   completedCount: number;
@@ -22,6 +22,7 @@ export default function OnboardingBanner({
   task2Completed,
   task3Completed
 }: OnboardingBannerProps) {
+  const t = useT();
 
   // Congrats message when all tasks are complete
   if (showCongrats && completedCount === totalCount) {

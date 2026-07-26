@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { usePlaybookFork } from '@/hooks/usePlaybookFork';
 import { useRouter } from 'next/navigation';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 
 interface ForkPlaybookButtonProps {
   playbookCode: string;
@@ -18,6 +18,7 @@ export default function ForkPlaybookButton({
   workspaceId,
   onForkSuccess,
 }: ForkPlaybookButtonProps) {
+  const t = useT();
   const { forking, error, forkPlaybook } = usePlaybookFork();
   const router = useRouter();
   const [showForkDialog, setShowForkDialog] = useState(false);

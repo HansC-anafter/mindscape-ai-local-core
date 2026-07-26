@@ -2,7 +2,7 @@
 
 import React from 'react';
 import Link from 'next/link';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 
 interface HealthIssue {
   type: string;
@@ -38,6 +38,7 @@ export default function SystemHealthCard({
   workspaceId,
   onDismiss
 }: SystemHealthCardProps) {
+  const t = useT();
   const errorIssues = health.issues.filter(i => i.severity === 'error');
   const warningIssues = health.issues.filter(i => i.severity === 'warning');
   const infoIssues = health.issues.filter(i => i.severity === 'info');

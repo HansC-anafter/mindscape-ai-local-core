@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback } from 'react';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 import IntentChips from '../../app/workspaces/components/IntentChips';
 import { useUIState } from '@/contexts/UIStateContext';
 import { useWorkspaceRefs } from '@/contexts/WorkspaceRefsContext';
@@ -18,6 +18,7 @@ export default function WorkspaceChatMeetingSidebar({
   workspaceId,
   apiUrl = '',
 }: WorkspaceChatMeetingSidebarProps) {
+  const t = useT();
   const { quickStartSuggestions } = useMessages();
   const { setInput } = useUIState();
   const { textareaRef } = useWorkspaceRefs();

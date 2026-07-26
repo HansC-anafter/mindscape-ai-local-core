@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { t } from '../../../../lib/i18n';
+import { useT } from '../../../../lib/i18n';
 import { showNotification } from '../../hooks/useSettingsNotification';
 import { CloudPlaybookProvidersSettingsView } from './cloudPlaybookProvidersSettings/CloudPlaybookProvidersSettingsView';
 import {
@@ -25,6 +25,7 @@ import type {
 } from './cloudPlaybookProvidersSettings/types';
 
 export function CloudPlaybookProvidersSettings() {
+  const t = useT();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [providers, setProviders] = useState<Provider[]>([]);

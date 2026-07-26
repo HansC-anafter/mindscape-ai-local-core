@@ -1,6 +1,6 @@
 'use client';
 
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 import { ModelConfigCard, type PullState } from '@/app/settings/components/panels/ModelConfigCard';
 
 import type {
@@ -50,6 +50,7 @@ export function ModelsAndQuotaCatalogView({
   onTestEmbeddingConnection,
   onToggleModel,
 }: ModelsAndQuotaCatalogViewProps) {
+  const t = useT();
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 flex-1 min-h-0">
       <div className="lg:col-span-5 lg:border-r border-gray-200 dark:border-gray-700 lg:pr-4 flex flex-col min-h-0">

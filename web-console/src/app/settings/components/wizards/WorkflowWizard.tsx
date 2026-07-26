@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { t } from '../../../../lib/i18n';
+import { useT } from '../../../../lib/i18n';
 import { WizardShell } from './WizardShell';
 
 interface WorkflowWizardProps {
@@ -19,6 +19,7 @@ interface WorkflowConfig {
 }
 
 export function WorkflowWizard({ platform, onClose, onSuccess }: WorkflowWizardProps) {
+  const t = useT();
   const [step, setStep] = useState(platform ? 2 : 1);
   const [selectedPlatform, setSelectedPlatform] = useState<'zapier' | 'n8n' | 'make' | 'custom' | undefined>(platform);
   const [config, setConfig] = useState<WorkflowConfig>({

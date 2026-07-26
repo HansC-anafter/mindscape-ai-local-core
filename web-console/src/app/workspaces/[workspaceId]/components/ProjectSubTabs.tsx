@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Project } from '@/types/project';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 import ProjectCard from './ProjectCard';
 
 interface ProjectSubTabsProps {
@@ -29,6 +29,7 @@ export default function ProjectSubTabs({
   apiUrl,
   onOpenExecution,
 }: ProjectSubTabsProps) {
+  const t = useT();
   const router = useRouter();
   const [activeSubTab, setActiveSubTab] = useState<SubTab>('list');
 

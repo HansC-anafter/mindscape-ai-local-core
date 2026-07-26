@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { t } from '@/lib/i18n';
 import { EmptyState } from '../ui/EmptyState';
 import './IntentCardPanel.css';
 
@@ -190,4 +189,3 @@ function IntentCardItem({ card, collapsed }: { card: IntentCard; collapsed?: boo
     </div>
   );
 }
-

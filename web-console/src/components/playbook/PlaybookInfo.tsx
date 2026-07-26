@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { t } from '../../lib/i18n';
+import { useT } from '../../lib/i18n';
 import { getApiBaseUrl } from '../../lib/api-url';
 
 const API_URL = getApiBaseUrl();
@@ -34,6 +34,7 @@ export default function PlaybookInfo({
   onToggleFavorite,
   profileId = 'test-user'
 }: PlaybookInfoProps) {
+  const t = useT();
   const playbookCode = playbook.metadata.playbook_code;
   const [isTesting, setIsTesting] = useState(false);
   const [testResult, setTestResult] = useState<{

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 
 interface Message {
   id: string;
@@ -29,6 +29,7 @@ export default function PlaybookChat({
   onComplete,
   apiUrl = ''
 }: PlaybookChatProps) {
+  const t = useT();
   const [messages, setMessages] = useState<Message[]>([]);
   const [userInput, setUserInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);

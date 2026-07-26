@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { t } from '../../../lib/i18n';
+import { useT } from '../../../lib/i18n';
 import { BaseModal } from '../../../components/BaseModal';
 import { WordPressConnectionWizard } from './wizards/WordPressConnectionWizard';
 import { NotionConnectionWizard } from './wizards/NotionConnectionWizard';
@@ -29,6 +29,7 @@ export function ToolConfigModal({
   vectorDBConfig,
   onWizardSuccess,
 }: ToolConfigModalProps) {
+  const t = useT();
   if (!isOpen || !toolType) return null;
 
   const handleWizardSuccess = (wizardToolType: string) => {

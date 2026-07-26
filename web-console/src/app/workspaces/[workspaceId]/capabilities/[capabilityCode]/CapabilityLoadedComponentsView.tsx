@@ -6,12 +6,16 @@ import { AOLRuntimeShellBridge } from '@/components/capabilities/aol-runtime-she
 import { buildCapabilitySurfaceId } from '@/components/capabilities/aol-runtime-shell/runtimeShellState';
 import { getApiBaseUrl } from '@/lib/api-url';
 import { getTaskConfirmationBridge } from '@/lib/task-confirmation/task-confirmation-bridge';
+import type { CapabilityUiLocalizationBridgeV1 } from '@/lib/capability-ui-localization';
+import type { CapabilityUiRuntimeLocalizationDescriptor } from '@/lib/capability-ui-localization';
+import { useT } from '@/lib/i18n';
 
 const MotionCoachWorkbenchHost = React.lazy(() => import('./MotionCoachWorkbenchHost'));
 
 interface ComponentErrorBoundaryProps {
   children: React.ReactNode;
   componentName: string;
+  errorMessage: string;
 }
 
 class ComponentErrorBoundary extends React.Component<ComponentErrorBoundaryProps, { hasError: boolean }> {
@@ -32,7 +36,7 @@ class ComponentErrorBoundary extends React.Component<ComponentErrorBoundaryProps
     if (this.state.hasError) {
       return (
         <div className="rounded border border-red-200 bg-red-50 p-4 text-sm text-red-500 dark:border-red-800 dark:bg-red-900/20 dark:text-red-400">
-          <div className="mb-1 font-medium">Component failed to render</div>
+          <div className="mb-1 font-medium">{this.props.errorMessage}</div>
           <div className="text-xs text-red-400 dark:text-red-500">{this.props.componentName}</div>
         </div>
       );
@@ -61,6 +65,7 @@ export interface CapabilityInfo {
   version?: string;
   description?: string;
   scope?: string;
+  ui_localization?: CapabilityUiRuntimeLocalizationDescriptor;
 }
 
 interface CapabilityLoadedComponentsViewProps {
@@ -73,6 +78,7 @@ interface CapabilityLoadedComponentsViewProps {
   loading: boolean;
   aolRoutePath?: string;
   surfacePath?: readonly string[];
+  localization?: CapabilityUiLocalizationBridgeV1 | null;
 }
 
 export function isMainPageComponent(component: UIComponentInfo): boolean {
@@ -114,7 +120,9 @@ export default function CapabilityLoadedComponentsView({
   loading,
   aolRoutePath,
   surfacePath = [],
+  localization = null,
 }: CapabilityLoadedComponentsViewProps) {
+  const t = useT();
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -140,15 +148,18 @@ export default function CapabilityLoadedComponentsView({
     aolHost: any,
     compactFallback = false,
   ) => (
-    <ComponentErrorBoundary componentName={key}>
+    <ComponentErrorBoundary
+      componentName={key}
+      errorMessage={t('capabilityUiComponentFailed')}
+    >
       <Suspense fallback={
         compactFallback ? (
           <div className="p-4 text-center text-xs text-gray-500 dark:text-gray-400">
-            Loading component...
+            {t('capabilityUiComponentLoading')}
           </div>
         ) : (
           <div className="flex h-full items-center justify-center">
-            <div className="text-sm text-gray-500 dark:text-gray-400">Loading component...</div>
+            <div className="text-sm text-gray-500 dark:text-gray-400">{t('capabilityUiComponentLoading')}</div>
           </div>
         )
       }>
@@ -161,6 +172,7 @@ export default function CapabilityLoadedComponentsView({
             aolHost={aolHost}
             surfacePath={surfacePath}
             taskConfirmation={taskConfirmation}
+            localization={localization}
           />
         ) : (
           <Component
@@ -169,6 +181,7 @@ export default function CapabilityLoadedComponentsView({
             aolHost={aolHost}
             surfacePath={surfacePath}
             taskConfirmation={taskConfirmation}
+            localization={localization}
           />
         )}
       </Suspense>
@@ -178,7 +191,7 @@ export default function CapabilityLoadedComponentsView({
   if (loading) {
     return (
       <div className="flex h-full items-center justify-center">
-        <div className="text-sm text-gray-500 dark:text-gray-400">Loading capability UI...</div>
+        <div className="text-sm text-gray-500 dark:text-gray-400">{t('capabilityUiLoading')}</div>
       </div>
     );
   }
@@ -252,14 +265,14 @@ export default function CapabilityLoadedComponentsView({
                     {capabilityInfo?.display_name || capabilityCode}
                   </h1>
                   <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                    Select a workbench for this capability.
+                    {t('capabilityUiSelectWorkbench')}
                   </p>
                 </div>
                 <button
                   onClick={() => router.back()}
                   className="rounded bg-gray-200 px-3 py-1.5 text-xs text-gray-700 transition-colors hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
                 >
-                  Back
+                  {t('capabilityUiBack')}
                 </button>
               </div>
               <nav className="mt-3 flex gap-2 overflow-x-auto pb-1">
@@ -317,7 +330,7 @@ export default function CapabilityLoadedComponentsView({
                 onClick={() => router.back()}
                 className="rounded bg-gray-200 px-3 py-1.5 text-xs text-gray-700 transition-colors hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
               >
-                Back
+                {t('capabilityUiBack')}
               </button>
             </div>
           </div>
@@ -338,7 +351,7 @@ export default function CapabilityLoadedComponentsView({
                         {componentInfo.description || componentCode}
                       </h2>
                       <div className="text-[10px] text-gray-500 dark:text-gray-400">
-                        Component: {componentCode}
+                        {t('capabilityUiComponentLabel', { component: componentCode })}
                       </div>
                     </div>
                   ) : null}
@@ -350,7 +363,7 @@ export default function CapabilityLoadedComponentsView({
             {loadedComponents.size === 0 ? (
               <div className="py-8 text-center text-sm text-gray-500 dark:text-gray-400">
                 <div className="font-medium text-gray-700 dark:text-gray-200">
-                  Capability components failed to load.
+                  {t('capabilityUiComponentsFailed')}
                 </div>
                 <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
                   {Array.from(loadErrors.entries()).slice(0, 3).map(([componentCode, message]) => (
@@ -359,7 +372,7 @@ export default function CapabilityLoadedComponentsView({
                     </div>
                   ))}
                   {loadErrors.size === 0 ? (
-                    <div>No component loader diagnostics were reported.</div>
+                    <div>{t('capabilityUiNoDiagnostics')}</div>
                   ) : null}
                 </div>
               </div>

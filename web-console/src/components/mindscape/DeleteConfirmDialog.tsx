@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 
 interface DeleteConfirmDialogProps {
   title: string;
@@ -18,6 +18,7 @@ export function DeleteConfirmDialog({
   onCancel,
   isDeleting = false,
 }: DeleteConfirmDialogProps) {
+  const t = useT();
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6">

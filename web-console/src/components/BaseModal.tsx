@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, ReactNode } from 'react';
-import { t } from '../lib/i18n';
+import { useT } from '../lib/i18n';
 
 interface BaseModalProps {
   isOpen: boolean;
@@ -18,6 +18,7 @@ export function BaseModal({
   children,
   maxWidth = 'max-w-4xl'
 }: BaseModalProps) {
+  const t = useT();
   useEffect(() => {
     if (!isOpen) return;
 

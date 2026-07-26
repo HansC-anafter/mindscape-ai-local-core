@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 import type { WorkspaceMode } from '../../../components/WorkspaceModeSelector';
 import ActivePlaybookIndicator from '../../../components/ActivePlaybookIndicator';
 import ExecutionModePill, { ExecutionMode, ExecutionPriority } from '../../../components/ExecutionModePill';
@@ -41,6 +41,7 @@ export default function WorkspaceHeader({
   onWorkspaceUpdate,
   apiUrl = getApiBaseUrl(),
 }: WorkspaceHeaderProps) {
+  const t = useT();
   const [isEditing, setIsEditing] = useState(false);
   const [editedName, setEditedName] = useState(workspaceName);
   const [isRenaming, setIsRenaming] = useState(false);

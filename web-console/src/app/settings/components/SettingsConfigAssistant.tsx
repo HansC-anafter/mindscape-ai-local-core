@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react';
 import { useRouter } from 'next/navigation';
-import { t } from '../../../lib/i18n';
+import { useT } from '../../../lib/i18n';
 import { useSettingsContext, type SettingsContext } from '../hooks/useSettingsContext';
 import type { SettingsTab } from '../types';
 import {
@@ -32,6 +32,7 @@ interface SettingsConfigAssistantProps {
 
 export const SettingsConfigAssistant = forwardRef<SettingsConfigAssistantHandle, SettingsConfigAssistantProps>(
   function SettingsConfigAssistant({ currentTab, currentSection, onNavigate }, ref) {
+    const t = useT();
     const router = useRouter();
     const { context } = useSettingsContext(currentTab, currentSection);
     const [messages, setMessages] = useState<Message[]>([]);
@@ -238,7 +239,7 @@ export const SettingsConfigAssistant = forwardRef<SettingsConfigAssistantHandle,
       }
 
       return { content, actions: actions.length > 0 ? actions : undefined };
-    }, [currentSection]);
+    }, [currentSection, t]);
 
     useEffect(() => {
       const welcome = generateWelcomeMessage(context, currentTab);

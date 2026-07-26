@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { t } from '../../../../lib/i18n';
+import { useT } from '../../../../lib/i18n';
 import type { BackendConfig } from '../../types';
 
 interface LLMAPIKeySettingsProps {
@@ -19,6 +19,7 @@ export function LLMAPIKeySettings({
   onOpenaiKeyChange,
   onAnthropicKeyChange,
 }: LLMAPIKeySettingsProps) {
+  const t = useT();
   return (
     <div className="space-y-4">
       <h3 className="text-sm font-medium text-gray-700 mb-4">{t('llmApiKeyConfig' as any)}</h3>

@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { checkVersions, getSyncStatus, type VersionCheckResponse, type ClientUpdateInfo } from '@/lib/sync-api';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 
 interface UpdateBannerProps {
   clientVersion: string;
@@ -17,6 +17,7 @@ export default function UpdateBanner({
   assets = [],
   onDismiss,
 }: UpdateBannerProps) {
+  const t = useT();
   const [updateInfo, setUpdateInfo] = useState<VersionCheckResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
@@ -156,6 +157,7 @@ export default function UpdateBanner({
 }
 
 function UpdateDetailsDialog({ updateInfo }: { updateInfo: VersionCheckResponse }) {
+  const t = useT();
   return (
     <div className="space-y-3 text-xs">
       {updateInfo.client_update.available && (

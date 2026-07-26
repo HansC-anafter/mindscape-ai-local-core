@@ -125,6 +125,7 @@ export interface PackValidationState {
 
 export interface Profile {
   id?: string;
+  version: number;
   preferences?: ProfilePreferences;
 }
 

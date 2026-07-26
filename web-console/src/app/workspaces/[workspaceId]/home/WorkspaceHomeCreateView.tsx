@@ -1,6 +1,6 @@
 import { ArrowLeft } from 'lucide-react';
 import ErrorDialog from '@/components/ErrorDialog';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 import type { WorkspaceCreationMethod, WorkspaceWizardData, WorkspaceWizardStep } from './workspaceHomeTypes';
 
 interface WorkspaceHomeCreateViewProps {
@@ -30,6 +30,7 @@ export function WorkspaceHomeCreateView({
   onCreate,
   onCloseErrorDialog,
 }: WorkspaceHomeCreateViewProps) {
+  const t = useT();
   return (
     <div className="min-h-screen bg-surface dark:bg-gray-950">
       <div className="max-w-7xl mx-auto px-6 py-8">

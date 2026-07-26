@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { t } from '../../../lib/i18n';
+import { useT, type Translator } from '../../../lib/i18n';
 import { settingsApi } from '../utils/settingsApi';
 import { getApiBaseUrl } from '../../../lib/api-url';
 import type { ToolConnection, RegisteredTool, VectorDBConfig, ToolStatus, ToolStatusInfo } from '../types';
@@ -26,13 +26,14 @@ interface UseToolsReturn {
   getToolStatusForPack: (toolType: string) => ToolStatus;
 }
 
-const getDefaultToolStatus = (): ToolStatus => ({
+const getDefaultToolStatus = (t: Translator): ToolStatus => ({
   status: 'not_configured',
   label: t('statusNotConfigured'),
   icon: 'WARN',
 });
 
 export function useTools(): UseToolsReturn {
+  const t = useT();
   const [loading, setLoading] = useState(false);
   const [connections, setConnections] = useState<ToolConnection[]>([]);
   const [tools, setTools] = useState<RegisteredTool[]>([]);
@@ -264,7 +265,7 @@ export function useTools(): UseToolsReturn {
         } else if (unsplashConfigured === false) {
           return { status: 'not_configured', label: t('statusNotConfigured'), icon: 'WARN' };
         }
-        return getDefaultToolStatus();
+        return getDefaultToolStatus(t);
       }
 
       // For other tools, check tools status API first
@@ -292,7 +293,7 @@ export function useTools(): UseToolsReturn {
       }
       return { status: 'inactive', label: t('statusDisabled'), icon: 'OFF' };
     },
-    [connections, vectorDBConfig, toolsStatus, vectorDBConnected, unsplashConfigured]
+    [connections, vectorDBConfig, toolsStatus, vectorDBConnected, unsplashConfigured, t]
   );
 
   const getToolStatusForPack = useCallback(

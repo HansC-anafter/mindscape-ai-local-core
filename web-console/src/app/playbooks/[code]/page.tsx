@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import { t, useLocale } from '../../../lib/i18n';
+import { useT, useLocale } from '../../../lib/i18n';
 import { PlaybookDetailModals } from './PlaybookDetailModals';
 import { PlaybookDetailView, PlaybookErrorView, PlaybookLoadingView } from './PlaybookDetailView';
 import {
@@ -36,6 +36,7 @@ import type {
 } from './playbookDetailTypes';
 
 export default function PlaybookDetailPage() {
+  const t = useT();
   const params = useParams();
   const searchParams = useSearchParams();
   const router = useRouter();

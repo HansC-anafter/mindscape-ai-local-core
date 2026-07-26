@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 
 export type WorkspaceMode = 'research' | 'publishing' | 'planning' | null;
 
@@ -16,6 +16,7 @@ export default function WorkspaceModeSelector({
   onModeChange,
   disabled = false
 }: WorkspaceModeSelectorProps) {
+  const t = useT();
   const modes: Array<{ value: WorkspaceMode; label: string; icon: string; description: string }> = [
     {
       value: 'research',

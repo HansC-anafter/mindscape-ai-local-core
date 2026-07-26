@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { t } from '../../../../lib/i18n';
+import { useT } from '../../../../lib/i18n';
 import { Card } from '../Card';
 import { InlineAlert } from '../InlineAlert';
 import { useParams } from 'next/navigation';
@@ -24,6 +24,7 @@ interface CostMonitoringData {
 }
 
 export function CostMonitoringDashboard() {
+  const t = useT();
   const params = useParams();
   const workspaceId = params?.workspaceId as string;
   const [loading, setLoading] = useState(true);

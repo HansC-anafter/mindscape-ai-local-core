@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 
 interface FileInfo {
   name: string;
@@ -46,6 +46,7 @@ export default function MultiAICollaborationCard({
   collaborationResults,
   onSelectPath
 }: MultiAICollaborationCardProps) {
+  const t = useT();
   const handlePathSelect = (type: 'semantic_seeds' | 'daily_planning' | 'content_drafting') => {
     const result = collaborationResults[type];
     if (result.enabled && result.action) {

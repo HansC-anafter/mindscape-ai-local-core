@@ -1,7 +1,7 @@
 'use client';
 
 import { getAddModelType } from '@/app/settings/utils/modelsAndQuotaPanel';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 
 import type {
   CatalogCategory,
@@ -70,6 +70,7 @@ export function ModelsAndQuotaToolbar({
   onSubTabChange,
   onSwitchTab,
 }: ModelsAndQuotaToolbarProps) {
+  const t = useT();
   return (
     <div className="flex-shrink-0 border-b border-gray-200 dark:border-gray-700 pb-3 mb-3">
       <div className="flex flex-col gap-3 mb-3">

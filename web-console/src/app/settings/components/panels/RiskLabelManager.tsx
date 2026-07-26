@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { t } from '../../../../lib/i18n';
+import { useT } from '../../../../lib/i18n';
 
 interface RiskLabelManagerProps {
   riskLabels: Record<string, string[]>;
@@ -21,6 +21,7 @@ export function RiskLabelManager({
   riskLabels,
   onChange,
 }: RiskLabelManagerProps) {
+  const t = useT();
   const [selectedPlaybook, setSelectedPlaybook] = useState('');
   const [newPlaybook, setNewPlaybook] = useState('');
 

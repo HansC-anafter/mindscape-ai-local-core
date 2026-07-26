@@ -1,6 +1,6 @@
 'use client';
 
-import { t } from '../../../../../lib/i18n';
+import { useT } from '../../../../../lib/i18n';
 import type { ModelActionsSectionProps } from './types';
 
 function formatBytes(bytes: number) {
@@ -25,6 +25,7 @@ export function ModelActionsSection({
   onPullModel,
   onCancelPull,
 }: ModelActionsSectionProps) {
+  const t = useT();
   return (
     <div>
       <div className="flex gap-3">

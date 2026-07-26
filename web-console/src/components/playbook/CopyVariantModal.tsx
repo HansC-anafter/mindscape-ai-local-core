@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 
 interface CopyVariantModalProps {
   isOpen: boolean;
@@ -16,6 +16,7 @@ export default function CopyVariantModal({
   onConfirm,
   playbookName
 }: CopyVariantModalProps) {
+  const t = useT();
   const [variantName, setVariantName] = useState('');
   const [variantDescription, setVariantDescription] = useState('');
 

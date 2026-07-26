@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 import type { ClientUpdateInfo } from '@/lib/sync-api';
 
 interface ForceUpdatePageProps {
@@ -9,6 +9,7 @@ interface ForceUpdatePageProps {
 }
 
 export default function ForceUpdatePage({ updateInfo }: ForceUpdatePageProps) {
+  const t = useT();
   return (
     <div className="fixed inset-0 bg-white dark:bg-gray-900 flex items-center justify-center z-50">
       <div className="max-w-md w-full mx-4 text-center">

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { t } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 
 export interface ConflictInfo {
   instance_type: string;
@@ -20,6 +20,7 @@ interface ConflictResolverProps {
 }
 
 export default function ConflictResolver({ conflict, onResolve, onCancel }: ConflictResolverProps) {
+  const t = useT();
   const [selectedResolution, setSelectedResolution] = useState<string>('');
   const [showDiff, setShowDiff] = useState(false);
 

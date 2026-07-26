@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { t } from '../../../../lib/i18n';
+import { useT } from '../../../../lib/i18n';
 import { Card } from '../Card';
 import { InlineAlert } from '../InlineAlert';
 import {
@@ -42,6 +42,7 @@ interface SocialMediaOverviewProps {
 }
 
 export function SocialMediaOverview({ onNavigate }: SocialMediaOverviewProps) {
+  const t = useT();
   const router = useRouter();
   const searchParams = useSearchParams();
   const [connections, setConnections] = useState<Record<string, SocialMediaConnection>>({});

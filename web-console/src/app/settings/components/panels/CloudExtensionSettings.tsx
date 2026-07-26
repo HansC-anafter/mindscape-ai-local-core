@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { t } from '../../../../lib/i18n';
+import { useT } from '../../../../lib/i18n';
 import { Card } from '../Card';
 import { showNotification } from '../../hooks/useSettingsNotification';
 import { CloudFrontendUrlSection } from './cloudExtensionSettings/CloudFrontendUrlSection';
@@ -32,6 +32,7 @@ import type {
 } from './cloudExtensionSettings/types';
 
 export function CloudExtensionSettings(_props: CloudExtensionSettingsProps) {
+  const t = useT();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [providers, setProviders] = useState<Provider[]>([]);

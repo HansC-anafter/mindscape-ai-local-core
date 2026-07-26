@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { t } from '../../../../lib/i18n';
+import { useT } from '../../../../lib/i18n';
 import { settingsApi } from '../../utils/settingsApi';
 import { Section } from '../Section';
 import { InlineAlert } from '../InlineAlert';
@@ -23,6 +23,7 @@ interface MCPServerPanelProps {
 }
 
 export function MCPServerPanel({ activeProvider }: MCPServerPanelProps) {
+  const t = useT();
   const [servers, setServers] = useState<MCPServer[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
