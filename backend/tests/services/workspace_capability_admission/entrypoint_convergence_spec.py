@@ -108,7 +108,11 @@ def test_meeting_and_run_harness_admit_before_execution_or_store_write():
         "store = MeetingSessionStore()"
     )
     assert run_harness.index("await admit_run_harness_root(") < (
-        run_harness.index("return await service.execute(admitted.request)")
+        run_harness.index("return await service.execute(")
+    )
+    assert (
+        "governance_context=admitted.governance_context"
+        in run_harness
     )
     assert run_harness.rindex("await admit_run_harness_root(") < (
         run_harness.index("return await service.start(admitted.request)")

@@ -166,6 +166,41 @@ async def test_mapping_converts_executor_failure_to_harness_failure() -> None:
 
 
 @pytest.mark.asyncio
+async def test_mapping_preserves_disclosure_review_as_waiting() -> None:
+    ledger = MemoryEpisodeLedger()
+    executor = FakeExecutor(
+        snapshot=_snapshot(),
+        execution_result=ToolExecutionResult(
+            success=True,
+            tool_name="cap.tool",
+            tool_type="builtin",
+            result={
+                "status": "preflight_completed",
+                "artifact_created": False,
+                "review_requirements": [
+                    "verified_owner_review:report.html"
+                ],
+                "blocking_codes": [],
+                "review_binding_sha256": "a" * 64,
+            },
+        ),
+    )
+    service = RunHarnessToolExecutionService(
+        episode_ledger=ledger,
+        executor=executor,
+    )
+
+    result = await service.execute(_request())
+
+    assert result.status == RunHarnessStatus.WAITING
+    assert result.wait_state.reason == (
+        "artifact_disclosure_review_required"
+    )
+    assert result.metadata["review_binding_sha256"] == "a" * 64
+    assert ledger.events[-1] == "tool_execution_waiting"
+
+
+@pytest.mark.asyncio
 async def test_missing_tool_metadata_snapshot_fails_closed_before_execution() -> None:
     ledger = MemoryEpisodeLedger()
     executor = FakeExecutor(

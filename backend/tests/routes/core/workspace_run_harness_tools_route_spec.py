@@ -43,7 +43,15 @@ class FakeToolExecutionService:
     def __init__(self) -> None:
         self.requests = []
 
-    async def execute(self, request):
+    async def execute(
+        self,
+        request,
+        *,
+        external_decision=None,
+        governance_context=None,
+    ):
+        assert external_decision is None
+        assert governance_context.workspace_id == request.envelope.workspace_id
         self.requests.append(request)
         return RunHarnessResult(
             run_id=request.run_id,
@@ -60,6 +68,12 @@ class FakeAdmissionFacade:
         class Snapshot:
             schema_version = "mindscape.execution-admission-snapshot.v1"
             snapshot_hash = "a" * 64
+            workspace_id = request.workspace_id
+            selector_key = request.selector_key
+            trace_id = request.trace_id
+            root_execution_id = request.root_execution_id
+            entry = request.entry
+            active_group_id = None
 
             @staticmethod
             def model_dump(*, mode):
@@ -74,7 +88,26 @@ class FakeAdmissionFacade:
         return type(
             "Admission",
             (),
-            {"snapshot": Snapshot(), "external_decision": None},
+            {
+                "snapshot": Snapshot(),
+                "external_decision": None,
+                "principal_evidence": type(
+                    "PrincipalEvidence",
+                    (),
+                    {
+                        "workspace_id": request.workspace_id,
+                        "actor_user_id": request.actor_user_id,
+                        "allowed_workspace_ids": tuple(
+                            request.allowed_workspace_ids
+                        ),
+                        "allowed_group_ids": tuple(
+                            request.allowed_group_ids
+                        ),
+                        "workspace_owner_user_id": request.actor_user_id,
+                        "group_owner_user_id": None,
+                    },
+                )(),
+            },
         )()
 
 

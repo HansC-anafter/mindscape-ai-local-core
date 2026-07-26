@@ -36,6 +36,26 @@ async def test_workspace_html_report_tool_writes_static_html(tmp_path, monkeypat
 
 
 @pytest.mark.asyncio
+async def test_workspace_html_report_tool_preserves_slash_wrapped_subdir(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    sandbox_path = tmp_path / "workspaces" / "workspace-1" / "sandbox"
+
+    result = await WorkspaceHtmlReportTool().execute(
+        workspace_id="workspace-1",
+        sandbox_path=str(sandbox_path),
+        report_subdir="/reports/custom/",
+        file_name="compatibility.html",
+        html="<main>Compatibility</main>",
+    )
+
+    assert result["relative_path"] == "reports/custom/compatibility.html"
+    assert Path(result["file_path"]).is_file()
+
+
+@pytest.mark.asyncio
 async def test_workspace_html_report_tool_rejects_path_traversal(tmp_path, monkeypatch):
     monkeypatch.setenv("DATA_DIR", str(tmp_path))
     sandbox_path = tmp_path / "workspaces" / "workspace-1" / "sandbox"
@@ -93,6 +113,8 @@ async def test_reporting_tools_register_for_catalog_and_executor(tmp_path, monke
     register_reporting_tools()
     assert get_mindscape_tool("workspace_write_html_report") is not None
     assert get_mindscape_tool("core.workspace_write_html_report") is not None
+    assert get_mindscape_tool("workspace_package_report") is not None
+    assert get_mindscape_tool("core.workspace_package_report") is not None
 
     executor = UnifiedToolExecutor()
     result = await executor.execute_tool(
