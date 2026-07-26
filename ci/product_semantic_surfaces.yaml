@@ -580,6 +580,27 @@ surfaces:
       - web-console/src/components/workspace/device-binding/motionPractice*
       - web-console/src/components/workspace/device-binding/practice/**
 
+  - id: psc.local-core.motion-runtime-external-provider-boundary.v1
+    tier: P1
+    owner: "@team-leads"
+    contract_doc: mindscape-ai-cloud/docs/internal/local-core/product-semantics/motion-runtime-external-user-managed-provider-contract-2026-07-27.zh-TW.md
+    requires_product_semantic_declaration: true
+    semantics:
+      - Local Core installs and activates only the Mindscape pack artifact; external motion software remains user-managed, and the host does not install, start, stop, update, repair, scan, license-validate, accuracy-certify, or production-promote that external provider.
+      - External provider code and dependencies remain outside the .mindpack and Local Core Python runtime. The installed pack may read only one explicitly authorized workspace-managed FreeMoCap MediaPipe body NPY window through a thin adapter and must not use Parquet dependency expansion, vendoring, direct imports, lifecycle subprocesses, or implicit filesystem, LAN, or internet discovery.
+      - External provider availability is exactly available, incompatible, or unavailable. Available means interface-compatible only and does not imply license, research-grade, medical, safety, accuracy, endurance, SLA, or promotion evidence.
+      - Provider-specific data converges through the existing installed motion_runtime SkeletonFrame, WindowAggregator, MotionWindowSummary, and one append per explicit invocation; no second registry, analyzer, writer, worker, queue, process, stream, pool, or polling loop is allowed, and in-process state must not be claimed as durable.
+      - Generic pack installation keeps its existing manifest, artifact, dependency, atomic commit, and activation responsibilities and does not expand into an external-runtime validator, environment scanner, provider-version matrix, SBOM service, or legal-decision engine for this feature.
+      - Existing MediaPipe behavior, compact payload rejection, two-writes-per-second budget, and formal motion-quality evaluation gate remain unchanged.
+    path_globs:
+      - backend/app/capabilities/motion_runtime/**
+      - backend/tests/motion_runtime*
+      - backend/tests/*motion*runtime*
+      - backend/app/services/unified_tool_executor_core/capability.py
+      - backend/app/routes/core/capability_install_core/**
+      - backend/tests/capability_install*
+      - schemas/manifest.schema.yaml
+
   - id: psc.local-core.runner-browser-resource-governance.v1
     tier: P0
     owner: "@team-leads"
