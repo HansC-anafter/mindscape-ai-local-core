@@ -19,33 +19,18 @@ surfaces:
     contract_doc: mindscape-ai-cloud/docs/internal/local-core/product-semantics/device-host-binding-and-workspace-grant-contract-2026-07-27.zh-TW.md
     requires_product_semantic_declaration: true
     semantics:
-      - Local Core is the only desired-state authority for content-addressed device host bindings and per-workspace grants; Device Node only reconciles and attests actual process and permission state.
-      - Effective host admission requires exact installed pack, binding generation, attestation revision, workspace grant, permission conditions, and resource lane closure; missing or mismatched evidence is default deny.
-      - A workspace assignment, installed pack, process-alive signal, or device-global PermissionMap never substitutes for the complete host admission decision.
-      - One normalized persistence and facade path owns declare, materialize, attest, grant, revoke, retire, finalizer, and bounded projection operations; routes, Workbench, and Device Node cannot write authority state directly.
-      - The implementation extends the existing durable pack install and workspace admission paths without adding a worker, queue, scheduler, PgBouncer expansion, or idle UX polling interval.
+      - Local Core is the only desired-state authority for content-addressed host bindings and workspace grants; exact pack, generation, attestation, grant, permissions, and resource lane are all required, while Device Node only reconciles/attests and Workbench only projects through one normalized facade without adding workers, queues, PgBouncer capacity, or idle polling.
     path_globs:
       - backend/alembic_migrations/postgres/versions/*host_runtime_bindings*
-      - backend/app/services/host_runtime_bindings/**
-      - backend/app/services/host_runtime_execution_permit_coordinator.py
-      - backend/app/services/device_node_host_runtime_client.py
-      - backend/app/services/runtime_assets_installer_host_assets.py
-      - backend/app/services/runtime_assets_installer.py
-      - backend/app/services/runtime_assets_installer_support.py
+      - backend/app/**/*host_runtime*
+      - backend/tests/**/*host_runtime*
       - backend/app/services/workspace_product_configuration/**
-      - backend/app/services/workspace_capability_admission/**
-      - backend/app/routes/core/host_runtime_bindings.py
-      - backend/app/app_bootstrap/host_runtime_binding_routes.py
-      - backend/tests/services/host_runtime_bindings*
       - backend/tests/runtime_assets_installer_host_assets_spec.py
-      - device-node/src/services/host-runtime-*
-      - device-node/src/governance/workspace-host-admission-guard.ts
-      - device-node/src/host-runtime-runner.ts
-      - device-node/src/mcp-server.ts
+      - device-node/src/**/*host*
       - device-node/src/mcp-server/**
       - device-node/config/permissions.yaml
-      - web-console/src/components/workspace-products/HostAdmissionDetails.tsx
-      - web-console/src/components/workspace-products/WorkspaceProductRail.tsx
+      - web-console/src/components/workspace-products/*HostAdmission*
+      - web-console/src/components/workspace-products/*WorkspaceProduct*
       - web-console/src/lib/workspace-product-configuration-api.ts
 
   - id: psc.local-core.workspace-product-capability-admission.v1
