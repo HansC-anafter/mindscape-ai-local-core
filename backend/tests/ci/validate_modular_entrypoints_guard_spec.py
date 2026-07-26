@@ -2,13 +2,16 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+import yaml
+
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 VALIDATOR = REPO_ROOT / "scripts" / "ci" / "validate_modular_entrypoints.py"
 
 POLICY = """
 large_file_line_threshold: 500
-large_file_changed_lines_threshold: 5
+large_file_changed_lines_threshold: 20
 high_risk_paths:
   - backend/app/services/**
 multi_surface_groups:
@@ -42,6 +45,13 @@ event_rules:
 exception_markers:
   claim_markers:
     - Leaf-only exception claimed
+  minimum_explanation_characters: 20
+  rejected_values:
+    - "-"
+    - n/a
+    - none
+    - todo
+    - tbd
   required_fields:
     - Changed files
     - Why leaf-only
@@ -63,6 +73,15 @@ def _git(repo: Path, *args: str) -> str:
 def _write(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
+
+
+def _load_validator_module():
+    sys.path.insert(0, str(REPO_ROOT))
+    try:
+        from scripts.ci import validate_modular_entrypoints as module
+    finally:
+        sys.path.pop(0)
+    return module
 
 
 def _build_large_service(module_name: str = "giant_service_facade") -> str:
@@ -165,6 +184,95 @@ def test_validator_accepts_seam_extraction_for_protected_monolith(tmp_path: Path
     assert "seam evidence detected via backend/app/services/giant_service_facade.py" in result.stdout
 
 
+def test_validator_rejects_unrelated_facade_for_protected_monolith(
+    tmp_path: Path,
+) -> None:
+    repo, base_sha = _init_repo(tmp_path)
+    _write(
+        repo / "backend/app/services/unrelated/noop_facade.py",
+        "def execute() -> str:\n    return 'unrelated'\n",
+    )
+    _write(
+        repo / "backend/app/services/giant_service.py",
+        _mutate_large_service("legacy_adapter", bump=800),
+    )
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "add unrelated facade")
+    head_sha = _git(repo, "rev-parse", "HEAD")
+
+    result = _run_validator(repo, base_sha=base_sha, head_sha=head_sha, pr_body="")
+
+    assert result.returncode == 1
+    assert "unrelated seam candidates ignored" in result.stdout
+    assert "missing related seam handoff" in result.stdout
+
+
+@pytest.mark.parametrize(
+    ("line_count", "expected_valid"),
+    [(499, True), (500, False), (501, False)],
+)
+def test_large_file_threshold_is_inclusive_at_500(
+    tmp_path: Path,
+    line_count: int,
+    expected_valid: bool,
+) -> None:
+    module = _load_validator_module()
+    relative_path = "backend/app/services/sized_service.py"
+    _write(
+        tmp_path / relative_path,
+        "\n".join(f"LINE_{index} = {index}" for index in range(line_count)),
+    )
+    changed = module.ChangedFile(
+        path=relative_path,
+        status="M",
+        additions=21,
+        deletions=0,
+    )
+
+    is_valid, _ = module.evaluate_modular_entry_guard(
+        repo_root=tmp_path,
+        policy=yaml.safe_load(POLICY),
+        changed_files=[changed],
+        event_name="pull_request",
+        pr_body="",
+    )
+
+    assert is_valid is expected_valid
+
+
+@pytest.mark.parametrize(
+    ("changed_lines", "expected_valid"),
+    [(20, True), (21, False)],
+)
+def test_changed_line_threshold_triggers_above_20(
+    tmp_path: Path,
+    changed_lines: int,
+    expected_valid: bool,
+) -> None:
+    module = _load_validator_module()
+    relative_path = "backend/app/services/sized_service.py"
+    _write(
+        tmp_path / relative_path,
+        "\n".join(f"LINE_{index} = {index}" for index in range(500)),
+    )
+    changed = module.ChangedFile(
+        path=relative_path,
+        status="M",
+        additions=changed_lines,
+        deletions=0,
+    )
+
+    is_valid, _ = module.evaluate_modular_entry_guard(
+        repo_root=tmp_path,
+        policy=yaml.safe_load(POLICY),
+        changed_files=[changed],
+        event_name="pull_request",
+        pr_body="",
+    )
+
+    assert is_valid is expected_valid
+
+
 def test_validator_accepts_leaf_only_exception_on_pull_request(tmp_path: Path) -> None:
     repo, base_sha = _init_repo(tmp_path)
     _write(
@@ -188,3 +296,68 @@ Why future refactor cost does not increase: no new dependency edge is introduced
 
     assert result.returncode == 0
     assert "valid leaf-only exception provided" in result.stdout
+
+
+def test_leaf_exception_must_name_every_cross_surface_path(tmp_path: Path) -> None:
+    repo, base_sha = _init_repo(tmp_path)
+    _write(
+        repo / "backend/app/services/secondary_service.py",
+        "def run() -> str:\n    return 'service'\n",
+    )
+    _write(
+        repo / "backend/app/routes/core/demo.py",
+        "def route() -> str:\n    return 'route'\n",
+    )
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "cross surface leaf claim")
+    head_sha = _git(repo, "rev-parse", "HEAD")
+    pr_body = """
+- [x] Leaf-only exception claimed
+
+Changed files: backend/app/services/secondary_service.py
+Why leaf-only: only local return values change in the existing functions.
+Why no new boundary: ownership and the canonical request path remain unchanged.
+Why future refactor cost does not increase: no dependency or responsibility is added.
+"""
+
+    result = _run_validator(
+        repo,
+        base_sha=base_sha,
+        head_sha=head_sha,
+        pr_body=pr_body,
+    )
+
+    assert result.returncode == 1
+    assert (
+        "exception Changed files missing risky path: "
+        "backend/app/routes/core/demo.py"
+    ) in result.stdout
+
+
+def test_leaf_exception_rejects_placeholder_explanation(tmp_path: Path) -> None:
+    repo, base_sha = _init_repo(tmp_path)
+    _write(
+        repo / "backend/app/services/giant_service.py",
+        _mutate_large_service("legacy_adapter", bump=600),
+    )
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "placeholder leaf claim")
+    head_sha = _git(repo, "rev-parse", "HEAD")
+    pr_body = """
+- [x] Leaf-only exception claimed
+
+Changed files: backend/app/services/giant_service.py
+Why leaf-only: N/A
+Why no new boundary: ownership and the canonical request path remain unchanged.
+Why future refactor cost does not increase: no dependency or responsibility is added.
+"""
+
+    result = _run_validator(
+        repo,
+        base_sha=base_sha,
+        head_sha=head_sha,
+        pr_body=pr_body,
+    )
+
+    assert result.returncode == 1
+    assert "placeholder exception field: Why leaf-only" in result.stdout

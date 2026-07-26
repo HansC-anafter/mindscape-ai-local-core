@@ -64,6 +64,13 @@ event_rules:
 exception_markers:
   claim_markers:
     - Leaf-only exception claimed
+  minimum_explanation_characters: 20
+  rejected_values:
+    - "-"
+    - n/a
+    - none
+    - todo
+    - tbd
   required_fields:
     - Changed files
     - Why leaf-only
