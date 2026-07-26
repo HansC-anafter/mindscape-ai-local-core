@@ -12,6 +12,15 @@ from backend.app.services.runtime_database_incident_core.evaluator import (
     RuntimeDatabaseMutationBlocked,
     RuntimeDatabaseMutationGate,
 )
+from backend.app.services.runtime_database_incident_core.closure_receipts import (
+    ATTRIBUTION_EXHAUSTION_CLASSIFICATION,
+    REQUIRED_SEARCHED_SOURCES,
+    RESIDUAL_CLOSURE_MODE,
+    RESIDUAL_OWNER,
+    RESIDUAL_RISK_STATEMENT,
+    IncidentAttributionExhaustionReceipt,
+    IncidentResidualCloseReceipt,
+)
 from backend.app.services.runtime_database_incident_core.journal import (
     IncidentJournalUnavailable,
     IncidentTransitionError,
@@ -85,16 +94,23 @@ def require_runtime_database_mutation_allowed(
 
 
 __all__ = [
+    "ATTRIBUTION_EXHAUSTION_CLASSIFICATION",
     "IncidentCloseReceipt",
     "IncidentContainmentReceipt",
     "IncidentDiagnosticPermit",
+    "IncidentAttributionExhaustionReceipt",
     "IncidentPackInstallPermitReceipt",
+    "IncidentResidualCloseReceipt",
     "IncidentTargetedMigrationPermitReceipt",
     "IncidentJournalUnavailable",
     "IncidentReceipt",
     "IncidentState",
     "IncidentTransitionError",
     "MutationDecision",
+    "REQUIRED_SEARCHED_SOURCES",
+    "RESIDUAL_CLOSURE_MODE",
+    "RESIDUAL_OWNER",
+    "RESIDUAL_RISK_STATEMENT",
     "RuntimeDatabaseIncidentJournal",
     "RuntimeDatabaseMutationBlocked",
     "RuntimeDatabaseMutationGate",

@@ -76,7 +76,8 @@ surfaces:
       - The tasks table remains bounded task-control authority; a single adapter facade writes pack-owned typed identity projections only for create or identity changes, and both generic task tables retire pack-specific indexes to zero.
       - Every abnormal database close opens one durable incident and mutation gate; schema mutation, index retirement, backfill, pack migration, restart, and failover require an explicit gate receipt.
       - PostgreSQL clients preserve process and database role identity; unexpected-close and SIGQUIT sender evidence is payload-free, bounded, and appended to the same incident journal through one observer facade.
-      - The high-privilege signal observer requires an exact short-lived diagnostic permit while the incident remains open; generic allow cannot start it, and any new database failure atomically revokes diagnostic or containment permits.
+      - The high-privilege signal observer requires an exact short-lived diagnostic permit while the incident remains open; generic allow cannot start it, and the client-side unexpected-close symptom it is intended to attribute preserves the live observer permit while expiry, source change, observer failure, planned reconfigure, attribution terminal, or containment failure consumes or revokes it.
+      - Attributable closure remains the default. A historical event with irretrievable sender evidence may close only after one owner-authorized, complete, exact-source, bounded attribution-exhaustion receipt is appended to the same journal and the full containment, tests, non-reproduction, restore, post-containment soak, resource-budget, and owner-receipt bundle matches; health or instance replacement never substitutes for either path.
       - Capability-pack install retains the candidate and previous active runtime until migration and verification succeed, then commits filesystem activation, activation state, installed metadata, and registry projections from one durable receipt.
       - Alembic revision history is append-only operational truth; recovery uses graph diagnosis and corrective revisions and never deletes revision rows to force convergence.
       - Progress reads return one compact current or stale-known snapshot, or a redacted 503 with Retry-After; frontend polling obeys bounded 10, 20, and 30 second intervals and stops when hidden or terminal.
@@ -124,6 +125,7 @@ surfaces:
       - docker/postgres/**
       - docker/pgbouncer/**
       - backend/tests/runtime_database_incident_gate_spec.py
+      - backend/tests/runtime_database_residual_closure_spec.py
       - backend/tests/database_recovery_backoff_spec.py
       - backend/tests/database_application_identity_spec.py
       - backend/tests/database_query_failure_evidence_spec.py
@@ -137,6 +139,7 @@ surfaces:
       - backend/tests/db_pool_pressure_spec.py
       - backend/tests/progress_snapshot_degraded_state_spec.py
       - backend/tests/scripts/postgres_incident_gate_spec.py
+      - backend/tests/scripts/postgres_incident_residual_closure_spec.py
       - backend/tests/scripts/postgres_recovery_drill_spec.py
       - backend/tests/scripts/postgres_signal_observer_spec.py
       - backend/tests/scripts/postgres_signal_observer_drill_spec.py
