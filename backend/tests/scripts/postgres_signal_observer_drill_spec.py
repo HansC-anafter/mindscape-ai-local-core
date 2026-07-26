@@ -1017,7 +1017,10 @@ def test_observer_launcher_terminal_deadline_is_independent_and_fail_closed(
         ["/usr/local/bin/docker", "stop"],
         ["/usr/local/bin/docker", "rm"],
     ]
-    assert all("client" not in "\0".join(call[0]) for call in calls)
+    assert all(
+        "runtime-db-observer-drill-client-" not in "\0".join(call[0])
+        for call in calls
+    )
     assert "postgresql://fixture-only" not in serialized
 
 

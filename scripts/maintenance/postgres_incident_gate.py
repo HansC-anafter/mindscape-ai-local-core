@@ -116,11 +116,23 @@ def _parser() -> argparse.ArgumentParser:
     close = commands.add_parser("close")
     close.add_argument("incident_id")
     close.add_argument("--deep-trigger-classification", required=True)
+    close.add_argument("--deep-trigger-event-sha256", required=True)
     close.add_argument("--fix-commit", required=True)
+    close.add_argument("--containment-evidence-path", required=True)
+    close.add_argument("--containment-evidence-sha256", required=True)
     close.add_argument("--test-evidence-path", action="append", required=True)
+    close.add_argument("--test-evidence-sha256", required=True)
+    close.add_argument("--reproduction-evidence-path", required=True)
+    close.add_argument("--reproduction-evidence-sha256", required=True)
     close.add_argument("--soak-window", required=True)
     close.add_argument("--restore-id", required=True)
+    close.add_argument("--restore-evidence-path", required=True)
+    close.add_argument("--restore-evidence-sha256", required=True)
+    close.add_argument("--resource-budget-evidence-path", required=True)
+    close.add_argument("--resource-budget-evidence-sha256", required=True)
     close.add_argument("--owner", required=True)
+    close.add_argument("--owner-receipt-path", required=True)
+    close.add_argument("--owner-receipt-sha256", required=True)
     return parser
 
 
@@ -269,11 +281,23 @@ def main(argv: list[str] | None = None) -> int:
             args.incident_id,
             IncidentCloseReceipt(
                 deep_trigger_classification=args.deep_trigger_classification,
+                deep_trigger_event_sha256=args.deep_trigger_event_sha256,
                 fix_commit=args.fix_commit,
+                containment_evidence_path=args.containment_evidence_path,
+                containment_evidence_sha256=args.containment_evidence_sha256,
                 test_evidence_paths=tuple(args.test_evidence_path),
+                test_evidence_sha256=args.test_evidence_sha256,
+                reproduction_evidence_path=args.reproduction_evidence_path,
+                reproduction_evidence_sha256=args.reproduction_evidence_sha256,
                 soak_window=args.soak_window,
                 restore_id=args.restore_id,
+                restore_evidence_path=args.restore_evidence_path,
+                restore_evidence_sha256=args.restore_evidence_sha256,
+                resource_budget_evidence_path=args.resource_budget_evidence_path,
+                resource_budget_evidence_sha256=args.resource_budget_evidence_sha256,
                 owner=args.owner,
+                owner_receipt_path=args.owner_receipt_path,
+                owner_receipt_sha256=args.owner_receipt_sha256,
             ),
         )
     else:

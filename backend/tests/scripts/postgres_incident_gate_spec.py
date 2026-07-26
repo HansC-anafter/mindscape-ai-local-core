@@ -165,7 +165,7 @@ def test_cli_containment_requires_exact_artifact_operation_key(
         "--trigger-classification",
         "unattributed_backend_exit_under_structural_pressure",
         "--fix-commit",
-        "0123456789abcdef",
+        "0123456789abcdef0123456789abcdef01234567",
         "--allowed-operation-key",
         operation_key,
         "--test-evidence-path",

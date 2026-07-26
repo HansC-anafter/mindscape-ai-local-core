@@ -12,12 +12,11 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from backend.app.services.runtime_database_incident_gate import (
+    evaluate_runtime_database_mutation,
     record_database_diagnostic_observation,
-    require_runtime_database_mutation_allowed,
 )
 
 from .artifact import canonical_observer_artifact_sha256
-from .drill_names import DRILL_APPLICATION_NAME
 from .evidence import EvidenceCapacityExhausted, ObserverEvidenceStore
 from .events import parse_signal_generate_line, read_namespace_pids
 from .pgbouncer import PgBouncerCorrelationClient
@@ -31,6 +30,8 @@ def utc_now() -> str:
 _STABLE_OBSERVER_FAILURE_CODES = frozenset(
     {
         "incident_diagnostic_permit_required",
+        "incident_diagnostic_permit_changed",
+        "incident_diagnostic_permit_expired",
         "observer_artifact_sha256_invalid",
         "observer_artifact_sha256_missing",
         "observer_artifact_sha256_readback_mismatch",
@@ -99,6 +100,7 @@ class ObserverConfig:
     repo_root: Path = Path("/app")
     trace_root: Path = Path("/sys/kernel/tracing")
     heartbeat_seconds: float = 5.0
+    expected_application_name: str | None = None
 
     @classmethod
     def from_environment(cls) -> "ObserverConfig":
@@ -128,6 +130,13 @@ class ObserverConfig:
             trace_root=Path(
                 os.getenv("POSTGRES_SIGNAL_OBSERVER_TRACE_ROOT", "/sys/kernel/tracing")
             ),
+            expected_application_name=(
+                os.getenv(
+                    "POSTGRES_SIGNAL_OBSERVER_EXPECTED_APPLICATION_NAME",
+                    "",
+                ).strip()
+                or None
+            ),
         )
 
     def validate(self) -> None:
@@ -148,6 +157,11 @@ class ObserverConfig:
             raise ValueError("observer_image_digest_invalid")
         if not self.pgbouncer_admin_url:
             raise ValueError("observer_pgbouncer_admin_url_missing")
+        if self.expected_application_name is not None and not re.fullmatch(
+            r"[A-Za-z0-9][A-Za-z0-9._:-]{0,62}",
+            self.expected_application_name,
+        ):
+            raise ValueError("observer_expected_application_name_invalid")
         actual_artifact_sha256 = canonical_observer_artifact_sha256(self.repo_root)
         if actual_artifact_sha256 != self.artifact_sha256:
             raise ValueError("observer_artifact_sha256_readback_mismatch")
@@ -169,11 +183,12 @@ class PostgresSignalObserver:
         self.trace = trace or TraceFsInstance(config.trace_root)
         self.correlation = correlation or PgBouncerCorrelationClient(
             config.pgbouncer_admin_url,
-            expected_application_name=DRILL_APPLICATION_NAME,
+            expected_application_name=config.expected_application_name,
         )
         self._stopping = False
         self._diagnostic_incident_id = ""
         self._diagnostic_permit_id = ""
+        self._diagnostic_expires_at: datetime | None = None
 
     def stop(self) -> None:
         self._stopping = True
@@ -194,6 +209,42 @@ class PostgresSignalObserver:
                 **details,
             }
         )
+
+    def _require_active_diagnostic_permit(self, *, initialize: bool) -> datetime:
+        decision = evaluate_runtime_database_mutation(
+            "postgres_signal_observer_start",
+            evidence={"artifact_sha256": self.config.artifact_sha256},
+            journal_root=self.config.journal_root,
+        )
+        if decision.reason != "incident_diagnostic_permit":
+            failure = (
+                "incident_diagnostic_permit_expired"
+                if decision.reason == "incident_diagnostic_permit_expired"
+                else "incident_diagnostic_permit_required"
+            )
+            raise RuntimeError(failure)
+        incident_id = str(decision.incident_id or "")
+        permit_id = str(decision.details.get("permit_id") or "")
+        expires_at_value = str(decision.details.get("expires_at") or "")
+        try:
+            expires_at = datetime.fromisoformat(
+                expires_at_value.replace("Z", "+00:00")
+            )
+        except ValueError as exc:
+            raise RuntimeError("incident_diagnostic_permit_expired") from exc
+        if expires_at.tzinfo is None or expires_at <= datetime.now(timezone.utc):
+            raise RuntimeError("incident_diagnostic_permit_expired")
+        if initialize:
+            self._diagnostic_incident_id = incident_id
+            self._diagnostic_permit_id = permit_id
+            self._diagnostic_expires_at = expires_at
+        elif (
+            incident_id != self._diagnostic_incident_id
+            or permit_id != self._diagnostic_permit_id
+            or expires_at != self._diagnostic_expires_at
+        ):
+            raise RuntimeError("incident_diagnostic_permit_changed")
+        return expires_at
 
     def _process_line(self, line: str) -> None:
         event = parse_signal_generate_line(line)
@@ -262,6 +313,11 @@ class PostgresSignalObserver:
                     correlation.get("client_remote_pid_available") is True
                 ).lower(),
                 "client_process_pid": str(correlation.get("client_remote_pid") or 0),
+                "event_context": (
+                    "isolated_drill"
+                    if self.config.expected_application_name is not None
+                    else "live_runtime"
+                ),
                 "signal_event_path": receipt["event_path"],
                 "signal_event_sha256": receipt["event_sha256"],
             },
@@ -283,15 +339,7 @@ class PostgresSignalObserver:
                 startup_phase="config_and_permit_validation",
             )
             self.config.validate()
-            decision = require_runtime_database_mutation_allowed(
-                "postgres_signal_observer_start",
-                evidence={"artifact_sha256": self.config.artifact_sha256},
-                journal_root=self.config.journal_root,
-            )
-            if decision.reason != "incident_diagnostic_permit":
-                raise RuntimeError("incident_diagnostic_permit_required")
-            self._diagnostic_incident_id = str(decision.incident_id or "")
-            self._diagnostic_permit_id = str(decision.details.get("permit_id") or "")
+            permit_expires_at = self._require_active_diagnostic_permit(initialize=True)
             failure_phase = "tracefs_prepare"
             self._health(
                 ready=False,
@@ -309,10 +357,21 @@ class PostgresSignalObserver:
             failure_phase = "trace_pipe_runtime"
             with self.trace.open_pipe() as trace_pipe:
                 while not self._stopping:
+                    remaining_seconds = (
+                        permit_expires_at - datetime.now(timezone.utc)
+                    ).total_seconds()
+                    if remaining_seconds <= 0:
+                        self._require_active_diagnostic_permit(initialize=False)
                     readable, _, _ = select.select(
-                        [trace_pipe], [], [], self.config.heartbeat_seconds
+                        [trace_pipe],
+                        [],
+                        [],
+                        min(self.config.heartbeat_seconds, remaining_seconds),
                     )
                     if not readable:
+                        permit_expires_at = self._require_active_diagnostic_permit(
+                            initialize=False
+                        )
                         self._health(
                             ready=True,
                             state="ready",

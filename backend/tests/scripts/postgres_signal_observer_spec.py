@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import time
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -348,6 +350,7 @@ def test_signal_event_is_persisted_before_correlation_failure_closes_health(
     assert event["pgbouncer"]["status"] == "correlation_unavailable"
     assert recorded[0][0][0] == "incident-fixture"
     assert recorded[0][1]["observation_code"] == "postgres_sigquit_signal_observed"
+    assert recorded[0][1]["evidence"]["event_context"] == "live_runtime"
 
 
 def test_signal_target_handoff_survives_backend_proc_exit_and_correlates(
@@ -403,6 +406,49 @@ def test_signal_target_handoff_survives_backend_proc_exit_and_correlates(
     assert event["pgbouncer"] == correlation
     assert not store.signal_target_path.exists()
     assert recorded[0][1]["permit_id"] == "permit-fixture"
+    assert recorded[0][1]["evidence"]["event_context"] == "live_runtime"
+
+
+def test_isolated_observer_marks_events_as_drill_only(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    recorded = []
+    config = replace(
+        _config(tmp_path),
+        expected_application_name="postgres-signal-observer-drill-client",
+    )
+    observer = PostgresSignalObserver(
+        config,
+        trace=SimpleNamespace(instance_name="test", cleanup=lambda: None),
+        correlation=SimpleNamespace(
+            correlate=lambda _pid: {
+                "status": "correlated",
+                "application_name": "postgres-signal-observer-drill-client",
+                "database": "mindscape_core",
+                "user_sha256": "d" * 64,
+                "client_address_class": "private",
+                "client_remote_pid_available": True,
+                "client_remote_pid": 4242,
+                "postgres_remote_pid": 204,
+            }
+        ),
+    )
+    observer._diagnostic_incident_id = "incident-fixture"
+    observer._diagnostic_permit_id = "permit-fixture"
+    monkeypatch.setattr(
+        "scripts.maintenance.postgres_signal_observer_core.service.read_namespace_pids",
+        lambda pid: (pid, 204 if pid == 54909 else 300),
+    )
+    monkeypatch.setattr(
+        "scripts.maintenance.postgres_signal_observer_core.service."
+        "record_database_diagnostic_observation",
+        lambda *args, **kwargs: recorded.append((args, kwargs)),
+    )
+
+    observer._process_line(TRACE_LINE)
+
+    assert recorded[0][1]["evidence"]["event_context"] == "isolated_drill"
 
 
 def test_observer_refuses_tracefs_before_exact_incident_permit(
@@ -692,6 +738,73 @@ def test_observer_health_redacts_unclassified_trace_pipe_exception_detail(
         == "observer_error_unclassified_trace_pipe_runtime"
     )
     assert "fixture-runtime-secret" not in json.dumps(terminal, sort_keys=True)
+
+
+def test_observer_exits_and_fails_closed_when_diagnostic_permit_expires(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = replace(_config(tmp_path), heartbeat_seconds=0.02)
+    journal = RuntimeDatabaseIncidentJournal(config.journal_root)
+    incident = journal.open_incident(failure_code="observer_permit_expiry_test")
+    journal.record_diagnostic_permit(
+        incident.incident_id,
+        IncidentDiagnosticPermit(
+            permit_id="diagnostic-observer-expiry",
+            source_commit=config.source_commit,
+            allowed_operation_keys=(
+                "postgres_signal_observer_start@sha256:" + config.artifact_sha256,
+            ),
+            test_evidence_paths=("evidence/observer-expiry.json",),
+            isolated_drill_id="observer-expiry-test",
+            budget_sha256="b" * 64,
+            expires_at=(
+                datetime.now(timezone.utc) + timedelta(milliseconds=80)
+            ).isoformat(),
+            owner="runtime-db-incident-owner",
+        ),
+    )
+    cleanup_calls: list[bool] = []
+
+    class _PipeContext:
+        def __enter__(self):
+            return object()
+
+        def __exit__(self, *_args):
+            return False
+
+    class _PreparedTrace:
+        instance_name = "test"
+
+        def prepare(self):
+            return 'sig == 3 && comm == "postgres"'
+
+        def open_pipe(self):
+            return _PipeContext()
+
+        def cleanup(self):
+            cleanup_calls.append(True)
+
+    def _quiet_select(_readers, _writers, _errors, timeout):
+        time.sleep(max(timeout, 0))
+        return ([], [], [])
+
+    monkeypatch.setattr(
+        "scripts.maintenance.postgres_signal_observer_core.service.select.select",
+        _quiet_select,
+    )
+    observer = PostgresSignalObserver(
+        config,
+        trace=_PreparedTrace(),
+        correlation=SimpleNamespace(),
+    )
+
+    assert observer.run() == 2
+    terminal = ObserverEvidenceStore(config.evidence_root).read_health()
+    assert terminal["ready"] is False
+    assert terminal["state"] == "fail_closed_observer_error"
+    assert terminal["failure_detail_code"] == "incident_diagnostic_permit_expired"
+    assert cleanup_calls == [True]
 
 
 def test_docker_healthcheck_reads_only_matching_canonical_journal(

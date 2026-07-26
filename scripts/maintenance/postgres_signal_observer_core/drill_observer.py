@@ -14,7 +14,7 @@ from .drill_admin_url import (
     PGBOUNCER_ADMIN_ENVIRONMENT_KEY,
 )
 from .drill_escalation import terminal_nonzero_capture_metadata
-from .drill_names import validate_disposable_drill_name
+from .drill_names import DRILL_APPLICATION_NAME, validate_disposable_drill_name
 from .drill_images import (
     OBSERVER_BACKEND_IMAGE_ROLE,
     drill_image_digest,
@@ -192,6 +192,8 @@ class DisposableDrillObserverConfig:
             f"POSTGRES_SIGNAL_OBSERVER_SOURCE_COMMIT={self.source_commit}",
             "--env",
             f"POSTGRES_SIGNAL_OBSERVER_IMAGE_DIGEST={self.image_digest}",
+            "--env",
+            f"POSTGRES_SIGNAL_OBSERVER_EXPECTED_APPLICATION_NAME={DRILL_APPLICATION_NAME}",
             "--env",
             "PGBOUNCER_ADMIN_URL",
             "--entrypoint",

@@ -34,6 +34,16 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
+def _positive_int(value: object) -> int | None:
+    """Return a positive integer, failing closed for malformed journal evidence."""
+
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
 def incident_directory() -> Path:
     configured = os.getenv("RUNTIME_DATABASE_INCIDENT_DIR", "").strip()
     return Path(configured) if configured else DEFAULT_INCIDENT_DIRECTORY
@@ -116,6 +126,21 @@ class RuntimeDatabaseIncidentJournal:
             raise IncidentJournalUnavailable(
                 f"Runtime database incident event append failed: {event_path}"
             ) from exc
+
+    def _read_events_unlocked(self, incident_id: str) -> list[Mapping[str, Any]]:
+        event_path = self._incident_path(incident_id) / "events.jsonl"
+        try:
+            lines = event_path.read_text(encoding="utf-8").splitlines()
+            events = [json.loads(line) for line in lines if line.strip()]
+        except (OSError, ValueError, TypeError) as exc:
+            raise IncidentJournalUnavailable(
+                f"Runtime database incident events are unreadable: {event_path}"
+            ) from exc
+        if not events or any(not isinstance(event, Mapping) for event in events):
+            raise IncidentJournalUnavailable(
+                f"Runtime database incident events are invalid: {event_path}"
+            )
+        return events
 
     def _write_current_unlocked(self, receipt: IncidentReceipt) -> None:
         self._ensure_root()
@@ -297,6 +322,17 @@ class RuntimeDatabaseIncidentJournal:
             if diagnostic.get("permit_id") != exact_permit_id:
                 raise IncidentTransitionError(
                     f"Incident {incident_id} diagnostic permit does not match"
+                )
+            try:
+                permit_active = _parse_timestamp(
+                    str(diagnostic.get("expires_at") or ""),
+                    field_name="diagnostic_expires_at",
+                ) > datetime.now(timezone.utc)
+            except ValueError:
+                permit_active = False
+            if not permit_active:
+                raise IncidentTransitionError(
+                    f"Incident {incident_id} diagnostic permit is expired"
                 )
             event_time = utc_now()
             updated = replace(
@@ -554,8 +590,73 @@ class RuntimeDatabaseIncidentJournal:
                 raise IncidentTransitionError(
                     f"Incident {incident_id} must be contained before close"
                 )
-            event_time = utc_now()
+            containment = dict(current.containment_receipt or {})
             close_payload = close_receipt.to_dict()
+            if close_receipt.fix_commit != containment.get("fix_commit"):
+                raise IncidentTransitionError(
+                    "incident_close_fix_commit_must_match_containment"
+                )
+            if close_receipt.restore_id != containment.get("restore_id"):
+                raise IncidentTransitionError(
+                    "incident_close_restore_id_must_match_containment"
+                )
+            if close_receipt.owner != containment.get("owner"):
+                raise IncidentTransitionError(
+                    "incident_close_owner_must_match_containment"
+                )
+            containment_tests = set(containment.get("test_evidence_paths") or ())
+            if not containment_tests.issubset(set(close_receipt.test_evidence_paths)):
+                raise IncidentTransitionError(
+                    "incident_close_tests_must_include_containment_evidence"
+                )
+            events = self._read_events_unlocked(incident_id)
+            matching_trigger_events = [
+                event
+                for event in events
+                if event.get("event") == "diagnostic_observation_recorded"
+                and event.get("observation_code")
+                == "postgres_sigquit_signal_observed"
+                and isinstance(event.get("evidence"), Mapping)
+                and event["evidence"].get("event_context") == "live_runtime"
+                and event["evidence"].get("signal_event_sha256")
+                == close_receipt.deep_trigger_event_sha256
+                and str(event["evidence"].get("sender_comm") or "").strip()
+                and _positive_int(event["evidence"].get("sender_host_pid"))
+                is not None
+                and _positive_int(event["evidence"].get("target_host_pid"))
+                is not None
+                and _positive_int(event["evidence"].get("target_postgres_pid"))
+                is not None
+                and str(event["evidence"].get("application_name") or "").strip()
+                and event["evidence"].get("client_process_pid_available") == "true"
+                and _positive_int(event["evidence"].get("client_process_pid"))
+                is not None
+                and str(event["evidence"].get("signal_event_path") or "").strip()
+            ]
+            if len(matching_trigger_events) != 1:
+                raise IncidentTransitionError(
+                    "incident_close_requires_exact_live_deep_trigger_event"
+                )
+            contained_events = [
+                event for event in events if event.get("event") == "incident_contained"
+            ]
+            if len(contained_events) != 1:
+                raise IncidentTransitionError(
+                    "incident_close_requires_exact_containment_event"
+                )
+            soak_started_at = _parse_timestamp(
+                close_receipt.soak_window.split("/")[0],
+                field_name="incident_close_soak_started_at",
+            )
+            contained_at = _parse_timestamp(
+                str(contained_events[0].get("at") or ""),
+                field_name="incident_contained_at",
+            )
+            if soak_started_at < contained_at:
+                raise IncidentTransitionError(
+                    "incident_close_soak_must_follow_containment"
+                )
+            event_time = utc_now()
             updated = replace(
                 current,
                 state=IncidentState.CLOSED,

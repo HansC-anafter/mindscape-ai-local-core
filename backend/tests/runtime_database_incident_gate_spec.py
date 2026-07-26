@@ -19,14 +19,32 @@ from backend.app.services.runtime_database_incident_gate import (
 )
 
 
-def _close_receipt() -> IncidentCloseReceipt:
+def _close_receipt(
+    *,
+    soak_window: str = "2026-07-16T00:00:00Z/2026-07-19T00:00:00Z",
+) -> IncidentCloseReceipt:
     return IncidentCloseReceipt(
         deep_trigger_classification="postmaster_backend_process_exit",
-        fix_commit="0123456789abcdef",
-        test_evidence_paths=("evidence/classifier.json", "evidence/restore.json"),
-        soak_window="2026-07-16T00:00:00Z/2026-07-19T00:00:00Z",
+        deep_trigger_event_sha256="d" * 64,
+        fix_commit="0123456789abcdef0123456789abcdef01234567",
+        containment_evidence_path="evidence/containment.json",
+        containment_evidence_sha256="e" * 64,
+        test_evidence_paths=(
+            "evidence/source-tests.json",
+            "evidence/restore.json",
+        ),
+        test_evidence_sha256="f" * 64,
+        reproduction_evidence_path="evidence/reproduction.json",
+        reproduction_evidence_sha256="1" * 64,
+        soak_window=soak_window,
         restore_id="restore-001",
+        restore_evidence_path="evidence/restore.json",
+        restore_evidence_sha256="2" * 64,
+        resource_budget_evidence_path="evidence/resource-budget.json",
+        resource_budget_evidence_sha256="3" * 64,
         owner="team-leads",
+        owner_receipt_path="evidence/owner-receipt.json",
+        owner_receipt_sha256="4" * 64,
     )
 
 
@@ -34,14 +52,14 @@ def _containment_receipt() -> IncidentContainmentReceipt:
     return IncidentContainmentReceipt(
         permit_id="containment-001",
         trigger_classification="unattributed_backend_exit_under_structural_pressure",
-        fix_commit="0123456789abcdef",
+        fix_commit="0123456789abcdef0123456789abcdef01234567",
         allowed_operation_keys=(
             "backend_restart",
             "capability_install_job@sha256:" + "a" * 64,
             "capability_migration:ig@sha256:" + "a" * 64,
         ),
         test_evidence_paths=("evidence/source-tests.json", "evidence/restore.json"),
-        restore_id="restore-preflight-001",
+        restore_id="restore-001",
         expires_at="2099-07-17T00:00:00Z",
         owner="team-leads",
     )
@@ -63,6 +81,36 @@ def _diagnostic_permit(
         budget_sha256="c" * 64,
         expires_at=expires_at,
         owner="team-leads",
+    )
+
+
+def _record_live_trigger(
+    journal: RuntimeDatabaseIncidentJournal,
+    incident_id: str,
+    *,
+    event_context: str = "live_runtime",
+) -> None:
+    journal.record_diagnostic_permit(incident_id, _diagnostic_permit())
+    journal.record_diagnostic_observation(
+        incident_id,
+        permit_id="diagnostic-001",
+        observation_code="postgres_sigquit_signal_observed",
+        evidence={
+            "sender_comm": "pg_ctl",
+            "sender_host_pid": "100",
+            "target_host_pid": "200",
+            "target_postgres_pid": "300",
+            "application_name": "local-core-backend:core",
+            "client_process_pid_available": "true",
+            "client_process_pid": "400",
+            "event_context": event_context,
+            "signal_event_path": "signal-observer/events/event-001.json",
+            "signal_event_sha256": "d" * 64,
+        },
+    )
+    journal.revoke_diagnostic_permit(
+        incident_id,
+        terminal_reason="attribution_event_recorded",
     )
 
 
@@ -95,6 +143,7 @@ def test_state_machine_requires_containment_and_complete_close_receipt(
     with pytest.raises(IncidentTransitionError):
         journal.close(incident.incident_id, _close_receipt())
 
+    _record_live_trigger(journal, incident.incident_id)
     contained = journal.mark_contained(
         incident.incident_id,
         _containment_receipt(),
@@ -110,16 +159,19 @@ def test_state_machine_requires_containment_and_complete_close_receipt(
         journal.close(
             incident.incident_id,
             IncidentCloseReceipt(
-                deep_trigger_classification="known",
-                fix_commit="abc",
-                test_evidence_paths=(),
-                soak_window="window",
-                restore_id="restore",
-                owner="owner",
+                **{
+                    **_close_receipt().__dict__,
+                    "test_evidence_paths": (),
+                }
             ),
         )
 
-    closed = journal.close(incident.incident_id, _close_receipt())
+    soak_started_at = contained.updated_at
+    soak_ended_at = datetime.now(timezone.utc).isoformat()
+    closed = journal.close(
+        incident.incident_id,
+        _close_receipt(soak_window=f"{soak_started_at}/{soak_ended_at}"),
+    )
     assert closed.state is IncidentState.CLOSED
     assert RuntimeDatabaseMutationGate(tmp_path).evaluate("migration").allowed is True
 
@@ -359,12 +411,74 @@ def test_ownership_handback_rejects_active_permit_or_unverified_resources(
 def test_close_rejects_unattributed_deep_trigger() -> None:
     with pytest.raises(ValueError, match="requires_attributed"):
         IncidentCloseReceipt(
-            deep_trigger_classification="unattributed_backend_exit",
-            fix_commit="abc",
-            test_evidence_paths=("evidence.json",),
-            soak_window="window",
-            restore_id="restore",
-            owner="owner",
+            **{
+                **_close_receipt().__dict__,
+                "deep_trigger_classification": "unattributed_backend_exit",
+            }
+        ).validate()
+
+
+def test_close_rejects_isolated_drill_as_live_incident_attribution(
+    tmp_path: Path,
+) -> None:
+    journal = RuntimeDatabaseIncidentJournal(tmp_path)
+    incident = journal.open_incident(failure_code="unexpected_close")
+    _record_live_trigger(
+        journal,
+        incident.incident_id,
+        event_context="isolated_drill",
+    )
+    contained = journal.mark_contained(
+        incident.incident_id,
+        _containment_receipt(),
+    )
+
+    with pytest.raises(
+        IncidentTransitionError,
+        match="requires_exact_live_deep_trigger_event",
+    ):
+        journal.close(
+            incident.incident_id,
+            _close_receipt(
+                soak_window=(
+                    f"{contained.updated_at}/"
+                    f"{datetime.now(timezone.utc).isoformat()}"
+                )
+            ),
+        )
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value", "failure"),
+    [
+        (
+            "resource_budget_evidence_sha256",
+            "",
+            "missing required fields",
+        ),
+        (
+            "restore_id",
+            "not_required_no_postgres_failure",
+            "requires_restore_evidence",
+        ),
+        (
+            "fix_commit",
+            "0123456789abcdef",
+            "fix_commit_must_be_exact",
+        ),
+    ],
+)
+def test_close_requires_machine_bound_p0_evidence(
+    field_name: str,
+    value: str,
+    failure: str,
+) -> None:
+    with pytest.raises(ValueError, match=failure):
+        IncidentCloseReceipt(
+            **{
+                **_close_receipt().__dict__,
+                field_name: value,
+            }
         ).validate()
 
 

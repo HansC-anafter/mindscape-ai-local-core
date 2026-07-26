@@ -153,6 +153,8 @@ class IncidentContainmentReceipt:
                 raise ValueError("containment_operation_key_too_long")
             if "*" in normalized or any(char.isspace() for char in normalized):
                 raise ValueError("containment_operation_keys_must_be_exact")
+        if not re.fullmatch(r"[0-9a-f]{40}", self.fix_commit):
+            raise ValueError("containment_fix_commit_must_be_exact")
         _parse_timestamp(self.expires_at, field_name="containment_expires_at")
 
     def to_dict(self) -> dict[str, Any]:
@@ -324,19 +326,43 @@ class IncidentCloseReceipt:
     """Evidence required before an incident may be closed."""
 
     deep_trigger_classification: str
+    deep_trigger_event_sha256: str
     fix_commit: str
+    containment_evidence_path: str
+    containment_evidence_sha256: str
     test_evidence_paths: tuple[str, ...]
+    test_evidence_sha256: str
+    reproduction_evidence_path: str
+    reproduction_evidence_sha256: str
     soak_window: str
     restore_id: str
+    restore_evidence_path: str
+    restore_evidence_sha256: str
+    resource_budget_evidence_path: str
+    resource_budget_evidence_sha256: str
     owner: str
+    owner_receipt_path: str
+    owner_receipt_sha256: str
 
     def validate(self) -> None:
         values = {
             "deep_trigger_classification": self.deep_trigger_classification,
+            "deep_trigger_event_sha256": self.deep_trigger_event_sha256,
             "fix_commit": self.fix_commit,
+            "containment_evidence_path": self.containment_evidence_path,
+            "containment_evidence_sha256": self.containment_evidence_sha256,
+            "test_evidence_sha256": self.test_evidence_sha256,
+            "reproduction_evidence_path": self.reproduction_evidence_path,
+            "reproduction_evidence_sha256": self.reproduction_evidence_sha256,
             "soak_window": self.soak_window,
             "restore_id": self.restore_id,
+            "restore_evidence_path": self.restore_evidence_path,
+            "restore_evidence_sha256": self.restore_evidence_sha256,
+            "resource_budget_evidence_path": self.resource_budget_evidence_path,
+            "resource_budget_evidence_sha256": self.resource_budget_evidence_sha256,
             "owner": self.owner,
+            "owner_receipt_path": self.owner_receipt_path,
+            "owner_receipt_sha256": self.owner_receipt_sha256,
         }
         missing = _required_text(values)
         if not self.test_evidence_paths or any(
@@ -352,6 +378,39 @@ class IncidentCloseReceipt:
         forbidden = ("unknown", "unattributed", "undetermined", "unresolved")
         if any(marker in classification for marker in forbidden):
             raise ValueError("incident_close_requires_attributed_deep_trigger")
+        if not re.fullmatch(r"[0-9a-f]{40}", self.fix_commit):
+            raise ValueError("incident_close_fix_commit_must_be_exact")
+        for field_name, value in {
+            "deep_trigger_event_sha256": self.deep_trigger_event_sha256,
+            "containment_evidence_sha256": self.containment_evidence_sha256,
+            "test_evidence_sha256": self.test_evidence_sha256,
+            "reproduction_evidence_sha256": self.reproduction_evidence_sha256,
+            "restore_evidence_sha256": self.restore_evidence_sha256,
+            "resource_budget_evidence_sha256": self.resource_budget_evidence_sha256,
+            "owner_receipt_sha256": self.owner_receipt_sha256,
+        }.items():
+            _validate_sha256(value, field_name=field_name)
+        restore_id = self.restore_id.strip().lower()
+        if any(
+            marker in restore_id
+            for marker in ("not_required", "not-required", "unknown", "unavailable")
+        ) or restore_id in {"none", "n/a", "na"}:
+            raise ValueError("incident_close_requires_restore_evidence")
+        boundaries = self.soak_window.split("/")
+        if len(boundaries) != 2:
+            raise ValueError("incident_close_soak_window_invalid")
+        soak_started_at = _parse_timestamp(
+            boundaries[0],
+            field_name="incident_close_soak_started_at",
+        )
+        soak_ended_at = _parse_timestamp(
+            boundaries[1],
+            field_name="incident_close_soak_ended_at",
+        )
+        if soak_ended_at <= soak_started_at:
+            raise ValueError("incident_close_soak_window_invalid")
+        if soak_ended_at > datetime.now(timezone.utc):
+            raise ValueError("incident_close_soak_window_not_complete")
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)

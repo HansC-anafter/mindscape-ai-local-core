@@ -4,7 +4,7 @@ services:
     image: ${LOCAL_CORE_BACKEND_IMAGE:-mindscape-ai-local-core-backend}
     container_name: mindscape-ai-local-core-postgres-signal-observer
     init: true
-    restart: unless-stopped
+    restart: "no"
     read_only: true
     pid: host
     network_mode: "service:pgbouncer"
