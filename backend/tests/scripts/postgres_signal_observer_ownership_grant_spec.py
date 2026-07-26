@@ -23,6 +23,9 @@ from scripts.maintenance.postgres_signal_observer_preflight_core import (
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 MATERIALIZER = REPO_ROOT / "scripts/maintenance/postgres_signal_observer_ownership_grant.py"
+REQUEST_MATERIALIZER = (
+    REPO_ROOT / "scripts/maintenance/postgres_signal_observer_ownership_request.py"
+)
 INCIDENT_GATE = REPO_ROOT / "scripts/maintenance/postgres_incident_gate.py"
 OWNER = "runtime-db-incident-owner"
 ARTIFACT_SHA256 = "a" * 64
@@ -103,6 +106,50 @@ def _run_materializer(
     )
 
 
+def _run_request_materializer(
+    qualification_path: Path,
+    output_path: Path,
+) -> subprocess.CompletedProcess[str]:
+    now = datetime.now(timezone.utc)
+    return subprocess.run(
+        [
+            sys.executable,
+            str(REQUEST_MATERIALIZER),
+            "--qualification-receipt",
+            str(qualification_path),
+            "--exact-operation",
+            f"postgres_signal_observer_start@sha256:{ARTIFACT_SHA256}",
+            "--issued-at",
+            now.isoformat(),
+            "--expires-at",
+            (now + timedelta(minutes=10)).isoformat(),
+            "--requested-owner",
+            OWNER,
+            "--output-json",
+            str(output_path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+
+def test_request_cli_materializes_live_capture_scope(tmp_path: Path) -> None:
+    qualification_path, _request_path, _request, _request_sha = _receipt_chain(
+        tmp_path
+    )
+    output_path = tmp_path / "cli-ownership-request.json"
+
+    completed = _run_request_materializer(qualification_path, output_path)
+
+    assert completed.returncode == 0
+    request = json.loads(output_path.read_text(encoding="utf-8"))
+    assert request["capture_context"] == "live_runtime"
+    assert "bounded live PostgreSQL signal observer" in request["scope"]
+    assert "isolated" not in request["scope"].lower()
+    assert stat.S_IMODE(output_path.stat().st_mode) == 0o600
+
+
 def _run_diagnose(
     tmp_path: Path,
     *,
@@ -135,8 +182,8 @@ def _run_diagnose(
             ARTIFACT_SHA256,
             "--test-evidence-path",
             "evidence/materializer-tests.json",
-            "--isolated-drill-id",
-            "materializer-drill",
+        "--capture-evidence-id",
+        "materializer-live-capture",
             "--budget-sha256",
             "b" * 64,
             "--expires-at",
@@ -162,16 +209,18 @@ def test_materializer_builds_the_exact_request_bound_grant(tmp_path: Path) -> No
     )
     assert grant["ownership_request_receipt_sha256"] == request_sha256
     assert grant["explicit_exclusions"] == [
-        "live_postgresql",
-        "live_pgbouncer",
-        "runners",
-        "backend",
-        "control",
-        "frontend",
+        "live_postgresql_mutation",
+        "live_pgbouncer_mutation",
+        "runner_mutation",
+        "backend_mutation",
+        "control_mutation",
+        "frontend_mutation",
         "reload_restart_config",
         "queue_pool_capacity",
         "v52_media_model",
     ]
+    assert grant["capture_context"] == "live_runtime"
+    assert "isolated" not in str(grant["scope"]).lower()
     assert "execution_frontier" not in grant["explicit_exclusions"]
     assert "v52_media_model_heavy_cpu" not in grant["explicit_exclusions"]
 
@@ -340,7 +389,7 @@ def test_cli_rejects_unusable_or_changed_request_without_output(
         request["scope"] = "forged-scope"
         _write_json(request_path, request)
     else:
-        request["explicit_exclusions"] = ["live_postgresql"]
+        request["explicit_exclusions"] = ["live_postgresql_mutation"]
         _write_json(request_path, request)
     output_path = tmp_path / "grant.json"
 

@@ -5,6 +5,7 @@ from .permit_binding import (
     build_ownership_grant,
     build_ownership_request,
     materialize_ownership_grant,
+    materialize_ownership_request,
     receipt_bound_incident_id,
 )
 
@@ -14,5 +15,6 @@ __all__ = [
     "build_ownership_request",
     "collect_observer_preflight",
     "materialize_ownership_grant",
+    "materialize_ownership_request",
     "receipt_bound_incident_id",
 ]

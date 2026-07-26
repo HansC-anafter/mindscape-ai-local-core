@@ -17,21 +17,22 @@ from backend.app.services.runtime_database_incident_core.models import IncidentS
 
 
 QUALIFICATION_SCHEMA = "mindscape.postgres-signal-observer-qualification.v2"
-OWNERSHIP_REQUEST_SCHEMA = "mindscape.postgres-signal-observer-ownership-request.v2"
-OWNERSHIP_GRANT_SCHEMA = "mindscape.postgres-signal-observer-ownership-grant.v1"
+OWNERSHIP_REQUEST_SCHEMA = "mindscape.postgres-signal-observer-ownership-request.v3"
+OWNERSHIP_GRANT_SCHEMA = "mindscape.postgres-signal-observer-ownership-grant.v2"
 OBSERVER_OWNER = "runtime-db-incident-owner"
+CAPTURE_CONTEXT = "live_runtime"
 OWNERSHIP_SCOPE = (
-    "canonical disposable isolated PostgreSQL/PgBouncer/client/observer "
-    "sender-attribution drill, fixed resource/privacy budgets, sender-target "
-    "correlation, and terminal cleanup/readback only"
+    "canonical bounded live PostgreSQL signal observer, event-time PgBouncer "
+    "sender-target correlation, fixed resource/privacy budgets, immutable "
+    "incident evidence, and terminal cleanup/readback only"
 )
 OWNERSHIP_EXCLUSIONS = (
-    "live_postgresql",
-    "live_pgbouncer",
-    "runners",
-    "backend",
-    "control",
-    "frontend",
+    "live_postgresql_mutation",
+    "live_pgbouncer_mutation",
+    "runner_mutation",
+    "backend_mutation",
+    "control_mutation",
+    "frontend_mutation",
     "reload_restart_config",
     "queue_pool_capacity",
     "v52_media_model",
@@ -221,11 +222,33 @@ def build_ownership_request(
         "incident_id": incident_id,
         "artifact_sha256": artifact_sha256,
         "exact_operation": expected_operation,
+        "capture_context": CAPTURE_CONTEXT,
         "issued_at": _exact_text(issued_at, "ownership_issued_at_missing"),
         "expires_at": _exact_text(expires_at, "ownership_expires_at_missing"),
         "scope": OWNERSHIP_SCOPE,
         "explicit_exclusions": list(OWNERSHIP_EXCLUSIONS),
     }
+
+
+def materialize_ownership_request(
+    qualification_path: Path,
+    *,
+    exact_operation: str,
+    issued_at: str,
+    expires_at: str,
+    requested_owner: str,
+) -> dict[str, Any]:
+    """Build one immutable live-capture request from a passing qualification."""
+
+    qualification, qualification_sha256 = _read_receipt(qualification_path)
+    return build_ownership_request(
+        qualification,
+        qualification_receipt_sha256=qualification_sha256,
+        exact_operation=exact_operation,
+        issued_at=issued_at,
+        expires_at=expires_at,
+        requested_owner=requested_owner,
+    )
 
 
 def build_ownership_grant(
@@ -245,6 +268,8 @@ def build_ownership_grant(
         raise ValueError("ownership_granted_owner_mismatch")
     if request.get("scope") != OWNERSHIP_SCOPE:
         raise ValueError("ownership_scope_invalid")
+    if request.get("capture_context") != CAPTURE_CONTEXT:
+        raise ValueError("ownership_capture_context_invalid")
     if request.get("explicit_exclusions") != list(OWNERSHIP_EXCLUSIONS):
         raise ValueError("ownership_exclusions_invalid")
     return {
@@ -264,6 +289,7 @@ def build_ownership_grant(
             request.get("artifact_sha256"), "request_artifact_sha256_invalid"
         ),
         "exact_operation": _exact_text(request.get("exact_operation"), "request_operation_missing"),
+        "capture_context": CAPTURE_CONTEXT,
         "issued_at": _exact_text(request.get("issued_at"), "request_issued_at_missing"),
         "expires_at": _exact_text(request.get("expires_at"), "request_expires_at_missing"),
         "scope": OWNERSHIP_SCOPE,

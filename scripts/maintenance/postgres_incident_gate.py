@@ -108,7 +108,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     diagnose.add_argument("--artifact-sha256", required=True)
     diagnose.add_argument("--test-evidence-path", action="append", required=True)
-    diagnose.add_argument("--isolated-drill-id", required=True)
+    diagnose.add_argument("--capture-evidence-id", required=True)
     diagnose.add_argument("--budget-sha256", required=True)
     diagnose.add_argument("--expires-at", required=True)
     diagnose.add_argument("--owner", required=True)
@@ -270,7 +270,7 @@ def main(argv: list[str] | None = None) -> int:
                 source_commit=args.source_commit,
                 allowed_operation_keys=(operation_key,),
                 test_evidence_paths=tuple(args.test_evidence_path),
-                isolated_drill_id=args.isolated_drill_id,
+                capture_evidence_id=args.capture_evidence_id,
                 budget_sha256=args.budget_sha256,
                 expires_at=args.expires_at,
                 owner=args.owner,

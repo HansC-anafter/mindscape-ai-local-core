@@ -77,7 +77,7 @@ def _diagnostic_permit(
             f"postgres_signal_observer_start@sha256:{artifact_sha256}",
         ),
         test_evidence_paths=("evidence/observer-tests.json",),
-        isolated_drill_id="signal-drill-001",
+        capture_evidence_id="signal-capture-001",
         budget_sha256="c" * 64,
         expires_at=expires_at,
         owner="team-leads",

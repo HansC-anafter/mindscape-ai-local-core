@@ -47,7 +47,7 @@ class IncidentDiagnosticPermit:
     source_commit: str
     allowed_operation_keys: tuple[str, ...]
     test_evidence_paths: tuple[str, ...]
-    isolated_drill_id: str
+    capture_evidence_id: str
     budget_sha256: str
     expires_at: str
     owner: str
@@ -57,7 +57,7 @@ class IncidentDiagnosticPermit:
             {
                 "permit_id": self.permit_id,
                 "source_commit": self.source_commit,
-                "isolated_drill_id": self.isolated_drill_id,
+                "capture_evidence_id": self.capture_evidence_id,
                 "budget_sha256": self.budget_sha256,
                 "expires_at": self.expires_at,
                 "owner": self.owner,
