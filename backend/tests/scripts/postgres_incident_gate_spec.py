@@ -534,3 +534,35 @@ def test_cli_rechecks_receipt_bound_incident_is_still_current(
     assert rejected.returncode != 0
     assert "is not current" in rejected.stderr
     assert current.get("diagnostic_permit") is None
+
+
+def test_cli_revoke_diagnostic_consumes_active_permit(tmp_path: Path) -> None:
+    opened = _run(tmp_path, "open", "postgres_server_closed_unexpectedly")
+    incident_id = json.loads(opened.stdout)["incident_id"]
+    artifact_sha256 = "4" * 64
+    expires_at = (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()
+    receipt_args = _observer_receipt_args(
+        tmp_path,
+        incident_id=incident_id,
+        artifact_sha256=artifact_sha256,
+        expires_at=expires_at,
+    )
+    diagnosed = _run_observer_diagnose(
+        tmp_path,
+        receipt_args=receipt_args,
+        artifact_sha256=artifact_sha256,
+        expires_at=expires_at,
+        permit_id="diagnostic-planned-reconfigure",
+    )
+    assert diagnosed.returncode == 0
+
+    revoked = _run(
+        tmp_path,
+        "revoke-diagnostic",
+        incident_id,
+        "--terminal-reason",
+        "planned_reconfigure",
+    )
+
+    assert revoked.returncode == 0
+    assert json.loads(revoked.stdout).get("diagnostic_permit") is None

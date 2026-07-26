@@ -58,6 +58,7 @@ def _compose_payload(
                 "postgres-signal-observer": {
                     "profiles": ["runtime-db-observer"],
                     "restart": "no",
+                    "healthcheck": {"timeout": "10s"},
                     "read_only": service_read_only,
                     "pid": "host",
                     "network_mode": "service:pgbouncer",
@@ -345,6 +346,7 @@ def test_official_compose_uses_exact_readonly_artifact_source_mount() -> None:
     assert "../../docker:/app/docker" not in compose
     assert '    restart: "no"\n' in compose
     assert "        - /usr/local/bin/python\n" in compose
+    assert "      timeout: 10s\n" in compose
     assert "      start_period: 10s\n" in compose
     assert "      start_interval: 10s\n" in compose
 

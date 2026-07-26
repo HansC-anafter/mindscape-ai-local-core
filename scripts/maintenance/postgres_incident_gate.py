@@ -113,6 +113,19 @@ def _parser() -> argparse.ArgumentParser:
     diagnose.add_argument("--expires-at", required=True)
     diagnose.add_argument("--owner", required=True)
 
+    revoke_diagnostic = commands.add_parser("revoke-diagnostic")
+    revoke_diagnostic.add_argument("incident_id")
+    revoke_diagnostic.add_argument(
+        "--terminal-reason",
+        choices=(
+            "planned_reconfigure",
+            "attribution_event_recorded",
+            "observer_failure",
+        ),
+        required=True,
+    )
+    revoke_diagnostic.add_argument("--failure-code")
+
     close = commands.add_parser("close")
     close.add_argument("incident_id")
     close.add_argument("--deep-trigger-classification", required=True)
@@ -275,6 +288,12 @@ def main(argv: list[str] | None = None) -> int:
                 expires_at=args.expires_at,
                 owner=args.owner,
             ),
+        )
+    elif args.command == "revoke-diagnostic":
+        receipt = journal.revoke_diagnostic_permit(
+            args.incident_id,
+            terminal_reason=args.terminal_reason,
+            failure_code=args.failure_code,
         )
     elif args.command == "close":
         receipt = journal.close(

@@ -46,6 +46,7 @@ def collect_observer_compose_policy(
             "postgres-signal-observer"
         ]
         environment = service.get("environment") or {}
+        healthcheck = service.get("healthcheck") or {}
         volume_targets = sorted(
             str(volume.get("target") or "")
             for volume in service.get("volumes") or []
@@ -84,6 +85,7 @@ def collect_observer_compose_policy(
         policy = {
             "profiles": service.get("profiles"),
             "restart": service.get("restart"),
+            "healthcheck_timeout": healthcheck.get("timeout"),
             "read_only": service.get("read_only"),
             "privileged": bool(service.get("privileged", False)),
             "pid": service.get("pid"),
@@ -106,6 +108,7 @@ def collect_observer_compose_policy(
     expected = {
         "profiles": ["runtime-db-observer"],
         "restart": "no",
+        "healthcheck_timeout": "10s",
         "read_only": True,
         "privileged": False,
         "pid": "host",
