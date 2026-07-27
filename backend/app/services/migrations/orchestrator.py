@@ -537,6 +537,18 @@ class MigrationOrchestrator:
     def _run_alembic_upgrade(self, alembic_config: Path, revision: str) -> bool:
         """Run Alembic upgrade to a specific revision or 'head'."""
         require_migration_execution_allowed(alembic_config, revision)
+        resolved_config = alembic_config.resolve()
+        matching_db_types = [
+            db_type
+            for db_type, configured_path in self.alembic_configs.items()
+            if configured_path.resolve() == resolved_config
+        ]
+        if len(matching_db_types) != 1:
+            raise ValueError(
+                "Alembic config must resolve to exactly one registered database type: "
+                f"{resolved_config}"
+            )
+        db_type = matching_db_types[0]
         backend_dir = alembic_config.parent
         backend_path = str(backend_dir)
         config_path = alembic_config.as_posix()
