@@ -290,6 +290,8 @@ services:
       - ${MINDSCAPE_STORAGE_HOST_DIR:-${HOME}/.mindscape/storage}:/root/.mindscape/storage:rw
       - "${LOCAL_CORE_LOGS_HOST_DIR:-./logs}:/app/logs:rw"
       - ./web-console:/app/web-console:rw
+      - "${WP_HUB_RELEASE_SSH_IDENTITY_HOST_FILE:-${HOME}/.ssh/id_rsa}:/run/wp-hub-release/id:ro"
+      - "${WP_HUB_RELEASE_SSH_KNOWN_HOSTS_HOST_FILE:-${HOME}/.ssh/known_hosts}:/run/wp-hub-release/known_hosts:ro"
       # Mount user's custom directory for workspace storage (optional)
       # Uncomment and set the path below to mount your Documents or other directory
       # Example for Mac: /Users/yourname/Documents:/host/documents:rw
@@ -434,8 +436,6 @@ services:
       - ${MINDSCAPE_STORAGE_HOST_DIR:-${HOME}/.mindscape/storage}:/root/.mindscape/storage:rw
       - "${LOCAL_CORE_LOGS_HOST_DIR:-./logs}:/app/logs:rw"
       - ./web-console:/app/web-console:rw
-      - "${WP_HUB_RELEASE_SSH_IDENTITY_HOST_FILE:-${HOME}/.ssh/id_rsa}:/run/wp-hub-release/id:ro"
-      - "${WP_HUB_RELEASE_SSH_KNOWN_HOSTS_HOST_FILE:-${HOME}/.ssh/known_hosts}:/run/wp-hub-release/known_hosts:ro"
       - ${HF_HOME:-${HOME}/.cache/huggingface}:/root/.cache/huggingface:rw
     networks:
       - mindscape-network
