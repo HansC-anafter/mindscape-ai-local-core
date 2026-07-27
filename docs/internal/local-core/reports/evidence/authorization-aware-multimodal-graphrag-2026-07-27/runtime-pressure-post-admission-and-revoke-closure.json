@@ -1,0 +1,315 @@
+{
+  "docker_stats": {
+    "elapsed_seconds": 2.437,
+    "error": "",
+    "ok": true,
+    "rows": [
+      {
+        "BlockIO": "13.4MB / 4.01MB",
+        "CPUPerc": "1.93%",
+        "Container": "mindscape-ai-local-core-backend",
+        "ID": "72dc65f9bc12",
+        "MemPerc": "2.34%",
+        "MemUsage": "572.4MiB / 23.92GiB",
+        "Name": "mindscape-ai-local-core-backend",
+        "NetIO": "495MB / 227MB",
+        "PIDs": "42",
+        "cpu_percent_value": 1.93
+      },
+      {
+        "BlockIO": "129MB / 8.6MB",
+        "CPUPerc": "50.74%",
+        "Container": "mindscape-ai-local-core-postgres",
+        "ID": "ac2b8e0d6498",
+        "MemPerc": "4.14%",
+        "MemUsage": "1014MiB / 23.92GiB",
+        "Name": "mindscape-ai-local-core-postgres",
+        "NetIO": "6.38GB / 52GB",
+        "PIDs": "42",
+        "cpu_percent_value": 50.74
+      },
+      {
+        "BlockIO": "70.1MB / 1.63MB",
+        "CPUPerc": "13.99%",
+        "Container": "mindscape-ai-local-core-pgbouncer",
+        "ID": "e8595741ed62",
+        "MemPerc": "0.04%",
+        "MemUsage": "9.793MiB / 23.92GiB",
+        "Name": "mindscape-ai-local-core-pgbouncer",
+        "NetIO": "1.11TB / 1.12TB",
+        "PIDs": "18",
+        "cpu_percent_value": 13.99
+      },
+      {
+        "BlockIO": "8.53MB / 19.1GB",
+        "CPUPerc": "25.11%",
+        "Container": "mindscape-ai-local-core-runner-browser",
+        "ID": "1d40adb721a5",
+        "MemPerc": "1.83%",
+        "MemUsage": "447.4MiB / 23.92GiB",
+        "Name": "mindscape-ai-local-core-runner-browser",
+        "NetIO": "10.7GB / 473MB",
+        "PIDs": "13",
+        "cpu_percent_value": 25.11
+      },
+      {
+        "BlockIO": "27.4MB / 35.9GB",
+        "CPUPerc": "226.02%",
+        "Container": "mindscape-ai-local-core-runner-browser-extra",
+        "ID": "cd42f4aa0c99",
+        "MemPerc": "13.07%",
+        "MemUsage": "3.126GiB / 23.92GiB",
+        "Name": "mindscape-ai-local-core-runner-browser-extra",
+        "NetIO": "11.2GB / 522MB",
+        "PIDs": "326",
+        "cpu_percent_value": 226.02
+      },
+      {
+        "BlockIO": "819kB / 311kB",
+        "CPUPerc": "152.10%",
+        "Container": "mindscape-ai-local-core-runner-default-local-browser",
+        "ID": "685db5d36d6c",
+        "MemPerc": "1.93%",
+        "MemUsage": "473.9MiB / 23.92GiB",
+        "Name": "mindscape-ai-local-core-runner-default-local-browser",
+        "NetIO": "7.36GB / 3.46GB",
+        "PIDs": "15",
+        "cpu_percent_value": 152.1
+      },
+      {
+        "BlockIO": "8.34MB / 1.59MB",
+        "CPUPerc": "5.22%",
+        "Container": "mindscape-ai-local-core-runner-vision",
+        "ID": "804ff5045a49",
+        "MemPerc": "2.11%",
+        "MemUsage": "516.4MiB / 23.92GiB",
+        "Name": "mindscape-ai-local-core-runner-vision",
+        "NetIO": "279MB / 105MB",
+        "PIDs": "36",
+        "cpu_percent_value": 5.22
+      },
+      {
+        "BlockIO": "0B / 1.59MB",
+        "CPUPerc": "11.80%",
+        "Container": "mindscape-ai-local-core-runner-vision-mlx-dev",
+        "ID": "85abef14d371",
+        "MemPerc": "1.48%",
+        "MemUsage": "362.3MiB / 23.92GiB",
+        "Name": "mindscape-ai-local-core-runner-vision-mlx-dev",
+        "NetIO": "1.49GB / 94.2MB",
+        "PIDs": "31",
+        "cpu_percent_value": 11.8
+      }
+    ]
+  },
+  "endpoint_checks": {
+    "active_executions": {
+      "body_preview": "{\"active_executions\":[]}",
+      "elapsed_seconds": 0.033,
+      "ok": true,
+      "status": 200
+    },
+    "healthz": {
+      "body_preview": "{\"status\":\"ok\",\"backend_role\":\"execution\",\"reload_enabled\":false}",
+      "elapsed_seconds": 0.075,
+      "ok": true,
+      "status": 200
+    }
+  },
+  "failures": [],
+  "ok": true,
+  "pgbouncer_metrics": {
+    "ok": true,
+    "rows": [
+      {
+        "cl_active": 37,
+        "cl_waiting": 0,
+        "database": "mindscape_core",
+        "maxwait": 0,
+        "maxwait_us": 0,
+        "sample_index": 1,
+        "sv_active": 1,
+        "sv_idle": 6,
+        "sv_login": 0,
+        "sv_used": 23
+      },
+      {
+        "cl_active": 0,
+        "cl_waiting": 0,
+        "database": "mindscape_vectors",
+        "maxwait": 0,
+        "maxwait_us": 0,
+        "sample_index": 1,
+        "sv_active": 0,
+        "sv_idle": 1,
+        "sv_login": 0,
+        "sv_used": 4
+      },
+      {
+        "cl_active": 37,
+        "cl_waiting": 0,
+        "database": "mindscape_core",
+        "maxwait": 0,
+        "maxwait_us": 0,
+        "sample_index": 2,
+        "sv_active": 1,
+        "sv_idle": 6,
+        "sv_login": 0,
+        "sv_used": 23
+      },
+      {
+        "cl_active": 0,
+        "cl_waiting": 0,
+        "database": "mindscape_vectors",
+        "maxwait": 0,
+        "maxwait_us": 0,
+        "sample_index": 2,
+        "sv_active": 0,
+        "sv_idle": 1,
+        "sv_login": 0,
+        "sv_used": 4
+      },
+      {
+        "cl_active": 39,
+        "cl_waiting": 0,
+        "database": "mindscape_core",
+        "maxwait": 0,
+        "maxwait_us": 0,
+        "sample_index": 3,
+        "sv_active": 2,
+        "sv_idle": 5,
+        "sv_login": 0,
+        "sv_used": 23
+      },
+      {
+        "cl_active": 0,
+        "cl_waiting": 0,
+        "database": "mindscape_vectors",
+        "maxwait": 0,
+        "maxwait_us": 0,
+        "sample_index": 3,
+        "sv_active": 0,
+        "sv_idle": 1,
+        "sv_login": 0,
+        "sv_used": 4
+      }
+    ],
+    "sample_count": 3,
+    "sample_interval_seconds": 2.0
+  },
+  "postgres_metrics": {
+    "metrics": {
+      "archived_count": 1195,
+      "autovacuum_count": 192,
+      "bgwriter_stats_reset": "2026-07-26T21:43:30.006707+00:00",
+      "buffers_backend": 357473,
+      "buffers_checkpoint": 1416677,
+      "buffers_clean": 616566,
+      "checkpoints_req": 15,
+      "checkpoints_timed": 87,
+      "dead_tuples": 79950,
+      "failed_count": 0,
+      "hot_updates": 53643,
+      "in_recovery": false,
+      "invalid_indexes": 0,
+      "last_autovacuum": "2026-07-27T12:43:41.712403+00:00",
+      "read_only": "off",
+      "replication_lag_bytes": "0",
+      "updates": 895064,
+      "wal_bytes": "14306179312",
+      "wal_stats_reset": "2026-07-26T21:43:30.006707+00:00"
+    },
+    "ok": true
+  },
+  "runner_capacity": {
+    "aggregate_max_inflight": 8,
+    "ok": true,
+    "rows": [
+      {
+        "accepted_partitions": "browser_local",
+        "accepted_resource_classes": "browser",
+        "container": "mindscape-ai-local-core-runner-browser",
+        "max_inflight": 2,
+        "profile": "browser_local"
+      },
+      {
+        "accepted_partitions": "browser_local",
+        "accepted_resource_classes": "browser",
+        "container": "mindscape-ai-local-core-runner-browser-extra",
+        "max_inflight": 2,
+        "profile": "browser_local"
+      },
+      {
+        "accepted_partitions": "default_local_browser",
+        "accepted_resource_classes": "browser",
+        "container": "mindscape-ai-local-core-runner-default-local-browser",
+        "max_inflight": 2,
+        "profile": "default_local_browser"
+      },
+      {
+        "accepted_partitions": "vision_local",
+        "accepted_resource_classes": "compute",
+        "container": "mindscape-ai-local-core-runner-vision",
+        "max_inflight": 1,
+        "profile": "vision_local"
+      },
+      {
+        "accepted_partitions": "vision_mlx_dev,knowledge_indexing",
+        "accepted_resource_classes": "compute",
+        "container": "mindscape-ai-local-core-runner-vision-mlx-dev",
+        "max_inflight": 1,
+        "profile": "vision_mlx_dev"
+      }
+    ]
+  },
+  "scope": {
+    "action": "runtime-observation",
+    "aggregate_max_inflight": 8,
+    "allow_sole_owner_target": false,
+    "protected_aggregate_max_inflight": 7,
+    "protected_lanes": {
+      "browser_local": {
+        "containers": [
+          "mindscape-ai-local-core-runner-browser",
+          "mindscape-ai-local-core-runner-browser-extra"
+        ],
+        "minimum_capacity": 4,
+        "observed_capacity": 4
+      },
+      "default_local_browser": {
+        "containers": [
+          "mindscape-ai-local-core-runner-default-local-browser"
+        ],
+        "minimum_capacity": 2,
+        "observed_capacity": 2
+      },
+      "vision_local": {
+        "containers": [
+          "mindscape-ai-local-core-runner-vision"
+        ],
+        "minimum_capacity": 1,
+        "observed_capacity": 1
+      }
+    },
+    "protected_runner_capacity": 7,
+    "target_runner_container": null
+  },
+  "task_status": {
+    "counts": {
+      "pending": 541,
+      "running": 6
+    },
+    "elapsed_seconds": 1.396,
+    "error": "",
+    "gate_semantics": "observational_only",
+    "ok": true,
+    "pending_semantics": "ready_unblocked_execution_frontier"
+  },
+  "thresholds": {
+    "max_endpoint_seconds": 5.0,
+    "max_postgres_cpu": 200.0,
+    "max_runner_cpu": 400.0,
+    "pending_observation_limit": 1000,
+    "running_observation_limit": 100
+  }
+}

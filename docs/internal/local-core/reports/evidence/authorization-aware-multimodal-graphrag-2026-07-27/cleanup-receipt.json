@@ -1,5 +1,5 @@
 {
-  "captured_at": "2026-07-27T16:56:00+08:00",
+  "captured_at": "2026-07-27T13:05:48Z",
   "removed_disposable_databases": [
     "mindscape_vectors_graphrag_t03_20260727",
     "mindscape_vectors_graphrag_t05_20260727",
@@ -11,14 +11,21 @@
     "mindscape_vectors_graphrag_t11_20260727",
     "mindscape_vectors_graphrag_t12_20260727",
     "mindscape_vectors_graphrag_t13_20260727",
-    "mindscape_vectors_graphrag_test_20260727"
+    "mindscape_vectors_graphrag_test_20260727",
+    "mindscape_core_graphrag_t04_20260727",
+    "mindscape_core_graphrag_t16_20260727",
+    "mindscape_core_graphrag_t18_20260727",
+    "mindscape_core_graphrag_t20_20260727",
+    "mindscape_vectors_graphrag_t14_20260727",
+    "mindscape_vectors_graphrag_t17_20260727",
+    "mindscape_vectors_graphrag_t19_20260727"
   ],
   "remaining_matching_disposable_databases": [],
-  "live_database": {
-    "name": "mindscape_vectors",
-    "preserved": true
+  "live_databases": {
+    "mindscape_core": "preserved",
+    "mindscape_vectors": "preserved"
   },
   "container_temp_paths_remaining": [],
-  "recoverability": "Disposable databases can be recreated from the vector migration chain and formal tests.",
+  "recoverability": "Disposable vector databases can be recreated from the vector migration chain; disposable core databases can be recreated from schema-only test fixtures.",
   "result": "PASS"
 }
