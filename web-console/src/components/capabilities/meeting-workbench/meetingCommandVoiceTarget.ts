@@ -1,5 +1,8 @@
 import { dispatchMeetingClientAction } from '@/lib/meeting-voice/meetingClientActionEvent';
-import { submitVoiceTurn } from '@/lib/meeting-voice/voiceTurnClient';
+import {
+  isAcceptedMeetingVoiceTurnResponse,
+  submitVoiceTurn,
+} from '@/lib/meeting-voice/voiceTurnClient';
 import {
   workspaceInteractionRevision,
   type WorkspaceInteractionTarget,
@@ -42,6 +45,9 @@ export function createMeetingCommandVoiceTarget({
     transcript: string;
     commandResponse: unknown;
   }) => {
+    if (commandResponse === null || commandResponse === undefined) {
+      return;
+    }
     dispatchMeetingClientAction(commandResponse);
     onCommandAccepted({
       transcript,
@@ -80,6 +86,12 @@ export function createMeetingCommandVoiceTarget({
         return {
           status: 'ignored_empty_transcript',
           transcript: '',
+        };
+      }
+      if (!isAcceptedMeetingVoiceTurnResponse(response)) {
+        return {
+          status: 'semantic_clarification',
+          transcript,
         };
       }
       handleCommandAccepted({
