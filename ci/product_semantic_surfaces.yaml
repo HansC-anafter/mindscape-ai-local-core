@@ -442,6 +442,56 @@ surfaces:
       - "web-console/src/app/workspaces/[workspaceId]/components/workspaceGlobalToolRailModel.ts"
       - web-console/src/components/capabilities/workbench/**
 
+  - id: psc.local-core.workspace-aol-voice-interaction-ingress.v1
+    tier: P0
+    owner: "@team-leads"
+    contract_doc: mindscape-ai-cloud/docs/internal/local-core/product-semantics/workspace-aol-voice-interaction-ingress-contract-2026-07-27.zh-TW.md
+    requires_product_semantic_declaration: true
+    semantics:
+      - Workspace voice is a host-owned Runtime tool shown through the existing shared workspace rail or tray; it becomes actionable only for one explicit active text terminal and freezes target and context before recording.
+      - Voice changes input modality only; final transcript preserves target-owned context, authorization, approval, submission policy, canonical writer, status, and receipts, while workspace chat, Meeting, and Host Runtime keep their existing writers.
+      - Workspace chat, bounded and realtime Meeting transports, and Host Runtime review behavior converge behind one frontend interaction controller; compatibility routes are inbound adapters only and do not keep separate capture or writer semantics.
+      - Closed or idle voice UI performs no microphone, WebSocket, VAD, health, timer, polling, DB, worker, queue, or PgBouncer work; raw audio, windows, and partials are never persisted, and each final utterance is submitted at most once.
+    path_globs:
+      - backend/app/models/meeting_voice.py
+      - backend/app/models/meeting_voice_session.py
+      - backend/app/routes/core/workspace/meeting_voice.py
+      - backend/app/routes/core/workspace/meeting_voice_sessions.py
+      - backend/app/services/orchestration/meeting/voice_ingress.py
+      - backend/app/services/orchestration/meeting/realtime_voice_transcriber.py
+      - backend/app/services/orchestration/meeting/voice_client_actions.py
+      - backend/app/services/orchestration/meeting/meeting_command_submission.py
+      - backend/app/routes/host_runtime_sessions/**
+      - backend/app/services/host_runtime_sessions/**
+      - backend/tests/*voice*
+      - web-console/src/lib/meeting-voice/**
+      - web-console/src/lib/host-runtime-sessions.ts
+      - web-console/src/lib/workspace-interaction/**
+      - web-console/src/components/workspace/interaction/**
+      - web-console/src/components/workspace/InputArea.tsx
+      - web-console/src/components/WorkspaceChat.tsx
+      - web-console/src/components/workspaceChat/WorkspaceChatContentView.tsx
+      - web-console/src/hooks/useSendMessage.ts
+      - web-console/src/components/workspace/MeetingVoiceTurnButton*
+      - web-console/src/components/workspace/RealtimeVoiceSessionButton*
+      - web-console/src/components/capabilities/aol-runtime-shell/**
+      - web-console/src/components/capabilities/meeting-workbench/CommandDock.tsx
+      - web-console/src/components/capabilities/meeting-workbench/meetingCommandSubmit.ts
+      - web-console/src/components/capabilities/meeting-workbench/meetingCommandLedger.ts
+      - web-console/src/components/capabilities/meeting-workbench/meetingWorkbenchCommandDispatchHandlers.ts
+      - web-console/src/components/capabilities/meeting-workbench/runs/HostRuntimeComposer.tsx
+      - web-console/src/components/capabilities/meeting-workbench/runs/HostRuntimeVoicePromptButton.tsx
+      - web-console/src/components/capabilities/meeting-workbench/runs/useHostRuntimeRunSession.ts
+      - web-console/src/lib/i18n/keys/workbench.ts
+      - web-console/src/lib/i18n/locales/en/workbench.ts
+      - web-console/src/lib/i18n/locales/zh-TW/workbench.ts
+      - web-console/src/lib/i18n/locales/ja/workbench.ts
+      - "web-console/src/app/workspaces/[workspaceId]/components/WorkspaceRuntimeFrame.tsx"
+      - "web-console/src/app/workspaces/[workspaceId]/components/WorkspaceGlobalToolRailProvider.tsx"
+      - "web-console/src/app/workspaces/[workspaceId]/capability-ui-hosts/CapabilityHostRuntimeFrame.tsx"
+      - web-console/src/**/*.spec.ts
+      - web-console/src/**/*.spec.tsx
+
   - id: psc.local-core.ig-analyze-pinned-reference-workspace-resource-lane.v1
     tier: P0
     owner: "workspace owner"
