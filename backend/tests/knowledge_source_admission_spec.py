@@ -130,6 +130,16 @@ class _Ledger:
         )
 
 
+class _AdmissionStore:
+    def __init__(self):
+        self.connections = []
+        self.receipts = []
+
+    def record_with_conn(self, conn, receipt):
+        self.connections.append(conn)
+        self.receipts.append(receipt)
+
+
 class _Tasks:
     def __init__(self):
         self.connection = object()
@@ -181,11 +191,13 @@ class _Tasks:
 def test_source_admission_uses_one_transaction_and_pointer_only_task():
     registry, descriptor = _registry()
     ledger = _Ledger()
+    admissions = _AdmissionStore()
     tasks = _Tasks()
     service = RetrievableSourceAdmissionService(
         registry=registry,
         source_ledger=ledger,
         tasks_store=tasks,
+        internal_admission_store=admissions,
     )
 
     receipt = service.admit(_command(descriptor), access_context=_context())
@@ -194,6 +206,8 @@ def test_source_admission_uses_one_transaction_and_pointer_only_task():
     assert receipt.queue_shard == KNOWLEDGE_INDEXING_QUEUE_PARTITION
     assert ledger.connections == [tasks.connection]
     assert tasks.connections == [tasks.connection]
+    assert admissions.connections == [tasks.connection]
+    assert admissions.receipts[0].task_id == receipt.task_id
     assert tasks.events == [
         "prepared",
         "transaction_started",
@@ -206,6 +220,7 @@ def test_source_admission_uses_one_transaction_and_pointer_only_task():
 def test_source_admission_rolls_back_before_enqueue_on_failpoint():
     registry, descriptor = _registry()
     ledger = _Ledger()
+    admissions = _AdmissionStore()
     tasks = _Tasks()
 
     def failpoint(step):
@@ -216,6 +231,7 @@ def test_source_admission_rolls_back_before_enqueue_on_failpoint():
         registry=registry,
         source_ledger=ledger,
         tasks_store=tasks,
+        internal_admission_store=admissions,
         failpoint=failpoint,
     )
 
@@ -224,6 +240,7 @@ def test_source_admission_rolls_back_before_enqueue_on_failpoint():
 
     assert ledger.connections == [tasks.connection]
     assert tasks.connections == []
+    assert admissions.connections == []
     assert tasks.events == [
         "prepared",
         "transaction_started",
@@ -234,11 +251,13 @@ def test_source_admission_rolls_back_before_enqueue_on_failpoint():
 def test_source_admission_reuses_intake_and_task_idempotently():
     registry, descriptor = _registry()
     ledger = _Ledger()
+    admissions = _AdmissionStore()
     tasks = _Tasks()
     service = RetrievableSourceAdmissionService(
         registry=registry,
         source_ledger=ledger,
         tasks_store=tasks,
+        internal_admission_store=admissions,
     )
     first = service.admit(_command(descriptor), access_context=_context())
     ledger.created = False
@@ -251,17 +270,23 @@ def test_source_admission_reuses_intake_and_task_idempotently():
     assert second.task_id == first.task_id
     assert second.intake_created is False
     assert second.task_created is False
+    assert admissions.connections == [
+        tasks.connection,
+        tasks.connection,
+    ]
     assert tasks.events[-1] == ("finalized", False)
 
 
 def test_source_admission_batches_one_descriptor_page_into_one_task():
     registry, descriptor = _registry()
     ledger = _Ledger()
+    admissions = _AdmissionStore()
     tasks = _Tasks()
     service = RetrievableSourceAdmissionService(
         registry=registry,
         source_ledger=ledger,
         tasks_store=tasks,
+        internal_admission_store=admissions,
     )
     commands = (
         _command(descriptor, source_instance_id="asset-2"),
@@ -275,6 +300,7 @@ def test_source_admission_batches_one_descriptor_page_into_one_task():
     assert tasks.events.count("task_written") == 1
     assert len(ledger.connections) == 2
     assert set(ledger.connections) == {tasks.connection}
+    assert len(admissions.receipts[0].sources) == 2
     payload = KnowledgeProjectionTaskPayload.model_validate(
         tasks.last_task.params
     )
@@ -288,12 +314,14 @@ def test_explicit_reindex_retries_only_an_existing_terminal_task():
     registry, descriptor = _registry()
     ledger = _Ledger()
     ledger.created = False
+    admissions = _AdmissionStore()
     tasks = _Tasks()
     tasks.created = False
     service = RetrievableSourceAdmissionService(
         registry=registry,
         source_ledger=ledger,
         tasks_store=tasks,
+        internal_admission_store=admissions,
     )
     command = _command(
         descriptor,
@@ -307,6 +335,41 @@ def test_explicit_reindex_retries_only_an_existing_terminal_task():
 
     assert reused.state == "reused"
     assert retried.state == "retried"
+    assert len(admissions.receipts) == 2
+
+
+def test_source_revision_and_revoke_share_intake_but_not_task_receipt():
+    registry, descriptor = _registry()
+    ledger = _Ledger()
+    admissions = _AdmissionStore()
+    tasks = _Tasks()
+    service = RetrievableSourceAdmissionService(
+        registry=registry,
+        source_ledger=ledger,
+        tasks_store=tasks,
+        internal_admission_store=admissions,
+    )
+
+    projected = service.admit(
+        _command(descriptor),
+        access_context=_context(),
+    )
+    ledger.created = False
+    revoked = service.admit(
+        _command(
+            descriptor,
+            trigger_mode="revoke",
+            auto_triggered=False,
+        ),
+        access_context=_context(),
+    )
+
+    assert projected.intake_id == revoked.intake_id
+    assert projected.task_id != revoked.task_id
+    assert [receipt.trigger_mode for receipt in admissions.receipts] == [
+        "source_revision",
+        "revoke",
+    ]
 
 
 def test_projection_task_payload_rejects_secrets_and_source_bodies():

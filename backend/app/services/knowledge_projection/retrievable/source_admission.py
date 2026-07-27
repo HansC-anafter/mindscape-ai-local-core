@@ -25,6 +25,7 @@ from backend.app.services.stores.tasks_store import TasksStore
 
 from .adapter_registry import KnowledgeProjectionAdapterRegistry
 from .internal_admission import build_internal_projection_admission
+from .internal_admission_store import InternalProjectionAdmissionStore
 from .task_payload import (
     DescriptorPointer,
     KnowledgeProjectionTaskPayload,
@@ -81,6 +82,9 @@ class RetrievableSourceAdmissionService:
         registry: KnowledgeProjectionAdapterRegistry,
         source_ledger: KnowledgeSourceLedgerFacade | None = None,
         tasks_store: TasksStore | None = None,
+        internal_admission_store: (
+            InternalProjectionAdmissionStore | None
+        ) = None,
         failpoint: Failpoint | None = None,
     ) -> None:
         self._registry = registry
@@ -88,6 +92,10 @@ class RetrievableSourceAdmissionService:
             source_ledger or KnowledgeSourceLedgerFacade()
         )
         self._tasks_store = tasks_store or TasksStore()
+        self._internal_admission_store = (
+            internal_admission_store
+            or InternalProjectionAdmissionStore()
+        )
         self._failpoint = failpoint or (lambda _step: None)
 
     def admit(
@@ -244,22 +252,6 @@ class RetrievableSourceAdmissionService:
             ],
             trigger_mode=command.trigger_mode,
         )
-        intakes = tuple(
-            intake.model_copy(
-                update={
-                    "metadata": {
-                        **intake.metadata,
-                        "internal_admission_receipt_hash": (
-                            internal_admission.receipt_hash
-                        ),
-                        "projection_task_id": task_id,
-                        "actor_user_id": access_context.subject_user_id,
-                        "tenant_id": access_context.tenant_id,
-                    }
-                }
-            )
-            for intake in intakes
-        )
         source_page = tuple(
             SourcePointer(
                 source_kind=item.source_kind,
@@ -357,6 +349,11 @@ class RetrievableSourceAdmissionService:
                 idempotent=True,
             )
             self._failpoint("task_written")
+            self._internal_admission_store.record_with_conn(
+                conn,
+                internal_admission,
+            )
+            self._failpoint("internal_admission_written")
         self._tasks_store.finalize_task_create_after_commit(
             task,
             created=task_created,

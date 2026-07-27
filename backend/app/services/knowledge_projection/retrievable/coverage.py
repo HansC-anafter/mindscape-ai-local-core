@@ -66,14 +66,25 @@ class ProjectionCoverageCoreRepository(PostgresStoreBase):
                         intake.metadata,
                         intake.created_at,
                         task.id AS task_id,
-                        task.status AS task_status
+                        task.status AS task_status,
+                        action.trigger_mode AS task_trigger_mode
                     FROM knowledge_source_intakes AS intake
                     JOIN knowledge_source_states AS state
                       ON state.source_instance_id =
                          intake.source_instance_id
+                    LEFT JOIN LATERAL (
+                        SELECT
+                            admission.task_id,
+                            admission.trigger_mode
+                        FROM knowledge_projection_task_admissions AS admission
+                        WHERE admission.intake_id = intake.id
+                        ORDER BY
+                            admission.created_at DESC,
+                            admission.task_id DESC
+                        LIMIT 1
+                    ) AS action ON TRUE
                     LEFT JOIN tasks AS task
-                      ON task.id =
-                         intake.metadata->>'projection_task_id'
+                      ON task.id = action.task_id
                     WHERE state.owner_type = :scope_type
                       AND state.owner_id = :scope_id
                       AND (
@@ -134,6 +145,11 @@ class ProjectionCoverageCoreRepository(PostgresStoreBase):
                         mapping["task_status"]
                         if mapping is not None
                         else row[7]
+                    ),
+                    "task_trigger_mode": (
+                        mapping["task_trigger_mode"]
+                        if mapping is not None
+                        else row[8]
                     ),
                 }
             )
@@ -291,7 +307,11 @@ class ProjectionCoverageService:
         projection_status = vector.get("projection_status")
         projection_active = bool(vector.get("projection_active"))
         resource_active = bool(vector.get("resource_active"))
-        trigger_mode = str(metadata.get("trigger_mode") or "")
+        trigger_mode = str(
+            core_row.get("task_trigger_mode")
+            or metadata.get("trigger_mode")
+            or ""
+        )
         if (
             trigger_mode == "revoke"
             and not resource_active

@@ -81,6 +81,7 @@ class _Core:
                 "created_at": NOW,
                 "task_id": "task-revoked",
                 "task_status": "succeeded",
+                "task_trigger_mode": "revoke",
             },
         )
 

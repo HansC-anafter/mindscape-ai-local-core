@@ -183,70 +183,6 @@ class KnowledgeSourceLedgerRepository(PostgresStoreBase):
             created=created,
         )
 
-    def verify_internal_projection_admission(
-        self,
-        *,
-        source_bindings,
-        receipt_hash: str,
-    ) -> bool:
-        """Verify runner provenance against the committed source intake."""
-
-        intake_ids = [binding.intake_id for binding in source_bindings]
-        with self.transaction() as conn:
-            rows = conn.execute(
-                text(
-                    """
-                    SELECT
-                        intake.id,
-                        intake.source_instance_id,
-                        intake.source_revision,
-                        intake.content_hash,
-                        intake.metadata
-                    FROM knowledge_source_intakes AS intake
-                    JOIN knowledge_source_states AS state
-                      ON state.source_instance_id =
-                         intake.source_instance_id
-                    WHERE intake.id = ANY(
-                        CAST(:intake_ids AS text[])
-                    )
-                    """
-                ),
-                {
-                    "intake_ids": intake_ids,
-                },
-            ).fetchall()
-        expected = {
-            (
-                binding.intake_id,
-                binding.source_instance_id,
-                binding.source_revision,
-                binding.content_hash,
-            )
-            for binding in source_bindings
-        }
-        observed = {
-            (
-                str(row[0]),
-                str(row[1]),
-                str(row[2]),
-                str(row[3]),
-            )
-            for row in rows
-        }
-        if observed != expected:
-            return False
-        return all(
-            str(
-                (row[4] if isinstance(row[4], dict) else {}).get(
-                    "internal_admission_receipt_hash"
-                )
-                or ""
-            )
-            == receipt_hash
-            for row in rows
-        )
-
-
 class KnowledgeSourceLedgerFacade:
     def __init__(
         self,
@@ -287,12 +223,6 @@ class KnowledgeSourceLedgerFacade:
             conn,
             intake,
             intake_id=intake_id,
-        )
-
-    def verify_internal_projection_admission(self, receipt) -> bool:
-        return self.repository.verify_internal_projection_admission(
-            source_bindings=receipt.sources,
-            receipt_hash=receipt.receipt_hash,
         )
 
     @staticmethod

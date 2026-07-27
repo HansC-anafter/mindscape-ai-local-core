@@ -300,14 +300,14 @@ def _internal_projection_fixture():
 async def test_internal_projection_task_uses_committed_source_receipt(
     monkeypatch,
 ):
-    from backend.app.services.knowledge_projection.source_ledger import (
-        KnowledgeSourceLedgerFacade,
+    from backend.app.services.knowledge_projection.retrievable.internal_admission_store import (
+        InternalProjectionAdmissionStore,
     )
 
     task, inputs, context, receipt = _internal_projection_fixture()
     monkeypatch.setattr(
-        KnowledgeSourceLedgerFacade,
-        "verify_internal_projection_admission",
+        InternalProjectionAdmissionStore,
+        "verify",
         lambda self, candidate: candidate.receipt_hash == receipt.receipt_hash,
     )
     result = await prepare_runner_child_admission(
@@ -338,8 +338,8 @@ async def test_internal_projection_task_uses_committed_source_receipt(
 async def test_internal_projection_task_converges_polluted_runtime_binding(
     monkeypatch,
 ):
-    from backend.app.services.knowledge_projection.source_ledger import (
-        KnowledgeSourceLedgerFacade,
+    from backend.app.services.knowledge_projection.retrievable.internal_admission_store import (
+        InternalProjectionAdmissionStore,
     )
 
     task, canonical_inputs, context, receipt = _internal_projection_fixture()
@@ -367,8 +367,8 @@ async def test_internal_projection_task_converges_polluted_runtime_binding(
         "execution_backend_hint": "remote",
     }
     monkeypatch.setattr(
-        KnowledgeSourceLedgerFacade,
-        "verify_internal_projection_admission",
+        InternalProjectionAdmissionStore,
+        "verify",
         lambda self, candidate: candidate.receipt_hash == receipt.receipt_hash,
     )
 
@@ -389,14 +389,14 @@ async def test_internal_projection_task_converges_polluted_runtime_binding(
 
 @pytest.mark.asyncio
 async def test_internal_projection_task_rejects_forged_identity(monkeypatch):
-    from backend.app.services.knowledge_projection.source_ledger import (
-        KnowledgeSourceLedgerFacade,
+    from backend.app.services.knowledge_projection.retrievable.internal_admission_store import (
+        InternalProjectionAdmissionStore,
     )
 
     task, inputs, context, _receipt = _internal_projection_fixture()
     monkeypatch.setattr(
-        KnowledgeSourceLedgerFacade,
-        "verify_internal_projection_admission",
+        InternalProjectionAdmissionStore,
+        "verify",
         lambda self, candidate: True,
     )
     forged = dict(inputs)

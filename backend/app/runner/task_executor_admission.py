@@ -313,8 +313,8 @@ def _verified_internal_projection_admission(
     from backend.app.services.knowledge_projection.retrievable.task_payload import (
         KnowledgeProjectionTaskPayload,
     )
-    from backend.app.services.knowledge_projection.source_ledger import (
-        KnowledgeSourceLedgerFacade,
+    from backend.app.services.knowledge_projection.retrievable.internal_admission_store import (
+        InternalProjectionAdmissionStore,
     )
 
     receipt = InternalProjectionAdmissionReceipt.model_validate(raw_receipt)
@@ -371,7 +371,7 @@ def _verified_internal_projection_admission(
         raise ValueError(
             "knowledge_projection_internal_admission_identity_mismatch"
         )
-    if not KnowledgeSourceLedgerFacade().verify_internal_projection_admission(
+    if not InternalProjectionAdmissionStore().verify(
         receipt
     ):
         raise ValueError(
