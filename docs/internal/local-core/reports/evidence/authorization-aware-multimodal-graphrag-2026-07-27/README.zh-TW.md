@@ -25,6 +25,7 @@
 - `runtime-pressure-approved-clean-source-runner-reload.json`：knowledge runner切換到乾淨release worktree前的PASS gate。
 - `runtime-pressure-post-activation.json`：最終啟用後的API、DB、PgBouncer與runner唯讀觀測。
 - `runtime-pressure-post-admission-and-revoke-closure.json`：完成IG canary、revoke及Docker aggregate後的fixed-threshold三次PgBouncer terminal observation。
+- `runtime-pressure-post-cleanup-terminal.json`：刪除exact disposable DB後的最終固定門檻後驗；live DB、PgBouncer與runner capacity保持健康。
 
 ## 分層判定
 
