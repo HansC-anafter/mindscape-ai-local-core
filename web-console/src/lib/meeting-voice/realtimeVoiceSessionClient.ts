@@ -1,4 +1,7 @@
-import type { MeetingVoiceCommandContext } from './voiceTurnClient';
+import type {
+  MeetingVoiceCommandContext,
+  WorkspaceVoiceSemanticTurnResult,
+} from './voiceTurnClient';
 
 export type RealtimeVoiceSessionState =
   | 'idle'
@@ -13,6 +16,7 @@ export type RealtimeVoiceSessionEventType =
   | 'transcript_candidate'
   | 'transcript_final'
   | 'command_submitted'
+  | 'semantic_clarification'
   | 'speech_unavailable'
   | 'interrupted'
   | 'cancelled'
@@ -31,6 +35,7 @@ export type RealtimeVoiceSessionEvent = {
   duration?: number | null;
   audio_byte_count?: number | null;
   command_response?: unknown;
+  semantic_result?: WorkspaceVoiceSemanticTurnResult;
   reason?: string;
   message?: string;
   recoverable?: boolean;

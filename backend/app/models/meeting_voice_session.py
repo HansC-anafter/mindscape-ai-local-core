@@ -9,6 +9,9 @@ from pydantic import BaseModel, ConfigDict, Field
 from backend.app.models.meeting_command import MeetingCommandAcceptResponse
 from backend.app.models.meeting_voice_context import MeetingVoiceCommandContext
 from backend.app.models.object_runtime import ObjectRoleEntry
+from backend.app.models.workspace_voice_semantic_turn import (
+    WorkspaceVoiceSemanticTurnResult,
+)
 
 
 MeetingVoiceSessionState = Literal[
@@ -35,6 +38,7 @@ MeetingVoiceServerEventType = Literal[
     "transcript_candidate",
     "transcript_final",
     "command_submitted",
+    "semantic_clarification",
     "speech_unavailable",
     "interrupted",
     "cancelled",
@@ -106,6 +110,7 @@ class MeetingVoiceSessionEvent(BaseModel):
     duration: Optional[float] = None
     audio_byte_count: Optional[int] = None
     command_response: Optional[MeetingCommandAcceptResponse] = None
+    semantic_result: Optional[WorkspaceVoiceSemanticTurnResult] = None
     reason: Optional[str] = None
     message: Optional[str] = None
     recoverable: Optional[bool] = None
