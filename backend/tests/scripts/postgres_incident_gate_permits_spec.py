@@ -83,6 +83,52 @@ def test_cli_pack_install_permit_keeps_incident_open_and_binds_artifact(
     assert blocked.returncode == 2
     assert json.loads(blocked.stdout)["reason"] == "runtime_database_incident_open"
 
+def test_cli_pack_install_permit_represents_empty_migration_set_without_sentinel(
+    tmp_path: Path,
+) -> None:
+    opened = _run(tmp_path, "open", "postgres_server_closed_unexpectedly")
+    incident_id = json.loads(opened.stdout)["incident_id"]
+    artifact_sha256 = "b" * 64
+
+    permitted = _run(
+        tmp_path,
+        "permit-pack-install",
+        incident_id,
+        "--permit-id",
+        "pack-install-empty-migrations-001",
+        "--capability-code",
+        "web_generation",
+        "--current-version",
+        "1.2.0",
+        "--candidate-version",
+        "1.2.1",
+        "--artifact-sha256",
+        artifact_sha256,
+        "--preflight-evidence-path",
+        "evidence/web-generation-install-preflight.json",
+        "--migration-files-digest",
+        "e3b0c44298fc1c149afbf4c8996fb924"
+        "27ae41e4649b934ca495991b7852b855",
+        "--backout-install-id",
+        "install-web-generation-1.2.0",
+        "--backout-artifact-sha256",
+        "d" * 64,
+        "--expires-at",
+        "2099-07-17T00:00:00Z",
+        "--owner",
+        "workspace-owner",
+        "--owner-authorization",
+        "direct_install_requested_in_task",
+    )
+
+    assert permitted.returncode == 0
+    permit = json.loads(permitted.stdout)["pack_install_permits"][0]
+    assert permit["migration_revisions"] == []
+    assert permit["migration_files_digest"] == (
+        "e3b0c44298fc1c149afbf4c8996fb924"
+        "27ae41e4649b934ca495991b7852b855"
+    )
+
 def test_cli_targeted_migration_permit_keeps_incident_open_and_binds_revision(
     tmp_path: Path,
 ) -> None:

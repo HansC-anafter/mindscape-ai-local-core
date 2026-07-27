@@ -33,6 +33,9 @@ def _parse_timestamp(value: str, *, field_name: str) -> datetime:
 
 
 _SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+_EMPTY_MIGRATION_FILES_DIGEST = (
+    "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+)
 _DIAGNOSTIC_OPERATION_PATTERNS = (
     re.compile(r"^postgres_signal_observer_start@sha256:[0-9a-f]{64}$"),
     re.compile(r"^postgres_identity_logging_reload@sha256:[0-9a-f]{64}$"),
@@ -212,9 +215,7 @@ class IncidentPackInstallPermitReceipt:
             not str(path).strip() for path in self.preflight_evidence_paths
         ):
             missing.append("preflight_evidence_paths")
-        if not self.migration_revisions or any(
-            not str(revision).strip() for revision in self.migration_revisions
-        ):
+        if any(not str(revision).strip() for revision in self.migration_revisions):
             missing.append("migration_revisions")
         if missing:
             raise ValueError(
@@ -228,6 +229,14 @@ class IncidentPackInstallPermitReceipt:
             self.migration_files_digest,
             field_name="migration_files_digest",
         )
+        if (
+            not self.migration_revisions
+            and self.migration_files_digest.strip().lower()
+            != _EMPTY_MIGRATION_FILES_DIGEST
+        ):
+            raise ValueError(
+                "pack_install_permit_empty_migration_set_digest_mismatch"
+            )
         _validate_sha256(
             self.backout_artifact_sha256,
             field_name="backout_artifact_sha256",

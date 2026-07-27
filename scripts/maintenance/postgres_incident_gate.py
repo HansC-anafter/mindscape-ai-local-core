@@ -94,7 +94,7 @@ def _parser() -> argparse.ArgumentParser:
     pack_permit.add_argument("--candidate-version", required=True)
     pack_permit.add_argument("--artifact-sha256", required=True)
     pack_permit.add_argument("--preflight-evidence-path", action="append", required=True)
-    pack_permit.add_argument("--migration-revision", action="append", required=True)
+    pack_permit.add_argument("--migration-revision", action="append", default=[])
     pack_permit.add_argument("--migration-files-digest", required=True)
     pack_permit.add_argument("--backout-install-id", required=True)
     pack_permit.add_argument("--backout-artifact-sha256", required=True)

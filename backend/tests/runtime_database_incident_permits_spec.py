@@ -115,6 +115,31 @@ def test_pack_install_permit_rejects_schema_mutation_and_wrong_keys() -> None:
             }
         ).validate()
 
+def test_pack_install_permit_accepts_digest_bound_empty_migration_set() -> None:
+    receipt = _pack_install_permit()
+    IncidentPackInstallPermitReceipt(
+        **{
+            **receipt.__dict__,
+            "migration_revisions": (),
+            "migration_files_digest": (
+                "e3b0c44298fc1c149afbf4c8996fb924"
+                "27ae41e4649b934ca495991b7852b855"
+            ),
+        }
+    ).validate()
+
+    with pytest.raises(
+        ValueError,
+        match="empty_migration_set_digest_mismatch",
+    ):
+        IncidentPackInstallPermitReceipt(
+            **{
+                **receipt.__dict__,
+                "migration_revisions": (),
+                "migration_files_digest": "c" * 64,
+            }
+        ).validate()
+
 def test_open_incident_allows_only_exact_owner_authorized_targeted_migration(
     tmp_path: Path,
 ) -> None:
