@@ -357,6 +357,7 @@ async def test_internal_projection_task_converges_polluted_runtime_binding(
             "runtime_id": "runtime-should-not-apply",
         },
         "runtime_id": "runtime-should-not-apply",
+        "execution_id": task.execution_id,
     }
     polluted_context = {
         **context,

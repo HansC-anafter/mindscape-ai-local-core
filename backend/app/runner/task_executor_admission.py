@@ -326,6 +326,14 @@ def _verified_internal_projection_admission(
         "target_device_id",
     ):
         candidate_payload.pop(key, None)
+    injected_execution_id = candidate_payload.pop("execution_id", None)
+    if (
+        injected_execution_id is not None
+        and str(injected_execution_id) != str(task.execution_id or task.id)
+    ):
+        raise ValueError(
+            "knowledge_projection_internal_admission_identity_mismatch"
+        )
     candidate_projection_payload = (
         KnowledgeProjectionTaskPayload.model_validate(candidate_payload)
     )
