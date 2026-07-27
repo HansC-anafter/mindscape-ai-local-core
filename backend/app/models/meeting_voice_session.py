@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 from backend.app.models.meeting_command import MeetingCommandAcceptResponse
+from backend.app.models.meeting_voice_context import MeetingVoiceCommandContext
 from backend.app.models.object_runtime import ObjectRoleEntry
 
 
@@ -52,6 +53,7 @@ class MeetingVoiceSessionClientMessage(BaseModel):
     audio_base64: Optional[str] = None
     mime_type: Optional[str] = None
     language: Optional[str] = "auto"
+    command_context: Optional[MeetingVoiceCommandContext] = None
     context_objects: List[ObjectRoleEntry] = Field(default_factory=list)
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
@@ -66,6 +68,7 @@ class MeetingVoiceAudioWindow(BaseModel):
     audio_base64: str = Field(min_length=1)
     mime_type: str = Field(min_length=1)
     language: Optional[str] = "auto"
+    command_context: Optional[MeetingVoiceCommandContext] = None
     context_objects: List[ObjectRoleEntry] = Field(default_factory=list)
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
@@ -82,6 +85,7 @@ class MeetingVoiceTranscriptCandidate(BaseModel):
     duration: Optional[float] = None
     audio_mime_type: str
     audio_byte_count: int
+    command_context: Optional[MeetingVoiceCommandContext] = None
     context_objects: List[ObjectRoleEntry] = Field(default_factory=list)
     metadata: Dict[str, Any] = Field(default_factory=dict)
 

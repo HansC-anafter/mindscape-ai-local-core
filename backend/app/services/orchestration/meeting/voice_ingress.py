@@ -12,6 +12,9 @@ from backend.app.models.meeting_voice import (
     MeetingVoiceTurnRequest,
     MeetingVoiceTurnResponse,
 )
+from backend.app.models.meeting_voice_context import (
+    normalize_meeting_voice_command_context,
+)
 from backend.app.models.workspace import Workspace
 from backend.app.services.conversation_orchestrator import ConversationOrchestrator
 from backend.app.services.host_services.whisper_proxy import (
@@ -31,7 +34,8 @@ from backend.app.services.orchestration.meeting.voice_client_actions import (
     resolve_voice_client_action,
 )
 
-SUPPORTED_VOICE_TURN_MIME_TYPES = {"audio/webm", "audio/wav"}
+SUPPORTED_VOICE_TURN_MIME_TYPES = {"audio/mp4", "audio/webm", "audio/wav"}
+SUPPORTED_VOICE_TURN_MIME_LABEL = "audio/mp4, audio/webm, or audio/wav"
 
 
 class MeetingVoiceIngressError(Exception):
@@ -114,12 +118,26 @@ class MeetingVoiceIngressService:
                 status_code=422,
                 detail=voice_error_detail(
                     "unsupported_audio_mime_type",
-                    "Voice turn supports audio/webm and audio/wav only.",
+                    f"Voice turn supports {SUPPORTED_VOICE_TURN_MIME_LABEL}.",
                     mime_type=request.mime_type,
                 ),
             )
 
         audio_bytes = decode_audio_base64(request.audio_base64)
+        try:
+            command_context = normalize_meeting_voice_command_context(
+                command_context=request.command_context,
+                context_objects=request.context_objects,
+                metadata=request.metadata,
+            )
+        except ValueError as exc:
+            raise MeetingVoiceIngressError(
+                status_code=422,
+                detail=voice_error_detail(
+                    "conflicting_command_context",
+                    "Voice turn must use command_context or legacy context, not both.",
+                ),
+            ) from exc
         service = self.submission_service or MeetingCommandSubmissionService()
         session = validate_meeting_session(
             workspace_id=workspace_id,
@@ -158,7 +176,8 @@ class MeetingVoiceIngressService:
                 meeting_id=meeting_id,
                 origin_surface="meeting_voice",
                 transcript=transcript,
-                context_objects=request.context_objects,
+                context_objects=command_context.context_objects,
+                command_context=command_context,
                 resolution=resolve_voice_client_action(
                     transcript=transcript,
                     session=session,
@@ -194,6 +213,7 @@ class MeetingVoiceIngressService:
 __all__ = [
     "MeetingVoiceIngressError",
     "MeetingVoiceIngressService",
+    "SUPPORTED_VOICE_TURN_MIME_LABEL",
     "SUPPORTED_VOICE_TURN_MIME_TYPES",
     "decode_audio_base64",
     "normalized_mime_type",

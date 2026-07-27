@@ -11,17 +11,12 @@ import { useMessages } from '@/contexts/MessagesContext';
 import IntentChips from '../../app/workspaces/components/IntentChips';
 import { WorkspaceChatRuntimeControls } from './WorkspaceChatRuntimeControls';
 import { getApiBaseUrl } from '@/lib/api-url';
-
-const LazyMeetingVoiceTurnButton = React.lazy(() => (
-  import('./MeetingVoiceTurnButton').then((module) => ({
-    default: module.MeetingVoiceTurnButton,
-  }))
-));
-const LazyRealtimeVoiceSessionButton = React.lazy(() => (
-  import('./RealtimeVoiceSessionButton').then((module) => ({
-    default: module.RealtimeVoiceSessionButton,
-  }))
-));
+import { useWorkspaceInteractionTargetRegistration } from '@/lib/workspace-interaction/WorkspaceInteractionIngressProvider';
+import {
+  workspaceInteractionRevision,
+  type WorkspaceInteractionTarget,
+} from '@/lib/workspace-interaction/workspaceInteractionTarget';
+import { transcribeWorkspaceAudio } from '@/lib/workspace-interaction/workspaceSpeechToTextClient';
 
 interface InputAreaProps {
   workspaceId: string;
@@ -32,7 +27,6 @@ interface InputAreaProps {
   isLoading: boolean;
   canSend: boolean;
   layoutVariant?: 'default' | 'meeting_pane';
-  meetingId?: string | null;
   onFilesChanged?: (files: any[], analyzingFiles: Set<string>, analyzeFile: (file: any) => Promise<any>, clearFiles: () => void) => void;
 }
 
@@ -45,7 +39,6 @@ export function InputArea({
   isLoading,
   canSend,
   layoutVariant = 'default',
-  meetingId,
   onFilesChanged,
 }: InputAreaProps) {
   const t = useT();
@@ -82,6 +75,47 @@ export function InputArea({
   };
   const isMeetingPaneLayout = layoutVariant === 'meeting_pane';
   const resolvedApiUrl = apiUrl || getApiBaseUrl();
+  const interactionTarget = React.useMemo<WorkspaceInteractionTarget | null>(() => {
+    if (llmConfigured === false) {
+      return null;
+    }
+    return {
+      targetId: `workspace_chat:${workspaceId}`,
+      targetKind: 'workspace_chat',
+      targetLabel: t('workspaceVoiceTargetWorkspaceChat' as any),
+      revision: workspaceInteractionRevision('workspace_chat', {
+        workspace_id: workspaceId,
+        draft: input,
+      }),
+      submissionPolicy: 'review_then_submit',
+      freezeContext: () => ({
+        workspace_id: workspaceId,
+        draft: input,
+      }),
+      submitVoiceTurn: async (turn) => {
+        const response = await transcribeWorkspaceAudio({
+          apiUrl: resolvedApiUrl,
+          audioBase64: turn.audioBase64,
+          language: turn.language,
+        });
+        const transcript = response.text.trim();
+        if (!transcript) {
+          return {
+            status: 'ignored_empty_transcript',
+            transcript: '',
+          };
+        }
+        const prefix = input.trim().length > 0 ? `${input.trimEnd()} ` : '';
+        setInput(`${prefix}${transcript}`);
+        return {
+          status: 'draft_updated',
+          transcript,
+        };
+      },
+    };
+  }, [input, llmConfigured, resolvedApiUrl, setInput, t, workspaceId]);
+  const activateInteractionTarget =
+    useWorkspaceInteractionTargetRegistration(interactionTarget);
 
   return (
     <form
@@ -140,6 +174,8 @@ export function InputArea({
             onChange={(e) => {
               setInput(e.target.value);
             }}
+            onFocus={activateInteractionTarget}
+            onPointerDown={activateInteractionTarget}
             onKeyDown={handleKeyPress}
             placeholder={llmConfigured === false ? t('configureApiKeyFirst' as any) : t('typeMessageOrDropFiles' as any)}
             disabled={llmConfigured === false}
@@ -150,6 +186,7 @@ export function InputArea({
             data-form-type="other"
             data-1p-ignore="true"
             name="workspace-chat-input"
+            data-workspace-interaction-target="workspace_chat"
           />
           <input
             ref={fileInputRef}
@@ -181,28 +218,6 @@ export function InputArea({
                 layout="inline"
               />
             ) : null
-          }
-          actionContent={
-            <React.Suspense fallback={null}>
-              <div className="flex items-center gap-1">
-                {meetingId ? (
-                  <>
-                  <LazyRealtimeVoiceSessionButton
-                    workspaceId={workspaceId}
-                    meetingId={meetingId}
-                    apiUrl={resolvedApiUrl}
-                    disabled={llmConfigured === false}
-                  />
-                  <LazyMeetingVoiceTurnButton
-                    workspaceId={workspaceId}
-                    meetingId={meetingId}
-                    apiUrl={resolvedApiUrl}
-                    disabled={llmConfigured === false}
-                  />
-                  </>
-                ) : null}
-              </div>
-            </React.Suspense>
           }
           onFileUpload={() => fileInputRef.current?.click()}
           onSend={() => onSend({ preventDefault: () => { } } as React.FormEvent)}

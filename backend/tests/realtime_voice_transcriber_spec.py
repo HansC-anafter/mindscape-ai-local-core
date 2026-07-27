@@ -187,3 +187,64 @@ async def test_invalid_audio_closes_session_before_stt() -> None:
     assert exc_info.value.reason == "invalid_audio_base64"
     assert exc_info.value.close_session is True
     assert called is False
+
+
+@pytest.mark.asyncio
+async def test_realtime_candidate_preserves_normalized_context_until_final_write() -> None:
+    async def _transcriber(request):
+        return WhisperTranscriptionResult(
+            text="Run the selected guidance.",
+            segments=[],
+            language="en",
+            duration=0.7,
+        )
+
+    submission_service = _FakeSubmissionService()
+    service = RealtimeVoiceTranscriber(
+        transcriber=_transcriber,
+        submission_service=submission_service,
+    )
+    candidate = await service.transcribe_audio_window(
+        window=MeetingVoiceAudioWindow.model_validate(
+            {
+                "client_session_id": "session_context",
+                "utterance_id": "utt_context",
+                "audio_base64": _audio_base64(),
+                "mime_type": "audio/mp4",
+                "command_context": {
+                    "context_objects": [],
+                    "expected_outputs": ["guidance_result"],
+                    "thread_id": "mtg_voice",
+                    "metadata": {
+                        "raw_intent_text": "Voice command",
+                        "action_parameters": {
+                            "meeting_command": "Voice command",
+                            "selected_guidance_id": "guide_1",
+                        },
+                    },
+                },
+            }
+        )
+    )
+
+    assert submission_service.envelopes == []
+    assert candidate.command_context is not None
+    assert candidate.command_context.thread_id == "mtg_voice"
+    await service.submit_final_transcript(
+        candidate=candidate,
+        workspace_id="ws_voice",
+        meeting_id="mtg_voice",
+        workspace=SimpleNamespace(id="ws_voice"),
+        orchestrator=SimpleNamespace(),
+        mindscape_store=SimpleNamespace(),
+    )
+
+    assert len(submission_service.envelopes) == 1
+    envelope = submission_service.envelopes[0]
+    assert envelope.expected_outputs == ["guidance_result"]
+    assert envelope.thread_id == "mtg_voice"
+    assert (
+        envelope.metadata["action_parameters"]["meeting_command"]
+        == "Run the selected guidance."
+    )
+    assert envelope.metadata["audio_mime_type"] == "audio/mp4"

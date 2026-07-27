@@ -9,6 +9,9 @@ from backend.app.models.meeting_voice_session import (
     MeetingVoiceAudioWindow,
     MeetingVoiceTranscriptCandidate,
 )
+from backend.app.models.meeting_voice_context import (
+    normalize_meeting_voice_command_context,
+)
 from backend.app.models.workspace import Workspace
 from backend.app.services.conversation_orchestrator import ConversationOrchestrator
 from backend.app.services.host_services.whisper_proxy import (
@@ -22,6 +25,7 @@ from backend.app.services.orchestration.meeting.meeting_command_submission impor
     MeetingCommandSubmissionService,
 )
 from backend.app.services.orchestration.meeting.voice_ingress import (
+    SUPPORTED_VOICE_TURN_MIME_LABEL,
     SUPPORTED_VOICE_TURN_MIME_TYPES,
     MeetingVoiceIngressError,
     decode_audio_base64,
@@ -75,7 +79,10 @@ class RealtimeVoiceTranscriber:
         if mime_type not in SUPPORTED_VOICE_TURN_MIME_TYPES:
             raise RealtimeVoiceTranscriptionError(
                 reason="unsupported_audio_mime_type",
-                message="Realtime voice session supports audio/webm and audio/wav only.",
+                message=(
+                    "Realtime voice session supports "
+                    f"{SUPPORTED_VOICE_TURN_MIME_LABEL}."
+                ),
                 recoverable=False,
                 close_session=True,
             )
@@ -87,6 +94,19 @@ class RealtimeVoiceTranscriber:
             raise RealtimeVoiceTranscriptionError(
                 reason=str(detail.get("code") or "invalid_audio"),
                 message=str(detail.get("message") or "Invalid realtime voice audio."),
+                recoverable=False,
+                close_session=True,
+            ) from exc
+        try:
+            command_context = normalize_meeting_voice_command_context(
+                command_context=window.command_context,
+                context_objects=window.context_objects,
+                metadata=window.metadata,
+            )
+        except ValueError as exc:
+            raise RealtimeVoiceTranscriptionError(
+                reason="conflicting_command_context",
+                message="Realtime voice window must use command_context or legacy context, not both.",
                 recoverable=False,
                 close_session=True,
             ) from exc
@@ -121,7 +141,8 @@ class RealtimeVoiceTranscriber:
             duration=transcription.duration,
             audio_mime_type=mime_type,
             audio_byte_count=len(audio_bytes),
-            context_objects=window.context_objects,
+            command_context=command_context,
+            context_objects=command_context.context_objects,
             metadata={
                 "client_metadata": window.metadata,
                 "transcript_hash": hashlib.sha256(
@@ -149,6 +170,7 @@ class RealtimeVoiceTranscriber:
                 origin_surface="meeting_voice_session",
                 transcript=candidate.transcript,
                 context_objects=candidate.context_objects,
+                command_context=candidate.command_context,
                 resolution=resolve_voice_client_action(
                     transcript=candidate.transcript,
                     session=session,

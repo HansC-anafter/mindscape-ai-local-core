@@ -258,14 +258,12 @@ export function AOLMeetingBottomShell({
       setActiveInspector(node.defaultInspector);
     }
   }
-
   function handleSelectNextStep() {
     if (!nextStepNodeId) {
       return;
     }
     handleSelectNode(nextStepNodeId);
   }
-
   function handleSelectMissingContext(context: MeetingMissingContext) {
     setActiveMissingContext(context);
     setSelectedNodeId('ready');
@@ -274,7 +272,7 @@ export function AOLMeetingBottomShell({
     }
   }
 
-  const { handleCompiledGraphEnvelope, handleSubmitCommand } = createMeetingWorkbenchCommandDispatchHandlers({
+  const { handleCompiledGraphEnvelope, handleSubmitCommand, interactionTarget } = createMeetingWorkbenchCommandDispatchHandlers({
     command,
     activeMeetingId,
     mentionItems,
@@ -282,6 +280,7 @@ export function AOLMeetingBottomShell({
     selectedPackToolId,
     effectiveSummary,
     effectiveSelection,
+    graphSelection,
     selectedNode,
     objectTitle,
     capabilityCode,
@@ -488,6 +487,7 @@ export function AOLMeetingBottomShell({
           mentionItemsError: registryMentionItemsError,
           onApplyMention: handleApplyMention,
           missingContextLabel,
+          interactionTarget,
           t,
         }}
         dispatchError={dispatchError}

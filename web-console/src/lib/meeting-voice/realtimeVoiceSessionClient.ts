@@ -1,3 +1,5 @@
+import type { MeetingVoiceCommandContext } from './voiceTurnClient';
+
 export type RealtimeVoiceSessionState =
   | 'idle'
   | 'listening'
@@ -42,8 +44,7 @@ export type RealtimeVoiceClientMessage =
       audio_base64: string;
       mime_type: string;
       language?: string;
-      context_objects?: unknown[];
-      metadata?: Record<string, unknown>;
+      command_context?: MeetingVoiceCommandContext;
     }
   | { type: 'utterance_end'; utterance_id: string }
   | { type: 'interrupt' }

@@ -27,6 +27,7 @@ import {
   WorkspaceGlobalToolRailContext,
   type WorkspaceGlobalToolContribution,
 } from '../components/useWorkspaceGlobalToolRail';
+import { WorkspaceInteractionIngressHost } from '@/components/workspace/interaction/WorkspaceInteractionIngressHost';
 import {
   WorkspaceMobileHostToolTray,
   useWorkspaceMobileHostToolTray,
@@ -324,34 +325,36 @@ function CapabilityHostToolRailProvider({
 
   return (
     <WorkspaceGlobalToolRailContext.Provider value={contextValue}>
-      <div
-        className="relative flex h-full min-h-0 w-full min-w-0 flex-1 overflow-hidden"
-        data-testid="capability-host-tool-shell"
-        data-workbench-placement={placement}
-      >
-        <main className="flex h-full min-h-0 min-w-0 flex-1 overflow-hidden">
-          {children}
-        </main>
-        {isMobilePlacement ? (
-          <WorkspaceMobileHostToolTray
-            anchorRef={mobileTrayAnchorRef}
-            open={mobileTrayOpen}
-            onToggle={toggleMobileTray}
-            rail={workspaceToolRail}
-            panel={workspaceToolPanel}
-          />
-        ) : (
-          <>
-            {workspaceToolPanel}
-            <div
-              className="flex shrink-0"
-              data-testid="capability-host-rail-slot"
-            >
-              {workspaceToolRail}
-            </div>
-          </>
-        )}
-      </div>
+      <WorkspaceInteractionIngressHost workspaceId={workspaceId}>
+        <div
+          className="relative flex h-full min-h-0 w-full min-w-0 flex-1 overflow-hidden"
+          data-testid="capability-host-tool-shell"
+          data-workbench-placement={placement}
+        >
+          <main className="flex h-full min-h-0 min-w-0 flex-1 overflow-hidden">
+            {children}
+          </main>
+          {isMobilePlacement ? (
+            <WorkspaceMobileHostToolTray
+              anchorRef={mobileTrayAnchorRef}
+              open={mobileTrayOpen}
+              onToggle={toggleMobileTray}
+              rail={workspaceToolRail}
+              panel={workspaceToolPanel}
+            />
+          ) : (
+            <>
+              {workspaceToolPanel}
+              <div
+                className="flex shrink-0"
+                data-testid="capability-host-rail-slot"
+              >
+                {workspaceToolRail}
+              </div>
+            </>
+          )}
+        </div>
+      </WorkspaceInteractionIngressHost>
     </WorkspaceGlobalToolRailContext.Provider>
   );
 }

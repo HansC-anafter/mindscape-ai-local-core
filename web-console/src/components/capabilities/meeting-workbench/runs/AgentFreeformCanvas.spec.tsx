@@ -5,6 +5,10 @@ import { describe, expect, it, vi } from 'vitest';
 import { DEFAULT_AGENT_FREEFORM_PANELS } from './agentFreeformLayoutModel';
 import { AgentFreeformCanvas } from './AgentFreeformCanvas';
 
+vi.mock('@/lib/i18n', () => ({
+  useT: () => (key: string) => key,
+}));
+
 describe('AgentFreeformCanvas', () => {
   it('keeps composer and stream visible as floating canvas panels', () => {
     render(

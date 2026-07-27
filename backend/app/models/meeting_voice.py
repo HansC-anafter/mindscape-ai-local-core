@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 from backend.app.models.meeting_command import MeetingCommandAcceptResponse
+from backend.app.models.meeting_voice_context import MeetingVoiceCommandContext
 from backend.app.models.object_runtime import ObjectRoleEntry
 
 
@@ -27,6 +28,7 @@ class MeetingVoiceTurnRequest(BaseModel):
     mime_type: str = Field(min_length=1)
     language: Optional[str] = "auto"
     origin_surface: str = "meeting_voice"
+    command_context: Optional[MeetingVoiceCommandContext] = None
     context_objects: List[ObjectRoleEntry] = Field(default_factory=list)
     metadata: Dict[str, Any] = Field(default_factory=dict)
 

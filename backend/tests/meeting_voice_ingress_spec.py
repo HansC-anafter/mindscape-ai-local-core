@@ -199,3 +199,131 @@ async def test_voice_ingress_rejects_invalid_audio_before_stt() -> None:
 
     assert exc_info.value.status_code == 422
     assert called is False
+
+
+@pytest.mark.asyncio
+async def test_voice_ingress_preserves_full_command_context_for_mp4() -> None:
+    async def _transcriber(request):
+        return WhisperTranscriptionResult(
+            text="Create the selected scene now.",
+            segments=[],
+            language="en",
+            duration=0.9,
+        )
+
+    submission_service = _FakeSubmissionService()
+    service = MeetingVoiceIngressService(
+        transcriber=_transcriber,
+        submission_service=submission_service,
+    )
+    response = await service.submit_voice_turn(
+        request=MeetingVoiceTurnRequest.model_validate(
+            {
+                "client_turn_id": "turn_context",
+                "audio_base64": _audio_base64(),
+                "mime_type": "audio/mp4;codecs=mp4a.40.2",
+                "command_context": {
+                    "context_objects": [],
+                    "requested_action": {
+                        "verb": "execute_playbook",
+                        "pack_code": "ig",
+                        "playbook_code": "create_scene",
+                        "write_mode": "recommendation_only",
+                        "parameters": {
+                            "instruction": "Voice command",
+                            "message": "Voice command",
+                            "meeting_command": "Voice command",
+                        },
+                    },
+                    "expected_outputs": ["scene"],
+                    "write_mode": "recommendation_only",
+                    "thread_id": "mtg_voice",
+                    "meeting_mentions": [
+                        {
+                            "kind": "pack",
+                            "id": "ig",
+                            "token": "@ig",
+                        }
+                    ],
+                    "metadata": {
+                        "raw_intent_text": "Voice command",
+                        "action_parameters": {
+                            "meeting_command": "Voice command",
+                            "graph_selection": {"selection_hash": "gsel_1"},
+                        },
+                    },
+                },
+            }
+        ),
+        workspace_id="ws_voice",
+        meeting_id="mtg_voice",
+        workspace=SimpleNamespace(id="ws_voice"),
+        orchestrator=SimpleNamespace(),
+        mindscape_store=SimpleNamespace(),
+    )
+
+    assert response.status == "transcribed_command_submitted"
+    assert len(submission_service.envelopes) == 1
+    envelope = submission_service.envelopes[0]
+    assert envelope.intent_text == "Create the selected scene now."
+    assert envelope.thread_id == "mtg_voice"
+    assert envelope.expected_outputs == ["scene"]
+    assert envelope.meeting_mentions[0]["token"] == "@ig"
+    assert envelope.requested_action is not None
+    assert envelope.requested_action.playbook_code == "create_scene"
+    assert (
+        envelope.requested_action.parameters["instruction"]
+        == "Create the selected scene now."
+    )
+    assert (
+        envelope.metadata["action_parameters"]["meeting_command"]
+        == "Create the selected scene now."
+    )
+    assert envelope.metadata["audio_mime_type"] == "audio/mp4"
+
+
+@pytest.mark.asyncio
+async def test_voice_ingress_rejects_conflicting_context_before_stt_or_write() -> None:
+    called = False
+
+    async def _transcriber(request):
+        nonlocal called
+        called = True
+        return WhisperTranscriptionResult(
+            text="must not run",
+            segments=[],
+            language="en",
+            duration=0.1,
+        )
+
+    submission_service = _FakeSubmissionService()
+    service = MeetingVoiceIngressService(
+        transcriber=_transcriber,
+        submission_service=submission_service,
+    )
+
+    with pytest.raises(MeetingVoiceIngressError) as exc_info:
+        await service.submit_voice_turn(
+            request=MeetingVoiceTurnRequest.model_validate(
+                {
+                    "client_turn_id": "turn_conflict",
+                    "audio_base64": _audio_base64(),
+                    "mime_type": "audio/webm",
+                    "command_context": {
+                        "context_objects": [],
+                        "metadata": {"source": "normalized"},
+                    },
+                    "metadata": {"source": "legacy"},
+                }
+            ),
+            workspace_id="ws_voice",
+            meeting_id="mtg_voice",
+            workspace=SimpleNamespace(id="ws_voice"),
+            orchestrator=SimpleNamespace(),
+            mindscape_store=SimpleNamespace(),
+        )
+
+    assert exc_info.value.status_code == 422
+    assert exc_info.value.detail["code"] == "conflicting_command_context"
+    assert called is False
+    assert submission_service.envelopes == []

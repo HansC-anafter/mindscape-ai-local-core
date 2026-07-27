@@ -6,8 +6,10 @@ import pytest
 
 from backend.app.models.meeting_command import (
     MeetingCommandRecord,
+    MeetingRequestedAction,
     MeetingCommandStatus,
 )
+from backend.app.models.meeting_voice_context import MeetingVoiceCommandContext
 from backend.app.services.meeting_command_dispatch_client_actions import (
     dispatch_client_action_for_command,
 )
@@ -156,3 +158,36 @@ async def test_client_action_uses_direct_ledger_dispatch_without_meeting_worker(
     assert completed.metadata["dispatch_mode"] == "route_client_action"
     assert dispatch_result["client_action"]["pack_code"] == "yogacoach"
     assert dispatch_result["client_action"]["payload"]["reference"]["provider"] == "bilibili"
+
+
+def test_explicit_frozen_requested_action_is_not_replaced_by_pack_voice_intent() -> None:
+    resolution = resolve_voice_client_action(
+        transcript="播放瑜伽練習",
+        session=_session(),
+        registry=_Registry(),
+    )
+    assert resolution is not None
+    envelope = build_voice_command_envelope(
+        workspace_id="ws_voice",
+        meeting_id="mtg_voice",
+        origin_surface="meeting_voice",
+        transcript="播放瑜伽練習",
+        metadata={"client_turn_id": "turn_explicit"},
+        context_objects=[],
+        resolution=resolution,
+        command_context=MeetingVoiceCommandContext(
+            requested_action=MeetingRequestedAction(
+                verb="execute_playbook",
+                pack_code="ig",
+                playbook_code="selected_playbook",
+                parameters={"instruction": "Voice command"},
+            ),
+            thread_id="mtg_voice",
+        ),
+    )
+
+    assert envelope.requested_action is not None
+    assert envelope.requested_action.pack_code == "ig"
+    assert envelope.requested_action.playbook_code == "selected_playbook"
+    assert envelope.requested_action.parameters["instruction"] == "播放瑜伽練習"
+    assert should_route_client_action(envelope) is False

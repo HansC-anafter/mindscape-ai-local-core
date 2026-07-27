@@ -96,6 +96,7 @@ export const workspaceJa = {
   instructionChatErrorPrefix: '提案を取得できませんでした：',
 
   governance: 'ガバナンス',
+  knowledgeAccess: 'ナレッジアクセス',
   governancePageDescription:
     'このワークスペースのガバナンス判断、指標、ガバナンスメモリを確認します。',
   decisionHistory: '判断履歴',

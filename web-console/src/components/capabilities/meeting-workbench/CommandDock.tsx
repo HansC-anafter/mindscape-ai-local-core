@@ -3,6 +3,8 @@ import { MessageSquare, Send } from 'lucide-react';
 
 import { applyMentionToken, getMentionQuery } from './meetingMentions';
 import type { MeetingMentionItem, MeetingPackTool, MeetingTranslate } from './meetingWorkbenchTypes';
+import { useWorkspaceInteractionTargetRegistration } from '@/lib/workspace-interaction/WorkspaceInteractionIngressProvider';
+import type { WorkspaceInteractionTarget } from '@/lib/workspace-interaction/workspaceInteractionTarget';
 
 export function MeetingCommandBar({
   command,
@@ -22,6 +24,7 @@ export function MeetingCommandBar({
   mentionItemsError,
   onApplyMention,
   missingContextLabel,
+  interactionTarget = null,
   t,
 }: {
   command: string;
@@ -41,8 +44,11 @@ export function MeetingCommandBar({
   mentionItemsError: string | null;
   onApplyMention: (item: MeetingMentionItem) => void;
   missingContextLabel: string | null;
+  interactionTarget?: WorkspaceInteractionTarget | null;
   t: MeetingTranslate;
 }) {
+  const activateInteractionTarget =
+    useWorkspaceInteractionTargetRegistration(interactionTarget);
   const selectedPackTool = packTools.find((tool) => tool.id === selectedPackToolId) ?? null;
   const mentionQuery = getMentionQuery(command);
   const mentionOptions = useMemo(() => {
@@ -116,6 +122,8 @@ export function MeetingCommandBar({
           value={command}
           disabled={isDispatching || !hasActiveMeeting}
           onChange={(event) => onCommandChange(event.target.value)}
+          onFocus={activateInteractionTarget}
+          onPointerDown={activateInteractionTarget}
           className="h-9 w-full rounded-md border border-slate-200 bg-slate-50 px-3 text-sm text-slate-900 outline-none transition-colors placeholder:text-slate-400 focus:border-blue-400 focus:bg-white dark:border-slate-800 dark:bg-slate-900 dark:text-slate-100 dark:focus:border-blue-500"
           placeholder={
             isDispatching
@@ -130,6 +138,7 @@ export function MeetingCommandBar({
           aria-describedby={showMissingContext ? 'meeting-command-missing-context' : undefined}
           aria-autocomplete="list"
           aria-expanded={showMentionPicker}
+          data-workspace-interaction-target="meeting_command"
         />
         {showMissingContext && missingContextLabel ? (
           <div

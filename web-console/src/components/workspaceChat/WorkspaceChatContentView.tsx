@@ -203,7 +203,6 @@ export function WorkspaceChatContentView({
       <InputArea
         workspaceId={workspaceId}
         apiUrl={apiUrl}
-        meetingId={meetingId || (layoutVariant === 'meeting_pane' ? threadId : null)}
         onSend={onSend}
         onFileAnalyzed={onFileAnalyzed}
         onCopyAll={onCopyAllMessages}

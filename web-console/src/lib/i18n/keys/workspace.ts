@@ -190,6 +190,7 @@ export const workspaceKeys = {
   instructionChatErrorPrefix: true,
 
   governance: true,
+  knowledgeAccess: true,
   governancePageDescription: true,
   decisionHistory: true,
   metrics: true,
