@@ -281,6 +281,22 @@ DDL_STATEMENTS = (
     ON durable_workflow_events (workflow_id, sequence)
     """,
     """
+    CREATE UNIQUE INDEX uq_durable_workflow_terminal_receipt_id
+    ON durable_workflow_events (
+        (payload #>> '{typed_receipt,receipt,receipt_id}')
+    )
+    WHERE event_type = 'transition'
+      AND payload #>> '{typed_receipt,receipt_type}'
+          = 'execution_terminal_receipt'
+    """,
+    """
+    CREATE UNIQUE INDEX uq_durable_workflow_enrollment_terminal_receipt
+    ON durable_workflow_events (
+        (payload #>> '{enrollment,terminal_receipt_id}')
+    )
+    WHERE event_type = 'iteration_enrollment_accepted'
+    """,
+    """
     CREATE INDEX idx_durable_workflow_deadlines
     ON durable_workflow_instances (next_durable_deadline, workflow_id)
     WHERE next_durable_deadline IS NOT NULL AND terminal = FALSE

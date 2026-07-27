@@ -1,4 +1,4 @@
-"""Bounded review reads for an unmounted Phase 04 route seam."""
+"""Bounded review reads for the durable workflow route seam."""
 
 from __future__ import annotations
 

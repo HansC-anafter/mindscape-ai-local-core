@@ -17,7 +17,11 @@ from backend.app.services.runner_topology import (
     resolve_installed_playbook_runner_metadata,
 )
 
-_RUNNER_TASK_TYPES = {"playbook_execution", "tool_execution"}
+_RUNNER_TASK_TYPES = {
+    "playbook_execution",
+    "tool_execution",
+    "product_outcome_evaluation",
+}
 _TERMINAL_TASK_STATUSES = {
     TaskStatus.SUCCEEDED.value,
     TaskStatus.FAILED.value,

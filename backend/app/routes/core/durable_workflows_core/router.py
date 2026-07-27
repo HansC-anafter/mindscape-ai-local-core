@@ -1,4 +1,4 @@
-"""Thin composition for unmounted durable workflow route leaves."""
+"""Thin composition for durable workflow review route leaves."""
 
 from fastapi import APIRouter
 

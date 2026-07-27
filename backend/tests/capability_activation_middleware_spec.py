@@ -101,6 +101,39 @@ class FakeActivationService:
         return None
 
 
+def test_request_activation_preserves_routes_when_outcome_restore_fails(monkeypatch):
+    app = FastAPI()
+    activated = []
+
+    monkeypatch.setattr(
+        capability_activation_middleware,
+        "activate_capability_api_code",
+        lambda **kwargs: activated.append(kwargs["capability_code"]),
+    )
+
+    def fail_outcome_restore(**_kwargs):
+        raise RuntimeError("outcome trust unavailable")
+
+    monkeypatch.setattr(
+        capability_activation_middleware,
+        "activate_declared_outcome_adapter",
+        fail_outcome_restore,
+    )
+
+    capability_activation_middleware._activate_capability_runtime_contracts(
+        app=app,
+        capability_code="sample_capability",
+        activation_service=FakeActivationService(),
+    )
+
+    assert activated == ["sample_capability"]
+    assert app.state.durable_outcome_adapter_request_restore_receipt == {
+        "state": "failed",
+        "capability_code": "sample_capability",
+        "error_code": "RuntimeError",
+    }
+
+
 @pytest.mark.asyncio
 async def test_seed_only_request_activation_uses_thread_bridge(tmp_path, monkeypatch):
     _write_test_capability(tmp_path)
