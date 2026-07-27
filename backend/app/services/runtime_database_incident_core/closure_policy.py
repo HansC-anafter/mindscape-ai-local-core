@@ -52,11 +52,14 @@ def _require_common_close_evidence(
             "incident_close_tests_must_include_containment_evidence"
         )
     contained_events = [
-        event for event in events if event.get("event") == "incident_contained"
+        event
+        for event in events
+        if event.get("event") == "incident_contained"
+        and event.get("containment_receipt") == containment
     ]
     if len(contained_events) != 1:
         raise IncidentClosurePolicyError(
-            "incident_close_requires_exact_containment_event"
+            "incident_close_requires_exact_current_containment_event"
         )
     contained_at = _parse_timestamp(
         str(contained_events[0].get("at") or ""),
