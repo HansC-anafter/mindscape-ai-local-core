@@ -165,7 +165,7 @@ def test_staged_runtime_subset_preserves_relative_migration_helpers(
 
     staged_versions_dir = Path(locations[1])
     assert staged_versions_dir.name == "versions"
-    assert (staged_versions_dir.parent / "helpers" / "projection.py").read_text(
+    assert (staged_versions_dir / "helpers" / "projection.py").read_text(
         encoding="utf-8"
     ) == "VALUE = 'preserved'\n"
 
