@@ -91,12 +91,14 @@ class WorkflowOrchestratorRuntimeMethods:
         step: Any,
         workspace_id: Optional[str],
         project_id: Optional[str],
+        playbook_inputs: Optional[Dict[str, Any]] = None,
     ) -> str:
         return await workflow_resolve_tool_slot_to_tool_id(
             step=step,
             store=self.store,
             workspace_id=workspace_id,
             project_id=project_id,
+            playbook_inputs=playbook_inputs,
         )
 
     async def _execute_playbook_slot(

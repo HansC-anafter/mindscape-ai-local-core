@@ -116,6 +116,7 @@ class PlaybookRunner:
             playbook_code=playbook_code,
             profile_id=profile_id,
             workspace_id=workspace_id,
+            project_id=project_id,
             inputs=inputs,
         )
         if snapshot is not None:

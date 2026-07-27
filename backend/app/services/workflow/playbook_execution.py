@@ -325,6 +325,7 @@ async def execute_single_step_for_orchestrator(
                 step=step,
                 workspace_id=workspace_id,
                 project_id=project_id,
+                playbook_inputs=playbook_inputs,
             )
         elif hasattr(step, "playbook_slot") and step.playbook_slot:
             return await orchestrator._execute_playbook_slot(

@@ -12,6 +12,7 @@ RUN apt-get update && apt-get install -y \
     git \
     ffmpeg \
     chromium \
+    openssh-client \
     gnupg \
     lsb-release \
     && install -d /usr/share/postgresql-common/pgdg \
@@ -40,8 +41,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY backend/ ./backend/
 COPY schemas/ ./schemas/
 
-# Create data and logs directories
-RUN mkdir -p /app/data /app/logs
+# Create data, logs, and the read-only release transport mount parent.
+RUN mkdir -p /app/data /app/logs /run/wp-hub-release \
+    && chmod 700 /run/wp-hub-release
 
 # Set PYTHONPATH to include /app and /app/backend so app modules can be imported
 # /app/backend is needed for "from app.database import Base"
