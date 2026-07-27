@@ -137,3 +137,30 @@ def test_runner_environment_carries_exact_release_bridge_seams():
         "/run/wp-hub-release/known_hosts:ro" in volume
         for volume in runner_volumes
     )
+
+
+def test_execution_backend_owns_release_identity_not_control_plane():
+    root = Path(__file__).resolve().parents[3]
+    compose = yaml.safe_load(
+        (root / "docker-compose.yml").read_text(encoding="utf-8")
+    )
+    services = compose["services"]
+    execution_backend = services["backend"]
+    control_backend = services["backend-control"]
+    required_targets = {
+        "/run/wp-hub-release/id:ro",
+        "/run/wp-hub-release/known_hosts:ro",
+    }
+
+    assert required_targets.issubset(
+        {
+            volume.rsplit(":", maxsplit=2)[-2]
+            + ":"
+            + volume.rsplit(":", maxsplit=2)[-1]
+            for volume in execution_backend["volumes"]
+        }
+    )
+    assert not any(
+        "/run/wp-hub-release/" in volume
+        for volume in control_backend["volumes"]
+    )
