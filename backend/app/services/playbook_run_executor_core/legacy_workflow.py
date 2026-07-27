@@ -14,6 +14,9 @@ from backend.app.services.execution_core.clock import utc_now as _utc_now
 from backend.app.services.playbook_run_executor_core.result_compaction import (
     compact_workflow_result_for_task_context,
 )
+from backend.app.services.workflow.execution_profile_retry import (
+    resolve_handoff_retry_policy,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -300,6 +303,9 @@ async def execute_legacy_workflow(
         playbook_code=playbook_code,
         kind=playbook_run.playbook_json.kind,
         inputs=normalized_inputs,
+        retry_policy=resolve_handoff_retry_policy(
+            playbook_run.playbook_json
+        ),
         interaction_mode=(
             playbook_run.playbook.metadata.interaction_mode
             if playbook_run.playbook and playbook_run.playbook.metadata

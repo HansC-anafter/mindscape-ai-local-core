@@ -15,6 +15,9 @@ from backend.app.core.runtime_port import (
 )
 from backend.app.core.domain_context import LocalDomainContext
 from backend.app.services.workflow_orchestrator import WorkflowOrchestrator
+from backend.app.services.workflow.execution_profile_retry import (
+    resolve_handoff_retry_policy,
+)
 from backend.app.models.playbook import (
     PlaybookRun,
     HandoffPlan,
@@ -393,7 +396,10 @@ class SimpleRuntime(RuntimePort):
             kind=kind,
             inputs=inputs,
             input_mapping={},
-            interaction_mode=interaction_modes
+            interaction_mode=interaction_modes,
+            retry_policy=resolve_handoff_retry_policy(
+                playbook_run.playbook_json
+            ),
         )
 
         # Create HandoffPlan with single step (the playbook itself)

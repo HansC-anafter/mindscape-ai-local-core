@@ -39,6 +39,7 @@ from backend.app.runner.task_executor_events import _emit_run_state_changed_for_
 from backend.app.runner.task_executor_intent import (
     _apply_runtime_binding_to_playbook_task,
     _build_runtime_park_update,
+    _classify_non_retryable_task_error,
     _is_non_retryable_task_error,
     _park_task_after_intent_resolution,
     _resolve_execution_attempt_inputs,
@@ -90,7 +91,7 @@ async def _mark_task_failed(
         resource_pressure_source=resource_pressure_source,
         resource_snapshot=resource_snapshot,
         emit_run_state_changed_for_task=_emit_run_state_changed_for_task,
-        is_non_retryable_task_error=_is_non_retryable_task_error,
+        classify_non_retryable_task_error=_classify_non_retryable_task_error,
     )
 
 

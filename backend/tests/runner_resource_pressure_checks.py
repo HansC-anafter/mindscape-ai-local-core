@@ -385,6 +385,34 @@ async def test_missing_required_playbook_inputs_deadletters_without_retry():
 
 
 @pytest.mark.asyncio
+async def test_terminal_workflow_failure_uses_exact_non_retryable_label():
+    store = _FakeTasksStore()
+    store.task.execution_context = {
+        "retry_count": 0,
+        "inputs": {"workspace_id": "ws-1"},
+    }
+    queue = _FakeRedisQueue()
+
+    await _mark_task_failed(
+        store,
+        "task-1",
+        "runner-browser",
+        "Runner subprocess exited non-zero: Terminal workflow failure",
+        queue,
+    )
+
+    updated_context = store.update_kwargs["execution_context"]
+    assert store.update_kwargs["status"] == TaskStatus.FAILED
+    assert (
+        updated_context["non_retryable_failure"]
+        == "terminal_workflow_failure"
+    )
+    assert queue.deadlettered is True
+    assert queue.acked is True
+    assert queue.delayed is None
+
+
+@pytest.mark.asyncio
 async def test_success_clears_stale_resource_pressure_metadata():
     store = _FakeTasksStore()
     store.task.execution_context = {

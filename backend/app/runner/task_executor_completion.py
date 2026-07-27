@@ -93,7 +93,7 @@ async def _mark_task_failed(
     resource_pressure_source: Optional[str] = None,
     resource_snapshot: Optional[Dict[str, Any]] = None,
     emit_run_state_changed_for_task: Callable[..., None],
-    is_non_retryable_task_error: Callable[[str], bool],
+    classify_non_retryable_task_error: Callable[[str], Optional[str]],
 ) -> None:
     """Mark a task as FAILED, increment retry_count, and NACK or Deadletter via Redis."""
     max_attempts = _env_int("LOCAL_CORE_RUNNER_MAX_ATTEMPTS", 3)
@@ -144,12 +144,13 @@ async def _mark_task_failed(
                 if isinstance(resource_snapshot, dict):
                     ctxf["resource_snapshot"] = resource_snapshot
 
-            non_retryable = is_non_retryable_task_error(msg)
+            non_retryable_failure = classify_non_retryable_task_error(msg)
+            non_retryable = non_retryable_failure is not None
             is_deadletter = False if (resource_wait or resource_block) else (
                 non_retryable or retry_count >= max_attempts
             )
             if non_retryable:
-                ctxf["non_retryable_failure"] = "missing_required_playbook_inputs"
+                ctxf["non_retryable_failure"] = non_retryable_failure
 
             new_status = TaskStatus.FAILED if is_deadletter else TaskStatus.PENDING
             ctxf["status"] = "failed" if is_deadletter else "queued"

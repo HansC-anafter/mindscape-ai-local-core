@@ -26,12 +26,17 @@ from backend.app.runner.utils import _env_int, _utc_now
 logger = logging.getLogger(__name__)
 
 
-def _is_non_retryable_task_error(message: str) -> bool:
+def _classify_non_retryable_task_error(message: str) -> Optional[str]:
     normalized = str(message or "")
-    return (
-        "Missing required playbook inputs" in normalized
-        or "Terminal workflow failure" in normalized
-    )
+    if "Missing required playbook inputs" in normalized:
+        return "missing_required_playbook_inputs"
+    if "Terminal workflow failure" in normalized:
+        return "terminal_workflow_failure"
+    return None
+
+
+def _is_non_retryable_task_error(message: str) -> bool:
+    return _classify_non_retryable_task_error(message) is not None
 
 
 def _resolve_execution_attempt_inputs(
