@@ -7,8 +7,15 @@ import type {
   CapabilityUiTranslationValues,
 } from './contracts';
 
+const GLOBAL_CONTEXT_KEY = '__mindscapeCapabilityUiLocalizationContextV1__';
+type CapabilityUiLocalizationGlobal = typeof globalThis & {
+  [GLOBAL_CONTEXT_KEY]?: React.Context<CapabilityUiLocalizationBridgeV1 | null>;
+};
+const localizationGlobal = globalThis as CapabilityUiLocalizationGlobal;
 const CapabilityUiLocalizationContext =
-  createContext<CapabilityUiLocalizationBridgeV1 | null>(null);
+  localizationGlobal[GLOBAL_CONTEXT_KEY]
+  ?? createContext<CapabilityUiLocalizationBridgeV1 | null>(null);
+localizationGlobal[GLOBAL_CONTEXT_KEY] = CapabilityUiLocalizationContext;
 
 export function CapabilityUiLocalizationProvider({
   localization,

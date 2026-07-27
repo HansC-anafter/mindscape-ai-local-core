@@ -1,6 +1,6 @@
 import { render, renderHook, screen } from '@testing-library/react';
 import type { ReactNode } from 'react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
   CapabilityMessage,
@@ -81,5 +81,24 @@ describe('capability UI localization runtime facade', () => {
     expect(() => render(<LocalizedEntry />)).toThrow(
       'Capability UI localization bridge is unavailable',
     );
+  });
+
+  it('shares the host context across module reloads', async () => {
+    vi.resetModules();
+    const firstModule = await import('./provider');
+    vi.resetModules();
+    const secondModule = await import('./provider');
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <firstModule.CapabilityUiLocalizationProvider localization={bridge}>
+        {children}
+      </firstModule.CapabilityUiLocalizationProvider>
+    );
+
+    const { result } = renderHook(
+      () => secondModule.useCapabilityLocalization(),
+      { wrapper },
+    );
+
+    expect(result.current).toBe(bridge);
   });
 });
