@@ -121,6 +121,7 @@ class HostRuntimeBindingFacade:
             capability_code=capability_code,
             requirement_code=requirement_code,
             operation=operation,
+            now=now,
         )
         return evaluate_effective_host_admission(
             workspace_id=workspace_id,
@@ -161,6 +162,7 @@ class HostRuntimeBindingFacade:
             capability_code=capability_code,
             requirement_code=requirement_code,
             operation=operation,
+            now=observed_now,
         )
         admission = evaluate_effective_host_admission(
             workspace_id=workspace_id,
@@ -226,6 +228,7 @@ class HostRuntimeBindingFacade:
         capability_code: str,
         requirement_code: str,
         operation: HostOperation,
+        now: datetime | None = None,
     ) -> tuple[
         DeviceHostBindingProjection | None,
         WorkspaceHostGrantProjection | None,
@@ -252,7 +255,7 @@ class HostRuntimeBindingFacade:
         )
         grant_record = records.get("grant")
         grant = (
-            grant_from_record(grant_record)
+            grant_from_record(grant_record, now=now)
             if isinstance(grant_record, dict)
             else None
         )
