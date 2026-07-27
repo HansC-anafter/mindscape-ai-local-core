@@ -212,7 +212,7 @@ surfaces:
       - Workspace group definitions and normalized memberships are the only durable topology authority; legacy role maps are computed read projections and a workspace is never assigned to an arbitrary first group.
       - Group execution requires an explicitly authorized active group and an immutable topology revision snapshot; no active group preserves the existing single-workspace path.
       - The existing dispatch DAG remains the only execution scheduler, preserves the full eligible agent and workspace set, and hands results to exactly one canonical synthesis committer.
-      - Shared group knowledge and agent-scoped views derive from canonical MemoryItem, MemoryVersion, evidence, governance, and receipts; Markdown is a rebuildable projection or source asset, never shared-memory truth.
+      - Shared group memory derives from canonical MemoryItem, MemoryVersion, evidence, governance, and receipts; cross-pack retrievable chunks, typed records, entity and evidence graph, visibility-partitioned community reports, and knowledge_query delegate psc.local-core.retrievable-knowledge-projection-and-agentic-query.v1, while human authorization delegates psc.local-core.authorization-aware-knowledge-retrieval.v1 and agent-scoped views may only narrow that set; Markdown is a rebuildable projection or source asset, never shared-memory truth.
       - Source intake separates owner-controlled fetch, immutable evidence, candidate memory, verified memory, and deterministic projections without adding a second credential store, database, scheduler, queue lane, or worker pool.
       - Group list, snapshot, projection, and UI reads stay bounded, avoid N-plus-one queries, preserve PgBouncer and runner capacity, and add no topology or projection polling loop.
       - Capability adapters consume the authorized host workspace-group contract and reach installed runtime only through the canonical capability-pack control-plane job and activation path.
@@ -744,7 +744,7 @@ surfaces:
       - Local Core remains the canonical owner of workspace source assets, atomic artifacts, active-revision index projection, user and workspace authorization, bounded event delivery, and runtime activation; document_ingestion owns only portable contracts and one stateless compiler.
       - The only host binding is the existing synchronous files/analyze path delegating through file-analysis, artifact, index, and retrieval facades; existing response keys remain compatible and full schema or chunks must not enter hot event, API, task, or database payloads.
       - The native release creates no document task, worker route, queue lane, database table or migration, PgBouncer pool, frontend surface, SSE stream, timer, or polling loop; scanned and visual inputs remain explicitly degraded while OCR is disabled or vision capacity is backlogged.
-      - Indexing reuses external_docs with canonical source identity and a short transactional active-revision replace only after all embeddings succeed; user, workspace, source, active revision, and embedding model filters must run before ranking.
+      - Indexing reuses external_docs with canonical source identity and a short transactional active-revision replace only after all embeddings succeed; retrievable rows bind to the authorization-aware knowledge resource and security-label contract, whose verified principal, explicit deny, active revision, and embedding model filters run before ranking.
       - Retrieval returns exact document, revision, chunk, node, and page or slide locations; caller-side workspace post-filtering, dual writes, and direct generic rechunking are forbidden.
     path_globs:
       - backend/app/routes/core/workspace/files.py
@@ -764,6 +764,84 @@ surfaces:
       - backend/app/routes/core/workspace/tasks_core/**
       - web-console/src/hooks/useFileUpload.ts
       - docker-compose.yml
+
+  - id: psc.local-core.authorization-aware-knowledge-retrieval.v1
+    tier: P0
+    owner: "@team-leads"
+    contract_doc: mindscape-ai-cloud/docs/internal/local-core/product-semantics/authorization-aware-knowledge-retrieval-contract-2026-07-27.zh-TW.md
+    requires_product_semantic_declaration: true
+    semantics:
+      - Every retrievable knowledge chunk binds to one knowledge resource and one stable one-to-one security label; the current authorization revision lives only on the joined label so grant changes never require rewriting every vector, while mutable users, workspace or group roles, service principals, explicit allows, and explicit denies live in normalized grants rather than duplicated per-vector principal arrays.
+      - Verified identity, workspace and group memberships, roles, permissions, topology revision, agent policy, and principal-set hash are assembled server-side in one RetrievalAccessContext; payload user or role fields can only be validated or narrow a view and never grant access.
+      - KnowledgeAuthorizationService is the only authorization owner and AuthorizationAwareKnowledgeRetrievalFacade is the only knowledge-vector reader; ACL and scope predicates run before vector or keyword ranking and LIMIT, followed by one current-revision batch check before cache, prompt, citation, or caller delivery.
+      - Human authorization and agent execution policy remain distinct: a result requires human_can_read, admitted scope, and an agent mask that may only narrow visibility; deny overrides allow and missing or stale resource, label, grant, or revision state fails closed.
+      - Resource, security-label, grant, audit, and chunk bindings share the existing vector PostgreSQL so ingestion and ACL state commit in one transaction without an ACL projection database, dual write, outbox consumer, worker, queue, scheduler, or polling loop.
+      - RLS is defense in depth behind the same service policy; runtime vector connections use one non-owner, NOSUPERUSER, NOBYPASSRLS role through the existing PgBouncer database alias and transaction pool, with no new alias, pool, reserve, session, or owner-role fallback.
+      - Legacy rows preserve exact current visibility through deterministic direct-user grants; workspace or group sharing requires an explicit authorized grant, and cutover uses one facade generation with offline equivalence rather than parallel endpoints, traffic splits, or user-visible dual results.
+      - The only ACL management surface extends the existing workspace governance page with one bounded summary, one selected detail, and one revision-checked complete replacement; mutation responses and the existing activity invalidation path add no autosave, N-plus-one read, per-card request, SSE route, or timer polling.
+    path_globs:
+      - backend/app/dependencies/auth.py
+      - backend/app/services/knowledge_authorization/**
+      - backend/app/services/knowledge_retrieval/**
+      - backend/app/services/document_chunk_index_store.py
+      - backend/app/services/document_retrieval_facade.py
+      - backend/app/services/vector_search.py
+      - backend/app/services/vector_search_db.py
+      - backend/app/services/tools/vector_search_tool.py
+      - backend/app/services/conversation/context_builder/memory_retriever.py
+      - backend/app/services/knowledge_projection/group_context.py
+      - backend/app/services/knowledge_projection/facade.py
+      - backend/app/routes/core/knowledge_foundation.py
+      - backend/app/routes/core/vector_search.py
+      - backend/app/routes/core/knowledge_authorization.py
+      - backend/alembic.vector.ini
+      - backend/alembic_migrations/vector/**
+      - backend/tests/*knowledge*authorization*
+      - backend/tests/*authorized*retrieval*
+      - web-console/src/app/workspaces/*/governance/**
+      - web-console/src/components/workspace/governance/**
+      - web-console/src/lib/i18n/locales/*/workspace.ts
+      - docker/pgbouncer/pgbouncer.ini
+      - docker-compose.yml
+
+  - id: psc.local-core.retrievable-knowledge-projection-and-agentic-query.v1
+    tier: P0
+    owner: "@team-leads"
+    contract_doc: mindscape-ai-cloud/docs/internal/local-core/product-semantics/retrievable-knowledge-projection-and-agentic-query-contract-2026-07-27.zh-TW.md
+    requires_product_semantic_declaration: true
+    semantics:
+      - Installed owner packs compile explicitly admitted AOL objects, Artifact Manifests, memory, or documents through one neutral bounded projection descriptor; Local Core owns source admission, projection revisions, receipts, and index activation without hard-coded pack literals or a second source of truth.
+      - IG, document_ingestion, and every other Cloud pack named by contracts, plans, fixtures, or canaries are evidence or compatibility scenarios only; host routes, registries, tools, schemas, migrations, prompts, and defaults never select a pack by literal, map, prefix, import, or known-pack enum, and substituting another compatible installed descriptor requires zero Local Core host implementation diff.
+      - Every semantic chunk, typed record, facet, entity mention, evidence relation, community, and community report joins authorization-aware source resources and stable security labels; owner-declared and extracted relations share one evidence-graph writer, while the companion surface never owns principals, grants, deny, RLS, or a second reader.
+      - Canonical entity identity may be shared only inside an admitted tenant and workspace-group boundary, while descriptions and attributes are projected from currently authorized mentions; community reports are generated per complete-grant visibility partition and become unreadable immediately when their authorization revision is stale.
+      - Projection v1 preserves text, image, video, and audio evidence units through stable owner references, hashes, typed text, region, frame, and time anchors, derivative references, and per-channel receipts; the MVP activates only the text semantic channel, while a future native modality channel is an additive implementation behind the same resource identities, writer, authorization facade, public tool, and Meeting path.
+      - The only public agent-facing primitive is knowledge_query with deterministic hybrid, local-graph, multi-hop, global-graph, aggregate, fetch_by_citation, and explain_coverage operations; Meeting Engine explicitly selects and composes bounded calls, and retrieval contains no hidden agent, LLM query router, or tool loop.
+      - Retrieval strategy and modality are orthogonal: knowledge_query may receive only server-resolved authorized evidence references, returns typed evidence blocks plus channel and fusion revisions, rejects raw URLs, paths, base64, binaries, provider or model overrides, and never reports a media pointer as an active native multimodal channel.
+      - AOL and Artifact completion emit only canonical pointers; hydration, extraction, entity resolution, community generation, and embedding reuse the existing task control plane and tool_execution type through one knowledge_indexing logical shard and one hidden internal projection tool, with no new always-on worker, scheduler, outbox consumer, poller, graph database, PgBouncer alias, or pool.
+      - Structured projection preserves exact numeric, temporal, enum, row, and relation coverage even when a record is not embedded; raw binaries, complete traces, and unbounded JSON remain in owner storage and every returned claim resolves to an exact active citation.
+      - Query authorization, current-revision checks, group and agent narrowing, cache identity, and RLS always delegate psc.local-core.authorization-aware-knowledge-retrieval.v1 before content reaches rerank, prompt, report, cache, or caller.
+      - Projection governance extends the same bounded workspace Knowledge access surface with one summary, one selected detail, and explicit revision-checked actions; it adds no second console, N-plus-one list, autosave, SSE route, or timer polling.
+    path_globs:
+      - backend/app/services/knowledge_projection/**
+      - backend/app/services/knowledge_retrieval/**
+      - backend/app/services/knowledge_graph/**
+      - backend/app/services/tools/knowledge_query/**
+      - backend/app/services/tools/registry.py
+      - backend/app/services/tools/registry_core/builtin.py
+      - backend/app/services/orchestration/meeting/prompt_core/tool_inventory_mixin.py
+      - backend/app/services/orchestration/meeting/_dispatch_pipeline.py
+      - backend/app/services/object_action_closure_wiring.py
+      - backend/app/services/orchestration/governance_completion.py
+      - backend/app/services/task_result_landing.py
+      - backend/app/services/runtime_contract_registry.py
+      - backend/app/services/capability_registry.py
+      - schemas/manifest.schema.yaml
+      - backend/alembic.vector.ini
+      - backend/alembic_migrations/vector/**
+      - backend/tests/*knowledge*projection*
+      - backend/tests/*knowledge*query*
+      - web-console/src/app/workspaces/*/governance/**
+      - web-console/src/components/workspace/governance/**
 
   - id: psc.local-core.durable-product-semantic-workflow-runtime.v1
     tier: P0
