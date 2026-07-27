@@ -80,3 +80,5 @@ huggingface_hub>=0.20.0
 scipy>=1.11.0
 beautifulsoup4>=4.12.0
 PyMuPDF>=1.23.0
+# Deterministic CSS admission shared by Web Generation control/execution runtimes
+tinycss2==1.4.0
