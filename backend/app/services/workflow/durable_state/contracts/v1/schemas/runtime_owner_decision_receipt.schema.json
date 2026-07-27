@@ -1,0 +1,742 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "mindscape://durable-product-semantic-workflow/v1/runtime_owner_decision_receipt",
+  "title": "Durable Workflow Runtime Owner Decision Receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "receipt_id",
+    "receipt_type",
+    "contract_id",
+    "decision_revision",
+    "owner_id",
+    "owner_role",
+    "authority_ref",
+    "issued_at",
+    "expires_at",
+    "revocation_ref",
+    "payload",
+    "payload_sha256",
+    "key_id",
+    "public_key_fingerprint_sha256",
+    "signature"
+  ],
+  "properties": {
+    "schema_id": {
+      "const": "mindscape.durable-workflow-runtime-owner-decision-receipt.v1"
+    },
+    "receipt_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "receipt_type": {
+      "enum": [
+        "exact_canary_admission",
+        "durable_release_policy_cas",
+        "validation_policy",
+        "release_health_policy",
+        "evidence_lifecycle_policy",
+        "rpo_rto_policy",
+        "signing_key_provisioning",
+        "immutable_object_provisioning"
+      ]
+    },
+    "contract_id": {
+      "const": "mindscape.durable-product-semantic-workflow.v1"
+    },
+    "decision_revision": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "owner_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "owner_role": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "authority_ref": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500
+    },
+    "issued_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "expires_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "revocation_ref": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500
+    },
+    "payload": {
+      "type": "object"
+    },
+    "payload_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "key_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "public_key_fingerprint_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "signature": {
+      "type": "string",
+      "minLength": 86,
+      "maxLength": 88
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "receipt_type": {
+            "const": "exact_canary_admission"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/exact_canary_admission"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "receipt_type": {
+            "const": "durable_release_policy_cas"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/durable_release_policy_cas"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "receipt_type": {
+            "const": "validation_policy"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/validation_policy"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "receipt_type": {
+            "const": "release_health_policy"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/release_health_policy"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "receipt_type": {
+            "const": "evidence_lifecycle_policy"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/evidence_lifecycle_policy"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "receipt_type": {
+            "const": "rpo_rto_policy"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/rpo_rto_policy"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "receipt_type": {
+            "const": "signing_key_provisioning"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/signing_key_provisioning"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "receipt_type": {
+            "const": "immutable_object_provisioning"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/immutable_object_provisioning"
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "hash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 240
+    },
+    "exact_canary_admission": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "workspace_id",
+        "authorization_scopes",
+        "pilot_cohort_hash",
+        "window",
+        "backout_owner_id",
+        "candidate_attestations",
+        "fixture_descriptors"
+      ],
+      "properties": {
+        "workspace_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "authorization_scopes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "durable_workflow:shadow",
+              "durable_workflow:enforced",
+              "durable_workflow:disable"
+            ]
+          }
+        },
+        "pilot_cohort_hash": {
+          "$ref": "#/$defs/hash"
+        },
+        "window": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "starts_at",
+            "ends_at"
+          ],
+          "properties": {
+            "starts_at": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "ends_at": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        },
+        "backout_owner_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "candidate_attestations": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "attestation_id",
+              "attestation_sha256"
+            ],
+            "properties": {
+              "attestation_id": {
+                "$ref": "#/$defs/identifier"
+              },
+              "attestation_sha256": {
+                "$ref": "#/$defs/hash"
+              }
+            }
+          }
+        },
+        "fixture_descriptors": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "descriptor_id",
+              "descriptor_hash"
+            ],
+            "properties": {
+              "descriptor_id": {
+                "$ref": "#/$defs/identifier"
+              },
+              "descriptor_hash": {
+                "$ref": "#/$defs/hash"
+              }
+            }
+          }
+        }
+      }
+    },
+    "durable_release_policy_cas": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "workspace_id",
+        "workflow_kind",
+        "expected_revision",
+        "target_revision",
+        "from_mode",
+        "to_mode",
+        "policy",
+        "policy_hash",
+        "cas_authority_id"
+      ],
+      "properties": {
+        "workspace_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "workflow_kind": {
+          "enum": [
+            "execution",
+            "product_iteration",
+            "product_release"
+          ]
+        },
+        "expected_revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "target_revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "from_mode": {
+          "enum": [
+            "absent",
+            "disabled",
+            "shadow",
+            "enforced"
+          ]
+        },
+        "to_mode": {
+          "enum": [
+            "disabled",
+            "shadow",
+            "enforced"
+          ]
+        },
+        "policy": {
+          "$ref": "#/$defs/release_policy"
+        },
+        "policy_hash": {
+          "$ref": "#/$defs/hash"
+        },
+        "cas_authority_id": {
+          "$ref": "#/$defs/identifier"
+        }
+      }
+    },
+    "release_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_id",
+        "workspace_id",
+        "workflow_kind",
+        "mode",
+        "canary_receipt_id",
+        "canary_receipt_sha256",
+        "canary"
+      ],
+      "properties": {
+        "schema_id": {
+          "const": "mindscape.durable-workflow-release-policy.v1"
+        },
+        "workspace_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "workflow_kind": {
+          "enum": [
+            "execution",
+            "product_iteration",
+            "product_release"
+          ]
+        },
+        "mode": {
+          "enum": [
+            "disabled",
+            "shadow",
+            "enforced"
+          ]
+        },
+        "canary_receipt_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "canary_receipt_sha256": {
+          "$ref": "#/$defs/hash"
+        },
+        "canary": {
+          "$ref": "#/$defs/exact_canary_admission"
+        }
+      }
+    },
+    "validation_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "definition_hash",
+        "minimum_sample_size",
+        "power",
+        "alpha",
+        "stopping_rule_hash",
+        "multiplicity_policy_hash",
+        "holdout_policy_hash",
+        "leakage_policy_hash",
+        "calibration_policy_hash",
+        "drift_policy_hash",
+        "adjudication_policy_hash"
+      ],
+      "properties": {
+        "definition_hash": {
+          "$ref": "#/$defs/hash"
+        },
+        "minimum_sample_size": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "power": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1
+        },
+        "alpha": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "exclusiveMaximum": 1
+        },
+        "stopping_rule_hash": {
+          "$ref": "#/$defs/hash"
+        },
+        "multiplicity_policy_hash": {
+          "$ref": "#/$defs/hash"
+        },
+        "holdout_policy_hash": {
+          "$ref": "#/$defs/hash"
+        },
+        "leakage_policy_hash": {
+          "$ref": "#/$defs/hash"
+        },
+        "calibration_policy_hash": {
+          "$ref": "#/$defs/hash"
+        },
+        "drift_policy_hash": {
+          "$ref": "#/$defs/hash"
+        },
+        "adjudication_policy_hash": {
+          "$ref": "#/$defs/hash"
+        }
+      }
+    },
+    "measurement_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "definition_hash",
+        "comparison",
+        "threshold"
+      ],
+      "properties": {
+        "definition_hash": {
+          "$ref": "#/$defs/hash"
+        },
+        "comparison": {
+          "enum": [
+            "gte",
+            "lte"
+          ]
+        },
+        "threshold": {
+          "type": "number"
+        }
+      }
+    },
+    "release_health_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "observation_window_seconds",
+        "slo",
+        "error_budget",
+        "quality",
+        "safety",
+        "resource",
+        "drift",
+        "rollback_authority_id"
+      ],
+      "properties": {
+        "observation_window_seconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "slo": {
+          "$ref": "#/$defs/measurement_policy"
+        },
+        "error_budget": {
+          "$ref": "#/$defs/measurement_policy"
+        },
+        "quality": {
+          "$ref": "#/$defs/measurement_policy"
+        },
+        "safety": {
+          "$ref": "#/$defs/measurement_policy"
+        },
+        "resource": {
+          "$ref": "#/$defs/measurement_policy"
+        },
+        "drift": {
+          "$ref": "#/$defs/measurement_policy"
+        },
+        "rollback_authority_id": {
+          "$ref": "#/$defs/identifier"
+        }
+      }
+    },
+    "evidence_lifecycle_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "manifest_revision",
+        "manifest_hash",
+        "evidence_classes",
+        "privacy_authority_id",
+        "object_authority_id",
+        "key_authority_id"
+      ],
+      "properties": {
+        "manifest_revision": {
+          "$ref": "#/$defs/identifier"
+        },
+        "manifest_hash": {
+          "$ref": "#/$defs/hash"
+        },
+        "evidence_classes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/identifier"
+          }
+        },
+        "privacy_authority_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "object_authority_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "key_authority_id": {
+          "$ref": "#/$defs/identifier"
+        }
+      }
+    },
+    "rpo_rto_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "data_classes",
+        "restore_authority_id",
+        "failover_authority_id",
+        "write_enable_authority_id",
+        "failback_authority_id"
+      ],
+      "properties": {
+        "data_classes": {
+          "type": "array",
+          "minItems": 5,
+          "maxItems": 5,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "data_class",
+              "rpo_seconds",
+              "rto_seconds",
+              "owner_id"
+            ],
+            "properties": {
+              "data_class": {
+                "enum": [
+                  "ledger_metadata",
+                  "object_evidence",
+                  "signing_verification_material",
+                  "contract_mirror_registry",
+                  "projection"
+                ]
+              },
+              "rpo_seconds": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "rto_seconds": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "owner_id": {
+                "$ref": "#/$defs/identifier"
+              }
+            }
+          }
+        },
+        "restore_authority_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "failover_authority_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "write_enable_authority_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "failback_authority_id": {
+          "$ref": "#/$defs/identifier"
+        }
+      }
+    },
+    "signing_key_provisioning": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "workflow_key_id",
+        "public_key_fingerprint_sha256",
+        "usage",
+        "mount_ref",
+        "not_before",
+        "not_after",
+        "provisioning_authority_id"
+      ],
+      "properties": {
+        "workflow_key_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "public_key_fingerprint_sha256": {
+          "$ref": "#/$defs/hash"
+        },
+        "usage": {
+          "const": "durable_workflow_receipt_signing"
+        },
+        "mount_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "not_before": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "not_after": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "provisioning_authority_id": {
+          "$ref": "#/$defs/identifier"
+        }
+      }
+    },
+    "immutable_object_provisioning": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "storage_owner_id",
+        "namespace_ref",
+        "immutability_mode",
+        "minimum_retention_seconds",
+        "readback_supported",
+        "receipt_schema_id"
+      ],
+      "properties": {
+        "storage_owner_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "namespace_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "immutability_mode": {
+          "enum": [
+            "object_lock_compliance",
+            "object_lock_governance",
+            "append_only_versioned"
+          ]
+        },
+        "minimum_retention_seconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "readback_supported": {
+          "const": true
+        },
+        "receipt_schema_id": {
+          "$ref": "#/$defs/identifier"
+        }
+      }
+    }
+  }
+}
