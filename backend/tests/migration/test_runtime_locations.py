@@ -126,6 +126,54 @@ def test_configure_runtime_version_locations_stages_only_missing_runtime_revisio
     ]
 
 
+def test_configure_runtime_version_locations_stages_revision_package_dir(
+    tmp_path: Path,
+) -> None:
+    declared_versions_dir = tmp_path / "declared_versions"
+    _write_revision(declared_versions_dir / "20260328003000_shared.py", "20260328003000")
+
+    capabilities_root = tmp_path / "capabilities"
+    capability_dir = capabilities_root / "performance_direction"
+    capability_dir.mkdir(parents=True, exist_ok=True)
+    (capability_dir / "migrations.yaml").write_text(
+        "\n".join(
+            [
+                "db: postgres",
+                "revisions:",
+                '  - "20260328003000"',
+                '  - "20260330000001"',
+                "migration_paths:",
+                '  - "migrations/versions/"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    capability_versions_dir = capability_dir / "migrations" / "versions"
+    capability_versions_dir.mkdir(parents=True, exist_ok=True)
+    _write_revision(capability_versions_dir / "20260328003000_shared.py", "20260328003000")
+    _write_revision(capability_versions_dir / "20260330000001_unique.py", "20260330000001")
+
+    helpers_dir = capability_versions_dir / "helpers"
+    helpers_dir.mkdir()
+    (helpers_dir / "__init__.py").write_text("", encoding="utf-8")
+    (helpers_dir / "reference_catalog_summary_totals.py").write_text(
+        "def calculate(x):\n    return x\n",
+        encoding="utf-8",
+    )
+
+    config = _build_config(tmp_path, declared_versions_dir)
+
+    locations = configure_runtime_version_locations(
+        config,
+        capabilities_root=capabilities_root,
+        db_type="postgres",
+    )
+
+    staged_dir = Path(locations[1])
+    assert (staged_dir / "helpers" / "__init__.py").exists()
+    assert (staged_dir / "helpers" / "reference_catalog_summary_totals.py").exists()
+
+
 def test_configure_runtime_version_locations_dedupes_typed_revision_assignments(
     tmp_path: Path,
 ) -> None:

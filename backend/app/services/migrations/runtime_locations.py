@@ -92,10 +92,21 @@ def _stage_runtime_revision_subset(
     ).hexdigest()[:12]
     staging_root = Path(tempfile.gettempdir()) / "mindscape_runtime_migrations" / db_type
     staged_dir = staging_root / f"{capability_code}_{digest}"
+    if staged_dir.exists():
+        shutil.rmtree(staged_dir)
     staged_dir.mkdir(parents=True, exist_ok=True)
 
     for revision_file in revision_files:
         shutil.copy2(revision_file, staged_dir / revision_file.name)
+    for sibling in source_dir.iterdir():
+        if sibling.is_file():
+            continue
+        if sibling.name == "__pycache__":
+            continue
+        if sibling.name.startswith("."):
+            continue
+        if sibling.is_dir() and (sibling / "__init__.py").exists():
+            shutil.copytree(sibling, staged_dir / sibling.name)
 
     return staged_dir.as_posix()
 
