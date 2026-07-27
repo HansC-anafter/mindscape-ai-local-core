@@ -52,6 +52,10 @@ export interface CapabilityUiLocalizationBridgeV1 {
   ) => string;
 }
 
+export interface CapabilityUiLocalizationProp {
+  localization?: CapabilityUiLocalizationBridgeV1 | null;
+}
+
 export interface CompiledCapabilityUiCatalog {
   format: typeof CAPABILITY_UI_COMPILED_FORMAT;
   compiler: typeof CAPABILITY_UI_COMPILER;
