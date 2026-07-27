@@ -45,6 +45,21 @@ def test_execution_context_budget_preserves_route_metadata():
     context = {
         "route_request": route_request,
         "runner_resource_requirements": runner_requirements,
+        "resource_class": "browser",
+        "capability_code": "site_publication",
+        "runner_profile_hint": "default_local_browser",
+        "runtime_affinity": {"scope": "local"},
+        "runner_timeout_seconds": 7200,
+        "concurrency": {"lock_scope": "playbook"},
+        "execution_inputs_ref": {
+            "schema_version": 1,
+            "workspace_id": "workspace-1",
+            "execution_id": "exec-1",
+            "storage_ref": "/workspace/execution-inputs/exec-1/inputs.json",
+            "checksum_sha256": "a" * 64,
+            "bytes": 140000,
+            "mime_type": "application/json",
+        },
         "execution_id": "exec-1",
         "workflow_result": workflow_result,
         "execution_trace": {"events": [{"message": "x" * 1000} for _ in range(200)]},
@@ -57,6 +72,13 @@ def test_execution_context_budget_preserves_route_metadata():
 
     assert compacted["route_request"] == route_request
     assert compacted["runner_resource_requirements"] == runner_requirements
+    assert compacted["resource_class"] == "browser"
+    assert compacted["capability_code"] == "site_publication"
+    assert compacted["runner_profile_hint"] == "default_local_browser"
+    assert compacted["runtime_affinity"] == {"scope": "local"}
+    assert compacted["runner_timeout_seconds"] == 7200
+    assert compacted["concurrency"] == {"lock_scope": "playbook"}
+    assert compacted["execution_inputs_ref"]["bytes"] == 140000
     assert compacted["execution_id"] == "exec-1"
     assert compacted["workflow_result"]["_compacted"] is True
     assert compacted["execution_trace"]["_compacted"] is True
@@ -70,6 +92,7 @@ def test_default_hot_task_json_limits_are_strict_completion_budget():
         "params": 15 * 1024,
         "result": 15 * 1024,
         "execution_context": 15 * 1024,
+        "storyline_tags": 15 * 1024,
         "blocked_payload": 15 * 1024,
     }
 
@@ -105,17 +128,22 @@ def test_params_budget_rejects_oversized_inputs_without_truncation():
 
 
 def test_tasks_store_write_paths_apply_payload_budget_before_serialization():
-    source = (
+    create_source = (
         Path(__file__).resolve().parents[1]
-        / "app/services/stores/tasks_store/_base.py"
+        / "app/services/stores/tasks_store/_crud_create_read.py"
+    ).read_text(encoding="utf-8")
+    update_source = (
+        Path(__file__).resolve().parents[1]
+        / "app/services/stores/tasks_store/_crud_update.py"
     ).read_text(encoding="utf-8")
 
-    assert 'apply_task_payload_budget("params", task.params)' in source
-    assert 'apply_task_payload_budget("result", task.result)' in source
-    assert 'apply_task_payload_budget("execution_context"' in source
-    assert '"blocked_payload",\n                task.blocked_payload' in source
-    assert 'if key in ["params", "result", "blocked_payload"]' in source
-    assert '"params": self.serialize_json(task_params)' in source
-    assert '"result": self.serialize_json(task_result)' in source
-    assert '"execution_context": (\n                    self.serialize_json(task_execution_context)' in source
-    assert '"blocked_payload": self.serialize_json(task_blocked_payload)' in source
+    assert 'apply_task_payload_budget("params", task.params)' in create_source
+    assert 'apply_task_payload_budget("result", task.result)' in create_source
+    assert 'apply_task_payload_budget(\n            "execution_context"' in create_source
+    assert '"blocked_payload",\n            task.blocked_payload' in create_source
+    assert '"storyline_tags",\n            task.storyline_tags' in create_source
+    assert '"params": self.serialize_json(task_params)' in create_source
+    assert '"result": self.serialize_json(task_result)' in create_source
+    assert '"execution_context": (\n                self.serialize_json(task_execution_context)' in create_source
+    assert '"blocked_payload": self.serialize_json(task_blocked_payload)' in create_source
+    assert 'apply_task_payload_budget(key, value)' in update_source

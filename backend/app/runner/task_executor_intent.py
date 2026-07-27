@@ -10,6 +10,9 @@ from backend.app.services.execution_intent_resolver import (
     ExecutionIntentResolution,
     ExecutionIntentResolver,
 )
+from backend.app.services.playbook_execution_input_payloads import (
+    hydrate_execution_inputs,
+)
 from backend.app.services.runner_topology import (
     resolve_runner_profile_from_env,
     resolve_runtime_dispatch_target,
@@ -32,11 +35,15 @@ def _resolve_execution_attempt_inputs(
     task: Task,
     task_ctx: Optional[Dict[str, Any]],
 ) -> tuple[Dict[str, Any], ExecutionIntentResolution]:
-    raw_inputs = _build_inputs(task.execution_id or task.id, task_ctx)
+    hydrated_context = dict(task_ctx) if isinstance(task_ctx, dict) else {}
+    hydrated_inputs = hydrate_execution_inputs(hydrated_context)
+    if hydrated_inputs:
+        hydrated_context["inputs"] = hydrated_inputs
+    raw_inputs = _build_inputs(task.execution_id or task.id, hydrated_context)
     try:
         resolution = ExecutionIntentResolver().resolve(
             task=task,
-            execution_context=task_ctx,
+            execution_context=hydrated_context,
             raw_inputs=raw_inputs,
         )
     except Exception:
