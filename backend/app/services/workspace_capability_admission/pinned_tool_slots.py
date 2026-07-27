@@ -107,6 +107,9 @@ def _validate_existing_pins(
     *,
     normalized_inputs: Mapping[str, Any],
     declared_slots: Sequence[str],
+    playbook_code: str | None = None,
+    workspace_id: str | None = None,
+    project_id: str | None = None,
 ) -> None:
     payload = normalized_inputs.get("pinned_tool_slots")
     digest = normalized_inputs.get("pinned_tool_slots_sha256")
@@ -117,6 +120,19 @@ def _validate_existing_pins(
         raise ValueError("pinned_tool_slot_declaration_mismatch")
     if payload.get("schema_version") != PIN_SCHEMA_VERSION:
         raise ValueError("pinned_tool_slots_schema_mismatch")
+    if playbook_code is not None and payload.get("playbook_code") != playbook_code:
+        raise ValueError("pinned_tool_slots_playbook_mismatch")
+    if workspace_id is not None and payload.get("workspace_id") != workspace_id:
+        raise ValueError("pinned_tool_slots_workspace_mismatch")
+    if project_id is not None and payload.get("project_id") != project_id:
+        raise ValueError("pinned_tool_slots_project_mismatch")
+    root_execution_id = str(
+        normalized_inputs.get("execution_id")
+        or normalized_inputs.get("root_execution_id")
+        or ""
+    )
+    if root_execution_id and payload.get("root_execution_id") != root_execution_id:
+        raise ValueError("pinned_tool_slots_execution_mismatch")
     pins = payload.get("pins")
     if not isinstance(pins, dict) or sorted(pins) != sorted(declared_slots):
         raise ValueError("pinned_tool_slots_scope_mismatch")
@@ -128,6 +144,7 @@ async def prepare_pinned_tool_slots(
     *,
     normalized_inputs: dict[str, Any],
     declared_slots: Sequence[str],
+    playbook_code: str,
     workspace_id: str,
     project_id: str | None,
     resolver: Any | None = None,
@@ -143,6 +160,9 @@ async def prepare_pinned_tool_slots(
         _validate_existing_pins(
             normalized_inputs=normalized_inputs,
             declared_slots=declared_slots,
+            playbook_code=playbook_code,
+            workspace_id=workspace_id,
+            project_id=project_id,
         )
         return normalized_inputs
 
@@ -158,6 +178,12 @@ async def prepare_pinned_tool_slots(
 
     payload = {
         "schema_version": PIN_SCHEMA_VERSION,
+        "playbook_code": playbook_code,
+        "root_execution_id": str(
+            normalized_inputs.get("execution_id")
+            or normalized_inputs.get("root_execution_id")
+            or ""
+        ),
         "workspace_id": workspace_id,
         "project_id": project_id,
         "pins": pins,

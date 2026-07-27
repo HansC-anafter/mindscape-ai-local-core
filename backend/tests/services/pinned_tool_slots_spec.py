@@ -37,6 +37,7 @@ async def test_root_pins_once_and_child_verifies_without_resolution(monkeypatch)
     root_inputs = await pinned_tool_slots.prepare_pinned_tool_slots(
         normalized_inputs={},
         declared_slots=["site_publication.release_adapter"],
+        playbook_code="managed_release",
         workspace_id="workspace-1",
         project_id=None,
         resolver=resolver,
@@ -51,6 +52,7 @@ async def test_root_pins_once_and_child_verifies_without_resolution(monkeypatch)
     child_inputs = await pinned_tool_slots.prepare_pinned_tool_slots(
         normalized_inputs=dict(root_inputs),
         declared_slots=["site_publication.release_adapter"],
+        playbook_code="managed_release",
         workspace_id="workspace-1",
         project_id=None,
         resolver=SimpleNamespace(),
@@ -63,6 +65,8 @@ async def test_root_pins_once_and_child_verifies_without_resolution(monkeypatch)
 def test_pin_hash_tampering_fails_closed(monkeypatch):
     payload = {
         "schema_version": pinned_tool_slots.PIN_SCHEMA_VERSION,
+        "playbook_code": "managed_release",
+        "root_execution_id": "",
         "workspace_id": "workspace-1",
         "project_id": None,
         "pins": {

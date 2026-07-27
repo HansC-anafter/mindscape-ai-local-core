@@ -51,6 +51,7 @@ async def prepare_playbook_admission(
         normalized = await prepare_pinned_tool_slots(
             normalized_inputs=normalized,
             declared_slots=declared_slots,
+            playbook_code=playbook_code,
             workspace_id=workspace_id,
             project_id=project_id,
         )
@@ -99,6 +100,7 @@ async def prepare_playbook_admission(
     normalized = await prepare_pinned_tool_slots(
         normalized_inputs=normalized,
         declared_slots=declared_slots,
+        playbook_code=playbook_code,
         workspace_id=workspace_id,
         project_id=project_id,
     )
