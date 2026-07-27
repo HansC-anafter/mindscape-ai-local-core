@@ -106,6 +106,25 @@ def _should_force_remote_execution(binding_payload: Dict[str, Any]) -> bool:
     return not _runtime_binding_targets_local_host_runtime(binding_payload)
 
 
+def _is_internal_knowledge_projection_task(
+    task: Task,
+    task_ctx: Optional[Dict[str, Any]],
+) -> bool:
+    """Keep the pointer-only projection envelope on its admitted local lane."""
+
+    from backend.app.services.knowledge_projection.retrievable.source_admission import (
+        INTERNAL_PROJECTION_TOOL,
+    )
+
+    context = task_ctx if isinstance(task_ctx, dict) else {}
+    return (
+        task.task_type == "tool_execution"
+        and str(task.pack_id or "").strip() == INTERNAL_PROJECTION_TOOL
+        and str(context.get("tool_name") or "").strip()
+        == INTERNAL_PROJECTION_TOOL
+    )
+
+
 def _apply_runtime_binding_to_playbook_task(
     task: Task,
     task_ctx: Optional[Dict[str, Any]],
@@ -115,6 +134,9 @@ def _apply_runtime_binding_to_playbook_task(
 ) -> tuple[Dict[str, Any], Dict[str, Any], Any]:
     updated_inputs = dict(inputs) if isinstance(inputs, dict) else {}
     updated_ctx = dict(task_ctx) if isinstance(task_ctx, dict) else {}
+
+    if _is_internal_knowledge_projection_task(task, updated_ctx):
+        return updated_inputs, updated_ctx, None
 
     runner_profile = resolve_runner_profile_from_env(
         default_max_inflight=_env_int("LOCAL_CORE_RUNNER_MAX_INFLIGHT", 1)
