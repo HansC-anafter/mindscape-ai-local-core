@@ -128,14 +128,17 @@ class RuntimeResourceCollectors:
         include_samples: bool,
     ) -> dict[str, Any]:
         dsn = _postgres_url("PGBOUNCER_ADMIN_URL")
-        with _connect_pgbouncer(dsn) as connection:
+        connection = _connect_pgbouncer(dsn)
+        try:
             config_rows = self._pgbouncer_config(connection)
             result: dict[str, Any] = {
                 "config_sha256": _canonical_sha256(config_rows)
             }
             if include_samples:
                 result.update(self._pgbouncer_samples(connection))
-        return result
+            return result
+        finally:
+            connection.close()
 
     @staticmethod
     def _pgbouncer_config(connection) -> list[dict[str, Any]]:
@@ -227,30 +230,63 @@ class RuntimeResourceCollectors:
 
     @staticmethod
     def _runner_process_count() -> int:
-        with _connect_postgres(
-            _postgres_url("DATABASE_URL_CORE_SESSION")
-        ) as connection:
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    """
-                    SELECT count(DISTINCT runner_id)::bigint
-                    FROM runner_heartbeats
-                    WHERE heartbeat_at >
-                      clock_timestamp() - interval '1 second' * %s
-                    """,
-                    (_RUNNER_FRESH_SECONDS,),
-                )
-                row = cursor.fetchone()
-        if not isinstance(row, tuple) or len(row) != 1:
+        client = redis.Redis(
+            host=os.environ.get("REDIS_HOST", "redis"),
+            port=int(os.environ.get("REDIS_PORT", "6379")),
+            db=int(os.environ.get("REDIS_DB", "0")),
+            password=os.environ.get("REDIS_PASSWORD") or None,
+            socket_connect_timeout=3,
+            socket_timeout=3,
+            decode_responses=True,
+        )
+        if client.ping() is not True:
             raise RuntimeError(
-                "managed_resource_probe_runner_metrics_invalid"
+                "managed_resource_probe_redis_unavailable"
             )
-        value = int(row[0])
-        if value < 1:
+        cursor = 0
+        keys: list[str] = []
+        while True:
+            cursor, batch = client.scan(
+                cursor=cursor,
+                match="mindscape:runner_resources:heartbeat:v1:*",
+                count=100,
+            )
+            keys.extend(str(key) for key in batch)
+            if len(keys) > _MAX_QUEUE_KEYS:
+                raise RuntimeError(
+                    "managed_resource_probe_runner_key_budget_exceeded"
+                )
+            if cursor == 0:
+                break
+        now_epoch = time.time()
+        runner_ids: set[str] = set()
+        for key in sorted(set(keys)):
+            raw = client.get(key)
+            if not isinstance(raw, str):
+                continue
+            try:
+                payload = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(payload, dict):
+                continue
+            runner_id = payload.get("runner_id")
+            captured_at = payload.get("captured_at_epoch")
+            if (
+                not isinstance(runner_id, str)
+                or not runner_id
+                or isinstance(captured_at, bool)
+                or not isinstance(captured_at, (int, float))
+                or captured_at > now_epoch + 5
+                or now_epoch - float(captured_at) > _RUNNER_FRESH_SECONDS
+            ):
+                continue
+            runner_ids.add(runner_id)
+        if not runner_ids:
             raise RuntimeError(
                 "managed_resource_probe_no_fresh_runners"
             )
-        return value
+        return len(runner_ids)
 
     @staticmethod
     def _queue_depth() -> int:
