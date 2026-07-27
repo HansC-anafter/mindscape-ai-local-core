@@ -29,9 +29,8 @@ from backend.app.services.orchestration.meeting.meeting_command_submission impor
     MeetingCommandSubmissionService,
     validate_meeting_session,
 )
-from backend.app.services.orchestration.meeting.voice_client_actions import (
-    build_voice_command_envelope,
-    resolve_voice_client_action,
+from backend.app.services.orchestration.meeting.workspace_voice_semantic_turn_facade import (
+    WorkspaceVoiceSemanticTurnFacade,
 )
 
 SUPPORTED_VOICE_TURN_MIME_TYPES = {"audio/mp4", "audio/webm", "audio/wav"}
@@ -97,9 +96,11 @@ class MeetingVoiceIngressService:
             Awaitable[WhisperTranscriptionResult],
         ] = transcribe_whisper_audio,
         submission_service: MeetingCommandSubmissionService | None = None,
+        semantic_facade: WorkspaceVoiceSemanticTurnFacade | None = None,
     ) -> None:
         self.transcriber = transcriber
         self.submission_service = submission_service
+        self.semantic_facade = semantic_facade
 
     async def submit_voice_turn(
         self,
@@ -170,43 +171,49 @@ class MeetingVoiceIngressService:
                 reason="empty_transcript",
             )
 
-        command_response = await service.submit_envelope(
-            envelope=build_voice_command_envelope(
-                workspace_id=workspace_id,
-                meeting_id=meeting_id,
-                origin_surface="meeting_voice",
-                transcript=transcript,
-                context_objects=command_context.context_objects,
-                command_context=command_context,
-                resolution=resolve_voice_client_action(
-                    transcript=transcript,
-                    session=session,
-                ),
-                metadata={
-                    "client_turn_id": request.client_turn_id,
-                    "transcript_hash": hashlib.sha256(
-                        transcript.encode("utf-8")
-                    ).hexdigest(),
-                    "stt_language": transcription.language,
-                    "stt_duration": transcription.duration,
-                    "audio_mime_type": mime_type,
-                    "audio_byte_count": len(audio_bytes),
-                },
-            ),
+        semantic_facade = self.semantic_facade or WorkspaceVoiceSemanticTurnFacade(
+            submission_service=service,
+        )
+        semantic_result = await semantic_facade.submit_final_transcript(
+            transcript=transcript,
+            language=transcription.language,
+            command_context=command_context,
+            session=session,
             workspace_id=workspace_id,
             meeting_id=meeting_id,
+            origin_surface="meeting_voice",
+            transport_metadata={
+                "client_turn_id": request.client_turn_id,
+                "transcript_hash": hashlib.sha256(
+                    transcript.encode("utf-8")
+                ).hexdigest(),
+                "stt_language": transcription.language,
+                "stt_duration": transcription.duration,
+                "audio_mime_type": mime_type,
+                "audio_byte_count": len(audio_bytes),
+            },
             workspace=workspace,
             orchestrator=orchestrator,
             mindscape_store=mindscape_store,
             background_tasks=background_tasks,
         )
         return MeetingVoiceTurnResponse(
-            status="transcribed_command_submitted",
+            status=(
+                "transcribed_command_submitted"
+                if semantic_result.command_response is not None
+                else "semantic_clarification"
+            ),
             transcript=transcript,
             language=transcription.language,
             duration=transcription.duration,
             audio_byte_count=len(audio_bytes),
-            command_response=command_response,
+            command_response=semantic_result.command_response,
+            semantic_result=semantic_result,
+            reason=(
+                None
+                if semantic_result.command_response is not None
+                else semantic_result.decision_code
+            ),
         )
 
 
