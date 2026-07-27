@@ -12,6 +12,7 @@ RUN apt-get update && apt-get install -y \
     git \
     ffmpeg \
     chromium \
+    openssh-client \
     gnupg \
     lsb-release \
     && install -d /usr/share/postgresql-common/pgdg \

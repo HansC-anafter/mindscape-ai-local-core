@@ -81,24 +81,49 @@ def _provider_evidence(resolution: ToolSlotResolution) -> dict[str, Any]:
     backend = str(tool_info.get("backend") or "").strip()
     if not version or not backend:
         raise ValueError(f"pinned_tool_provider_metadata_incomplete:{tool_id}")
+    backend_module = backend.split(":", 1)[0]
+    module_parts = backend_module.split(".")
+    try:
+        capability_index = module_parts.index(capability_code)
+    except ValueError as exc:
+        raise ValueError(
+            f"pinned_tool_provider_backend_outside_pack:{tool_id}"
+        ) from exc
+    relative_parts = module_parts[capability_index + 1 :]
+    backend_path = capability_dir.joinpath(*relative_parts)
+    backend_file = backend_path.with_suffix(".py")
+    if not backend_file.is_file():
+        backend_file = backend_path / "__init__.py"
+    try:
+        backend_file = backend_file.resolve(strict=True)
+        backend_file.relative_to(capability_dir.resolve(strict=True))
+    except (FileNotFoundError, ValueError) as exc:
+        raise ValueError(
+            f"pinned_tool_provider_artifact_missing:{tool_id}"
+        ) from exc
     return {
         "provider_pack": capability_code,
         "provider_version": version,
         "provider_manifest_sha256": manifest_sha256,
         "tool_backend": backend,
+        "tool_artifact_sha256": hashlib.sha256(
+            backend_file.read_bytes()
+        ).hexdigest(),
     }
 
 
 def _build_pin(resolution: ToolSlotResolution) -> dict[str, Any]:
+    mapping = {
+        "kind": resolution.mapping_kind,
+        "id": resolution.mapping_id,
+        "updated_at": resolution.mapping_updated_at,
+        "project_id": resolution.project_id,
+    }
     return {
         "slot": resolution.slot,
         "tool_id": resolution.tool_id,
-        "mapping": {
-            "kind": resolution.mapping_kind,
-            "id": resolution.mapping_id,
-            "updated_at": resolution.mapping_updated_at,
-            "project_id": resolution.project_id,
-        },
+        "mapping": mapping,
+        "mapping_revision_sha256": _canonical_sha256(mapping),
         **_provider_evidence(resolution),
     }
 

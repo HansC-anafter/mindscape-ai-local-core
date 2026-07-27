@@ -76,6 +76,12 @@ class GateSpec(BaseModel):
         default=None,
         description="Whether checkpoint is required for rollback",
     )
+    decision_payload_schema: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "Optional JSON Schema used to validate structured resume payloads."
+        ),
+    )
 
 
 class HookSpec(BaseModel):

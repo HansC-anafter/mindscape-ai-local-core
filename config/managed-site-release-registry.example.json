@@ -1,0 +1,18 @@
+{
+  "schema_version": "mindscape.managed-site-release-registry.v1",
+  "credential_refs": {
+    "example-connector": {
+      "source": "file",
+      "path": "/root/.mindscape/site-connectors/example-connector.key"
+    }
+  },
+  "sites": {
+    "example-site": {
+      "production": {
+        "site_url": "https://example.test",
+        "credential_ref": "example-connector",
+        "transport": "tls"
+      }
+    }
+  }
+}

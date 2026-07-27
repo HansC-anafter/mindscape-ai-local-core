@@ -31,6 +31,7 @@ async def test_root_pins_once_and_child_verifies_without_resolution(monkeypatch)
             "provider_version": "0.2.0",
             "provider_manifest_sha256": "a" * 64,
             "tool_backend": "capabilities.wordpress.tools:release_adapter",
+            "tool_artifact_sha256": "b" * 64,
         },
     )
     resolver = _Resolver()
@@ -48,6 +49,11 @@ async def test_root_pins_once_and_child_verifies_without_resolution(monkeypatch)
         slot="site_publication.release_adapter",
         playbook_inputs=root_inputs,
     ) == "wordpress.divi5_release_adapter"
+    pin = root_inputs["pinned_tool_slots"]["pins"][
+        "site_publication.release_adapter"
+    ]
+    assert pin["tool_artifact_sha256"] == "b" * 64
+    assert len(pin["mapping_revision_sha256"]) == 64
 
     child_inputs = await pinned_tool_slots.prepare_pinned_tool_slots(
         normalized_inputs=dict(root_inputs),
