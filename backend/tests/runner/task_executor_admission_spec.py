@@ -335,6 +335,58 @@ async def test_internal_projection_task_uses_committed_source_receipt(
 
 
 @pytest.mark.asyncio
+async def test_internal_projection_task_converges_polluted_runtime_binding(
+    monkeypatch,
+):
+    from backend.app.services.knowledge_projection.source_ledger import (
+        KnowledgeSourceLedgerFacade,
+    )
+
+    task, canonical_inputs, context, receipt = _internal_projection_fixture()
+    from backend.app.services.knowledge_projection.retrievable.task_payload import (
+        KnowledgeProjectionTaskPayload,
+    )
+
+    expected_inputs = KnowledgeProjectionTaskPayload.model_validate(
+        task.params
+    ).bounded_dict()
+    polluted_inputs = {
+        **canonical_inputs,
+        "runtime_binding": {
+            "dispatch_mode": "external_runtime",
+            "runtime_id": "runtime-should-not-apply",
+        },
+        "runtime_id": "runtime-should-not-apply",
+    }
+    polluted_context = {
+        **context,
+        "inputs": polluted_inputs,
+        "runtime_binding": polluted_inputs["runtime_binding"],
+        "selected_runtime_id": "runtime-should-not-apply",
+        "execution_backend_hint": "remote",
+    }
+    monkeypatch.setattr(
+        KnowledgeSourceLedgerFacade,
+        "verify_internal_projection_admission",
+        lambda self, candidate: candidate.receipt_hash == receipt.receipt_hash,
+    )
+
+    result = await prepare_runner_child_admission(
+        task,
+        polluted_inputs,
+        polluted_context,
+        profile_id="profile-one",
+    )
+
+    assert result.changed is True
+    assert result.inputs == expected_inputs
+    assert result.execution_context["inputs"] == expected_inputs
+    assert "runtime_binding" not in result.execution_context
+    assert "selected_runtime_id" not in result.execution_context
+    assert "execution_backend_hint" not in result.execution_context
+
+
+@pytest.mark.asyncio
 async def test_internal_projection_task_rejects_forged_identity(monkeypatch):
     from backend.app.services.knowledge_projection.source_ledger import (
         KnowledgeSourceLedgerFacade,

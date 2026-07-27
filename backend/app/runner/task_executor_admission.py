@@ -189,12 +189,21 @@ async def prepare_runner_child_admission(
         )
 
     root_execution_id = str(task.execution_id or task.id)
-    internal_receipt = _verified_internal_projection_admission(
+    internal_admission = _verified_internal_projection_admission(
         task=task,
         inputs=normalized_inputs,
         execution_context=normalized_context,
     )
-    if internal_receipt is not None:
+    if internal_admission is not None:
+        internal_receipt, projection_payload = internal_admission
+        normalized_inputs = projection_payload.bounded_dict()
+        normalized_context["inputs"] = normalized_inputs
+        for key in (
+            "execution_backend_hint",
+            "runtime_binding",
+            "selected_runtime_id",
+        ):
+            normalized_context.pop(key, None)
         normalized_context["knowledge_projection_admission"] = (
             internal_receipt.model_dump(mode="json")
         )
@@ -309,7 +318,22 @@ def _verified_internal_projection_admission(
     )
 
     receipt = InternalProjectionAdmissionReceipt.model_validate(raw_receipt)
-    projection_payload = KnowledgeProjectionTaskPayload.model_validate(inputs)
+    candidate_payload = dict(inputs)
+    for key in (
+        "runtime_binding",
+        "runtime_id",
+        "site_key",
+        "target_device_id",
+    ):
+        candidate_payload.pop(key, None)
+    candidate_projection_payload = (
+        KnowledgeProjectionTaskPayload.model_validate(candidate_payload)
+    )
+    projection_payload = KnowledgeProjectionTaskPayload.model_validate(task.params)
+    if candidate_projection_payload != projection_payload:
+        raise ValueError(
+            "knowledge_projection_internal_admission_identity_mismatch"
+        )
     payload_sources = projection_payload.source_page
     receipt_sources = receipt.sources
     if (
@@ -345,7 +369,7 @@ def _verified_internal_projection_admission(
         raise ValueError(
             "knowledge_projection_internal_admission_not_committed"
         )
-    return receipt
+    return receipt, projection_payload
 
 
 async def park_task_for_runner_admission(
