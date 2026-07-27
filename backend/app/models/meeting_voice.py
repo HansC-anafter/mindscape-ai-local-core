@@ -9,10 +9,14 @@ from pydantic import BaseModel, ConfigDict, Field
 from backend.app.models.meeting_command import MeetingCommandAcceptResponse
 from backend.app.models.meeting_voice_context import MeetingVoiceCommandContext
 from backend.app.models.object_runtime import ObjectRoleEntry
+from backend.app.models.workspace_voice_semantic_turn import (
+    WorkspaceVoiceSemanticTurnResult,
+)
 
 
 MeetingVoiceTurnStatus = Literal[
     "transcribed_command_submitted",
+    "semantic_clarification",
     "ignored_empty_transcript",
     "stt_unavailable",
 ]
@@ -44,6 +48,7 @@ class MeetingVoiceTurnResponse(BaseModel):
     duration: Optional[float] = None
     audio_byte_count: Optional[int] = None
     command_response: Optional[MeetingCommandAcceptResponse] = None
+    semantic_result: Optional[WorkspaceVoiceSemanticTurnResult] = None
     reason: Optional[str] = None
 
 

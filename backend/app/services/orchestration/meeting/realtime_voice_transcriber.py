@@ -31,9 +31,8 @@ from backend.app.services.orchestration.meeting.voice_ingress import (
     decode_audio_base64,
     normalized_mime_type,
 )
-from backend.app.services.orchestration.meeting.voice_client_actions import (
-    build_voice_command_envelope,
-    resolve_voice_client_action,
+from backend.app.services.orchestration.meeting.workspace_voice_semantic_turn_facade import (
+    WorkspaceVoiceSemanticTurnFacade,
 )
 
 
@@ -66,9 +65,11 @@ class RealtimeVoiceTranscriber:
             Awaitable[WhisperTranscriptionResult],
         ] = transcribe_whisper_audio,
         submission_service: MeetingCommandSubmissionService | None = None,
+        semantic_facade: WorkspaceVoiceSemanticTurnFacade | None = None,
     ) -> None:
         self.transcriber = transcriber
         self.submission_service = submission_service
+        self.semantic_facade = semantic_facade
 
     async def transcribe_audio_window(
         self,
@@ -163,31 +164,32 @@ class RealtimeVoiceTranscriber:
     ):
         service = self.submission_service or MeetingCommandSubmissionService()
         session = service.session_store.get_by_id(meeting_id)
-        return await service.submit_envelope(
-            envelope=build_voice_command_envelope(
-                workspace_id=workspace_id,
-                meeting_id=meeting_id,
-                origin_surface="meeting_voice_session",
-                transcript=candidate.transcript,
+        semantic_facade = self.semantic_facade or WorkspaceVoiceSemanticTurnFacade(
+            submission_service=service,
+        )
+        return await semantic_facade.submit_final_transcript(
+            transcript=candidate.transcript,
+            language=candidate.language,
+            command_context=candidate.command_context
+            or normalize_meeting_voice_command_context(
+                command_context=None,
                 context_objects=candidate.context_objects,
-                command_context=candidate.command_context,
-                resolution=resolve_voice_client_action(
-                    transcript=candidate.transcript,
-                    session=session,
-                ),
-                metadata={
-                    "client_session_id": candidate.client_session_id,
-                    "utterance_id": candidate.utterance_id,
-                    "transcript_hash": candidate.metadata.get("transcript_hash"),
-                    "stt_language": candidate.language,
-                    "stt_duration": candidate.duration,
-                    "audio_mime_type": candidate.audio_mime_type,
-                    "audio_byte_count": candidate.audio_byte_count,
-                    "protocol": "realtime_voice_session",
-                },
+                metadata={},
             ),
+            session=session,
             workspace_id=workspace_id,
             meeting_id=meeting_id,
+            origin_surface="meeting_voice_session",
+            transport_metadata={
+                "client_session_id": candidate.client_session_id,
+                "utterance_id": candidate.utterance_id,
+                "transcript_hash": candidate.metadata.get("transcript_hash"),
+                "stt_language": candidate.language,
+                "stt_duration": candidate.duration,
+                "audio_mime_type": candidate.audio_mime_type,
+                "audio_byte_count": candidate.audio_byte_count,
+                "protocol": "realtime_voice_session",
+            },
             workspace=workspace,
             orchestrator=orchestrator,
             mindscape_store=mindscape_store,

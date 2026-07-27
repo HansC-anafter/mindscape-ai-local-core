@@ -507,15 +507,16 @@ surfaces:
     path_globs:
       - backend/app/models/meeting_voice.py
       - backend/app/models/meeting_voice_session.py
-      - backend/app/models/meeting_voice_semantic.py
+      - backend/app/models/workspace_voice_semantic_turn.py
       - backend/app/routes/core/workspace/meeting_voice.py
       - backend/app/routes/core/workspace/meeting_voice_sessions.py
       - backend/app/services/orchestration/meeting/voice_ingress.py
       - backend/app/services/orchestration/meeting/realtime_voice_transcriber.py
       - backend/app/services/orchestration/meeting/voice_client_actions.py
-      - backend/app/services/orchestration/meeting/workspace_voice_semantic_turn.py
-      - backend/app/services/orchestration/meeting/aol_voice_reference_resolver.py
-      - backend/app/services/orchestration/meeting/active_pack_voice_interaction.py
+      - backend/app/services/orchestration/meeting/workspace_voice_semantic_turn_facade.py
+      - backend/app/services/orchestration/meeting/aol_voice_reference_grammar.py
+      - backend/app/services/orchestration/meeting/aol_voice_reference_resolver_facade.py
+      - backend/app/services/orchestration/meeting/active_pack_voice_interaction_port.py
       - backend/app/services/orchestration/meeting/meeting_voice_response_projection.py
       - backend/app/services/orchestration/meeting/meeting_command_submission.py
       - backend/app/services/orchestration/meeting/tool_dispatch.py
