@@ -16,6 +16,22 @@ from backend.app.services.workspace_capability_admission.child_snapshot_verifier
 logger = logging.getLogger(__name__)
 
 
+def _playbook_result_status(payload: Any) -> str:
+    if not isinstance(payload, dict):
+        return ""
+    nested = payload.get("result")
+    if isinstance(nested, dict) and nested.get("status") is not None:
+        return str(nested.get("status") or "").strip().lower()
+    return str(payload.get("status") or "").strip().lower()
+
+
+def _write_result_file(result_file: Optional[str], payload: Any) -> None:
+    if not result_file:
+        return
+    with open(result_file, "w") as file_obj:
+        json.dump(payload, file_obj, ensure_ascii=False, default=str)
+
+
 def _initialize_capability_packages_for_runner(*, load_tools: bool = True) -> None:
     try:
         from backend.app.services.capability_registry import get_registry, load_capabilities
@@ -160,13 +176,24 @@ def _child_execute_playbook(
                     pass
         else:
             executor = PlaybookRunExecutor()
-            await executor.execute_playbook_run(
+            result = await executor.execute_playbook_run(
                 playbook_code=playbook_code,
                 profile_id=profile_id,
                 inputs=inputs,
                 workspace_id=workspace_id,
                 project_id=project_id,
             )
+            _write_result_file(result_file, result)
+            if _playbook_result_status(result) in {"error", "failed"}:
+                detail = (
+                    result.get("result", {}).get("error")
+                    if isinstance(result.get("result"), dict)
+                    else None
+                )
+                raise RuntimeError(
+                    "Terminal workflow failure"
+                    + (f": {detail}" if detail else "")
+                )
 
     try:
         asyncio.run(_run())

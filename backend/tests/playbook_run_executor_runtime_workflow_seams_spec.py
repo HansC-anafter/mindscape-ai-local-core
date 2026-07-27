@@ -147,7 +147,11 @@ async def test_runner_runtime_workflow_executes_and_persists_terminal_result(mon
         is_runner_process_fn=lambda: True,
     )
 
-    assert result["result"] == {"status": "completed", "execution_id": "exec_runner"}
+    assert result["result"] == {
+        "status": "completed",
+        "context": {"answer": "ok"},
+        "steps": {"step_1": {"outputs": {"ok": True}}},
+    }
     assert calls["execute_kwargs"]["inputs"] is normalized_inputs
     assert calls["artifacts"][0]["store"] is store
     assert calls["artifacts"][0]["sandbox_id"] == "sandbox_1"
@@ -155,6 +159,59 @@ async def test_runner_runtime_workflow_executes_and_persists_terminal_result(mon
     assert calls["persisted_results"][0]["runtime_result"] is runtime_result
     assert calls["persisted_results"][0]["result"]["status"] == "completed"
     assert calls["unregistered"] == ["exec_runner"]
+
+
+@pytest.mark.asyncio
+async def test_runner_runtime_workflow_returns_terminal_failure(monkeypatch):
+    runtime_result = SimpleNamespace(
+        status="failed",
+        outputs={},
+        metadata={"steps": {"step_1": {"status": "failed"}}},
+    )
+
+    class FakeRuntime:
+        name = "runner-runtime"
+
+        async def execute(self, **_kwargs):
+            return runtime_result
+
+    monkeypatch.setattr(
+        runtime_module,
+        "maybe_create_runtime_output_artifacts",
+        lambda **_kwargs: None,
+    )
+
+    async def fake_create_artifacts(**_kwargs):
+        return None
+
+    monkeypatch.setattr(
+        runtime_module,
+        "maybe_create_runtime_output_artifacts",
+        fake_create_artifacts,
+    )
+    monkeypatch.setattr(runtime_module, "generate_lens_receipt", lambda **_kwargs: None)
+    monkeypatch.setattr(runtime_module, "persist_runtime_result", lambda **_kwargs: None)
+    monkeypatch.setattr(runtime_module, "persist_running_runtime_task", lambda **_kwargs: None)
+    monkeypatch.setattr(runtime_module, "record_started", lambda **_kwargs: None)
+    monkeypatch.setattr(runtime_module, "inject_lens_context", lambda **_kwargs: None)
+
+    executor = SimpleNamespace(
+        runtime_factory=_FakeRuntimeFactory(FakeRuntime()),
+        store=object(),
+    )
+    result = await runtime_module.execute_runtime_workflow(
+        executor=executor,
+        playbook_run=_FakePlaybookRun("profile_runner"),
+        playbook_code="demo_playbook",
+        profile_id="profile_1",
+        normalized_inputs={"execution_id": "exec_failed"},
+        workspace_id="workspace_1",
+        project_id=None,
+        runtime_result_has_errors_fn=lambda *_args: True,
+        is_runner_process_fn=lambda: True,
+    )
+
+    assert result["result"]["status"] == "failed"
 
 
 def test_runtime_workflow_reexports_helper_names_from_facade_module():

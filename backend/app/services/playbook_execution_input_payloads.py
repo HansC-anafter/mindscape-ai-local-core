@@ -251,3 +251,19 @@ def hydrate_execution_inputs(
     if not isinstance(payload, dict):
         raise ExecutionInputPayloadError("execution_input_payload_not_object")
     return payload
+
+
+def has_durable_execution_inputs(
+    execution_context: Optional[Dict[str, Any]],
+) -> bool:
+    """Return whether a task already carries a durable input descriptor."""
+
+    context = execution_context if isinstance(execution_context, dict) else {}
+    descriptor = context.get("execution_inputs_ref")
+    return (
+        isinstance(descriptor, dict)
+        and descriptor.get("schema_version")
+        == EXECUTION_INPUT_PAYLOAD_SCHEMA_VERSION
+        and isinstance(descriptor.get("storage_ref"), str)
+        and bool(descriptor["storage_ref"].strip())
+    )

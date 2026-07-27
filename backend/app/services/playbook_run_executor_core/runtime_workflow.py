@@ -134,7 +134,7 @@ async def execute_runtime_workflow(
         },
     )
 
-    async def _run_runtime_in_background() -> None:
+    async def _run_runtime_in_background() -> Dict[str, Any]:
         try:
             runtime_result = await runtime.execute(
                 playbook_run=playbook_run,
@@ -182,6 +182,7 @@ async def execute_runtime_workflow(
                 runtime_result_has_errors_fn=runtime_result_has_errors_fn,
                 parent_finalizes_success=is_runner_process_fn(),
             )
+            return result
         except RecoverableStepError as exc:
             logger.warning(
                 "PlaybookRunExecutor: Step runtime recoverable error: %s",
@@ -192,6 +193,11 @@ async def execute_runtime_workflow(
                 error=exc,
                 normalized_inputs=normalized_inputs,
             )
+            return {
+                "status": "pending",
+                "error": str(exc),
+                "execution_id": execution_id,
+            }
         except Exception as exc:
             logger.error(
                 "PlaybookRunExecutor: Runtime execution failed: %s",
@@ -206,16 +212,21 @@ async def execute_runtime_workflow(
                 project_id=project_id,
                 profile_id=profile_id,
             )
+            return {
+                "status": "failed",
+                "error": str(exc),
+                "execution_id": execution_id,
+            }
         finally:
             _unregister_background_task(execution_id)
 
     if is_runner_process_fn():
-        await _run_runtime_in_background()
+        terminal_result = await _run_runtime_in_background()
         return {
             "execution_mode": "workflow",
             "playbook_code": playbook_code,
             "execution_id": execution_id,
-            "result": {"status": "completed", "execution_id": execution_id},
+            "result": terminal_result,
             "has_json": True,
             "runtime": runtime.name,
         }

@@ -28,7 +28,10 @@ logger = logging.getLogger(__name__)
 
 def _is_non_retryable_task_error(message: str) -> bool:
     normalized = str(message or "")
-    return "Missing required playbook inputs" in normalized
+    return (
+        "Missing required playbook inputs" in normalized
+        or "Terminal workflow failure" in normalized
+    )
 
 
 def _resolve_execution_attempt_inputs(

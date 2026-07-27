@@ -41,6 +41,22 @@ _TERMINAL_SUCCESS_STALE_KEYS = (
     "runner_skip_reason",
 )
 
+_NON_TERMINAL_RESULT_STATUSES = {
+    "paused",
+    "pending",
+    "waiting_confirmation",
+    "waiting_for_confirmation",
+}
+
+
+def _result_file_status(payload: Any) -> str:
+    if not isinstance(payload, dict):
+        return ""
+    nested = payload.get("result")
+    if isinstance(nested, dict) and nested.get("status") is not None:
+        return str(nested.get("status") or "").strip().lower()
+    return str(payload.get("status") or "").strip().lower()
+
 
 def _build_resource_failure_snapshot(
     *,
@@ -272,6 +288,34 @@ async def _mark_task_succeeded(
                 pass
 
         latest = tasks_store.get_task(task_id)
+        result_status = _result_file_status(tool_result)
+        if (
+            latest
+            and result_status in _NON_TERMINAL_RESULT_STATUSES
+            and latest.status not in (
+                TaskStatus.CANCELLED_BY_USER,
+                TaskStatus.FAILED,
+            )
+        ):
+            context = (
+                dict(latest.execution_context)
+                if isinstance(latest.execution_context, dict)
+                else {}
+            )
+            context["status"] = result_status
+            context.pop("runner_id", None)
+            context.pop("heartbeat_at", None)
+            tasks_store.update_task(
+                latest.id,
+                execution_context=context,
+                status=TaskStatus.PENDING,
+                completed_at=None,
+                runner_id=None,
+                heartbeat_at=None,
+            )
+            if redis_queue:
+                await redis_queue.ack_task(latest.id)
+            return
         if latest and latest.status not in (
             TaskStatus.CANCELLED_BY_USER,
             TaskStatus.FAILED,
