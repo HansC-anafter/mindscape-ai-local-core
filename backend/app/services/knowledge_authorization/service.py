@@ -11,6 +11,7 @@ from .write_contracts import (
     KnowledgeAclMutation,
     KnowledgeResourceBinding,
     KnowledgeResourceIdentity,
+    KnowledgeGrant,
 )
 
 
@@ -41,6 +42,7 @@ class KnowledgeAuthorizationService:
         identity: KnowledgeResourceIdentity,
         access_context: RetrievalAccessContext,
         acl_mutation: KnowledgeAclMutation | None = None,
+        initial_grants: tuple[KnowledgeGrant, ...] = (),
     ) -> KnowledgeResourceBinding:
         self.require_project_permission(
             identity=identity,
@@ -59,6 +61,7 @@ class KnowledgeAuthorizationService:
             identity=identity,
             access_context=access_context,
             acl_mutation=acl_mutation,
+            initial_grants=initial_grants,
         )
 
     @staticmethod

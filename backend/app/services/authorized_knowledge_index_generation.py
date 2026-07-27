@@ -10,6 +10,7 @@ from backend.app.services.authorized_knowledge_index_contracts import (
 )
 from backend.app.services.knowledge_authorization import (
     KnowledgeAclMutation,
+    KnowledgeGrant,
     KnowledgeResourceIdentity,
     RetrievalAccessContext,
     set_local_knowledge_context,
@@ -38,6 +39,7 @@ class AuthorizedKnowledgeIndexGenerationMixin:
         documents: tuple[ExternalDocumentWrite, ...],
         trusted_document: bool,
         acl_mutation: KnowledgeAclMutation | None = None,
+        initial_grants: tuple[KnowledgeGrant, ...] = (),
     ) -> AuthorizedIndexWriteResult:
         expected_text_rows = sum(
             channel.row_count
@@ -99,6 +101,7 @@ class AuthorizedKnowledgeIndexGenerationMixin:
                     identity=identity,
                     access_context=access_context,
                     acl_mutation=acl_mutation,
+                    initial_grants=initial_grants,
                 )
             if (
                 payload.graph is not None

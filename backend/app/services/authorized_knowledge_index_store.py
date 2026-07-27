@@ -20,6 +20,7 @@ from backend.app.services.authorized_knowledge_index_revoke import (
 )
 from backend.app.services.knowledge_authorization import (
     KnowledgeAclMutation,
+    KnowledgeGrant,
     KnowledgeAuthorizationService,
     KnowledgePermission,
     KnowledgeResourceIdentity,
@@ -131,6 +132,7 @@ class AuthorizedKnowledgeIndexStore(
         payload: RetrievableProjectionWrite,
         documents: tuple[ExternalDocumentWrite, ...],
         acl_mutation: KnowledgeAclMutation | None = None,
+        initial_grants: tuple[KnowledgeGrant, ...] = (),
     ) -> AuthorizedIndexWriteResult:
         """Commit one pack-neutral generation after server-verified admission."""
 
@@ -140,6 +142,7 @@ class AuthorizedKnowledgeIndexStore(
             payload=payload,
             documents=documents,
             acl_mutation=acl_mutation,
+            initial_grants=initial_grants,
             trusted_document=False,
         )
 
