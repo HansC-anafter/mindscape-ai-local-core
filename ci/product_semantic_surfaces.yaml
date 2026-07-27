@@ -849,15 +849,18 @@ surfaces:
     contract_doc: mindscape-ai-cloud/docs/internal/local-core/product-semantics/durable-product-semantic-workflow-contract-2026-07-25.zh-TW.md
     requires_product_semantic_declaration: true
     semantics:
-      - Local Core owns the byte-identical contract mirror, one durable-state facade, one ten-table PostgreSQL ledger, deterministic reducers, signed receipts, bounded projections, review routes, and operational recovery evidence.
+      - Local Core owns the seventeen-schema byte-identical contract mirror, one durable-state facade, one ten-table PostgreSQL ledger, deterministic reducers, signed receipts, bounded projections, review routes, and operational recovery evidence.
       - Runtime code never reads Cloud source, .contract-sources, or network contracts; schema parity is a CI/build concern and a pinned release-manifest hash is part of every semantic execution identity.
       - All protected writes require caller-owned transactions through the facade; repository leaves do not create engines or sessions, routes do not issue SQL, and runtime has no DDL fallback or unsigned receipt path.
+      - Durable release-policy CAS verifies complete owner and exact-canary receipts against a caller-pinned registry hash, persists both signed receipts plus their hashes and registry revision/hash in the same immutable PostgreSQL row, and re-verifies them before admission.
       - Terminal execution enters product iteration only through mindscape.product-outcome-adapter-port.v1 and the installed runtime contract registry; generic host code contains no pack literal, known-pack map, prefix dispatch, or pack-specific import.
       - The runtime reuses the existing task lane, PgBouncer transaction pool, workspace shared EventSource, and explicit compact reads with zero new worker, queue, pool, scheduler, or polling topology.
     path_globs:
       - backend/app/services/workflow/durable_state/**
-      - backend/alembic_migrations/postgres/durable_workflow_v1.py
+      - backend/alembic_migrations/postgres/durable_workflow_*.py
       - backend/alembic_migrations/postgres/versions/*durable_workflow*
+      - backend/app/services/workspace_capability_admission/durable_workflow_policy.py
+      - backend/app/app_bootstrap/durable_workflow_routes.py
       - backend/app/routes/core/durable_workflows.py
       - backend/app/routes/core/durable_workflows_core/**
       - backend/app/services/run_harness/durable_workflow_adapter.py
