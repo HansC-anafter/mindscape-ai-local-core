@@ -27,12 +27,15 @@ REMOTE_PATH = re.compile(r"^/opt/wp-hub/[a-zA-Z0-9._/-]{1,240}$")
 TIMEOUTS = {
     "prepare_isolated_staging": 900,
     "deploy_artifacts": 300,
+    "pull_source": 120,
     "stage_targets": 300,
     "collect_acceptance": 900,
+    "publish_approved_actions": 900,
     "purge_cache_once": 60,
     "read_public_release": 120,
     "cleanup_isolated_staging": 300,
     "resource_postflight": 120,
+    "rollback_target": 300,
 }
 
 
@@ -45,7 +48,12 @@ def canonical_json(value: Any) -> str:
     )
 
 
-def _required_path(name: str, max_bytes: int) -> Path:
+def _required_path(
+    name: str,
+    max_bytes: int,
+    *,
+    forbidden_mode_bits: int = 0o077,
+) -> Path:
     value = os.environ.get(name, "")
     path = Path(value).expanduser()
     if (
@@ -54,7 +62,7 @@ def _required_path(name: str, max_bytes: int) -> Path:
         or not path.is_file()
         or path.stat().st_size < 1
         or path.stat().st_size > max_bytes
-        or path.stat().st_mode & 0o077
+        or path.stat().st_mode & forbidden_mode_bits
     ):
         raise ValueError(f"{name.lower()}_invalid")
     return path.resolve()
@@ -97,6 +105,7 @@ def _configuration() -> dict[str, Any]:
     known_hosts = _required_path(
         "WP_HUB_RELEASE_SSH_KNOWN_HOSTS_FILE",
         1024 * 1024,
+        forbidden_mode_bits=0o133,
     )
     identity_sha256 = os.environ.get(
         "WP_HUB_RELEASE_SSH_IDENTITY_SHA256",

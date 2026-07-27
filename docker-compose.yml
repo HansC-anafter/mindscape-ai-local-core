@@ -22,7 +22,6 @@ x-runner-environment: &runner-environment
   MINDSCAPE_RUNTIME_RESOURCE_PROBE_SHA256: ${MINDSCAPE_RUNTIME_RESOURCE_PROBE_SHA256:-}
   MINDSCAPE_WP_HUB_RELEASE_FACADE: ${MINDSCAPE_WP_HUB_RELEASE_FACADE:-/app/scripts/wp_hub_managed_release_bridge.py}
   MINDSCAPE_WP_HUB_RELEASE_FACADE_SHA256: ${MINDSCAPE_WP_HUB_RELEASE_FACADE_SHA256:-}
-  MINDSCAPE_SITE_RELEASE_REGISTRY: ${MINDSCAPE_SITE_RELEASE_REGISTRY:-/app/config/managed-site-release-registry.json}
   WP_HUB_RELEASE_SSH_HOST: ${WP_HUB_RELEASE_SSH_HOST:-}
   WP_HUB_RELEASE_SSH_PORT: ${WP_HUB_RELEASE_SSH_PORT:-22}
   WP_HUB_RELEASE_SSH_USER: ${WP_HUB_RELEASE_SSH_USER:-}
@@ -102,6 +101,8 @@ x-runner-volumes: &runner-volumes
   - ${MINDSCAPE_STORAGE_HOST_DIR:-${HOME}/.mindscape/storage}:/root/.mindscape/storage:rw
   - "${LOCAL_CORE_LOGS_HOST_DIR:-./logs}:/app/logs:rw"
   - ./web-console:/app/web-console:rw
+  - "${WP_HUB_RELEASE_SSH_IDENTITY_HOST_FILE:-${HOME}/.ssh/id_rsa}:/run/wp-hub-release/id:ro"
+  - "${WP_HUB_RELEASE_SSH_KNOWN_HOSTS_HOST_FILE:-${HOME}/.ssh/known_hosts}:/run/wp-hub-release/known_hosts:ro"
 
 x-default-logging: &default-logging
   driver: json-file
@@ -170,7 +171,6 @@ services:
       - MINDSCAPE_RUNTIME_RESOURCE_PROBE_SHA256=${MINDSCAPE_RUNTIME_RESOURCE_PROBE_SHA256:-}
       - MINDSCAPE_WP_HUB_RELEASE_FACADE=${MINDSCAPE_WP_HUB_RELEASE_FACADE:-/app/scripts/wp_hub_managed_release_bridge.py}
       - MINDSCAPE_WP_HUB_RELEASE_FACADE_SHA256=${MINDSCAPE_WP_HUB_RELEASE_FACADE_SHA256:-}
-      - MINDSCAPE_SITE_RELEASE_REGISTRY=${MINDSCAPE_SITE_RELEASE_REGISTRY:-/app/config/managed-site-release-registry.json}
       - WP_HUB_RELEASE_SSH_HOST=${WP_HUB_RELEASE_SSH_HOST:-}
       - WP_HUB_RELEASE_SSH_PORT=${WP_HUB_RELEASE_SSH_PORT:-22}
       - WP_HUB_RELEASE_SSH_USER=${WP_HUB_RELEASE_SSH_USER:-}
@@ -434,6 +434,8 @@ services:
       - ${MINDSCAPE_STORAGE_HOST_DIR:-${HOME}/.mindscape/storage}:/root/.mindscape/storage:rw
       - "${LOCAL_CORE_LOGS_HOST_DIR:-./logs}:/app/logs:rw"
       - ./web-console:/app/web-console:rw
+      - "${WP_HUB_RELEASE_SSH_IDENTITY_HOST_FILE:-${HOME}/.ssh/id_rsa}:/run/wp-hub-release/id:ro"
+      - "${WP_HUB_RELEASE_SSH_KNOWN_HOSTS_HOST_FILE:-${HOME}/.ssh/known_hosts}:/run/wp-hub-release/known_hosts:ro"
       - ${HF_HOME:-${HOME}/.cache/huggingface}:/root/.cache/huggingface:rw
     networks:
       - mindscape-network

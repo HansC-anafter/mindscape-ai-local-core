@@ -33,7 +33,7 @@ def test_bridge_builds_one_noninteractive_host_key_pinned_ssh_path(
     identity.write_text("identity", encoding="utf-8")
     known_hosts.write_text("host-key", encoding="utf-8")
     identity.chmod(0o600)
-    known_hosts.chmod(0o600)
+    known_hosts.chmod(0o644)
     values = {
         "WP_HUB_RELEASE_SSH_HOST": "wp-hub.example.test",
         "WP_HUB_RELEASE_SSH_USER": "release",
@@ -118,7 +118,6 @@ def test_runner_environment_carries_exact_release_bridge_seams():
         "MINDSCAPE_RUNTIME_RESOURCE_PROBE_SHA256",
         "MINDSCAPE_WP_HUB_RELEASE_FACADE",
         "MINDSCAPE_WP_HUB_RELEASE_FACADE_SHA256",
-        "MINDSCAPE_SITE_RELEASE_REGISTRY",
         "WP_HUB_RELEASE_SSH_HOST",
         "WP_HUB_RELEASE_SSH_PORT",
         "WP_HUB_RELEASE_SSH_USER",
@@ -129,3 +128,12 @@ def test_runner_environment_carries_exact_release_bridge_seams():
         "WP_HUB_RELEASE_REMOTE_EXECUTABLE",
         "WP_HUB_RELEASE_REMOTE_EXECUTABLE_SHA256",
     }.issubset(runner_environment)
+    runner_volumes = compose["x-runner-volumes"]
+    assert any(
+        "/run/wp-hub-release/id:ro" in volume
+        for volume in runner_volumes
+    )
+    assert any(
+        "/run/wp-hub-release/known_hosts:ro" in volume
+        for volume in runner_volumes
+    )
