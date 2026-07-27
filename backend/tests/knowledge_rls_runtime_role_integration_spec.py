@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 
 import psycopg2
@@ -11,10 +12,24 @@ from backend.app.services.authorized_knowledge_index_store import (
     AuthorizedKnowledgeIndexStore,
 )
 from backend.app.services.knowledge_authorization import (
+    KnowledgeGrant,
     KnowledgePermission,
+    KnowledgeResourceIdentity,
     PrincipalRef,
     RetrievalAccessContext,
     set_local_knowledge_context,
+    visibility_partition_hash_for_grants,
+)
+from backend.app.services.knowledge_graph.contracts import (
+    GraphEntityWrite,
+    GraphMentionWrite,
+    GraphProjectionWrite,
+)
+from backend.app.services.knowledge_projection.retrievable.write_contracts import (
+    ProjectionChannelWrite,
+    ProjectionEvidenceWrite,
+    ProjectionRecordWrite,
+    RetrievableProjectionWrite,
 )
 from backend.app.services.knowledge_retrieval import (
     AuthorizationAwareKnowledgeRetrievalFacade,
@@ -102,6 +117,106 @@ def _record():
             "pipeline_version": "knowledge-rls-runtime-spec.v1",
         },
     }
+
+
+def _graph_payload(source_id: str) -> RetrievableProjectionWrite:
+    marker = f"KNOWLEDGE_RLS_GRAPH_{source_id}"
+    content_hash = hashlib.sha256(marker.encode("utf-8")).hexdigest()
+    visibility_hash = visibility_partition_hash_for_grants(
+        (
+            KnowledgeGrant(
+                PrincipalRef("user", OWNER_ID),
+                relation="owner",
+            ),
+        )
+    )
+    graph = GraphProjectionWrite(
+        algorithm_revision="runtime-role-spec.v1",
+        resolver_revision="runtime-role-spec.v1",
+        visibility_partition_hash=visibility_hash,
+        entities=(
+            GraphEntityWrite(
+                "shared-runtime-role-entity",
+                "concept",
+                "runtime-role-spec.v1",
+            ),
+        ),
+        mentions=(
+            GraphMentionWrite(
+                entity_key="shared-runtime-role-entity",
+                evidence_unit_key="unit-1",
+                record_key="record-1",
+                surface_text=marker,
+                mention_type="concept",
+                confidence=1.0,
+                citation={
+                    "source_ref": f"object:{source_id}",
+                    "anchor": "unit-1",
+                },
+                extractor_revision="runtime-role-spec.v1",
+                model_revision="runtime-role-spec.v1",
+                prompt_revision="runtime-role-spec.v1",
+            ),
+        ),
+        relations=(),
+    )
+    return RetrievableProjectionWrite(
+        source_instance_id=source_id,
+        source_revision="revision-1",
+        content_hash=content_hash,
+        descriptor_id="runtime_role_graph_spec",
+        descriptor_revision="runtime-role-spec.v1",
+        projector_revision="runtime-role-spec.v1",
+        facet_schema_revision="runtime-role-spec.v1",
+        embedding_profile_revision="runtime-role-spec.v1",
+        projection_hash=hashlib.sha256(
+            f"{source_id}:{content_hash}".encode("utf-8")
+        ).hexdigest(),
+        evidence_units=(
+            ProjectionEvidenceWrite(
+                unit_key="unit-1",
+                unit_kind="text_span",
+                owner_asset_ref=f"object:{source_id}",
+                content_hash=content_hash,
+                media_type="text/plain",
+                anchor={"kind": "text_span", "start": 0, "end": len(marker)},
+            ),
+        ),
+        channels=(
+            ProjectionChannelWrite(
+                unit_key="unit-1",
+                channel_id="text.not-admitted",
+                modality="text",
+                profile_revision="runtime-role-spec.v1",
+                model_revision=None,
+                dimension=None,
+                calibration_revision=None,
+                index_revision=None,
+                required=False,
+                state="not_admitted",
+                row_count=0,
+                byte_count=0,
+                reason="runtime_role_graph_spec_no_vector",
+            ),
+        ),
+        records=(
+            ProjectionRecordWrite(
+                record_kind="concept",
+                record_key="record-1",
+                search_text=marker,
+                citation={
+                    "source_ref": f"object:{source_id}",
+                    "anchor": "unit-1",
+                },
+                values={"marker": marker},
+                content_hash=content_hash,
+            ),
+        ),
+        relation_count=0,
+        graph_complete=True,
+        graph_required=True,
+        graph=graph,
+    )
 
 
 class _VectorService:
@@ -214,6 +329,104 @@ async def test_runtime_role_rls_and_transaction_reset() -> None:
         )
     )
     assert denied.hits == ()
+
+
+def test_runtime_role_graph_entity_upsert_is_scoped_and_idempotent() -> None:
+    store = AuthorizedKnowledgeIndexStore(_runtime_connection)
+    for source_id in ("runtime-graph-source-a", "runtime-graph-source-b"):
+        written = store.replace_projection(
+            access_context=_project_context(OWNER_ID),
+            identity=KnowledgeResourceIdentity(
+                tenant_id="local",
+                owner_capability_code="runtime_role_graph_spec",
+                source_kind="object",
+                source_app="runtime_role_graph_spec",
+                source_id=source_id,
+                source_ref=f"object:{source_id}",
+                source_revision="revision-1",
+                owner_scope_type="workspace",
+                owner_scope_id=WORKSPACE_ID,
+                classification="workspace",
+            ),
+            payload=_graph_payload(source_id),
+            documents=(),
+        )
+        assert written.state == "indexed"
+
+    connection = _runtime_connection()
+    try:
+        cursor = connection.cursor()
+        set_local_knowledge_context(cursor, _context(OWNER_ID))
+        cursor.execute(
+            """
+            SELECT
+                COUNT(DISTINCT entity.entity_id),
+                COUNT(mention.mention_id)
+            FROM knowledge_graph_entities AS entity
+            JOIN knowledge_graph_mentions AS mention
+              ON mention.entity_id = entity.entity_id
+            WHERE entity.scope_type = 'workspace'
+              AND entity.scope_id = %s
+              AND entity.canonical_key = 'shared-runtime-role-entity'
+            """,
+            (WORKSPACE_ID,),
+        )
+        assert cursor.fetchone() == (1, 2)
+        connection.commit()
+    finally:
+        connection.close()
+
+    other_workspace_id = "workspace-knowledge-rls-runtime-other"
+    other_context = RetrievalAccessContext.create(
+        subject_user_id=OWNER_ID,
+        tenant_id="local",
+        principals=(PrincipalRef("user", OWNER_ID),),
+        permissions=(
+            KnowledgePermission(
+                "knowledge.project",
+                "workspace",
+                other_workspace_id,
+            ),
+        ),
+    )
+    connection = _runtime_connection()
+    try:
+        cursor = connection.cursor()
+        set_local_knowledge_context(
+            cursor,
+            other_context,
+            write_scope_type="workspace",
+            write_scope_id=other_workspace_id,
+            write_resource_id="kr_runtime_graph_other",
+            write_security_label_id="ksl_runtime_graph_other",
+        )
+        cursor.execute(
+            """
+            SELECT COUNT(*)
+            FROM knowledge_graph_entities
+            WHERE scope_type = 'workspace'
+              AND scope_id = %s
+              AND canonical_key = 'shared-runtime-role-entity'
+            """,
+            (WORKSPACE_ID,),
+        )
+        assert cursor.fetchone() == (0,)
+        with pytest.raises(psycopg2.errors.InsufficientPrivilege):
+            cursor.execute(
+                """
+                INSERT INTO knowledge_graph_entities (
+                    entity_id, tenant_id, scope_type, scope_id,
+                    canonical_key, entity_type, resolver_revision
+                ) VALUES (
+                    'kge_cross_scope_forbidden', 'local', 'workspace', %s,
+                    'cross-scope-forbidden', 'concept', 'runtime-role-spec.v1'
+                )
+                """,
+                (WORKSPACE_ID,),
+            )
+        connection.rollback()
+    finally:
+        connection.close()
 
 
 @pytest.mark.asyncio
