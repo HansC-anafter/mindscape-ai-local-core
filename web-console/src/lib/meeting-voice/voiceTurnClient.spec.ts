@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { submitVoiceTurn } from './voiceTurnClient';
+import {
+  isAcceptedMeetingVoiceTurnResponse,
+  submitVoiceTurn,
+} from './voiceTurnClient';
 
 describe('submitVoiceTurn', () => {
   afterEach(() => {
@@ -43,5 +46,24 @@ describe('submitVoiceTurn', () => {
     expect(body.command_context.thread_id).toBe('mtg/1');
     expect(body).not.toHaveProperty('context_objects');
     expect(body).not.toHaveProperty('metadata');
+  });
+
+  it('does not classify clarification or a null receipt as accepted', () => {
+    expect(isAcceptedMeetingVoiceTurnResponse({
+      status: 'semantic_clarification',
+      transcript: 'Which graph?',
+      command_response: null,
+      reason: 'reference_ambiguous',
+    })).toBe(false);
+    expect(isAcceptedMeetingVoiceTurnResponse({
+      status: 'transcribed_command_submitted',
+      transcript: 'Run it',
+      command_response: null,
+    })).toBe(false);
+    expect(isAcceptedMeetingVoiceTurnResponse({
+      status: 'transcribed_command_submitted',
+      transcript: 'Run it',
+      command_response: { command_id: 'cmd_1' },
+    })).toBe(true);
   });
 });

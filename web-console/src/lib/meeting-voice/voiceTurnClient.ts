@@ -1,7 +1,30 @@
 export type MeetingVoiceTurnStatus =
   | 'transcribed_command_submitted'
+  | 'semantic_clarification'
   | 'ignored_empty_transcript'
   | 'stt_unavailable';
+
+export type WorkspaceVoiceSemanticTurnResult = {
+  status:
+    | 'command_submitted'
+    | 'clarification_required'
+    | 'reference_unresolved'
+    | 'reference_ambiguous'
+    | 'reference_count_exceeded'
+    | 'interaction_unavailable'
+    | 'stale_target';
+  outcome:
+    | 'grounded_material'
+    | 'grounded_answer'
+    | 'clarification'
+    | 'not_applicable';
+  decision_code: string;
+  transcript: string;
+  command_response?: unknown | null;
+  answer_text?: string | null;
+  answer_language?: string | null;
+  client_action?: unknown | null;
+};
 
 export type MeetingVoiceTurnResponse = {
   status: MeetingVoiceTurnStatus;
@@ -9,8 +32,14 @@ export type MeetingVoiceTurnResponse = {
   language?: string | null;
   duration?: number | null;
   audio_byte_count?: number | null;
-  command_response?: unknown;
+  command_response?: unknown | null;
+  semantic_result?: WorkspaceVoiceSemanticTurnResult | null;
   reason?: string | null;
+};
+
+export type AcceptedMeetingVoiceTurnResponse = MeetingVoiceTurnResponse & {
+  status: 'transcribed_command_submitted';
+  command_response: NonNullable<unknown>;
 };
 
 export type MeetingVoiceCommandContext = {
@@ -36,6 +65,16 @@ export type SubmitVoiceTurnInput = {
 
 function trimTrailingSlash(value: string): string {
   return value.replace(/\/+$/, '');
+}
+
+export function isAcceptedMeetingVoiceTurnResponse(
+  response: MeetingVoiceTurnResponse,
+): response is AcceptedMeetingVoiceTurnResponse {
+  return (
+    response.status === 'transcribed_command_submitted'
+    && response.command_response !== null
+    && response.command_response !== undefined
+  );
 }
 
 export async function blobToBase64Audio(blob: Blob): Promise<string> {

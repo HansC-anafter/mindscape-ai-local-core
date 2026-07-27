@@ -1,13 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { dispatchMeetingClientAction } from '@/lib/meeting-voice/meetingClientActionEvent';
 import { submitVoiceTurn } from '@/lib/meeting-voice/voiceTurnClient';
 
 import type { MeetingCommandContextSnapshot } from './meetingCommandContextSnapshot';
 import { createMeetingCommandVoiceTarget } from './meetingCommandVoiceTarget';
 
-vi.mock('@/lib/meeting-voice/voiceTurnClient', () => ({
-  submitVoiceTurn: vi.fn(),
-}));
+vi.mock('@/lib/meeting-voice/voiceTurnClient', async (importOriginal) => {
+  const actual = await importOriginal<
+    typeof import('@/lib/meeting-voice/voiceTurnClient')
+  >();
+  return {
+    ...actual,
+    submitVoiceTurn: vi.fn(),
+  };
+});
 vi.mock('@/lib/meeting-voice/meetingClientActionEvent', () => ({
   dispatchMeetingClientAction: vi.fn(),
 }));
@@ -126,5 +133,55 @@ describe('createMeetingCommandVoiceTarget', () => {
       contextHash: 'fnv1a32:test',
     })).rejects.toThrow('stt_timeout');
     expect(onCommandAccepted).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      status: 'semantic_clarification' as const,
+      command_response: null,
+      reason: 'reference_ambiguous',
+    },
+    {
+      status: 'transcribed_command_submitted' as const,
+      command_response: null,
+      reason: null,
+    },
+  ])('does not accept or dispatch a result without a command receipt', async (response) => {
+    vi.mocked(submitVoiceTurn).mockResolvedValue({
+      ...response,
+      transcript: 'Which graph?',
+    });
+    const onCommandAccepted = vi.fn();
+    const target = createMeetingCommandVoiceTarget({
+      apiUrl: 'http://api.test',
+      workspaceId: 'ws_1',
+      meetingId: 'mtg_1',
+      snapshot,
+      onCommandAccepted,
+      t,
+    });
+
+    const result = await target!.submitVoiceTurn({
+      clientTurnId: 'turn_clarification',
+      audioBase64: 'YXVkaW8=',
+      mimeType: 'audio/webm',
+      language: 'auto',
+    }, {
+      workspaceId: 'ws_1',
+      targetId: target!.targetId,
+      targetKind: target!.targetKind,
+      targetLabel: target!.targetLabel,
+      targetRevision: target!.revision,
+      submissionPolicy: target!.submissionPolicy,
+      context: target!.freezeContext(),
+      contextHash: 'fnv1a32:test',
+    });
+
+    expect(result).toEqual({
+      status: 'semantic_clarification',
+      transcript: 'Which graph?',
+    });
+    expect(onCommandAccepted).not.toHaveBeenCalled();
+    expect(dispatchMeetingClientAction).not.toHaveBeenCalled();
   });
 });

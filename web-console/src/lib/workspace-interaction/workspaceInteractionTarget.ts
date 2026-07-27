@@ -17,7 +17,11 @@ export type WorkspaceVoiceAudioTurn = {
 export type WorkspaceInteractionContext = Readonly<Record<string, unknown>>;
 
 export type WorkspaceInteractionResult = {
-  status: 'draft_updated' | 'submitted' | 'ignored_empty_transcript';
+  status:
+    | 'draft_updated'
+    | 'submitted'
+    | 'semantic_clarification'
+    | 'ignored_empty_transcript';
   transcript?: string | null;
   commandResponse?: unknown;
 };

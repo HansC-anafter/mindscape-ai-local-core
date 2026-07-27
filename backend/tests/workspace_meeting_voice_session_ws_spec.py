@@ -15,6 +15,9 @@ from backend.app.models.meeting_command import (
     MeetingCommandStatus,
 )
 from backend.app.models.meeting_voice_session import MeetingVoiceTranscriptCandidate
+from backend.app.models.workspace_voice_semantic_turn import (
+    WorkspaceVoiceSemanticTurnResult,
+)
 from backend.app.services.orchestration.meeting.realtime_voice_transcriber import (
     RealtimeVoiceTranscriptionError,
 )
@@ -74,12 +77,19 @@ class _FakeTranscriber:
             intent_text=candidate.transcript,
             status=MeetingCommandStatus.ACCEPTED,
         )
-        return MeetingCommandAcceptResponse(
+        command_response = MeetingCommandAcceptResponse(
             workspace_id=kwargs["workspace_id"],
             meeting_id=kwargs["meeting_id"],
             command_id="cmd_ws_voice",
             status=MeetingCommandStatus.ACCEPTED,
             command=command,
+        )
+        return WorkspaceVoiceSemanticTurnResult(
+            status="command_submitted",
+            outcome="grounded_material",
+            decision_code="meeting_command_submitted",
+            transcript=candidate.transcript,
+            command_response=command_response,
         )
 
 
@@ -89,6 +99,18 @@ class _EmptyTranscriber(_FakeTranscriber):
             reason="empty_transcript",
             message="empty",
             recoverable=True,
+        )
+
+
+class _ClarificationTranscriber(_FakeTranscriber):
+    async def submit_final_transcript(self, **kwargs):
+        candidate = kwargs["candidate"]
+        self.submitted.append(candidate)
+        return WorkspaceVoiceSemanticTurnResult(
+            status="clarification_required",
+            outcome="clarification",
+            decision_code="active_pack_voice_timeout",
+            transcript=candidate.transcript,
         )
 
 
@@ -168,6 +190,35 @@ def test_voice_session_ws_rejects_duplicate_active_session() -> None:
             assert error["type"] == "session_error"
             assert error["reason"] == "duplicate_active_session"
             assert error["recoverable"] is False
+
+
+def test_voice_session_ws_projects_clarification_without_command_acceptance() -> None:
+    module = _load_meeting_voice_sessions_module()
+    registry = MeetingVoiceSessionRegistry()
+    transcriber = _ClarificationTranscriber()
+    client = TestClient(_build_app(module, registry=registry, transcriber=transcriber))
+
+    with client.websocket_connect(_session_url()) as ws:
+        ws.send_json({"type": "session_start"})
+        assert _receive(ws)["type"] == "session_ready"
+        ws.send_json(
+            {
+                "type": "audio_window",
+                "utterance_id": "utt_clarification",
+                "audio_base64": _audio_base64(),
+                "mime_type": "audio/webm",
+            }
+        )
+        assert _receive(ws)["type"] == "transcript_candidate"
+        ws.send_json(
+            {"type": "utterance_end", "utterance_id": "utt_clarification"}
+        )
+        assert _receive(ws)["type"] == "transcript_final"
+        clarification = _receive(ws)
+        assert clarification["type"] == "semantic_clarification"
+        assert clarification["reason"] == "active_pack_voice_timeout"
+        assert clarification["semantic_result"]["status"] == "clarification_required"
+        assert "command_response" not in clarification
 
 
 def test_voice_session_ws_empty_transcript_is_recoverable_and_no_command() -> None:
