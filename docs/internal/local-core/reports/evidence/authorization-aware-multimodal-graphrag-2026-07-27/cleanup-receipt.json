@@ -1,5 +1,5 @@
 {
-  "captured_at": "2026-07-27T13:05:48Z",
+  "captured_at": "2026-07-27T13:19:46Z",
   "removed_disposable_databases": [
     "mindscape_vectors_graphrag_t03_20260727",
     "mindscape_vectors_graphrag_t05_20260727",
@@ -18,7 +18,9 @@
     "mindscape_core_graphrag_t20_20260727",
     "mindscape_vectors_graphrag_t14_20260727",
     "mindscape_vectors_graphrag_t17_20260727",
-    "mindscape_vectors_graphrag_t19_20260727"
+    "mindscape_vectors_graphrag_t19_20260727",
+    "mindscape_vectors_graphrag_adopt_20260727",
+    "mindscape_vectors_graphrag_adopt_v2_20260727"
   ],
   "remaining_matching_disposable_databases": [],
   "live_databases": {

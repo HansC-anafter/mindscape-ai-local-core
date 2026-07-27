@@ -1,137 +1,146 @@
 {
   "docker_stats": {
-    "elapsed_seconds": 2.006,
+    "elapsed_seconds": 2.343,
     "error": "",
     "ok": true,
     "rows": [
       {
-        "BlockIO": "14.3MB / 4.01MB",
-        "CPUPerc": "4.19%",
+        "BlockIO": "13.6MB / 4.01MB",
+        "CPUPerc": "14.23%",
         "Container": "mindscape-ai-local-core-backend",
         "ID": "72dc65f9bc12",
         "MemPerc": "2.48%",
-        "MemUsage": "607.6MiB / 23.92GiB",
+        "MemUsage": "608.2MiB / 23.92GiB",
         "Name": "mindscape-ai-local-core-backend",
-        "NetIO": "632MB / 279MB",
-        "PIDs": "42",
-        "cpu_percent_value": 4.19
+        "NetIO": "627MB / 273MB",
+        "PIDs": "41",
+        "cpu_percent_value": 14.23
       },
       {
         "BlockIO": "129MB / 8.6MB",
-        "CPUPerc": "71.90%",
+        "CPUPerc": "63.20%",
         "Container": "mindscape-ai-local-core-postgres",
         "ID": "ac2b8e0d6498",
-        "MemPerc": "1.97%",
-        "MemUsage": "481.8MiB / 23.92GiB",
+        "MemPerc": "0.52%",
+        "MemUsage": "127.2MiB / 23.92GiB",
         "Name": "mindscape-ai-local-core-postgres",
         "NetIO": "6.56GB / 53.8GB",
-        "PIDs": "42",
-        "cpu_percent_value": 71.9
+        "PIDs": "6",
+        "cpu_percent_value": 63.2
       },
       {
         "BlockIO": "70.1MB / 1.63MB",
-        "CPUPerc": "33.48%",
+        "CPUPerc": "9.65%",
         "Container": "mindscape-ai-local-core-pgbouncer",
         "ID": "e8595741ed62",
-        "MemPerc": "0.04%",
-        "MemUsage": "9.805MiB / 23.92GiB",
+        "MemPerc": "0.05%",
+        "MemUsage": "11.35MiB / 23.92GiB",
         "Name": "mindscape-ai-local-core-pgbouncer",
         "NetIO": "1.11TB / 1.12TB",
-        "PIDs": "21",
-        "cpu_percent_value": 33.48
+        "PIDs": "23",
+        "cpu_percent_value": 9.65
       },
       {
         "BlockIO": "9.36MB / 19.8GB",
-        "CPUPerc": "197.48%",
+        "CPUPerc": "103.16%",
         "Container": "mindscape-ai-local-core-runner-browser",
         "ID": "1d40adb721a5",
-        "MemPerc": "1.59%",
-        "MemUsage": "388.7MiB / 23.92GiB",
+        "MemPerc": "2.19%",
+        "MemUsage": "536.3MiB / 23.92GiB",
         "Name": "mindscape-ai-local-core-runner-browser",
         "NetIO": "11.7GB / 505MB",
-        "PIDs": "14",
-        "cpu_percent_value": 197.48
+        "PIDs": "15",
+        "cpu_percent_value": 103.16
       },
       {
         "BlockIO": "28.1MB / 37.9GB",
-        "CPUPerc": "107.24%",
+        "CPUPerc": "85.10%",
         "Container": "mindscape-ai-local-core-runner-browser-extra",
         "ID": "cd42f4aa0c99",
-        "MemPerc": "2.37%",
-        "MemUsage": "580.8MiB / 23.92GiB",
+        "MemPerc": "2.57%",
+        "MemUsage": "629.5MiB / 23.92GiB",
         "Name": "mindscape-ai-local-core-runner-browser-extra",
-        "NetIO": "11.5GB / 542MB",
+        "NetIO": "11.5GB / 541MB",
         "PIDs": "36",
-        "cpu_percent_value": 107.24
+        "cpu_percent_value": 85.1
       },
       {
         "BlockIO": "999kB / 311kB",
-        "CPUPerc": "195.60%",
+        "CPUPerc": "196.32%",
         "Container": "mindscape-ai-local-core-runner-default-local-browser",
         "ID": "685db5d36d6c",
-        "MemPerc": "1.49%",
-        "MemUsage": "365.4MiB / 23.92GiB",
+        "MemPerc": "4.41%",
+        "MemUsage": "1.056GiB / 23.92GiB",
         "Name": "mindscape-ai-local-core-runner-default-local-browser",
         "NetIO": "7.66GB / 3.6GB",
-        "PIDs": "14",
-        "cpu_percent_value": 195.6
+        "PIDs": "15",
+        "cpu_percent_value": 196.32
       },
       {
-        "BlockIO": "8.37MB / 1.59MB",
-        "CPUPerc": "66.63%",
+        "BlockIO": "8.34MB / 1.59MB",
+        "CPUPerc": "5.41%",
         "Container": "mindscape-ai-local-core-runner-vision",
         "ID": "804ff5045a49",
-        "MemPerc": "1.98%",
-        "MemUsage": "485.5MiB / 23.92GiB",
+        "MemPerc": "2.10%",
+        "MemUsage": "513.9MiB / 23.92GiB",
         "Name": "mindscape-ai-local-core-runner-vision",
-        "NetIO": "304MB / 113MB",
-        "PIDs": "35",
-        "cpu_percent_value": 66.63
+        "NetIO": "303MB / 113MB",
+        "PIDs": "36",
+        "cpu_percent_value": 5.41
       },
       {
-        "BlockIO": "26.8MB / 0B",
-        "CPUPerc": "3.61%",
+        "BlockIO": "778kB / 1.59MB",
+        "CPUPerc": "131.29%",
         "Container": "mindscape-ai-local-core-runner-vision-mlx-dev",
         "ID": "85abef14d371",
-        "MemPerc": "1.43%",
-        "MemUsage": "349.4MiB / 23.92GiB",
+        "MemPerc": "1.48%",
+        "MemUsage": "362.7MiB / 23.92GiB",
         "Name": "mindscape-ai-local-core-runner-vision-mlx-dev",
-        "NetIO": "2.56MB / 151kB",
+        "NetIO": "1.82GB / 115MB",
         "PIDs": "29",
-        "cpu_percent_value": 3.61
+        "cpu_percent_value": 131.29
       }
     ]
   },
   "endpoint_checks": {
     "active_executions": {
-      "body_preview": "{\"active_executions\":[]}",
-      "elapsed_seconds": 0.008,
-      "ok": true,
-      "status": 200
+      "elapsed_seconds": 5.006,
+      "error": "timed out",
+      "ok": false,
+      "status": null
     },
     "healthz": {
-      "body_preview": "{\"status\":\"ok\",\"backend_role\":\"execution\",\"reload_enabled\":false}",
-      "elapsed_seconds": 0.042,
-      "ok": true,
-      "status": 200
+      "elapsed_seconds": 5.064,
+      "error": "timed out",
+      "ok": false,
+      "status": null
     }
   },
-  "failures": [],
-  "ok": true,
+  "failures": [
+    "task_status_unavailable",
+    "healthz_unavailable",
+    "active_executions_unavailable",
+    "postgres_metrics_unavailable",
+    "pgbouncer_client_waiting",
+    "pgbouncer_client_maxwait",
+    "pgbouncer_client_waiting",
+    "pgbouncer_client_maxwait"
+  ],
+  "ok": false,
   "pgbouncer_metrics": {
     "ok": true,
     "rows": [
       {
-        "cl_active": 28,
-        "cl_waiting": 0,
+        "cl_active": 18,
+        "cl_waiting": 7,
         "database": "mindscape_core",
-        "maxwait": 0,
-        "maxwait_us": 0,
+        "maxwait": 30,
+        "maxwait_us": 132220,
         "sample_index": 1,
-        "sv_active": 1,
-        "sv_idle": 8,
+        "sv_active": 0,
+        "sv_idle": 0,
         "sv_login": 0,
-        "sv_used": 21
+        "sv_used": 0
       },
       {
         "cl_active": 0,
@@ -143,19 +152,19 @@
         "sv_active": 0,
         "sv_idle": 0,
         "sv_login": 0,
-        "sv_used": 5
+        "sv_used": 0
       },
       {
-        "cl_active": 28,
-        "cl_waiting": 0,
+        "cl_active": 17,
+        "cl_waiting": 1,
         "database": "mindscape_core",
-        "maxwait": 0,
-        "maxwait_us": 0,
+        "maxwait": 29,
+        "maxwait_us": 586567,
         "sample_index": 2,
-        "sv_active": 1,
-        "sv_idle": 8,
+        "sv_active": 0,
+        "sv_idle": 0,
         "sv_login": 0,
-        "sv_used": 21
+        "sv_used": 0
       },
       {
         "cl_active": 0,
@@ -167,59 +176,39 @@
         "sv_active": 0,
         "sv_idle": 0,
         "sv_login": 0,
-        "sv_used": 5
+        "sv_used": 0
       },
       {
-        "cl_active": 32,
+        "cl_active": 15,
         "cl_waiting": 0,
         "database": "mindscape_core",
-        "maxwait": 0,
-        "maxwait_us": 0,
-        "sample_index": 3,
-        "sv_active": 1,
-        "sv_idle": 8,
-        "sv_login": 0,
-        "sv_used": 21
-      },
-      {
-        "cl_active": 0,
-        "cl_waiting": 0,
-        "database": "mindscape_vectors",
         "maxwait": 0,
         "maxwait_us": 0,
         "sample_index": 3,
         "sv_active": 0,
         "sv_idle": 0,
         "sv_login": 0,
-        "sv_used": 5
+        "sv_used": 0
+      },
+      {
+        "cl_active": 0,
+        "cl_waiting": 0,
+        "database": "mindscape_vectors",
+        "maxwait": 0,
+        "maxwait_us": 0,
+        "sample_index": 3,
+        "sv_active": 0,
+        "sv_idle": 0,
+        "sv_login": 0,
+        "sv_used": 0
       }
     ],
     "sample_count": 3,
     "sample_interval_seconds": 2.0
   },
   "postgres_metrics": {
-    "metrics": {
-      "archived_count": 1,
-      "autovacuum_count": 0,
-      "bgwriter_stats_reset": "2026-07-27T13:23:23.906296+00:00",
-      "buffers_backend": 202,
-      "buffers_checkpoint": 20730,
-      "buffers_clean": 0,
-      "checkpoints_req": 1,
-      "checkpoints_timed": 0,
-      "dead_tuples": 188,
-      "failed_count": 0,
-      "hot_updates": 44,
-      "in_recovery": false,
-      "invalid_indexes": 0,
-      "last_autovacuum": null,
-      "read_only": "off",
-      "replication_lag_bytes": "0",
-      "updates": 200,
-      "wal_bytes": "7971506",
-      "wal_stats_reset": "2026-07-27T13:23:23.906296+00:00"
-    },
-    "ok": true
+    "error_code": "postgres_metrics_unavailable",
+    "ok": false
   },
   "runner_capacity": {
     "aggregate_max_inflight": 8,
@@ -296,13 +285,13 @@
   },
   "task_status": {
     "counts": {
-      "pending": 542,
-      "running": 6
+      "pending": 0,
+      "running": 0
     },
-    "elapsed_seconds": 4.846,
+    "elapsed_seconds": 8.095,
     "error": "",
     "gate_semantics": "observational_only",
-    "ok": true,
+    "ok": false,
     "pending_semantics": "ready_unblocked_execution_frontier"
   },
   "thresholds": {

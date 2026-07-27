@@ -1,0 +1,46 @@
+{
+  "schema_version": "mindscape.graphrag-terminal-readback.v1",
+  "captured_at": "2026-07-27T13:26:21Z",
+  "http": {
+    "backend_health": {
+      "url": "http://127.0.0.1:8200/healthz",
+      "status": 200,
+      "elapsed_seconds": 0.00883
+    },
+    "control_health": {
+      "url": "http://127.0.0.1:8220/healthz",
+      "status": 200,
+      "elapsed_seconds": 0.015802
+    },
+    "frontend_health": {
+      "url": "http://127.0.0.1:8300/healthz",
+      "status": 200,
+      "elapsed_seconds": 0.00393
+    },
+    "revoked_resource_detail": {
+      "url": "http://127.0.0.1:8200/api/v1/workspaces/bac7ce63-e768-454d-96f3-3a00e8e1df69/knowledge-access/kr_a121555653561bb61f990aa9e18645b1fdbb6673ca8ad1aad30e0cca10ec259e",
+      "status": 200,
+      "elapsed_seconds": 0.646226
+    }
+  },
+  "database_readback": {
+    "disposable_graphrag_databases_remaining": 0,
+    "mindscape_core_databases": 1,
+    "mindscape_vectors_databases": 1
+  },
+  "resource_gate": {
+    "receipt": "runtime-pressure-post-cleanup-terminal.json",
+    "ok": true,
+    "fixed_thresholds_unchanged": true,
+    "pgbouncer_samples": 3,
+    "pgbouncer_waiting_or_maxwait_observations": 0,
+    "aggregate_runner_capacity": 8,
+    "protected_runner_capacity": 7
+  },
+  "retained_blocked_observations": [
+    "runtime-pressure-blocked-post-final-cleanup.json",
+    "runtime-pressure-blocked-post-final-cleanup-contention.json"
+  ],
+  "authorization_semantics_receipt": "live-core-admission-projection-and-revoke-receipt.json",
+  "result": "PASS"
+}
