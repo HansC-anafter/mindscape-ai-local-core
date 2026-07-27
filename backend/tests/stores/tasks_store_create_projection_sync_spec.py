@@ -38,7 +38,13 @@ class _Store(TasksStoreCrudMixin):
     def _record_task_control_event(self, _conn, **_kwargs):
         return None
 
-    def _refresh_task_projection(self, _conn, _task_id):
+    def _refresh_task_projection(
+        self,
+        _conn,
+        _task_id,
+        *,
+        refresh_compact_inputs=False,
+    ):
         return None
 
     def _enqueue_runner_task_after_commit(self, _task):

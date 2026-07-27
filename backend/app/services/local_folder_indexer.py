@@ -12,6 +12,11 @@ from typing import Dict, Any, List, Optional
 import hashlib
 
 from backend.app.services.vector_search import VectorSearchService
+from backend.app.services.knowledge_authorization import RetrievalAccessContext
+from backend.app.services.knowledge_projection.legacy_document_facade import (
+    AuthorizedLegacyDocumentFacade,
+    LegacyDocumentChunk,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +36,7 @@ class LocalFolderIndexer:
         self,
         vector_service: Optional[VectorSearchService] = None,
         workspace_id: Optional[str] = None,
+        access_context: Optional[RetrievalAccessContext] = None,
     ):
         """
         Initialize LocalFolderIndexer
@@ -41,10 +47,12 @@ class LocalFolderIndexer:
         """
         self.vector_service = vector_service or VectorSearchService()
         self.workspace_id = workspace_id
+        self.access_context = access_context
+        self.projection_facade = AuthorizedLegacyDocumentFacade(
+            vector_service=self.vector_service
+        )
 
-    async def index_folder(
-        self, folder_path: str, user_id: str = "system"
-    ) -> Dict[str, Any]:
+    async def index_folder(self, folder_path: str) -> Dict[str, Any]:
         """
         Index all supported files in a folder
 
@@ -92,20 +100,14 @@ class LocalFolderIndexer:
                 chunks = self._chunk_content(content, max_len=500)
 
                 # Generate file hash for deduplication
-                file_hash = hashlib.md5(content.encode()).hexdigest()
+                file_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
 
-                # Save each chunk
-                for i, chunk in enumerate(chunks):
-                    success = await self._save_chunk(
-                        chunk=chunk,
-                        file_path=file_path,
-                        chunk_index=i,
-                        total_chunks=len(chunks),
-                        file_hash=file_hash,
-                        user_id=user_id,
-                    )
-                    if success:
-                        chunk_count += 1
+                await self._save_file(
+                    chunks=chunks,
+                    file_path=file_path,
+                    file_hash=file_hash,
+                )
+                chunk_count += len(chunks)
 
                 indexed_count += 1
                 logger.info(f"Indexed file: {file_path.name} ({len(chunks)} chunks)")
@@ -224,71 +226,41 @@ class LocalFolderIndexer:
 
         return chunks
 
-    async def _save_chunk(
+    async def _save_file(
         self,
-        chunk: str,
+        chunks: List[str],
         file_path: Path,
-        chunk_index: int,
-        total_chunks: int,
         file_hash: str,
-        user_id: str,
-    ) -> bool:
-        """
-        Save a chunk to external_docs
-
-        Args:
-            chunk: Content chunk
-            file_path: Source file path
-            chunk_index: Index of this chunk
-            total_chunks: Total number of chunks
-            file_hash: MD5 hash of full file content
-            user_id: User ID
-
-        Returns:
-            True if successful
-        """
-        # Generate embedding with model info
-        embedding, model_name = (
-            await self.vector_service._generate_embedding_with_model(chunk)
+    ) -> None:
+        if self.workspace_id is None or self.access_context is None:
+            raise PermissionError("local_folder_authorized_scope_required")
+        await self.projection_facade.replace_document(
+            access_context=self.access_context,
+            workspace_id=self.workspace_id,
+            owner_capability_code="local_folder",
+            source_app="local_folder",
+            source_id=str(file_path.resolve()),
+            doc_type="local_file",
+            source_revision=hashlib.sha256(
+                "\n".join(chunks).encode("utf-8")
+            ).hexdigest(),
+            chunks=tuple(
+                LegacyDocumentChunk(
+                    content=chunk,
+                    title=f"{file_path.name}:chunk_{index}",
+                    metadata={
+                        "file_name": file_path.name,
+                        "file_path": str(file_path),
+                        "file_hash": file_hash,
+                        "chunk_index": index,
+                        "total_chunks": len(chunks),
+                    },
+                )
+                for index, chunk in enumerate(chunks)
+            ),
         )
-        if not embedding:
-            logger.warning(
-                f"Failed to generate embedding for chunk {chunk_index} of {file_path.name}"
-            )
-            return False
 
-        # Build metadata with embedding model info
-        metadata = {
-            "file_name": file_path.name,
-            "file_path": str(file_path),
-            "file_hash": file_hash,
-            "chunk_index": chunk_index,
-            "total_chunks": total_chunks,
-            "workspace_id": self.workspace_id,
-            "embedding_model": model_name,
-            "embedding_dimension": len(embedding),
-        }
-
-        # Create unique title for deduplication
-        title = f"{file_path.name}:chunk_{chunk_index}"
-        if self.workspace_id:
-            title = f"{self.workspace_id}:{title}"
-
-        # Save to external_docs
-        doc = {
-            "user_id": user_id,
-            "source_app": "local_folder",
-            "title": title,
-            "content": chunk,
-            "embedding": embedding,
-            "metadata": metadata,
-        }
-
-        return await self.vector_service.save_to_external_docs(doc)
-
-    async def get_index_status(
-        self, folder_path: str, user_id: str = "system"
-    ) -> Dict[str, Any]:
+    async def get_index_status(self, folder_path: str) -> Dict[str, Any]:
         """
         Get indexing status for a folder
 
@@ -304,26 +276,16 @@ class LocalFolderIndexer:
         # Count files in folder
         files = self._scan_files(folder) if folder.exists() else []
 
-        # Count indexed documents
-        conn = self.vector_service._get_connection()
-        try:
-            cursor = conn.cursor()
-
-            # Count documents for this workspace
-            where_clause = "source_app = 'local_folder'"
-            params = []
-
-            if self.workspace_id:
-                where_clause += " AND metadata::text LIKE %s"
-                params.append(f'%"workspace_id": "{self.workspace_id}"%')
-
-            cursor.execute(
-                f"SELECT COUNT(*) FROM external_docs WHERE {where_clause}", params
-            )
-            indexed_count = cursor.fetchone()[0]
-
-        finally:
-            conn.close()
+        if self.workspace_id is None or self.access_context is None:
+            raise PermissionError("local_folder_authorized_scope_required")
+        documents = self.projection_facade.list_documents(
+            access_context=self.access_context,
+            workspace_id=self.workspace_id,
+            owner_capability_code="local_folder",
+            source_app="local_folder",
+            limit=200,
+        )
+        indexed_count = sum(int(row["chunk_count"]) for row in documents)
 
         return {
             "folder_path": str(folder_path),

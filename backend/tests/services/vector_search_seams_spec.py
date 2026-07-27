@@ -97,57 +97,57 @@ async def test_update_last_used_at_records_skips_empty_ids_without_connection():
 
 
 @pytest.mark.asyncio
-async def test_save_external_doc_commits_and_closes_on_success():
-    cursor = FakeCursor(fetchone_value=("doc-1",))
-    connection = FakeConnection(cursor)
+async def test_save_external_doc_fails_closed_before_opening_connection():
+    calls = {"connections": 0}
 
-    result = await save_external_doc(
-        get_connection=lambda: connection,
-        doc={
-            "user_id": "user-1",
-            "source_app": "local_folder",
-            "source_id": "chunk-1",
-            "title": "Chunk 1",
-            "content": "hello",
-            "embedding": [0.3, 0.4],
-            "metadata": {"path": "note.md"},
-        },
-    )
+    def get_connection():
+        calls["connections"] += 1
+        return FakeConnection(FakeCursor())
 
-    assert result is True
-    assert "INSERT INTO external_docs" in cursor.query
-    assert "ON CONFLICT (user_id, source_app, source_id)" in cursor.query
-    assert cursor.params[0:6] == (
-        "user-1",
-        "local_folder",
-        "chunk-1",
-        "Chunk 1",
-        "hello",
-        "[0.3, 0.4]",
-    )
-    assert connection.committed is True
-    assert connection.rolled_back is False
-    assert connection.closed is True
+    with pytest.raises(
+        ValueError,
+        match="direct_external_docs_write_retired_use_projection_facade",
+    ):
+        await save_external_doc(
+            get_connection=get_connection,
+            doc={
+                "user_id": "user-1",
+                "source_app": "local_folder",
+                "source_id": "chunk-1",
+                "title": "Chunk 1",
+                "content": "hello",
+                "embedding": [0.3, 0.4],
+                "metadata": {"path": "note.md"},
+            },
+        )
+
+    assert calls["connections"] == 0
 
 
 @pytest.mark.asyncio
-async def test_save_external_doc_rolls_back_and_closes_on_execute_failure():
-    cursor = FakeCursor(execute_error=RuntimeError("write failed"))
-    connection = FakeConnection(cursor)
+async def test_save_external_doc_never_reaches_legacy_execute_failure():
+    calls = {"connections": 0}
 
-    result = await save_external_doc(
-        get_connection=lambda: connection,
-        doc={
-            "title": "Broken",
-            "content": "hello",
-            "embedding": [0.3, 0.4],
-        },
-    )
+    def get_connection():
+        calls["connections"] += 1
+        return FakeConnection(
+            FakeCursor(execute_error=RuntimeError("write failed"))
+        )
 
-    assert result is False
-    assert connection.committed is False
-    assert connection.rolled_back is True
-    assert connection.closed is True
+    with pytest.raises(
+        ValueError,
+        match="direct_external_docs_write_retired_use_projection_facade",
+    ):
+        await save_external_doc(
+            get_connection=get_connection,
+            doc={
+                "title": "Broken",
+                "content": "hello",
+                "embedding": [0.3, 0.4],
+            },
+        )
+
+    assert calls["connections"] == 0
 
 
 @pytest.mark.asyncio

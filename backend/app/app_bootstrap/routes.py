@@ -87,9 +87,13 @@ def register_core_routes(app: FastAPI) -> None:
     # Workspace groups (independent resource: /api/v1/workspace-groups)
     from backend.app.routes.core.workspace.groups import router as workspace_groups_router
     from backend.app.routes.core.knowledge_foundation import router as knowledge_foundation_router
+    from backend.app.routes.core.knowledge_access import (
+        router as knowledge_access_router,
+    )
 
     app.include_router(workspace_groups_router, tags=["workspace-groups"])
     app.include_router(knowledge_foundation_router, tags=["knowledge-foundation"])
+    app.include_router(knowledge_access_router, tags=["knowledge-access"])
     register_workspace_product_routes(app)
     register_deployment_control_routes(app)
     app.include_router(playbook.router, tags=["playbook"])

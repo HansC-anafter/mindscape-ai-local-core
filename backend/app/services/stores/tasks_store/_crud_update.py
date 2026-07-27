@@ -40,6 +40,7 @@ class TasksStoreUpdateMixin:
         project_id: Optional[str] = None,
         *,
         return_updated: bool = True,
+        expected_statuses: Optional[tuple[TaskStatus, ...]] = None,
         **kwargs,
     ) -> Optional[Task]:
         """
@@ -137,6 +138,10 @@ class TasksStoreUpdateMixin:
                     if existing_mapping is not None
                     else existing_row[0]
                 )
+            if expected_statuses is not None and existing_status not in {
+                item.value for item in expected_statuses
+            }:
+                return None
             requested_status = kwargs.get("status")
             if requested_status is not None:
                 requested_status_raw = (

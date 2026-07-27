@@ -111,6 +111,9 @@ class GroupKnowledgePacket(BaseModel):
     topology_revision: int
     requesting_workspace_id: str
     agent_role: str
+    bound_agent_role: Optional[str] = None
+    preview: bool = False
+    agent_policy_revision: Optional[str] = None
     memory_revision_hash: str
     entries: List[GroupKnowledgePacketEntry]
 

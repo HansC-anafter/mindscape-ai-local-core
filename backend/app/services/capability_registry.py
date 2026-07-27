@@ -3,6 +3,7 @@ Capability Registry
 Loads and manages all capability pack manifests, provides tool lookup functionality
 """
 
+import inspect
 import yaml
 import sys
 from pathlib import Path
@@ -91,8 +92,16 @@ class CapabilityRegistry:
                 "directory": capability_dir,
             }
             from backend.app.services.task_projection_adapters import register_manifest
+            from backend.app.services.knowledge_projection.retrievable.adapter_registry import (
+                register_manifest as register_knowledge_projection_manifest,
+            )
 
             register_manifest(capability_code, manifest, capability_dir)
+            register_knowledge_projection_manifest(
+                capability_code,
+                manifest,
+                capability_dir,
+            )
             for tool in manifest.get("tools", []):
                 if not isinstance(tool, dict):
                     continue
@@ -216,10 +225,15 @@ def load_capabilities(capabilities_dir: Optional[Path] = None, reset: bool = Fal
     )
     with _REGISTRY_LOCK:
         if reset:
+            from backend.app.services.knowledge_projection.retrievable.adapter_registry import (
+                reset_registry_for_tests as reset_knowledge_projection_registry,
+            )
+
             _registry.capabilities.clear()
             _registry.tools.clear()
             CAPABILITY_REGISTRY.clear()
             TOOL_REGISTRY.clear()
+            reset_knowledge_projection_registry()
 
         _registry.load_from_directory(capabilities_dir)
         CAPABILITY_REGISTRY.update(_registry.capabilities)

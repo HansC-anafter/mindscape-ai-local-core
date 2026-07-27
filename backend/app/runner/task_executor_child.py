@@ -58,16 +58,46 @@ def _child_execute_playbook(
         os.environ["LOCAL_CORE_TASK_ID"] = task_id
     workspace_id = payload.get("workspace_id")
     admission_snapshot = payload.get("execution_admission_snapshot")
+    task_type = payload.get("task_type", "playbook_execution")
+    playbook_code = payload.get("playbook_code")
+    tool_name = payload.get("tool_name") or playbook_code
+    internal_projection_admission = payload.get(
+        "knowledge_projection_admission"
+    )
     if workspace_id:
-        if not isinstance(admission_snapshot, dict):
-            raise RuntimeError("runner_child_admission_snapshot_required")
-        verify_child_snapshot(
-            admission_snapshot,
-            expected_workspace_id=str(workspace_id),
-            expected_root_execution_id=str(
-                payload.get("root_execution_id") or task_id
-            ),
+        from backend.app.services.knowledge_projection.retrievable.source_admission import (
+            INTERNAL_PROJECTION_TOOL,
         )
+
+        if tool_name == INTERNAL_PROJECTION_TOOL:
+            from backend.app.services.knowledge_projection.retrievable.internal_admission import (
+                InternalProjectionAdmissionReceipt,
+            )
+
+            receipt = InternalProjectionAdmissionReceipt.model_validate(
+                internal_projection_admission
+            )
+            if (
+                receipt.task_id != task_id
+                or receipt.workspace_id != str(workspace_id)
+            ):
+                raise RuntimeError(
+                    "runner_child_internal_projection_admission_mismatch"
+                )
+        else:
+            if internal_projection_admission is not None:
+                raise RuntimeError(
+                    "runner_child_internal_projection_admission_forbidden"
+                )
+            if not isinstance(admission_snapshot, dict):
+                raise RuntimeError("runner_child_admission_snapshot_required")
+            verify_child_snapshot(
+                admission_snapshot,
+                expected_workspace_id=str(workspace_id),
+                expected_root_execution_id=str(
+                    payload.get("root_execution_id") or task_id
+                ),
+            )
     try:
         eager_tool_load = (
             os.getenv("LOCAL_CORE_RUNNER_CHILD_EAGER_TOOL_LOAD", "")
@@ -79,8 +109,6 @@ def _child_execute_playbook(
     except Exception:
         pass
 
-    task_type = payload.get("task_type", "playbook_execution")
-    playbook_code = payload.get("playbook_code")
     profile_id = payload.get("profile_id")
     inputs = payload.get("inputs")
     project_id = payload.get("project_id")
@@ -88,16 +116,38 @@ def _child_execute_playbook(
 
     async def _run() -> None:
         if task_type == "tool_execution":
-            tool_name = payload.get("tool_name") or playbook_code
             from backend.app.services.unified_tool_executor import (
                 UnifiedToolExecutor,
             )
 
             executor = UnifiedToolExecutor()
-            result = await executor.execute_tool(
-                tool_name=tool_name,
-                arguments=inputs or {},
+            from backend.app.services.tools.internal_execution import (
+                runner_internal_tool_authority,
             )
+
+            snapshot_hash = str(
+                (
+                    internal_projection_admission
+                    if tool_name == INTERNAL_PROJECTION_TOOL
+                    else (admission_snapshot or {})
+                ).get(
+                    (
+                        "receipt_hash"
+                        if tool_name == INTERNAL_PROJECTION_TOOL
+                        else "snapshot_hash"
+                    )
+                )
+                or ""
+            )
+            with runner_internal_tool_authority(
+                task_id=str(task_id),
+                tool_name=str(tool_name),
+                admission_snapshot_hash=snapshot_hash,
+            ):
+                result = await executor.execute_tool(
+                    tool_name=tool_name,
+                    arguments=inputs or {},
+                )
             if not result.success:
                 raise RuntimeError(
                     f"Tool execution failed for '{tool_name}': {result.error}"

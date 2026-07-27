@@ -252,6 +252,42 @@ def close_object_action_from_execution_result(
             "execution_id": execution_id,
         }
 
+    knowledge_projection_admission = None
+    try:
+        from backend.app.services.knowledge_projection.retrievable.source_triggers import (
+            admit_committed_object_records,
+            current_committed_source_trigger_authority,
+        )
+
+        trigger_authority = current_committed_source_trigger_authority()
+        knowledge_projection_admission = admit_committed_object_records(
+            workspace_id=workspace_id,
+            actor_user_id=(
+                trigger_authority.actor_user_id
+                if trigger_authority is not None
+                else ""
+            ),
+            active_group_id=(
+                trigger_authority.active_group_id
+                if trigger_authority is not None
+                else None
+            ),
+            records=close_request.output_records,
+        )
+    except Exception as exc:
+        logger.exception(
+            "AOL object projection admission sidecar failed "
+            "action_plan_id=%s execution_id=%s",
+            action_plan_id,
+            execution_id,
+        )
+        knowledge_projection_admission = {
+            "state": "blocked",
+            "reason": str(exc),
+            "admitted_tasks": 0,
+            "source_count": 0,
+        }
+
     return {
         "status": status,
         "action_plan_id": action_plan_id,
@@ -263,4 +299,5 @@ def close_object_action_from_execution_result(
             for record in close_request.output_records
         ],
         "relation_kinds": [record.relation_kind for record in relation_records],
+        "knowledge_projection_admission": knowledge_projection_admission,
     }

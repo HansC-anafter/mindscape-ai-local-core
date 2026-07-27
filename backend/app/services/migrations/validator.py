@@ -82,7 +82,7 @@ class MigrationValidator:
         """Validate environment requirements."""
         results = {}
 
-        if db_type == "postgres":
+        if db_type in {"postgres", "vector"}:
             postgres_url = requirements.get("postgres_url")
             if not postgres_url:
                 results["connection"] = False

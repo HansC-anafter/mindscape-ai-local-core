@@ -1,11 +1,13 @@
-import json
-
 import pytest
 
 from backend.app.services.conversation.context_builder.memory_retriever import (
     _format_document_hit,
 )
 from backend.app.services.document_retrieval_facade import DocumentRetrievalFacade
+from backend.app.services.knowledge_retrieval.contracts import (
+    AuthorizedKnowledgeHit,
+    KnowledgeRetrievalResult,
+)
 
 
 def _row(identifier="row-1"):
@@ -33,51 +35,45 @@ def _row(identifier="row-1"):
     }
 
 
-class FakeVectorService:
-    def __init__(self, error=None):
-        self.error = error
+class FakeRetrievalFacade:
+    def __init__(self, channels=("text_vector", "keyword")):
+        self.channels = channels
+        self.requests = []
 
-    async def _generate_embedding_with_model(self, _text, *, is_query):
-        assert is_query is True
-        if self.error:
-            raise self.error
-        return [0.1, 0.2], "bge-m3"
-
-
-class FakeCursor:
-    def __init__(self, vector_rows, keyword_rows):
-        self.vector_rows = vector_rows
-        self.keyword_rows = keyword_rows
-        self.current = []
-        self.calls = []
-
-    def execute(self, query, params=None):
-        self.calls.append((query, params))
-        self.current = self.vector_rows if "vector_score" in query else self.keyword_rows
-
-    def fetchall(self):
-        return self.current
-
-
-class FakeConnection:
-    def __init__(self, cursor):
-        self.cursor_obj = cursor
-        self.closed = False
-
-    def cursor(self, **_kwargs):
-        return self.cursor_obj
-
-    def close(self):
-        self.closed = True
+    async def search(self, request):
+        self.requests.append(request)
+        row = _row()
+        return KnowledgeRetrievalResult(
+            hits=(
+                AuthorizedKnowledgeHit(
+                    knowledge_resource_id="resource-1",
+                    security_label_id="label-1",
+                    authz_revision=1,
+                    projection_revision_id="projection-1",
+                    source_app="document_ingestion",
+                    source_id=row["source_id"],
+                    content=row["content"],
+                    metadata=row["metadata"],
+                    score=0.5,
+                    channels=self.channels,
+                    citation={},
+                ),
+            ),
+            requested_mode="hybrid",
+            executed_mode="hybrid",
+            candidate_count=1,
+            final_authorized_count=1,
+            transaction_count=2,
+            degraded_reasons=(),
+            authorization_receipt_digest="a" * 64,
+        )
 
 
 @pytest.mark.asyncio
-async def test_hybrid_retrieval_prefilters_workspace_before_both_limits():
-    cursor = FakeCursor([_row()], [_row()])
-    connection = FakeConnection(cursor)
+async def test_document_compatibility_entry_delegates_to_canonical_reader():
+    retrieval = FakeRetrievalFacade()
     facade = DocumentRetrievalFacade(
-        vector_service=FakeVectorService(),
-        connection_factory=lambda: connection,
+        retrieval_facade=retrieval,
     )
 
     hits = await facade.search(
@@ -87,21 +83,11 @@ async def test_hybrid_retrieval_prefilters_workspace_before_both_limits():
         top_k=5,
     )
 
-    assert len(cursor.calls) == 2
-    for query, params in cursor.calls:
-        assert "source_app = %s" in query
-        assert "metadata @> %s::jsonb" in query
-        assert query.index("metadata @> %s::jsonb") < query.index("LIMIT %s")
-        metadata_param = next(
-            value
-            for value in params
-            if isinstance(value, str) and value.startswith("{")
-        )
-        assert json.loads(metadata_param) == {
-            "workspace_id": "workspace-1",
-            "active": True,
-        }
-    assert connection.closed is True
+    request = retrieval.requests[0]
+    assert request.scope_type == "workspace"
+    assert request.scope_id == "workspace-1"
+    assert request.source_apps == ("document_ingestion",)
+    assert request.owner_capabilities == ("document_ingestion",)
     assert hits[0]["channels"] == ["text_vector", "keyword"]
     assert hits[0]["citation"]["chunk_id"] == "chunk-1"
     assert hits[0]["source_label"] == "architecture.pdf"
@@ -109,11 +95,9 @@ async def test_hybrid_retrieval_prefilters_workspace_before_both_limits():
 
 @pytest.mark.asyncio
 async def test_keyword_retrieval_survives_embedding_outage():
-    cursor = FakeCursor([], [_row()])
-    connection = FakeConnection(cursor)
+    retrieval = FakeRetrievalFacade(channels=("keyword",))
     facade = DocumentRetrievalFacade(
-        vector_service=FakeVectorService(error=RuntimeError("offline")),
-        connection_factory=lambda: connection,
+        retrieval_facade=retrieval,
     )
 
     hits = await facade.search(
@@ -123,8 +107,6 @@ async def test_keyword_retrieval_survives_embedding_outage():
         top_k=3,
     )
 
-    assert len(cursor.calls) == 1
-    assert "keyword_score" in cursor.calls[0][0]
     assert hits[0]["channels"] == ["keyword"]
 
 

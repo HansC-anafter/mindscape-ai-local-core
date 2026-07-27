@@ -31,6 +31,9 @@ class VerifiedToolExecutionContext:
     source_entry: str
     selector_lineage: tuple[str, ...]
     context_sha256: str
+    agent_role: str | None = None
+    agent_policy_revision: str | None = None
+    topology_snapshot_id: str | None = None
 
     def verify_selector(self, selector_key: str) -> None:
         normalized = selector_key.strip()
@@ -62,6 +65,9 @@ class VerifiedToolExecutionContext:
                 trace_id=self.trace_id,
                 source_entry=self.source_entry,
                 selector_lineage=lineage,
+                agent_role=self.agent_role,
+                agent_policy_revision=self.agent_policy_revision,
+                topology_snapshot_id=self.topology_snapshot_id,
             ),
         )
 
@@ -111,6 +117,21 @@ def build_verified_tool_execution_context(
         "trace_id": result.snapshot.trace_id,
         "source_entry": result.snapshot.entry,
         "selector_lineage": lineage,
+        "agent_role": (
+            str(result.active_group_context.role)
+            if result.active_group_context is not None
+            else None
+        ),
+        "agent_policy_revision": (
+            result.snapshot.topology_snapshot_hash
+            if result.active_group_context is not None
+            else None
+        ),
+        "topology_snapshot_id": (
+            result.snapshot.topology_snapshot_id
+            if result.active_group_context is not None
+            else None
+        ),
     }
     return VerifiedToolExecutionContext(
         **fields,

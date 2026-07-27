@@ -9,8 +9,6 @@ import psycopg2
 
 from backend.app.database.config import get_vector_postgres_config
 from backend.app.services.vector_search_db import (
-    save_external_doc,
-    search_external_docs_records,
     search_vectors,
     update_last_used_at_records,
 )
@@ -276,7 +274,9 @@ class VectorSearchService:
         self,
         query: str,
         source_apps: List[str] = None,
-        user_id: str = "default_user",
+        user_id: Optional[str] = None,
+        workspace_id: Optional[str] = None,
+        access_context: Any = None,
         top_k: int = 10,
         require_model_match: bool = True,
     ) -> List[Dict[str, Any]]:
@@ -293,20 +293,44 @@ class VectorSearchService:
         Returns:
             List of relevant external documents
         """
-        # Get embedding with model info for proper filtering
-        query_embedding, model_name = await self._generate_embedding_with_model(query)
-        if not query_embedding:
-            return []
-
-        return await search_external_docs_records(
-            get_connection=self._get_connection,
-            query_embedding=query_embedding,
-            model_name=model_name,
-            source_apps=source_apps,
-            user_id=user_id,
-            top_k=top_k,
-            require_model_match=require_model_match,
+        del require_model_match
+        if access_context is None or not workspace_id:
+            raise ValueError(
+                "authorization_aware_external_docs_context_required"
+            )
+        if user_id and user_id != access_context.subject_user_id:
+            raise ValueError("external_docs_subject_mismatch")
+        from backend.app.services.knowledge_retrieval import (
+            AuthorizationAwareKnowledgeRetrievalFacade,
+            KnowledgeRetrievalRequest,
         )
+
+        result = await AuthorizationAwareKnowledgeRetrievalFacade(
+            vector_service=self,
+        ).search(
+            KnowledgeRetrievalRequest(
+                query=query,
+                access_context=access_context,
+                scope_type="workspace",
+                scope_id=workspace_id,
+                top_k=max(1, min(top_k, 20)),
+                source_apps=tuple(source_apps or ()),
+            )
+        )
+        return [
+            {
+                "id": hit.citation.get("chunk_id") or hit.source_id,
+                "user_id": access_context.subject_user_id,
+                "source_app": hit.source_app,
+                "source_id": hit.source_id,
+                "content": hit.content,
+                "metadata": dict(hit.metadata),
+                "similarity": hit.score,
+                "knowledge_resource_id": hit.knowledge_resource_id,
+                "projection_revision_id": hit.projection_revision_id,
+            }
+            for hit in result.hits
+        ]
 
     async def multi_scope_search(
         self,
@@ -475,4 +499,7 @@ class VectorSearchService:
         Returns:
             True if successful, False otherwise
         """
-        return await save_external_doc(get_connection=self._get_connection, doc=doc)
+        del doc
+        raise ValueError(
+            "direct_external_docs_write_retired_use_projection_facade"
+        )

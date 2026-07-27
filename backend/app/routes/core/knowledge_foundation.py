@@ -115,7 +115,8 @@ async def admit_scope(
 async def compile_group_packet(
     topology_snapshot_id: str,
     requesting_workspace_id: str,
-    agent_role: str,
+    agent_role: Optional[str] = None,
+    preview: bool = False,
     limit: int = Query(default=50, ge=1, le=200),
     auth: AuthContext = Depends(get_current_user),
 ):
@@ -127,6 +128,7 @@ async def compile_group_packet(
             requesting_workspace_id=requesting_workspace_id,
             actor_user_id=auth.user_id,
             agent_role=agent_role,
+            preview=preview,
             allowed_group_ids=auth.group_ids,
             limit=limit,
         )

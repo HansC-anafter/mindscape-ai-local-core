@@ -87,9 +87,19 @@ def get_available_tools() -> Dict[str, Dict[str, bool]]:
     }
 
 
-def get_all_mindscape_tools() -> Dict[str, MindscapeTool]:
-    """Get a copy of all registered MindscapeTool instances."""
-    return _mindscape_tools.copy()
+def get_all_mindscape_tools(
+    *,
+    include_internal: bool = False,
+) -> Dict[str, MindscapeTool]:
+    """Get registered tools, excluding runner-internal tools by default."""
+
+    if include_internal:
+        return _mindscape_tools.copy()
+    return {
+        tool_id: tool
+        for tool_id, tool in _mindscape_tools.items()
+        if not bool(getattr(tool.metadata, "internal", False))
+    }
 
 
 def get_tool_metadata(tool_id: str) -> Optional[Dict]:

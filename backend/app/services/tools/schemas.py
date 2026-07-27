@@ -135,6 +135,13 @@ class ToolMetadata(BaseModel):
         default=False,
         description="Whether to return result directly to user (bypass LLM processing)",
     )
+    internal: bool = Field(
+        default=False,
+        description=(
+            "Whether the tool is runner-internal and excluded from every "
+            "user/Meeting catalog."
+        ),
+    )
 
     # Mindscape extension fields
     category: ToolCategory = Field(

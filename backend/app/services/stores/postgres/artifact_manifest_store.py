@@ -103,6 +103,32 @@ class ArtifactManifestStore(PostgresStoreBase):
             )
             return dict(row._mapping if hasattr(row, "_mapping") else row)
 
+    def get_result_manifest(
+        self,
+        *,
+        artifact_id: str,
+        workspace_id: str,
+    ) -> Optional[Dict[str, Any]]:
+        with self.get_connection() as conn:
+            row = conn.execute(
+                text(
+                    """
+                    SELECT *
+                    FROM artifact_manifest
+                    WHERE artifact_id = :artifact_id
+                      AND workspace_id = :workspace_id
+                    LIMIT 1
+                    """
+                ),
+                {
+                    "artifact_id": artifact_id,
+                    "workspace_id": workspace_id,
+                },
+            ).fetchone()
+        if row is None:
+            return None
+        return dict(row._mapping if hasattr(row, "_mapping") else row)
+
     def upsert_media_asset(
         self,
         *,

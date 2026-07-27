@@ -172,6 +172,47 @@ class MemoryItemStore(PostgresStoreBase):
             rows = conn.execute(query, params).fetchall()
         return [self._row_to_item(row) for row in rows]
 
+    def context_revision(
+        self,
+        *,
+        context_type: str,
+        context_id: str,
+        lifecycle_statuses: List[str],
+        verification_statuses: List[str],
+    ) -> str:
+        """Return one bounded cache revision without loading memory content."""
+
+        with self.get_connection() as conn:
+            row = conn.execute(
+                text(
+                    """
+                    SELECT
+                        COUNT(*)::bigint AS item_count,
+                        MAX(updated_at) AS latest_update
+                    FROM memory_items
+                    WHERE context_type = :context_type
+                      AND context_id = :context_id
+                      AND lifecycle_status =
+                          ANY(CAST(:lifecycle_statuses AS text[]))
+                      AND verification_status =
+                          ANY(CAST(:verification_statuses AS text[]))
+                    """
+                ),
+                {
+                    "context_type": context_type,
+                    "context_id": context_id,
+                    "lifecycle_statuses": lifecycle_statuses,
+                    "verification_statuses": verification_statuses,
+                },
+            ).fetchone()
+        count = int(row.item_count if row is not None else 0)
+        latest = (
+            row.latest_update.isoformat()
+            if row is not None and row.latest_update is not None
+            else "empty"
+        )
+        return f"{count}:{latest}"
+
     def touch_last_used(self, item_id: str) -> None:
         with self.transaction() as conn:
             conn.execute(
