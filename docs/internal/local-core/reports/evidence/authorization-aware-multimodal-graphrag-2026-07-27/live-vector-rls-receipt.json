@@ -1,0 +1,62 @@
+{
+  "captured_at": "2026-07-27T16:38:40+08:00",
+  "database": "mindscape_vectors",
+  "migration_ledger": "20260727041000",
+  "runtime_role": {
+    "name": "mindscape_vector_runtime",
+    "login": true,
+    "superuser": false,
+    "create_database": false,
+    "create_role": false,
+    "inherit": false,
+    "bypass_rls": false,
+    "password_configured": true
+  },
+  "rls_table_count": 18,
+  "live_row_counts": {
+    "external_docs": 7,
+    "knowledge_resources": 3,
+    "knowledge_security_labels": 3,
+    "knowledge_resource_projections": 0,
+    "knowledge_projection_records": 0,
+    "knowledge_graph_entities": 0,
+    "knowledge_graph_relations": 0,
+    "knowledge_graph_communities": 0,
+    "knowledge_graph_community_reports": 0,
+    "tool_embeddings": 1669
+  },
+  "postgres_sessions_excluding_evidence_query": [
+    {
+      "role": "mindscape_vector_runtime",
+      "state": "idle",
+      "count": 5
+    }
+  ],
+  "runtime_identity_probe": {
+    "source_container": "mindscape-ai-local-core-runner-vision-mlx-dev",
+    "current_user": "mindscape_vector_runtime",
+    "session_user": "mindscape_vector_runtime",
+    "row_security": "on",
+    "source_commit": "46795dc25fbc46ff08d27b30c431d4804b7a9360"
+  },
+  "tool_embedding_schema_authority": {
+    "migration": "20260727041000",
+    "migration_owned_schema_verified": true,
+    "runtime_schema_create": false,
+    "runtime_select_insert_update_delete": true,
+    "text_search_index": "idx_tool_embeddings_text",
+    "text_search_index_present": true
+  },
+  "rollback_only_acceptance": {
+    "authorized_rows": 7,
+    "authorized_write_probe": true,
+    "cross_label_write_denied": true,
+    "cross_user_rows": 0,
+    "ddl_denied": true,
+    "no_context_rows": 0,
+    "post_commit_reset_rows": 0,
+    "gate_pass": true
+  },
+  "persistent_probe_rows": 0,
+  "result": "PASS"
+}

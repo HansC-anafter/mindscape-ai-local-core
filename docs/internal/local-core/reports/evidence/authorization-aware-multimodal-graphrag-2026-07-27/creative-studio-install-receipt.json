@@ -1,0 +1,51 @@
+{
+  "captured_at": "2026-07-27T15:35:00+08:00",
+  "capability_code": "creative_studio",
+  "capability_version": "0.5.5",
+  "source_commit": "cae36c4c",
+  "artifact_sha256": "d82ec5810a72263bf1583b0afac8aa26572cee9ed248c7c191159da63d3dc91a",
+  "manifest_sha256": "aefe1b8d284bd6a46f1b9640e6cedccdfc1a7fb3dabccb4fdf2ef003aa8f5988",
+  "durable_install_id": "88ab08ac5b6f424e907ee3fd3e78200f",
+  "control_plane": {
+    "port": 8220,
+    "install_status": "active"
+  },
+  "execution_plane": {
+    "port": 8200,
+    "activation_status": "activated"
+  },
+  "runtime_restarts": {
+    "backend": false,
+    "runner": false
+  },
+  "migration_heads": {
+    "changed": false,
+    "core_target": "20260528090000",
+    "vector_target": "20260716010000"
+  },
+  "knowledge_projection_descriptor": {
+    "id": "creative_studio_objects_v1",
+    "source_kind": "object",
+    "object_kinds": [
+      "creative_space",
+      "source_ref",
+      "board_item",
+      "creative_variant",
+      "tool_run",
+      "handoff"
+    ],
+    "evidence_unit_kinds": [
+      "text_span",
+      "image_region",
+      "video_segment",
+      "audio_segment"
+    ],
+    "text_channel": "active",
+    "native_media_channels": "not_admitted"
+  },
+  "original_path_checks": {
+    "execution_creative_spaces": 200,
+    "frontend_root": 200
+  },
+  "result": "PASS"
+}

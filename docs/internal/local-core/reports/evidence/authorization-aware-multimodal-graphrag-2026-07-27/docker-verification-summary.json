@@ -1,0 +1,80 @@
+{
+  "captured_at": "2026-07-27T16:38:40+08:00",
+  "formal_environment": "Docker",
+  "suites": [
+    {
+      "name": "fresh_vector_db_full_aggregate_through_tool_schema_authority",
+      "database": "mindscape_vectors_graphrag_t13_20260727",
+      "migration_target": "20260727041000",
+      "passed": 99,
+      "skipped": 3,
+      "warnings": 162,
+      "result": "PASS"
+    },
+    {
+      "name": "knowledge_projection_runner_lane_static_compose_contract",
+      "passed": 1,
+      "harness": "clean release docker-compose.yml copied read-only to /tmp/graphrag-docker-compose.yml inside backend container",
+      "result": "PASS"
+    },
+    {
+      "name": "frontend_knowledge_access_vitest",
+      "runtime": "Node 22 in backend-control with exact Linux optional modules in /tmp",
+      "passed": 3,
+      "result": "PASS"
+    },
+    {
+      "name": "frontend_knowledge_access_targeted_typecheck",
+      "diagnostics": 0,
+      "result": "PASS"
+    },
+    {
+      "name": "cloud_pack_projection_schema_and_compiler",
+      "passed": 6,
+      "result": "PASS"
+    },
+    {
+      "name": "capability_registry_runtime_loader_regression",
+      "passed": 5,
+      "warnings": 155,
+      "result": "PASS"
+    },
+    {
+      "name": "formal_total",
+      "passed": 100,
+      "skipped": 3,
+      "result": "PASS"
+    }
+  ],
+  "known_non_goal_baselines": [
+    {
+      "name": "frontend_full_typecheck",
+      "status": "NON_ZERO",
+      "reason": "pre-existing CapabilitySettingsExtensionSlot.spec.tsx diagnostic outside this goal"
+    }
+  ],
+  "test_hygiene": {
+    "reused_database_failure": {
+      "database": "mindscape_vectors_graphrag_t10_20260727",
+      "failed": 5,
+      "cause": "fixture collision from reusing a disposable database",
+      "source_regression": false,
+      "corrective_action": "rerun the same aggregate against fresh t11 and t12 databases"
+    },
+    "fresh_t13_authority_correction": {
+      "database": "mindscape_vectors_graphrag_t13_20260727",
+      "first_attempt": "FAIL",
+      "cause": "the disposable migration command initially selected POSTGRES_VECTOR_USER, which is intentionally the non-owner runtime role",
+      "live_database_impact": false,
+      "corrective_action": "rerun zero-to-head through the existing owner migration authority; the same fresh database then passed through 20260727041000"
+    },
+    "static_compose_path_correction": {
+      "first_attempt": "FAIL",
+      "cause": "the backend test container did not mount /app/docker-compose.yml",
+      "source_regression": false,
+      "corrective_action": "copy the exact clean-release compose file to a temporary in-container path and rerun the static contract",
+      "result": "PASS"
+    }
+  },
+  "result": "PASS_WITH_DECLARED_BASELINE"
+}
