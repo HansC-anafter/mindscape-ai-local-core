@@ -21,6 +21,16 @@ from backend.app.services.knowledge_projection.legacy_document_facade import (
     LegacyDocumentChunk,
 )
 from backend.app.services.knowledge_authorization import RetrievalScopeDenied
+from backend.app.services.workspace_groups.facade import WorkspaceGroupFacade
+from backend.app.services.workspace_groups.topology_service import (
+    WorkspaceGroupAccessError,
+    WorkspaceGroupNotFoundError,
+)
+
+from .projection_schemas import (
+    OwnerDeclaredGraphInput,
+    ProjectionRecordInput,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +38,14 @@ router = APIRouter(tags=["External Docs Sync"])
 
 
 def _raise_external_docs_failure(operation: str, exc: Exception) -> None:
-    if isinstance(exc, (PermissionError, RetrievalScopeDenied)):
+    if isinstance(
+        exc,
+        (
+            PermissionError,
+            RetrievalScopeDenied,
+            WorkspaceGroupAccessError,
+        ),
+    ):
         raise HTTPException(
             status_code=403,
             detail="Knowledge access is not authorized for this workspace.",
@@ -57,6 +74,12 @@ class DocumentSyncRequest(BaseModel):
     title: str
     content: str
     metadata: Optional[Dict[str, Any]] = None
+    owner_group_id: Optional[str] = Field(default=None, max_length=64)
+    projection_records: tuple[ProjectionRecordInput, ...] = Field(
+        default=(),
+        max_length=2000,
+    )
+    owner_declared_graph: Optional[OwnerDeclaredGraphInput] = None
 
 
 class WordPressSyncResponse(BaseModel):
@@ -80,11 +103,26 @@ async def sync_document(
     Generates embedding automatically.
     """
     try:
+        requested_groups = (
+            (request.owner_group_id,) if request.owner_group_id else ()
+        )
         context = await asyncio.to_thread(
             build_retrieval_access_context,
             auth,
             requested_workspace_ids=(request.workspace_id,),
+            requested_group_ids=requested_groups,
         )
+        if request.owner_group_id:
+            topology = await asyncio.to_thread(
+                WorkspaceGroupFacade().get_group,
+                request.owner_group_id,
+                actor_user_id=auth.user_id,
+                allowed_group_ids=auth.group_ids,
+            )
+            if request.workspace_id not in topology.role_map:
+                raise WorkspaceGroupAccessError(
+                    "source workspace is outside the projection group"
+                )
         result = await AuthorizedLegacyDocumentFacade().replace_document(
             access_context=context,
             workspace_id=request.workspace_id,
@@ -99,6 +137,19 @@ async def sync_document(
                     metadata=request.metadata or {},
                 ),
             ),
+            owner_scope_type=(
+                "group" if request.owner_group_id else "workspace"
+            ),
+            owner_scope_id=request.owner_group_id,
+            projection_records=tuple(
+                item.model_dump(mode="python")
+                for item in request.projection_records
+            ),
+            owner_declared_graph=(
+                request.owner_declared_graph.model_dump(mode="python")
+                if request.owner_declared_graph is not None
+                else None
+            ),
         )
         return {
             "success": True,
@@ -109,6 +160,8 @@ async def sync_document(
         
     except HTTPException:
         raise
+    except WorkspaceGroupNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
     except Exception as e:
         _raise_external_docs_failure("Document sync failed", e)
 

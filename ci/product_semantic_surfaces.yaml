@@ -893,6 +893,31 @@ surfaces:
       - web-console/src/app/workspaces/*/governance/**
       - web-console/src/components/workspace/governance/**
 
+  - id: psc.local-core.health-frontier-wiki-graphrag-benchmark.v1
+    tier: P0
+    owner: "@team-leads"
+    contract_doc: mindscape-ai-cloud/docs/internal/local-core/product-semantics/health-frontier-wiki-and-graphrag-benchmark-contract-2026-07-27.zh-TW.md
+    requires_product_semantic_declaration: true
+    semantics:
+      - One explicit health knowledge group uses one existing dispatch workspace and five durable corpus cells; the eleven health domains remain stable ontology branches rather than eleven isolated workspaces or a nested workspace hierarchy.
+      - Health corpus projection reuses the one authorized document projection writer, and benchmark execution reuses KnowledgeQueryService; no second ingestion writer, retrieval service, graph database, or source of truth is introduced.
+      - Every group-owned corpus resource carries a stable security label plus server-derived user and group-role grants; cached evidence is reusable only for the exact catalog, question, request, principal set, topology, authorization generation, and active projection digest, and every hit is final-authorized again.
+      - Normal knowledge_query calls perform no benchmark cache or run-ledger read/write. Catalog, cache, and hit management occur only through explicit bounded benchmark operations and add no worker, queue, scheduler, PgBouncer alias, pool, SSE route, or UX polling interval.
+      - Text, image, video, and audio evidence continue to share one resource, security-label, projection, graph, and public query path. The initial health corpus admits only text and never reports an unavailable native modality channel as active.
+      - Health evidence remains educational and research-oriented: citations, population, evidence grade, uncertainty, and safety escalation stay explicit, while traditional-medicine theory is never silently converted into biomedical causality, diagnosis, prescription, or treatment cessation advice.
+    path_globs:
+      - backend/app/services/knowledge_benchmark/**
+      - backend/app/routes/core/knowledge_benchmarks.py
+      - backend/features/external_docs/projection_schemas.py
+      - backend/app/services/knowledge_projection/retrievable/owner_declared_projection.py
+      - backend/app/services/knowledge_projection/retrievable/document_adapter.py
+      - backend/app/services/knowledge_projection/legacy_document_facade.py
+      - backend/app/services/tools/knowledge_query/query_service.py
+      - backend/alembic_migrations/vector/*knowledge_benchmark*
+      - backend/alembic_migrations/vector/versions/*knowledge_benchmark*
+      - backend/tests/knowledge_benchmark_*
+      - backend/tests/knowledge_projection_owner_declared_document_spec.py
+
   - id: psc.local-core.durable-product-semantic-workflow-runtime.v1
     tier: P0
     owner: "@team-leads"

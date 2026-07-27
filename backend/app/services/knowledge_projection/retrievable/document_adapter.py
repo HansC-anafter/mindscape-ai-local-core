@@ -17,6 +17,7 @@ from .write_contracts import (
     ProjectionEvidenceWrite,
     RetrievableProjectionWrite,
 )
+from .owner_declared_projection import enrich_document_projection
 
 
 def _canonical_hash(value: Any) -> str:
@@ -36,6 +37,8 @@ def compile_document_projection(
     document_id: str,
     revision_id: str,
     records: Iterable[Mapping[str, Any]],
+    projection_records: Iterable[Mapping[str, Any] | Any] = (),
+    owner_declared_graph: Mapping[str, Any] | Any | None = None,
 ) -> tuple[RetrievableProjectionWrite, tuple[ExternalDocumentWrite, ...]]:
     prepared_documents: list[ExternalDocumentWrite] = []
     evidence_units: list[ProjectionEvidenceWrite] = []
@@ -150,7 +153,14 @@ def compile_document_projection(
         evidence_units=tuple(evidence_units),
         channels=tuple(channels),
     )
-    return payload, tuple(prepared_documents)
+    return (
+        enrich_document_projection(
+            payload,
+            projection_records=projection_records,
+            owner_declared_graph=owner_declared_graph,
+        ),
+        tuple(prepared_documents),
+    )
 
 
 __all__ = ["compile_document_projection"]

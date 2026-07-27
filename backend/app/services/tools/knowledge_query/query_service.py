@@ -15,6 +15,7 @@ from backend.app.services.knowledge_retrieval import (
     KnowledgeCitationFetchRequest,
     KnowledgeCoverageRequest,
     KnowledgeRetrievalRequest,
+    KnowledgeRetrievalResult,
 )
 
 from .contracts import KnowledgeQueryInput
@@ -61,35 +62,62 @@ class KnowledgeQueryService:
         )
         scope_type = "group" if group_id else "workspace"
         scope_id = group_id or workspace_id
-        if request.operation == "search":
-            bounds_for_mode(request.retrieval_mode)
-            result = await self._retrieval_facade.search(
-                KnowledgeRetrievalRequest(
-                    query=str(request.query or ""),
-                    access_context=context,
-                    scope_type=scope_type,
-                    scope_id=scope_id,
-                    top_k=request.limit,
-                    source_apps=request.resource_filters.source_apps,
-                    owner_capabilities=(
-                        request.resource_filters.owner_capabilities
-                    ),
-                    retrieval_mode=request.retrieval_mode,
-                    modality_filter=request.modality_filter,
-                    query_evidence_refs=tuple(
-                        CitationLookup(
-                            citation_id=citation.citation_id,
-                            content_hash=citation.content_hash,
-                        )
-                        for citation in request.query_evidence_refs
-                    ),
+        return await self._execute_with_context(
+            request,
+            access_context=context,
+            scope_type=scope_type,
+            scope_id=scope_id,
+        )
+
+    async def execute_with_verified_access_context(
+        self,
+        request: KnowledgeQueryInput,
+        *,
+        access_context: Any,
+        scope_type: str,
+        scope_id: str,
+    ) -> tuple[dict[str, Any], tuple[tuple[str, int], ...]]:
+        """Execute the same reader and return internal cache-safe bindings."""
+
+        if request.operation != "search":
+            raise ValueError("knowledge_benchmark_search_operation_required")
+        result = await self._search(
+            request,
+            access_context=access_context,
+            scope_type=scope_type,
+            scope_id=scope_id,
+        )
+        return (
+            project_search_result(result),
+            tuple(
+                (
+                    hit.knowledge_resource_id,
+                    hit.authz_revision,
                 )
+                for hit in result.hits
+            ),
+        )
+
+    async def _execute_with_context(
+        self,
+        request: KnowledgeQueryInput,
+        *,
+        access_context: Any,
+        scope_type: str,
+        scope_id: str,
+    ) -> dict[str, Any]:
+        if request.operation == "search":
+            result = await self._search(
+                request,
+                access_context=access_context,
+                scope_type=scope_type,
+                scope_id=scope_id,
             )
             return project_search_result(result)
         if request.operation == "aggregate":
             result = await self._retrieval_facade.aggregate(
                 KnowledgeAggregateRequest(
-                    access_context=context,
+                    access_context=access_context,
                     scope_type=scope_type,
                     scope_id=scope_id,
                     group_by=str(request.group_by),
@@ -138,7 +166,7 @@ class KnowledgeQueryService:
         if request.operation == "fetch_by_citation":
             result = await self._retrieval_facade.fetch_by_citation(
                 KnowledgeCitationFetchRequest(
-                    access_context=context,
+                    access_context=access_context,
                     scope_type=scope_type,
                     scope_id=scope_id,
                     citations=tuple(
@@ -174,7 +202,7 @@ class KnowledgeQueryService:
             )
         result = await self._retrieval_facade.explain_coverage(
             KnowledgeCoverageRequest(
-                access_context=context,
+                access_context=access_context,
                 scope_type=scope_type,
                 scope_id=scope_id,
                 source_apps=request.resource_filters.source_apps,
@@ -204,6 +232,38 @@ class KnowledgeQueryService:
                     "evidence_is_instruction": False,
                 },
             }
+        )
+
+    async def _search(
+        self,
+        request: KnowledgeQueryInput,
+        *,
+        access_context: Any,
+        scope_type: str,
+        scope_id: str,
+    ) -> KnowledgeRetrievalResult:
+        bounds_for_mode(request.retrieval_mode)
+        return await self._retrieval_facade.search(
+            KnowledgeRetrievalRequest(
+                query=str(request.query or ""),
+                access_context=access_context,
+                scope_type=scope_type,
+                scope_id=scope_id,
+                top_k=request.limit,
+                source_apps=request.resource_filters.source_apps,
+                owner_capabilities=(
+                    request.resource_filters.owner_capabilities
+                ),
+                retrieval_mode=request.retrieval_mode,
+                modality_filter=request.modality_filter,
+                query_evidence_refs=tuple(
+                    CitationLookup(
+                        citation_id=citation.citation_id,
+                        content_hash=citation.content_hash,
+                    )
+                    for citation in request.query_evidence_refs
+                ),
+            )
         )
 
 

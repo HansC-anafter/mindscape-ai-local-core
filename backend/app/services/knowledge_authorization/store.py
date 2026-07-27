@@ -138,6 +138,7 @@ class KnowledgeAuthorizationStore:
         identity: KnowledgeResourceIdentity,
         access_context: RetrievalAccessContext,
         acl_mutation: KnowledgeAclMutation | None = None,
+        initial_grants: Iterable[KnowledgeGrant] = (),
     ) -> KnowledgeResourceBinding:
         resource_id = knowledge_resource_id(
             owner_capability_code=identity.owner_capability_code,
@@ -182,6 +183,7 @@ class KnowledgeAuthorizationStore:
                 access_context=access_context,
                 resource_id=resource_id,
                 label_id=label_id,
+                initial_grants=initial_grants,
             )
             current_revision = 1
         else:
@@ -265,10 +267,22 @@ class KnowledgeAuthorizationStore:
         access_context: RetrievalAccessContext,
         resource_id: str,
         label_id: str,
+        initial_grants: Iterable[KnowledgeGrant] = (),
     ) -> None:
         owner_grant = KnowledgeGrant(
             principal=PrincipalRef("user", access_context.subject_user_id),
             relation="owner",
+        )
+        grants = tuple(
+            sorted(
+                {owner_grant, *tuple(initial_grants)},
+                key=lambda grant: (
+                    grant.principal.type,
+                    grant.principal.id,
+                    grant.relation,
+                    grant.effect,
+                ),
+            )
         )
         cursor.execute(
             """
@@ -306,7 +320,7 @@ class KnowledgeAuthorizationStore:
         self._insert_grants(
             cursor,
             label_id=label_id,
-            grants=(owner_grant,),
+            grants=grants,
             authz_revision=1,
         )
         self._insert_audit(
@@ -317,7 +331,7 @@ class KnowledgeAuthorizationStore:
             new_revision=1,
             access_context=access_context,
             event="resource_created",
-            grants=(owner_grant,),
+            grants=grants,
         )
 
     def _replace_grants(

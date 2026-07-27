@@ -13,7 +13,9 @@ from backend.app.services.authorized_knowledge_index_store import (
     AuthorizedKnowledgeIndexStore,
 )
 from backend.app.services.knowledge_authorization import (
+    KnowledgeGrant,
     KnowledgeResourceIdentity,
+    PrincipalRef,
     RetrievalAccessContext,
     set_local_knowledge_context,
 )
@@ -57,8 +59,17 @@ class AuthorizedLegacyDocumentFacade:
         doc_type: str,
         chunks: Iterable[LegacyDocumentChunk],
         source_revision: str | None = None,
+        owner_scope_type: str = "workspace",
+        owner_scope_id: str | None = None,
+        projection_records: Iterable[Mapping[str, Any]] = (),
+        owner_declared_graph: Mapping[str, Any] | None = None,
     ) -> AuthorizedIndexWriteResult:
-        self._require_project(access_context, workspace_id)
+        scope_id = owner_scope_id or workspace_id
+        self._require_project(
+            access_context,
+            scope_type=owner_scope_type,
+            scope_id=scope_id,
+        )
         prepared = tuple(chunks)
         if not prepared:
             raise ValueError("legacy_document_chunks_required")
@@ -127,7 +138,27 @@ class AuthorizedLegacyDocumentFacade:
             document_id=document_id,
             revision_id=revision,
             records=records,
+            projection_records=projection_records,
+            owner_declared_graph=owner_declared_graph,
         )
+        initial_grants: tuple[KnowledgeGrant, ...] = ()
+        if owner_scope_type == "group":
+            initial_grants = (
+                KnowledgeGrant(
+                    principal=PrincipalRef(
+                        "group_role",
+                        f"{scope_id}:owner",
+                    ),
+                    relation="owner",
+                ),
+                KnowledgeGrant(
+                    principal=PrincipalRef(
+                        "group_role",
+                        f"{scope_id}:member",
+                    ),
+                    relation="reader",
+                ),
+            )
         return self._index_store.replace_projection(
             access_context=access_context,
             identity=self._identity(
@@ -137,9 +168,12 @@ class AuthorizedLegacyDocumentFacade:
                 source_app=source_app,
                 source_id=source_id,
                 source_revision=revision,
+                owner_scope_type=owner_scope_type,
+                owner_scope_id=scope_id,
             ),
             payload=payload,
             documents=documents,
+            initial_grants=initial_grants,
         )
 
     def active_revision(
@@ -400,12 +434,14 @@ class AuthorizedLegacyDocumentFacade:
     @staticmethod
     def _require_project(
         access_context: RetrievalAccessContext,
-        workspace_id: str,
+        *,
+        scope_type: str,
+        scope_id: str,
     ) -> None:
         if not access_context.has_permission(
             "knowledge.project",
-            scope_type="workspace",
-            scope_id=workspace_id,
+            scope_type=scope_type,
+            scope_id=scope_id,
         ):
             raise PermissionError("legacy_document_project_permission_required")
 
@@ -418,7 +454,10 @@ class AuthorizedLegacyDocumentFacade:
         source_app: str,
         source_id: str,
         source_revision: str,
+        owner_scope_type: str = "workspace",
+        owner_scope_id: str | None = None,
     ) -> KnowledgeResourceIdentity:
+        scope_id = owner_scope_id or workspace_id
         return KnowledgeResourceIdentity(
             tenant_id=access_context.tenant_id,
             owner_capability_code=owner_capability_code,
@@ -427,9 +466,11 @@ class AuthorizedLegacyDocumentFacade:
             source_id=source_id,
             source_ref=f"document:{source_app}:{source_id}",
             source_revision=source_revision,
-            owner_scope_type="workspace",
-            owner_scope_id=workspace_id,
-            classification="workspace",
+            owner_scope_type=owner_scope_type,
+            owner_scope_id=scope_id,
+            classification=(
+                "group" if owner_scope_type == "group" else "workspace"
+            ),
         )
 
 
