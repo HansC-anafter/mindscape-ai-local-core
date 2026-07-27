@@ -24,6 +24,7 @@ from backend.app.services.knowledge_projection.legacy_document_facade import (
     AuthorizedLegacyDocumentFacade,
     LegacyDocumentChunk,
 )
+from backend.app.services.tool_embedding_service import ToolEmbeddingService
 
 
 TEST_VECTOR_URL = os.getenv("TEST_VECTOR_DATABASE_URL")
@@ -213,6 +214,47 @@ async def test_runtime_role_rls_and_transaction_reset() -> None:
         )
     )
     assert denied.hits == ()
+
+
+@pytest.mark.asyncio
+async def test_runtime_role_verifies_and_writes_migration_owned_tool_embeddings():
+    service = ToolEmbeddingService()
+    service._get_connection = _runtime_connection
+
+    await service.ensure_table()
+    connection = _runtime_connection()
+    try:
+        cursor = connection.cursor()
+        cursor.execute(
+            """
+            INSERT INTO tool_embeddings (
+                tool_id,
+                display_name,
+                description,
+                category,
+                capability_code,
+                embedding_model,
+                embedding_dim
+            ) VALUES (
+                'knowledge-runtime-migration-probe',
+                'Knowledge migration probe',
+                'Rollback-only runtime DML proof',
+                'data',
+                'local_core',
+                'none',
+                0
+            )
+            ON CONFLICT (tool_id, embedding_model)
+            DO UPDATE SET updated_at = NOW()
+            RETURNING tool_id
+            """
+        )
+        assert cursor.fetchone() == (
+            "knowledge-runtime-migration-probe",
+        )
+        connection.rollback()
+    finally:
+        connection.close()
 
 
 @pytest.mark.asyncio
