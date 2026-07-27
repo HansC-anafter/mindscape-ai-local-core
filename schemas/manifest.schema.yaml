@@ -1151,8 +1151,7 @@ properties:
             - get_router: export a get_router() function
         prefix:
           type: string
-          pattern: "^/[a-z0-9_/-]+$"
-          description: "API route prefix"
+          description: "API route prefix; may include router path parameters"
         enabled_by_default:
           type: boolean
           default: true
@@ -1196,8 +1195,7 @@ properties:
             - get_router: export a get_router() function
         prefix:
           type: string
-          pattern: "^/[a-z0-9_/-]+$"
-          description: "API route prefix"
+          description: "API route prefix; may include router path parameters"
         enabled_by_default:
           type: boolean
           default: true
@@ -1224,6 +1222,10 @@ properties:
           type: string
           pattern: "^ui(?:/[A-Za-z0-9_.-]+)+\\.(tsx|ts|jsx|js)$"
           description: "Component file path"
+        domain_path:
+          type: string
+          pattern: "^ui(?:/[A-Za-z0-9_.-]+)+\\.(tsx|ts|jsx|js)$"
+          description: "Pack-owned domain entry wrapped by the public localization facade"
         name:
           type: string
         display_name:
@@ -1288,6 +1290,49 @@ properties:
               type: object
           additionalProperties: false
       additionalProperties: false
+
+  ui_localization:
+    type: object
+    required:
+      - contract
+      - namespace
+      - source_locale
+      - fallback_locale
+      - supported_locales
+      - catalogs
+    properties:
+      contract:
+        const: mindscape-capability-ui-localization-v1
+      namespace:
+        type: string
+        pattern: "^[a-z0-9_]+$"
+      source_locale:
+        const: en
+      fallback_locale:
+        const: en
+      supported_locales:
+        type: array
+        minItems: 3
+        maxItems: 3
+        prefixItems:
+          - const: en
+          - const: zh-TW
+          - const: ja
+      catalogs:
+        type: object
+        required:
+          - en
+          - zh-TW
+          - ja
+        properties:
+          en:
+            const: ui/i18n/en.json
+          zh-TW:
+            const: ui/i18n/zh-TW.json
+          ja:
+            const: ui/i18n/ja.json
+        additionalProperties: false
+    additionalProperties: false
 
   workspace_tools:
     type: array
