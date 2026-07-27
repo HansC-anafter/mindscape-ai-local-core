@@ -7,6 +7,9 @@ from pathlib import Path
 
 from fastapi import FastAPI
 
+from backend.app.app_bootstrap.knowledge_projection_registry import (
+    hydrate_knowledge_projection_registry,
+)
 from backend.app.app_bootstrap.lifecycle_common import (
     _consume_preflight_contract_decision,
 )
@@ -275,6 +278,7 @@ async def run_startup(app: FastAPI):
     _check_dependency_updates()
     _initialize_cloud_connector(app)
     _initialize_execution_pool(app)
+    hydrate_knowledge_projection_registry(app)
     _ensure_required_databases(
         preflight_contract_trusted=preflight_contract_trusted,
         preflight_contract_reason=preflight_contract_reason,
