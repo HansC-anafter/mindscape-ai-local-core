@@ -32,6 +32,11 @@
     "timeout_seconds": 240,
     "output": "wav_pcm16_mono_24000hz",
     "max_concurrent_jobs": 1,
-    "queue_capacity": 0
+    "queue_capacity": 0,
+    "max_generation_attempts": 2,
+    "output_guard": {
+      "reject_any_full_scale_sample": true,
+      "publish_sample_peak_dbfs": -2.0
+    }
   }
 }
