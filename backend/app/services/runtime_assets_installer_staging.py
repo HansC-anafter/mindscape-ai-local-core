@@ -277,6 +277,25 @@ class RuntimeAssetsInstallerStagingMixin:
         prepared.published = False
         return prepared
 
+    def discard_restored_candidate(
+        self,
+        prepared: PreparedCapabilityTree,
+    ) -> PreparedCapabilityTree:
+        """Delete an uncommitted candidate after the previous tree is live."""
+        if prepared.published:
+            raise RuntimeError("capability_candidate_discard_requires_restored_previous")
+        if prepared.finalized:
+            return prepared
+        for retained_root in (prepared.staging_root, prepared.previous_root):
+            if retained_root.exists():
+                shutil.rmtree(retained_root)
+        for parent in (prepared.staging_root.parent, prepared.previous_root.parent):
+            try:
+                parent.rmdir()
+            except OSError:
+                pass
+        return prepared
+
     def finalize_publish(
         self,
         prepared: PreparedCapabilityTree,

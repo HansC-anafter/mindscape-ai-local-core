@@ -78,9 +78,9 @@ class _ActivationService:
 @pytest.mark.parametrize(
     ("configured", "expected"),
     [
-        (None, 60.0),
-        ("invalid", 60.0),
-        ("nan", 60.0),
+        (None, 120.0),
+        ("invalid", 120.0),
+        ("nan", 120.0),
         ("15", 30.0),
         ("75", 75.0),
         ("600", 300.0),

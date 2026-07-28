@@ -124,6 +124,15 @@ class InstallCommitCoordinator:
                 InstallCommitState.RESTORED_PREVIOUS,
             )
 
+    def discard_restored_candidate(self) -> None:
+        if self.truth_committed:
+            raise RuntimeError("candidate_discard_forbidden_after_truth_commit")
+        if self.state is not InstallCommitState.RESTORED_PREVIOUS:
+            raise RuntimeError("candidate_discard_requires_restored_previous")
+        self.runtime_installer.discard_restored_candidate(
+            self._require_prepared()
+        )
+
     def receipt(self) -> dict[str, Any]:
         return {
             "install_id": self.install_id,

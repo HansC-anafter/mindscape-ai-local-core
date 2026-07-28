@@ -181,6 +181,11 @@ async def run_next_job(
                 result,
                 install_id=install_id,
             )
+            coordinator = getattr(result, "install_commit_coordinator", None)
+            if coordinator is None:
+                raise RuntimeError("install_commit_coordinator_missing")
+            coordinator.discard_restored_candidate()
+            payload["install_commit_receipt"] = coordinator.receipt()
             return service.store.mark_pending_execution_activation(
                 install_id,
                 result_payload=payload,
