@@ -216,6 +216,7 @@ class KnowledgeBenchmarkFacade:
             "cache_status": cache_status,
             "cache_key": seed["cache_key"],
             "projection_digest": seed["projection_digest"],
+            "retrieval_revision": seed["retrieval_revision"],
             "question": {
                 "question_id": question["question_id"],
                 "domain_id": question["domain_id"],

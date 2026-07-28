@@ -129,9 +129,10 @@ def _request(
     context: RetrievalAccessContext,
     *,
     modality_filter: str | None = None,
+    query: str = "marker",
 ) -> KnowledgeRetrievalRequest:
     return KnowledgeRetrievalRequest(
-        query="marker",
+        query=query,
         access_context=context,
         scope_type="workspace",
         scope_id="workspace-retrieval-spec",
@@ -187,6 +188,57 @@ async def test_acl_prefilter_excludes_higher_similarity_unauthorized_decoy() -> 
     serialized = " ".join(hit.content for hit in result.hits)
     assert "AUTHORIZED_MARKER" in serialized
     assert "UNAUTHORIZED_DECOY" not in serialized
+
+
+@pytest.mark.asyncio
+async def test_cjk_prefix_keyword_recall_stays_inside_acl_prefilter() -> None:
+    writer = AuthorizedKnowledgeIndexStore(_connection)
+    authorized = writer.replace_trusted_document_revision(
+        user_id="cjk-reader",
+        workspace_id="workspace-retrieval-spec",
+        document_id="cjk-authorized-doc",
+        revision_id="rev-1",
+        records=[
+            _record(
+                document_id="cjk-authorized-doc",
+                revision="rev-1",
+                checksum="1" * 64,
+                content="瑜伽通常包含姿勢、呼吸技巧與放鬆成分。",
+                embedding=[0.0, 1.0],
+            )
+        ],
+    )
+    writer.replace_trusted_document_revision(
+        user_id="other-cjk-reader",
+        workspace_id="workspace-retrieval-spec",
+        document_id="cjk-unauthorized-doc",
+        revision_id="rev-1",
+        records=[
+            _record(
+                document_id="cjk-unauthorized-doc",
+                revision="rev-1",
+                checksum="2" * 64,
+                content="瑜伽包含呼吸練習，但這筆資料未授權。",
+                embedding=[1.0, 0.0],
+            )
+        ],
+    )
+    facade = AuthorizationAwareKnowledgeRetrievalFacade(
+        vector_service=_VectorService(),
+    )
+
+    result = await facade.search(
+        _request(
+            _direct_context("cjk-reader"),
+            query="瑜伽包含呼吸練習嗎？",
+        )
+    )
+
+    assert "keyword_empty" not in result.degraded_reasons
+    assert [hit.knowledge_resource_id for hit in result.hits] == [
+        authorized.knowledge_resource_id
+    ]
+    assert result.hits[0].channels == ("text_vector", "keyword")
 
 
 @pytest.mark.asyncio

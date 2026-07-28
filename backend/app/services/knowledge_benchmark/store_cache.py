@@ -11,6 +11,9 @@ from backend.app.services.knowledge_authorization import (
     RetrievalAccessContext,
     set_local_knowledge_context,
 )
+from backend.app.services.knowledge_retrieval.contracts import (
+    KNOWLEDGE_RETRIEVAL_RUNTIME_REVISION,
+)
 
 from .store_common import sha256_json, stable_id
 
@@ -101,6 +104,9 @@ class KnowledgeBenchmarkCacheStoreMixin:
                         authorization_generation
                     ),
                     "projection_digest": projection_digest,
+                    "retrieval_revision": (
+                        KNOWLEDGE_RETRIEVAL_RUNTIME_REVISION
+                    ),
                 }
             )
             cursor.execute(
@@ -141,6 +147,9 @@ class KnowledgeBenchmarkCacheStoreMixin:
                 "request_digest": request_digest,
                 "projection_digest": projection_digest,
                 "cache_key": cache_key,
+                "retrieval_revision": (
+                    KNOWLEDGE_RETRIEVAL_RUNTIME_REVISION
+                ),
                 "cached": dict(cached) if cached is not None else None,
             }
         except Exception:

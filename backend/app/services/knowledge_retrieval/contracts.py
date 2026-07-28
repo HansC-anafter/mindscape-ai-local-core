@@ -9,6 +9,9 @@ from backend.app.services.knowledge_authorization import RetrievalAccessContext
 
 
 RetrievalMode = Literal["hybrid", "local_graph", "multi_hop", "global_graph"]
+KNOWLEDGE_RETRIEVAL_RUNTIME_REVISION = (
+    "knowledge-retrieval.cjk-prefix.v2"
+)
 
 
 @dataclass(frozen=True)
@@ -133,5 +136,6 @@ __all__ = [
     "KnowledgeCoverageRequest",
     "KnowledgeRetrievalRequest",
     "KnowledgeRetrievalResult",
+    "KNOWLEDGE_RETRIEVAL_RUNTIME_REVISION",
     "RetrievalMode",
 ]
