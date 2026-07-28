@@ -162,10 +162,34 @@ async def test_embedding_wrapper_delegates_to_internal_generator():
     assert await service._generate_embedding("hello") == [5.0]
 
 
+@pytest.mark.asyncio
+async def test_provider_probe_delegates_without_vector_content():
+    class FakeEmbeddingGenerator:
+        async def probe_embedding_provider(self, text):
+            assert text == "admission"
+            return {
+                "ok": True,
+                "provider": "ollama",
+                "model": "bge-m3",
+                "dimension": 1024,
+                "elapsed_seconds": 0.1,
+                "error_code": None,
+            }
+
+    service = VectorSearchService(postgres_config={"dbname": "unused"})
+    service.embedding_generator = FakeEmbeddingGenerator()
+
+    receipt = await service.probe_embedding_provider("admission")
+
+    assert receipt["dimension"] == 1024
+    assert "embedding" not in receipt
+
+
 def test_helper_modules_do_not_define_duplicate_resource_surfaces():
     repo_root = Path(__file__).resolve().parents[3]
     helper_paths = [
         repo_root / "backend/app/services/vector_search_embeddings.py",
+        repo_root / "backend/app/services/vector_search_ollama.py",
         repo_root / "backend/app/services/vector_search_db.py",
     ]
     forbidden_tokens = [

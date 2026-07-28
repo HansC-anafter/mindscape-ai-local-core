@@ -806,6 +806,8 @@ surfaces:
       - backend/app/services/workspace_seed_service.py
       - backend/app/services/local_folder_indexer.py
       - backend/app/services/vector_search.py
+      - backend/app/services/vector_search_embeddings.py
+      - backend/app/services/vector_search_ollama.py
       - backend/app/services/vector_search_db.py
       - backend/app/services/document_chunk_index_store.py
       - backend/app/services/document_retrieval_facade.py
