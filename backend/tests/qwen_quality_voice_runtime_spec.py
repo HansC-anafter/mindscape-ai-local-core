@@ -37,6 +37,7 @@ def _config(tmp_path: Path) -> RuntimeConfig:
         timeout_seconds=240,
         max_text_chars=700,
         max_tokens=4096,
+        max_generation_attempts=2,
     )
 
 
@@ -53,6 +54,8 @@ def test_health_exposes_selected_non_realtime_provider(tmp_path: Path) -> None:
         "realtime": False,
         "fallback": None,
         "busy": False,
+        "output_guard": "reject_clipping_retry_once_then_minus_2_dbfs",
+        "max_generation_attempts": 2,
     }
 
 

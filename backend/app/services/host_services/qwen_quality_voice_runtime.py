@@ -9,12 +9,17 @@ import signal
 import subprocess
 import tempfile
 import threading
-import wave
+import time
 from dataclasses import dataclass
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Mapping
+
+from backend.app.services.host_services.qwen_quality_voice_output_guard import (
+    QualityVoiceOutputGuardError,
+    prepare_publishable_pcm16_wav,
+)
 
 
 PROVIDER_ID = "qwen3_tts_0_6b_base_bf16"
@@ -63,6 +68,7 @@ class RuntimeConfig:
     timeout_seconds: float
     max_text_chars: int
     max_tokens: int
+    max_generation_attempts: int
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> "RuntimeConfig":
@@ -95,6 +101,9 @@ class RuntimeConfig:
             ),
             max_text_chars=int(source.get("QWEN_QUALITY_MAX_TEXT_CHARS", "700")),
             max_tokens=int(source.get("QWEN_QUALITY_MAX_TOKENS", "4096")),
+            max_generation_attempts=int(
+                source.get("QWEN_QUALITY_MAX_GENERATION_ATTEMPTS", "2")
+            ),
         )
 
     def readiness_error(self) -> str | None:
@@ -106,6 +115,10 @@ class RuntimeConfig:
             (self.timeout_seconds > 0, "invalid_timeout"),
             (self.max_text_chars > 0, "invalid_text_limit"),
             (self.max_tokens > 0, "invalid_token_limit"),
+            (
+                self.max_generation_attempts > 0,
+                "invalid_generation_attempt_limit",
+            ),
         )
         for valid, reason in checks:
             if not valid:
@@ -223,7 +236,69 @@ class QualityVoiceRuntime:
             "realtime": False,
             "fallback": None,
             "busy": self.busy,
+            "output_guard": "reject_clipping_retry_once_then_minus_2_dbfs",
+            "max_generation_attempts": self.config.max_generation_attempts,
         }
+
+    def _generate_once(
+        self,
+        *,
+        text: str,
+        language_code: str,
+        output_dir: Path,
+        file_prefix: str,
+        timeout_seconds: float,
+    ) -> Path:
+        output_wav = output_dir / f"{file_prefix}.wav"
+        log_path = output_dir / "generation.log"
+        argv = build_generation_argv(
+            self.config,
+            text=text,
+            language_code=language_code,
+            output_dir=output_dir,
+            file_prefix=file_prefix,
+        )
+        environment = dict(os.environ)
+        environment.update(
+            {
+                "HF_HUB_OFFLINE": "1",
+                "TRANSFORMERS_OFFLINE": "1",
+                "HF_DATASETS_OFFLINE": "1",
+                "TOKENIZERS_PARALLELISM": "false",
+            }
+        )
+        with log_path.open("wb") as log:
+            process = subprocess.Popen(
+                argv,
+                stdout=log,
+                stderr=subprocess.STDOUT,
+                env=environment,
+                start_new_session=True,
+            )
+            with self._process_lock:
+                self._active_process = process
+            try:
+                return_code = process.wait(timeout=timeout_seconds)
+            except subprocess.TimeoutExpired as exc:
+                terminate_process_group(process)
+                raise QualityVoiceRuntimeError(
+                    HTTPStatus.GATEWAY_TIMEOUT,
+                    "qwen_quality_voice_timeout",
+                ) from exc
+            finally:
+                with self._process_lock:
+                    self._active_process = None
+        if return_code != 0:
+            raise QualityVoiceRuntimeError(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                "qwen_quality_voice_generation_failed",
+            )
+        if not output_wav.is_file() or output_wav.stat().st_size <= 44:
+            raise QualityVoiceRuntimeError(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                "qwen_quality_voice_output_missing",
+            )
+        return output_wav
 
     def synthesize(self, *, text: str, language_code: str) -> bytes:
         readiness_error = self.config.readiness_error()
@@ -240,71 +315,43 @@ class QualityVoiceRuntime:
             with tempfile.TemporaryDirectory(
                 prefix="job-", dir=self.config.state_dir
             ) as temporary:
-                output_dir = Path(temporary)
-                output_wav = output_dir / "speech.wav"
-                log_path = output_dir / "generation.log"
-                argv = build_generation_argv(
-                    self.config,
-                    text=text,
-                    language_code=language_code,
-                    output_dir=output_dir,
-                    file_prefix="speech",
-                )
-                environment = dict(os.environ)
-                environment.update(
-                    {
-                        "HF_HUB_OFFLINE": "1",
-                        "TRANSFORMERS_OFFLINE": "1",
-                        "HF_DATASETS_OFFLINE": "1",
-                        "TOKENIZERS_PARALLELISM": "false",
-                    }
-                )
-                with log_path.open("wb") as log:
-                    process = subprocess.Popen(
-                        argv,
-                        stdout=log,
-                        stderr=subprocess.STDOUT,
-                        env=environment,
-                        start_new_session=True,
-                    )
-                    with self._process_lock:
-                        self._active_process = process
-                    try:
-                        return_code = process.wait(
-                            timeout=self.config.timeout_seconds
-                        )
-                    except subprocess.TimeoutExpired as exc:
-                        terminate_process_group(process)
+                job_dir = Path(temporary)
+                deadline = time.monotonic() + self.config.timeout_seconds
+                for attempt in range(1, self.config.max_generation_attempts + 1):
+                    remaining_seconds = deadline - time.monotonic()
+                    if remaining_seconds <= 0:
                         raise QualityVoiceRuntimeError(
                             HTTPStatus.GATEWAY_TIMEOUT,
                             "qwen_quality_voice_timeout",
+                        )
+                    attempt_dir = job_dir / f"attempt-{attempt:02d}"
+                    attempt_dir.mkdir()
+                    generated_wav = self._generate_once(
+                        text=text,
+                        language_code=language_code,
+                        output_dir=attempt_dir,
+                        file_prefix="speech",
+                        timeout_seconds=remaining_seconds,
+                    )
+                    publishable_wav = attempt_dir / "publishable.wav"
+                    try:
+                        prepare_publishable_pcm16_wav(
+                            generated_wav, publishable_wav
+                        )
+                    except QualityVoiceOutputGuardError as exc:
+                        if (
+                            exc.reason == "qwen_quality_voice_output_clipped"
+                            and attempt < self.config.max_generation_attempts
+                        ):
+                            continue
+                        raise QualityVoiceRuntimeError(
+                            HTTPStatus.SERVICE_UNAVAILABLE, exc.reason
                         ) from exc
-                    finally:
-                        with self._process_lock:
-                            self._active_process = None
-                if return_code != 0:
-                    raise QualityVoiceRuntimeError(
-                        HTTPStatus.SERVICE_UNAVAILABLE,
-                        "qwen_quality_voice_generation_failed",
-                    )
-                if not output_wav.is_file() or output_wav.stat().st_size <= 44:
-                    raise QualityVoiceRuntimeError(
-                        HTTPStatus.SERVICE_UNAVAILABLE,
-                        "qwen_quality_voice_output_missing",
-                    )
-                with wave.open(str(output_wav), "rb") as audio:
-                    valid_wav = (
-                        audio.getnchannels() == 1
-                        and audio.getsampwidth() == 2
-                        and audio.getframerate() == 24000
-                        and audio.getnframes() > 0
-                    )
-                if not valid_wav:
-                    raise QualityVoiceRuntimeError(
-                        HTTPStatus.SERVICE_UNAVAILABLE,
-                        "qwen_quality_voice_output_invalid",
-                    )
-                return output_wav.read_bytes()
+                    return publishable_wav.read_bytes()
+                raise QualityVoiceRuntimeError(
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                    "qwen_quality_voice_output_clipped",
+                )
         finally:
             self._generation_lock.release()
 

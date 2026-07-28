@@ -33,6 +33,8 @@
     <string>700</string>
     <key>QWEN_QUALITY_MAX_TOKENS</key>
     <string>4096</string>
+    <key>QWEN_QUALITY_MAX_GENERATION_ATTEMPTS</key>
+    <string>2</string>
     <key>HF_HUB_OFFLINE</key>
     <string>1</string>
     <key>TRANSFORMERS_OFFLINE</key>
