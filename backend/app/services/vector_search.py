@@ -73,6 +73,13 @@ class VectorSearchService:
             text, is_query=is_query
         )
 
+    async def probe_embedding_provider(
+        self,
+        text: str = "mindscape embedding provider admission",
+    ) -> Dict[str, object]:
+        """Return provider/model/dimension health without vector content."""
+        return await self.embedding_generator.probe_embedding_provider(text)
+
     def _get_ollama_url(self) -> Optional[str]:
         """Return a reachable Ollama base URL, or None.
 
