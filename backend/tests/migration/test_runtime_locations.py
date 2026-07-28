@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from alembic.config import Config
+from alembic.script import ScriptDirectory
 
 from app.services.migrations.runtime_locations import (
     append_runtime_version_locations,
@@ -37,6 +38,7 @@ def _build_config(tmp_path: Path, declared_versions_dir: Path) -> Config:
                 "[alembic]",
                 "script_location = alembic_migrations",
                 f"version_locations = {declared_versions_dir.as_posix()}",
+                "version_path_separator = os",
                 "",
             ]
         ),
@@ -151,7 +153,26 @@ def test_staged_runtime_subset_preserves_relative_migration_helpers(
     migrations_dir = capability_dir / "migrations"
     versions_dir = migrations_dir / "versions"
     _write_revision(versions_dir / "shared.py", "shared")
-    _write_revision(versions_dir / "unique.py", "unique")
+    unique_revision = versions_dir / "unique.py"
+    unique_revision.parent.mkdir(parents=True, exist_ok=True)
+    unique_revision.write_text(
+        "\n".join(
+            [
+                "from pathlib import Path",
+                "",
+                "HELPER_TEXT = (",
+                "    Path(__file__).resolve().parents[1]",
+                "    / 'helpers'",
+                "    / 'projection.py'",
+                ").read_text(encoding='utf-8')",
+                "",
+                "revision = 'unique'",
+                "down_revision = None",
+                "branch_labels = None",
+            ]
+        ),
+        encoding="utf-8",
+    )
     helper = migrations_dir / "helpers" / "projection.py"
     helper.parent.mkdir(parents=True, exist_ok=True)
     helper.write_text("VALUE = 'preserved'\n", encoding="utf-8")
@@ -165,9 +186,15 @@ def test_staged_runtime_subset_preserves_relative_migration_helpers(
 
     staged_versions_dir = Path(locations[1])
     assert staged_versions_dir.name == "versions"
-    assert (staged_versions_dir / "helpers" / "projection.py").read_text(
+    assert (staged_versions_dir.parent / "helpers" / "projection.py").read_text(
         encoding="utf-8"
     ) == "VALUE = 'preserved'\n"
+    config.set_main_option(
+        "script_location",
+        (tmp_path / "alembic_migrations").as_posix(),
+    )
+    script_dir = ScriptDirectory.from_config(config)
+    assert script_dir.get_revision("unique") is not None
 
 
 def test_configure_runtime_version_locations_dedupes_typed_revision_assignments(

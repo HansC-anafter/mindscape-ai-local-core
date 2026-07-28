@@ -92,12 +92,23 @@ def _stage_runtime_revision_subset(
         and path.suffix != ".pyc"
     )
     digest = hashlib.sha1(
-        "\n".join(
+        b"\0".join(
             [
-                source_dir.as_posix(),
-                *(path.name for path in revision_files),
+                source_dir.as_posix().encode("utf-8"),
+                *(
+                    path.relative_to(source_dir).as_posix().encode("utf-8")
+                    + b"\0"
+                    + path.read_bytes()
+                    for path in revision_files
+                ),
+                *(
+                    path.relative_to(support_root).as_posix().encode("utf-8")
+                    + b"\0"
+                    + path.read_bytes()
+                    for path in support_files
+                ),
             ]
-        ).encode("utf-8")
+        )
     ).hexdigest()[:12]
     staging_root = Path(tempfile.gettempdir()) / "mindscape_runtime_migrations" / db_type
     staged_capability_root = staging_root / f"{capability_code}_{digest}"
@@ -118,7 +129,7 @@ def _stage_runtime_revision_subset(
         if sibling.is_dir():
             shutil.copytree(sibling, staged_versions_dir / sibling.name)
     for support_file in support_files:
-        destination = staged_versions_dir / support_file.relative_to(support_root)
+        destination = staged_capability_root / support_file.relative_to(support_root)
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(support_file, destination)
 
