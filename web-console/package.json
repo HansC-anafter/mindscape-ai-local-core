@@ -4,7 +4,9 @@
   "description": "Web console for Mindscape AI Local Core",
   "private": true,
   "scripts": {
+    "predev": "node scripts/generate-capability-ui-context-registry.mjs",
     "dev": "next dev",
+    "prebuild": "node scripts/generate-capability-ui-context-registry.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",

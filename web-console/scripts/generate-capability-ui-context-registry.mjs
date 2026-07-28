@@ -1,4 +1,4 @@
-import { readdir, writeFile } from 'node:fs/promises';
+import { readdir, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -67,15 +67,47 @@ export function getRegisteredCapabilityComponentContextCodes(): string[] {
 `;
 }
 
+async function isDirectory(directoryPath) {
+  try {
+    return (await stat(directoryPath)).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+export async function filterCapabilityCodesWithSourceDirectories(
+  capabilityCodes,
+  {
+    webConsoleRoot,
+  },
+) {
+  const available = [];
+  for (const capabilityCode of capabilityCodes) {
+    const sourceDirectory = path.join(
+      webConsoleRoot,
+      'src/app/capabilities',
+      capabilityCode,
+    );
+    if (await isDirectory(sourceDirectory)) {
+      available.push(capabilityCode);
+    }
+  }
+  return available;
+}
+
 export async function generateCapabilityUiContextRegistry({
   webConsoleRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'),
 } = {}) {
   const contextsDir = path.join(webConsoleRoot, 'src/lib/capability-ui-contexts');
   const registryPath = path.join(webConsoleRoot, 'src/lib/capability-ui-context-registry.ts');
   const entries = await readdir(contextsDir, { withFileTypes: true });
-  const capabilityCodes = entries
+  const contextCapabilityCodes = entries
     .filter((entry) => entry.isFile() && /\.(ts|tsx|js|jsx)$/.test(entry.name))
     .map((entry) => normalizeCapabilityCode(entry.name));
+  const capabilityCodes = await filterCapabilityCodesWithSourceDirectories(
+    contextCapabilityCodes,
+    { webConsoleRoot },
+  );
 
   const source = buildCapabilityUiContextRegistrySource(capabilityCodes);
   await writeFile(registryPath, source, 'utf8');
