@@ -2,6 +2,7 @@ import React from 'react';
 import { Activity, GitGraph, Package, Settings as SettingsIcon, Smartphone } from 'lucide-react';
 
 import { openAppRouteInNewWindow } from '@/lib/navigation/openAppRouteInNewWindow';
+import { useT } from '@/lib/i18n';
 import type { WorkspaceGlobalToolContribution } from './useWorkspaceGlobalToolRail';
 
 const WorkspaceRunsPanel = React.lazy(() => import('../capability-ui-hosts/WorkspaceRunsPanel'));
@@ -17,9 +18,10 @@ interface WorkspaceCoreToolContributionsOptions {
 }
 
 export function WorkspaceToolPanelLoadingState({ label }: { label: string }) {
+  const t = useT();
   return (
     <div className="flex h-full items-center justify-center p-3 text-xs text-gray-500 dark:text-gray-400">
-      Loading {label}...
+      {t('workspaceToolPanelLoading', { label })}
     </div>
   );
 }
@@ -30,11 +32,12 @@ export function useWorkspaceCoreToolContributions({
   apiUrl,
   workspaceId,
 }: WorkspaceCoreToolContributionsOptions): WorkspaceGlobalToolContribution[] {
-  return React.useMemo<WorkspaceGlobalToolContribution[]>(() => [
+  const t = useT();
+  return React.useMemo<WorkspaceGlobalToolContribution[]>(() => ([
     {
       key: 'core:runs_panel',
       id: 'runs_panel',
-      label: 'Runs',
+      label: t('workspaceToolRuns'),
       icon: <Activity aria-hidden="true" className="h-4 w-4" />,
       group: 'execution',
       order: 10,
@@ -51,7 +54,7 @@ export function useWorkspaceCoreToolContributions({
     {
       key: 'core:settings',
       id: 'settings',
-      label: 'Settings',
+      label: t('workspaceToolSettings'),
       icon: <SettingsIcon aria-hidden="true" className="h-4 w-4" />,
       group: 'workspace',
       order: 20,
@@ -64,7 +67,7 @@ export function useWorkspaceCoreToolContributions({
     {
       key: 'core:pack',
       id: 'pack',
-      label: 'Pack',
+      label: t('workspaceToolPack'),
       icon: <Package aria-hidden="true" className="h-4 w-4" />,
       group: 'capability',
       order: 30,
@@ -77,7 +80,7 @@ export function useWorkspaceCoreToolContributions({
     {
       key: 'core:motion_source',
       id: 'motion_source',
-      label: 'Motion Source',
+      label: t('workspaceToolMotionSource'),
       icon: <Smartphone aria-hidden="true" className="h-4 w-4" />,
       group: 'runtime',
       order: 30,
@@ -90,7 +93,7 @@ export function useWorkspaceCoreToolContributions({
     {
       key: 'core:graph',
       id: 'graph',
-      label: 'Graph',
+      label: t('workspaceToolGraph'),
       icon: <GitGraph aria-hidden="true" className="h-4 w-4" />,
       group: 'graph',
       order: 40,
@@ -100,5 +103,5 @@ export function useWorkspaceCoreToolContributions({
         openAppRouteInNewWindow(`/mindscape/canvas?workspaceId=${encodeURIComponent(workspaceId)}`);
       },
     },
-  ], [activeCapabilityCode, activeExecutionCount, apiUrl, workspaceId]);
+  ]), [activeCapabilityCode, activeExecutionCount, apiUrl, t, workspaceId]);
 }

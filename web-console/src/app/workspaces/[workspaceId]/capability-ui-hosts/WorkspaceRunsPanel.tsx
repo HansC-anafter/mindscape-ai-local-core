@@ -14,6 +14,7 @@ import {
 import type { UseRunObservationsSummaryResult } from '@/lib/workspace-runs/useRunObservationsSummary';
 import WorkspaceRunsFallbackPanel from './WorkspaceRunsFallbackPanel';
 import { getWorkspaceToolDefinitions } from './useWorkspaceToolDefinitions';
+import { useT } from '@/lib/i18n';
 
 interface WorkspaceRunsPanelProps {
   workspaceId: string;
@@ -34,9 +35,10 @@ function WorkspaceRunsViewTabs({
   activeView: WorkspaceRunsView;
   setActiveView: (view: WorkspaceRunsView) => void;
 }) {
+  const t = useT();
   const tabs = [
-    { id: 'active' as const, label: 'Active Runs', icon: Activity },
-    { id: 'paused' as const, label: 'Paused Runs', icon: PauseCircle },
+    { id: 'active' as const, label: t('workspaceRunsActive'), icon: Activity },
+    { id: 'paused' as const, label: t('workspaceRunsPaused'), icon: PauseCircle },
   ];
   return (
     <div className="flex shrink-0 items-center gap-1 border-b border-gray-200 px-2 py-2 dark:border-gray-800">
@@ -58,7 +60,7 @@ function WorkspaceRunsViewTabs({
             title={tab.label}
           >
             <Icon className="h-3.5 w-3.5" />
-            <span>{tab.label.replace(' Runs', '')}</span>
+            <span>{tab.label}</span>
           </button>
         );
       })}
@@ -72,6 +74,7 @@ export default function WorkspaceRunsPanel({
   runObservationsSummary,
 }: WorkspaceRunsPanelProps) {
   const apiUrl = getApiBaseUrl();
+  const t = useT();
   const workspaceData = useWorkspaceDataOptional();
   const [activeView, setActiveView] = useState<WorkspaceRunsView>('active');
   const [Component, setComponent] = useState<React.ComponentType<any> | null>(null);
@@ -131,7 +134,7 @@ export default function WorkspaceRunsPanel({
 
   const activeContent = loading ? (
     <div className="p-2 text-xs text-gray-500 dark:text-gray-400">
-      Loading capability runs...
+      {t('workspaceRunsPanelLoading')}
     </div>
   ) : !Component ? (
     <>
