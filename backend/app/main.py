@@ -320,7 +320,7 @@ async def host_service_health(service: str):
 
     Supported services:
       - stt          -> whisper-service:8006/health (Docker sidecar)
-      - xtts         → xtts-service:8020/health  (Docker sidecar)
+      - xtts         → host.docker.internal:8184/health (Qwen quality voice on macOS host)
       - mcp-gateway  → host.docker.internal:8180/health (Node process on host)
       - mobile-workbench-gateway -> frontend:3000/api/v1/host/services/mobile-workbench-gateway/health
       - device-link-https -> frontend:3000/api/v1/host/services/device-link-https/health
