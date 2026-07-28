@@ -101,6 +101,7 @@ export function buildYogaPracticeWorkbenchState(
       segments,
       sourceProvider,
       hasSelectedLesson,
+      resolutionError: input.pendingLessonHandoff?.referenceProfileResolutionError,
     }),
     reference_lesson_state: {
       lesson_id: lessonId,

@@ -342,3 +342,19 @@ export function buildMotionPracticeInstructionRefs(
     },
   ];
 }
+
+export function resolveMotionPracticeExpectedDurationMs(
+  source: MotionPracticeInstructionSourceState,
+): number | undefined {
+  const courseChapters = Array.isArray(source.courseChapters)
+    ? source.courseChapters
+    : [];
+  const durationMs = courseChapters.reduce((maximum, chapter) => {
+    if (!isRecord(chapter)) {
+      return maximum;
+    }
+    const endMs = readTimeMs(chapter, 'end_ms', 'end_time');
+    return endMs === null ? maximum : Math.max(maximum, endMs);
+  }, 0);
+  return durationMs > 0 ? durationMs : undefined;
+}

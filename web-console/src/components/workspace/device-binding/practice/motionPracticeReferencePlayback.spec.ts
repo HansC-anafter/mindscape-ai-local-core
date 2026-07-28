@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { AOLMeetingClientAction } from '@/lib/meeting-voice/meetingClientActionEvent';
 import {
   buildReferencePlaybackEmbedUrl,
+  buildStartedMotionPracticeReferencePlayback,
   confirmMotionPracticeReferencePlayback,
   prepareMotionPracticeReferencePlayback,
 } from './motionPracticeReferencePlayback';
@@ -71,5 +72,37 @@ describe('motionPracticeReferencePlayback', () => {
     expect(url.hostname).toBe('player.bilibili.com');
     expect(url.searchParams.get('bvid')).toBe('BV13g4y1u7di');
     expect(url.searchParams.get('autoplay')).toBe('1');
+  });
+
+  it('projects a successful direct launch into the existing playback plan', () => {
+    const started = buildStartedMotionPracticeReferencePlayback({
+      workspaceId: 'ws_test',
+      meetingId: 'mtg_direct',
+      handoff: {
+        capabilityCode: 'yogacoach',
+        sourceKind: 'bilibili_instruction_ref',
+        sourceValue: 'https://www.bilibili.com/video/BV13g4y1u7di/',
+        sourceProvider: 'bilibili',
+        sourceTitle: 'Bilibili yoga practice reference',
+      },
+      durationMs: 1_809_679,
+      startedAt: '2026-07-28T16:00:00.000Z',
+    });
+
+    expect(started).toMatchObject({
+      workspaceId: 'ws_test',
+      meetingId: 'mtg_direct',
+      status: 'playing',
+      reference: {
+        provider: 'bilibili',
+        providerVideoId: 'BV13g4y1u7di',
+      },
+      playback: {
+        startMs: 0,
+        durationMs: 1_809_679,
+        loop: false,
+      },
+      startedAt: '2026-07-28T16:00:00.000Z',
+    });
   });
 });

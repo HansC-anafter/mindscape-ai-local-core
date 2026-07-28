@@ -437,6 +437,7 @@ export function buildYogaReferenceLessonImportRef(input: {
   segments: TimelineSegment[];
   sourceProvider: string;
   hasSelectedLesson: boolean;
+  resolutionError?: string;
 }): Record<string, unknown> {
   const importId = input.lessonId === 'lesson_pending'
     ? 'reference-lesson-import-missing'
@@ -455,6 +456,20 @@ export function buildYogaReferenceLessonImportRef(input: {
     };
   }
   if (input.hasSelectedLesson) {
+    if (input.resolutionError?.trim()) {
+      return {
+        id: importId,
+        status: 'failed',
+        artifact_ref: input.lessonId,
+        confidence: 0,
+        human_patch_required: true,
+        ready_chapter_count: 0,
+        blocked_reason: input.resolutionError.trim(),
+        contract_version: 'yogacoach.reference_lesson_import.v1',
+        artifact_schema_id: 'vcs_instruction_video_prepared_bundle.v1',
+        source_provider: input.sourceProvider,
+      };
+    }
     return {
       id: importId,
       status: 'materializing',
