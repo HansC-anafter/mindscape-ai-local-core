@@ -287,7 +287,13 @@ def get_tool_backend(capability: str, tool: str) -> Optional[str]:
     return None
 
 
-def call_tool(capability: str, tool: str, **kwargs) -> Any:
+def call_tool(
+    capability: str,
+    tool: str,
+    *,
+    _execution_context: Any = None,
+    **kwargs,
+) -> Any:
     """
     Call capability pack tool
 
@@ -318,14 +324,24 @@ def call_tool(capability: str, tool: str, **kwargs) -> Any:
             capability_dir=Path(capability_dir) if capability_dir else None,
         )
 
-        return invoke_capability_tool(func, kwargs)
+        return invoke_capability_tool(
+            func,
+            kwargs,
+            execution_context=_execution_context,
+        )
     except Exception as e:
         error_msg = f"Failed to call tool {tool_name} (backend: {backend_path}): {str(e)}"
         logger.error(error_msg)
         raise RuntimeError(error_msg) from e
 
 
-async def call_tool_async(capability: str, tool: str, **kwargs) -> Any:
+async def call_tool_async(
+    capability: str,
+    tool: str,
+    *,
+    _execution_context: Any = None,
+    **kwargs,
+) -> Any:
     """
     Asynchronously call capability pack tool
     """
@@ -347,7 +363,11 @@ async def call_tool_async(capability: str, tool: str, **kwargs) -> Any:
             backend_path=backend_path,
             capability_dir=Path(capability_dir) if capability_dir else None,
         )
-        return await invoke_capability_tool_async(func, kwargs)
+        return await invoke_capability_tool_async(
+            func,
+            kwargs,
+            execution_context=_execution_context,
+        )
     except Exception as e:
         # Avoid recursion in error logging - use simple error message
         error_msg = f"Failed to call tool {tool_name} (backend: {backend_path}): {str(e)}"
