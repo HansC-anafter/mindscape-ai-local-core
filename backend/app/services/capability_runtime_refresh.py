@@ -42,12 +42,41 @@ def _capability_module_prefixes(capability_code: str) -> list[str]:
     ]
 
 
+def _capability_scoped_path_prefixes(
+    capability_code: str,
+    path_prefixes: Iterable[str],
+) -> list[str]:
+    """Keep path fallback deletion limited to capability-owned namespaces."""
+
+    clean_code = capability_code.strip().lower()
+    if not clean_code:
+        return []
+    ownership_tokens = {
+        clean_code,
+        clean_code.replace("_", "-"),
+    }
+    return [
+        prefix
+        for prefix in _dedupe_non_empty(path_prefixes)
+        if ownership_tokens.intersection(
+            segment.lower()
+            for segment in prefix.split("/")
+            if segment
+        )
+    ]
+
+
 def _remove_capability_routes(
     app: FastAPI,
     *,
+    capability_code: str,
     path_prefixes: list[str],
     module_prefixes: list[str],
 ) -> int:
+    scoped_path_prefixes = _capability_scoped_path_prefixes(
+        capability_code,
+        path_prefixes,
+    )
     kept_routes = []
     removed_count = 0
     for route in app.router.routes:
@@ -56,7 +85,7 @@ def _remove_capability_routes(
         endpoint_module = str(getattr(endpoint, "__module__", "") or "")
         matches_path = any(
             route_path == prefix or route_path.startswith(f"{prefix}/")
-            for prefix in path_prefixes
+            for prefix in scoped_path_prefixes
         )
         matches_module = any(
             endpoint_module == prefix or endpoint_module.startswith(f"{prefix}.")
@@ -125,6 +154,7 @@ def prepare_capability_for_reactivation(
     module_prefixes = _capability_module_prefixes(capability_code)
     removed_routes = _remove_capability_routes(
         app,
+        capability_code=capability_code,
         path_prefixes=path_prefixes,
         module_prefixes=module_prefixes,
     )
@@ -141,6 +171,10 @@ def prepare_capability_for_reactivation(
         "removed_routes": removed_routes,
         "purged_modules": purged_modules,
         "path_prefixes": path_prefixes,
+        "scoped_path_prefixes": _capability_scoped_path_prefixes(
+            capability_code,
+            path_prefixes,
+        ),
         "module_prefixes": module_prefixes,
     }
 
