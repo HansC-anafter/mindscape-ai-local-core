@@ -92,7 +92,7 @@ def test_pack_manifest_resolves_prepare_and_confirmation_voice_actions() -> None
     assert confirm.payload["countdown_seconds"] == 5
 
 
-def test_installed_yogacoach_manifest_resolves_without_test_registry() -> None:
+def test_installed_yogacoach_v2_manifest_does_not_double_match_legacy_actions() -> None:
     prepare = resolve_voice_client_action(
         transcript="播放瑜伽練習",
         session=_session(),
@@ -102,12 +102,8 @@ def test_installed_yogacoach_manifest_resolves_without_test_registry() -> None:
         session=_session(),
     )
 
-    assert prepare is not None
-    assert prepare.pack_code == "yogacoach"
-    assert prepare.action_code == "yogacoach.prepare_reference_practice"
-    assert prepare.payload["reference"]["provider_video_id"] == "BV13g4y1u7di"
-    assert confirm is not None
-    assert confirm.action_code == "yogacoach.confirm_reference_practice"
+    assert prepare is None
+    assert confirm is None
 
 
 def test_voice_action_does_not_cross_pack_boundary() -> None:
