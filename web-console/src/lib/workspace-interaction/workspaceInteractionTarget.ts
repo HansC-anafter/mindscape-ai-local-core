@@ -20,9 +20,13 @@ export type WorkspaceInteractionResult = {
   status:
     | 'draft_updated'
     | 'submitted'
+    | 'answered'
     | 'semantic_clarification'
     | 'ignored_empty_transcript';
   transcript?: string | null;
+  answerText?: string | null;
+  answerLanguage?: string | null;
+  semanticResult?: unknown;
   commandResponse?: unknown;
 };
 

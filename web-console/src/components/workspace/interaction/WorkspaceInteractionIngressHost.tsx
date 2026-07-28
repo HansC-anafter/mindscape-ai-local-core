@@ -6,6 +6,7 @@ import { getApiBaseUrl } from '@/lib/api-url';
 import { WorkspaceInteractionIngressProvider } from '@/lib/workspace-interaction/WorkspaceInteractionIngressProvider';
 
 import { WorkspaceVoiceInteractionToolRegistration } from './WorkspaceVoiceInteractionToolRegistration';
+import { WorkspaceVoiceMeetingBootstrapProvider } from './WorkspaceVoiceMeetingBootstrapProvider';
 
 export function WorkspaceInteractionIngressHost({
   workspaceId,
@@ -16,8 +17,13 @@ export function WorkspaceInteractionIngressHost({
 }) {
   return (
     <WorkspaceInteractionIngressProvider workspaceId={workspaceId}>
-      <WorkspaceVoiceInteractionToolRegistration apiUrl={getApiBaseUrl()} />
-      {children}
+      <WorkspaceVoiceMeetingBootstrapProvider
+        apiUrl={getApiBaseUrl()}
+        workspaceId={workspaceId}
+      >
+        <WorkspaceVoiceInteractionToolRegistration apiUrl={getApiBaseUrl()} />
+        {children}
+      </WorkspaceVoiceMeetingBootstrapProvider>
     </WorkspaceInteractionIngressProvider>
   );
 }

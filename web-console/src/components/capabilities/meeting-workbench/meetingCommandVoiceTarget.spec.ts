@@ -184,4 +184,55 @@ describe('createMeetingCommandVoiceTarget', () => {
     expect(onCommandAccepted).not.toHaveBeenCalled();
     expect(dispatchMeetingClientAction).not.toHaveBeenCalled();
   });
+
+  it('returns a grounded answer without synthesizing a command receipt', async () => {
+    vi.mocked(submitVoiceTurn).mockResolvedValue({
+      status: 'semantic_clarification',
+      transcript: 'How should I align?',
+      command_response: null,
+      semantic_result: {
+        status: 'clarification_required',
+        outcome: 'grounded_answer',
+        decision_code: 'grounded_answer',
+        transcript: 'How should I align?',
+        command_response: null,
+        answer_text: 'Keep the knee tracking over the second toe.',
+        answer_language: 'en',
+        evidence: [{ source_ref: 'mindscape://yogacoach/lesson/1' }],
+      },
+    });
+    const onCommandAccepted = vi.fn();
+    const target = createMeetingCommandVoiceTarget({
+      apiUrl: 'http://api.test',
+      workspaceId: 'ws_1',
+      meetingId: 'mtg_1',
+      snapshot,
+      onCommandAccepted,
+      t,
+    });
+
+    const result = await target!.submitVoiceTurn({
+      clientTurnId: 'turn_answer',
+      audioBase64: 'YXVkaW8=',
+      mimeType: 'audio/webm',
+      language: 'auto',
+    }, {
+      workspaceId: 'ws_1',
+      targetId: target!.targetId,
+      targetKind: target!.targetKind,
+      targetLabel: target!.targetLabel,
+      targetRevision: target!.revision,
+      submissionPolicy: target!.submissionPolicy,
+      context: target!.freezeContext(),
+      contextHash: 'fnv1a32:test',
+    });
+
+    expect(result).toMatchObject({
+      status: 'answered',
+      answerText: 'Keep the knee tracking over the second toe.',
+      answerLanguage: 'en',
+    });
+    expect(onCommandAccepted).not.toHaveBeenCalled();
+    expect(dispatchMeetingClientAction).not.toHaveBeenCalled();
+  });
 });

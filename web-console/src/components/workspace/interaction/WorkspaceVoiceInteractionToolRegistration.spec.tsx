@@ -38,7 +38,7 @@ function TargetRegistration() {
 }
 
 describe('WorkspaceVoiceInteractionToolRegistration', () => {
-  it('registers one stable runtime contribution and disables it without a target', async () => {
+  it('registers one stable runtime contribution and keeps it actionable without a target', async () => {
     contributionSpy.mockClear();
     render(
       <WorkspaceInteractionIngressProvider workspaceId="ws_test">
@@ -54,7 +54,7 @@ describe('WorkspaceVoiceInteractionToolRegistration', () => {
       group: 'runtime',
       order: 25,
       visible: true,
-      disabled: true,
+      disabled: false,
       testId: 'workspace-voice-tool',
     });
   });
