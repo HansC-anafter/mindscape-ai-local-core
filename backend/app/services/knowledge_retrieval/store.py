@@ -16,6 +16,7 @@ from backend.app.services.knowledge_authorization.context_sql import (
 )
 
 from .contracts import CitationLookup
+from .keyword_query import cjk_prefix_tsquery
 from .query_seed import (
     hydrate_authorized_query_seed,
     websearch_query_from_seed,
@@ -228,6 +229,7 @@ class AuthorizationAwareKnowledgeRetrievalStore:
                 if query_evidence_refs
                 else query
             )
+            cjk_prefix_query = cjk_prefix_tsquery(effective_query)
             common = (
                 _principals_json(context),
                 context.tenant_id,
@@ -270,22 +272,51 @@ class AuthorizationAwareKnowledgeRetrievalStore:
             cursor.execute(
                 _AUTHORIZED_CTE
                 + """
+                , keyword_query AS (
+                    SELECT CASE
+                        WHEN %s = '' THEN
+                            websearch_to_tsquery('simple', %s)
+                        ELSE
+                            websearch_to_tsquery('simple', %s)
+                            || to_tsquery('simple', %s)
+                    END AS value
+                )
                 SELECT
                     authorized_rows.*,
                     ts_rank_cd(
-                        to_tsvector('simple', COALESCE(content, '')),
-                        websearch_to_tsquery('simple', %s)
+                        lexical.document,
+                        keyword_query.value
                     ) AS keyword_score
                 FROM authorized_rows
-                WHERE to_tsvector('simple', COALESCE(content, ''))
-                      @@ websearch_to_tsquery('simple', %s)
+                CROSS JOIN keyword_query
+                CROSS JOIN LATERAL (
+                    SELECT
+                        setweight(
+                            to_tsvector(
+                                'simple',
+                                COALESCE(authorized_rows.title, '')
+                            ),
+                            'A'
+                        )
+                        ||
+                        setweight(
+                            to_tsvector(
+                                'simple',
+                                COALESCE(authorized_rows.content, '')
+                            ),
+                            'D'
+                        ) AS document
+                ) AS lexical
+                WHERE lexical.document @@ keyword_query.value
                 ORDER BY keyword_score DESC, id
                 LIMIT %s
                 """,
                 (
                     *common,
+                    cjk_prefix_query,
                     effective_query,
                     effective_query,
+                    cjk_prefix_query,
                     candidate_limit,
                 ),
             )

@@ -197,7 +197,7 @@ class AuthorizationAwareKnowledgeRetrievalFacade(
             transaction_count=2 if ranked or seed_bindings else 1,
             degraded_reasons=tuple(degraded),
             authorization_receipt_digest=receipt,
-            fusion_revision="rrf.k60.v1",
+            fusion_revision="rrf.k60.lexical-prefix.v2",
             channel_coverage={
                 "text_vector_candidates": len(vector_rows),
                 "keyword_candidates": len(keyword_rows),

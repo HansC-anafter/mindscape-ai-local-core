@@ -37,6 +37,7 @@ def _seed():
     return {
         "cache_key": "c" * 64,
         "projection_digest": "p" * 64,
+        "retrieval_revision": "knowledge-retrieval.cjk-prefix.v2",
         "request_digest": "r" * 64,
         "question": {
             "question_row_id": "kbq_1",
@@ -137,6 +138,9 @@ async def test_cache_hit_requires_exact_final_binding() -> None:
     result = await facade.execute(_command(), access_context=_context())
 
     assert result["cache_status"] == "hit"
+    assert result["retrieval_revision"] == (
+        "knowledge-retrieval.cjk-prefix.v2"
+    )
     assert result["result"]["evidence"][0]["content"] == "cached"
     assert store.hit == 1
     assert query.calls == 0
