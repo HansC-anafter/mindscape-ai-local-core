@@ -215,6 +215,51 @@ def test_pack_install_permit_limit_remains_fail_closed_for_active_permits(
         )
 
 
+def test_pack_install_permit_revoke_requires_terminal_receipt_and_is_idempotent(
+    tmp_path: Path,
+) -> None:
+    journal = RuntimeDatabaseIncidentJournal(tmp_path)
+    incident = journal.open_incident(failure_code="unexpected_close")
+    journal.grant_pack_install_permit(
+        incident.incident_id,
+        _pack_install_permit(),
+    )
+
+    revoked = journal.revoke_pack_install_permit(
+        incident.incident_id,
+        permit_id="pack-install-001",
+        terminal_install_id="install-terminal-001",
+        terminal_status="succeeded",
+        terminal_evidence_path="evidence/install-terminal-001.json",
+    )
+    repeated = journal.revoke_pack_install_permit(
+        incident.incident_id,
+        permit_id="pack-install-001",
+        terminal_install_id="install-terminal-001",
+        terminal_status="succeeded",
+        terminal_evidence_path="evidence/install-terminal-001.json",
+    )
+    gate = RuntimeDatabaseMutationGate(tmp_path)
+
+    assert revoked.pack_install_permits == ()
+    assert repeated == revoked
+    assert gate.evaluate(
+        "capability_install_job:runtime-id",
+        {"artifact_sha256": "b" * 64},
+    ).reason == "runtime_database_incident_open"
+    with pytest.raises(
+        IncidentTransitionError,
+        match="already revoked with another receipt",
+    ):
+        journal.revoke_pack_install_permit(
+            incident.incident_id,
+            permit_id="pack-install-001",
+            terminal_install_id="install-terminal-002",
+            terminal_status="failed",
+            terminal_evidence_path="evidence/install-terminal-002.json",
+        )
+
+
 def test_open_incident_allows_only_exact_owner_authorized_targeted_migration(
     tmp_path: Path,
 ) -> None:

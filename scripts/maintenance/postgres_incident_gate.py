@@ -102,6 +102,17 @@ def _parser() -> argparse.ArgumentParser:
     pack_permit.add_argument("--owner", required=True)
     pack_permit.add_argument("--owner-authorization", required=True)
 
+    revoke_pack_permit = commands.add_parser("revoke-pack-install")
+    revoke_pack_permit.add_argument("incident_id")
+    revoke_pack_permit.add_argument("--permit-id", required=True)
+    revoke_pack_permit.add_argument("--terminal-install-id", required=True)
+    revoke_pack_permit.add_argument(
+        "--terminal-status",
+        choices=("succeeded", "failed", "cancelled"),
+        required=True,
+    )
+    revoke_pack_permit.add_argument("--terminal-evidence-path", required=True)
+
     migration_permit = commands.add_parser("permit-targeted-migration")
     migration_permit.add_argument("incident_id")
     migration_permit.add_argument("--permit-id", required=True)
@@ -242,6 +253,14 @@ def main(argv: list[str] | None = None) -> int:
                 owner=args.owner,
                 owner_authorization=args.owner_authorization,
             ),
+        )
+    elif args.command == "revoke-pack-install":
+        receipt = journal.revoke_pack_install_permit(
+            args.incident_id,
+            permit_id=args.permit_id,
+            terminal_install_id=args.terminal_install_id,
+            terminal_status=args.terminal_status,
+            terminal_evidence_path=args.terminal_evidence_path,
         )
     elif args.command == "permit-targeted-migration":
         operation_key = (

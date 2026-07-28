@@ -567,6 +567,79 @@ class RuntimeDatabaseIncidentJournal(IncidentClosureJournalMixin):
             self._write_current_unlocked(updated)
             return updated
 
+    def revoke_pack_install_permit(
+        self,
+        incident_id: str,
+        *,
+        permit_id: str,
+        terminal_install_id: str,
+        terminal_status: str,
+        terminal_evidence_path: str,
+    ) -> IncidentReceipt:
+        """Remove one terminal install authority from the bounded current snapshot."""
+
+        exact_permit_id = permit_id.strip()
+        exact_install_id = terminal_install_id.strip()
+        exact_evidence_path = terminal_evidence_path.strip()
+        if not exact_permit_id:
+            raise ValueError("pack_install_permit_id_required")
+        if not exact_install_id:
+            raise ValueError("pack_install_terminal_install_id_required")
+        if terminal_status not in {"succeeded", "failed", "cancelled"}:
+            raise ValueError("pack_install_terminal_status_invalid")
+        if not exact_evidence_path:
+            raise ValueError("pack_install_terminal_evidence_path_required")
+        expected_receipt = {
+            "permit_id": exact_permit_id,
+            "terminal_install_id": exact_install_id,
+            "terminal_status": terminal_status,
+            "terminal_evidence_path": exact_evidence_path,
+        }
+        with self._lock():
+            current = self._require_current_unlocked(incident_id)
+            existing = tuple(current.pack_install_permits)
+            retained = tuple(
+                permit
+                for permit in existing
+                if str(permit.get("permit_id") or "") != exact_permit_id
+            )
+            if len(retained) == len(existing):
+                matching_events = [
+                    event
+                    for event in self._read_events_unlocked(incident_id)
+                    if event.get("event") == "pack_install_permit_revoked"
+                    and event.get("permit_id") == exact_permit_id
+                ]
+                if matching_events:
+                    prior = matching_events[-1]
+                    if all(
+                        prior.get(key) == value
+                        for key, value in expected_receipt.items()
+                    ):
+                        return current
+                    raise IncidentTransitionError(
+                        f"Permit {exact_permit_id} was already revoked with another receipt"
+                    )
+                raise IncidentTransitionError(
+                    f"Permit {exact_permit_id} is not active"
+                )
+            event_time = utc_now()
+            updated = replace(
+                current,
+                updated_at=event_time,
+                pack_install_permits=retained,
+            )
+            self._append_event_unlocked(
+                incident_id=incident_id,
+                event={
+                    "event": "pack_install_permit_revoked",
+                    "at": event_time,
+                    **expected_receipt,
+                },
+            )
+            self._write_current_unlocked(updated)
+            return updated
+
     def grant_targeted_migration_permit(
         self,
         incident_id: str,
