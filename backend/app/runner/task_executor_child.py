@@ -32,13 +32,32 @@ def _write_result_file(result_file: Optional[str], payload: Any) -> None:
         json.dump(payload, file_obj, ensure_ascii=False, default=str)
 
 
-def _initialize_capability_packages_for_runner(*, load_tools: bool = True) -> None:
+def _initialize_capability_packages_for_runner(
+    *,
+    load_tools: bool = True,
+    capability_code: Optional[str] = None,
+) -> None:
     try:
-        from backend.app.services.capability_registry import get_registry, load_capabilities
+        from backend.app.services.capability_registry import (
+            get_registry,
+            load_capabilities,
+            reload_capability,
+        )
 
         app_dir = Path(__file__).resolve().parent.parent
         capabilities_dir = (app_dir / "capabilities").resolve()
-        load_capabilities(capabilities_dir)
+        normalized_capability_code = str(capability_code or "").strip()
+        if normalized_capability_code:
+            if not reload_capability(
+                normalized_capability_code,
+                capabilities_dir,
+            ):
+                raise RuntimeError(
+                    "runner_child_capability_manifest_not_found:"
+                    f"{normalized_capability_code}"
+                )
+        else:
+            load_capabilities(capabilities_dir)
         if load_tools:
             from backend.app.services.capability_tool_loader import load_all_capability_tools
 
@@ -46,10 +65,12 @@ def _initialize_capability_packages_for_runner(*, load_tools: bool = True) -> No
 
         registry = get_registry()
         logger.info(
-            "Runner capability packages loaded: %s capabilities, %s tools, load_tools=%s",
+            "Runner capability packages loaded: %s capabilities, %s tools, "
+            "load_tools=%s capability_code=%s",
             len(registry.list_capabilities()),
             len(registry.list_tools()),
             load_tools,
+            normalized_capability_code or "all",
         )
     except Exception as e:
         logger.error(f"Runner failed to load capability packages: {e}", exc_info=True)
@@ -76,6 +97,7 @@ def _child_execute_playbook(
     admission_snapshot = payload.get("execution_admission_snapshot")
     task_type = payload.get("task_type", "playbook_execution")
     playbook_code = payload.get("playbook_code")
+    capability_code = str(payload.get("capability_code") or "").strip()
     tool_name = payload.get("tool_name") or playbook_code
     internal_projection_admission = payload.get(
         "knowledge_projection_admission"
@@ -114,16 +136,22 @@ def _child_execute_playbook(
                     payload.get("root_execution_id") or task_id
                 ),
             )
+    if task_type != "tool_execution" and not capability_code:
+        raise RuntimeError("runner_child_capability_code_required")
+    eager_tool_load = (
+        os.getenv("LOCAL_CORE_RUNNER_CHILD_EAGER_TOOL_LOAD", "")
+        .strip()
+        .lower()
+        in {"1", "true", "yes", "on"}
+    )
     try:
-        eager_tool_load = (
-            os.getenv("LOCAL_CORE_RUNNER_CHILD_EAGER_TOOL_LOAD", "")
-            .strip()
-            .lower()
-            in {"1", "true", "yes", "on"}
+        initialize_capability_packages_for_runner(
+            load_tools=eager_tool_load,
+            capability_code=capability_code or None,
         )
-        initialize_capability_packages_for_runner(load_tools=eager_tool_load)
     except Exception:
-        pass
+        if capability_code:
+            raise
 
     profile_id = payload.get("profile_id")
     inputs = payload.get("inputs")

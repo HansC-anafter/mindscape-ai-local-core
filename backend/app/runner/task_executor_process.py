@@ -28,6 +28,19 @@ def build_child_payload(
     resolved_profile_id: str,
     result_file: str,
 ) -> Dict[str, Any]:
+    task_type = task.task_type or "playbook_execution"
+    capability_code: Optional[str] = None
+    if task_type != "tool_execution":
+        from backend.app.services.runner_topology.spec_metadata import (
+            resolve_installed_playbook_runner_metadata,
+        )
+
+        runner_metadata = resolve_installed_playbook_runner_metadata(
+            str(task.pack_id or "").strip()
+        )
+        capability_code = str(
+            (runner_metadata or {}).get("capability_code") or ""
+        ).strip() or None
     child_inputs = dict(inputs)
     admission_snapshot = (
         ctx.get("execution_admission_snapshot")
@@ -45,7 +58,8 @@ def build_child_payload(
         "runner_id": runner_id,
         "task_id": task.id,
         "playbook_code": task.pack_id,
-        "task_type": task.task_type or "playbook_execution",
+        "task_type": task_type,
+        "capability_code": capability_code,
         "tool_name": (ctx.get("tool_name") if isinstance(ctx, dict) else None),
         "profile_id": resolved_profile_id,
         "inputs": child_inputs,
