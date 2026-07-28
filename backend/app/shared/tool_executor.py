@@ -117,10 +117,18 @@ class ToolExecutor:
         from backend.app.services.tool_execution_admission import (
             prepare_tool_admission,
         )
+        from backend.app.services.capability_tool_invocation import (
+            build_capability_execution_context,
+        )
 
-        kwargs, _admission_snapshot = await prepare_tool_admission(
+        original_kwargs = dict(kwargs)
+        kwargs, admission_snapshot = await prepare_tool_admission(
             tool_name=tool_name,
             arguments=kwargs,
+        )
+        execution_context = build_capability_execution_context(
+            original_kwargs,
+            admission_snapshot=admission_snapshot,
         )
         if '.' in tool_name:
             parts = tool_name.split('.', 1)
@@ -137,7 +145,12 @@ class ToolExecutor:
                     tool_info = self.registry.get_tool(tool_name)
                 if tool_info:
                     logger.debug(f"Calling capability tool: {tool_name}")
-                    return await call_tool_async(capability, tool, **kwargs)
+                    return await call_tool_async(
+                        capability,
+                        tool,
+                        _execution_context=execution_context,
+                        **kwargs,
+                    )
 
         logger.debug(f"Tool {tool_name} not found in capability registry, trying MindscapeTool registry...")
 
