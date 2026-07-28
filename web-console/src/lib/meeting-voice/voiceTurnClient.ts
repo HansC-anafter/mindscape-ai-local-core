@@ -23,6 +23,9 @@ export type WorkspaceVoiceSemanticTurnResult = {
   command_response?: unknown | null;
   answer_text?: string | null;
   answer_language?: string | null;
+  resolved_references?: unknown[];
+  candidates?: unknown[];
+  evidence?: unknown[];
   client_action?: unknown | null;
 };
 

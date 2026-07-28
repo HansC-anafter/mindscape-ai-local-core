@@ -28,6 +28,8 @@ export type WorkspaceVoiceState =
   | 'submitting'
   | 'draft_updated'
   | 'submitted'
+  | 'answered'
+  | 'semantic_clarification'
   | 'cancelled'
   | 'permission_denied'
   | 'unavailable'
@@ -37,6 +39,8 @@ export type WorkspaceVoiceState =
   | 'realtime_listening'
   | 'realtime_interrupted'
   | 'realtime_speech_unavailable'
+  | 'realtime_answered'
+  | 'realtime_clarification'
   | 'error';
 
 function buildClientTurnId(): string {
@@ -51,6 +55,8 @@ function realtimeState(
   if (state === 'transcribing') return 'transcribing';
   if (state === 'interrupted') return 'realtime_interrupted';
   if (state === 'speech_unavailable') return 'realtime_speech_unavailable';
+  if (state === 'answered') return 'realtime_answered';
+  if (state === 'clarification') return 'realtime_clarification';
   if (state === 'stale_target') return 'stale_target';
   if (state === 'error') return 'error';
   return 'idle';
@@ -67,6 +73,7 @@ export function useWorkspaceVoiceInteractionController(apiUrl: string) {
   const [state, setState] = React.useState<WorkspaceVoiceState>('idle');
   const [error, setError] = React.useState<string | null>(null);
   const [transcript, setTranscript] = React.useState<string | null>(null);
+  const [answerText, setAnswerText] = React.useState<string | null>(null);
   const recorderRef = React.useRef<MediaRecorder | null>(null);
   const streamRef = React.useRef<MediaStream | null>(null);
   const chunksRef = React.useRef<Blob[]>([]);
@@ -140,6 +147,7 @@ export function useWorkspaceVoiceInteractionController(apiUrl: string) {
   const startBounded = React.useCallback(async () => {
     setError(null);
     setTranscript(null);
+    setAnswerText(null);
     cancelledRef.current = false;
     let frozen: FrozenWorkspaceInteractionTarget;
     try {
@@ -215,10 +223,15 @@ export function useWorkspaceVoiceInteractionController(apiUrl: string) {
             language: 'auto',
           });
           setTranscript(result.transcript?.trim() || null);
+          setAnswerText(result.answerText?.trim() || null);
           if (result.status === 'ignored_empty_transcript') {
             setState('empty');
           } else if (result.status === 'draft_updated') {
             setState('draft_updated');
+          } else if (result.status === 'answered') {
+            setState('answered');
+          } else if (result.status === 'semantic_clarification') {
+            setState('semantic_clarification');
           } else {
             setState('submitted');
           }
@@ -282,6 +295,7 @@ export function useWorkspaceVoiceInteractionController(apiUrl: string) {
     }
     setError(null);
     setTranscript(null);
+    setAnswerText(null);
     try {
       const frozen = freezeActiveTarget();
       frozenRef.current = frozen;
@@ -295,6 +309,9 @@ export function useWorkspaceVoiceInteractionController(apiUrl: string) {
         onState: (next) => setState(realtimeState(next)),
         onTranscript: setTranscript,
         onCommandAccepted: activeTarget.realtimeTransport.handleCommandAccepted,
+        onSemanticResult: (result) => {
+          setAnswerText(result.answer_text?.trim() || null);
+        },
         onError: (caught) => setError(caught.message),
       });
     } catch (caught) {
@@ -320,6 +337,7 @@ export function useWorkspaceVoiceInteractionController(apiUrl: string) {
     setState('idle');
     setError(null);
     setTranscript(null);
+    setAnswerText(null);
   }, [cancel, state]);
 
   return {
@@ -328,6 +346,7 @@ export function useWorkspaceVoiceInteractionController(apiUrl: string) {
     state,
     error,
     transcript,
+    answerText,
     realtimeAvailable: Boolean(activeTarget?.realtimeTransport),
     setMode: setVoiceMode,
     start: mode === 'realtime' ? startRealtime : startBounded,

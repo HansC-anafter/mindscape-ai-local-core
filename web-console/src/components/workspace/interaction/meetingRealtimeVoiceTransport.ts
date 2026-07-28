@@ -5,6 +5,7 @@ import {
   type RealtimeVoiceSessionSocket,
 } from '@/lib/meeting-voice/realtimeVoiceSessionClient';
 import type { MeetingVoiceCommandContext } from '@/lib/meeting-voice/voiceTurnClient';
+import type { WorkspaceVoiceSemanticTurnResult } from '@/lib/meeting-voice/voiceTurnClient';
 import type { FrozenWorkspaceInteractionTarget } from '@/lib/workspace-interaction/workspaceInteractionTarget';
 
 export type MeetingRealtimeVoiceTransportState =
@@ -14,6 +15,8 @@ export type MeetingRealtimeVoiceTransportState =
   | 'interrupted'
   | 'closed'
   | 'speech_unavailable'
+  | 'answered'
+  | 'clarification'
   | 'stale_target'
   | 'error';
 
@@ -57,6 +60,7 @@ export async function startMeetingRealtimeVoiceTransport({
   onState,
   onTranscript,
   onCommandAccepted,
+  onSemanticResult,
   onError,
 }: {
   apiUrl: string;
@@ -69,6 +73,7 @@ export async function startMeetingRealtimeVoiceTransport({
     transcript: string;
     commandResponse: unknown;
   }) => void;
+  onSemanticResult: (result: WorkspaceVoiceSemanticTurnResult) => void;
   onError: (error: Error) => void;
 }): Promise<MeetingRealtimeVoiceTransportHandle> {
   const { meetingId, commandContext } = readRealtimeContext(snapshot);
@@ -112,6 +117,16 @@ export async function startMeetingRealtimeVoiceTransport({
         return;
       }
       onState('listening');
+    } else if (event.type === 'semantic_clarification') {
+      if (event.semantic_result) {
+        onSemanticResult(event.semantic_result);
+      }
+      onState(
+        event.semantic_result?.outcome === 'grounded_answer'
+          && Boolean(event.semantic_result.answer_text?.trim())
+          ? 'answered'
+          : 'clarification',
+      );
     } else if (event.type === 'speech_unavailable') {
       onState('speech_unavailable');
     } else if (event.type === 'interrupted') {

@@ -447,10 +447,10 @@ surfaces:
   - id: psc.local-core.workspace-aol-voice-interaction-ingress.v1
     tier: P0
     owner: "@team-leads"
-    contract_doc: mindscape-ai-cloud/docs/internal/local-core/product-semantics/workspace-aol-voice-interaction-ingress-contract-2026-07-27.zh-TW.md
+    contract_doc: mindscape-ai-cloud/docs/internal/local-core/product-semantics/workspace-global-voice-meeting-bootstrap-contract-2026-07-28.zh-TW.md
     requires_product_semantic_declaration: true
     semantics:
-      - Workspace voice is a host-owned Runtime tool shown through the existing shared workspace rail or tray; it becomes actionable only for one explicit active text terminal and freezes target and context before recording.
+      - Workspace voice is a host-owned Runtime tool shown through the existing shared workspace rail or tray; with one explicit target it preserves that target, and with zero targets a user click singleflight reuses or creates one Workspace/capability-scoped Meeting Engine session before freezing the resulting Meeting target.
       - Voice changes input modality only; final transcript preserves target-owned context, authorization, approval, submission policy, canonical writer, status, and receipts, while workspace chat, Meeting, and Host Runtime keep their existing writers.
       - Workspace chat, bounded and realtime Meeting transports, and Host Runtime review behavior converge behind one frontend interaction controller; compatibility routes are inbound adapters only and do not keep separate capture or writer semantics.
       - Closed or idle voice UI performs no microphone, WebSocket, VAD, health, timer, polling, DB, worker, queue, or PgBouncer work; raw audio, windows, and partials are never persisted, and each final utterance is submitted at most once.
@@ -459,6 +459,8 @@ surfaces:
       - backend/app/models/meeting_voice_session.py
       - backend/app/routes/core/workspace/meeting_voice.py
       - backend/app/routes/core/workspace/meeting_voice_sessions.py
+      - backend/app/routes/meeting_sessions.py
+      - backend/app/services/meeting_session_start.py
       - backend/app/services/orchestration/meeting/voice_ingress.py
       - backend/app/services/orchestration/meeting/realtime_voice_transcriber.py
       - backend/app/services/orchestration/meeting/voice_client_actions.py
