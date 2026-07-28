@@ -57,6 +57,31 @@ def _is_live_signal_observer_permit(
     )
 
 
+def _partition_active_pack_install_permits(
+    permits: tuple[Mapping[str, Any], ...],
+    *,
+    now: datetime,
+) -> tuple[tuple[Mapping[str, Any], ...], tuple[str, ...]]:
+    """Keep the bounded current snapshot limited to permits that can still admit work."""
+
+    active: list[Mapping[str, Any]] = []
+    expired_ids: list[str] = []
+    for permit in permits:
+        expires_at = permit.get("expires_at")
+        try:
+            permit_active = bool(expires_at) and _parse_timestamp(
+                str(expires_at),
+                field_name="pack_install_permit_expires_at",
+            ) > now
+        except ValueError:
+            permit_active = False
+        if permit_active:
+            active.append(permit)
+            continue
+        expired_ids.append(str(permit.get("permit_id") or "unknown"))
+    return tuple(active), tuple(expired_ids)
+
+
 class IncidentJournalUnavailable(RuntimeError):
     """Raised when the single durable journal cannot be read or written."""
 
@@ -516,13 +541,19 @@ class RuntimeDatabaseIncidentJournal(IncidentClosureJournalMixin):
                 raise IncidentTransitionError(
                     f"Permit {permit_receipt.permit_id} already has another receipt"
                 )
-            if len(existing) >= 16:
+            active_existing, expired_permit_ids = (
+                _partition_active_pack_install_permits(
+                    existing,
+                    now=datetime.now(timezone.utc),
+                )
+            )
+            if len(active_existing) >= 16:
                 raise IncidentTransitionError("pack_install_permit_limit_exceeded")
             event_time = utc_now()
             updated = replace(
                 current,
                 updated_at=event_time,
-                pack_install_permits=(*existing, permit_payload),
+                pack_install_permits=(*active_existing, permit_payload),
             )
             self._append_event_unlocked(
                 incident_id=incident_id,
@@ -530,6 +561,7 @@ class RuntimeDatabaseIncidentJournal(IncidentClosureJournalMixin):
                     "event": "pack_install_permit_granted",
                     "at": event_time,
                     "permit_receipt": permit_payload,
+                    "expired_permit_ids_pruned": list(expired_permit_ids),
                 },
             )
             self._write_current_unlocked(updated)
