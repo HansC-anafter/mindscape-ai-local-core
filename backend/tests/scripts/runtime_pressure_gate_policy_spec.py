@@ -22,7 +22,16 @@ def _healthy():
         },
         "docker_stats": {"ok": True, "rows": []},
         "endpoint_checks": {"healthz": {"ok": True, "elapsed_seconds": 0.1}},
-        "thresholds": Thresholds(100, 1000, 200.0, 400.0, 5.0),
+        "thresholds": Thresholds(
+            running_observation_limit=100,
+            pending_observation_limit=1000,
+            max_postgres_cpu=200.0,
+            max_runner_cpu_ratio=0.90,
+            runner_cpu_sample_count=5,
+            runner_cpu_sustained_sample_count=3,
+            runner_cpu_sample_interval_seconds=2.0,
+            max_endpoint_seconds=5.0,
+        ),
         "postgres_metrics": {
             "ok": True,
             "metrics": {
@@ -71,6 +80,11 @@ def _healthy():
                 },
             ],
         },
+        "runner_cpu_pressure": {
+            "collection_ok": True,
+            "ok": True,
+            "failures": [],
+        },
     }
 
 
@@ -95,6 +109,31 @@ def test_runtime_gate_does_not_require_global_task_zero():
     evidence["task_status"]["counts"] = {"running": 101, "pending": 1001}
 
     assert evaluate_gate(**evidence) == []
+
+
+def test_runtime_gate_does_not_apply_legacy_raw_runner_cpu_threshold():
+    evidence = _healthy()
+    evidence["docker_stats"]["rows"] = [
+        {
+            "Name": "mindscape-ai-local-core-runner-browser-extra",
+            "cpu_percent_value": 944.29,
+        }
+    ]
+
+    assert evaluate_gate(**evidence) == []
+
+
+def test_runtime_gate_fails_closed_when_runner_cpu_samples_are_unavailable():
+    evidence = _healthy()
+    evidence["runner_cpu_pressure"] = {
+        "collection_ok": False,
+        "error_code": "docker_ncpu_unavailable",
+    }
+
+    assert (
+        "runner_cpu_pressure_unavailable:docker_ncpu_unavailable"
+        in evaluate_gate(**evidence)
+    )
 
 
 def test_runtime_gate_rejects_degraded_protected_capacity_below_seven():

@@ -169,6 +169,7 @@ surfaces:
       - scripts/maintenance/postgres_recovery_drill.py
       - scripts/postgres_recovery_drill_core/**
       - scripts/maintenance/runtime_pressure_gate.py
+      - scripts/maintenance/runtime_pressure_gate_core/**
       - scripts/maintenance/check_runtime_read_path_budget.py
       - docker-compose.yml
       - docker/compose/postgres-recovery-drill.yml
@@ -177,6 +178,7 @@ surfaces:
       - docker/pgbouncer/**
       - backend/tests/runtime_database_incident_gate_spec.py
       - backend/tests/runtime_database_residual_closure_spec.py
+      - backend/tests/scripts/runtime_pressure_gate_*_spec.py
       - backend/tests/database_recovery_backoff_spec.py
       - backend/tests/database_application_identity_spec.py
       - backend/tests/database_query_failure_evidence_spec.py
