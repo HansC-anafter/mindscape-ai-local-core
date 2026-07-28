@@ -4,6 +4,7 @@ import pytest
 
 from backend.app.services.capability_tool_invocation import (
     CapabilityExecutionContext,
+    RuntimeTaskIdentity,
     build_capability_execution_context,
     invoke_capability_tool,
     invoke_capability_tool_async,
@@ -65,10 +66,12 @@ def test_verified_snapshot_is_authoritative_for_standard_tool_identity():
             "root_execution_id": "execution-verified",
             "trace_id": "trace-verified",
         },
+        runtime_task_identity=RuntimeTaskIdentity("task-current"),
     )
 
     assert context.workspace_id == "workspace-verified"
     assert context.execution_id == "execution-verified"
+    assert context.task_id == "task-current"
     assert context.root_execution_id == "execution-verified"
     assert context.trace_id == "trace-verified"
 
@@ -78,6 +81,7 @@ def test_explicit_context_is_not_rebuilt_from_sanitized_inputs():
         workspace_id="workspace-1",
         project_id=None,
         execution_id="execution-1",
+        task_id="task-1",
         root_execution_id="execution-1",
         trace_id="trace-1",
         profile_id=None,

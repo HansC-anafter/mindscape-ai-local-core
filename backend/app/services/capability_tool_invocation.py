@@ -15,10 +15,18 @@ class CapabilityExecutionContext:
     workspace_id: str | None
     project_id: str | None
     execution_id: str | None
+    task_id: str | None
     root_execution_id: str | None
     trace_id: str | None
     profile_id: str | None
     admission_snapshot: Mapping[str, Any] | None
+
+
+@dataclass(frozen=True)
+class RuntimeTaskIdentity:
+    """Runner-owned current task identity that cannot be forged by JSON inputs."""
+
+    task_id: str
 
 
 def _optional_string(value: Any) -> str | None:
@@ -41,6 +49,7 @@ def build_capability_execution_context(
     arguments: Mapping[str, Any],
     *,
     admission_snapshot: Any = None,
+    runtime_task_identity: RuntimeTaskIdentity | None = None,
 ) -> CapabilityExecutionContext:
     """Derive immutable identity context from the verified admission receipt."""
     raw_snapshot = (
@@ -67,6 +76,11 @@ def build_capability_execution_context(
         project_id=_optional_string(arguments.get("project_id")),
         execution_id=_optional_string(
             arguments.get("execution_id") or root_execution_id
+        ),
+        task_id=_optional_string(
+            runtime_task_identity.task_id
+            if isinstance(runtime_task_identity, RuntimeTaskIdentity)
+            else None
         ),
         root_execution_id=root_execution_id,
         trace_id=_optional_string(

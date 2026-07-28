@@ -176,6 +176,10 @@ def _child_execute_playbook(
                     pass
         else:
             executor = PlaybookRunExecutor()
+            if task_id:
+                executor.playbook_runner.tool_executor.execution_context[
+                    "task_id"
+                ] = task_id
             result = await executor.execute_playbook_run(
                 playbook_code=playbook_code,
                 profile_id=profile_id,
