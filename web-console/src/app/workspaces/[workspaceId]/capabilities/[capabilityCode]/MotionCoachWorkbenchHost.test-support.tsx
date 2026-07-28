@@ -1,6 +1,7 @@
 import React from 'react';
 import { vi } from 'vitest';
 
+import { clearMotionPracticeReferenceProfileResolutionCacheForTests } from '@/components/workspace/device-binding/practice/motionPracticeResolvedLesson';
 import MotionCoachWorkbenchHost from './MotionCoachWorkbenchHost';
 
 const navigationMocksState = vi.hoisted(() => ({
@@ -11,6 +12,32 @@ const motionCoachMocksState = vi.hoisted(() => ({
   existingBridge: null as Record<string, unknown> | null,
   publishReferenceLessonState: vi.fn(),
   phoneSourcePreviewProps: null as any,
+  fetchReferenceProfileSelection: vi.fn(async () => ({
+    status: 'ready' as const,
+    artifact_id: 'artifact-reference-v3',
+    reference_profile_id: 'profile-reference-v3',
+    source_ref: 'https://www.bilibili.com/video/BV13g4y1u7di/',
+    chapter_count: 2,
+    duration_ms: 1_809_679,
+    chapters: [
+      {
+        chapter_id: 'chapter-warmup',
+        title: 'Warm up',
+        start_ms: 0,
+        end_ms: 60_000,
+        segment_type: 'transition',
+        confidence: 0.9,
+      },
+      {
+        chapter_id: 'chapter-flow',
+        title: 'Standing flow',
+        start_ms: 60_000,
+        end_ms: 1_809_679,
+        segment_type: 'flow',
+        confidence: 0.94,
+      },
+    ],
+  })),
   launchMotionPractice: vi.fn(async (input: any) => ({
     meetingId: 'meeting-recovered',
     commandId: null,
@@ -87,6 +114,17 @@ vi.mock('@/components/workspace/device-binding/motionPracticeLauncher', async ()
   return {
     ...actual,
     launchMotionPractice: motionCoachMocksState.launchMotionPractice,
+  };
+});
+
+vi.mock('@/components/workspace/device-binding/practice/motionPracticeReferenceProfileClient', async () => {
+  const actual = await vi.importActual<typeof import('@/components/workspace/device-binding/practice/motionPracticeReferenceProfileClient')>(
+    '@/components/workspace/device-binding/practice/motionPracticeReferenceProfileClient',
+  );
+  return {
+    ...actual,
+    fetchMotionPracticeReferenceProfileSelection:
+      motionCoachMocksState.fetchReferenceProfileSelection,
   };
 });
 
@@ -195,11 +233,13 @@ export function createDefaultMotionSessions() {
 }
 
 export function resetMotionCoachMocks() {
+  clearMotionPracticeReferenceProfileResolutionCacheForTests();
   navigationMocks.searchParams = new URLSearchParams();
   motionCoachMocks.existingBridge = null;
   motionCoachMocks.publishReferenceLessonState = vi.fn();
   motionCoachMocks.phoneSourcePreviewProps = null;
   motionCoachMocks.launchMotionPractice.mockClear();
+  motionCoachMocks.fetchReferenceProfileSelection.mockClear();
   motionCoachMocks.sessions = createDefaultMotionSessions();
   motionCoachMocks.referenceLessonState = {
     lesson_id: 'lesson-live',

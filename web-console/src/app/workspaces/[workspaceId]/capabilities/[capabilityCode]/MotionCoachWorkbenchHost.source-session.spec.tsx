@@ -10,6 +10,7 @@ import {
   launchMotionPracticeMock,
   createPhoneMotionSession,
   motionCoachMocks as mocks,
+  navigationMocks,
   resetMotionCoachMocks,
 } from './MotionCoachWorkbenchHost.test-support';
 import MotionCoachWorkbenchHost from './MotionCoachWorkbenchHost';
@@ -137,10 +138,89 @@ describe('MotionCoachWorkbenchHost source sessions', () => {
       coachPack: 'yogacoach',
       practiceMode: 'live_guidance',
       expertLibraryRef: 'https://www.bilibili.com/video/BV13g4y1u7di/',
-      expectedDurationMs: 1_800_000,
+      expectedDurationMs: 1_809_679,
       sourceSession: expect.objectContaining({ session_id: 'session-phone' }),
     }));
     expect(runtimeSnapshots.at(-1)?.referencePlaybackPlan?.status).toBe('playing');
+  });
+
+  it('resolves a direct Bilibili handoff and reuses the existing playback stage after Start guidance', async () => {
+    navigationMocks.searchParams = new URLSearchParams({
+      motion_lesson_handoff: '1',
+      motion_lesson_target: 'yogacoach',
+      motion_lesson_kind: 'bilibili_instruction_ref',
+      motion_lesson_value: 'https://www.bilibili.com/video/BV13g4y1u7di/?tracking=1',
+      motion_lesson_provider: 'bilibili',
+      motion_lesson_title: 'Bilibili yoga practice reference',
+    });
+    const runtimeSnapshots: any[] = [];
+    function RuntimeComponent(props: any) {
+      runtimeSnapshots.push(props);
+      return React.createElement('div', null, props.referencePlaybackPlan?.status || 'idle');
+    }
+
+    render(React.createElement(MotionCoachWorkbenchHost, {
+      workspaceId: 'ws-motion',
+      apiUrl: 'http://api.test',
+      capabilityCode: 'yogacoach',
+      Component: RuntimeComponent,
+      aolHost: {},
+      surfacePath: ['practice'],
+    }));
+
+    await waitFor(() => {
+      expect(
+        runtimeSnapshots.at(-1)?.motionCoachControls?.initialInstructionSource,
+      ).toMatchObject({
+        kind: 'bilibili_instruction_ref',
+        value: 'https://www.bilibili.com/video/BV13g4y1u7di/',
+        motionReferenceProfileArtifactId: 'artifact-reference-v3',
+        courseChaptersError: null,
+      });
+    });
+    expect(
+      runtimeSnapshots.at(-1)?.workbenchState?.reference_lesson_import_ref,
+    ).toMatchObject({
+      status: 'ready',
+      ready_chapter_count: 2,
+    });
+
+    const controls = runtimeSnapshots.at(-1).motionCoachControls;
+    await act(async () => {
+      controls.onLaunchInputChange({
+        apiUrl: 'http://api.test',
+        workspaceId: 'ws-motion',
+        sourceSession: mocks.sessions[0],
+        coachPack: 'yogacoach',
+        practiceMode: 'live_guidance',
+        expectedDurationMs: 1_809_679,
+        instructionRefs: [],
+      });
+      controls.onResultChange({
+        meetingId: 'meeting-direct',
+        commandId: null,
+        liveSessionId: 'live-direct',
+        sourceSessionId: 'session-phone',
+        practiceSessionId: 'practice-direct',
+        liveGuidanceEnabled: true,
+        coachPack: 'yogacoach',
+        practiceMode: 'live_guidance',
+        status: 'active',
+      });
+    });
+
+    expect(runtimeSnapshots.at(-1)?.referencePlaybackPlan).toMatchObject({
+      status: 'playing',
+      meetingId: 'meeting-direct',
+      reference: {
+        provider: 'bilibili',
+        providerVideoId: 'BV13g4y1u7di',
+      },
+      playback: {
+        durationMs: 1_809_679,
+      },
+    });
+    expect(mocks.fetchReferenceProfileSelection).toHaveBeenCalledTimes(1);
   });
 
   it('does not relaunch one confirmed practice when durable actions replay after remount', async () => {

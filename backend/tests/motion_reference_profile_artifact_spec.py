@@ -43,6 +43,10 @@ def _profile() -> dict:
         "chapters": [
             {
                 "chapter_id": "chapter-one",
+                "title": "Standing alignment",
+                "ts_start_ms": 0,
+                "ts_end_ms": 2000,
+                "confidence": 0.91,
                 "feature_series": [
                     {"pose_confidence": 0.9, "body_visibility": 0.95}
                 ],
@@ -105,6 +109,17 @@ def test_resolves_workspace_owned_profile_from_bounded_data_path(
 
     assert resolved.reference_profile_id == "reference-one"
     assert resolved.chapter_count == 1
+    assert resolved.selection_payload()["chapters"] == [
+        {
+            "chapter_id": "chapter-one",
+            "title": "Standing alignment",
+            "start_ms": 0,
+            "end_ms": 2000,
+            "segment_type": "unknown",
+            "confidence": 0.91,
+        }
+    ]
+    assert resolved.selection_payload()["duration_ms"] == 2000
     assert resolved.storage_ref == str(profile_path.resolve())
     assert resolved.receiver_ref() == {
         "artifact_id": "artifact-one",
@@ -197,6 +212,31 @@ def test_rejects_profile_without_complete_reference_visual_coverage(
     with pytest.raises(
         MotionReferenceProfileArtifactError,
         match="motion_reference_profile_visual_evidence_count_invalid",
+    ):
+        resolve_motion_reference_profile_artifact(
+            artifact_store=FakeArtifactStore(_artifact(profile_path)),
+            workspace_id="workspace-one",
+            artifact_id="artifact-one",
+        )
+
+
+def test_rejects_profile_without_semantic_chapter_time_range(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("LOCAL_CORE_DATA_DIR", str(tmp_path))
+    profile_path = (
+        tmp_path
+        / "workspaces/workspace-one/artifacts/yogacoach/reference-profiles/reference.json"
+    )
+    profile_path.parent.mkdir(parents=True)
+    profile = _profile()
+    profile["chapters"][0].pop("ts_end_ms")
+    profile_path.write_text(json.dumps(profile), encoding="utf-8")
+
+    with pytest.raises(
+        MotionReferenceProfileArtifactError,
+        match="motion_reference_profile_chapter_time_invalid",
     ):
         resolve_motion_reference_profile_artifact(
             artifact_store=FakeArtifactStore(_artifact(profile_path)),

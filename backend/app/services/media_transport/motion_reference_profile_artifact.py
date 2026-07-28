@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 from dataclasses import dataclass
@@ -54,18 +55,56 @@ class ArtifactLookup(ArtifactReader, Protocol):
 
 
 @dataclass(frozen=True)
+class MotionReferenceProfileChapterSummary:
+    chapter_id: str
+    title: str
+    start_ms: int
+    end_ms: int
+    segment_type: str
+    confidence: float | None
+
+    def response_payload(self) -> dict[str, Any]:
+        return {
+            "chapter_id": self.chapter_id,
+            "title": self.title,
+            "start_ms": self.start_ms,
+            "end_ms": self.end_ms,
+            "segment_type": self.segment_type,
+            "confidence": self.confidence,
+        }
+
+
+@dataclass(frozen=True)
 class ResolvedMotionReferenceProfile:
     artifact_id: str
     storage_ref: str
     reference_profile_id: str
     source_ref: str | None
     chapter_count: int
+    chapters: tuple[MotionReferenceProfileChapterSummary, ...]
 
     def receiver_ref(self) -> dict[str, Any]:
         return {
             "artifact_id": self.artifact_id,
             "storage_ref": self.storage_ref,
             "reference_profile_id": self.reference_profile_id,
+        }
+
+    def selection_payload(self) -> dict[str, Any]:
+        return {
+            "status": "ready",
+            "artifact_id": self.artifact_id,
+            "reference_profile_id": self.reference_profile_id,
+            "source_ref": self.source_ref,
+            "chapter_count": self.chapter_count,
+            "duration_ms": max(
+                (chapter.end_ms for chapter in self.chapters),
+                default=0,
+            ),
+            "chapters": [
+                chapter.response_payload()
+                for chapter in self.chapters
+            ],
         }
 
 
@@ -232,7 +271,84 @@ def _validate_reference_visual_evidence(
         )
 
 
-def _validate_profile(path: Path) -> tuple[str, str | None, int]:
+def _chapter_time_ms(
+    chapter: Mapping[str, Any],
+    *,
+    primary_key: str,
+    fallback_key: str,
+    reason: str,
+) -> int:
+    value = chapter.get(primary_key)
+    if value is None:
+        value = chapter.get(fallback_key)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise MotionReferenceProfileArtifactError(reason)
+    numeric = float(value)
+    if not math.isfinite(numeric):
+        raise MotionReferenceProfileArtifactError(reason)
+    return round(numeric)
+
+
+def _chapter_summaries(
+    chapters: list[dict[str, Any]],
+) -> tuple[MotionReferenceProfileChapterSummary, ...]:
+    summaries: list[MotionReferenceProfileChapterSummary] = []
+    chapter_ids: set[str] = set()
+    for chapter in chapters:
+        chapter_id = _required_text(
+            chapter.get("chapter_id"),
+            "motion_reference_profile_chapter_id_missing",
+        )
+        if chapter_id in chapter_ids:
+            raise MotionReferenceProfileArtifactError(
+                "motion_reference_profile_chapter_id_duplicate"
+            )
+        chapter_ids.add(chapter_id)
+        start_ms = _chapter_time_ms(
+            chapter,
+            primary_key="ts_start_ms",
+            fallback_key="start_ms",
+            reason="motion_reference_profile_chapter_time_invalid",
+        )
+        end_ms = _chapter_time_ms(
+            chapter,
+            primary_key="ts_end_ms",
+            fallback_key="end_ms",
+            reason="motion_reference_profile_chapter_time_invalid",
+        )
+        if start_ms < 0 or end_ms <= start_ms or end_ms > 86_400_000:
+            raise MotionReferenceProfileArtifactError(
+                "motion_reference_profile_chapter_time_invalid"
+            )
+        confidence_value = chapter.get("confidence")
+        confidence = (
+            float(confidence_value)
+            if isinstance(confidence_value, (int, float))
+            and not isinstance(confidence_value, bool)
+            and math.isfinite(float(confidence_value))
+            else None
+        )
+        summaries.append(
+            MotionReferenceProfileChapterSummary(
+                chapter_id=chapter_id,
+                title=str(chapter.get("title") or chapter_id).strip() or chapter_id,
+                start_ms=start_ms,
+                end_ms=end_ms,
+                segment_type=str(chapter.get("segment_type") or "unknown").strip()
+                or "unknown",
+                confidence=confidence,
+            )
+        )
+    return tuple(summaries)
+
+
+def _validate_profile(
+    path: Path,
+) -> tuple[
+    str,
+    str | None,
+    tuple[MotionReferenceProfileChapterSummary, ...],
+]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
@@ -280,7 +396,7 @@ def _validate_profile(path: Path) -> tuple[str, str | None, int]:
         chapters=chapters,
         source_ref=source_ref,
     )
-    return profile_id, source_ref, len(chapters)
+    return profile_id, source_ref, _chapter_summaries(chapters)
 
 
 def resolve_motion_reference_profile_artifact(
@@ -308,7 +424,7 @@ def resolve_motion_reference_profile_artifact(
             "motion_reference_profile_artifact_contract_invalid"
         )
     path = _resolve_storage_path(workspace_id, getattr(artifact, "storage_ref", None))
-    profile_id, source_ref, chapter_count = _validate_profile(path)
+    profile_id, source_ref, chapters = _validate_profile(path)
     declared_profile_id = str(metadata.get("reference_profile_id") or "").strip()
     if declared_profile_id and declared_profile_id != profile_id:
         raise MotionReferenceProfileArtifactError(
@@ -324,7 +440,8 @@ def resolve_motion_reference_profile_artifact(
         storage_ref=str(path),
         reference_profile_id=profile_id,
         source_ref=source_ref,
-        chapter_count=chapter_count,
+        chapter_count=len(chapters),
+        chapters=chapters,
     )
 
 
@@ -374,6 +491,7 @@ def resolve_selected_motion_reference_profile(
 
 __all__ = [
     "MOTION_REFERENCE_PROFILE_ARTIFACT_CONTRACT",
+    "MotionReferenceProfileChapterSummary",
     "MotionReferenceProfileArtifactError",
     "ResolvedMotionReferenceProfile",
     "canonical_motion_reference_source_ref",

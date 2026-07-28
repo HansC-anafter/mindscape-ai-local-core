@@ -38,6 +38,7 @@ export type MotionPracticeReferencePlaybackPlan = {
 
 export const YOGACOACH_PREPARE_REFERENCE_ACTION = 'yogacoach.prepare_reference_practice';
 export const YOGACOACH_CONFIRM_REFERENCE_ACTION = 'yogacoach.confirm_reference_practice';
+const BILIBILI_VIDEO_ID_PATTERN = /\/video\/(BV[0-9A-Za-z]+)(?:\/|$)/;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -130,6 +131,55 @@ export function confirmMotionPracticeReferencePlayback(
     status: 'countdown',
     countdownRemaining: boundedInteger(action.payload.countdown_seconds, 5, 1, 15),
     error: undefined,
+  };
+}
+
+export function buildStartedMotionPracticeReferencePlayback(input: {
+  workspaceId: string;
+  meetingId: string;
+  handoff: MotionPracticeLessonHandoff;
+  durationMs: number | undefined;
+  startedAt?: string;
+}): MotionPracticeReferencePlaybackPlan | null {
+  const sourceUrl = input.handoff.sourceValue.trim();
+  const title = input.handoff.sourceTitle?.trim() || 'Selected practice reference';
+  if (
+    !sourceUrl
+    || !input.meetingId.trim()
+    || typeof input.durationMs !== 'number'
+    || !Number.isFinite(input.durationMs)
+    || input.durationMs < 1
+  ) {
+    return null;
+  }
+  const durationMs = boundedInteger(input.durationMs, 1, 1, 14_400_000);
+  const provider = input.handoff.sourceProvider?.trim().toLowerCase()
+    || (input.handoff.sourceKind === 'bilibili_instruction_ref' ? 'bilibili' : '');
+  const providerVideoId = provider === 'bilibili'
+    ? BILIBILI_VIDEO_ID_PATTERN.exec(sourceUrl)?.[1] || ''
+    : '';
+  return {
+    schemaVersion: 'motion_practice.reference_playback.v1',
+    workspaceId: input.workspaceId,
+    meetingId: input.meetingId.trim(),
+    prepareActionId: `direct-launch:${input.meetingId.trim()}`,
+    status: 'playing',
+    reference: {
+      ownerPack: 'social_video_refs',
+      objectKind: 'instruction_ref',
+      provider,
+      providerVideoId,
+      sourceKind: input.handoff.sourceKind,
+      sourceUrl,
+      title,
+    },
+    playback: {
+      startMs: 0,
+      durationMs,
+      loop: false,
+    },
+    countdownRemaining: 0,
+    startedAt: input.startedAt || new Date().toISOString(),
   };
 }
 

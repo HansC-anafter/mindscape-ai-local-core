@@ -15,6 +15,7 @@ from . import (
     workbench,
     health,
     media_sessions,
+    motion_reference_profiles,
     meeting_commands,
     meeting_motion_guidance,
     device_bindings,
@@ -46,6 +47,7 @@ router.include_router(tasks.router)
 router.include_router(workbench.router)
 router.include_router(health.router)
 router.include_router(media_sessions.router)
+router.include_router(motion_reference_profiles.router)
 router.include_router(meeting_commands.router)
 router.include_router(meeting_motion_guidance.router)
 router.include_router(device_bindings.router)
