@@ -60,6 +60,7 @@ describe('voicePlaybackQueue XTTS helpers', () => {
     expect(JSON.parse(String(init?.body))).toEqual({
       text: 'hello',
       language: 'en',
+      voice_profile_id: 'mms_voice_bilibili_313312170_bv1a2tf64ebd',
       output_format: 'wav',
     });
   });

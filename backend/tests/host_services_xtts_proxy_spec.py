@@ -5,29 +5,35 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from backend.app.routes.core import host_services
-from backend.app.services.host_services import xtts_proxy
-from backend.app.services.host_services.xtts_proxy import (
-    XTTSAudioResult,
-    XTTSSynthesisRequest,
-    XTTSSynthesisUnavailable,
-    normalize_xtts_language,
-    synthesize_xtts_audio,
+from backend.app.services.host_services import quality_voice_facade
+from backend.app.services.host_services.quality_voice_facade import (
+    DEFAULT_QUALITY_VOICE_PROFILE_ID,
+    QualityVoiceAudioResult,
+    QualityVoiceSynthesisRequest,
+    QualityVoiceUnavailable,
+    normalize_quality_voice_language,
+    synthesize_quality_voice_audio,
 )
 
 
-def test_host_services_router_only_adds_xtts_tts_route() -> None:
+def test_host_services_router_keeps_legacy_tts_path_only() -> None:
     paths = {route.path for route in host_services.router.routes}
 
     assert "/api/v1/host/services/xtts/tts" in paths
     assert "/api/v1/host/services/xtts/health" not in paths
 
 
-def test_xtts_tts_route_returns_audio(monkeypatch) -> None:
-    async def _fake_synthesize(payload: XTTSSynthesisRequest) -> XTTSAudioResult:
+def test_quality_voice_route_returns_audio(monkeypatch) -> None:
+    async def _fake_synthesize(
+        payload: QualityVoiceSynthesisRequest,
+    ) -> QualityVoiceAudioResult:
         assert payload.text == "hello"
-        return XTTSAudioResult(audio_bytes=b"RIFF", media_type="audio/wav")
+        assert payload.voice_profile_id == DEFAULT_QUALITY_VOICE_PROFILE_ID
+        return QualityVoiceAudioResult(audio_bytes=b"RIFF", media_type="audio/wav")
 
-    monkeypatch.setattr(host_services, "synthesize_xtts_audio", _fake_synthesize)
+    monkeypatch.setattr(
+        host_services, "synthesize_quality_voice_audio", _fake_synthesize
+    )
     app = FastAPI()
     app.include_router(host_services.router)
 
@@ -41,14 +47,18 @@ def test_xtts_tts_route_returns_audio(monkeypatch) -> None:
     assert response.content == b"RIFF"
 
 
-def test_xtts_tts_route_returns_structured_unavailable(monkeypatch) -> None:
-    async def _fake_synthesize(payload: XTTSSynthesisRequest) -> XTTSAudioResult:
-        raise XTTSSynthesisUnavailable(
-            reason="xtts_unreachable",
+def test_quality_voice_route_returns_structured_unavailable(monkeypatch) -> None:
+    async def _fake_synthesize(
+        payload: QualityVoiceSynthesisRequest,
+    ) -> QualityVoiceAudioResult:
+        raise QualityVoiceUnavailable(
+            reason="qwen_quality_voice_unreachable",
             error="name resolution failed",
         )
 
-    monkeypatch.setattr(host_services, "synthesize_xtts_audio", _fake_synthesize)
+    monkeypatch.setattr(
+        host_services, "synthesize_quality_voice_audio", _fake_synthesize
+    )
     app = FastAPI()
     app.include_router(host_services.router)
 
@@ -59,12 +69,12 @@ def test_xtts_tts_route_returns_structured_unavailable(monkeypatch) -> None:
 
     assert response.status_code == 503
     assert response.json()["detail"] == {
-        "reason": "xtts_unreachable",
+        "reason": "qwen_quality_voice_unreachable",
         "error": "name resolution failed",
     }
 
 
-def test_xtts_tts_route_rejects_overlong_text() -> None:
+def test_quality_voice_route_rejects_overlong_text() -> None:
     app = FastAPI()
     app.include_router(host_services.router)
 
@@ -76,14 +86,14 @@ def test_xtts_tts_route_rejects_overlong_text() -> None:
     assert response.status_code == 422
 
 
-def test_normalize_xtts_language_maps_app_locales_to_supported_ids() -> None:
-    assert normalize_xtts_language("zh-TW") == "zh-cn"
-    assert normalize_xtts_language("zh_Hant") == "zh-cn"
-    assert normalize_xtts_language("ja-JP") == "ja"
-    assert normalize_xtts_language("en-US") == "en"
+def test_normalize_quality_voice_language_maps_app_locales() -> None:
+    assert normalize_quality_voice_language("zh-TW") == "zh-cn"
+    assert normalize_quality_voice_language("zh_Hant") == "zh-cn"
+    assert normalize_quality_voice_language("ja-JP") == "ja"
+    assert normalize_quality_voice_language("en-US") == "en"
 
 
-def test_synthesize_xtts_audio_posts_bounded_payload(monkeypatch) -> None:
+def test_synthesize_quality_voice_audio_posts_selected_profile(monkeypatch) -> None:
     captured = {}
 
     class _FakeResponse:
@@ -91,6 +101,10 @@ def test_synthesize_xtts_audio_posts_bounded_payload(monkeypatch) -> None:
         content = b"RIFF"
         headers = {"content-type": "audio/wav"}
         text = ""
+
+        @staticmethod
+        def json() -> dict:
+            return {}
 
     class _FakeClient:
         def __init__(self, timeout: float) -> None:
@@ -107,28 +121,28 @@ def test_synthesize_xtts_audio_posts_bounded_payload(monkeypatch) -> None:
             captured["json"] = json
             return _FakeResponse()
 
-    monkeypatch.setattr(xtts_proxy.httpx, "AsyncClient", _FakeClient)
+    monkeypatch.setattr(quality_voice_facade.httpx, "AsyncClient", _FakeClient)
 
     result = asyncio.run(
-        synthesize_xtts_audio(
-            XTTSSynthesisRequest(
+        synthesize_quality_voice_audio(
+            QualityVoiceSynthesisRequest(
                 text="今天的練習完成了。",
                 language="zh-TW",
                 output_format="wav",
             ),
-            base_url="http://xtts.local",
+            base_url="http://qwen.local",
         ),
     )
 
     assert result.audio_bytes == b"RIFF"
     assert result.media_type == "audio/wav"
     assert captured == {
-        "timeout": 180.0,
-        "endpoint": "http://xtts.local/tts",
+        "timeout": 240.0,
+        "endpoint": "http://qwen.local/tts",
         "json": {
             "text": "今天的練習完成了。",
             "language": "zh-cn",
-            "voice_profile_id": None,
+            "voice_profile_id": DEFAULT_QUALITY_VOICE_PROFILE_ID,
             "output_format": "wav",
         },
     }

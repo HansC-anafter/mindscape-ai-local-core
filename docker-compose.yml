@@ -270,8 +270,8 @@ services:
       - WHISPER_SERVICE_URL=${WHISPER_SERVICE_URL:-http://whisper-service:8006}
       - WHISPER_MODEL=${WHISPER_MODEL:-openai/whisper-small}
       - WHISPER_TRANSCRIPTION_TIMEOUT_SECONDS=${WHISPER_TRANSCRIPTION_TIMEOUT_SECONDS:-600}
-      - XTTS_SERVICE_URL=${XTTS_SERVICE_URL:-http://xtts-service:8020}
-      - XTTS_SYNTHESIS_TIMEOUT_SECONDS=${XTTS_SYNTHESIS_TIMEOUT_SECONDS:-180}
+      - QWEN_QUALITY_VOICE_SERVICE_URL=${QWEN_QUALITY_VOICE_SERVICE_URL:-http://host.docker.internal:8184}
+      - QWEN_QUALITY_VOICE_SYNTHESIS_TIMEOUT_SECONDS=${QWEN_QUALITY_VOICE_SYNTHESIS_TIMEOUT_SECONDS:-240}
       - LOCAL_STORAGE_PATH=/root/.mindscape/storage/layer_asset_forge
       # Timezone
       - TZ=${TZ:-UTC}
@@ -418,8 +418,8 @@ services:
       - WHISPER_SERVICE_URL=${WHISPER_SERVICE_URL:-http://whisper-service:8006}
       - WHISPER_MODEL=${WHISPER_MODEL:-openai/whisper-small}
       - WHISPER_TRANSCRIPTION_TIMEOUT_SECONDS=${WHISPER_TRANSCRIPTION_TIMEOUT_SECONDS:-600}
-      - XTTS_SERVICE_URL=${XTTS_SERVICE_URL:-http://xtts-service:8020}
-      - XTTS_SYNTHESIS_TIMEOUT_SECONDS=${XTTS_SYNTHESIS_TIMEOUT_SECONDS:-180}
+      - QWEN_QUALITY_VOICE_SERVICE_URL=${QWEN_QUALITY_VOICE_SERVICE_URL:-http://host.docker.internal:8184}
+      - QWEN_QUALITY_VOICE_SYNTHESIS_TIMEOUT_SECONDS=${QWEN_QUALITY_VOICE_SYNTHESIS_TIMEOUT_SECONDS:-240}
       - LOCAL_STORAGE_PATH=/root/.mindscape/storage/layer_asset_forge
       - TZ=${TZ:-UTC}
       - HOST_PROJECT_PATH=${HOST_PROJECT_PATH:-${PWD}}
@@ -914,6 +914,7 @@ services:
 
   # XTTS-v2 Local TTS Service (G4 Audio Course)
   xtts-service:
+    profiles: ["legacy-xtts"]
     build:
       context: ./xtts-service
       dockerfile: Dockerfile
