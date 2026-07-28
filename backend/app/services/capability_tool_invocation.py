@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import inspect
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Iterator, Mapping
 
 
 @dataclass(frozen=True)
@@ -27,6 +29,32 @@ class RuntimeTaskIdentity:
     """Runner-owned current task identity that cannot be forged by JSON inputs."""
 
     task_id: str
+
+
+_ACTIVE_RUNTIME_TASK_IDENTITY: ContextVar[RuntimeTaskIdentity | None] = (
+    ContextVar("active_runtime_task_identity", default=None)
+)
+
+
+@contextmanager
+def runtime_task_identity_scope(
+    task_id: str,
+) -> Iterator[RuntimeTaskIdentity]:
+    """Bind verified current-task identity for one runner child execution."""
+    normalized_task_id = str(task_id or "").strip()
+    if not normalized_task_id:
+        raise ValueError("runtime_task_identity_required")
+    identity = RuntimeTaskIdentity(task_id=normalized_task_id)
+    token = _ACTIVE_RUNTIME_TASK_IDENTITY.set(identity)
+    try:
+        yield identity
+    finally:
+        _ACTIVE_RUNTIME_TASK_IDENTITY.reset(token)
+
+
+def current_runtime_task_identity() -> RuntimeTaskIdentity | None:
+    """Return the current runner-owned task identity, when one is bound."""
+    return _ACTIVE_RUNTIME_TASK_IDENTITY.get()
 
 
 def _optional_string(value: Any) -> str | None:

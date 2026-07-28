@@ -4,8 +4,6 @@ Tool Parameter Normalization Pipeline
 import logging
 from typing import Dict, Any, Optional
 
-from backend.app.services.capability_tool_invocation import RuntimeTaskIdentity
-
 logger = logging.getLogger(__name__)
 
 class ToolParameterNormalizer:
@@ -26,11 +24,6 @@ class ToolParameterNormalizer:
         normalized_kwargs = kwargs.copy()
         execution_context = execution_context or {}
         normalized_kwargs.pop("_runtime_task_identity", None)
-        runtime_task_id = str(execution_context.get("task_id") or "").strip()
-        if runtime_task_id:
-            normalized_kwargs["_runtime_task_identity"] = RuntimeTaskIdentity(
-                task_id=runtime_task_id
-            )
 
         # Parameter normalization: convert common incorrect parameter names to correct ones
         if (

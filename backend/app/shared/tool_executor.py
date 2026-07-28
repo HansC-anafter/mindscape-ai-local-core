@@ -118,13 +118,12 @@ class ToolExecutor:
             prepare_tool_admission,
         )
         from backend.app.services.capability_tool_invocation import (
-            RuntimeTaskIdentity,
             build_capability_execution_context,
+            current_runtime_task_identity,
         )
 
-        runtime_task_identity = kwargs.pop("_runtime_task_identity", None)
-        if not isinstance(runtime_task_identity, RuntimeTaskIdentity):
-            runtime_task_identity = None
+        kwargs.pop("_runtime_task_identity", None)
+        runtime_task_identity = current_runtime_task_identity()
         original_kwargs = dict(kwargs)
         kwargs, admission_snapshot = await prepare_tool_admission(
             tool_name=tool_name,

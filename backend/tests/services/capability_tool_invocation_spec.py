@@ -6,8 +6,10 @@ from backend.app.services.capability_tool_invocation import (
     CapabilityExecutionContext,
     RuntimeTaskIdentity,
     build_capability_execution_context,
+    current_runtime_task_identity,
     invoke_capability_tool,
     invoke_capability_tool_async,
+    runtime_task_identity_scope,
 )
 
 
@@ -99,3 +101,13 @@ def test_explicit_context_is_not_rebuilt_from_sanitized_inputs():
 
     assert inputs == {"value": 11}
     assert context is expected
+
+
+def test_runtime_task_identity_scope_is_typed_and_resets():
+    assert current_runtime_task_identity() is None
+
+    with runtime_task_identity_scope(" task-current ") as identity:
+        assert identity == RuntimeTaskIdentity("task-current")
+        assert current_runtime_task_identity() is identity
+
+    assert current_runtime_task_identity() is None

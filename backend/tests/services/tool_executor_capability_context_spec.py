@@ -1,7 +1,9 @@
 import pytest
 
 from backend.app.services import tool_execution_admission
-from backend.app.services.capability_tool_invocation import RuntimeTaskIdentity
+from backend.app.services.capability_tool_invocation import (
+    runtime_task_identity_scope,
+)
 from backend.app.services.playbook.tool_execution.normalization import (
     ToolParameterNormalizer,
 )
@@ -73,14 +75,13 @@ async def test_tool_executor_separates_verified_context_from_sanitized_inputs(
         },
         execution_context={"task_id": "task-current"},
     )
-    assert normalized["_runtime_task_identity"] == RuntimeTaskIdentity(
-        "task-current"
-    )
-    result = await executor.execute_tool(
-        "ig.ig_analyze_following",
-        **normalized,
-        execution_admission_snapshot={"snapshot_hash": "unverified-input"},
-    )
+    assert "_runtime_task_identity" not in normalized
+    with runtime_task_identity_scope("task-current"):
+        result = await executor.execute_tool(
+            "ig.ig_analyze_following",
+            **normalized,
+            execution_admission_snapshot={"snapshot_hash": "unverified-input"},
+        )
 
     assert result == {"status": "succeeded"}
     assert captured["capability"] == "ig"

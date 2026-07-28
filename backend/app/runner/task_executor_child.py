@@ -130,7 +130,7 @@ def _child_execute_playbook(
     project_id = payload.get("project_id")
     result_file = payload.get("_result_file")
 
-    async def _run() -> None:
+    async def _run_with_runtime_identity() -> None:
         if task_type == "tool_execution":
             from backend.app.services.unified_tool_executor import (
                 UnifiedToolExecutor,
@@ -176,10 +176,6 @@ def _child_execute_playbook(
                     pass
         else:
             executor = PlaybookRunExecutor()
-            if task_id:
-                executor.playbook_runner.tool_executor.execution_context[
-                    "task_id"
-                ] = task_id
             result = await executor.execute_playbook_run(
                 playbook_code=playbook_code,
                 profile_id=profile_id,
@@ -198,6 +194,14 @@ def _child_execute_playbook(
                     "Terminal workflow failure"
                     + (f": {detail}" if detail else "")
                 )
+
+    async def _run() -> None:
+        from backend.app.services.capability_tool_invocation import (
+            runtime_task_identity_scope,
+        )
+
+        with runtime_task_identity_scope(task_id):
+            await _run_with_runtime_identity()
 
     try:
         asyncio.run(_run())
