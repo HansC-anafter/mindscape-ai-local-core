@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { PanelRight, X } from 'lucide-react';
+import { useT } from '@/lib/i18n';
 
 interface UseWorkspaceMobileHostToolTrayOptions {
   enabled: boolean;
@@ -96,6 +97,7 @@ export function WorkspaceMobileHostToolTray({
   rail,
   panel,
 }: WorkspaceMobileHostToolTrayProps) {
+  const t = useT();
   return (
     <>
       {panel}
@@ -108,20 +110,20 @@ export function WorkspaceMobileHostToolTray({
           className="flex flex-col items-end gap-2"
           data-testid="workspace-global-tool-tray-anchor"
         >
-          <button
-            type="button"
-            className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white/95 text-gray-700 shadow-lg backdrop-blur transition hover:bg-white dark:border-gray-800 dark:bg-gray-950/95 dark:text-gray-200"
-            aria-label={open ? 'Close workspace tools' : 'Open workspace tools'}
-            aria-expanded={open}
-            data-testid="workspace-global-tool-tray-toggle"
-            onClick={onToggle}
-          >
-            {open ? (
-              <X aria-hidden="true" className="h-4 w-4" />
-            ) : (
-              <PanelRight aria-hidden="true" className="h-4 w-4" />
-            )}
-          </button>
+        <button
+          type="button"
+          className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white/95 text-gray-700 shadow-lg backdrop-blur transition hover:bg-white dark:border-gray-800 dark:bg-gray-950/95 dark:text-gray-200"
+          aria-label={open ? t('workspaceToolTrayClose') : t('workspaceToolTrayOpen')}
+          aria-expanded={open}
+          data-testid="workspace-global-tool-tray-toggle"
+          onClick={onToggle}
+        >
+          {open ? (
+            <X aria-hidden="true" className="h-4 w-4" />
+          ) : (
+            <PanelRight aria-hidden="true" className="h-4 w-4" />
+          )}
+        </button>
           {open ? rail : null}
         </div>
       </div>

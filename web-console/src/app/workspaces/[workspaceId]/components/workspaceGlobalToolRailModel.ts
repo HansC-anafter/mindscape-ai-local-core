@@ -5,14 +5,14 @@ export const WORKSPACE_ACTIVE_PANEL_TOGGLE_BINDING_ID = 'tool_rail:workspace:act
 export const WORKSPACE_TOOL_RAIL_COMMAND_ID = 'workspace.tool_rail.toggle';
 
 export const GROUP_LABELS: Record<WorkspaceRightRegionGroup, string> = {
-  execution: 'Runs',
-  workspace: 'Workspace',
-  meeting: 'Meeting',
-  graph: 'Graph',
-  capability: 'Pack',
-  runtime: 'Runtime',
-  tool_runtime: 'Tool Runtime',
-  data: 'Data',
+  execution: 'workspaceToolGroupExecution',
+  workspace: 'workspaceToolGroupWorkspace',
+  meeting: 'workspaceToolGroupMeeting',
+  graph: 'workspaceToolGroupGraph',
+  capability: 'workspaceToolGroupPack',
+  runtime: 'workspaceToolGroupRuntime',
+  tool_runtime: 'workspaceToolGroupToolRuntime',
+  data: 'workspaceToolGroupData',
 };
 
 export const GROUP_ORDER: Record<WorkspaceRightRegionGroup, number> = {
@@ -69,7 +69,9 @@ export function shortcutOwnerForContribution(contribution: WorkspaceGlobalToolCo
     return {
       ownerType: 'core' as const,
       ownerId: contribution.key.startsWith('aol:') ? 'runtime' : 'workspace',
-      ownerLabel: contribution.key.startsWith('aol:') ? 'Runtime' : 'Workspace',
+      ownerLabel: contribution.key.startsWith('aol:')
+        ? 'workspaceToolOwnerRuntime'
+        : 'workspaceToolOwnerWorkspace',
     };
   }
 
