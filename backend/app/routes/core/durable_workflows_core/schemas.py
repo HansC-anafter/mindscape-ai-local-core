@@ -1,4 +1,4 @@
-"""Bounded request schemas for the disabled durable review route seam."""
+"""Bounded request schemas for the durable review route seam."""
 
 from pydantic import BaseModel, Field
 

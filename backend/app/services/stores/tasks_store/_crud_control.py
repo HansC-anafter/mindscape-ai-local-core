@@ -37,7 +37,11 @@ class TasksStoreControlMixin:
             return
         if task.status != TaskStatus.PENDING:
             return
-        if task.task_type not in ("playbook_execution", "tool_execution"):
+        if task.task_type not in (
+            "playbook_execution",
+            "tool_execution",
+            "product_outcome_evaluation",
+        ):
             return
         if getattr(task, "frontier_state", "ready") != "ready":
             return

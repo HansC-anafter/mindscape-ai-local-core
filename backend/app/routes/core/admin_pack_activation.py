@@ -22,6 +22,10 @@ class CapabilityRuntimeActivationRequest(BaseModel):
     capability_code: str = Field(..., min_length=1)
     install_id: Optional[str] = None
     manifest_hash: Optional[str] = None
+    artifact_sha256: Optional[str] = Field(
+        default=None,
+        pattern=r"^[0-9a-f]{64}$",
+    )
     reason: str = "install_completed"
 
 
@@ -37,9 +41,11 @@ async def activate_capability_runtime(
             capability_code=payload.capability_code,
             reason=payload.reason,
             expected_manifest_hash=payload.manifest_hash,
+            installed_artifact_sha256=payload.artifact_sha256,
         )
         result["install_id"] = payload.install_id
         result["requested_manifest_hash"] = payload.manifest_hash
+        result["requested_artifact_sha256"] = payload.artifact_sha256
         return result
     except Exception as exc:
         logger.warning(

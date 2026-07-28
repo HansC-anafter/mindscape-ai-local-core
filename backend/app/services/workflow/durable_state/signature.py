@@ -39,10 +39,14 @@ class Ed25519Signer:
         self.key_id = f"ed25519:{hashlib.sha256(public).hexdigest()}"
 
     @classmethod
-    def from_mounted_file(cls) -> "Ed25519Signer":
-        raw_path = os.environ.get(SIGNING_KEY_FILE_ENV)
+    def from_mounted_file(
+        cls,
+        *,
+        env_var: str = SIGNING_KEY_FILE_ENV,
+    ) -> "Ed25519Signer":
+        raw_path = os.environ.get(env_var)
         if not raw_path:
-            raise SigningKeyError(f"{SIGNING_KEY_FILE_ENV} is required")
+            raise SigningKeyError(f"{env_var} is required")
         path = Path(raw_path)
         try:
             mode = path.stat().st_mode & 0o777

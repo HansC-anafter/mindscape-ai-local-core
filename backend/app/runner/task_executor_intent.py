@@ -150,6 +150,9 @@ def _apply_runtime_binding_to_playbook_task(
     updated_inputs = dict(inputs) if isinstance(inputs, dict) else {}
     updated_ctx = dict(task_ctx) if isinstance(task_ctx, dict) else {}
 
+    if task.task_type == "product_outcome_evaluation":
+        return updated_inputs, updated_ctx, None
+
     if _is_internal_knowledge_projection_task(task, updated_ctx):
         return updated_inputs, updated_ctx, None
 

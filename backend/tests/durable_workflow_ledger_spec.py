@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
 
 from alembic_migrations.postgres import durable_workflow_v1
 from app.services.workflow.durable_state.canonical_json import (
@@ -26,28 +26,12 @@ from app.services.workflow.durable_state.signature import (
     SigningKeyError,
     verify,
 )
+pytest_plugins = ("backend.tests.durable_workflow_database",)
 
 H = "0" * 64
 NOW = "2026-07-26T00:00:00Z"
 SIG = "ed25519:test-signature"
 ACTOR = {"actor_type": "service", "actor_id": "durable-ledger-test"}
-
-
-@pytest.fixture(scope="session")
-def engine():
-    dsn = os.environ.get("DURABLE_WORKFLOW_TEST_DATABASE_URL")
-    if not dsn:
-        pytest.skip("isolated PostgreSQL URL is required")
-    created = create_engine(dsn, pool_size=4, max_overflow=0)
-    with created.begin() as conn:
-        class Op:
-            @staticmethod
-            def execute(statement):
-                conn.exec_driver_sql(statement)
-
-        durable_workflow_v1.upgrade(Op)
-    yield created
-    created.dispose()
 
 
 @pytest.fixture
@@ -438,7 +422,7 @@ def test_missing_pinned_version_fails_closed() -> None:
         registry.require(identity("missing:versions"))
 
 
-def test_source_has_no_owned_pool_or_production_caller() -> None:
+def test_source_has_no_owned_pool_and_only_declared_composition_callers() -> None:
     root = Path(__file__).resolve().parents[1]
     durable_root = root / "app" / "services" / "workflow" / "durable_state"
     source = "\n".join(
@@ -464,12 +448,27 @@ def test_source_has_no_owned_pool_or_production_caller() -> None:
         / "services"
         / "host_runtime_sessions"
         / "durable_approval_adapter.py",
+        root
+        / "app"
+        / "app_bootstrap"
+        / "durable_workflow_routes.py",
+        root
+        / "app"
+        / "services"
+        / "workspace_capability_admission"
+        / "durable_workflow_policy.py",
+        root / "app" / "services" / "capability_runtime_activation.py",
+        root / "app" / "runner" / "task_executor_admission.py",
+        root / "app" / "runner" / "task_executor_child.py",
     }
     callers = []
     for path in (root / "app").rglob("*.py"):
         if durable_root in path.parents:
             continue
         body = path.read_text(encoding="utf-8")
-        if "services.workflow.durable_state" in body:
+        if (
+            "services.workflow.durable_state" in body
+            or "from ..workflow.durable_state" in body
+        ):
             callers.append(path)
     assert set(callers) == allowed_source_only_adapters

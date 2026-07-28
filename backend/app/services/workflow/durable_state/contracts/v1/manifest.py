@@ -27,6 +27,8 @@ SCHEMA_NAMES = (
     "development_change_attestation",
     "release_health_receipt",
     "evidence_lifecycle_manifest",
+    "runtime_owner_decision_receipt",
+    "runtime_owner_trusted_keys",
 )
 MAX_SEGMENT_EVENTS = 10_000
 MAX_SEGMENT_CANONICAL_BYTES = 64 * 1024 * 1024

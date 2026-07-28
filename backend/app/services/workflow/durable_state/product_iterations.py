@@ -19,6 +19,7 @@ from .product_iteration_contract import (
 )
 from .transitions import require_transition
 
+
 class ProductIterationMixin:
     """Caller-owned-transaction upper aggregate; no routes or workers."""
 
@@ -41,9 +42,7 @@ class ProductIterationMixin:
         if definition["workspace_id"] != identity["workspace_id"]:
             raise ValueError("iteration definition workspace mismatch")
         self._open_workflow_kind(conn, identity)
-        locked = self._repository.lock_instance(
-            conn, identity["workflow_id"]
-        )
+        locked = self._repository.lock_instance(conn, identity["workflow_id"])
         self._append_locked(
             conn,
             locked=locked,
@@ -73,31 +72,23 @@ class ProductIterationMixin:
             lambda prior: (
                 prior["event_type"] == "transition"
                 and prior["payload"].get("to_state") == "admitted"
-                and prior["payload"].get("typed_receipt", {}).get(
-                    "receipt"
-                )
+                and prior["payload"].get("typed_receipt", {}).get("receipt")
                 == definition
             ),
         )
         self._require_kind(locked, "product_iteration")
         if retry:
             return retry
-        prior_definition = self._projection_state(
-            conn, locked
-        ).get("definition")
+        prior_definition = self._projection_state(conn, locked).get("definition")
         if prior_definition is None:
             raise ValueError("iteration draft definition is missing")
-        if immutable_definition(prior_definition) != (
-            immutable_definition(definition)
-        ):
+        if immutable_definition(prior_definition) != (immutable_definition(definition)):
             raise ValueError("iteration definition is immutable at admission")
         if any(
             arm["consumer_compatibility_class"] != "compatible"
             for arm in definition["arms"]
         ):
-            raise ValueError(
-                "every admitted arm must be consumer-compatible"
-            )
+            raise ValueError("every admitted arm must be consumer-compatible")
         require_transition("product_iteration", "draft", "admitted")
         return self._append_locked(
             conn,
@@ -116,9 +107,7 @@ class ProductIterationMixin:
             current_state="admitted",
         )
 
-    def start_product_iteration_collection(
-        self, conn, **kwargs
-    ) -> dict[str, Any]:
+    def start_product_iteration_collection(self, conn, **kwargs) -> dict[str, Any]:
         return self._append_transition_for_kind(
             conn,
             expected_kind="product_iteration",
@@ -160,25 +149,17 @@ class ProductIterationMixin:
         if enrollment["enrollment_id"] in state.get("enrollment_ids", []):
             raise ValueError("iteration enrollment is already accepted")
         selected_arm = arm(definition, enrollment["arm_id"])
-        require_enrollment_parity(
-            definition, selected_arm, enrollment
-        )
+        require_enrollment_parity(definition, selected_arm, enrollment)
         adapter_ref = {
             "capability_identity": enrollment["capability_identity"],
-            "adapter_contract_version": enrollment[
-                "adapter_contract_version"
-            ],
+            "adapter_contract_version": enrollment["adapter_contract_version"],
             "descriptor_sha256": enrollment["descriptor_sha256"],
             "evaluator_version": enrollment["evaluator_version"],
             "review_lens": enrollment.get("review_lens"),
         }
-        prior_ref = state.get("adapter_refs_by_arm", {}).get(
-            enrollment["arm_id"]
-        )
+        prior_ref = state.get("adapter_refs_by_arm", {}).get(enrollment["arm_id"])
         if prior_ref is not None and prior_ref != adapter_ref:
-            raise ValueError(
-                "iteration arm adapter identity is already pinned"
-            )
+            raise ValueError("iteration arm adapter identity is already pinned")
         return self._append_locked(
             conn,
             locked=locked,
@@ -258,16 +239,66 @@ class ProductIterationMixin:
             },
         )
 
-    def mark_iteration_evidence_ready(
-        self, conn, **kwargs
+    def append_outcome_evaluation_intent(
+        self,
+        conn,
+        intent: dict[str, Any],
     ) -> dict[str, Any]:
+        required = {
+            "iteration_id",
+            "terminal_receipt_id",
+            "enrollment_id",
+            "descriptor_sha256",
+            "task_id",
+            "idempotency_key",
+        }
+        missing = required.difference(intent)
+        if missing:
+            raise ValueError(
+                "outcome evaluation intent is missing: " + ",".join(sorted(missing))
+            )
+        workflow_id = str(intent["iteration_id"])
+        idempotency_key = str(intent["idempotency_key"])
+        locked = self._repository.lock_instance(conn, workflow_id)
+        self._require_kind(locked, "product_iteration")
+        if locked["current_state"] != "collecting":
+            raise ValueError("outcome evaluation intent requires collecting state")
+        payload = {
+            "terminal_receipt_id": str(intent["terminal_receipt_id"]),
+            "enrollment_id": str(intent["enrollment_id"]),
+            "descriptor_sha256": str(intent["descriptor_sha256"]),
+            "task_id": str(intent["task_id"]),
+        }
+        prior = self._repository.find_idempotent_event(
+            conn,
+            workflow_id,
+            idempotency_key,
+        )
+        if prior is not None:
+            if (
+                prior["event_type"] == "outcome_evaluation_intent_created"
+                and prior["payload"] == payload
+            ):
+                return prior
+            raise ValueError("outcome evaluation intent idempotency conflict")
+        return self._append_locked(
+            conn,
+            locked=locked,
+            event_type="outcome_evaluation_intent_created",
+            idempotency_key=idempotency_key,
+            actor={
+                "actor_type": "service",
+                "actor_id": "product-outcome-runtime",
+            },
+            payload=payload,
+        )
+
+    def mark_iteration_evidence_ready(self, conn, **kwargs) -> dict[str, Any]:
         workflow_id = kwargs["workflow_id"]
         locked = self._repository.lock_instance(conn, workflow_id)
         self._require_kind(locked, "product_iteration")
         state = self._projection_state(conn, locked)
-        minimum = state["definition"]["validation_design"][
-            "minimum_sample_size"
-        ]
+        minimum = state["definition"]["validation_design"]["minimum_sample_size"]
         if state.get("accepted_observation_count", 0) < minimum:
             raise ValueError("iteration evidence is below minimum sample size")
         return self._append_transition_for_kind(
@@ -301,19 +332,17 @@ class ProductIterationMixin:
         require_evaluation_parity(state, definition, evaluation)
         if evaluation["recommendation"] == "promote":
             if approval_request is None:
-                raise ValueError(
-                    "promotion recommendation requires approval request"
-                )
-            if (
-                approval_request.get("workflow_id") != workflow_id
-                or approval_request.get("action_hash")
-                != promotion_request_hash(definition, evaluation)
+                raise ValueError("promotion recommendation requires approval request")
+            if approval_request.get(
+                "workflow_id"
+            ) != workflow_id or approval_request.get(
+                "action_hash"
+            ) != promotion_request_hash(
+                definition, evaluation
             ):
                 raise ValueError("promotion approval request identity mismatch")
         elif approval_request is not None:
-            raise ValueError(
-                "non-promotion evaluation cannot request release approval"
-            )
+            raise ValueError("non-promotion evaluation cannot request release approval")
         event = self._append_transition_for_kind(
             conn,
             workflow_id=workflow_id,
@@ -349,8 +378,7 @@ class ProductIterationMixin:
             lambda prior: (
                 prior["event_type"] == "transition"
                 and prior["payload"].get("to_state") == target_state
-                and prior["payload"].get("release_workflow_id")
-                == release_workflow_id
+                and prior["payload"].get("release_workflow_id") == release_workflow_id
             ),
         )
         self._require_kind(locked, "product_iteration")
@@ -372,9 +400,7 @@ class ProductIterationMixin:
             )
         if target_state == "promoted":
             if not release_workflow_id:
-                raise ValueError(
-                    "promotion requires an exact release workflow ID"
-                )
+                raise ValueError("promotion requires an exact release workflow ID")
             self._require_release_effect(
                 conn,
                 workflow_id=workflow_id,
@@ -384,16 +410,10 @@ class ProductIterationMixin:
                 release_effect_receipt_id=release_effect_receipt_id,
             )
         elif (
-            approval_consumption_id
-            or release_effect_receipt_id
-            or release_workflow_id
+            approval_consumption_id or release_effect_receipt_id or release_workflow_id
         ):
-            raise ValueError(
-                "reject or inconclusive cannot carry release linkage"
-            )
-        require_transition(
-            "product_iteration", locked["current_state"], target_state
-        )
+            raise ValueError("reject or inconclusive cannot carry release linkage")
+        require_transition("product_iteration", locked["current_state"], target_state)
         return self._append_locked(
             conn,
             locked=locked,
@@ -412,9 +432,7 @@ class ProductIterationMixin:
         )
 
     def _projection_state(self, conn, locked: dict) -> dict:
-        projection = self._repository.read_projection(
-            conn, locked["workflow_id"]
-        )
+        projection = self._repository.read_projection(conn, locked["workflow_id"])
         if (
             projection is None
             or projection["last_sequence"] != locked["current_sequence"]

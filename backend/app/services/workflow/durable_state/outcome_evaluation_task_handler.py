@@ -99,6 +99,17 @@ class OutcomeEvaluationTaskHandler:
             }
 
         descriptor = dict(resolved.snapshot.descriptor)
+        selector_error = self._selector_error(
+            descriptor,
+            terminal_receipt,
+        )
+        if selector_error:
+            return {
+                "status": "rejected",
+                "task": None,
+                "rejection": self._resolver.reject(pin, selector_error),
+                "wake_after_commit": False,
+            }
         descriptor_lens = descriptor.get("review_lens")
         if isinstance(descriptor_lens, Mapping):
             descriptor_lens = dict(descriptor_lens)
@@ -148,6 +159,12 @@ class OutcomeEvaluationTaskHandler:
                 "terminal_result_ref": terminal_receipt["result_ref"],
                 "observation_window": enrollment["observation_window"],
                 "budget": enrollment["budget"],
+                "descriptor_snapshot": {
+                    "provider_pack": resolved.snapshot.provider_pack,
+                    "export_module": resolved.snapshot.export_module,
+                    "export_version": resolved.snapshot.export_version,
+                    "descriptor": _plain(resolved.snapshot.descriptor),
+                },
             },
         }
         encode(task)
@@ -162,6 +179,8 @@ class OutcomeEvaluationTaskHandler:
                 "event_type": "outcome_evaluation_intent_created",
                 "terminal_receipt_id": terminal_receipt["receipt_id"],
                 "enrollment_id": enrollment["enrollment_id"],
+                "iteration_id": enrollment["iteration_id"],
+                "descriptor_sha256": descriptor["descriptor_sha256"],
                 "task_id": task["task_id"],
                 "idempotency_key": idempotency_key,
             },
@@ -217,6 +236,21 @@ class OutcomeEvaluationTaskHandler:
             return "consumer_compatibility_not_admitted"
         return None
 
+    @staticmethod
+    def _selector_error(
+        descriptor: dict,
+        terminal_receipt: dict,
+    ) -> str | None:
+        selector = descriptor["selector"]
+        if terminal_receipt["terminal_state"] not in selector["terminal_states"]:
+            return "terminal_state_not_selected"
+        if (
+            terminal_receipt["result_ref"]["schema_id"]
+            not in selector["result_schema_ids"]
+        ):
+            return "result_schema_not_selected"
+        return None
+
     def _enrollment_signature_error(
         self, enrollment: dict
     ) -> str | None:
@@ -264,3 +298,11 @@ class OutcomeEvaluationTaskHandler:
         except SigningKeyError:
             return "terminal_signature_invalid"
         return None
+
+
+def _plain(value):
+    if isinstance(value, Mapping):
+        return {key: _plain(child) for key, child in value.items()}
+    if isinstance(value, tuple):
+        return [_plain(child) for child in value]
+    return value

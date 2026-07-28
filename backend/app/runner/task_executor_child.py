@@ -34,13 +34,18 @@ def _write_result_file(result_file: Optional[str], payload: Any) -> None:
 
 def _initialize_capability_packages_for_runner(*, load_tools: bool = True) -> None:
     try:
-        from backend.app.services.capability_registry import get_registry, load_capabilities
+        from backend.app.services.capability_registry import (
+            get_registry,
+            load_capabilities,
+        )
 
         app_dir = Path(__file__).resolve().parent.parent
         capabilities_dir = (app_dir / "capabilities").resolve()
         load_capabilities(capabilities_dir)
         if load_tools:
-            from backend.app.services.capability_tool_loader import load_all_capability_tools
+            from backend.app.services.capability_tool_loader import (
+                load_all_capability_tools,
+            )
 
             load_all_capability_tools()
 
@@ -77,15 +82,39 @@ def _child_execute_playbook(
     task_type = payload.get("task_type", "playbook_execution")
     playbook_code = payload.get("playbook_code")
     tool_name = payload.get("tool_name") or playbook_code
-    internal_projection_admission = payload.get(
-        "knowledge_projection_admission"
-    )
+    internal_projection_admission = payload.get("knowledge_projection_admission")
+    outcome_evaluation_admission = payload.get("product_outcome_evaluation_admission")
+    outcome_runtime_trust = None
+    if task_type == "product_outcome_evaluation" and not workspace_id:
+        raise RuntimeError("runner_child_outcome_workspace_required")
     if workspace_id:
         from backend.app.services.knowledge_projection.retrievable.source_admission import (
             INTERNAL_PROJECTION_TOOL,
         )
 
-        if tool_name == INTERNAL_PROJECTION_TOOL:
+        if task_type == "product_outcome_evaluation":
+            from backend.app.services.workflow.durable_state.outcome_runtime_trust import (
+                OutcomeRuntimeTrust,
+            )
+            from backend.app.services.workflow.durable_state.outcome_task_admission import (
+                verify_outcome_task_admission,
+            )
+
+            if internal_projection_admission is not None:
+                raise RuntimeError(
+                    "runner_child_outcome_projection_admission_forbidden"
+                )
+            outcome_runtime_trust = OutcomeRuntimeTrust.from_mounted_files()
+            verify_outcome_task_admission(
+                outcome_evaluation_admission,
+                expected_task_id=task_id,
+                expected_workspace_id=str(workspace_id),
+                expected_params=dict(inputs or {}),
+                verification_keys=(
+                    outcome_runtime_trust.descriptor_verification_keys
+                ),
+            )
+        elif tool_name == INTERNAL_PROJECTION_TOOL:
             from backend.app.services.knowledge_projection.retrievable.internal_admission import (
                 InternalProjectionAdmissionReceipt,
             )
@@ -93,10 +122,7 @@ def _child_execute_playbook(
             receipt = InternalProjectionAdmissionReceipt.model_validate(
                 internal_projection_admission
             )
-            if (
-                receipt.task_id != task_id
-                or receipt.workspace_id != str(workspace_id)
-            ):
+            if receipt.task_id != task_id or receipt.workspace_id != str(workspace_id):
                 raise RuntimeError(
                     "runner_child_internal_projection_admission_mismatch"
                 )
@@ -115,12 +141,9 @@ def _child_execute_playbook(
                 ),
             )
     try:
-        eager_tool_load = (
-            os.getenv("LOCAL_CORE_RUNNER_CHILD_EAGER_TOOL_LOAD", "")
-            .strip()
-            .lower()
-            in {"1", "true", "yes", "on"}
-        )
+        eager_tool_load = os.getenv(
+            "LOCAL_CORE_RUNNER_CHILD_EAGER_TOOL_LOAD", ""
+        ).strip().lower() in {"1", "true", "yes", "on"}
         initialize_capability_packages_for_runner(load_tools=eager_tool_load)
     except Exception:
         pass
@@ -131,7 +154,23 @@ def _child_execute_playbook(
     result_file = payload.get("_result_file")
 
     async def _run() -> None:
-        if task_type == "tool_execution":
+        if task_type == "product_outcome_evaluation":
+            from backend.app.services.workflow.durable_state.outcome_task_dispatcher import (
+                OutcomeTaskDispatcher,
+            )
+
+            if outcome_runtime_trust is None:
+                raise RuntimeError("runner_child_outcome_trust_required")
+            result = OutcomeTaskDispatcher().execute(
+                task_id=task_id,
+                workspace_id=str(workspace_id),
+                capability_code=str(playbook_code),
+                params=dict(inputs or {}),
+                admission=dict(outcome_evaluation_admission or {}),
+                trust=outcome_runtime_trust,
+            )
+            _write_result_file(result_file, result)
+        elif task_type == "tool_execution":
             from backend.app.services.unified_tool_executor import (
                 UnifiedToolExecutor,
             )
@@ -191,8 +230,7 @@ def _child_execute_playbook(
                     else None
                 )
                 raise RuntimeError(
-                    "Terminal workflow failure"
-                    + (f": {detail}" if detail else "")
+                    "Terminal workflow failure" + (f": {detail}" if detail else "")
                 )
 
     try:

@@ -181,6 +181,8 @@ async def prepare_runner_child_admission(
     normalized_inputs = dict(inputs)
     normalized_context = dict(execution_context)
     workspace_id = str(task.workspace_id or "").strip()
+    if task.task_type == "product_outcome_evaluation" and not workspace_id:
+        raise ValueError("outcome_task_workspace_required")
     if not workspace_id:
         return RunnerChildAdmission(
             inputs=normalized_inputs,
@@ -194,6 +196,48 @@ async def prepare_runner_child_admission(
         inputs=normalized_inputs,
         execution_context=normalized_context,
     )
+    if task.task_type == "product_outcome_evaluation":
+        from backend.app.services.workflow.durable_state.outcome_runtime_trust import (
+            OutcomeRuntimeTrust,
+        )
+        from backend.app.services.workflow.durable_state.outcome_task_admission import (
+            verify_outcome_task_admission,
+        )
+
+        receipt = verify_outcome_task_admission(
+            normalized_context.get("product_outcome_evaluation_admission"),
+            expected_task_id=task.id,
+            expected_workspace_id=workspace_id,
+            expected_params=dict(task.params),
+            verification_keys=(
+                OutcomeRuntimeTrust.from_mounted_files().descriptor_verification_keys
+            ),
+        )
+        candidate_inputs = dict(normalized_inputs)
+        injected_execution_id = candidate_inputs.pop(
+            "execution_id",
+            None,
+        )
+        if injected_execution_id is not None and str(injected_execution_id) != str(
+            task.execution_id or task.id
+        ):
+            raise ValueError("outcome_task_execution_id_mismatch")
+        if candidate_inputs != task.params:
+            raise ValueError("outcome_task_input_identity_mismatch")
+        normalized_context["inputs"] = dict(task.params)
+        normalized_context["product_outcome_evaluation_admission"] = receipt
+        for key in (
+            "execution_backend_hint",
+            "runtime_binding",
+            "selected_runtime_id",
+            "execution_admission_snapshot",
+        ):
+            normalized_context.pop(key, None)
+        return RunnerChildAdmission(
+            inputs=dict(task.params),
+            execution_context=normalized_context,
+            changed=normalized_context != execution_context,
+        )
     if internal_admission is not None:
         internal_receipt, projection_payload = internal_admission
         normalized_inputs = projection_payload.bounded_dict()
