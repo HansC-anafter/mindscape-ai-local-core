@@ -661,6 +661,26 @@ surfaces:
       - web-console/src/components/workspace/device-binding/**
       - web-console/src/lib/media-transport/**
 
+  - id: psc.local-core.social-video-reference-motion-practice-handoff.v1
+    tier: P1
+    owner: "@team-leads"
+    contract_doc: mindscape-ai-cloud/docs/internal/local-core/product-semantics/remote-live-practice-media-lane-contract-2026-07-14.zh-TW.md
+    requires_product_semantic_declaration: true
+    semantics:
+      - A selected Social Video reference remains a workspace-scoped identity handoff until Local Core resolves one unique terminal profile through a single bounded read-only request.
+      - Profile projection returns only bounded semantic chapter summaries and fails closed for missing, conflicting, invalid, or cross-workspace artifacts; raw features, evidence bodies, storage paths, fake chapters, retries, workers, queues, pool changes, and UX polling are prohibited.
+      - One explicit Start guidance action uses the existing launchMotionPractice Meeting, live session, supervised receiver, and reference playback path; no second launcher, Meeting, receiver, or player may be introduced.
+    path_globs:
+      - backend/app/routes/core/workspace/motion_reference_profiles.py
+      - backend/app/routes/core/workspace/__init__.py
+      - backend/app/services/media_transport/motion_reference_profile_artifact.py
+      - backend/tests/*motion*reference*profile*
+      - web-console/src/components/workspace/device-binding/practice/motionPracticeReferenceProfile*
+      - web-console/src/components/workspace/device-binding/practice/motionPracticeResolvedLesson*
+      - web-console/src/components/workspace/device-binding/practice/motionPracticeReferencePlayback*
+      - web-console/src/components/workspace/device-binding/practice/motionPracticeInstructionSource*
+      - web-console/src/app/workspaces/[workspaceId]/capabilities/[capabilityCode]/MotionCoachWorkbenchHost*
+
   - id: psc.local-core.motion-runtime-reference-segmentation.v1
     tier: P1
     owner: "@team-leads"
