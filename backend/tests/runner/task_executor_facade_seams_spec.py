@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 from backend.app.models.workspace import Task, TaskStatus, _utc_now
 from backend.app.services.execution_intent_resolver import ExecutionIntentResolution
-from backend.app.runner import task_executor
+from backend.app.runner import task_executor, task_executor_process
 from backend.app.runner.task_executor_admission import RunnerChildAdmission
 
 
@@ -75,16 +75,15 @@ def test_run_single_task_uses_facade_success_hook(monkeypatch):
 
     class FakeProcess:
         pid = 101
-        exitcode = 0
 
-        def start(self):
-            return None
+        def __init__(self, _command, **_kwargs):
+            pass
 
-        def is_alive(self):
-            return False
+        def poll(self):
+            return 0
 
-        def join(self, timeout=None):
-            return None
+        def wait(self, timeout=None):
+            return 0
 
         def terminate(self):
             return None
@@ -93,8 +92,8 @@ def test_run_single_task_uses_facade_success_hook(monkeypatch):
             return None
 
     class FakeMpContext:
-        def Process(self, target, args, daemon):
-            return FakeProcess()
+        def Process(self, **_kwargs):
+            raise AssertionError("multiprocessing spawn is forbidden")
 
     async def fake_mark_succeeded(tasks_store, task_id, runner_id, result_file, redis_queue):
         marked["task_id"] = task_id
@@ -107,6 +106,12 @@ def test_run_single_task_uses_facade_success_hook(monkeypatch):
         )
 
     monkeypatch.setattr(task_executor.mp, "get_context", lambda method: FakeMpContext())
+    monkeypatch.setattr(task_executor_process.subprocess, "Popen", FakeProcess)
+    monkeypatch.setattr(
+        task_executor_process,
+        "create_child_payload_file",
+        lambda *_args: "/tmp/runner-payload-test.pickle",
+    )
     monkeypatch.setattr(
         task_executor,
         "_resolve_execution_attempt_inputs",

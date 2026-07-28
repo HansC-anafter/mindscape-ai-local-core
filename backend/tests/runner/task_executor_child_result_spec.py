@@ -1,3 +1,7 @@
+import pickle
+
+import pytest
+
 from backend.app.services import capability_registry
 from backend.app.runner import task_executor_child
 from backend.app.runner.task_executor_child import (
@@ -62,6 +66,33 @@ def test_targeted_child_load_does_not_scan_all_capabilities(monkeypatch):
     )
 
     assert calls == [("reload", "ig", "capabilities")]
+
+
+def test_targeted_child_load_failure_is_fatal(monkeypatch):
+    monkeypatch.setattr(
+        capability_registry,
+        "reload_capability",
+        lambda *_args, **_kwargs: False,
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="runner_child_capability_manifest_not_found:ig",
+    ):
+        _initialize_capability_packages_for_runner(
+            load_tools=False,
+            capability_code="ig",
+        )
+
+
+def test_child_payload_file_is_deleted_before_execution(tmp_path):
+    payload_file = tmp_path / "payload.pickle"
+    payload_file.write_bytes(pickle.dumps({"task_id": "task-current"}))
+
+    payload = task_executor_child._read_child_payload_file(str(payload_file))
+
+    assert payload == {"task_id": "task-current"}
+    assert not payload_file.exists()
 
 
 def test_playbook_child_scopes_current_task_identity(monkeypatch):
