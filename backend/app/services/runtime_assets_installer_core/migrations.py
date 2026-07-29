@@ -12,6 +12,9 @@ from backend.app.database.write_readiness import (
     DatabaseWriteNotReadyError,
     check_core_write_readiness,
 )
+from backend.app.services.migrations.capability_plan_admission import (
+    require_capability_migration_plan_allowed,
+)
 from backend.app.services.runtime_database_incident_gate import (
     RuntimeDatabaseMutationBlocked,
     record_database_failure,
@@ -364,8 +367,15 @@ def execute_migrations(
         )
         if migration_mutation_required:
             try:
-                require_runtime_database_mutation_allowed(
-                    f"capability_migration:{capability_code}"
+                migration_admission = (
+                    require_capability_migration_plan_allowed(
+                        capability_code=capability_code,
+                        alembic_config=alembic_config,
+                        pending_revisions=pending_revisions,
+                        require_allowed=(
+                            require_runtime_database_mutation_allowed
+                        ),
+                    )
                 )
             except RuntimeDatabaseMutationBlocked as exc:
                 if result.migration_status is None:
@@ -376,6 +386,8 @@ def execute_migrations(
                     f"{exc.decision.incident_id or exc.decision.reason}"
                 )
                 return
+            if migration_admission.mode == "exact_per_revision":
+                use_branch_scoped = False
 
         if _should_use_branch_scoped_upgrade(revisions, use_branch_scoped):
             target = f"{capability_code}@head"
