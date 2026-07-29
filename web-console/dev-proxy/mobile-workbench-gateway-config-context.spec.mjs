@@ -114,3 +114,90 @@ test('boot assets may inherit explicit same-origin workspace context only', () =
     assert.equal(dynamicContext.isBootAsset, false, dynamicPath);
   }
 });
+
+test('self-scoped top-level capability documents discard external redirect Referer only', () => {
+  for (const requestMethod of ['GET', 'HEAD']) {
+    const context = gateway.extractMobileWorkbenchGatewayRequestContext(
+      '/workspaces/workspace-a/capability-ui-hosts/yogacoach?component=YogaPracticeWorkbenchPage',
+      {
+        referer: 'https://shy-resonance-542b.cloudflareaccess.com/cdn-cgi/access/login',
+        'sec-fetch-mode': 'navigate',
+        'sec-fetch-dest': 'document',
+        'sec-fetch-site': 'cross-site',
+      },
+      {
+        publicOrigin: 'https://remote-workbench.mindscapeai.app',
+        requestMethod,
+      },
+    );
+    assert.deepEqual(context.conflicts, []);
+    assert.equal(context.workspaceId, 'workspace-a');
+    assert.equal(context.capabilityCode, 'yogacoach');
+    assert.equal('refererPath' in context, false);
+  }
+});
+
+test('external Referer remains fail-closed outside an exact self-scoped document navigation', () => {
+  const externalHeaders = {
+    referer: 'https://shy-resonance-542b.cloudflareaccess.com/cdn-cgi/access/login',
+    'sec-fetch-mode': 'navigate',
+    'sec-fetch-dest': 'document',
+  };
+  const requestCases = [
+    [
+      '/workspaces/workspace-a/capability-ui-hosts/yogacoach',
+      { referer: externalHeaders.referer, 'sec-fetch-mode': 'navigate' },
+      'missing destination',
+    ],
+    [
+      '/workspaces/workspace-a/capability-ui-hosts/yogacoach',
+      { ...externalHeaders, 'sec-fetch-mode': ['navigate'] },
+      'array header',
+    ],
+    [
+      '/workspaces/workspace-a/capability-ui-hosts/yogacoach/refs',
+      externalHeaders,
+      'capability subpath',
+    ],
+    [
+      '/workspaces/workspace-a/capability-ui-hosts/yogacoach',
+      { ...externalHeaders, connection: 'Upgrade', upgrade: 'websocket' },
+      'upgrade request',
+    ],
+    [
+      '/api/v1/capabilities/yogacoach/profile?workspace_id=workspace-a',
+      externalHeaders,
+      'capability API',
+    ],
+    [
+      '/_next/static/chunk.js',
+      externalHeaders,
+      'boot asset',
+    ],
+    [
+      '/workspaces/workspace-a/capability-ui-hosts/yogacoach'
+        + '?workspace_id=workspace-a&workspace_id=workspace-b',
+      externalHeaders,
+      'ambiguous scope',
+    ],
+  ];
+  for (const [requestUrl, headers, label] of requestCases) {
+    const context = gateway.extractMobileWorkbenchGatewayRequestContext(
+      requestUrl,
+      headers,
+      { publicOrigin: 'https://remote-workbench.mindscapeai.app' },
+    );
+    assert.ok(context.conflicts.includes('invalid_referer_origin'), label);
+  }
+
+  const malformed = gateway.extractMobileWorkbenchGatewayRequestContext(
+    '/workspaces/workspace-a/capability-ui-hosts/yogacoach',
+    {
+      referer: 'not a URL',
+      'sec-fetch-mode': 'navigate',
+      'sec-fetch-dest': 'document',
+    },
+    { publicOrigin: 'https://remote-workbench.mindscapeai.app' },
+  );
+  assert.ok(malformed.conflicts.includes('invalid_referer'));
+});
