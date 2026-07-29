@@ -48,14 +48,14 @@ materialize_reference() {
     [[ -f "$REFERENCE_SOURCE" && ! -L "$REFERENCE_SOURCE" ]] || fail "Authorized reference source is unavailable"
     local source_digest temporary
     source_digest="$(shasum -a 256 "$REFERENCE_SOURCE" | awk '{print $1}')"
-    temporary="$(mktemp "$(dirname "$REFERENCE_AUDIO")/.authoritative.XXXXXX.wav")"
+    temporary="$(mktemp "$(dirname "$REFERENCE_AUDIO")/.authoritative.XXXXXX")"
     if [[ "$source_digest" == "$REFERENCE_AUDIO_SHA256" ]]; then
       cp "$REFERENCE_SOURCE" "$temporary"
     elif [[ "$source_digest" == "$REFERENCE_SOURCE_SHA256" ]]; then
       [[ -x "$FFMPEG_BIN" ]] || fail "Pinned ffmpeg is unavailable: $FFMPEG_BIN"
-      if ! "$FFMPEG_BIN" -nostdin -hide_banner -loglevel error \
+      if ! "$FFMPEG_BIN" -nostdin -hide_banner -loglevel error -y \
         -ss 2.64 -to 10.60 -i "$REFERENCE_SOURCE" \
-        -ar 24000 -ac 1 -c:a pcm_s16le "$temporary"; then
+        -ar 24000 -ac 1 -c:a pcm_s16le -f wav "$temporary"; then
         rm -f "$temporary"
         fail "Unable to materialize authoritative reference clip"
       fi
