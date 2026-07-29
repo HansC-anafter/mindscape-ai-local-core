@@ -10,6 +10,7 @@ export interface UIComponentInfo {
   integrity?: string;
   runtime?: string;
   legacy_context?: boolean;
+  layout_hint?: 'default' | 'scrollable_full_bleed';
   bytes?: number;
   asset_path?: string;
 }
