@@ -145,6 +145,7 @@ export function proxyHttpRequest(
     onComplete = null,
     nextProxyTarget = null,
     stripRemoteIdentityHeaders = false,
+    trustedRemoteIdentity = null,
   } = {},
 ) {
   const startedAt = performance.now();
@@ -270,6 +271,7 @@ export function proxyHttpRequest(
       path: target.path,
       headers: copyProxyRequestHeaders(req.headers, target, {
         stripRemoteIdentityHeaders,
+        trustedRemoteIdentity,
       }),
     },
     (upstreamRes) => {

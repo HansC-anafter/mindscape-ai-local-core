@@ -164,6 +164,49 @@ test('runtime source and grants are absolutely coherent before listener open', a
   }
 });
 
+test('verified invite self-service bypasses membership only on two exact routes', async () => {
+  const config = createGatewayConfig();
+  const verifier = createTestVerifier();
+  const headers = {
+    host: 'remote-workbench.mindscapeai.app',
+    'cf-access-jwt-assertion': createSignedAccessJwt({
+      claims: {
+        sub: 'invited-subject',
+        email: 'invited@example.com',
+      },
+    }),
+  };
+  const page = await authorizeRemoteWorkbenchRequest(
+    '/access/invitations/accept',
+    headers,
+    config,
+    { requestMethod: 'GET', verifyAccessToken: verifier },
+  );
+  const post = await authorizeRemoteWorkbenchRequest(
+    '/api/v1/access-control/invitations/accept',
+    headers,
+    config,
+    { requestMethod: 'POST', verifyAccessToken: verifier },
+  );
+  const wrongMethod = await authorizeRemoteWorkbenchRequest(
+    '/api/v1/access-control/invitations/accept',
+    headers,
+    config,
+    { requestMethod: 'GET', verifyAccessToken: verifier },
+  );
+
+  assert.equal(page.allowed, true);
+  assert.equal(post.allowed, true);
+  assert.equal(page.invitation_acceptance, true);
+  assert.deepEqual(post.verified_principal, {
+    provider: 'cloudflare-access',
+    issuer: ACCESS_ISSUER,
+    subject: 'invited-subject',
+    email: 'invited@example.com',
+  });
+  assert.equal(wrongMethod.allowed, false);
+});
+
 test('enabled startup requires the one exact public origin before listener open', async () => {
   const invalidOrigins = [
     undefined,

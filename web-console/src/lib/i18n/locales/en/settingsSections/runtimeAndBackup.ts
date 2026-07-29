@@ -18,8 +18,8 @@ export const settingsEnRuntimeAndBackup = {
 
   runtimeEnvironments: 'Runtime Environments',
   runtimeEnvironmentsDescription: 'Configure runtime environments for Playbooks and tasks',
-  remoteWorkbenchAccess: 'Remote Workbench Access',
-  remoteWorkbenchAccessDescription: 'Manage verified administrators inherited by every workspace',
+  remoteWorkbenchAccess: 'Accounts & access',
+  remoteWorkbenchAccessDescription: 'Manage Local Core accounts, roles, and identity diagnostics',
   hostResources: 'Host Resources',
   hostResourceObservability: 'Resource Observability',
   workspaceResourceAllocations: 'Workspace Allocations',

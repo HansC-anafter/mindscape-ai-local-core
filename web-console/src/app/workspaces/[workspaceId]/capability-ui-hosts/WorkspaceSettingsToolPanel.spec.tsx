@@ -53,6 +53,14 @@ vi.mock('next/navigation', () => ({
   useRouter: () => routerMock,
 }));
 
+vi.mock('@/lib/i18n', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/i18n')>();
+  return {
+    ...actual,
+    useLocaleContext: () => ({ locale: 'en' }),
+  };
+});
+
 vi.mock('@/contexts/WorkspaceDataContext', () => ({
   useWorkspaceDataOptional: () => workspaceDataMock,
 }));
@@ -215,6 +223,16 @@ function stubOkFetch(overrides?: {
         resolved_executor_runtime: null,
         route_authority: 'model-route-registry',
       };
+    } else if (url.includes('/api/v1/access-control/workspaces/')) {
+      body = {
+        scope_type: 'workspace',
+        scope_id: 'ws_test',
+        revision: 1,
+        members: [],
+        invitations: [],
+        audit_events: [],
+        role_catalog_version: 'workspace-access-system-roles.v1',
+      };
     }
     return {
       ok: true,
@@ -369,7 +387,7 @@ describe('WorkspaceSettingsToolPanel', () => {
     expect(screen.getByTestId('mock-workspace-tool-overlay-floating-panel')).toHaveAttribute('data-workspace-id', 'ws_test');
   });
 
-  it('adds Remote Access as the seventh cold section and mounts only its workspace slot', async () => {
+  it('adds Members & access as the seventh cold host editor with one pack diagnostic slot', async () => {
     const fetchMock = stubOkFetch();
 
     render(<WorkspaceSettingsToolPanel workspaceId="ws_test" apiUrl="http://api.test" />);
@@ -377,30 +395,19 @@ describe('WorkspaceSettingsToolPanel', () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4));
     const stack = screen.getByTestId('workspace-settings-section-stack');
     expect(stack.children).toHaveLength(7);
-    expect(stack.lastElementChild).toHaveAttribute(
-      'data-testid',
-      'workspace-settings-section-remote-access',
-    );
+    expect(stack.lastElementChild).toHaveAttribute('data-testid', 'workspace-settings-section-members-access');
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/api/v1/settings/extensions'))).toBe(false);
 
-    fireEvent.click(screen.getByRole('button', { name: /Remote Access/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Members & access/ }));
 
     await waitFor(() => {
-      expect(screen.getByTestId('mock-capability-extension-slot')).toHaveTextContent(
-        'remote-workbench-workspace-access',
-      );
+      expect(screen.getByTestId('access-scope-management')).toBeInTheDocument();
+      expect(screen.getByTestId('mock-capability-extension-slot')).toHaveTextContent('remote-workbench-workspace-access');
     });
-    expect(fetchMock).toHaveBeenCalledWith(
-      '/api/v1/settings/extensions?section=remote-workbench-workspace-access&workspace_id=ws_test&capability_code=mindscape_cloud_integration&component_code=MindscapeRemoteWorkbenchWorkspaceAccessPanel',
-    );
-    expect(screen.getByTestId('mock-capability-extension-slot')).toHaveAttribute(
-      'data-owner-capability',
-      'mindscape_cloud_integration',
-    );
-    expect(screen.getByTestId('mock-capability-extension-slot')).toHaveAttribute(
-      'data-owner-component',
-      'MindscapeRemoteWorkbenchWorkspaceAccessPanel',
-    );
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/settings/extensions?section=remote-workbench-workspace-access&workspace_id=ws_test&capability_code=mindscape_cloud_integration&component_code=MindscapeRemoteWorkbenchWorkspaceAccessPanel');
+    const slot = screen.getByTestId('mock-capability-extension-slot');
+    expect(slot).toHaveAttribute('data-owner-capability', 'mindscape_cloud_integration');
+    expect(slot).toHaveAttribute('data-owner-component', 'MindscapeRemoteWorkbenchWorkspaceAccessPanel');
   });
 
   it('loads workspace-scoped social media provider settings only from the Social section', async () => {
