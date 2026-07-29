@@ -79,8 +79,9 @@ function fixture(namespace = 'demo_pack'): {
 }
 
 function localeFromUrl(url: string): 'en' | 'zh-TW' | 'ja' {
-  if (url.endsWith('/zh-TW.json')) return 'zh-TW';
-  if (url.endsWith('/ja.json')) return 'ja';
+  const pathname = new URL(url).pathname;
+  if (pathname.endsWith('/zh-TW.json')) return 'zh-TW';
+  if (pathname.endsWith('/ja.json')) return 'ja';
   return 'en';
 }
 
@@ -111,6 +112,7 @@ describe('capability UI localization loader', () => {
 
     const options = {
       apiUrl: 'http://api.test',
+      workspaceId: 'workspace alpha',
       capabilityCode: 'demo_pack',
       version: '1.0.0',
       requestedLocale: 'zh-TW' as const,
@@ -122,6 +124,13 @@ describe('capability UI localization loader', () => {
     ]);
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://api.test/assets/zh-TW.json?workspace_id=workspace%20alpha',
+      expect.objectContaining({
+        credentials: 'same-origin',
+        cache: 'force-cache',
+      }),
+    );
     expect(first.status).toBe('localized');
     expect(second.effectiveLocale).toBe('zh-TW');
     expect(first.t('greeting', { name: 'Ada' })).toBe('你好，Ada');
@@ -140,6 +149,7 @@ describe('capability UI localization loader', () => {
 
     const bridge = await loadCapabilityUiLocalization({
       apiUrl: 'http://api.test',
+      workspaceId: 'workspace-a',
       capabilityCode: 'demo_pack',
       version: '1.0.0',
       requestedLocale: 'zh-TW',
@@ -147,6 +157,10 @@ describe('capability UI localization loader', () => {
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls.map(([input]) => String(input))).toEqual([
+      'http://api.test/assets/zh-TW.json?workspace_id=workspace-a',
+      'http://api.test/assets/en.json?workspace_id=workspace-a',
+    ]);
     expect(bridge.status).toBe('source-fallback');
     expect(bridge.effectiveLocale).toBe('en');
     expect(bridge.t('greeting', { name: 'Ada' })).toBe('Hello, Ada');
@@ -161,6 +175,7 @@ describe('capability UI localization loader', () => {
 
     await expect(loadCapabilityUiLocalization({
       apiUrl: 'http://api.test',
+      workspaceId: 'workspace-a',
       capabilityCode: 'demo_pack',
       version: '1.0.0',
       requestedLocale: 'en',
@@ -179,6 +194,7 @@ describe('capability UI localization loader', () => {
     for (let index = 0; index < 33; index += 1) {
       await loadCapabilityUiLocalization({
         apiUrl: 'http://api.test',
+        workspaceId: 'workspace-a',
         capabilityCode: 'demo_pack',
         version: `1.0.${index}`,
         requestedLocale: 'en',
@@ -205,6 +221,7 @@ describe('capability UI localization loader', () => {
 
     const loading = loadCapabilityUiLocalization({
       apiUrl: 'http://api.test',
+      workspaceId: 'workspace-a',
       capabilityCode: 'demo_pack',
       version: '1.0.0',
       requestedLocale: 'en',
@@ -225,6 +242,7 @@ describe('capability UI localization loader', () => {
 
     const bridge = await loadCapabilityUiLocalization({
       apiUrl: 'http://api.test',
+      workspaceId: 'workspace-a',
       capabilityCode: 'legacy_pack',
       version: '1.0.0',
       requestedLocale: 'ja',
@@ -233,5 +251,23 @@ describe('capability UI localization loader', () => {
     expect(bridge.status).toBe('legacy-unmanaged');
     expect(bridge.requestedLocale).toBe('ja');
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('fails before fetch and cache work when a managed catalog has no workspace', async () => {
+    const { descriptor } = fixture();
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(loadCapabilityUiLocalization({
+      apiUrl: 'http://api.test',
+      workspaceId: '   ',
+      capabilityCode: 'demo_pack',
+      version: '1.0.0',
+      requestedLocale: 'zh-TW',
+      descriptor,
+    })).rejects.toThrow('Capability UI localization workspace is required');
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(capabilityUiCatalogCacheStateForTests().entries).toBe(0);
   });
 });

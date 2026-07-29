@@ -2,10 +2,24 @@ import React from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { loadCapabilityUiLocalization } from '@/lib/capability-ui-localization';
+
 import CapabilityUiHostClientLoader from './CapabilityUiHostClientLoader';
 
 vi.mock('@/lib/api-url', () => ({
   getApiBaseUrl: () => 'http://api.test',
+}));
+
+vi.mock('@/lib/capability-ui-localization', () => ({
+  loadCapabilityUiLocalization: vi.fn(async () => ({
+    contract: 'mindscape-capability-ui-localization-bridge-v1',
+    requestedLocale: 'en',
+    effectiveLocale: 'en',
+    direction: 'ltr',
+    sourceLocale: 'en',
+    status: 'legacy-unmanaged',
+    t: (key: string) => key,
+  })),
 }));
 
 vi.mock('@/lib/i18n', async () => {
@@ -83,6 +97,7 @@ describe('CapabilityUiHostClientLoader', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+    vi.clearAllMocks();
   });
 
   it('keeps bridge runtime capability hosts inside the workspace surface shell after metadata resolves', async () => {
@@ -119,6 +134,13 @@ describe('CapabilityUiHostClientLoader', () => {
         '/workspaces/ws_test/capability-ui-hosts/ig_loader_ok/accounts',
       );
     });
+    expect(loadCapabilityUiLocalization).toHaveBeenCalledWith(
+      expect.objectContaining({
+        apiUrl: 'http://api.test',
+        workspaceId: 'ws_test',
+        capabilityCode: 'ig_loader_ok',
+      }),
+    );
     expect(screen.getByTestId('workspace-surface-shell')).toHaveAttribute(
       'data-active-capability-code',
       'ig_loader_ok',
