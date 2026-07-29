@@ -13,6 +13,7 @@ from .contracts import (
     RetrievalAccessContext,
     ScopeMembership,
 )
+from .workspace_authorization_revision import workspace_authorization_revision
 
 
 class RetrievalScopeDenied(ValueError):
@@ -305,9 +306,14 @@ class RetrievalAccessContextFactory:
                 getattr(workspace, "owner_user_id", "") or ""
             ) != subject_user_id:
                 raise RetrievalScopeDenied("knowledge_workspace_scope_forbidden")
-            revision = _revision(getattr(workspace, "updated_at", None))
-            if not revision:
-                raise RetrievalScopeDenied("knowledge_workspace_owner_revision_missing")
+            try:
+                revision = workspace_authorization_revision(
+                    workspace_id=getattr(workspace, "id", None),
+                    owner_user_id=getattr(workspace, "owner_user_id", None),
+                    visibility=getattr(workspace, "visibility", None),
+                )
+            except ValueError as exc:
+                raise RetrievalScopeDenied(str(exc)) from exc
             membership = ScopeMembership(
                 "workspace",
                 workspace_id,
