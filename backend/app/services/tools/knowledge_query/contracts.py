@@ -11,11 +11,23 @@ class ResourceFilters(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     source_apps: tuple[str, ...] = Field(default=(), max_length=16)
+    source_ids: tuple[str, ...] = Field(default=(), max_length=64)
     owner_capabilities: tuple[str, ...] = Field(default=(), max_length=16)
     source_kinds: tuple[
         Literal["object", "artifact", "memory", "document"], ...
     ] = Field(default=(), max_length=8)
     record_kinds: tuple[str, ...] = Field(default=(), max_length=16)
+
+    @model_validator(mode="after")
+    def normalize_source_ids(self) -> "ResourceFilters":
+        if any(not item.strip() for item in self.source_ids):
+            raise ValueError("knowledge_query_source_id_empty")
+        object.__setattr__(
+            self,
+            "source_ids",
+            tuple(sorted({item.strip() for item in self.source_ids})),
+        )
+        return self
 
 
 class CitationRef(BaseModel):
@@ -107,6 +119,10 @@ class KnowledgeQueryInput(BaseModel):
             raise ValueError("knowledge_query_aggregate_shape_required")
         if self.operation != "search" and self.retrieval_mode != "hybrid":
             raise ValueError("knowledge_query_mode_only_for_search")
+        if self.operation != "search" and self.resource_filters.source_ids:
+            raise ValueError(
+                "knowledge_query_source_ids_only_for_search"
+            )
         return self
 
 

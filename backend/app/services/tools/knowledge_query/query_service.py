@@ -251,6 +251,7 @@ class KnowledgeQueryService:
                 scope_id=scope_id,
                 top_k=request.limit,
                 source_apps=request.resource_filters.source_apps,
+                source_ids=request.resource_filters.source_ids,
                 owner_capabilities=(
                     request.resource_filters.owner_capabilities
                 ),

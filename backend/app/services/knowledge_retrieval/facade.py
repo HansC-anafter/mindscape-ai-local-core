@@ -106,6 +106,7 @@ class AuthorizationAwareKnowledgeRetrievalFacade(
             scope_type=request.scope_type,
             scope_id=request.scope_id,
             source_apps=request.source_apps,
+            source_ids=request.source_ids,
             owner_capabilities=request.owner_capabilities,
             modality_filter=request.modality_filter,
             candidate_limit=candidate_limit,
@@ -203,6 +204,7 @@ class AuthorizationAwareKnowledgeRetrievalFacade(
                 "keyword_candidates": len(keyword_rows),
                 "query_evidence_seed_count": len(seed_bindings),
                 "requested_modality": request.modality_filter,
+                "applied_source_ids": list(request.source_ids),
             },
         )
 

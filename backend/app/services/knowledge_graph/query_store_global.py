@@ -31,6 +31,7 @@ class AuthorizationAwareKnowledgeGraphGlobalMixin:
         scope_type: str,
         scope_id: str,
         source_apps: tuple[str, ...],
+        source_ids: tuple[str, ...],
         owner_capabilities: tuple[str, ...],
         modality_filter: str | None,
         candidate_limit: int,
@@ -66,6 +67,7 @@ class AuthorizationAwareKnowledgeGraphGlobalMixin:
                 scope_type=scope_type,
                 scope_id=scope_id,
                 source_apps=source_apps,
+                source_ids=source_ids,
                 owner_capabilities=owner_capabilities,
                 modality_filter=modality_filter,
             )
