@@ -55,6 +55,47 @@ function hasCapabilityHostPath(pathname) {
   return /^\/workspaces\/[^/]+\/capability-ui-hosts\/[^/]+(?:\/|$)/.test(pathname);
 }
 
+function hasExactCapabilityHostDocumentPath(pathname) {
+  return /^\/workspaces\/[^/]+\/capability-ui-hosts\/[^/]+\/?$/.test(pathname);
+}
+
+function readExactRequestHeader(requestHeaders, headerName) {
+  const entries = Object.entries(requestHeaders || {}).filter(
+    ([name]) => String(name).toLowerCase() === headerName,
+  );
+  if (entries.length !== 1 || Array.isArray(entries[0][1])) {
+    return null;
+  }
+  const normalized = String(entries[0][1] || '').trim().toLowerCase();
+  return normalized || null;
+}
+
+function hasUpgradeRequestHeaders(requestHeaders) {
+  const upgrade = readExactRequestHeader(requestHeaders, 'upgrade');
+  const connection = readExactRequestHeader(requestHeaders, 'connection');
+  return Boolean(
+    upgrade
+    || connection?.split(',').some((token) => token.trim() === 'upgrade'),
+  );
+}
+
+function isSelfScopedTopLevelDocumentNavigation(primary, requestHeaders, requestMethod) {
+  return (
+    ['GET', 'HEAD'].includes(String(requestMethod || 'GET').toUpperCase())
+    && readExactRequestHeader(requestHeaders, 'sec-fetch-mode') === 'navigate'
+    && readExactRequestHeader(requestHeaders, 'sec-fetch-dest') === 'document'
+    && !hasUpgradeRequestHeaders(requestHeaders)
+    && primary.conflicts.length === 0
+    && Boolean(primary.workspaceId)
+    && Boolean(primary.capabilityCode)
+    && hasExactCapabilityHostDocumentPath(primary.path)
+    && !primary.isBootAsset
+    && !primary.isRemoteControlPlane
+    && !primary.gatewayPolicyTargeted
+    && !primary.gatewayObservabilityTargeted
+  );
+}
+
 function readExactSearchParameter(parsedUrl, name) {
   const values = parsedUrl.searchParams.getAll(name);
   return values.length === 1 ? values[0] : null;
@@ -237,7 +278,13 @@ export function extractRequestContext(
     } catch {
       expectedOrigin = '';
     }
-    if (!expectedOrigin || parsedReferer.origin !== expectedOrigin) {
+    if (!expectedOrigin) {
+      return { ...primary, conflicts: [...primary.conflicts, 'invalid_referer_origin'] };
+    }
+    if (parsedReferer.origin !== expectedOrigin) {
+      if (isSelfScopedTopLevelDocumentNavigation(primary, requestHeaders, requestMethod)) {
+        return primary;
+      }
       return { ...primary, conflicts: [...primary.conflicts, 'invalid_referer_origin'] };
     }
   }

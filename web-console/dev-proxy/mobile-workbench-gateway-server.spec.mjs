@@ -208,6 +208,78 @@ test('local and remote listeners share implementation but not trust', async (t) 
   assert.equal(healthPayload.gateway.upstream_capability_support_calls, 0);
 });
 
+test('external Access Referer is discarded for document HTTP but never for upgrade', async (t) => {
+  let resolverCalls = 0;
+  let upstreamRequests = 0;
+  let upstreamUpgrades = 0;
+  const upstream = http.createServer((_req, res) => {
+    upstreamRequests += 1;
+    res.writeHead(200, { 'content-type': 'text/html' });
+    res.end('<main>YogaCoach</main>');
+  });
+  upstream.on('upgrade', (_req, socket) => {
+    upstreamUpgrades += 1;
+    socket.end('HTTP/1.1 101 Switching Protocols\r\n\r\n');
+  });
+  const upstreamPort = await listen(upstream);
+  const server = createFrontendProxyServer({
+    ingressMode: 'remote',
+    getMobileWorkbenchGatewayConfig: () => createGatewayConfig(),
+    verifyAccessToken: createTestVerifier(),
+    policyResolver: async () => {
+      resolverCalls += 1;
+      return createPolicyResolution();
+    },
+    nextProxyTarget: { hostname: '127.0.0.1', port: upstreamPort },
+  });
+  const port = await listen(server);
+  t.after(async () => {
+    await close(server);
+    await close(upstream);
+  });
+  const token = createSignedAccessJwt();
+  const requestPath = '/workspaces/workspace-a/capability-ui-hosts/yogacoach';
+  const externalReferer =
+    'https://shy-resonance-542b.cloudflareaccess.com/cdn-cgi/access/login';
+  const response = await requestLoopback(`http://127.0.0.1:${port}${requestPath}`, {
+    headers: {
+      host: 'remote-workbench.mindscapeai.app',
+      'Cf-Access-Jwt-Assertion': token,
+      referer: externalReferer,
+      'sec-fetch-mode': 'navigate',
+      'sec-fetch-dest': 'document',
+      'sec-fetch-site': 'cross-site',
+    },
+  });
+  assert.equal(response.status, 200);
+  assert.equal(resolverCalls, 1);
+  assert.equal(upstreamRequests, 1);
+
+  const upgradeOutput = await new Promise((resolve, reject) => {
+    const socket = net.connect(port, '127.0.0.1', () => {
+      socket.write(
+        `GET ${requestPath} HTTP/1.1\r\n`
+        + 'Host: remote-workbench.mindscapeai.app\r\n'
+        + 'Connection: Upgrade\r\n'
+        + 'Upgrade: websocket\r\n'
+        + 'Sec-Fetch-Mode: navigate\r\n'
+        + 'Sec-Fetch-Dest: document\r\n'
+        + `Referer: ${externalReferer}\r\n`
+        + `Cf-Access-Jwt-Assertion: ${token}\r\n\r\n`,
+      );
+    });
+    let output = '';
+    socket.setEncoding('utf8');
+    socket.on('data', (chunk) => { output += chunk; });
+    socket.on('end', () => resolve(output));
+    socket.on('error', reject);
+  });
+  assert.match(upgradeOutput, /^HTTP\/1\.1 403 Forbidden/m);
+  assert.match(upgradeOutput, /X-Mindscape-Remote-Auth-Reason: request_context_mismatch/i);
+  assert.equal(resolverCalls, 1);
+  assert.equal(upstreamUpgrades, 0);
+});
+
 test('HTTP and upgrade use the same async membership denial', async (t) => {
   const config = createGatewayConfig();
   const outsiderToken = createSignedAccessJwt({
