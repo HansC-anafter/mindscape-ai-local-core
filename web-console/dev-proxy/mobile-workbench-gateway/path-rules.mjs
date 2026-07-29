@@ -1,6 +1,7 @@
 import {
   createRemoteWorkspacePathRules,
   isCapabilityStorageMediaPath,
+  requiresExplicitCapabilityQuery,
 } from '../mobile-workbench-gateway-capability-rules.mjs';
 import {
   normalizeRequestMethod,
@@ -35,6 +36,10 @@ export function isPublicBootAssetPath(pathname = '/', requestMethod = 'GET') {
 
 export function isFixedRemoteWorkspacePathAllowed(pathname = '/', requestMethod = 'GET') {
   return REMOTE_WORKSPACE_PATH_RULES.some((rule) => matchesRule(pathname, rule, requestMethod));
+}
+
+export function fixedRemoteWorkspacePathRequiresCapabilityQuery(pathname = '/') {
+  return requiresExplicitCapabilityQuery(pathname);
 }
 
 export function isReadOnlyRemotePath(pathname = '/') {
