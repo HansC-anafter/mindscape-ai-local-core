@@ -97,6 +97,7 @@ export default function CapabilityUiHostClientLoader({
     if (!metadata) return null;
     const promise = loadCapabilityUiLocalization({
       apiUrl,
+      workspaceId,
       capabilityCode,
       version: metadata.capabilityInfo.version || 'unversioned',
       requestedLocale: locale,
@@ -104,7 +105,7 @@ export default function CapabilityUiHostClientLoader({
     });
     void promise.catch(() => undefined);
     return promise;
-  }, [apiUrl, capabilityCode, locale, metadata]);
+  }, [apiUrl, capabilityCode, locale, metadata, workspaceId]);
 
   let content: React.ReactNode;
   if (error) {
