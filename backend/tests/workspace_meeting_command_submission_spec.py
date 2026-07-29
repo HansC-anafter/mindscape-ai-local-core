@@ -68,7 +68,10 @@ async def test_submission_service_preserves_existing_command_response_shape() ->
         ),
         workspace_id="ws_voice",
         meeting_id="mtg_voice",
-        workspace=SimpleNamespace(id="ws_voice"),
+        workspace=SimpleNamespace(
+            id="ws_voice",
+            owner_user_id="profile_voice",
+        ),
         orchestrator=SimpleNamespace(),
         mindscape_store=SimpleNamespace(),
     )

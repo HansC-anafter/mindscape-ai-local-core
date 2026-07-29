@@ -8,6 +8,7 @@ from typing import Any
 
 from fastapi import BackgroundTasks
 
+from backend.app.dependencies.auth import AuthContext
 from backend.app.models.meeting_command import (
     MeetingCommandAcceptResponse,
     MeetingCommandEnvelope,
@@ -37,6 +38,12 @@ from backend.app.services.meeting_command_client_action_events import (
     emit_meeting_client_action_ready_event,
 )
 from backend.app.services.mindscape_store import MindscapeStore
+from backend.app.services.orchestration.meeting.meeting_command_authority import (
+    MeetingCommandAuthorityError,
+    build_authenticated_authority,
+    build_internal_workspace_authority,
+    inject_server_authority,
+)
 from backend.app.services.stores.meeting_command_store import MeetingCommandStore
 from backend.app.services.stores.meeting_session_store import MeetingSessionStore
 
@@ -145,6 +152,7 @@ class MeetingCommandSubmissionService:
         orchestrator: ConversationOrchestrator,
         mindscape_store: MindscapeStore,
         background_tasks: BackgroundTasks | None = None,
+        auth: AuthContext | None = None,
     ) -> MeetingCommandAcceptResponse:
         validate_path_identity(
             envelope,
@@ -176,9 +184,41 @@ class MeetingCommandSubmissionService:
 
         now = datetime.now(timezone.utc)
         command_id = canonical.command_id or f"cmd_{uuid.uuid4().hex}"
+        try:
+            authority = (
+                build_authenticated_authority(
+                    auth=auth,
+                    workspace_id=workspace_id,
+                    active_group_id=canonical.active_group_id,
+                    command_id=command_id,
+                )
+                if auth is not None
+                else build_internal_workspace_authority(
+                    workspace_id=workspace_id,
+                    workspace_owner_user_id=str(
+                        getattr(workspace, "owner_user_id", "") or ""
+                    ),
+                    active_group_id=canonical.active_group_id,
+                    command_id=command_id,
+                )
+            )
+        except MeetingCommandAuthorityError as exc:
+            raise MeetingCommandSubmissionError(
+                status_code=403,
+                detail=command_error_detail(str(exc), str(exc)),
+            ) from exc
+        canonical = canonical.model_copy(
+            update={
+                "metadata": inject_server_authority(
+                    canonical.metadata,
+                    authority,
+                )
+            }
+        )
         command = MeetingCommandRecord(
             command_id=command_id,
             workspace_id=workspace_id,
+            active_group_id=canonical.active_group_id,
             meeting_id=meeting_id,
             thread_id=canonical.thread_id or session.thread_id or meeting_id,
             client_draft_id=canonical.client_draft_id,

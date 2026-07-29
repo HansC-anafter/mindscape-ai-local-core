@@ -28,6 +28,10 @@ from backend.app.services.object_runtime.aol_meeting_orchestration_helpers impor
     _selected_guidance_cards,
     _selected_guidance_ids,
 )
+from backend.app.services.orchestration.meeting.meeting_command_authority import (
+    SERVER_AUTHORITY_METADATA_KEY,
+    read_server_authority,
+)
 
 
 class AOLMeetingOrchestrationBridge:
@@ -45,6 +49,7 @@ class AOLMeetingOrchestrationBridge:
         workspace_id: str,
     ) -> HandoffIn:
         metadata = dict(canonical.metadata or {})
+        server_authority = read_server_authority(command.metadata)
         action_parameters = metadata.get("action_parameters")
         if not isinstance(action_parameters, dict):
             action_parameters = {}
@@ -193,6 +198,7 @@ class AOLMeetingOrchestrationBridge:
             "meeting_id": command.meeting_id,
             "origin_surface": canonical.origin_surface,
             "write_mode": canonical.write_mode,
+            "active_group_id": canonical.active_group_id,
             "selected_object_refs": [ref.model_dump(exclude_none=True) for ref in refs],
             "selected_guidance_ids": selected_ids,
             "selected_guidance_cards": selected_cards,
@@ -249,6 +255,42 @@ class AOLMeetingOrchestrationBridge:
         if resource_lane_request:
             governance_constraints["resource_lane_request"] = resource_lane_request
 
+        explicit_grounded_answer = (
+            "grounded_knowledge_answer" in set(canonical.expected_outputs)
+            or (
+                canonical.requested_action is not None
+                and canonical.requested_action.verb == "answer_with_knowledge"
+            )
+        )
+        grounded_answer_request = (
+            {
+                "question": command.intent_text,
+                "retrieval_modes": list(
+                    (
+                        canonical.requested_action.parameters.get(
+                            "retrieval_modes",
+                            [],
+                        )
+                        if canonical.requested_action is not None
+                        else []
+                    )
+                ),
+                "scope": (
+                    "active_group"
+                    if canonical.active_group_id
+                    else "workspace"
+                ),
+                "frontier_preview": bool(
+                    canonical.requested_action
+                    and canonical.requested_action.parameters.get(
+                        "frontier_preview"
+                    )
+                ),
+            }
+            if explicit_grounded_answer
+            else None
+        )
+
         return HandoffIn(
             handoff_id=f"aol_cmd_{command.command_id}_{uuid.uuid4().hex[:8]}",
             workspace_id=workspace_id,
@@ -264,6 +306,14 @@ class AOLMeetingOrchestrationBridge:
             metadata={
                 "addressable_object_layer": aol_metadata,
                 "quality_requirements": quality_requirements,
+                SERVER_AUTHORITY_METADATA_KEY: server_authority.model_dump(
+                    mode="json"
+                ),
+                **(
+                    {"grounded_knowledge_answer": grounded_answer_request}
+                    if grounded_answer_request is not None
+                    else {}
+                ),
                 **({"resource_lane_request": resource_lane_request} if resource_lane_request else {}),
             },
         )
