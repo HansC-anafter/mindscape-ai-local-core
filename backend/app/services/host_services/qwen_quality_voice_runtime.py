@@ -20,12 +20,19 @@ from backend.app.services.host_services.qwen_quality_voice_output_guard import (
     QualityVoiceOutputGuardError,
     prepare_publishable_pcm16_wav,
 )
+from backend.app.services.host_services.qwen_quality_voice_reference_contract import (
+    AUTHORITATIVE_REFERENCE_AUDIO_FILENAME,
+    AUTHORITATIVE_REFERENCE_AUDIO_SHA256,
+    AUTHORITATIVE_REFERENCE_TEXT,
+    QwenQualityVoiceReferenceError,
+    REFERENCE_CONTRACT_ID,
+    VOICE_DISPLAY_NAME,
+    VOICE_PROFILE_ID,
+    inspect_authoritative_reference_audio,
+)
 
 
 PROVIDER_ID = "qwen3_tts_0_6b_base_bf16"
-VOICE_PROFILE_ID = "mms_voice_bilibili_313312170_bv1a2tf64ebd"
-VOICE_DISPLAY_NAME = "乘以加"
-DEFAULT_REFERENCE_TEXT = "我約的是妝面加髮型嘛，所以會先帶去洗個頭。"
 LANGUAGE_CODES = {
     "zh": "Chinese",
     "zh-cn": "Chinese",
@@ -63,7 +70,6 @@ class RuntimeConfig:
     python_bin: Path
     model_path: Path
     reference_audio: Path
-    reference_text: str
     state_dir: Path
     timeout_seconds: float
     max_text_chars: int
@@ -79,17 +85,17 @@ class RuntimeConfig:
         reference_audio = Path(
             source.get(
                 "QWEN_QUALITY_REFERENCE_AUDIO",
-                str(runtime_root / "reference" / "cheng-yi-jia-selected.wav"),
+                str(
+                    runtime_root
+                    / "reference"
+                    / AUTHORITATIVE_REFERENCE_AUDIO_FILENAME
+                ),
             )
         ).expanduser()
         return cls(
             python_bin=runtime_root / "venv" / "bin" / "python",
             model_path=runtime_root / "model",
             reference_audio=reference_audio,
-            reference_text=source.get(
-                "QWEN_QUALITY_REFERENCE_TEXT", DEFAULT_REFERENCE_TEXT
-            ).strip()
-            or DEFAULT_REFERENCE_TEXT,
             state_dir=Path(
                 source.get(
                     "QWEN_QUALITY_STATE_DIR",
@@ -111,7 +117,6 @@ class RuntimeConfig:
             (self.python_bin.is_file() and os.access(self.python_bin, os.X_OK), "python_missing"),
             (self.model_path.is_dir(), "model_missing"),
             (self.reference_audio.is_file(), "reference_audio_missing"),
-            (bool(self.reference_text), "reference_text_missing"),
             (self.timeout_seconds > 0, "invalid_timeout"),
             (self.max_text_chars > 0, "invalid_text_limit"),
             (self.max_tokens > 0, "invalid_token_limit"),
@@ -123,6 +128,10 @@ class RuntimeConfig:
         for valid, reason in checks:
             if not valid:
                 return reason
+        try:
+            inspect_authoritative_reference_audio(self.reference_audio)
+        except QwenQualityVoiceReferenceError as exc:
+            return exc.reason
         return None
 
 
@@ -177,7 +186,7 @@ def build_generation_argv(
         "--ref_audio",
         str(config.reference_audio),
         "--ref_text",
-        config.reference_text,
+        AUTHORITATIVE_REFERENCE_TEXT,
         "--temperature",
         "0.7",
         "--top_k",
@@ -226,6 +235,11 @@ class QualityVoiceRuntime:
 
     def health(self) -> dict[str, object]:
         readiness_error = self.config.readiness_error()
+        reference_receipt = (
+            inspect_authoritative_reference_audio(self.config.reference_audio)
+            if readiness_error is None
+            else None
+        )
         return {
             "status": "ok" if readiness_error is None else "unavailable",
             "reason": readiness_error,
@@ -236,6 +250,18 @@ class QualityVoiceRuntime:
             "realtime": False,
             "fallback": None,
             "busy": self.busy,
+            "reference_contract_id": REFERENCE_CONTRACT_ID,
+            "reference_audio_sha256": (
+                reference_receipt.sha256
+                if reference_receipt is not None
+                else AUTHORITATIVE_REFERENCE_AUDIO_SHA256
+            ),
+            "reference_audio_verified": reference_receipt is not None,
+            "reference_audio_duration_seconds": (
+                reference_receipt.duration_seconds
+                if reference_receipt is not None
+                else None
+            ),
             "output_guard": "reject_clipping_retry_once_then_minus_2_dbfs",
             "max_generation_attempts": self.config.max_generation_attempts,
         }

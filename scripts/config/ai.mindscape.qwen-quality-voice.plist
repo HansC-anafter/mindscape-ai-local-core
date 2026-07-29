@@ -7,14 +7,14 @@
   <key>ProgramArguments</key>
   <array>
     <string>__PYTHON_BIN__</string>
-    <string>__PROJECT_ROOT__/scripts/run-qwen-quality-voice-service.py</string>
+    <string>__SERVICE_ROOT__/scripts/run-qwen-quality-voice-service.py</string>
     <string>--host</string>
     <string>127.0.0.1</string>
     <string>--port</string>
     <string>8184</string>
   </array>
   <key>WorkingDirectory</key>
-  <string>__PROJECT_ROOT__</string>
+  <string>__SERVICE_ROOT__</string>
   <key>EnvironmentVariables</key>
   <dict>
     <key>PATH</key>
@@ -23,8 +23,6 @@
     <string>__RUNTIME_ROOT__</string>
     <key>QWEN_QUALITY_REFERENCE_AUDIO</key>
     <string>__REFERENCE_AUDIO__</string>
-    <key>QWEN_QUALITY_REFERENCE_TEXT</key>
-    <string>我約的是妝面加髮型嘛，所以會先帶去洗個頭。</string>
     <key>QWEN_QUALITY_STATE_DIR</key>
     <string>__STATE_DIR__</string>
     <key>QWEN_QUALITY_GENERATION_TIMEOUT_SECONDS</key>

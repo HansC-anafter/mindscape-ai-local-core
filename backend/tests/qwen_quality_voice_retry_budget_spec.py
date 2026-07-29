@@ -13,6 +13,10 @@ from backend.app.services.host_services.qwen_quality_voice_runtime import (
     QualityVoiceRuntime,
     RuntimeConfig,
 )
+from backend.app.services.host_services.qwen_quality_voice_reference_contract import (
+    AUTHORITATIVE_REFERENCE_AUDIO_SHA256,
+    ReferenceAudioReceipt,
+)
 
 
 def _write_wav(path: Path, samples: list[int]) -> None:
@@ -41,7 +45,6 @@ def _config(tmp_path: Path) -> RuntimeConfig:
         python_bin=python_bin,
         model_path=model_path,
         reference_audio=reference_audio,
-        reference_text="參考文字",
         state_dir=tmp_path / "state",
         timeout_seconds=240,
         max_text_chars=700,
@@ -53,6 +56,15 @@ def _config(tmp_path: Path) -> RuntimeConfig:
 def test_clipped_retry_uses_only_remaining_request_budget(
     tmp_path: Path, monkeypatch
 ) -> None:
+    monkeypatch.setattr(
+        qwen_quality_voice_runtime,
+        "inspect_authoritative_reference_audio",
+        lambda _path: ReferenceAudioReceipt(
+            sha256=AUTHORITATIVE_REFERENCE_AUDIO_SHA256,
+            frame_count=191040,
+            sample_rate=24000,
+        ),
+    )
     runtime = QualityVoiceRuntime(_config(tmp_path))
     observed_budgets: list[float] = []
 
