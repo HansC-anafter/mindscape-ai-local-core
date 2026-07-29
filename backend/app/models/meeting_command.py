@@ -50,6 +50,7 @@ class MeetingCommandEnvelope(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     workspace_id: Optional[str] = None
+    active_group_id: Optional[str] = Field(default=None, max_length=128)
     meeting_id: str = Field(min_length=1)
     command_id: Optional[str] = None
     client_draft_id: Optional[str] = None
@@ -72,6 +73,7 @@ class MeetingCommandRecord(BaseModel):
 
     command_id: str
     workspace_id: str
+    active_group_id: Optional[str] = None
     meeting_id: str
     thread_id: Optional[str] = None
     client_draft_id: Optional[str] = None

@@ -47,6 +47,9 @@ from backend.app.services.orchestration.meeting.engine_core.direct_dispatch_mixi
 from backend.app.services.orchestration.meeting.engine_core.fallback_deliverable_mixin import (
     MeetingEngineFallbackDeliverableMixin,
 )
+from backend.app.services.orchestration.meeting.engine_core.grounded_answer_mixin import (
+    MeetingEngineGroundedAnswerMixin,
+)
 from backend.app.services.orchestration.meeting.engine_core.lifecycle_mixin import (
     MeetingEngineLifecycleMixin,
 )
@@ -87,11 +90,13 @@ class MeetingResult:
     task_ir: Optional[Any] = None
     dispatch_result: Optional[Dict[str, Any]] = None
     completion_status: str = "accepted"
+    grounded_answer_receipt: Optional[Dict[str, Any]] = None
 
 
 class MeetingEngine(
     MeetingEngineBootstrapMixin,
     MeetingEngineLifecycleMixin,
+    MeetingEngineGroundedAnswerMixin,
     MeetingEngineDirectDispatchMixin,
     MeetingEnginePipelineStagesMixin,
     MeetingEngineDeliberationMixin,

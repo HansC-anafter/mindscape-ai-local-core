@@ -89,6 +89,13 @@ class MeetingEngineRequestContractMixin:
                 addressable_object_layer = handoff_metadata.get("addressable_object_layer")
                 if isinstance(addressable_object_layer, dict) and addressable_object_layer:
                     metadata["addressable_object_layer"] = dict(addressable_object_layer)
+                grounded_knowledge_answer = handoff_metadata.get(
+                    "grounded_knowledge_answer"
+                )
+                if isinstance(grounded_knowledge_answer, dict):
+                    metadata["grounded_knowledge_answer"] = dict(
+                        grounded_knowledge_answer
+                    )
 
             human_instructions = getattr(handoff_in, "human_instructions", None)
             if isinstance(human_instructions, str) and human_instructions.strip():

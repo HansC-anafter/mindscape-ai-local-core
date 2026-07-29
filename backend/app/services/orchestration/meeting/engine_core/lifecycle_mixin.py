@@ -31,6 +31,12 @@ class MeetingEngineLifecycleMixin:
             # S2: Playbook cache + RequestContract compile
             await self._stage_compile_contract(user_message, handoff_in=handoff_in)
 
+            grounded_answer_result = await self._stage_grounded_knowledge_answer(
+                handoff_in=handoff_in,
+            )
+            if grounded_answer_result is not None:
+                return grounded_answer_result
+
             direct_result = await self._stage_explicit_playbook_direct_dispatch(
                 user_message=user_message,
                 handoff_in=handoff_in,

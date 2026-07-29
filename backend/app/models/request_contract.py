@@ -12,7 +12,7 @@ Lifecycle:
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, Awaitable, Callable, Dict, List, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -81,6 +81,18 @@ class DataOperationContract(BaseModel):
     )
 
 
+class GroundedKnowledgeAnswerRequest(BaseModel):
+    """Typed request for one bounded, citation-verified knowledge answer."""
+
+    question: str = Field(min_length=1, max_length=8000)
+    retrieval_modes: List[
+        Literal["hybrid", "local_graph", "multi_hop", "global_graph"]
+    ] = Field(default_factory=list, max_length=2)
+    scope: Literal["workspace", "active_group"] = "workspace"
+    frontier_preview: bool = False
+    guided_learning_context: Optional[Dict[str, Any]] = None
+
+
 class RequestContract(BaseModel):
     """Structured governance contract compiled from user request.
 
@@ -125,6 +137,9 @@ class RequestContract(BaseModel):
             "binding them to installed capability planner_contract tools."
         ),
     )
+    grounded_knowledge_answer: Optional[
+        GroundedKnowledgeAnswerRequest
+    ] = None
     scale_estimate: ScaleEstimate = Field(
         default=ScaleEstimate.STANDARD, description="Estimated scale"
     )
@@ -324,13 +339,109 @@ class RequestContract(BaseModel):
                     )
                 )
 
-        return cls(
+        contract = cls(
             goals=[item.strip() for item in agenda_items] if agenda_items else [user_message],
             deliverables=deliverables,
             source_message=user_message,
             workspace_scope=workspace_id,
             scale_estimate=cls._estimate_scale(sum(d.quantity for d in deliverables)),
         )
+        return cls._with_grounded_answer_if_applicable(
+            contract,
+            user_message=user_message,
+        )
+
+    @classmethod
+    def _with_grounded_answer_if_applicable(
+        cls,
+        contract: "RequestContract",
+        *,
+        user_message: str,
+    ) -> "RequestContract":
+        if contract.grounded_knowledge_answer is not None:
+            return contract
+        question = " ".join(str(user_message or "").split())
+        if not cls._is_read_only_information_question(question):
+            return contract
+        return contract.model_copy(
+            update={
+                "grounded_knowledge_answer": GroundedKnowledgeAnswerRequest(
+                    question=question,
+                    retrieval_modes=[cls._infer_grounded_answer_mode(question)],
+                )
+            }
+        )
+
+    @staticmethod
+    def _is_read_only_information_question(question: str) -> bool:
+        import re
+
+        if not question:
+            return False
+        side_effect = re.search(
+            r"(建立|新增|刪除|移除|發布|安裝|執行|製作|產生|生成|寄送|安排|"
+            r"\bcreate\b|\bdelete\b|\bremove\b|\bpublish\b|\binstall\b|"
+            r"\bexecute\b|\brun\b|\bbuild\b|\bwrite\b|\bsend\b|\bschedule\b)",
+            question,
+            re.IGNORECASE,
+        )
+        if side_effect:
+            return False
+        return bool(
+            question.endswith(("?", "？"))
+            or re.match(
+                r"^(為什麼|什麼|如何|怎麼|誰|哪|何時|何地|是否|能否|是不是|"
+                r"有沒有|why\b|what\b|how\b|who\b|which\b|when\b|where\b|"
+                r"is\b|are\b|can\b|could\b|does\b|do\b)",
+                question,
+                re.IGNORECASE,
+            )
+        )
+
+    @staticmethod
+    def _infer_grounded_answer_mode(
+        question: str,
+    ) -> Literal["hybrid", "local_graph", "multi_hop", "global_graph"]:
+        normalized = question.lower()
+        if any(
+            token in normalized
+            for token in (
+                "跨領域",
+                "整體",
+                "全局",
+                "主要主題",
+                "broad theme",
+                "overall",
+                "across domains",
+            )
+        ):
+            return "global_graph"
+        if any(
+            token in normalized
+            for token in (
+                "多跳",
+                "經由",
+                "透過哪些",
+                "如何連到",
+                "how does",
+                "through which",
+                "multi-hop",
+            )
+        ):
+            return "multi_hop"
+        if any(
+            token in normalized
+            for token in (
+                "關係",
+                "機制",
+                "實體",
+                "relation",
+                "mechanism",
+                "entity",
+            )
+        ):
+            return "local_graph"
+        return "hybrid"
 
     @staticmethod
     def _estimate_scale(total_units: int) -> "ScaleEstimate":
@@ -463,7 +574,10 @@ class RequestContract(BaseModel):
                         len(deliverables),
                         contract.scale_estimate.value,
                     )
-                    return contract
+                    return cls._with_grounded_answer_if_applicable(
+                        contract,
+                        user_message=user_message,
+                    )
 
         except Exception as exc:
             _log.warning("compile_with_llm failed (falling back to regex): %s", exc)

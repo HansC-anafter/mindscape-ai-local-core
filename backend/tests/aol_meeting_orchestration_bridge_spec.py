@@ -19,6 +19,10 @@ from backend.app.services.object_runtime import aol_meeting_orchestration_bridge
 from backend.app.services.object_runtime.aol_meeting_orchestration_bridge import (
     AOLMeetingOrchestrationBridge,
 )
+from backend.app.services.orchestration.meeting.meeting_command_authority import (
+    SERVER_AUTHORITY_METADATA_KEY,
+    build_internal_workspace_authority,
+)
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 OBJECT_RUNTIME_DIR = BACKEND_ROOT / "app" / "services" / "object_runtime"
@@ -35,6 +39,12 @@ def _ref(owner_pack: str, object_kind: str, object_id: str) -> ObjectRef:
 
 
 def _command() -> MeetingCommandRecord:
+    authority = build_internal_workspace_authority(
+        workspace_id="ws_demo",
+        workspace_owner_user_id="profile_demo",
+        active_group_id=None,
+        command_id="cmd_demo",
+    )
     return MeetingCommandRecord(
         command_id="cmd_demo",
         workspace_id="ws_demo",
@@ -44,6 +54,11 @@ def _command() -> MeetingCommandRecord:
         actor="user",
         intent_text="Draft the next shot plan",
         status=MeetingCommandStatus.ACCEPTED,
+        metadata={
+            SERVER_AUTHORITY_METADATA_KEY: authority.model_dump(
+                mode="json"
+            )
+        },
     )
 
 
