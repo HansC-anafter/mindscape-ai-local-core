@@ -87,6 +87,7 @@ def _register_workspace_tool_set() -> None:
     try:
         from backend.app.services.tools.registry import (
             register_filesystem_tools,
+            register_internal_knowledge_projection_tool,
             register_meeting_planner_tools,
             register_mindscape_graph_tools,
             register_reporting_tools,
@@ -94,6 +95,7 @@ def _register_workspace_tool_set() -> None:
         )
 
         register_workspace_tools()
+        register_internal_knowledge_projection_tool()
         register_filesystem_tools()
         register_mindscape_graph_tools()
         register_reporting_tools()

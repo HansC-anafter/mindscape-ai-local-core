@@ -6,7 +6,7 @@ and isolate data contracts from routing logic.
 """
 
 from typing import Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, model_validator
 from typing import Literal
 
 
@@ -51,6 +51,15 @@ class RerunExecutionRequest(BaseModel):
 class ResumeExecutionRequest(BaseModel):
     """Request to resume a paused workflow execution"""
 
+    model_config = ConfigDict(extra="forbid")
+
     action: Literal["approve", "reject"]
     step_id: Optional[str] = None
     comment: Optional[str] = None
+    decision_payload: Optional[dict] = None
+
+    @model_validator(mode="after")
+    def reject_cannot_carry_decision_payload(self):
+        if self.action == "reject" and self.decision_payload is not None:
+            raise ValueError("reject_decision_payload_forbidden")
+        return self

@@ -198,68 +198,89 @@ class MemoryRetriever:
                 if record_ids:
                     await search_service.update_last_used_at(record_ids)
 
-            # External docs scope (RAG from local folders)
+            # One canonical authorization-aware knowledge query covers local
+            # folders, content vault, and uploaded documents.
             try:
-                external_results = await search_service.search_external_docs(
-                    query=query,
-                    source_apps=["local_folder", "content-vault"],
-                    user_id="system",  # LocalFolderIndexer uses 'system' as user_id
-                    top_k=5,
+                from backend.app.dependencies.auth import AuthContext
+                from backend.app.services.knowledge_authorization.access_context_factory import (
+                    RetrievalAccessContextFactory,
+                )
+                from backend.app.services.knowledge_retrieval import (
+                    AuthorizationAwareKnowledgeRetrievalFacade,
+                    KnowledgeRetrievalRequest,
                 )
 
-                logger.info(
-                    f"External docs search completed: found {len(external_results)} results"
+                retrieval_context = RetrievalAccessContextFactory().build(
+                    AuthContext(
+                        user_id=profile_id or "default-user",
+                        tenant_id="local",
+                        workspace_ids=[workspace_id],
+                        is_cloud_mode=False,
+                    ),
+                    requested_workspace_ids=(workspace_id,),
                 )
-
-                # Filter results by workspace_id if available
-                if external_results and workspace_id:
-                    workspace_results = [
-                        r
-                        for r in external_results
-                        if r.get("metadata", {}).get("workspace_id") == workspace_id
-                    ]
-                    if workspace_results:
-                        formatted_parts.append("\n## Local Knowledge Base:")
-                        for result in workspace_results:
-                            content = result.get("content", "")
-                            file_name = result.get("metadata", {}).get(
-                                "file_name", "Unknown"
-                            )
-                            if content:
-                                formatted_parts.append(
-                                    f"- [{file_name}] {content[:500]}"
-                                )
-                        logger.info(
-                            f"Injected {len(workspace_results)} local knowledge chunks into context"
-                        )
-            except Exception as e:
-                logger.error(f"External docs search failed: {e}", exc_info=True)
-
-            # Canonical uploaded-document scope. Workspace and active-revision
-            # filters are applied in SQL before either candidate LIMIT.
-            try:
-                from backend.app.services.document_retrieval_facade import (
-                    DocumentRetrievalFacade,
-                )
-
-                document_results = await DocumentRetrievalFacade(
+                knowledge_result = await (
+                    AuthorizationAwareKnowledgeRetrievalFacade(
                     vector_service=search_service
-                ).search(
-                    query=query,
-                    user_id=profile_id or "default_user",
-                    workspace_id=workspace_id,
-                    top_k=5,
+                    ).search(
+                        KnowledgeRetrievalRequest(
+                            query=query,
+                            access_context=retrieval_context,
+                            scope_type="workspace",
+                            scope_id=workspace_id,
+                            top_k=10,
+                            source_apps=(
+                                "local_folder",
+                                "content-vault",
+                                "document_ingestion",
+                            ),
+                        )
+                    )
                 )
-                formatted_documents = [
-                    formatted
-                    for hit in document_results
-                    if (formatted := _format_document_hit(hit))
-                ]
+                formatted_documents = []
+                formatted_local = []
+                for hit in knowledge_result.hits:
+                    if hit.source_app == "document_ingestion":
+                        metadata = dict(hit.metadata)
+                        formatted = _format_document_hit(
+                            {
+                                "source_label": metadata.get("file_name"),
+                                "heading_path": metadata.get(
+                                    "heading_path"
+                                )
+                                or [],
+                                "retrievable_text": hit.content,
+                                "citation": {
+                                    "document_id": metadata.get(
+                                        "document_id"
+                                    ),
+                                    "chunk_id": metadata.get("chunk_id"),
+                                    "source_locations": metadata.get(
+                                        "source_locations"
+                                    )
+                                    or [],
+                                },
+                            }
+                        )
+                        if formatted:
+                            formatted_documents.append(formatted)
+                    elif hit.content:
+                        formatted_local.append(
+                            f"- [{hit.metadata.get('file_name', hit.source_id)}] "
+                            f"{hit.content[:500]}"
+                        )
+                if formatted_local:
+                    formatted_parts.append("\n## Local Knowledge Base:")
+                    formatted_parts.extend(formatted_local)
                 if formatted_documents:
                     formatted_parts.append("\n## Workspace Documents:")
                     formatted_parts.extend(formatted_documents)
             except Exception as e:
-                logger.error(f"Document retrieval failed: {e}", exc_info=True)
+                logger.error(
+                    "Authorization-aware knowledge retrieval failed: %s",
+                    e,
+                    exc_info=True,
+                )
 
             if formatted_parts:
                 return "\n".join(formatted_parts)

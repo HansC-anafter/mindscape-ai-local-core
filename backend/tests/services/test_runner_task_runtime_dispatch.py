@@ -3,7 +3,12 @@ from backend.app.runner.task_executor import _apply_runtime_binding_to_playbook_
 from backend.app.services.runner_topology.runtime_binding import RuntimeBindingTarget
 
 
-def _build_task(*, task_type: str = "playbook_execution", capability_code: str = "character_training") -> Task:
+def _build_task(
+    *,
+    task_type: str = "playbook_execution",
+    capability_code: str = "character_training",
+    pack_id: str = "character_training_submit",
+) -> Task:
     return Task(
         id="task-runtime-dispatch-1",
         workspace_id="ws-1",
@@ -11,7 +16,7 @@ def _build_task(*, task_type: str = "playbook_execution", capability_code: str =
         execution_id="exec-1",
         project_id="project-1",
         profile_id="default-user",
-        pack_id="character_training_submit",
+        pack_id=pack_id,
         task_type=task_type,
         status=TaskStatus.PENDING,
         execution_context={
@@ -31,7 +36,7 @@ def test_apply_runtime_binding_to_playbook_task_marks_remote_dispatch(monkeypatc
     task = _build_task()
 
     monkeypatch.setattr(
-        "backend.app.runner.task_executor.resolve_runner_profile_from_env",
+        "backend.app.runner.task_executor_intent.resolve_runner_profile_from_env",
         lambda default_max_inflight=1: type(
             "Profile",
             (),
@@ -72,7 +77,7 @@ def test_apply_runtime_binding_to_playbook_task_does_not_force_remote_for_tool_t
     task = _build_task(task_type="tool_execution", capability_code="ig")
 
     monkeypatch.setattr(
-        "backend.app.runner.task_executor.resolve_runner_profile_from_env",
+        "backend.app.runner.task_executor_intent.resolve_runner_profile_from_env",
         lambda default_max_inflight=1: type(
             "Profile",
             (),
@@ -101,13 +106,50 @@ def test_apply_runtime_binding_to_playbook_task_does_not_force_remote_for_tool_t
     assert ctx["selected_runtime_id"] == "runtime-gpu-b"
 
 
+def test_internal_projection_task_keeps_pointer_payload_on_local_lane(monkeypatch):
+    from backend.app.services.knowledge_projection.retrievable.source_admission import (
+        INTERNAL_PROJECTION_TOOL,
+    )
+
+    task = _build_task(
+        task_type="tool_execution",
+        capability_code="ig",
+        pack_id=INTERNAL_PROJECTION_TOOL,
+    )
+    task.execution_context["tool_name"] = INTERNAL_PROJECTION_TOOL
+    pointer_payload = {
+        "contract_version": "knowledge.project-source.v1",
+        "internal_task_id": task.id,
+    }
+    monkeypatch.setattr(
+        "backend.app.runner.task_executor_intent.resolve_runner_profile_from_env",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError("internal projection must not resolve runtime binding")
+        ),
+    )
+
+    inputs, ctx, binding = _apply_runtime_binding_to_playbook_task(
+        task,
+        task.execution_context,
+        pointer_payload,
+        profile_id="default-user",
+    )
+
+    assert binding is None
+    assert inputs == pointer_payload
+    assert "runtime_binding" not in inputs
+    assert "runtime_id" not in inputs
+    assert "runtime_binding" not in ctx
+    assert "selected_runtime_id" not in ctx
+
+
 def test_apply_runtime_binding_to_playbook_task_keeps_local_host_runtime_in_process(
     monkeypatch,
 ):
     task = _build_task(capability_code="decision_assets.synthesize")
 
     monkeypatch.setattr(
-        "backend.app.runner.task_executor.resolve_runner_profile_from_env",
+        "backend.app.runner.task_executor_intent.resolve_runner_profile_from_env",
         lambda default_max_inflight=1: type(
             "Profile",
             (),
@@ -124,7 +166,7 @@ def test_apply_runtime_binding_to_playbook_task_keeps_local_host_runtime_in_proc
         )(),
     )
     monkeypatch.setattr(
-        "backend.app.runner.task_executor.resolve_runtime_dispatch_target",
+        "backend.app.runner.task_executor_intent.resolve_runtime_dispatch_target",
         lambda *_args, **_kwargs: RuntimeBindingTarget(
             dispatch_mode="external_runtime",
             runtime_id="runtime-35b-synthesis",

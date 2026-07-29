@@ -2,7 +2,8 @@
 
 import hashlib
 import json
-from typing import Dict, Optional, Sequence, Tuple
+from collections import OrderedDict
+from typing import Optional, Sequence
 
 from backend.app.services.knowledge_projection.contracts import (
     GroupKnowledgePacket,
@@ -49,7 +50,11 @@ class GroupKnowledgeContextReader:
         self.group_facade = group_facade or WorkspaceGroupFacade()
         self.memory_store = memory_store or MemoryItemStore()
         self.view_policy = view_policy or AgentKnowledgeViewPolicy()
-        self._cache: Dict[Tuple[str, str, str, str], GroupKnowledgePacket] = {}
+        self._cache: OrderedDict[
+            tuple[str, ...],
+            GroupKnowledgePacket,
+        ] = OrderedDict()
+        self._cache_limit = 128
 
     def compile_packet(
         self,
@@ -57,19 +62,11 @@ class GroupKnowledgeContextReader:
         topology_snapshot_id: str,
         requesting_workspace_id: str,
         actor_user_id: str,
-        agent_role: str,
+        agent_role: Optional[str] = None,
+        preview: bool = False,
         allowed_group_ids: Sequence[str] = (),
         limit: int = 100,
     ) -> GroupKnowledgePacket:
-        request_cache_key = (
-            actor_user_id,
-            requesting_workspace_id,
-            agent_role,
-            topology_snapshot_id,
-        )
-        cached = self._cache.get(request_cache_key)
-        if cached is not None:
-            return cached
         snapshot = self.snapshot_service.get(topology_snapshot_id)
         if snapshot is None:
             raise GroupKnowledgeAccessError("workspace group snapshot not found")
@@ -82,17 +79,64 @@ class GroupKnowledgeContextReader:
             actor_user_id=actor_user_id,
             allowed_group_ids=allowed_group_ids,
         )
+        bound_role = snapshot.role_map[requesting_workspace_id]
+        requested_role = str(agent_role or bound_role).strip()
+        if not requested_role:
+            raise GroupKnowledgeAccessError(
+                "agent role is missing from the admitted topology"
+            )
+        if requested_role != bound_role and not preview:
+            raise GroupKnowledgeAccessError(
+                "agent role differs from the admitted topology"
+            )
+        bounded_limit = min(max(limit, 1), 200)
+        lifecycle_statuses = ["active", "candidate"]
+        verification_statuses = [
+            "verified",
+            "observed",
+            "unverified",
+            "challenged",
+        ]
+        memory_revision = self.memory_store.context_revision(
+            context_type="group",
+            context_id=snapshot.group_id,
+            lifecycle_statuses=lifecycle_statuses,
+            verification_statuses=verification_statuses,
+        )
+        request_cache_key = (
+            actor_user_id,
+            requesting_workspace_id,
+            bound_role,
+            requested_role,
+            "preview" if preview else "run",
+            topology_snapshot_id,
+            snapshot.content_hash,
+            str(snapshot.group_revision),
+            memory_revision,
+            str(bounded_limit),
+        )
+        cached = self._cache.get(request_cache_key)
+        if cached is not None:
+            self._cache.move_to_end(request_cache_key)
+            return cached
         items = self.memory_store.list_for_context(
             context_type="group",
             context_id=snapshot.group_id,
-            lifecycle_statuses=["active", "candidate"],
-            verification_statuses=["verified", "observed", "unverified", "challenged"],
-            limit=min(max(limit, 1), 200),
+            lifecycle_statuses=lifecycle_statuses,
+            verification_statuses=verification_statuses,
+            limit=bounded_limit,
         )
         visible = [
             item
             for item in items
-            if self.view_policy.allows(item, agent_role=agent_role)
+            if self.view_policy.allows(item, agent_role=bound_role)
+            and (
+                requested_role == bound_role
+                or self.view_policy.allows(
+                    item,
+                    agent_role=requested_role,
+                )
+            )
         ]
         canonical = [
             {
@@ -121,7 +165,10 @@ class GroupKnowledgeContextReader:
             topology_snapshot_id=snapshot.id,
             topology_revision=snapshot.group_revision,
             requesting_workspace_id=requesting_workspace_id,
-            agent_role=agent_role,
+            agent_role=requested_role,
+            bound_agent_role=bound_role,
+            preview=preview,
+            agent_policy_revision=snapshot.content_hash,
             memory_revision_hash=revision_hash,
             entries=[
                 GroupKnowledgePacketEntry(
@@ -141,4 +188,7 @@ class GroupKnowledgeContextReader:
             ],
         )
         self._cache[request_cache_key] = packet
+        self._cache.move_to_end(request_cache_key)
+        while len(self._cache) > self._cache_limit:
+            self._cache.popitem(last=False)
         return packet

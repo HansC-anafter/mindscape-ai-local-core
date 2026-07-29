@@ -68,6 +68,9 @@ class MigrationOrchestrator:
         """Perform a dry-run to show what migrations would be executed."""
         logger.info(f"Dry-run for {db_type} migrations")
 
+        if db_type == "vector":
+            return self._dry_run_host_catalog(db_type)
+
         # Scan capabilities
         all_metadata = self.scanner.scan_capabilities()
         db_metadata = [m for m in all_metadata if m.db_type == db_type]
@@ -114,6 +117,76 @@ class MigrationOrchestrator:
             "applied_revisions": sorted(applied_revisions),
             "migrations": plan,
             "ignored_migrations": ignored,
+        }
+
+    def _dry_run_host_catalog(self, db_type: str) -> Dict:
+        """Plan an isolated host-owned migration catalog without pack metadata."""
+
+        script_dir = self._load_script_directory(db_type)
+        if script_dir is None:
+            return {
+                "status": "error",
+                "error": f"Could not load the {db_type} migration catalog.",
+            }
+        current_revisions = set(self._get_current_revisions(db_type))
+        applied_revisions = self._get_applied_revisions(db_type, current_revisions)
+        try:
+            ordered = list(reversed(list(script_dir.walk_revisions())))
+        except Exception as exc:
+            return {"status": "error", "error": str(exc)}
+        plan = [
+            {
+                "capability": "local_core_host",
+                "revision": str(item.revision),
+                "status": "pending",
+            }
+            for item in ordered
+            if str(item.revision) not in applied_revisions
+        ]
+        return {
+            "status": "success",
+            "current_revision": self._format_current_revisions(current_revisions),
+            "current_revisions": sorted(current_revisions),
+            "applied_revisions": sorted(applied_revisions),
+            "migrations": plan,
+            "ignored_migrations": [],
+        }
+
+    def apply_vector_revision_after_core_ready(
+        self,
+        revision: str,
+        *,
+        dry_run: bool = False,
+    ) -> Dict:
+        """Apply one exact vector revision only after every core head is applied."""
+
+        if not revision or revision in {"head", "heads", "base"}:
+            return {
+                "status": "invalid_revision",
+                "error": "An exact vector revision ID is required.",
+            }
+        core_scripts = self._load_script_directory("postgres")
+        if core_scripts is None:
+            return {
+                "status": "core_catalog_unavailable",
+                "error": "Core migration catalog is unavailable.",
+            }
+        core_heads = set(core_scripts.get_heads())
+        core_current = set(self._get_current_revisions("postgres"))
+        core_applied = self._get_applied_revisions("postgres", core_current)
+        missing_core_heads = sorted(core_heads - core_applied)
+        if missing_core_heads:
+            return {
+                "status": "core_not_ready",
+                "missing_core_heads": missing_core_heads,
+            }
+        if dry_run:
+            result = self.plan_revision("vector", revision)
+        else:
+            result = self.apply_revision("vector", revision)
+        return {
+            **result,
+            "core_heads_verified": sorted(core_heads),
         }
 
     def apply(self, db_type: str, dry_run: bool = False) -> Dict:
@@ -364,6 +437,14 @@ class MigrationOrchestrator:
                     db_url,
                     "local-core-migration-revision-lookup",
                 )
+            elif db_type == "vector":
+                from app.database.config import get_postgres_url_vector_session
+
+                db_url = get_postgres_url_vector_session()
+                engine = create_session_semantics_engine(
+                    db_url,
+                    "local-core-vector-migration-revision-lookup",
+                )
             elif db_type == "sqlite":
                 backend_dir = Path(__file__).parent.parent.parent.parent
                 db_url = f"sqlite:///{(backend_dir.parent / 'data' / 'mindscape.db').absolute()}"
@@ -456,6 +537,18 @@ class MigrationOrchestrator:
     def _run_alembic_upgrade(self, alembic_config: Path, revision: str) -> bool:
         """Run Alembic upgrade to a specific revision or 'head'."""
         require_migration_execution_allowed(alembic_config, revision)
+        resolved_config = alembic_config.resolve()
+        matching_db_types = [
+            db_type
+            for db_type, configured_path in self.alembic_configs.items()
+            if configured_path.resolve() == resolved_config
+        ]
+        if len(matching_db_types) != 1:
+            raise ValueError(
+                "Alembic config must resolve to exactly one registered database type: "
+                f"{resolved_config}"
+            )
+        db_type = matching_db_types[0]
         backend_dir = alembic_config.parent
         backend_path = str(backend_dir)
         config_path = alembic_config.as_posix()
@@ -515,7 +608,7 @@ if script_location and not Path(script_location).is_absolute():
 configure_runtime_version_locations(
     config,
     capabilities_root=Path('{capabilities_root}'),
-    db_type='postgres',
+    db_type='{db_type}',
     excluded_capability_codes={repr(self.excluded_capability_codes)},
 )
 append_runtime_version_locations(
@@ -581,6 +674,17 @@ command.upgrade(config, '{revision}')
                         "min_version": "12.0"
                     }
                 }
+            }
+        elif db_type == "vector":
+            from app.database.config import get_postgres_url_vector_session
+            return {
+                "postgres_url": get_postgres_url_vector_session(),
+                "environment_requirements": {
+                    "postgres": {
+                        "extensions": ["vector"],
+                        "min_version": "12.0",
+                    }
+                },
             }
         elif db_type == "sqlite":
             from pathlib import Path

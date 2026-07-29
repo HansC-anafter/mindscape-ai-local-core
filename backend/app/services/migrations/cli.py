@@ -14,6 +14,7 @@ backend_dir = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(backend_dir))
 
 from app.services.migrations import MigrationOrchestrator
+from app.services.migrations.database_plan import authoritative_alembic_configs
 from app.services.migrations.head_normalizer import (
     MigrationHeadNormalizationFacade,
 )
@@ -28,9 +29,7 @@ logger = logging.getLogger(__name__)
 def _build_orchestrator() -> MigrationOrchestrator:
     """Facade seam for canonical runtime migration paths and configuration."""
     capabilities_root = backend_dir / "app" / "capabilities"
-    alembic_configs = {
-        "postgres": backend_dir / "alembic.postgres.ini",
-    }
+    alembic_configs = authoritative_alembic_configs(backend_dir)
     return MigrationOrchestrator(capabilities_root, alembic_configs)
 
 
@@ -88,7 +87,13 @@ def apply_command(
     orchestrator = _build_orchestrator()
 
     if dry_run and revision:
-        result = orchestrator.plan_revision(db_type, revision)
+        if db_type == "vector":
+            result = orchestrator.apply_vector_revision_after_core_ready(
+                revision,
+                dry_run=True,
+            )
+        else:
+            result = orchestrator.plan_revision(db_type, revision)
         print(f"\nTargeted Dry-Run for {db_type.upper()} Migrations")
         print("=" * 60)
         print(f"Status: {result.get('status')}")
@@ -103,7 +108,13 @@ def apply_command(
         return dry_run_command(db_type)
 
     if revision:
-        result = orchestrator.apply_revision(db_type, revision)
+        if db_type == "vector":
+            result = orchestrator.apply_vector_revision_after_core_ready(
+                revision,
+                dry_run=False,
+            )
+        else:
+            result = orchestrator.apply_revision(db_type, revision)
     else:
         result = orchestrator.apply(db_type, dry_run=False)
 
@@ -167,17 +178,17 @@ def main():
 
     # Status command
     status_parser = subparsers.add_parser('status', help='Check migration status')
-    status_parser.add_argument('--db', choices=['postgres'], required=True,
+    status_parser.add_argument('--db', choices=['postgres', 'vector'], required=True,
                                help='Database type')
 
     # Dry-run command
     dry_run_parser = subparsers.add_parser('dry-run', help='Perform dry-run')
-    dry_run_parser.add_argument('--db', choices=['postgres'], required=True,
+    dry_run_parser.add_argument('--db', choices=['postgres', 'vector'], required=True,
                                 help='Database type')
 
     # Apply command
     apply_parser = subparsers.add_parser('apply', help='Apply migrations')
-    apply_parser.add_argument('--db', choices=['postgres'], required=True,
+    apply_parser.add_argument('--db', choices=['postgres', 'vector'], required=True,
                              help='Database type')
     apply_parser.add_argument('--dry-run', action='store_true',
                              help='Perform dry-run instead of applying')

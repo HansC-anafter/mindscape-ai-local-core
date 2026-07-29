@@ -633,6 +633,135 @@ properties:
             type: string
             pattern: "^[a-z0-9_]+$"
 
+  knowledge_projections:
+    type: array
+    maxItems: 32
+    description: "Pack-neutral retrievable knowledge projection descriptors"
+    items:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - source_kind
+        - contract_version
+        - compiler_backend
+        - projection_profiles
+        - evidence_unit_kinds
+        - trigger_modes
+        - limits
+      properties:
+        id:
+          type: string
+          pattern: "^[a-z0-9_]+$"
+        source_kind:
+          type: string
+          enum: [object, artifact, memory, document]
+        object_kinds:
+          type: array
+          minItems: 1
+          maxItems: 64
+          uniqueItems: true
+          items:
+            type: string
+            pattern: "^[a-z0-9_]+$"
+        artifact_selectors:
+          type: array
+          minItems: 1
+          maxItems: 64
+          uniqueItems: true
+          items:
+            type: string
+            pattern: "^[a-z0-9_.:-]+$"
+        contract_version:
+          type: string
+          pattern: "^\\d+\\.\\d+\\.\\d+$"
+        compiler_backend:
+          type: string
+          pattern: "^capabilities\\.[a-z0-9_]+(?:\\.[A-Za-z0-9_]+)+:[A-Za-z_][A-Za-z0-9_]*$"
+        projection_profiles:
+          type: array
+          minItems: 1
+          maxItems: 3
+          uniqueItems: true
+          items:
+            type: string
+            enum: [semantic_text, typed_records, evidence_graph]
+        evidence_unit_kinds:
+          type: array
+          minItems: 1
+          maxItems: 4
+          uniqueItems: true
+          items:
+            type: string
+            enum: [text_span, image_region, video_segment, audio_segment]
+        derived_text_kinds:
+          type: array
+          maxItems: 4
+          uniqueItems: true
+          items:
+            type: string
+            enum: [caption, transcript, ocr_text, vision_summary]
+        trigger_modes:
+          type: array
+          minItems: 1
+          maxItems: 3
+          uniqueItems: true
+          items:
+            type: string
+            enum: [source_revision, explicit_reindex, revoke]
+        facet_schema_module:
+          type: string
+          pattern: "^capabilities\\.[a-z0-9_]+(?:\\.[A-Za-z0-9_]+)+$"
+        graph_profile:
+          type: object
+          additionalProperties: false
+          properties:
+            direct_relations:
+              type: boolean
+            extraction_profile:
+              type: string
+              pattern: "^capabilities\\.[a-z0-9_]+(?:\\.[A-Za-z0-9_]+)+:[A-Za-z_][A-Za-z0-9_]*$"
+        limits:
+          type: object
+          additionalProperties: false
+          required: [max_chunks, max_records_per_page]
+          properties:
+            max_chunks:
+              type: integer
+              minimum: 1
+              maximum: 2000
+            max_records_per_page:
+              type: integer
+              minimum: 1
+              maximum: 50000
+            max_entities:
+              type: integer
+              minimum: 1
+              maximum: 10000
+            max_relations:
+              type: integer
+              minimum: 1
+              maximum: 20000
+      allOf:
+        - if:
+            properties:
+              source_kind:
+                const: object
+          then:
+            required: [object_kinds]
+          else:
+            not:
+              required: [object_kinds]
+        - if:
+            properties:
+              source_kind:
+                const: artifact
+          then:
+            required: [artifact_selectors]
+          else:
+            not:
+              required: [artifact_selectors]
+
   affordances:
     type: array
     description: "Schema-backed callable object affordances"
@@ -1151,8 +1280,7 @@ properties:
             - get_router: export a get_router() function
         prefix:
           type: string
-          pattern: "^/[a-z0-9_/-]+$"
-          description: "API route prefix"
+          description: "API route prefix; may include router path parameters"
         enabled_by_default:
           type: boolean
           default: true
@@ -1196,8 +1324,7 @@ properties:
             - get_router: export a get_router() function
         prefix:
           type: string
-          pattern: "^/[a-z0-9_/-]+$"
-          description: "API route prefix"
+          description: "API route prefix; may include router path parameters"
         enabled_by_default:
           type: boolean
           default: true
@@ -1224,6 +1351,10 @@ properties:
           type: string
           pattern: "^ui(?:/[A-Za-z0-9_.-]+)+\\.(tsx|ts|jsx|js)$"
           description: "Component file path"
+        domain_path:
+          type: string
+          pattern: "^ui(?:/[A-Za-z0-9_.-]+)+\\.(tsx|ts|jsx|js)$"
+          description: "Pack-owned domain entry wrapped by the public localization facade"
         name:
           type: string
         display_name:
@@ -1288,6 +1419,49 @@ properties:
               type: object
           additionalProperties: false
       additionalProperties: false
+
+  ui_localization:
+    type: object
+    required:
+      - contract
+      - namespace
+      - source_locale
+      - fallback_locale
+      - supported_locales
+      - catalogs
+    properties:
+      contract:
+        const: mindscape-capability-ui-localization-v1
+      namespace:
+        type: string
+        pattern: "^[a-z0-9_]+$"
+      source_locale:
+        const: en
+      fallback_locale:
+        const: en
+      supported_locales:
+        type: array
+        minItems: 3
+        maxItems: 3
+        prefixItems:
+          - const: en
+          - const: zh-TW
+          - const: ja
+      catalogs:
+        type: object
+        required:
+          - en
+          - zh-TW
+          - ja
+        properties:
+          en:
+            const: ui/i18n/en.json
+          zh-TW:
+            const: ui/i18n/zh-TW.json
+          ja:
+            const: ui/i18n/ja.json
+        additionalProperties: false
+    additionalProperties: false
 
   workspace_tools:
     type: array

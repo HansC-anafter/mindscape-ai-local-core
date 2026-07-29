@@ -92,7 +92,7 @@ class ToolEmbeddingService:
         )
 
     async def ensure_table(self) -> None:
-        """Create the tool_embeddings table if needed."""
+        """Verify the migration-owned tool_embeddings schema."""
         await _ensure_table(self)
 
     def _get_capability_manifest_context(self, capability_code: str) -> Optional[str]:

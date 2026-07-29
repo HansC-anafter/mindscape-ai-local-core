@@ -11,6 +11,9 @@ from backend.app.routes.core.execution_schemas import (
 from backend.app.services.workspace_capability_admission.child_snapshot_verifier import (
     verify_child_snapshot,
 )
+from backend.app.services.workflow.gate_decision import (
+    build_approved_gate_decision,
+)
 
 from .state import _utc_now, logger, playbook_executor, playbook_runner
 
@@ -125,11 +128,26 @@ async def resume_playbook_execution(
         if not isinstance(gate_decisions, dict):
             gate_decisions = {}
         gate_decisions = dict(gate_decisions)
-        gate_decisions[paused_step_id] = {
-            "action": "approved",
-            "comment": request.comment,
-            "decided_at": _utc_now().isoformat(),
-        }
+        try:
+            gate_decisions[
+                paused_step_id
+            ] = build_approved_gate_decision(
+                comment=request.comment,
+                decision_payload=request.decision_payload,
+                decision_payload_schema=(
+                    checkpoint.get("gate", {}).get(
+                        "decision_payload_schema"
+                    )
+                    if isinstance(checkpoint.get("gate"), dict)
+                    else None
+                ),
+                decided_at=_utc_now().isoformat(),
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail=str(exc),
+            ) from exc
         inputs["gate_decisions"] = gate_decisions
 
         # Mark task back to running before scheduling the resume run.

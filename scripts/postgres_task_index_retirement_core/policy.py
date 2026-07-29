@@ -9,10 +9,13 @@ from typing import Any, Mapping
 
 
 REQUIRED_THRESHOLDS = {
-    "max_running": 0,
-    "max_pending": 1000,
+    "running_observation_limit": 100,
+    "pending_observation_limit": 1000,
     "max_postgres_cpu": 200.0,
-    "max_runner_cpu": 400.0,
+    "max_runner_cpu_ratio": 0.90,
+    "runner_cpu_sample_count": 5,
+    "runner_cpu_sustained_sample_count": 3,
+    "runner_cpu_sample_interval_seconds": 2.0,
     "max_endpoint_seconds": 5.0,
 }
 

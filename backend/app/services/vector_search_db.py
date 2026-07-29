@@ -3,7 +3,6 @@ Vector database query and write helpers.
 """
 
 from typing import Any, Callable, Dict, List, Optional
-import json
 import logging
 
 from psycopg2.extras import RealDictCursor
@@ -35,6 +34,10 @@ async def search_vectors(
     Returns:
         Matching records with similarity scores.
     """
+    if table == "external_docs":
+        raise ValueError(
+            "external_docs_requires_authorization_aware_retrieval"
+        )
     conn = get_connection()
     try:
         cursor = conn.cursor(cursor_factory=RealDictCursor)
@@ -100,56 +103,18 @@ async def search_external_docs_records(
     top_k: int = 10,
     require_model_match: bool = True,
 ) -> List[Dict[str, Any]]:
-    """
-    Search external_docs with optional source and model filters.
-
-    Args:
-        get_connection: Existing VectorSearchService connection factory
-        query_embedding: Query vector
-        model_name: Embedding model used by the query vector
-        source_apps: Optional source application filter
-        user_id: User identifier
-        top_k: Number of records to return
-        require_model_match: Whether to filter by embedding model
-
-    Returns:
-        Matching external document records.
-    """
-    conn = get_connection()
-    try:
-        cursor = conn.cursor(cursor_factory=RealDictCursor)
-
-        where_clauses = ["user_id = %s"]
-        params = [user_id]
-
-        if source_apps:
-            where_clauses.append("source_app = ANY(%s)")
-            params.append(source_apps)
-
-        if require_model_match and model_name:
-            where_clauses.append("metadata->>'embedding_model' = %s")
-            params.append(model_name)
-
-        where_sql = f"WHERE {' AND '.join(where_clauses)}"
-
-        query_sql = f"""
-            SELECT
-                *,
-                1 - (embedding <=> %s::vector) as similarity
-            FROM external_docs
-            {where_sql}
-            ORDER BY embedding <=> %s::vector
-            LIMIT %s
-        """
-
-        params = [str(query_embedding)] + params + [str(query_embedding), top_k]
-        cursor.execute(query_sql, params)
-
-        results = cursor.fetchall()
-        return [dict(row) for row in results]
-
-    finally:
-        conn.close()
+    del (
+        get_connection,
+        query_embedding,
+        model_name,
+        source_apps,
+        user_id,
+        top_k,
+        require_model_match,
+    )
+    raise ValueError(
+        "external_docs_requires_authorization_aware_retrieval"
+    )
 
 
 async def update_last_used_at_records(
@@ -192,82 +157,7 @@ async def save_external_doc(
     get_connection: ConnectionFactory,
     doc: Dict[str, Any],
 ) -> bool:
-    """
-    Save or update a document in external_docs.
-
-    Args:
-        get_connection: Existing VectorSearchService connection factory
-        doc: Document dictionary
-
-    Returns:
-        True when the write commits successfully.
-    """
-    conn = get_connection()
-    try:
-        cursor = conn.cursor()
-
-        user_id = doc.get("user_id", "default_user")
-        source_app = doc.get("source_app", "unknown")
-        title = doc.get("title", "Untitled")
-        content = doc.get("content", "")
-        embedding = doc.get("embedding")
-        metadata = doc.get("metadata", {})
-        source_id = doc.get("source_id", title)
-
-        if not embedding:
-            logger.warning("No embedding provided for document")
-            return False
-
-        query = """
-            INSERT INTO external_docs (
-                user_id,
-                source_app,
-                source_id,
-                title,
-                content,
-                embedding,
-                metadata,
-                created_at,
-                updated_at
-            ) VALUES (
-                %s, %s, %s, %s, %s, %s::vector, %s, NOW(), NOW()
-            )
-            ON CONFLICT (user_id, source_app, source_id)
-            DO UPDATE SET
-                title = EXCLUDED.title,
-                content = EXCLUDED.content,
-                embedding = EXCLUDED.embedding,
-                metadata = EXCLUDED.metadata,
-                updated_at = NOW()
-            RETURNING id
-        """
-
-        cursor.execute(
-            query,
-            (
-                user_id,
-                source_app,
-                source_id,
-                title,
-                content,
-                str(embedding),
-                json.dumps(metadata),
-            ),
-        )
-
-        result = cursor.fetchone()
-        conn.commit()
-
-        logger.debug(
-            "Saved document to external_docs: %s (id: %s)",
-            title,
-            result[0] if result else "unknown",
-        )
-        return True
-
-    except Exception as e:
-        logger.error("Failed to save document to external_docs: %s", e)
-        conn.rollback()
-        return False
-    finally:
-        conn.close()
+    del get_connection, doc
+    raise ValueError(
+        "direct_external_docs_write_retired_use_projection_facade"
+    )

@@ -1,5 +1,6 @@
 import hashlib
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -55,6 +56,36 @@ class FakeConnection:
         self.closed = True
 
 
+class FakeAuthorizedStore:
+    def __init__(self, *, result=None, error=None):
+        self.result = result
+        self.error = error
+        self.calls = []
+
+    def find_active_document_revision(self, **kwargs):
+        self.calls.append(("find", kwargs))
+        return self.result
+
+    def replace_trusted_document_revision(self, **kwargs):
+        self.calls.append(("replace", kwargs))
+        if self.error:
+            raise self.error
+        return self.result
+
+
+def _authorized_result(*, state="indexed", chunks=1):
+    return SimpleNamespace(
+        state=state,
+        indexed_chunks=chunks,
+        revision_id="rev-1",
+        embedding_model="bge-m3",
+        knowledge_resource_id="kr-1",
+        security_label_id="label-1",
+        projection_revision_id="projection-1",
+        authz_revision=1,
+    )
+
+
 def _record():
     return {
         "source_id": "doc-1:rev-1:chunk-1",
@@ -108,9 +139,13 @@ def test_artifact_store_writes_atomically_reuses_and_repairs(tmp_path):
 
 
 def test_find_active_revision_prefilters_workspace_identity_and_pipeline():
-    cursor = FakeCursor(row=("rev-1", "bge-m3", 3))
-    connection = FakeConnection(cursor)
-    store = DocumentChunkIndexStore(lambda: connection)
+    authorized = FakeAuthorizedStore(
+        result=_authorized_result(state="reused", chunks=3)
+    )
+    store = DocumentChunkIndexStore(
+        lambda: None,
+        authorized_store=authorized,
+    )
 
     result = store.find_active_revision(
         user_id="user-1",
@@ -120,25 +155,23 @@ def test_find_active_revision_prefilters_workspace_identity_and_pipeline():
         pipeline_version="pipeline-1",
     )
 
-    query, params = cursor.calls[0]
     assert result.state == "reused"
     assert result.indexed_chunks == 3
-    assert "metadata @> %s::jsonb" in query
-    assert params[:2] == ("user-1", "document_ingestion")
-    assert json.loads(params[2]) == {
+    assert authorized.calls == [("find", {
+        "user_id": "user-1",
         "workspace_id": "workspace-1",
         "document_id": "doc-1",
         "checksum": "a" * 64,
         "pipeline_version": "pipeline-1",
-        "active": True,
-    }
-    assert connection.closed is True
+    })]
 
 
 def test_replace_active_revision_is_one_delete_insert_transaction():
-    cursor = FakeCursor()
-    connection = FakeConnection(cursor)
-    store = DocumentChunkIndexStore(lambda: connection)
+    authorized = FakeAuthorizedStore(result=_authorized_result())
+    store = DocumentChunkIndexStore(
+        lambda: None,
+        authorized_store=authorized,
+    )
 
     result = store.replace_active_revision(
         user_id="user-1",
@@ -148,24 +181,19 @@ def test_replace_active_revision_is_one_delete_insert_transaction():
         records=[_record()],
     )
 
-    assert "DELETE FROM external_docs" in cursor.calls[0][0]
-    assert "INSERT INTO external_docs" in cursor.calls[1][0]
-    assert len(cursor.batch) == 1
-    assert cursor.batch[0][0:3] == (
-        "user-1",
-        "document_ingestion",
-        "doc-1:rev-1:chunk-1",
-    )
+    assert authorized.calls[0][0] == "replace"
+    assert authorized.calls[0][1]["records"] == [_record()]
     assert result.state == "indexed"
-    assert connection.committed is True
-    assert connection.rolled_back is False
-    assert connection.closed is True
+    assert result.knowledge_resource_id == "kr-1"
+    assert result.projection_revision_id == "projection-1"
 
 
-def test_replace_active_revision_rolls_back_the_delete_when_insert_fails():
-    cursor = FakeCursor(executemany_error=RuntimeError("insert failed"))
-    connection = FakeConnection(cursor)
-    store = DocumentChunkIndexStore(lambda: connection)
+def test_replace_active_revision_propagates_canonical_writer_failure():
+    authorized = FakeAuthorizedStore(error=RuntimeError("insert failed"))
+    store = DocumentChunkIndexStore(
+        lambda: None,
+        authorized_store=authorized,
+    )
 
     with pytest.raises(RuntimeError, match="insert failed"):
         store.replace_active_revision(
@@ -176,9 +204,7 @@ def test_replace_active_revision_rolls_back_the_delete_when_insert_fails():
             records=[_record()],
         )
 
-    assert connection.committed is False
-    assert connection.rolled_back is True
-    assert connection.closed is True
+    assert authorized.calls[0][0] == "replace"
 
 
 def test_external_docs_embedding_adapter_pads_but_never_truncates():

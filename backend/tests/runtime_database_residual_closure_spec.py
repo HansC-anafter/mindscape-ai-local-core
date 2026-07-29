@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -158,6 +159,50 @@ def test_residual_close_terminal_receipt_is_explicit_and_backward_compatible(
     assert closed.containment_receipt is None
     assert RuntimeDatabaseMutationGate(tmp_path).evaluate("backend_restart").allowed
     assert IncidentReceipt.from_dict(closed.to_dict()) == closed
+
+
+def test_residual_close_uses_current_containment_after_failure_revocation(
+    tmp_path: Path,
+) -> None:
+    journal = RuntimeDatabaseIncidentJournal(tmp_path)
+    first_contained, exhaustion = _contained_with_exhaustion(journal)
+    reopened = journal.open_incident(
+        failure_code="postgres_server_closed_unexpectedly",
+    )
+    replacement = replace(
+        _containment_receipt(),
+        permit_id="containment-residual-002",
+        trigger_classification="pgbouncer_idle_transaction_timeout",
+    )
+    current_contained = journal.mark_contained(
+        reopened.incident_id,
+        replacement,
+    )
+
+    closed = journal.close_residual(
+        current_contained.incident_id,
+        _close_receipt(
+            exhaustion.sha256(),
+            soak_window=(
+                f"{current_contained.updated_at}/"
+                f"{datetime.now(timezone.utc).isoformat()}"
+            ),
+        ),
+    )
+    event_path = next((tmp_path / "incidents").glob("*/events.jsonl"))
+    events = [
+        json.loads(line)
+        for line in event_path.read_text(encoding="utf-8").splitlines()
+    ]
+
+    assert first_contained.incident_id == reopened.incident_id == closed.incident_id
+    assert closed.state is IncidentState.CLOSED
+    assert sum(event.get("event") == "incident_contained" for event in events) == 2
+    assert (
+        sum(event.get("event") == "containment_revoked_by_failure" for event in events)
+        == 1
+    )
+    assert events[-1]["event"] == "incident_closed"
 
 
 def test_residual_close_rejects_exhaustion_hash_mismatch(tmp_path: Path) -> None:

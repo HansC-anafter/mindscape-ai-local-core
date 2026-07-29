@@ -26,16 +26,9 @@ logger = logging.getLogger(__name__)
 class TasksStoreCreateReadMixin:
     """Task create and direct read methods."""
 
-    def create_task(self, task: Task) -> Task:
-        """
-        Create a new task record
+    def prepare_task_for_create(self, task: Task) -> Task:
+        """Apply the canonical scheduler/admission policy before a write txn."""
 
-        Args:
-            task: Task model instance
-
-        Returns:
-            Created task
-        """
         _enrich_runner_task_context(task)
         scheduler_fields = _derive_scheduler_fields(task)
         for key, value in scheduler_fields.items():
@@ -50,16 +43,33 @@ class TasksStoreCreateReadMixin:
             task.frontier_state = "cold"
             task.frontier_enqueued_at = None
             task.queue_shard = admission_decision.queue_shard or task.queue_shard
+        return task
 
-        with self.transaction() as conn:
-            project_id = task.project_id
-            if not project_id and task.execution_context:
-                project_id = task.execution_context.get("project_id")
-            if not project_id and task.params:
-                project_id = task.params.get("project_id")
+    def create_task_with_conn(
+        self,
+        conn,
+        task: Task,
+        *,
+        already_prepared: bool = False,
+        idempotent: bool = False,
+    ) -> tuple[Task, bool]:
+        """Insert through a caller-owned transaction; never enqueue or commit."""
 
-            query = text(
-                """
+        if not already_prepared:
+            self.prepare_task_for_create(task)
+        project_id = task.project_id
+        if not project_id and task.execution_context:
+            project_id = task.execution_context.get("project_id")
+        if not project_id and task.params:
+            project_id = task.params.get("project_id")
+
+        conflict_clause = (
+            " ON CONFLICT (id) DO NOTHING RETURNING id"
+            if idempotent
+            else ""
+        )
+        query = text(
+            """
                 INSERT INTO tasks (
                     id, workspace_id, message_id, execution_id, parent_execution_id,
                     project_id, pack_id,
@@ -78,108 +88,164 @@ class TasksStoreCreateReadMixin:
                     :frontier_enqueued_at, :started_at, :completed_at, :error
                 )
             """
-            )
-            # Auto-inject parent_execution_id from ContextVar if not set
-            resolved_parent_id = getattr(task, "parent_execution_id", None)
-            if not resolved_parent_id:
-                try:
-                    from backend.app.services.parameter_adapter.context import (
-                        active_parent_execution_id,
-                    )
-                    ctx_parent = active_parent_execution_id.get()
-                    # Pre-mortem guard: prevent self-parenting
-                    if ctx_parent and ctx_parent != task.execution_id:
-                        resolved_parent_id = ctx_parent
-                except Exception:
-                    pass  # ContextVar not available — safe to ignore
+            + conflict_clause
+        )
+        # Auto-inject parent_execution_id from ContextVar if not set
+        resolved_parent_id = getattr(task, "parent_execution_id", None)
+        if not resolved_parent_id:
+            try:
+                from backend.app.services.parameter_adapter.context import (
+                    active_parent_execution_id,
+                )
 
-            task_params = apply_task_payload_budget("params", task.params)
-            task_result = apply_task_payload_budget("result", task.result)
-            task_execution_context = apply_task_payload_budget(
-                "execution_context",
-                task.execution_context,
-            )
-            task_blocked_payload = apply_task_payload_budget(
-                "blocked_payload",
-                task.blocked_payload,
-            )
-            task_storyline_tags = apply_task_payload_budget(
-                "storyline_tags",
-                task.storyline_tags,
-            )
+                ctx_parent = active_parent_execution_id.get()
+                # Pre-mortem guard: prevent self-parenting
+                if ctx_parent and ctx_parent != task.execution_id:
+                    resolved_parent_id = ctx_parent
+            except Exception:
+                pass  # ContextVar not available — safe to ignore
 
-            params = {
-                "id": task.id,
-                "workspace_id": task.workspace_id,
-                "message_id": task.message_id,
-                "execution_id": task.execution_id,
-                "parent_execution_id": resolved_parent_id,
-                "project_id": project_id,
+        task_params = apply_task_payload_budget("params", task.params)
+        task_result = apply_task_payload_budget("result", task.result)
+        task_execution_context = apply_task_payload_budget(
+            "execution_context",
+            task.execution_context,
+        )
+        task_blocked_payload = apply_task_payload_budget(
+            "blocked_payload",
+            task.blocked_payload,
+        )
+        task_storyline_tags = apply_task_payload_budget(
+            "storyline_tags",
+            task.storyline_tags,
+        )
+        params = {
+            "id": task.id,
+            "workspace_id": task.workspace_id,
+            "message_id": task.message_id,
+            "execution_id": task.execution_id,
+            "parent_execution_id": resolved_parent_id,
+            "project_id": project_id,
+            "pack_id": task.pack_id,
+            "task_type": task.task_type,
+            "status": task.status.value,
+            "params": self.serialize_json(task_params),
+            "result": self.serialize_json(task_result),
+            "execution_context": (
+                self.serialize_json(task_execution_context)
+                if task_execution_context
+                else None
+            ),
+            "meeting_session_id": task.meeting_session_id,
+            "storyline_tags": self.serialize_json(task_storyline_tags),
+            "created_at": task.created_at,
+            "next_eligible_at": task.next_eligible_at,
+            "blocked_reason": task.blocked_reason,
+            "blocked_payload": self.serialize_json(task_blocked_payload),
+            "queue_shard": task.queue_shard,
+            "concurrency_key": task.concurrency_key,
+            "frontier_state": task.frontier_state,
+            "frontier_enqueued_at": task.frontier_enqueued_at,
+            "started_at": task.started_at,
+            "completed_at": task.completed_at,
+            "error": task.error,
+        }
+        execution_result = conn.execute(query, params)
+        inserted = (
+            execution_result.fetchone()
+            if idempotent
+            else (task.id,)
+        )
+        if inserted is None:
+            existing = conn.execute(
+                text(
+                    """
+                    SELECT *
+                    FROM tasks
+                    WHERE id = :task_id
+                    FOR SHARE
+                    """
+                ),
+                {"task_id": task.id},
+            ).fetchone()
+            if existing is None:
+                raise RuntimeError("task_idempotency_lookup_failed")
+            existing_task = self._row_to_task(existing)
+            if (
+                existing_task.workspace_id != task.workspace_id
+                or existing_task.pack_id != task.pack_id
+                or existing_task.task_type != task.task_type
+                or existing_task.params != task_params
+            ):
+                raise RuntimeError("task_idempotency_identity_conflict")
+            return existing_task, False
+
+        project_task_identity(conn=conn, task=task, reason="created")
+        if task.task_type in ("playbook_execution", "tool_execution"):
+            self._sync_playbook_execution_status(
+                conn,
+                task.execution_id,
+                task.status,
+                task_execution_context,
+            )
+        task.parent_execution_id = resolved_parent_id
+        run_id = self._record_run_control_from_task(conn, task)
+        self._record_task_control_event(
+            conn,
+            task_id=task.id,
+            workspace_id=task.workspace_id,
+            event_type="task.created",
+            to_status=task.status.value,
+            run_id=run_id,
+            payload={
                 "pack_id": task.pack_id,
                 "task_type": task.task_type,
-                "status": task.status.value,
-                "params": self.serialize_json(task_params),
-                "result": self.serialize_json(task_result),
-                "execution_context": (
-                    self.serialize_json(task_execution_context)
-                    if task_execution_context
-                    else None
-                ),
-                "meeting_session_id": task.meeting_session_id,
-                "storyline_tags": self.serialize_json(task_storyline_tags),
-                "created_at": task.created_at,
-                "next_eligible_at": task.next_eligible_at,
-                "blocked_reason": task.blocked_reason,
-                "blocked_payload": self.serialize_json(task_blocked_payload),
                 "queue_shard": task.queue_shard,
-                "concurrency_key": task.concurrency_key,
-                "frontier_state": task.frontier_state,
-                "frontier_enqueued_at": task.frontier_enqueued_at,
-                "started_at": task.started_at,
-                "completed_at": task.completed_at,
-                "error": task.error,
-            }
-            conn.execute(query, params)
-            project_task_identity(conn=conn, task=task, reason="created")
-            if task.task_type in ("playbook_execution", "tool_execution"):
-                self._sync_playbook_execution_status(
-                    conn,
-                    task.execution_id,
-                    task.status,
-                    task_execution_context,
-                )
-            task.parent_execution_id = resolved_parent_id
-            run_id = self._record_run_control_from_task(conn, task)
-            self._record_task_control_event(
-                conn,
-                task_id=task.id,
-                workspace_id=task.workspace_id,
-                event_type="task.created",
-                to_status=task.status.value,
-                run_id=run_id,
-                payload={
-                    "pack_id": task.pack_id,
-                    "task_type": task.task_type,
-                    "queue_shard": task.queue_shard,
-                },
-                idempotency_key=f"task:{task.id}:created",
-                occurred_at=task.created_at,
-            )
-            self._refresh_task_projection(
-                conn,
-                task.id,
-                refresh_compact_inputs=True,
-            )
-            logger.info(
-                "Created task: %s (workspace: %s, pack: %s)",
-                task.id,
-                task.workspace_id,
-                task.pack_id,
-            )
+            },
+            idempotency_key=f"task:{task.id}:created",
+            occurred_at=task.created_at,
+        )
+        self._refresh_task_projection(
+            conn,
+            task.id,
+            refresh_compact_inputs=True,
+        )
+        logger.info(
+            "Created task: %s (workspace: %s, pack: %s)",
+            task.id,
+            task.workspace_id,
+            task.pack_id,
+        )
+        return task, True
 
+    def finalize_task_create_after_commit(
+        self,
+        task: Task,
+        *,
+        created: bool,
+    ) -> Task:
+        """Run existing post-commit effects only for a newly inserted task."""
+
+        if not created:
+            return task
         sync_meeting_command_from_task_safely(task)
         self._enqueue_runner_task_after_commit(task)
         return task
+
+    def create_task(self, task: Task) -> Task:
+        """Create through the canonical transaction and post-commit path."""
+
+        self.prepare_task_for_create(task)
+        with self.transaction() as conn:
+            task, created = self.create_task_with_conn(
+                conn,
+                task,
+                already_prepared=True,
+            )
+        return self.finalize_task_create_after_commit(
+            task,
+            created=created,
+        )
 
     def get_task(self, task_id: str) -> Optional[Task]:
         """

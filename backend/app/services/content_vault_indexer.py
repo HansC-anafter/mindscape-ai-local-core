@@ -12,6 +12,14 @@ import yaml
 import re
 
 from backend.app.services.vector_search import VectorSearchService
+from backend.app.services.knowledge_authorization import RetrievalAccessContext
+from backend.app.services.knowledge_projection.legacy_document_facade import (
+    AuthorizedLegacyDocumentFacade,
+    LegacyDocumentChunk,
+)
+from backend.app.services.knowledge_projection.retrievable.canonical_json import (
+    canonical_sha256,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -24,8 +32,19 @@ class ContentVaultIndexer:
     for semantic search capabilities.
     """
 
-    def __init__(self, vector_service: Optional[VectorSearchService] = None):
+    def __init__(
+        self,
+        vector_service: Optional[VectorSearchService] = None,
+        *,
+        workspace_id: Optional[str] = None,
+        access_context: Optional[RetrievalAccessContext] = None,
+    ):
         self.vector_service = vector_service or VectorSearchService()
+        self.workspace_id = workspace_id
+        self.access_context = access_context
+        self.projection_facade = AuthorizedLegacyDocumentFacade(
+            vector_service=self.vector_service
+        )
 
     def _parse_frontmatter(self, content: str) -> tuple[Dict[str, Any], str]:
         """
@@ -153,7 +172,6 @@ class ContentVaultIndexer:
         self,
         vault_path: str,
         series_id: str,
-        user_id: str = "system"
     ) -> Dict[str, Any]:
         """
         Index all posts for a specific series
@@ -182,40 +200,44 @@ class ContentVaultIndexer:
                 'chunks_indexed': 0
             }
 
-        chunks = []
-        for post in posts:
-            post_chunks = self._chunk_post(post)
-            chunks.extend(post_chunks)
-
         indexed_count = 0
         failed_count = 0
-
-        for chunk in chunks:
+        if self.workspace_id is None or self.access_context is None:
+            raise PermissionError("content_vault_authorized_scope_required")
+        for post in posts:
             try:
-                embedding = await self._generate_embedding(chunk['text'])
-
-                if not embedding:
-                    logger.warning(f"Failed to generate embedding for chunk: {chunk.get('id')}")
-                    failed_count += 1
-                    continue
-
-                await self.vector_service.save_to_external_docs({
-                    'user_id': user_id,
-                    'source_app': 'content-vault',
-                    'title': chunk.get('title', 'Untitled'),
-                    'content': chunk['text'],
-                    'embedding': embedding,
-                    'metadata': {
-                        'series_id': series_id,
-                        'arc_id': chunk.get('arc_id'),
-                        'sequence': chunk.get('sequence'),
-                        'file_path': chunk.get('file_path'),
-                        'post_id': chunk.get('id'),
-                        'chunk_index': chunk.get('chunk_index', 0),
-                        'status': chunk.get('status', 'draft'),
-                    },
-                })
-                indexed_count += 1
+                chunks = self._chunk_post(post)
+                await self.projection_facade.replace_document(
+                    access_context=self.access_context,
+                    workspace_id=self.workspace_id,
+                    owner_capability_code="content_vault",
+                    source_app="content-vault",
+                    source_id=f"{series_id}:{post['id']}",
+                    doc_type="content_vault_post",
+                    source_revision=canonical_sha256(
+                        {
+                            "post": post,
+                            "chunks": [chunk["text"] for chunk in chunks],
+                        }
+                    ),
+                    chunks=tuple(
+                        LegacyDocumentChunk(
+                            content=chunk["text"],
+                            title=chunk.get("title", "Untitled"),
+                            metadata={
+                                "series_id": series_id,
+                                "arc_id": chunk.get("arc_id"),
+                                "sequence": chunk.get("sequence"),
+                                "file_path": chunk.get("file_path"),
+                                "post_id": chunk.get("id"),
+                                "chunk_index": chunk.get("chunk_index", 0),
+                                "status": chunk.get("status", "draft"),
+                            },
+                        )
+                        for chunk in chunks
+                    ),
+                )
+                indexed_count += len(chunks)
             except Exception as e:
                 logger.error(f"Failed to index chunk: {e}")
                 failed_count += 1
@@ -231,7 +253,6 @@ class ContentVaultIndexer:
     async def index_all_series(
         self,
         vault_path: str,
-        user_id: str = "system"
     ) -> Dict[str, Any]:
         """
         Index all series in the vault
@@ -265,7 +286,7 @@ class ContentVaultIndexer:
                 frontmatter, _ = self._parse_frontmatter(content)
                 series_id = frontmatter.get('series_id') or series_file.stem
 
-                result = await self.index_series(vault_path, series_id, user_id)
+                result = await self.index_series(vault_path, series_id)
                 total_posts += result.get('posts_indexed', 0)
                 total_chunks += result.get('chunks_indexed', 0)
             except Exception as e:
@@ -277,8 +298,6 @@ class ContentVaultIndexer:
             'total_posts': total_posts,
             'total_chunks': total_chunks
         }
-
-
 
 
 

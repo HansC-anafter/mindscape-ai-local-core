@@ -3,33 +3,83 @@ WordPress Sync API
 Provides endpoints for syncing WordPress content to pgvector
 """
 
-from fastapi import APIRouter, HTTPException, Query, BackgroundTasks
+import asyncio
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from typing import List, Dict, Any, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 import logging
 
 from backend.app.services.wordpress_sync import WordPressSync
+from backend.app.dependencies.auth import (
+    AuthContext,
+    build_retrieval_access_context,
+    get_current_user,
+)
+from backend.app.services.knowledge_projection.legacy_document_facade import (
+    AuthorizedLegacyDocumentFacade,
+    LegacyDocumentChunk,
+)
+from backend.app.services.knowledge_authorization import RetrievalScopeDenied
+from backend.app.services.workspace_groups.facade import WorkspaceGroupFacade
+from backend.app.services.workspace_groups.topology_service import (
+    WorkspaceGroupAccessError,
+    WorkspaceGroupNotFoundError,
+)
+
+from .projection_schemas import (
+    OwnerDeclaredGraphInput,
+    ProjectionRecordInput,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["External Docs Sync"])
 
 
+def _raise_external_docs_failure(operation: str, exc: Exception) -> None:
+    if isinstance(
+        exc,
+        (
+            PermissionError,
+            RetrievalScopeDenied,
+            WorkspaceGroupAccessError,
+        ),
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Knowledge access is not authorized for this workspace.",
+        ) from exc
+    logger.error("%s: %s", operation, exc, exc_info=True)
+    raise HTTPException(
+        status_code=500,
+        detail="External document operation failed.",
+    ) from exc
+
+
 # Request/Response Models
 class WordPressSyncRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    workspace_id: str = Field(min_length=1, max_length=64)
     site_url: str
-    user_id: str = "default_user"
     post_types: Optional[List[str]] = None
-    per_page: int = 10
+    per_page: int = Field(default=10, ge=1, le=100)
 
 
 class DocumentSyncRequest(BaseModel):
-    user_id: str = "default_user"
-    source_app: str
-    source_id: str
+    model_config = ConfigDict(extra="forbid")
+    workspace_id: str = Field(min_length=1, max_length=64)
+    source_app: str = Field(min_length=1, max_length=64)
+    source_id: str = Field(min_length=1, max_length=256)
     title: str
     content: str
     metadata: Optional[Dict[str, Any]] = None
+    owner_group_id: Optional[str] = Field(default=None, max_length=64)
+    projection_records: tuple[ProjectionRecordInput, ...] = Field(
+        default=(),
+        max_length=2000,
+    )
+    owner_declared_graph: Optional[OwnerDeclaredGraphInput] = None
 
 
 class WordPressSyncResponse(BaseModel):
@@ -44,51 +94,82 @@ class WordPressSyncResponse(BaseModel):
 # WordPress Sync Endpoints
 
 @router.post("/sync/document")
-async def sync_document(request: DocumentSyncRequest):
+async def sync_document(
+    request: DocumentSyncRequest,
+    auth: AuthContext = Depends(get_current_user),
+):
     """
     Sync a single document (or chunk) to the vector database.
     Generates embedding automatically.
     """
     try:
-        from backend.app.services.vector_search import VectorSearchService
-        vs = VectorSearchService()
-        
-        # Generate embedding
-        embedding, model_name = await vs._generate_embedding_with_model(request.content, is_query=False)
-        if not embedding:
-            raise HTTPException(status_code=500, detail="Failed to generate embedding")
-            
-        doc_metadata = request.metadata or {}
-        if model_name:
-            doc_metadata["embedding_model"] = model_name
-            
-        doc = {
-            "user_id": request.user_id,
-            "source_app": request.source_app,
+        requested_groups = (
+            (request.owner_group_id,) if request.owner_group_id else ()
+        )
+        context = await asyncio.to_thread(
+            build_retrieval_access_context,
+            auth,
+            requested_workspace_ids=(request.workspace_id,),
+            requested_group_ids=requested_groups,
+        )
+        if request.owner_group_id:
+            topology = await asyncio.to_thread(
+                WorkspaceGroupFacade().get_group,
+                request.owner_group_id,
+                actor_user_id=auth.user_id,
+                allowed_group_ids=auth.group_ids,
+            )
+            if request.workspace_id not in topology.role_map:
+                raise WorkspaceGroupAccessError(
+                    "source workspace is outside the projection group"
+                )
+        result = await AuthorizedLegacyDocumentFacade().replace_document(
+            access_context=context,
+            workspace_id=request.workspace_id,
+            owner_capability_code="external_docs",
+            source_app=request.source_app,
+            source_id=request.source_id,
+            doc_type="external_document",
+            chunks=(
+                LegacyDocumentChunk(
+                    content=request.content,
+                    title=request.title,
+                    metadata=request.metadata or {},
+                ),
+            ),
+            owner_scope_type=(
+                "group" if request.owner_group_id else "workspace"
+            ),
+            owner_scope_id=request.owner_group_id,
+            projection_records=tuple(
+                item.model_dump(mode="python")
+                for item in request.projection_records
+            ),
+            owner_declared_graph=(
+                request.owner_declared_graph.model_dump(mode="python")
+                if request.owner_declared_graph is not None
+                else None
+            ),
+        )
+        return {
+            "success": True,
             "source_id": request.source_id,
-            "title": request.title,
-            "content": request.content,
-            "embedding": embedding,
-            "metadata": doc_metadata
+            "knowledge_resource_id": result.knowledge_resource_id,
+            "projection_revision_id": result.projection_revision_id,
         }
-        
-        success = await vs.save_to_external_docs(doc)
-        if not success:
-            raise HTTPException(status_code=500, detail="Failed to save document")
-            
-        return {"success": True, "source_id": request.source_id}
         
     except HTTPException:
         raise
+    except WorkspaceGroupNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
     except Exception as e:
-        logger.error(f"Document sync failed: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        _raise_external_docs_failure("Document sync failed", e)
 
 
 @router.post("/sync/wordpress", response_model=WordPressSyncResponse)
 async def sync_wordpress(
     request: WordPressSyncRequest,
-    background_tasks: BackgroundTasks
+    auth: AuthContext = Depends(get_current_user),
 ):
     """
     Sync WordPress posts and pages to vector database
@@ -96,19 +177,26 @@ async def sync_wordpress(
     Example:
     ```json
     {
+      "workspace_id": "workspace-1",
       "site_url": "https://example.com",
-      "user_id": "default_user",
       "post_types": ["post", "page"],
       "per_page": 10
     }
     ```
     """
     try:
-        sync_service = WordPressSync()
+        context = await asyncio.to_thread(
+            build_retrieval_access_context,
+            auth,
+            requested_workspace_ids=(request.workspace_id,),
+        )
+        sync_service = WordPressSync(
+            workspace_id=request.workspace_id,
+            access_context=context,
+        )
 
         stats = await sync_service.sync_posts(
             site_url=request.site_url,
-            user_id=request.user_id,
             post_types=request.post_types,
             per_page=request.per_page
         )
@@ -123,14 +211,14 @@ async def sync_wordpress(
         )
 
     except Exception as e:
-        logger.error(f"WordPress sync failed: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        _raise_external_docs_failure("WordPress sync failed", e)
 
 
 @router.get("/wordpress/list")
 async def list_wordpress_posts(
-    user_id: str = Query("default_user", description="User ID"),
-    limit: int = Query(100, description="Maximum number of posts")
+    workspace_id: str = Query(..., min_length=1, max_length=64),
+    limit: int = Query(100, ge=1, le=200),
+    auth: AuthContext = Depends(get_current_user),
 ):
     """
     List synced WordPress posts
@@ -138,10 +226,17 @@ async def list_wordpress_posts(
     Example: GET /api/v1/external-docs/wordpress/list?limit=50
     """
     try:
-        sync_service = WordPressSync()
+        context = await asyncio.to_thread(
+            build_retrieval_access_context,
+            auth,
+            requested_workspace_ids=(workspace_id,),
+        )
+        sync_service = WordPressSync(
+            workspace_id=workspace_id,
+            access_context=context,
+        )
 
         posts = await sync_service.list_synced_posts(
-            user_id=user_id,
             limit=limit
         )
 
@@ -151,26 +246,33 @@ async def list_wordpress_posts(
         }
 
     except Exception as e:
-        logger.error(f"Failed to list WordPress posts: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        _raise_external_docs_failure("Failed to list WordPress posts", e)
 
 
 @router.delete("/wordpress/{source_id}")
 async def delete_wordpress_post(
     source_id: str,
-    user_id: str = Query("default_user", description="User ID")
+    workspace_id: str = Query(..., min_length=1, max_length=64),
+    auth: AuthContext = Depends(get_current_user),
 ):
     """
     Delete a synced WordPress post
 
-    Example: DELETE /api/v1/external-docs/wordpress/wp_123?user_id=default_user
+    Example: DELETE /api/v1/external-docs/wordpress/wp_123?workspace_id=workspace-1
     """
     try:
-        sync_service = WordPressSync()
+        context = await asyncio.to_thread(
+            build_retrieval_access_context,
+            auth,
+            requested_workspace_ids=(workspace_id,),
+        )
+        sync_service = WordPressSync(
+            workspace_id=workspace_id,
+            access_context=context,
+        )
 
         deleted = await sync_service.delete_post(
             source_id=source_id,
-            user_id=user_id
         )
 
         if deleted:
@@ -184,13 +286,13 @@ async def delete_wordpress_post(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to delete WordPress post: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        _raise_external_docs_failure("Failed to delete WordPress post", e)
 
 
 @router.get("/stats")
 async def get_external_docs_stats(
-    user_id: str = Query("default_user", description="User ID")
+    workspace_id: str = Query(..., min_length=1, max_length=64),
+    auth: AuthContext = Depends(get_current_user),
 ):
     """
     Get statistics about synced external documents
@@ -198,62 +300,16 @@ async def get_external_docs_stats(
     Example: GET /api/v1/external-docs/stats
     """
     try:
-        from app.services.wordpress_sync import WordPressSync
-        sync_service = WordPressSync()
-
-        conn = sync_service._get_connection()
-        try:
-            from psycopg2.extras import RealDictCursor
-            cursor = conn.cursor(cursor_factory=RealDictCursor)
-
-            # Get counts by source_app
-            cursor.execute('''
-                SELECT
-                    source_app,
-                    doc_type,
-                    COUNT(*) as count
-                FROM external_docs
-                WHERE user_id = %s
-                GROUP BY source_app, doc_type
-                ORDER BY source_app, doc_type
-            ''', (user_id,))
-
-            counts = cursor.fetchall()
-
-            # Get total count
-            cursor.execute('''
-                SELECT COUNT(*) as total
-                FROM external_docs
-                WHERE user_id = %s
-            ''', (user_id,))
-
-            total_row = cursor.fetchone()
-            total = total_row['total'] if total_row else 0
-
-            # Get recent syncs
-            cursor.execute('''
-                SELECT
-                    source_app,
-                    source_id,
-                    title,
-                    last_synced_at
-                FROM external_docs
-                WHERE user_id = %s
-                ORDER BY last_synced_at DESC
-                LIMIT 10
-            ''', (user_id,))
-
-            recent = cursor.fetchall()
-
-            return {
-                "total": total,
-                "by_source": [dict(c) for c in counts],
-                "recent_syncs": [dict(r) for r in recent]
-            }
-
-        finally:
-            conn.close()
+        context = await asyncio.to_thread(
+            build_retrieval_access_context,
+            auth,
+            requested_workspace_ids=(workspace_id,),
+        )
+        return await asyncio.to_thread(
+            AuthorizedLegacyDocumentFacade().document_stats,
+            access_context=context,
+            workspace_id=workspace_id,
+        )
 
     except Exception as e:
-        logger.error(f"Failed to get external docs stats: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        _raise_external_docs_failure("Failed to get external docs stats", e)

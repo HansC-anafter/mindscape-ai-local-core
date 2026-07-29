@@ -213,6 +213,7 @@ class ToolListService:
                 register_workspace_tools,
                 register_filesystem_tools,
                 register_mindscape_graph_tools,
+                register_knowledge_query_tool,
                 register_reporting_tools,
             )
 
@@ -228,6 +229,8 @@ class ToolListService:
                 register_filesystem_tools()
             if "mindscape_graph.overview" not in builtin_tools:
                 register_mindscape_graph_tools()
+            if "knowledge_query" not in builtin_tools:
+                register_knowledge_query_tool()
             reporting_tool_ids = {
                 "workspace_write_html_report",
                 "workspace_package_report",

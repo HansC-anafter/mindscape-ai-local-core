@@ -205,6 +205,53 @@ class ToolSlotMappingsStore(PostgresStoreBase):
             logger.error(f"Failed to get mappings: {e}", exc_info=True)
             return []
 
+    def get_resolution_candidates(
+        self,
+        *,
+        slot: str,
+        workspace_id: str,
+        project_id: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """Read project and workspace candidates for one slot in one query."""
+        try:
+            with self.get_connection() as conn:
+                params: Dict[str, Any] = {
+                    "slot": slot,
+                    "workspace_id": workspace_id,
+                }
+                project_clause = "project_id IS NULL"
+                if project_id:
+                    project_clause = (
+                        "(project_id = :project_id OR project_id IS NULL)"
+                    )
+                    params["project_id"] = project_id
+                rows = conn.execute(
+                    text(
+                        f"""
+                        SELECT *
+                        FROM tool_slot_mappings
+                        WHERE slot = :slot
+                          AND workspace_id = :workspace_id
+                          AND enabled = TRUE
+                          AND {project_clause}
+                        ORDER BY
+                          CASE WHEN project_id IS NULL THEN 1 ELSE 0 END,
+                          priority DESC,
+                          created_at DESC
+                        """
+                    ),
+                    params,
+                ).fetchall()
+                return [self._row_to_mapping(row).to_dict() for row in rows]
+        except Exception as exc:
+            logger.error(
+                "Failed to read resolution candidates for slot %s: %s",
+                slot,
+                exc,
+                exc_info=True,
+            )
+            return []
+
     def update_mapping(self, mapping_id: str, **updates) -> Optional[ToolSlotMapping]:
         """Update mapping"""
         if not updates:

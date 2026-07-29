@@ -8,6 +8,14 @@ import WorkspaceThreadBundleToolRegistration from './WorkspaceThreadBundleToolRe
 
 const windowOpenMock = vi.hoisted(() => vi.fn(() => ({ opener: null })));
 
+vi.mock('@/lib/i18n', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/i18n')>();
+  const translator = actual.createTranslator('en');
+  return {
+    ...actual,
+    useT: () => translator,
+  };
+});
 vi.mock('@/contexts/WorkspaceDataContext', () => ({
   useWorkspaceDataOptional: () => ({
     executions: [
@@ -97,6 +105,16 @@ describe('WorkspaceGlobalToolRailProvider', () => {
     expect(screen.getByTestId('workspace-global-tool-group-workspace')).not.toContainElement(
       screen.getByTestId('workspace-graph-tool'),
     );
+    await waitFor(() => {
+      expect(screen.getByTestId('workspace-voice-tool')).toBeDisabled();
+      expect(screen.getByTestId('workspace-voice-tool')).toHaveAttribute(
+        'title',
+        'Voice: Focus a text input terminal before recording.',
+      );
+      expect(screen.getByTestId('workspace-global-tool-group-runtime')).toContainElement(
+        screen.getByTestId('workspace-voice-tool'),
+      );
+    });
 
     fireEvent.click(screen.getByTestId('workspace-pack-tool'));
     expect(screen.getByTestId('workspace-global-tool-panel')).toHaveAttribute('data-active-tool-key', 'core:pack');

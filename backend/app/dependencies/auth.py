@@ -5,7 +5,7 @@ Pluggable design: Local mode uses default_user, Cloud mode uses cloud-integratio
 
 import logging
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import Any, Iterable, List, Mapping, Optional
 from urllib.parse import urlsplit
 
 from fastapi import HTTPException, Request
@@ -29,6 +29,10 @@ class AuthContext:
     tenant_id: str
     workspace_ids: List[str] = field(default_factory=list)
     group_ids: List[str] = field(default_factory=list)
+    workspace_memberships: List[Mapping[str, Any]] = field(default_factory=list)
+    group_memberships: List[Mapping[str, Any]] = field(default_factory=list)
+    knowledge_permissions: List[Mapping[str, Any]] = field(default_factory=list)
+    auth_revision: Optional[str] = None
     is_cloud_mode: bool = False
 
 
@@ -91,6 +95,10 @@ async def get_auth_from_cloud_integration_token(token: str) -> Optional[AuthCont
                     tenant_id=data.get("tenant_id", ""),
                     workspace_ids=data.get("workspace_ids", []),
                     group_ids=data.get("group_ids", []),
+                    workspace_memberships=data.get("workspace_memberships", []),
+                    group_memberships=data.get("group_memberships", []),
+                    knowledge_permissions=data.get("knowledge_permissions", []),
+                    auth_revision=data.get("auth_revision"),
                     is_cloud_mode=True,
                 )
             else:
@@ -265,4 +273,26 @@ async def get_current_operator(request: Request) -> AuthContext:
         local_user_id=LOCAL_CONTROL_OPERATOR_USER_ID,
         allow_cloud_auth=False,
         enforce_local_operator_origin=True,
+    )
+
+
+def build_retrieval_access_context(
+    auth: AuthContext,
+    *,
+    requested_workspace_ids: Iterable[str] = (),
+    requested_group_ids: Iterable[str] = (),
+    verified_agent_execution=None,
+    trusted_service_principal: Optional[str] = None,
+):
+    """Thin auth entry seam for the canonical knowledge context factory."""
+    from ..services.knowledge_authorization.access_context_factory import (
+        RetrievalAccessContextFactory,
+    )
+
+    return RetrievalAccessContextFactory().build(
+        auth,
+        requested_workspace_ids=requested_workspace_ids,
+        requested_group_ids=requested_group_ids,
+        verified_agent_execution=verified_agent_execution,
+        trusted_service_principal=trusted_service_principal,
     )

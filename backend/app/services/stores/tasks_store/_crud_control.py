@@ -72,6 +72,52 @@ class TasksStoreControlMixin:
                 f"[DB Bridge] Exception during post-commit enqueue for task {task.id}: {e}"
             )
 
+    def retry_terminal_task_after_commit(self, task_id: str):
+        """CAS a failed/cancelled internal task back to the existing lane."""
+
+        task = self.get_task(task_id)
+        if task is None:
+            return None
+        execution_context = (
+            dict(task.execution_context)
+            if isinstance(task.execution_context, dict)
+            else {}
+        )
+        execution_context["status"] = "queued"
+        execution_context["knowledge_projection_retry_count"] = (
+            int(
+                execution_context.get(
+                    "knowledge_projection_retry_count"
+                )
+                or 0
+            )
+            + 1
+        )
+        retried = self.update_task(
+            task_id,
+            execution_context=execution_context,
+            expected_statuses=(
+                TaskStatus.FAILED,
+                TaskStatus.CANCELLED_BY_USER,
+                TaskStatus.EXPIRED,
+            ),
+            status=TaskStatus.PENDING,
+            result={},
+            error=None,
+            started_at=None,
+            completed_at=None,
+            next_eligible_at=_utc_now(),
+            blocked_reason=None,
+            blocked_payload={},
+            frontier_state="ready",
+            frontier_enqueued_at=_utc_now(),
+            runner_id=None,
+            heartbeat_at=None,
+        )
+        if retried is not None:
+            self._enqueue_runner_task_after_commit(retried)
+        return retried
+
     def _sync_playbook_execution_status(
         self,
         conn,

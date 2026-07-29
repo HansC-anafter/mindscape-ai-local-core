@@ -6,6 +6,10 @@ import { MeetingRunsWorkspaceSurface } from './MeetingRunsWorkspaceSurface';
 
 const submitPrompt = vi.fn();
 
+vi.mock('@/lib/i18n', () => ({
+  useT: () => (key: string) => key,
+}));
+
 vi.mock('./useHostRuntimeRunSession', () => ({
   useHostRuntimeRunSession: () => ({
     status: { enabled: true, total_bridges: 1, runtime_surfaces: ['codex_cli'], bridges: [] },

@@ -11,10 +11,23 @@ Resolution order:
 """
 
 import logging
+from dataclasses import dataclass
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class ToolSlotResolution:
+    """Immutable evidence returned by one admission-time slot lookup."""
+
+    slot: str
+    tool_id: str
+    mapping_kind: str
+    mapping_id: Optional[str] = None
+    mapping_updated_at: Optional[str] = None
+    project_id: Optional[str] = None
 
 
 class SlotNotFoundError(Exception):
@@ -117,41 +130,88 @@ class ToolSlotResolver:
         Raises:
             SlotNotFoundError: If slot cannot be resolved
         """
+        resolution = await self.resolve_with_evidence(
+            slot=slot,
+            workspace_id=workspace_id,
+            project_id=project_id,
+        )
+        return resolution.tool_id
+
+    async def resolve_with_evidence(
+        self,
+        *,
+        slot: str,
+        workspace_id: str,
+        project_id: Optional[str] = None,
+    ) -> ToolSlotResolution:
+        """Resolve once and retain the exact mapping identity for admission pinning."""
         try:
-            # Try project-level mapping first (highest priority)
-            if project_id:
-                mapping = await self._get_mapping(slot, workspace_id, project_id)
-                if mapping and mapping.get('enabled', True):
-                    tool_id = mapping.get('tool_id')
-                    if tool_id:
-                        logger.info(f"Resolved slot '{slot}' to tool '{tool_id}' (project-level mapping)")
-                        return tool_id
-
-            # Try workspace-level mapping
-            mapping = await self._get_mapping(slot, workspace_id, None)
-            if mapping and mapping.get('enabled', True):
-                tool_id = mapping.get('tool_id')
+            mapping = await self._get_resolution_candidate(
+                slot=slot,
+                workspace_id=workspace_id,
+                project_id=project_id,
+            )
+            if mapping:
+                tool_id = str(mapping.get("tool_id") or "").strip()
                 if tool_id:
-                    logger.info(f"Resolved slot '{slot}' to tool '{tool_id}' (workspace-level mapping)")
-                    return tool_id
+                    mapping_project_id = mapping.get("project_id")
+                    mapping_kind = (
+                        "project" if mapping_project_id is not None else "workspace"
+                    )
+                    logger.info(
+                        "Resolved slot '%s' to tool '%s' (%s mapping)",
+                        slot,
+                        tool_id,
+                        mapping_kind,
+                    )
+                    return ToolSlotResolution(
+                        slot=slot,
+                        tool_id=tool_id,
+                        mapping_kind=mapping_kind,
+                        mapping_id=str(mapping.get("id") or "") or None,
+                        mapping_updated_at=(
+                            str(mapping.get("updated_at") or "") or None
+                        ),
+                        project_id=(
+                            str(mapping_project_id)
+                            if mapping_project_id is not None
+                            else None
+                        ),
+                    )
 
-            # Try system-level default mapping (future: could come from playbook metadata)
-            # Implement a safe default for installed capability tools:
-            # if the slot itself is a registered capability tool_id, use it directly.
             if self._is_registered_capability_tool(slot):
-                logger.info(f"Slot '{slot}' is a registered capability tool, using as-is")
-                return slot
+                logger.info(
+                    "Slot '%s' is a registered capability tool, using as-is",
+                    slot,
+                )
+                return ToolSlotResolution(
+                    slot=slot,
+                    tool_id=slot,
+                    mapping_kind="registered_default",
+                )
 
-            # If slot looks like a concrete tool ID, return it as-is (backward compatibility)
             if self._looks_like_tool_id(slot):
-                logger.info(f"Slot '{slot}' appears to be a concrete tool ID, using as-is")
-                return slot
+                logger.info(
+                    "Slot '%s' appears to be a concrete tool ID, using as-is",
+                    slot,
+                )
+                return ToolSlotResolution(
+                    slot=slot,
+                    tool_id=slot,
+                    mapping_kind="legacy_concrete_tool",
+                )
 
-            # No mapping found - gather context for helpful error message
-            available_slots = await self._get_available_slots(workspace_id, project_id)
-            suggestion = self._generate_suggestion(slot, available_slots, workspace_id, project_id)
+            available_slots = await self._get_available_slots(
+                workspace_id,
+                project_id,
+            )
+            suggestion = self._generate_suggestion(
+                slot,
+                available_slots,
+                workspace_id,
+                project_id,
+            )
             project_msg = f"or project '{project_id}'" if project_id else ""
-
             raise SlotNotFoundError(
                 f"Tool slot '{slot}' not found. "
                 f"Please configure a mapping in workspace '{workspace_id}' {project_msg}",
@@ -159,19 +219,57 @@ class ToolSlotResolver:
                 workspace_id=workspace_id,
                 project_id=project_id,
                 available_slots=available_slots,
-                suggestion=suggestion
+                suggestion=suggestion,
             )
-
         except SlotNotFoundError:
             raise
-        except Exception as e:
-            logger.error(f"Error resolving tool slot '{slot}': {e}", exc_info=True)
+        except Exception as exc:
+            logger.error(
+                "Error resolving tool slot '%s': %s",
+                slot,
+                exc,
+                exc_info=True,
+            )
             raise SlotNotFoundError(
-                f"Failed to resolve tool slot '{slot}': {str(e)}",
+                f"Failed to resolve tool slot '{slot}': {str(exc)}",
                 slot=slot,
                 workspace_id=workspace_id,
-                project_id=project_id
+                project_id=project_id,
+            ) from exc
+
+    async def _get_resolution_candidate(
+        self,
+        *,
+        slot: str,
+        workspace_id: str,
+        project_id: Optional[str],
+    ) -> Optional[Dict[str, Any]]:
+        """Return the highest-priority candidate from one indexed store read."""
+        try:
+            from backend.app.services.stores.tool_slot_mappings_store import (
+                ToolSlotMappingsStore,
             )
+
+            mappings_store = ToolSlotMappingsStore(self.store.db_path)
+            candidates = mappings_store.get_resolution_candidates(
+                slot=slot,
+                workspace_id=workspace_id,
+                project_id=project_id,
+            )
+            return candidates[0] if candidates else None
+        except ImportError:
+            logger.debug(
+                "ToolSlotMappingsStore not available for slot '%s'",
+                slot,
+            )
+            return None
+        except Exception as exc:
+            logger.warning(
+                "Failed to get resolution candidate for slot '%s': %s",
+                slot,
+                exc,
+            )
+            return None
 
     async def _get_mapping(
         self,

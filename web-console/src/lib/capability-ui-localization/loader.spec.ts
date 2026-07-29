@@ -84,6 +84,13 @@ function localeFromUrl(url: string): 'en' | 'zh-TW' | 'ja' {
   return 'en';
 }
 
+function responseBody(bytes: Uint8Array): ArrayBuffer {
+  return bytes.buffer.slice(
+    bytes.byteOffset,
+    bytes.byteOffset + bytes.byteLength,
+  ) as ArrayBuffer;
+}
+
 beforeEach(() => {
   clearCapabilityUiCatalogCacheForTests();
 });
@@ -98,7 +105,7 @@ describe('capability UI localization loader', () => {
     const { descriptor, assets } = fixture();
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const locale = localeFromUrl(String(input));
-      return new Response(assets[locale], { status: 200 });
+      return new Response(responseBody(assets[locale]), { status: 200 });
     });
     vi.stubGlobal('fetch', fetchMock);
 
@@ -127,7 +134,7 @@ describe('capability UI localization loader', () => {
       const bytes = locale === 'zh-TW'
         ? encoder.encode('corrupt')
         : assets[locale];
-      return new Response(bytes, { status: 200 });
+      return new Response(responseBody(bytes), { status: 200 });
     });
     vi.stubGlobal('fetch', fetchMock);
 
@@ -148,7 +155,7 @@ describe('capability UI localization loader', () => {
   it('fails without mounting when the English source catalog is invalid', async () => {
     const { descriptor } = fixture();
     const fetchMock = vi.fn(async () => (
-      new Response(encoder.encode('corrupt'), { status: 200 })
+      new Response(responseBody(encoder.encode('corrupt')), { status: 200 })
     ));
     vi.stubGlobal('fetch', fetchMock);
 
@@ -166,7 +173,7 @@ describe('capability UI localization loader', () => {
     const { descriptor, assets } = fixture();
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
       const locale = localeFromUrl(String(input));
-      return new Response(assets[locale], { status: 200 });
+      return new Response(responseBody(assets[locale]), { status: 200 });
     }));
 
     for (let index = 0; index < 33; index += 1) {

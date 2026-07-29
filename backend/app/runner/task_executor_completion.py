@@ -308,12 +308,41 @@ async def _mark_task_succeeded(
                         if isinstance(ctxs.get("inputs"), dict)
                         else latest.params
                     )
-                    closure_result = close_object_action_from_execution_result(
-                        workspace_id=latest.workspace_id,
-                        execution_id=latest.execution_id or latest.id,
-                        inputs=closure_inputs if isinstance(closure_inputs, dict) else {},
-                        execution_result=tool_result,
+                    from backend.app.services.knowledge_projection.retrievable.source_triggers import (
+                        committed_source_trigger_authority,
                     )
+
+                    with committed_source_trigger_authority(
+                        actor_user_id=str(
+                            ctxs.get("profile_id")
+                            or latest.params.get("actor_user_id")
+                            or ""
+                        ),
+                        active_group_id=str(
+                            (
+                                ctxs.get("execution_admission_snapshot")
+                                if isinstance(
+                                    ctxs.get(
+                                        "execution_admission_snapshot"
+                                    ),
+                                    dict,
+                                )
+                                else {}
+                            ).get("active_group_id")
+                            or ""
+                        )
+                        or None,
+                    ):
+                        closure_result = close_object_action_from_execution_result(
+                            workspace_id=latest.workspace_id,
+                            execution_id=latest.execution_id or latest.id,
+                            inputs=(
+                                closure_inputs
+                                if isinstance(closure_inputs, dict)
+                                else {}
+                            ),
+                            execution_result=tool_result,
+                        )
                     if closure_result:
                         ctxs["object_action_closure"] = closure_result
                         update_kwargs["execution_context"] = ctxs

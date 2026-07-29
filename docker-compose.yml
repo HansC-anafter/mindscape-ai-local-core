@@ -11,13 +11,25 @@ x-runner-environment: &runner-environment
   REDIS_DB: ${REDIS_DB:-0}
   REDIS_PASSWORD: ${REDIS_PASSWORD:-}
   DATABASE_URL_CORE: postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/${POSTGRES_CORE_DB:-mindscape_core}
-  DATABASE_URL_VECTOR: postgresql://${POSTGRES_VECTOR_USER:-mindscape}:${POSTGRES_VECTOR_PASSWORD:-mindscape_password}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/${POSTGRES_VECTOR_DB:-mindscape_vectors}
+  DATABASE_URL_VECTOR: postgresql://${POSTGRES_VECTOR_RUNTIME_USER:-mindscape_vector_runtime}:${POSTGRES_VECTOR_RUNTIME_PASSWORD:?POSTGRES_VECTOR_RUNTIME_PASSWORD is required}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/${POSTGRES_VECTOR_DB:-mindscape_vectors}
   DATABASE_URL_CORE_READONLY: postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/mindscape_core_readonly
-  DATABASE_URL_VECTOR_READONLY: postgresql://${POSTGRES_VECTOR_USER:-mindscape}:${POSTGRES_VECTOR_PASSWORD:-mindscape_password}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/mindscape_vectors_readonly
+  DATABASE_URL_VECTOR_READONLY: postgresql://${POSTGRES_VECTOR_RUNTIME_USER:-mindscape_vector_runtime}:${POSTGRES_VECTOR_RUNTIME_PASSWORD:?POSTGRES_VECTOR_RUNTIME_PASSWORD is required}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/mindscape_vectors_readonly
   DATABASE_URL: postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/${POSTGRES_CORE_DB:-mindscape_core}
   DATABASE_URL_CORE_SESSION: postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@postgres:5432/${POSTGRES_CORE_DB:-mindscape_core}
-  DATABASE_URL_VECTOR_SESSION: postgresql://${POSTGRES_VECTOR_USER:-mindscape}:${POSTGRES_VECTOR_PASSWORD:-mindscape_password}@postgres:5432/${POSTGRES_VECTOR_DB:-mindscape_vectors}
   PGBOUNCER_ADMIN_URL: postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/pgbouncer
+  MINDSCAPE_RUNTIME_RESOURCE_PROBE: ${MINDSCAPE_RUNTIME_RESOURCE_PROBE:-/app/scripts/managed_site_release_resource_probe.py}
+  MINDSCAPE_RUNTIME_RESOURCE_PROBE_SHA256: ${MINDSCAPE_RUNTIME_RESOURCE_PROBE_SHA256:-}
+  MINDSCAPE_WP_HUB_RELEASE_FACADE: ${MINDSCAPE_WP_HUB_RELEASE_FACADE:-/app/scripts/wp_hub_managed_release_bridge.py}
+  MINDSCAPE_WP_HUB_RELEASE_FACADE_SHA256: ${MINDSCAPE_WP_HUB_RELEASE_FACADE_SHA256:-}
+  WP_HUB_RELEASE_SSH_HOST: ${WP_HUB_RELEASE_SSH_HOST:-}
+  WP_HUB_RELEASE_SSH_PORT: ${WP_HUB_RELEASE_SSH_PORT:-22}
+  WP_HUB_RELEASE_SSH_USER: ${WP_HUB_RELEASE_SSH_USER:-}
+  WP_HUB_RELEASE_SSH_IDENTITY_FILE: ${WP_HUB_RELEASE_SSH_IDENTITY_FILE:-}
+  WP_HUB_RELEASE_SSH_IDENTITY_SHA256: ${WP_HUB_RELEASE_SSH_IDENTITY_SHA256:-}
+  WP_HUB_RELEASE_SSH_KNOWN_HOSTS_FILE: ${WP_HUB_RELEASE_SSH_KNOWN_HOSTS_FILE:-}
+  WP_HUB_RELEASE_SSH_KNOWN_HOSTS_SHA256: ${WP_HUB_RELEASE_SSH_KNOWN_HOSTS_SHA256:-}
+  WP_HUB_RELEASE_REMOTE_EXECUTABLE: ${WP_HUB_RELEASE_REMOTE_EXECUTABLE:-}
+  WP_HUB_RELEASE_REMOTE_EXECUTABLE_SHA256: ${WP_HUB_RELEASE_REMOTE_EXECUTABLE_SHA256:-}
   POSTGRES_CORE_HOST: ${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}
   POSTGRES_CORE_PORT: ${LOCAL_CORE_DB_POOL_PORT:-6432}
   POSTGRES_CORE_DB: ${POSTGRES_CORE_DB:-mindscape_core}
@@ -26,8 +38,8 @@ x-runner-environment: &runner-environment
   POSTGRES_VECTOR_HOST: ${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}
   POSTGRES_VECTOR_PORT: ${LOCAL_CORE_DB_POOL_PORT:-6432}
   POSTGRES_VECTOR_DB: ${POSTGRES_VECTOR_DB:-mindscape_vectors}
-  POSTGRES_VECTOR_USER: ${POSTGRES_VECTOR_USER:-mindscape}
-  POSTGRES_VECTOR_PASSWORD: ${POSTGRES_VECTOR_PASSWORD:-mindscape_password}
+  POSTGRES_VECTOR_USER: ${POSTGRES_VECTOR_RUNTIME_USER:-mindscape_vector_runtime}
+  POSTGRES_VECTOR_PASSWORD: ${POSTGRES_VECTOR_RUNTIME_PASSWORD:?POSTGRES_VECTOR_RUNTIME_PASSWORD is required}
   POSTGRES_HOST: ${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}
   POSTGRES_PORT: ${LOCAL_CORE_DB_POOL_PORT:-6432}
   POSTGRES_DB: ${POSTGRES_CORE_DB:-mindscape_core}
@@ -88,6 +100,8 @@ x-runner-volumes: &runner-volumes
   - ${MINDSCAPE_STORAGE_HOST_DIR:-${HOME}/.mindscape/storage}:/root/.mindscape/storage:rw
   - "${LOCAL_CORE_LOGS_HOST_DIR:-./logs}:/app/logs:rw"
   - ./web-console:/app/web-console:rw
+  - "${WP_HUB_RELEASE_SSH_IDENTITY_HOST_FILE:-${HOME}/.ssh/id_rsa}:/run/wp-hub-release/id:ro"
+  - "${WP_HUB_RELEASE_SSH_KNOWN_HOSTS_HOST_FILE:-${HOME}/.ssh/known_hosts}:/run/wp-hub-release/known_hosts:ro"
 
 x-default-logging: &default-logging
   driver: json-file
@@ -152,6 +166,19 @@ services:
       - MINDSCAPE_BACKEND_RELOAD=${MINDSCAPE_BACKEND_RELOAD:-}
       - MINDSCAPE_ALLOW_IMPLICIT_PACK_RELOAD=${MINDSCAPE_ALLOW_IMPLICIT_PACK_RELOAD:-}
       - MINDSCAPE_POST_READY_RUNTIME_MIGRATIONS=0
+      - MINDSCAPE_RUNTIME_RESOURCE_PROBE=${MINDSCAPE_RUNTIME_RESOURCE_PROBE:-/app/scripts/managed_site_release_resource_probe.py}
+      - MINDSCAPE_RUNTIME_RESOURCE_PROBE_SHA256=${MINDSCAPE_RUNTIME_RESOURCE_PROBE_SHA256:-}
+      - MINDSCAPE_WP_HUB_RELEASE_FACADE=${MINDSCAPE_WP_HUB_RELEASE_FACADE:-/app/scripts/wp_hub_managed_release_bridge.py}
+      - MINDSCAPE_WP_HUB_RELEASE_FACADE_SHA256=${MINDSCAPE_WP_HUB_RELEASE_FACADE_SHA256:-}
+      - WP_HUB_RELEASE_SSH_HOST=${WP_HUB_RELEASE_SSH_HOST:-}
+      - WP_HUB_RELEASE_SSH_PORT=${WP_HUB_RELEASE_SSH_PORT:-22}
+      - WP_HUB_RELEASE_SSH_USER=${WP_HUB_RELEASE_SSH_USER:-}
+      - WP_HUB_RELEASE_SSH_IDENTITY_FILE=${WP_HUB_RELEASE_SSH_IDENTITY_FILE:-}
+      - WP_HUB_RELEASE_SSH_IDENTITY_SHA256=${WP_HUB_RELEASE_SSH_IDENTITY_SHA256:-}
+      - WP_HUB_RELEASE_SSH_KNOWN_HOSTS_FILE=${WP_HUB_RELEASE_SSH_KNOWN_HOSTS_FILE:-}
+      - WP_HUB_RELEASE_SSH_KNOWN_HOSTS_SHA256=${WP_HUB_RELEASE_SSH_KNOWN_HOSTS_SHA256:-}
+      - WP_HUB_RELEASE_REMOTE_EXECUTABLE=${WP_HUB_RELEASE_REMOTE_EXECUTABLE:-}
+      - WP_HUB_RELEASE_REMOTE_EXECUTABLE_SHA256=${WP_HUB_RELEASE_REMOTE_EXECUTABLE_SHA256:-}
       - CAPABILITY_API_STARTUP_ALLOWLIST=${CAPABILITY_API_STARTUP_ALLOWLIST:-character_training,motion_runtime,yogacoach,ig,browser_capture}
       - HOST=0.0.0.0
       - PORT=8200
@@ -171,12 +198,11 @@ services:
       - REDIS_PASSWORD=${REDIS_PASSWORD:-}
       # Database
       - DATABASE_URL_CORE=postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/${POSTGRES_CORE_DB:-mindscape_core}
-      - DATABASE_URL_VECTOR=postgresql://${POSTGRES_VECTOR_USER:-mindscape}:${POSTGRES_VECTOR_PASSWORD:-mindscape_password}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/${POSTGRES_VECTOR_DB:-mindscape_vectors}
+      - DATABASE_URL_VECTOR=postgresql://${POSTGRES_VECTOR_RUNTIME_USER:-mindscape_vector_runtime}:${POSTGRES_VECTOR_RUNTIME_PASSWORD:?POSTGRES_VECTOR_RUNTIME_PASSWORD is required}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/${POSTGRES_VECTOR_DB:-mindscape_vectors}
       - DATABASE_URL_CORE_READONLY=postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/mindscape_core_readonly
-      - DATABASE_URL_VECTOR_READONLY=postgresql://${POSTGRES_VECTOR_USER:-mindscape}:${POSTGRES_VECTOR_PASSWORD:-mindscape_password}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/mindscape_vectors_readonly
+      - DATABASE_URL_VECTOR_READONLY=postgresql://${POSTGRES_VECTOR_RUNTIME_USER:-mindscape_vector_runtime}:${POSTGRES_VECTOR_RUNTIME_PASSWORD:?POSTGRES_VECTOR_RUNTIME_PASSWORD is required}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/mindscape_vectors_readonly
       - DATABASE_URL=postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/${POSTGRES_CORE_DB:-mindscape_core}
       - DATABASE_URL_CORE_SESSION=postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@postgres:5432/${POSTGRES_CORE_DB:-mindscape_core}
-      - DATABASE_URL_VECTOR_SESSION=postgresql://${POSTGRES_VECTOR_USER:-mindscape}:${POSTGRES_VECTOR_PASSWORD:-mindscape_password}@postgres:5432/${POSTGRES_VECTOR_DB:-mindscape_vectors}
       - PGBOUNCER_ADMIN_URL=postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/pgbouncer
       # PostgreSQL core database
       - POSTGRES_CORE_HOST=${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}
@@ -188,8 +214,8 @@ services:
       - POSTGRES_VECTOR_HOST=${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}
       - POSTGRES_VECTOR_PORT=${LOCAL_CORE_DB_POOL_PORT:-6432}
       - POSTGRES_VECTOR_DB=${POSTGRES_VECTOR_DB:-mindscape_vectors}
-      - POSTGRES_VECTOR_USER=${POSTGRES_VECTOR_USER:-mindscape}
-      - POSTGRES_VECTOR_PASSWORD=${POSTGRES_VECTOR_PASSWORD:-mindscape_password}
+      - POSTGRES_VECTOR_USER=${POSTGRES_VECTOR_RUNTIME_USER:-mindscape_vector_runtime}
+      - POSTGRES_VECTOR_PASSWORD=${POSTGRES_VECTOR_RUNTIME_PASSWORD:?POSTGRES_VECTOR_RUNTIME_PASSWORD is required}
       # Legacy fallback (core)
       - POSTGRES_HOST=${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}
       - POSTGRES_PORT=${LOCAL_CORE_DB_POOL_PORT:-6432}
@@ -262,6 +288,8 @@ services:
       - ${MINDSCAPE_STORAGE_HOST_DIR:-${HOME}/.mindscape/storage}:/root/.mindscape/storage:rw
       - "${LOCAL_CORE_LOGS_HOST_DIR:-./logs}:/app/logs:rw"
       - ./web-console:/app/web-console:rw
+      - "${WP_HUB_RELEASE_SSH_IDENTITY_HOST_FILE:-${HOME}/.ssh/id_rsa}:/run/wp-hub-release/id:ro"
+      - "${WP_HUB_RELEASE_SSH_KNOWN_HOSTS_HOST_FILE:-${HOME}/.ssh/known_hosts}:/run/wp-hub-release/known_hosts:ro"
       # Mount user's custom directory for workspace storage (optional)
       # Uncomment and set the path below to mount your Documents or other directory
       # Example for Mac: /Users/yourname/Documents:/host/documents:rw
@@ -338,9 +366,9 @@ services:
       - REDIS_DB=${REDIS_DB:-0}
       - REDIS_PASSWORD=${REDIS_PASSWORD:-}
       - DATABASE_URL_CORE=postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/${POSTGRES_CORE_DB:-mindscape_core}
-      - DATABASE_URL_VECTOR=postgresql://${POSTGRES_VECTOR_USER:-mindscape}:${POSTGRES_VECTOR_PASSWORD:-mindscape_password}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/${POSTGRES_VECTOR_DB:-mindscape_vectors}
+      - DATABASE_URL_VECTOR=postgresql://${POSTGRES_VECTOR_RUNTIME_USER:-mindscape_vector_runtime}:${POSTGRES_VECTOR_RUNTIME_PASSWORD:?POSTGRES_VECTOR_RUNTIME_PASSWORD is required}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/${POSTGRES_VECTOR_DB:-mindscape_vectors}
       - DATABASE_URL_CORE_READONLY=postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/mindscape_core_readonly
-      - DATABASE_URL_VECTOR_READONLY=postgresql://${POSTGRES_VECTOR_USER:-mindscape}:${POSTGRES_VECTOR_PASSWORD:-mindscape_password}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/mindscape_vectors_readonly
+      - DATABASE_URL_VECTOR_READONLY=postgresql://${POSTGRES_VECTOR_RUNTIME_USER:-mindscape_vector_runtime}:${POSTGRES_VECTOR_RUNTIME_PASSWORD:?POSTGRES_VECTOR_RUNTIME_PASSWORD is required}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/mindscape_vectors_readonly
       - DATABASE_URL=postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/${POSTGRES_CORE_DB:-mindscape_core}
       - DATABASE_URL_CORE_SESSION=postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@postgres:5432/${POSTGRES_CORE_DB:-mindscape_core}
       - DATABASE_URL_VECTOR_SESSION=postgresql://${POSTGRES_VECTOR_USER:-mindscape}:${POSTGRES_VECTOR_PASSWORD:-mindscape_password}@postgres:5432/${POSTGRES_VECTOR_DB:-mindscape_vectors}
@@ -353,8 +381,8 @@ services:
       - POSTGRES_VECTOR_HOST=${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}
       - POSTGRES_VECTOR_PORT=${LOCAL_CORE_DB_POOL_PORT:-6432}
       - POSTGRES_VECTOR_DB=${POSTGRES_VECTOR_DB:-mindscape_vectors}
-      - POSTGRES_VECTOR_USER=${POSTGRES_VECTOR_USER:-mindscape}
-      - POSTGRES_VECTOR_PASSWORD=${POSTGRES_VECTOR_PASSWORD:-mindscape_password}
+      - POSTGRES_VECTOR_USER=${POSTGRES_VECTOR_RUNTIME_USER:-mindscape_vector_runtime}
+      - POSTGRES_VECTOR_PASSWORD=${POSTGRES_VECTOR_RUNTIME_PASSWORD:?POSTGRES_VECTOR_RUNTIME_PASSWORD is required}
       - POSTGRES_HOST=${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}
       - POSTGRES_PORT=${LOCAL_CORE_DB_POOL_PORT:-6432}
       - POSTGRES_DB=${POSTGRES_CORE_DB:-mindscape_core}
@@ -513,7 +541,7 @@ services:
       DB_MAX_OVERFLOW: ${LOCAL_CORE_RUNNER_VISION_MLX_DEV_DB_MAX_OVERFLOW:-0}
       LOCAL_CORE_RUNNER_PROFILE: vision_mlx_dev
       LOCAL_CORE_RUNNER_DISPLAY_NAME: ${LOCAL_CORE_RUNNER_VISION_MLX_DEV_DISPLAY_NAME:-Vision MLX Dev 9B Runner}
-      LOCAL_CORE_RUNNER_ACCEPTED_PARTITIONS: ${LOCAL_CORE_RUNNER_VISION_MLX_DEV_ACCEPTED_PARTITIONS:-vision_mlx_dev}
+      LOCAL_CORE_RUNNER_ACCEPTED_PARTITIONS: ${LOCAL_CORE_RUNNER_VISION_MLX_DEV_ACCEPTED_PARTITIONS:-vision_mlx_dev,knowledge_indexing}
       LOCAL_CORE_RUNNER_ACCEPTED_RESOURCE_CLASSES: ${LOCAL_CORE_RUNNER_VISION_MLX_DEV_ACCEPTED_RESOURCE_CLASSES:-compute}
       LOCAL_CORE_RUNNER_REJECTED_CAPABILITY_CODES: ${LOCAL_CORE_RUNNER_VISION_MLX_DEV_REJECTED_CAPABILITY_CODES:-ig_analyze_pinned_reference}
       LOCAL_CORE_RUNNER_MAX_INFLIGHT: ${LOCAL_CORE_RUNNER_VISION_MLX_DEV_MAX_INFLIGHT:-1}
@@ -684,6 +712,8 @@ services:
       - POSTGRES_PASSWORD=${POSTGRES_CORE_PASSWORD:-mindscape_password}
       - POSTGRES_CORE_DB=${POSTGRES_CORE_DB:-mindscape_core}
       - POSTGRES_VECTOR_DB=${POSTGRES_VECTOR_DB:-mindscape_vectors}
+      - POSTGRES_VECTOR_RUNTIME_USER=${POSTGRES_VECTOR_RUNTIME_USER:-mindscape_vector_runtime}
+      - POSTGRES_VECTOR_RUNTIME_PASSWORD=${POSTGRES_VECTOR_RUNTIME_PASSWORD:?POSTGRES_VECTOR_RUNTIME_PASSWORD is required}
       - PGDATA=/var/lib/postgresql/data/pgdata
       - TZ=${TZ:-UTC}
     volumes:
@@ -716,6 +746,7 @@ services:
       - -lc
       - |
         printf '"%s" "%s"\n' "$$POSTGRES_CORE_USER" "$$POSTGRES_CORE_PASSWORD" > /tmp/pgbouncer-userlist.txt
+        printf '"%s" "%s"\n' "$$POSTGRES_VECTOR_RUNTIME_USER" "$$POSTGRES_VECTOR_RUNTIME_PASSWORD" >> /tmp/pgbouncer-userlist.txt
         exec /usr/sbin/pgbouncer /etc/pgbouncer/pgbouncer.ini
     ports:
       - "127.0.0.1:6432:6432"
@@ -724,6 +755,8 @@ services:
       - POSTGRES_CORE_PASSWORD=${POSTGRES_CORE_PASSWORD:-mindscape_password}
       - POSTGRES_CORE_DB=${POSTGRES_CORE_DB:-mindscape_core}
       - POSTGRES_VECTOR_DB=${POSTGRES_VECTOR_DB:-mindscape_vectors}
+      - POSTGRES_VECTOR_RUNTIME_USER=${POSTGRES_VECTOR_RUNTIME_USER:-mindscape_vector_runtime}
+      - POSTGRES_VECTOR_RUNTIME_PASSWORD=${POSTGRES_VECTOR_RUNTIME_PASSWORD:?POSTGRES_VECTOR_RUNTIME_PASSWORD is required}
       - TZ=${TZ:-UTC}
     volumes:
       - ./docker/pgbouncer/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro

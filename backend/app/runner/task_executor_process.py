@@ -36,6 +36,11 @@ def build_child_payload(
     )
     if isinstance(admission_snapshot, dict):
         child_inputs["execution_admission_snapshot"] = admission_snapshot
+    internal_projection_admission = (
+        ctx.get("knowledge_projection_admission")
+        if isinstance(ctx, dict)
+        else None
+    )
     return {
         "runner_id": runner_id,
         "task_id": task.id,
@@ -48,6 +53,7 @@ def build_child_payload(
         "project_id": task.project_id,
         "root_execution_id": task.execution_id or task.id,
         "execution_admission_snapshot": admission_snapshot,
+        "knowledge_projection_admission": internal_projection_admission,
         "_result_file": result_file,
     }
 

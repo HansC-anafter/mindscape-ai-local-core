@@ -6,11 +6,12 @@ import { useT } from '@/lib/i18n';
 import { GovernanceTimeline } from './components/GovernanceTimeline';
 import { GovernanceMetrics } from './components/GovernanceMetrics';
 import { GovernedMemoryPanel } from './components/GovernedMemoryPanel';
+import { KnowledgeAccessPanel } from './components/knowledgeAccess/KnowledgeAccessPanel';
 
-type GovernanceTabId = 'timeline' | 'metrics' | 'memory';
+type GovernanceTabId = 'timeline' | 'metrics' | 'memory' | 'access';
 
 function resolveTab(value: string | null): GovernanceTabId {
-  if (value === 'metrics' || value === 'memory') {
+  if (value === 'metrics' || value === 'memory' || value === 'access') {
     return value;
   }
   return 'timeline';
@@ -97,6 +98,16 @@ export default function GovernancePage() {
           >
             {t('memory' as any) || 'Memory'}
           </button>
+          <button
+            onClick={() => handleTabChange('access')}
+            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+              activeTab === 'access'
+                ? 'border-blue-600 dark:border-blue-400 text-blue-600 dark:text-blue-400'
+                : 'border-transparent text-secondary dark:text-gray-400 hover:text-primary dark:hover:text-gray-100'
+            }`}
+          >
+            {t('knowledgeAccess' as any) || 'Knowledge access'}
+          </button>
         </nav>
       </div>
 
@@ -104,6 +115,7 @@ export default function GovernancePage() {
         {activeTab === 'timeline' && <GovernanceTimeline workspaceId={workspaceId} />}
         {activeTab === 'metrics' && <GovernanceMetrics workspaceId={workspaceId} />}
         {activeTab === 'memory' && <GovernedMemoryPanel workspaceId={workspaceId} />}
+        {activeTab === 'access' && <KnowledgeAccessPanel workspaceId={workspaceId} />}
       </div>
     </div>
   );

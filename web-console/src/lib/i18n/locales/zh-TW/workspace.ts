@@ -96,6 +96,7 @@ export const workspaceZhTW = {
   instructionChatErrorPrefix: '無法取得建議：',
 
   governance: '治理',
+  knowledgeAccess: '知識存取',
   governancePageDescription: '檢視這個工作區的治理決策、治理指標與治理記憶。',
   decisionHistory: '決策紀錄',
   metrics: '指標',

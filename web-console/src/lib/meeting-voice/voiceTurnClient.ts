@@ -13,6 +13,16 @@ export type MeetingVoiceTurnResponse = {
   reason?: string | null;
 };
 
+export type MeetingVoiceCommandContext = {
+  context_objects: unknown[];
+  requested_action?: Record<string, unknown> | null;
+  expected_outputs?: string[];
+  write_mode?: 'recommendation_only' | 'proposal_only' | 'canonical_with_review' | 'staged';
+  thread_id?: string | null;
+  meeting_mentions?: object[];
+  metadata?: Record<string, unknown>;
+};
+
 export type SubmitVoiceTurnInput = {
   apiBase: string;
   workspaceId: string;
@@ -21,6 +31,7 @@ export type SubmitVoiceTurnInput = {
   audioBase64: string;
   mimeType: string;
   language?: string;
+  commandContext?: MeetingVoiceCommandContext;
 };
 
 function trimTrailingSlash(value: string): string {
@@ -54,8 +65,7 @@ export async function submitVoiceTurn(
         mime_type: input.mimeType,
         language: input.language || 'auto',
         origin_surface: 'meeting_voice',
-        context_objects: [],
-        metadata: {},
+        command_context: input.commandContext,
       }),
     },
   );

@@ -4,8 +4,6 @@ Syncs WordPress posts and pages to pgvector for RAG
 """
 
 import os
-import uuid
-import json
 import logging
 from datetime import datetime, timezone
 
@@ -15,12 +13,18 @@ def _utc_now():
     return datetime.now(timezone.utc)
 from typing import List, Dict, Any, Optional
 import psycopg2
-from psycopg2.extras import RealDictCursor
 import requests
 from html import unescape
 import re
 
-from app.database.config import get_vector_postgres_config
+from backend.app.services.knowledge_authorization import RetrievalAccessContext
+from backend.app.services.knowledge_projection.legacy_document_facade import (
+    AuthorizedLegacyDocumentFacade,
+    LegacyDocumentChunk,
+)
+from backend.app.services.knowledge_projection.retrievable.canonical_json import (
+    canonical_sha256,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -28,16 +32,18 @@ logger = logging.getLogger(__name__)
 class WordPressSync:
     """Sync WordPress content to vector database"""
 
-    def __init__(self, postgres_config=None):
-        self.postgres_config = postgres_config or self._get_postgres_config()
-
-    def _get_postgres_config(self):
-        """Get PostgreSQL config from environment"""
-        return get_vector_postgres_config()
-
-    def _get_connection(self):
-        """Get PostgreSQL connection"""
-        return psycopg2.connect(**self.postgres_config)
+    def __init__(
+        self,
+        *,
+        workspace_id: str | None = None,
+        access_context: RetrievalAccessContext | None = None,
+        projection_facade: AuthorizedLegacyDocumentFacade | None = None,
+    ):
+        self.workspace_id = workspace_id
+        self.access_context = access_context
+        self.projection_facade = (
+            projection_facade or AuthorizedLegacyDocumentFacade()
+        )
 
     async def _generate_embedding(self, text: str) -> Optional[List[float]]:
         """Generate embedding for text using OpenAI"""
@@ -72,7 +78,6 @@ class WordPressSync:
     async def sync_posts(
         self,
         site_url: str,
-        user_id: str = "default_user",
         post_types: List[str] = None,
         per_page: int = 10
     ) -> Dict[str, Any]:
@@ -124,7 +129,6 @@ class WordPressSync:
                         result = await self.sync_single_post(
                             post=post,
                             site_url=site_url,
-                            user_id=user_id,
                             doc_type=post_type
                         )
 
@@ -157,7 +161,6 @@ class WordPressSync:
         self,
         post: Dict[str, Any],
         site_url: str,
-        user_id: str = "default_user",
         doc_type: str = "post"
     ) -> str:
         """
@@ -187,112 +190,92 @@ class WordPressSync:
         content_clean = self._clean_html(content_html)
         excerpt_clean = self._clean_html(excerpt)
 
-        # Check if post exists and needs update
-        conn = self._get_connection()
+        if self.workspace_id is None or self.access_context is None:
+            raise PermissionError("wordpress_authorized_scope_required")
+
         try:
-            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            modified_dt = datetime.fromisoformat(modified.replace('Z', '+00:00'))
+        except (TypeError, ValueError):
+            modified_dt = _utc_now()
 
-            cursor.execute('''
-                SELECT id, updated_at, last_synced_at
-                FROM external_docs
-                WHERE user_id = %s AND source_app = 'wordpress' AND source_id = %s
-            ''', (user_id, source_id))
-
-            existing = cursor.fetchone()
-
-            # Parse modified date
-            try:
-                modified_dt = datetime.fromisoformat(modified.replace('Z', '+00:00'))
-            except:
-                modified_dt = _utc_now()
-
-            # Skip if not modified since last sync
-            if existing:
-                last_synced = existing['last_synced_at']
-                if last_synced and modified_dt <= last_synced:
-                    logger.debug(f"Post {post_id} not modified since last sync, skipping")
-                    return "skipped"
-
-            # Prepare content for embedding (title + excerpt + content, truncated)
-            full_text = f"{title_clean}\n\n{excerpt_clean}\n\n{content_clean}"
-            embedding_text = full_text[:8000]  # Limit for embedding API
-
-            # Generate embedding
-            embedding = await self._generate_embedding(embedding_text)
-
-            if not embedding:
-                logger.warning(f"Failed to generate embedding for post {post_id}, skipping")
-                return "skipped"
-
-            # Prepare metadata
-            metadata = {
-                "url": link,
-                "author": post.get('author'),
-                "publish_date": post.get('date', ''),
-                "modified_date": modified,
-                "excerpt": excerpt_clean[:500],
-                "categories": post.get('categories', []),
-                "tags": post.get('tags', []),
-                "status": post.get('status', 'publish')
+        revision = canonical_sha256(
+            {
+                "site_url": site_url,
+                "source_id": source_id,
+                "modified": modified_dt.isoformat(),
+                "title": title_clean,
+                "content": content_clean,
+                "excerpt": excerpt_clean,
             }
+        )
+        existing_revision = self.projection_facade.active_revision(
+            access_context=self.access_context,
+            workspace_id=self.workspace_id,
+            owner_capability_code="wordpress",
+            source_app="wordpress",
+            source_id=source_id,
+        )
+        if existing_revision == revision:
+            logger.debug(
+                "Post %s not modified since last sync, skipping",
+                post_id,
+            )
+            return "skipped"
 
-            # Upsert to database
-            if existing:
-                # Update existing
-                cursor.execute('''
-                    UPDATE external_docs
-                    SET title = %s,
-                        content = %s,
-                        embedding = %s::vector,
-                        metadata = %s,
-                        updated_at = %s,
-                        last_synced_at = NOW()
-                    WHERE id = %s
-                ''', (
-                    title_clean,
-                    content_clean,
-                    str(embedding),
-                    json.dumps(metadata),
-                    modified_dt,
-                    existing['id']
-                ))
-                conn.commit()
-                logger.info(f"Updated WordPress {doc_type} {post_id}: {title_clean}")
-                return "updated"
-            else:
-                # Insert new
-                doc_id = str(uuid.uuid4())
-                cursor.execute('''
-                    INSERT INTO external_docs (
-                        id, user_id, source_app, source_id, doc_type,
-                        title, content, embedding, metadata,
-                        created_at, updated_at, last_synced_at
-                    )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s::vector, %s, %s, %s, NOW())
-                ''', (
-                    doc_id,
-                    user_id,
-                    'wordpress',
-                    source_id,
-                    doc_type,
-                    title_clean,
-                    content_clean,
-                    str(embedding),
-                    json.dumps(metadata),
-                    modified_dt,
-                    modified_dt
-                ))
-                conn.commit()
-                logger.info(f"Inserted new WordPress {doc_type} {post_id}: {title_clean}")
-                return "new"
+        full_text = f"{title_clean}\n\n{excerpt_clean}\n\n{content_clean}"
+        embedding_text = full_text[:8000]
 
-        finally:
-            conn.close()
+        embedding = await self._generate_embedding(embedding_text)
+
+        if not embedding:
+            logger.warning(
+                "Failed to generate embedding for post %s, skipping",
+                post_id,
+            )
+            return "skipped"
+
+        metadata = {
+            "url": link,
+            "author": post.get('author'),
+            "publish_date": post.get('date', ''),
+            "modified_date": modified,
+            "excerpt": excerpt_clean[:500],
+            "categories": post.get('categories', []),
+            "tags": post.get('tags', []),
+            "status": post.get('status', 'publish'),
+            "embedding_model": "text-embedding-3-small",
+        }
+
+        await self.projection_facade.replace_document(
+            access_context=self.access_context,
+            workspace_id=self.workspace_id,
+            owner_capability_code="wordpress",
+            source_app="wordpress",
+            source_id=source_id,
+            doc_type=doc_type,
+            source_revision=revision,
+            chunks=(
+                LegacyDocumentChunk(
+                    content=content_clean,
+                    title=title_clean,
+                    metadata=metadata,
+                    embedding=tuple(embedding),
+                ),
+            ),
+        )
+        state = "updated" if existing_revision else "new"
+        logger.info(
+            "%s WordPress %s %s: %s",
+            state,
+            doc_type,
+            post_id,
+            title_clean,
+        )
+        return state
 
     async def delete_post(
         self,
         source_id: str,
-        user_id: str = "default_user"
     ) -> bool:
         """
         Delete a synced post from vector database
@@ -304,31 +287,23 @@ class WordPressSync:
         Returns:
             True if deleted, False if not found
         """
-        conn = self._get_connection()
-        try:
-            cursor = conn.cursor()
-
-            cursor.execute('''
-                DELETE FROM external_docs
-                WHERE user_id = %s AND source_app = 'wordpress' AND source_id = %s
-            ''', (user_id, source_id))
-
-            deleted = cursor.rowcount > 0
-            conn.commit()
-
-            if deleted:
-                logger.info(f"Deleted WordPress post {source_id}")
-            else:
-                logger.warning(f"WordPress post {source_id} not found")
-
-            return deleted
-
-        finally:
-            conn.close()
+        if self.workspace_id is None or self.access_context is None:
+            raise PermissionError("wordpress_authorized_scope_required")
+        result = self.projection_facade.revoke_document(
+            access_context=self.access_context,
+            workspace_id=self.workspace_id,
+            owner_capability_code="wordpress",
+            source_app="wordpress",
+            source_id=source_id,
+        )
+        if result is None:
+            logger.warning("WordPress post %s not found", source_id)
+            return False
+        logger.info("Revoked WordPress post %s", source_id)
+        return True
 
     async def list_synced_posts(
         self,
-        user_id: str = "default_user",
         limit: int = 100
     ) -> List[Dict[str, Any]]:
         """
@@ -341,22 +316,12 @@ class WordPressSync:
         Returns:
             List of synced posts
         """
-        conn = self._get_connection()
-        try:
-            cursor = conn.cursor(cursor_factory=RealDictCursor)
-
-            cursor.execute('''
-                SELECT
-                    id, source_id, doc_type, title,
-                    metadata, created_at, updated_at, last_synced_at
-                FROM external_docs
-                WHERE user_id = %s AND source_app = 'wordpress'
-                ORDER BY last_synced_at DESC
-                LIMIT %s
-            ''', (user_id, limit))
-
-            posts = cursor.fetchall()
-            return [dict(post) for post in posts]
-
-        finally:
-            conn.close()
+        if self.workspace_id is None or self.access_context is None:
+            raise PermissionError("wordpress_authorized_scope_required")
+        return self.projection_facade.list_documents(
+            access_context=self.access_context,
+            workspace_id=self.workspace_id,
+            owner_capability_code="wordpress",
+            source_app="wordpress",
+            limit=limit,
+        )

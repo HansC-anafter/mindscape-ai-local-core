@@ -5,51 +5,62 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict
 
-from backend.app.services.tool_embedding_service_core import CREATE_TABLE_SQL
-
 logger = logging.getLogger(__name__)
+
+_REQUIRED_COLUMNS = {
+    "id",
+    "tool_id",
+    "display_name",
+    "description",
+    "category",
+    "capability_code",
+    "embedding",
+    "embedding_model",
+    "embedding_dim",
+    "affordance",
+    "created_at",
+    "updated_at",
+    "text_vector",
+}
 
 
 async def ensure_table(service: Any) -> None:
-    """Create the tool_embeddings table and lightweight migrations."""
+    """Verify the migration-owned Tool RAG schema without runtime DDL."""
     try:
         conn = service._get_connection()
         try:
             with conn.cursor() as cur:
-                cur.execute(CREATE_TABLE_SQL)
                 cur.execute(
                     """
-                    DO $$
-                    BEGIN
-                        IF NOT EXISTS (
-                            SELECT 1 FROM information_schema.columns
-                            WHERE table_name = 'tool_embeddings'
-                              AND column_name = 'text_vector'
-                        ) THEN
-                            ALTER TABLE tool_embeddings
-                              ADD COLUMN text_vector tsvector
-                                GENERATED ALWAYS AS (
-                                  to_tsvector('simple',
-                                    coalesce(display_name, '') || ' ' || description
-                                  )
-                                ) STORED;
-                            CREATE INDEX IF NOT EXISTS idx_tool_embeddings_text
-                              ON tool_embeddings USING gin(text_vector);
-                        END IF;
-                    END $$;
-                """
+                    SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_schema = 'public'
+                      AND table_name = 'tool_embeddings'
+                    """
                 )
+                observed = {str(row[0]) for row in cur.fetchall()}
+                missing = sorted(_REQUIRED_COLUMNS - observed)
+                if missing:
+                    raise RuntimeError(
+                        "tool_embeddings_schema_not_migrated:"
+                        + ",".join(missing)
+                    )
                 cur.execute(
                     """
-                    ALTER TABLE tool_embeddings ADD COLUMN IF NOT EXISTS affordance JSONB DEFAULT '{}';
+                    SELECT to_regclass(
+                        'public.idx_tool_embeddings_text'
+                    ) IS NOT NULL
                     """
                 )
-            conn.commit()
-            logger.info("tool_embeddings table ensured (with BM25 tsvector)")
+                if cur.fetchone() != (True,):
+                    raise RuntimeError(
+                        "tool_embeddings_text_index_not_migrated"
+                    )
+            logger.info("tool_embeddings migration-owned schema verified")
         finally:
             conn.close()
     except Exception as e:
-        logger.error(f"Failed to create tool_embeddings table: {e}")
+        logger.error("Failed to verify tool_embeddings schema: %s", e)
         raise
 
 

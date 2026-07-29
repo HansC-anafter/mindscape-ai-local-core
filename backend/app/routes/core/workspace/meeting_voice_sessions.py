@@ -178,6 +178,7 @@ async def stream_meeting_voice_session(
                             audio_base64=message.audio_base64,
                             mime_type=message.mime_type,
                             language=message.language or "auto",
+                            command_context=message.command_context,
                             context_objects=message.context_objects,
                             metadata=message.metadata,
                         )

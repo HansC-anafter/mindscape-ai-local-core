@@ -55,6 +55,33 @@ def process_completion(
             execution_id,
         )
 
+    knowledge_projection_admission = None
+    if (
+        landing_result is not None
+        and getattr(landing_result, "artifact_id", None)
+    ):
+        try:
+            from backend.app.services.knowledge_projection.retrievable.source_triggers import (
+                admit_artifact_landing,
+            )
+
+            knowledge_projection_admission = admit_artifact_landing(
+                workspace_id=workspace_id,
+                artifact_id=landing_result.artifact_id,
+                task_id=task_id,
+                capability_code=playbook_code,
+            )
+        except Exception as exc:
+            logger.exception(
+                "GovernanceEngine: artifact projection admission "
+                "sidecar failed exec=%s",
+                execution_id,
+            )
+            knowledge_projection_admission = {
+                "state": "blocked",
+                "reason": str(exc),
+            }
+
     parsed_output = None
     if engine.adapter:
         try:
@@ -158,4 +185,7 @@ def process_completion(
         "eval_result": eval_result_dict,
         "correctness_signals": correctness_signals,
         "remediation": remediation_decision,
+        "knowledge_projection_admission": (
+            knowledge_projection_admission
+        ),
     }

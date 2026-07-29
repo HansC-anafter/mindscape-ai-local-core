@@ -96,6 +96,7 @@ export const workspaceEn = {
   instructionChatErrorPrefix: 'Failed to get suggestion: ',
 
   governance: 'Governance',
+  knowledgeAccess: 'Knowledge access',
   governancePageDescription: 'Inspect governance decisions, workspace metrics, and governed memory for this workspace.',
   decisionHistory: 'Decision History',
   metrics: 'Metrics',

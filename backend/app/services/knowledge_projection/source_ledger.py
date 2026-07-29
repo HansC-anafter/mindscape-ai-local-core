@@ -44,7 +44,22 @@ class KnowledgeSourceLedgerRepository(PostgresStoreBase):
         intake_id: str,
     ) -> KnowledgeSourceIntakeReceipt:
         with self.transaction() as conn:
-            state = conn.execute(
+            return self.record_intake_with_conn(
+                conn,
+                intake,
+                intake_id=intake_id,
+            )
+
+    def record_intake_with_conn(
+        self,
+        conn,
+        intake: KnowledgeSourceIntake,
+        *,
+        intake_id: str,
+    ) -> KnowledgeSourceIntakeReceipt:
+        """Write an intake through the caller's core transaction."""
+
+        state = conn.execute(
                 text(
                     """
                     WITH inserted AS (
@@ -75,17 +90,17 @@ class KnowledgeSourceLedgerRepository(PostgresStoreBase):
                         "visibility",
                     }
                 ),
-            ).fetchone()
-            if (
-                state is None
-                or state.owner_type != intake.owner_type
-                or state.owner_id != intake.owner_id
-            ):
-                raise KnowledgeSourceOwnershipError(
-                    f"source owner mismatch: {intake.source_instance_id}"
-                )
+        ).fetchone()
+        if (
+            state is None
+            or state.owner_type != intake.owner_type
+            or state.owner_id != intake.owner_id
+        ):
+            raise KnowledgeSourceOwnershipError(
+                f"source owner mismatch: {intake.source_instance_id}"
+            )
 
-            inserted = conn.execute(
+        inserted = conn.execute(
                 text(
                     """
                     INSERT INTO knowledge_source_intakes (
@@ -110,10 +125,10 @@ class KnowledgeSourceLedgerRepository(PostgresStoreBase):
                     "evidence_id": intake.evidence_id,
                     "metadata": self.serialize_json(intake.metadata),
                 },
-            ).fetchone()
-            created = inserted is not None
-            if created:
-                conn.execute(
+        ).fetchone()
+        created = inserted is not None
+        if created:
+            conn.execute(
                     text(
                         """
                         UPDATE knowledge_source_states
@@ -140,9 +155,9 @@ class KnowledgeSourceLedgerRepository(PostgresStoreBase):
                         "last_result": self.serialize_json(intake.last_result),
                         "visibility": intake.visibility,
                     },
-                )
-            else:
-                existing = conn.execute(
+            )
+        else:
+            existing = conn.execute(
                     text(
                         """
                         SELECT id FROM knowledge_source_intakes
@@ -156,11 +171,10 @@ class KnowledgeSourceLedgerRepository(PostgresStoreBase):
                         "source_revision": intake.source_revision,
                         "content_hash": intake.content_hash,
                     },
-                ).fetchone()
-                if existing is None:
-                    raise RuntimeError("knowledge source intake conflict lookup failed")
-                intake_id = existing.id
-
+            ).fetchone()
+            if existing is None:
+                raise RuntimeError("knowledge source intake conflict lookup failed")
+            intake_id = existing.id
         return KnowledgeSourceIntakeReceipt(
             intake_id=intake_id,
             source_instance_id=intake.source_instance_id,
@@ -168,7 +182,6 @@ class KnowledgeSourceLedgerRepository(PostgresStoreBase):
             content_hash=intake.content_hash,
             created=created,
         )
-
 
 class KnowledgeSourceLedgerFacade:
     def __init__(
@@ -189,6 +202,37 @@ class KnowledgeSourceLedgerFacade:
             ).encode("utf-8")
         ).hexdigest()[:32]
         return self.repository.record_intake(intake, intake_id=intake_id)
+
+    def prepare_intake(
+        self,
+        intake: KnowledgeSourceIntake,
+    ) -> str:
+        """Validate the compact payload and return its deterministic identity."""
+
+        self._validate_bounded_nonsecret_payload(intake)
+        return self._intake_id(intake)
+
+    def record_intake_with_conn(
+        self,
+        conn,
+        intake: KnowledgeSourceIntake,
+        *,
+        intake_id: str,
+    ) -> KnowledgeSourceIntakeReceipt:
+        return self.repository.record_intake_with_conn(
+            conn,
+            intake,
+            intake_id=intake_id,
+        )
+
+    @staticmethod
+    def _intake_id(intake: KnowledgeSourceIntake) -> str:
+        return "ksi_" + hashlib.sha256(
+            (
+                f"{intake.source_instance_id}\0{intake.source_revision}\0"
+                f"{intake.content_hash}"
+            ).encode("utf-8")
+        ).hexdigest()[:32]
 
     @staticmethod
     def _validate_bounded_nonsecret_payload(intake: KnowledgeSourceIntake) -> None:

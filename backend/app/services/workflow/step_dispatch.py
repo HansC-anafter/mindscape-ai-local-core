@@ -11,6 +11,9 @@ from backend.app.services.tool_slot_resolver import (
 from backend.app.services.workflow.result_mapper import (
     map_sub_playbook_result_to_step_outputs,
 )
+from backend.app.services.workspace_capability_admission.pinned_tool_slots import (
+    resolve_pinned_tool_id,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -21,8 +24,21 @@ async def resolve_tool_slot_to_tool_id(
     store: Any,
     workspace_id: Optional[str],
     project_id: Optional[str],
+    playbook_inputs: Optional[Dict[str, Any]] = None,
 ) -> str:
     """Resolve a workflow step tool slot to a concrete tool id."""
+    pinned_tool_id = resolve_pinned_tool_id(
+        slot=step.tool_slot,
+        playbook_inputs=playbook_inputs or {},
+    )
+    if pinned_tool_id:
+        logger.info(
+            "Using admission-pinned tool slot '%s' as '%s'",
+            step.tool_slot,
+            pinned_tool_id,
+        )
+        return pinned_tool_id
+
     slot_resolver = get_tool_slot_resolver(store=store)
     try:
         tool_id = await slot_resolver.resolve(

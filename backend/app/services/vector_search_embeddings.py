@@ -2,17 +2,39 @@
 Embedding generation helpers for VectorSearchService.
 """
 
+from dataclasses import dataclass
 import logging
 import os
+import time
 from typing import List, Optional
 
+from backend.app.services.vector_search_ollama import OllamaEmbeddingClient
+
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class EmbeddingGenerationReceipt:
+    """Internal embedding result with provider identity."""
+
+    embedding: tuple[float, ...]
+    provider: str
+    model: str
+
+    @property
+    def dimension(self) -> int:
+        return len(self.embedding)
 
 
 class VectorEmbeddingGenerator:
     """Generate embeddings through the existing Ollama-first fallback path."""
 
-    _NOMIC_MODELS = {"nomic-embed-text", "nomic-embed-text-v1.5"}
+    def __init__(
+        self,
+        *,
+        ollama_client: OllamaEmbeddingClient | None = None,
+    ) -> None:
+        self.ollama_client = ollama_client or OllamaEmbeddingClient()
 
     async def generate_embedding(self, text: str) -> Optional[List[float]]:
         """
@@ -43,54 +65,79 @@ class VectorEmbeddingGenerator:
         Returns:
             Tuple of embedding and model name, or (None, None) if generation failed.
         """
-        preferred = os.getenv("OLLAMA_EMBED_MODEL", "").strip()
-        if not preferred:
-            try:
-                import httpx
-
-                ollama_url = self.get_ollama_url()
-                if ollama_url:
-                    async with httpx.AsyncClient(timeout=3.0) as client:
-                        response = await client.get(f"{ollama_url}/api/tags")
-                        if response.status_code == 200:
-                            names = [
-                                model["name"].split(":")[0]
-                                for model in response.json().get("models", [])
-                            ]
-                            if "bge-m3" in names:
-                                preferred = "bge-m3"
-                            elif "nomic-embed-text" in names:
-                                preferred = "nomic-embed-text"
-            except Exception:
-                pass
-        if not preferred:
-            preferred = "nomic-embed-text"
-
-        ollama_embedding = await self.generate_ollama_embedding(
-            text, model=preferred, is_query=is_query
+        receipt = await self.generate_embedding_receipt(
+            text,
+            is_query=is_query,
         )
-        if ollama_embedding:
-            return ollama_embedding, preferred
+        if receipt is None:
+            return None, None
+        return list(receipt.embedding), receipt.model
 
+    async def generate_embedding_receipt(
+        self,
+        text: str,
+        *,
+        is_query: bool = True,
+        allow_openai_fallback: bool = True,
+    ) -> EmbeddingGenerationReceipt | None:
+        """Generate one vector while preserving provider and model identity."""
+
+        preferred = await self.ollama_client.select_embedding_model(
+            os.getenv("OLLAMA_EMBED_MODEL", "")
+        )
+        ollama_outcome = await self.ollama_client.embed(
+            text,
+            model=preferred,
+            is_query=is_query,
+        )
+        if ollama_outcome.ok:
+            return EmbeddingGenerationReceipt(
+                embedding=ollama_outcome.embedding,
+                provider="ollama",
+                model=preferred,
+            )
+
+        if not allow_openai_fallback:
+            return None
         openai_embedding = await self.generate_openai_embedding(text)
         if openai_embedding:
-            try:
-                from backend.app.services.system_settings_store import (
-                    SystemSettingsStore,
-                )
+            return EmbeddingGenerationReceipt(
+                embedding=tuple(openai_embedding),
+                provider="openai",
+                model=self._configured_openai_model_name(),
+            )
+        return None
 
-                settings_store = SystemSettingsStore()
-                embedding_setting = settings_store.get_setting("embedding_model")
-                openai_model = (
-                    str(embedding_setting.value)
-                    if embedding_setting
-                    else "text-embedding-3-small"
-                )
-            except Exception:
-                openai_model = "text-embedding-3-small"
-            return openai_embedding, openai_model
+    async def probe_embedding_provider(
+        self,
+        text: str = "mindscape embedding provider admission",
+    ) -> dict[str, object]:
+        """Return a bounded provider receipt without embedding content."""
 
-        return None, None
+        started = time.monotonic()
+        receipt = await self.generate_embedding_receipt(
+            text,
+            is_query=False,
+            allow_openai_fallback=False,
+        )
+        elapsed = round(time.monotonic() - started, 6)
+        if receipt is None:
+            return {
+                "ok": False,
+                "provider": None,
+                "model": None,
+                "dimension": 0,
+                "elapsed_seconds": elapsed,
+                "error_code": "embedding_provider_unavailable",
+            }
+        return {
+            "ok": True,
+            "provider": receipt.provider,
+            "model": receipt.model,
+            "dimension": receipt.dimension,
+            "elapsed_seconds": elapsed,
+            "error_code": None,
+        }
 
     def get_ollama_url(self) -> Optional[str]:
         """
@@ -99,24 +146,7 @@ class VectorEmbeddingGenerator:
         Returns:
             Reachable Ollama URL if the tags endpoint responds.
         """
-        import requests as requests_client
-
-        candidates = []
-        env_host = os.getenv("OLLAMA_HOST", "").strip()
-        if env_host:
-            candidates.append(env_host)
-        candidates += [
-            "http://host.docker.internal:11434",
-            "http://ollama:11434",
-        ]
-        for url in candidates:
-            try:
-                response = requests_client.get(f"{url}/api/tags", timeout=2)
-                if response.status_code == 200:
-                    return url
-            except Exception:
-                continue
-        return None
+        return self.ollama_client.get_reachable_base_url()
 
     async def generate_ollama_embedding(
         self, text: str, model: Optional[str] = None, *, is_query: bool = True
@@ -132,58 +162,31 @@ class VectorEmbeddingGenerator:
         Returns:
             Embedding vector, or None when Ollama is unavailable.
         """
+        embed_model = model or os.getenv("OLLAMA_EMBED_MODEL", "bge-m3")
+        outcome = await self.ollama_client.embed(
+            text,
+            model=embed_model,
+            is_query=is_query,
+        )
+        return list(outcome.embedding) if outcome.ok else None
+
+    @staticmethod
+    def _configured_openai_model_name() -> str:
         try:
-            import httpx
+            from backend.app.services.system_settings_store import (
+                SystemSettingsStore,
+            )
 
-            ollama_url = os.getenv("OLLAMA_HOST", "").strip()
-            if not ollama_url:
-                ollama_url = "http://host.docker.internal:11434"
-
-            embed_model = model or os.getenv("OLLAMA_EMBED_MODEL", "bge-m3")
-
-            prompt_text = text
-            base_model = embed_model.split(":")[0].lower()
-            if base_model in self._NOMIC_MODELS:
-                prefix = "search_query" if is_query else "search_document"
-                prompt_text = f"{prefix}: {text}"
-
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.post(
-                    f"{ollama_url}/api/embeddings",
-                    json={"model": embed_model, "prompt": prompt_text},
-                )
-
-                if response.status_code == 200:
-                    data = response.json()
-                    embedding = data.get("embedding")
-                    if embedding:
-                        logger.debug(
-                            "Generated Ollama embedding model=%s dim=%d",
-                            embed_model,
-                            len(embedding),
-                        )
-                        return embedding
-                else:
-                    logger.warning(
-                        "Ollama embedding failed status=%d: %s",
-                        response.status_code,
-                        response.text[:200],
-                    )
-
-                if ollama_url == "http://host.docker.internal:11434":
-                    response2 = await client.post(
-                        "http://ollama:11434/api/embeddings",
-                        json={"model": embed_model, "prompt": prompt_text},
-                    )
-                    if response2.status_code == 200:
-                        embedding2 = response2.json().get("embedding")
-                        if embedding2:
-                            return embedding2
-
-        except Exception as e:
-            logger.warning("Ollama embedding unavailable: %s", e)
-
-        return None
+            embedding_setting = SystemSettingsStore().get_setting(
+                "embedding_model"
+            )
+            return (
+                str(embedding_setting.value)
+                if embedding_setting
+                else "text-embedding-3-small"
+            )
+        except Exception:
+            return "text-embedding-3-small"
 
     async def generate_openai_embedding(self, text: str) -> Optional[List[float]]:
         """

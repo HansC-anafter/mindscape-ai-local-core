@@ -28,7 +28,9 @@ from scripts.maintenance.runtime_pressure_gate_core import (
     collect_pgbouncer_metrics,
     collect_postgres_metrics,
     collect_runner_capacity,
+    collect_runner_cpu_pressure,
     evaluate_runner_scope,
+    parse_percent,
     runner_scope_evidence,
 )
 from scripts.maintenance.runtime_pressure_gate_core.policy import (
@@ -56,7 +58,10 @@ class Thresholds:
     running_observation_limit: int
     pending_observation_limit: int
     max_postgres_cpu: float
-    max_runner_cpu: float
+    max_runner_cpu_ratio: float
+    runner_cpu_sample_count: int
+    runner_cpu_sustained_sample_count: int
+    runner_cpu_sample_interval_seconds: float
     max_endpoint_seconds: float
 
 
@@ -88,11 +93,6 @@ def run_command(args: list[str], timeout_seconds: float) -> dict[str, Any]:
         "stderr": completed.stderr,
         "returncode": completed.returncode,
     }
-
-
-def parse_percent(raw: str) -> float:
-    value = raw.strip().removesuffix("%")
-    return float(value or "0")
 
 
 def fetch_url(url: str, timeout_seconds: float) -> dict[str, Any]:
@@ -225,6 +225,7 @@ def evaluate_gate(
     postgres_metrics: dict[str, Any] | None = None,
     pgbouncer_metrics: dict[str, Any] | None = None,
     runner_capacity: dict[str, Any] | None = None,
+    runner_cpu_pressure: dict[str, Any] | None = None,
     scope: GateScope | None = None,
 ) -> list[str]:
     failures: list[str] = []
@@ -237,8 +238,6 @@ def evaluate_gate(
         cpu = row.get("cpu_percent_value", 0.0)
         if name == "mindscape-ai-local-core-postgres" and cpu > thresholds.max_postgres_cpu:
             failures.append(f"postgres_cpu>{thresholds.max_postgres_cpu}: {cpu}")
-        if "runner" in name and cpu > thresholds.max_runner_cpu:
-            failures.append(f"{name}_cpu>{thresholds.max_runner_cpu}: {cpu}")
     for label, payload in endpoint_checks.items():
         if not payload.get("ok"):
             failures.append(f"{label}_unavailable")
@@ -281,6 +280,17 @@ def evaluate_gate(
                 scope or GateScope(),
             )
         )
+    runner_cpu_pressure = runner_cpu_pressure or {"collection_ok": False}
+    if not runner_cpu_pressure.get("collection_ok"):
+        failures.append(
+            "runner_cpu_pressure_unavailable:"
+            f"{runner_cpu_pressure.get('error_code') or 'unknown'}"
+        )
+    else:
+        failures.extend(
+            str(failure)
+            for failure in runner_cpu_pressure.get("failures") or []
+        )
     return failures
 
 
@@ -316,7 +326,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--target-runner-container")
     parser.add_argument("--allow-sole-owner-target", action="store_true")
     parser.add_argument("--max-postgres-cpu", type=float, default=200.0)
-    parser.add_argument("--max-runner-cpu", type=float, default=400.0)
+    parser.add_argument("--max-runner-cpu-ratio", type=float, default=0.90)
+    parser.add_argument("--runner-cpu-samples", type=int, default=5)
+    parser.add_argument(
+        "--runner-cpu-sustained-samples",
+        type=int,
+        default=3,
+    )
+    parser.add_argument(
+        "--runner-cpu-sample-interval-seconds",
+        type=float,
+        default=2.0,
+    )
     parser.add_argument("--max-endpoint-seconds", type=float, default=5.0)
     parser.add_argument("--command-timeout-seconds", type=float, default=8.0)
     parser.add_argument("--endpoint-timeout-seconds", type=float, default=5.0)
@@ -336,7 +357,12 @@ def main() -> int:
         running_observation_limit=args.running_observation_limit,
         pending_observation_limit=args.pending_observation_limit,
         max_postgres_cpu=args.max_postgres_cpu,
-        max_runner_cpu=args.max_runner_cpu,
+        max_runner_cpu_ratio=args.max_runner_cpu_ratio,
+        runner_cpu_sample_count=args.runner_cpu_samples,
+        runner_cpu_sustained_sample_count=args.runner_cpu_sustained_samples,
+        runner_cpu_sample_interval_seconds=(
+            args.runner_cpu_sample_interval_seconds
+        ),
         max_endpoint_seconds=args.max_endpoint_seconds,
     )
     scope = GateScope(
@@ -356,6 +382,23 @@ def main() -> int:
     docker_stats = collect_docker_stats(
         resolve_runtime_stat_containers(runner_capacity),
         timeout_seconds=args.command_timeout_seconds,
+    )
+    runner_cpu_pressure = collect_runner_cpu_pressure(
+        run_command,
+        [
+            str(row.get("container") or "").strip()
+            for row in runner_capacity.get("rows") or []
+            if str(row.get("container") or "").strip()
+        ],
+        args.command_timeout_seconds,
+        threshold_ratio=thresholds.max_runner_cpu_ratio,
+        sample_count=thresholds.runner_cpu_sample_count,
+        required_consecutive_samples=(
+            thresholds.runner_cpu_sustained_sample_count
+        ),
+        sample_interval_seconds=(
+            thresholds.runner_cpu_sample_interval_seconds
+        ),
     )
     api_base = args.api_base.rstrip("/")
     endpoint_checks = {
@@ -386,6 +429,7 @@ def main() -> int:
         postgres_metrics,
         pgbouncer_metrics,
         runner_capacity,
+        runner_cpu_pressure,
         scope,
     )
     payload = {
@@ -398,6 +442,7 @@ def main() -> int:
         "postgres_metrics": postgres_metrics,
         "pgbouncer_metrics": pgbouncer_metrics,
         "runner_capacity": runner_capacity,
+        "runner_cpu_pressure": runner_cpu_pressure,
         "scope": runner_scope_evidence(runner_capacity, scope),
     }
     encoded = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)

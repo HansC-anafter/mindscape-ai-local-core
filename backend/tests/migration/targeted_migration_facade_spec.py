@@ -1,4 +1,5 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 from backend.app.services.migrations import cli as migration_cli
 from backend.app.services.migrations.orchestrator import MigrationOrchestrator
@@ -107,6 +108,40 @@ def test_plan_revision_matches_apply_revision_chain(tmp_path: Path, monkeypatch)
         "migrations_pending": 2,
         "revisions": ["20260715120000", "20260715130000"],
     }
+
+
+def test_alembic_subprocess_uses_registered_database_type(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    config_path = tmp_path / "alembic.vector.ini"
+    config_path.write_text("[alembic]\n", encoding="utf-8")
+    orchestrator = MigrationOrchestrator(
+        tmp_path,
+        {"vector": config_path},
+    )
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        "backend.app.services.migrations.orchestrator.require_migration_execution_allowed",
+        lambda _config, _revision: None,
+    )
+
+    def _run(argv, **kwargs):
+        captured["argv"] = argv
+        captured["kwargs"] = kwargs
+        return SimpleNamespace(stdout="", stderr="")
+
+    monkeypatch.setattr(
+        "backend.app.services.migrations.orchestrator.subprocess.run",
+        _run,
+    )
+
+    assert orchestrator._run_alembic_upgrade(config_path, "20260727042000")
+    script = str(captured["argv"][2])
+    assert "db_type='vector'" in script
+    assert captured["kwargs"]["check"] is True
+    assert captured["kwargs"]["timeout"] == 300
 
 
 def test_apply_revision_uses_transactional_executor_for_one_independent_branch(

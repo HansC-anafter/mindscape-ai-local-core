@@ -283,12 +283,35 @@ def persist_runtime_result(
                 close_object_action_from_execution_result,
             )
 
-            closure_result = close_object_action_from_execution_result(
-                workspace_id=workspace_id,
-                execution_id=execution_id,
-                inputs=normalized_inputs,
-                execution_result=canonical_workflow_result,
+            from backend.app.services.knowledge_projection.retrievable.source_triggers import (
+                committed_source_trigger_authority,
             )
+
+            with committed_source_trigger_authority(
+                actor_user_id=profile_id,
+                active_group_id=str(
+                    (
+                        normalized_inputs.get(
+                            "execution_admission_snapshot"
+                        )
+                        if isinstance(
+                            normalized_inputs.get(
+                                "execution_admission_snapshot"
+                            ),
+                            dict,
+                        )
+                        else {}
+                    ).get("active_group_id")
+                    or ""
+                )
+                or None,
+            ):
+                closure_result = close_object_action_from_execution_result(
+                    workspace_id=workspace_id,
+                    execution_id=execution_id,
+                    inputs=normalized_inputs,
+                    execution_result=canonical_workflow_result,
+                )
             if closure_result:
                 execution_context["object_action_closure"] = closure_result
         except Exception:

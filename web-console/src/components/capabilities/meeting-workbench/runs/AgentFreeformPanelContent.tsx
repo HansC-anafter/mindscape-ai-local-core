@@ -46,6 +46,9 @@ export function AgentFreeformPanelContent({
           apiUrl={apiUrl}
           workspaceId={workspaceId}
           meetingId={meetingId}
+          sessionId={session?.id || null}
+          selectedObjectRef={selectedObjectRef}
+          graphContext={graphContext}
           disabled={isStarting}
           onSubmit={onSubmitPrompt}
         />

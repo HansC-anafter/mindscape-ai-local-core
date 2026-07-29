@@ -10,7 +10,8 @@ EXECUTOR = (
 
 def test_linear_executor_owns_lock_and_head_compare_and_swap() -> None:
     source = EXECUTOR.read_text(encoding="utf-8")
-    assert "pg_advisory_xact_lock" in source
+    assert "pg_advisory_lock" in source
+    assert "pg_advisory_unlock" in source
     assert "LOCK TABLE alembic_version IN SHARE ROW EXCLUSIVE MODE" in source
     assert "linear_revision_parent_head_changed" in source
     assert "UPDATE alembic_version" in source
@@ -19,9 +20,10 @@ def test_linear_executor_owns_lock_and_head_compare_and_swap() -> None:
     assert "linear_revision_receipt_readback_mismatch" in source
 
 
-def test_linear_executor_runs_upgrade_inside_transactional_operations_context() -> None:
+def test_linear_executor_supports_alembic_autocommit_blocks() -> None:
     source = EXECUTOR.read_text(encoding="utf-8")
-    assert "with engine.begin() as connection" in source
+    assert "connection = engine.connect()" in source
     assert "MigrationContext.configure" in source
+    assert "with migration_context.begin_transaction()" in source
     assert "with Operations.context(migration_context)" in source
     assert "upgrade()" in source

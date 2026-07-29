@@ -156,7 +156,7 @@ def test_atomic_candidate_copies_runtime_namespace_dirs(tmp_path):
         "code: motion_runtime\nversion: 0.1.0\n",
         encoding="utf-8",
     )
-    for dirname in ("core", "analysis", "generation"):
+    for dirname in ("adapters", "core", "analysis", "generation"):
         namespace_dir = cap_dir / dirname
         nested_dir = namespace_dir / "schema"
         cache_dir = namespace_dir / "__pycache__"
@@ -191,7 +191,7 @@ def test_atomic_candidate_copies_runtime_namespace_dirs(tmp_path):
     installer.finalize_publish(prepared)
 
     target_dir = capabilities_dir / "motion_runtime"
-    for dirname in ("core", "analysis", "generation"):
+    for dirname in ("adapters", "core", "analysis", "generation"):
         assert (target_dir / dirname / "__init__.py").exists()
         assert (
             target_dir / dirname / "schema" / f"{dirname}_contract.py"
@@ -201,6 +201,7 @@ def test_atomic_candidate_copies_runtime_namespace_dirs(tmp_path):
         ).exists()
     assert not (target_dir / "analysis" / "obsolete.py").exists()
     assert set(result.installed.get("runtime_namespace_dirs", [])) == {
+        "adapters",
         "analysis",
         "core",
         "generation",

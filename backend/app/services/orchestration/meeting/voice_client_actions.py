@@ -15,6 +15,7 @@ from backend.app.models.meeting_command import (
     MeetingCommandEnvelope,
     MeetingRequestedAction,
 )
+from backend.app.models.meeting_voice_context import MeetingVoiceCommandContext
 from backend.app.services.orchestration.meeting.planner_contract_execution.manifest_registry import (
     PlannerContractManifestRegistry,
 )
@@ -157,7 +158,27 @@ def build_voice_command_envelope(
     metadata: Mapping[str, Any],
     context_objects: list[Any],
     resolution: VoiceClientActionResolution | None,
+    command_context: MeetingVoiceCommandContext | None = None,
 ) -> MeetingCommandEnvelope:
+    context = command_context or MeetingVoiceCommandContext(
+        context_objects=context_objects,
+    )
+    context_metadata = copy.deepcopy(context.metadata)
+    context_metadata.update(dict(metadata))
+    context_metadata["raw_intent_text"] = transcript
+    action_parameters = context_metadata.get("action_parameters")
+    if isinstance(action_parameters, Mapping):
+        normalized_action_parameters = copy.deepcopy(dict(action_parameters))
+        normalized_action_parameters["meeting_command"] = transcript
+        context_metadata["action_parameters"] = normalized_action_parameters
+    requested_action = context.requested_action.model_copy(deep=True) \
+        if context.requested_action is not None else None
+    if requested_action is not None:
+        requested_action.parameters["instruction"] = transcript
+        requested_action.parameters["message"] = transcript
+        if "meeting_command" in requested_action.parameters:
+            requested_action.parameters["meeting_command"] = transcript
+
     if resolution is None:
         return MeetingCommandEnvelope(
             workspace_id=workspace_id,
@@ -165,8 +186,28 @@ def build_voice_command_envelope(
             origin_surface=origin_surface,
             actor="user",
             intent_text=transcript,
-            context_objects=context_objects,
-            metadata=dict(metadata),
+            context_objects=context.context_objects,
+            requested_action=requested_action,
+            expected_outputs=context.expected_outputs,
+            write_mode=context.write_mode,
+            thread_id=context.thread_id,
+            meeting_mentions=context.meeting_mentions,
+            metadata=context_metadata,
+        )
+    if requested_action is not None:
+        return MeetingCommandEnvelope(
+            workspace_id=workspace_id,
+            meeting_id=meeting_id,
+            origin_surface=origin_surface,
+            actor="user",
+            intent_text=transcript,
+            context_objects=context.context_objects,
+            requested_action=requested_action,
+            expected_outputs=context.expected_outputs,
+            write_mode=context.write_mode,
+            thread_id=context.thread_id,
+            meeting_mentions=context.meeting_mentions,
+            metadata=context_metadata,
         )
     client_action = {
         "schema_version": CLIENT_ACTION_SCHEMA_VERSION,
@@ -182,7 +223,7 @@ def build_voice_command_envelope(
         origin_surface=origin_surface,
         actor="user",
         intent_text=transcript,
-        context_objects=context_objects,
+        context_objects=context.context_objects,
         requested_action=MeetingRequestedAction(
             verb="client_action",
             pack_code=resolution.pack_code,
@@ -190,8 +231,12 @@ def build_voice_command_envelope(
             write_mode="recommendation_only",
             parameters={"client_action": client_action},
         ),
+        expected_outputs=context.expected_outputs,
+        write_mode=context.write_mode,
+        thread_id=context.thread_id,
+        meeting_mentions=context.meeting_mentions,
         metadata={
-            **dict(metadata),
+            **context_metadata,
             "dispatch_mode": "route_client_action",
             "explicit_override": True,
             "active_pack_code": resolution.pack_code,

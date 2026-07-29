@@ -167,12 +167,13 @@ async def _run_post_ready_runtime_migrations(app: FastAPI) -> None:
         app.state.runtime_migrations_post_ready_status = "running"
         app.state.runtime_migrations_post_ready_error = None
         from backend.app.services.migrations import MigrationOrchestrator
+        from backend.app.services.migrations.database_plan import (
+            authoritative_alembic_configs,
+        )
 
         app_dir = Path(__file__).parent.parent
         capabilities_root = app_dir / "capabilities"
-        alembic_configs = {
-            "postgres": app_dir.parent / "alembic.postgres.ini",
-        }
+        alembic_configs = authoritative_alembic_configs(app_dir.parent)
 
         orchestrator = MigrationOrchestrator(capabilities_root, alembic_configs)
         logger.info("Post-ready runtime migrations starting")
@@ -180,6 +181,16 @@ async def _run_post_ready_runtime_migrations(app: FastAPI) -> None:
             orchestrator.apply,
             "postgres",
             False,
+        )
+        vector_result = await asyncio.to_thread(
+            orchestrator.dry_run,
+            "vector",
+        )
+        app.state.vector_migrations_post_ready_status = vector_result.get(
+            "status"
+        )
+        app.state.vector_migrations_post_ready_pending = len(
+            vector_result.get("migrations") or ()
         )
         status = postgres_result.get("status")
         if status == "validation_failed":
@@ -219,9 +230,12 @@ async def _run_post_ready_runtime_migrations(app: FastAPI) -> None:
                     detail,
                 )
             logger.info(
-                "Post-ready PostgreSQL migrations: %s, applied: %s",
+                "Post-ready core migrations: %s, core_applied=%s; "
+                "vector_status=%s vector_pending=%s (targeted-only)",
                 status,
                 postgres_result.get("migrations_applied", 0),
+                vector_result.get("status"),
+                len(vector_result.get("migrations") or ()),
             )
         app.state.runtime_migrations_post_ready_completed = True
     except asyncio.CancelledError:

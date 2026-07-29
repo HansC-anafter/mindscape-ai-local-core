@@ -16,6 +16,7 @@ SCRIPT_DIR_EXCLUDES = {
 SCRIPT_FILE_EXCLUDES = {".DS_Store"}
 SCRIPT_SUFFIX_EXCLUDES = {".pyc", ".pyo"}
 RUNTIME_NAMESPACE_DIRS = {
+    "adapters",
     "analysis",
     "core",
     "generation",

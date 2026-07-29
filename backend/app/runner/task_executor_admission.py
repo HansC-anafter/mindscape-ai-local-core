@@ -189,6 +189,29 @@ async def prepare_runner_child_admission(
         )
 
     root_execution_id = str(task.execution_id or task.id)
+    internal_admission = _verified_internal_projection_admission(
+        task=task,
+        inputs=normalized_inputs,
+        execution_context=normalized_context,
+    )
+    if internal_admission is not None:
+        internal_receipt, projection_payload = internal_admission
+        normalized_inputs = projection_payload.bounded_dict()
+        normalized_context["inputs"] = normalized_inputs
+        for key in (
+            "execution_backend_hint",
+            "runtime_binding",
+            "selected_runtime_id",
+        ):
+            normalized_context.pop(key, None)
+        normalized_context["knowledge_projection_admission"] = (
+            internal_receipt.model_dump(mode="json")
+        )
+        return RunnerChildAdmission(
+            inputs=normalized_inputs,
+            execution_context=normalized_context,
+            changed=normalized_context != execution_context,
+        )
     snapshot = _existing_snapshot(
         inputs=normalized_inputs,
         execution_context=normalized_context,
@@ -229,6 +252,11 @@ async def prepare_runner_child_admission(
                 playbook_code=task.pack_id,
                 profile_id=profile_id,
                 workspace_id=workspace_id,
+                project_id=(
+                    str(normalized_inputs.get("project_id"))
+                    if normalized_inputs.get("project_id")
+                    else None
+                ),
                 inputs={
                     **normalized_inputs,
                     "execution_id": root_execution_id,
@@ -251,6 +279,105 @@ async def prepare_runner_child_admission(
         execution_context=normalized_context,
         changed=changed,
     )
+
+
+def _verified_internal_projection_admission(
+    *,
+    task: Task,
+    inputs: Dict[str, Any],
+    execution_context: Dict[str, Any],
+):
+    """Fail closed unless this hidden-tool task has a committed intake receipt."""
+
+    from backend.app.services.knowledge_projection.retrievable.source_admission import (
+        INTERNAL_PROJECTION_TOOL,
+    )
+
+    tool_name = str(
+        execution_context.get("tool_name") or task.pack_id or ""
+    ).strip()
+    raw_receipt = execution_context.get("knowledge_projection_admission")
+    if tool_name != INTERNAL_PROJECTION_TOOL:
+        if raw_receipt is not None:
+            raise ValueError(
+                "knowledge_projection_internal_admission_tool_mismatch"
+            )
+        return None
+    if not isinstance(raw_receipt, dict):
+        raise ValueError(
+            "knowledge_projection_internal_admission_required"
+        )
+    from backend.app.services.knowledge_projection.retrievable.internal_admission import (
+        InternalProjectionAdmissionReceipt,
+    )
+    from backend.app.services.knowledge_projection.retrievable.task_payload import (
+        KnowledgeProjectionTaskPayload,
+    )
+    from backend.app.services.knowledge_projection.retrievable.internal_admission_store import (
+        InternalProjectionAdmissionStore,
+    )
+
+    receipt = InternalProjectionAdmissionReceipt.model_validate(raw_receipt)
+    candidate_payload = dict(inputs)
+    for key in (
+        "runtime_binding",
+        "runtime_id",
+        "site_key",
+        "target_device_id",
+    ):
+        candidate_payload.pop(key, None)
+    injected_execution_id = candidate_payload.pop("execution_id", None)
+    if (
+        injected_execution_id is not None
+        and str(injected_execution_id) != str(task.execution_id or task.id)
+    ):
+        raise ValueError(
+            "knowledge_projection_internal_admission_identity_mismatch"
+        )
+    candidate_projection_payload = (
+        KnowledgeProjectionTaskPayload.model_validate(candidate_payload)
+    )
+    projection_payload = KnowledgeProjectionTaskPayload.model_validate(task.params)
+    if candidate_projection_payload != projection_payload:
+        raise ValueError(
+            "knowledge_projection_internal_admission_identity_mismatch"
+        )
+    payload_sources = projection_payload.source_page
+    receipt_sources = receipt.sources
+    if (
+        receipt.task_id != task.id
+        or receipt.task_id != projection_payload.internal_task_id
+        or receipt_sources[0].intake_id != projection_payload.intake_id
+        or receipt.workspace_id != str(task.workspace_id or "").strip()
+        or receipt.workspace_id != projection_payload.workspace_id
+        or receipt.group_id != projection_payload.group_id
+        or receipt.tenant_id != projection_payload.tenant_id
+        or receipt.actor_user_id != projection_payload.actor_user_id
+        or receipt.capability_code
+        != projection_payload.descriptor.capability_code
+        or receipt.descriptor_id
+        != projection_payload.descriptor.descriptor_id
+        or receipt.descriptor_hash
+        != projection_payload.descriptor.descriptor_hash
+        or len(receipt_sources) != len(payload_sources)
+        or any(
+            binding.source_instance_id != source.source_instance_id
+            or binding.source_revision != source.source_revision
+            or binding.content_hash != source.content_hash
+            for binding, source in zip(receipt_sources, payload_sources)
+        )
+        or receipt.trigger_mode != projection_payload.trigger_mode
+    ):
+        raise ValueError(
+            "knowledge_projection_internal_admission_identity_mismatch"
+        )
+    if not InternalProjectionAdmissionStore().verify(
+        receipt
+    ):
+        raise ValueError(
+            "knowledge_projection_internal_admission_not_committed"
+        )
+    return receipt, projection_payload
 
 
 async def park_task_for_runner_admission(

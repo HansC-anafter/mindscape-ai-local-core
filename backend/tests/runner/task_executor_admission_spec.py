@@ -15,6 +15,12 @@ from backend.app.services.workspace_capability_admission.execution_snapshot impo
     build_execution_snapshot,
 )
 from backend.app.services.task_admission_service import ADMISSION_DEFERRED_REASON
+from backend.app.services.knowledge_projection.retrievable.internal_admission import (
+    build_internal_projection_admission,
+)
+from backend.app.services.knowledge_projection.retrievable.source_admission import (
+    INTERNAL_PROJECTION_TOOL,
+)
 
 
 NOW = datetime(2026, 7, 25, tzinfo=timezone.utc)
@@ -218,3 +224,191 @@ def test_child_payload_consumes_the_same_context_snapshot():
 
     assert payload["execution_admission_snapshot"] == snapshot_payload
     assert payload["inputs"]["execution_admission_snapshot"] == snapshot_payload
+
+
+def _internal_projection_fixture():
+    task_id = "ktask_" + "1" * 64
+    intake_id = "ksi_" + "2" * 32
+    descriptor_hash = "3" * 64
+    source_payload = {
+        "contract_version": "knowledge.project-source.v1",
+        "internal_task_id": task_id,
+        "intake_id": intake_id,
+        "actor_user_id": "profile-one",
+        "tenant_id": "local",
+        "workspace_id": "workspace-one",
+        "group_id": None,
+        "trigger_mode": "source_revision",
+        "descriptor": {
+            "capability_code": "test_pack",
+            "capability_version": "1.0.0",
+            "descriptor_id": "test_projection",
+            "descriptor_hash": descriptor_hash,
+            "manifest_hash": "4" * 64,
+        },
+        "source": {
+            "source_kind": "object",
+            "source_instance_id": "object-one",
+            "source_ref": "aol://workspace-one/object-one",
+            "source_revision": "revision-one",
+            "content_hash": "5" * 64,
+            "object_kind": "test.object",
+            "artifact_selector": None,
+        },
+        "checkpoint": {"cursor_id": "object-one"},
+    }
+    receipt = build_internal_projection_admission(
+        task_id=task_id,
+        tenant_id="local",
+        actor_user_id="profile-one",
+        workspace_id="workspace-one",
+        group_id=None,
+        capability_code="test_pack",
+        descriptor_id="test_projection",
+        descriptor_hash=descriptor_hash,
+        sources=[
+            {
+                "intake_id": intake_id,
+                "source_instance_id": "object-one",
+                "source_revision": "revision-one",
+                "content_hash": "5" * 64,
+            }
+        ],
+        trigger_mode="source_revision",
+    )
+    context = {
+        "tool_name": INTERNAL_PROJECTION_TOOL,
+        "inputs": source_payload,
+        "knowledge_projection_admission": receipt.model_dump(mode="json"),
+    }
+    task = Task(
+        id=task_id,
+        workspace_id="workspace-one",
+        message_id=f"knowledge-intake:{intake_id}",
+        execution_id=task_id,
+        pack_id=INTERNAL_PROJECTION_TOOL,
+        task_type="tool_execution",
+        status=TaskStatus.RUNNING,
+        params=source_payload,
+        execution_context=context,
+        created_at=NOW,
+    )
+    return task, source_payload, context, receipt
+
+
+@pytest.mark.asyncio
+async def test_internal_projection_task_uses_committed_source_receipt(
+    monkeypatch,
+):
+    from backend.app.services.knowledge_projection.retrievable.internal_admission_store import (
+        InternalProjectionAdmissionStore,
+    )
+
+    task, inputs, context, receipt = _internal_projection_fixture()
+    monkeypatch.setattr(
+        InternalProjectionAdmissionStore,
+        "verify",
+        lambda self, candidate: candidate.receipt_hash == receipt.receipt_hash,
+    )
+    result = await prepare_runner_child_admission(
+        task,
+        inputs,
+        context,
+        profile_id="profile-one",
+    )
+
+    assert "execution_admission_snapshot" not in result.execution_context
+    assert result.execution_context["knowledge_projection_admission"][
+        "receipt_hash"
+    ] == receipt.receipt_hash
+    child = build_child_payload(
+        task=task,
+        runner_id="runner-one",
+        inputs=result.inputs,
+        ctx=result.execution_context,
+        resolved_profile_id="profile-one",
+        result_file="/tmp/result.json",
+    )
+    assert child["knowledge_projection_admission"]["receipt_hash"] == (
+        receipt.receipt_hash
+    )
+
+
+@pytest.mark.asyncio
+async def test_internal_projection_task_converges_polluted_runtime_binding(
+    monkeypatch,
+):
+    from backend.app.services.knowledge_projection.retrievable.internal_admission_store import (
+        InternalProjectionAdmissionStore,
+    )
+
+    task, canonical_inputs, context, receipt = _internal_projection_fixture()
+    from backend.app.services.knowledge_projection.retrievable.task_payload import (
+        KnowledgeProjectionTaskPayload,
+    )
+
+    expected_inputs = KnowledgeProjectionTaskPayload.model_validate(
+        task.params
+    ).bounded_dict()
+    polluted_inputs = {
+        **canonical_inputs,
+        "runtime_binding": {
+            "dispatch_mode": "external_runtime",
+            "runtime_id": "runtime-should-not-apply",
+        },
+        "runtime_id": "runtime-should-not-apply",
+        "execution_id": task.execution_id,
+    }
+    polluted_context = {
+        **context,
+        "inputs": polluted_inputs,
+        "runtime_binding": polluted_inputs["runtime_binding"],
+        "selected_runtime_id": "runtime-should-not-apply",
+        "execution_backend_hint": "remote",
+    }
+    monkeypatch.setattr(
+        InternalProjectionAdmissionStore,
+        "verify",
+        lambda self, candidate: candidate.receipt_hash == receipt.receipt_hash,
+    )
+
+    result = await prepare_runner_child_admission(
+        task,
+        polluted_inputs,
+        polluted_context,
+        profile_id="profile-one",
+    )
+
+    assert result.changed is True
+    assert result.inputs == expected_inputs
+    assert result.execution_context["inputs"] == expected_inputs
+    assert "runtime_binding" not in result.execution_context
+    assert "selected_runtime_id" not in result.execution_context
+    assert "execution_backend_hint" not in result.execution_context
+
+
+@pytest.mark.asyncio
+async def test_internal_projection_task_rejects_forged_identity(monkeypatch):
+    from backend.app.services.knowledge_projection.retrievable.internal_admission_store import (
+        InternalProjectionAdmissionStore,
+    )
+
+    task, inputs, context, _receipt = _internal_projection_fixture()
+    monkeypatch.setattr(
+        InternalProjectionAdmissionStore,
+        "verify",
+        lambda self, candidate: True,
+    )
+    forged = dict(inputs)
+    forged["actor_user_id"] = "attacker"
+
+    with pytest.raises(
+        ValueError,
+        match="knowledge_projection_internal_admission_identity_mismatch",
+    ):
+        await prepare_runner_child_admission(
+            task,
+            forged,
+            context,
+            profile_id="profile-one",
+        )

@@ -2,8 +2,10 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 
 from backend.app.services.knowledge_projection.group_context import (
+    GroupKnowledgeAccessError,
     GroupKnowledgeContextReader,
 )
+import pytest
 from backend.app.services.workspace_groups.contracts import (
     WorkspaceGroupMember,
     WorkspaceGroupTopologySnapshot,
@@ -66,6 +68,9 @@ class _Memory:
             ),
         ]
 
+    def context_revision(self, **kwargs):
+        return "2:2026-07-15T00:00:00+00:00"
+
 
 def test_group_packet_is_authorized_role_filtered_and_run_cached():
     snapshot = WorkspaceGroupTopologySnapshot(
@@ -92,14 +97,54 @@ def test_group_packet_is_authorized_role_filtered_and_run_cached():
         requesting_workspace_id="workspace-1",
         actor_user_id="user-1",
         agent_role="student",
+        preview=True,
     )
     second = reader.compile_packet(
         topology_snapshot_id="snapshot-1",
         requesting_workspace_id="workspace-1",
         actor_user_id="user-1",
         agent_role="student",
+        preview=True,
     )
 
     assert first is second
     assert [entry.memory_item_id for entry in first.entries] == ["mem-public"]
-    assert snapshots.calls == groups.calls == memory.calls == 1
+    assert first.bound_agent_role == "dispatch"
+    assert first.preview is True
+    assert snapshots.calls == groups.calls == 2
+    assert memory.calls == 1
+
+
+def test_group_packet_rejects_caller_selected_run_role():
+    snapshot = WorkspaceGroupTopologySnapshot(
+        id="snapshot-1",
+        group_id="group-1",
+        display_name="Group",
+        group_revision=3,
+        content_hash="a" * 64,
+        members=[
+            WorkspaceGroupMember(
+                workspace_id="workspace-1",
+                role="dispatch",
+            )
+        ],
+        dispatch_workspace_id="workspace-1",
+        created_by_user_id="user-1",
+    )
+    reader = GroupKnowledgeContextReader(
+        snapshot_service=_Snapshots(snapshot),
+        group_facade=_Groups(),
+        memory_store=_Memory(),
+    )
+
+    with pytest.raises(
+        GroupKnowledgeAccessError,
+        match="differs from the admitted topology",
+    ):
+        reader.compile_packet(
+            topology_snapshot_id="snapshot-1",
+            requesting_workspace_id="workspace-1",
+            actor_user_id="user-1",
+            agent_role="teacher",
+            preview=False,
+        )

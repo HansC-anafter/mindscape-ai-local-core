@@ -3,8 +3,8 @@ Capability Registry
 Loads and manages all capability pack manifests, provides tool lookup functionality
 """
 
-import yaml
 import inspect
+import yaml
 import sys
 from pathlib import Path
 from typing import Dict, Optional, Callable, Any, List
@@ -13,6 +13,10 @@ import threading
 from app.services.runtime_pack_hygiene import is_ignored_runtime_pack_dir
 from app.services.capability_backend_loader import (
     resolve_capability_backend_callable,
+)
+from app.services.capability_tool_invocation import (
+    invoke_capability_tool,
+    invoke_capability_tool_async,
 )
 
 logger = logging.getLogger(__name__)
@@ -88,8 +92,16 @@ class CapabilityRegistry:
                 "directory": capability_dir,
             }
             from backend.app.services.task_projection_adapters import register_manifest
+            from backend.app.services.knowledge_projection.retrievable.adapter_registry import (
+                register_manifest as register_knowledge_projection_manifest,
+            )
 
             register_manifest(capability_code, manifest, capability_dir)
+            register_knowledge_projection_manifest(
+                capability_code,
+                manifest,
+                capability_dir,
+            )
             for tool in manifest.get("tools", []):
                 if not isinstance(tool, dict):
                     continue
@@ -213,10 +225,15 @@ def load_capabilities(capabilities_dir: Optional[Path] = None, reset: bool = Fal
     )
     with _REGISTRY_LOCK:
         if reset:
+            from backend.app.services.knowledge_projection.retrievable.adapter_registry import (
+                reset_registry_for_tests as reset_knowledge_projection_registry,
+            )
+
             _registry.capabilities.clear()
             _registry.tools.clear()
             CAPABILITY_REGISTRY.clear()
             TOOL_REGISTRY.clear()
+            reset_knowledge_projection_registry()
 
         _registry.load_from_directory(capabilities_dir)
         CAPABILITY_REGISTRY.update(_registry.capabilities)
@@ -301,23 +318,7 @@ def call_tool(capability: str, tool: str, **kwargs) -> Any:
             capability_dir=Path(capability_dir) if capability_dir else None,
         )
 
-        # Check if it's an async function
-
-        logger.info(f"DEBUG CAPABILITY_REGISTRY_SYNC calling {func} with kwargs keys: {list(kwargs.keys())}")
-        import inspect
-        logger.info(f"DEBUG CAPABILITY_REGISTRY_SYNC func signature: {inspect.signature(func)}")
-        try:
-            if inspect.iscoroutinefunction(func):
-                import asyncio
-                return func(**kwargs)
-            else:
-                return func(**kwargs)
-        except Exception as e_inner:
-            import traceback
-            logger.error(f"DEBUG CAPABILITY_REGISTRY_SYNC exception: {traceback.format_exc()}")
-            raise e_inner
-
-
+        return invoke_capability_tool(func, kwargs)
     except Exception as e:
         error_msg = f"Failed to call tool {tool_name} (backend: {backend_path}): {str(e)}"
         logger.error(error_msg)
@@ -346,22 +347,7 @@ async def call_tool_async(capability: str, tool: str, **kwargs) -> Any:
             backend_path=backend_path,
             capability_dir=Path(capability_dir) if capability_dir else None,
         )
-
-
-        logger.info(f"DEBUG CAPABILITY_REGISTRY calling {func} with kwargs keys: {list(kwargs.keys())}")
-        import inspect
-        logger.info(f"DEBUG CAPABILITY_REGISTRY func signature: {inspect.signature(func)}")
-        try:
-            if inspect.iscoroutinefunction(func):
-                return await func(**kwargs)
-            else:
-                return func(**kwargs)
-        except Exception as e_inner:
-            import traceback
-            logger.error(f"DEBUG CAPABILITY_REGISTRY exception: {traceback.format_exc()}")
-            raise e_inner
-
-
+        return await invoke_capability_tool_async(func, kwargs)
     except Exception as e:
         # Avoid recursion in error logging - use simple error message
         error_msg = f"Failed to call tool {tool_name} (backend: {backend_path}): {str(e)}"

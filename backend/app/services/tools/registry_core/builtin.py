@@ -128,6 +128,30 @@ def register_reporting_tools() -> List[MindscapeTool]:
     return tools
 
 
+def register_knowledge_query_tool() -> MindscapeTool:
+    """Register exactly one public authorization-aware knowledge tool."""
+
+    from backend.app.services.tools.knowledge_query import (
+        create_knowledge_query_tool,
+    )
+
+    tool = create_knowledge_query_tool()
+    register_mindscape_tool("knowledge_query", tool)
+    return tool
+
+
+def register_internal_knowledge_projection_tool() -> MindscapeTool:
+    """Register the runner-only tool; public registry lists filter it out."""
+
+    from backend.app.services.tools.knowledge_project_source import (
+        create_knowledge_project_source_tool,
+    )
+
+    tool = create_knowledge_project_source_tool()
+    register_mindscape_tool(tool.metadata.name, tool)
+    return tool
+
+
 def register_meeting_planner_tools() -> List[MindscapeTool]:
     """Register MeetingEngine planner tools."""
     from backend.app.services.tools.meeting_planner import create_meeting_planner_tools

@@ -41,6 +41,7 @@ import {
   WorkspaceMobileHostToolTray,
   useWorkspaceMobileHostToolTray,
 } from './WorkspaceMobileHostToolTray';
+import { WorkspaceInteractionIngressHost } from '@/components/workspace/interaction/WorkspaceInteractionIngressHost';
 
 interface WorkspaceGlobalToolRailProviderProps {
   workspaceId: string;
@@ -328,29 +329,31 @@ export default function WorkspaceGlobalToolRailProvider({
 
   return (
     <WorkspaceGlobalToolRailContext.Provider value={contextValue}>
-      <div
-        className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden md:flex-row"
-        data-testid="workspace-global-tool-shell"
-        data-workbench-placement={placement}
-      >
-        <main className="order-1 flex h-full min-h-0 flex-1 overflow-hidden md:order-none">
-          {children}
-        </main>
-        {isMobilePlacement ? (
-          <WorkspaceMobileHostToolTray
-            anchorRef={mobileTrayAnchorRef}
-            open={mobileTrayOpen}
-            onToggle={toggleMobileTray}
-            rail={workspaceToolRail}
-            panel={workspaceToolPanel}
-          />
-        ) : (
-          <>
-            {workspaceToolPanel}
-            {workspaceToolRail}
-          </>
-        )}
-      </div>
+      <WorkspaceInteractionIngressHost workspaceId={workspaceId}>
+        <div
+          className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden md:flex-row"
+          data-testid="workspace-global-tool-shell"
+          data-workbench-placement={placement}
+        >
+          <main className="order-1 flex h-full min-h-0 flex-1 overflow-hidden md:order-none">
+            {children}
+          </main>
+          {isMobilePlacement ? (
+            <WorkspaceMobileHostToolTray
+              anchorRef={mobileTrayAnchorRef}
+              open={mobileTrayOpen}
+              onToggle={toggleMobileTray}
+              rail={workspaceToolRail}
+              panel={workspaceToolPanel}
+            />
+          ) : (
+            <>
+              {workspaceToolPanel}
+              {workspaceToolRail}
+            </>
+          )}
+        </div>
+      </WorkspaceInteractionIngressHost>
     </WorkspaceGlobalToolRailContext.Provider>
   );
 }
