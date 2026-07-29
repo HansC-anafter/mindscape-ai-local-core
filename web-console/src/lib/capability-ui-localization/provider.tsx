@@ -31,8 +31,12 @@ export function CapabilityUiLocalizationProvider({
   );
 }
 
+export function useOptionalCapabilityLocalization(): CapabilityUiLocalizationBridgeV1 | null {
+  return useContext(CapabilityUiLocalizationContext);
+}
+
 export function useCapabilityLocalization(): CapabilityUiLocalizationBridgeV1 {
-  const localization = useContext(CapabilityUiLocalizationContext);
+  const localization = useOptionalCapabilityLocalization();
   if (!localization) {
     throw new Error(
       'useCapabilityLocalization must be used inside a localized capability entry',
