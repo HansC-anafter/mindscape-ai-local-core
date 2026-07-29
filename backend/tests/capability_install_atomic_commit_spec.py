@@ -31,6 +31,18 @@ def _candidate(tmp_path: Path) -> Path:
     return cap_dir
 
 
+def _write_migration_contract(cap_dir: Path, *, body: str) -> None:
+    (cap_dir / "migrations" / "versions").mkdir(parents=True, exist_ok=True)
+    (cap_dir / "migrations.yaml").write_text(
+        "migration_paths:\n  - migrations/versions/\nrevisions:\n  - demo_001\n",
+        encoding="utf-8",
+    )
+    (cap_dir / "migrations" / "versions" / "demo_001.py").write_text(
+        body,
+        encoding="utf-8",
+    )
+
+
 def _coordinator(tmp_path: Path):
     root = tmp_path / "local-core"
     capabilities_dir = root / "backend" / "app" / "capabilities"
@@ -51,6 +63,111 @@ def _coordinator(tmp_path: Path):
         runtime_installer=installer,
     )
     return coordinator, live
+
+
+def test_identical_migration_contract_skips_database_execution(tmp_path: Path) -> None:
+    coordinator, live = _coordinator(tmp_path)
+    candidate = _candidate(tmp_path)
+    migration_body = (
+        'revision = "demo_001"\n'
+        "down_revision = None\n"
+        "def upgrade():\n"
+        "    pass\n"
+    )
+    _write_migration_contract(live, body=migration_body)
+    _write_migration_contract(candidate, body=migration_body)
+    result = InstallResult(capability_code="demo")
+    coordinator.prepare(
+        cap_dir=candidate,
+        manifest={"code": "demo", "version": "2.0.0"},
+        result=result,
+        temp_dir=None,
+    )
+    migration_calls: list[str] = []
+    coordinator.runtime_installer.execute_migrations = (
+        lambda *_args: migration_calls.append("called")
+    )
+
+    coordinator.execute_candidate_migrations(result)
+
+    assert migration_calls == []
+    assert result.migration_status == {"demo": "skipped"}
+    receipt = result.migration_receipts["demo"]
+    assert receipt["mode"] == "identical_installed_migration_contract"
+    assert receipt["schema_mutation_required"] is False
+    assert receipt["database_operations"] == 0
+    assert receipt["candidate_digest"] == receipt["installed_digest"]
+
+
+def test_runtime_bytecode_does_not_break_migration_contract_equivalence(
+    tmp_path: Path,
+) -> None:
+    coordinator, live = _coordinator(tmp_path)
+    candidate = _candidate(tmp_path)
+    migration_body = (
+        'revision = "demo_001"\n'
+        "down_revision = None\n"
+        "def upgrade():\n"
+        "    pass\n"
+    )
+    _write_migration_contract(live, body=migration_body)
+    _write_migration_contract(candidate, body=migration_body)
+    cache = live / "migrations" / "versions" / "__pycache__"
+    cache.mkdir()
+    (cache / "demo_001.cpython-311.pyc").write_bytes(b"runtime-only")
+    result = InstallResult(capability_code="demo")
+    coordinator.prepare(
+        cap_dir=candidate,
+        manifest={"code": "demo", "version": "2.0.0"},
+        result=result,
+        temp_dir=None,
+    )
+    migration_calls: list[str] = []
+    coordinator.runtime_installer.execute_migrations = (
+        lambda *_args: migration_calls.append("called")
+    )
+
+    coordinator.execute_candidate_migrations(result)
+
+    assert migration_calls == []
+    assert result.migration_status == {"demo": "skipped"}
+
+
+def test_changed_migration_contract_uses_existing_execution_path(tmp_path: Path) -> None:
+    coordinator, live = _coordinator(tmp_path)
+    candidate = _candidate(tmp_path)
+    _write_migration_contract(
+        live,
+        body='revision = "demo_001"\ndown_revision = None\ndef upgrade():\n    pass\n',
+    )
+    _write_migration_contract(
+        candidate,
+        body=(
+            'revision = "demo_001"\n'
+            "down_revision = None\n"
+            "def upgrade():\n"
+            "    create_new_schema()\n"
+        ),
+    )
+    result = InstallResult(capability_code="demo")
+    coordinator.prepare(
+        cap_dir=candidate,
+        manifest={"code": "demo", "version": "2.0.0"},
+        result=result,
+        temp_dir=None,
+    )
+    migration_calls: list[str] = []
+
+    def execute_migrations(capability_code: str, install_result: InstallResult) -> None:
+        migration_calls.append(capability_code)
+        install_result.migration_status = {capability_code: "applied"}
+
+    coordinator.runtime_installer.execute_migrations = execute_migrations
+
+    coordinator.execute_candidate_migrations(result)
+
+    assert migration_calls == ["demo"]
+    assert result.migration_status == {"demo": "applied"}
 
 
 def test_candidate_prepare_does_not_mutate_live_and_restore_is_exact(tmp_path: Path) -> None:
