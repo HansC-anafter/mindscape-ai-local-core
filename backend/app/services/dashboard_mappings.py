@@ -23,28 +23,6 @@ EXECUTION_TO_CASE_STATUS: Dict[str, str] = {
     "cancelled": "cancelled",
 }
 
-# Task Status -> Assignment Status
-TASK_TO_ASSIGNMENT_STATUS: Dict[str, str] = {
-    "pending": "pending",
-    "running": "in_progress",
-    "succeeded": "completed",
-    "failed": "failed",
-    "cancelled_by_user": "cancelled",
-    "expired": "cancelled",
-}
-
-# Inbox priority tier mapping (from cloud specification)
-INBOX_PRIORITY_TIER: Dict[str, int] = {
-    "needs_changes": 0,
-    "pending_decision": 1,
-    "assignment": 2,
-    "mention": 3,
-    "delegated_pending": 4,
-    "system_alert": 5,
-    "case_update": 6,
-}
-
-
 # ==================== Field Mappings ====================
 
 
@@ -53,7 +31,6 @@ def map_execution_to_case(
     workspace_id: str,
     workspace_name: str,
     owner_user_id: str,
-    tasks_count: int = 0,
 ) -> Dict[str, Any]:
     """
     Playbook Execution -> CaseCardDTO complete field mapping
@@ -95,7 +72,7 @@ def map_execution_to_case(
         "due_at": None,
         "is_overdue": False,
         # Statistics
-        "open_assignments_count": tasks_count,
+        "open_assignments_count": 0,
         "artifacts_count": 0,
         "threads_count": 0,
         # Recent activity
@@ -114,64 +91,6 @@ def map_execution_to_case(
         "updated_at": _parse_datetime(execution.get("updated_at")) or _utc_now(),
     }
 
-
-def map_task_to_assignment(
-    task: Any, workspace_id: str, workspace_name: str, owner_user_id: str
-) -> Dict[str, Any]:
-    """
-    Task -> AssignmentCardDTO complete field mapping
-
-    Explicitly defines source for each field
-    """
-    exec_context = task.execution_context or {}
-    status = task.status.value if hasattr(task.status, "value") else str(task.status)
-
-    return {
-        # Required fields
-        "id": task.id,
-        "status": TASK_TO_ASSIGNMENT_STATUS.get(status, "pending"),
-        # Case association
-        "case_id": task.execution_id,
-        "case_title": exec_context.get("playbook_code", ""),
-        "case_group_id": None,
-        "case_group_name": None,
-        # Workspace association
-        "source_workspace_id": workspace_id,
-        "source_workspace_name": workspace_name,
-        "target_workspace_id": workspace_id,
-        "target_workspace_name": workspace_name,
-        # Title/description
-        "title": task.task_type,
-        "description": task.params.get("description", "") if task.params else "",
-        # Review status (not supported in Local-Core)
-        "review_status": None,
-        # Priority/due date (not supported in Local-Core)
-        "priority": 0,
-        "due_at": None,
-        "is_overdue": False,
-        # Assignee
-        "claimed_by_user_id": owner_user_id if status == "running" else None,
-        "claimed_by_name": None,
-        "claimed_by_avatar": None,
-        "delegated_by_user_id": None,
-        "delegated_by_name": None,
-        "delegated_by_avatar": None,
-        # Artifacts (not supported in Local-Core)
-        "required_artifacts": [],
-        "submitted_artifacts": [],
-        # Actions
-        "available_actions": _get_assignment_actions(status),
-        # Routing (not supported in Local-Core)
-        "hop_count": 1,
-        "max_hops": 1,
-        "routing_reason": None,
-        # Timestamps
-        "created_at": task.created_at,
-        "claimed_at": task.started_at,
-        "completed_at": task.completed_at,
-    }
-
-
 def _get_case_actions(status: str) -> list:
     """Return available actions based on status"""
     actions_map = {
@@ -182,20 +101,6 @@ def _get_case_actions(status: str) -> list:
     }
     case_status = EXECUTION_TO_CASE_STATUS.get(status, "open")
     return actions_map.get(case_status, [])
-
-
-def _get_assignment_actions(status: str) -> list:
-    """Return available actions based on status"""
-    actions_map = {
-        "pending": ["view_detail"],
-        "in_progress": ["view_detail"],
-        "completed": ["view_detail"],
-        "failed": ["view_detail", "retry"],
-        "cancelled": ["view_detail"],
-    }
-    assignment_status = TASK_TO_ASSIGNMENT_STATUS.get(status, "pending")
-    return actions_map.get(assignment_status, [])
-
 
 def _parse_datetime(value: Any) -> Optional[datetime]:
     """Parse datetime"""

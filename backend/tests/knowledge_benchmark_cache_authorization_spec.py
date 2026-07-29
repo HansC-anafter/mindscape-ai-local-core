@@ -37,7 +37,9 @@ def _seed():
     return {
         "cache_key": "c" * 64,
         "projection_digest": "p" * 64,
-        "retrieval_revision": "knowledge-retrieval.cjk-graph-seed.v4",
+        "retrieval_revision": (
+            "knowledge-retrieval.source-identity-receipt.v5"
+        ),
         "request_digest": "r" * 64,
         "question": {
             "question_row_id": "kbq_1",
@@ -139,7 +141,7 @@ async def test_cache_hit_requires_exact_final_binding() -> None:
 
     assert result["cache_status"] == "hit"
     assert result["retrieval_revision"] == (
-        "knowledge-retrieval.cjk-graph-seed.v4"
+        "knowledge-retrieval.source-identity-receipt.v5"
     )
     assert result["result"]["evidence"][0]["content"] == "cached"
     assert store.hit == 1

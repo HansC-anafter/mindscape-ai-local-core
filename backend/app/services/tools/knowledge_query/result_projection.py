@@ -55,6 +55,12 @@ def project_search_result(
             "transaction_count": result.transaction_count,
             "evidence_is_instruction": False,
             "fusion_revision": result.fusion_revision,
+            "execution_path": {
+                "selection_source": "caller_explicit",
+                "requested_mode": result.requested_mode,
+                "executed_mode": result.executed_mode,
+                "fusion_revision": result.fusion_revision,
+            },
         },
     }
     return enforce_result_budget(payload)

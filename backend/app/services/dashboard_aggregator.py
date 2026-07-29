@@ -3,6 +3,7 @@ Dashboard Aggregator service
 Responsible for aggregating data from Local-Core tables to Dashboard DTOs
 """
 
+import asyncio
 import logging
 from typing import Optional, List
 from datetime import datetime, timezone
@@ -22,7 +23,6 @@ from ..models.dashboard import (
     WorkspaceCardDTO,
     PaginatedResponse,
     DashboardQuery,
-    InboxItemType,
     WorkspaceSetupStatus,
     SetupItem,
 )
@@ -30,11 +30,9 @@ from ..models.workspace import WorkspaceType
 from ..dependencies.auth import AuthContext
 from ..utils.scope import ParsedScope
 from ..services.mindscape_store import MindscapeStore
-from ..services.stores.tasks_store import TasksStore
+from .dashboard_workload_query_service import DashboardWorkloadQueryService
 from .dashboard_mappings import (
     map_execution_to_case,
-    map_task_to_assignment,
-    INBOX_PRIORITY_TIER,
 )
 
 logger = logging.getLogger(__name__)
@@ -48,12 +46,20 @@ class DashboardAggregator:
         "mentions",
         "delegated_pending",
         "overdue_items",
+        "open_assignments",
     ]
 
-    def __init__(self, store: MindscapeStore):
+    def __init__(
+        self,
+        store: MindscapeStore,
+        *,
+        workload_query_service: DashboardWorkloadQueryService | None = None,
+    ):
         self.store = store
         self.executions_store = store.playbook_executions
-        self.tasks_store = TasksStore()
+        self.workload_query_service = (
+            workload_query_service or DashboardWorkloadQueryService()
+        )
 
     async def get_summary(
         self,
@@ -80,6 +86,10 @@ class DashboardAggregator:
 
         # Collect warnings
         warnings = effective_scope.warnings.copy()
+        warnings.append(
+            "open_assignments not supported in Local-Core "
+            "(runtime tasks are not user assignments)"
+        )
 
         return DashboardSummaryDTO(
             scope=(
@@ -105,7 +115,7 @@ class DashboardAggregator:
 
         Sorting rules (cloud specification):
         1. pending_decision (tier 1) - NOT SUPPORTED in Local-Core
-        2. assignment (tier 2) - SUPPORTED (from pending tasks)
+        2. assignment (tier 2) - NOT SUPPORTED in Local-Core
         3. mention (tier 3) - NOT SUPPORTED in Local-Core
         4. delegated_pending (tier 4) - NOT SUPPORTED in Local-Core
         5. system_alert (tier 5) - PARTIALLY SUPPORTED (needs_setup)
@@ -113,31 +123,16 @@ class DashboardAggregator:
 
         Within same tier: due_at ascending (None last), created_at descending
         """
-        workspace_ids = self._get_workspace_ids_for_scope(auth, effective_scope)
-        items: List[InboxItemDTO] = []
-
-        # 1. Collect pending tasks -> assignment type (tier 2)
-        for ws_id in workspace_ids:
-            tasks = self.tasks_store.list_pending_tasks(ws_id)
-            for task in tasks:
-                items.append(self._task_to_inbox_item(task, ws_id))
-
-        # 2. Add system_alert items (tier 5) from needs_setup
+        # Add system_alert items (tier 5) from needs_setup
         # Local-Core: system_alert items represent workspaces that need setup
         # Note: Currently _calculate_needs_setup returns empty list
         # When implemented, it should return SetupItem enum values, and we can create alerts
-        # For now, system_alert items are not generated (only assignment items exist)
-
-        # 3. Sort (using cloud specification)
-        items.sort(key=self._inbox_sort_key)
-
-        # 4. Pagination
-        total = len(items)
-        items = items[query.offset : query.offset + query.limit]
+        # For now, system_alert items are not generated.
 
         # Collect warnings about unsupported inbox types
         # NOTE: Local-Core does not generate items for these types:
         # - pending_decision (tier 1): No decision table exists
+        # - assignment (tier 2): Runtime tasks are not user assignments
         # - mention (tier 3): No mention table exists
         # - delegated_pending (tier 4): No delegation flow exists
         # - system_alert (tier 5): Partially supported (only workspace setup, currently empty)
@@ -145,6 +140,7 @@ class DashboardAggregator:
         unsupported_warnings = [
             "pending_decision items not generated in Local-Core (no decision table)",
             "mention items not generated in Local-Core (no mention table)",
+            "assignment items not generated in Local-Core (runtime tasks are not user assignments)",
             "needs_changes items not generated in Local-Core (assignment has no review_status)",
             "delegated_pending items not generated in Local-Core (no delegation flow)",
             "system_alert items partially supported (only workspace setup alerts, currently none generated)",
@@ -152,11 +148,11 @@ class DashboardAggregator:
         ]
 
         return PaginatedResponse(
-            items=items,
-            total=total,
+            items=[],
+            total=0,
             limit=query.limit,
             offset=query.offset,
-            has_more=query.offset + len(items) < total,
+            has_more=False,
             warnings=effective_scope.warnings + unsupported_warnings,
         )
 
@@ -175,18 +171,17 @@ class DashboardAggregator:
             if not workspace:
                 continue
 
-            executions = self.executions_store.list_executions_by_workspace(
-                ws_id, limit=100
+            executions = await asyncio.to_thread(
+                self.executions_store.list_executions_by_workspace,
+                ws_id,
+                100,
             )
-            tasks_by_exec = self._group_tasks_by_execution(ws_id)
-
             for exec in executions:
                 case_data = map_execution_to_case(
                     execution=exec.__dict__,
                     workspace_id=ws_id,
                     workspace_name=workspace.title,
                     owner_user_id=auth.user_id,
-                    tasks_count=len(tasks_by_exec.get(exec.id, [])),
                 )
                 cases.append(CaseCardDTO(**case_data))
 
@@ -217,50 +212,18 @@ class DashboardAggregator:
         effective_scope: ParsedScope,
     ) -> PaginatedResponse[AssignmentCardDTO]:
         """Get Assignment card list"""
-        workspace_ids = self._get_workspace_ids_for_scope(auth, effective_scope)
-        assignments: List[AssignmentCardDTO] = []
-
-        for ws_id in workspace_ids:
-            workspace = await self.store.get_workspace(ws_id)
-            if not workspace:
-                continue
-
-            tasks = self.tasks_store.list_tasks_by_workspace(ws_id, limit=100)
-            for task in tasks:
-                assignment_data = map_task_to_assignment(
-                    task=task,
-                    workspace_id=ws_id,
-                    workspace_name=workspace.title,
-                    owner_user_id=auth.user_id,
-                )
-                assignments.append(AssignmentCardDTO(**assignment_data))
-
-        # Sort: pending first, created_at desc
-        assignments.sort(
-            key=lambda a: (
-                0 if a.status == "pending" else 1,
-                -a.created_at.timestamp() if a.created_at else 0,
-            )
-        )
-
-        total = len(assignments)
-        assignments = assignments[query.offset : query.offset + query.limit]
-
         return PaginatedResponse(
-            items=assignments,
-            total=total,
+            items=[],
+            total=0,
             limit=query.limit,
             offset=query.offset,
-            has_more=query.offset + len(assignments) < total,
-            warnings=(
-                effective_scope.warnings
-                + [
-                    "review_status not supported in Local-Core",
-                    "due_at not supported in Local-Core",
-                ]
-                if assignments
-                else effective_scope.warnings
-            ),
+            has_more=False,
+            warnings=effective_scope.warnings
+            + [
+                "assignments not supported in Local-Core (runtime tasks are not user assignments)",
+                "review_status not supported in Local-Core",
+                "due_at not supported in Local-Core",
+            ],
         )
 
     # ==================== Private Methods ====================
@@ -280,54 +243,13 @@ class DashboardAggregator:
             # group scope should have been downgraded to global
             return auth.workspace_ids
 
-    def _inbox_sort_key(self, item: InboxItemDTO):
-        """
-        Inbox sort key (cloud specification)
-
-        1. Priority tier (lower number = higher priority)
-        2. due_at ascending (None last)
-        3. created_at descending
-        """
-        tier = INBOX_PRIORITY_TIER.get(item.item_type.value, 99)
-        due_ts = item.due_at.timestamp() if item.due_at else float("inf")
-        created_ts = -item.created_at.timestamp()
-        return (tier, due_ts, created_ts)
-
-    def _task_to_inbox_item(self, task, workspace_id: str) -> InboxItemDTO:
-        """Convert Task to InboxItemDTO"""
-        exec_context = task.execution_context or {}
-        return InboxItemDTO(
-            id=task.id,
-            item_type=InboxItemType.ASSIGNMENT,
-            source_type="task",
-            source_id=task.id,
-            workspace_id=workspace_id,
-            workspace_name=None,
-            case_id=task.execution_id,
-            case_title=exec_context.get("playbook_code"),
-            thread_id=None,
-            title=task.task_type,
-            summary=task.params.get("description", "") if task.params else "",
-            status=task.status.value,
-            priority=0,
-            is_overdue=False,
-            due_at=None,
-            assignee_user_id=None,
-            assignee_name=None,
-            created_by_user_id=None,
-            created_by_name=None,
-            available_actions=["view_detail"],
-            extra={},
-            created_at=task.created_at,
-            updated_at=task.started_at or task.created_at,
-        )
-
     async def _calculate_counts(self, workspace_ids: List[str]) -> DashboardCountsDTO:
         """
         Calculate count statistics
 
         NOTE: Local-Core limitations (these counts are always 0):
         - pending_decisions: Always 0 (no decision table exists)
+        - open_assignments: Always 0 (runtime tasks are not user assignments)
         - mentions: Always 0 (no mention table exists)
         - delegated_pending: Always 0 (no delegation flow exists)
         - overdue_items: Always 0 (tasks table has no due_at field)
@@ -335,48 +257,14 @@ class DashboardAggregator:
         These limitations are documented in DashboardSummaryDTO.not_supported
         and DashboardSummaryDTO.warnings fields.
         """
-        open_cases = 0
-        blocked_cases = 0
-        open_assignments = 0
-        running_jobs = 0
-
-        for ws_id in workspace_ids:
-            executions = self.executions_store.list_executions_by_workspace(ws_id)
-            for exec in executions:
-                if exec.status == "running":
-                    open_cases += 1
-                    running_jobs += 1
-                elif exec.status in ("paused", "failed"):
-                    blocked_cases += 1
-
-            tasks = self.tasks_store.list_pending_tasks(ws_id)
-            open_assignments += len(tasks)
-
-        return DashboardCountsDTO(
-            pending_decisions=0,  # Local-Core does not support decisions
-            open_assignments=open_assignments,
-            open_cases=open_cases,
-            blocked_cases=blocked_cases,
-            running_jobs=running_jobs,
-            overdue_items=0,  # Local-Core does not support due_at
-            mentions=0,  # Local-Core does not support mentions
-            delegated_pending=0,  # Local-Core does not support delegation
+        return await self.workload_query_service.load_counts(
+            workspace_ids,
         )
 
     async def _calculate_needs_setup(self, workspace_ids: List[str]) -> List[SetupItem]:
         """Calculate setup requirements"""
         # Simplified: return empty list, can be extended in the future
         return []
-
-    def _group_tasks_by_execution(self, workspace_id: str) -> dict:
-        """Group tasks by execution_id"""
-        tasks = self.tasks_store.list_tasks_by_workspace(workspace_id)
-        grouped = {}
-        for task in tasks:
-            exec_id = task.execution_id
-            if exec_id:
-                grouped.setdefault(exec_id, []).append(task)
-        return grouped
 
     async def get_workspaces(
         self,
@@ -417,14 +305,13 @@ class DashboardAggregator:
                 continue  # Skip all workspaces since pinning is not implemented
 
             # Get workspace statistics
-            executions = self.executions_store.list_executions_by_workspace(
-                ws_id, limit=100
+            executions = await asyncio.to_thread(
+                self.executions_store.list_executions_by_workspace,
+                ws_id,
+                100,
             )
-            tasks = self.tasks_store.list_tasks_by_workspace(ws_id, limit=100)
-
             open_cases = sum(1 for e in executions if e.status == "running")
             running_jobs = open_cases
-            pending_tasks = [t for t in tasks if t.status.value == "pending"]
             pending_decisions = 0  # Local-Core does not support decisions
 
             # Determine setup status

@@ -55,6 +55,7 @@ class AuthorizationAwareKnowledgeGraphQueryService:
                 scope_type=request.scope_type,
                 scope_id=request.scope_id,
                 source_apps=request.source_apps,
+                source_ids=request.source_ids,
                 owner_capabilities=request.owner_capabilities,
                 modality_filter=request.modality_filter,
                 candidate_limit=min(40, request.top_k * 2),
@@ -79,6 +80,7 @@ class AuthorizationAwareKnowledgeGraphQueryService:
                 scope_type=request.scope_type,
                 scope_id=request.scope_id,
                 source_apps=request.source_apps,
+                source_ids=request.source_ids,
                 owner_capabilities=request.owner_capabilities,
                 modality_filter=request.modality_filter,
                 max_hops=max_hops,
@@ -171,6 +173,7 @@ class AuthorizationAwareKnowledgeGraphQueryService:
                     query_seed_bindings
                 ),
                 "requested_modality": request.modality_filter,
+                "applied_source_ids": list(request.source_ids),
             },
         )
 
