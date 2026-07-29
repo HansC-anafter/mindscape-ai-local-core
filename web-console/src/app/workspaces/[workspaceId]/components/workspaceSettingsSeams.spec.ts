@@ -243,11 +243,17 @@ describe('workspace settings component seams', () => {
     const providerCoreSource = readWebConsoleFile('src/app/workspaces/[workspaceId]/components/workspaceGlobalToolRailCoreContributions.tsx');
     const runtimeFrameSource = readWebConsoleFile('src/app/workspaces/[workspaceId]/capability-ui-hosts/CapabilityHostRuntimeFrame.tsx');
     const runtimeFrameContributionSource = readWebConsoleFile('src/app/workspaces/[workspaceId]/capability-ui-hosts/capabilityHostRuntimeFrame/workspaceToolContributions.tsx');
+    const lazyPanelSource = readWebConsoleFile('src/components/workspace/workspaceCoreToolPanelLazyComponents.ts');
 
     expect(providerSource).toContain("from './workspaceGlobalToolRailCoreContributions'");
-    expect(providerCoreSource).toContain("import('../capability-ui-hosts/WorkspaceSettingsToolPanel')");
+    expect(providerCoreSource).toContain("from '@/components/workspace/workspaceCoreToolPanelLazyComponents'");
     expect(runtimeFrameSource).toContain("from './capabilityHostRuntimeFrame/workspaceToolContributions'");
-    expect(runtimeFrameContributionSource).toContain("import('../WorkspaceSettingsToolPanel')");
+    expect(runtimeFrameContributionSource).toContain("from '@/components/workspace/workspaceCoreToolPanelLazyComponents'");
+    expect(lazyPanelSource).toContain(
+      "import('@/app/workspaces/[workspaceId]/capability-ui-hosts/WorkspaceSettingsToolPanel')",
+    );
+    expect(providerCoreSource).not.toContain('React.lazy');
+    expect(runtimeFrameContributionSource).not.toContain('React.lazy');
     expect(providerSource).not.toContain("import('./WorkspaceSettings')");
     expect(providerCoreSource).not.toContain("import('./WorkspaceSettings')");
     expect(runtimeFrameSource).not.toContain('components/WorkspaceSettings');

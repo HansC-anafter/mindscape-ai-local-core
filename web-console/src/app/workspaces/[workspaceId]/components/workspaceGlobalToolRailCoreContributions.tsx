@@ -3,12 +3,13 @@ import { Activity, GitGraph, Package, Settings as SettingsIcon, Smartphone } fro
 
 import { openAppRouteInNewWindow } from '@/lib/navigation/openAppRouteInNewWindow';
 import { useT } from '@/lib/i18n';
+import {
+  MotionSourceRailPanel,
+  WorkspacePackToolPanel,
+  WorkspaceRunsPanel,
+  WorkspaceSettingsToolPanel,
+} from '@/components/workspace/workspaceCoreToolPanelLazyComponents';
 import type { WorkspaceGlobalToolContribution } from './useWorkspaceGlobalToolRail';
-
-const WorkspaceRunsPanel = React.lazy(() => import('../capability-ui-hosts/WorkspaceRunsPanel'));
-const WorkspaceSettingsToolPanel = React.lazy(() => import('../capability-ui-hosts/WorkspaceSettingsToolPanel'));
-const WorkspacePackToolPanel = React.lazy(() => import('../capability-ui-hosts/WorkspacePackToolPanel'));
-const MotionSourceRailPanel = React.lazy(() => import('@/components/workspace/device-binding/MotionSourceRailPanel'));
 
 interface WorkspaceCoreToolContributionsOptions {
   activeCapabilityCode: string | null;
