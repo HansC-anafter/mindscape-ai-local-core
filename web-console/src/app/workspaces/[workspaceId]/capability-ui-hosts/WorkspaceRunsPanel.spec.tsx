@@ -3,16 +3,18 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useWorkspaceDataOptional } from '@/contexts/WorkspaceDataContext';
-import {
-  loadCapabilityUIComponent,
-  primeCapabilityUIComponentMetadata,
-} from '@/lib/capability-ui-loader';
+import { loadLocalizedCapabilityUiComponent } from '@/lib/localized-capability-ui-component-loader';
 import { sharedGetFetch } from '@/lib/resilient-fetch';
 import { getWorkspaceToolDefinitions } from './useWorkspaceToolDefinitions';
 import WorkspaceRunsPanel from './WorkspaceRunsPanel';
 
 vi.mock('@/lib/api-url', () => ({
   getApiBaseUrl: () => 'http://api.test',
+}));
+
+vi.mock('@/lib/i18n', () => ({
+  useLocaleContext: () => ({ locale: 'zh-TW' }),
+  useT: () => (key: string) => key,
 }));
 
 vi.mock('@/lib/page-visibility', () => ({
@@ -27,9 +29,8 @@ vi.mock('@/lib/resilient-fetch', () => ({
   sharedGetFetch: vi.fn(),
 }));
 
-vi.mock('@/lib/capability-ui-loader', () => ({
-  loadCapabilityUIComponent: vi.fn(),
-  primeCapabilityUIComponentMetadata: vi.fn(),
+vi.mock('@/lib/localized-capability-ui-component-loader', () => ({
+  loadLocalizedCapabilityUiComponent: vi.fn(),
 }));
 
 vi.mock('./useWorkspaceToolDefinitions', () => ({
@@ -83,8 +84,7 @@ describe('WorkspaceRunsPanel', () => {
       refreshExecutions: vi.fn(),
     } as any);
     vi.mocked(getWorkspaceToolDefinitions).mockResolvedValue([]);
-    vi.mocked(loadCapabilityUIComponent).mockResolvedValue(null);
-    vi.mocked(primeCapabilityUIComponentMetadata).mockImplementation(() => undefined);
+    vi.mocked(loadLocalizedCapabilityUiComponent).mockResolvedValue(null);
     vi.mocked(sharedGetFetch).mockImplementation(async (input) => {
       const url = String(input);
       if (url.includes('status=running')) {
@@ -192,8 +192,23 @@ describe('WorkspaceRunsPanel', () => {
 
   it('renders the installed capability runs panel without starting fallback polling', async () => {
     vi.mocked(getWorkspaceToolDefinitions).mockResolvedValue([IG_RUNS_TOOL as any]);
-    vi.mocked(loadCapabilityUIComponent).mockResolvedValue(function MockIGRunsWorkspaceToolPanel() {
-      return <div data-testid="ig-runs-panel">IG runs panel</div>;
+    vi.mocked(loadLocalizedCapabilityUiComponent).mockResolvedValue({
+      Component: function MockIGRunsWorkspaceToolPanel({ localization }: any) {
+        return (
+          <div data-testid="ig-runs-panel" data-localization-locale={localization?.requestedLocale}>
+            IG runs panel
+          </div>
+        );
+      },
+      localization: {
+        contract: 'mindscape-capability-ui-localization-bridge-v1',
+        requestedLocale: 'zh-TW',
+        effectiveLocale: 'zh-TW',
+        direction: 'ltr',
+        sourceLocale: 'en',
+        status: 'localized',
+        t: (key: string) => key,
+      },
     });
 
     render(
@@ -222,15 +237,16 @@ describe('WorkspaceRunsPanel', () => {
     expect(screen.queryByTestId('workspace-run-observations-panel')).not.toBeInTheDocument();
     expect(screen.queryByText('2 running · 1 pending')).not.toBeInTheDocument();
     expect(vi.mocked(sharedGetFetch)).not.toHaveBeenCalled();
-    expect(vi.mocked(primeCapabilityUIComponentMetadata)).toHaveBeenCalledWith(
-      'ig',
-      [IG_RUNS_TOOL.panel_component],
+    expect(screen.getByTestId('ig-runs-panel')).toHaveAttribute(
+      'data-localization-locale',
+      'zh-TW',
     );
-    expect(vi.mocked(loadCapabilityUIComponent)).toHaveBeenCalledWith(
-      'ig',
-      'IGRunsWorkspaceToolPanel',
-      'http://api.test',
-      'ws_test',
-    );
+    expect(vi.mocked(loadLocalizedCapabilityUiComponent)).toHaveBeenCalledWith({
+      apiUrl: 'http://api.test',
+      capabilityCode: 'ig',
+      componentCode: 'IGRunsWorkspaceToolPanel',
+      requestedLocale: 'zh-TW',
+      workspaceId: 'ws_test',
+    });
   });
 });

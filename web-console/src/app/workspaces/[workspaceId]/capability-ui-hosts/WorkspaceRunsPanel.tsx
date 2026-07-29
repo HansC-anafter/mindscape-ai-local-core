@@ -8,13 +8,15 @@ import WorkspacePausedRunsPanel from '@/components/workspace/WorkspacePausedRuns
 import WorkspaceRunObservationsPanel from '@/components/workspace/WorkspaceRunObservationsPanel';
 import { useWorkspaceDataOptional } from '@/contexts/WorkspaceDataContext';
 import { getApiBaseUrl } from '@/lib/api-url';
+import type { CapabilityUiLocalizationBridgeV1 } from '@/lib/capability-ui-localization';
+import { loadLocalizedCapabilityUiComponent } from '@/lib/localized-capability-ui-component-loader';
 import {
   type WorkspaceToolDefinition,
 } from '@/lib/workspace-tools/workspace-tool-registry';
 import type { UseRunObservationsSummaryResult } from '@/lib/workspace-runs/useRunObservationsSummary';
 import WorkspaceRunsFallbackPanel from './WorkspaceRunsFallbackPanel';
 import { getWorkspaceToolDefinitions } from './useWorkspaceToolDefinitions';
-import { useT } from '@/lib/i18n';
+import { useLocaleContext, useT } from '@/lib/i18n';
 
 interface WorkspaceRunsPanelProps {
   workspaceId: string;
@@ -74,10 +76,12 @@ export default function WorkspaceRunsPanel({
   runObservationsSummary,
 }: WorkspaceRunsPanelProps) {
   const apiUrl = getApiBaseUrl();
+  const { locale } = useLocaleContext();
   const t = useT();
   const workspaceData = useWorkspaceDataOptional();
   const [activeView, setActiveView] = useState<WorkspaceRunsView>('active');
   const [Component, setComponent] = useState<React.ComponentType<any> | null>(null);
+  const [localization, setLocalization] = useState<CapabilityUiLocalizationBridgeV1 | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -88,6 +92,7 @@ export default function WorkspaceRunsPanel({
     let cancelled = false;
     setLoading(true);
     setComponent(null);
+    setLocalization(null);
     if (!activeCapabilityCode) {
       setLoading(false);
       return () => {
@@ -100,37 +105,32 @@ export default function WorkspaceRunsPanel({
         if (!runsPanelTool) {
           return null;
         }
-        const {
-          loadCapabilityUIComponent,
-          primeCapabilityUIComponentMetadata,
-        } = await import('@/lib/capability-ui-loader');
-        primeCapabilityUIComponentMetadata(
-          runsPanelTool.capability_code,
-          [runsPanelTool.panel_component],
-        );
-        return loadCapabilityUIComponent(
-          runsPanelTool.capability_code,
-          runsPanelTool.panel_component_code,
+        return loadLocalizedCapabilityUiComponent({
           apiUrl,
+          capabilityCode: runsPanelTool.capability_code,
+          componentCode: runsPanelTool.panel_component_code,
+          requestedLocale: locale,
           workspaceId,
-        );
+        });
       })
-      .then((LoadedComponent) => {
+      .then((loaded) => {
         if (!cancelled) {
-          setComponent(() => LoadedComponent);
+          setComponent(() => loaded?.Component || null);
+          setLocalization(loaded?.localization || null);
           setLoading(false);
         }
       })
       .catch(() => {
         if (!cancelled) {
           setComponent(null);
+          setLocalization(null);
           setLoading(false);
         }
       });
     return () => {
       cancelled = true;
     };
-  }, [activeCapabilityCode, apiUrl, workspaceId]);
+  }, [activeCapabilityCode, apiUrl, locale, workspaceId]);
 
   const activeContent = loading ? (
     <div className="p-2 text-xs text-gray-500 dark:text-gray-400">
@@ -143,7 +143,12 @@ export default function WorkspaceRunsPanel({
     </>
   ) : (
     <div className="min-h-0 flex-1 overflow-hidden">
-      <Component workspaceId={workspaceId} apiUrl={apiUrl} embedded />
+      <Component
+        workspaceId={workspaceId}
+        apiUrl={apiUrl}
+        embedded
+        localization={localization}
+      />
     </div>
   );
 
