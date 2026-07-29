@@ -248,6 +248,10 @@ describe('workspace settings component seams', () => {
     expect(providerSource).toContain("from './workspaceGlobalToolRailCoreContributions'");
     expect(providerCoreSource).toContain("from '@/components/workspace/workspaceCoreToolPanelLazyComponents'");
     expect(runtimeFrameSource).toContain("from './capabilityHostRuntimeFrame/workspaceToolContributions'");
+    expect(runtimeFrameSource).toContain(
+      "import { WorkspaceGroupContextProvider } from '@/contexts/WorkspaceGroupContext'",
+    );
+    expect(runtimeFrameSource).toContain('<WorkspaceGroupContextProvider workspaceId={workspaceId}>');
     expect(runtimeFrameContributionSource).toContain("from '@/components/workspace/workspaceCoreToolPanelLazyComponents'");
     expect(lazyPanelSource).toContain(
       "import('@/app/workspaces/[workspaceId]/capability-ui-hosts/WorkspaceSettingsToolPanel')",
