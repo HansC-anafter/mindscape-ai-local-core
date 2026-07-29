@@ -4,6 +4,10 @@ from types import SimpleNamespace
 
 import pytest
 
+from backend.app.models.guided_learning_contract import (
+    GuidedLearningContext,
+    GuidedLearningRoute,
+)
 from backend.app.models.request_contract import (
     GroundedKnowledgeAnswerRequest,
     RequestContract,
@@ -41,7 +45,7 @@ class _LLM:
         )
 
 
-def _contract(*, modes=("hybrid",)) -> RequestContract:
+def _contract(*, modes=("hybrid",), guided=False) -> RequestContract:
     return RequestContract(
         goals=["Explain the evolutionary relationship."],
         source_message="Why are birds living dinosaurs?",
@@ -50,6 +54,37 @@ def _contract(*, modes=("hybrid",)) -> RequestContract:
             question="Why are birds living dinosaurs?",
             retrieval_modes=modes,
             scope="workspace",
+            guided_learning_context=(
+                GuidedLearningContext(
+                    current_question_id="q:birds-dinosaurs",
+                    current_checkpoint_id="checkpoint:ancestry",
+                    current_competency_key=(
+                        "question_checkpoint:ancestry"
+                    ),
+                    belief_uncertainty=0.62,
+                    due_state="not_due",
+                    session_state="explore",
+                    why_this_next=(
+                        "先區分共同祖先與物種專屬 DNA。"
+                    ),
+                    next_routes=[
+                        GuidedLearningRoute(
+                            route_id="route:prerequisite",
+                            question_id="q:shared-ancestry",
+                            label="先補共同祖先",
+                            route_kind="prerequisite",
+                        ),
+                        GuidedLearningRoute(
+                            route_id="route:evidence",
+                            question_id="q:evidence",
+                            label="檢查證據種類",
+                            route_kind="branch",
+                        ),
+                    ],
+                )
+                if guided
+                else None
+            ),
         ),
     )
 
@@ -138,6 +173,41 @@ async def test_facade_answers_once_and_projects_only_compact_evidence_refs():
     assert "content" not in result.evidence_refs[0]
     assert result.evidence_refs[0]["source_id"] == "bird-1"
     assert len(query_port.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_guided_answer_projects_one_action_and_three_or_fewer_routes():
+    result = await GroundedKnowledgeAnswerFacade(
+        query_port=_QueryPort(
+            [
+                {
+                    "evidence": [
+                        {
+                            "content": "Birds descend from theropods.",
+                            "source_kind": "document",
+                            "source_id": "bird-1",
+                            "title": "Bird evolution",
+                            "modality": "text",
+                            "citation": {
+                                "citation_id": "external_doc:bird-1",
+                                "content_hash": "a" * 64,
+                            },
+                        }
+                    ],
+                    "coverage": {"mode": "hybrid"},
+                    "_meeting_admission_snapshot_hash": "b" * 64,
+                }
+            ]
+        )
+    ).answer(
+        contract=_contract(guided=True),
+        authority=_authority(),
+        llm=_LLM(),
+    )
+    assert result.guided_learning is not None
+    assert result.guided_learning.pedagogical_action == "probe"
+    assert len(result.guided_learning.route_choices) == 2
+    assert result.guided_learning.writes_mastery is False
 
 
 @pytest.mark.asyncio

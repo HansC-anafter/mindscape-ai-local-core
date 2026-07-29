@@ -16,6 +16,10 @@ from typing import Any, Awaitable, Callable, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
+from backend.app.models.guided_learning_contract import (
+    GuidedLearningContext,
+)
+
 
 class ScaleEstimate(str, Enum):
     """Estimated task scale — drives DecompositionPolicy selection."""
@@ -90,7 +94,7 @@ class GroundedKnowledgeAnswerRequest(BaseModel):
     ] = Field(default_factory=list, max_length=2)
     scope: Literal["workspace", "active_group"] = "workspace"
     frontier_preview: bool = False
-    guided_learning_context: Optional[Dict[str, Any]] = None
+    guided_learning_context: Optional[GuidedLearningContext] = None
 
 
 class RequestContract(BaseModel):

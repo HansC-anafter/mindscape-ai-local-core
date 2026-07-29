@@ -18,6 +18,7 @@ from .contracts import GroundedKnowledgeAnswerResult
 from .evidence_assembler import GroundedEvidenceAssembler, canonical_digest
 from .knowledge_query_port import MeetingKnowledgeQueryPort
 from .plan_compiler import GroundedKnowledgeAnswerPlanCompiler
+from .guided_learning import GuidedLearningTurnPolicy
 
 
 class GroundedKnowledgeAnswerFacade:
@@ -28,6 +29,7 @@ class GroundedKnowledgeAnswerFacade:
         plan_compiler: GroundedKnowledgeAnswerPlanCompiler | None = None,
         assembler: GroundedEvidenceAssembler | None = None,
         verifier: GroundedAnswerCitationVerifier | None = None,
+        guided_learning_policy: GuidedLearningTurnPolicy | None = None,
     ) -> None:
         self._query_port = query_port or MeetingKnowledgeQueryPort()
         self._plan_compiler = (
@@ -35,6 +37,9 @@ class GroundedKnowledgeAnswerFacade:
         )
         self._assembler = assembler or GroundedEvidenceAssembler()
         self._verifier = verifier or GroundedAnswerCitationVerifier()
+        self._guided_learning_policy = (
+            guided_learning_policy or GuidedLearningTurnPolicy()
+        )
 
     async def answer(
         self,
@@ -69,6 +74,9 @@ class GroundedKnowledgeAnswerFacade:
             ],
             "verification_status": "not_run",
         }
+        guided_learning = self._guided_learning_policy.project(
+            plan.guided_learning_context
+        )
         if not packet["evidence"]:
             return GroundedKnowledgeAnswerResult(
                 status="insufficient_evidence",
@@ -76,6 +84,7 @@ class GroundedKnowledgeAnswerFacade:
                     "目前沒有足夠且已授權的證據可以回答這個問題。"
                 ),
                 coverage={"operations": packet["coverage"]},
+                guided_learning=guided_learning,
                 receipt={
                     **base_receipt,
                     "verification_status": "insufficient_evidence",
@@ -100,6 +109,7 @@ class GroundedKnowledgeAnswerFacade:
                 citations=tuple(packet["citations"]),
                 evidence_refs=tuple(packet["evidence_refs"]),
                 coverage={"operations": packet["coverage"]},
+                guided_learning=guided_learning,
                 receipt={
                     **base_receipt,
                     "synthesis_call_count": 1,
@@ -134,6 +144,7 @@ class GroundedKnowledgeAnswerFacade:
             uncertainties=uncertainties,
             safety_notes=safety_notes,
             coverage={"operations": packet["coverage"]},
+            guided_learning=guided_learning,
             receipt={
                 **base_receipt,
                 "synthesis_call_count": 1,

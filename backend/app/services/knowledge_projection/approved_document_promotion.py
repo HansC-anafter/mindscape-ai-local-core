@@ -49,6 +49,10 @@ class ApprovedKnowledgeDocumentPromotionCommand(BaseModel):
     source_id: str = Field(min_length=1, max_length=256)
     doc_type: str = Field(min_length=1, max_length=128)
     source_revision: str = Field(min_length=1, max_length=256)
+    expected_active_revision: str | None = Field(
+        default=None,
+        max_length=256,
+    )
     owner_scope_type: Literal["workspace", "group"] = "workspace"
     owner_scope_id: str | None = Field(default=None, max_length=128)
     chunks: tuple[ApprovedKnowledgeDocumentChunk, ...] = Field(
@@ -168,6 +172,17 @@ class ApprovedKnowledgeDocumentPromotionFacade:
                 else ()
             ),
         )
+        active_revision = self._writer.active_revision(
+            access_context=access_context,
+            workspace_id=command.workspace_id,
+            owner_capability_code=command.owner_capability_code,
+            source_app=command.source_app,
+            source_id=command.source_id,
+        )
+        if active_revision != command.expected_active_revision:
+            raise ValueError(
+                "approved_knowledge_active_revision_drift"
+            )
         written = await self._writer.replace_document(
             access_context=access_context,
             workspace_id=command.workspace_id,
