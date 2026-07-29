@@ -10,7 +10,7 @@ from backend.app.services.knowledge_authorization import RetrievalAccessContext
 
 RetrievalMode = Literal["hybrid", "local_graph", "multi_hop", "global_graph"]
 KNOWLEDGE_RETRIEVAL_RUNTIME_REVISION = (
-    "knowledge-retrieval.cjk-graph-seed.v4"
+    "knowledge-retrieval.source-identity-receipt.v5"
 )
 
 
@@ -69,6 +69,7 @@ class KnowledgeRetrievalRequest:
     scope_id: str
     top_k: int = 5
     source_apps: tuple[str, ...] = ()
+    source_ids: tuple[str, ...] = ()
     owner_capabilities: tuple[str, ...] = ()
     retrieval_mode: RetrievalMode = "hybrid"
     modality_filter: Optional[Literal["text", "image", "video", "audio"]] = None
@@ -85,6 +86,11 @@ class KnowledgeRetrievalRequest:
             self,
             "source_apps",
             tuple(sorted(set(filter(None, self.source_apps)))),
+        )
+        object.__setattr__(
+            self,
+            "source_ids",
+            tuple(sorted(set(filter(None, self.source_ids)))),
         )
         object.__setattr__(
             self,

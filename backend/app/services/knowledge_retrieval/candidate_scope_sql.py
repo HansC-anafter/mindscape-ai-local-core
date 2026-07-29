@@ -1,44 +1,54 @@
-"""Shared authorization-first SQL preface for graph query leaves."""
+"""Authorization-first SQL preface for hybrid knowledge candidates."""
 
-from __future__ import annotations
-
-import json
-from typing import Any
-
-from backend.app.services.knowledge_authorization import RetrievalAccessContext
-
-
-AUTHORIZED_PROJECTIONS_CTE = """
+AUTHORIZED_CANDIDATES_CTE = """
 WITH request_principals AS (
     SELECT principal_type, principal_id
     FROM jsonb_to_recordset(%s::jsonb)
          AS principal(principal_type text, principal_id text)
 ),
-authorized_projections AS (
+authorized_rows AS (
     SELECT
-        projection.projection_revision_id,
-        projection.knowledge_resource_id,
-        projection.visibility_partition_hash,
-        resource.security_label_id,
-        resource.source_app,
-        resource.source_id,
-        resource.source_ref,
+        document.id,
+        document.source_app,
+        document.source_id,
+        document.doc_type,
+        document.title,
+        document.content,
+        document.embedding,
+        document.metadata,
+        document.knowledge_resource_id,
+        document.security_label_id,
+        document.projection_revision_id,
         resource.owner_capability_code,
+        resource.source_kind,
+        resource.source_ref,
         label.authz_revision
-    FROM knowledge_resource_projections AS projection
+    FROM external_docs AS document
     JOIN knowledge_resources AS resource
-      ON resource.knowledge_resource_id =
-         projection.knowledge_resource_id
+      ON resource.knowledge_resource_id = document.knowledge_resource_id
+     AND resource.security_label_id = document.security_label_id
      AND resource.active
      AND resource.deleted_at IS NULL
     JOIN knowledge_security_labels AS label
       ON label.security_label_id = resource.security_label_id
+    LEFT JOIN knowledge_resource_projections AS projection
+      ON projection.projection_revision_id = document.projection_revision_id
+     AND projection.knowledge_resource_id = resource.knowledge_resource_id
     WHERE resource.tenant_id = %s
       AND resource.owner_scope_type = %s
       AND resource.owner_scope_id = %s
-      AND projection.active
-      AND projection.status IN (
-          'active', 'degraded_channels', 'degraded_graph'
+      AND (
+          (
+              document.projection_revision_id IS NULL
+              AND LOWER(COALESCE(document.metadata->>'active', 'true')) = 'true'
+          )
+          OR (
+              document.projection_revision_id IS NOT NULL
+              AND projection.active
+              AND projection.status IN (
+                  'active', 'degraded_channels', 'degraded_graph'
+              )
+          )
       )
       AND EXISTS (
           SELECT 1
@@ -64,19 +74,36 @@ authorized_projections AS (
             AND (denied.valid_from IS NULL OR denied.valid_from <= NOW())
             AND (denied.valid_until IS NULL OR denied.valid_until > NOW())
       )
-      AND (%s::text[] IS NULL OR resource.source_app = ANY(%s::text[]))
-      AND (%s::text[] IS NULL OR resource.source_id = ANY(%s::text[]))
+      AND (%s::text[] IS NULL OR document.source_app = ANY(%s::text[]))
+      AND (%s::text[] IS NULL OR document.source_id = ANY(%s::text[]))
       AND (
           %s::text[] IS NULL
           OR resource.owner_capability_code = ANY(%s::text[])
       )
       AND (
           %s::text IS NULL
+          OR (
+              %s::text = 'text'
+              AND document.projection_revision_id IS NULL
+          )
           OR EXISTS (
               SELECT 1
-              FROM knowledge_embedding_channel_receipts AS channel
-              WHERE channel.projection_revision_id =
-                    projection.projection_revision_id
+              FROM knowledge_evidence_units AS evidence
+              JOIN knowledge_embedding_channel_receipts AS channel
+                ON channel.evidence_unit_row_id =
+                   evidence.evidence_unit_row_id
+               AND channel.projection_revision_id =
+                   evidence.projection_revision_id
+              WHERE evidence.projection_revision_id =
+                    document.projection_revision_id
+                AND (
+                    evidence.external_doc_id = document.id
+                    OR evidence.unit_key =
+                       COALESCE(
+                           document.metadata->>'chunk_id',
+                           document.source_id
+                       )
+                )
                 AND channel.modality = %s
                 AND channel.state = 'active'
           )
@@ -121,42 +148,4 @@ authorized_projections AS (
 """
 
 
-def common_parameters(
-    *,
-    context: RetrievalAccessContext,
-    scope_type: str,
-    scope_id: str,
-    source_apps: tuple[str, ...],
-    source_ids: tuple[str, ...],
-    owner_capabilities: tuple[str, ...],
-    modality_filter: str | None,
-) -> tuple[Any, ...]:
-    principals_json = json.dumps(
-        [
-            {"principal_type": item.type, "principal_id": item.id}
-            for item in context.principals
-        ],
-        sort_keys=True,
-        separators=(",", ":"),
-    )
-    agent_role = context.agent_mask.role if context.agent_mask else None
-    return (
-        principals_json,
-        context.tenant_id,
-        scope_type,
-        scope_id,
-        list(source_apps) or None,
-        list(source_apps) or None,
-        list(source_ids) or None,
-        list(source_ids) or None,
-        list(owner_capabilities) or None,
-        list(owner_capabilities) or None,
-        modality_filter,
-        modality_filter,
-        agent_role,
-        agent_role,
-        agent_role,
-    )
-
-
-__all__ = ["AUTHORIZED_PROJECTIONS_CTE", "common_parameters"]
+__all__ = ["AUTHORIZED_CANDIDATES_CTE"]
