@@ -15,6 +15,7 @@ def _workspace(workspace_id: str, owner: str = "user-1"):
     return SimpleNamespace(
         id=workspace_id,
         owner_user_id=owner,
+        visibility="private",
         updated_at=datetime(2026, 7, 27, tzinfo=timezone.utc),
     )
 
