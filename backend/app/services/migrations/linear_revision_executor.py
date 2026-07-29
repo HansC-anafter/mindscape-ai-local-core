@@ -32,14 +32,41 @@ def execute_linear_revision(
         postgres_url,
         "local-core-linear-migration",
     )
+    connection = engine.connect()
+    lock_key = f"alembic-linear:{expected_parent_revision}:{revision}"
+    lock_acquired = False
     try:
-        with engine.begin() as connection:
-            connection.execute(text("SET LOCAL lock_timeout = '5s'"))
-            connection.execute(text("SET LOCAL statement_timeout = '120s'"))
-            connection.execute(
-                text("SELECT pg_advisory_xact_lock(hashtext(:lock_key))"),
-                {"lock_key": f"alembic-linear:{expected_parent_revision}:{revision}"},
-            )
+        connection.execute(
+            text("SELECT pg_advisory_lock(hashtext(:lock_key))"),
+            {"lock_key": lock_key},
+        )
+        connection.commit()
+        lock_acquired = True
+        connection.execute(text("SET SESSION lock_timeout = '5s'"))
+        connection.execute(text("SET SESSION statement_timeout = '120s'"))
+        connection.commit()
+
+        with connection.begin():
+            current_revisions = {
+                str(row[0])
+                for row in connection.execute(
+                    text("SELECT version_num FROM alembic_version")
+                ).fetchall()
+            }
+            if revision in current_revisions:
+                return True
+            if expected_parent_revision not in current_revisions:
+                raise RuntimeError("linear_revision_parent_head_changed")
+
+        migration_context = MigrationContext.configure(
+            connection,
+            opts={"transactional_ddl": True},
+        )
+        with migration_context.begin_transaction():
+            with Operations.context(migration_context):
+                upgrade()
+
+        with connection.begin():
             connection.execute(
                 text("LOCK TABLE alembic_version IN SHARE ROW EXCLUSIVE MODE")
             )
@@ -53,13 +80,6 @@ def execute_linear_revision(
                 return True
             if expected_parent_revision not in current_revisions:
                 raise RuntimeError("linear_revision_parent_head_changed")
-
-            migration_context = MigrationContext.configure(
-                connection,
-                opts={"transactional_ddl": True},
-            )
-            with Operations.context(migration_context):
-                upgrade()
 
             result = connection.execute(
                 text(
@@ -85,6 +105,15 @@ def execute_linear_revision(
                 raise RuntimeError("linear_revision_receipt_readback_mismatch")
         return True
     finally:
+        if connection.in_transaction():
+            connection.rollback()
+        if lock_acquired:
+            connection.execute(
+                text("SELECT pg_advisory_unlock(hashtext(:lock_key))"),
+                {"lock_key": lock_key},
+            )
+            connection.commit()
+        connection.close()
         engine.dispose()
 
 
