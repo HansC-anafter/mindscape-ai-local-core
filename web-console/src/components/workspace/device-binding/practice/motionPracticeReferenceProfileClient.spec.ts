@@ -47,6 +47,7 @@ describe('motionPracticeReferenceProfileClient', () => {
     const result = await fetchMotionPracticeReferenceProfileSelection({
       apiUrl: 'https://remote-workbench.mindscapeai.app/',
       workspaceId: 'workspace-one',
+      capabilityCode: 'yogacoach',
       sourceRef: 'https://www.bilibili.com/video/BV13g4y1u7di/?tracking=1',
       fetchImpl,
     });
@@ -61,6 +62,7 @@ describe('motionPracticeReferenceProfileClient', () => {
     expect(url.searchParams.get('source_ref')).toBe(
       'https://www.bilibili.com/video/BV13g4y1u7di/?tracking=1',
     );
+    expect(url.searchParams.getAll('capability_code')).toEqual(['yogacoach']);
     expect(requestInit).toMatchObject({ credentials: 'same-origin' });
   });
 
@@ -87,6 +89,7 @@ describe('motionPracticeReferenceProfileClient', () => {
     await expect(fetchMotionPracticeReferenceProfileSelection({
       apiUrl: 'http://api.test',
       workspaceId: 'workspace-one',
+      capabilityCode: 'dance_motion_coach',
       sourceRef: selection.source_ref,
       fetchImpl: fetchImpl as typeof fetch,
     })).rejects.toMatchObject({

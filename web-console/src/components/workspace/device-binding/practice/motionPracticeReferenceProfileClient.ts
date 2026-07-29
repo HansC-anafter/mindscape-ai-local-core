@@ -1,3 +1,5 @@
+import type { MotionCoachCapabilityCode } from './motionPracticeLessonHandoff';
+
 export type MotionPracticeReferenceProfileChapter = {
   chapter_id: string;
   title: string;
@@ -185,6 +187,7 @@ function resolveApiBase(apiUrl: string): string {
 export async function fetchMotionPracticeReferenceProfileSelection(input: {
   apiUrl: string;
   workspaceId: string;
+  capabilityCode: MotionCoachCapabilityCode;
   sourceRef: string;
   artifactId?: string;
   fetchImpl?: typeof fetch;
@@ -192,6 +195,7 @@ export async function fetchMotionPracticeReferenceProfileSelection(input: {
   const apiBase = resolveApiBase(input.apiUrl);
   const path = `/api/v1/workspaces/${encodeURIComponent(input.workspaceId)}/motion-reference-profiles/selection`;
   const url = new URL(`${apiBase}${path}`, apiBase || 'http://mindscape.local');
+  url.searchParams.set('capability_code', input.capabilityCode);
   url.searchParams.set('source_ref', input.sourceRef.trim());
   if (input.artifactId?.trim()) {
     url.searchParams.set('artifact_id', input.artifactId.trim());

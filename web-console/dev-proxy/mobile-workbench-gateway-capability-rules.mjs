@@ -136,6 +136,7 @@ export function createRemoteWorkspacePathRules() {
     { type: 'regex', value: /^\/api\/v1\/workspaces\/[^/]+\/executions(?:\/.*)?$/, methods: READ_ONLY_METHODS },
     { type: 'regex', value: /^\/api\/v1\/workspaces\/[^/]+\/tasks(?:\/.*)?$/, methods: READ_ONLY_METHODS },
     { type: 'regex', value: /^\/api\/v1\/workspaces\/[^/]+\/events\/stream$/, methods: READ_ONLY_METHODS },
+    { type: 'regex', value: /^\/api\/v1\/workspaces\/[^/]+\/motion-reference-profiles\/selection$/, methods: READ_ONLY_METHODS },
     { type: 'regex', value: /^\/api\/v1\/workspaces\/[^/]+\/host-runtime\/sessions$/, methods: ['GET', 'HEAD', 'OPTIONS', 'POST'] },
     { type: 'regex', value: /^\/api\/v1\/workspaces\/[^/]+\/host-runtime\/sessions\/[^/]+(?:\/events|\/stream)?$/, methods: READ_ONLY_METHODS },
     { type: 'regex', value: /^\/api\/v1\/workspaces\/[^/]+\/host-runtime\/sessions\/[^/]+\/(?:turns|interrupt)$/, methods: ['OPTIONS', 'POST'] },
@@ -151,4 +152,10 @@ export function createRemoteWorkspacePathRules() {
     { type: 'regex', value: /^\/api\/v1\/capability-packs\/installed-capabilities$/, methods: ['GET'] },
     { type: 'regex', value: CAPABILITY_STORAGE_MEDIA_PATH_PATTERN, methods: READ_ONLY_METHODS },
   ];
+}
+
+export function requiresExplicitCapabilityQuery(pathname = '') {
+  return /^\/api\/v1\/workspaces\/[^/]+\/motion-reference-profiles\/selection$/.test(
+    String(pathname || ''),
+  );
 }

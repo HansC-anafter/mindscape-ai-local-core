@@ -54,7 +54,10 @@ describe('useMotionPracticeResolvedLesson', () => {
   });
 
   it('singleflights duplicate consumers for the same reference identity', async () => {
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify(selection), {
+    const fetchMock = vi.fn(async (
+      _request: RequestInfo | URL,
+      _init?: RequestInit,
+    ) => new Response(JSON.stringify(selection), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
     }));
@@ -74,6 +77,42 @@ describe('useMotionPracticeResolvedLesson', () => {
       expect(second.result.current.status).toBe('ready');
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
+    const requestedUrl = new URL(String(fetchMock.mock.calls[0]?.[0]));
+    expect(requestedUrl.searchParams.getAll('capability_code')).toEqual(['yogacoach']);
+  });
+
+  it('does not share one resolution promise across different capabilities', async () => {
+    const fetchMock = vi.fn(async (
+      _request: RequestInfo | URL,
+      _init?: RequestInit,
+    ) => new Response(JSON.stringify(selection), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    const danceHandoff = {
+      ...handoff,
+      capabilityCode: 'dance_motion_coach' as const,
+    };
+    const yoga = renderHook(() => useMotionPracticeResolvedLesson({
+      apiUrl: 'http://api.test',
+      workspaceId: 'workspace-one',
+      handoff,
+    }));
+    const dance = renderHook(() => useMotionPracticeResolvedLesson({
+      apiUrl: 'http://api.test',
+      workspaceId: 'workspace-one',
+      handoff: danceHandoff,
+    }));
+
+    await waitFor(() => {
+      expect(yoga.result.current.status).toBe('ready');
+      expect(dance.result.current.status).toBe('ready');
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls.map(([request]) => (
+      new URL(String(request)).searchParams.get('capability_code')
+    )).sort()).toEqual(['dance_motion_coach', 'yogacoach']);
   });
 
   it('projects conflict as a terminal failed handoff', async () => {

@@ -29,6 +29,7 @@ function resolutionKey(input: {
   return [
     input.apiUrl.trim().replace(/\/+$/, ''),
     input.workspaceId.trim(),
+    input.handoff.capabilityCode,
     input.handoff.sourceValue.trim(),
     input.handoff.motionReferenceProfileArtifactId?.trim() || '',
   ].join('|');
@@ -47,6 +48,7 @@ function resolveOnce(input: {
   const pending = fetchMotionPracticeReferenceProfileSelection({
     apiUrl: input.apiUrl,
     workspaceId: input.workspaceId,
+    capabilityCode: input.handoff.capabilityCode,
     sourceRef: input.handoff.sourceValue,
     artifactId: input.handoff.motionReferenceProfileArtifactId,
   });

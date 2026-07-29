@@ -5,6 +5,7 @@ import {
   parseAccessTokenFromHeaders,
 } from './jwt.mjs';
 import {
+  fixedRemoteWorkspacePathRequiresCapabilityQuery,
   isFixedRemoteWorkspacePathAllowed,
   isReadOnlyRemotePath,
   matchesRule,
@@ -72,6 +73,23 @@ function isResolvedPathAllowed(context, requestMethod, resolution) {
   return resolution.allowedPathRules.some((rule) => (
     matchesRule(context.path, rule, requestMethod)
   ));
+}
+
+function hasExactCapabilityQuery(requestUrl, expectedCapabilityCode) {
+  let parsed;
+  try {
+    parsed = new URL(requestUrl, 'http://localhost');
+  } catch {
+    return false;
+  }
+  const values = [
+    ...parsed.searchParams.getAll('capability_code'),
+    ...parsed.searchParams.getAll('capabilityCode'),
+  ];
+  return (
+    values.length === 1
+    && String(values[0] || '').trim().toLowerCase() === expectedCapabilityCode
+  );
 }
 
 function canonicalAdministrators(values = []) {
@@ -210,6 +228,17 @@ export async function authorizeRemoteWorkbenchRequest(
   }
   if (!context.workspaceId) {
     return denyRequest('route_workspace_required', 403, requestUrl, context, {
+      verification_stage: 'principal_verified',
+    });
+  }
+  if (
+    fixedRemoteWorkspacePathRequiresCapabilityQuery(context.path)
+    && (
+      !hasExactCapabilityQuery(requestUrl, context.capabilityCode)
+      || !isFixedRemoteWorkspacePathAllowed(context.path, requestMethod)
+    )
+  ) {
+    return denyRequest('capability_path_not_allowed', 404, requestUrl, context, {
       verification_stage: 'principal_verified',
     });
   }
