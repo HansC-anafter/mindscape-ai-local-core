@@ -71,6 +71,10 @@ async def test_promotion_derives_context_and_delegates_existing_writer():
             return "verified-context"
 
     class _Writer:
+        def active_revision(self, **kwargs):
+            calls["active_revision"] = kwargs
+            return None
+
         async def replace_document(self, **kwargs):
             calls["writer"] = kwargs
             return AuthorizedIndexWriteResult(
@@ -93,6 +97,7 @@ async def test_promotion_derives_context_and_delegates_existing_writer():
     assert calls["context"][1]["requested_workspace_ids"] == ("ws_demo",)
     assert calls["writer"]["access_context"] == "verified-context"
     assert calls["writer"]["owner_capability_code"] == "frontier_research"
+    assert calls["active_revision"]["source_id"] == "bird-evolution"
     assert (
         calls["writer"]["chunks"][0].metadata[
             "promotion_review_receipt_id"
@@ -114,5 +119,31 @@ async def test_promotion_rejects_reviewer_identity_mismatch():
             context_factory=SimpleNamespace(),
         ).promote(
             _command(reviewer="reviewer-2"),
+            auth=SimpleNamespace(user_id="reviewer-1"),
+        )
+
+
+@pytest.mark.asyncio
+async def test_promotion_rejects_active_revision_drift_before_write():
+    class _Writer:
+        def active_revision(self, **kwargs):
+            return "wiki-revision-6"
+
+        async def replace_document(self, **kwargs):
+            raise AssertionError("drifted revision must not write")
+
+    class _ContextFactory:
+        def build(self, auth, **kwargs):
+            return "verified-context"
+
+    with pytest.raises(
+        ValueError,
+        match="approved_knowledge_active_revision_drift",
+    ):
+        await ApprovedKnowledgeDocumentPromotionFacade(
+            writer=_Writer(),
+            context_factory=_ContextFactory(),
+        ).promote(
+            _command(),
             auth=SimpleNamespace(user_id="reviewer-1"),
         )

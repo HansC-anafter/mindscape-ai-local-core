@@ -193,10 +193,42 @@ class DurableScheduledTaskFacade:
         )
 
 
+def build_pack_durable_scheduled_task_facade(
+    *,
+    tasks_store: TasksStore | None = None,
+    tool_registry: Any | None = None,
+) -> DurableScheduledTaskFacade:
+    """Build the signed existing-workflow timer seam for installed packs."""
+
+    from backend.app.services.workflow.durable_state.compatibility import (
+        CompatibilityRegistry,
+    )
+    from backend.app.services.workflow.durable_state.durable_control_adapter import (
+        DurableControlAdapter,
+    )
+    from backend.app.services.workflow.durable_state.facade import (
+        DurableWorkflowFacade,
+    )
+    from backend.app.services.workflow.durable_state.signature import (
+        Ed25519Signer,
+    )
+
+    durable = DurableWorkflowFacade(
+        signer=Ed25519Signer.from_mounted_file(),
+        compatibility=CompatibilityRegistry(),
+    )
+    return DurableScheduledTaskFacade(
+        durable_timer=DurableControlAdapter(durable),
+        tasks_store=tasks_store,
+        tool_registry=tool_registry,
+    )
+
+
 __all__ = [
     "DurableScheduledTaskCommand",
     "DurableScheduledTaskFacade",
     "DurableScheduledTaskReceipt",
     "DurableTimerAppender",
     "InstalledToolSelector",
+    "build_pack_durable_scheduled_task_facade",
 ]

@@ -6,6 +6,10 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from backend.app.models.guided_learning_contract import (
+    GuidedLearningContext,
+)
+
 
 RetrievalMode = Literal[
     "hybrid",
@@ -34,7 +38,7 @@ class GroundedKnowledgeAnswerPlan(BaseModel):
         max_length=6,
     )
     frontier_preview: bool = False
-    guided_learning_context: dict[str, Any] | None = None
+    guided_learning_context: GuidedLearningContext | None = None
 
 
 class GroundedAnswerClaim(BaseModel):
@@ -42,6 +46,28 @@ class GroundedAnswerClaim(BaseModel):
 
     text: str = Field(min_length=1, max_length=4000)
     citation_ids: tuple[str, ...] = Field(min_length=1, max_length=8)
+
+
+class GuidedLearningTurn(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    pedagogical_action: Literal[
+        "explain",
+        "probe",
+        "ask_counterexample",
+        "ask_transfer",
+        "offer_branch_choice",
+        "request_teach_back",
+    ]
+    current_question_id: str
+    current_checkpoint_id: str | None = None
+    current_competency_key: str | None = None
+    why_this_next: str
+    route_choices: tuple[dict[str, Any], ...] = Field(
+        default=(),
+        max_length=3,
+    )
+    writes_mastery: Literal[False] = False
 
 
 class GroundedKnowledgeAnswerResult(BaseModel):
@@ -59,6 +85,7 @@ class GroundedKnowledgeAnswerResult(BaseModel):
     uncertainties: tuple[str, ...] = Field(default=(), max_length=16)
     safety_notes: tuple[str, ...] = Field(default=(), max_length=16)
     coverage: dict[str, Any] = Field(default_factory=dict)
+    guided_learning: GuidedLearningTurn | None = None
     receipt: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -67,5 +94,6 @@ __all__ = [
     "GroundedKnowledgeAnswerOperation",
     "GroundedKnowledgeAnswerPlan",
     "GroundedKnowledgeAnswerResult",
+    "GuidedLearningTurn",
     "RetrievalMode",
 ]
