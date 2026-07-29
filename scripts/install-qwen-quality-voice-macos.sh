@@ -136,9 +136,18 @@ install_service() {
   materialize_service_bundle
   render_plist
   /bin/launchctl bootout "$DOMAIN/$LABEL" >/dev/null 2>&1 || true
-  /bin/launchctl bootstrap "$DOMAIN" "$PLIST_DESTINATION"
-  /bin/launchctl kickstart -k "$DOMAIN/$LABEL"
+  sleep 1
   local attempt
+  local bootstrapped=false
+  for attempt in 1 2 3; do
+    if /bin/launchctl bootstrap "$DOMAIN" "$PLIST_DESTINATION"; then
+      /bin/launchctl kickstart -k "$DOMAIN/$LABEL"
+      bootstrapped=true
+      break
+    fi
+    sleep 2
+  done
+  [[ "$bootstrapped" == "true" ]] || fail "Qwen quality-voice LaunchAgent bootstrap failed"
   for attempt in $(seq 1 30); do
     if curl --fail --silent --max-time 2 http://127.0.0.1:8184/health >/dev/null 2>&1; then
       verify_service
