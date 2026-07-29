@@ -13,8 +13,10 @@ import {
 import type {
   AddressableObjectHostBridge,
 } from '@/lib/addressable-object-layer';
-import type { CapabilityUiLocalizationBridgeV1 } from '@/lib/capability-ui-localization';
-import { useLocaleContext } from '@/lib/i18n';
+import {
+  type CapabilityUiLocalizationBridgeV1,
+  useOptionalCapabilityLocalization,
+} from '@/lib/capability-ui-localization';
 import { useKeyboardShortcuts } from '@/lib/keyboard-shortcuts';
 import { loadLocalizedCapabilityUiComponent } from '@/lib/localized-capability-ui-component-loader';
 import type { WorkspaceToolDefinition } from '@/lib/workspace-tools/workspace-tool-registry';
@@ -72,7 +74,8 @@ export function PackScopeToolRailHost({
 }: PackScopeToolRailHostProps) {
   const storageKey = `workspace:${workspaceId || 'default'}:capability:${capabilityCode}:tool-order`;
   const railRef = React.useRef<HTMLElement | null>(null);
-  const { locale } = useLocaleContext();
+  const hostLocalization = useOptionalCapabilityLocalization();
+  const requestedLocale = hostLocalization?.requestedLocale ?? 'en';
   const {
     activateScope,
     getCommandAriaShortcut,
@@ -156,7 +159,7 @@ export function PackScopeToolRailHost({
       apiUrl,
       capabilityCode: activeTool.capability_code,
       componentCode: activeTool.panel_component_code,
-      requestedLocale: locale,
+      requestedLocale,
       workspaceId,
     }).then((loaded) => {
       if (!cancelled) {
@@ -172,7 +175,7 @@ export function PackScopeToolRailHost({
     return () => {
       cancelled = true;
     };
-  }, [activeTool, apiUrl, locale, tools, workspaceId]);
+  }, [activeTool, apiUrl, requestedLocale, tools, workspaceId]);
 
   const activateTool = React.useCallback((tool: WorkspaceToolDefinition) => {
     setActiveToolKey((current) => {

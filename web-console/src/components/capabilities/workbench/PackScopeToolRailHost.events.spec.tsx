@@ -15,8 +15,8 @@ import {
   feedLoadTool,
 } from './PackScopeToolRailHost.test-support';
 
-vi.mock('@/lib/i18n', () => ({
-  useLocaleContext: () => ({ locale: 'zh-TW' }),
+vi.mock('@/lib/capability-ui-localization', () => ({
+  useOptionalCapabilityLocalization: () => ({ requestedLocale: 'zh-TW' }),
 }));
 
 vi.mock('@/lib/localized-capability-ui-component-loader', async () => {
