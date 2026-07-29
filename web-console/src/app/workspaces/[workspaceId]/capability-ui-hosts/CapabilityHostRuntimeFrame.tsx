@@ -11,6 +11,7 @@ import {
 import { useCapabilityWorkbenchPlacement } from '@/components/capabilities/workbench/CapabilityWorkbenchResponsiveFrame';
 import { useToolRailPanelToggleShortcut } from '@/components/capabilities/workbench/useToolRailPanelToggleShortcut';
 import { ExecutionContextProvider } from '@/contexts/ExecutionContextContext';
+import { WorkspaceGroupContextProvider } from '@/contexts/WorkspaceGroupContext';
 import {
   WorkspaceDataProvider,
   useWorkspaceDataOptional,
@@ -374,14 +375,16 @@ export default function CapabilityHostRuntimeFrame({
 }: CapabilityHostRuntimeFrameProps) {
   return (
     <WorkspaceDataProvider workspaceId={workspaceId} initialLoadProfile={initialLoadProfile}>
-      <ExecutionContextProvider workspaceId={workspaceId}>
-        <CapabilityHostToolRailProvider
-          workspaceId={workspaceId}
-          remoteSurfaceMode={remoteSurfaceMode}
-        >
-          {children}
-        </CapabilityHostToolRailProvider>
-      </ExecutionContextProvider>
+      <WorkspaceGroupContextProvider workspaceId={workspaceId}>
+        <ExecutionContextProvider workspaceId={workspaceId}>
+          <CapabilityHostToolRailProvider
+            workspaceId={workspaceId}
+            remoteSurfaceMode={remoteSurfaceMode}
+          >
+            {children}
+          </CapabilityHostToolRailProvider>
+        </ExecutionContextProvider>
+      </WorkspaceGroupContextProvider>
     </WorkspaceDataProvider>
   );
 }
