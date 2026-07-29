@@ -12,6 +12,9 @@ from backend.app.services.knowledge_retrieval.query_seed import (
     hydrate_authorized_query_seed,
     websearch_query_from_seed,
 )
+from backend.app.services.knowledge_retrieval.keyword_query import (
+    cjk_prefix_tsquery,
+)
 from backend.app.services.knowledge_retrieval.store import (
     AuthorizationAwareKnowledgeRetrievalStore,
 )
@@ -65,6 +68,7 @@ class AuthorizationAwareKnowledgeGraphNeighborhoodMixin:
                 if query_evidence_refs
                 else query
             )
+            cjk_prefix_query = cjk_prefix_tsquery(effective_query)
             common = common_parameters(
                 context=context,
                 scope_type=scope_type,
@@ -76,6 +80,15 @@ class AuthorizationAwareKnowledgeGraphNeighborhoodMixin:
             cursor.execute(
                 AUTHORIZED_PROJECTIONS_CTE
                 + """
+                , graph_query AS (
+                    SELECT CASE
+                        WHEN %s = '' THEN
+                            websearch_to_tsquery('simple', %s)
+                        ELSE
+                            websearch_to_tsquery('simple', %s)
+                            || to_tsquery('simple', %s)
+                    END AS value
+                )
                 SELECT
                     entity.entity_id,
                     entity.canonical_key,
@@ -90,13 +103,54 @@ class AuthorizationAwareKnowledgeGraphNeighborhoodMixin:
                      authorized.security_label_id
                 JOIN knowledge_graph_entities AS entity
                   ON entity.entity_id = mention.entity_id
+                LEFT JOIN knowledge_evidence_units AS evidence
+                  ON evidence.evidence_unit_row_id =
+                     mention.evidence_unit_row_id
+                 AND evidence.projection_revision_id =
+                     authorized.projection_revision_id
+                LEFT JOIN external_docs AS document
+                  ON document.projection_revision_id =
+                     authorized.projection_revision_id
+                 AND document.knowledge_resource_id =
+                     authorized.knowledge_resource_id
+                 AND (
+                     document.metadata->>'chunk_id' = evidence.unit_key
+                     OR document.source_id = evidence.unit_key
+                 )
+                LEFT JOIN knowledge_projection_records AS record
+                  ON record.projection_record_id =
+                     mention.projection_record_id
+                 AND record.projection_revision_id =
+                     authorized.projection_revision_id
+                CROSS JOIN graph_query
                 WHERE (
                     entity.canonical_key ILIKE %s
                     OR mention.surface_text ILIKE %s
                     OR to_tsvector(
                         'simple',
                         entity.canonical_key || ' ' || mention.surface_text
-                    ) @@ websearch_to_tsquery('simple', %s)
+                    ) @@ graph_query.value
+                    OR (
+                        setweight(
+                            to_tsvector(
+                                'simple',
+                                COALESCE(document.title, '')
+                            ),
+                            'A'
+                        )
+                        ||
+                        setweight(
+                            to_tsvector(
+                                'simple',
+                                COALESCE(document.content, '')
+                            ),
+                            'D'
+                        )
+                    ) @@ graph_query.value
+                    OR to_tsvector(
+                        'simple',
+                        COALESCE(record.search_text, '')
+                    ) @@ graph_query.value
                 )
                   AND (
                       %s::text IS NULL
@@ -117,9 +171,12 @@ class AuthorizationAwareKnowledgeGraphNeighborhoodMixin:
                 """,
                 (
                     *common,
-                    f"%{effective_query}%",
-                    f"%{effective_query}%",
+                    cjk_prefix_query,
                     effective_query,
+                    effective_query,
+                    cjk_prefix_query,
+                    f"%{effective_query}%",
+                    f"%{effective_query}%",
                     modality_filter,
                     modality_filter,
                     min(20, max_nodes),
