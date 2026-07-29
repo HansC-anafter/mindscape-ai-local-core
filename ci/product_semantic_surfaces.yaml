@@ -1,6 +1,6 @@
 version: 1
 registry_id: mindscape.product-semantic-surfaces.local-core
-updated_at: "2026-07-27"
+updated_at: "2026-07-29"
 owner_review_handle: "@team-leads"
 
 declaration:
@@ -889,7 +889,8 @@ surfaces:
       - Every semantic chunk, typed record, facet, entity mention, evidence relation, community, and community report joins authorization-aware source resources and stable security labels; owner-declared and extracted relations share one evidence-graph writer, while the companion surface never owns principals, grants, deny, RLS, or a second reader.
       - Canonical entity identity may be shared only inside an admitted tenant and workspace-group boundary, while descriptions and attributes are projected from currently authorized mentions; community reports are generated per complete-grant visibility partition and become unreadable immediately when their authorization revision is stale.
       - Projection v1 preserves text, image, video, and audio evidence units through stable owner references, hashes, typed text, region, frame, and time anchors, derivative references, and per-channel receipts; the MVP activates only the text semantic channel, while a future native modality channel is an additive implementation behind the same resource identities, writer, authorization facade, public tool, and Meeting path.
-      - The only public agent-facing primitive is knowledge_query with deterministic hybrid, local-graph, multi-hop, global-graph, aggregate, fetch_by_citation, and explain_coverage operations; Meeting Engine explicitly selects and composes bounded calls, and retrieval contains no hidden agent, LLM query router, or tool loop.
+      - The only public agent-facing primitive is knowledge_query with deterministic hybrid, local-graph, multi-hop, global-graph, aggregate, fetch_by_citation, and explain_coverage operations; its evidence and citation result is not a generated answer, and retrieval contains no hidden agent, LLM query router, or tool loop.
+      - Meeting Engine is the sole grounded-answer assembler through one responsibility-named facade: it explicitly composes at most six admitted knowledge_query calls, performs one synthesis, and deterministically verifies every factual claim against the authorized citation allowlist; verification failure returns insufficient evidence or citation failure without a hidden repair loop or a legacy reader.
       - Retrieval strategy and modality are orthogonal: knowledge_query may receive only server-resolved authorized evidence references, returns typed evidence blocks plus channel and fusion revisions, rejects raw URLs, paths, base64, binaries, provider or model overrides, and never reports a media pointer as an active native multimodal channel.
       - AOL and Artifact completion emit only canonical pointers; hydration, extraction, entity resolution, community generation, and embedding reuse the existing task control plane and tool_execution type through one knowledge_indexing logical shard and one hidden internal projection tool, with no new always-on worker, scheduler, outbox consumer, poller, graph database, PgBouncer alias, or pool.
       - Structured projection preserves exact numeric, temporal, enum, row, and relation coverage even when a record is not embedded; raw binaries, complete traces, and unbounded JSON remain in owner storage and every returned claim resolves to an exact active citation.
@@ -902,6 +903,10 @@ surfaces:
       - backend/app/services/tools/knowledge_query/**
       - backend/app/services/tools/registry.py
       - backend/app/services/tools/registry_core/builtin.py
+      - backend/app/services/orchestration/meeting/knowledge_answer/**
+      - backend/app/services/orchestration/meeting/engine_core/grounded_answer_mixin.py
+      - backend/app/services/orchestration/meeting/engine_core/lifecycle_mixin.py
+      - backend/app/services/orchestration/meeting/engine.py
       - backend/app/services/orchestration/meeting/prompt_core/tool_inventory_mixin.py
       - backend/app/services/orchestration/meeting/_dispatch_pipeline.py
       - backend/app/services/object_action_closure_wiring.py
@@ -953,6 +958,7 @@ surfaces:
       - All protected writes require caller-owned transactions through the facade; repository leaves do not create engines or sessions, routes do not issue SQL, and runtime has no DDL fallback or unsigned receipt path.
       - Terminal execution enters product iteration only through mindscape.product-outcome-adapter-port.v1 and the installed runtime contract registry; generic host code contains no pack literal, known-pack map, prefix dispatch, or pack-specific import.
       - The runtime reuses the existing task lane, PgBouncer transaction pool, workspace shared EventSource, and explicit compact reads with zero new worker, queue, pool, scheduler, or polling topology.
+      - A recurring product iteration records its durable timer and materializes at most one future existing tool_execution task through one generic adapter and the verified installed effect selector; the adapter is idempotent by workflow and timer, and BackgroundRoutine, cron, a second scheduler, or pack-direct task SQL never becomes a parallel execution path.
     path_globs:
       - backend/app/services/workflow/durable_state/**
       - backend/alembic_migrations/postgres/durable_workflow_v1.py
@@ -961,6 +967,7 @@ surfaces:
       - backend/app/routes/core/durable_workflows_core/**
       - backend/app/services/run_harness/durable_workflow_adapter.py
       - backend/app/services/tasks/durable_workflow_*.py
+      - backend/app/services/workflow/durable_state/durable_scheduled_task_adapter.py
       - backend/app/services/workflow/durable_workflow_*.py
       - web-console/src/app/workspaces/components/durable-workflow-review/**
       - scripts/ci/build_durable_workflow_change_attestation.py
