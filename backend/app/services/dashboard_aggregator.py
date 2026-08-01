@@ -31,6 +31,9 @@ from ..dependencies.auth import AuthContext
 from ..utils.scope import ParsedScope
 from ..services.mindscape_store import MindscapeStore
 from ..services.stores.tasks_store import TasksStore
+from ..services.stores.postgres.dashboard_task_read_store import (
+    DashboardTaskReadStore,
+)
 from .dashboard_mappings import (
     map_execution_to_case,
     map_task_to_assignment,
@@ -54,6 +57,7 @@ class DashboardAggregator:
         self.store = store
         self.executions_store = store.playbook_executions
         self.tasks_store = TasksStore()
+        self.dashboard_tasks = DashboardTaskReadStore()
 
     async def get_summary(
         self,
@@ -114,13 +118,12 @@ class DashboardAggregator:
         Within same tier: due_at ascending (None last), created_at descending
         """
         workspace_ids = self._get_workspace_ids_for_scope(auth, effective_scope)
-        items: List[InboxItemDTO] = []
-
-        # 1. Collect pending tasks -> assignment type (tier 2)
-        for ws_id in workspace_ids:
-            tasks = self.tasks_store.list_pending_tasks(ws_id)
-            for task in tasks:
-                items.append(self._task_to_inbox_item(task, ws_id))
+        tasks = self.dashboard_tasks.list_pending_items(
+            workspace_ids,
+            limit=query.limit,
+            offset=query.offset,
+        )
+        items = [self._task_to_inbox_item(task) for task in tasks]
 
         # 2. Add system_alert items (tier 5) from needs_setup
         # Local-Core: system_alert items represent workspaces that need setup
@@ -128,12 +131,7 @@ class DashboardAggregator:
         # When implemented, it should return SetupItem enum values, and we can create alerts
         # For now, system_alert items are not generated (only assignment items exist)
 
-        # 3. Sort (using cloud specification)
-        items.sort(key=self._inbox_sort_key)
-
-        # 4. Pagination
-        total = len(items)
-        items = items[query.offset : query.offset + query.limit]
+        total = self.dashboard_tasks.count_pending_tasks(workspace_ids)
 
         # Collect warnings about unsupported inbox types
         # NOTE: Local-Core does not generate items for these types:
@@ -178,7 +176,10 @@ class DashboardAggregator:
             executions = self.executions_store.list_executions_by_workspace(
                 ws_id, limit=100
             )
-            tasks_by_exec = self._group_tasks_by_execution(ws_id)
+            tasks_by_exec = self.dashboard_tasks.count_tasks_by_execution_ids(
+                ws_id,
+                [execution.id for execution in executions],
+            )
 
             for exec in executions:
                 case_data = map_execution_to_case(
@@ -186,7 +187,7 @@ class DashboardAggregator:
                     workspace_id=ws_id,
                     workspace_name=workspace.title,
                     owner_user_id=auth.user_id,
-                    tasks_count=len(tasks_by_exec.get(exec.id, [])),
+                    tasks_count=tasks_by_exec.get(exec.id, 0),
                 )
                 cases.append(CaseCardDTO(**case_data))
 
@@ -293,22 +294,21 @@ class DashboardAggregator:
         created_ts = -item.created_at.timestamp()
         return (tier, due_ts, created_ts)
 
-    def _task_to_inbox_item(self, task, workspace_id: str) -> InboxItemDTO:
+    def _task_to_inbox_item(self, task: dict) -> InboxItemDTO:
         """Convert Task to InboxItemDTO"""
-        exec_context = task.execution_context or {}
         return InboxItemDTO(
-            id=task.id,
+            id=task["task_id"],
             item_type=InboxItemType.ASSIGNMENT,
             source_type="task",
-            source_id=task.id,
-            workspace_id=workspace_id,
+            source_id=task["task_id"],
+            workspace_id=task["workspace_id"],
             workspace_name=None,
-            case_id=task.execution_id,
-            case_title=exec_context.get("playbook_code"),
+            case_id=task["execution_id"],
+            case_title=task["pack_id"],
             thread_id=None,
-            title=task.task_type,
-            summary=task.params.get("description", "") if task.params else "",
-            status=task.status.value,
+            title=task["task_type"],
+            summary=task["description"],
+            status=task["status"],
             priority=0,
             is_overdue=False,
             due_at=None,
@@ -318,8 +318,8 @@ class DashboardAggregator:
             created_by_name=None,
             available_actions=["view_detail"],
             extra={},
-            created_at=task.created_at,
-            updated_at=task.started_at or task.created_at,
+            created_at=task["created_at"],
+            updated_at=task["started_at"] or task["updated_at"] or task["created_at"],
         )
 
     async def _calculate_counts(self, workspace_ids: List[str]) -> DashboardCountsDTO:
@@ -337,7 +337,7 @@ class DashboardAggregator:
         """
         open_cases = 0
         blocked_cases = 0
-        open_assignments = 0
+        open_assignments = self.dashboard_tasks.count_pending_tasks(workspace_ids)
         running_jobs = 0
 
         for ws_id in workspace_ids:
@@ -348,9 +348,6 @@ class DashboardAggregator:
                     running_jobs += 1
                 elif exec.status in ("paused", "failed"):
                     blocked_cases += 1
-
-            tasks = self.tasks_store.list_pending_tasks(ws_id)
-            open_assignments += len(tasks)
 
         return DashboardCountsDTO(
             pending_decisions=0,  # Local-Core does not support decisions
@@ -367,16 +364,6 @@ class DashboardAggregator:
         """Calculate setup requirements"""
         # Simplified: return empty list, can be extended in the future
         return []
-
-    def _group_tasks_by_execution(self, workspace_id: str) -> dict:
-        """Group tasks by execution_id"""
-        tasks = self.tasks_store.list_tasks_by_workspace(workspace_id)
-        grouped = {}
-        for task in tasks:
-            exec_id = task.execution_id
-            if exec_id:
-                grouped.setdefault(exec_id, []).append(task)
-        return grouped
 
     async def get_workspaces(
         self,
@@ -420,11 +407,8 @@ class DashboardAggregator:
             executions = self.executions_store.list_executions_by_workspace(
                 ws_id, limit=100
             )
-            tasks = self.tasks_store.list_tasks_by_workspace(ws_id, limit=100)
-
             open_cases = sum(1 for e in executions if e.status == "running")
             running_jobs = open_cases
-            pending_tasks = [t for t in tasks if t.status.value == "pending"]
             pending_decisions = 0  # Local-Core does not support decisions
 
             # Determine setup status

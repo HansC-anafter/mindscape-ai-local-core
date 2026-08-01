@@ -31,9 +31,47 @@ from ...services.stores.postgres.saved_views_store import PostgresSavedViewsStor
 from ...services.saved_views_store import SavedViewsStore
 from ...services.mindscape_store import MindscapeStore
 from ...database.connection_factory import ConnectionFactory
+from ...database.recovery_backoff import classify_database_error
 
 router = APIRouter(prefix="/api/v1/dashboard", tags=["dashboard"])
 logger = logging.getLogger(__name__)
+
+
+def _dashboard_failure(operation: str, exc: Exception) -> HTTPException:
+    classification = classify_database_error(exc)
+    incident_id = None
+    if classification.opens_incident:
+        try:
+            from ...services.runtime_database_incident_gate import (
+                record_database_failure,
+            )
+
+            incident = record_database_failure(classification.code.value)
+            incident_id = getattr(incident, "incident_id", None)
+        except Exception:
+            logger.exception(
+                "Failed to record Dashboard database incident: operation=%s",
+                operation,
+            )
+    logger.error(
+        "Dashboard request failed: operation=%s code=%s",
+        operation,
+        classification.code.value,
+    )
+    if classification.recovery_related:
+        return HTTPException(
+            status_code=503,
+            detail={
+                "error_code": "runtime_database_unavailable",
+                "retry_after_seconds": 30,
+                "incident_id": incident_id,
+            },
+            headers={"Retry-After": "30"},
+        )
+    return HTTPException(
+        status_code=500,
+        detail={"error_code": "dashboard_query_failed"},
+    )
 
 
 def get_aggregator() -> DashboardAggregator:
@@ -84,8 +122,7 @@ async def get_dashboard_summary(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to get dashboard summary: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise _dashboard_failure("summary", e) from e
 
 
 # ==================== Inbox ====================
@@ -128,8 +165,7 @@ async def list_inbox_items(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to list inbox items: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise _dashboard_failure("inbox", e) from e
 
 
 # ==================== Cases ====================
@@ -171,8 +207,7 @@ async def list_case_cards(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to list cases: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise _dashboard_failure("cases", e) from e
 
 
 # ==================== Assignments ====================
@@ -216,8 +251,7 @@ async def list_assignment_cards(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to list assignments: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise _dashboard_failure("assignments", e) from e
 
 
 # ==================== Workspaces ====================
@@ -256,8 +290,7 @@ async def list_workspace_cards(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to list workspaces: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise _dashboard_failure("workspaces", e) from e
 
 
 # ==================== Saved Views ====================
@@ -274,8 +307,7 @@ async def list_saved_views(
         views = await asyncio.to_thread(store.list_by_user, auth.user_id)
         return [SavedViewDTO(**v) for v in views]
     except Exception as e:
-        logger.error(f"Failed to list saved views: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise _dashboard_failure("saved_views_list", e) from e
 
 
 @router.post("/saved-views", response_model=SavedViewDTO, status_code=201)
@@ -290,8 +322,7 @@ async def create_saved_view(
         view = await asyncio.to_thread(store.create, auth.user_id, view_data.model_dump())
         return SavedViewDTO(**view)
     except Exception as e:
-        logger.error(f"Failed to create saved view: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise _dashboard_failure("saved_views_create", e) from e
 
 
 @router.delete("/saved-views/{view_id}", status_code=204)
@@ -309,5 +340,4 @@ async def delete_saved_view(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to delete saved view: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise _dashboard_failure("saved_views_delete", e) from e
