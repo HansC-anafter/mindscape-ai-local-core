@@ -167,9 +167,9 @@ class PostgresWorkspacesStore(PostgresStoreBase):
             query = text("SELECT * FROM workspaces WHERE id = :id")
             result = conn.execute(query, {"id": workspace_id})
             row = result.fetchone()
-            if not row:
-                return None
-            return self._row_to_workspace(row)
+        if not row:
+            return None
+        return self._row_to_workspace(row)
 
     async def get_workspace(self, workspace_id: str) -> Optional[Workspace]:
         """Get workspace by ID (async wrapper for compatibility)."""
@@ -197,9 +197,9 @@ class PostgresWorkspacesStore(PostgresStoreBase):
             )
             result = conn.execute(query, {"id": workspace_id})
             row = result.fetchone()
-            if not row:
-                return None
-            return self._row_to_workspace_summary(row)
+        if not row:
+            return None
+        return self._row_to_workspace_summary(row)
 
     async def get_workspace_summary(self, workspace_id: str) -> Optional[Dict[str, Any]]:
         """Get workspace by ID without heavy data_sources and metadata columns."""
