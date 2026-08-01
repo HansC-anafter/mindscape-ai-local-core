@@ -42,6 +42,79 @@ INDEX_DDL = [
     "CREATE INDEX IF NOT EXISTS idx_object_instances_workspace_updated ON object_instances(workspace_id, updated_at DESC)",
 ]
 
+_BATCH_UPSERT = text(
+    """
+    WITH input_rows AS (
+        SELECT *
+        FROM jsonb_to_recordset(CAST(:records AS JSONB)) AS input_row (
+            ordinal INTEGER,
+            workspace_id TEXT,
+            uri TEXT,
+            owner_pack TEXT,
+            object_kind TEXT,
+            object_id TEXT,
+            version TEXT,
+            selector JSONB,
+            source_surface TEXT,
+            title TEXT,
+            subtitle TEXT,
+            summary_text TEXT,
+            labels JSONB,
+            thumbnail_ref TEXT,
+            owner_surface_url TEXT,
+            mention_tokens JSONB,
+            mention_text TEXT,
+            search_text TEXT,
+            affordance_verbs JSONB,
+            stale BOOLEAN,
+            metadata JSONB,
+            updated_at TIMESTAMPTZ
+        )
+    ),
+    latest_rows AS (
+        SELECT DISTINCT ON (workspace_id, uri) *
+        FROM input_rows
+        ORDER BY workspace_id, uri, ordinal DESC
+    )
+    INSERT INTO object_instances (
+        workspace_id, uri, owner_pack, object_kind, object_id,
+        version, selector, source_surface,
+        title, subtitle, summary_text, labels, thumbnail_ref,
+        owner_surface_url, mention_tokens, mention_text,
+        search_text, affordance_verbs, stale, metadata, updated_at
+    )
+    SELECT
+        workspace_id, uri, owner_pack, object_kind, object_id,
+        version, selector, source_surface,
+        title, subtitle, summary_text, labels, thumbnail_ref,
+        owner_surface_url, mention_tokens, mention_text,
+        search_text, affordance_verbs, stale, metadata,
+        COALESCE(updated_at, now())
+    FROM latest_rows
+    ORDER BY ordinal
+    ON CONFLICT (workspace_id, uri) DO UPDATE SET
+        owner_pack = EXCLUDED.owner_pack,
+        object_kind = EXCLUDED.object_kind,
+        object_id = EXCLUDED.object_id,
+        version = EXCLUDED.version,
+        selector = EXCLUDED.selector,
+        source_surface = EXCLUDED.source_surface,
+        title = EXCLUDED.title,
+        subtitle = EXCLUDED.subtitle,
+        summary_text = EXCLUDED.summary_text,
+        labels = EXCLUDED.labels,
+        thumbnail_ref = EXCLUDED.thumbnail_ref,
+        owner_surface_url = EXCLUDED.owner_surface_url,
+        mention_tokens = EXCLUDED.mention_tokens,
+        mention_text = EXCLUDED.mention_text,
+        search_text = EXCLUDED.search_text,
+        affordance_verbs = EXCLUDED.affordance_verbs,
+        stale = EXCLUDED.stale,
+        metadata = EXCLUDED.metadata,
+        updated_at = EXCLUDED.updated_at
+    """
+)
+
 
 class ObjectInstanceRegistryStore(PostgresStoreBase):
     """Durable object instance registry used by search and mention completion."""
@@ -68,75 +141,39 @@ class ObjectInstanceRegistryStore(PostgresStoreBase):
         if not records:
             return 0
 
+        payload = []
+        for ordinal, record in enumerate(records):
+            ref = record.ref
+            payload.append(
+                {
+                    "ordinal": ordinal,
+                    "workspace_id": workspace_id,
+                    "uri": ref.uri,
+                    "owner_pack": ref.owner_pack,
+                    "object_kind": ref.object_kind,
+                    "object_id": ref.object_id,
+                    "version": ref.version,
+                    "selector": ref.selector,
+                    "source_surface": ref.source_surface,
+                    "title": record.title,
+                    "subtitle": record.subtitle,
+                    "summary_text": record.summary_text,
+                    "labels": record.labels,
+                    "thumbnail_ref": record.thumbnail_ref,
+                    "owner_surface_url": record.owner_surface_url,
+                    "mention_tokens": record.mention_tokens,
+                    "mention_text": record.mention_text,
+                    "search_text": self._build_search_text(record),
+                    "affordance_verbs": record.affordance_verbs,
+                    "stale": record.stale,
+                    "metadata": record.metadata,
+                    "updated_at": record.updated_at,
+                }
+            )
+        records_json = self.serialize_json(payload)
+
         with self.transaction() as conn:
-            for record in records:
-                ref = record.ref
-                search_text = self._build_search_text(record)
-                conn.execute(
-                    text(
-                        """
-                        INSERT INTO object_instances (
-                            workspace_id, uri, owner_pack, object_kind, object_id,
-                            version, selector, source_surface,
-                            title, subtitle, summary_text, labels, thumbnail_ref,
-                            owner_surface_url, mention_tokens, mention_text,
-                            search_text, affordance_verbs, stale, metadata, updated_at
-                        ) VALUES (
-                            :workspace_id, :uri, :owner_pack, :object_kind, :object_id,
-                            :version, CAST(:selector AS JSONB), :source_surface,
-                            :title, :subtitle, :summary_text, CAST(:labels AS JSONB),
-                            :thumbnail_ref, :owner_surface_url,
-                            CAST(:mention_tokens AS JSONB), :mention_text,
-                            :search_text, CAST(:affordance_verbs AS JSONB),
-                            :stale, CAST(:metadata AS JSONB),
-                            COALESCE(CAST(:updated_at AS TIMESTAMPTZ), now())
-                        )
-                        ON CONFLICT (workspace_id, uri) DO UPDATE SET
-                            owner_pack = EXCLUDED.owner_pack,
-                            object_kind = EXCLUDED.object_kind,
-                            object_id = EXCLUDED.object_id,
-                            version = EXCLUDED.version,
-                            selector = EXCLUDED.selector,
-                            source_surface = EXCLUDED.source_surface,
-                            title = EXCLUDED.title,
-                            subtitle = EXCLUDED.subtitle,
-                            summary_text = EXCLUDED.summary_text,
-                            labels = EXCLUDED.labels,
-                            thumbnail_ref = EXCLUDED.thumbnail_ref,
-                            owner_surface_url = EXCLUDED.owner_surface_url,
-                            mention_tokens = EXCLUDED.mention_tokens,
-                            mention_text = EXCLUDED.mention_text,
-                            search_text = EXCLUDED.search_text,
-                            affordance_verbs = EXCLUDED.affordance_verbs,
-                            stale = EXCLUDED.stale,
-                            metadata = EXCLUDED.metadata,
-                            updated_at = EXCLUDED.updated_at
-                        """
-                    ),
-                    {
-                        "workspace_id": workspace_id,
-                        "uri": ref.uri,
-                        "owner_pack": ref.owner_pack,
-                        "object_kind": ref.object_kind,
-                        "object_id": ref.object_id,
-                        "version": ref.version,
-                        "selector": self.serialize_json(ref.selector),
-                        "source_surface": ref.source_surface,
-                        "title": record.title,
-                        "subtitle": record.subtitle,
-                        "summary_text": record.summary_text,
-                        "labels": self.serialize_json(record.labels),
-                        "thumbnail_ref": record.thumbnail_ref,
-                        "owner_surface_url": record.owner_surface_url,
-                        "mention_tokens": self.serialize_json(record.mention_tokens),
-                        "mention_text": record.mention_text,
-                        "search_text": search_text,
-                        "affordance_verbs": self.serialize_json(record.affordance_verbs),
-                        "stale": record.stale,
-                        "metadata": self.serialize_json(record.metadata),
-                        "updated_at": record.updated_at,
-                    },
-                )
+            conn.execute(_BATCH_UPSERT, {"records": records_json})
         return len(records)
 
     def search(

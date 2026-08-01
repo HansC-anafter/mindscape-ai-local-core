@@ -40,6 +40,79 @@ INDEX_DDL = [
     "CREATE INDEX IF NOT EXISTS idx_object_relations_meeting ON object_relations(workspace_id, meeting_id, updated_at DESC)",
 ]
 
+_BATCH_UPSERT = text(
+    """
+    WITH input_rows AS (
+        SELECT *
+        FROM jsonb_to_recordset(CAST(:relations AS JSONB)) AS input_row (
+            ordinal INTEGER,
+            workspace_id TEXT,
+            relation_id TEXT,
+            source_uri TEXT,
+            relation_kind TEXT,
+            target_uri TEXT,
+            source_ref JSONB,
+            target_ref JSONB,
+            source_role TEXT,
+            target_role TEXT,
+            provenance_type TEXT,
+            provenance_id TEXT,
+            meeting_id TEXT,
+            metadata JSONB,
+            created_at TIMESTAMPTZ,
+            updated_at TIMESTAMPTZ
+        )
+    ),
+    ranked_rows AS (
+        SELECT
+            *,
+            row_number() OVER (
+                PARTITION BY workspace_id, relation_id
+                ORDER BY ordinal DESC
+            ) AS latest_rank,
+            first_value(created_at) OVER (
+                PARTITION BY workspace_id, relation_id
+                ORDER BY ordinal
+                ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
+            ) AS first_created_at
+        FROM input_rows
+    ),
+    latest_rows AS (
+        SELECT *
+        FROM ranked_rows
+        WHERE latest_rank = 1
+    )
+    INSERT INTO object_relations (
+        workspace_id, relation_id, source_uri, relation_kind,
+        target_uri, source_ref, target_ref, source_role,
+        target_role, provenance_type, provenance_id, meeting_id,
+        metadata, created_at, updated_at
+    )
+    SELECT
+        workspace_id, relation_id, source_uri, relation_kind,
+        target_uri, source_ref, target_ref, source_role,
+        target_role, provenance_type, provenance_id, meeting_id,
+        metadata,
+        COALESCE(first_created_at, now()),
+        COALESCE(updated_at, now())
+    FROM latest_rows
+    ORDER BY ordinal
+    ON CONFLICT (workspace_id, relation_id) DO UPDATE SET
+        source_uri = EXCLUDED.source_uri,
+        relation_kind = EXCLUDED.relation_kind,
+        target_uri = EXCLUDED.target_uri,
+        source_ref = EXCLUDED.source_ref,
+        target_ref = EXCLUDED.target_ref,
+        source_role = EXCLUDED.source_role,
+        target_role = EXCLUDED.target_role,
+        provenance_type = EXCLUDED.provenance_type,
+        provenance_id = EXCLUDED.provenance_id,
+        meeting_id = EXCLUDED.meeting_id,
+        metadata = EXCLUDED.metadata,
+        updated_at = EXCLUDED.updated_at
+    """
+)
+
 
 class ObjectRelationRegistryStore(PostgresStoreBase):
     """Durable object relation graph used by AOL graph and provenance views."""
@@ -66,66 +139,36 @@ class ObjectRelationRegistryStore(PostgresStoreBase):
         if not relations:
             return 0
 
+        payload = []
+        for ordinal, relation in enumerate(relations):
+            relation_id = relation.relation_id or self._build_relation_id(
+                workspace_id=workspace_id,
+                relation=relation,
+            )
+            payload.append(
+                {
+                    "ordinal": ordinal,
+                    "workspace_id": workspace_id,
+                    "relation_id": relation_id,
+                    "source_uri": relation.source_ref.uri,
+                    "relation_kind": relation.relation_kind,
+                    "target_uri": relation.target_ref.uri,
+                    "source_ref": relation.source_ref.model_dump(exclude_none=True),
+                    "target_ref": relation.target_ref.model_dump(exclude_none=True),
+                    "source_role": relation.source_role,
+                    "target_role": relation.target_role,
+                    "provenance_type": relation.provenance_type,
+                    "provenance_id": relation.provenance_id,
+                    "meeting_id": relation.meeting_id,
+                    "metadata": relation.metadata,
+                    "created_at": relation.created_at,
+                    "updated_at": relation.updated_at,
+                }
+            )
+        relations_json = self.serialize_json(payload)
+
         with self.transaction() as conn:
-            for relation in relations:
-                relation_id = relation.relation_id or self._build_relation_id(
-                    workspace_id=workspace_id,
-                    relation=relation,
-                )
-                conn.execute(
-                    text(
-                        """
-                        INSERT INTO object_relations (
-                            workspace_id, relation_id, source_uri, relation_kind,
-                            target_uri, source_ref, target_ref, source_role,
-                            target_role, provenance_type, provenance_id, meeting_id,
-                            metadata, created_at, updated_at
-                        ) VALUES (
-                            :workspace_id, :relation_id, :source_uri, :relation_kind,
-                            :target_uri, CAST(:source_ref AS JSONB),
-                            CAST(:target_ref AS JSONB), :source_role, :target_role,
-                            :provenance_type, :provenance_id, :meeting_id,
-                            CAST(:metadata AS JSONB),
-                            COALESCE(CAST(:created_at AS TIMESTAMPTZ), now()),
-                            COALESCE(CAST(:updated_at AS TIMESTAMPTZ), now())
-                        )
-                        ON CONFLICT (workspace_id, relation_id) DO UPDATE SET
-                            source_uri = EXCLUDED.source_uri,
-                            relation_kind = EXCLUDED.relation_kind,
-                            target_uri = EXCLUDED.target_uri,
-                            source_ref = EXCLUDED.source_ref,
-                            target_ref = EXCLUDED.target_ref,
-                            source_role = EXCLUDED.source_role,
-                            target_role = EXCLUDED.target_role,
-                            provenance_type = EXCLUDED.provenance_type,
-                            provenance_id = EXCLUDED.provenance_id,
-                            meeting_id = EXCLUDED.meeting_id,
-                            metadata = EXCLUDED.metadata,
-                            updated_at = EXCLUDED.updated_at
-                        """
-                    ),
-                    {
-                        "workspace_id": workspace_id,
-                        "relation_id": relation_id,
-                        "source_uri": relation.source_ref.uri,
-                        "relation_kind": relation.relation_kind,
-                        "target_uri": relation.target_ref.uri,
-                        "source_ref": self.serialize_json(
-                            relation.source_ref.model_dump(exclude_none=True)
-                        ),
-                        "target_ref": self.serialize_json(
-                            relation.target_ref.model_dump(exclude_none=True)
-                        ),
-                        "source_role": relation.source_role,
-                        "target_role": relation.target_role,
-                        "provenance_type": relation.provenance_type,
-                        "provenance_id": relation.provenance_id,
-                        "meeting_id": relation.meeting_id,
-                        "metadata": self.serialize_json(relation.metadata),
-                        "created_at": relation.created_at,
-                        "updated_at": relation.updated_at,
-                    },
-                )
+            conn.execute(_BATCH_UPSERT, {"relations": relations_json})
         return len(relations)
 
     def search(
