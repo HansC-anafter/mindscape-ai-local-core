@@ -81,7 +81,7 @@ def test_containment_renewal_preserves_scope(tmp_path: Path) -> None:
         allowed_operation_keys=original.allowed_operation_keys,
         test_evidence_paths=original.test_evidence_paths,
         restore_id=original.restore_id,
-        expires_at="2099-01-01T00:00:00Z",
+        expires_at=(datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat(),
         owner=original.owner,
     )
 

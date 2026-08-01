@@ -17,7 +17,12 @@ from .closure_receipts import (
     IncidentAttributionExhaustionReceipt,
     IncidentResidualCloseReceipt,
 )
-from .models import IncidentCloseReceipt, IncidentReceipt, IncidentState
+from .models import (
+    IncidentCloseReceipt,
+    IncidentReceipt,
+    IncidentState,
+    _parse_timestamp,
+)
 
 
 class IncidentTransitionError(RuntimeError):
