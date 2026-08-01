@@ -1,5 +1,6 @@
 import hashlib
 import json
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -24,7 +25,7 @@ def _containment() -> IncidentContainmentReceipt:
         allowed_operation_keys=("capability_install_intake:file@sha256:" + "a" * 64,),
         test_evidence_paths=("evidence/preflight.json",),
         restore_id="restore-001",
-        expires_at="2099-01-01T00:00:00Z",
+        expires_at=(datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat(),
         owner="runtime-db-incident-owner",
     )
 
@@ -66,3 +67,28 @@ def test_reopen_for_attribution_rejects_invalid_reason(tmp_path: Path) -> None:
             authorization_sha256=hashlib.sha256(authorization.read_bytes()).hexdigest(),
             reason="unexpected_reason",
         )
+
+
+def test_containment_renewal_preserves_scope(tmp_path: Path) -> None:
+    journal = RuntimeDatabaseIncidentJournal(tmp_path / "journal")
+    incident = journal.open_incident(failure_code="postgres_server_closed_unexpectedly")
+    original = _containment()
+    journal.mark_contained(incident.incident_id, original)
+    renewed = IncidentContainmentReceipt(
+        permit_id="containment-reopen-renewed",
+        trigger_classification=original.trigger_classification,
+        fix_commit=original.fix_commit,
+        allowed_operation_keys=original.allowed_operation_keys,
+        test_evidence_paths=original.test_evidence_paths,
+        restore_id=original.restore_id,
+        expires_at="2099-01-01T00:00:00Z",
+        owner=original.owner,
+    )
+
+    current = journal.renew_containment(
+        incident.incident_id,
+        renewed,
+        authorization="workspace-owner:renew-containment",
+    )
+
+    assert current.containment_receipt == renewed.to_dict()

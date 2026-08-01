@@ -86,6 +86,18 @@ def _parser() -> argparse.ArgumentParser:
     contain.add_argument("--expires-at", required=True)
     contain.add_argument("--owner", required=True)
 
+    renew = commands.add_parser("renew-containment")
+    renew.add_argument("incident_id")
+    renew.add_argument("--permit-id", required=True)
+    renew.add_argument("--trigger-classification", required=True)
+    renew.add_argument("--fix-commit", required=True)
+    renew.add_argument("--allowed-operation-key", action="append", required=True)
+    renew.add_argument("--test-evidence-path", action="append", required=True)
+    renew.add_argument("--restore-id", required=True)
+    renew.add_argument("--expires-at", required=True)
+    renew.add_argument("--owner", required=True)
+    renew.add_argument("--authorization", required=True)
+
     pack_permit = commands.add_parser("permit-pack-install")
     pack_permit.add_argument("incident_id")
     pack_permit.add_argument("--permit-id", required=True)
@@ -236,6 +248,21 @@ def main(argv: list[str] | None = None) -> int:
                 expires_at=args.expires_at,
                 owner=args.owner,
             ),
+        )
+    elif args.command == "renew-containment":
+        receipt = journal.renew_containment(
+            args.incident_id,
+            IncidentContainmentReceipt(
+                permit_id=args.permit_id,
+                trigger_classification=args.trigger_classification,
+                fix_commit=args.fix_commit,
+                allowed_operation_keys=tuple(args.allowed_operation_key),
+                test_evidence_paths=tuple(args.test_evidence_path),
+                restore_id=args.restore_id,
+                expires_at=args.expires_at,
+                owner=args.owner,
+            ),
+            authorization=args.authorization,
         )
     elif args.command == "permit-pack-install":
         artifact_sha256 = args.artifact_sha256.strip().lower()

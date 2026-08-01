@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -114,6 +114,70 @@ class IncidentClosureJournalMixin:
                     "authorization_path": authorization_path,
                     "authorization_sha256": authorization_sha256,
                     "revoked_containment_receipt": current.containment_receipt,
+                },
+            )
+            self._write_current_unlocked(updated)
+            return updated
+
+    def renew_containment(
+        self,
+        incident_id: str,
+        containment_receipt: Any,
+        *,
+        authorization: str,
+    ) -> IncidentReceipt:
+        """Extend one current containment receipt without changing its scope."""
+
+        containment_receipt.validate()
+        if not authorization.strip():
+            raise ValueError("containment_renewal_authorization_missing")
+        new_expiry = _parse_timestamp(
+            containment_receipt.expires_at,
+            field_name="containment_expires_at",
+        )
+        now = datetime.now(timezone.utc)
+        if new_expiry <= now or new_expiry > now + timedelta(minutes=30):
+            raise ValueError("containment_renewal_expiry_out_of_bounds")
+        with self._lock():
+            current = self._require_current_unlocked(incident_id)
+            if current.state is IncidentState.CLOSED:
+                raise IncidentTransitionError(
+                    "Closed incidents cannot renew containment"
+                )
+            if current.state is not IncidentState.CONTAINED_PENDING_SOAK:
+                raise IncidentTransitionError(
+                    "Only contained incidents can renew containment"
+                )
+            previous = dict(current.containment_receipt or {})
+            if not previous:
+                raise IncidentTransitionError(
+                    "Contained incident has no current containment receipt"
+                )
+            candidate = containment_receipt.to_dict()
+            for field in (
+                "trigger_classification",
+                "fix_commit",
+                "allowed_operation_keys",
+                "test_evidence_paths",
+                "restore_id",
+                "owner",
+            ):
+                if candidate.get(field) != previous.get(field):
+                    raise ValueError("containment_renewal_scope_changed")
+            event_time = _utc_now()
+            updated = replace(
+                current,
+                updated_at=event_time,
+                containment_receipt=candidate,
+            )
+            self._append_event_unlocked(
+                incident_id=incident_id,
+                event={
+                    "event": "containment_renewed",
+                    "at": event_time,
+                    "authorization": authorization,
+                    "previous_containment_receipt": previous,
+                    "containment_receipt": candidate,
                 },
             )
             self._write_current_unlocked(updated)
