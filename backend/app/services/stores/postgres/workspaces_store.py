@@ -233,7 +233,7 @@ class PostgresWorkspacesStore(PostgresStoreBase):
 
             result = conn.execute(text(query_str), params)
             rows = result.fetchall()
-            return [self._row_to_workspace(row) for row in rows]
+        return [self._row_to_workspace(row) for row in rows]
 
     def list_workspace_summaries(
         self,
@@ -274,7 +274,8 @@ class PostgresWorkspacesStore(PostgresStoreBase):
             query_str += " ORDER BY updated_at DESC LIMIT :limit"
 
             result = conn.execute(text(query_str), params)
-            return [self._row_to_workspace_summary(row) for row in result.fetchall()]
+            rows = result.fetchall()
+        return [self._row_to_workspace_summary(row) for row in rows]
 
     def update_workspace_sync(self, workspace: Workspace) -> Workspace:
         """Update an existing workspace (synchronous)."""
@@ -447,7 +448,7 @@ class PostgresWorkspacesStore(PostgresStoreBase):
                 "ORDER BY updated_at DESC LIMIT :limit"
             )
             rows = conn.execute(query, {"visibility": visibility, "limit": limit}).fetchall()
-            return [self._row_to_workspace(row) for row in rows]
+        return [self._row_to_workspace(row) for row in rows]
 
     def merge_data_sources(
         self,
