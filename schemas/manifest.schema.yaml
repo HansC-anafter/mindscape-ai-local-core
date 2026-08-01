@@ -80,6 +80,23 @@ properties:
     enum: [AOL-0, AOL-1, AOL-2, AOL-3, AOL-4, AOL-5]
     description: "Addressable Object Layer maturity claim for this pack"
 
+  remote_workbench:
+    type: object
+    description: "Remote Workbench request-scope and explicit route contract"
+    required:
+      - request_scope_contract
+    properties:
+      request_scope_contract:
+        type: string
+        enum: [explicit_workspace_v1, no_remote_requests_v1]
+      workspace_api_route_templates:
+        type: array
+        maxItems: 8
+        items:
+          type: string
+          pattern: "^/api/v1/workspaces/\\{workspaceId\\}/"
+    additionalProperties: false
+
   contract_exports:
     type: array
     description: "Contracts exported by this capability pack"

@@ -32,6 +32,15 @@ def _normalize_string_list(values: Any) -> List[str]:
     return normalized
 
 
+def _normalize_workspace_route_templates(values: Any) -> List[str]:
+    templates = _normalize_string_list(values)
+    return [
+        template
+        for template in templates[:8]
+        if template.startswith("/api/v1/workspaces/{workspaceId}/")
+    ]
+
+
 def _is_main_page_component(component: Dict[str, Any]) -> bool:
     code = str(component.get("code") or "").strip()
     if not code:
@@ -113,7 +122,6 @@ def build_mobile_workbench_gateway_support_payload(
         _is_owned_api_prefix(prefix, normalized_capability_code)
         for prefix in declared_api_prefixes
     )
-    api_prefixes = declared_api_prefixes if api_prefixes_valid else []
     normalized_main_page_component_codes = _normalize_string_list(
         main_page_component_codes
     )
@@ -124,6 +132,27 @@ def build_mobile_workbench_gateway_support_payload(
         else ""
     )
     request_scope_valid = request_scope_contract in _REMOTE_REQUEST_SCOPE_CONTRACTS
+    route_templates = _normalize_workspace_route_templates(
+        remote_workbench.get("workspace_api_route_templates")
+        if isinstance(remote_workbench, dict)
+        else []
+    )
+    route_templates_valid = not isinstance(remote_workbench, dict) or (
+        request_scope_contract == "no_remote_requests_v1" and not route_templates
+    ) or bool(route_templates)
+    # A legacy pack may declare the router mount ``/api/v1`` while its
+    # remote contract names the exact workspace-scoped paths.  Never expose
+    # that broad mount to a remote client; project only the validated route
+    # templates in that case.
+    if (
+        declared_api_prefixes == ["/api/v1"]
+        and route_templates_valid
+        and route_templates
+    ):
+        api_prefixes = route_templates
+        api_prefixes_valid = True
+    else:
+        api_prefixes = declared_api_prefixes if api_prefixes_valid else []
     remote_api_prefixes = (
         []
         if request_scope_contract == "no_remote_requests_v1"
@@ -134,7 +163,7 @@ def build_mobile_workbench_gateway_support_payload(
         normalized_capability_code,
         normalized_main_page_component_codes,
     )
-    if not api_prefixes_valid or not request_scope_valid:
+    if not api_prefixes_valid or not request_scope_valid or not route_templates_valid:
         host_route_template = None
     supported = bool(ui_components) and bool(
         normalized_main_page_component_codes
@@ -154,4 +183,5 @@ def build_mobile_workbench_gateway_support_payload(
         "main_page_component_codes": normalized_main_page_component_codes,
         "api_prefixes": remote_api_prefixes,
         "request_scope_contract": request_scope_contract or None,
+        "workspace_api_route_templates": route_templates,
     }
