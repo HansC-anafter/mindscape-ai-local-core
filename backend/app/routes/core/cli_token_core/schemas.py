@@ -38,3 +38,12 @@ class RegisterHostSessionRuntimeRequest(BaseModel):
         default_factory=dict,
         description="Runtime metadata such as CODEX_HOME/HOME/XDG paths",
     )
+
+
+class RegisterHostSessionRuntimeBatchRequest(BaseModel):
+    runtimes: list[RegisterHostSessionRuntimeRequest] = Field(
+        ...,
+        min_length=1,
+        max_length=256,
+        description="One workspace-scoped batch of host-session runtimes",
+    )

@@ -27,7 +27,12 @@ from backend.app.routes.core.cli_token_core.host_session_runtime import (
     _upsert_host_session_runtime,
     _upsert_host_session_runtime_sql,
 )
+from backend.app.routes.core.cli_token_core.host_session_api import (
+    _register_host_session_runtime_batch_request,
+    _register_host_session_runtime_request,
+)
 from backend.app.routes.core.cli_token_core.schemas import (
+    RegisterHostSessionRuntimeBatchRequest,
     RegisterHostSessionRuntimeRequest,
 )
 from backend.app.routes.core.cli_token_core.token_bundles import (
@@ -238,32 +243,14 @@ async def get_cli_token(
 async def register_host_session_runtime(
     request: RegisterHostSessionRuntimeRequest,
 ) -> dict[str, Any]:
-    surface_name = (request.surface or "").strip().lower()
-    if surface_name != "codex_cli":
-        raise HTTPException(
-            status_code=400,
-            detail=f"Host-session runtime registration is not implemented for {surface_name}",
-        )
+    return _register_host_session_runtime_request(request)
 
-    owner_user_id = str(request.owner_user_id or "").strip()
-    if not owner_user_id:
-        owner_user_id = _load_workspace_owner_user_id(request.workspace_id) or ""
-    if not owner_user_id:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Workspace not found or owner unavailable: {request.workspace_id}",
-        )
 
-    runtime = _register_host_session_runtime(
-        owner_user_id=owner_user_id,
-        request=request,
-    )
-    return {
-        "registered": True,
-        "runtime_id": runtime.get("runtime_id") or runtime.get("id"),
-        "owner_user_id": owner_user_id,
-        "runtime": runtime,
-    }
+@router.post("/cli-runtime/register-host-sessions")
+def register_host_session_runtime_batch(
+    request: RegisterHostSessionRuntimeBatchRequest,
+) -> dict[str, Any]:
+    return _register_host_session_runtime_batch_request(request)
 
 
 @router.post("/runtime-quota-exhausted")

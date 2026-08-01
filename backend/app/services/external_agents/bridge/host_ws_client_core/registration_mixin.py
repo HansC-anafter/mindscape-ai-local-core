@@ -36,32 +36,27 @@ class HostBridgeRegistrationMixin:
         if not self.backend_api_urls:
             raise RuntimeError("MINDSCAPE_BACKEND_API_URL is not configured")
 
-        responses: list[Dict[str, Any]] = []
-        for payload in payloads or self._build_host_session_runtime_registration_payloads():
-            _backend_url, body = self._backend_request_sync(
-                lambda backend_url, payload=payload: urllib.request.Request(
-                    f"{backend_url}/api/v1/auth/cli-runtime/register-host-session",
-                    data=json.dumps(payload).encode("utf-8"),
-                    headers={
-                        "Content-Type": "application/json",
-                        "Accept": "application/json",
-                    },
-                    method="POST",
-                ),
-                timeout=self.HOST_SESSION_REGISTER_TIMEOUT,
-            )
-            responses.append(json.loads(body) if body else {})
+        runtime_payloads = (
+            payloads
+            if payloads is not None
+            else self._build_host_session_runtime_registration_payloads()
+        )
+        if not runtime_payloads:
+            return {}
 
-        primary = responses[0] if responses else {}
-        if len(responses) <= 1:
-            return primary
-        primary["registered_runtime_ids"] = [
-            str(item.get("runtime_id") or "").strip()
-            for item in responses
-            if str(item.get("runtime_id") or "").strip()
-        ]
-        primary["registered_runtime_count"] = len(primary["registered_runtime_ids"])
-        return primary
+        _backend_url, body = self._backend_request_sync(
+            lambda backend_url: urllib.request.Request(
+                f"{backend_url}/api/v1/auth/cli-runtime/register-host-sessions",
+                data=json.dumps({"runtimes": runtime_payloads}).encode("utf-8"),
+                headers={
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                },
+                method="POST",
+            ),
+            timeout=self.HOST_SESSION_REGISTER_TIMEOUT,
+        )
+        return json.loads(body) if body else {}
 
     async def _maybe_register_host_session_runtime(self) -> None:
         if not self._should_auto_register_host_session_runtime():
