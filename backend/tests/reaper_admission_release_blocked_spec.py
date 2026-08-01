@@ -262,6 +262,53 @@ async def test_releases_due_resource_wait_task_to_ready_queue():
 
 
 @pytest.mark.asyncio
+async def test_resource_wait_uses_atomic_store_transition_before_enqueue():
+    class _AtomicStore(_FakeTasksStore):
+        def __init__(self, tasks, *, transitioned=True):
+            super().__init__(tasks)
+            self.transitioned = transitioned
+            self.transition_calls = []
+
+        def try_release_resource_wait_task(self, task_id, *, released_at):
+            self.transition_calls.append((task_id, released_at))
+            return self.transitioned
+
+    store = _AtomicStore([_build_resource_wait_task()])
+    queue = _FakeRedisQueue("browser_local")
+
+    released = await reaper._release_resource_wait_tasks(
+        store,
+        queue,
+        release_limit=1,
+    )
+
+    assert released == 1
+    assert [call[0] for call in store.transition_calls] == ["task-resource"]
+    assert store.updated == []
+    assert queue._client.enqueued == ["task-resource"]
+
+
+@pytest.mark.asyncio
+async def test_resource_wait_atomic_transition_race_does_not_enqueue():
+    class _RacedStore(_FakeTasksStore):
+        def try_release_resource_wait_task(self, task_id, *, released_at):
+            return False
+
+    store = _RacedStore([_build_resource_wait_task()])
+    queue = _FakeRedisQueue("browser_local")
+
+    released = await reaper._release_resource_wait_tasks(
+        store,
+        queue,
+        release_limit=1,
+    )
+
+    assert released == 0
+    assert store.updated == []
+    assert queue._client.enqueued == []
+
+
+@pytest.mark.asyncio
 async def test_reextends_resource_wait_when_host_advisor_still_blocks(monkeypatch):
     task = _build_resource_wait_task(
         requirements={

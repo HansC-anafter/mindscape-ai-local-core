@@ -788,6 +788,7 @@ surfaces:
       - backend/app/runner/worker_dispatch.py
       - backend/app/runner/reaper_stale_tasks.py
       - backend/app/runner/reaper_resource_ownership.py
+      - backend/app/runner/reaper_release_resource_quota.py
       - backend/app/runner/worker_loop.py
       - backend/app/runner/worker_maintenance.py
       - backend/app/runner/worker_startup.py

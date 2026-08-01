@@ -7,6 +7,12 @@ from backend.app.services.runner_resources import (
     RedisNodeBudgetStore,
 )
 from backend.app.services.runner_resources.node_budget import (
+    _ACQUIRE_LUA,
+    _RECONCILE_ACTIVE_RESERVATIONS_LUA,
+    _RECONCILE_DOWN_LUA,
+    _RELEASE_LUA,
+    _RENEW_LUA,
+    _SNAPSHOT_LUA,
     resolve_browser_request_bytes,
     resolve_node_budget_policy,
 )
@@ -99,6 +105,25 @@ def test_unmeasured_browser_request_uses_observed_floor_when_configured():
             "LOCAL_CORE_RUNNER_BROWSER_UNMEASURED_RESERVATION_MB": "2304"
         },
     ) == (2304 * MIB, "observed_unmeasured_floor")
+
+
+def test_redis_scripts_recompute_active_bytes_and_never_expire_derived_scalars():
+    scripts = (
+        _ACQUIRE_LUA,
+        _SNAPSHOT_LUA,
+        _RENEW_LUA,
+        _RECONCILE_DOWN_LUA,
+        _RELEASE_LUA,
+    )
+    for script in scripts:
+        assert script.startswith(_RECONCILE_ACTIVE_RESERVATIONS_LUA)
+        assert "redis.call('HGETALL', reservations_key)" in script
+        assert "redis.call('SET', total_key, total)" in script
+
+    assert "redis.call('EXPIRE', total_key" not in _ACQUIRE_LUA
+    assert "redis.call('EXPIRE', revision_key" not in _ACQUIRE_LUA
+    assert "extend_collection_ttl(reservations_key, key_ttl)" in _ACQUIRE_LUA
+    assert "current_ttl < key_ttl" in _ACQUIRE_LUA
 
 
 @pytest.mark.asyncio

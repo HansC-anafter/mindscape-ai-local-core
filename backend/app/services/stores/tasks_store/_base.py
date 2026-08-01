@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from ._crud_control import TasksStoreControlMixin, _publish_terminal_event
 from ._crud_create_read import TasksStoreCreateReadMixin
+from ._crud_frontier_release import TasksStoreFrontierReleaseMixin
 from ._crud_helpers import (
     _RUNNER_TASK_TYPES,
     _TERMINAL_TASK_STATUSES,
@@ -28,6 +29,7 @@ from ._task_row_projection import TasksStoreRowProjectionMixin
 class TasksStoreCrudMixin(
     TasksStoreControlMixin,
     TasksStoreCreateReadMixin,
+    TasksStoreFrontierReleaseMixin,
     TasksStoreStatusUpdateMixin,
     TasksStoreUpdateMixin,
     TasksStoreRowProjectionMixin,

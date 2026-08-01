@@ -9,10 +9,16 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy import text
 
 from app.models.workspace import Task, TaskStatus
-from backend.app.services.runner_topology import build_queue_partition_filter_clause
+from backend.app.services.runner_topology import (
+    BROWSER_LOCAL_QUEUE_PARTITION,
+    DEFAULT_LOCAL_BROWSER_QUEUE_PARTITION,
+    build_queue_partition_filter_clause,
+    queue_partition_matches,
+)
 
 from ._query_common import (
     _ADMISSION_RELEASE_CANDIDATE_SELECT,
+    _BROWSER_RESOURCE_WAIT_CANDIDATE_SELECT_FROM_ALIAS,
     _COLD_RELEASE_CANDIDATE_SELECT_FROM_ALIAS,
     _COLD_RELEASE_COMPACT_CANDIDATE_SELECT_FROM_ALIAS,
     _WORKSPACE_QUOTA_RELEASE_REASONS,
@@ -45,6 +51,7 @@ class TasksStoreColdReleaseQueryMixin:
         limit: int,
         include_execution_context: bool = True,
         rank_by_concurrency_key: bool = False,
+        compact_browser_resource_wait: bool = False,
     ) -> List[Task]:
         release_group_sql = (
             "COALESCE(NULLIF(concurrency_key, ''), pack_id)"
@@ -121,11 +128,14 @@ class TasksStoreColdReleaseQueryMixin:
             )
             """
         )
-        query_parts.append(
-            _COLD_RELEASE_CANDIDATE_SELECT_FROM_ALIAS
-            if include_execution_context
-            else _COLD_RELEASE_COMPACT_CANDIDATE_SELECT_FROM_ALIAS
-        )
+        if compact_browser_resource_wait:
+            query_parts.append(_BROWSER_RESOURCE_WAIT_CANDIDATE_SELECT_FROM_ALIAS)
+        else:
+            query_parts.append(
+                _COLD_RELEASE_CANDIDATE_SELECT_FROM_ALIAS
+                if include_execution_context
+                else _COLD_RELEASE_COMPACT_CANDIDATE_SELECT_FROM_ALIAS
+            )
         query_parts.append(
             "ORDER BY c.pack_rank ASC, c.next_eligible_at ASC, c.created_at ASC, c.id ASC"
         )
@@ -329,6 +339,13 @@ class TasksStoreColdReleaseQueryMixin:
             blocked_reason="resource_wait",
             queue_shard=queue_shard,
             limit=limit,
+            compact_browser_resource_wait=any(
+                queue_partition_matches(queue_shard, browser_partition)
+                for browser_partition in (
+                    BROWSER_LOCAL_QUEUE_PARTITION,
+                    DEFAULT_LOCAL_BROWSER_QUEUE_PARTITION,
+                )
+            ),
         )
 
     def list_due_workspace_quota_tasks(

@@ -71,3 +71,33 @@ def test_resource_wait_candidates_keep_pack_level_ranking():
     assert "pack_id AS release_group" in sql
     assert "COALESCE(NULLIF(concurrency_key, ''), pack_id)" not in sql
     assert "PARTITION BY release_group" in sql
+    assert "WHEN t.blocked_payload IS NOT NULL" in sql
+    assert "t.blocked_payload->'resource_keys'" in sql
+    assert "t.execution_context," not in sql
+    assert store.connection.params["scan_limit"] == 4096
+
+
+def test_non_browser_resource_wait_candidates_preserve_full_context():
+    store = _QueryStore()
+
+    assert store.list_due_resource_wait_tasks(
+        queue_shard="vision_local",
+        limit=4,
+    ) == []
+
+    sql = _normalized_sql(store)
+    assert "t.execution_context," in sql
+    assert "WHEN t.blocked_payload IS NOT NULL" not in sql
+
+
+def test_default_browser_resource_wait_candidates_use_compact_context():
+    store = _QueryStore()
+
+    assert store.list_due_resource_wait_tasks(
+        queue_shard="default_local_browser",
+        limit=4,
+    ) == []
+
+    sql = _normalized_sql(store)
+    assert "WHEN t.blocked_payload IS NOT NULL" in sql
+    assert "t.execution_context," not in sql

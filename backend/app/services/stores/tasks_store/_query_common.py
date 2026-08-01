@@ -203,6 +203,45 @@ _COLD_RELEASE_CANDIDATE_SELECT_FROM_ALIAS = """
     JOIN tasks t ON t.id = c.id
 """
 
+_BROWSER_RESOURCE_WAIT_CANDIDATE_SELECT_FROM_ALIAS = """
+    SELECT
+        t.id,
+        t.workspace_id,
+        t.message_id,
+        t.execution_id,
+        t.pack_id,
+        t.task_type,
+        t.status,
+        CASE
+            WHEN t.blocked_payload IS NOT NULL THEN
+                jsonb_build_object(
+                    'resource_admission',
+                    jsonb_strip_nulls(
+                        jsonb_build_object(
+                            'resource_keys', t.blocked_payload->'resource_keys',
+                            'resource_key', t.blocked_payload->'resource_key',
+                            'requirements', t.blocked_payload->'requirements'
+                        )
+                    )
+                )
+            WHEN t.execution_context IS NOT NULL THEN
+                jsonb_strip_nulls(
+                    jsonb_build_object(
+                        'resource_admission', t.execution_context->'resource_admission',
+                        'runner_resource_leases', t.execution_context->'runner_resource_leases'
+                    )
+                )
+            ELSE NULL
+        END AS execution_context,
+        t.created_at,
+        t.next_eligible_at,
+        t.blocked_reason,
+        t.queue_shard,
+        t.concurrency_key
+    FROM chosen c
+    JOIN tasks t ON t.id = c.id
+"""
+
 _COLD_RELEASE_COMPACT_CANDIDATE_SELECT_FROM_ALIAS = """
     SELECT
         t.id,
