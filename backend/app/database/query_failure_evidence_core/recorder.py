@@ -40,6 +40,17 @@ def _database_role(application_name: str) -> str:
     return role if role in _DATABASE_ROLES else "unspecified"
 
 
+def _burst_fingerprint(evidence: dict[str, str]) -> str:
+    identity = (
+        evidence["application_name"],
+        evidence["client_process_pid"],
+        evidence["database_role"],
+        evidence["exception_class"],
+        evidence["failure_code"],
+    )
+    return hashlib.sha256("\x1f".join(identity).encode("utf-8")).hexdigest()
+
+
 class QueryFailureEvidenceRecorder:
     """Record one redacted event per bounded unexpected-close burst."""
 
@@ -81,9 +92,7 @@ class QueryFailureEvidenceRecorder:
             "statement_sha256": statement_sha256,
             "statement_bytes": statement_bytes,
         }
-        fingerprint = hashlib.sha256(
-            "\x1f".join(evidence.values()).encode("utf-8")
-        ).hexdigest()
+        fingerprint = _burst_fingerprint(evidence)
         now = self.monotonic()
         with self._lock:
             if (

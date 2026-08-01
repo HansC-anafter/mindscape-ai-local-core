@@ -6,10 +6,11 @@ import hashlib
 import os
 import re
 import select
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 from backend.app.services.runtime_database_incident_gate import (
     evaluate_runtime_database_mutation,
@@ -63,6 +64,7 @@ _OBSERVER_FAILURE_PHASE_FALLBACKS = {
 _OBSERVER_STARTUP_PHASES = frozenset(
     {"config_and_permit_validation", "tracefs_prepare"}
 )
+_POSTMASTER_FANOUT_BURST_SECONDS = 60.0
 
 
 def canonical_observer_startup_phase(value: object) -> str | None:
@@ -177,6 +179,7 @@ class PostgresSignalObserver:
         store: ObserverEvidenceStore | None = None,
         trace: TraceFsInstance | None = None,
         correlation: PgBouncerCorrelationClient | None = None,
+        monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
         self.config = config
         self.store = store or ObserverEvidenceStore(config.evidence_root)
@@ -185,10 +188,12 @@ class PostgresSignalObserver:
             config.pgbouncer_admin_url,
             expected_application_name=config.expected_application_name,
         )
+        self.monotonic = monotonic
         self._stopping = False
         self._diagnostic_incident_id = ""
         self._diagnostic_permit_id = ""
         self._diagnostic_expires_at: datetime | None = None
+        self._postmaster_fanout_last_recorded_at: float | None = None
 
     def stop(self) -> None:
         self._stopping = True
@@ -253,6 +258,23 @@ class PostgresSignalObserver:
         event = parse_signal_generate_line(line)
         if event is None:
             return
+        try:
+            sender_namespace_pids = read_namespace_pids(event.sender_host_pid)
+        except Exception:
+            sender_namespace_pids = ()
+        is_postmaster_fanout = (
+            event.sender_comm == "postgres"
+            and bool(sender_namespace_pids)
+            and sender_namespace_pids[-1] == 1
+        )
+        now = self.monotonic()
+        if (
+            is_postmaster_fanout
+            and self._postmaster_fanout_last_recorded_at is not None
+            and now - self._postmaster_fanout_last_recorded_at
+            < _POSTMASTER_FANOUT_BURST_SECONDS
+        ):
+            return
         correlation_error = ""
         target_mapping: Mapping[str, Any] | None = None
         try:
@@ -269,11 +291,17 @@ class PostgresSignalObserver:
             target_namespace_pids = ()
             target_postgres_pid = 0
             correlation_error = type(exc).__name__
-        try:
-            sender_namespace_pids = read_namespace_pids(event.sender_host_pid)
-        except Exception:
-            sender_namespace_pids = ()
-        if target_postgres_pid:
+        if is_postmaster_fanout:
+            correlation = (
+                dict(target_mapping["pgbouncer"])
+                if target_mapping is not None
+                and isinstance(target_mapping.get("pgbouncer"), Mapping)
+                else {
+                    "status": "correlation_unavailable",
+                    "error_code": "postmaster_crash_fanout_target_not_required",
+                }
+            )
+        elif target_postgres_pid:
             try:
                 correlation = (
                     dict(target_mapping["pgbouncer"])
@@ -294,6 +322,11 @@ class PostgresSignalObserver:
             }
         payload = {
             "observed_at": utc_now(),
+            "signal_origin": (
+                "postmaster_crash_fanout"
+                if is_postmaster_fanout
+                else "sender_candidate"
+            ),
             "signal": event.to_dict(),
             "sender_namespace_pids": list(sender_namespace_pids),
             "target_namespace_pids": list(target_namespace_pids),
@@ -311,6 +344,7 @@ class PostgresSignalObserver:
                 "sender_host_pid": str(event.sender_host_pid),
                 "target_host_pid": str(event.target_host_pid),
                 "target_postgres_pid": str(target_postgres_pid),
+                "signal_origin": payload["signal_origin"],
                 "application_name": str(correlation.get("application_name") or ""),
                 "client_process_pid_available": str(
                     correlation.get("client_remote_pid_available") is True
@@ -326,7 +360,9 @@ class PostgresSignalObserver:
             },
             journal_root=self.config.journal_root,
         )
-        if correlation.get("status") != "correlated":
+        if is_postmaster_fanout:
+            self._postmaster_fanout_last_recorded_at = now
+        elif correlation.get("status") != "correlated":
             raise RuntimeError("signal_event_correlation_unavailable")
 
     def run(self) -> int:

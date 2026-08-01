@@ -37,6 +37,7 @@ TRACE_LINE = (
     "postgres-sender-4210  [003] .... 12345.678901: signal_generate: "
     "sig=3 errno=0 code=0 comm=postgres pid=54909 grp=0 res=0"
 )
+POSTMASTER_FANOUT_TRACE_LINE = TRACE_LINE.replace("postgres-sender", "postgres")
 
 
 def test_parses_exact_sigquit_sender_and_rejects_malformed_trace() -> None:
@@ -351,6 +352,51 @@ def test_signal_event_is_persisted_before_correlation_failure_closes_health(
     assert recorded[0][0][0] == "incident-fixture"
     assert recorded[0][1]["observation_code"] == "postgres_sigquit_signal_observed"
     assert recorded[0][1]["evidence"]["event_context"] == "live_runtime"
+
+
+def test_postmaster_fanout_is_recorded_once_without_target_correlation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    recorded = []
+    config = _config(tmp_path)
+    store = ObserverEvidenceStore(config.evidence_root)
+    clock = iter((10.0, 11.0))
+    observer = PostgresSignalObserver(
+        config,
+        store=store,
+        trace=SimpleNamespace(instance_name="test", cleanup=lambda: None),
+        correlation=SimpleNamespace(
+            correlate=lambda _pid: (_ for _ in ()).throw(
+                AssertionError("postmaster fan-out must not query PgBouncer")
+            )
+        ),
+        monotonic=lambda: next(clock),
+    )
+    observer._diagnostic_incident_id = "incident-fixture"
+    observer._diagnostic_permit_id = "permit-fixture"
+    monkeypatch.setattr(
+        "scripts.maintenance.postgres_signal_observer_core.service.read_namespace_pids",
+        lambda pid: (pid, 1 if pid == 4210 else 204),
+    )
+    monkeypatch.setattr(
+        "scripts.maintenance.postgres_signal_observer_core.service."
+        "record_database_diagnostic_observation",
+        lambda *args, **kwargs: recorded.append((args, kwargs)),
+    )
+
+    observer._process_line(POSTMASTER_FANOUT_TRACE_LINE)
+    observer._process_line(POSTMASTER_FANOUT_TRACE_LINE)
+
+    assert store.usage()["event_count"] == 1
+    event_path = next((config.evidence_root / "events").glob("event-*.json"))
+    event = json.loads(event_path.read_text(encoding="utf-8"))
+    assert event["signal_origin"] == "postmaster_crash_fanout"
+    assert event["pgbouncer"]["status"] == "correlation_unavailable"
+    assert len(recorded) == 1
+    assert recorded[0][1]["evidence"]["signal_origin"] == (
+        "postmaster_crash_fanout"
+    )
 
 
 def test_signal_target_handoff_survives_backend_proc_exit_and_correlates(
