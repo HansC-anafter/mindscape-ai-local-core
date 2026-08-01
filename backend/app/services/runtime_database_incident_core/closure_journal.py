@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import replace
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Mapping
 
 from .closure_policy import (
@@ -28,6 +30,94 @@ def _utc_now() -> str:
 
 class IncidentClosureJournalMixin:
     """Add bounded exhaustion and strict terminal closure to the journal."""
+
+    def reopen_for_attribution(
+        self,
+        incident_id: str,
+        *,
+        owner: str,
+        authorization: str,
+        authorization_path: str,
+        authorization_sha256: str,
+        reason: str,
+    ) -> IncidentReceipt:
+        """Re-open a prematurely contained incident through an owner receipt.
+
+        Containment must follow attribution exhaustion for the residual-close
+        contract. This narrow repair path preserves the original containment
+        event, clears only the current containment projection, and returns the
+        incident to ``open_unattributed`` so the canonical bounded-search
+        facade can append the required exhaustion event. It cannot operate on
+        a closed incident or one that already has an exhaustion event.
+        """
+
+        if owner != "runtime-db-incident-owner":
+            raise ValueError("attribution_reopen_owner_invalid")
+        if reason != "containment_preceded_attribution_exhaustion":
+            raise ValueError("attribution_reopen_reason_invalid")
+        if not authorization.strip() or not authorization_path.strip():
+            raise ValueError("attribution_reopen_authorization_missing")
+        if len(authorization_sha256) != 64 or any(
+            character not in "0123456789abcdef"
+            for character in authorization_sha256
+        ):
+            raise ValueError("attribution_reopen_authorization_sha256_invalid")
+        try:
+            actual_sha256 = hashlib.sha256(
+                Path(authorization_path).read_bytes()
+            ).hexdigest()
+        except OSError as exc:
+            raise ValueError("attribution_reopen_authorization_unavailable") from exc
+        if actual_sha256 != authorization_sha256:
+            raise ValueError("attribution_reopen_authorization_sha256_mismatch")
+
+        with self._lock():
+            current = self._require_current_unlocked(incident_id)
+            if current.state is IncidentState.OPEN_UNATTRIBUTED:
+                if current.containment_receipt is None:
+                    return current
+                raise IncidentTransitionError(
+                    "Incident already open with unexpected containment projection"
+                )
+            if current.state is IncidentState.CLOSED:
+                raise IncidentTransitionError(
+                    "Closed incidents cannot be reopened for attribution"
+                )
+            events = self._read_events_unlocked(incident_id)
+            if any(
+                event.get("event") == "attribution_exhaustion_recorded"
+                for event in events
+            ):
+                raise IncidentTransitionError(
+                    "Attribution exhaustion already recorded"
+                )
+            if current.containment_receipt is None:
+                raise IncidentTransitionError(
+                    "Contained incident has no current containment receipt"
+                )
+            event_time = _utc_now()
+            updated = replace(
+                current,
+                state=IncidentState.OPEN_UNATTRIBUTED,
+                updated_at=event_time,
+                evidence_count=current.evidence_count + 1,
+                containment_receipt=None,
+            )
+            self._append_event_unlocked(
+                incident_id=incident_id,
+                event={
+                    "event": "containment_reopened_for_attribution",
+                    "at": event_time,
+                    "reason": reason,
+                    "owner": owner,
+                    "authorization": authorization,
+                    "authorization_path": authorization_path,
+                    "authorization_sha256": authorization_sha256,
+                    "revoked_containment_receipt": current.containment_receipt,
+                },
+            )
+            self._write_current_unlocked(updated)
+            return updated
 
     def close(
         self,

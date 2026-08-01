@@ -173,6 +173,14 @@ def _parser() -> argparse.ArgumentParser:
     exhaustion.add_argument("--owner-authorization-path", required=True)
     exhaustion.add_argument("--owner-authorization-sha256", required=True)
 
+    reopen = commands.add_parser("reopen-for-attribution")
+    reopen.add_argument("incident_id")
+    reopen.add_argument("--owner", required=True)
+    reopen.add_argument("--authorization", required=True)
+    reopen.add_argument("--authorization-path", required=True)
+    reopen.add_argument("--authorization-sha256", required=True)
+    reopen.add_argument("--reason", required=True)
+
     close = commands.add_parser("close")
     close.add_argument("incident_id")
     close.add_argument("--deep-trigger-classification", required=True)
@@ -358,6 +366,15 @@ def main(argv: list[str] | None = None) -> int:
                 owner_authorization_sha256=args.owner_authorization_sha256,
                 search_complete=True,
             ),
+        )
+    elif args.command == "reopen-for-attribution":
+        receipt = journal.reopen_for_attribution(
+            args.incident_id,
+            owner=args.owner,
+            authorization=args.authorization,
+            authorization_path=args.authorization_path,
+            authorization_sha256=args.authorization_sha256,
+            reason=args.reason,
         )
     elif args.command == "close":
         receipt = journal.close(
