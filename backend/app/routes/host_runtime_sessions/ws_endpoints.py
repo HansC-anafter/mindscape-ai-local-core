@@ -21,6 +21,9 @@ from backend.app.services.host_runtime_sessions.models import HostRuntimeEvent
 from backend.app.services.host_runtime_sessions.session_store import (
     HostRuntimeSessionStore,
 )
+from backend.app.services.host_runtime_sessions.connection_lifecycle import (
+    close_host_runtime_websocket,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +47,7 @@ async def host_runtime_session_stream(
     if not session:
         await websocket.send_json({"type": "error", "detail": "Host runtime session not found"})
         await websocket.close(code=4404)
+        await close_host_runtime_websocket(websocket)
         return
 
     for event in store.list_events(
@@ -65,6 +69,8 @@ async def host_runtime_session_stream(
                     await websocket.send_json({"type": "ping"})
     except WebSocketDisconnect:
         return
+    finally:
+        await close_host_runtime_websocket(websocket)
 
 
 @router.websocket("/api/v1/host-runtime/bridge/{bridge_id}")
@@ -140,3 +146,6 @@ async def host_runtime_bridge_websocket(
             await websocket.send_json({"type": "error", "detail": str(exc)})
         except Exception:
             pass
+    finally:
+        await registry.unregister(bridge_id)
+        await close_host_runtime_websocket(websocket)
