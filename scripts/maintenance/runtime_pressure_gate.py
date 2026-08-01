@@ -66,6 +66,44 @@ class Thresholds:
     max_endpoint_seconds: float
 
 
+def _emit_payload(payload: dict[str, Any], output_json: Path | None) -> int:
+    encoded = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
+    if output_json:
+        output_json.parent.mkdir(parents=True, exist_ok=True)
+        temporary = output_json.with_suffix(output_json.suffix + ".tmp")
+        temporary.write_text(encoded + "\n", encoding="utf-8")
+        os.replace(temporary, output_json)
+    print(encoded)
+    return 0 if payload.get("ok") else 2
+
+
+def _task_status_preflight_failure(
+    *,
+    task_status: dict[str, Any],
+    thresholds: Thresholds,
+    scope: GateScope,
+) -> dict[str, Any]:
+    skipped = {
+        "ok": False,
+        "skipped": True,
+        "reason": "task_status_preflight_failed",
+    }
+    return {
+        "ok": False,
+        "failures": ["task_status_unavailable"],
+        "gate_stage": "task_status_preflight",
+        "thresholds": thresholds.__dict__,
+        "task_status": task_status,
+        "docker_stats": dict(skipped),
+        "endpoint_checks": dict(skipped),
+        "postgres_metrics": dict(skipped),
+        "pgbouncer_metrics": dict(skipped),
+        "runner_capacity": dict(skipped),
+        "runner_cpu_pressure": dict(skipped),
+        "scope": scope.to_dict(),
+    }
+
+
 def run_command(args: list[str], timeout_seconds: float) -> dict[str, Any]:
     started = time.monotonic()
     try:
@@ -336,6 +374,15 @@ def main() -> int:
         running_observation_limit=thresholds.running_observation_limit,
         pending_observation_limit=thresholds.pending_observation_limit,
     )
+    if not task_status.get("ok"):
+        return _emit_payload(
+            _task_status_preflight_failure(
+                task_status=task_status,
+                thresholds=thresholds,
+                scope=scope,
+            ),
+            args.output_json,
+        )
     runner_capacity = collect_runner_capacity(
         run_command,
         args.command_timeout_seconds,
@@ -406,14 +453,7 @@ def main() -> int:
         "runner_cpu_pressure": runner_cpu_pressure,
         "scope": runner_scope_evidence(runner_capacity, scope),
     }
-    encoded = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
-    if args.output_json:
-        args.output_json.parent.mkdir(parents=True, exist_ok=True)
-        temporary = args.output_json.with_suffix(args.output_json.suffix + ".tmp")
-        temporary.write_text(encoded + "\n", encoding="utf-8")
-        os.replace(temporary, args.output_json)
-    print(encoded)
-    return 0 if not failures else 2
+    return _emit_payload(payload, args.output_json)
 
 
 if __name__ == "__main__":
