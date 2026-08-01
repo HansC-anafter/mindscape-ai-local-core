@@ -159,6 +159,7 @@ surfaces:
       - backend/app/services/runtime_database_incident_core/**
       - backend/app/services/stores/tasks_store/**
       - backend/app/services/task_projection_builder.py
+      - backend/app/services/task_projection_reconciliation.py
       - backend/app/services/task_projection_adapters.py
       - backend/app/services/task_projection_adapter_core/**
       - backend/app/routes/core/capability_install_core/**
@@ -171,6 +172,8 @@ surfaces:
       - backend/app/services/migrations/**
       - backend/app/services/deprecated/capability_installer.py
       - backend/scripts/preflight_db.py
+      - backend/scripts/backfill_task_summary_projection.py
+      - backend/scripts/prune_tasks_retention.py
       - backend/alembic_migrations/postgres/versions/**
       - scripts/maintenance/postgres_incident_gate.py
       - scripts/maintenance/postgres_signal_observer.py
@@ -199,6 +202,9 @@ surfaces:
       - backend/tests/compose_topology_matrix_spec.py
       - backend/tests/postgres_runtime_readiness_config_spec.py
       - backend/tests/postgres_task_control_budget_spec.py
+      - backend/tests/task_projection_reconciliation_spec.py
+      - backend/tests/runner_resource_projection_refresh_spec.py
+      - backend/tests/scripts/prune_tasks_projection_integrity_spec.py
       - backend/tests/cli_token_host_session_registration_budget_spec.py
       - backend/tests/cli_token_runtime_shadow_spec.py
       - backend/tests/task_projection_adapters_spec.py

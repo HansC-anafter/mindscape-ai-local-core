@@ -11,6 +11,11 @@ from sqlalchemy import text
 
 from app.services.stores.postgres_base import PostgresStoreBase
 from backend.app.services.task_projection_adapters import build_task_display_inputs
+from backend.app.services.task_projection_reconciliation import (
+    apply_active_projection_reconciliation_budget,
+    delete_orphan_task_projections,
+    load_active_projection_drift_rows,
+)
 
 
 def _utc_now() -> datetime:
@@ -356,3 +361,60 @@ class TaskProjectionBuilder(PostgresStoreBase):
         with self.transaction() as owned_conn:
             result = owned_conn.execute(query, params)
             return int(result.rowcount or 0)
+
+    def reconcile_active_task_summary_projection(
+        self,
+        *,
+        limit: int = 1000,
+        apply: bool = False,
+    ) -> dict:
+        """Inspect or repair bounded active projection drift."""
+
+        normalized_limit = min(1000, max(1, int(limit)))
+
+        def _run(conn) -> dict:
+            apply_active_projection_reconciliation_budget(conn)
+            rows = load_active_projection_drift_rows(
+                conn,
+                limit=normalized_limit,
+            )
+            selected = rows[:normalized_limit]
+            existing_ids = [
+                str(row["task_id"])
+                for row in selected
+                if bool(row.get("task_exists"))
+            ]
+            orphan_ids = [
+                str(row["task_id"])
+                for row in selected
+                if not bool(row.get("task_exists"))
+            ]
+            upserted = 0
+            deleted_orphans = 0
+            if apply:
+                for task_id in existing_ids:
+                    if self.upsert_task_summary_from_task_id(task_id, conn=conn):
+                        upserted += 1
+                deleted_orphans = delete_orphan_task_projections(conn, orphan_ids)
+                post_rows = load_active_projection_drift_rows(
+                    conn,
+                    limit=normalized_limit,
+                )
+            else:
+                post_rows = rows
+            return {
+                "mode": "apply" if apply else "dry_run",
+                "limit": normalized_limit,
+                "examined": len(selected),
+                "existing_task_drift": len(existing_ids),
+                "orphan_projection_drift": len(orphan_ids),
+                "truncated": len(rows) > normalized_limit,
+                "upserted": upserted,
+                "deleted_orphans": deleted_orphans,
+                "post_check_drift": len(post_rows[:normalized_limit]),
+                "post_check_truncated": len(post_rows) > normalized_limit,
+            }
+
+        context = self.transaction() if apply else self.get_connection()
+        with context as conn:
+            return _run(conn)

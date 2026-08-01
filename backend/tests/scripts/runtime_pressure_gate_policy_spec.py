@@ -345,15 +345,25 @@ def test_task_backlog_probe_is_threshold_bounded(monkeypatch):
     )
 
     sql = captured["command"][-1]
+    assert captured["command"][2] == "--env"
+    assert "statement_timeout=2000" in captured["command"][3]
+    assert "lock_timeout=1000" in captured["command"][3]
+    assert "default_transaction_read_only=on" in captured["command"][3]
     assert "status = 'running' limit 1" in sql
     assert "status = 'pending'" in sql
     assert "task_type in ('playbook_execution', 'tool_execution')" in sql
     assert "frontier_state = 'ready'" in sql
     assert "(blocked_reason is null or blocked_reason = '')" in sql
     assert "limit 1001" in sql
+    assert "task_summary_projection" not in sql
+    assert "next_eligible_at" not in sql
+    assert "group by" not in sql
+    assert "order by" not in sql
     assert result["counts"] == {"pending": 1001, "running": 1}
     assert result["gate_semantics"] == "observational_only"
     assert result["pending_semantics"] == "ready_unblocked_execution_frontier"
+    assert result["query_source"] == "tasks_authoritative_bounded"
+    assert result["server_statement_timeout_ms"] == 2000
 
 
 def test_task_backlog_probe_does_not_count_cold_or_blocked_pending_rows(monkeypatch):
@@ -379,6 +389,103 @@ def test_task_backlog_probe_does_not_count_cold_or_blocked_pending_rows(monkeypa
     assert "frontier_state = 'ready'" in captured["sql"]
     assert "blocked_reason is null" in captured["sql"]
     assert result["counts"]["pending"] == 17
+
+
+def test_task_backlog_probe_fails_closed_on_outer_command_timeout(monkeypatch):
+    monkeypatch.setattr(
+        runtime_pressure_gate,
+        "run_command",
+        lambda _command, _timeout: {
+            "ok": False,
+            "timeout": True,
+            "stdout": "",
+            "stderr": "",
+            "elapsed_seconds": 8.001,
+        },
+    )
+
+    result = collect_task_status_counts(
+        8.0,
+        running_observation_limit=100,
+        pending_observation_limit=1000,
+    )
+
+    assert result["ok"] is False
+    assert result["counts"] == {"pending": 0, "running": 0}
+    assert result["error"] == "command_timeout"
+
+
+def test_task_backlog_probe_rejects_invalid_count_output(monkeypatch):
+    monkeypatch.setattr(
+        runtime_pressure_gate,
+        "run_command",
+        lambda _command, _timeout: {
+            "ok": True,
+            "timeout": False,
+            "stdout": "pending,not-an-int\n",
+            "stderr": "",
+            "elapsed_seconds": 0.1,
+        },
+    )
+
+    result = collect_task_status_counts(
+        8.0,
+        running_observation_limit=100,
+        pending_observation_limit=1000,
+    )
+
+    assert result["ok"] is False
+    assert result["error"] == "task_status_output_invalid"
+
+
+def test_task_backlog_probe_rejects_partial_count_output(monkeypatch):
+    monkeypatch.setattr(
+        runtime_pressure_gate,
+        "run_command",
+        lambda _command, _timeout: {
+            "ok": True,
+            "timeout": False,
+            "stdout": "pending,17\n",
+            "stderr": "",
+            "elapsed_seconds": 0.1,
+        },
+    )
+
+    result = collect_task_status_counts(
+        8.0,
+        running_observation_limit=100,
+        pending_observation_limit=1000,
+    )
+
+    assert result["ok"] is False
+    assert result["error"] == "task_status_output_invalid"
+
+
+def test_task_backlog_probe_rejects_duplicate_or_unknown_count_output(monkeypatch):
+    for output in (
+        "running,1\nrunning,2\npending,17\n",
+        "running,1\npending,17\nunexpected,3\n",
+    ):
+        monkeypatch.setattr(
+            runtime_pressure_gate,
+            "run_command",
+            lambda _command, _timeout, output=output: {
+                "ok": True,
+                "timeout": False,
+                "stdout": output,
+                "stderr": "",
+                "elapsed_seconds": 0.1,
+            },
+        )
+
+        result = collect_task_status_counts(
+            8.0,
+            running_observation_limit=100,
+            pending_observation_limit=1000,
+        )
+
+        assert result["ok"] is False
+        assert result["error"] == "task_status_output_invalid"
 
 
 def test_runtime_stats_cover_every_discovered_runner():

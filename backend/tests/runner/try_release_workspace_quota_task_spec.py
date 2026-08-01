@@ -44,6 +44,7 @@ def test_try_release_workspace_quota_task_moves_cold_task_to_ready():
     assert store.deserialize_json(row.execution_context) == {
         "playbook_code": "ig_analyze_following"
     }
+    assert store.projection_refreshes == ["quota-cold-1"]
 
 
 def test_try_release_workspace_quota_task_blocks_same_selector_when_reserved_full():
@@ -86,6 +87,7 @@ def test_try_release_workspace_quota_task_blocks_same_selector_when_reserved_ful
 
     assert released is False
     assert store.fetch_frontier("quota-cold-1") == "cold"
+    assert store.projection_refreshes == []
 
 
 def test_try_release_workspace_quota_task_allows_one_missing_selector_candidate():

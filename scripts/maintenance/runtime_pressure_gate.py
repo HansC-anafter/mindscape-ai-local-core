@@ -29,6 +29,7 @@ from scripts.maintenance.runtime_pressure_gate_core import (
     collect_postgres_metrics,
     collect_runner_capacity,
     collect_runner_cpu_pressure,
+    collect_task_status_counts as _collect_task_status_counts,
     evaluate_runner_scope,
     parse_percent,
     runner_scope_evidence,
@@ -123,52 +124,12 @@ def collect_task_status_counts(
     pending_observation_limit: int,
 ) -> dict[str, Any]:
     """Collect bounded workload observations without turning task zero into a gate."""
-
-    running_limit = max(0, int(running_observation_limit)) + 1
-    pending_limit = max(0, int(pending_observation_limit)) + 1
-    sql = (
-        "select status, count(*) from ("
-        "(select status from tasks where status = 'running' "
-        f"limit {running_limit}) union all "
-        "(select status from tasks where status = 'pending' "
-        "and task_type in ('playbook_execution', 'tool_execution') "
-        "and frontier_state = 'ready' "
-        "and (blocked_reason is null or blocked_reason = '') "
-        f"limit {pending_limit})"
-        ") as bounded_statuses group by status order by status;"
+    return _collect_task_status_counts(
+        run_command,
+        timeout_seconds,
+        running_observation_limit=running_observation_limit,
+        pending_observation_limit=pending_observation_limit,
     )
-    result = run_command(
-        [
-            "docker",
-            "exec",
-            "mindscape-ai-local-core-postgres",
-            "psql",
-            "-U",
-            "mindscape",
-            "-d",
-            "mindscape_core",
-            "-At",
-            "-F",
-            ",",
-            "-c",
-            sql,
-        ],
-        timeout_seconds=timeout_seconds,
-    )
-    counts = {"pending": 0, "running": 0}
-    if result["ok"]:
-        for line in result["stdout"].splitlines():
-            status, _, raw_count = line.partition(",")
-            if status in counts:
-                counts[status] = int(raw_count)
-    return {
-        "ok": result["ok"],
-        "counts": counts,
-        "gate_semantics": "observational_only",
-        "pending_semantics": "ready_unblocked_execution_frontier",
-        "elapsed_seconds": result["elapsed_seconds"],
-        "error": result["stderr"].strip() if not result["ok"] else "",
-    }
 
 
 def collect_docker_stats(

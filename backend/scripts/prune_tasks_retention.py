@@ -208,6 +208,11 @@ def _delete_batch_query(where_clause: str):
             ORDER BY created_at ASC
             LIMIT :batch_size
             FOR UPDATE
+        ), deleted_projection AS (
+            DELETE FROM task_summary_projection AS projection
+            USING batch
+            WHERE projection.task_id = batch.id
+            RETURNING projection.task_id
         )
         DELETE FROM tasks AS t
         USING batch
