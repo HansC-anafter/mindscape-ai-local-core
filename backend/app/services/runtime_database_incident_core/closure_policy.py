@@ -51,12 +51,35 @@ def _require_common_close_evidence(
         raise IncidentClosurePolicyError(
             "incident_close_tests_must_include_containment_evidence"
         )
-    contained_events = [
+    latest_reopen_at = None
+    reopen_events = [
         event
         for event in events
-        if event.get("event") == "incident_contained"
-        and event.get("containment_receipt") == containment
+        if event.get("event") == "containment_reopened_for_attribution"
     ]
+    if reopen_events:
+        latest_reopen_at = max(
+            _parse_timestamp(
+                str(event.get("at") or ""),
+                field_name="containment_reopened_at",
+            )
+            for event in reopen_events
+        )
+    contained_events = []
+    for event in events:
+        if (
+            event.get("event") != "incident_contained"
+            or event.get("containment_receipt") != containment
+        ):
+            continue
+        if latest_reopen_at is not None:
+            contained_at = _parse_timestamp(
+                str(event.get("at") or ""),
+                field_name="incident_contained_at",
+            )
+            if contained_at <= latest_reopen_at:
+                continue
+        contained_events.append(event)
     if len(contained_events) != 1:
         raise IncidentClosurePolicyError(
             "incident_close_requires_exact_current_containment_event"
