@@ -18,16 +18,16 @@ async def _analyze_embedding_migration_needs(
     - Total embeddings count per model
     """
     try:
-        import psycopg2
         from psycopg2.extras import RealDictCursor
-        from app.database.config import get_vector_postgres_config
+        from backend.app.database.vector_connection import (
+            get_vector_dbapi_connection,
+        )
 
-        pg_config = get_vector_postgres_config()
-        pg_config["connect_timeout"] = 5
-        conn = psycopg2.connect(**pg_config)
+        conn = get_vector_dbapi_connection()
+        cursor = None
         try:
             cursor = conn.cursor(cursor_factory=RealDictCursor)
-            cursor.execute("SET statement_timeout = 10000")
+            cursor.execute("SET LOCAL statement_timeout = 10000")
 
             cursor.execute(
                 """
@@ -210,7 +210,11 @@ async def _analyze_embedding_migration_needs(
             return migration_info
 
         finally:
-            conn.close()
+            try:
+                if cursor is not None:
+                    cursor.close()
+            finally:
+                conn.close()
 
     except Exception as e:
         logger.warning(

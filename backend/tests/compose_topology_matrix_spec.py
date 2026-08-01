@@ -221,8 +221,8 @@ def _pgbouncer_config():
 [databases]
 mindscape_core = host=postgres port=5432 dbname=mindscape_core
 mindscape_vectors = host=postgres port=5432 dbname=mindscape_vectors
-mindscape_core_readonly = host=postgres-replica port=5432 dbname=mindscape_core pool_size=10
-mindscape_vectors_readonly = host=postgres-replica port=5432 dbname=mindscape_vectors pool_size=5
+mindscape_core_readonly = host=postgres-replica port=5432 dbname=mindscape_core pool_size=10 min_pool_size=0
+mindscape_vectors_readonly = host=postgres-replica port=5432 dbname=mindscape_vectors pool_size=5 min_pool_size=0
 
 [pgbouncer]
 pool_mode = transaction
@@ -281,10 +281,14 @@ def _endpoint_seed() -> dict[str, object]:
     }
 
 
-def _validate(models: dict[str, dict[str, object]], seed: dict[str, object] | None = None) -> list[str]:
+def _validate(
+    models: dict[str, dict[str, object]],
+    seed: dict[str, object] | None = None,
+    pgbouncer_config: validator.PgBouncerConfig | None = None,
+) -> list[str]:
     return validator.validate_profile_models(
         models,
-        pgbouncer_config=_pgbouncer_config(),
+        pgbouncer_config=pgbouncer_config or _pgbouncer_config(),
         service_endpoint_seed=seed or _endpoint_seed(),
     )
 
@@ -368,6 +372,23 @@ def test_pgbouncer_parser_reads_actual_readonly_aliases() -> None:
     assert config.pgbouncer["pool_mode"] == "transaction"
     assert config.databases["mindscape_core_readonly"]["host"] == "postgres-replica"
     assert config.databases["mindscape_core_readonly"]["pool_size"] == "10"
+    assert config.databases["mindscape_core_readonly"]["min_pool_size"] == "0"
+    assert config.databases["mindscape_vectors_readonly"]["host"] == "postgres-replica"
+    assert config.databases["mindscape_vectors_readonly"]["pool_size"] == "5"
+    assert config.databases["mindscape_vectors_readonly"]["min_pool_size"] == "0"
+
+
+def test_compose_topology_validator_rejects_optional_readonly_pool_prefill() -> None:
+    for alias in ("mindscape_core_readonly", "mindscape_vectors_readonly"):
+        config = _pgbouncer_config()
+        config.databases[alias]["min_pool_size"] = "5"
+
+        failures = _validate(_models(), pgbouncer_config=config)
+
+        assert any(
+            f"pgbouncer.ini: {alias} must set min_pool_size=0" in failure
+            for failure in failures
+        )
 
 
 def test_actual_service_endpoint_seed_preserves_core_route_plane() -> None:

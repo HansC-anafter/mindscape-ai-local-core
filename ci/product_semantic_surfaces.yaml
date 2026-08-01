@@ -136,10 +136,18 @@ surfaces:
     path_globs:
       - backend/app/database/recovery_backoff.py
       - backend/app/database/application_identity.py
+      - backend/app/database/connection_factory.py
+      - backend/app/database/vector_connection.py
       - backend/app/database/query_failure_evidence.py
       - backend/app/database/query_failure_evidence_core/**
       - backend/app/database/task_control_contract.py
       - backend/app/runner/db_pool_pressure.py
+      - backend/app/main.py
+      - backend/app/routes/core/vector_db.py
+      - backend/app/routes/core/workspace/health.py
+      - backend/app/services/readiness_request_coordinator.py
+      - backend/app/services/system_health_resources.py
+      - backend/app/services/vector_readiness_probe.py
       - backend/app/routes/core/workspace/tasks_core/progress_snapshot.py
       - backend/app/routes/core/workspace/tasks_core/progress_snapshot_routes.py
       - backend/features/workspace/executions_core/progress_snapshot.py
@@ -171,6 +179,7 @@ surfaces:
       - scripts/maintenance/runtime_pressure_gate.py
       - scripts/maintenance/runtime_pressure_gate_core/**
       - scripts/maintenance/check_runtime_read_path_budget.py
+      - scripts/ci/compose_topology/**
       - docker-compose.yml
       - docker/compose/postgres-recovery-drill.yml
       - docker/compose/postgres-signal-observer.yml
@@ -181,7 +190,10 @@ surfaces:
       - backend/tests/scripts/runtime_pressure_gate_*_spec.py
       - backend/tests/database_recovery_backoff_spec.py
       - backend/tests/database_application_identity_spec.py
+      - backend/tests/database_vector_connection_spec.py
       - backend/tests/database_query_failure_evidence_spec.py
+      - backend/tests/compose_topology_matrix_spec.py
+      - backend/tests/postgres_runtime_readiness_config_spec.py
       - backend/tests/postgres_task_control_budget_spec.py
       - backend/tests/task_projection_adapters_spec.py
       - backend/tests/capability_install_atomic_commit_spec.py
@@ -191,6 +203,8 @@ surfaces:
       - backend/tests/preflight_db_recovery_state_spec.py
       - backend/tests/db_pool_pressure_spec.py
       - backend/tests/progress_snapshot_degraded_state_spec.py
+      - backend/tests/system_health_request_budget_spec.py
+      - backend/tests/vector_readiness_probe_spec.py
       - backend/tests/scripts/postgres_incident_gate_spec.py
       - backend/tests/scripts/postgres_incident_residual_closure_spec.py
       - backend/tests/scripts/postgres_recovery_drill_spec.py
@@ -204,6 +218,11 @@ surfaces:
       - web-console/src/hooks/executionPollingPolicy.ts
       - web-console/src/hooks/executionPollingCoordinator.ts
       - web-console/src/app/workspaces/components/ExecutionChatPanel.tsx
+      - web-console/src/app/settings/hooks/useSettingsContext.ts
+      - web-console/src/app/settings/hooks/useTools.ts
+      - web-console/src/app/settings/components/ToolsPanel.tsx
+      - web-console/src/app/settings/components/ServiceStatusPanel.tsx
+      - web-console/src/app/settings/settingsHealthRequestBudget.seams.spec.ts
 
   - id: psc.local-core.workspace-group-dispatch-and-knowledge-projection.v1
     tier: P0
@@ -923,6 +942,15 @@ surfaces:
       - backend/app/services/document_retrieval_facade.py
       - backend/app/services/vector_search.py
       - backend/app/services/vector_search_db.py
+      - backend/app/database/vector_connection.py
+      - backend/app/routes/core/system_settings/llm/chat_embedding_core/migration_analysis.py
+      - backend/app/services/tool_embedding_service.py
+      - backend/app/services/embedding_migration_apply.py
+      - backend/app/services/embedding_migration_queries.py
+      - backend/app/services/embedding_migration_service.py
+      - backend/app/services/playbook_indexer.py
+      - backend/app/services/event_embedding_generator_core/storage.py
+      - backend/app/services/playbook_webhook.py
       - backend/app/services/tools/vector_search_tool.py
       - backend/app/services/conversation/context_builder/memory_retriever.py
       - backend/app/services/knowledge_projection/group_context.py
@@ -934,6 +962,8 @@ surfaces:
       - backend/alembic_migrations/vector/**
       - backend/tests/*knowledge*authorization*
       - backend/tests/*authorized*retrieval*
+      - backend/tests/services/embedding_migration_service_facade_spec.py
+      - backend/tests/services/vector_search_seams_spec.py
       - web-console/src/app/workspaces/*/governance/**
       - web-console/src/components/workspace/governance/**
       - web-console/src/lib/i18n/locales/*/workspace.ts

@@ -162,8 +162,7 @@ async def reset_rate_limit(request: Request):
     return {"status": "ok", "message": "Rate limits cleared"}
 
 
-@app.get("/health")
-async def health_check():
+async def _compute_health_check():
     """Overall health check with system component status"""
     from backend.app.services.system_health_checker import (
         SystemHealthChecker,
@@ -310,6 +309,19 @@ async def health_check():
         },
         "issues": [issue.to_dict() for issue in issues] if issues else [],
     }
+
+
+@app.get("/health")
+async def health_check():
+    """Return deep readiness while coalescing concurrent identical readers."""
+    from backend.app.services.readiness_request_coordinator import (
+        get_readiness_request_coordinator,
+    )
+
+    return await get_readiness_request_coordinator().run(
+        key=("global-health", "default-user"),
+        producer=_compute_health_check,
+    )
 
 
 # Service URLs reachable from inside Docker (backend proxies these for the frontend)

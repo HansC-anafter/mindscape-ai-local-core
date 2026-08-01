@@ -13,13 +13,14 @@ logger = logging.getLogger("backend.app.services.event_embedding_generator")
 
 def check_existing_embedding(event: MindEvent) -> Optional[str]:
     """Check if embedding already exists for this event or file."""
+    conn = None
+    cursor = None
     try:
-        import psycopg2
-        from app.database.config import get_vector_postgres_config
+        from backend.app.database.vector_connection import (
+            get_vector_dbapi_connection,
+        )
 
-        postgres_config = get_vector_postgres_config()
-
-        conn = psycopg2.connect(**postgres_config)
+        conn = get_vector_dbapi_connection()
         cursor = conn.cursor()
 
         cursor.execute(
@@ -33,8 +34,6 @@ def check_existing_embedding(event: MindEvent) -> Optional[str]:
 
         row = cursor.fetchone()
         if row:
-            cursor.close()
-            conn.close()
             return row[0]
 
         if event.metadata and isinstance(event.metadata, dict):
@@ -59,18 +58,20 @@ def check_existing_embedding(event: MindEvent) -> Optional[str]:
                         file_hash[:8],
                         row[0],
                     )
-                    cursor.close()
-                    conn.close()
                     return row[0]
-
-        cursor.close()
-        conn.close()
 
         return None
 
     except Exception as exc:
         logger.warning("Failed to check existing embedding in PostgreSQL: %s", exc)
         return None
+    finally:
+        try:
+            if cursor is not None:
+                cursor.close()
+        finally:
+            if conn is not None:
+                conn.close()
 
 
 def build_embedding_storage_payload(
@@ -173,15 +174,16 @@ def build_embedding_storage_payload(
 
 def store_embedding(event: MindEvent, text: str, embedding: List[float]) -> str:
     """Store embedding in memory_embeddings table."""
+    conn = None
+    cursor = None
     try:
-        import psycopg2
         from psycopg2.extras import Json
-        from app.database.config import get_vector_postgres_config
+        from backend.app.database.vector_connection import (
+            get_vector_dbapi_connection,
+        )
         from backend.app.services.system_settings_store import SystemSettingsStore
 
-        postgres_config = get_vector_postgres_config()
-
-        conn = psycopg2.connect(**postgres_config)
+        conn = get_vector_dbapi_connection()
         cursor = conn.cursor()
 
         settings_store = SystemSettingsStore()
@@ -227,8 +229,6 @@ def store_embedding(event: MindEvent, text: str, embedding: List[float]) -> str:
         )
 
         conn.commit()
-        cursor.close()
-        conn.close()
 
         logger.info(
             "Stored embedding with scope=%s, workspace_id=%s, intent_id=%s, importance=%s",
@@ -242,3 +242,10 @@ def store_embedding(event: MindEvent, text: str, embedding: List[float]) -> str:
     except Exception as exc:
         logger.error("Failed to store embedding: %s", exc, exc_info=True)
         raise
+    finally:
+        try:
+            if cursor is not None:
+                cursor.close()
+        finally:
+            if conn is not None:
+                conn.close()

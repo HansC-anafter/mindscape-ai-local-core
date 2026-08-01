@@ -39,6 +39,7 @@ async def search_vectors(
             "external_docs_requires_authorization_aware_retrieval"
         )
     conn = get_connection()
+    cursor = None
     try:
         cursor = conn.cursor(cursor_factory=RealDictCursor)
 
@@ -91,7 +92,11 @@ async def search_vectors(
         return [dict(row) for row in results]
 
     finally:
-        conn.close()
+        try:
+            if cursor is not None:
+                cursor.close()
+        finally:
+            conn.close()
 
 
 async def search_external_docs_records(
@@ -134,6 +139,7 @@ async def update_last_used_at_records(
         return
 
     conn = get_connection()
+    cursor = None
     try:
         cursor = conn.cursor()
 
@@ -150,7 +156,11 @@ async def update_last_used_at_records(
         logger.debug("Updated last_used_at for %d records in %s", len(record_ids), table)
 
     finally:
-        conn.close()
+        try:
+            if cursor is not None:
+                cursor.close()
+        finally:
+            conn.close()
 
 
 async def save_external_doc(

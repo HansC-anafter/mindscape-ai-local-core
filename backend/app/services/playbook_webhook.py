@@ -16,7 +16,7 @@ def _utc_now():
 
 import uuid
 
-from backend.app.database.config import get_vector_postgres_config
+from backend.app.database.vector_connection import get_vector_dbapi_connection
 from backend.app.models.mindscape import IntentCard, IntentStatus, PriorityLevel
 from backend.app.services.mindscape_store import MindscapeStore
 from backend.app.services.mindscape_onboarding import MindscapeOnboardingService
@@ -299,41 +299,43 @@ class PlaybookWebhookHandler:
         metadata: Optional[Dict[str, Any]] = None,
     ):
         """Create a single seed in the database"""
+        conn = None
+        cursor = None
         try:
-            import psycopg2
-
-            postgres_config = {
-                **get_vector_postgres_config(),
-            }
-
-            with psycopg2.connect(**postgres_config) as conn:
-                cursor = conn.cursor()
-                cursor.execute(
-                    """
-                    INSERT INTO memory_embeddings (
-                        id, user_id, source_type, content, metadata,
-                        source_id, confidence, weight, updated_at, created_at
-                    ) VALUES (
-                        gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, NOW(), NOW()
-                    )
-                """,
-                    (
-                        user_id,
-                        source_type,
-                        content,
-                        json.dumps(metadata or {}),
-                        source_type,
-                        source_id,
-                        confidence,
-                        1.0,  # default weight
-                    ),
+            conn = get_vector_dbapi_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO memory_embeddings (
+                    id, user_id, source_type, content, metadata,
+                    source_id, confidence, weight, updated_at, created_at
+                ) VALUES (
+                    gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, NOW(), NOW()
                 )
-                conn.commit()
-                logger.info(f"Created seed: {source_type} - {content}")
+            """,
+                (
+                    user_id,
+                    source_type,
+                    content,
+                    json.dumps(metadata or {}),
+                    source_id,
+                    confidence,
+                    1.0,  # default weight
+                ),
+            )
+            conn.commit()
+            logger.info(f"Created seed: {source_type} - {content}")
 
         except Exception as e:
             logger.error(f"Failed to create seed: {e}")
             raise
+        finally:
+            try:
+                if cursor is not None:
+                    cursor.close()
+            finally:
+                if conn is not None:
+                    conn.close()
 
     async def _observe_habits_from_webhook(
         self,

@@ -11,15 +11,15 @@ from fastapi import APIRouter, HTTPException
 from typing import Dict, Any, Optional
 from contextlib import contextmanager
 from pydantic import BaseModel
-try:
-    import psycopg2
-    from psycopg2.extras import RealDictCursor
-except ImportError:
-    psycopg2 = None
-    RealDictCursor = None
+import asyncio
 import os
 
 from app.database.config import get_vector_postgres_config
+from backend.app.database.vector_connection import get_vector_dbapi_connection
+from backend.app.services.vector_readiness_probe import (
+    get_vector_readiness,
+    run_vector_connection_test,
+)
 
 router = APIRouter(prefix="/api/v1/vector-db", tags=["Vector Database"])
 
@@ -32,10 +32,7 @@ def get_local_postgres_config() -> Dict[str, Any]:
 @contextmanager
 def get_connection():
     """Get a psycopg2 connection for vector database operations."""
-    if psycopg2 is None:
-        raise HTTPException(status_code=500, detail="psycopg2 not installed")
-    config = get_vector_postgres_config()
-    conn = psycopg2.connect(**config)
+    conn = get_vector_dbapi_connection()
     try:
         yield conn
     finally:
@@ -43,51 +40,8 @@ def get_connection():
 
 
 def _check_vector_store_adapter() -> bool:
-    """
-    Check if vector store adapter is available
-
-    For now, check if PostgreSQL with pgvector is available and configured.
-    In the future, this will check for registered vector store adapters.
-
-    Returns:
-        True if adapter is available, False otherwise
-    """
-    try:
-        # Try to connect to PostgreSQL to check if vector store is available
-        import psycopg2
-        import os
-
-        # Get connection parameters from environment
-        vector_config = get_vector_postgres_config()
-        host = vector_config.get("host") or "postgres"
-        port = vector_config.get("port") or 5432
-        database = vector_config.get("database") or "mindscape_vectors"
-        user = vector_config.get("user") or "mindscape"
-        password = vector_config.get("password") or "mindscape_password"
-
-        # Try to connect and check if pgvector extension is available
-        conn = psycopg2.connect(
-            host=host,
-            port=port,
-            database=database,
-            user=user,
-            password=password,
-            connect_timeout=5
-        )
-
-        with conn.cursor() as cursor:
-            # Check if pgvector extension is installed
-            cursor.execute("SELECT * FROM pg_extension WHERE extname = 'vector';")
-            result = cursor.fetchone()
-            if result:
-                return True
-
-        conn.close()
-        return False
-
-    except Exception as e:
-        # If connection fails, vector store is not available
-        return False
+    """Return cached readiness for legacy in-process callers."""
+    return get_vector_readiness().connected
 
 
 class VectorDBConfigRequest(BaseModel):
@@ -128,7 +82,8 @@ async def get_config():
 
     Returns 501 if no vector store adapter is configured.
     """
-    if not _check_vector_store_adapter():
+    readiness = await asyncio.to_thread(get_vector_readiness)
+    if not readiness.connected:
         raise HTTPException(
             status_code=501,
             detail="Vector database adapter not configured. Please install and configure a vector store adapter."
@@ -138,7 +93,7 @@ async def get_config():
     return VectorDBConfigResponse(
         mode="local",
         enabled=True,
-        adapter_available=_check_vector_store_adapter()
+        adapter_available=readiness.connected,
     )
 
 
@@ -149,7 +104,8 @@ async def update_config(config: VectorDBConfigRequest):
 
     Returns 501 if no vector store adapter is configured.
     """
-    if not _check_vector_store_adapter():
+    readiness = await asyncio.to_thread(get_vector_readiness)
+    if not readiness.connected:
         raise HTTPException(
             status_code=501,
             detail="Vector database adapter not configured. Please install and configure a vector store adapter."
@@ -169,102 +125,23 @@ async def test_connection(config_request: Optional[VectorDBConfigRequest] = None
 
     Tests PostgreSQL connection and checks for pgvector extension.
     """
-    try:
-        # Use config from request or environment variables
-        if config_request and config_request.mode == "custom":
-            host = config_request.host or os.getenv("POSTGRES_HOST", "postgres")
-            port = config_request.port or int(os.getenv("POSTGRES_PORT", "5432"))
-            database = config_request.database or os.getenv("POSTGRES_DB", "mindscape_vectors")
-            user = config_request.username or os.getenv("POSTGRES_USER", "mindscape")
-            password = config_request.password or os.getenv("POSTGRES_PASSWORD", "mindscape_password")
-        else:
-            # Local mode - use environment variables
-            vector_config = get_vector_postgres_config()
-            host = vector_config.get("host") or "postgres"
-            port = vector_config.get("port") or 5432
-            database = vector_config.get("database") or "mindscape_vectors"
-            user = vector_config.get("user") or "mindscape"
-            password = vector_config.get("password") or "mindscape_password"
-
-        # Connect to PostgreSQL
-        conn_params = {
-            "host": host,
-            "port": port,
-            "database": database,
-            "user": user,
-            "password": password,
-            "connect_timeout": 5
+    custom_config = None
+    if config_request and config_request.mode == "custom":
+        custom_config = {
+            "host": config_request.host or os.getenv("POSTGRES_HOST", "postgres"),
+            "port": config_request.port or int(os.getenv("POSTGRES_PORT", "5432")),
+            "database": config_request.database
+            or os.getenv("POSTGRES_DB", "mindscape_vectors"),
+            "user": config_request.username or os.getenv("POSTGRES_USER", "mindscape"),
+            "password": config_request.password
+            or os.getenv("POSTGRES_PASSWORD", "mindscape_password"),
+            "sslmode": config_request.ssl_mode,
         }
 
-        if config_request and config_request.ssl_mode == "require":
-            conn_params["sslmode"] = "require"
-        elif config_request and config_request.ssl_mode == "prefer":
-            conn_params["sslmode"] = "prefer"
-
-        pg_conn = psycopg2.connect(**conn_params)
-        cursor = pg_conn.cursor(cursor_factory=RealDictCursor)
-
-        # Check pgvector extension
-        cursor.execute("""
-            SELECT EXISTS(
-                SELECT 1 FROM pg_extension WHERE extname = 'vector'
-            ) as installed
-        """)
-        pgvector_check = cursor.fetchone()
-        pgvector_installed = pgvector_check and pgvector_check["installed"]
-
-        # Get pgvector version if installed
-        pgvector_version = None
-        if pgvector_installed:
-            cursor.execute("SELECT extversion FROM pg_extension WHERE extname = 'vector'")
-            version_row = cursor.fetchone()
-            pgvector_version = version_row["extversion"] if version_row else None
-
-        # Check dimension compatibility (check if main tables have vector columns)
-        dimension_check = False
-        dimension = None
-        dimension_error = None
-        try:
-            # Check mindscape_personal table for vector dimension
-            cursor.execute("""
-                SELECT atttypmod - 4 as dimension
-                FROM pg_attribute
-                WHERE attrelid = 'mindscape_personal'::regclass
-                AND attname = 'embedding'
-                AND atttypmod > 0
-            """)
-            dim_row = cursor.fetchone()
-            if dim_row and dim_row["dimension"]:
-                dimension = dim_row["dimension"]
-                dimension_check = True
-        except Exception as e:
-            dimension_error = f"Could not check dimension: {str(e)}"
-
-        cursor.close()
-        pg_conn.close()
-
-        return {
-            "success": True,
-            "connected": True,
-            "database": database,
-            "pgvector_installed": pgvector_installed,
-            "pgvector_version": pgvector_version,
-            "dimension_check": dimension_check,
-            "dimension": dimension,
-            "dimension_error": dimension_error
-        }
-
-    except psycopg2.OperationalError as e:
-        return {
-            "success": False,
-            "connected": False,
-            "error": f"Connection failed: {str(e)}",
-            "pgvector_installed": False
-        }
-    except Exception as e:
-        return {
-            "success": False,
-            "connected": False,
-            "error": f"Test failed: {str(e)}",
-            "pgvector_installed": False
-        }
+    result = await asyncio.to_thread(run_vector_connection_test, custom_config)
+    if custom_config is None:
+        database = get_vector_postgres_config().get("database") or "mindscape_vectors"
+    else:
+        database = custom_config["database"]
+    result["database"] = database
+    return result

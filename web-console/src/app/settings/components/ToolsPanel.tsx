@@ -135,7 +135,6 @@ export function ToolsPanel({ activeSection, activeProvider }: ToolsPanelProps = 
     vectorDBConfig,
     testingConnection,
     loadTools,
-    loadVectorDBConfig,
     loadToolsStatus,
     testConnection,
     testVectorDB,
@@ -154,25 +153,11 @@ export function ToolsPanel({ activeSection, activeProvider }: ToolsPanelProps = 
 
   useEffect(() => {
     loadTools();
-    loadVectorDBConfig();
     loadToolsStatus();
-    // loadVectorDBHealthStatus is called in useTools hook's useEffect
-    // But we also call it here to ensure it's loaded when component mounts
-    const apiUrl = getApiBaseUrl();
-    fetch(`${apiUrl}/health`)
-      .then(res => res.ok ? res.json() : null)
-      .then(health => {
-        if (health) {
-          const connected = health.vector_db_connected ?? health.components?.vector_db_connected ?? false;
-          // Force update by calling loadVectorDBHealthStatus through the hook
-          // This is a workaround to ensure state is updated
-        }
-      })
-      .catch(err => console.debug('Failed to load health status in ToolsPanel:', err));
 
     // Load Unsplash statistics
     loadUnsplashStats();
-  }, [loadTools, loadVectorDBConfig, loadToolsStatus]);
+  }, [loadTools, loadToolsStatus]);
 
   const loadUnsplashStats = async () => {
     try {
@@ -270,9 +255,6 @@ export function ToolsPanel({ activeSection, activeProvider }: ToolsPanelProps = 
 
   const handleWizardSuccess = (toolType?: string) => {
     setSelectedTool(null);
-    loadTools();
-    loadVectorDBConfig();
-    loadToolsStatus();
     // Reload Unsplash stats if Unsplash was configured
     if (toolType === 'unsplash') {
       loadUnsplashStats();

@@ -15,10 +15,10 @@ def _utc_now():
     """Return timezone-aware UTC now."""
     return datetime.now(timezone.utc)
 from typing import List, Dict, Any, Optional
-import psycopg2
 from psycopg2.extras import RealDictCursor
 
 from app.database.config import get_vector_postgres_config
+from backend.app.database.vector_connection import get_vector_dbapi_connection
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +27,7 @@ class PlaybookIndexer:
     """Index Playbook content into pgvector for semantic search"""
 
     def __init__(self, postgres_config=None):
-        self.postgres_config = postgres_config or self._get_postgres_config()
+        self.postgres_config = postgres_config
 
     def _get_postgres_config(self):
         """Get PostgreSQL config from environment"""
@@ -35,7 +35,7 @@ class PlaybookIndexer:
 
     def _get_connection(self):
         """Get PostgreSQL connection"""
-        return psycopg2.connect(**self.postgres_config)
+        return get_vector_dbapi_connection(self.postgres_config)
 
     def chunk_markdown(
         self,
@@ -212,6 +212,7 @@ class PlaybookIndexer:
     def _delete_existing_chunks(self, playbook_code: str):
         """Delete existing chunks for a playbook"""
         conn = self._get_connection()
+        cursor = None
         try:
             cursor = conn.cursor()
             cursor.execute('''
@@ -222,7 +223,11 @@ class PlaybookIndexer:
             conn.commit()
             logger.info(f"Deleted {deleted_count} existing chunks for playbook {playbook_code}")
         finally:
-            conn.close()
+            try:
+                if cursor is not None:
+                    cursor.close()
+            finally:
+                conn.close()
 
     async def _generate_embedding(self, text: str) -> Optional[List[float]]:
         """Generate embedding for text using OpenAI"""
@@ -254,6 +259,7 @@ class PlaybookIndexer:
     ):
         """Save a chunk to PostgreSQL"""
         conn = self._get_connection()
+        cursor = None
         try:
             cursor = conn.cursor()
 
@@ -278,7 +284,11 @@ class PlaybookIndexer:
 
             conn.commit()
         finally:
-            conn.close()
+            try:
+                if cursor is not None:
+                    cursor.close()
+            finally:
+                conn.close()
 
     async def reindex_all_playbooks(self, playbooks_dir: str = "docs/playbooks") -> Dict[str, Any]:
         """

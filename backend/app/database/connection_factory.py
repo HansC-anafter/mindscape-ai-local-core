@@ -57,15 +57,24 @@ class ConnectionFactory:
 
         Returns a SQLAlchemy Connection object.
         """
+        return self._connect_with_recovery(role, raw=False)
+
+    def get_raw_connection(self, role: str = "core") -> Any:
+        """Get a pooled DBAPI connection for psycopg2-compatible callers."""
+        return self._connect_with_recovery(role, raw=True)
+
+    def _connect_with_recovery(self, role: str, *, raw: bool) -> Any:
         backoff = self._recovery_backoffs.setdefault(
             role,
             DatabaseRecoveryBackoff(
                 delay_seconds=int(os.getenv("DB_RECOVERY_BACKOFF_SECONDS", "30"))
             ),
         )
-        backoff.wait_if_active(label=f"PostgreSQL {role} connection")
+        connection_kind = "DBAPI" if raw else "SQLAlchemy"
+        backoff.wait_if_active(label=f"PostgreSQL {role} {connection_kind} connection")
         try:
-            return self._get_postgres_engine(role).connect()
+            engine = self._get_postgres_engine(role)
+            return engine.raw_connection() if raw else engine.connect()
         except Exception as exc:
             if backoff.note_failure(exc):
                 logger.warning(

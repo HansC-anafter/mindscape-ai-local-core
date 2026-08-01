@@ -13,6 +13,7 @@ class FakeCursor:
         self.fetchone_result = fetchone_result
         self.fetchall_result = fetchall_result or []
         self.executed = []
+        self.closed = False
 
     def execute(self, query, params=None):
         self.executed.append((query, params))
@@ -22,6 +23,9 @@ class FakeCursor:
 
     def fetchall(self):
         return self.fetchall_result
+
+    def close(self):
+        self.closed = True
 
 
 class FakeConnection:
@@ -39,6 +43,7 @@ class FakeConnection:
         self.committed = True
 
     def close(self):
+        assert self.cursor_obj.closed is True
         self.closed = True
 
 
@@ -79,6 +84,7 @@ async def test_count_embeddings_wrapper_preserves_filter_params():
         "intent-1",
         "workspace",
     ]
+    assert cursor.closed is True
     assert conn.closed is True
 
 
@@ -111,6 +117,7 @@ async def test_fetch_embeddings_wrapper_uses_real_dict_cursor_and_ordering():
     assert "ORDER BY created_at" in query
     assert params == ["old-model", "openai"]
     assert conn.cursor_kwargs[0]["cursor_factory"].__name__ == "RealDictCursor"
+    assert cursor.closed is True
     assert conn.closed is True
 
 
@@ -166,4 +173,5 @@ async def test_replace_strategy_wrapper_updates_existing_embedding_and_item():
     assert item.target_embedding_id == "embedding-1"
     assert store.updated_items == [item]
     assert conn.committed is True
+    assert cursor.closed is True
     assert conn.closed is True

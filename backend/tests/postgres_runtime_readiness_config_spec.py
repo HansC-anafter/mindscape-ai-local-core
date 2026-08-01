@@ -92,11 +92,12 @@ def test_postgres_completion_runtime_defines_pooling_replica_and_redis_aof():
     )
     assert (
         "mindscape_core_readonly = host=postgres-replica port=5432 "
-        "dbname=mindscape_core pool_size=10"
+        "dbname=mindscape_core pool_size=10 min_pool_size=0"
     ) in pgbouncer_ini
     assert (
         "mindscape_vectors_readonly = host=postgres-replica port=5432 "
-        "dbname=mindscape_vectors pool_size=5"
+        "dbname=mindscape_vectors user=mindscape_vector_runtime "
+        "pool_size=5 min_pool_size=0"
     ) in pgbouncer_ini
 
 
