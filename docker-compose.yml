@@ -16,6 +16,7 @@ x-runner-environment: &runner-environment
   DATABASE_URL_VECTOR_READONLY: postgresql://${POSTGRES_VECTOR_RUNTIME_USER:-mindscape_vector_runtime}:${POSTGRES_VECTOR_RUNTIME_PASSWORD:?POSTGRES_VECTOR_RUNTIME_PASSWORD is required}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/mindscape_vectors_readonly
   DATABASE_URL: postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/${POSTGRES_CORE_DB:-mindscape_core}
   DATABASE_URL_CORE_SESSION: postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@postgres:5432/${POSTGRES_CORE_DB:-mindscape_core}
+  DATABASE_URL_VECTOR_SESSION: postgresql://${POSTGRES_VECTOR_RUNTIME_USER:-mindscape_vector_runtime}:${POSTGRES_VECTOR_RUNTIME_PASSWORD:?POSTGRES_VECTOR_RUNTIME_PASSWORD is required}@postgres:5432/${POSTGRES_VECTOR_DB:-mindscape_vectors}
   PGBOUNCER_ADMIN_URL: postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/pgbouncer
   MINDSCAPE_RUNTIME_RESOURCE_PROBE: ${MINDSCAPE_RUNTIME_RESOURCE_PROBE:-/app/scripts/managed_site_release_resource_probe.py}
   MINDSCAPE_RUNTIME_RESOURCE_PROBE_SHA256: ${MINDSCAPE_RUNTIME_RESOURCE_PROBE_SHA256:-}
@@ -371,7 +372,7 @@ services:
       - DATABASE_URL_VECTOR_READONLY=postgresql://${POSTGRES_VECTOR_RUNTIME_USER:-mindscape_vector_runtime}:${POSTGRES_VECTOR_RUNTIME_PASSWORD:?POSTGRES_VECTOR_RUNTIME_PASSWORD is required}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/mindscape_vectors_readonly
       - DATABASE_URL=postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/${POSTGRES_CORE_DB:-mindscape_core}
       - DATABASE_URL_CORE_SESSION=postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@postgres:5432/${POSTGRES_CORE_DB:-mindscape_core}
-      - DATABASE_URL_VECTOR_SESSION=postgresql://${POSTGRES_VECTOR_USER:-mindscape}:${POSTGRES_VECTOR_PASSWORD:-mindscape_password}@postgres:5432/${POSTGRES_VECTOR_DB:-mindscape_vectors}
+      - DATABASE_URL_VECTOR_SESSION=postgresql://${POSTGRES_VECTOR_RUNTIME_USER:-mindscape_vector_runtime}:${POSTGRES_VECTOR_RUNTIME_PASSWORD:?POSTGRES_VECTOR_RUNTIME_PASSWORD is required}@postgres:5432/${POSTGRES_VECTOR_DB:-mindscape_vectors}
       - PGBOUNCER_ADMIN_URL=postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/pgbouncer
       - POSTGRES_CORE_HOST=${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}
       - POSTGRES_CORE_PORT=${LOCAL_CORE_DB_POOL_PORT:-6432}
