@@ -64,5 +64,5 @@ def test_reopen_for_attribution_rejects_invalid_reason(tmp_path: Path) -> None:
             authorization="workspace-owner:reopen",
             authorization_path=str(authorization),
             authorization_sha256=hashlib.sha256(authorization.read_bytes()).hexdigest(),
-            reason="containment_preceded_attribution_exhaustion",
+            reason="unexpected_reason",
         )
