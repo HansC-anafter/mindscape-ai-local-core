@@ -80,8 +80,8 @@ class DashboardTaskReadStore(PostgresStoreBase):
                 projection.task_type,
                 source.status,
                 COALESCE(
-                    projection.summary,
                     source.params ->> 'description',
+                    projection.summary,
                     ''
                 ) AS description,
                 projection.created_at,
