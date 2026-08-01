@@ -133,6 +133,7 @@ surfaces:
       - Alembic revision history is append-only operational truth; recovery uses graph diagnosis and corrective revisions and never deletes revision rows to force convergence.
       - Progress reads return one compact current or stale-known snapshot, or a redacted 503 with Retry-After; frontend polling obeys bounded 10, 20, and 30 second intervals and stops when hidden or terminal.
       - Runtime repair preserves the authorized protected runner capacity 2+2+2+1=7 and existing queue visibility; non-protected development lanes remain separately visible and cannot satisfy or mask a protected-lane shortage. It does not expand PgBouncer pools as a workaround, and may claim only isolated recovery or controlled-switchover drill readiness; production high availability requires a separate failure-domain and controller decision.
+      - Host-session auto-registration preserves every owner-scoped runtime, workspace bridge, 300-second health freshness, immediate account and execution-environment changes, pool ordering, and plain-runtime shadow semantics while coalescing duplicate fleet refreshes before PostgreSQL persistence.
     path_globs:
       - backend/app/database/recovery_backoff.py
       - backend/app/database/application_identity.py
@@ -145,6 +146,9 @@ surfaces:
       - backend/app/main.py
       - backend/app/routes/core/vector_db.py
       - backend/app/routes/core/workspace/health.py
+      - backend/app/routes/core/cli_token.py
+      - backend/app/routes/core/cli_token_core/host_session_*.py
+      - backend/app/services/external_agents/bridge/host_ws_client_core/*registration*.py
       - backend/app/services/readiness_request_coordinator.py
       - backend/app/services/system_health_resources.py
       - backend/app/services/vector_readiness_probe.py
@@ -195,6 +199,8 @@ surfaces:
       - backend/tests/compose_topology_matrix_spec.py
       - backend/tests/postgres_runtime_readiness_config_spec.py
       - backend/tests/postgres_task_control_budget_spec.py
+      - backend/tests/cli_token_host_session_registration_budget_spec.py
+      - backend/tests/cli_token_runtime_shadow_spec.py
       - backend/tests/task_projection_adapters_spec.py
       - backend/tests/capability_install_atomic_commit_spec.py
       - backend/tests/capability_install_version_policy_spec.py

@@ -22,6 +22,7 @@ from backend.app.routes.core.cli_token_core.host_session_runtime import (
     _effective_host_session_pool_enabled,
     _load_workspace_owner_user_id,
     _prepare_host_session_runtime_metadata,
+    _register_host_session_runtime,
     _stable_host_session_runtime_id,
     _upsert_host_session_runtime,
     _upsert_host_session_runtime_sql,
@@ -253,7 +254,7 @@ async def register_host_session_runtime(
             detail=f"Workspace not found or owner unavailable: {request.workspace_id}",
         )
 
-    runtime = _upsert_host_session_runtime(
+    runtime = _register_host_session_runtime(
         owner_user_id=owner_user_id,
         request=request,
     )
