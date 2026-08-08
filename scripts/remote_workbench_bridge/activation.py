@@ -57,6 +57,7 @@ KNOWN_STATES = {
     "degraded_tunnel",
     "maintenance",
     "ready",
+    "recovering_origin",
     "recovering_tunnel",
     "waiting_docker",
 }

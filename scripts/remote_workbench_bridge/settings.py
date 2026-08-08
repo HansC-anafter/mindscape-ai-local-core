@@ -48,11 +48,13 @@ class BridgeSettings:
     cloudflared_image: str
     metrics_host_port: int
     local_origin_url: str
+    control_plane_health_url: str
     connector_ready_url: str
     public_origin_url: str
     poll_interval_seconds: float
     probe_timeout_seconds: float
     public_timeout_seconds: float
+    origin_failure_threshold: int
     connector_failure_threshold: int
     connector_minimum_ready_connections: int
     backoff_initial_seconds: float
@@ -111,7 +113,11 @@ class BridgeSettings:
             metrics_host_port=2000,
             local_origin_url=os.getenv(
                 "REMOTE_WORKBENCH_LOCAL_ORIGIN_URL",
-                "http://127.0.0.1:8300/healthz",
+                "http://127.0.0.1:8300/api/v1/host/services/mobile-workbench-gateway/health",
+            ),
+            control_plane_health_url=os.getenv(
+                "REMOTE_WORKBENCH_CONTROL_PLANE_HEALTH_URL",
+                "http://127.0.0.1:8220/healthz",
             ),
             connector_ready_url=os.getenv(
                 "REMOTE_WORKBENCH_CONNECTOR_READY_URL",
@@ -129,6 +135,9 @@ class BridgeSettings:
             ),
             public_timeout_seconds=_bounded_float(
                 "REMOTE_WORKBENCH_BRIDGE_PUBLIC_TIMEOUT_SECONDS", 5.0, 1.0, 20.0
+            ),
+            origin_failure_threshold=_bounded_int(
+                "REMOTE_WORKBENCH_ORIGIN_FAILURE_THRESHOLD", 2, 2, 10
             ),
             connector_failure_threshold=_bounded_int(
                 "REMOTE_WORKBENCH_CONNECTOR_FAILURE_THRESHOLD", 3, 2, 10

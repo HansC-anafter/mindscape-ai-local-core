@@ -46,6 +46,9 @@ class SupervisorRuntime:
     connector_failures: int = 0
     repair_failures: int = 0
     next_repair_at: float = 0.0
+    origin_failures: int = 0
+    origin_repair_attempts: int = 0
+    next_origin_repair_at: float = 0.0
 
 
 class BridgeSupervisor:
@@ -130,6 +133,26 @@ class BridgeSupervisor:
         self.runtime.repair_failures = 0
         self.runtime.next_repair_at = 0.0
 
+    def _origin_repair_delay(self) -> float:
+        exponent = min(16, max(0, self.runtime.origin_repair_attempts - 1))
+        return min(
+            self.settings.backoff_initial_seconds * (2**exponent),
+            self.settings.backoff_max_seconds,
+        )
+
+    def _origin_repair_allowed(self) -> bool:
+        return self.monotonic() >= self.runtime.next_origin_repair_at
+
+    def _schedule_origin_repair_gate(self) -> None:
+        self.runtime.next_origin_repair_at = (
+            self.monotonic() + self._origin_repair_delay()
+        )
+
+    def _clear_origin_repair_gate(self) -> None:
+        self.runtime.origin_failures = 0
+        self.runtime.origin_repair_attempts = 0
+        self.runtime.next_origin_repair_at = 0.0
+
     def _status(
         self,
         *,
@@ -146,6 +169,8 @@ class BridgeSupervisor:
             "probes": {name: probe.as_dict() for name, probe in probes.items()},
             "repair_action": repair_action,
             "repair_failures": self.runtime.repair_failures,
+            "origin_failures": self.runtime.origin_failures,
+            "origin_repair_attempts": self.runtime.origin_repair_attempts,
             "connector_failures": self.runtime.connector_failures,
             "supervisor_build_id": self.supervisor_build_id,
             "supervisor_pid": self.supervisor_pid,
@@ -198,10 +223,42 @@ class BridgeSupervisor:
         }
         if not local_origin.ok:
             self.runtime.connector_failures = 0
+            control_plane = self.probes.control_plane()
+            probes["control_plane"] = control_plane
+            repair_action = None
+            state = "degraded_origin"
+            if control_plane.ok:
+                self.runtime.origin_failures = min(
+                    self.settings.origin_failure_threshold,
+                    self.runtime.origin_failures + 1,
+                )
+                if (
+                    self.runtime.origin_failures
+                    >= self.settings.origin_failure_threshold
+                    and repair
+                    and self._origin_repair_allowed()
+                ):
+                    recovered = self._launcher("recover-origin")
+                    repair_action = (
+                        "recover-origin" if recovered else "recover-origin-failed"
+                    )
+                    self.runtime.origin_repair_attempts = min(
+                        16, self.runtime.origin_repair_attempts + 1
+                    )
+                    self._schedule_origin_repair_gate()
+                    state = "recovering_origin"
+            else:
+                self.runtime.origin_failures = 0
             return self._persist(
-                self._status(state="degraded_origin", ready=False, probes=probes)
+                self._status(
+                    state=state,
+                    ready=False,
+                    probes=probes,
+                    repair_action=repair_action,
+                )
             )
 
+        self._clear_origin_repair_gate()
         if not tunnel.ok:
             repair_action = None
             if repair and self._repair_allowed():
@@ -277,6 +334,8 @@ class BridgeSupervisor:
             delay = self.settings.poll_interval_seconds
             if self.runtime.repair_failures:
                 delay = max(delay, self._repair_delay())
+            if self.runtime.origin_repair_attempts:
+                delay = max(delay, self._origin_repair_delay())
             remaining = delay
             while not self.stop_requested and remaining > 0:
                 interval = min(1.0, remaining)

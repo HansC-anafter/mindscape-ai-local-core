@@ -42,12 +42,17 @@ def _settings(tmp_path: Path) -> BridgeSettings:
         token_path=tmp_path / "tunnel-token",
         cloudflared_image=CLOUDFLARED_IMAGE,
         metrics_host_port=2000,
-        local_origin_url="http://127.0.0.1:8300/healthz",
+        local_origin_url=(
+            "http://127.0.0.1:8300/"
+            "api/v1/host/services/mobile-workbench-gateway/health"
+        ),
+        control_plane_health_url="http://127.0.0.1:8220/healthz",
         connector_ready_url="http://127.0.0.1:2000/ready",
         public_origin_url="https://remote-workbench.mindscapeai.app/",
         poll_interval_seconds=20.0,
         probe_timeout_seconds=3.0,
         public_timeout_seconds=5.0,
+        origin_failure_threshold=2,
         connector_failure_threshold=3,
         connector_minimum_ready_connections=2,
         backoff_initial_seconds=5.0,
@@ -74,6 +79,7 @@ def _probes(settings: BridgeSettings) -> BridgeProbes:
         cloudflared_image=settings.cloudflared_image,
         metrics_host_port=settings.metrics_host_port,
         local_origin_url=settings.local_origin_url,
+        control_plane_health_url=settings.control_plane_health_url,
         connector_ready_url=settings.connector_ready_url,
         public_origin_url=settings.public_origin_url,
         probe_timeout_seconds=settings.probe_timeout_seconds,
