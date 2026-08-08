@@ -285,7 +285,7 @@ class HostBridgeTransportMixin:
                 break
 
     def _backoff_delay(self) -> float:
-        """Exponential backoff with jitter."""
+        """Exponential backoff with per-client fleet spreading."""
         import random
 
         self._reconnect_attempt += 1
@@ -293,7 +293,16 @@ class HostBridgeTransportMixin:
             self.RECONNECT_BASE_DELAY * (2 ** (self._reconnect_attempt - 1)),
             self.RECONNECT_MAX_DELAY,
         )
-        return delay + random.uniform(0, delay * 0.1)
+        spread = (
+            self.CLEAN_BUSY_RECONNECT_SPREAD
+            if self._has_pending_transport_work()
+            else self.CLEAN_IDLE_RECONNECT_SPREAD
+        )
+        return (
+            delay
+            + random.uniform(0, delay * 0.1)
+            + self._stable_client_offset(spread)
+        )
 
     def _clean_reconnect_delay(self) -> float:
         """Jittered reconnect delay after a graceful WebSocket close."""
