@@ -55,9 +55,8 @@ class MeetingCommandStore(PostgresStoreBase):
 
     def __init__(self, db_role: str = "core"):
         super().__init__(db_role=db_role)
-        if not MeetingCommandStore._table_ensured:
-            self.ensure_table()
-            MeetingCommandStore._table_ensured = True
+        # Schema ownership belongs to Alembic.  ``ensure_table`` remains an
+        # explicit repair/tooling hook and is never called on request startup.
 
     def ensure_table(self) -> None:
         with self.transaction() as conn:
