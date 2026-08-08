@@ -3,6 +3,7 @@ My Agent Console - Backend API
 FastAPI application for personal AI agent platform
 """
 
+import asyncio
 import os
 import signal
 import faulthandler
@@ -201,8 +202,8 @@ async def _compute_health_check():
         ocr_status = await run_readiness_coro_in_worker(
             lambda: health_checker._check_ocr_service(issues)
         )
-        runtime_schema_compatibility = await run_readiness_coro_in_worker(
-            lambda: get_runtime_schema_health_facade().inspect()
+        runtime_schema_compatibility = await asyncio.to_thread(
+            get_runtime_schema_health_facade().inspect
         )
     except Exception as exc:
         _health_readiness_backoff_error = str(exc)
