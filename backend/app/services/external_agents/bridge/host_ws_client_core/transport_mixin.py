@@ -262,13 +262,15 @@ class HostBridgeTransportMixin:
                             pending_result_acks,
                         )
                         continue
-                    logger.warning(
-                        f"Server did not respond to ping within "
-                        f"{self.PONG_TIMEOUT}s — connection is stale, "
-                        f"forcing reconnect"
+                    logger.info(
+                        "Application pong lagged beyond %.1fs for workspace=%s "
+                        "surface=%s; keeping the idle socket and relying on "
+                        "WebSocket protocol liveness",
+                        self.PONG_TIMEOUT,
+                        self.workspace_id,
+                        self.surface,
                     )
-                    await self._ws.close()
-                    break
+                    continue
             except Exception:
                 logger.warning(
                     "Heartbeat loop failed for workspace=%s surface=%s; forcing reconnect",
