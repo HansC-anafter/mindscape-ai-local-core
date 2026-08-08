@@ -19,6 +19,7 @@ import {
   MotionPracticeInstructionSourcePanel,
   type MotionPracticeInstructionSourceState,
 } from './MotionPracticeInstructionSourcePanel';
+import { resolveMotionPracticeExpectedDurationMs } from './motionPracticeInstructionSource';
 import { MotionPracticeRecordsPanel } from './MotionPracticeRecordsPanel';
 import { useWorkspaceGroupOptional } from '@/contexts/WorkspaceGroupContext';
 import {
@@ -102,7 +103,17 @@ export function MotionPracticeRailController({
     setInstructionSource((current) => {
       const currentIsEmpty = !current.value.trim()
         && (!current.courseChaptersInput || !current.courseChaptersInput.trim());
-      return currentIsEmpty ? initialInstructionSource : current;
+      const sameSourceNeedsResolvedProfile = (
+        current.value.trim() === initialInstructionSource.value.trim()
+        && (
+          !current.motionReferenceProfileArtifactId?.trim()
+          || !current.courseChapters?.length
+          || Boolean(current.courseChaptersError)
+        )
+      );
+      return currentIsEmpty || sameSourceNeedsResolvedProfile
+        ? initialInstructionSource
+        : current;
     });
   }, [initialInstructionSource]);
   const selectedSession = useMemo(() => (
@@ -149,6 +160,7 @@ export function MotionPracticeRailController({
       practiceMode,
       instructionRefs,
       userGoal,
+      expectedDurationMs: resolveMotionPracticeExpectedDurationMs(instructionSource),
     };
     setLaunchState('starting');
     setLaunchError(null);
@@ -293,7 +305,7 @@ export function MotionPracticeRailController({
 
       {instructionSourceError ? (
         <div className="rounded border border-red-200 bg-red-50 p-2 text-xs text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
-          Fix materialized chapters JSON before launching practice.
+          {instructionSourceError}
         </div>
       ) : null}
 

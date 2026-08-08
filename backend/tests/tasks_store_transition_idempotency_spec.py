@@ -82,7 +82,7 @@ class _Store(TasksStoreUpdateMixin, TasksStoreStatusUpdateMixin):
     def serialize_json(self, value):
         return value
 
-    def _refresh_task_projection(self, conn, task_id):
+    def _refresh_task_projection(self, conn, task_id, **_kwargs):
         self.projection_refreshes.append(task_id)
 
 

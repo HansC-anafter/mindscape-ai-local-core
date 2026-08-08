@@ -1,3 +1,4 @@
+import { buildRuntimeAssetFetchUrl } from '@/lib/capability-runtime-asset-url';
 import type { Locale } from '@/lib/i18n';
 
 import { loadCachedCapabilityUiCatalog } from './cache';
@@ -164,6 +165,7 @@ async function validateCompiledCatalog(
 
 async function fetchCatalog(
   apiUrl: string,
+  workspaceId: string,
   descriptor: CapabilityUiRuntimeLocalizationDescriptor,
   locale: Locale,
   catalogDescriptor: CapabilityUiRuntimeCatalogDescriptor,
@@ -182,7 +184,11 @@ async function fetchCatalog(
   );
   try {
     const response = await fetch(
-      absoluteAssetUrl(apiUrl, catalogDescriptor.asset_url),
+      buildRuntimeAssetFetchUrl(
+        absoluteAssetUrl(apiUrl, catalogDescriptor.asset_url),
+        undefined,
+        workspaceId,
+      ),
       {
         credentials: 'same-origin',
         cache: 'force-cache',
@@ -230,6 +236,7 @@ function validateDescriptor(
 
 async function loadLocaleCatalog(
   apiUrl: string,
+  workspaceId: string,
   capabilityCode: string,
   version: string,
   descriptor: CapabilityUiRuntimeLocalizationDescriptor,
@@ -246,12 +253,19 @@ async function loadLocaleCatalog(
       locale,
       catalogDescriptor.integrity,
     ),
-    () => fetchCatalog(apiUrl, descriptor, locale, catalogDescriptor),
+    () => fetchCatalog(
+      apiUrl,
+      workspaceId,
+      descriptor,
+      locale,
+      catalogDescriptor,
+    ),
   );
 }
 
 export async function loadCapabilityUiLocalization(options: {
   apiUrl: string;
+  workspaceId: string;
   capabilityCode: string;
   version: string;
   requestedLocale: Locale;
@@ -259,6 +273,7 @@ export async function loadCapabilityUiLocalization(options: {
 }): Promise<CapabilityUiLocalizationBridgeV1> {
   const {
     apiUrl,
+    workspaceId,
     capabilityCode,
     version,
     requestedLocale,
@@ -267,11 +282,16 @@ export async function loadCapabilityUiLocalization(options: {
   if (!descriptor) {
     return createLegacyCapabilityUiLocalizationBridge(requestedLocale);
   }
+  const normalizedWorkspaceId = workspaceId.trim();
+  if (!normalizedWorkspaceId) {
+    throw new Error('Capability UI localization workspace is required');
+  }
   validateDescriptor(capabilityCode, descriptor);
 
   try {
     const loaded = await loadLocaleCatalog(
       apiUrl,
+      normalizedWorkspaceId,
       capabilityCode,
       version,
       descriptor,
@@ -287,6 +307,7 @@ export async function loadCapabilityUiLocalization(options: {
     if (requestedLocale === 'en') throw requestedError;
     const source = await loadLocaleCatalog(
       apiUrl,
+      normalizedWorkspaceId,
       capabilityCode,
       version,
       descriptor,

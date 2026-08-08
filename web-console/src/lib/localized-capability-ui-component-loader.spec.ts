@@ -76,6 +76,7 @@ describe('localized-capability-ui-component-loader', () => {
     );
     expect(loadCapabilityUiLocalization).toHaveBeenCalledWith({
       apiUrl: 'http://api.test',
+      workspaceId: 'ws_demo',
       capabilityCode: 'ig',
       version: '1.0.203',
       requestedLocale: 'zh-TW',

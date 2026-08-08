@@ -78,6 +78,14 @@ class MindscapeStoreWorkspaceProjectMixin:
             )
         ]
 
+    def list_workspace_ids(
+        self,
+        owner_user_id: str,
+        limit: int = 200,
+    ) -> List[str]:
+        """List only workspace IDs for authorization scope projection."""
+        return self.workspaces.list_workspace_ids(owner_user_id, limit=limit)
+
     async def update_workspace(self, workspace: Workspace) -> Workspace:
         """Update an existing workspace"""
         return await self.workspaces.update_workspace(workspace)

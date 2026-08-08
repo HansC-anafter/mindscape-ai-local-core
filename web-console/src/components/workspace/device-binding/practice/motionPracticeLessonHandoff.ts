@@ -20,6 +20,8 @@ export type MotionPracticeLessonHandoff = {
   thumbnailUrl?: string;
   courseChaptersInput?: string;
   motionReferenceProfileArtifactId?: string;
+  referenceProfileResolutionStatus?: 'resolving' | 'ready' | 'failed';
+  referenceProfileResolutionError?: string;
 };
 
 const PARAM_KEYS = {
@@ -172,12 +174,17 @@ export function buildInstructionSourceStateFromLessonHandoff(
   }
   const courseChaptersInput = handoff.courseChaptersInput || '';
   const parseResult = parseMotionPracticeCourseChaptersInput(courseChaptersInput);
+  const resolutionError = handoff.referenceProfileResolutionStatus === 'resolving'
+    ? 'Reference motion profile is still resolving.'
+    : handoff.referenceProfileResolutionStatus === 'failed'
+      ? handoff.referenceProfileResolutionError || 'Reference motion profile resolution failed.'
+      : null;
   return {
     kind: handoff.sourceKind,
     value: handoff.sourceValue,
     courseChaptersInput,
     courseChapters: parseResult.courseChapters,
-    courseChaptersError: parseResult.error,
+    courseChaptersError: resolutionError || parseResult.error,
     motionReferenceProfileArtifactId: handoff.motionReferenceProfileArtifactId,
   };
 }

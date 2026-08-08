@@ -34,7 +34,32 @@ class MessageCompletionStateMixin:
         if "status" not in normalized:
             normalized["status"] = "completed"
 
+        normalized.setdefault("workspace_id", None)
+        normalized.setdefault("surface_type", None)
+
         return normalized
+
+    @classmethod
+    def _completed_entry_matches_client(
+        cls,
+        execution_id: str,
+        entry: Any,
+        *,
+        workspace_id: str,
+        surface_type: Optional[str],
+    ) -> bool:
+        normalized = cls._normalize_completed_entry(execution_id, entry)
+        entry_workspace_id = str(normalized.get("workspace_id") or "").strip()
+        if not entry_workspace_id or entry_workspace_id != workspace_id:
+            return False
+
+        entry_surface_type = str(normalized.get("surface_type") or "").strip()
+        requested_surface_type = str(surface_type or "").strip()
+        return not (
+            entry_surface_type
+            and requested_surface_type
+            and entry_surface_type != requested_surface_type
+        )
 
     def _mark_completed_execution(
         self,
@@ -44,6 +69,8 @@ class MessageCompletionStateMixin:
         status: Optional[str] = None,
         landing_succeeded: Optional[bool] = None,
         error: Optional[str] = None,
+        workspace_id: Optional[str] = None,
+        surface_type: Optional[str] = None,
     ) -> None:
         existing = self._completed.get(execution_id)
         normalized = self._normalize_completed_entry(execution_id, existing)
@@ -63,6 +90,12 @@ class MessageCompletionStateMixin:
         if isinstance(error, str) and error.strip():
             normalized["error"] = error.strip()
 
+        if isinstance(workspace_id, str) and workspace_id.strip():
+            normalized["workspace_id"] = workspace_id.strip()
+
+        if isinstance(surface_type, str) and surface_type.strip():
+            normalized["surface_type"] = surface_type.strip()
+
         self._completed[execution_id] = normalized
         while len(self._completed) > self.COMPLETED_MAX_SIZE:
             self._completed.popitem(last=False)
@@ -71,6 +104,7 @@ class MessageCompletionStateMixin:
         self,
         *,
         workspace_id: str,
+        surface_type: Optional[str],
         recent_execution_ids: list[str],
         pending_rest_execution_ids: list[str],
         last_completed_at: Optional[float],
@@ -91,7 +125,12 @@ class MessageCompletionStateMixin:
 
         for execution_id in known_ids:
             entry = self._completed.get(execution_id)
-            if entry is None:
+            if entry is None or not self._completed_entry_matches_client(
+                execution_id,
+                entry,
+                workspace_id=workspace_id,
+                surface_type=surface_type,
+            ):
                 continue
             normalized = self._normalize_completed_entry(execution_id, entry)
             replayed_completions.append(
@@ -106,9 +145,16 @@ class MessageCompletionStateMixin:
             duplicates_to_ignore.append(execution_id)
             seen_replayed.add(execution_id)
 
-        if isinstance(last_completed_at, (int, float)):
+        if isinstance(last_completed_at, (int, float)) and last_completed_at > 0:
             cutoff = float(last_completed_at)
             for execution_id, entry in self._completed.items():
+                if not self._completed_entry_matches_client(
+                    execution_id,
+                    entry,
+                    workspace_id=workspace_id,
+                    surface_type=surface_type,
+                ):
+                    continue
                 normalized = self._normalize_completed_entry(execution_id, entry)
                 completed_at = normalized.get("completed_at")
                 if not isinstance(completed_at, (int, float)):

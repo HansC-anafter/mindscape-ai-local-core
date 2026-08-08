@@ -17,7 +17,7 @@ def _count_projection_rows(builder: TaskProjectionBuilder) -> int:
         return int(row.count if row is not None else 0)
 
 
-def _parse_args() -> argparse.Namespace:
+def _parse_args(argv=None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Backfill task_summary_projection from tasks.",
     )
@@ -25,14 +25,48 @@ def _parse_args() -> argparse.Namespace:
         "--limit",
         type=int,
         default=None,
-        help="Backfill only the latest N tasks.",
+        help="Backfill the latest N tasks or inspect at most N active drift rows.",
     )
-    return parser.parse_args()
+    parser.add_argument(
+        "--reconcile-active",
+        action="store_true",
+        help="Inspect active task/projection drift instead of running a full backfill.",
+    )
+    parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="Apply bounded active reconciliation; default reconcile mode is dry-run.",
+    )
+    return parser.parse_args(argv)
 
 
-def main() -> int:
-    args = _parse_args()
+def main(argv=None) -> int:
+    args = _parse_args(argv)
+    if args.apply and not args.reconcile_active:
+        raise SystemExit("--apply requires --reconcile-active")
     builder = TaskProjectionBuilder()
+    if args.reconcile_active:
+        try:
+            result = builder.reconcile_active_task_summary_projection(
+                limit=args.limit if args.limit is not None else 1000,
+                apply=args.apply,
+            )
+        except Exception as exc:
+            print(
+                json.dumps(
+                    {
+                        "ok": False,
+                        "error_code": "active_projection_reconciliation_failed",
+                        "error_type": type(exc).__name__,
+                        "mode": "apply" if args.apply else "dry_run",
+                    },
+                    sort_keys=True,
+                )
+            )
+            return 2
+        print(json.dumps({"ok": True, **result}, sort_keys=True))
+        return 0
+
     before_count = _count_projection_rows(builder)
     affected_rows = builder.rebuild_task_summary_projection(limit=args.limit)
     after_count = _count_projection_rows(builder)

@@ -211,7 +211,17 @@ async def test_admission_block_preserves_retry_and_acks_processing_item():
     assert queue.acked == ["task-one"]
 
 
-def test_child_payload_consumes_the_same_context_snapshot():
+def test_child_payload_consumes_snapshot_and_exact_capability(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "backend.app.services.runner_topology.spec_metadata."
+        "resolve_installed_playbook_runner_metadata",
+        lambda playbook_code: {
+            "capability_code": "pack",
+            "playbook_code": playbook_code,
+        },
+    )
     snapshot_payload = _snapshot().model_dump(mode="json")
     payload = build_child_payload(
         task=_task(),
@@ -224,6 +234,7 @@ def test_child_payload_consumes_the_same_context_snapshot():
 
     assert payload["execution_admission_snapshot"] == snapshot_payload
     assert payload["inputs"]["execution_admission_snapshot"] == snapshot_payload
+    assert payload["capability_code"] == "pack"
 
 
 def _internal_projection_fixture():

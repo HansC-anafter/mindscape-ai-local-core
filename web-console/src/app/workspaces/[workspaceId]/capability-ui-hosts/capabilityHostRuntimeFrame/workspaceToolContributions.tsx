@@ -1,6 +1,5 @@
 'use client';
 
-import React from 'react';
 import {
   Activity,
   GitGraph,
@@ -13,13 +12,14 @@ import type {
   WorkspaceRightRegionGroup,
 } from '@/lib/workspace-right-region/workspace-right-region-contract';
 import { openAppRouteInNewWindow } from '@/lib/navigation/openAppRouteInNewWindow';
+import {
+  MotionSourceRailPanel,
+  WorkspacePackToolPanel,
+  WorkspaceRunsPanel,
+  WorkspaceSettingsToolPanel,
+} from '@/components/workspace/workspaceCoreToolPanelLazyComponents';
 import type { WorkspaceGlobalToolContribution } from '../../components/useWorkspaceGlobalToolRail';
 import type { Translator } from '@/lib/i18n/contracts';
-
-const MotionSourceRailPanel = React.lazy(() => import('@/components/workspace/device-binding/MotionSourceRailPanel'));
-const WorkspaceRunsPanel = React.lazy(() => import('../WorkspaceRunsPanel'));
-const WorkspaceSettingsToolPanel = React.lazy(() => import('../WorkspaceSettingsToolPanel'));
-const WorkspacePackToolPanel = React.lazy(() => import('../WorkspacePackToolPanel'));
 
 export const WORKSPACE_ACTIVE_PANEL_TOGGLE_BINDING_ID = 'tool_rail:workspace:active_panel:toggle';
 export const WORKSPACE_TOOL_RAIL_COMMAND_ID = 'workspace.tool_rail.toggle';

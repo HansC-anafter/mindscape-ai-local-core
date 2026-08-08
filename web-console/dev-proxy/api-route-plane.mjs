@@ -35,6 +35,10 @@ const WORKSPACE_PRODUCT_MUTATION_PATTERNS = [
   /^\/api\/v1\/workspace-groups\/[^/]+\/product-configuration\/?$/,
 ];
 
+const CONTROL_READ_PATTERNS = [
+  /^\/api\/v1\/workspaces\/[^/]+\/executions\/[^/]+\/progress-snapshot\/?$/,
+];
+
 export function resolveApiRoutePlane(requestUrl = '/', method = 'GET') {
   const parsed = new URL(requestUrl, 'http://localhost');
   const { pathname } = parsed;
@@ -54,6 +58,16 @@ export function resolveApiRoutePlane(requestUrl = '/', method = 'GET') {
       plane: 'execution',
       serviceId: 'local_core.execution_api',
       reason: 'host_runtime_session_gateway',
+    };
+  }
+  if (
+    normalizedMethod === 'GET'
+    && CONTROL_READ_PATTERNS.some((pattern) => pattern.test(pathname))
+  ) {
+    return {
+      plane: 'control',
+      serviceId: 'local_core.control_api',
+      reason: 'control_read_projection',
     };
   }
   if (

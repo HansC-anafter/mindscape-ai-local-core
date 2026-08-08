@@ -4,25 +4,59 @@ import asyncio
 import json
 import logging
 import os
+import pickle
+import sys
+import time
 import traceback
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
-from backend.app.services.playbook_run_executor import PlaybookRunExecutor
-from backend.app.services.workspace_capability_admission.child_snapshot_verifier import (
-    verify_child_snapshot,
-)
-
 logger = logging.getLogger(__name__)
+PlaybookRunExecutor: Any = None
 
 
-def _initialize_capability_packages_for_runner(*, load_tools: bool = True) -> None:
+def _playbook_result_status(payload: Any) -> str:
+    if not isinstance(payload, dict):
+        return ""
+    nested = payload.get("result")
+    if isinstance(nested, dict) and nested.get("status") is not None:
+        return str(nested.get("status") or "").strip().lower()
+    return str(payload.get("status") or "").strip().lower()
+
+
+def _write_result_file(result_file: Optional[str], payload: Any) -> None:
+    if not result_file:
+        return
+    with open(result_file, "w") as file_obj:
+        json.dump(payload, file_obj, ensure_ascii=False, default=str)
+
+
+def _initialize_capability_packages_for_runner(
+    *,
+    load_tools: bool = True,
+    capability_code: Optional[str] = None,
+) -> None:
+    normalized_capability_code = str(capability_code or "").strip()
     try:
-        from backend.app.services.capability_registry import get_registry, load_capabilities
+        from backend.app.services.capability_registry import (
+            get_registry,
+            load_capabilities,
+            reload_capability,
+        )
 
         app_dir = Path(__file__).resolve().parent.parent
         capabilities_dir = (app_dir / "capabilities").resolve()
-        load_capabilities(capabilities_dir)
+        if normalized_capability_code:
+            if not reload_capability(
+                normalized_capability_code,
+                capabilities_dir,
+            ):
+                raise RuntimeError(
+                    "runner_child_capability_manifest_not_found:"
+                    f"{normalized_capability_code}"
+                )
+        else:
+            load_capabilities(capabilities_dir)
         if load_tools:
             from backend.app.services.capability_tool_loader import load_all_capability_tools
 
@@ -30,19 +64,25 @@ def _initialize_capability_packages_for_runner(*, load_tools: bool = True) -> No
 
         registry = get_registry()
         logger.info(
-            "Runner capability packages loaded: %s capabilities, %s tools, load_tools=%s",
+            "Runner capability packages loaded: %s capabilities, %s tools, "
+            "load_tools=%s capability_code=%s",
             len(registry.list_capabilities()),
             len(registry.list_tools()),
             load_tools,
+            normalized_capability_code or "all",
         )
     except Exception as e:
         logger.error(f"Runner failed to load capability packages: {e}", exc_info=True)
+        if normalized_capability_code:
+            raise
 
 
 def _child_execute_playbook(
     payload: Dict[str, Any],
     *,
-    initialize_capability_packages_for_runner: Callable[..., None],
+    initialize_capability_packages_for_runner: Optional[
+        Callable[..., None]
+    ] = None,
 ) -> None:
     """
     Run a single playbook or tool execution inside a dedicated process.
@@ -60,6 +100,7 @@ def _child_execute_playbook(
     admission_snapshot = payload.get("execution_admission_snapshot")
     task_type = payload.get("task_type", "playbook_execution")
     playbook_code = payload.get("playbook_code")
+    capability_code = str(payload.get("capability_code") or "").strip()
     tool_name = payload.get("tool_name") or playbook_code
     internal_projection_admission = payload.get(
         "knowledge_projection_admission"
@@ -85,6 +126,10 @@ def _child_execute_playbook(
                     "runner_child_internal_projection_admission_mismatch"
                 )
         else:
+            from backend.app.services.workspace_capability_admission.child_snapshot_verifier import (
+                verify_child_snapshot,
+            )
+
             if internal_projection_admission is not None:
                 raise RuntimeError(
                     "runner_child_internal_projection_admission_forbidden"
@@ -98,23 +143,41 @@ def _child_execute_playbook(
                     payload.get("root_execution_id") or task_id
                 ),
             )
+    if task_type != "tool_execution" and not capability_code:
+        raise RuntimeError("runner_child_capability_code_required")
+    eager_tool_load = (
+        os.getenv("LOCAL_CORE_RUNNER_CHILD_EAGER_TOOL_LOAD", "")
+        .strip()
+        .lower()
+        in {"1", "true", "yes", "on"}
+    )
+    initialize_packages = (
+        initialize_capability_packages_for_runner
+        or _initialize_capability_packages_for_runner
+    )
+    initialization_started = time.monotonic()
     try:
-        eager_tool_load = (
-            os.getenv("LOCAL_CORE_RUNNER_CHILD_EAGER_TOOL_LOAD", "")
-            .strip()
-            .lower()
-            in {"1", "true", "yes", "on"}
+        initialize_packages(
+            load_tools=eager_tool_load,
+            capability_code=capability_code or None,
         )
-        initialize_capability_packages_for_runner(load_tools=eager_tool_load)
     except Exception:
-        pass
+        if capability_code:
+            raise
+    logger.info(
+        "Runner child capability initialization complete task_id=%s "
+        "capability_code=%s elapsed_ms=%s",
+        task_id,
+        capability_code or "none",
+        int((time.monotonic() - initialization_started) * 1000),
+    )
 
     profile_id = payload.get("profile_id")
     inputs = payload.get("inputs")
     project_id = payload.get("project_id")
     result_file = payload.get("_result_file")
 
-    async def _run() -> None:
+    async def _run_with_runtime_identity() -> None:
         if task_type == "tool_execution":
             from backend.app.services.unified_tool_executor import (
                 UnifiedToolExecutor,
@@ -159,14 +222,46 @@ def _child_execute_playbook(
                 except Exception:
                     pass
         else:
-            executor = PlaybookRunExecutor()
-            await executor.execute_playbook_run(
+            executor_type = PlaybookRunExecutor
+            if executor_type is None:
+                executor_import_started = time.monotonic()
+                from backend.app.services.playbook_run_executor import (
+                    PlaybookRunExecutor as executor_type,
+                )
+
+                logger.info(
+                    "Runner child playbook executor import complete task_id=%s "
+                    "elapsed_ms=%s",
+                    task_id,
+                    int((time.monotonic() - executor_import_started) * 1000),
+                )
+            executor = executor_type()
+            result = await executor.execute_playbook_run(
                 playbook_code=playbook_code,
                 profile_id=profile_id,
                 inputs=inputs,
                 workspace_id=workspace_id,
                 project_id=project_id,
             )
+            _write_result_file(result_file, result)
+            if _playbook_result_status(result) in {"error", "failed"}:
+                detail = (
+                    result.get("result", {}).get("error")
+                    if isinstance(result.get("result"), dict)
+                    else None
+                )
+                raise RuntimeError(
+                    "Terminal workflow failure"
+                    + (f": {detail}" if detail else "")
+                )
+
+    async def _run() -> None:
+        from backend.app.services.capability_tool_invocation import (
+            runtime_task_identity_scope,
+        )
+
+        with runtime_task_identity_scope(task_id):
+            await _run_with_runtime_identity()
 
     try:
         asyncio.run(_run())
@@ -186,6 +281,33 @@ def _child_execute_playbook(
             except Exception:
                 pass
         raise
+
+
+def _read_child_payload_file(payload_file: str) -> Dict[str, Any]:
+    try:
+        with open(payload_file, "rb") as file_obj:
+            payload = pickle.load(file_obj)
+    finally:
+        try:
+            os.unlink(payload_file)
+        except FileNotFoundError:
+            pass
+    if not isinstance(payload, dict):
+        raise RuntimeError("runner_child_payload_must_be_mapping")
+    return payload
+
+
+def main(argv: Optional[list[str]] = None) -> None:
+    args = list(sys.argv[1:] if argv is None else argv)
+    if len(args) != 2 or args[0] != "--payload-file":
+        raise RuntimeError("runner_child_payload_file_argument_required")
+    payload = _read_child_payload_file(args[1])
+    logger.info(
+        "Runner lightweight child entry task_id=%s capability_code=%s",
+        payload.get("task_id"),
+        payload.get("capability_code"),
+    )
+    _child_execute_playbook(payload)
 
 
 def _build_subprocess_failure_message(
@@ -208,3 +330,8 @@ def _build_subprocess_failure_message(
     if isinstance(detail, str) and detail.strip():
         return f"{msg}: {detail.strip()}"
     return msg
+
+
+if __name__ == "__main__":
+    logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
+    main()

@@ -3,11 +3,20 @@ from __future__ import annotations
 import os
 
 
+DEFAULT_QWEN_QUALITY_VOICE_HEALTH_URL = (
+    "http://host.docker.internal:8184/health"
+)
+
+
 def build_host_service_health_urls() -> dict[str, str]:
     return {
         "stt": os.getenv("WHISPER_SERVICE_URL", "http://whisper-service:8006")
         + "/health",
-        "xtts": os.getenv("XTTS_SERVICE_URL", "http://xtts-service:8020") + "/health",
+        "xtts": os.getenv(
+            "QWEN_QUALITY_VOICE_SERVICE_URL",
+            "http://host.docker.internal:8184",
+        )
+        + "/health",
         "mcp-gateway": os.getenv(
             "MCP_GATEWAY_HEALTH_URL", "http://host.docker.internal:8180/health"
         ),

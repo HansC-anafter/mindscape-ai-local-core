@@ -18,6 +18,9 @@ from backend.app.services.playbook_run_executor_core.runtime_workflow_payloads i
     _extract_step_and_output_payloads,
     _merge_task_params,
 )
+from backend.app.services.playbook_execution_input_payloads import (
+    has_durable_execution_inputs,
+)
 from backend.app.services.run_harness.workflow_ledger_bridge import (
     record_run_harness_workflow_failed as record_failed,
     record_run_harness_workflow_pending as record_pending,
@@ -167,23 +170,28 @@ def persist_running_runtime_task(
             execution_backend_hint=execution_backend_hint,
         )
         if existing:
-            merged_params = _merge_task_params(
-                getattr(existing, "params", None),
-                normalized_inputs,
-            )
             merged_context = (
                 dict(existing.execution_context)
                 if isinstance(existing.execution_context, dict)
                 else {}
             )
             merged_context.update(context)
+            if has_durable_execution_inputs(merged_context):
+                merged_context.pop("inputs", None)
+            update_kwargs: Dict[str, Any] = {
+                "execution_context": merged_context,
+                "status": TaskStatus.RUNNING,
+                "started_at": existing.started_at or utc_now_fn(),
+                "error": None,
+            }
+            if not has_durable_execution_inputs(merged_context):
+                update_kwargs["params"] = _merge_task_params(
+                    getattr(existing, "params", None),
+                    normalized_inputs,
+                )
             tasks_store.update_task(
                 existing.id,
-                params=merged_params,
-                execution_context=merged_context,
-                status=TaskStatus.RUNNING,
-                started_at=existing.started_at or utc_now_fn(),
-                error=None,
+                **update_kwargs,
             )
             return
 
@@ -359,15 +367,18 @@ def persist_runtime_result(
             ),
             "error": error_value,
         }
-        if parent_finalizes_success and task_status == TaskStatus.SUCCEEDED:
+        if parent_finalizes_success and task_status in (
+            TaskStatus.SUCCEEDED,
+            TaskStatus.FAILED,
+        ):
             # A runner owns capacity until its isolated child process has
             # actually exited. Keep the DB row RUNNING here; the parent
-            # executor publishes SUCCEEDED immediately after observing exit 0.
+            # executor publishes the terminal state after observing process
+            # exit and reading the IPC result.
             update_kwargs.update(
                 {
                     "status": TaskStatus.RUNNING,
                     "completed_at": None,
-                    "error": None,
                 }
             )
         if task_status == TaskStatus.PENDING and pause_mode == "user_reserved":
@@ -383,16 +394,19 @@ def persist_runtime_result(
 
         existing_task = tasks_store.get_task_by_execution_id(execution_id)
         if existing_task:
-            update_kwargs["params"] = _merge_task_params(
-                getattr(existing_task, "params", None),
-                normalized_inputs,
-            )
             merged_context = (
                 dict(existing_task.execution_context)
                 if isinstance(existing_task.execution_context, dict)
                 else {}
             )
             merged_context.update(execution_context)
+            if has_durable_execution_inputs(merged_context):
+                merged_context.pop("inputs", None)
+            else:
+                update_kwargs["params"] = _merge_task_params(
+                    getattr(existing_task, "params", None),
+                    normalized_inputs,
+                )
             update_kwargs["execution_context"] = merged_context
             if task_status in (TaskStatus.SUCCEEDED, TaskStatus.FAILED):
                 # Governance/result landing can take several seconds. Complete

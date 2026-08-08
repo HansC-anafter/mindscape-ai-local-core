@@ -17,6 +17,7 @@ class FakeCursor:
         self.fetchone_value = fetchone_value
         self.query = None
         self.params = None
+        self.closed = False
 
     def execute(self, query, params=None):
         self.query = query
@@ -29,6 +30,9 @@ class FakeCursor:
 
     def fetchone(self):
         return self.fetchone_value
+
+    def close(self):
+        self.closed = True
 
 
 class FakeConnection:
@@ -50,6 +54,7 @@ class FakeConnection:
         self.rolled_back = True
 
     def close(self):
+        assert self.cursor_obj.closed is True
         self.closed = True
 
 
@@ -80,6 +85,7 @@ async def test_search_vectors_preserves_filters_limit_and_close():
     assert "playbook_code = %s" in cursor.query
     assert "LIMIT %s" in cursor.query
     assert cursor.params == ["[0.1, 0.2]", "weekly_review", "[0.1, 0.2]", 7]
+    assert cursor.closed is True
     assert connection.closed is True
 
 
@@ -94,6 +100,22 @@ async def test_update_last_used_at_records_skips_empty_ids_without_connection():
     await update_last_used_at_records(get_connection, [])
 
     assert calls["connections"] == 0
+
+
+@pytest.mark.asyncio
+async def test_update_last_used_at_closes_cursor_before_connection():
+    cursor = FakeCursor()
+    connection = FakeConnection(cursor)
+
+    await update_last_used_at_records(
+        lambda: connection,
+        ["row-1", "row-2"],
+    )
+
+    assert cursor.params == ["row-1", "row-2"]
+    assert cursor.closed is True
+    assert connection.committed is True
+    assert connection.closed is True
 
 
 @pytest.mark.asyncio

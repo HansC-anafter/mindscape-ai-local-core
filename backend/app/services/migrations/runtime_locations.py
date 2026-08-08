@@ -234,11 +234,38 @@ def append_runtime_version_locations(
     config: Config,
     locations: Iterable[str | Path],
 ) -> list[str]:
-    """Append exact candidate paths without replacing installed graph locations."""
+    """Append candidate overlays without duplicating the installed graph."""
 
     merged = list(_resolve_declared_version_locations(config))
+    known_revision_ids = _collect_known_revision_ids(merged)
     for location in locations:
-        resolved = Path(location).resolve().as_posix()
+        location_path = Path(location).resolve()
+        revision_files = _iter_revision_files(location_path)
+        if not revision_files:
+            resolved = location_path.as_posix()
+        else:
+            unique_revision_files: list[Path] = []
+            duplicate_detected = False
+            for revision_file in revision_files:
+                revision_id = _read_revision_id(revision_file)
+                if revision_id and revision_id in known_revision_ids:
+                    duplicate_detected = True
+                    continue
+                unique_revision_files.append(revision_file)
+                if revision_id:
+                    known_revision_ids.add(revision_id)
+            if not unique_revision_files:
+                continue
+            resolved = (
+                _stage_runtime_revision_subset(
+                    db_type="candidate_overlay",
+                    capability_code=location_path.parent.parent.name or "candidate",
+                    source_dir=location_path,
+                    revision_files=unique_revision_files,
+                )
+                if duplicate_detected
+                else location_path.as_posix()
+            )
         if resolved not in merged:
             merged.append(resolved)
     if merged:

@@ -28,9 +28,9 @@ export interface SettingsContext {
       enabled: number;
     };
     services: {
-      backend: 'healthy' | 'unhealthy' | 'unavailable';
+      backend: 'available' | 'unavailable' | 'unknown';
       llm: 'configured' | 'not_configured';
-      vector_db: 'connected' | 'not_connected';
+      vector_db: 'connected' | 'not_connected' | 'unknown';
       issues: Array<{
         type: string;
         severity: 'error' | 'warning' | 'info';
@@ -54,19 +54,6 @@ export function useSettingsContext(currentTab: string, currentSection?: string) 
         settingsApi.get<string[]>('/api/v1/capability-packs/enabled', { silent: true }),
       ]);
 
-      let healthStatus: any = null;
-      try {
-        const workspaceId = typeof window !== 'undefined'
-          ? localStorage.getItem('currentWorkspaceId')
-          : null;
-        healthStatus = await settingsApi.get(
-          workspaceId ? `/api/v1/workspaces/${workspaceId}/health` : '/health',
-          { silent: true },
-        );
-      } catch (err) {
-        healthStatus = null;
-      }
-
       const snapshot: SettingsContext['configSnapshot'] = {
         backend: {
           mode: backendConfig?.current_mode || 'local',
@@ -88,7 +75,7 @@ export function useSettingsContext(currentTab: string, currentSection?: string) 
           enabled: Array.isArray(enabledPacks) ? enabledPacks.length : 0,
         },
         services: {
-          backend: healthStatus?.overall_status === 'healthy' ? 'healthy' : (healthStatus ? 'unhealthy' : 'unavailable'),
+          backend: 'available',
           // Check explicit flags first, then check providers array in available_backends
           llm: (
             backendConfig?.openai_api_key_configured ||
@@ -97,8 +84,8 @@ export function useSettingsContext(currentTab: string, currentSection?: string) 
             (backendConfig?.available_backends?.local as any)?.providers?.includes('vertex-ai') ||
             (backendConfig?.available_backends?.local as any)?.providers?.includes('ollama')
           ) ? 'configured' : 'not_configured',
-          vector_db: healthStatus?.vector_db_connected ? 'connected' : 'not_connected',
-          issues: healthStatus?.issues || []
+          vector_db: 'unknown',
+          issues: []
         }
       };
 
@@ -116,8 +103,6 @@ export function useSettingsContext(currentTab: string, currentSection?: string) 
 
   useEffect(() => {
     collectConfigState();
-    const interval = setInterval(collectConfigState, 30000);
-    return () => clearInterval(interval);
   }, [collectConfigState]);
 
   return { context, loading, refresh: collectConfigState };

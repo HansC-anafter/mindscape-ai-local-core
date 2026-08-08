@@ -2,10 +2,18 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from scripts.managed_site_release_resource_probe_core import (
     ManagedSiteReleaseResourceProbeFacade,
+)
+from scripts.managed_site_release_resource_probe_core import (
+    collectors as collectors_module,
+)
+from scripts.managed_site_release_resource_probe_core.collectors import (
+    RuntimeResourceCollectors,
 )
 
 
@@ -125,3 +133,87 @@ def test_probe_rejects_unknown_fields_before_collecting():
         match="managed_resource_probe_request_fields_invalid",
     ):
         facade.execute(request)
+
+
+def test_pgbouncer_probe_does_not_open_a_transaction_context(monkeypatch):
+    class _Connection:
+        def __init__(self):
+            self.closed = False
+
+        def __enter__(self):
+            raise AssertionError("PgBouncer admin connection must not BEGIN")
+
+        def close(self):
+            self.closed = True
+
+    connection = _Connection()
+    monkeypatch.setattr(
+        collectors_module,
+        "_postgres_url",
+        lambda _name: "postgresql://admin@pgbouncer/pgbouncer",
+    )
+    monkeypatch.setattr(
+        collectors_module,
+        "_connect_pgbouncer",
+        lambda _dsn: connection,
+    )
+    monkeypatch.setattr(
+        RuntimeResourceCollectors,
+        "_pgbouncer_config",
+        staticmethod(
+            lambda _connection: [
+                {
+                    "changeable": "no",
+                    "default": "transaction",
+                    "key": "pool_mode",
+                    "value": "transaction",
+                }
+            ]
+        ),
+    )
+
+    result = RuntimeResourceCollectors().pgbouncer(
+        include_samples=False
+    )
+
+    assert len(result["config_sha256"]) == 64
+    assert connection.closed is True
+
+
+def test_runner_count_uses_current_redis_resource_heartbeats(monkeypatch):
+    now_epoch = collectors_module.time.time()
+    values = {
+        "mindscape:runner_resources:heartbeat:v1:runner-a": {
+            "runner_id": "runner-a",
+            "captured_at_epoch": now_epoch,
+        },
+        "mindscape:runner_resources:heartbeat:v1:runner-b": {
+            "runner_id": "runner-b",
+            "captured_at_epoch": now_epoch - 10,
+        },
+        "mindscape:runner_resources:heartbeat:v1:stale": {
+            "runner_id": "stale",
+            "captured_at_epoch": now_epoch - 120,
+        },
+    }
+
+    class _Redis:
+        def ping(self):
+            return True
+
+        def scan(self, *, cursor, match, count):
+            assert cursor == 0
+            assert match == "mindscape:runner_resources:heartbeat:v1:*"
+            assert count == 100
+            return 0, list(values)
+
+        def get(self, key):
+            return json.dumps(values[key])
+
+    monkeypatch.setattr(
+        collectors_module.redis,
+        "Redis",
+        lambda **_kwargs: _Redis(),
+    )
+
+    assert RuntimeResourceCollectors._runner_process_count() == 2

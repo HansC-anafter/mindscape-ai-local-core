@@ -62,6 +62,36 @@ describe('API route plane', () => {
     });
   });
 
+  it('routes only progress snapshot reads to the control plane', () => {
+    for (const path of [
+      '/api/v1/workspaces/ws-1/executions/run-1/progress-snapshot?include=progress',
+      '/api/v1/workspaces/ws-1/executions/run-1/progress-snapshot/',
+    ]) {
+      expect(resolveApiRoutePlane(path, 'GET')).toEqual({
+        plane: 'control',
+        serviceId: 'local_core.control_api',
+        reason: 'control_read_projection',
+      });
+    }
+
+    expect(resolveApiRoutePlane(
+      '/api/v1/workspaces/ws-1/executions/run-1/progress-snapshot',
+      'POST',
+    )).toEqual({
+      plane: 'execution',
+      serviceId: 'local_core.execution_api',
+      reason: 'default_execution_api',
+    });
+    expect(resolveApiRoutePlane(
+      '/api/v1/workspaces/ws-1/executions/run-1/stream',
+      'GET',
+    )).toEqual({
+      plane: 'execution',
+      serviceId: 'local_core.execution_api',
+      reason: 'default_execution_api',
+    });
+  });
+
   it('routes only workspace product mutations to the control plane', () => {
     for (const path of [
       '/api/v1/workspaces/ws-1/product-configuration',

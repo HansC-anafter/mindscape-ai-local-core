@@ -119,8 +119,11 @@ class ToolExecutor:
         )
         from backend.app.services.capability_tool_invocation import (
             build_capability_execution_context,
+            current_runtime_task_identity,
         )
 
+        kwargs.pop("_runtime_task_identity", None)
+        runtime_task_identity = current_runtime_task_identity()
         original_kwargs = dict(kwargs)
         kwargs, admission_snapshot = await prepare_tool_admission(
             tool_name=tool_name,
@@ -129,6 +132,7 @@ class ToolExecutor:
         execution_context = build_capability_execution_context(
             original_kwargs,
             admission_snapshot=admission_snapshot,
+            runtime_task_identity=runtime_task_identity,
         )
         if '.' in tool_name:
             parts = tool_name.split('.', 1)

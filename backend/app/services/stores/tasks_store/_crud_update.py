@@ -30,6 +30,28 @@ from ._crud_helpers import (
 logger = logging.getLogger(__name__)
 
 
+_TASK_SUMMARY_PROJECTION_FIELDS = frozenset(
+    {
+        "workspace_id",
+        "execution_id",
+        "parent_execution_id",
+        "pack_id",
+        "task_type",
+        "status",
+        "queue_shard",
+        "concurrency_key",
+        "error",
+        "created_at",
+        "next_eligible_at",
+        "blocked_reason",
+        "frontier_state",
+        "frontier_enqueued_at",
+        "started_at",
+        "completed_at",
+    }
+)
+
+
 class TasksStoreUpdateMixin:
     """Task field update method."""
 
@@ -279,18 +301,9 @@ class TasksStoreUpdateMixin:
                 pass
 
             status_val = kwargs.get("status")
-            projection_keys = {
-                "status",
-                "started_at",
-                "completed_at",
-                "error",
-                "pack_id",
-                "task_type",
-                "queue_shard",
-            }
             should_refresh_projection = (
                 project_id is not None
-                or bool(projection_keys.intersection(kwargs.keys()))
+                or bool(_TASK_SUMMARY_PROJECTION_FIELDS.intersection(kwargs))
                 or identity_projection_changed
             )
             if status_val is not None and status_transition_changed:
@@ -435,4 +448,7 @@ class TasksStoreUpdateMixin:
                     "resumed_at": resumed_at,
                 },
             )
-            return result.rowcount == 1
+            resumed = result.rowcount == 1
+            if resumed:
+                self._refresh_task_projection(conn, task_id)
+            return resumed

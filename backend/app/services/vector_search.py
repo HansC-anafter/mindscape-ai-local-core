@@ -5,9 +5,9 @@ Provides semantic search across pgvector tables
 
 import logging
 from typing import List, Dict, Any, Optional
-import psycopg2
 
 from backend.app.database.config import get_vector_postgres_config
+from backend.app.database.vector_connection import get_vector_dbapi_connection
 from backend.app.services.vector_search_db import (
     search_vectors,
     update_last_used_at_records,
@@ -21,7 +21,7 @@ class VectorSearchService:
     """Semantic search service using pgvector"""
 
     def __init__(self, postgres_config=None):
-        self.postgres_config = postgres_config or self._get_postgres_config()
+        self.postgres_config = postgres_config
         self.embedding_generator = VectorEmbeddingGenerator()
 
     def _get_postgres_config(self):
@@ -30,20 +30,27 @@ class VectorSearchService:
 
     def _get_connection(self):
         """Get PostgreSQL connection"""
-        return psycopg2.connect(**self.postgres_config)
+        return get_vector_dbapi_connection(self.postgres_config)
 
     async def check_connection(self) -> bool:
         """Check if Vector DB connection is available"""
+        conn = None
+        cursor = None
         try:
             conn = self._get_connection()
             cursor = conn.cursor()
             cursor.execute("SELECT 1")
-            cursor.close()
-            conn.close()
             return True
         except Exception as e:
             logger.warning(f"Vector DB connection check failed: {e}")
             return False
+        finally:
+            try:
+                if cursor is not None:
+                    cursor.close()
+            finally:
+                if conn is not None:
+                    conn.close()
 
     async def _generate_embedding(self, text: str) -> Optional[List[float]]:
         """Generate embedding for query text using configured model

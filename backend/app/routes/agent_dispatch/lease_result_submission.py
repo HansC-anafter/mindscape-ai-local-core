@@ -1,7 +1,6 @@
 """REST polling result submission helper for agent dispatch leases."""
 
 import logging
-import time
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
@@ -53,6 +52,12 @@ class LeaseResultSubmissionMixin:
         thread_id = None
         project_id = None
         db_written = False
+        result_metadata = (
+            result_data.get("metadata")
+            if isinstance(result_data.get("metadata"), dict)
+            else {}
+        )
+        surface_type = str(result_metadata.get("surface_type") or "").strip()
         try:
             from backend.app.services.stores.tasks_store import TasksStore
             from backend.app.models.workspace import TaskStatus
@@ -88,7 +93,13 @@ class LeaseResultSubmissionMixin:
                     f"[AgentWS] DB task {execution_id} already "
                     f"{db_task.status.value}, no-op"
                 )
-                self._completed[execution_id] = time.monotonic()
+                self._mark_completed_execution(
+                    execution_id,
+                    result=result_data,
+                    status=str(result_data.get("status") or "completed"),
+                    workspace_id=str(db_task.workspace_id or "").strip(),
+                    surface_type=surface_type,
+                )
                 return {"accepted": True, "duplicate": True}
         except Exception:
             logger.exception(
@@ -108,15 +119,29 @@ class LeaseResultSubmissionMixin:
 
             if dispatch_record:
                 record_status = str(dispatch_record.get("status") or "").strip().lower()
+                workspace_id = (
+                    str(dispatch_record.get("workspace_id") or "").strip() or None
+                )
+                payload = dispatch_record.get("payload")
+                if not surface_type and isinstance(payload, dict):
+                    surface_type = str(
+                        payload.get("agent_id")
+                        or payload.get("surface_type")
+                        or ""
+                    ).strip()
                 if record_status == "done":
-                    self._completed[execution_id] = time.monotonic()
+                    self._mark_completed_execution(
+                        execution_id,
+                        result=result_data,
+                        status=str(result_data.get("status") or "completed"),
+                        workspace_id=workspace_id,
+                        surface_type=surface_type,
+                    )
                     return {"accepted": True, "duplicate": True}
 
                 try:
                     self._db_write_pending_result(execution_id, result_data)
                     db_written = True
-                    workspace_id = str(dispatch_record.get("workspace_id") or "").strip() or None
-                    payload = dispatch_record.get("payload")
                     payload_context = (
                         (payload or {}).get("context")
                         if isinstance(payload, dict)
@@ -173,9 +198,19 @@ class LeaseResultSubmissionMixin:
                     queue.pop(i)
                     break
 
-        self._completed[execution_id] = time.monotonic()
-        while len(self._completed) > self.COMPLETED_MAX_SIZE:
-            self._completed.popitem(last=False)
+        if not surface_type and inflight and isinstance(inflight.payload, dict):
+            surface_type = str(
+                inflight.payload.get("agent_id")
+                or inflight.payload.get("surface_type")
+                or ""
+            ).strip()
+        self._mark_completed_execution(
+            execution_id,
+            result=result_data,
+            status=str(result_data.get("status") or "completed"),
+            workspace_id=workspace_id,
+            surface_type=surface_type,
+        )
 
         if db_written or inflight:
             return {

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import hashlib
+import json
 from pathlib import Path
 
 import pytest
@@ -104,6 +105,25 @@ def test_bridge_rejects_remote_shell_metacharacters(
         match="wp_hub_release_ssh_configuration_invalid",
     ):
         module._configuration()
+
+
+def test_bridge_preserves_only_one_bounded_remote_error_code():
+    module = _module()
+
+    assert module._bounded_error_code(
+        json.dumps(
+            {
+                "success": False,
+                "error_code": "staging_content_copy_timeout",
+            }
+        ).encode("utf-8")
+    ) == "staging_content_copy_timeout"
+    assert module._bounded_error_code(
+        b'{"success":false,"error_code":"bad:secret"}'
+    ) is None
+    assert module._bounded_error_code(
+        b'{"success":false,"error_code":"safe_code","detail":"hidden"}'
+    ) is None
 
 
 def test_runner_environment_carries_exact_release_bridge_seams():

@@ -24,7 +24,61 @@ from .node_budget_test_store import InMemoryNodeBudgetStore
 
 _KEY_PREFIX = "mindscape:runner_resources:node_budget:v1"
 
-_ACQUIRE_LUA = r"""
+_RECONCILE_ACTIVE_RESERVATIONS_LUA = r"""
+local function extend_collection_ttl(key, key_ttl)
+  local current_ttl = redis.call('TTL', key)
+  if current_ttl == -1 or (current_ttl >= 0 and current_ttl < key_ttl) then
+    redis.call('EXPIRE', key, key_ttl)
+  end
+end
+
+local function reconcile_active_reservations(
+  reservations_key,
+  expiries_key,
+  total_key,
+  revision_key,
+  now_epoch
+)
+  local expired = redis.call('ZRANGEBYSCORE', expiries_key, '-inf', now_epoch)
+  for _, expired_owner in ipairs(expired) do
+    redis.call('HDEL', reservations_key, expired_owner)
+    redis.call('ZREM', expiries_key, expired_owner)
+  end
+
+  if redis.call('HLEN', reservations_key) ~= redis.call('ZCARD', expiries_key) then
+    error('node_budget_state_cardinality_mismatch')
+  end
+
+  local total = 0
+  local max_revision = tonumber(redis.call('GET', revision_key) or '0')
+  local entries = redis.call('HGETALL', reservations_key)
+  for index = 1, #entries, 2 do
+    local owner = entries[index]
+    local decoded = cjson.decode(entries[index + 1])
+    local bytes = tonumber(decoded.bytes or 0)
+    local revision = tonumber(decoded.revision or 0)
+    if tostring(decoded.owner_id or '') ~= owner then
+      error('node_budget_owner_identity_mismatch')
+    end
+    if not redis.call('ZSCORE', expiries_key, owner) then
+      error('node_budget_reservation_expiry_missing')
+    end
+    if not bytes or bytes <= 0 or not revision or revision <= 0 then
+      error('node_budget_reservation_invalid')
+    end
+    total = total + bytes
+    max_revision = math.max(max_revision, revision)
+  end
+
+  redis.call('SET', total_key, total)
+  if max_revision > tonumber(redis.call('GET', revision_key) or '0') then
+    redis.call('SET', revision_key, max_revision)
+  end
+  return {total, max_revision, #entries / 2}
+end
+"""
+
+_ACQUIRE_LUA = _RECONCILE_ACTIVE_RESERVATIONS_LUA + r"""
 local reservations_key = KEYS[1]
 local expiries_key = KEYS[2]
 local total_key = KEYS[3]
@@ -41,19 +95,15 @@ local key_ttl = tonumber(ARGV[8])
 local policy_mode = ARGV[9]
 local policy_payload = ARGV[10]
 
+local reconciled = reconcile_active_reservations(
+  reservations_key,
+  expiries_key,
+  total_key,
+  revision_key,
+  now_epoch
+)
+local total = tonumber(reconciled[1])
 redis.call('SET', policy_key, policy_payload)
-
-local expired = redis.call('ZRANGEBYSCORE', expiries_key, '-inf', now_epoch)
-local total = tonumber(redis.call('GET', total_key) or '0')
-for _, expired_owner in ipairs(expired) do
-  local raw = redis.call('HGET', reservations_key, expired_owner)
-  if raw then
-    local decoded = cjson.decode(raw)
-    total = math.max(0, total - tonumber(decoded.bytes or 0))
-    redis.call('HDEL', reservations_key, expired_owner)
-  end
-  redis.call('ZREM', expiries_key, expired_owner)
-end
 
 local existing_raw = redis.call('HGET', reservations_key, owner)
 if existing_raw then
@@ -64,11 +114,8 @@ if existing_raw then
     existing.expires_at_epoch = expires_at
     redis.call('HSET', reservations_key, owner, cjson.encode(existing))
     redis.call('ZADD', expiries_key, expires_at, owner)
-    redis.call('SET', total_key, total)
-    redis.call('EXPIRE', reservations_key, key_ttl)
-    redis.call('EXPIRE', expiries_key, key_ttl)
-    redis.call('EXPIRE', total_key, key_ttl)
-    redis.call('EXPIRE', revision_key, key_ttl)
+    extend_collection_ttl(reservations_key, key_ttl)
+    extend_collection_ttl(expiries_key, key_ttl)
     return {1, total, tonumber(existing.revision or 0), cjson.encode(existing)}
   end
   return {-2, total, tonumber(existing.revision or 0), existing_raw}
@@ -93,14 +140,12 @@ total = total + requested
 redis.call('HSET', reservations_key, owner, cjson.encode(reservation))
 redis.call('ZADD', expiries_key, expires_at, owner)
 redis.call('SET', total_key, total)
-redis.call('EXPIRE', reservations_key, key_ttl)
-redis.call('EXPIRE', expiries_key, key_ttl)
-redis.call('EXPIRE', total_key, key_ttl)
-redis.call('EXPIRE', revision_key, key_ttl)
+extend_collection_ttl(reservations_key, key_ttl)
+extend_collection_ttl(expiries_key, key_ttl)
 return {1, total, revision, cjson.encode(reservation)}
 """
 
-_SNAPSHOT_LUA = r"""
+_SNAPSHOT_LUA = _RECONCILE_ACTIVE_RESERVATIONS_LUA + r"""
 local reservations_key = KEYS[1]
 local expiries_key = KEYS[2]
 local total_key = KEYS[3]
@@ -108,35 +153,39 @@ local revision_key = KEYS[4]
 local policy_key = KEYS[5]
 local now_epoch = tonumber(ARGV[1])
 
-local expired = redis.call('ZRANGEBYSCORE', expiries_key, '-inf', now_epoch)
-local total = tonumber(redis.call('GET', total_key) or '0')
-for _, expired_owner in ipairs(expired) do
-  local raw = redis.call('HGET', reservations_key, expired_owner)
-  if raw then
-    local decoded = cjson.decode(raw)
-    total = math.max(0, total - tonumber(decoded.bytes or 0))
-    redis.call('HDEL', reservations_key, expired_owner)
-  end
-  redis.call('ZREM', expiries_key, expired_owner)
-end
-redis.call('SET', total_key, total)
-
+local reconciled = reconcile_active_reservations(
+  reservations_key,
+  expiries_key,
+  total_key,
+  revision_key,
+  now_epoch
+)
 local reservations = redis.call('HVALS', reservations_key)
 return {
-  total,
+  tonumber(reconciled[1]),
   tonumber(redis.call('GET', revision_key) or '0'),
   redis.call('GET', policy_key) or '',
   cjson.encode(reservations)
 }
 """
 
-_RENEW_LUA = r"""
+_RENEW_LUA = _RECONCILE_ACTIVE_RESERVATIONS_LUA + r"""
 local reservations_key = KEYS[1]
 local expiries_key = KEYS[2]
+local total_key = KEYS[3]
+local revision_key = KEYS[4]
 local owner = ARGV[1]
 local revision = tonumber(ARGV[2])
 local expires_at = tonumber(ARGV[3])
 local key_ttl = tonumber(ARGV[4])
+local now_epoch = tonumber(ARGV[5])
+reconcile_active_reservations(
+  reservations_key,
+  expiries_key,
+  total_key,
+  revision_key,
+  now_epoch
+)
 local raw = redis.call('HGET', reservations_key, owner)
 if not raw then return 0 end
 local reservation = cjson.decode(raw)
@@ -144,19 +193,28 @@ if tonumber(reservation.revision or 0) ~= revision then return 0 end
 reservation.expires_at_epoch = expires_at
 redis.call('HSET', reservations_key, owner, cjson.encode(reservation))
 redis.call('ZADD', expiries_key, expires_at, owner)
-redis.call('EXPIRE', reservations_key, key_ttl)
-redis.call('EXPIRE', expiries_key, key_ttl)
+extend_collection_ttl(reservations_key, key_ttl)
+extend_collection_ttl(expiries_key, key_ttl)
 return 1
 """
 
-_RECONCILE_DOWN_LUA = r"""
+_RECONCILE_DOWN_LUA = _RECONCILE_ACTIVE_RESERVATIONS_LUA + r"""
 local reservations_key = KEYS[1]
-local total_key = KEYS[2]
+local expiries_key = KEYS[2]
+local total_key = KEYS[3]
+local revision_key = KEYS[4]
 local owner = ARGV[1]
 local revision = tonumber(ARGV[2])
 local requested = tonumber(ARGV[3])
 local evidence_fingerprint = ARGV[4]
 local reconciled_at_epoch = tonumber(ARGV[5])
+local reconciled = reconcile_active_reservations(
+  reservations_key,
+  expiries_key,
+  total_key,
+  revision_key,
+  reconciled_at_epoch
+)
 local raw = redis.call('HGET', reservations_key, owner)
 if not raw then return 0 end
 local reservation = cjson.decode(raw)
@@ -164,7 +222,7 @@ if tonumber(reservation.revision or 0) ~= revision then return -1 end
 local existing = tonumber(reservation.bytes or 0)
 if requested <= 0 or requested >= existing then return -2 end
 if tostring(evidence_fingerprint or '') == '' then return -3 end
-local total = tonumber(redis.call('GET', total_key) or '0')
+local total = tonumber(reconciled[1])
 reservation.bytes = requested
 reservation.reconciled_from_bytes = existing
 reservation.reconciliation_evidence_fingerprint = evidence_fingerprint
@@ -175,17 +233,26 @@ redis.call('SET', total_key, total)
 return 1
 """
 
-_RELEASE_LUA = r"""
+_RELEASE_LUA = _RECONCILE_ACTIVE_RESERVATIONS_LUA + r"""
 local reservations_key = KEYS[1]
 local expiries_key = KEYS[2]
 local total_key = KEYS[3]
+local revision_key = KEYS[4]
 local owner = ARGV[1]
 local revision = tonumber(ARGV[2])
+local now_epoch = tonumber(ARGV[3])
+local reconciled = reconcile_active_reservations(
+  reservations_key,
+  expiries_key,
+  total_key,
+  revision_key,
+  now_epoch
+)
 local raw = redis.call('HGET', reservations_key, owner)
 if not raw then return 0 end
 local reservation = cjson.decode(raw)
 if tonumber(reservation.revision or 0) ~= revision then return 0 end
-local total = tonumber(redis.call('GET', total_key) or '0')
+local total = tonumber(reconciled[1])
 total = math.max(0, total - tonumber(reservation.bytes or 0))
 redis.call('HDEL', reservations_key, owner)
 redis.call('ZREM', expiries_key, owner)
@@ -297,20 +364,22 @@ class RedisNodeBudgetStore:
         client = await self._client()
         if not client:
             return False
-        expires_at = float(self._now_fn()) + max(1, int(ttl_seconds))
-        reservations_key, expiries_key, _total_key, _revision_key, _policy_key = (
-            self._keys
-        )
+        now_epoch = float(self._now_fn())
+        expires_at = now_epoch + max(1, int(ttl_seconds))
+        reservations_key, expiries_key, total_key, revision_key, _policy_key = self._keys
         try:
             result = await client.eval(
                 _RENEW_LUA,
-                2,
+                4,
                 reservations_key,
                 expiries_key,
+                total_key,
+                revision_key,
                 reservation.owner_id,
                 reservation.revision,
                 expires_at,
                 max(60, int(ttl_seconds) * 4),
+                now_epoch,
             )
             return bool(result)
         except Exception:
@@ -326,15 +395,15 @@ class RedisNodeBudgetStore:
         client = await self._client()
         if not client:
             return False
-        reservations_key, _expiries_key, total_key, _revision_key, _policy_key = (
-            self._keys
-        )
+        reservations_key, expiries_key, total_key, revision_key, _policy_key = self._keys
         try:
             result = await client.eval(
                 _RECONCILE_DOWN_LUA,
-                2,
+                4,
                 reservations_key,
+                expiries_key,
                 total_key,
+                revision_key,
                 reservation.owner_id,
                 reservation.revision,
                 int(request_bytes),
@@ -349,18 +418,18 @@ class RedisNodeBudgetStore:
         client = await self._client()
         if not client:
             return False
-        reservations_key, expiries_key, total_key, _revision_key, _policy_key = (
-            self._keys
-        )
+        reservations_key, expiries_key, total_key, revision_key, _policy_key = self._keys
         try:
             result = await client.eval(
                 _RELEASE_LUA,
-                3,
+                4,
                 reservations_key,
                 expiries_key,
                 total_key,
+                revision_key,
                 reservation.owner_id,
                 reservation.revision,
+                float(self._now_fn()),
             )
             return bool(result)
         except Exception:

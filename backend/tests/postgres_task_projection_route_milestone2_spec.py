@@ -172,3 +172,34 @@ def test_projection_compact_inputs_are_schema_managed():
     assert "tasks.params::jsonb" not in projection_builder_source
     assert "'shortcodes'" not in projection_builder_source
     assert "'tags'" not in projection_builder_source
+
+
+def test_every_scheduler_control_mutation_uses_the_projection_refresh_seam():
+    update_source = (
+        _backend_root() / "app/services/stores/tasks_store/_crud_update.py"
+    ).read_text(encoding="utf-8")
+    runner_source = (
+        _backend_root() / "app/services/stores/tasks_store/_runner_claims.py"
+    ).read_text(encoding="utf-8")
+
+    for field in (
+        "next_eligible_at",
+        "blocked_reason",
+        "frontier_state",
+        "frontier_enqueued_at",
+        "concurrency_key",
+    ):
+        assert f'"{field}"' in update_source.split(
+            "_TASK_SUMMARY_PROJECTION_FIELDS", maxsplit=1
+        )[1].split("class TasksStoreUpdateMixin", maxsplit=1)[0]
+
+    resource_resume = update_source.split(
+        "def try_resume_resource_block", maxsplit=1
+    )[1]
+    quota_release = runner_source.split(
+        "def try_release_workspace_quota_task", maxsplit=1
+    )[1].split("def try_claim_task", maxsplit=1)[0]
+    assert "if resumed:" in resource_resume
+    assert "self._refresh_task_projection(conn, task_id)" in resource_resume
+    assert "if released:" in quota_release
+    assert "self._refresh_task_projection(conn, task_id)" in quota_release

@@ -274,6 +274,11 @@ async def _release_resource_wait_tasks(
     )
     if not list_due_resource_wait_tasks:
         return 0
+    try_release_resource_wait_task = getattr(
+        tasks_store,
+        "try_release_resource_wait_task",
+        None,
+    )
 
     due_tasks = await asyncio.to_thread(
         list_due_resource_wait_tasks,
@@ -372,26 +377,37 @@ async def _release_resource_wait_tasks(
             continue
 
         try:
-            update_kwargs = dict(
-                next_eligible_at=now,
-                blocked_reason=None,
-                blocked_payload=None,
-                queue_shard=getattr(task, "queue_shard", None) or redis_queue.pack_id,
-                frontier_state="ready",
-                frontier_enqueued_at=now,
-            )
-            if isinstance(raw_ctx, dict):
-                ctx2 = dict(raw_ctx)
-                ctx2.pop("resource_admission", None)
-                ctx2.pop("runner_resource_leases", None)
-                ctx2.pop("resume_after", None)
-                update_kwargs["execution_context"] = ctx2
-            await asyncio.to_thread(
-                tasks_store.update_task,
-                task.id,
-                return_updated=False,
-                **update_kwargs,
-            )
+            if callable(try_release_resource_wait_task):
+                transitioned = await asyncio.to_thread(
+                    try_release_resource_wait_task,
+                    task.id,
+                    released_at=now,
+                )
+                if not transitioned:
+                    continue
+            else:
+                update_kwargs = dict(
+                    next_eligible_at=now,
+                    blocked_reason=None,
+                    blocked_payload=None,
+                    queue_shard=(
+                        getattr(task, "queue_shard", None) or redis_queue.pack_id
+                    ),
+                    frontier_state="ready",
+                    frontier_enqueued_at=now,
+                )
+                if isinstance(raw_ctx, dict):
+                    ctx2 = dict(raw_ctx)
+                    ctx2.pop("resource_admission", None)
+                    ctx2.pop("runner_resource_leases", None)
+                    ctx2.pop("resume_after", None)
+                    update_kwargs["execution_context"] = ctx2
+                await asyncio.to_thread(
+                    tasks_store.update_task,
+                    task.id,
+                    return_updated=False,
+                    **update_kwargs,
+                )
             released_task_ids.append(task.id)
             released_resource_keys.update(resource_keys)
         except Exception as exc:

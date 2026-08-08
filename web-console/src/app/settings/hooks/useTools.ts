@@ -72,14 +72,17 @@ export function useTools(): UseToolsReturn {
           ...data,
           enabled: data.enabled !== undefined ? data.enabled : true,
         });
+        setVectorDBConnected(data.adapter_available === true);
       } else {
         // 501 (Not Implemented) is expected when vector DB adapter is not configured
         // Silently fallback to default config
         setVectorDBConfig({ mode: 'local', enabled: true });
+        setVectorDBConnected(false);
       }
     } catch (err) {
       // Fallback to default config on any error
       setVectorDBConfig({ mode: 'local', enabled: true });
+      setVectorDBConnected(null);
     }
   }, []);
 
@@ -90,26 +93,6 @@ export function useTools(): UseToolsReturn {
     } catch (err) {
       console.debug('Failed to load tools status:', err);
       setToolsStatus({});
-    }
-  }, []);
-
-  const loadVectorDBHealthStatus = useCallback(async () => {
-    try {
-      const apiUrl = getApiBaseUrl();
-      const response = await fetch(`${apiUrl}/health`);
-      if (response.ok) {
-        const health = await response.json();
-        // Check both top-level and components.vector_db_connected
-        const connected = health.vector_db_connected ?? health.components?.vector_db_connected ?? false;
-        console.debug('Vector DB health status:', connected, health);
-        setVectorDBConnected(connected);
-      } else {
-        console.debug('Health endpoint returned non-OK status:', response.status);
-        setVectorDBConnected(null);
-      }
-    } catch (err) {
-      console.debug('Failed to load vector DB health status:', err);
-      setVectorDBConnected(null);
     }
   }, []);
 
@@ -136,18 +119,17 @@ export function useTools(): UseToolsReturn {
     }
   }, []);
 
-  // Load vector DB health status on mount
   useEffect(() => {
-    loadVectorDBHealthStatus();
+    loadVectorDBConfig();
     loadUnsplashConfig();
-  }, [loadVectorDBHealthStatus, loadUnsplashConfig]);
+  }, [loadVectorDBConfig, loadUnsplashConfig]);
 
   // Listen to tool status change events for real-time updates
   useEffect(() => {
     const cleanupStatus = listenToToolStatusChanged(() => {
       // Refresh tool status when any tool status changes
       loadToolsStatus();
-      loadVectorDBHealthStatus();
+      loadVectorDBConfig();
     });
 
     const cleanupConfig = listenToToolConfigUpdated(() => {
@@ -155,7 +137,6 @@ export function useTools(): UseToolsReturn {
       loadTools();
       loadVectorDBConfig();
       loadToolsStatus();
-      loadVectorDBHealthStatus();
       loadUnsplashConfig();
     });
 
@@ -163,7 +144,7 @@ export function useTools(): UseToolsReturn {
       cleanupStatus();
       cleanupConfig();
     };
-  }, [loadTools, loadVectorDBConfig, loadToolsStatus, loadVectorDBHealthStatus, loadUnsplashConfig]);
+  }, [loadTools, loadVectorDBConfig, loadToolsStatus, loadUnsplashConfig]);
 
   const testConnection = useCallback(
     async (connectionId: string) => {
@@ -226,10 +207,9 @@ export function useTools(): UseToolsReturn {
 
   const getToolStatus = useCallback(
     (toolType: string): ToolStatus => {
-      // For vector_db, prioritize health check over tools status API
+      // For vector_db, prioritize the canonical readiness response.
       if (toolType === 'vector_db') {
-        // Use actual connection status from health check if available
-        // Priority: health check > tools status API > config
+        // Priority: vector readiness > tools status API > config.
         if (vectorDBConnected !== null) {
           if (vectorDBConnected) {
             return { status: 'connected', label: t('statusConnected'), icon: 'OK' };

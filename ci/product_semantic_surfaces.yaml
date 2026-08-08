@@ -153,13 +153,25 @@ surfaces:
       - Alembic revision history is append-only operational truth; recovery uses graph diagnosis and corrective revisions and never deletes revision rows to force convergence.
       - Progress reads return one compact current or stale-known snapshot, or a redacted 503 with Retry-After; frontend polling obeys bounded 10, 20, and 30 second intervals and stops when hidden or terminal.
       - Runtime repair preserves the authorized protected runner capacity 2+2+2+1=7 and existing queue visibility; non-protected development lanes remain separately visible and cannot satisfy or mask a protected-lane shortage. It does not expand PgBouncer pools as a workaround, and may claim only isolated recovery or controlled-switchover drill readiness; production high availability requires a separate failure-domain and controller decision.
+      - Host-session auto-registration preserves every owner-scoped runtime, workspace bridge, 300-second health freshness, immediate account and execution-environment changes, pool ordering, and plain-runtime shadow semantics while coalescing duplicate fleet refreshes before PostgreSQL persistence.
     path_globs:
       - backend/app/database/recovery_backoff.py
       - backend/app/database/application_identity.py
+      - backend/app/database/connection_factory.py
+      - backend/app/database/vector_connection.py
       - backend/app/database/query_failure_evidence.py
       - backend/app/database/query_failure_evidence_core/**
       - backend/app/database/task_control_contract.py
       - backend/app/runner/db_pool_pressure.py
+      - backend/app/main.py
+      - backend/app/routes/core/vector_db.py
+      - backend/app/routes/core/workspace/health.py
+      - backend/app/routes/core/cli_token.py
+      - backend/app/routes/core/cli_token_core/host_session_*.py
+      - backend/app/services/external_agents/bridge/host_ws_client_core/*registration*.py
+      - backend/app/services/readiness_request_coordinator.py
+      - backend/app/services/system_health_resources.py
+      - backend/app/services/vector_readiness_probe.py
       - backend/app/routes/core/workspace/tasks_core/progress_snapshot.py
       - backend/app/routes/core/workspace/tasks_core/progress_snapshot_routes.py
       - backend/features/workspace/executions_core/progress_snapshot.py
@@ -167,6 +179,7 @@ surfaces:
       - backend/app/services/runtime_database_incident_core/**
       - backend/app/services/stores/tasks_store/**
       - backend/app/services/task_projection_builder.py
+      - backend/app/services/task_projection_reconciliation.py
       - backend/app/services/task_projection_adapters.py
       - backend/app/services/task_projection_adapter_core/**
       - backend/app/routes/core/capability_install_core/**
@@ -179,6 +192,8 @@ surfaces:
       - backend/app/services/migrations/**
       - backend/app/services/deprecated/capability_installer.py
       - backend/scripts/preflight_db.py
+      - backend/scripts/backfill_task_summary_projection.py
+      - backend/scripts/prune_tasks_retention.py
       - backend/alembic_migrations/postgres/versions/**
       - scripts/maintenance/postgres_incident_gate.py
       - scripts/maintenance/postgres_signal_observer.py
@@ -191,6 +206,7 @@ surfaces:
       - scripts/maintenance/runtime_pressure_gate.py
       - scripts/maintenance/runtime_pressure_gate_core/**
       - scripts/maintenance/check_runtime_read_path_budget.py
+      - scripts/ci/compose_topology/**
       - docker-compose.yml
       - docker/compose/postgres-recovery-drill.yml
       - docker/compose/postgres-signal-observer.yml
@@ -201,8 +217,16 @@ surfaces:
       - backend/tests/scripts/runtime_pressure_gate_*_spec.py
       - backend/tests/database_recovery_backoff_spec.py
       - backend/tests/database_application_identity_spec.py
+      - backend/tests/database_vector_connection_spec.py
       - backend/tests/database_query_failure_evidence_spec.py
+      - backend/tests/compose_topology_matrix_spec.py
+      - backend/tests/postgres_runtime_readiness_config_spec.py
       - backend/tests/postgres_task_control_budget_spec.py
+      - backend/tests/task_projection_reconciliation_spec.py
+      - backend/tests/runner_resource_projection_refresh_spec.py
+      - backend/tests/scripts/prune_tasks_projection_integrity_spec.py
+      - backend/tests/cli_token_host_session_registration_budget_spec.py
+      - backend/tests/cli_token_runtime_shadow_spec.py
       - backend/tests/task_projection_adapters_spec.py
       - backend/tests/capability_install_atomic_commit_spec.py
       - backend/tests/capability_install_version_policy_spec.py
@@ -211,6 +235,8 @@ surfaces:
       - backend/tests/preflight_db_recovery_state_spec.py
       - backend/tests/db_pool_pressure_spec.py
       - backend/tests/progress_snapshot_degraded_state_spec.py
+      - backend/tests/system_health_request_budget_spec.py
+      - backend/tests/vector_readiness_probe_spec.py
       - backend/tests/scripts/postgres_incident_gate_spec.py
       - backend/tests/scripts/postgres_incident_residual_closure_spec.py
       - backend/tests/scripts/postgres_recovery_drill_spec.py
@@ -224,6 +250,11 @@ surfaces:
       - web-console/src/hooks/executionPollingPolicy.ts
       - web-console/src/hooks/executionPollingCoordinator.ts
       - web-console/src/app/workspaces/components/ExecutionChatPanel.tsx
+      - web-console/src/app/settings/hooks/useSettingsContext.ts
+      - web-console/src/app/settings/hooks/useTools.ts
+      - web-console/src/app/settings/components/ToolsPanel.tsx
+      - web-console/src/app/settings/components/ServiceStatusPanel.tsx
+      - web-console/src/app/settings/settingsHealthRequestBudget.seams.spec.ts
 
   - id: psc.local-core.workspace-group-dispatch-and-knowledge-projection.v1
     tier: P0
@@ -305,8 +336,18 @@ surfaces:
       - DB read-path repair preserves runner capacity, queue shard visibility, PgBouncer service quality, and active task state.
       - Core schema and index changes use Alembic with concurrent large-table indexes, preflight, rollback, and original-path verification.
     path_globs:
+      - backend/app/dependencies/auth.py
+      - backend/app/routes/core/dashboard.py
+      - backend/app/services/dashboard_aggregator.py
+      - backend/app/services/dashboard_mappings.py
+      - backend/app/services/mindscape_store_workspace_project_methods.py
+      - backend/app/services/stores/postgres/dashboard_read_queries.py
+      - backend/app/services/stores/postgres/dashboard_read_store.py
+      - backend/app/services/stores/postgres/saved_views_store.py
+      - backend/app/services/stores/postgres/workspaces_store.py
       - backend/app/services/queue_position_cache.py
       - backend/app/services/task_projection_builder.py
+      - backend/app/services/task_projection_reconciliation.py
       - backend/app/routes/core/playbook_execution_core/read_routes.py
       - backend/app/routes/core/workspace/tasks_core/streaming.py
       - backend/features/workspace/executions_core/progress_snapshot.py
@@ -314,7 +355,12 @@ surfaces:
       - backend/alembic_migrations/postgres/versions/*runtime*read*
       - backend/alembic_migrations/postgres/versions/*task*projection*
       - backend/tests/*queue_position_cache*
+      - backend/tests/core/auth_dependency_spec.py
+      - backend/tests/dashboard_read_plane_budget_spec.py
       - backend/tests/postgres_task_projection*
+      - web-console/src/app/work/components/DashboardView.tsx
+      - web-console/src/app/work/components/DashboardView.seams.spec.ts
+      - web-console/src/app/work/hooks/useDashboard.ts
       - web-console/src/hooks/useExecutionPolling.spec.tsx
 
   - id: psc.local-core.capability-install-control-plane.v1
@@ -414,6 +460,7 @@ surfaces:
       - The mounted backend.features.mindscape route exposes one current-profile locale projection and one partial version-guarded profile-preferences writer; broad profile updates cannot write preferences and the unmounted duplicate core user-profile route never becomes a second entry.
       - One bounded server-internal bootstrap initializes HTML lang and direction plus one real LocaleProvider; client consumers share that context and never use module-global locale state, locale localStorage, reload, URL locale, Accept-Language, or per-component profile reads as authority.
       - Host messages use the pinned IntlMessageFormat runtime, and capability hosts add localization only through the existing two metadata requests plus one integrity-bound requested catalog asset; there is no third metadata endpoint or blind component retry.
+      - Every remote catalog network request receives the exact capability-host workspace through the one localization loader and existing runtime-asset URL facade; requested and English fallback catalogs never derive workspace scope from Referer, descriptor, capability code, locale, or cache.
       - Remote Workbench receives a read-only server projection for the same Local Core current profile; public profile preference reads and writes remain denied and localization does not create a Cloudflare-principal profile mapping.
       - Document bootstrap, explicit preference writes, catalog loads, and language changes add no worker, queue, runner, PgBouncer capacity, background synchronization, recursive timeout, interval, visibility polling, or automatic retry.
     path_globs:
@@ -467,10 +514,10 @@ surfaces:
   - id: psc.local-core.workspace-aol-voice-interaction-ingress.v1
     tier: P0
     owner: "@team-leads"
-    contract_doc: mindscape-ai-cloud/docs/internal/local-core/product-semantics/workspace-aol-voice-interaction-ingress-contract-2026-07-27.zh-TW.md
+    contract_doc: mindscape-ai-cloud/docs/internal/local-core/product-semantics/workspace-global-voice-meeting-bootstrap-contract-2026-07-28.zh-TW.md
     requires_product_semantic_declaration: true
     semantics:
-      - Workspace voice is a host-owned Runtime tool shown through the existing shared workspace rail or tray; it becomes actionable only for one explicit active text terminal and freezes target and context before recording.
+      - Workspace voice is a host-owned Runtime tool shown through the existing shared workspace rail or tray; with one explicit target it preserves that target, and with zero targets a user click singleflight reuses or creates one Workspace/capability-scoped Meeting Engine session before freezing the resulting Meeting target.
       - Voice changes input modality only; final transcript preserves target-owned context, authorization, approval, submission policy, canonical writer, status, and receipts, while workspace chat, Meeting, and Host Runtime keep their existing writers.
       - Workspace chat, bounded and realtime Meeting transports, and Host Runtime review behavior converge behind one frontend interaction controller; compatibility routes are inbound adapters only and do not keep separate capture or writer semantics.
       - Closed or idle voice UI performs no microphone, WebSocket, VAD, health, timer, polling, DB, worker, queue, or PgBouncer work; raw audio, windows, and partials are never persisted, and each final utterance is submitted at most once.
@@ -479,6 +526,8 @@ surfaces:
       - backend/app/models/meeting_voice_session.py
       - backend/app/routes/core/workspace/meeting_voice.py
       - backend/app/routes/core/workspace/meeting_voice_sessions.py
+      - backend/app/routes/meeting_sessions.py
+      - backend/app/services/meeting_session_start.py
       - backend/app/services/orchestration/meeting/voice_ingress.py
       - backend/app/services/orchestration/meeting/realtime_voice_transcriber.py
       - backend/app/services/orchestration/meeting/voice_client_actions.py
@@ -679,6 +728,32 @@ surfaces:
       - web-console/src/components/workspace/device-binding/**
       - web-console/src/lib/media-transport/**
 
+  - id: psc.local-core.social-video-reference-motion-practice-handoff.v1
+    tier: P1
+    owner: "@team-leads"
+    contract_doc: mindscape-ai-cloud/docs/internal/local-core/product-semantics/remote-live-practice-media-lane-contract-2026-07-14.zh-TW.md
+    requires_product_semantic_declaration: true
+    semantics:
+      - A selected Social Video reference remains a workspace-scoped identity handoff until Local Core resolves one unique terminal profile through a single bounded read-only request.
+      - Profile projection returns only bounded semantic chapter summaries and fails closed for missing, conflicting, invalid, or cross-workspace artifacts; raw features, evidence bodies, storage paths, fake chapters, retries, workers, queues, pool changes, and UX polling are prohibited.
+      - One explicit Start guidance action uses the existing launchMotionPractice Meeting, live session, supervised receiver, and reference playback path; no second launcher, Meeting, receiver, or player may be introduced.
+    path_globs:
+      - backend/app/routes/core/workspace/motion_reference_profiles.py
+      - backend/app/routes/core/workspace/__init__.py
+      - backend/app/routes/core/workspace/media_sessions.py
+      - backend/app/services/media_transport/motion_reference_profile_artifact.py
+      - backend/app/services/media_transport/motion_reference_profile_artifact_store.py
+      - backend/tests/*motion*reference*profile*
+      - web-console/src/components/workspace/device-binding/practice/motionPracticeReferenceProfile*
+      - web-console/src/components/workspace/device-binding/practice/motionPracticeResolvedLesson*
+      - web-console/src/components/workspace/device-binding/practice/motionPracticeReferencePlayback*
+      - web-console/src/components/workspace/device-binding/practice/motionPracticeInstructionSource*
+      - web-console/src/components/workspace/device-binding/practice/motionPracticeLessonHandoff*
+      - web-console/src/components/workspace/device-binding/practice/MotionPracticeRailController*
+      - web-console/src/app/workspaces/**/capabilities/**/MotionCoachWorkbenchHost*
+      - web-console/src/app/workspaces/**/capabilities/**/motionCoachWorkbenchStateUtils*
+      - web-console/src/app/workspaces/**/capabilities/**/motionCoachWorkbenchStateYoga*
+
   - id: psc.local-core.motion-runtime-reference-segmentation.v1
     tier: P1
     owner: "@team-leads"
@@ -744,6 +819,7 @@ surfaces:
       - backend/app/runner/worker_dispatch.py
       - backend/app/runner/reaper_stale_tasks.py
       - backend/app/runner/reaper_resource_ownership.py
+      - backend/app/runner/reaper_release_resource_quota.py
       - backend/app/runner/worker_loop.py
       - backend/app/runner/worker_maintenance.py
       - backend/app/runner/worker_startup.py
@@ -778,6 +854,9 @@ surfaces:
       - Frontend startup reads exact issuer, single audience, source, revision, state, and canonical administrator set once from the pack-owned runtime policy; missing, default-deny-with-grants, or malformed config keeps the remote listener closed.
       - Verified issuer and subject must be an active Local Core super administrator or direct route-workspace member; capability routes independently require workspace allowlist, manifest request-scope contract, canonical host route, and owned API prefixes.
       - Data routes own an exact workspace_id in their URL; email, URL, Referer, token workspace claim, Host aliases, client ingress markers, and local resource administrators cannot grant membership.
+      - A well-formed external Access or IdP Referer is discarded only for a GET or HEAD capability-host document whose primary workspace and capability are complete and conflict-free and whose browser-supplied Fetch Metadata is exactly navigate and document; it never fills scope or grants access, and boot assets, APIs, media, streams, upgrades, missing or ambiguous scope, malformed Referer, and missing Fetch Metadata remain fail-closed.
+      - Requested and English-fallback localization catalogs are runtime asset data routes and each network URL carries the exact host workspace_id through the one localization facade; document admission, Referer, descriptors, capability codes, locale, and cache never grant or infer that scope.
+      - Motion reference profile selection is a capability-scoped shared workspace read: the typed lesson handoff supplies the one capability_code query value, the gateway permits only the exact selection path with GET, HEAD, or OPTIONS, and missing, duplicate, conflicting, write, or sibling requests fail closed while workspace membership, capability allowlist, installed support, and path remain independent AND gates.
       - Installed capability list is GET-only and projected by effective workspace allowlist intersected with embedded supported metadata; HEAD, OPTIONS, malformed, missing-support, oversized, or duplicate payloads fail closed without upstream bypass.
       - Remote workspace root and capability surfaces mount bounded data-only UI without local Header, Settings, Graph, full WorkspaceDataProvider, Link prefetch, timer polling, or hidden background requests.
       - Public settings documents, descendants, policy APIs, and settings descriptor queries fail with the control-plane 404 before any workspace policy resolver read.
@@ -907,6 +986,15 @@ surfaces:
       - backend/app/services/document_retrieval_facade.py
       - backend/app/services/vector_search.py
       - backend/app/services/vector_search_db.py
+      - backend/app/database/vector_connection.py
+      - backend/app/routes/core/system_settings/llm/chat_embedding_core/migration_analysis.py
+      - backend/app/services/tool_embedding_service.py
+      - backend/app/services/embedding_migration_apply.py
+      - backend/app/services/embedding_migration_queries.py
+      - backend/app/services/embedding_migration_service.py
+      - backend/app/services/playbook_indexer.py
+      - backend/app/services/event_embedding_generator_core/storage.py
+      - backend/app/services/playbook_webhook.py
       - backend/app/services/tools/vector_search_tool.py
       - backend/app/services/conversation/context_builder/memory_retriever.py
       - backend/app/services/knowledge_projection/group_context.py
@@ -918,6 +1006,8 @@ surfaces:
       - backend/alembic_migrations/vector/**
       - backend/tests/*knowledge*authorization*
       - backend/tests/*authorized*retrieval*
+      - backend/tests/services/embedding_migration_service_facade_spec.py
+      - backend/tests/services/vector_search_seams_spec.py
       - web-console/src/app/workspaces/*/governance/**
       - web-console/src/components/workspace/governance/**
       - web-console/src/lib/i18n/locales/*/workspace.ts

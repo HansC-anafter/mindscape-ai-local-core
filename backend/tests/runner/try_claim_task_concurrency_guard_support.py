@@ -8,14 +8,20 @@ from sqlalchemy.pool import StaticPool
 from backend.app.models.workspace import TaskStatus
 from backend.app.services.stores.tasks_store._queries import TasksStoreQueryMixin
 from backend.app.services.stores.tasks_store._runner import TasksStoreRunnerMixin
+from backend.app.services.stores.tasks_store._crud_update import TasksStoreUpdateMixin
 
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-class _SqliteClaimStore(TasksStoreQueryMixin, TasksStoreRunnerMixin):
+class _SqliteClaimStore(
+    TasksStoreQueryMixin,
+    TasksStoreRunnerMixin,
+    TasksStoreUpdateMixin,
+):
     def __init__(self) -> None:
+        self.projection_refreshes: list[str] = []
         self._engine = create_engine(
             "sqlite+pysqlite:///:memory:",
             connect_args={"check_same_thread": False},
@@ -97,6 +103,9 @@ class _SqliteClaimStore(TasksStoreQueryMixin, TasksStoreRunnerMixin):
         if isinstance(value, str):
             return datetime.fromisoformat(value)
         return value
+
+    def _refresh_task_projection(self, _conn, task_id: str, **_kwargs) -> None:
+        self.projection_refreshes.append(task_id)
 
     def insert_task(
         self,

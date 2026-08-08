@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Path, Query
 
+from backend.app.dependencies.auth import AuthContext, get_current_user
 from backend.app.models.meeting_command import (
     MeetingCommandAcceptResponse,
     MeetingCommandEnvelope,
@@ -35,6 +36,7 @@ async def submit_meeting_command(
     workspace: Workspace = Depends(get_workspace),
     orchestrator: ConversationOrchestrator = Depends(get_orchestrator),
     mindscape_store: MindscapeStore = Depends(get_store),
+    auth: AuthContext = Depends(get_current_user),
 ) -> MeetingCommandAcceptResponse:
     """Persist a server-canonical command envelope as a ledger row."""
 
@@ -48,6 +50,7 @@ async def submit_meeting_command(
             orchestrator=orchestrator,
             mindscape_store=mindscape_store,
             background_tasks=background_tasks,
+            auth=auth,
         )
     except MeetingCommandSubmissionError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
@@ -61,6 +64,7 @@ async def list_meeting_commands(
     workspace_id: str = Path(..., description="Workspace ID"),
     meeting_id: str = Path(..., description="Meeting/session ID"),
     limit: int = Query(100, ge=1, le=500),
+    auth: AuthContext = Depends(get_current_user),
 ) -> MeetingCommandListResponse:
     """Read the command ledger for one meeting session."""
 
@@ -68,6 +72,11 @@ async def list_meeting_commands(
         validate_meeting_session(workspace_id=workspace_id, meeting_id=meeting_id)
     except MeetingCommandSubmissionError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    if workspace_id not in set(auth.workspace_ids):
+        raise HTTPException(
+            status_code=403,
+            detail="meeting_workspace_outside_authenticated_scope",
+        )
     commands = get_meeting_command_store().list_by_meeting(
         workspace_id=workspace_id,
         meeting_id=meeting_id,

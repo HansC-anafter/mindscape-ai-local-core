@@ -60,6 +60,19 @@ describe('DashboardView seams', () => {
         expect(savedViewsHook).toContain('/api/v1/dashboard/saved-views');
     });
 
+    it('requests only the visible dashboard tab without timer polling', () => {
+        const shell = readComponentFile('DashboardView.tsx');
+        const dashboardHook = readWorkFile('hooks/useDashboard.ts');
+
+        expect(shell).toContain("{ enabled: activeTab === 'inbox' }");
+        expect(shell).toContain("{ enabled: activeTab === 'cases' }");
+        expect(shell).toContain("{ enabled: activeTab === 'assignments' }");
+        expect(dashboardHook).toContain('if (!enabled)');
+        expect(dashboardHook).toContain('abortControllerRef.current?.abort()');
+        expect(dashboardHook).not.toContain('setInterval');
+        expect(dashboardHook).not.toContain('refetchInterval');
+    });
+
     it('keeps touched view seams free of raw resource owners', () => {
         for (const fileName of implementationFiles) {
             const source = readComponentFile(fileName);

@@ -289,6 +289,9 @@ class MeetingEngineRunner(
             "recommended_actions": producer_review["recommended_actions"],
             "producer_quality_gate": producer_quality_gate,
             "completion_status": completion_status,
+            "grounded_answer_receipt": (
+                meeting_result.grounded_answer_receipt
+            ),
             "request_contract_aol_metadata": request_contract_aol,
             "request_contract_aol_metadata_persisted": persisted_metadata,
         }

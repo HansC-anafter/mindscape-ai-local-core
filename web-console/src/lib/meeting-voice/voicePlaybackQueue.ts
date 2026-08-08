@@ -1,3 +1,5 @@
+export const QWEN_QUALITY_VOICE_PROFILE_ID = 'mms_voice_bilibili_313312170_bv1a2tf64ebd';
+
 export type XttsHealthResult = {
   available: boolean;
   reason?: string;
@@ -48,6 +50,7 @@ export async function synthesizeXttsSpeech({
     body: JSON.stringify({
       text,
       language,
+      voice_profile_id: QWEN_QUALITY_VOICE_PROFILE_ID,
       output_format: 'wav',
     }),
   });

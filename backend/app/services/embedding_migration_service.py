@@ -17,9 +17,7 @@ def _utc_now():
 
 
 from uuid import UUID
-import psycopg2
-
-from app.database.config import get_vector_postgres_config
+from backend.app.database.vector_connection import get_vector_dbapi_connection
 
 from backend.app.models.embedding_migration import (
     EmbeddingMigration,
@@ -54,13 +52,9 @@ class EmbeddingMigrationService:
         self.store = store or EmbeddingMigrationStore()
         self._active_migrations: Dict[UUID, asyncio.Task] = {}
 
-    def _get_postgres_config(self):
-        """Get PostgreSQL config from environment"""
-        return get_vector_postgres_config()
-
     def _get_connection(self):
         """Get PostgreSQL connection"""
-        return psycopg2.connect(**self._get_postgres_config())
+        return get_vector_dbapi_connection()
 
     async def create_migration_task(
         self, request: EmbeddingMigrationCreate, user_id: str

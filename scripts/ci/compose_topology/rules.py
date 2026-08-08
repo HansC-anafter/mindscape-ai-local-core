@@ -254,17 +254,19 @@ def validate_data_plane(model: Mapping[str, Any], pgbouncer_config: PgBouncerCon
         if actual != expected:
             _failure(f"pgbouncer.ini: expected {key}={expected!r}, got {actual!r}", failures)
     expected_databases = {
-        "mindscape_core": ("postgres", "mindscape_core", ""),
-        "mindscape_vectors": ("postgres", "mindscape_vectors", ""),
-        "mindscape_core_readonly": ("postgres-replica", "mindscape_core", "10"),
-        "mindscape_vectors_readonly": ("postgres-replica", "mindscape_vectors", "5"),
+        "mindscape_core": ("postgres", "mindscape_core", "", ""),
+        "mindscape_vectors": ("postgres", "mindscape_vectors", "", ""),
+        "mindscape_core_readonly": ("postgres-replica", "mindscape_core", "10", "0"),
+        "mindscape_vectors_readonly": ("postgres-replica", "mindscape_vectors", "5", "0"),
     }
-    for name, (host, dbname, pool_size) in expected_databases.items():
+    for name, (host, dbname, pool_size, min_pool_size) in expected_databases.items():
         database = pgbouncer_config.databases.get(name) or {}
         if database.get("host") != host or database.get("dbname") != dbname:
             _failure(f"pgbouncer.ini: {name} must route to host={host}, dbname={dbname}", failures)
         if pool_size and database.get("pool_size") != pool_size:
             _failure(f"pgbouncer.ini: {name} must set pool_size={pool_size}", failures)
+        if min_pool_size and database.get("min_pool_size") != min_pool_size:
+            _failure(f"pgbouncer.ini: {name} must set min_pool_size={min_pool_size}", failures)
     replica = _service(model, "postgres-replica")
     if _profiles(replica) != ["ha"]:
         _failure("postgres-replica: must be limited to ha profile", failures)

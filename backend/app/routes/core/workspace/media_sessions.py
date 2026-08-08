@@ -40,16 +40,9 @@ from backend.app.services.media_transport.live_media_receiver_service import (
 )
 from backend.app.services.media_transport.motion_reference_profile_artifact_store import (
     MotionReferenceProfileArtifactStore,
+    get_motion_reference_profile_artifact_store,
 )
 router = APIRouter()
-_motion_reference_profile_artifact_store: MotionReferenceProfileArtifactStore | None = None
-
-
-def get_motion_reference_profile_artifact_store() -> MotionReferenceProfileArtifactStore:
-    global _motion_reference_profile_artifact_store
-    if _motion_reference_profile_artifact_store is None:
-        _motion_reference_profile_artifact_store = MotionReferenceProfileArtifactStore()
-    return _motion_reference_profile_artifact_store
 
 
 def get_live_media_session_route_service() -> LiveMediaSessionService:

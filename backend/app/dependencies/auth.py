@@ -3,6 +3,7 @@ Dashboard authentication
 Pluggable design: Local mode uses default_user, Cloud mode uses cloud-integration token
 """
 
+import asyncio
 import logging
 from dataclasses import dataclass, field
 from typing import Any, Iterable, List, Mapping, Optional
@@ -128,8 +129,7 @@ def _get_local_workspace_ids(user_id: str) -> List[str]:
         from ..services.mindscape_store import MindscapeStore
 
         store = MindscapeStore()
-        workspaces = store.list_workspaces(owner_user_id=user_id, limit=200)
-        return [ws.id for ws in workspaces if not getattr(ws, 'is_system', False)]
+        return store.list_workspace_ids(owner_user_id=user_id, limit=200)
     except Exception as e:
         logger.warning(f"Failed to get workspace_ids: {e}")
         return []
@@ -211,10 +211,10 @@ async def _get_authenticated_context(
     # Local mode: use default_user
     if enforce_local_operator_origin:
         _validate_local_operator_origin(request)
-    user_id = local_user_id or get_default_user_id()
+    user_id = local_user_id or await asyncio.to_thread(get_default_user_id)
 
     workspace_ids = (
-        _get_local_workspace_ids(user_id)
+        await asyncio.to_thread(_get_local_workspace_ids, user_id)
         if include_local_workspace_ids
         else []
     )

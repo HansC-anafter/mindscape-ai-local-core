@@ -162,8 +162,7 @@ async def reset_rate_limit(request: Request):
     return {"status": "ok", "message": "Rate limits cleared"}
 
 
-@app.get("/health")
-async def health_check():
+async def _compute_health_check():
     """Overall health check with system component status"""
     from backend.app.services.system_health_checker import (
         SystemHealthChecker,
@@ -312,6 +311,19 @@ async def health_check():
     }
 
 
+@app.get("/health")
+async def health_check():
+    """Return deep readiness while coalescing concurrent identical readers."""
+    from backend.app.services.readiness_request_coordinator import (
+        get_readiness_request_coordinator,
+    )
+
+    return await get_readiness_request_coordinator().run(
+        key=("global-health", "default-user"),
+        producer=_compute_health_check,
+    )
+
+
 # Service URLs reachable from inside Docker (backend proxies these for the frontend)
 @app.get("/api/v1/host/services/{service}/health")
 async def host_service_health(service: str):
@@ -320,7 +332,7 @@ async def host_service_health(service: str):
 
     Supported services:
       - stt          -> whisper-service:8006/health (Docker sidecar)
-      - xtts         → xtts-service:8020/health  (Docker sidecar)
+      - xtts         → host.docker.internal:8184/health (Qwen quality voice on macOS host)
       - mcp-gateway  → host.docker.internal:8180/health (Node process on host)
       - mobile-workbench-gateway -> frontend:3000/api/v1/host/services/mobile-workbench-gateway/health
       - device-link-https -> frontend:3000/api/v1/host/services/device-link-https/health

@@ -42,6 +42,7 @@ export async function loadLocalizedCapabilityUiComponent(options: {
     ),
     loadCapabilityUiLocalization({
       apiUrl,
+      workspaceId,
       capabilityCode,
       version: metadata.capabilityInfo.version || 'unversioned',
       requestedLocale,

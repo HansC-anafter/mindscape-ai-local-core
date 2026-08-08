@@ -18,6 +18,7 @@ from typing import Any
 MAX_INPUT_BYTES = 8 * 1024 * 1024
 MAX_OUTPUT_BYTES = 8 * 1024 * 1024
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
+ERROR_CODE = re.compile(r"^[a-z][a-z0-9_]{2,127}$")
 HOST = re.compile(
     r"^(?:[a-zA-Z0-9](?:[a-zA-Z0-9.-]{0,251}[a-zA-Z0-9])?"
     r"|\d{1,3}(?:\.\d{1,3}){3})$"
@@ -74,6 +75,23 @@ def _sha256(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _bounded_error_code(raw: bytes) -> str | None:
+    """Read only one non-secret error code from a failed JSON boundary."""
+    try:
+        value = json.loads(raw)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return None
+    if not isinstance(value, dict) or set(value) != {
+        "success",
+        "error_code",
+    }:
+        return None
+    code = value.get("error_code")
+    if value.get("success") is not False or not isinstance(code, str):
+        return None
+    return code if ERROR_CODE.fullmatch(code) else None
 
 
 def _configuration() -> dict[str, Any]:
@@ -203,6 +221,9 @@ def _run(
         output.seek(0)
         value = output.read()
     if process.returncode != 0:
+        error_code = _bounded_error_code(value)
+        if error_code is not None:
+            raise RuntimeError(error_code)
         raise RuntimeError(
             f"wp_hub_release_ssh_failed:{process.returncode}"
         )

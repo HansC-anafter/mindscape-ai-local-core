@@ -167,9 +167,9 @@ class PostgresWorkspacesStore(PostgresStoreBase):
             query = text("SELECT * FROM workspaces WHERE id = :id")
             result = conn.execute(query, {"id": workspace_id})
             row = result.fetchone()
-            if not row:
-                return None
-            return self._row_to_workspace(row)
+        if not row:
+            return None
+        return self._row_to_workspace(row)
 
     async def get_workspace(self, workspace_id: str) -> Optional[Workspace]:
         """Get workspace by ID (async wrapper for compatibility)."""
@@ -197,9 +197,9 @@ class PostgresWorkspacesStore(PostgresStoreBase):
             )
             result = conn.execute(query, {"id": workspace_id})
             row = result.fetchone()
-            if not row:
-                return None
-            return self._row_to_workspace_summary(row)
+        if not row:
+            return None
+        return self._row_to_workspace_summary(row)
 
     async def get_workspace_summary(self, workspace_id: str) -> Optional[Dict[str, Any]]:
         """Get workspace by ID without heavy data_sources and metadata columns."""
@@ -233,7 +233,33 @@ class PostgresWorkspacesStore(PostgresStoreBase):
 
             result = conn.execute(text(query_str), params)
             rows = result.fetchall()
-            return [self._row_to_workspace(row) for row in rows]
+        return [self._row_to_workspace(row) for row in rows]
+
+    def list_workspace_ids(
+        self,
+        owner_user_id: str,
+        limit: int = 200,
+    ) -> List[str]:
+        """List only authorized workspace IDs for request-scope projection."""
+        normalized_limit = max(1, min(200, int(limit or 200)))
+        with self.get_connection() as conn:
+            conn.execute(text("SET LOCAL statement_timeout = '10000ms'"))
+            rows = conn.execute(
+                text(
+                    """
+                    SELECT id
+                    FROM workspaces
+                    WHERE owner_user_id = :owner_user_id
+                    ORDER BY updated_at DESC, id
+                    LIMIT :limit
+                    """
+                ),
+                {
+                    "owner_user_id": owner_user_id,
+                    "limit": normalized_limit,
+                },
+            ).fetchall()
+        return [str(row.id) for row in rows]
 
     def list_workspace_summaries(
         self,
@@ -274,7 +300,8 @@ class PostgresWorkspacesStore(PostgresStoreBase):
             query_str += " ORDER BY updated_at DESC LIMIT :limit"
 
             result = conn.execute(text(query_str), params)
-            return [self._row_to_workspace_summary(row) for row in result.fetchall()]
+            rows = result.fetchall()
+        return [self._row_to_workspace_summary(row) for row in rows]
 
     def update_workspace_sync(self, workspace: Workspace) -> Workspace:
         """Update an existing workspace (synchronous)."""
@@ -447,7 +474,7 @@ class PostgresWorkspacesStore(PostgresStoreBase):
                 "ORDER BY updated_at DESC LIMIT :limit"
             )
             rows = conn.execute(query, {"visibility": visibility, "limit": limit}).fetchall()
-            return [self._row_to_workspace(row) for row in rows]
+        return [self._row_to_workspace(row) for row in rows]
 
     def merge_data_sources(
         self,

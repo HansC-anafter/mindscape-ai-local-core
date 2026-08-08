@@ -23,6 +23,7 @@ class ToolParameterNormalizer:
         """
         normalized_kwargs = kwargs.copy()
         execution_context = execution_context or {}
+        normalized_kwargs.pop("_runtime_task_identity", None)
 
         # Parameter normalization: convert common incorrect parameter names to correct ones
         if (

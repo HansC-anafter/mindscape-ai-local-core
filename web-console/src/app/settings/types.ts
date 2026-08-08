@@ -155,6 +155,7 @@ export interface VectorDBConfig {
   ssl_mode?: string;
   access_mode?: 'read_write' | 'read_only' | 'disabled';
   data_scope?: 'mindscape_only' | 'with_documents' | 'all';
+  adapter_available?: boolean;
 }
 
 export interface ToolStatus {

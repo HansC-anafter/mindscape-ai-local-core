@@ -30,6 +30,9 @@ from backend.app.services.workspace_capability_admission.external_execution_adap
 from backend.app.services.playbook_execution_admission import (
     admit_playbook_root,
 )
+from backend.app.services.playbook_execution_input_payloads import (
+    prepare_execution_input_context,
+)
 
 from .state import _utc_now, logger, playbook_executor, playbook_service
 
@@ -316,6 +319,16 @@ async def start_playbook_execution(
                     if playbook_run.playbook and playbook_run.playbook.metadata
                     else playbook_code
                 )
+                execution_input_context = (
+                    await asyncio.to_thread(
+                        prepare_execution_input_context,
+                        workspace_id=final_workspace_id,
+                        execution_id=execution_id,
+                        inputs=normalized_inputs,
+                    )
+                    if final_workspace_id
+                    else {"inputs": normalized_inputs}
+                )
 
                 if executions_store and final_workspace_id:
                     await asyncio.to_thread(
@@ -351,6 +364,9 @@ async def start_playbook_execution(
                                 "runtime_affinity": runner_metadata.get(
                                     "runtime_affinity"
                                 ),
+                                "execution_inputs_ref": execution_input_context.get(
+                                    "execution_inputs_ref"
+                                ),
                             },
                             created_at=_utc_now(),
                             updated_at=_utc_now(),
@@ -377,7 +393,7 @@ async def start_playbook_execution(
                             "status": "queued",
                             "execution_mode": "runner",
                             "execution_backend_hint": final_execution_backend,
-                            "inputs": normalized_inputs,
+                            **execution_input_context,
                             "workspace_id": final_workspace_id,
                             "project_id": final_project_id,
                             "profile_id": profile_id,

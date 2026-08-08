@@ -6,7 +6,6 @@ from fastapi import HTTPException
 from sqlalchemy import text
 
 from backend.app.routes.core.cli_token_core.host_session_metadata import (
-    _can_shadow_host_session_candidate,
     _clear_stale_shadow_marker,
     _coerce_json_dict,
     _default_pool_group_for_surface,
@@ -15,6 +14,9 @@ from backend.app.routes.core.cli_token_core.host_session_metadata import (
     _stable_host_session_runtime_id,
 )
 from backend.app.routes.core.cli_token_core.schemas import RegisterHostSessionRuntimeRequest
+from backend.app.routes.core.cli_token_core.host_session_shadow import (
+    _apply_host_session_shadow,
+)
 from backend.app.services.runtime_route_registration import (
     attach_runtime_registration_metadata,
     sync_runtime_registration_metadata,
@@ -23,11 +25,7 @@ from backend.app.services.runtime_route_registration import (
 logger = logging.getLogger(__name__)
 
 
-def _upsert_host_session_runtime(
-    *,
-    owner_user_id: str,
-    request: RegisterHostSessionRuntimeRequest,
-) -> dict[str, Any]:
+def _get_host_session_db():
     try:
         from backend.app.database.session import get_db_postgres as get_db
     except ImportError:
@@ -35,10 +33,18 @@ def _upsert_host_session_runtime(
             from backend.app.database import get_db_postgres as get_db
         except ImportError:
             from mindscape.di.providers import get_db_session as get_db
+    return next(get_db())
 
+
+def _upsert_host_session_runtime(
+    *,
+    owner_user_id: str,
+    request: RegisterHostSessionRuntimeRequest,
+    reconcile_shadow: bool = True,
+) -> dict[str, Any]:
     from backend.app.models.runtime_environment import RuntimeEnvironment
 
-    db = next(get_db())
+    db = _get_host_session_db()
     try:
         try:
             runtime_id = _stable_host_session_runtime_id(
@@ -138,9 +144,7 @@ def _upsert_host_session_runtime(
                 runtime.pool_enabled = effective_pool_enabled
                 runtime.pool_priority = request.pool_priority
 
-            home_value = str(metadata.get("HOME") or "").strip()
-            codex_home_value = str(metadata.get("CODEX_HOME") or "").strip()
-            if home_value and codex_home_value:
+            if reconcile_shadow:
                 candidates = (
                     db.query(RuntimeEnvironment)
                     .filter(
@@ -149,29 +153,13 @@ def _upsert_host_session_runtime(
                     )
                     .all()
                 )
-                for candidate in candidates:
-                    if candidate.id == runtime.id:
-                        continue
-                    candidate_meta = dict(candidate.extra_metadata or {})
-                    candidate_surface = str(candidate_meta.get("surface") or "").strip().lower()
-                    candidate_home = str(candidate_meta.get("HOME") or "").strip()
-                    candidate_codex_home = str(candidate_meta.get("CODEX_HOME") or "").strip()
-                    if candidate_surface != request.surface:
-                        continue
-                    if candidate_home != home_value:
-                        continue
-                    if candidate_codex_home:
-                        continue
-                    if not _can_shadow_host_session_candidate(
-                        candidate_meta,
-                        request_workspace_id=request.workspace_id,
-                    ):
-                        continue
-                    if candidate.pool_group != pool_group:
-                        continue
-                    candidate_meta["shadowed_by_runtime_id"] = runtime.id
-                    candidate.extra_metadata = candidate_meta
-                    sync_runtime_registration_metadata(candidate)
+                _apply_host_session_shadow(
+                    candidates=candidates,
+                    owner_user_id=owner_user_id,
+                    request=request,
+                    runtime_id=runtime.id,
+                    pool_group=pool_group,
+                )
 
             sync_runtime_registration_metadata(runtime)
             db.commit()

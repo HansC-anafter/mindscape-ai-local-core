@@ -16,6 +16,7 @@ from .motion_reference_profile_artifact import (
 
 MOTION_REFERENCE_PROFILE_OWNER_PLAYBOOK = "yogacoach_reference_profile"
 MOTION_REFERENCE_PROFILE_ARTIFACT_TYPE = "file"
+_motion_reference_profile_artifact_store: "MotionReferenceProfileArtifactStore | None" = None
 
 
 @dataclass(frozen=True)
@@ -122,9 +123,19 @@ class MotionReferenceProfileArtifactStore(PostgresStoreBase):
         return [_record(row) for row in rows]
 
 
+def get_motion_reference_profile_artifact_store() -> MotionReferenceProfileArtifactStore:
+    """Return the one shared read-only profile store facade."""
+
+    global _motion_reference_profile_artifact_store
+    if _motion_reference_profile_artifact_store is None:
+        _motion_reference_profile_artifact_store = MotionReferenceProfileArtifactStore()
+    return _motion_reference_profile_artifact_store
+
+
 __all__ = [
     "MOTION_REFERENCE_PROFILE_ARTIFACT_TYPE",
     "MOTION_REFERENCE_PROFILE_OWNER_PLAYBOOK",
     "MotionReferenceProfileArtifactRecord",
     "MotionReferenceProfileArtifactStore",
+    "get_motion_reference_profile_artifact_store",
 ]

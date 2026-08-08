@@ -4,9 +4,12 @@ import pytest
 
 from backend.app.services.capability_tool_invocation import (
     CapabilityExecutionContext,
+    RuntimeTaskIdentity,
     build_capability_execution_context,
+    current_runtime_task_identity,
     invoke_capability_tool,
     invoke_capability_tool_async,
+    runtime_task_identity_scope,
 )
 
 
@@ -65,10 +68,12 @@ def test_verified_snapshot_is_authoritative_for_standard_tool_identity():
             "root_execution_id": "execution-verified",
             "trace_id": "trace-verified",
         },
+        runtime_task_identity=RuntimeTaskIdentity("task-current"),
     )
 
     assert context.workspace_id == "workspace-verified"
     assert context.execution_id == "execution-verified"
+    assert context.task_id == "task-current"
     assert context.root_execution_id == "execution-verified"
     assert context.trace_id == "trace-verified"
 
@@ -78,6 +83,7 @@ def test_explicit_context_is_not_rebuilt_from_sanitized_inputs():
         workspace_id="workspace-1",
         project_id=None,
         execution_id="execution-1",
+        task_id="task-1",
         root_execution_id="execution-1",
         trace_id="trace-1",
         profile_id=None,
@@ -95,3 +101,13 @@ def test_explicit_context_is_not_rebuilt_from_sanitized_inputs():
 
     assert inputs == {"value": 11}
     assert context is expected
+
+
+def test_runtime_task_identity_scope_is_typed_and_resets():
+    assert current_runtime_task_identity() is None
+
+    with runtime_task_identity_scope(" task-current ") as identity:
+        assert identity == RuntimeTaskIdentity("task-current")
+        assert current_runtime_task_identity() is identity
+
+    assert current_runtime_task_identity() is None

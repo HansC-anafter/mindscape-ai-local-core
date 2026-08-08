@@ -1,0 +1,42 @@
+{
+  "schema_version": "mindscape.qwen-quality-voice-runtime-lock.v1",
+  "provider_id": "qwen3_tts_0_6b_base_bf16",
+  "quality_lane": "asynchronous_high_quality",
+  "realtime": false,
+  "fallback": null,
+  "model": {
+    "id": "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-bf16",
+    "revision": "1eccf1cb2519b5a4e8a95b5f0544f3303568164f"
+  },
+  "runtime": {
+    "id": "mlx-audio",
+    "revision": "d28d68c6ac4e28f7d2d66007f640b06cf3fd8ceb",
+    "mlx_audio_version": "0.4.6",
+    "mlx_version": "0.32.0",
+    "mlx_lm_version": "0.31.3",
+    "transformers_version": "5.12.1",
+    "python_version": "3.11"
+  },
+  "voice": {
+    "profile_id": "mms_voice_bilibili_313312170_bv1a2tf64ebd",
+    "display_name": "乘以加",
+    "reference_audio_sha256": "36e745aa605ce820ad618e2dab36c47ef574db40d18e127b0d7c098934af1434",
+    "reference_text": "我約的是妝面加髮型嘛，所以會先帶去洗個頭。"
+  },
+  "generation": {
+    "temperature": 0.7,
+    "top_k": 50,
+    "top_p": 0.9,
+    "repetition_penalty": 1.05,
+    "max_tokens": 4096,
+    "timeout_seconds": 240,
+    "output": "wav_pcm16_mono_24000hz",
+    "max_concurrent_jobs": 1,
+    "queue_capacity": 0,
+    "max_generation_attempts": 2,
+    "output_guard": {
+      "reject_any_full_scale_sample": true,
+      "publish_sample_peak_dbfs": -2.0
+    }
+  }
+}

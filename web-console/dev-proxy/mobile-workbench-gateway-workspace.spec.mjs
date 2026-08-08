@@ -211,6 +211,34 @@ test('email, URL, token workspace, Referer, and Host cannot create membership', 
   assert.equal(hostSpoof.resolverCalls, 0);
 });
 
+test('authenticated Access redirect document continues through the full policy resolver', async () => {
+  const { result, resolverCalls } = await request({
+    headers: {
+      referer: 'https://shy-resonance-542b.cloudflareaccess.com/cdn-cgi/access/login',
+      'sec-fetch-mode': 'navigate',
+      'sec-fetch-dest': 'document',
+      'sec-fetch-site': 'cross-site',
+    },
+  });
+  assert.equal(result.allowed, true);
+  assert.equal(result.context.workspaceId, 'workspace-a');
+  assert.equal(result.context.capabilityCode, 'yogacoach');
+  assert.deepEqual(result.context.conflicts, []);
+  assert.equal('refererPath' in result.context, false);
+  assert.equal(resolverCalls, 1);
+
+  const outsider = await request({
+    claims: { sub: 'subject-outsider', email: 'outsider@example.com' },
+    headers: {
+      referer: 'https://shy-resonance-542b.cloudflareaccess.com/cdn-cgi/access/login',
+      'sec-fetch-mode': 'navigate',
+      'sec-fetch-dest': 'document',
+    },
+  });
+  assert.equal(outsider.result.reason_code, 'workspace_membership_required');
+  assert.equal(outsider.resolverCalls, 1);
+});
+
 test('same-workspace capability handoff preserves primary route authorization', async () => {
   const returnTo = '/workspaces/workspace-a/capability-ui-hosts/yogacoach'
     + '?component=YogaPracticeWorkbenchPage&practice_diary=ypd_example';

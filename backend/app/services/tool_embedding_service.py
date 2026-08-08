@@ -10,7 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from backend.app.database.config import get_vector_postgres_config
+from backend.app.database.vector_connection import get_vector_dbapi_connection
 from backend.app.services.tool_embedding_generation import (
     generate_embedding as _generate_embedding,
     generate_embedding_for_model as _generate_embedding_for_model,
@@ -65,13 +65,11 @@ class ToolEmbeddingService:
     _manifest_cache: dict[str, Optional[str]] = {}
 
     def __init__(self, postgres_config: Optional[Dict[str, Any]] = None):
-        self.postgres_config = postgres_config or get_vector_postgres_config()
+        self.postgres_config = postgres_config
 
     def _get_connection(self):
         """Get PostgreSQL connection to vector DB."""
-        import psycopg2
-
-        return psycopg2.connect(**self.postgres_config)
+        return get_vector_dbapi_connection(self.postgres_config)
 
     def _get_current_model(self) -> str:
         """Get current embedding model name."""

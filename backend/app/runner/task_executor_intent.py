@@ -10,6 +10,9 @@ from backend.app.services.execution_intent_resolver import (
     ExecutionIntentResolution,
     ExecutionIntentResolver,
 )
+from backend.app.services.playbook_execution_input_payloads import (
+    hydrate_execution_inputs,
+)
 from backend.app.services.runner_topology import (
     resolve_runner_profile_from_env,
     resolve_runtime_dispatch_target,
@@ -23,20 +26,32 @@ from backend.app.runner.utils import _env_int, _utc_now
 logger = logging.getLogger(__name__)
 
 
-def _is_non_retryable_task_error(message: str) -> bool:
+def _classify_non_retryable_task_error(message: str) -> Optional[str]:
     normalized = str(message or "")
-    return "Missing required playbook inputs" in normalized
+    if "Missing required playbook inputs" in normalized:
+        return "missing_required_playbook_inputs"
+    if "Terminal workflow failure" in normalized:
+        return "terminal_workflow_failure"
+    return None
+
+
+def _is_non_retryable_task_error(message: str) -> bool:
+    return _classify_non_retryable_task_error(message) is not None
 
 
 def _resolve_execution_attempt_inputs(
     task: Task,
     task_ctx: Optional[Dict[str, Any]],
 ) -> tuple[Dict[str, Any], ExecutionIntentResolution]:
-    raw_inputs = _build_inputs(task.execution_id or task.id, task_ctx)
+    hydrated_context = dict(task_ctx) if isinstance(task_ctx, dict) else {}
+    hydrated_inputs = hydrate_execution_inputs(hydrated_context)
+    if hydrated_inputs:
+        hydrated_context["inputs"] = hydrated_inputs
+    raw_inputs = _build_inputs(task.execution_id or task.id, hydrated_context)
     try:
         resolution = ExecutionIntentResolver().resolve(
             task=task,
-            execution_context=task_ctx,
+            execution_context=hydrated_context,
             raw_inputs=raw_inputs,
         )
     except Exception:

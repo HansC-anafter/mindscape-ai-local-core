@@ -52,6 +52,7 @@ async def apply_migration_strategy(
 ) -> None:
     def _apply_sync():
         conn = get_connection()
+        cursor = None
         try:
             cursor = conn.cursor()
 
@@ -85,7 +86,11 @@ async def apply_migration_strategy(
 
             conn.commit()
         finally:
-            conn.close()
+            try:
+                if cursor is not None:
+                    cursor.close()
+            finally:
+                conn.close()
 
     await asyncio.to_thread(_apply_sync)
 

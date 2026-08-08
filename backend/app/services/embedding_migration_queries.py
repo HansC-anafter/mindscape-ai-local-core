@@ -44,6 +44,7 @@ async def count_embeddings_to_migrate(
 ) -> int:
     def _count_sync():
         conn = get_connection()
+        cursor = None
         try:
             cursor = conn.cursor()
             where_sql, params = build_embedding_filter(
@@ -64,7 +65,11 @@ async def count_embeddings_to_migrate(
             result = cursor.fetchone()
             return result[0] if result else 0
         finally:
-            conn.close()
+            try:
+                if cursor is not None:
+                    cursor.close()
+            finally:
+                conn.close()
 
     return await asyncio.to_thread(_count_sync)
 
@@ -75,6 +80,7 @@ async def fetch_embeddings_to_migrate(
 ) -> List[Dict[str, Any]]:
     def _fetch_sync():
         conn = get_connection()
+        cursor = None
         try:
             cursor = conn.cursor(cursor_factory=RealDictCursor)
             where_sql, params = build_embedding_filter(
@@ -96,6 +102,10 @@ async def fetch_embeddings_to_migrate(
             results = cursor.fetchall()
             return [dict(row) for row in results]
         finally:
-            conn.close()
+            try:
+                if cursor is not None:
+                    cursor.close()
+            finally:
+                conn.close()
 
     return await asyncio.to_thread(_fetch_sync)

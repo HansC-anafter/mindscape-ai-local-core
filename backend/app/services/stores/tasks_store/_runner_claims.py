@@ -194,7 +194,10 @@ class TasksStoreRunnerClaimMixin:
                     },
                 },
             )
-            return result.rowcount == 1
+            released = result.rowcount == 1
+            if released:
+                self._refresh_task_projection(conn, task_id)
+            return released
 
     def try_claim_task(
         self,

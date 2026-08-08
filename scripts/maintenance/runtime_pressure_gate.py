@@ -29,6 +29,7 @@ from scripts.maintenance.runtime_pressure_gate_core import (
     collect_postgres_metrics,
     collect_runner_capacity,
     collect_runner_cpu_pressure,
+    collect_task_status_counts as _collect_task_status_counts,
     evaluate_runner_scope,
     parse_percent,
     runner_scope_evidence,
@@ -63,6 +64,44 @@ class Thresholds:
     runner_cpu_sustained_sample_count: int
     runner_cpu_sample_interval_seconds: float
     max_endpoint_seconds: float
+
+
+def _emit_payload(payload: dict[str, Any], output_json: Path | None) -> int:
+    encoded = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
+    if output_json:
+        output_json.parent.mkdir(parents=True, exist_ok=True)
+        temporary = output_json.with_suffix(output_json.suffix + ".tmp")
+        temporary.write_text(encoded + "\n", encoding="utf-8")
+        os.replace(temporary, output_json)
+    print(encoded)
+    return 0 if payload.get("ok") else 2
+
+
+def _task_status_preflight_failure(
+    *,
+    task_status: dict[str, Any],
+    thresholds: Thresholds,
+    scope: GateScope,
+) -> dict[str, Any]:
+    skipped = {
+        "ok": False,
+        "skipped": True,
+        "reason": "task_status_preflight_failed",
+    }
+    return {
+        "ok": False,
+        "failures": ["task_status_unavailable"],
+        "gate_stage": "task_status_preflight",
+        "thresholds": thresholds.__dict__,
+        "task_status": task_status,
+        "docker_stats": dict(skipped),
+        "endpoint_checks": dict(skipped),
+        "postgres_metrics": dict(skipped),
+        "pgbouncer_metrics": dict(skipped),
+        "runner_capacity": dict(skipped),
+        "runner_cpu_pressure": dict(skipped),
+        "scope": scope.to_dict(),
+    }
 
 
 def run_command(args: list[str], timeout_seconds: float) -> dict[str, Any]:
@@ -123,52 +162,12 @@ def collect_task_status_counts(
     pending_observation_limit: int,
 ) -> dict[str, Any]:
     """Collect bounded workload observations without turning task zero into a gate."""
-
-    running_limit = max(0, int(running_observation_limit)) + 1
-    pending_limit = max(0, int(pending_observation_limit)) + 1
-    sql = (
-        "select status, count(*) from ("
-        "(select status from tasks where status = 'running' "
-        f"limit {running_limit}) union all "
-        "(select status from tasks where status = 'pending' "
-        "and task_type in ('playbook_execution', 'tool_execution') "
-        "and frontier_state = 'ready' "
-        "and (blocked_reason is null or blocked_reason = '') "
-        f"limit {pending_limit})"
-        ") as bounded_statuses group by status order by status;"
+    return _collect_task_status_counts(
+        run_command,
+        timeout_seconds,
+        running_observation_limit=running_observation_limit,
+        pending_observation_limit=pending_observation_limit,
     )
-    result = run_command(
-        [
-            "docker",
-            "exec",
-            "mindscape-ai-local-core-postgres",
-            "psql",
-            "-U",
-            "mindscape",
-            "-d",
-            "mindscape_core",
-            "-At",
-            "-F",
-            ",",
-            "-c",
-            sql,
-        ],
-        timeout_seconds=timeout_seconds,
-    )
-    counts = {"pending": 0, "running": 0}
-    if result["ok"]:
-        for line in result["stdout"].splitlines():
-            status, _, raw_count = line.partition(",")
-            if status in counts:
-                counts[status] = int(raw_count)
-    return {
-        "ok": result["ok"],
-        "counts": counts,
-        "gate_semantics": "observational_only",
-        "pending_semantics": "ready_unblocked_execution_frontier",
-        "elapsed_seconds": result["elapsed_seconds"],
-        "error": result["stderr"].strip() if not result["ok"] else "",
-    }
 
 
 def collect_docker_stats(
@@ -375,6 +374,15 @@ def main() -> int:
         running_observation_limit=thresholds.running_observation_limit,
         pending_observation_limit=thresholds.pending_observation_limit,
     )
+    if not task_status.get("ok"):
+        return _emit_payload(
+            _task_status_preflight_failure(
+                task_status=task_status,
+                thresholds=thresholds,
+                scope=scope,
+            ),
+            args.output_json,
+        )
     runner_capacity = collect_runner_capacity(
         run_command,
         args.command_timeout_seconds,
@@ -445,14 +453,7 @@ def main() -> int:
         "runner_cpu_pressure": runner_cpu_pressure,
         "scope": runner_scope_evidence(runner_capacity, scope),
     }
-    encoded = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
-    if args.output_json:
-        args.output_json.parent.mkdir(parents=True, exist_ok=True)
-        temporary = args.output_json.with_suffix(args.output_json.suffix + ".tmp")
-        temporary.write_text(encoded + "\n", encoding="utf-8")
-        os.replace(temporary, args.output_json)
-    print(encoded)
-    return 0 if not failures else 2
+    return _emit_payload(payload, args.output_json)
 
 
 if __name__ == "__main__":

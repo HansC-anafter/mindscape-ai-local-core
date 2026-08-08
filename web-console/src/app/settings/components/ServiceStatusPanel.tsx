@@ -1,8 +1,9 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useT } from '../../../lib/i18n';
 import { getApiBaseUrl } from '../../../lib/api-url';
+import { sharedGetFetch } from '../../../lib/resilient-fetch';
 
 interface ServiceStatus {
   status: 'healthy' | 'unhealthy' | 'unavailable';
@@ -28,6 +29,15 @@ interface HealthStatus {
   overall_status: 'healthy' | 'unhealthy';
 }
 
+function isAbortError(error: unknown): boolean {
+  return Boolean(
+    error
+    && typeof error === 'object'
+    && 'name' in error
+    && error.name === 'AbortError'
+  );
+}
+
 export function ServiceStatusPanel() {
   const t = useT();
   const [healthStatus, setHealthStatus] = useState<HealthStatus | null>(null);
@@ -35,128 +45,183 @@ export function ServiceStatusPanel() {
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
+  const [documentVisible, setDocumentVisible] = useState(
+    () => typeof document === 'undefined' || !document.hidden
+  );
+  const activeRequestRef = useRef<{
+    key: string;
+    controller: AbortController;
+    promise: Promise<void>;
+  } | null>(null);
 
-  const fetchHealthStatus = async () => {
-    try {
-      setLoading(true);
-      setError(null);
+  const fetchHealthStatus = useCallback((): Promise<void> => {
+    if (typeof document !== 'undefined' && document.hidden) {
+      return Promise.resolve();
+    }
 
-      const apiUrl = getApiBaseUrl();
-
-      // Try to get workspace ID from URL or localStorage
-      let workspaceId: string | null = null;
-      if (typeof window !== 'undefined') {
-        const urlParams = new URLSearchParams(window.location.search);
-        workspaceId = urlParams.get('workspace_id') || localStorage.getItem('currentWorkspaceId');
+    let workspaceId: string | null = null;
+    if (typeof window !== 'undefined') {
+      const urlParams = new URLSearchParams(window.location.search);
+      workspaceId = urlParams.get('workspace_id');
+      try {
+        workspaceId = workspaceId || localStorage.getItem('currentWorkspaceId');
+      } catch {
+        // URL state remains usable when browser storage is unavailable.
       }
+    }
+    const requestKey = `settings-service-health:${workspaceId || 'global'}`;
+    if (activeRequestRef.current?.key === requestKey) {
+      return activeRequestRef.current.promise;
+    }
+    activeRequestRef.current?.controller.abort();
 
-      // If no workspace ID found, try to get first available workspace
-      if (!workspaceId) {
-        try {
-          // Try to get list of workspaces (requires owner_user_id, but we can try with a default)
-          // For now, skip workspace-specific health check if no workspace ID
-          // Use general health endpoint instead
-          const generalHealthResponse = await fetch(`${apiUrl}/health`, {
+    const controller = new AbortController();
+    const requestState = {
+      key: requestKey,
+      controller,
+      promise: Promise.resolve(),
+    };
+    activeRequestRef.current = requestState;
+    requestState.promise = (async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const apiUrl = getApiBaseUrl();
+
+        if (!workspaceId) {
+          try {
+            const generalHealthResponse = await sharedGetFetch(`${apiUrl}/health`, {
+              method: 'GET',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              signal: controller.signal,
+            }, { dedupKey: requestKey, maxAttempts: 1 });
+
+            if (generalHealthResponse.ok) {
+              const generalHealth = await generalHealthResponse.json();
+              setHealthStatus({
+                backend: generalHealth.components?.backend ? {
+                  status: generalHealth.components.backend === 'healthy' ? 'healthy' : 'unhealthy',
+                  available: true,
+                } : {
+                  status: 'healthy',
+                  available: true,
+                },
+                llm_configured: generalHealth.llm_configured || false,
+                llm_available: generalHealth.llm_available || false,
+                llm_provider: generalHealth.llm_provider,
+                vector_db_connected: generalHealth.vector_db_connected || false,
+                tools: {},
+                issues: generalHealth.issues || [{
+                  type: 'workspace_not_selected',
+                  severity: 'info',
+                  message: t('workspaceNotSelected' as any),
+                }],
+                overall_status: generalHealth.status || 'healthy',
+              });
+              setLastUpdated(new Date());
+              return;
+            }
+          } catch (healthError) {
+            if (isAbortError(healthError)) {
+              return;
+            }
+            // Fall through to the common unavailable-state handler.
+          }
+        }
+
+        if (workspaceId) {
+          const response = await sharedGetFetch(`${apiUrl}/api/v1/workspaces/${workspaceId}/health`, {
             method: 'GET',
             headers: {
               'Content-Type': 'application/json',
             },
-          });
+            signal: controller.signal,
+          }, { dedupKey: requestKey, maxAttempts: 1 });
 
-          if (generalHealthResponse.ok) {
-            const generalHealth = await generalHealthResponse.json();
-            // Use the detailed health check data if available
-            setHealthStatus({
-              backend: generalHealth.components?.backend ? {
-                status: generalHealth.components.backend === 'healthy' ? 'healthy' : 'unhealthy',
-                available: true,
-              } : {
-                status: 'healthy',
-                available: true,
-              },
-              llm_configured: generalHealth.llm_configured || false,
-              llm_available: generalHealth.llm_available || false,
-              llm_provider: generalHealth.llm_provider,
-              vector_db_connected: generalHealth.vector_db_connected || false,
-              tools: {},
-              issues: generalHealth.issues || [{
-                type: 'workspace_not_selected',
-                severity: 'info',
-                message: t('workspaceNotSelected' as any),
-              }],
-              overall_status: generalHealth.status || 'healthy',
-            });
-            setLastUpdated(new Date());
-            return;
+          if (!response.ok) {
+            if (response.status === 404) {
+              setHealthStatus({
+                backend: {
+                  status: 'unavailable',
+                  available: false,
+                  error: 'Workspace not found',
+                },
+                llm_configured: false,
+                llm_available: false,
+                vector_db_connected: false,
+                tools: {},
+                issues: [{
+                  type: 'workspace_not_found',
+                  severity: 'warning',
+                  message: t('workspaceNotFound', { workspaceId }),
+                }],
+                overall_status: 'unhealthy',
+              });
+              setLastUpdated(new Date());
+              return;
+            }
+            throw new Error(`Health check failed: ${response.statusText}`);
           }
-        } catch (e) {
-          // Fall through to error handling
+
+          const data = await response.json();
+          setHealthStatus(data);
+          setLastUpdated(new Date());
+        } else {
+          throw new Error(t('noWorkspaceSelected' as any));
+        }
+      } catch (err) {
+        if (isAbortError(err)) {
+          return;
+        }
+        setError(err instanceof Error ? err.message : 'Failed to fetch health status');
+        console.error('Health check error:', err);
+      } finally {
+        if (activeRequestRef.current?.controller === controller) {
+          activeRequestRef.current = null;
+          setLoading(false);
         }
       }
+    })();
+    return requestState.promise;
+  }, [t]);
 
-      // If we have a workspace ID, try workspace-specific health check
-      if (workspaceId) {
-        const response = await fetch(`${apiUrl}/api/v1/workspaces/${workspaceId}/health`, {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        });
+  useEffect(() => {
+    void fetchHealthStatus();
+    return () => {
+      const activeRequest = activeRequestRef.current;
+      activeRequestRef.current = null;
+      activeRequest?.controller.abort();
+    };
+  }, [fetchHealthStatus]);
 
-        if (!response.ok) {
-          // If workspace not found, show info message instead of error
-          if (response.status === 404) {
-            setHealthStatus({
-              backend: {
-                status: 'unavailable',
-                available: false,
-                error: 'Workspace not found',
-              },
-              llm_configured: false,
-              llm_available: false,
-              vector_db_connected: false,
-              tools: {},
-              issues: [{
-                type: 'workspace_not_found',
-                severity: 'warning',
-                message: t('workspaceNotFound', { workspaceId: workspaceId || '' }),
-              }],
-              overall_status: 'unhealthy',
-            });
-            setLastUpdated(new Date());
-            return;
-          }
-          throw new Error(`Health check failed: ${response.statusText}`);
-        }
-
-        const data = await response.json();
-        setHealthStatus(data);
-        setLastUpdated(new Date());
+  useEffect(() => {
+    const updateVisibility = () => {
+      const visible = !document.hidden;
+      setDocumentVisible(visible);
+      if (visible) {
+        void fetchHealthStatus();
       } else {
-        // No workspace ID and general health also failed
-        throw new Error(t('noWorkspaceSelected' as any));
+        const activeRequest = activeRequestRef.current;
+        activeRequestRef.current = null;
+        activeRequest?.controller.abort();
       }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch health status');
-      console.error('Health check error:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
+    };
+    setDocumentVisible(!document.hidden);
+    document.addEventListener('visibilitychange', updateVisibility);
+    return () => document.removeEventListener('visibilitychange', updateVisibility);
+  }, [fetchHealthStatus]);
 
   useEffect(() => {
-    fetchHealthStatus();
-  }, []);
-
-  useEffect(() => {
-    if (!autoRefresh) return;
+    if (!autoRefresh || !documentVisible) return;
 
     const interval = setInterval(() => {
-      fetchHealthStatus();
+      void fetchHealthStatus();
     }, 30000);
 
     return () => clearInterval(interval);
-  }, [autoRefresh]);
+  }, [autoRefresh, documentVisible, fetchHealthStatus]);
 
   const getStatusColor = (status: string) => {
     switch (status) {

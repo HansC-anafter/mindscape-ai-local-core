@@ -83,6 +83,10 @@ interface UseDashboardSummaryOptions {
   enabled?: boolean;
 }
 
+interface UseDashboardResourceOptions {
+  enabled?: boolean;
+}
+
 export function useDashboardSummary(options: UseDashboardSummaryOptions = {}) {
   const { scope = 'global', view = 'my_work', enabled = true } = options;
   const [data, setData] = useState<DashboardSummaryDTO | null>(null);
@@ -152,13 +156,18 @@ export function useDashboardSummary(options: UseDashboardSummaryOptions = {}) {
   return { data, loading, error, refetch: fetchSummary };
 }
 
-export function useDashboardInbox(query: DashboardQuery = {}) {
+export function useDashboardInbox(
+  query: DashboardQuery = {},
+  options: UseDashboardResourceOptions = {}
+) {
+  const { enabled = true } = options;
   const [data, setData] = useState<PaginatedResponse<InboxItemDTO> | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const fetchedKeyRef = useRef<string>('');
   const mountedRef = useRef(true);
+  const [refreshVersion, setRefreshVersion] = useState(0);
 
   const queryKey = JSON.stringify(query);
 
@@ -168,6 +177,12 @@ export function useDashboardInbox(query: DashboardQuery = {}) {
   }, []);
 
   useEffect(() => {
+    if (!enabled) {
+      abortControllerRef.current?.abort();
+      setLoading(false);
+      return;
+    }
+
     // Only fetch if query actually changed
     if (fetchedKeyRef.current === queryKey) return;
     fetchedKeyRef.current = queryKey;
@@ -224,24 +239,28 @@ export function useDashboardInbox(query: DashboardQuery = {}) {
       abortController.abort();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [queryKey]);
+  }, [enabled, queryKey, refreshVersion]);
 
   const refetch = useCallback(() => {
-    fetchedKeyRef.current = ''; // Reset guard to allow re-fetch
-    // Trigger re-render to re-run the effect
-    setLoading((prev) => prev);
+    fetchedKeyRef.current = '';
+    setRefreshVersion((version) => version + 1);
   }, []);
 
   return { data, loading, error, refetch };
 }
 
-export function useDashboardCases(query: DashboardQuery = {}) {
+export function useDashboardCases(
+  query: DashboardQuery = {},
+  options: UseDashboardResourceOptions = {}
+) {
+  const { enabled = true } = options;
   const [data, setData] = useState<PaginatedResponse<CaseCardDTO> | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const fetchedKeyRef = useRef<string>('');
   const mountedRef = useRef(true);
+  const [refreshVersion, setRefreshVersion] = useState(0);
 
   const queryKey = JSON.stringify(query);
 
@@ -251,6 +270,12 @@ export function useDashboardCases(query: DashboardQuery = {}) {
   }, []);
 
   useEffect(() => {
+    if (!enabled) {
+      abortControllerRef.current?.abort();
+      setLoading(false);
+      return;
+    }
+
     if (fetchedKeyRef.current === queryKey) return;
     fetchedKeyRef.current = queryKey;
 
@@ -305,23 +330,28 @@ export function useDashboardCases(query: DashboardQuery = {}) {
       abortController.abort();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [queryKey]);
+  }, [enabled, queryKey, refreshVersion]);
 
   const refetch = useCallback(() => {
     fetchedKeyRef.current = '';
-    setLoading((prev) => prev);
+    setRefreshVersion((version) => version + 1);
   }, []);
 
   return { data, loading, error, refetch };
 }
 
-export function useDashboardAssignments(query: DashboardQuery = {}) {
+export function useDashboardAssignments(
+  query: DashboardQuery = {},
+  options: UseDashboardResourceOptions = {}
+) {
+  const { enabled = true } = options;
   const [data, setData] = useState<PaginatedResponse<AssignmentCardDTO> | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const fetchedKeyRef = useRef<string>('');
   const mountedRef = useRef(true);
+  const [refreshVersion, setRefreshVersion] = useState(0);
 
   const queryKey = JSON.stringify(query);
 
@@ -331,6 +361,12 @@ export function useDashboardAssignments(query: DashboardQuery = {}) {
   }, []);
 
   useEffect(() => {
+    if (!enabled) {
+      abortControllerRef.current?.abort();
+      setLoading(false);
+      return;
+    }
+
     if (fetchedKeyRef.current === queryKey) return;
     fetchedKeyRef.current = queryKey;
 
@@ -386,13 +422,12 @@ export function useDashboardAssignments(query: DashboardQuery = {}) {
       abortController.abort();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [queryKey]);
+  }, [enabled, queryKey, refreshVersion]);
 
   const refetch = useCallback(() => {
     fetchedKeyRef.current = '';
-    setLoading((prev) => prev);
+    setRefreshVersion((version) => version + 1);
   }, []);
 
   return { data, loading, error, refetch };
 }
-
