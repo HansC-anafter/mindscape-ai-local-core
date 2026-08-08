@@ -73,6 +73,7 @@ from backend.app.app_bootstrap.workspace_product_routes import (
 )
 from backend.app.app_bootstrap.host_runtime_binding_routes import (
     register_host_runtime_binding_routes,
+)
 from backend.app.app_bootstrap.workspace_access_control_routes import (
     register_workspace_access_control_routes,
 )
