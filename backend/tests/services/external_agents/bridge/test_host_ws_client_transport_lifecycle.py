@@ -1,9 +1,41 @@
 import asyncio
 import json
+import time
 
 import pytest
 
 from backend.app.services.external_agents.bridge.host_ws_client import HostBridgeWSClient
+
+
+def test_resume_state_uses_exact_result_identity_without_timestamp_sweep(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    client = HostBridgeWSClient(
+        workspace_id="ws-1",
+        host="localhost:8200",
+        surface="codex_cli",
+        client_id="client-1",
+        task_handler=lambda _: None,
+    )
+    client._recent_results["recent-execution"] = (
+        time.monotonic(),
+        time.time(),
+        {"type": "result", "execution_id": "recent-execution"},
+    )
+    client._pending_rest_results["pending-execution"] = {
+        "type": "result",
+        "execution_id": "pending-execution",
+    }
+
+    message = client._build_resume_state_message()
+
+    assert message == {
+        "type": "resume_state",
+        "recent_execution_ids": ["recent-execution"],
+        "pending_rest_execution_ids": ["pending-execution"],
+        "last_completed_at": None,
+    }
 
 
 @pytest.mark.asyncio

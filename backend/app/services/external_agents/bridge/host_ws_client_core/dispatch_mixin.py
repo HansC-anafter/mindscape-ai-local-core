@@ -71,16 +71,14 @@ class HostBridgeDispatchMixin:
 
     def _build_resume_state_message(self) -> Dict[str, Any]:
         self._prune_recent_results()
-        last_completed_at = 0.0
-        for _execution_id, (_stored_at_monotonic, stored_at_wall, _result) in (
-            self._recent_results.items()
-        ):
-            last_completed_at = max(last_completed_at, float(stored_at_wall or 0.0))
         return {
             "type": "resume_state",
             "recent_execution_ids": list(self._recent_results.keys()),
             "pending_rest_execution_ids": list(self._pending_rest_results.keys()),
-            "last_completed_at": last_completed_at,
+            # Exact execution identities are sufficient to reconcile this client's
+            # durable result spool. A timestamp cannot express workspace ownership
+            # and made older servers sweep their process-global completion cache.
+            "last_completed_at": None,
         }
 
     async def _send_resume_state(self) -> None:
