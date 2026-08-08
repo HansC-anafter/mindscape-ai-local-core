@@ -96,7 +96,7 @@ def _receipt(summary: dict[str, int] | None = None) -> dict[str, object]:
 
 def test_local_manifest_receipts_match_mirrored_schema_bytes() -> None:
     manifest = json.loads((LOCAL_MIRROR / "release_manifest.json").read_text())
-    assert len(manifest["schemas"]) == 15
+    assert len(manifest["schemas"]) == 17
     for relative, receipt in manifest["schemas"].items():
         payload = (LOCAL_MIRROR / relative).read_bytes()
         assert hashlib.sha256(payload).hexdigest() == receipt["sha256"]

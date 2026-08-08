@@ -1,10 +1,10 @@
 {
   "contract_id": "mindscape.durable-product-semantic-workflow.v1",
   "cloud_repository": "mindscape-ai-cloud",
-  "cloud_commit_sha": "b044b08c21b0a3af097b9a688b192b56ffa6b0cf",
-  "cloud_tree_sha": "e19c966b24c4d7e0a102bf5c86ca5176b0a2ca0b",
-  "release_manifest_file_sha256": "c3bf5bda5a3aaed344fb70f35eca92253daeb2c376711fcf3aa5b04bb3189a2f",
-  "release_manifest_content_sha256": "7f357cf434b0d6adec11a5050a06e3f686883a232e7fff0b414529234361e207",
+  "cloud_commit_sha": "cab7eed5a87289762bf5fcc6f4bdeebb3163d434",
+  "cloud_tree_sha": "990758845ae85f247d14dabccd46cc319f437ba6",
+  "release_manifest_file_sha256": "073178139ca1b72b24f6b82d6950c1f9bce1125c1e9047712eaa970b08ebd507",
+  "release_manifest_content_sha256": "793023d3de3aac6697a2532e0da9c6c27cd15f5b198e345a79e5b0c303bd8f48",
   "cloud_psc_id": "psc.cloud.durable-product-semantic-workflow-publication.v1",
   "local_core_psc_id": "psc.local-core.durable-product-semantic-workflow-runtime.v1",
   "source_revision_binding": "development_change_attestation"

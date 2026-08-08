@@ -82,6 +82,15 @@ def _stage_runtime_revision_subset(
     source_dir: Path,
     revision_files: list[Path],
 ) -> str:
+    support_root = source_dir.parent
+    support_files = sorted(
+        path
+        for path in support_root.rglob("*")
+        if path.is_file()
+        and source_dir not in path.parents
+        and "__pycache__" not in path.parts
+        and path.suffix != ".pyc"
+    )
     digest = hashlib.sha1(
         "\n".join(
             [
@@ -91,13 +100,14 @@ def _stage_runtime_revision_subset(
         ).encode("utf-8")
     ).hexdigest()[:12]
     staging_root = Path(tempfile.gettempdir()) / "mindscape_runtime_migrations" / db_type
-    staged_dir = staging_root / f"{capability_code}_{digest}"
-    if staged_dir.exists():
-        shutil.rmtree(staged_dir)
-    staged_dir.mkdir(parents=True, exist_ok=True)
+    staged_capability_root = staging_root / f"{capability_code}_{digest}"
+    staged_versions_dir = staged_capability_root / "versions"
+    if staged_capability_root.exists():
+        shutil.rmtree(staged_capability_root)
+    staged_versions_dir.mkdir(parents=True, exist_ok=True)
 
     for revision_file in revision_files:
-        shutil.copy2(revision_file, staged_dir / revision_file.name)
+        shutil.copy2(revision_file, staged_versions_dir / revision_file.name)
     for sibling in source_dir.iterdir():
         if sibling.is_file():
             continue
@@ -105,10 +115,14 @@ def _stage_runtime_revision_subset(
             continue
         if sibling.name.startswith("."):
             continue
-        if sibling.is_dir() and (sibling / "__init__.py").exists():
-            shutil.copytree(sibling, staged_dir / sibling.name)
+        if sibling.is_dir():
+            shutil.copytree(sibling, staged_versions_dir / sibling.name)
+    for support_file in support_files:
+        destination = staged_versions_dir / support_file.relative_to(support_root)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(support_file, destination)
 
-    return staged_dir.as_posix()
+    return staged_versions_dir.as_posix()
 
 
 def _resolve_capability_version_locations(

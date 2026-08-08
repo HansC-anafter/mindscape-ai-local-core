@@ -62,6 +62,14 @@
       "sha256": "6c8c420803e0cbad2239b75d14d339649346dfe02519c83bf017f5f81a267956",
       "bytes": 2389
     },
+    "schemas/runtime_owner_decision_receipt.schema.json": {
+      "sha256": "c71a36f4690bf2daba743d276b4245116d6949c39ba1ba9e3a340f452711829c",
+      "bytes": 17209
+    },
+    "schemas/runtime_owner_trusted_keys.schema.json": {
+      "sha256": "db410a839e73baa592a094e072086cb669ae3cec0fed53927cedae5a72278185",
+      "bytes": 3084
+    },
     "schemas/semantic_execution_identity.schema.json": {
       "sha256": "04e948bb7592e1c374d6a1f96df9d0e9356fb4b229ce200c3757983e99be73ee",
       "bytes": 4499
@@ -75,5 +83,5 @@
       "bytes": 2711
     }
   },
-  "manifest_sha256": "7f357cf434b0d6adec11a5050a06e3f686883a232e7fff0b414529234361e207"
+  "manifest_sha256": "793023d3de3aac6697a2532e0da9c6c27cd15f5b198e345a79e5b0c303bd8f48"
 }

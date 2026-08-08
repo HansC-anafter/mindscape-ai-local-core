@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "mindscape://durable-product-semantic-workflow/v1/runtime_owner_trusted_keys",
+  "title": "Durable Workflow Runtime Owner Trusted Keys",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "registry_revision",
+    "keys"
+  ],
+  "properties": {
+    "schema_id": {
+      "const": "mindscape.durable-workflow-runtime-owner-trusted-keys.v1"
+    },
+    "registry_revision": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "keys": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 256,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "key_id",
+          "owner_id",
+          "owner_role",
+          "authorized_receipt_types",
+          "authority_refs",
+          "revocation_ref",
+          "public_key_base64",
+          "fingerprint_sha256",
+          "not_before",
+          "not_after",
+          "revoked_at"
+        ],
+        "properties": {
+          "key_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "owner_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "owner_role": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "authorized_receipt_types": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 8,
+            "uniqueItems": true,
+            "items": {
+              "enum": [
+                "exact_canary_admission",
+                "durable_release_policy_cas",
+                "validation_policy",
+                "release_health_policy",
+                "evidence_lifecycle_policy",
+                "rpo_rto_policy",
+                "signing_key_provisioning",
+                "immutable_object_provisioning"
+              ]
+            }
+          },
+          "authority_refs": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 16,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            }
+          },
+          "revocation_ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "public_key_base64": {
+            "type": "string",
+            "minLength": 43,
+            "maxLength": 44
+          },
+          "fingerprint_sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "not_before": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "not_after": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "revoked_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        }
+      }
+    }
+  }
+}
