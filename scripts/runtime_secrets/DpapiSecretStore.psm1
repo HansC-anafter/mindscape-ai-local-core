@@ -14,6 +14,26 @@ function Assert-MindscapeWindowsHost {
     }
 }
 
+function Import-MindscapeDpapiAssembly {
+    if ("System.Security.Cryptography.ProtectedData" -as [type]) {
+        return
+    }
+
+    $assemblyName = if ($PSVersionTable.PSEdition -eq "Desktop") {
+        "System.Security"
+    } else {
+        "System.Security.Cryptography.ProtectedData"
+    }
+    try {
+        Add-Type -AssemblyName $assemblyName -ErrorAction Stop
+    } catch {
+        throw "Unable to load Windows DPAPI support from assembly '$assemblyName'."
+    }
+    if (-not ("System.Security.Cryptography.ProtectedData" -as [type])) {
+        throw "Windows DPAPI support is unavailable after loading assembly '$assemblyName'."
+    }
+}
+
 function Assert-MindscapePrivatePath {
     param([Parameter(Mandatory = $true)][string]$Path)
 
@@ -44,6 +64,7 @@ function Get-MindscapeDpapiSecret {
     param([Parameter(Mandatory = $true)][string]$Path)
 
     Assert-MindscapeWindowsHost
+    Import-MindscapeDpapiAssembly
     Assert-MindscapePrivatePath -Path $Path
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
         throw "DPAPI runtime secret is missing: $Path"
@@ -81,6 +102,7 @@ function Set-MindscapeDpapiSecret {
     )
 
     Assert-MindscapeWindowsHost
+    Import-MindscapeDpapiAssembly
     $directory = Split-Path -Parent $Path
     Assert-MindscapePrivatePath -Path $directory
     Assert-MindscapePrivatePath -Path $Path
