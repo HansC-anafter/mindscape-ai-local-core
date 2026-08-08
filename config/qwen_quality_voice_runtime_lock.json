@@ -1,5 +1,5 @@
 {
-  "schema_version": "mindscape.qwen-quality-voice-runtime-lock.v1",
+  "schema_version": "mindscape.qwen-quality-voice-runtime-lock.v2",
   "provider_id": "qwen3_tts_0_6b_base_bf16",
   "quality_lane": "asynchronous_high_quality",
   "realtime": false,
@@ -20,8 +20,13 @@
   "voice": {
     "profile_id": "mms_voice_bilibili_313312170_bv1a2tf64ebd",
     "display_name": "乘以加",
-    "reference_audio_sha256": "36e745aa605ce820ad618e2dab36c47ef574db40d18e127b0d7c098934af1434",
-    "reference_text": "我約的是妝面加髮型嘛，所以會先帶去洗個頭。"
+    "acceptance_authority": "explicit_user_output_quality_acceptance",
+    "reference_contract_id": "qwen_cheng_yi_jia_user_accepted_output_quality_v1",
+    "reference_source_sha256": "7c1d2b380a681433a1f777b541816cde7b83c7a48340b845c4577cb571830e01",
+    "reference_clip_seconds": [2.64, 10.6],
+    "reference_duration_seconds": 7.96,
+    "reference_audio_sha256": "ed7b564c68cde5fea31089c602ae9ea6e5bcfb261a2eea160dd96f05bbcafc82",
+    "reference_text": "還是說回我選的這家吧，進店之後會按照預約的時間給你發一個小牌牌，我約的是妝面加髮型嘛。"
   },
   "generation": {
     "temperature": 0.7,

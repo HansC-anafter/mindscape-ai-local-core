@@ -5,6 +5,13 @@ from pathlib import Path
 
 import pytest
 
+from backend.app.services.host_services import qwen_quality_voice_runtime
+from backend.app.services.host_services.qwen_quality_voice_reference_contract import (
+    AUTHORITATIVE_REFERENCE_AUDIO_SHA256,
+    AUTHORITATIVE_REFERENCE_TEXT,
+    REFERENCE_CONTRACT_ID,
+    ReferenceAudioReceipt,
+)
 from backend.app.services.host_services.qwen_quality_voice_runtime import (
     PROVIDER_ID,
     VOICE_DISPLAY_NAME,
@@ -32,7 +39,6 @@ def _config(tmp_path: Path) -> RuntimeConfig:
         python_bin=python_bin,
         model_path=model_path,
         reference_audio=reference_audio,
-        reference_text="參考文字",
         state_dir=tmp_path / "state",
         timeout_seconds=240,
         max_text_chars=700,
@@ -41,7 +47,18 @@ def _config(tmp_path: Path) -> RuntimeConfig:
     )
 
 
-def test_health_exposes_selected_non_realtime_provider(tmp_path: Path) -> None:
+def test_health_exposes_selected_non_realtime_provider(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr(
+        qwen_quality_voice_runtime,
+        "inspect_authoritative_reference_audio",
+        lambda _path: ReferenceAudioReceipt(
+            sha256=AUTHORITATIVE_REFERENCE_AUDIO_SHA256,
+            frame_count=191040,
+            sample_rate=24000,
+        ),
+    )
     health = QualityVoiceRuntime(_config(tmp_path)).health()
 
     assert health == {
@@ -54,6 +71,10 @@ def test_health_exposes_selected_non_realtime_provider(tmp_path: Path) -> None:
         "realtime": False,
         "fallback": None,
         "busy": False,
+        "reference_contract_id": REFERENCE_CONTRACT_ID,
+        "reference_audio_sha256": AUTHORITATIVE_REFERENCE_AUDIO_SHA256,
+        "reference_audio_verified": True,
+        "reference_audio_duration_seconds": 7.96,
         "output_guard": "reject_clipping_retry_once_then_minus_2_dbfs",
         "max_generation_attempts": 2,
     }
@@ -93,7 +114,12 @@ def test_generation_command_is_offline_pinned_quality_configuration(
     assert argv[0] == str(config.python_bin)
     assert argv[argv.index("--model") + 1] == str(config.model_path)
     assert argv[argv.index("--ref_audio") + 1] == str(config.reference_audio)
+    assert argv[argv.index("--ref_text") + 1] == AUTHORITATIVE_REFERENCE_TEXT
     assert argv[argv.index("--temperature") + 1] == "0.7"
     assert argv[argv.index("--top_p") + 1] == "0.9"
     assert argv[argv.index("--max_tokens") + 1] == "4096"
     assert "--join_audio" in argv
+
+
+def test_non_authoritative_reference_fails_closed(tmp_path: Path) -> None:
+    assert _config(tmp_path).readiness_error() == "reference_audio_digest_mismatch"
