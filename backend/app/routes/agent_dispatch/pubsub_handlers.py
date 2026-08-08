@@ -213,9 +213,26 @@ class PubSubHandlersMixin:
         if inflight.result_future and not inflight.result_future.done():
             inflight.result_future.set_result(result)
 
-        self._completed[execution_id] = time.monotonic()
-        while len(self._completed) > self.COMPLETED_MAX_SIZE:
-            self._completed.popitem(last=False)
+        result_metadata = (
+            result.get("metadata")
+            if isinstance(result.get("metadata"), dict)
+            else {}
+        )
+        inflight_payload = (
+            inflight.payload if isinstance(inflight.payload, dict) else {}
+        )
+        self._mark_completed_execution(
+            execution_id,
+            result=result,
+            status=str(result.get("status") or "completed"),
+            workspace_id=inflight.workspace_id,
+            surface_type=str(
+                result_metadata.get("surface_type")
+                or inflight_payload.get("agent_id")
+                or inflight_payload.get("surface_type")
+                or ""
+            ).strip(),
+        )
 
     def _handle_pubsub_dispatch_failed(self, envelope: Dict[str, Any]) -> None:
         """Fallback from pub/sub relay to DB polling if the remote path breaks."""

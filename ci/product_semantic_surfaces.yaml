@@ -662,6 +662,7 @@ surfaces:
     semantics:
       - External agent bridge, host runtime sessions, and run harness preserve dispatch, episode ledger, workspace boundary, and result submission meanings.
     path_globs:
+      - backend/app/routes/agent_dispatch/**
       - backend/app/services/external_agents/bridge/**
       - backend/app/services/run_harness/**
       - backend/tests/run_harness/**
